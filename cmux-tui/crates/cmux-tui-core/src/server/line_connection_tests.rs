@@ -10,12 +10,15 @@ use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use cmux_ipc::{Aux, BadMessage, CallAux, CallFlags, FrameHeader, FrameKind, PriorityHint};
 use serde_json::{Value, json};
 
-use super::{ConnectionBadMessage, ConnectionEnd, FrameConnection, FrameLane, serve_connection};
+use super::{
+    ConnectionBadMessage, ConnectionEnd, FrameConnection, FrameLane, LineStart, serve_connection,
+    start_line_connection,
+};
 use crate::server::frame_dispatch::{CallRefusal, RequestFrames};
 use crate::server::*;
 
@@ -495,4 +498,111 @@ fn line_connection_a_stream_that_is_not_a_socket_is_dropped() {
     socket.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
     let mut rest = Vec::new();
     assert_eq!(socket.read_to_end(&mut rest).unwrap(), 0, "the peer reads the close");
+}
+
+fn clear_history(id: u64, surface: SurfaceId) -> Vec<u8> {
+    format!("{}\n", json!({"id": id, "cmd": "clear-history", "surface": surface})).into_bytes()
+}
+
+/// Waits until a clear-history item runs on the System lane.
+fn wait_for_clear_to_run(mux: &Mux) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while mux.work.stats()[cmux_threads::work::Lane::System as usize].running == 0 {
+        assert!(Instant::now() < deadline, "the clear-history item never started");
+        std::thread::yield_now();
+    }
+}
+
+/// A connection closed by a bad message while one of its requests is
+/// blocked does not wait for that request: after
+/// `CONNECTION_SURFACE_SHUTDOWN_TIMEOUT` its client is gone, its socket
+/// closed and its connection permit released, with the request still
+/// blocked (p01-process-203: the close is a delayed task on the line
+/// sequence, not a wait).
+#[test]
+fn line_connection_a_dropped_connection_ends_after_the_shutdown_timeout() {
+    let mux = Mux::new_for_test("line-conn-close-deadline", crate::SurfaceOptions::default());
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let permit = claim_connection(mux.connection_stats()).expect("a connection permit");
+    assert_eq!(mux.connection_stats().active(), 1);
+    let (mut socket, server) = UnixStream::pair().unwrap();
+    socket.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    let (ended, end) = std::sync::mpsc::channel();
+    start_line_connection(LineStart {
+        mux: mux.clone(),
+        stream: Box::new(server),
+        prefix: Vec::new(),
+        render_service: Arc::new(RenderService::new()),
+        permit: Some(permit),
+        transport: ClientTransport::Unix,
+        admission: Box::new(admission::LocalAdmission),
+        frames: Box::<RequestFrames>::default(),
+        on_end: Some(Box::new(move |end| {
+            let _ = ended.send((end, Instant::now()));
+        })),
+    });
+    let mut replies = BufReader::new(socket.try_clone().unwrap());
+    socket.write_all(&ping(1)).unwrap();
+    let mut line = String::new();
+    replies.read_line(&mut line).unwrap();
+    let client = *mux.control_clients.client_ids().first().expect("the connection's client");
+    // The clear waits for the terminal lock held here for the whole test.
+    let held = surface.with_terminal(|_| {
+        socket.write_all(&clear_history(2, surface.id)).unwrap();
+        wait_for_clear_to_run(&mux);
+        // A frame on a connection without the grant: a bad message.
+        socket.write_all(&request_frame(7, b"{}")).unwrap();
+        let closed_at = Instant::now();
+        let (end, at) = end.recv_timeout(Duration::from_secs(10)).expect("the connection ends");
+        assert_eq!(
+            end,
+            ConnectionEnd::BadMessage(ConnectionBadMessage::Wire(BadMessage::FramesNotNegotiated))
+        );
+        let waited = at.duration_since(closed_at);
+        assert!(
+            waited + Duration::from_millis(100) >= CONNECTION_SURFACE_SHUTDOWN_TIMEOUT
+                && waited < CONNECTION_SURFACE_SHUTDOWN_TIMEOUT + Duration::from_secs(2),
+            "ended after {waited:?}"
+        );
+        assert_eq!(mux.connection_stats().active(), 0, "the permit is released");
+        assert!(!mux.control_clients.client_ids().contains(&client), "the client is gone");
+        let mut rest = Vec::new();
+        replies.read_to_end(&mut rest).unwrap();
+        assert!(
+            mux.work.stats()[cmux_threads::work::Lane::System as usize].running > 0,
+            "the clear is still blocked"
+        );
+    });
+    assert!(held.is_some(), "a PTY surface");
+    mux.close_surface(surface.id).unwrap();
+}
+
+/// A peer that closes after its requests gets every reply: the queued
+/// requests drain first, then the connection ends as `PeerClosed`.
+#[test]
+fn line_connection_a_peer_close_drains_queued_requests_first() {
+    let mut peer = connect("close-drains", None);
+    let surface = peer.mux.new_workspace(None, Some((80, 24))).unwrap();
+    peer.send(&ping(1));
+    assert_eq!(peer.reply().unwrap()["id"], json!(1));
+    let mux = peer.mux.clone();
+    let held = surface.with_terminal(|_| {
+        // Held on the terminal lock, the clear keeps the connection's
+        // requests from settling; the pings after it queue.
+        peer.send(&clear_history(2, surface.id));
+        wait_for_clear_to_run(&mux);
+        peer.send(&[ping(3), ping(4), ping(5)].concat());
+        peer.socket.shutdown(Shutdown::Write).unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(!peer.served.is_finished(), "the close waits for the clear");
+    });
+    assert!(held.is_some(), "a PTY surface");
+    let mut ids = Vec::new();
+    while let Some(reply) = peer.reply() {
+        ids.push(reply["id"].as_u64().expect("a reply id"));
+    }
+    ids.sort_unstable();
+    assert_eq!(ids, [2, 3, 4, 5], "every queued request answered before the close");
+    assert_eq!(peer.served.join().unwrap(), ConnectionEnd::PeerClosed);
+    mux.close_surface(surface.id).unwrap();
 }

@@ -433,6 +433,11 @@ mod reading {
     }
 
     impl Reads {
+        /// The inbox reached its bound. Nothing to do here: the loop stops
+        /// reading on `deliver`'s false and runs the resume, a command, on
+        /// its own thread after that.
+        pub(super) fn pause(&self) {}
+
         pub(super) fn resume(&self) {
             let Reads::Loop(handle) = self;
             handle.resume_read();
@@ -451,6 +456,10 @@ mod reading {
 
         fn released(&self) {
             self.completion.io_released();
+        }
+
+        fn is_person(&self) -> bool {
+            LineConnection::is_person(self)
         }
     }
 }
@@ -529,9 +538,9 @@ mod reading {
                     },
                 };
                 let ended = matches!(message, Inbound::End(_));
-                if !connection.deliver(message) {
-                    gate.pause();
-                }
+                // At the bound, `deliver` closes the gate under the inbox
+                // lock: the next `wait_open` waits for the drain's resume.
+                connection.deliver(message);
                 if ended {
                     break;
                 }
@@ -557,10 +566,6 @@ mod reading {
     }
 
     impl ReadGate {
-        fn pause(&self) {
-            self.state.lock().recover_poison().paused = true;
-        }
-
         /// Waits while paused; false once reading stopped.
         fn wait_open(&self) -> bool {
             let mut state = self.state.lock().recover_poison();
@@ -576,6 +581,14 @@ mod reading {
     }
 
     impl Reads {
+        /// The inbox reached its bound: called under the inbox lock, so a
+        /// drain's resume, which follows the inbox's own resume under that
+        /// lock, always comes after it.
+        pub(super) fn pause(&self) {
+            let Reads::Thread(gate) = self;
+            gate.state.lock().recover_poison().paused = true;
+        }
+
         pub(super) fn resume(&self) {
             let Reads::Thread(gate) = self;
             gate.state.lock().recover_poison().paused = false;
@@ -592,6 +605,8 @@ mod reading {
 
 #[path = "line_session.rs"]
 mod session;
+#[cfg(test)]
+pub(super) use session::line_classes;
 use session::{Completion, LineConnection};
 
 #[cfg(all(test, unix))]

@@ -26,7 +26,8 @@ use serde::Serialize;
 use super::{HistogramSnapshot, LogLinearHistogram};
 
 /// One write syscall that blocked this long found the peer's receive buffer
-/// full: a write stall.
+/// full: a write stall. A non-blocking write (the mux-io loop) that finds it
+/// full counts one at once ([`IpcStats::write_stall`]).
 pub const WRITE_STALL_THRESHOLD: Duration = Duration::from_millis(1);
 
 /// The name of a JSON message (a line, or a WebSocket text message) in
@@ -146,6 +147,13 @@ impl IpcStats {
     pub fn frame_sent(&self, kind: FrameKind, bytes: usize) {
         self.sent[usize::from(kind.wire())].add(bytes);
         self.messages_written.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// A non-blocking write found the peer's receive buffer full: one
+    /// stall, however long the queue then waits for room (the mux-io loop
+    /// counts it once per wait).
+    pub fn write_stall(&self) {
+        self.write_stalls.fetch_add(1, Ordering::Relaxed);
     }
 
     /// A connection closed because a message was malformed.

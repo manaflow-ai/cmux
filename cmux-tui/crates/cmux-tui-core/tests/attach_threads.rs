@@ -2,7 +2,7 @@
 //! Attach streams hold no thread per view (p05-ipc-079): 50 byte views, 50
 //! render views and 50 snapshot views attached as client-minted streams
 //! (attach-streams-v1) on one connection of a real daemon socket add at most
-//! 3 shared pool workers to the process, and every view still gets its live output. A
+//! 2 threads to the process, and every view still gets its live output. A
 //! legacy view holds an output thread and a notification thread of its own.
 //!
 //! This file holds one test, so its process count is not shared with other
@@ -23,10 +23,8 @@ const VIEWS: usize = 50;
 /// Render views take streams `RENDER + 1..`, snapshot views `SNAPSHOT + 1..`.
 const RENDER: usize = 100;
 const SNAPSHOT: usize = 200;
-/// The sequenced pool's input workers, and one more control worker: the
-/// connection's lines and its requests are two control sequences that may
-/// run at once (p01-process-203). Shared workers, none per view.
-const THREAD_BUDGET: usize = 3;
+/// The sequenced pool's input workers.
+const THREAD_BUDGET: usize = 2;
 
 /// Threads of this process.
 #[cfg(target_os = "linux")]
@@ -117,7 +115,9 @@ impl Connection {
         reply
     }
 
-    /// The first item of stream `stream` that `matches`, kept or read.
+    /// The first item of stream `stream` that `matches`, kept or read. Items
+    /// read for other streams are kept: streams run on the pool's workers,
+    /// so the snapshot view's output may come before the byte view's.
     fn item_of(&mut self, stream: u16, matches: impl Fn(&Value) -> bool) -> Value {
         if let Some(index) =
             self.events.iter().position(|item| item["stream"] == stream && matches(item))
@@ -129,6 +129,7 @@ impl Connection {
             if item["stream"] == stream && matches(&item) {
                 return item;
             }
+            self.events.push(item);
         }
     }
 }

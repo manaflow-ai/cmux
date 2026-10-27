@@ -145,6 +145,11 @@ pub(super) struct ConnectionSurfaceState {
     pub(super) active_creations: usize,
     /// The connection's control sequence on the mux's pool.
     pub(super) control: Option<Sequence>,
+    /// Its requests' sequence on the pool's input workers while the
+    /// connection is the person's (p01-process-203): an agent's burst of
+    /// requests never queues ahead of a key. One pump exists at a time, so
+    /// moving between the two keeps the requests in order.
+    pub(super) input: Option<Sequence>,
     pub(super) context: Option<ControlContext>,
     /// A pump task (one request) is posted or running on `control`.
     pub(super) pump_scheduled: bool,
@@ -364,6 +369,7 @@ impl ConnectionSurfaceScheduler {
         };
         if state.control.is_none() {
             state.control = Some(mux.sequenced_pool.sequence(SequencePriority::Control));
+            state.input = Some(mux.sequenced_pool.sequence(SequencePriority::Input));
         }
         // The control sequence keeps the connection's writer: each request
         // answers on its own (`frame_call`).
@@ -453,9 +459,11 @@ impl ConnectionSurfaceScheduler {
         if state.pump_scheduled || Self::next_runnable_index(state).is_none() {
             return Ok(());
         }
-        let Some(control) = state.control.as_ref() else { return Ok(()) };
+        let person = self.class.get() == connection_qos::ConnectionClass::Person;
+        let sequence = if person { state.input.as_ref() } else { state.control.as_ref() };
+        let Some(sequence) = sequence else { return Ok(()) };
         let scheduler = self.clone();
-        control.post(move || scheduler.pump())?;
+        sequence.post(move || scheduler.pump())?;
         state.pump_scheduled = true;
         Ok(())
     }
@@ -511,7 +519,11 @@ impl ConnectionSurfaceScheduler {
         // Lock order: `state`, then the permit's (a leaf).
         drop(self.connection_permit.lock().recover_poison().take());
         state.drained = true;
-        Some(Drained { _control: state.control.take(), _context: state.context.take() })
+        Some(Drained {
+            _control: state.control.take(),
+            _input: state.input.take(),
+            _context: state.context.take(),
+        })
     }
 
     /// One task of the control sequence: runs the next runnable request.
@@ -746,6 +758,7 @@ impl ConnectionSurfaceScheduler {
 /// What a drained scheduler lets go: dropped outside its lock.
 struct Drained {
     _control: Option<Sequence>,
+    _input: Option<Sequence>,
     _context: Option<ControlContext>,
 }
 

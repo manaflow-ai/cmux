@@ -32,9 +32,17 @@
 //!   the read side then ends. A connection leaves the loop once both sides
 //!   are done, and its sink hears [`InboundSink::released`].
 //!
-//! The loop's thread starts with its first connection and runs at
-//! USER_INITIATED, blocking disallowed. Each turn after a wait is one hang
-//! scope; the wait is in none. Nothing wakes an idle loop.
+//! - **The person first.** Each turn serves the ready sockets of the
+//!   person's connections ([`InboundSink::is_person`]) before automation's,
+//!   as Chrome's IO thread runs the browser's UI IPC ahead of background
+//!   work: an agent's burst never stands between a key and its echo.
+//!
+//! The loop's thread starts with its first connection and runs at the echo
+//! class, blocking disallowed: the person's keys and echo pass through it,
+//! as they passed through their connection's own reader and writer threads.
+//! A thread that cannot start leaves nothing behind: the next connection
+//! tries again. Each turn after a wait is one hang scope; the wait is in
+//! none. Nothing wakes an idle loop.
 
 use std::collections::HashMap;
 use std::io;
@@ -66,11 +74,11 @@ mod tests;
 /// The loop thread's name (`server-threads`, threading-model.md).
 pub(super) const MUX_IO_THREAD: &str = "mux-io";
 
-/// The loop's QoS: the person and automation wait on its reads and writes
-/// alike (Chromium's IO thread is kDisplayCritical for the browser's UI
-/// IPC; the requests themselves run at their connection's class on the
-/// sequenced pool).
-pub(super) const MUX_IO_QOS: ThreadQos = ThreadQos::UserInitiated;
+/// The loop's QoS: the echo class, as the person's connection reader and
+/// writer threads ran before it (Chromium's browser IO thread is
+/// kDisplayCritical, content/browser/browser_thread_impl.cc). It runs no
+/// request: those run at their connection's class on the sequenced pool.
+pub(super) const MUX_IO_QOS: ThreadQos = crate::echo_thread::ECHO_PATH_QOS;
 
 /// One turn of the loop (what it does after a wait) is one hang scope.
 const TURN_HANG_DEADLINE: Duration = Duration::from_millis(100);
@@ -87,6 +95,8 @@ pub(super) trait InboundSink: Send + Sync {
     fn deliver(&self, message: Inbound) -> bool;
     /// The socket is closed and out of the loop: both sides are done.
     fn released(&self);
+    /// The person's connection: its ready socket is served first.
+    fn is_person(&self) -> bool;
 }
 
 /// One connection to serve.
@@ -123,11 +133,24 @@ impl IoHandle {
     }
 }
 
+/// Starts the loop's thread with `body`, or says why it could not.
+type LoopSpawner = Arc<dyn Fn(LoopBody) -> io::Result<()> + Send + Sync>;
+type LoopBody = Box<dyn FnOnce() + Send>;
+
 /// The daemon's connection loop: one per mux, its thread started with the
 /// first connection.
-#[derive(Default)]
 pub(crate) struct MuxIo {
+    /// Set only once the loop's thread started.
     shared: OnceLock<Arc<Shared>>,
+    spawner: LoopSpawner,
+}
+
+impl Default for MuxIo {
+    fn default() -> Self {
+        Self::with_spawner(Arc::new(|body: LoopBody| {
+            cmux_threads::spawn(MUX_IO_THREAD, MUX_IO_QOS, body).map(drop)
+        }))
+    }
 }
 
 impl std::fmt::Debug for MuxIo {
@@ -148,6 +171,10 @@ impl Drop for MuxIo {
 }
 
 impl MuxIo {
+    fn with_spawner(spawner: LoopSpawner) -> Self {
+        Self { shared: OnceLock::new(), spawner }
+    }
+
     /// A handle for a connection about to be registered: its sink may need
     /// it before [`Self::register`] returns.
     pub(super) fn handle(&self) -> io::Result<IoHandle> {
@@ -204,6 +231,7 @@ impl MuxIo {
             batch: Vec::new(),
             written: 0,
             blocked_since: None,
+            stalled: false,
             write_done: false,
             ipc,
             inbound,
@@ -215,6 +243,9 @@ impl MuxIo {
         }
     }
 
+    /// The running loop, its thread started first. The loop is published
+    /// only once its thread runs, so a spawn that failed (EAGAIN) leaves
+    /// nothing behind and the next connection tries again.
     fn started(&self) -> io::Result<&Arc<Shared>> {
         if let Some(shared) = self.shared.get() {
             return Ok(shared);
@@ -224,12 +255,8 @@ impl MuxIo {
             commands: Mutex::new(Commands::default()),
             next_token: AtomicU64::new(1),
         });
-        if self.shared.set(shared.clone()).is_err() {
-            // Another connection started the loop first.
-            return self.shared.get().ok_or_else(|| io::Error::other("mux-io lost its loop"));
-        }
         let looped = shared.clone();
-        if let Err(error) = cmux_threads::spawn(MUX_IO_THREAD, MUX_IO_QOS, move || {
+        (self.spawner)(Box::new(move || {
             let thread = std::thread::current();
             let _hang_watch = cmux_hang_watch::register_thread(
                 cmux_hang_watch::ThreadKind::Io,
@@ -237,9 +264,10 @@ impl MuxIo {
             );
             cmux_threads::disallow_blocking();
             Loop::new(looped).run();
-        }) {
-            shared.commands.lock().recover_poison().stopped = true;
-            return Err(error);
+        }))?;
+        if self.shared.set(shared.clone()).is_err() {
+            // Another connection's loop started first: this one ends unused.
+            shared.command(Command::Stop);
         }
         self.shared.get().ok_or_else(|| io::Error::other("mux-io lost its loop"))
     }
@@ -350,6 +378,9 @@ struct Connection {
     written: usize,
     /// Since when a write has been waiting for room with no progress.
     blocked_since: Option<Instant>,
+    /// The last write found the peer's buffer full and no batch has been
+    /// written whole since: one write stall (`server-stats` `ipc`).
+    stalled: bool,
     /// The queue is closed and written, or a write failed: the socket is
     /// shut down.
     write_done: bool,
@@ -447,6 +478,7 @@ impl Connection {
                     }
                     BatchPoll::Empty => {
                         self.blocked_since = None;
+                        self.stalled = false;
                         return;
                     }
                     BatchPoll::Closed => return self.finish_write(),
@@ -462,8 +494,14 @@ impl Connection {
                 Ok(true) => {
                     self.batch.clear();
                     self.blocked_since = None;
+                    self.stalled = false;
                 }
                 Ok(false) => {
+                    // The peer's buffer is full: a write stall, as a
+                    // blocking write that waited counted one.
+                    if !std::mem::replace(&mut self.stalled, true) {
+                        self.ipc.write_stall();
+                    }
                     // A write that moved bytes restarts the timeout, as
                     // `SO_SNDTIMEO` bounds each write call.
                     if self.written > before || self.blocked_since.is_none() {
@@ -515,15 +553,19 @@ struct Loop {
     connections: HashMap<u64, Connection>,
     /// Connections with a write waiting for room.
     blocked: usize,
+    /// Automation's commands of this turn, run after the person's (kept
+    /// for its capacity).
+    later: Vec<Command>,
 }
 
 impl Loop {
     fn new(shared: Arc<Shared>) -> Self {
-        Self { shared, connections: HashMap::new(), blocked: 0 }
+        Self { shared, connections: HashMap::new(), blocked: 0, later: Vec::new() }
     }
 
     fn run(mut self) {
         let mut ready = Vec::new();
+        let mut automation = Vec::new();
         loop {
             let timeout =
                 self.next_deadline().map(|at| at.saturating_duration_since(Instant::now()));
@@ -536,18 +578,15 @@ impl Loop {
                 break;
             }
             let now = Instant::now();
-            for event in ready.drain(..) {
-                if event.token == WAKE_TOKEN {
-                    continue;
-                }
-                self.on_ready(event, now);
-            }
+            self.serve_ready(&mut ready, &mut automation, now);
             self.expire_writes(now);
         }
         self.close_all();
     }
 
-    /// Runs what other threads asked; false once the loop must stop.
+    /// Runs what other threads asked, the person's connections' first;
+    /// false once the loop must stop. A connection's own commands keep
+    /// their order: all of them are the person's or none.
     fn take_commands(&mut self) -> bool {
         let commands = {
             let mut commands = self.shared.commands.lock().recover_poison();
@@ -555,40 +594,91 @@ impl Loop {
             std::mem::take(&mut commands.queue)
         };
         let now = Instant::now();
+        let mut later = std::mem::take(&mut self.later);
+        let mut go_on = true;
         for command in commands {
-            match command {
-                Command::Add(connection) => {
-                    let token = connection.token;
-                    self.connections.insert(token, *connection);
-                    // Input that came before the loop watched the socket,
-                    // the prefix included, and the first queued replies.
-                    self.update(token, |connection| {
-                        connection.cut();
-                        connection.read();
-                        connection.write(now);
-                    });
-                }
-                Command::Writable(token) => self.update(token, |connection| {
-                    if connection.blocked_since.is_none() {
-                        connection.write(now);
-                    }
-                }),
-                Command::ResumeRead(token) => self.update(token, |connection| {
-                    connection.paused = false;
+            if !go_on {
+                break;
+            }
+            if self.is_persons(&command) {
+                go_on = self.run_command(command, now);
+            } else {
+                later.push(command);
+            }
+        }
+        for command in later.drain(..) {
+            go_on = go_on && self.run_command(command, now);
+        }
+        self.later = later;
+        go_on
+    }
+
+    fn is_persons(&self, command: &Command) -> bool {
+        let token = match command {
+            Command::Writable(token) | Command::ResumeRead(token) | Command::StopRead(token) => {
+                token
+            }
+            Command::Add(_) | Command::Stop => return false,
+        };
+        self.connections.get(token).is_some_and(|connection| connection.inbound.is_person())
+    }
+
+    /// Runs one command; false once the loop must stop.
+    fn run_command(&mut self, command: Command, now: Instant) -> bool {
+        match command {
+            Command::Add(connection) => {
+                let token = connection.token;
+                self.connections.insert(token, *connection);
+                // Input that came before the loop watched the socket, the
+                // prefix included, and the first queued replies.
+                self.update(token, |connection| {
                     connection.cut();
-                }),
-                Command::StopRead(token) => self.update(token, |connection| {
-                    if connection.reading {
-                        connection.end_read();
-                    }
-                }),
-                Command::Stop => {
-                    self.shared.commands.lock().recover_poison().stopped = true;
-                    return false;
+                    connection.read();
+                    connection.write(now);
+                });
+            }
+            Command::Writable(token) => self.update(token, |connection| {
+                if connection.blocked_since.is_none() {
+                    connection.write(now);
                 }
+            }),
+            Command::ResumeRead(token) => self.update(token, |connection| {
+                connection.paused = false;
+                connection.cut();
+            }),
+            Command::StopRead(token) => self.update(token, |connection| {
+                if connection.reading {
+                    connection.end_read();
+                }
+            }),
+            Command::Stop => {
+                self.shared.commands.lock().recover_poison().stopped = true;
+                return false;
             }
         }
         true
+    }
+
+    /// Serves this turn's ready sockets, the person's connections first;
+    /// the others keep their kernel order behind them.
+    fn serve_ready(&mut self, ready: &mut Vec<Ready>, automation: &mut Vec<Ready>, now: Instant) {
+        for event in ready.drain(..) {
+            if event.token == WAKE_TOKEN {
+                continue;
+            }
+            let person = self
+                .connections
+                .get(&event.token)
+                .is_some_and(|connection| connection.inbound.is_person());
+            if person {
+                self.on_ready(event, now);
+            } else {
+                automation.push(event);
+            }
+        }
+        for event in automation.drain(..) {
+            self.on_ready(event, now);
+        }
     }
 
     fn on_ready(&mut self, event: Ready, now: Instant) {

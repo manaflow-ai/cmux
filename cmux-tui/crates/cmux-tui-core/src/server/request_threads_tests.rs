@@ -207,11 +207,12 @@ fn read_reply(websocket: &mut WebSocket<TcpStream>, id: &Value) -> Value {
     }
 }
 
-/// The WebSocket listener: the accept loop, the connection thread, its writer
-/// and an events writer run at UserInitiated. The connection thread runs a v2
-/// resource line itself and disallows blocking: the registry read of
-/// `workspace.list` there is a recorded `sqlite` site under resource_router/
-/// (topology/workspace_order.rs).
+/// The WebSocket listener: the accept loop, the connection thread and its
+/// writer run at UserInitiated; a subscription is a pump on the sequenced
+/// pool, not an events writer thread (p01-process-203). The connection
+/// thread runs a v2 resource line itself and disallows blocking: the
+/// registry read of `workspace.list` there is a recorded `sqlite` site
+/// under resource_router/ (topology/workspace_order.rs).
 #[test]
 fn websocket_threads_are_user_initiated_and_the_connection_records_its_blocking() {
     const TOKEN: &str = "request-threads-token";
@@ -249,7 +250,10 @@ fn websocket_threads_are_user_initiated_and_the_connection_records_its_blocking(
 
     assert_declared("mux-ws-conn", ThreadQos::UserInitiated);
     assert_declared("mux-ws-out", ThreadQos::UserInitiated);
-    assert_declared("mux-events-out", ThreadQos::UserInitiated);
+    assert!(
+        cmux_threads::snapshot().iter().all(|row| row.name != "mux-events-out"),
+        "a subscription started its own thread"
+    );
     let _ = websocket.close(None);
 }
 
