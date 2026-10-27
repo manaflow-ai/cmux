@@ -752,7 +752,7 @@ class PathRoutingStructure(unittest.TestCase):
     def test_bot_attempt_three_drops_stale_owned_pool_placement(self):
         """The rescue's attempts (2 on) must use the Blacksmith fallback instead of a stale mini label."""
         text = WORKFLOW.read_text(encoding="utf-8")
-        stale = "(github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && needs.macos-placement.outputs."
+        stale = "(github.run_attempt <= 3 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) && needs.macos-placement.outputs."
         self.assertNotIn(stale, text)
         jobs = yaml.safe_load(text)["jobs"]
         # Discover consumers from the placement outputs, independently of the guard,
@@ -1983,28 +1983,28 @@ FAST_LANE_CLAUSE = (
 FAST_TIER_RUNNER_WITHOUT_FAST_LANE = (
     "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || " + FAST_TIER_FORK_CLAUSE
     # next_macos_cascade.py: a free Blacksmith slot (12 vCPU, then 6) the placement found.
-    + "(github.run_attempt == 1 || github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]') "
+    + "(github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) "
     # Only a reading from this attempt: a re-run of failed jobs carries an earlier one (run 40398277457).
     "&& needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) "
     "&& contains(needs.macos-placement.outputs.blacksmith_12_jobs, ' fast-tier ') "
     "&& 'blacksmith-12vcpu-macos-26' || "
-    "(github.run_attempt == 1 || github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]') "
+    "(github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) "
     "&& needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) "
     "&& contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' fast-tier ') "
     "&& 'blacksmith-6vcpu-macos-26' || "
     # Hosted macos-26 takes the overflow while Blacksmith is full or stalled.
-    "(github.run_attempt == 1 || github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]') "
+    "(github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) "
     "&& needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) "
     "&& contains(needs.macos-placement.outputs.hosted_jobs, ' fast-tier ') "
     "&& needs.macos-placement.outputs.hosted_runner || "
-    "(github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') && needs.macos-placement.outputs.runner || "
+    "(github.run_attempt == 1 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) && needs.macos-placement.outputs.runner || "
     "github.repository_owner != 'manaflow-ai' && 'macos-26' || (" + FAST_TIER_FORK_CLAUSE
     + "vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) "
-    "&& (github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || "
+    "&& (github.run_attempt == 1 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) && vars.CI_SIDE_LANE_RUNNER || "
     "needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.retry_runner || "
     # No free Blacksmith slot: wait behind the fleet, never in a Blacksmith queue.
     "vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) "
-    "&& (github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') "
+    "&& (github.run_attempt <= 3 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) "
     "&& vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}"
 )
 
@@ -2088,17 +2088,17 @@ class ReservedLaneLabels(unittest.TestCase):
 FREE_ROLE_CLAUSE = "needs.macos-placement.outputs.free_session_runner || needs.macos-placement.outputs.free_gui_runner || "
 SESSION_LANE_CLAUSE = (
     "vars.CI_SESSION_LANE_RUNNER != '' && vars.CI_PR_POOL_OWNED == '1' && "
-    "(github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SESSION_LANE_RUNNER || "
+    "(github.run_attempt == 1 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) && vars.CI_SESSION_LANE_RUNNER || "
 )
 # Generated files' runs-on before CI_SESSION_LANE_RUNNER: with the variable unset it must route exactly so.
 GENERATED_FILES_RUNNER_WITHOUT_SESSION_LANE = (
     "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || " + FAST_TIER_FORK_CLAUSE + FREE_ROLE_CLAUSE
-    + "(github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') "
+    + "(github.run_attempt == 1 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) "
     "&& (needs.macos-placement.outputs.session_runner || needs.macos-placement.outputs.gui_runner) || "
     "github.repository_owner != 'manaflow-ai' && 'macos-26' || (" + FAST_TIER_FORK_CLAUSE
     + "(needs.macos-placement.outputs.runner != '' && 'blacksmith-6vcpu-macos-26') || "
     "vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) "
-    "&& (github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') "
+    "&& (github.run_attempt <= 3 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) "
     "&& (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6') "
     "|| vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}"
 )
