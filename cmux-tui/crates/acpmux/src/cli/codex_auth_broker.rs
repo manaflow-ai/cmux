@@ -359,15 +359,15 @@ impl Owner {
                 let account = token["chatgptAccountId"]
                     .as_str()
                     .ok_or_else(|| anyhow!("Codex account missing"))?;
-                if let Some(expected) = self.account.as_deref() {
-                    if account != expected {
-                        return Err(AccountChanged.into());
-                    }
+                if let Some(expected) = self.account.as_deref()
+                    && account != expected
+                {
+                    return Err(AccountChanged.into());
                 }
-                if let Some(expected) = request.get("previousAccountId").and_then(Value::as_str) {
-                    if account != expected {
-                        return Err(AccountChanged.into());
-                    }
+                if let Some(expected) = request.get("previousAccountId").and_then(Value::as_str)
+                    && account != expected
+                {
+                    return Err(AccountChanged.into());
                 }
                 self.account = Some(account.to_owned());
                 Ok(token)

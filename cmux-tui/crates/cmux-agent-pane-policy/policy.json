@@ -56,7 +56,7 @@
   "setting_methods": ["session/set_mode", "session/set_config_option"],
   "known_params": {
     "initialize": {"params": ["protocolVersion", "clientInfo", "clientCapabilities"], "acpmux": []},
-    "session/new": {"params": ["cwd", "mcpServers", "_meta"], "acpmux": ["harness", "adopt", "peer", "noProject"]},
+    "session/new": {"params": ["cwd", "mcpServers", "_meta"], "acpmux": ["harness", "adopt", "peer", "noProject", "model"]},
     "session/prompt": {"params": ["sessionId", "prompt", "_meta"], "acpmux": ["promptId", "steer", "interrupt", "context", "surface", "inlineParts"]},
     "session/set_model": {"params": ["sessionId", "modelId"], "acpmux": []},
     "session/cancel": {"params": ["sessionId"], "acpmux": []},

@@ -794,7 +794,8 @@ impl ChildAgent {
                             }
                         };
                         if let Some(kind) = crate::codex_app_server::tap_kind(&raw) {
-                            tap(Direction::In, &Message::notification(&kind, raw.clone()), None);
+                            let safe = crate::codex_app_server::redact(&raw);
+                            tap(Direction::In, &Message::notification(&kind, safe), None);
                         }
                         let order = cx.order.lock().await;
                         let split = crate::codex_app_server::split(cx.tr.from_server(&raw));
@@ -802,7 +803,10 @@ impl ChildAgent {
                         drop(order);
                         for m in &split.hub {
                             if !matches!(m, Message::Response { .. }) {
-                                tap(Direction::In, m, None);
+                                let safe = crate::codex_app_server::redact(&m.to_value());
+                                if let Ok(safe) = Message::from_value(safe) {
+                                    tap(Direction::In, &safe, None);
+                                }
                             }
                         }
                         split.hub
@@ -1117,8 +1121,10 @@ impl ChildAgent {
         {
             return Err(anyhow!("agent {}: {FENCE_CUT}", self.name));
         }
-        (self.tap)(Direction::Out, msg, None);
         if let Some(cx) = &self.codex {
+            let safe = crate::codex_app_server::redact(&msg.to_value());
+            let safe_message = Message::from_value(safe).unwrap_or_else(|_| msg.clone());
+            (self.tap)(Direction::Out, &safe_message, None);
             let order = cx.order.lock().await;
             let split = crate::codex_app_server::split(cx.tr.from_client(&msg.to_value()));
             let written = self.codex_lines(split.server, fence).await;
@@ -1129,6 +1135,7 @@ impl ChildAgent {
             self.codex_to_hub(cx, split.hub).await;
             return Ok(());
         }
+        (self.tap)(Direction::Out, msg, None);
         if let Some(tr) = &self.translator {
             match tr.outbound(msg).await {
                 crate::claude_stdio::Outbound::Lines(lines) => {
@@ -1239,9 +1246,10 @@ impl ChildAgent {
         }
         let mut s = String::new();
         for l in lines {
+            let safe = crate::codex_app_server::redact(&l);
             (self.tap)(
                 Direction::Out,
-                &Message::notification(crate::codex_app_server::STDIN_KIND, l.clone()),
+                &Message::notification(crate::codex_app_server::STDIN_KIND, safe),
                 None,
             );
             s.push_str(&crate::codex_app_server::line(&l));
