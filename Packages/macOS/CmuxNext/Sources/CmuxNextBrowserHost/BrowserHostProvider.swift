@@ -68,6 +68,12 @@ public final class BrowserHostProvider {
     @ObservationIgnored weak var opener: (any ProviderTabOpening)?
     /// The tab nodes an agent's capture votes on (``ProviderCaptureVoting``); nil takes no votes.
     @ObservationIgnored weak var capture: (any ProviderCaptureVoting)?
+    /// The app's Chromium Host, which relays agent CDP to the browser host by itself (task p01-process-233);
+    /// nil (the default, and with feature `chromiumHostAgentRelay` off) relays every tab through the app.
+    @ObservationIgnored public weak var relayLinking: (any ProviderRelayLinking)?
+    /// The id this app gives its Chromium Host's relay link, once per launch: the browser host relays a tab on
+    /// the link only when the app names this id for it, so a link of another app's host never gets its pages.
+    @ObservationIgnored let relayLinkID = "link_" + UUID().uuidString.lowercased()
     @ObservationIgnored let driver: (any DriverCallHandler)?
     /// The app's main-thread scheduler: frame tasks and the tab observation run in its automation class.
     @ObservationIgnored let mainWork: MainWorkScheduler
@@ -174,6 +180,7 @@ public final class BrowserHostProvider {
         credentialCheck?.cancel()
         retryTimer.cancel()
         dropConnection(reason: "the provider stopped")
+        relayLinking?.setRelayLink(nil)
         status = .idle
     }
 
@@ -267,6 +274,8 @@ public final class BrowserHostProvider {
         backoff.reset()
         agentBundleSHA = sha
         onAgentBundle?(bundle, sha)
+        // The host serves this app now: its Chromium Host may open the relay link (only the derived credential).
+        relayLinking?.setRelayLink(Self.relayLink(credentials, linkID: relayLinkID))
         while let frame = await frames.next() {
             guard gen == generation else { return }
             post(frame, from: link)
@@ -321,6 +330,13 @@ public final class BrowserHostProvider {
     /// (a CDP reply's id rewrite runs there, off the main actor).
     func send(building build: @escaping @Sendable () -> [ProviderFrame]) {
         connection?.send(building: build)
+    }
+
+    /// The Chromium Host's relay link for a connection's `credentials`: their socket and peer pids, and the
+    /// credential derived from their secret (``ProviderSecret/relayCredential``), never the secret.
+    nonisolated static func relayLink(_ credentials: ProviderCredentials, linkID: String) -> ChromiumHostRelayLink {
+        ChromiumHostRelayLink(socketPath: credentials.socketPath, credential: credentials.secret.relayCredential.value,
+                              linkID: linkID, hostPID: credentials.hostPID, listenerPID: credentials.listenerPID ?? 0)
     }
 
     private func sendHello(_ link: ProviderConnection, secret: ProviderSecret) {

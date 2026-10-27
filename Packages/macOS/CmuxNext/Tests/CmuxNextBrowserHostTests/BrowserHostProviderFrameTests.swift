@@ -407,6 +407,11 @@ final class StandInSources: ProviderCredentialsSource, ProviderTabSource, Provid
         closedByBrowser = nil
     }
 
+    /// How the Chromium Host relays a prepared tab by itself (`cdp.prepare`); nil: the app relays it.
+    var direct: CEFAgentDirectTarget?
+
+    func directTarget(targetID: String) -> CEFAgentDirectTarget? { direct }
+
     /// Waits until the provider started a relay.
     func started() async {
         if fromBrowser == nil { await withCheckedContinuation { startWaiter = $0 } }

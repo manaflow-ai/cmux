@@ -50,6 +50,11 @@ final class CEFHostStart {
     /// The attached host acks each trackpad wheel of a page (``CEFAttachedHost/acksWheels``): the swipe
     /// navigation decides from those acks and probes no page (task p01-process-234).
     private(set) var acksWheels = false
+    /// The attached host opens its own provider link and relays agent CDP (``CEFAttachedHost/relaysAgents``,
+    /// task p01-process-233).
+    private(set) var relaysAgents = false
+    /// The browser host's relay link for every host of the session (``ChromiumHostRelayLink``); nil: none.
+    private(set) var agentRelayLink: ChromiumHostRelayLink?
     /// The attached host ended (``hostEnded()``) and no new one is attached yet.
     private(set) var hostGone = false
     /// Which host is attached: one more after each ``hostEnded()``. Work begun for one host compares it
@@ -78,6 +83,8 @@ final class CEFHostStart {
             self?.widgetHost?.hostEnded()
             self?.popupMenus?.hostEnded()
         }
+        // The supervisor hands each host the browser host's relay link (task p01-process-233).
+        (supervisor as? any ChromiumHostAgentRelaying)?.agentRelay.observe { [weak self] link in self?.setAgentRelayLink(link) }
     }
 
     /// The attached host; the first caller starts the attach, later ones await it.
@@ -91,6 +98,9 @@ final class CEFHostStart {
         let outcome = await task.value
         guard case .success(let host) = outcome else { return outcome }
         (remote, mapsClientIDs, acksWheels, hostGone) = (host.remote, host.mapsClientIDs, host.acksWheels, false)
+        relaysAgents = host.relaysAgents
+        // The remote shim keeps the link for later hosts itself; the first attach is the first time it can take it.
+        if startsAttach, let agentRelayLink { host.remote.setAgentRelayLink(agentRelayLink) }
         // Once per attach, before initialize: a preinit op, which the remote shim replays to every later host.
         if startsAttach, drawsSuggestions { host.shim.suggestions.setEvents(1) }
         return outcome
@@ -103,7 +113,17 @@ final class CEFHostStart {
         remote?.detach()
         files?.hostEnded()
         (task, remote, mapsClientIDs, acksWheels, hostGone, pageResizes) = (nil, nil, false, false, true, nil)
+        relaysAgents = false
         generation += 1
+    }
+
+    /// Gives the Chromium Host the browser host's relay link, now when a host is attached and to every later host
+    /// (the remote shim keeps it); nil ends it.
+    func setAgentRelayLink(_ link: ChromiumHostRelayLink?) {
+        guard link != agentRelayLink else { return }
+        agentRelayLink = link
+        guard let remote else { return }
+        remote.setAgentRelayLink(link)
     }
 
     /// The REPLY token of the async shim call this turn just made, now expected in ``replies``;
@@ -150,7 +170,8 @@ final class CEFHostStart {
             return .success(CEFAttachedHost(shim: shim, remote: remote, shimABI: CEFShimABI.bundledIdentity() ?? "",
                                             locale: locale, loadDuration: elapsed.now - started,
                                             mapsClientIDs: hostExports.contains(CEFAttachedHost.clientIDsHelloName),
-                                            acksWheels: hostExports.contains(CEFAttachedHost.wheelAcksHelloName)))
+                                            acksWheels: hostExports.contains(CEFAttachedHost.wheelAcksHelloName),
+                                            relaysAgents: hostExports.contains(CEFAttachedHost.providerLinkHelloName)))
         } catch {
             // The shim holds the host's wire from the attach on.
             remote.detach()
@@ -176,11 +197,16 @@ nonisolated struct CEFAttachedHost: Sendable {
     /// The host sends WHEEL_ACK for each trackpad wheel of a gesture (its HELLO lists
     /// ``wheelAcksHelloName``: its fork reports Chromium's gesture acks; HOST/src/host_wheel_ack.h).
     var acksWheels = false
+    /// The host opens its own provider link to the browser host and relays agent CDP for the pages it is
+    /// told to (its HELLO lists ``providerLinkHelloName``; HOST/src/host_provider_link.h, task p01-process-233).
+    var relaysAgents = false
 
     /// `cmux_host::mint::kClientIdsHelloName` (HOST/src/chromium_host_mint.h).
     static let clientIDsHelloName = "cmux_host_client_ids"
     /// `cmux_host::kWheelAcksHelloName` (HOST/src/host_wheel_ack.h).
     static let wheelAcksHelloName = "cmux_host_wheel_acks"
+    /// `cmux_host::kProviderLinkHelloName` (HOST/src/host_provider_link.h).
+    static let providerLinkHelloName = "cmux_host_provider_link"
 }
 
 /// What `CEFRuntime` initializes Chromium with: the in-process library or the attached host.

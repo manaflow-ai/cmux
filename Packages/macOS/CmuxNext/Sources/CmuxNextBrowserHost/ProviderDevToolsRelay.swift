@@ -15,7 +15,25 @@ public protocol ProviderDevToolsRelay: AnyObject {
     func startRelay(targetID: String, onMessage: @escaping (String) -> Void, onEnd: @escaping () -> Void) -> Bool
     func send(targetID: String, message: String) -> CEFDevToolsRawSend
     func stopRelay(targetID: String)
+    /// The tab's page as the app's Chromium Host relays it to the browser host by itself (`cdp.prepare`, task
+    /// p01-process-233), after ``prepareRelay(targetID:)`` made it ready; nil when the app must relay it.
+    func directTarget(targetID: String) -> CEFAgentDirectTarget?
 }
+
+extension ProviderDevToolsRelay {
+    /// A relay with no Chromium Host relays every tab itself.
+    public func directTarget(targetID: String) -> CEFAgentDirectTarget? { nil }
+}
+
+/// Where the app's Chromium Host gets the browser host's relay link (task p01-process-233): set after each
+/// accepted `hello`, from that connection's credentials; nil ends it.
+@MainActor
+public protocol ProviderRelayLinking: AnyObject {
+    func setRelayLink(_ link: ChromiumHostRelayLink?)
+}
+
+/// The supervisor's relay link box takes the provider's link for every Chromium Host it starts.
+extension ChromiumHostAgentRelay: ProviderRelayLinking {}
 
 /// Runs before the first agent action on a tab (lease start, `cdp.attach`,
 /// first `call`): the tab is marked agent-driven, so saved passwords are
