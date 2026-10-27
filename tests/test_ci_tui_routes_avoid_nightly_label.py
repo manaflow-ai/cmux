@@ -307,6 +307,38 @@ def test_daemon_tests_take_their_own_promote_time_pool_when_set() -> None:
             assert route(runs_on, set_) == "blacksmith-6vcpu-macos-26", where
 
 
+def test_daemon_tests_take_the_pickers_free_runner_first() -> None:
+    # 2026-10-26: run 40397154574's daemon tests sat queued on the owned side
+    # lane from 22:19Z and nightly-next stopped promoting. Attempt 1 of a
+    # feat-cmux-next push takes cmux-next-daemon-tests-runner's pick (a free
+    # owned Mac, else Blacksmith macOS 15) ahead of the declared pools; an
+    # empty pick (the job failed) leaves the route as before.
+    runs_on = load("cmux-tui-artifacts.yml")["jobs"]["cmux-next-daemon-tests"]["runs-on"]
+    picks = ("glaeda-std-xcode-26.6", "blacksmith-6vcpu-macos-15")
+    for owned in ("1", ""):
+        for daemon_pool in ("", DAEMON_LABEL):
+            for pick in picks:
+                for plain, context in zip(
+                    contexts(CI_PR_POOL_OWNED=owned, CI_NEXT_DAEMON_POOL=daemon_pool),
+                    contexts(CI_PR_POOL_OWNED=owned, CI_NEXT_DAEMON_POOL=daemon_pool),
+                ):
+                    context["needs.cmux-next-daemon-tests-runner.outputs.label"] = pick
+                    where = (context["github.repository_owner"], context["github.event_name"],
+                             context["github.ref"], context["github.run_attempt"], owned,
+                             daemon_pool, pick)
+                    label = route(runs_on, context)
+                    assert label != NIGHTLY_LABEL, where
+                    if (
+                        context["github.repository_owner"] == "manaflow-ai"
+                        and context["github.event_name"] == "push"
+                        and context["github.ref"] == "refs/heads/feat-cmux-next"
+                        and context["github.run_attempt"] == 1
+                    ):
+                        assert label == pick, where
+                    else:
+                        assert label == route(runs_on, plain), where
+
+
 def test_artifact_build_legs_never_rerun_on_the_nightly_label() -> None:
     build = load("cmux-tui-artifacts.yml")["jobs"]["build"]["with"]
     for owned in ("1", ""):

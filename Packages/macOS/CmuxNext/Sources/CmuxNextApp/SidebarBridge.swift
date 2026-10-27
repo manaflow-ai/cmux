@@ -237,11 +237,14 @@ final class SidebarBridge {
         if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections) }
         let hadDocDrag = model.docDrag != nil
         model.docDrag = SidebarDocWiring.docMachines(services.machines).drag() // the sidebar document's drag half, nil keeps the older resolver
+        if let id = state?.id { model.docDrag?.listedElsewhere = WorkspaceLayoutRefs(machines: services.machines).listedElsewhere(window: id, registry: services.windows.registry) }
         model.ungroupedFirst = model.docDrag == nil && !usesMixedOrder
         if model.layout != layout { model.layout = layout }
         // A pass that lists what the rows show already (a daemon reorder the personal or document order hides, a store
         // snapshot laid over again) sets no sections: no arrange and compare of every row in the main thread's frame.
-        rows.show(sections, creating: (creating, NewWorkspacePlacements.home(services.machines)), unlessShown: hadDocDrag == (model.docDrag != nil))
+        let elsewhere = model.docDrag.flatMap { drag in SidebarDocStore.current?.shown?.bandGroupsListedElsewhere(drag: drag) }
+        rows.show(sections, creating: (creating, NewWorkspacePlacements.home(services.machines)), unlessShown: hadDocDrag == (model.docDrag != nil),
+                  elsewhere: elsewhere)
         selectionHold.flush()
         organizationQueue.drain(loaded: usesPersonalOrganization, local: services.machines.local, run: handle, refuse: refuseOrganization)
         groupFlow.openPendingEditor()
@@ -293,8 +296,8 @@ final class SidebarBridge {
         sections = WorkspaceGroupConfigLook(config: groupConfig, machines: machines).applying(to: sections)
         if let creations { sections = CloudCreationRows.adding(creations.shown(in: window.id), to: sections) }
         if machines.local.store.isProvisional { sections = SidebarRowSection.stale(sections) }
-        // Debug Settings: sample rows with 1 to 7 pending items, to compare the row badges.
-        if SidebarTunables.rowBadgePreview.value { sections += SidebarRowSection.rowBadgePreview() }
+        // Debug Settings: sample rows to compare the row badges and the row names.
+        sections += SidebarRowSection.debugPreviews()
         let failed = Set(machines.cloud.filter { $0.daemon.startup.isUnavailable }.map { MachineID($0.daemon.machineID) })
         return (sections, isLaunching(machines.local, registry: registry), failed)
     }

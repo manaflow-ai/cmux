@@ -61,7 +61,7 @@ while [[ \$# -gt 0 ]]; do
   esac
 done
 echo "\$url" >> "$TMP/curl.log"
-# GitHub's Actions API (the Release compile check): runs by head_sha, jobs by run id.
+# GitHub's Actions API: runs by head_sha, jobs by run id (logged; the resolver must not call it).
 case "\$url" in
   https://api.github.com/*/actions/workflows/cmux-next.yml/runs\?*)
     sha="\${url##*head_sha=}"; sha="\${sha%%&*}"
@@ -179,42 +179,26 @@ resolve CMUX_TUI_TREE_MAX_AGE_HOURS=48 "CMUX_TUI_TREE_SAME_PATHS=$nightly_same_p
 [[ "$status" == 0 ]] && grep -qx "source_commit=$repaired" <<<"$out" \
   || fail "nightly must resolve the published revision with the repaired Chief lockfile (exit $status):" "$out" "$err"
 
-# CMUX_TUI_TREE_REQUIRE_RELEASE_GREEN=1 (the nightly): a fallback commit also
-# needs a green "cmux-next Release compile (Xcode 26)" on its feat-cmux-next
-# push. Nightly-next run 40070613185 fell back from dfe61743 32 commits to
-# dee35e3f, whose app did not compile in Release. The tip needs no check.
+# No Mac Release compile is required (#25786): nightly-next run 40427307041
+# failed here because fb384d011b85, the only commit in its window with a
+# published tree, had no green "cmux-next Release compile (Xcode 26)". With
+# the nightly's CMUX_TUI_TREE_REQUIRE_RELEASE_GREEN=1 still set, a published
+# commit whose push has a red Release compile (or none at all) resolves, and
+# the resolver asks GitHub nothing.
 mkdir -p "$TMP/api"
-green() { # <sha> <run id> <conclusion>: one cmux-next.yml push run with the gate job
-  printf '{"workflow_runs": [{"id": %s, "head_sha": "%s", "head_branch": "feat-cmux-next", "event": "push", "path": ".github/workflows/cmux-next.yml"}]}\n' "$2" "$1" > "$TMP/api/runs-$1.json"
-  printf '{"jobs": [{"name": "cmux-next Release compile (Xcode 26)", "status": "completed", "conclusion": "%s"}]}\n' "$3" > "$TMP/api/jobs-$2.json"
-}
-gate_env=(CMUX_TUI_TREE_MAX_AGE_HOURS=48 CMUX_TUI_TREE_REQUIRE_RELEASE_GREEN=1 GH_TOKEN=test)
-resolve "${gate_env[@]}"
-[[ "$status" == 0 ]] && grep -qx "source_commit=$repaired" <<<"$out" \
-  || fail "the published tip resolves without a Release compile check (exit $status):" "$out" "$err"
-echo app3 > "$src/App.swift"; git_q -C "$src" add -A; GIT_COMMITTER_DATE="@$future +0000" git_q -C "$src" commit -m "app only, Release red"
-app_red=$(git -C "$src" rev-parse HEAD)
+printf '{"workflow_runs": [{"id": 11, "head_sha": "%s", "head_branch": "feat-cmux-next", "event": "push", "path": ".github/workflows/cmux-next.yml"}]}\n' "$repaired" > "$TMP/api/runs-$repaired.json"
+printf '{"jobs": [{"name": "cmux-next Release compile (Xcode 26)", "status": "completed", "conclusion": "failure"}]}\n' > "$TMP/api/jobs-11.json"
+echo app3 > "$src/App.swift"; git_q -C "$src" add -A; GIT_COMMITTER_DATE="@$future +0000" git_q -C "$src" commit -m "app only, no Release compile"
+app_only=$(git -C "$src" rev-parse HEAD)
 echo six > "$src/cmux-tui/a"; git_q -C "$src" add -A; GIT_COMMITTER_DATE="@$future +0000" git_q -C "$src" commit -m "tui six, unpublished tip"
-green "$app_red" 11 failure
-green "$repaired" 12 success
-# Without the requirement the newest published tree wins, Release red or not.
-resolve CMUX_TUI_TREE_MAX_AGE_HOURS=48
-[[ "$status" == 0 ]] && grep -qx "source_commit=$app_red" <<<"$out" \
-  || fail "without the requirement the newest published commit resolves (exit $status):" "$out" "$err"
-# With it, the Release-red commit is passed over for an older one with the same tree.
-resolve "${gate_env[@]}"
-[[ "$status" == 0 ]] && grep -qx "source_commit=$repaired" <<<"$out" \
-  || fail "the newest commit with a published tree AND a green Release compile must resolve (exit $status):" "$out" "$err"
-grep -q "${app_red:0:12}: tree .* is published, but its feat-cmux-next push has no green" <<<"$err" \
-  || fail "the Release-red skip needs a clear message:" "$err"
-# No commit with both: fail, listing every skipped commit and why.
-green "$repaired" 12 failure
-resolve "${gate_env[@]}"
-[[ "$status" != 0 ]] || fail "with no Release-green published commit the resolver must fail, got:" "$out"
-grep -q "and a green Release compile" <<<"$err" && grep -q "skipped commits, newest first:" <<<"$err" \
-  && grep -q "  $(git -C "$src" rev-parse --short=12 HEAD): tree .* not published" <<<"$err" \
-  && grep -q "  ${app_red:0:12}: Release compile not green" <<<"$err" \
-  && grep -q "  ${repaired:0:12}: Release compile not green" <<<"$err" \
-  || fail "the miss must name each skipped commit and its reason:" "$err"
+: > "$TMP/curl.log"
+resolve CMUX_TUI_TREE_MAX_AGE_HOURS=48 CMUX_TUI_TREE_REQUIRE_RELEASE_GREEN=1 GH_TOKEN=test "CMUX_TUI_TREE_SAME_PATHS=$nightly_same_paths"
+[[ "$status" == 0 ]] && grep -qx "source_commit=$app_only" <<<"$out" \
+  || fail "the newest published commit must resolve without a Mac Release compile (exit $status):" "$out" "$err"
+grep -q "CMUX_TUI_TREE_REQUIRE_RELEASE_GREEN is ignored" <<<"$err" \
+  || fail "the ignored Release-compile flag needs a notice:" "$err"
+if grep -q "api.github.com" "$TMP/curl.log"; then
+  fail "the resolver must not read the Release compile from GitHub:" "$(cat "$TMP/curl.log")"
+fi
 : "$old"
 echo "PASS: resolve-newest-published picks the newest verified published tree without waiting"
