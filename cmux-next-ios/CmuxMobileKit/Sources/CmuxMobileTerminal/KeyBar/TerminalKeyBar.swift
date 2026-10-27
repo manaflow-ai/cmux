@@ -18,6 +18,8 @@ struct TerminalKeyBar: View {
     /// The pinned keys' width: the scroller's content passes under them, so
     /// a key there is not on screen.
     @State private var pinnedWidth: CGFloat = 0
+    /// How far the row is scrolled past its start (points).
+    @State private var scrolled: CGFloat = 0
 
     var body: some View {
         ScrollView(.horizontal) {
@@ -49,15 +51,31 @@ struct TerminalKeyBar: View {
             }
         }
         .scrollIndicators(.hidden)
-        // Nothing is drawn under the pinned glass keys themselves (keys read
-        // through them and between them); the edge effect past them stays.
-        .mask(alignment: .leading) {
-            // Measured from the scroller's own edge, not its safe area (the bar's inset).
-            Rectangle().padding(.leading, pinnedWidth).ignoresSafeArea()
+        .onScrollGeometryChange(for: CGFloat.self) { geometry in
+            geometry.contentOffset.x + geometry.contentInsets.leading
+        } action: { _, new in
+            scrolled = new
         }
+        // Keys dissolve over 24 pt as they reach the pinned keys, more the
+        // farther the row is scrolled, as under an iOS toolbar (classic's
+        // `AccessoryEdgeFadeScrollView`); nothing is drawn under the pinned
+        // glass keys themselves. iOS's own soft edge effect is hidden on this
+        // edge: over these glass keys it drew a uniform dim band with a hard
+        // seam where it ended.
+        .mask(alignment: .leading) {
+            let edge = KeyRowFade().leadingEdgeAlpha(scrolled: scrolled)
+            HStack(spacing: 0) {
+                Color.clear.frame(width: pinnedWidth)
+                LinearGradient(colors: [.black.opacity(edge), .black], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: KeyRowFade.width)
+                Rectangle()
+            }
+            // Measured from the scroller's own edge, not its safe area (the bar's inset).
+            .ignoresSafeArea()
+        }
+        .scrollEdgeEffectHidden(true, for: .leading)
         // The pinned keys are the scroller's leading bar, as a toolbar is a
-        // scroll view's: the keys scroll under them and iOS draws its own soft
-        // scroll edge effect there (classic dissolves them at the compose key).
+        // scroll view's: the keys scroll under them.
         .safeAreaBar(edge: .leading, spacing: TerminalDockMetrics.keySpacing) {
             GlassEffectContainer(spacing: 0) {
                 HStack(spacing: 6) {
@@ -69,7 +87,6 @@ struct TerminalKeyBar: View {
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { pinnedWidth = $0 }
         }
-        .scrollEdgeEffectStyle(.soft, for: .horizontal)
         // Room above and below the 28 pt row for the glass's touch lift,
         // which the scroller would otherwise clip; the row's layout height
         // stays 28 pt.

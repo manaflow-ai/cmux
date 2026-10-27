@@ -160,6 +160,15 @@ import Testing
         #expect(!KeyBarLauncher.ollama.pressesReturn)
     }
 
+    @Test func keysFadeAtThePinnedKeysOnlyOnceScrolled() {
+        let fade = KeyRowFade()
+        #expect(fade.leadingEdgeAlpha(scrolled: 0) == 1)
+        #expect(fade.leadingEdgeAlpha(scrolled: 12) == 0.5)
+        #expect(fade.leadingEdgeAlpha(scrolled: 200) == 0)
+        // Rubber-band past the start: still no fade.
+        #expect(fade.leadingEdgeAlpha(scrolled: -30) == 1)
+    }
+
     @Test func zoomStepsOnePointWithinTheSettingsRange() {
         let zoom = TerminalFontZoom(sizes: 9...24)
         #expect(zoom.step(12, larger: true) == 13)

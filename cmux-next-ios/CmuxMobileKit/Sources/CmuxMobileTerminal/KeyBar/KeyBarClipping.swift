@@ -28,6 +28,19 @@ public struct KeyBarClipping: Sendable {
     }
 }
 
+/// The key row's leading fade (classic cmux iOS's edge fade): keys dissolve
+/// over `width` points as they reach the pinned keys. At rest nothing fades;
+/// the edge's alpha falls to 0 as the row scrolls its first `width` points.
+public struct KeyRowFade: Sendable {
+    public static let width: CGFloat = 24
+
+    public init() {}
+
+    public func leadingEdgeAlpha(scrolled: CGFloat) -> Double {
+        Double(1 - min(1, max(0, scrolled / Self.width)))
+    }
+}
+
 /// What the bottom dock shows (classic cmux iOS's dock): the key row is
 /// always there, keyboard up or down; the composer is open by default and can
 /// be closed with the compose key; Hide Toolbar takes both away (and the
