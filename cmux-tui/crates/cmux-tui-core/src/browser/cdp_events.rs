@@ -65,7 +65,7 @@ pub(super) fn handle_target_created(
     }
     let Some(session) = browser.session.lock().unwrap().clone() else {
         if let Some(runtime) = runtime.upgrade() {
-            let _ = runtime.client.close_target(&created.target_id);
+            let _ = runtime.client.close_target_detached(&created.target_id);
         }
         return;
     };
@@ -80,7 +80,7 @@ pub(super) fn handle_target_created(
         return;
     }
     let Some(mux) = mux.upgrade() else {
-        let _ = session.runtime.client.close_target(&created.target_id);
+        let _ = session.runtime.client.close_target_detached(&created.target_id);
         return;
     };
     let adopted = mux.adopt_browser_target(
@@ -90,7 +90,7 @@ pub(super) fn handle_target_created(
         session.runtime.clone(),
     );
     if !matches!(adopted, Ok(true)) {
-        let _ = session.runtime.client.close_target(&created.target_id);
+        let _ = session.runtime.client.close_target_detached(&created.target_id);
         if let Err(error) = adopted {
             mux.emit(MuxEvent::Status(format!("browser target adoption failed: {error}")));
         }

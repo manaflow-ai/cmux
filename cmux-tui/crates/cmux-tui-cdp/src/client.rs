@@ -1308,6 +1308,23 @@ impl CdpClient {
             .map(|_| ())
     }
 
+    /// [`Self::handle_javascript_dialog`] without waiting for the answer: an
+    /// event handler must never wait on a CDP reply.
+    pub fn handle_javascript_dialog_detached(
+        &self,
+        session_id: &str,
+        accept: bool,
+    ) -> anyhow::Result<()> {
+        let id = self.inner.next_id.fetch_add(1, Ordering::Relaxed);
+        let msg = json!({
+            "id": id,
+            "method": "Page.handleJavaScriptDialog",
+            "params": { "accept": accept },
+            "sessionId": session_id,
+        });
+        self.send_value(&msg)
+    }
+
     pub fn set_device_metrics(
         &self,
         session_id: &str,
