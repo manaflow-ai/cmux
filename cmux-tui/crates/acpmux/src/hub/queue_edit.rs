@@ -146,6 +146,26 @@ fn moved_display_parts(parts: Option<&Value>, origin: &[Option<usize>]) -> (Opti
     ((!kept.is_empty()).then_some(Value::Array(kept)), dropped)
 }
 
+/// `parts` as the daemon keeps a prompt's display metadata (`server/requests.rs`): only what
+/// `validated_display_parts` accepts for `blocks` (a `companionOf` only where it names its own
+/// image), one part a block, in block order. A record restored from the log holds whatever was
+/// written there, so an edit keeps nothing of it unchecked. Answers the count it refused too.
+fn checked_display_parts(parts: Option<&Value>, blocks: &[Value]) -> (Option<Value>, usize) {
+    let given = parts.and_then(Value::as_array).map_or(0, Vec::len);
+    let mut valid: Vec<_> =
+        super::prompt_images::validated_display_parts(parts, blocks).into_iter().collect();
+    valid.sort_by_key(|(index, _)| *index);
+    let refused = given.saturating_sub(valid.len());
+    let valid: Vec<Value> = valid
+        .into_iter()
+        .map(|(index, mut part)| {
+            part["blockIndex"] = json!(index);
+            part
+        })
+        .collect();
+    ((!valid.is_empty()).then_some(Value::Array(valid)), refused)
+}
+
 impl Hub {
     /// `_acpmux/queue_edit {sessionId, promptId, op, prompt?|text?, images?, index?}`. Answers
     /// `{sessionId, promptId, op, ok}`, and `send_now` and `interrupt` also how it was sent
@@ -247,11 +267,12 @@ impl Hub {
             // Only `session/prompt` adds a hidden context (prompt_context.rs).
             crate::prompt_context::strip_marks(&mut blocks);
             let text = prompt_text(&blocks);
-            // Its images keep their names and their original files (`moved_display_parts`).
-            let (display_parts, dropped) =
-                moved_display_parts(q.run.display_parts.as_ref(), &origin);
-            if dropped > 0 {
-                tracing::info!(session = %session.id, prompt = %prompt_id, dropped, "a queue edit dropped the display parts of blocks it did not keep");
+            // Its images keep their names and their original files (`moved_display_parts`),
+            // checked again against the blocks they name now.
+            let (moved, dropped) = moved_display_parts(q.run.display_parts.as_ref(), &origin);
+            let (display_parts, refused) = checked_display_parts(moved.as_ref(), &blocks);
+            if dropped + refused > 0 {
+                tracing::info!(session = %session.id, prompt = %prompt_id, dropped, refused, "a queue edit dropped display parts of blocks it did not keep or that no longer fit them");
             }
             q.run = Arc::new(PromptRun {
                 blocks,
@@ -462,7 +483,7 @@ impl Hub {
 
 #[cfg(test)]
 mod tests {
-    use super::{Edit, moved_display_parts};
+    use super::{Edit, checked_display_parts, moved_display_parts};
     use serde_json::{Value, json};
 
     /// Image bytes `bytes` as an ACP image block, and its attachment id.
@@ -566,5 +587,29 @@ mod tests {
         ]);
         assert_eq!(moved_display_parts(Some(&bad), &origin), (None, 4));
         assert_eq!(moved_display_parts(None, &origin), (None, 0));
+    }
+
+    /// What an edit keeps is checked against the blocks it names now: a part from the log that
+    /// does not fit its block is refused, and no `companionOf` is kept that does not name the
+    /// image just before its file.
+    #[test]
+    fn kept_parts_are_checked_against_their_blocks() {
+        let (a, _) = image(b"first", "a.png");
+        let blocks = vec![json!({"type": "text", "text": "hi"}), a, link("a.png")];
+        let parts = json!([
+            {"kind": "image", "blockIndex": 0, "name": "on the text"},
+            {"kind": "image", "blockIndex": 1, "name": "a.png"},
+            {"kind": "file", "blockIndex": 2, "name": "a.png", "companionOf": 0},
+            {"kind": "file", "blockIndex": 2, "name": "again"}
+        ]);
+        let (kept, refused) = checked_display_parts(Some(&parts), &blocks);
+        let kept = kept.expect("the image's part");
+        let kept = kept.as_array().unwrap();
+        assert!(kept.iter().all(|p| p.get("companionOf").is_none()), "{kept:?}");
+        assert_eq!(kept[0], json!({"kind": "image", "blockIndex": 1, "name": "a.png"}));
+        // The text's image part and the second part of block 2 always; the file whose
+        // `companionOf` names the text too, where the relation is checked (cmux#25717).
+        assert!(refused >= 2, "{refused}");
+        assert_eq!(checked_display_parts(None, &blocks), (None, 0));
     }
 }

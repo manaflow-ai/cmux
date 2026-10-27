@@ -9,8 +9,8 @@ const ORIGINAL_NAME: &str = "Original photo.heic";
 /// Queues an image, its original file and words behind a gated turn, with the app's display
 /// parts for the image and the file (`companionOf`: the file is the image's original), edits it
 /// with `edit`, restarts the daemon for an update, lets the restored prompt run, and answers the
-/// `user_message` its turn recorded.
-async fn edited_parts_after_restart(name: &str, edit: Value) -> Value {
+/// `user_message` its turn recorded, and the display parts its `queued` record kept.
+async fn edited_parts_after_restart(name: &str, edit: Value) -> (Value, Value) {
     let mut daemon = Daemon::new(name, "approve-all");
     let (session, gate, mut client) = gated_turn_without_host(&daemon).await;
     let (shot, _) = shots().remove(0);
@@ -54,7 +54,11 @@ async fn edited_parts_after_restart(name: &str, edit: Value) -> Value {
         .iter()
         .find(|e| e["kind"] == "user_message" && e["msg"]["promptId"] == "q-parts")
         .expect("user_message");
-    sent["msg"].clone()
+    let queued = events
+        .iter()
+        .find(|e| e["kind"] == "queued" && e["msg"]["promptId"] == "q-parts")
+        .expect("queued");
+    (sent["msg"].clone(), queued["msg"]["displayParts"].clone())
 }
 
 /// The part of `msg`'s `inlineParts` of `kind`.
@@ -67,7 +71,7 @@ fn part<'a>(msg: &'a Value, kind: &str) -> Option<&'a Value> {
 #[tokio::test]
 async fn a_text_edit_keeps_a_queued_prompts_display_parts_across_a_restart() {
     let edit = json!({"text": "what is this, edited"});
-    let msg = edited_parts_after_restart("qparts-text", edit).await;
+    let (msg, queued) = edited_parts_after_restart("qparts-text", edit).await;
     assert_eq!(msg["text"], "what is this, edited", "{msg:#}");
     let parts = msg["inlineParts"].as_array().unwrap_or_else(|| panic!("{msg:#}"));
     let kinds: Vec<&str> = parts.iter().filter_map(|p| p["kind"].as_str()).collect();
@@ -78,9 +82,13 @@ async fn a_text_edit_keeps_a_queued_prompts_display_parts_across_a_restart() {
     let file = part(&msg, "file").unwrap();
     assert_eq!(file["uri"], "file:///originals/photo.heic", "{msg:#}");
     assert_eq!(file["name"], ORIGINAL_NAME, "the original lost its name: {msg:#}");
-    // The image is block 1 now. A daemon that keeps the relation (cmux#25717) names it there.
-    if let Some(of) = file.get("companionOf") {
-        assert_eq!(of, 1, "the original names another block: {msg:#}");
+    // The image is block 1 now. Where the daemon keeps the relation when the prompt is sent
+    // (cmux#25717), the edit keeps it and it names the image there.
+    let related = queued.as_array().into_iter().flatten().any(|p| p["companionOf"] == 0);
+    if related {
+        assert_eq!(file["companionOf"], 1, "the original lost its image: {msg:#}");
+    } else {
+        assert!(file.get("companionOf").is_none(), "{msg:#}");
     }
 }
 
@@ -89,7 +97,7 @@ async fn a_text_edit_keeps_a_queued_prompts_display_parts_across_a_restart() {
 #[tokio::test]
 async fn a_text_edit_that_drops_the_image_drops_its_display_part() {
     let edit = json!({"text": "never mind the picture", "images": []});
-    let msg = edited_parts_after_restart("qparts-drop", edit).await;
+    let (msg, _) = edited_parts_after_restart("qparts-drop", edit).await;
     assert!(part(&msg, "image").is_none(), "{msg:#}");
     let parts = msg["inlineParts"].as_array().unwrap_or_else(|| panic!("{msg:#}"));
     assert!(parts.iter().all(|p| p["name"] != SHOT_NAME), "{msg:#}");
