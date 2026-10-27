@@ -254,9 +254,10 @@ public final class TerminalSession {
         surfaceView.linkPointer.modifiersChanged(flags)
     }
 
-    /// The wrapped link under the pointer and whether the pointer shows the pointing hand.
-    public var linkPointerStateForTesting: (wrapped: String?, pointingHand: Bool) {
-        (surfaceView.linkPointer.wrapped?.text, surfaceView.cursor == .pointingHand)
+    /// The link cmux found under the pointer (one Ghostty does not find whole), the viewport rows
+    /// cmux underlines for it (Ghostty underlines the rest), and whether the pointer is the hand.
+    public var linkPointerStateForTesting: (wrapped: String?, underlinedRows: [Int], pointingHand: Bool) {
+        (surfaceView.linkPointer.wrapped?.text, surfaceView.linkPointer.wrapped?.segments.map(\.row) ?? [], surfaceView.cursor == .pointingHand)
     }
     #endif
 
