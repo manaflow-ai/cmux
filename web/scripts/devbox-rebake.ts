@@ -2,30 +2,34 @@
 /**
  * The steps of the devbox rebake workflow (.github/workflows/cloud-devbox-image-rebake.yml)
  * that are not the bake itself. The bake, verify, size derivation and manifest write stay
- * promote-devbox-image.ts's; this only decides, names, settles and prunes.
+ * promote-devbox-image.ts's; this only decides, names, records, settles and prunes.
  *
  *   bun scripts/devbox-rebake.ts plan [--force]
- *       needed=true when a Freestyle default in the manifest was not baked from this
- *       checkout's devbox sources (devboxSourceDriftProblems, the same check promote
- *       enforces), and the version this run would publish:
- *       <UTC yyyymmddHHMM>-<commit 10>-<desktop source digest 12>. Prints key=value lines
- *       for $GITHUB_OUTPUT (also the image-stamp line the bake writes). No credential.
+ *       needed=true when the image inputs (REBAKE_INPUTS: every file the bake reads or
+ *       ships) differ from the ones the last published rebake recorded in
+ *       rebake-state.json, or a Freestyle default in the manifest was not baked from this
+ *       checkout's devbox sources (devboxSourceDriftProblems, the check promote enforces).
+ *       Also the version this run publishes, <UTC yyyymmddHHMM>-<commit 10>-<inputs key 12>,
+ *       and the image-stamp line the bake writes. key=value lines for $GITHUB_OUTPUT.
+ *   bun scripts/devbox-rebake.ts record --version V
+ *       Write rebake-state.json for this checkout's inputs (the publish commit carries it).
  *   bun scripts/devbox-rebake.ts settle
  *       After a promotion: drop every awaiting-rebake.json entry the new defaults satisfy
  *       (its drift is gone), so the manifest check and test pass with the promotion.
- *   FREESTYLE_API_KEY=... bun scripts/devbox-rebake.ts prune --keep N [--dry-run]
+ *   FREESTYLE_API_KEY=... bun scripts/devbox-rebake.ts prune --keep N [--also-manifest F] [--dry-run]
  *       Keep the newest N rebake versions' snapshots (slug cmux-devbox-ci-<version>[-<size>])
- *       and every manifest default; delete the other rebake snapshots. Never touches a
- *       snapshot without the rebake prefix.
+ *       and every snapshot any manifest row names (the base branch's rows are a subset of
+ *       this checkout's); delete the other rebake snapshots. Never touches a snapshot
+ *       without the rebake prefix.
  */
-import { writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { VM_IMAGE_SIZE_NAMES } from "../services/vms/images/sizes";
 import {
   devboxAwaitingRebakePath,
-  devboxSourceDigest,
   devboxImageEpoch,
   devboxSourceDriftProblems,
   hasFlag,
@@ -34,16 +38,92 @@ import {
   readDevboxAwaitingRebake,
   readImageManifest,
   repoRoot,
+  webRoot,
   type DevboxAwaitingRebake,
   type DevboxImageManifest,
 } from "./devbox-image-common";
 
 export const REBAKE_SLUG_PREFIX = "cmux-devbox-ci-";
 
-/** `<yyyymmddHHMM>-<commit 10>-<digest 12>`: sortable by time, names its commit and its sources. */
-export function rebakeVersion(now: Date, commit: string, digest: string): string {
+/**
+ * Every file the bake reads or ships, as repo-root globs. The workflow's push paths are
+ * exactly these (plus the workflow and this script, which change how, not what, it bakes),
+ * and tests/vm-devbox-rebake.test.ts checks that the whole relative-import closure of the
+ * bake script and devbox-image-common.ts is covered (REBAKE_INPUT_EXEMPT aside).
+ */
+export const REBAKE_INPUTS = {
+  include: [
+    "web/services/vms/images/devbox/**",
+    "web/services/vms/images/shell/**",
+    "web/services/vms/images/desktop.ts",
+    "web/services/vms/images/identity.ts",
+    "web/services/vms/images/metadataGuard.ts",
+    "web/services/vms/images/sizes.ts",
+    "web/services/vms/images/workUser.ts",
+    "web/services/vms/drivers/cmuxTuiDaemon.ts",
+    "web/services/vms/drivers/types.ts",
+    "web/services/vms/clientGrant.ts",
+    "web/services/vms/guest*.ts",
+    "web/services/vms/guestCliDistribution.json",
+    "web/services/vms/networkPolicy.ts",
+    "web/services/vms/promptName.ts",
+    "web/services/vms/hygiene/**",
+    "web/services/coderouter/vmGuestEnv.ts",
+    "web/scripts/build-devbox-freestyle.ts",
+    "web/scripts/devbox-image-common.ts",
+    "web/scripts/cmux-vm-image/machine-health.ts",
+    "web/scripts/cmux-vm-image/dns.ts",
+    "images/cmux-vm/machine-health/**",
+  ],
+  // Prose.
+  exclude: ["web/services/vms/images/**/*.md"],
+} as const;
+
+/**
+ * Imported by the bake but not image inputs, each with its reason. The app's UI strings
+ * (guestCliMessages.ts reads them) change on most UI PRs; a guest CLI string change rides
+ * the next real rebake rather than baking the whole ladder on its own.
+ */
+export const REBAKE_INPUT_EXEMPT: Readonly<Record<string, string>> = {
+  "web/messages/en.json": "app UI strings; the next rebake picks guest CLI strings up",
+  "web/messages/ja.json": "app UI strings; the next rebake picks guest CLI strings up",
+};
+
+export const rebakeStatePath = path.join(webRoot, "services/vms/images/rebake-state.json");
+
+export type RebakeState = { inputsKey: string; version: string; commit: string };
+
+/** The files REBAKE_INPUTS selects in this checkout, with their blob ids (git ls-files -s). */
+export function rebakeInputFiles(cwd = repoRoot): { path: string; blob: string }[] {
+  const specs = [
+    ...REBAKE_INPUTS.include.map((glob) => `:(glob)${glob}`),
+    ...REBAKE_INPUTS.exclude.map((glob) => `:(glob,exclude)${glob}`),
+  ];
+  const out = execFileSync("git", ["ls-files", "-s", "--", ...specs], { cwd, encoding: "utf8" });
+  return out
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      const [meta, file] = line.split("\t");
+      return { path: file, blob: meta.split(" ")[1] };
+    })
+    .sort((a, b) => a.path.localeCompare(b.path));
+}
+
+/** sha256 over the selected paths and blob ids: changes exactly when an input does. */
+export function rebakeInputsKey(files: readonly { path: string; blob: string }[]): string {
+  return createHash("sha256").update(files.map((file) => `${file.path}\t${file.blob}`).join("\n")).digest("hex");
+}
+
+/** `<yyyymmddHHMM>-<commit 10>-<inputs key 12>`: sortable by time, names its commit and its inputs. */
+export function rebakeVersion(now: Date, commit: string, key: string): string {
   const stamp = now.toISOString().replace(/[-:T]/g, "").slice(0, 12);
-  return `${stamp}-${commit.slice(0, 10)}-${digest.slice(0, 12)}`;
+  return `${stamp}-${commit.slice(0, 10)}-${key.slice(0, 12)}`;
+}
+
+export function readRebakeState(file = rebakeStatePath): RebakeState | null {
+  if (!existsSync(file)) return null;
+  return JSON.parse(readFileSync(file, "utf8")) as RebakeState;
 }
 
 /** The awaiting entries a manifest still needs; the rest were baked by the promotion. */
@@ -54,7 +134,7 @@ export function settledAwaiting(
   return awaiting.filter((pending) => drift.some((problem) => isAwaitingRebake(problem, pending)));
 }
 
-export type SnapshotRow = { id: string; slug?: string | null; createdAt?: string };
+export type SnapshotRow = { id: string; slug?: string | null };
 
 /** The rebake version a snapshot slug belongs to, or null for any snapshot the rebake did not make. */
 export function rebakeVersionOfSlug(slug: string | null | undefined): string | null {
@@ -68,17 +148,18 @@ export function rebakeVersionOfSlug(slug: string | null | undefined): string | n
 }
 
 /**
- * Which rebake snapshots to delete: not among the newest `keep` versions and not a
- * manifest default (the image users get now). Rollback by manifest revert works to
- * any of the `keep` newest versions.
+ * Which rebake snapshots to delete: not among the newest `keep` versions and not named by
+ * any manifest row. Promoted rows are never removed from the manifest, so a merged
+ * promotion's snapshots (and so rollback by revert) are never pruned; what goes is
+ * unpromoted rebakes beyond the newest `keep`.
  */
 export function pruneSelection(
   snapshots: readonly SnapshotRow[],
-  manifest: Pick<DevboxImageManifest, "images">,
+  manifests: readonly Pick<DevboxImageManifest, "images">[],
   keep: number,
 ): SnapshotRow[] {
   if (!Number.isInteger(keep) || keep < 1) throw new Error(`--keep must be a positive integer, got ${keep}`);
-  const referenced = new Set(manifest.images.filter((entry) => entry.defaultForKind).map((entry) => entry.imageId));
+  const referenced = new Set(manifests.flatMap((manifest) => manifest.images.map((entry) => entry.imageId)));
   const versions = [...new Set(snapshots.map((row) => rebakeVersionOfSlug(row.slug)).filter((v): v is string => v !== null))]
     .sort()
     .reverse();
@@ -89,21 +170,46 @@ export function pruneSelection(
   });
 }
 
+type SnapshotLister = (options: { limit: number; offset: number }) => Promise<{ snapshots: SnapshotRow[]; totalCount: number }>;
+
+/** Every snapshot on the account, page by page. */
+export async function listAllSnapshots(list: SnapshotLister, pageSize = 100): Promise<SnapshotRow[]> {
+  const rows: SnapshotRow[] = [];
+  for (let offset = 0; ; offset += pageSize) {
+    const page = await list({ limit: pageSize, offset });
+    rows.push(...page.snapshots);
+    if (page.snapshots.length === 0 || rows.length >= page.totalCount) return rows;
+  }
+}
+
+function gitHead(): string {
+  return execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8" }).trim();
+}
+
 function plan(): void {
-  const manifest = readImageManifest();
-  const drift = devboxSourceDriftProblems(manifest);
-  const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8" }).trim();
-  const digest = devboxSourceDigest("desktop");
-  const version = rebakeVersion(new Date(), commit, digest);
-  const needed = drift.length > 0 || hasFlag("--force");
+  const drift = devboxSourceDriftProblems(readImageManifest());
+  const key = rebakeInputsKey(rebakeInputFiles());
+  const recorded = readRebakeState();
+  const commit = gitHead();
+  const version = rebakeVersion(new Date(), commit, key);
   for (const problem of drift) console.error(`drift: ${problem}`);
+  console.error(`inputs: ${key} (last published: ${recorded?.inputsKey ?? "none"})`);
+  const needed = hasFlag("--force") || drift.length > 0 || recorded?.inputsKey !== key;
   console.log(`needed=${needed}`);
   console.log(`version=${version}`);
   console.log(`slug=${REBAKE_SLUG_PREFIX}${version}`);
-  console.log(`digest=${digest}`);
+  console.log(`key=${key}`);
   console.log(`commit=${commit}`);
   // The known-good marker the smoke test reads back from a booted machine.
   console.log(`stamp=cmux-devbox ${devboxImageEpoch()} desktop`);
+}
+
+function record(): void {
+  const version = argValue("--version");
+  if (!version) throw new Error("record needs --version");
+  const state: RebakeState = { inputsKey: rebakeInputsKey(rebakeInputFiles()), version, commit: gitHead() };
+  writeFileSync(rebakeStatePath, `${JSON.stringify(state, null, 2)}\n`);
+  console.log(`rebake-state: ${state.version} (${state.inputsKey.slice(0, 12)})`);
 }
 
 function settle(): void {
@@ -122,9 +228,11 @@ async function prune(): Promise<void> {
   const dryRun = hasFlag("--dry-run");
   const { Freestyle } = await import("freestyle");
   const fs = new Freestyle({ baseUrl: process.env.FREESTYLE_API_URL?.trim() || undefined });
-  const { snapshots } = await fs.vms.snapshots.list();
-  const doomed = pruneSelection(snapshots as unknown as SnapshotRow[], readImageManifest(), keep);
-  console.log(`prune: keeping the newest ${keep} rebake versions and every manifest default; ${doomed.length} snapshots to delete`);
+  const snapshots = await listAllSnapshots((options) => fs.vms.snapshots.list(options) as unknown as ReturnType<SnapshotLister>);
+  // --also-manifest: the base branch's manifest as it is now, so rows merged while this run baked are kept too.
+  const also = argValue("--also-manifest");
+  const doomed = pruneSelection(snapshots, [readImageManifest(), ...(also ? [readImageManifest(also)] : [])], keep);
+  console.log(`prune: ${snapshots.length} snapshots; keeping the newest ${keep} rebake versions and every manifest image; ${doomed.length} to delete`);
   let failed = 0;
   for (const row of doomed) {
     if (dryRun) {
@@ -146,10 +254,11 @@ const isEntryPoint = process.argv[1] !== undefined && path.resolve(process.argv[
 if (isEntryPoint) {
   const command = process.argv[2];
   if (command === "plan") plan();
+  else if (command === "record") record();
   else if (command === "settle") settle();
   else if (command === "prune") await prune();
   else {
-    console.error("usage: bun scripts/devbox-rebake.ts plan [--force] | settle | prune --keep N [--dry-run]");
+    console.error("usage: bun scripts/devbox-rebake.ts plan [--force] | record --version V | settle | prune --keep N [--dry-run]");
     process.exit(2);
   }
 }
