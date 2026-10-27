@@ -1312,6 +1312,40 @@ mod tests {
         assert_eq!(current.generation, last.generation);
     }
 
+    /// Review 7 of #26052, out of scope there: an agent a start's cap stopped
+    /// (`stop_full_access_agent`, a cold or pooled start found in full access) retires its mode
+    /// reports as MDM's end does: one it still had queued is not applied to the agent after it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_report_of_an_agent_a_cap_stopped_is_not_the_next_agents() {
+        let (hub, chat, _) = two_chats_on(&[], false).await;
+        let first = hub.child_for(&chat).await.expect("an agent");
+        // The first agent's report, queued: it reaches the inbound loop after the next agent.
+        let report = Inbound::Notification {
+            method: crate::rpc::method::SESSION_UPDATE.to_owned(),
+            params: Some(json!({"sessionId": "own",
+                                "update": {"sessionUpdate": "current_mode_update",
+                                           "currentModeId": "full-access"}})),
+            agent: first.generation,
+            host_seq: None,
+            host_incarnation: None,
+            persisted: None,
+        };
+        hub.stop_full_access_agent(&chat).await;
+        let next = hub.child_for(&chat).await.expect("an agent");
+        assert_ne!(first.generation, next.generation, "the stopped agent was handed out again");
+        chat.inbound_tx.send(report).await.unwrap();
+        let (done, drained) = tokio::sync::oneshot::channel();
+        chat.inbound_tx.send(Inbound::Barrier(done)).await.unwrap();
+        drained.await.unwrap();
+        assert_ne!(
+            crate::web_modes::mode_of(&chat.meta()).as_deref(),
+            Some("full-access"),
+            "a stopped agent's late report set the mode of the agent after it"
+        );
+        let current = chat.child.lock().await.clone().expect("the next agent");
+        assert_eq!(current.generation, next.generation);
+    }
+
     /// Review 2 of #26034: under MDM's off, an agent whose end is pending is not handed out by
     /// `child_for`'s fast path, though what it reports no longer says full access: the start
     /// ends it first.
