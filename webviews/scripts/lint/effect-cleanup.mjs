@@ -75,6 +75,16 @@ export const intervalCleanup = {
     function sameHandle(node, handle) {
       return node?.type === "Identifier" && variable(node) === handle;
     }
+    function writesHandle(node, handle) {
+      if (!node) return false;
+      if (sameHandle(node, handle)) return true;
+      if (node.type === "ArrayPattern" || node.type === "ObjectPattern") {
+        return node.elements?.some((child) => writesHandle(child, handle)) ||
+          node.properties?.some((child) => writesHandle(child.value ?? child.argument, handle));
+      }
+      if (node.type === "AssignmentPattern") return writesHandle(node.left, handle);
+      return false;
+    }
     function clears(node, handle, seen = new Set()) {
       if (!node || seen.has(node)) return false;
       seen = new Set([...seen, node]);
@@ -184,8 +194,8 @@ export const intervalCleanup = {
     function overwritten(effect, interval, handle) {
       const writes = [];
       walk(effect.body, (node) => {
-        if (node.type === "AssignmentExpression" && sameHandle(node.left, handle)) writes.push(node);
-        if (node.type === "UpdateExpression" && sameHandle(node.argument, handle)) writes.push(node);
+        if (node.type === "AssignmentExpression" && writesHandle(node.left, handle)) writes.push(node);
+        if (node.type === "UpdateExpression" && writesHandle(node.argument, handle)) writes.push(node);
       });
       return writes.some((write) => {
         // A later assignment must release the old handle first. Also inspect
@@ -203,6 +213,17 @@ export const intervalCleanup = {
           write.parent.parent === effect.body
         )
           return false;
+        let nestedFunction = false;
+        for (let parent = write.parent; parent && parent !== effect; parent = parent.parent) {
+          if (functions.has(parent.type)) nestedFunction = true;
+        }
+        if (nestedFunction) {
+          let starts = false;
+          walk(write.right, (child) => {
+            if (child.type === "CallExpression" && isTimer(child.callee, "setInterval")) starts = true;
+          });
+          if (starts) return true;
+        }
         let statement = write;
         while (statement.parent && statement.parent.type !== "BlockStatement") statement = statement.parent;
         const block = statement.parent;
@@ -246,8 +267,11 @@ export const intervalCleanup = {
       CallExpression(node) {
         if (isTimer(node.callee, "setInterval")) intervals.push(node);
         if (isEffect(node.callee)) {
-          const callback = resolveFunction(node.arguments[0]);
-          if (callback) effects.push(callback);
+          const callbacks = [];
+          walk(node.arguments[0], (child) => {
+            if (functions.has(child.type)) callbacks.push(child);
+          });
+          for (const callback of callbacks) if (!effects.includes(callback)) effects.push(callback);
         }
       },
       "Program:exit"() {
