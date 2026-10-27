@@ -210,6 +210,10 @@ async fn check_prewarm(
     web: bool,
 ) -> Result<(), RpcError> {
     let Some(cwd) = params.get("cwd").and_then(Value::as_str) else { return Ok(()) };
+    // A release starts nothing: it only takes a hint back.
+    if params.get("release").and_then(Value::as_bool) == Some(true) {
+        return Ok(());
+    }
     let family = params.get("harness").and_then(Value::as_str).unwrap_or_default();
     let family = resolve_family(hub, family).await;
     folder_answered(paths.clone(), cwd.to_owned(), family, web).await
