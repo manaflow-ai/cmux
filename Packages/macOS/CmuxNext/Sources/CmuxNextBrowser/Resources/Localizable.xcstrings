@@ -28165,6 +28165,137 @@
           }
         }
       }
+    },
+    "browser.pageGone.chromiumHost.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium stopped while it showed this page. Reload starts Chromium again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توقف Chromium أثناء عرض هذه الصفحة. تؤدي إعادة التحميل إلى تشغيل Chromium من جديد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium se zaustavio dok je prikazivao ovu stranicu. Ponovno učitavanje ponovo pokreće Chromium."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium stoppede, mens denne side blev vist. Genindlæs starter Chromium igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium wurde beim Anzeigen dieser Seite beendet. „Neu laden“ startet Chromium neu."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium se detuvo mientras mostraba esta página. Al volver a cargar, Chromium se inicia de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium s’est arrêté pendant l’affichage de cette page. Actualiser redémarre Chromium."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium si è interrotto durante la visualizzazione di questa pagina. Ricarica riavvia Chromium."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このページの表示中に Chromium が停止しました。再読み込みすると Chromium が再起動します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium បានឈប់ ពេលកំពុងបង្ហាញទំព័រនេះ។ ការផ្ទុកឡើងវិញនឹងចាប់ផ្ដើម Chromium ម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 페이지를 표시하는 중에 Chromium이 중지되었습니다. 새로고침하면 Chromium이 다시 시작됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium stoppet mens denne siden ble vist. Last inn på nytt starter Chromium igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium zatrzymał się podczas wyświetlania tej strony. Ponowne załadowanie uruchomi Chromium ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Chromium parou enquanto exibia esta página. Recarregar inicia o Chromium novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium остановился во время показа этой страницы. При перезагрузке Chromium запустится снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium หยุดทำงานขณะแสดงหน้านี้ การโหลดซ้ำจะเริ่ม Chromium อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium bu sayfayı gösterirken durdu. Yeniden yüklemek Chromium'u yeniden başlatır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium зупинився під час показу цієї сторінки. Перезавантаження знову запускає Chromium."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium đã dừng khi đang hiển thị trang này. Tải lại sẽ khởi động lại Chromium."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium 在显示此页面时停止了。重新加载会再次启动 Chromium。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium 在顯示此頁面時停止了。重新載入會再次啟動 Chromium。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

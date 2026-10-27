@@ -42,6 +42,8 @@ final class AppControl {
     let mainCPUProbe = DebugMainCPUProbe()
     #endif
     let damageWindow: RenderDamageWindow
+    /// The app's one RenderStats; terminal renderers count their presented frames in it (AppDelegate).
+    let renderStats: RenderStats
     let terminalDisplayProbe: DebugTerminalDisplayProbe
     /// `debug.motion`'s Core Animation commit timer (`ca.commit`), owned here, not by a static.
     let motionCommitProbe = MotionCommitProbe()
@@ -75,6 +77,7 @@ final class AppControl {
         (self.mainWork, self.input) = (mainWork, input)
         frames = FrameBatcher(owner: "Control.frames", budgeted: .automation, on: mainWork)
         let renderStats = RenderStats(layoutGuard: .shared)
+        self.renderStats = renderStats
         let terminalDisplay = DebugTerminalDisplayProbe()
         terminalDisplayProbe = terminalDisplay
         #if DEBUG || CMUX_BENCH_HOOKS
@@ -150,7 +153,8 @@ final class AppControl {
             // Ghostty config keys and keybind actions cmux does not apply (R92).
             GhosttyDiagnosticsControl().method,
             // Every feature's value and source (`cmux settings feature-flags`), read-only.
-            FeatureFlagsPage.report(services.features, tunables: TunableStore.shared).method,
+            FeatureFlagsPage.report(services.features, tunables: TunableStore.shared,
+                                    daemon: services.environment.daemonFeatureHello).method,
             // Energy Saver's policy and inputs (`cmux energy status`, MCP `energy_status`).
             EnergyReport.statusMethod(services: services),
             // The field histograms since launch (`cmux metrics`), read-only; `unavailable` until the metricsView feature is on.
@@ -175,6 +179,7 @@ final class AppControl {
         if let wireStats = services.wireStats { router.register([DaemonWireControl(stats: wireStats).method]) }
         router.register([DebugInput(sources: [InputTapDebugSource(tap: services.inputTap), DebugCEF.pumpInputSource(services.cache.chromium),
                                                IntentPrewarmDebugSource { [weak services] in services?.cache.hibernation?.intentPrewarm?.service },
+                                               MainJobGateDebugSource { (NSApp as? CmuxApplication)?.jobGate?.gate },
                                                ScrollViewAuditSource { [mainWork = services.mainWork] in
                                                    // A job the scheduler dropped audits nothing.
                                                    (try? await withOnceContinuation { (continuation: OnceContinuation<DebugInputScrollViews, OnceContinuationError>) in

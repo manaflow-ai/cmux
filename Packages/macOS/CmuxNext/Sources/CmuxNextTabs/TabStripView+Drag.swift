@@ -119,7 +119,7 @@ extension TabStripView {
     func autoscrollDuringDrag(_ dt: CGFloat) -> Bool {
         let speed = autoscrollSpeed()
         guard speed != 0, let point = drag?.lastPoint ?? groups.drag?.lastPoint ?? phantomPoint else { return false }
-        settleScroll()
+        scroller.settle()
         let target = TabScrollMath.clamp(scrollOffset + speed * dt, contentWidth: result.contentWidth, viewportWidth: viewportWidth)
         guard target != scrollOffset else { return false }
         scrollOffset = target
@@ -286,7 +286,7 @@ extension TabStripView {
     /// Where `id`'s cell shows now, its center in window coordinates; nil when it shows nowhere.
     public func tabCenterInWindow(_ id: TabID) -> CGPoint? {
         guard let cell = cells[id] else { return nil }
-        let frame = (cell.layer.presentation() ?? cell.layer).frame
+        let frame = scroller.shownFrame(cell.layer, presented: true)
         return tabsClip.convert(CGPoint(x: frame.midX, y: tabsClip.bounds.midY), to: nil)
     }
 }

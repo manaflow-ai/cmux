@@ -37,6 +37,7 @@ ISOLATION = os.environ.get("CMUX_ORACLE_ISOLATION", "netns")
 # Until normalize.py loads the default schema (SchemaTests), the live tests can name one it loads.
 SNAPSHOT_SCHEMA = os.environ.get("CMUX_ORACLE_SNAPSHOT_SCHEMA", "")
 EXAMPLE = HERE.parents[2] / "schemas" / "oracle" / "fixtures" / "case-example-daemon.json"
+CORPUS = HERE.parents[2] / "tests" / "oracle" / "corpus" / "daemon-ops"
 
 
 class PathTests(unittest.TestCase):
@@ -229,6 +230,78 @@ class CrashScopeTests(unittest.TestCase):
         entries = [{"kind": "daemon", "reason": "on purpose"}]
         exits = [d.DaemonExit("a", "daemon", "x", None), d.DaemonExit("b", "daemon", "x", None)]
         self.assertIn("allows 1", d.crash_allowed(entries, exits))
+
+
+class TerminalHolderKillTests(unittest.TestCase):
+    """The pure parts of a `process: holder` kill (p15-oracle-224); the live tests run the corpus journey."""
+
+    def test_the_kinds_of_the_processes_that_run_terminals(self):
+        self.assertEqual(d.vt_worker_kind(("cmux-tui", "__terminal-host", "--bootstrap-stdio")), "terminal-host")
+        self.assertEqual(d.vt_worker_kind(("/x/cmux-tui-host", "__terminal-host")), "terminal-host")
+        self.assertEqual(d.vt_worker_kind(("cmux-tui", "__holder", "--socket", "/tmp/h.sock")), "holder")
+        self.assertEqual(d.vt_worker_kind(("/x/cmux-tui-host", "__holder")), "holder", "__holder before the name")
+        self.assertEqual(d.vt_worker_kind(("/x/cmux-holder-3f2a", "--socket", "/tmp/h.sock")), "holder")
+        for argv in ((), ("/bin/sh",), ("/x/cmux-tui", "--headless", "--session", "oracle")):
+            self.assertIsNone(d.vt_worker_kind(argv), argv)
+
+    def test_host_records_name_each_terminal_by_its_host_pid(self):
+        with tempfile.TemporaryDirectory() as state:
+            hosts = Path(state, "terminal-hosts-0011223344556677")
+            hosts.mkdir()
+            Path(hosts, "aa.json").write_text(json.dumps({"terminal_id": "aa", "host_pid": 41}))
+            Path(hosts, "cc.json").write_text(json.dumps({"terminal_id": "cc", "host_pid": 43,
+                                                          "supports_pty_custody": True}))
+            Path(hosts, "bb.json").write_text("{not json")
+            Path(hosts, "holder.token").write_text("x")
+            self.assertEqual(d.host_terminals(Path(state)),
+                             {41: d.HostRecord("aa", False), 43: d.HostRecord("cc", True)})
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "reads /proc")
+    def test_custody_counts_the_pty_masters_a_process_holds(self):
+        """A process that holds one PTY master, and no custody thread, reads (1, False) (Linux /proc)."""
+        master, slave = os.openpty()
+        try:
+            masters, exchanging = d.daemon_custody(os.getpid())
+        finally:
+            os.close(master)
+            os.close(slave)
+        self.assertEqual((masters, exchanging), (1, False))
+        self.assertEqual(d.daemon_custody(os.getpid()), (0, False))
+
+    def test_only_whole_lines_after_the_offset_are_read(self):
+        with tempfile.TemporaryDirectory() as root:
+            log = Path(root, d.LOSS_LOG)
+            first = json.dumps({"event": "daemon_signal"}) + "\n"
+            log.write_text(first + json.dumps({"terminal_id": "aa", "end": {}}) + "\n" + '{"terminal_id": "b')
+            self.assertEqual(d.log_lines(log, len(first)), [{"terminal_id": "aa", "end": {}}])
+            self.assertEqual(d.log_lines(Path(root, "missing"), 0), [])
+
+    def test_each_ended_host_takes_its_replacement_or_its_loss_line(self):
+        lines = [
+            {"event": "terminal_respawned", "terminal_id": "aa", "end": {"kind": "host_lost"}},
+            {"terminal_id": "cc", "end": {"kind": "host_lost"}},
+            {"event": "host_replaced", "terminal_id": "bb", "old_host_pid": 42, "new_host_pid": 50},
+            {"terminal_id": "aa", "end": {"kind": "host_lost"}},
+            {"terminal_id": "aa", "end": {"kind": "host_lost"}, "at_ms": 2},
+        ]
+        found = d.host_records(lines, {41: "aa", 42: "bb"})
+        self.assertEqual(found, {41: lines[3], 42: lines[2]}, "the first own line, and never a respawn line")
+        self.assertEqual(d.host_records(lines[:2], {41: "aa"}), {})
+
+    def test_only_an_abrt_kill_of_the_holder_arms_the_crash_seam(self):
+        def case(*steps):
+            return {"steps": [{"id": f"s{i}", "op": "kill", "target": {"process": process}, "args": args}
+                              for i, (process, args) in enumerate(steps)]}
+
+        self.assertTrue(d.arms_abort_seam(case(("holder", {"signal": "KILL"}), ("holder", {"signal": "ABRT"}))))
+        self.assertFalse(d.arms_abort_seam(case(("holder", {"signal": "KILL"}), ("holder", {}))))
+        self.assertFalse(d.arms_abort_seam(case(("daemon", {"signal": "ABRT"}))))
+        paths = d.CasePaths(Path("/tmp/o/aaaaaa/bbbbbb"))
+        armed = d.case_environment(paths, "s", d.hermetic_env.NO_ISOLATION_REQUESTED, abort_seam=True).env
+        self.assertEqual(armed[d.ABORT_SEAM_ENV], "/tmp/o/aaaaaa/bbbbbb/host-abort-once")
+        self.assertEqual(Path(armed[d.ABORT_SEAM_ENV] + ".trigger"), paths.abort_trigger)
+        plain = d.case_environment(paths, "s", d.hermetic_env.NO_ISOLATION_REQUESTED).env
+        self.assertNotIn(d.ABORT_SEAM_ENV, plain)
 
 
 class ProcessTests(unittest.TestCase):
@@ -475,6 +548,11 @@ class RestorePreviewTraceTests(unittest.TestCase):
                          [("I9", "/daemon/session/workspaces/0/name")])
 
 
+def holder_crash_case(arm: str) -> dict:
+    """The terminal holder crash journey of one arm of the terminal-holder switch (p15-oracle-224)."""
+    return json.loads((CORPUS / f"terminal-holder-crash-{arm}.json").read_text(encoding="utf-8"))
+
+
 def example_case() -> dict:
     """The schema's daemon example with the expectations of a headless daemon: it starts with no
     workspace, so one workspace is restored after the restart."""
@@ -661,6 +739,30 @@ class LiveTests(unittest.TestCase):
         case["allow_crashes"][0]["steps"] = ["restart"]
         result = self.run_case(case)
         self.assertEqual((result["status"], result["step"]), ("Crash", "stop"))
+        self.assertIn("I17", result["message"])
+
+    def test_the_holder_crash_journey_of_the_default_arm_replaces_each_host(self):
+        """The corpus journey of the per-terminal host arm (p15-oracle-224) with the program's stops moved out of
+        its escape sequences (inside one, the replacement fails: p15-oracle-340). Each kill waits for the daemon's
+        PTY custody; the crash seam aborts the first host and a SIGKILL ends its replacement; each gives a
+        host_replaced line, and the VT state, cwd and last screen are kept."""
+        case = holder_crash_case("old")
+        arm = next(step for step in case["steps"] if step["id"] == "arm")["args"]["params"]
+        inside = ("printf 'X\\033]2;oracle-armed\\007\\033[38;5;1'; dd bs=1 count=1 >/dev/null 2>&1; "
+                  "printf '96mRED\\033]2;oracle-second\\007\\303'; dd bs=1 count=1 >/dev/null 2>&1; printf '\\251")
+        outside = ("printf 'X\\033]2;oracle-armed\\007'; dd bs=1 count=1 >/dev/null 2>&1; "
+                   "printf '\\033[38;5;196mRED\\033]2;oracle-second\\007'; dd bs=1 count=1 >/dev/null 2>&1; "
+                   "printf '\\303\\251")
+        self.assertIn(inside, arm["text"])
+        arm["text"] = arm["text"].replace(inside, outside)
+        result = self.run_case(case)
+        self.assertEqual(result["status"], "Pass", result["message"])
+
+    def test_a_holder_kill_outside_allow_crashes_is_a_crash(self):
+        case = holder_crash_case("old")
+        case["allow_crashes"] = [entry for entry in case["allow_crashes"] if entry["steps"] != ["abort"]]
+        result = self.run_case(case)
+        self.assertEqual((result["status"], result["step"]), ("Crash", "abort"))
         self.assertIn("I17", result["message"])
 
     def test_wrong_typed_error_is_a_failure(self):

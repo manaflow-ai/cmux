@@ -46,7 +46,7 @@ nonisolated enum AgentPaneImageCopies {
         }
         base = String(scalars).trimmingCharacters(in: CharacterSet(charactersIn: ".- ").union(.whitespacesAndNewlines))
         if !base.unicodeScalars.contains(where: { CharacterSet.alphanumerics.contains($0) }) { base = "Image" }
-        while base.utf8.count > maximumNameBytes { base.removeLast() }
+        while base.utf8.count > maximumNameBytes, !base.isEmpty { base.removeLast() }
         let hash = SHA256.hash(data: data).prefix(4).map { String(format: "%02x", $0) }.joined()
         return "\(base) \(hash).\(extensions[type] ?? "img")"
     }
@@ -202,6 +202,8 @@ extension AgentPaneImageCopies {
             guard let action = item.action, let target = item.target as? NSObject else { continue }
             let rebuilt = AgentPaneMenuAction { [weak item] in
                 // task-owner: one rebuild of a local SVG off the main actor; ends when the row acts
+                // main-hop-allow: the person's menu row, userBlocking (p06 rule 2): rebuild runs off main; its one resume
+                // performs the row's action on its NSMenuItem, which is main-only and not Sendable
                 Task { @MainActor in
                     guard await rebuild(file, to: copy) else { return NSSound.beep() }
                     _ = target.perform(action, with: item)
