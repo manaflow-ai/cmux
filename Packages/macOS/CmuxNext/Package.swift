@@ -300,7 +300,7 @@ let packageProducts: [Product] = [
     .library(name: "CmuxNextAppCore", targets: ["CmuxNextAppCore"]),
 ] + uiLayerPreviewProducts
 
-let packageTargets: [Target] = uiLayerPreviewTargets + [
+let packageModuleTargets: [Target] = [
         .target(
             name: "CmuxNextAppCore",
             dependencies: ["CmuxNextActions", "CmuxNextAgentPane", "CmuxNextBridge", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextSidebar"],
@@ -2326,7 +2326,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: ["CmuxNextActions", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
-    ] + [appFFI]
+    ]
+
+let packageTargets: [Target] = uiLayerPreviewTargets + packageModuleTargets + [appFFI]
 
 /// Linux SwiftPM copies an `.xcstrings` catalog into the bundle as JSON that Foundation cannot read.
 /// In the Linux mode (`CMUX_SWIFTPM_TARGET_LINUX=1`, plans/cmux-next/chrome-parity/p15-oracle.md H),
