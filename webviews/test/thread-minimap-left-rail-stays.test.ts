@@ -3,12 +3,11 @@
 // there, the session rail ends up pushing it to the side, and also when the left pane gets too narrow,
 // the session rail still disappears. We can't have it disappear."). Session Info floats and moves the
 // chat's column left only when both fit (inspector/ChatInspector.tsx inspectorChatShift); the rail
-// stays at the pane's left edge while the column moves, and the move always leaves the rail its
-// room. In a wide pane (1600), the pane where the column moves (1200), the pane where moving it
-// would take the rail's room (1100), a narrow window (1000) and the narrowest pane the layout allows
-// (200, cmux.json `layout.minimumPaneWidth`), with Session Info closed, open, and pushing (Push
-// always): the rail keeps one full-width look, hugs the transcript at a 4 px resting gap, and hides
-// only when the minimum usable gutter is gone. Session Info shifts the rail with the transcript.
+// follows the transcript's inset, preserving its full look while the gutter progressively shrinks.
+// In a wide pane (1600), the pane where the column moves (1200), a narrow window (800), the
+// overlap breakpoint (780), and the narrowest usable pane (760), with Session Info closed, open,
+// and pushing (Push always): the rail keeps one full-width look, hugs the transcript at a 4 px
+// resting gap, overlaps only at the breakpoint, and hides only when the minimum usable gutter is gone.
 //
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux
 // (support/papercutChat.ts). Locally:
@@ -109,21 +108,25 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
           const closed = await rail(page);
           await openInspector(page, false);
           const open = await rail(page);
-          // Push always narrows the chat to the pane less the panel; the rail stays, minimal under a 48px
-          // gutter (#24525).
+          // Push always narrows the chat to the pane less the panel; the rail keeps its own small gutter
+          // and is hidden only once that gutter cannot provide the allowed overlap.
           await closeInspector(page);
           await openInspector(page, true);
           const pushed = await rail(page);
           const where = ({ left: _left, ...rest }: { left?: number; shown: boolean }) => rest;
+          // The transcript column's inset steps at the layout breakpoints. The rail keeps
+          // its full 36px look and only overlaps at the 780px breakpoint; Push always
+          // can consume the remaining gutter at 800px and below.
           const expected =
-            width < 780
+            width <= 760
               ? { shown: false }
               : {
                   ...placed,
-                  clearOfColumn: width >= 1000,
-                  distance: width >= 1000 ? 4 : -6,
+                  clearOfColumn: width >= 800,
+                  distance: width >= 800 ? 4 : -6,
                 };
-          const pushedExpected = width >= 1600 ? expected : { shown: false };
+          const pushedExpected =
+            width <= 800 ? { shown: false } : expected;
           expect({ closed: where(closed), open: where(open), pushed: where(pushed) }).toEqual({
             closed: expected,
             open: expected,
