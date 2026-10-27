@@ -1486,7 +1486,8 @@ jobs:
 
       - name: Find an earlier helper with the same inputs
         id: reuse
-        if: inputs.nightly_next_unsigned_run == ''
+        # A fast build ships nothing and keeps its helper unstripped.
+        if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.fast_build != 'true'
         continue-on-error: true
         timeout-minutes: 5
         env:
@@ -1500,7 +1501,7 @@ jobs:
         if: steps.reuse.outputs.hit == 'true'
         env:
           BUILD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
-        run: echo "ghostty-cli-helper-build=$BUILD_SHA"
+        run: echo "ghostty-cli-helper-stripped-build=$BUILD_SHA"
 
       - name: Upload reused Ghostty CLI helper
         id: upload
@@ -1636,7 +1637,7 @@ jobs:
       # Linux now, where only Apple's strip gives these bytes; a fast build's
       # prepare never stripped it.
       - name: Strip the Ghostty CLI helper
-        if: inputs.nightly_next_unsigned_run == '' && env.NIGHTLY_FAST_BUILD != 'true'
+        if: inputs.nightly_next_unsigned_run == '' && env.NIGHTLY_FAST_BUILD != 'true' && needs.resolve-nightly-ghostty-cli-helper.outputs.hit != 'true'
         run: strip -S -x nightly-helper/ghostty
 
       - name: Upload Ghostty CLI helper
