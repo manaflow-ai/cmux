@@ -2013,6 +2013,21 @@ class RootRunners(unittest.TestCase):
         self.assertFalse(e2e_pool.auto_runner(SMALL, enabled=True, limits=limits, measure=lambda: load, now=NOW,
                                               owned_slots={MINI: 40, ROOT_MINI: 10}).startswith("glaeda-"))
 
+    def test_auto_pick_waits_on_the_fleet_for_a_same_repository_run(self):
+        """The DEV publisher's verify and E2E auto picks wait on owned Macs, as ci.yml's pick does."""
+        def wait_flag(env):
+            with unittest.mock.patch.object(e2e_pool.simple_pool_picker, "observe",
+                                            return_value=e2e_pool.simple_pool_picker.State(jobs=1)) as observe, \
+                 unittest.mock.patch("sys.stdout", io.StringIO()):
+                e2e_pool.main(["--requested", "auto", "--owned", "1", "--pr-xcode-app", PR_XCODE], env=env)
+            return observe.call_args.kwargs["wait_owned"], observe.call_args.kwargs["fork"]
+        self.assertEqual(wait_flag({"GITHUB_REPOSITORY": "manaflow-ai/cmux"}), (True, False))
+        # A fork never waits on the fleet; neither does the bot's own re-run.
+        self.assertEqual(wait_flag({"GITHUB_REPOSITORY": "manaflow-ai/cmux", "HEAD_REPO": "someone/cmux"}),
+                         (False, True))
+        self.assertEqual(wait_flag({"GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_RUN_ATTEMPT": "2",
+                                    "GITHUB_TRIGGERING_ACTOR": "github-actions[bot]"}), (False, False))
+
     def test_ui_auto_route_skips_simple_picker_and_uses_gui_label(self):
         """A media tour's auto pick must reach the UI-aware E2E picker."""
         with unittest.mock.patch.object(
