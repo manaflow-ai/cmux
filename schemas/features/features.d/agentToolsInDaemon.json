@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "agentToolsInDaemon",
+  "owner": "PL-acpmux",
+  "description": "The acpmux daemon serves each agent chat's sub-session and secret tools itself, to that chat's own caller token only, instead of two tool processes per chat; a harness that runs its own tool servers gets a byte-copy relay under 1 MB.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "daemon",
+  "params": [],
+  "stories": ["memory-hidden"],
+  "sticky": false,
+  "runtimeMutable": false
+}

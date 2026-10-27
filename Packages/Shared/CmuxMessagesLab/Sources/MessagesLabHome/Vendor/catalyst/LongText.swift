@@ -408,6 +408,7 @@ final class BlockLayoutCache: Sendable {
             s.map.updateValue((v, s.tick), forKey: k) // dictionary write
             if s.map.count > BlockLayoutCache.capacity + 64 {
                 let keep = s.map.sorted { $0.value.1 > $1.value.1 }.prefix(BlockLayoutCache.capacity)
+                // cmux: keys come from `s.map`, so they are unique; no trapping init (p10-stability-096).
                 s.map = Dictionary(keep.map { ($0.key, $0.value) }, uniquingKeysWith: { first, _ in first })
             }
         }
@@ -474,7 +475,7 @@ final class LongTextLayout: Sendable {
         self.markdown = index.markdown && (markdown ?? true)
         column = Metrics(width: width).maxTextWidth
         let col = Float(column)
-        var ex = [Bool](repeating: false, count: max(0, index.blockCount))
+        var ex = [Bool](repeating: false, count: index.blockCount)
         let k = LongTextIndex.refColumn / col
         // built with map and checked reads.
         var v = (0..<index.blockCount).map { (b: Int) -> Int32 in
@@ -493,8 +494,7 @@ final class LongTextLayout: Sendable {
             }
             if let k = keep, k >= 0, k < index.blockCount {
                 if let slot = v.checkedIndex(k) { v[slot] = k < c.index.blockCount ? cValues[checked: k] ?? 0 : 0 }
-                let tail = v.indices.dropFirst(k + 1)
-                v.replaceSubrange(tail, with: repeatElement(0, count: tail.count)) // no index writes
+                v.replaceSubrange((k + 1)..<v.count, with: repeatElement(0, count: v.count - k - 1)) // no index writes
             }
             hint = cHint
         }
