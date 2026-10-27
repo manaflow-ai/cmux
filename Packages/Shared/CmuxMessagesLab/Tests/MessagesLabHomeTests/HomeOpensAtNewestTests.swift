@@ -62,13 +62,21 @@ import Testing
         return (store, source)
     }
 
+    /// The app's order (HomeNativeTranscriptView): the transcript view first, then its binding
+    /// opens the conversation on the store (`beginOpen`); `close` pairs with that open.
     private func view(_ store: HomeStore, in window: NSWindow) throws -> MessagesLabHomeView {
         let me = try #require(store.me?.id)
         let view = MessagesLabHomeView(store: store, conversation: Self.conversation, me: me, wake: NoWake())
+        store.beginOpen(Self.conversation)
         view.frame = NSRect(x: 0, y: 0, width: 700, height: 900)
         window.contentView = view
         view.layoutSubtreeIfNeeded()
         return view
+    }
+
+    private func close(_ view: MessagesLabHomeView, _ store: HomeStore) {
+        view.stop()
+        store.close(Self.conversation)
     }
 
     private func window() -> NSWindow {
@@ -97,13 +105,13 @@ import Testing
                 "\(comment): offset \(y), bottom \(demo.pinnedOffset), top \(demo.minOffset)", sourceLocation: sourceLocation)
     }
 
-    /// The pinned Chief's path: its first page is in the store before the view is made.
+    /// The pinned Chief's path: another view holds it open, so its page is in the store before the view is made.
     @Test func aChatWhosePageIsInOpensAtTheNewestMessage() async throws {
         let (store, _) = try await store()
         await store.open(Self.conversation)
         let window = window()
         let view = try view(store, in: window)
-        defer { view.stop(); store.stop(); window.close() }
+        defer { close(view, store); store.close(Self.conversation); store.stop(); window.close() }
         frame(view)
         try expectAtNewest(view, "warm open")
     }
@@ -114,7 +122,7 @@ import Testing
         await source.hold()
         let window = window()
         let view = try view(store, in: window)
-        defer { view.stop(); store.stop(); window.close() }
+        defer { close(view, store); store.stop(); window.close() }
         for _ in 0..<20_000 { if await source.isParked { break }; await Task.yield() }
         #expect(await source.isParked, "the first page read waits")
         frame(view)
@@ -127,6 +135,15 @@ import Testing
         await settle()
         frame(view)
         try expectAtNewest(view, "cold open, a pass later")
+        // The newest bubble grows in place, as when its picture or link preview loads: still at the bottom.
+        let demo = try #require(view.controller.demo)
+        let newest = try #require(demo.store.state.conversation.messages.last)
+        let before = demo.pinnedOffset
+        let tall = Array(repeating: "a line that a picture or a preview makes taller", count: 30).joined(separator: "\n")
+        view.controller.dispatch(.cmuxSetParts(newest.id, [.text(tall, runs: [])]))
+        frame(view)
+        #expect(demo.pinnedOffset > before + 100, "the newest bubble grew")
+        try expectAtNewest(view, "the newest bubble grew")
     }
 
     /// A chat shown before: its kept transcript draws at once and the owner's read lays over it.
@@ -137,14 +154,15 @@ import Testing
         for _ in 0..<20_000 where store.transcript(for: Self.conversation).isEmpty { await Task.yield() }
         await settle()
         frame(view)
-        // The person scrolled up, then left the chat.
+        try expectAtNewest(view, "first open")
+        // The person scrolled up, then left the chat: the store keeps its transcript.
         let demo = try #require(view.controller.demo)
         demo.collection.contentOffset = CGPoint(x: demo.collection.contentOffset.x, y: demo.minOffset)
         demo.userScrolled()
-        view.stop()
+        close(view, store)
         await settle()
         view = try self.view(store, in: window)
-        defer { view.stop(); store.stop(); window.close() }
+        defer { close(view, store); store.stop(); window.close() }
         await settle()
         frame(view)
         try expectAtNewest(view, "reopen")
