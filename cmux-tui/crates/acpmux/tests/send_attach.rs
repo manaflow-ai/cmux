@@ -1,8 +1,8 @@
 //! Files sent with a message between sessions (`acpmux send --attach FILE`, `src/attach.rs`;
 //! claude-sr2 scp'd Leo's screenshots to big-red one at a time on 2026-10-25). The receiving
 //! daemon saves each owner-only in the session's uploads, an image reaches the agent and the
-//! transcript as an image, a peer's session gets it over the link, and the caps, the names, a
-//! retried delivery and a held one are checked.
+//! transcript as an image, a peer's session gets it over the link, and files past the old caps,
+//! the names, a retried delivery and a held one are checked.
 #![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
@@ -25,7 +25,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-/// The caps `src/attach.rs` states: 8 MiB a file, 10 MiB a message.
+/// The caps `src/attach.rs` had, 8 MiB a file and 10 MiB a message: no longer refused.
 const MAX_FILE: usize = 8 << 20;
 const MAX_MESSAGE: usize = 10 << 20;
 
@@ -272,30 +272,28 @@ async fn a_traversal_name_is_sanitized_into_the_sessions_folder() {
     assert!(!home().join("escape.png").exists() && !home().join("uploads/escape.png").exists());
 }
 
-/// Over a cap the message is refused with the cap in its words, and nothing is saved or run; at
-/// the cap it goes. A remote web connection writes no file here (as `_acpmux/file_put`).
+/// No cap on a message's files: past the old caps (8 MiB a file, 10 MiB and 16 files a message)
+/// each is saved. A remote web connection writes no file here (as `_acpmux/file_put`).
 #[tokio::test]
-async fn an_attachment_over_the_cap_is_refused_and_nothing_is_saved() {
+async fn attachments_past_the_old_caps_are_saved() {
     let hub = hub();
     let mut c = client(&hub, Origin::Local);
     let session = c.new_session("attach-cap").await;
-    let (big, _) = c.send(&session, &v7(), "big", vec![image("big.png", &png(MAX_FILE + 1))]).await;
-    assert_eq!(big["error"]["data"]["reason"], "attach.tooLarge", "{big}");
-    assert!(big["error"]["message"].as_str().unwrap().contains("8 MiB"), "{big}");
-    let half = png(MAX_MESSAGE / 2 + 1);
-    let (two, _) =
-        c.send(&session, &v7(), "two", vec![image("a.png", &half), image("b.png", &half)]).await;
-    assert_eq!(two["error"]["data"]["reason"], "attach.tooLarge", "{two}");
-    assert!(two["error"]["message"].as_str().unwrap().contains("10 MiB"), "{two}");
     let mut web = client(&hub, Origin::Web);
     let (from_web, _) = web.send(&session, &v7(), "web", vec![image("w.png", &png(32))]).await;
     assert!(from_web.get("error").is_some(), "{from_web}");
     assert!(saved(&session).is_empty(), "{:?}", saved(&session));
-    assert!(c.user_messages(&session).await.is_empty());
-    let id = v7();
-    let (ok, _) = c.send(&session, &id, "fits", vec![image("max.png", &png(MAX_FILE))]).await;
-    assert!(ok.get("error").is_none(), "{ok}");
-    assert_saved(&session, "max.png", &png(MAX_FILE));
+    let (big, _) = c.send(&session, &v7(), "big", vec![image("big.png", &png(MAX_FILE + 1))]).await;
+    assert!(big.get("error").is_none(), "{big}");
+    assert_saved(&session, "big.png", &png(MAX_FILE + 1));
+    let half = png(MAX_MESSAGE / 2 + 1);
+    let (two, _) =
+        c.send(&session, &v7(), "two", vec![image("a.png", &half), image("b.png", &half)]).await;
+    assert!(two.get("error").is_none(), "{two}");
+    let many: Vec<_> = (0..20).map(|n| resource(&format!("n{n}.txt"), b"note")).collect();
+    let (many, _) = c.send(&session, &v7(), "many", many).await;
+    assert!(many.get("error").is_none(), "{many}");
+    assert_saved(&session, "n19.txt", b"note");
 }
 
 /// The outbox's retry sends the same prompt id again with `resend`: one copy, one message, and a
@@ -471,17 +469,14 @@ async fn a_message_refused_after_its_files_are_read_keeps_none() {
     assert!(saved(&session).is_empty(), "{:?}", saved(&session));
 }
 
-/// `acpmux send --no-wait` (`_acpmux/send_queue`) past the cap is refused before the outbox keeps
-/// it, and within it the attachment reaches the session.
+/// `acpmux send --no-wait` (`_acpmux/send_queue`): the outbox keeps the message, a file past the
+/// old cap too, and the attachment reaches the session.
 #[tokio::test]
-async fn a_queued_send_over_the_cap_is_refused_before_the_outbox_keeps_it() {
+async fn a_queued_send_carries_its_attachments() {
     let hub = hub();
     let mut c = client(&hub, Origin::Local);
     let session = c.new_session("attach-queue").await;
-    let request = json!({"sessionId": session, "prompt": [image("big.png", &png(MAX_FILE + 1))]});
-    let queued = c.call("_acpmux/send_queue", json!({"request": request})).await;
-    assert_eq!(queued["error"]["data"]["reason"], "attach.tooLarge", "{queued}");
-    let shot = png(128);
+    let shot = png(MAX_FILE + 1);
     let request = json!({"sessionId": session, "prompt": [{"type": "text", "text": "q"},
         image("q.png", &shot)]});
     let queued = c.call("_acpmux/send_queue", json!({"request": request})).await;
@@ -494,7 +489,7 @@ async fn a_queued_send_over_the_cap_is_refused_before_the_outbox_keeps_it() {
 
 /// A session on another host gets the file over the peer link, no scp: saved owner-only on the
 /// host that runs it, an image for its agent, the sender's chip in its transcript, readable
-/// through the sender's daemon. Over the cap is refused before the link.
+/// through the sender's daemon. Past the old cap too.
 #[tokio::test]
 async fn a_send_to_a_peers_session_lands_the_attachment_on_the_peer() {
     // B (big-red) runs the lane; A, the sender's daemon, mirrors B as a peer.
@@ -532,8 +527,8 @@ async fn a_send_to_a_peers_session_lands_the_attachment_on_the_peer() {
 
     let big = vec![image("big.png", &png(MAX_FILE + 1))];
     let (big, _) = ca.send("b/attach-far", &v7(), "big", big).await;
-    assert_eq!(big["error"]["data"]["reason"], "attach.tooLarge", "{big}");
-    assert_eq!(saved(&remote).len(), 1, "{:?}", saved(&remote));
+    assert!(big.get("error").is_none(), "{big}");
+    assert_saved(&remote, "big.png", &png(MAX_FILE + 1));
     assert_eq!(a.peers()[0]["connected"], true, "{:?}", a.peers());
 }
 
