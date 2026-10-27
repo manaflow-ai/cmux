@@ -17,9 +17,6 @@ pub(crate) struct Sources {
     pub pairing: Value,
     /// Remote hosting (`~/.cmux/host/remote.json`): the owner, `allow` and `grants`.
     pub remote: Value,
-    /// The concrete `Host` names of the person's `~/.ssh/config` (and its
-    /// includes), each with the `HostName` its blocks give it.
-    pub ssh_hosts: Vec<crate::machine_runtime::SshConfigHost>,
 }
 
 /// What a device is to a person.
@@ -103,49 +100,16 @@ pub(crate) struct Device {
     pub full_access: Option<bool>,
 }
 
-/// Where an available computer was found.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub(crate) enum Found {
-    /// The overlay network (Tailscale, Weft).
-    Network,
-    /// A `Host` of the person's `~/.ssh/config`.
-    SshConfig,
-}
-
-/// A computer the network or the person's ssh config knows that is not a
-/// device yet (Add Device, way 1).
+/// A computer the network knows that is not a device yet (Add Device, way 1).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub(crate) struct Available {
     pub name: String,
-    /// What enroll dials: the MagicDNS name, else the address; an ssh
-    /// config host's own name.
+    /// What enroll dials: the MagicDNS name, else the address.
     pub address: String,
-    /// Empty for an ssh config host: nothing says what it runs until enroll reaches it.
     pub os: String,
-    /// Same login as this machine, not tagged and not shared in; true for
-    /// a host the person's own ssh config names.
+    /// Same login as this machine, not tagged and not shared in.
     pub mine: bool,
-    pub found: Found,
 }
-
-/// Hosts a person reaches with ssh that are never a computer to add: git
-/// forges, whose ssh only serves git.
-const NOT_COMPUTERS: &[&str] = &[
-    "github.com",
-    "gist.github.com",
-    "ssh.github.com",
-    "gitlab.com",
-    "altssh.gitlab.com",
-    "bitbucket.org",
-    "altssh.bitbucket.org",
-    "ssh.dev.azure.com",
-    "vs-ssh.visualstudio.com",
-    "codeberg.org",
-    "git.sr.ht",
-    "hf.co",
-    "huggingface.co",
-];
 
 /// An open invite (an acpmux ticket not yet used).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -175,9 +139,7 @@ pub(crate) struct Listing {
 /// - remote hosting's `allow` logins and live grants are rows while remote
 ///   hosting is on (off, they let no one in);
 /// - revoked records and spent tickets are not rows; open tickets are invites;
-/// - network computers that are online and not a device are `available`,
-///   then the ssh config's hosts that are neither a device nor one of
-///   those computers (git forges left out).
+/// - network computers that are online and not a device are `available`.
 pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkNode]) -> Listing {
     let net_name = network.kind.name();
     let mut devices: Vec<Device> = Vec::new();
@@ -312,44 +274,11 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
                     address: n.address(),
                     os: n.os.clone(),
                     mine: n.mine,
-                    found: Found::Network,
                 },
             )
         })
         .collect();
     available.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.name.cmp(&b.1.name)));
-    let known = |host: &str| {
-        let host = host.trim_end_matches('.').to_ascii_lowercase();
-        let by_peer = array(&sources.peers, "peers").iter().any(|p| {
-            let url = text(p, "url").unwrap_or_default();
-            text(p, "name").is_some_and(|n| n.eq_ignore_ascii_case(&host))
-                || url_host(&url).is_some_and(|h| h == host)
-        });
-        let by_device = devices.iter().any(|d| {
-            d.name.eq_ignore_ascii_case(&host)
-                || d.reach.as_ref().is_some_and(|r| {
-                    r.address.eq_ignore_ascii_case(&host) || r.ips.iter().any(|ip| *ip == host)
-                })
-        });
-        by_peer
-            || by_device
-            || nodes.iter().any(|n| n.answers_to(&host))
-            || NOT_COMPUTERS.contains(&host.as_str())
-    };
-    // An alias whose HostName is a device, a peer, a tailnet node or a forge is that machine.
-    let mut ssh: Vec<Available> = sources
-        .ssh_hosts
-        .iter()
-        .filter(|h| !known(&h.alias) && !h.host_name.as_deref().is_some_and(known))
-        .map(|h| Available {
-            name: h.alias.clone(),
-            address: h.alias.clone(),
-            os: String::new(),
-            mine: true,
-            found: Found::SshConfig,
-        })
-        .collect();
-    ssh.sort_by_key(|a| a.name.to_ascii_lowercase());
 
     let invites = array(&sources.pairing, "tickets")
         .iter()
@@ -366,7 +295,7 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
     Listing {
         network,
         devices,
-        available: available.into_iter().map(|(_, a)| a).chain(ssh).collect(),
+        available: available.into_iter().map(|(_, a)| a).collect(),
         invites,
     }
 }

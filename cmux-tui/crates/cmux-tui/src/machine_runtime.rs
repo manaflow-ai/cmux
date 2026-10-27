@@ -269,44 +269,18 @@ impl MachineRuntime {
 }
 
 fn discover_ssh_config_hosts() -> Vec<MachineConnectionTarget> {
-    ssh_config_hosts()
-        .into_iter()
-        .map(|host| MachineConnectionTarget { name: host.clone(), target: host })
-        .collect()
-}
-
-/// The concrete `Host` names of `~/.ssh/config` and the files it includes,
-/// in file order (no patterns, no negations).
-pub(crate) fn ssh_config_hosts() -> Vec<String> {
-    ssh_config_targets().into_iter().map(|host| host.alias).collect()
-}
-
-/// One concrete `Host` of the ssh config and the `HostName` its own
-/// `Host` blocks give it (`%h` replaced by the alias; the first one wins,
-/// as ssh takes it, an `Include` read where it stands and inside the block
-/// it is in). Wildcard blocks and `Match` are not read.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct SshConfigHost {
-    pub alias: String,
-    pub host_name: Option<String>,
-}
-
-/// [`ssh_config_hosts`] with each host's `HostName`.
-pub(crate) fn ssh_config_targets() -> Vec<SshConfigHost> {
     let Some(home) = std::env::var_os("HOME").filter(|home| !home.is_empty()) else {
         return Vec::new();
     };
     let home = PathBuf::from(home);
     let ssh_root = home.join(".ssh");
-    ssh_config_targets_from_path(&ssh_root.join("config"), &ssh_root, &home)
+    ssh_config_hosts_from_path(&ssh_root.join("config"), &ssh_root, &home)
+        .into_iter()
+        .map(|host| MachineConnectionTarget { name: host.clone(), target: host })
+        .collect()
 }
 
-#[cfg(test)]
 fn ssh_config_hosts_from_path(config: &Path, ssh_root: &Path, home: &Path) -> Vec<String> {
-    ssh_config_targets_from_path(config, ssh_root, home).into_iter().map(|h| h.alias).collect()
-}
-
-fn ssh_config_targets_from_path(config: &Path, ssh_root: &Path, home: &Path) -> Vec<SshConfigHost> {
     let mut discovery = SshConfigDiscovery {
         ssh_root,
         home,
@@ -315,17 +289,7 @@ fn ssh_config_targets_from_path(config: &Path, ssh_root: &Path, home: &Path) -> 
         hosts: Vec::new(),
     };
     discovery.visit(config, 0);
-    let mut names = HostNames { ssh_root, home, read: 0, chain: Vec::new(), names: HashMap::new() };
-    names.read(config, &mut Vec::new());
-    let mut host_names = names.names;
-    discovery
-        .hosts
-        .into_iter()
-        .map(|alias| {
-            let host_name = host_names.remove(&alias.to_ascii_lowercase());
-            SshConfigHost { alias, host_name }
-        })
-        .collect()
+    discovery.hosts
 }
 
 struct SshConfigDiscovery<'a> {
@@ -350,10 +314,19 @@ impl SshConfigDiscovery<'_> {
         }
         let Ok(contents) = fs::read_to_string(path) else { return };
         let mut includes = Vec::new();
-        for (keyword, values) in contents.lines().filter_map(ssh_config_line) {
+        for line in contents.lines() {
+            let mut words = ssh_config_words(line);
+            let Some(first) = words.first_mut() else { continue };
+            let mut inline_value = None;
+            if let Some((keyword, value)) = first.split_once('=') {
+                inline_value = (!value.is_empty()).then(|| value.to_string());
+                *first = keyword.to_string();
+            }
+            let keyword = first.to_ascii_lowercase();
+            let mut values = inline_value.into_iter().chain(words.into_iter().skip(1));
             match keyword.as_str() {
                 "host" => {
-                    for host in values {
+                    for host in values.by_ref() {
                         if self.hosts.len() >= SSH_CONFIG_MAX_HOSTS {
                             return;
                         }
@@ -364,7 +337,9 @@ impl SshConfigDiscovery<'_> {
                         }
                     }
                 }
-                "include" => includes.extend(values),
+                "include" => {
+                    includes.extend(values);
+                }
                 _ => {}
             }
         }
@@ -372,103 +347,25 @@ impl SshConfigDiscovery<'_> {
         // often generated inventories, so list direct aliases first while
         // still following every include for discovery and de-duplication.
         for pattern in includes {
-            for included in expand_ssh_include(&pattern, self.ssh_root, self.home) {
+            for included in self.expand_include(&pattern) {
                 self.visit(&included, depth.saturating_add(1));
             }
         }
     }
-}
 
-/// Each concrete alias's first `HostName`, read the way ssh reads it: an
-/// `Include` where it stands, inside the `Host` block around it, which a
-/// `Host` line in the included file ends only for the rest of that file.
-struct HostNames<'a> {
-    ssh_root: &'a Path,
-    home: &'a Path,
-    /// Files read so far, against [`SSH_CONFIG_MAX_FILES`].
-    read: usize,
-    /// The include chain being read, so a cycle stops.
-    chain: Vec<PathBuf>,
-    /// By lowercased alias.
-    names: HashMap<String, String>,
-}
-
-impl HostNames<'_> {
-    /// `block`: the concrete aliases of the `Host` block being read (none in
-    /// a `Match` block, or one whose names are all patterns).
-    fn read(&mut self, path: &Path, block: &mut Vec<String>) {
-        if self.chain.len() > SSH_CONFIG_MAX_DEPTH || self.read >= SSH_CONFIG_MAX_FILES {
-            return;
-        }
-        let identity = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-        if self.chain.contains(&identity) {
-            return;
-        }
-        let Ok(contents) = fs::read_to_string(path) else { return };
-        self.read += 1;
-        self.chain.push(identity);
-        for (keyword, values) in contents.lines().filter_map(ssh_config_line) {
-            match keyword.as_str() {
-                "host" => {
-                    block.clear();
-                    block.extend(
-                        values
-                            .into_iter()
-                            .filter(|h| is_concrete_ssh_host(h))
-                            .map(|h| h.to_ascii_lowercase()),
-                    );
-                }
-                "match" => block.clear(),
-                "hostname" => {
-                    let Some(name) = values.into_iter().next() else { continue };
-                    for alias in block.iter() {
-                        self.names
-                            .entry(alias.clone())
-                            .or_insert_with(|| name.replace("%h", alias));
-                    }
-                }
-                "include" => {
-                    for pattern in values {
-                        for included in expand_ssh_include(&pattern, self.ssh_root, self.home) {
-                            let mut inner = block.clone();
-                            self.read(&included, &mut inner);
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-        self.chain.pop();
+    fn expand_include(&self, pattern: &str) -> Vec<PathBuf> {
+        let path = if pattern == "~" {
+            self.home.to_path_buf()
+        } else if let Some(relative) = pattern.strip_prefix("~/") {
+            self.home.join(relative)
+        } else {
+            let path = PathBuf::from(pattern);
+            if path.is_absolute() { path } else { self.ssh_root.join(path) }
+        };
+        let Some(pattern) = path.to_str() else { return Vec::new() };
+        let Ok(paths) = glob::glob(pattern) else { return Vec::new() };
+        paths.filter_map(Result::ok).take(SSH_CONFIG_MAX_FILES).collect()
     }
-}
-
-/// An `Include` argument's files: `~` is the home, a relative path is under
-/// `~/.ssh`, and globs expand.
-fn expand_ssh_include(pattern: &str, ssh_root: &Path, home: &Path) -> Vec<PathBuf> {
-    let path = if pattern == "~" {
-        home.to_path_buf()
-    } else if let Some(relative) = pattern.strip_prefix("~/") {
-        home.join(relative)
-    } else {
-        let path = PathBuf::from(pattern);
-        if path.is_absolute() { path } else { ssh_root.join(path) }
-    };
-    let Some(pattern) = path.to_str() else { return Vec::new() };
-    let Ok(paths) = glob::glob(pattern) else { return Vec::new() };
-    paths.filter_map(Result::ok).take(SSH_CONFIG_MAX_FILES).collect()
-}
-
-/// A config line's lowercased keyword and its values (`Keyword=value` too).
-fn ssh_config_line(line: &str) -> Option<(String, Vec<String>)> {
-    let mut words = ssh_config_words(line);
-    let first = words.first_mut()?;
-    let mut inline_value = None;
-    if let Some((keyword, value)) = first.split_once('=') {
-        inline_value = (!value.is_empty()).then(|| value.to_string());
-        *first = keyword.to_string();
-    }
-    let keyword = first.to_ascii_lowercase();
-    Some((keyword, inline_value.into_iter().chain(words.into_iter().skip(1)).collect()))
 }
 
 fn is_concrete_ssh_host(host: &str) -> bool {
@@ -1081,94 +978,6 @@ mod tests {
         assert_eq!(
             ssh_config_hosts_from_path(&ssh_root.join("config"), &ssh_root, home),
             vec!["buildbox", "duplicate", "mini", "quoted-host"]
-        );
-    }
-
-    #[test]
-    fn ssh_config_discovery_reads_each_hosts_first_host_name() {
-        let temp = tempfile::tempdir().unwrap();
-        let home = temp.path();
-        let ssh_root = home.join(".ssh");
-        fs::create_dir_all(&ssh_root).unwrap();
-        fs::write(
-            ssh_root.join("config"),
-            "Host gh\n  HostName github.com\nHost gh\n  HostName example.com\n\
-             Host mini mini-b\n  HostName %h.tail1234.ts.net\nHost *.corp\n  HostName x\n\
-             Match host plain\n  HostName y\nHost plain\n",
-        )
-        .unwrap();
-        let host = |alias: &str, host_name: Option<&str>| SshConfigHost {
-            alias: alias.to_owned(),
-            host_name: host_name.map(str::to_owned),
-        };
-        assert_eq!(
-            ssh_config_targets_from_path(&ssh_root.join("config"), &ssh_root, home),
-            vec![
-                host("gh", Some("github.com")),
-                host("mini", Some("mini.tail1234.ts.net")),
-                host("mini-b", Some("mini-b.tail1234.ts.net")),
-                host("plain", None),
-            ]
-        );
-    }
-
-    #[test]
-    fn a_host_name_from_an_include_counts_where_the_include_stands() {
-        let temp = tempfile::tempdir().unwrap();
-        let home = temp.path();
-        let ssh_root = home.join(".ssh");
-        fs::create_dir_all(&ssh_root).unwrap();
-        // `early` comes before `gh`'s block, so its HostName wins; `inside`
-        // is read inside `lab`'s block and gives it one; `loop` includes
-        // the config again, which stops.
-        fs::write(
-            ssh_root.join("config"),
-            "Include early
-Host gh
-  HostName example.com
-             Host lab
-  Include inside
-Host lab2
-  Include loop
-",
-        )
-        .unwrap();
-        fs::write(
-            ssh_root.join("early"),
-            "Host gh
-  HostName github.com
-",
-        )
-        .unwrap();
-        fs::write(
-            ssh_root.join("inside"),
-            "HostName 10.0.4.2
-Host other
-  HostName z
-",
-        )
-        .unwrap();
-        fs::write(
-            ssh_root.join("loop"),
-            "Include config
-HostName lab2.internal
-",
-        )
-        .unwrap();
-        let names: Vec<(String, Option<String>)> =
-            ssh_config_targets_from_path(&ssh_root.join("config"), &ssh_root, home)
-                .into_iter()
-                .map(|h| (h.alias, h.host_name))
-                .collect();
-        let want = |a: &str, n: &str| (a.to_owned(), Some(n.to_owned()));
-        assert_eq!(
-            names,
-            vec![
-                want("gh", "github.com"),
-                want("lab", "10.0.4.2"),
-                want("lab2", "lab2.internal"),
-                want("other", "z"),
-            ]
         );
     }
 
