@@ -31,6 +31,8 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import hashlib
+import http.client
+import itertools
 import json
 import os
 import socket
@@ -46,7 +48,6 @@ API = os.environ.get("GITHUB_API_URL", "https://api.github.com")
 # workers, so a slow connection holds up one small piece rather than a
 # 1/connections share of the archive.
 PIECE = 8 << 20
-MAX_ROUNDS = 10
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -106,28 +107,50 @@ def is_throttle(error: BaseException) -> bool:
     return isinstance(error, (ConnectionResetError, TimeoutError, socket.timeout))
 
 
+class Overran(OSError):
+    """The server sent more bytes than the range asked for."""
+
+
+def read_timeout_until(read_timeout: float, deadline: float) -> float:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise DeadlineExceeded()
+    return min(read_timeout, remaining)
+
+
+def set_read_timeout(resp, timeout: float) -> None:
+    """Re-arm the response socket's timeout before each read."""
+    sock = getattr(getattr(getattr(resp, "fp", None), "raw", None), "_sock", None)
+    if sock is not None:
+        sock.settimeout(timeout)
+
+
 def fetch_range(url: str, fd: int, lo: int, hi: int, read_timeout: float, deadline: float) -> None:
-    """Write bytes lo..hi of url into fd; raise RangeFailed with the offset reached."""
+    """Write bytes lo..hi of url into fd; raise RangeFailed with the offset reached.
+
+    Nothing is ever written outside lo..hi, and no blocking call outlives the
+    deadline: every read's timeout is the smaller of read_timeout and the time
+    left.
+    """
     offset = lo
     try:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise DeadlineExceeded()
         req = urllib.request.Request(url, headers={"Range": f"bytes={lo}-{hi}"})
-        # The timeout bounds each blocking read, so a stalled range fails fast,
-        # and no read outlives the deadline.
-        with urllib.request.urlopen(req, timeout=min(read_timeout, remaining)) as resp:
+        with urllib.request.urlopen(req, timeout=read_timeout_until(read_timeout, deadline)) as resp:
             if resp.status != 206:
                 raise OSError(f"range {lo}-{hi}: HTTP {resp.status}, expected 206")
-            # read1 returns what has arrived, so a stall keeps the bytes before it.
-            for chunk in iter(lambda: resp.read1(1 << 20), b""):
+            while True:
+                set_read_timeout(resp, read_timeout_until(read_timeout, deadline))
+                # read1 returns what has arrived, so a stall keeps the bytes before it.
+                chunk = resp.read1(1 << 20)
+                if not chunk:
+                    break
+                if offset + len(chunk) > hi + 1:
+                    raise Overran(f"range {lo}-{hi}: server sent more than {hi - lo + 1} bytes")
                 os.pwrite(fd, chunk, offset)
                 offset += len(chunk)
-                if offset <= hi and time.monotonic() >= deadline:
-                    raise DeadlineExceeded()
         if offset != hi + 1:
             raise OSError(f"range {lo}-{hi}: short read ending at {offset}")
-    except (OSError, urllib.error.URLError, DeadlineExceeded) as error:
+    except (OSError, urllib.error.URLError, http.client.HTTPException, DeadlineExceeded) as error:
         raise RangeFailed(offset, error) from error
 
 
@@ -155,7 +178,8 @@ def download(
     fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
     try:
         os.ftruncate(fd, size)
-        for round_number in range(1, MAX_ROUNDS + 1):
+        # Rounds go on while they make progress; the deadline bounds them.
+        for round_number in itertools.count(1):
             failed: list[tuple[int, int]] = []
             throttled = False
             moved = 0
@@ -171,7 +195,7 @@ def download(
                         moved += hi - lo + 1
                     except RangeFailed as error:
                         # A server that overran the range gets the whole range again.
-                        reached = error.offset if error.offset <= hi else lo
+                        reached = lo if isinstance(error.cause, Overran) else error.offset
                         moved += reached - lo
                         reason = "deadline reached" if isinstance(error.cause, DeadlineExceeded) else error.cause
                         print(f"round {round_number}: range {lo}-{hi} stopped at {reached}: {reason}", file=sys.stderr)
