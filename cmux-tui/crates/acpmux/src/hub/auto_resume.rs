@@ -472,6 +472,7 @@ impl Hub {
         session: &Session,
         after: Option<&str>,
         exclusive: bool,
+        subagent_retry: bool,
         turn: super::TurnInfo,
     ) -> Result<(), RpcError> {
         let mut pending = self.auto_resumes.lock();
@@ -499,9 +500,10 @@ impl Hub {
                 return Err(stopped());
             }
         }
-        // A subagent retry skipped since its prompt went out does not start (`subagent_retry.rs`).
+        // A subagent retry skipped since its prompt went out, or that no attempt of this daemon
+        // sent (one a restart or a move restored), does not start (`subagent_retry.rs`).
         let prompt_id = turn.prompt_id.clone();
-        self.subagent_retries.start(&session.id, &prompt_id, || {
+        self.subagent_retries.start(&session.id, &prompt_id, subagent_retry, || {
             *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = Some(turn);
         })
     }

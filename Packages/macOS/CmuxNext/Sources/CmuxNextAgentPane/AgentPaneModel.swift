@@ -161,6 +161,12 @@ public final class AgentPaneModel {
     /// workspace's own field (``workspaceRoots``) carries it.
     @ObservationIgnored public internal(set) var chosenFolder: String?
     @ObservationIgnored internal(set) var handshakeCwd: String?
+    /// The project the person picked on the New Tab page (`workspace.useFolder`) before the first
+    /// send: where a terminal from this pane starts until the chat's session names its own.
+    @ObservationIgnored internal(set) var pickedFolder: String?
+    /// Counts `workspace.useFolder` picks and folder choices, so a pick that finishes after a
+    /// later one never replaces it (``notePicked(_:_:)``).
+    @ObservationIgnored var pickSequence = 0
 
     /// Saves the inspector's exported log or a side panel document where the user picks; true
     /// when saved, false when the user cancelled. Nil leaves the page to copy the text instead.
@@ -338,7 +344,9 @@ public final class AgentPaneModel {
             // checks the folder and its trust at the start; this Mac's disk is never read (cx-k21v).
             guard cwd.hasPrefix("/") else { return Self.transportFailure(.pathInvalid) }
             return await startFolders.useRemote(cwd, confirm: confirm, transport: transport)
-        case .useFolder(let cwd, let confirm): return await startFolders.use(cwd, confirm: confirm, transport: transport)
+        case .useFolder(let cwd, let confirm):
+            let pick = beginPick()
+            return await notePicked(pick, startFolders.use(cwd, confirm: confirm, transport: transport))
         case .browseProject where remoteChat: return Self.unsupported("project.browse")
         case .listProjects(let query) where remoteChat:
             return AgentPaneReply.success(["projects": await onListRemoteProjects?(query) ?? []])

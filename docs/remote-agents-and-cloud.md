@@ -125,7 +125,8 @@ the Linux installation and `host add` steps above instead. `host update`
 refuses a peer of another OS or architecture unless you pass `--binary-dir DIR`
 with a build named `acpmux-<target>` there (for example
 `acpmux-x86_64-unknown-linux-musl`); otherwise update that host by rebuilding
-it there.
+it there. Same-target peers can use the plain
+`acpmux host update NAME`.
 
 ## Work with a remote session
 

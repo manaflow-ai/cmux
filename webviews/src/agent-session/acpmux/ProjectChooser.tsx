@@ -182,7 +182,7 @@ export function ProjectChooser({
             placeholder={t("project.search")}
             inputClassName="acpmux-project-search-field"
             listClassName="m-0 list-none p-0"
-            itemClassName="acpmux-menu-item cursor-default rounded-lg data-[highlighted]:bg-hover"
+            itemClassName="acpmux-menu-item rounded-lg data-[highlighted]:bg-hover"
             itemLabel={rowLabel}
             isItemCurrent={isCurrent}
             completionText={(key) => (key === NO_PROJECT_KEY ? "" : rowLabel(key))}
