@@ -88,9 +88,9 @@ extension HomeController {
         }
         let intent = HomeIntent(op: .sendMessage(conversation: conversation, parts: parts))
         pendingSend = (intent, text, toDesign(field))
-        pendingOrigins = Dictionary(uniqueKeysWithValues: attachments.enumerated().compactMap { i, a in
+        pendingOrigins = Dictionary(attachments.enumerated().compactMap { i, a in
             a.origin.map { (i, toDesign($0)) }
-        })
+        }, uniquingKeysWith: { first, _ in first })
         scene.pinned = true
         onIntent(intent)
         onAccessibilityChange()

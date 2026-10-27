@@ -2,6 +2,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextDiff
 import CmuxNextDesign
+import CmuxNextWakeups
 @testable import CmuxNextSettings
 import Foundation
 import Testing
@@ -38,7 +39,7 @@ struct DiffColorsSettingTests {
         await settings.reload()
 
         let pages = AgentPanePageSettings()
-        pages.follow(settings) {}
+        pages.follow(settings, on: MainWorkScheduler(budget: MainFrameBudget())) {}
         let prefs = SettingsDiffPrefs { settings }
         var streamed: [JSONValue] = []
         let stop = prefs.listen { streamed.append($0["colors"] ?? .null) }

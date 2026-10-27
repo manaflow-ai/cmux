@@ -19,8 +19,10 @@ enum CEFEventTrace {
         }
         guard let line else { return }
         if events[browser] == nil, events.count >= browsers, let oldest = events.keys.min() { events[oldest] = nil }
-        events[browser, default: []].append(line)
-        if let count = events[browser]?.count, count > limit { events[browser]?.removeFirst(count - limit) }
+        var lines = events.removeValue(forKey: browser) ?? []
+        lines.append(line)
+        if lines.count > limit { lines.removeFirst(lines.count - limit) }
+        events[browser] = lines
     }
 
     static func recent(_ browser: Int32?) -> [String] {

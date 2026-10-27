@@ -211,6 +211,31 @@ impl ClientRegistry {
             .map(|outbound| (stream, outbound)))
     }
 
+    /// The view lease of `client`'s attach stream `stream` on `surface`
+    /// (`Some(None)` for a view with no lease); `None` when that stream does
+    /// not view `surface`.
+    pub(super) fn stream_view(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+        stream: u64,
+    ) -> Option<Option<String>> {
+        let state = self.state.lock().recover_poison();
+        let attached = state.clients.get(&client)?.attached.get(&surface)?;
+        (attached.streams.contains_key(&stream) || attached.pending_streams.contains_key(&stream))
+            .then(|| attached.lease_by_stream.get(&stream).cloned())
+    }
+
+    /// The surface `client`'s attach stream `stream` views.
+    pub(super) fn stream_surface(&self, client: u64, stream: u64) -> Option<SurfaceId> {
+        let state = self.state.lock().recover_poison();
+        state.clients.get(&client)?.attached.iter().find_map(|(surface, attached)| {
+            (attached.streams.contains_key(&stream)
+                || attached.pending_streams.contains_key(&stream))
+            .then_some(*surface)
+        })
+    }
+
     pub(super) fn prepare_view_resize(
         &self,
         client: u64,
