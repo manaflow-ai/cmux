@@ -3740,15 +3740,7 @@ export function VirtualTranscript({
     const detachIntent = attachUserScrollIntent(node);
     const followIntent = (next: boolean) => followRef.current(next);
     const cancelProgrammatic = (event?: Event) => {
-      reader(event);
-      if (
-        !event ||
-        event.type === "touchmove" ||
-        event.type === "pointermove" ||
-        (event.type === "wheel" && (event as WheelEvent).deltaY < 0) ||
-        (event.type === "keydown" && ["ArrowUp", "PageUp", "Home"].includes((event as KeyboardEvent).key))
-      )
-        followIntent(false);
+      if (reader(event)) followIntent(false);
       if (jumpTarget.current !== undefined) {
         stopJump();
         scrolledTo.current = { top: node.scrollTop, atLatest: false };
@@ -3781,9 +3773,10 @@ export function VirtualTranscript({
       if (movingUp) followIntent(false);
       if (jumpTarget.current !== undefined) {
         stopJump();
-        scrolledTo.current = { top: node?.scrollTop ?? 0, atLatest: false };
+        scrolledTo.current = { top: node.scrollTop, atLatest: false };
         followIntent(false);
       }
+      return Boolean(movingUp);
     };
     const unsubscribeIntent = intent.subscribe(cancelProgrammatic);
     // attachUserScrollIntent captures the scroller and scrollbar inputs, then invokes this reader

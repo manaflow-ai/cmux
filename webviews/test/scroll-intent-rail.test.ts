@@ -206,6 +206,16 @@ await requireBrowserLane("scroll-intent-rail.test.ts", async () => {
       held.push(node.scrollTop === 0);
       animateScroll(node, () => 100, 0, [0, 0, 1, 1], undefined, undefined, { explicit: true });
       held.push(node.scrollTop === 100);
+      // A scrollbar drag can lose pointerup outside the window. A buttons=0 move clears the
+      // pressed state so later hovering does not keep cancelling explicit motion.
+      now = 5001;
+      const hoverRequest = intent.request();
+      document.dispatchEvent(new PointerEvent("pointermove", { buttons: 0, bubbles: true }));
+      held.push(hoverRequest() && !intent.isHeld());
+      node.dispatchEvent(new PointerEvent("pointerdown", { buttons: 1, bubbles: true }));
+      window.dispatchEvent(new Event("blur"));
+      now = 6001;
+      held.push(!intent.isHeld());
       animateScroll(node, () => 500, 60_000, [0, 0, 1, 1], undefined, undefined, { explicit: true });
       node.dispatchEvent(new WheelEvent("wheel"));
       await new Promise(requestAnimationFrame);

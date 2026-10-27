@@ -72,13 +72,26 @@ export function attachUserScrollIntent(node: HTMLElement): () => void {
     mark(event);
   };
   const move = (event: Event) => {
-    if (pressed) mark(event);
+    if (!pressed) return;
+    // A scrollbar drag can leave the window without a pointerup. The next pointermove reports
+    // buttons=0; clear the drag before ordinary hovering can keep invalidating motion.
+    if ((event as PointerEvent).buttons === 0) {
+      pressed = false;
+      intent.press(false);
+      return;
+    }
+    mark(event);
   };
   const up = (event: Event) => {
     if (!pressed) return;
     pressed = false;
     intent.press(false);
     mark(event);
+  };
+  const blur = () => {
+    if (!pressed) return;
+    pressed = false;
+    intent.press(false);
   };
   const key = (event: KeyboardEvent) => {
     const target = event.target as HTMLElement | null;
@@ -96,6 +109,7 @@ export function attachUserScrollIntent(node: HTMLElement): () => void {
   page.addEventListener("pointercancel", up, true);
   page.addEventListener("touchend", up, true);
   page.addEventListener("touchcancel", up, true);
+  page.defaultView?.addEventListener("blur", blur, true);
   page.addEventListener("keydown", key, true);
   return () => {
     node.removeEventListener("wheel", mark, true);
@@ -107,6 +121,7 @@ export function attachUserScrollIntent(node: HTMLElement): () => void {
     page.removeEventListener("pointercancel", up, true);
     page.removeEventListener("touchend", up, true);
     page.removeEventListener("touchcancel", up, true);
+    page.defaultView?.removeEventListener("blur", blur, true);
     page.removeEventListener("keydown", key, true);
     intent.reset();
   };
