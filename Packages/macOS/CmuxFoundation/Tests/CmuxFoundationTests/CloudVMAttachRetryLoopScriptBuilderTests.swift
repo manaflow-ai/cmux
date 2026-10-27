@@ -65,8 +65,33 @@ struct CloudVMAttachRetryLoopScriptBuilderTests {
             environment: ["CMUX_SSH_RECONNECT_LIMIT": "0", "CMUX_SSH_RECONNECT_DELAY_SECONDS": "abc"],
             attachStatus: 255
         )
-        // The attach command normalizes these itself; the loop must not rewrite them.
-        #expect(run.attachEnvironment == "0 abc 0 abc")
+        // The attach command normalizes the reconnect settings itself; the loop
+        // must not rewrite them. Its own retry defaults are the normalized copies.
+        #expect(run.attachEnvironment == "0 abc 0 2")
+    }
+
+    /// The attach command's retry reads the defaults as given, with no ceiling
+    /// and no delay check, so they have to be the normalized values.
+    @Test func theAttachRetryDefaultsAreTheNormalizedSettings() throws {
+        let run = try runLoop(
+            environment: ["CMUX_SSH_RECONNECT_LIMIT": "99999999999999999999", "CMUX_SSH_RECONNECT_DELAY_SECONDS": "abc"],
+            attachStatus: 255,
+            stopAfter: 1
+        )
+        #expect(run.attachEnvironment == "99999999999999999999 abc 86400 2")
+    }
+
+    @Test func anExplicitAttachRetrySettingIsKept() throws {
+        let run = try runLoop(
+            environment: [
+                "CMUX_SSH_RECONNECT_LIMIT": "99999999999999999999",
+                "CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_LIMIT": "5",
+                "CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_DELAY_SECONDS": "7",
+            ],
+            attachStatus: 255,
+            stopAfter: 1
+        )
+        #expect(run.attachEnvironment == "99999999999999999999 2 5 7")
     }
 
     private struct LoopRun {
