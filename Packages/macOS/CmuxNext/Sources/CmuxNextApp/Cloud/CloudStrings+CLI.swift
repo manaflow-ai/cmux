@@ -102,6 +102,13 @@ extension CloudStrings {
                               table: "Cloud", bundle: .module), path)
     }
 
+    /// `--machine-config FILE` that cannot be read, is empty or is over 64 KB.
+    static func machineConfigUnreadable(_ path: String) -> String {
+        String(format: String(localized: "cloud.cli.machineConfigUnreadable",
+                              defaultValue: "Can't use the machine config %@: it must be a readable file of at most 64 KB.",
+                              table: "Cloud", bundle: .module), path)
+    }
+
     /// `cloud new-machine --bootstrap lane` with no `--name`: the lane bootstrap names the host after it.
     static var laneNeedsName: String {
         String(localized: "cloud.cli.laneNeedsName", defaultValue: "The lane bootstrap needs the machine's name: pass --name lane-vm-N.",

@@ -23,7 +23,7 @@ export type MinimapTurn = {
   /// every session numbers its rows `user-<seq>` and a row's `at` is not stable across snapshots.
   /// Bookmarks use the row id's seq instead (bookmarks.ts), which acpmux checks against its log.
   key: string;
-  /// The prompt on one line.
+  /// The prompt, preserving its line breaks for the card's bounded three-line title.
   prompt: string;
   /// The start of the first reply after the prompt.
   reply: ReplyBlock[];
@@ -371,7 +371,9 @@ export function minimapTurns(
         index: userIndex,
         id: user.id,
         key: turnKey(sessionId, user),
-        prompt: (user.text ?? "").replace(/\s+/g, " ").trim(),
+        // Keep explicit prompt line breaks for the hover card; its CSS clamps the title without
+        // changing what the person wrote. Spaces are normalized by white-space: pre-line there.
+        prompt: (user.text ?? "").trim(),
         reply: sameReply ? kept.turn.reply : reply?.text ? replyPreview(reply.text) : [],
         metadata: nextMetadata,
       };

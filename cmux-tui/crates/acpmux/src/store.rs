@@ -110,6 +110,10 @@ pub struct SessionMeta {
     pub harness: String,
     #[serde(default, alias = "agent_argv")]
     pub harness_argv: Vec<String>,
+    /// The argv its agent last started with: a config or preset reload since creation can change
+    /// it (`harness_argv` is the creation's). None before any start (#23322, review 36).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spawn_argv: Option<Vec<String>>,
     /// Model family of the profile at creation (`claude`, `codex`, ...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub family: Option<String>,
@@ -553,6 +557,17 @@ pub trait Store: Send + Sync {
             }
         }
         Ok(())
+    }
+    /// `scan`, but a record that cannot be read (a torn or malformed line) is an error instead of
+    /// being skipped: a reader that must see every record (the full-access bound's readback of a
+    /// left host, #23322) learns that it did not. A memory store holds only whole records.
+    fn scan_strict(
+        &self,
+        id: &str,
+        after: u64,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan(id, after, visit)
     }
     /// Visit records with `after < seq < before` newest first until `visit`
     /// returns false: the reverse of `scan`, for pages taken from the end.
@@ -1249,35 +1264,16 @@ impl Store for LocalStore {
     /// not the log's prefix (perf100: a 70 MB log read in 10,000-record pages parsed
     /// every earlier record again on each page).
     fn scan(&self, id: &str, after: u64, visit: &mut dyn FnMut(EventRecord) -> bool) -> Result<()> {
-        let segments = self.segments(id)?;
-        let mut line = Vec::new();
-        for (index, (_, path)) in segments.iter().enumerate() {
-            if after > 0
-                && let Some((_, next)) = segments.get(index + 1)
-                && first_seq(next)?.is_some_and(|first| first <= after.saturating_add(1))
-            {
-                continue;
-            }
-            let mut reader =
-                BufReader::with_capacity(256 * 1024, crate::config::private_state_file(path)?);
-            loop {
-                line.clear();
-                if reader.read_until(b'\n', &mut line)? == 0 {
-                    break;
-                }
-                if line.iter().all(u8::is_ascii_whitespace) {
-                    continue;
-                }
-                if record_seq(&line).is_some_and(|seq| seq <= after) {
-                    continue;
-                }
-                let Ok(rec) = parse_record(&line) else { continue };
-                if rec.seq > after && !visit(rec) {
-                    return Ok(());
-                }
-            }
-        }
-        Ok(())
+        self.scan_lines(id, after, false, visit)
+    }
+
+    fn scan_strict(
+        &self,
+        id: &str,
+        after: u64,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_lines(id, after, true, visit)
     }
 
     /// Reads each line's head (`RecordHead::read`) and parses only the lines the reader asks
@@ -1624,6 +1620,32 @@ mod permission_tests {
         assert_eq!(mode(&second), 0o600);
     }
 
+    /// Review 2 of #26054: a strict read of a log whose segments cannot be listed fails; `scan`
+    /// reads no record of it.
+    #[test]
+    fn a_strict_read_fails_when_the_log_cannot_be_listed() {
+        let temp = TempDir::new();
+        let root = temp.0.join("sessions");
+        let store = LocalStore::new(root.clone(), 64 * 1024).unwrap();
+        let record = EventRecord {
+            seq: 1,
+            at: 1,
+            dir: "mux".into(),
+            kind: "host_started".into(),
+            msg: serde_json::json!({}),
+            host_seq: None,
+        };
+        store.append("session-1", &record).unwrap();
+        let events = root.join("session-1").join("events");
+        std::fs::remove_dir_all(&events).unwrap();
+        std::fs::write(&events, "not a directory").unwrap();
+        assert!(store.scan("session-1", 0, &mut |_| true).is_ok());
+        assert!(
+            store.scan_strict("session-1", 0, &mut |_| true).is_err(),
+            "a strict read of a log it could not list read nothing and passed"
+        );
+    }
+
     #[test]
     fn local_store_refuses_a_symlinked_existing_session() {
         let temp = TempDir::new();
@@ -1656,3 +1678,55 @@ mod line_rev_tests;
 
 #[cfg(test)]
 mod head_tests;
+
+impl LocalStore {
+    /// `Store::scan`, and with `strict` `Store::scan_strict`.
+    fn scan_lines(
+        &self,
+        id: &str,
+        after: u64,
+        strict: bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        // A strict read learns that the log's segments could not be listed (`segments` lists
+        // none then).
+        if strict {
+            std::fs::read_dir(self.dir(id).join("events"))?;
+        }
+        let segments = self.segments(id)?;
+        let mut line = Vec::new();
+        for (index, (_, path)) in segments.iter().enumerate() {
+            if after > 0
+                && let Some((_, next)) = segments.get(index + 1)
+                && first_seq(next)?.is_some_and(|first| first <= after.saturating_add(1))
+            {
+                continue;
+            }
+            let mut reader =
+                BufReader::with_capacity(256 * 1024, crate::config::private_state_file(path)?);
+            loop {
+                line.clear();
+                if reader.read_until(b'\n', &mut line)? == 0 {
+                    break;
+                }
+                if line.iter().all(u8::is_ascii_whitespace) {
+                    continue;
+                }
+                if record_seq(&line).is_some_and(|seq| seq <= after) {
+                    continue;
+                }
+                let rec = match parse_record(&line) {
+                    Ok(rec) => rec,
+                    Err(e) if strict => {
+                        anyhow::bail!("{}: a record could not be read: {e}", path.display())
+                    }
+                    Err(_) => continue,
+                };
+                if rec.seq > after && !visit(rec) {
+                    return Ok(());
+                }
+            }
+        }
+        Ok(())
+    }
+}

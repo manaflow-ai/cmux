@@ -478,8 +478,14 @@ mod tests {
     #[test]
     fn a_full_disk_at_spawn_is_disk_full() {
         let cwd = std::env::temp_dir();
-        for errno in [libc::ENOSPC, libc::EDQUOT] {
-            let e = anyhow::Error::from(std::io::Error::from_raw_os_error(errno));
+        let errors = [std::io::ErrorKind::StorageFull, std::io::ErrorKind::QuotaExceeded]
+            .map(std::io::Error::from);
+        #[cfg(unix)]
+        let errors = errors
+            .into_iter()
+            .chain([libc::ENOSPC, libc::EDQUOT].map(std::io::Error::from_raw_os_error));
+        for error in errors {
+            let e = anyhow::Error::from(error);
             let typed = spawn_failed(&e, "claude", "claude", &cwd);
             assert_eq!(kind_of(&typed), Some(kind::DISK_FULL), "{typed:?}");
             let data = typed.data.as_ref().unwrap();
