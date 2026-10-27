@@ -7,8 +7,7 @@
 #      Since 2026-10-26 its Release compile is not awaited: the nightly build
 #      compiles the app itself and publishes nothing when that fails, so the
 #      feed keeps its last good build (Leo: "SKIP THE OLD FUCKING NIGHTLY
-#      BUILDS THEN WE'RE JSUT BUILDING FROM THE TIP OR FUKCING / JUST FUCKING
-#      USE MORE LINUX FIX THE FUCKING BUILDS"). A tip that does not compile is
+#      BUILDS THEN WE'RE JSUT BUILDING FROM THE TIP"). A tip that does not compile is
 #      promoted and fails in its nightly instead of being refused here, and
 ##   3. its generated page strings are fresh (gen-strings --check, on the commit
 #      requested; a stale one is passed over for an older green one). Since
