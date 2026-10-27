@@ -41,7 +41,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
     private var bodyID: HoverTargetID?
     /// Ticks the shown card's running times once a second (one-shot, re-armed by each tick);
     /// idle while no live card shows, so a quiet sidebar wakes nothing.
-    private let ticker = DemandTimer(owner: "sidebar.hover-card.elapsed")
+    private let ticker = DemandTimer(owner: "sidebar.hover-card.elapsed") // timer-class-allow: the shown card's 1 s running-time tick (visible), armed only while a live card shows; no MainDeadlineScheduler reaches the sidebar's cards yet
     /// The user's customization (`cmux.hovercard/1`); the App injects it.
     var customization: (any SidebarCustomization)?
     /// A workspace's history of prompts, waits and finished turns (u3320); the App injects it.
@@ -104,7 +104,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
     /// gap between rows). The empty list below the last row bridges to nothing: the card goes
     /// there at once, as anywhere else off the row and the card (Leo 2026-10-20).
     func hoverCardBridges(at screenPoint: CGPoint) -> Bool {
-        guard let list, let window = list.window, !list.isHiddenOrHasHiddenAncestor,
+        guard let list, let window = list.window, !list.isHiddenOrHasHiddenAncestor, // visibility-walk-allow: a hover card hit test at the pointer
               let first = list.displayed.rows.first, let last = list.displayed.rows.last else { return false }
         let point = list.convert(window.convertPoint(fromScreen: screenPoint), from: nil)
         return list.visibleRect.contains(point) && point.y >= first.y && point.y < last.maxY
