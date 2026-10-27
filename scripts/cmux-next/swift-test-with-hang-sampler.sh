@@ -125,7 +125,24 @@ names_awk='
     if (!at) return key
     k = substr(key, 1, at - 1)
     key = substr(key, at + 1)
+    key = block_name(key)
     return k + 0 > 1 ? key " (run " k ")" : key
+  }
+  # Starts and finishes are matched within one test process: each prints its own "Test run
+  # started.", and a finish in a later process must never close a start an earlier one lost (a
+  # skip of the same name in process 2 would otherwise close the start process 1 never finished).
+  # So the name every run is counted under is prefixed with its block number, the same way a run
+  # key is prefixed with its run number, and block_name takes it back off for a message.
+  function block_sep() {
+    return sprintf("%c", 2)
+  }
+  function block_key(n) {
+    return (count_block + 0) block_sep() n
+  }
+  function block_name(key,    at) {
+    at = index(key, block_sep())
+    if (at > 1 && substr(key, 1, at - 1) ~ /^[0-9]+$/) return substr(key, at + 1)
+    return key
   }'
 # The bookkeeping both readers do, in one place for the same reason is_finish is: the watchdog and
 # the report must never be able to disagree about what is still running.
@@ -141,14 +158,16 @@ names_awk='
 # deliberately skips, and a test skipped before it ran prints a "➜ ... skipped." with no start at
 # all. Banked, either could have closed a later, real run of the same name.
 count_awk='
+  /^◇ Test run started\.$/ { count_block++; block_starts[count_block] = 0 }
   is_start($0) {
-    counted_name = name_of($0)
+    counted_name = block_key(name_of($0))
+    if (count_block) block_starts[count_block]++
     if (!(counted_name in seen_name)) { seen_name[counted_name] = 1; names[++name_count] = counted_name }
     started[counted_name]++
     start_count++
   }
   is_finish($0) {
-    counted_name = name_of($0)
+    counted_name = block_key(name_of($0))
     # Read it into a variable first. Naming first_open[counted_name] as the target of an
     # assignment CREATES that key before the right-hand side is evaluated, so
     # `first_open[n] = first_open_run(n) + 1` made first_open_run take its "already set" branch
@@ -340,7 +359,7 @@ report() {
       counted = $0
       sub(/^[^ ]+ Test run with /, "", counted); sub(/ .*$/, "", counted)
       summary_tests += counted + 0
-      if (run_blocks && !(run_blocks in block_summary)) block_summary[run_blocks] = counted + 0
+      if (count_block && !(count_block in block_summary)) block_summary[count_block] = counted + 0
     }
     # Each test process prints its own "Test run started." and, on a whole run, its own summary,
     # and one log can hold many (a priority pass, a broad pass, one process per isolated suite).
@@ -348,8 +367,6 @@ report() {
     # off before its summary, after its own starts had all finished, leaves nothing open, and an
     # earlier summary that ran ahead of its starts (skipped tests print no start) covers the
     # count. So each run is also held to its own summary and its own starts.
-    /^◇ Test run started\.$/ { run_blocks++; block_starts[run_blocks] = 0 }
-    is_start($0) && run_blocks { block_starts[run_blocks]++ }
     END {
       if (red_count > 0) {
         printf "::error title=cmux-next swift test reds::%d red tests: %s\n", red_count, join(reds, red_count)
@@ -394,17 +411,17 @@ report() {
           exit 3
         }
       }
-      for (b = 1; b <= run_blocks; b++) {
+      for (b = 1; b <= count_block; b++) {
         if (!(b in block_summary)) {
-          bad_blocks[++bad_count] = sprintf("test run %d of %d printed no summary after %d starts", b, run_blocks, block_starts[b])
+          bad_blocks[++bad_count] = sprintf("test run %d of %d printed no summary after %d starts", b, count_block, block_starts[b])
         } else if (block_summary[b] < block_starts[b]) {
-          bad_blocks[++bad_count] = sprintf("test run %d of %d reported %d tests after %d starts", b, run_blocks, block_summary[b], block_starts[b])
+          bad_blocks[++bad_count] = sprintf("test run %d of %d reported %d tests after %d starts", b, count_block, block_summary[b], block_starts[b])
         }
       }
       if (bad_count > 0) {
-        printf "::error title=cmux-next swift test ended early::%d of %d test runs in this log are not whole (crash, kill or truncation of one test process); swift test exited %s: %s\n", bad_count, run_blocks, status, join(bad_blocks, bad_count)
+        printf "::error title=cmux-next swift test ended early::%d of %d test runs in this log are not whole (crash, kill or truncation of one test process); swift test exited %s: %s\n", bad_count, count_block, status, join(bad_blocks, bad_count)
         if (summary_file != "") {
-          printf "### %d of %d Swift Testing runs are not whole\n\n", bad_count, run_blocks >> summary_file
+          printf "### %d of %d Swift Testing runs are not whole\n\n", bad_count, count_block >> summary_file
           for (i = 1; i <= bad_count; i++) printf "- %s\n", bad_blocks[i] >> summary_file
         }
         exit 3

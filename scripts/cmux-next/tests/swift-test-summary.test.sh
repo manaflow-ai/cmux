@@ -599,6 +599,25 @@ run blockgreen 0
 [[ "$status" == 0 ]] || fail "two whole test runs in one log exited $status" "$out"
 [[ "$out" != *"::error"* ]] || fail "two whole test runs in one log printed an error" "$out"
 
+# Starts and finishes match within one test process. A finish in a later process must not close
+# a start an earlier process lost: here process 2 skips duplicate(), and while matching was global
+# that skip closed process 1's unfinished start, both summaries covered their own starts, nothing
+# read as open, and the run passed.
+cat > "$TMP/blockcross.out" <<'EOF'
+◇ Test run started.
+◇ Test duplicate() started.
+✔ Test run with 1 test in 1 suite passed after 0.002 seconds.
+◇ Test run started.
+➜ Test duplicate() skipped: "not here"
+✔ Test run with 1 test in 1 suite passed after 0.002 seconds.
+EOF
+run blockcross 0
+[[ "$status" != 0 ]] || fail "a finish in a later test run closed a start an earlier run lost" "$out"
+err=$(grep '^::error' <<<"$out")
+grep -q 'duplicate()' <<<"$err" || fail "the error does not name duplicate()" "$err"
+# The block prefix is internal: a person reads the bare name.
+! grep -q $'\x02' <<<"$err" || fail "the error shows the internal block separator" "$(cat -v <<<"$err")"
+
 # Only the generated parameterized-case shape is skipped as a start. A test whose display name
 # merely begins "case passing" is a test: lost, it must fail the run, not vanish from the count.
 cat > "$TMP/casename.out" <<'EOF'
