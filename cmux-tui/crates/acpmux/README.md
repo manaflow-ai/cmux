@@ -164,7 +164,7 @@ Five everyday commands, three groups for the rest:
 | `attach [NAME] [--plain]` | TUI on one session, or a plain text stream. |
 | `web [--no-open] [--show-token] [--rotate-token]` | Print the dashboard URL and open it; the printed URL leaves out its token unless `--show-token` (the browser it opens and `--json` get it whole); `--rotate-token` replaces the token first. |
 | `host setup HOST [--no-auto-update]` / `host update [--all] [--if-idle] [--keep-newer] [--binary-dir DIR]` / `host self-update` / `host hold [NAME] [--reason TEXT] [--until TIME] [--release]` / `host add NAME [URL]` / `host ls` / `host status [NAME]` / `host rm NAME` | Remote daemons. `setup` installs over ssh; URL is `ssh://host`, `ws://…`, or `wss://…` (default `ssh://NAME`: the machine's one daemon as your ssh config reaches it). `ls` names an `ssh://` entry with a user or another port as not the canonical endpoint. `status` (also the hidden `peer status` alias) asks each host's health live: reachable, round trip, disk, load, live sessions, build. |
-| `host enroll HOST [--harness ID]… [--reverse]` / `host doctor NAME\|HOST [--fix] [--reverse]` | Add a machine step by step (reach, install, daemon, harness, peer, peer-back, identity), one JSON line per step with `--json`; `peer-back` (this machine as the host's peer) runs only with `--reverse`; `doctor` changes nothing without `--fix`. |
+| `host enroll HOST [--harness ID]… [--reverse]` / `host doctor NAME\|HOST [--fix] [--reverse]` | Add a machine step by step (reach, install, daemon, update, harness, peer, peer-back, identity), one JSON line per step with `--json`; `peer-back` (this machine as the host's peer) runs only with `--reverse`; `doctor` changes nothing without `--fix`. |
 | `session info\|cancel\|stop\|rename\|fork\|set\|allow\|deny\|export\|import\|tail NAME …` | Everything about one session. |
 | `daemon run\|status\|shutdown\|stop\|config\|harnesses\|reload\|models\|schema` | The daemon itself. |
 | `capabilities [--json]` | The protocol capability ids this build serves (`acpmux-v1`, `queue-edit-v1`, ...), with no daemon running. |
@@ -920,8 +920,8 @@ A machine that is not yours to update now (reserved for someone else, or someone
 `acpmux host hold NAME --reason TEXT [--until 2026-10-28T23:59:59Z]` (in `~/.acpmux/update-holds.json`,
 by peer name or ssh host). `host update`, `--all` and the app's update queue then answer `held` for it
 without reaching it, so its daemon is never restarted; `--release` (or the `--until` time) ends the hold.
-A Linux host that runs `acpmux.service` also gets `acpmux-update.timer` from `host setup` and
-`host update`: every 15 minutes it runs `acpmux host self-update`, which downloads the newest
+A Linux host that runs `acpmux.service` also gets `acpmux-update.timer` from `host setup`,
+`host update` and `host enroll` (its `update` step, which `host doctor` reports): every 15 minutes it runs `acpmux host self-update`, which downloads the newest
 daemon-tested feat-cmux-next build (`cmux-tui/channels/feat-cmux-next.json` on files.cmux.com)
 when the installed binary differs, checks its sha256 and updates the daemon the same way, rollback
 included. A build pushed by hand is replaced by the channel's at the next run;

@@ -61,15 +61,20 @@ public nonisolated final class MainRunLoopObserver {
     ///     with it AppKit's display cycle) included. Default 0.
     ///   - mode: The run loop mode to observe (default `.commonModes`, which includes the
     ///     default mode and the event-tracking mode of menus and drags).
+    ///   - drawsNothingAfterCommit: True for an observer after the commit whose handler lays out,
+    ///     displays and commits nothing, so the commit-boundary audit does not count it as late
+    ///     (``afterCommitObserver(activities:repeats:order:_:)``). Default false.
     ///   - handler: Main-actor work with the stage that called it.
     public init(
         activities: CFRunLoopActivity,
         repeats: Bool = true,
         order: CFIndex = 0,
         mode: CFRunLoopMode = .commonModes,
+        drawsNothingAfterCommit: Bool = false,
         _ handler: @escaping @MainActor (CFRunLoopActivity) -> Void
     ) {
-        observer = Self.addMainObserver(activities: activities, repeats: repeats, order: order, mode: mode, handler)
+        observer = Self.addMainObserver(activities: activities, repeats: repeats, order: order, mode: mode,
+                                        drawsNothingAfterCommit: drawsNothingAfterCommit, handler)
     }
 
     /// Calls `body` once on the main actor, at the main run loop's next stage in `activities`,
@@ -126,11 +131,20 @@ public nonisolated final class MainRunLoopObserver {
         repeats: Bool,
         order: CFIndex,
         mode: CFRunLoopMode,
+        drawsNothingAfterCommit: Bool = false,
         _ handler: @escaping @MainActor (CFRunLoopActivity) -> Void
     ) -> CFRunLoopObserver {
-        let observer: CFRunLoopObserver = CFRunLoopObserverCreateWithHandler(nil, activities.rawValue, repeats, order) { _, activity in
-            // main-proof: the observer is added only to CFRunLoopGetMain(), whose observers run on the main thread.
-            MainActor.assumeIsolated { handler(activity) }
+        let observer: CFRunLoopObserver
+        if drawsNothingAfterCommit {
+            observer = afterCommitObserver(activities: activities, repeats: repeats, order: order) { activity in
+                // main-proof: the observer is added only to CFRunLoopGetMain(), whose observers run on the main thread.
+                MainActor.assumeIsolated { handler(activity) }
+            }
+        } else {
+            observer = CFRunLoopObserverCreateWithHandler(nil, activities.rawValue, repeats, order) { _, activity in
+                // main-proof: the observer is added only to CFRunLoopGetMain(), whose observers run on the main thread.
+                MainActor.assumeIsolated { handler(activity) }
+            }
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), observer, mode)
         return observer
