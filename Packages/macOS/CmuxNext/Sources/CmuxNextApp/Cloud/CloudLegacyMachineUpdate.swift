@@ -78,9 +78,10 @@ nonisolated enum CloudLegacyMachineUpdate {
     ///
     ///
     /// `expected`: the 40-hex commit `link machine update --if-older` judged older (the automatic
-    /// update). The guest script checks it under the machine's upgrade lock, before it changes
-    /// anything (`<run-dir>/expect-build`): a binary updated since (another app or the fleet,
-    /// maybe to a newer build) is left as it is, `SKIP changed`, so the answer is
+    /// update). The guest script checks it under the machine's upgrade lock and the in-place
+    /// updater's lock (both held for its whole run), before it changes anything
+    /// (`<run-dir>/expect-build`): a binary updated since (another app or the fleet, maybe to a
+    /// newer build), or one that names no commit, is left as it is, `SKIP changed`, so the answer is
     /// `machine_update_busy`, the policy asks again and `--if-older` reads the new build.
     static func run(pin: Pin, script: String, expected: String? = nil, nonce: String = newNonce(), directory: String = directory,
                     waitSeconds: Int = waitSeconds, waits: Int = waits, exec: Exec) async -> CloudMoveCLI.Answer {
