@@ -105,7 +105,7 @@
    submenus are the same surface and keep to theirs. */
 .acpmux-quick-menu {
   --ui-row-height: 36px;
-  font-size: var(--text-body);
+  font-size: var(--text-content);
   width: max-content;
   min-width: min(340px, var(--available-width, calc(100vw - 24px)));
   max-width: min(480px, var(--available-width, calc(100vw - 24px)));
@@ -140,8 +140,8 @@
   padding-block: 0;
   border-radius: 8px;
   color: var(--agent-text);
-  font-size: var(--text-body);
-  letter-spacing: var(--text-body--letter-spacing);
+  font-size: var(--text-content);
+  letter-spacing: var(--text-content--letter-spacing);
 }
 .ui-menu-item.acpmux-quick-item:not(.acpmux-quick-sub):has(.ui-menu-shortcut, .ui-menu-check) {
   display: grid;
@@ -278,10 +278,10 @@
   background: transparent;
   color: var(--agent-text);
   font: inherit;
-  font-size: var(--text-body);
+  font-size: var(--text-content);
   outline: none;
   appearance: none;
-  letter-spacing: var(--text-body--letter-spacing);
+  letter-spacing: var(--text-content--letter-spacing);
 }
 .acpmux-quick-search input::placeholder { color: var(--agent-muted); }
 .acpmux-quick-search input::-webkit-search-cancel-button { appearance: none; }

@@ -10,7 +10,8 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { AgentMark, agentBrand, hasAgentMark, knownMark } from "../shared/AgentMark";
-import { agentName } from "./agents";
+import { agentName, agentDisplayName } from "./agents";
+import { agentKey } from "../shared/agentKey";
 import { isDefaultChoice } from "./defaultChoice";
 import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPickers";
 import { Icon } from "./icons/Icon";
@@ -273,7 +274,7 @@ function railByHarness(
     const names = folded.map((profile) => ({ ...profile, name: launchName(family.name, profile.name, profile.id) }));
     const currentName = names.find((profile) => profile.id === family.id)?.name ?? family.name;
     const brand = agentBrand(family.id);
-    const alternate = brand && family.id !== brand && family.id !== running;
+    const alternate = brand && family.id.startsWith(`${agentKey(family.id)}-`) && family.id !== running;
     const own = { ...family, name: currentName, ...(alternate ? { launch: true } : {}) };
     return [
       own,
@@ -296,9 +297,10 @@ function railByHarness(
 
 /// Prefer a configured readable name; distinguish generic brand names by a meaningful id suffix.
 function launchName(brand: string, configured: string, id: string): string {
-  const base = agentBrand(id);
-  if (configured !== brand && configured !== id) return configured;
-  const suffix = base && id.startsWith(`${base}-`) ? id.slice(base.length + 1) : undefined;
+  const base = agentKey(id);
+  const canonical = agentDisplayName(id);
+  if (configured !== canonical && configured !== id) return configured;
+  const suffix = agentBrand(id) && base && id.startsWith(`${base}-`) ? id.slice(base.length + 1) : undefined;
   if (suffix && /^[a-z][a-z0-9-]*$/i.test(suffix)) return `${brand} (${suffix})`;
   return configured === id && base ? brand : configured;
 }

@@ -530,7 +530,7 @@ export default componentEntry<GalleryProps>({
       play: openQuick,
     },
     "quick-search-long-short-list": {
-      note: "Search version C: a four-model list gets none, so the same menu changes shape by harness.",
+      note: "Search version C: a short model list gets none, so the same menu changes shape by harness.",
       props: searchLook({ ...quick, catalog, harnessFixed: true }, "long"),
       play: openQuick,
     },
