@@ -53,7 +53,11 @@ pub async fn run(home: PathBuf, codex: PathBuf) -> Result<()> {
     let checked_home = home.clone();
     let lock = tokio::task::spawn_blocking(move || prepare(&checked_home)).await??;
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
-    let mut owner = Owner::start(&home, &codex, &lock).await?;
+    let Some(mut owner) = Owner::start(&home, &codex, &lock, &mut terminate).await? else {
+        // SIGTERM arrived while the managed Codex owner was initializing. The
+        // startup path has already reaped that child before releasing `lock`.
+        return Ok(());
+    };
     let result = tokio::select! {
         result = serve(&mut owner, &home) => result,
         _ = terminate.recv() => Ok(()),
@@ -232,7 +236,12 @@ impl Owner {
         }
     }
 
-    async fn start(home: &Path, codex: &Path, lock: &File) -> Result<Self> {
+    async fn start(
+        home: &Path,
+        codex: &Path,
+        lock: &File,
+        terminate: &mut tokio::signal::unix::Signal,
+    ) -> Result<Option<Self>> {
         let mut command = Command::new(codex);
         command.process_group(0);
         let lock_fd = lock.as_raw_fd();
@@ -274,25 +283,37 @@ impl Owner {
             next_id: 0,
             account: None,
         };
-        let initialized = tokio::time::timeout(
-            DEADLINE,
-            owner.call(
-                "initialize",
-                json!({
-                    "clientInfo": {"name": "cmux-auth-owner", "version": env!("CARGO_PKG_VERSION")}
-                }),
-            ),
-        )
-        .await;
+        let initialized = tokio::select! {
+            result = tokio::time::timeout(
+                DEADLINE,
+                owner.call(
+                    "initialize",
+                    json!({
+                        "clientInfo": {"name": "cmux-auth-owner", "version": env!("CARGO_PKG_VERSION")}
+                    }),
+                ),
+            ) => result,
+            _ = terminate.recv() => {
+                owner.stop().await;
+                return Ok(None);
+            }
+        };
         if !matches!(initialized, Ok(Ok(_))) {
             owner.stop().await;
             return Err(anyhow!("Codex initialization failed"));
         }
-        if owner.input.send(json!({"method": "initialized"}).to_string()).await.is_err() {
+        let initialized_notification = tokio::select! {
+            result = owner.input.send(json!({"method": "initialized"}).to_string()) => result,
+            _ = terminate.recv() => {
+                owner.stop().await;
+                return Ok(None);
+            }
+        };
+        if initialized_notification.is_err() {
             owner.stop().await;
             return Err(anyhow!("Codex initialization failed"));
         }
-        Ok(owner)
+        Ok(Some(owner))
     }
 
     async fn call(&mut self, method: &str, params: Value) -> Result<Value> {
