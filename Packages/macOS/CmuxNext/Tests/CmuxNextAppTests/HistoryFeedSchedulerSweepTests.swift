@@ -17,8 +17,8 @@ import Testing
 /// one resign-active observer; a held page's history budget is a visible deadline that the read's answer drops; a
 /// restored Chromium page's first-load wait is its keyed phase wait, which ends only with the load or the close; the
 /// Feed, History and Stashed pages resolve a theme change of a hidden page once, on show, and the Stashed page's
-/// paste box still closes when the page hides. GitHubFeedSourcePollTests has the poll's background deadline and its
-/// hidden-app alignment, CloudLinkReconnectingTests the link's posted redial state, CmuxNextScreenshotsTests'
+/// paste box still closes when the page hides. GitHubFeedSourcePollTests has the poll's background activity and its
+/// background catch-up deadline, CloudLinkReconnectingTests the link's posted redial state, CmuxNextScreenshotsTests'
 /// ScreenshotsSchedulerSweepTests the Screenshots pane.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct HistoryFeedSchedulerSweepTests {
     // MARK: Service observations: the record and history writers (R-obs)

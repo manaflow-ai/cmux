@@ -70,6 +70,7 @@ public final class HomeLinkChipHoverSource: HoverCardSource {
         let previewer = previewer
         let quick = previewer.preview(for: hit.url, kind: hit.kind)
         body?.configure(quick)
+        // main-hop-allow: details is the app's main-actor async preview read (HomeLinkPreviewing: a terminal's lines, a file's head, a thumbnail); this task only starts it and fills the shown card in its resume
         detailsTask = Task { [weak self] in
             let full = await previewer.details(for: hit.url, preview: quick)
             guard let self, !Task.isCancelled, self.shownID == id, full != quick else { return }

@@ -54,6 +54,10 @@ final class AppControl {
     #if DEBUG || CMUX_BENCH_HOOKS
     private let keySequencePlayer = DebugKeySequencePlayer() // `debug.key` sequences' player (one at a time), not a static
     let hops = InputTurnHops() // `debug.input hops` (p04-input-022); the MainJobGate hook (021) records into `hops.recorder`
+    /// `debug.startup`'s report: the launch marks and the first committed frame (kept by AppDelegate). Counters, scheduler
+    /// and catalog wait have no producer yet (tasks 007, 012, 092 wire theirs here); their fields read null until then.
+    let startupReport = StartupReportRecorder(launch: { DebugTimings.launchMarksNow }, processStartNanos: DebugTimings.processStartUptimeNanos,
+                                              counters: { nil }, scheduler: { _ in nil }, actionCatalogMainWaitMs: { nil })
     #endif
     private(set) var service: ControlService?
     private var publisher: ControlSnapshotPublisher?
@@ -180,7 +184,7 @@ final class AppControl {
         if let actionBudget { router.register([actionBudget.method(registry: services.registry)]) }
         // The local daemon's wire traffic, decodes, output copies and connections by role.
         if let wireStats = services.wireStats { router.register([DaemonWireControl(stats: wireStats).method]) }
-        router.register([DebugInput(sources: [InputTapDebugSource(tap: services.inputTap), DebugCEF.pumpInputSource(services.cache.chromium),
+        router.register([DebugInput(sources: [InputTapDebugSource(tap: services.inputTap, mainWork: services.mainWork), DebugCEF.pumpInputSource(services.cache.chromium),
                                                DebugCEF.histogramSource(services.cache.chromium),
                                                IntentPrewarmDebugSource { [weak services] in services?.cache.hibernation?.intentPrewarm?.service },
                                                MainJobGateDebugSource { (NSApp as? CmuxApplication)?.jobGate?.gate },
@@ -192,10 +196,12 @@ final class AppControl {
                                                        }
                                                    }) ?? DebugInputScrollViews(rows: [])
                                                }],
+                                     // `hittest` (p04-input-098): one audit for the app, its hooks installed on request only.
                                      recorders: [hops.start(input: input),
                                                  InputDirtyRecorder(tap: services.inputTap) { [mainWork = services.mainWork] copy in
                                                      await mainWork.apply(.automation, owner: "debug.input.dirty") { copy() }
-                                                 }]).method])
+                                                 },
+                                                 HitTestAuditDebugRecorder(audit: HitTestAudit(input: services.inputTap))]).method])
         router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugDrainCostMethod])
     }
     #endif

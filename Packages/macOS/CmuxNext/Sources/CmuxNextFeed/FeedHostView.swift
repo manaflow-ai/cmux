@@ -28,10 +28,6 @@ public final class FeedHostView: NSView, VisibilityGatedContent {
     /// Where this host is shown (``Surface``).
     let surface: Surface
     private var gate: VisibilityGatedHostingView?
-    /// The view's place in the visibility tree (a page tab, the panel or a sidebar section): a theme change while
-    /// it is hidden resolves the colors once, on show.
-    private let visibility = ViewVisibility("feed")
-    private var visibilityNode: VisibilityNode { visibility.node }
     /// How many times the colors were resolved (tests: a hidden feed resolves none until it shows).
     private(set) var colorResolves = 0
 
@@ -39,18 +35,27 @@ public final class FeedHostView: NSView, VisibilityGatedContent {
     /// tab's node drives it; the panel and the sidebar section never follow one.
     public var visibilityGate: VisibilityGatedHostingView? { gate }
 
+    /// This host in the visibility tree (recipe R-hide, ``ViewVisibility``): under its window's node,
+    /// hidden while the host is hidden or in no window. The app polls GitHub only while one feed host's
+    /// node is visible (p14-energy-066b). A theme change while it is hidden resolves the colors once, on show.
+    private let visibility: ViewVisibility
+    public var visibilityNode: VisibilityNode { visibility.node }
+
     /// - Parameters:
     ///   - model: The feed.
     ///   - layoutOverride: Pins a prototype (demos and screenshots); nil follows the Debug Settings switch `feed.layout`.
     ///   - surface: Where the feed is shown; a page tab by default.
     ///   - mainWork: The app's one main-thread scheduler (the reports basket renders at its frames).
+    ///   - surfaces: The feed's surfaces (`FeedService.surfaces`), which count this host's node while it lives.
     ///   - onReportsReply: Sends a reply from the reports basket and answers whether it was sent
     ///     (nil: the basket has no Reply). A reply sent again keeps its ``ReportReply/promptID``.
     public init(model: FeedModel, layoutOverride: FeedLayout? = nil, surface: Surface = .page, mainWork: MainWorkScheduler,
-                onReportsReply: (@MainActor (ReportReply) async -> Bool)? = nil) {
+                surfaces: ShownWindows? = nil, onReportsReply: (@MainActor (ReportReply) async -> Bool)? = nil) {
         self.model = model
         self.surface = surface
+        visibility = ViewVisibility("feed:\(surface)")
         super.init(frame: .zero)
+        surfaces?.track(visibility.node)
         wantsLayer = true
         layerContentsRedrawPolicy = .onSetNeedsDisplay
         let root = FeedRoot(model: model, appearance: appearanceState, layoutOverride: layoutOverride, mainWork: mainWork,
