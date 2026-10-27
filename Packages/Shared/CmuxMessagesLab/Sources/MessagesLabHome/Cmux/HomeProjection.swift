@@ -304,11 +304,14 @@ final class HomeProjection: @preconcurrency ChatIntents {
 
     /// The whole window again, without animation (MessagesLab has no action
     /// for it): `.replaceWindow`, then the pin or the first visible row's
-    /// window position is restored.
+    /// window position is restored. A transcript that showed no message has no
+    /// place to keep: its first page opens at the newest message, as an install
+    /// with that page does (a chat no other view holds open is installed before
+    /// its first page arrives: https://github.com/manaflow-ai/cmux/issues/26397).
     private func rebuild() {
         guard let demo = controller.demo, let store = controller.store else { return }
         rebuilds += 1
-        let pinned = store.state.ui.scroll.pinnedToBottom
+        let pinned = store.state.ui.scroll.pinnedToBottom || store.state.conversation.messages.isEmpty
         let anchor = demo.anchorProbe
         let roots = HomeMapping.roots(in: shown, aliases: aliases, summary: shownSummary, media: core.media, links: core.links)
         let msgs = shown.map { HomeMapping.message($0, aliases: aliases, me: me, summary: shownSummary, media: core.media, links: core.links, roots: roots) }
