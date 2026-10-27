@@ -18,7 +18,9 @@ Lanes (LANES, by process):
           record is a `debug.hangs` stall record.
   daemon  a scope of the daemon's request watchdog (`mux-conn`, `journal-writer`, ...): the daemon's
           `debug-hang-inject {lane, ms}` arms it; the record is a line of the daemon's hang log
-          (`owner-hangs-<session>.jsonl`, named in the reply's `hang_log`).
+          (`owner-hangs-<session>.jsonl`, named in the reply's `hang_log`). The daemon's cmux-hang-watch
+          threads (task 073: `mux-control-dispatch`, `mux-terminal-work`, the journal writer, and `mux-conn` and
+          `mux-line-out` under the same names) are armed the same way; their record is a `hangs-<pid>.jsonl` line.
   holder  the holder loop (`holder-loop`): armed through the daemon for the holder's pid; the holder sends its
           hang to the daemon, which writes it to the same hang log.
   host, acpmux
@@ -29,21 +31,32 @@ Each lane blocks for at least 3 s, and longer when its hang tier is later (a lan
 BLOCK_MARGIN), so its tier is always reached while it is busy. A lane PASSES when exactly 1 new record names it,
 that record has at least MIN_FRAMES frames (MIN_FRAMES_X86 on x86_64), and the watcher saw it within its tier
 plus its watcher's minimum deadline plus 1 s. A lane the build does not register is NOT-REGISTERED, one whose
-work did not run within TRIGGER_SECONDS is NOT-TRIGGERED; both count as not passed.
+work did not run within TRIGGER_SECONDS is NOT-TRIGGERED, and one the script cannot tell is registered (a daemon
+with no lane registry, or a full registry) is UNKNOWN; all three count as not passed.
+
+Which lanes are registered: the app's `debug.hang_inject` reply lists its HangWatch names; the daemon's
+`debug-hang-inject` reply lists its request-watchdog lanes and the registry of the injection page, where every
+debug process publishes the lanes it watches with its pid (`registered`). Every registered lane of the app and of
+this tag's processes that LANES does not name is added with a default tier (EXTRA_TIER_MS), so no registered lane
+goes unblocked.
 
 Fatal case (skipped by --skip-fatal): the app is launched with CMUX_NEXT_SENTRY_RECORDER=<dir> (task 086), the
 main thread is kept busy for 5 s, the script SIGKILLs the app it started after FATAL_KILL_AFTER seconds, launches
 it again and expects exactly 1 recorded envelope of a fatal app hang (task 110).
 
-Soak (`--soak MINUTES`, done check 7 uses 10): STRESS typing and tab churn for that long, then 0 new hang records
-of any lane. A machine sleep never counts as a hang because the watchers measure on a clock that does not run in
-sleep and blame nobody after a late wake; that rule is tested with an injected clock (SLEEP_CLOCK_TESTS). A real
+Soak (`--soak MINUTES`, done check 7 uses 10): the app is launched again with the STRESS session
+(perf-stress-session.py, as bench-typing.py --stress builds it), then typing and tab churn for that long, then 0 new
+hang records of any lane. Only hang-tier records count: thread hangs, daemon and cmux-hang-watch hang lines, and
+main-thread stalls of at least the main lane's tier (MAIN_HANG_TIER_MS); a shorter stall is a jank, not a hang.
+A machine sleep never counts as a hang because the watchers measure on a clock that does not run in sleep and blame
+nobody after a late wake; that rule is tested with an injected clock (SLEEP_CLOCK_TESTS). A real
 sleep runs only with --exclusive-host: `pmset schedule wake` 90 s ahead, `pmset sleepnow`, then 0 new records.
 
 Writes hang-matrix.json to --out (default $NX_ARTIFACTS or a temp dir). Exit 0 only when every lane run passed
 (and the fatal case and the soak, when run). Signals only the app process it started.
 """
-import argparse, dataclasses, datetime, glob, json, os, platform, signal, socket, subprocess, sys, tempfile, threading, time
+import argparse, dataclasses, datetime, glob, importlib.util, json, os, platform, signal, socket, subprocess, sys
+import tempfile, threading, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -64,6 +77,11 @@ APP_HANG_AFTER_MS, APP_PERIOD_MS = 2_000, 100
 DAEMON_PERIOD_MS, HOLDER_PERIOD_MS = 1_000, 100
 # cmux-hang-watch's default minimum deadline (Config::min_deadline).
 RUST_WATCH_PERIOD_MS = 1_000
+# The main thread's hang tier: a main stall shorter than this is a jank, not a hang record.
+MAIN_HANG_TIER_MS = 250
+# The tier of a registered lane LANES does not name: its owner's budget is not known here, so its block covers the
+# longest lane budget (an app lane's bound does not depend on its budget; a cmux-hang-watch record carries its own).
+EXTRA_TIER_MS = 10_000
 # The fatal case: how long main is busy, and when the script kills the app.
 FATAL_HANG_MS, FATAL_KILL_AFTER = 5_000, 3.0
 FATAL_RELAUNCH_WAIT = 30
@@ -86,6 +104,8 @@ class Lane:
     tier_ms: int
     period_ms: int
     trigger: str
+    # False for a registered lane LANES does not name (added by extra_lanes with EXTRA_TIER_MS).
+    known: bool = True
 
     @property
     def block_ms(self):
@@ -110,7 +130,7 @@ def daemon_lane(name, hang_ms, trigger):
 # the daemon lanes' tiers are read from the daemon's own reply when it answers (`lanes`), these are the defaults.
 # The last app lanes belong to later tasks: until their owners register them, they are NOT-REGISTERED.
 LANES = (
-    Lane("main", "main", 250, APP_PERIOD_MS, "none"),
+    Lane("main", "main", MAIN_HANG_TIER_MS, APP_PERIOD_MS, "none"),
     app_lane("daemon.line", 100, "typing"),
     app_lane("daemon.write", 2_000, "typing"),
     app_lane("terminal.feed", 100, "typing"),
@@ -133,6 +153,12 @@ LANES = (
     daemon_lane("mux-pty-input", 100, "typing"),
     daemon_lane("mux-attach-out", 100, "typing"),
     daemon_lane("mux-render-attach-out", 100, "typing"),
+    # The daemon's cmux-hang-watch threads (task 073), by thread name; `mux-conn` and `mux-line-out` are the lanes
+    # above (one arm per name and pid: whichever of the two scopes opens first takes it). A request's deadline is
+    # its MethodClass's (1 to 10 s): the block covers 10 s, and the bound is the record's own deadline.
+    daemon_lane("mux-control-dispatch", 10_000, "daemon"),
+    daemon_lane("mux-terminal-work", 5_000, "activity"),
+    daemon_lane("mux-session-journal-writer", 5_000, "activity"),
     Lane("holder-loop", "holder", 100, HOLDER_PERIOD_MS, "typing"),
     Lane("host-pty", "host", 1_000, RUST_WATCH_PERIOD_MS, "typing"),
     Lane("host-parser", "host", 1_000, RUST_WATCH_PERIOD_MS, "typing"),
@@ -149,6 +175,8 @@ class Record:
     frames: int
     seen_after_ms: float
     source: str
+    # The scope's own deadline when the record carries it (cmux-hang-watch); 0 otherwise.
+    deadline_ms: float = 0.0
 
 
 # ----------------------------------------------------------------------------------------------- record parsers
@@ -209,7 +237,7 @@ def rust_watch_lines(text):
         records.append(Record(lane=str(row.get("thread") or ""), thread=str(row.get("thread") or ""),
                               frames=len(frames),
                               seen_after_ms=float(row.get("deadline_ms") or 0) + float(row.get("overdue_ms") or 0),
-                              source="hangs-<pid>.jsonl"))
+                              source="hangs-<pid>.jsonl", deadline_ms=float(row.get("deadline_ms") or 0)))
     return records
 
 
@@ -254,9 +282,26 @@ def judge(lane, records, machine=None):
     seen = lane_seen_ms(lane, record)
     if lane.process == "main":
         return "PASS", f"a {seen:.0f} ms stall with {record.frames} frames"
-    if seen > lane.bound_ms:
-        return "FAIL", f"seen {seen:.0f} ms after the scope opened (bound {lane.bound_ms} ms)"
-    return "PASS", f"thread {record.thread or '?'}, {record.frames} frames, seen at {seen:.0f} ms (bound {lane.bound_ms})"
+    bound = record_bound_ms(lane, record)
+    if seen > bound:
+        return "FAIL", f"seen {seen:.0f} ms after the scope opened (bound {bound:.0f} ms)"
+    return "PASS", f"thread {record.thread or '?'}, {record.frames} frames, seen at {seen:.0f} ms (bound {bound:.0f})"
+
+
+def record_bound_ms(lane, record):
+    """The lane's bound, from the record's own deadline when it carries one (a cmux-hang-watch scope's deadline is
+    its work's, for example a request's MethodClass), else from the lane's tier."""
+    if lane.process != "app" and record.deadline_ms:
+        return record.deadline_ms + lane.period_ms + 1_000
+    return lane.bound_ms
+
+
+def hang_tier(records):
+    """The records that are hangs: every thread hang, daemon hang line and cmux-hang-watch line, and the main
+    thread's stalls of at least MAIN_HANG_TIER_MS (MainThreadWatchdog records stalls from 50 ms, which are janks)."""
+    return [record for record in records
+            if not (record.lane == "main" and record.source == "debug.hangs"
+                    and record.seen_after_ms < MAIN_HANG_TIER_MS)]
 
 
 def lane_seen_ms(lane, record):
@@ -272,6 +317,46 @@ def lanes_with_daemon_tiers(lanes, reply):
     tiers = {row.get("name"): row.get("hang_ms") for row in (reply or {}).get("lanes") or [] if isinstance(row, dict)}
     return tuple(dataclasses.replace(lane, tier_ms=int(tiers[lane.name]))
                  if lane.process == "daemon" and isinstance(tiers.get(lane.name), int) else lane for lane in lanes)
+
+
+def registry_rows(reply):
+    """The (lane, pid) pairs of the daemon reply's lane registry, or None when the daemon has no registry."""
+    rows = (reply or {}).get("registered")
+    if not isinstance(rows, list):
+        return None
+    return {(str(row.get("lane")), row.get("pid")) for row in rows if isinstance(row, dict)}
+
+
+def lane_registered(name, pid, reply, own_lanes=()):
+    """True, False or None (cannot tell): whether process `pid` registers `name`, from `own_lanes` (names the
+    process lists itself) and the daemon reply's registry. A registry with no free registration may have refused
+    the lane, so a missing lane is None then."""
+    if name in own_lanes:
+        return True
+    rows = registry_rows(reply)
+    if rows is None or pid is None:
+        return None
+    if (name, pid) in rows:
+        return True
+    return None if (reply or {}).get("registrations_free") == 0 else False
+
+
+def extra_lanes(lanes, app_names, reply, roles):
+    """Lanes for every registered name `lanes` does not name: the app's (`app_names`, its debug.hang_inject
+    `lanes`) and the registry's lanes of this tag's processes (`roles`: {pid: daemon|holder|host|acpmux})."""
+    named = {lane.name for lane in lanes}
+    extra = []
+    for name in sorted(set(app_names or ()) - named - {"main"}):
+        extra.append(dataclasses.replace(app_lane(name, EXTRA_TIER_MS - APP_HANG_AFTER_MS, "activity"), known=False))
+        named.add(name)
+    periods = {"daemon": DAEMON_PERIOD_MS, "holder": HOLDER_PERIOD_MS}
+    for name, pid in sorted(registry_rows(reply) or (), key=lambda row: (str(row[0]), str(row[1]))):
+        role = roles.get(pid)
+        if role is None or name in named:
+            continue
+        extra.append(Lane(name, role, EXTRA_TIER_MS, periods.get(role, RUST_WATCH_PERIOD_MS), "activity", known=False))
+        named.add(name)
+    return tuple(extra)
 
 
 def classify_process(command):
@@ -291,6 +376,13 @@ def classify_process(command):
 def pmset_wake_time(now):
     """`pmset schedule wake`'s date for SLEEP_WAKE_AFTER seconds after `now` (MM/dd/yy HH:mm:ss)."""
     return (now + datetime.timedelta(seconds=SLEEP_WAKE_AFTER)).strftime("%m/%d/%y %H:%M:%S")
+
+
+def arm_waits(entries, lane, pid):
+    """Whether the page holds an untaken arm of `lane` for `pid` (the page is the user's: other tags' and earlier
+    runs' entries for other pids are not this run's arm)."""
+    return any(isinstance(entry, dict) and entry.get("lane") == lane and entry.get("pid") == pid
+               and not entry.get("taken") for entry in entries or [])
 
 
 # ----------------------------------------------------------------------------------------------- the daemon socket
@@ -326,11 +418,13 @@ class Matrix:
         self.app = None
         self.daemon = None
         self.daemon_reply = {}
+        self.arm_pid = None  # the pid the daemon armed the current lane for (its reply's `for_pid`)
         self.results = []
 
     # The app and its sockets.
-    def launch(self, env=None, fresh_state=True):
-        self.app = self.bench_launch.BenchApp(self.opts.app, out=self.out, env=env or {}, fresh_state=fresh_state)
+    def launch(self, env=None, fresh_state=True, perf_session="light"):
+        self.app = self.bench_launch.BenchApp(self.opts.app, out=self.out, env=env or {}, fresh_state=fresh_state,
+                                              perf_session=perf_session)
         self.app.launch()
         self.daemon = self.bench_tagged.daemon_socket(self.app.tag)
         self.daemon_reply = self.daemon_list()
@@ -374,32 +468,44 @@ class Matrix:
         return records
 
     # Arming and triggering.
+    def roles(self):
+        """{pid: role} of this tag's daemon, holder, hosts and acpmux."""
+        roles = {pid: classify_process(command) for pid, command in self.app.tag_processes()}
+        roles = {pid: role for pid, role in roles.items() if role}
+        if isinstance(self.daemon_reply.get("pid"), int):
+            roles[self.daemon_reply["pid"]] = "daemon"
+        return roles
+
     def pid_of(self, role):
+        if role == "daemon":
+            return self.daemon_reply.get("pid")
         found = [pid for pid, command in self.app.tag_processes() if classify_process(command) == role]
         return found[0] if found else None
 
     def arm(self, lane):
-        """(armed, detail): arms `lane` in its process."""
+        """(armed, detail): arms `lane` in its process. An app arm counts by the reply's `armed_lane`: a busy lane
+        may take the arm before the reply reads `armed`."""
         if lane.process == "app":
             reply = self.rpc("debug.hang_inject", {"lane": lane.name, "ms": lane.block_ms}, timeout=10)
-            if isinstance(reply, dict) and reply.get("armed") == lane.name:
+            if isinstance(reply, dict) and reply.get("armed_lane") == lane.name:
                 return True, ""
             return False, str((reply or {}).get("error"))
         pid = None if lane.process == "daemon" else self.pid_of(lane.process)
         if lane.process != "daemon" and pid is None:
             return False, f"no {lane.process} process of this tag"
+        self.arm_pid = None
         request = {"id": 2, "cmd": "debug-hang-inject", "lane": lane.name, "ms": lane.block_ms}
         if pid is not None:
             request["pid"] = pid
         reply = daemon_rpc(self.daemon, request)
+        self.arm_pid = (reply.get("data") or {}).get("for_pid") if reply.get("ok") else None
         return bool(reply.get("ok")), str(reply.get("error") or "")
 
     def armed(self, lane):
         """Whether `lane`'s arm still waits for its scope."""
         if lane.process == "app":
             return (self.rpc("debug.hang_inject", {"action": "list"}, timeout=40) or {}).get("armed") == lane.name
-        entries = (self.daemon_list() or {}).get("entries") or []
-        return any(entry.get("lane") == lane.name and not entry.get("taken") for entry in entries)
+        return arm_waits((self.daemon_list() or {}).get("entries"), lane.name, self.arm_pid)
 
     def disarm(self, lane):
         if lane.process == "app":
@@ -424,21 +530,32 @@ class Matrix:
         if kind == "daemon":
             daemon_rpc(self.daemon, {"id": 4, "cmd": "identify"}, timeout=40)
 
+    def app_lanes(self):
+        return (self.rpc("debug.hang_inject", {"action": "list"}, timeout=10) or {}).get("lanes") or []
+
     def registered(self, lane):
+        """True, False or None (cannot tell) for `lane` in its process."""
         if lane.process == "app":
-            lanes = (self.rpc("debug.hang_inject", {"action": "list"}, timeout=10) or {}).get("lanes") or []
-            return lane.name in lanes
-        if lane.process == "daemon":
-            return any(row.get("name") == lane.name for row in self.daemon_reply.get("lanes") or [])
-        return True  # another process: its arm is taken only by a thread that registered the name
+            return lane.name in self.app_lanes()
+        own = [row.get("name") for row in self.daemon_reply.get("lanes") or []] if lane.process == "daemon" else []
+        return lane_registered(lane.name, self.pid_of(lane.process), self.daemon_list(), own)
 
     def run_lane(self, lane):
         if self.app.process.poll() is not None:
             return "FAIL", "the app is not running"
         if lane.process == "main":
             return self.run_main(lane)
-        if not self.registered(lane):
-            return "NOT-REGISTERED", f"this build registers no {lane.name}"
+        if lane.process not in ("app", "daemon") and self.pid_of(lane.process) is None:
+            return "NOT-MEASURABLE", f"no {lane.process} process of this tag"
+        registered = self.registered(lane)
+        if registered is not True:
+            self.trigger(lane.trigger)  # a thread that registers at its first work
+            registered = self.registered(lane)
+        if registered is None:
+            return "UNKNOWN", (f"cannot tell whether the {lane.process} registers {lane.name} "
+                               "(no lane registry, or it is full)")
+        if not registered:
+            return "NOT-REGISTERED", f"the {lane.process} registers no {lane.name}"
         cursor = self.cursor()
         armed, why = self.arm(lane)
         if not armed:
@@ -463,13 +580,16 @@ class Matrix:
 
     def run_lanes(self):
         lanes = lanes_with_daemon_tiers(LANES, self.daemon_reply)
+        lanes += extra_lanes(lanes, self.app_lanes(), self.daemon_list(), self.roles())
         if self.opts.only:
             lanes = tuple(lane for lane in lanes if lane.name in self.opts.only)
         for lane in lanes:
             status, detail = self.run_lane(lane)
+            if not lane.known:
+                detail += " (a registered lane the matrix does not name: default tier)"
             print(f"{status:15} {lane.process:7} {lane.name:22} block {lane.block_ms} ms: {detail}", flush=True)
             self.results.append({"lane": lane.name, "process": lane.process, "status": status, "detail": detail,
-                                 "block_ms": lane.block_ms, "bound_ms": lane.bound_ms})
+                                 "block_ms": lane.block_ms, "bound_ms": lane.bound_ms, "in_matrix": lane.known})
 
     # The fatal case.
     def run_fatal(self):
@@ -503,7 +623,30 @@ class Matrix:
         self.stop()
 
     # The soak.
+    def build_stress(self):
+        """Launches the app again with the STRESS session and builds it (perf-stress-session.py, as bench-typing.py
+        --stress does): (the session's summary, "") or (None, why)."""
+        self.stop()
+        self.launch(perf_session="stress")
+        path = os.path.join(HERE, "perf-stress-session.py")
+        spec = importlib.util.spec_from_file_location("perf_stress_session", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        try:
+            summary = module.Stress(self.rpc, log=lambda text: print(text, flush=True)).build()
+        except module.StressShapeError as error:
+            return None, str(error)
+        print("STRESS-SESSION " + json.dumps(summary), flush=True)
+        return summary, ""
+
     def run_soak(self, minutes):
+        session, why = self.build_stress()
+        if session is None:
+            detail = f"the STRESS session was not built: {why}"
+            print(f"{'NOT-MEASURABLE':15} soak    {detail}")
+            self.results.append({"lane": "soak", "process": "all", "status": "NOT-MEASURABLE", "detail": detail,
+                                 "session": "stress"})
+            return
         cursor = self.cursor()
         end = time.monotonic() + minutes * 60
         while time.monotonic() < end and self.app.process.poll() is None:
@@ -511,11 +654,12 @@ class Matrix:
                 self.trigger("typing")
             self.trigger("activity")
             self.rpc("action.run", {"action": "closeTab", "args": {}, "focus": False, "origin": "script"}, timeout=40)
-        records = self.new_records(cursor)
+        records = hang_tier(self.new_records(cursor))
         status = "PASS" if not records else "FAIL"
         detail = f"{len(records)} hang records in {minutes:g} min of STRESS typing and tab churn (want 0)"
         print(f"{status:15} soak    {detail}")
         self.results.append({"lane": "soak", "process": "all", "status": status, "detail": detail,
+                             "session": "stress", "session_shape": session,
                              "records": [dataclasses.asdict(record) for record in records]})
         self.run_sleep()
 
@@ -535,7 +679,7 @@ class Matrix:
             return
         subprocess.run(["pmset", "sleepnow"], capture_output=True)
         time.sleep(SLEEP_WAKE_AFTER + 30)  # harness: the scheduled wake and the watchers' first pass after it
-        records = self.new_records(cursor)
+        records = hang_tier(self.new_records(cursor))
         status = "PASS" if not records else "FAIL"
         detail = f"{len(records)} hang records across a real sleep woken by pmset at {when} (want 0)"
         print(f"{status:15} sleep   {detail}")
@@ -632,6 +776,46 @@ def self_test():
                                         "overdue_ms": 250, "stack": {"frames": [{"image_id": "x", "offset": 1}] * 5}}))
     check(len(rust) == 1 and rust[0].lane == "host-pty" and rust[0].seen_after_ms == 1250 and rust[0].frames == 5,
           "cmux-hang-watch lines parse")
+
+    check(len(hang_tier(stalls + [dataclasses.replace(stalls[0], seen_after_ms=60)])) == 1,
+          "a 60 ms main stall is a jank: the soak does not count it")
+    check(len(hang_tier(records + daemon + [dataclasses.replace(stalls[0], seen_after_ms=250)])) == 5,
+          "thread hangs, daemon lines and a 250 ms main stall are hangs")
+
+    dispatch = next(lane for lane in LANES if lane.name == "mux-control-dispatch")
+    query = rust_watch_lines(json.dumps({"schema": 1, "thread": "mux-control-dispatch", "deadline_ms": 1000,
+                                         "overdue_ms": 900, "stack": {"frames": [{}] * 6}}))
+    check(judge(dispatch, query, "arm64")[0] == "PASS" and "bound 3000" in judge(dispatch, query, "arm64")[1],
+          "a hang-watch record's bound is its own deadline's")
+    late_query = [dataclasses.replace(query[0], seen_after_ms=3_500)]
+    check(judge(dispatch, late_query, "arm64")[0] == "FAIL", "past its own deadline's bound fails")
+    check(dispatch.block_ms > 10_000 + DAEMON_PERIOD_MS, "the dispatch block covers a 10 s MethodClass")
+
+    page = [{"lane": "mux-conn", "pid": 11, "taken": False}, {"lane": "mux-conn", "pid": 12, "taken": True}]
+    check(not arm_waits(page, "mux-conn", 12), "another pid's untaken arm is not this run's")
+    check(arm_waits(page, "mux-conn", 11) and not arm_waits(page, "holder-link", 11), "an untaken arm of the pid waits")
+    check(not arm_waits(None, "mux-conn", 11), "no entries")
+
+    reply = {"registered": [{"lane": "host-pty", "pid": 30}, {"lane": "acpmux-sync", "pid": 40},
+                            {"lane": "mux-control-dispatch", "pid": 20}, {"lane": "other-tag", "pid": 99}],
+             "registrations_free": 3}
+    check(lane_registered("host-pty", 30, reply) is True, "a registered host lane")
+    check(lane_registered("host-parser", 30, reply) is False, "an unregistered host lane is NOT-REGISTERED")
+    check(lane_registered("host-pty", 31, reply) is False, "another host's registration is not this one's")
+    check(lane_registered("host-parser", 30, dict(reply, registrations_free=0)) is None, "a full registry: UNKNOWN")
+    check(lane_registered("host-parser", 30, {}) is None, "no registry: UNKNOWN")
+    check(lane_registered("mux-conn", 20, {}, ["mux-conn"]) is True, "a daemon's own lane")
+    check(lane_registered("host-pty", None, reply) is None, "no process: UNKNOWN")
+
+    roles = {20: "daemon", 30: "host", 40: "acpmux"}
+    extra = extra_lanes(LANES, ["main", "daemon.line", "terminal-output", "localpty"],
+                        dict(reply, registered=reply["registered"] + [{"lane": "mux-journal-x", "pid": 20}]), roles)
+    by_name = {lane.name: lane for lane in extra}
+    check(set(by_name) == {"terminal-output", "localpty", "mux-journal-x"},
+          f"every registered name LANES lacks is a lane ({sorted(by_name)})")
+    check(by_name["terminal-output"].process == "app" and not by_name["terminal-output"].known
+          and by_name["terminal-output"].block_ms > EXTRA_TIER_MS, "an extra app lane blocks past the default tier")
+    check(by_name["mux-journal-x"].process == "daemon", "an extra daemon lane is armed for the daemon")
 
     tiers = lanes_with_daemon_tiers(LANES, {"lanes": [{"name": "mux-conn", "hang_ms": 4000}, {"name": "x"}]})
     check(next(l for l in tiers if l.name == "mux-conn").tier_ms == 4000, "the daemon's own tiers win")

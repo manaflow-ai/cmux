@@ -76,11 +76,20 @@ const LATE_US: u64 = 100_000;
 pub struct HangSite {
     name: &'static str,
     deadline: Duration,
+    /// Debug builds: set by the site's first scope, which publishes the
+    /// site's name as a registered lane (`hang_inject::publish`).
+    #[cfg(debug_assertions)]
+    published: AtomicBool,
 }
 
 impl HangSite {
     pub const fn new(name: &'static str, deadline: Duration) -> Self {
-        Self { name, deadline }
+        Self {
+            name,
+            deadline,
+            #[cfg(debug_assertions)]
+            published: AtomicBool::new(false),
+        }
     }
 
     pub fn name(&self) -> &'static str {
@@ -520,7 +529,14 @@ impl HangWatcher {
         }
         shared.arm();
         #[cfg(debug_assertions)]
-        crate::hang_inject::hold_if_armed(site.name);
+        {
+            if !site.published.load(Ordering::Relaxed)
+                && !site.published.swap(true, Ordering::Relaxed)
+            {
+                crate::hang_inject::publish(site.name);
+            }
+            crate::hang_inject::hold_if_armed(site.name);
+        }
         HangScope {
             open: Some(OpenScope { shared, index, previous_word, previous_site }),
             _thread: PhantomData,

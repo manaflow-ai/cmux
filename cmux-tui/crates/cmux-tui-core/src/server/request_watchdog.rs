@@ -309,7 +309,15 @@ struct Shared {
     /// Tests: held to keep the watchdog thread from scanning.
     #[cfg(test)]
     scan_hold: Mutex<()>,
+    /// Debug builds: the hang-injection page a run takes its arm from (the
+    /// process page; tests give a private one).
+    #[cfg(debug_assertions)]
+    inject_page: InjectPage,
 }
+
+/// Debug builds: where [`Shared::claim`] reads a `debug-hang-inject` arm.
+#[cfg(debug_assertions)]
+type InjectPage = fn() -> Option<&'static cmux_threads::hang_inject::Page>;
 
 impl Shared {
     fn now_us(&self) -> u64 {
@@ -371,7 +379,7 @@ impl Shared {
         self.arm();
         // Debug builds: a `debug-hang-inject` armed for this lane blocks here, inside the run.
         #[cfg(debug_assertions)]
-        cmux_threads::hang_inject::hold_if_armed(kind.name());
+        cmux_threads::hang_inject::hold_if_armed_on((self.inject_page)(), kind.name());
         Some((index, word))
     }
 
@@ -781,8 +789,19 @@ impl RequestWatchdog {
                 recent: Mutex::new(VecDeque::with_capacity(SLOW_REQUEST_RING)),
                 #[cfg(test)]
                 scan_hold: Mutex::new(()),
+                #[cfg(debug_assertions)]
+                inject_page: cmux_threads::hang_inject::page,
             }),
         }
+    }
+
+    /// Tests: runs take their `debug-hang-inject` arm from `page`.
+    #[cfg(all(test, debug_assertions))]
+    pub(crate) fn with_inject_page(mut self, page: InjectPage) -> Self {
+        if let Some(shared) = Arc::get_mut(&mut self.shared) {
+            shared.inject_page = page;
+        }
+        self
     }
 
     /// Watch one run of `method` for `client` until the scope drops. `None`

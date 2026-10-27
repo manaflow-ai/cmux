@@ -1,6 +1,7 @@
 //! Hang injection through a hang-watch scope (p09-observability-088): an
 //! armed lane blocks at its next scope on its own thread, and the watcher
-//! reports exactly one hang on that slot. Its own test binary, so no other
+//! reports exactly one hang on that slot, and the registration is published
+//! for hang-matrix.py. Its own test binary, so no other
 //! test sees the armed page. Debug builds on Unix only, as the injector's page.
 #![cfg(all(debug_assertions, unix))]
 
@@ -27,6 +28,8 @@ fn an_armed_lane_hangs_once_at_its_next_scope_and_is_reported_on_its_slot() {
     let watch = HangWatch::spawn(config, Arc::new(TraceClock), Box::new(sink.clone())).unwrap();
     let guard = watch.register_thread(ThreadKind::Lane, "inject-lane");
     let page = hang_inject::page().expect("the process page maps in /tmp");
+    let mine = hang_inject::Registered { lane: "inject-lane".into(), pid: std::process::id() };
+    assert!(page.registrations().contains(&mine), "the registration is published");
     page.arm("inject-lane", std::process::id(), Duration::from_millis(600)).unwrap();
 
     let started = Instant::now();

@@ -6,13 +6,18 @@
 //! `chrome://uithreadhang` and `chrome://gpuhang` run the hang on the thread
 //! itself (content/browser/renderer_host/debug_urls.cc, `HangCurrentThread`).
 //!
-//! One 4 KiB page, `/tmp/cmux-hang-inject-<uid>.page` (`CMUX_HANG_INJECT_PAGE`
-//! names another file), is mapped shared by every
+//! One file of two 4 KiB pages, `/tmp/cmux-hang-inject-<uid>.page`
+//! (`CMUX_HANG_INJECT_PAGE` names another file), is mapped shared by every
 //! debug cmux process that opens a watched scope: the daemon, its holder, its
 //! terminal hosts and acpmux. An entry names a lane and the one pid that may
 //! take it, and expires a minute after it is armed, so a stale arm never
 //! hangs another session's process. It is taken once, with a
 //! compare-exchange.
+//!
+//! The rest of the file is the registry: each process publishes the lanes it
+//! watches ([`publish`], once per thread registration or hang site), so
+//! hang-matrix.py tells a lane no thread registers from one that did not run.
+//! A registration of a process that has exited is reused.
 //!
 //! The scope's cost ([`hold_if_armed`]) is one load of the mapping and one
 //! relaxed load of the armed count while nothing is armed. Release builds do
@@ -34,8 +39,10 @@ pub const ARM_TTL: Duration = Duration::from_secs(60);
 pub const ENTRIES: usize = 32;
 /// Bytes of a lane name an entry keeps.
 pub const NAME_BYTES: usize = 32;
-/// The bytes the page file is sized to (one 4 KiB page).
-pub const PAGE_BYTES: usize = 4096;
+/// Registrations one page holds.
+pub const REGISTRATIONS: usize = 95;
+/// The bytes the page file is sized to (two 4 KiB pages: the arms, then the registry).
+pub const PAGE_BYTES: usize = 8192;
 
 const NAME_WORDS: usize = NAME_BYTES / 8;
 const MAGIC: u64 = u64::from_le_bytes(*b"cmuxhgi2");
@@ -58,6 +65,21 @@ struct Entry {
 
 const _: () = assert!(size_of::<Entry>() == 64);
 
+/// A registration's `word`: the low byte its state, the pid above it.
+const REG_FREE: u64 = 0;
+const REG_WRITING: u64 = 1;
+const REG_PUBLISHED: u64 = 2;
+
+/// One lane a process registered (64 bytes, one cache line).
+#[repr(C, align(64))]
+struct Registration {
+    word: AtomicU64,
+    name: [AtomicU64; NAME_WORDS],
+    _pad: [AtomicU64; 3],
+}
+
+const _: () = assert!(size_of::<Registration>() == 64);
+
 /// The shared page: a header line, then the entries.
 #[repr(C, align(64))]
 pub struct Page {
@@ -66,6 +88,7 @@ pub struct Page {
     armed: AtomicU64,
     _header: [AtomicU64; 6],
     entries: [Entry; ENTRIES],
+    registrations: [Registration; REGISTRATIONS],
 }
 
 const _: () = assert!(size_of::<Page>() <= PAGE_BYTES);
@@ -79,6 +102,13 @@ pub struct EntryState {
     pub block_ms: u64,
     /// True once the lane's thread took it.
     pub taken: bool,
+}
+
+/// A lane a live process registered, as [`Page::registrations`] reads it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Registered {
+    pub lane: String,
+    pub pid: u32,
 }
 
 /// Why an arm or the page map failed.
@@ -95,7 +125,7 @@ pub enum InjectError {
     BadPid,
     /// The lane is armed already for that process.
     AlreadyArmed,
-    /// Every entry is armed.
+    /// Every entry is armed, or every registration is a live process's.
     Full,
     /// The page file holds another format.
     Format,
@@ -181,9 +211,27 @@ fn monotonic_ms() -> u64 {
     0
 }
 
+fn names(name: &[AtomicU64; NAME_WORDS], words: &[u64; NAME_WORDS]) -> bool {
+    name.iter().zip(words).all(|(stored, word)| stored.load(Ordering::Relaxed) == *word)
+}
+
+/// Whether process `pid` still runs (a registration of an exited one is reused).
+#[cfg(unix)]
+fn alive(pid: u32) -> bool {
+    let Ok(raw) = libc::pid_t::try_from(pid) else { return true };
+    // SAFETY: signal 0 only checks that the process exists; it sends nothing.
+    let exists = unsafe { libc::kill(raw, 0) } == 0;
+    exists || io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
+}
+
+#[cfg(not(unix))]
+fn alive(_pid: u32) -> bool {
+    true
+}
+
 impl Entry {
     fn names(&self, words: &[u64; NAME_WORDS]) -> bool {
-        self.name.iter().zip(words).all(|(stored, word)| stored.load(Ordering::Relaxed) == *word)
+        names(&self.name, words)
     }
 
     fn is_for(&self, words: &[u64; NAME_WORDS], pid: u32) -> bool {
@@ -207,6 +255,13 @@ impl Page {
                     name: [const { AtomicU64::new(0) }; NAME_WORDS],
                 }
             }; ENTRIES],
+            registrations: [const {
+                Registration {
+                    word: AtomicU64::new(REG_FREE),
+                    name: [const { AtomicU64::new(0) }; NAME_WORDS],
+                    _pad: [const { AtomicU64::new(0) }; 3],
+                }
+            }; REGISTRATIONS],
         }
     }
 
@@ -322,6 +377,83 @@ impl Page {
         None
     }
 
+    /// Publishes that process `pid` watches `lane`; once per lane and pid.
+    /// A registration of a process that has exited is reused.
+    pub fn register(&self, lane: &str, pid: u32) -> Result<(), InjectError> {
+        self.register_with(lane, pid, alive)
+    }
+
+    fn register_with(
+        &self,
+        lane: &str,
+        pid: u32,
+        alive: impl Fn(u32) -> bool,
+    ) -> Result<(), InjectError> {
+        let words = encode(lane)?;
+        if pid == 0 {
+            return Err(InjectError::BadPid);
+        }
+        let published = (u64::from(pid) << 8) | REG_PUBLISHED;
+        if self.registrations.iter().any(|registration| {
+            registration.word.load(Ordering::Acquire) == published
+                && names(&registration.name, &words)
+        }) {
+            return Ok(());
+        }
+        let claimed = self.registrations.iter().find(|registration| {
+            let word = registration.word.load(Ordering::Relaxed);
+            let owner = u32::try_from(word >> 8).unwrap_or(0);
+            (word == REG_FREE || !alive(owner))
+                && registration
+                    .word
+                    .compare_exchange(
+                        word,
+                        (u64::from(pid) << 8) | REG_WRITING,
+                        Ordering::Acquire,
+                        Ordering::Relaxed,
+                    )
+                    .is_ok()
+        });
+        let Some(registration) = claimed else { return Err(InjectError::Full) };
+        for (stored, word) in registration.name.iter().zip(words) {
+            stored.store(word, Ordering::Relaxed);
+        }
+        registration.word.store(published, Ordering::Release);
+        Ok(())
+    }
+
+    /// The lanes live processes registered, each (lane, pid) once.
+    pub fn registrations(&self) -> Vec<Registered> {
+        self.registrations_with(alive)
+    }
+
+    fn registrations_with(&self, alive: impl Fn(u32) -> bool) -> Vec<Registered> {
+        let mut found: Vec<Registered> = Vec::new();
+        for registration in &self.registrations {
+            let word = registration.word.load(Ordering::Acquire);
+            let pid = u32::try_from(word >> 8).unwrap_or(0);
+            if word & 0xFF != REG_PUBLISHED || !alive(pid) {
+                continue;
+            }
+            let entry = Registered { lane: decode(&registration.name), pid };
+            if !found.contains(&entry) {
+                found.push(entry);
+            }
+        }
+        found
+    }
+
+    /// Registrations a new (lane, pid) may take now: free ones and those of exited processes.
+    pub fn registrations_free(&self) -> usize {
+        self.registrations
+            .iter()
+            .filter(|registration| {
+                let word = registration.word.load(Ordering::Acquire);
+                word == REG_FREE || !alive(u32::try_from(word >> 8).unwrap_or(0))
+            })
+            .count()
+    }
+
     /// Every armed or taken entry.
     pub fn entries(&self) -> Vec<EntryState> {
         self.entries
@@ -405,7 +537,8 @@ pub fn map(path: &std::path::Path) -> Result<&'static Page, InjectError> {
     }
     let bytes = PAGE_BYTES as u64;
     if metadata.len() < bytes {
-        // Grows a new file with zeros (an empty page); never shrinks one another process mapped.
+        // Grows a new file with zeros (an empty page), or an older one-page file by its registry
+        // (zeros: free); never shrinks one another process mapped.
         file.set_len(bytes).map_err(InjectError::Io)?;
     }
     // SAFETY: a new shared read-write mapping of PAGE_BYTES of an open file at
@@ -448,12 +581,26 @@ pub fn any_armed() -> bool {
     page().is_some_and(|page| page.armed.load(Ordering::Relaxed) != 0)
 }
 
+/// Publishes that this process watches `lane` (a thread registration or a
+/// hang site's first scope); nothing when the page is not mapped or full.
+pub fn publish(lane: &str) {
+    if let Some(page) = page() {
+        let _ = page.register(lane, std::process::id());
+    }
+}
+
 /// Blocks the calling thread for the entry armed for `lane` in this process,
 /// if any: called by a hang watcher right after it opened a scope of `lane`,
 /// so the block is inside that scope, on its thread.
 #[inline]
 pub fn hold_if_armed(lane: &str) {
-    if let Some(block) = page().and_then(|page| page.take(lane, std::process::id())) {
+    hold_if_armed_on(page(), lane);
+}
+
+/// [`hold_if_armed`] on `page` (a watcher's injected page; None: no page).
+#[inline]
+pub fn hold_if_armed_on(page: Option<&Page>, lane: &str) {
+    if let Some(block) = page.and_then(|page| page.take(lane, std::process::id())) {
         hold(block);
     }
 }

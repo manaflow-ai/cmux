@@ -88,6 +88,10 @@ fn an_arm_goes_into_the_page_and_every_answer_lists_it() {
 
     let again = answer(&request, Some(&page), None).unwrap_err();
     assert!(again.contains("armed already"), "{again}");
+    page.register("host-pty", std::process::id()).unwrap();
+    let listed = answer(&Request::List, Some(&page), None).unwrap();
+    assert_eq!(listed["registered"], json!([{"lane": "host-pty", "pid": std::process::id()}]));
+    assert_eq!(listed["registrations_free"], hang_inject::REGISTRATIONS - 1);
     let disarmed =
         answer(&Request::Disarm { lane: "mux-conn".into(), pid: 9 }, Some(&page), None).unwrap();
     assert_eq!(disarmed["disarmed"], 1);
@@ -131,13 +135,20 @@ fn only_the_trusted_local_connection_is_answered_and_other_lines_pass() {
     assert_eq!(try_handle(&mux, *client, "not json", writer), None);
 }
 
-/// The request watchdog's own scope takes the arm: a run of the armed lane
-/// blocks for `ms` inside its scope, once.
-#[cfg(unix)]
+/// The private page this test arms: no other test's watchdog reads it.
+static PRIVATE_PAGE: std::sync::LazyLock<Page> = std::sync::LazyLock::new(Page::new);
+
+fn private_page() -> Option<&'static Page> {
+    Some(&PRIVATE_PAGE)
+}
+
+/// The request watchdog's own scope takes the arm from its page: a run of the
+/// armed lane blocks for `ms` inside its scope, once.
 #[test]
 fn an_armed_daemon_lane_blocks_its_next_run_once() {
-    let page = hang_inject::page().expect("the process page maps in /tmp");
-    let watchdog = crate::server::RequestWatchdog::new(Duration::from_secs(1));
+    let page = private_page().unwrap();
+    let watchdog =
+        crate::server::RequestWatchdog::new(Duration::from_secs(1)).with_inject_page(private_page);
     page.arm(WatchKind::JournalWriter.name(), std::process::id(), Duration::from_millis(300))
         .unwrap();
     let started = Instant::now();
@@ -146,4 +157,5 @@ fn an_armed_daemon_lane_blocks_its_next_run_once() {
     let started = Instant::now();
     drop(watchdog.watch(WatchKind::JournalWriter, 0));
     assert!(started.elapsed() < Duration::from_millis(300), "taken once");
+    assert!(page.entries()[0].taken);
 }

@@ -828,6 +828,15 @@ impl HangWatch {
         slot.kind.store(kind as u8, Ordering::Relaxed);
         slot.native.store(native_thread_id(), Ordering::Relaxed);
         slot.set_name(name);
+        // Debug builds: the name as stored, the one a scope's injection looks up, is published as
+        // a registered lane of this process (hang-matrix.py).
+        #[cfg(debug_assertions)]
+        {
+            let (bytes, end) = slot.name_bytes();
+            if let Ok(stored) = std::str::from_utf8(&bytes[..end]) {
+                cmux_threads::hang_inject::publish(stored);
+            }
+        }
         let generation = slot.generation.fetch_add(1, Ordering::Release).wrapping_add(1);
         shared.registered.fetch_add(1, Ordering::Relaxed);
         if process {

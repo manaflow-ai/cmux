@@ -19,12 +19,14 @@
 //! "pid": 123}` arms (`ms` defaults to 3000, `pid` to the daemon);
 //! `"action": "disarm"` with `lane` (and `pid`) disarms; `"action": "list"`
 //! arms nothing. Every answer has the page, its entries, the daemon's pid, its
-//! hang log and its own lanes with their hang tiers.
+//! hang log, its own lanes with their hang tiers, and the lanes every live
+//! process published to the page's registry (`registered`, with
+//! `registrations_free`: 0 means a lane missing from it may still run).
 
 use std::sync::Arc;
 use std::time::Duration;
 
-use cmux_threads::hang_inject::{self, EntryState, InjectError, Page};
+use cmux_threads::hang_inject::{self, EntryState, InjectError, Page, Registered};
 use serde_json::{Map, Value, json};
 
 use super::{MessageWriter, Response, WatchKind, send_request_error, send_response};
@@ -184,6 +186,13 @@ fn answer(
         hang_log.map_or(Value::Null, |path| json!(path.display().to_string())),
     );
     reply.insert(
+        "registered".into(),
+        Value::Array(
+            page.map_or_else(Vec::new, Page::registrations).iter().map(registered_json).collect(),
+        ),
+    );
+    reply.insert("registrations_free".into(), json!(page.map_or(0, Page::registrations_free)));
+    reply.insert(
         "lanes".into(),
         Value::Array(
             DAEMON_LANES
@@ -197,6 +206,10 @@ fn answer(
 
 fn entry_json(entry: &EntryState) -> Value {
     json!({"lane": entry.lane, "pid": entry.pid, "ms": entry.block_ms, "taken": entry.taken})
+}
+
+fn registered_json(registered: &Registered) -> Value {
+    json!({"lane": registered.lane, "pid": registered.pid})
 }
 
 fn millis(duration: Duration) -> u64 {

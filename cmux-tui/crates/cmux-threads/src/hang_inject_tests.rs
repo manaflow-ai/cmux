@@ -89,6 +89,54 @@ fn concurrent_takers_take_an_entry_once() {
     assert_eq!(taken.filter(|taken| *taken).count(), 1);
 }
 
+#[test]
+fn a_registration_is_published_once_per_lane_and_process() {
+    let page = Page::new();
+    let live = |_pid| true;
+    page.register_with("host-pty", 7, live).unwrap();
+    page.register_with("host-pty", 7, live).unwrap();
+    page.register_with("host-pty", 8, live).unwrap();
+    page.register_with("host-parser", 7, live).unwrap();
+    let lanes: Vec<_> =
+        page.registrations_with(live).into_iter().map(|r| (r.lane, r.pid)).collect();
+    assert_eq!(
+        lanes,
+        [("host-pty".to_owned(), 7), ("host-pty".to_owned(), 8), ("host-parser".to_owned(), 7)]
+    );
+    assert!(matches!(page.register_with("Bad Lane", 7, live), Err(InjectError::BadLane)));
+    assert!(matches!(page.register_with("host-pty", 0, live), Err(InjectError::BadPid)));
+}
+
+#[test]
+fn a_full_registry_refuses_until_a_registered_process_exits() {
+    let page = Page::new();
+    for pid in 1..=REGISTRATIONS as u32 {
+        page.register_with("acpmux-sync", pid, |_| true).unwrap();
+    }
+    let all_live = |_pid| true;
+    assert!(matches!(page.register_with("acpmux-sync", 500, all_live), Err(InjectError::Full)));
+    let three_exited = |pid| pid != 3;
+    assert!(!page.registrations_with(three_exited).iter().any(|r| r.pid == 3), "an exited process");
+    page.register_with("acpmux-runtime", 500, three_exited).unwrap();
+    let lanes = page.registrations_with(three_exited);
+    assert!(lanes.contains(&Registered { lane: "acpmux-runtime".into(), pid: 500 }), "{lanes:?}");
+    assert_eq!(lanes.len(), REGISTRATIONS, "the exited process's registration was reused");
+}
+
+/// A watcher's own page (an injected seam) is the only one it takes from.
+#[test]
+fn hold_if_armed_on_takes_only_from_the_page_it_is_given() {
+    let mine = Page::new();
+    let other = Page::new();
+    other.arm("seam-lane", std::process::id(), Duration::from_millis(1)).unwrap();
+    hold_if_armed_on(Some(&mine), "seam-lane");
+    hold_if_armed_on(None, "seam-lane");
+    assert!(!other.entries()[0].taken, "another page's arm stays");
+    mine.arm("seam-lane", std::process::id(), Duration::from_millis(1)).unwrap();
+    hold_if_armed_on(Some(&mine), "seam-lane");
+    assert!(mine.entries()[0].taken);
+}
+
 /// The page as a mapped file, and the process's own page under a watcher.
 #[cfg(unix)]
 mod unix {
