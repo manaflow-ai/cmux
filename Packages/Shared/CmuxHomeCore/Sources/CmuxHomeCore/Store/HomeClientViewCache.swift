@@ -33,6 +33,8 @@ final class HomeClientViewCache {
     private var writesSuppressed = false
     /// Something changed since the last successful write (or the restore).
     private var dirty = false
+    /// The last write handed to the cache actor did not reach disk.
+    private var lastWriteFailed = false
     /// Numbers each state handed to the cache, so a late older write never replaces a newer one.
     private var sequence: UInt64 = 0
     /// This view cache's name at the cache actor, which orders each writer's states apart.
@@ -106,25 +108,37 @@ final class HomeClientViewCache {
         guard let cache, let taken = takeState() else { return }
         let writer = writer
         // task-owner: one write on the cache actor; ``flush()`` waits for the newest one
+        lastWriteFailed = false
         lastWrite = Task { [weak self] in
             let wrote = await cache.write(taken.state, sequence: taken.sequence, writer: writer)
-            if !wrote { self?.dirty = true }
+            if !wrote {
+                self?.dirty = true
+                self?.lastWriteFailed = true
+            }
         }
     }
 
     /// Writes the coalesced batch now and waits until the cache actor has it on disk (the quit's
-    /// save step, tests), trying once more when that write failed; returns at once when nothing
-    /// changed and no write is in flight.
+    /// save step, tests); returns at once when nothing changed and no write is in flight.
     ///
     /// Waiting for the newest write is enough: every state holds all the earlier ones, and the
-    /// actor drops an older state of this writer that reaches it later.
+    /// actor drops an older state of this writer that reaches it later. A change made while it
+    /// waits is written too (it waits again); a write that failed is tried once more, then it
+    /// returns with the change still unwritten.
     func flush() async {
-        writeNow()
-        await lastWrite?.value
-        // A failed write set `dirty` again and nothing else retries it: the quit tries once more.
-        guard dirty else { return }
-        writeNow()
-        await lastWrite?.value
+        var retried = false
+        // At most 16 rounds: a change keeps coming in every round only under a stream of edits during the quit.
+        for _ in 0..<16 {
+            writeNow()
+            guard let awaited = lastWrite else { return }
+            await awaited.value
+            if lastWrite != awaited { continue }  // a newer write started while this one ran: wait for it
+            if !dirty { return }
+            if lastWriteFailed {
+                if retried { return }
+                retried = true
+            }
+        }
     }
 
     /// The state to write and its number, nil when nothing changed; clears `dirty` (a failed

@@ -68,6 +68,10 @@ final class ScreenContentView: NSView {
     /// The focus the scroll last followed; a window resize re-syncs with it.
     var lastFocused: PaneID?
     var activeDrag: DividerDragState?
+    /// A person's resize drag as the pane contents hear it (`ScreenContentView+ResizeGesture`).
+    var resizeGesture = PaneResizeGesturePhase.idle
+    /// The pane contents that heard the drag start; the end goes to them.
+    var resizeGestureListeners: [PaneResizeGestureListener] = []
     /// Overlay docked columns' glass rims, keyed by column.
     var backdrops: [ColumnID: DockBackdropView] = [:]
     /// The strip scrollbar; created on first use.
@@ -80,6 +84,13 @@ final class ScreenContentView: NSView {
     var canvasState = ScreenCanvasState()
     /// A user pan of this screen stepped the layout and has not ended yet (`applyPresentation`).
     var userMotionActive = false
+    /// A strip pan event showed in the current display frame (``presentPan()``); the frame's tick
+    /// clears it (``displayFrameBegan()``).
+    var panPresentedInFrame = false
+    /// Strip pan events reduced but not shown yet: the next frame tick shows them in one presentation.
+    var panPresentationPending = false
+    /// Frame ticks the pan still keeps after its last event (``displayFrameBegan()``).
+    var panTicksLeft = 0
     /// Pane strip clips computed, cumulative (PaneMotionWorkTests: per frame it is the panes that
     /// moved or whose covers changed, not every pane).
     var stripClipsComputed = 0
@@ -129,8 +140,19 @@ final class ScreenContentView: NSView {
         reconcileAndScroll()
     }
 
+    /// The backing scale the frames were last computed at (`reconcile`), nil before the first pass.
+    private(set) var reconciledScale: CGFloat?
+    /// `applyCamera` is setting the bounds (the canvas camera).
+    var isApplyingCamera = false
+    /// Reconcile passes, cumulative (ScreenBackingChangeTests: a bounds change is not a backing change).
+    private(set) var reconcilePasses = 0
+
+    /// Only a real scale change (the window moved to a display of another scale) lays out again.
+    /// AppKit also calls this inside `setBoundsSize`, which the canvas camera sets (`applyCamera`):
+    /// reconciling there set the bounds again and recursed until the stack overflowed (Crash D, #24998).
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
+        guard !isApplyingCamera, window != nil, reconciledScale != scale else { return }
         reconcileAndScroll()
     }
 
@@ -138,6 +160,7 @@ final class ScreenContentView: NSView {
     /// A pane spring left mid-flight could park its pane off screen. Column and row camera
     /// springs may resume when the workspace shows (Lucas 2026-10-19).
     func settleMotion() {
+        defer { if resizeGesture == .landing { finishResizeGesture() } }
         guard hasMotion else { return }
         reconcileAndScroll()
     }
@@ -183,7 +206,9 @@ final class ScreenContentView: NSView {
         let before = geometry
         // One style read per pass: it is resolved from the settings.
         let style = context.style
+        reconcilePasses += 1
         applyCamera()
+        reconciledScale = scale
         baseGeometry = canvasGeometry ?? ScreenGeometry.compute(shown, viewport: bounds.size, style: style, scale: scale)
         geometry = baseGeometry.shiftingAreas(areaOffsets).shiftingRows(rowOffsets)
         let animate = animated && !context.reduceMotion && bounds.width > 0
@@ -256,6 +281,11 @@ final class ScreenContentView: NSView {
                 zoomMotion.returning(pane)
                 frame.setTarget(target, alpha: 1)
                 paneFrames[pane] = frame
+            }
+            if let handoff, handoff.pane == pane {
+                // PaneHostView must distinguish this from an ordinary moving shrink: both have a
+                // nonzero rest offset, but only a handoff's first frame is already at its target size.
+                context.hosts[pane]?.isContentHandoff = true
             }
             context.hosts[pane]?.applyShape(padding: style.panePadding, cornerRadius: style.paneCornerRadius, wholeCard: style.floatingPanes)
         }
@@ -402,6 +432,7 @@ final class ScreenContentView: NSView {
     func tearDown() {
         // A drag on a screen that goes away gets no release either.
         endDrag()
+        finishResizeGesture()
         holdsGrids = false
         for pane in paneFrames.keys where !context.livePanes.contains(pane) {
             context.release(pane)

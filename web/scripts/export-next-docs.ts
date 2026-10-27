@@ -5,6 +5,9 @@
 // web/ never reads plans/ or schemas/ at build time; run this after either
 // source changes:
 //   bun web/scripts/export-next-docs.ts
+// `--settings` writes only the settings reference (the fleet settings export,
+// scripts/cmux-next/regenerate-settings-exports.sh with a .patch OUT, which regenerates
+// the schema but not the action catalog).
 // web/tests/next-docs.test.ts fails until the copies are fresh.
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -96,10 +99,12 @@ export function buildSettingsReference(schema: Schema): SettingsReference {
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const repo = fileURLToPath(new URL("../..", import.meta.url));
-  const surfaces = JSON.parse(readFileSync(join(repo, "plans/cmux-next/action-surfaces.json"), "utf8"));
   const schema = JSON.parse(readFileSync(join(repo, "schemas/settings/settings-schema.json"), "utf8"));
   const dir = fileURLToPath(new URL("../data/next-docs/", import.meta.url));
-  writeFileSync(join(dir, "cli-reference.generated.json"), JSON.stringify(buildCliReference(surfaces), null, 2) + "\n");
+  if (!process.argv.slice(2).includes("--settings")) {
+    const surfaces = JSON.parse(readFileSync(join(repo, "plans/cmux-next/action-surfaces.json"), "utf8"));
+    writeFileSync(join(dir, "cli-reference.generated.json"), JSON.stringify(buildCliReference(surfaces), null, 2) + "\n");
+  }
   writeFileSync(join(dir, "settings-reference.generated.json"), JSON.stringify(buildSettingsReference(schema), null, 2) + "\n");
   console.log(`wrote ${dir}`);
 }

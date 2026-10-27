@@ -105,9 +105,100 @@ export type RunArtifactView = {
   readonly createdAt: string;
 };
 
+/**
+ * Where a Run executes (hq#3367). `persistent` is the existing fan-out path. `sandboxed` boots
+ * one VM from a pinned manifest image, runs one task, writes a receipt and destroys the VM on
+ * every exit path; it is never promoted, paused or retained for attach.
+ */
+export const RUN_ENVIRONMENTS = ["persistent", "sandboxed"] as const;
+export type RunEnvironment = (typeof RUN_ENVIRONMENTS)[number];
+
+/** A sandbox attempt whose lease lapsed this long ago lost its controller; the reaper fails it. */
+export const SANDBOX_ABANDONED_GRACE_MS = 2 * 60_000;
+/**
+ * After a sandbox's terminal event, how long its launcher has to record the outcome and hand the
+ * VM to the reaper (which makes it due at once) before the reaper takes it anyway.
+ */
+export const SANDBOX_HANDOFF_GRACE_MS = 2 * 60_000;
+/** A queued sandbox attempt never leased within this window never will be. */
+export const SANDBOX_QUEUED_ABANDON_MS = 16 * 60_000;
+
+/** Every sandbox VM's create key starts with this; the VM workflows refuse pause, snapshot and fork on it. */
+export const SANDBOX_VM_IDEMPOTENCY_PREFIX = "sandbox-run:";
+
+export function sandboxVmIdempotencyKey(runId: string, attemptId: string): string {
+  return `${SANDBOX_VM_IDEMPOTENCY_PREFIX}${runId}:attempt:${attemptId}`;
+}
+
+/**
+ * The providerMetadata key the sandbox launcher sets on its VM (to its create key). Only the
+ * server writes providerMetadata, so a VM is a sandbox's when this and its create key agree; a
+ * row that only happens to carry the key prefix stays an ordinary machine.
+ */
+export const SANDBOX_VM_MARKER_KEY = "cmuxSandboxRun";
+
+/**
+ * Set on a sandbox VM's row once a strict destroy confirmed the provider no longer has it. A
+ * `destroyed` status alone is not proof (status reconciliation writes it from what the provider
+ * answers), so the reaper keeps looking for a marked machine until this is set.
+ */
+export const SANDBOX_VM_DESTROY_CONFIRMED_KEY = "cmuxSandboxDestroyConfirmed";
+
+export function isSandboxRunVm(vm: { readonly idempotencyKey: string | null; readonly providerMetadata?: Readonly<Record<string, unknown>> | null }): boolean {
+  const key = vm.idempotencyKey;
+  return !!key && key.startsWith(SANDBOX_VM_IDEMPOTENCY_PREFIX) && vm.providerMetadata?.[SANDBOX_VM_MARKER_KEY] === key;
+}
+
+/** What the launcher saw and only it can know; stored on `runs.receipt`. */
+export type SandboxRunOutcome = {
+  readonly reply: string | null;
+  readonly exitCode: number | null;
+  readonly signal: number | null;
+  readonly timedOut: boolean;
+  readonly bootMs: number | null;
+};
+
+/** `cmux.run.receipt/v1`: the result of a sandboxed Run. No provider handles, no secrets. */
+export type SandboxRunReceipt = {
+  readonly schema: "cmux.run.receipt/v1";
+  readonly runId: string;
+  readonly environment: "sandboxed";
+  readonly status: RunStatus;
+  readonly image: { readonly id: string; readonly version: string | null };
+  readonly exitCode: number | null;
+  readonly signal: number | null;
+  readonly timedOut: boolean;
+  /** The tail of the agent's terminal output, ANSI and token-shaped strings removed. */
+  readonly reply: string | null;
+  readonly error: string | null;
+  readonly artifacts: readonly { readonly name: string; readonly mediaType: string; readonly sizeBytes: number; readonly digest: string }[];
+  readonly timings: {
+    readonly createdAt: string;
+    readonly startedAt: string | null;
+    readonly finishedAt: string | null;
+    readonly bootMs: number | null;
+    readonly runMs: number | null;
+    readonly totalMs: number | null;
+  };
+  readonly cost: {
+    readonly vmSeconds: number | null;
+    readonly vcpus: number | null;
+    readonly memoryMb: number | null;
+    /** List-price estimate of the VM time; model tokens are billed separately. */
+    readonly estimateUsd: number | null;
+    /** False while a VM is still up: the VM time, and so the cost, is still counting. */
+    readonly final: boolean;
+  };
+  /** `destroyed` once no attempt holds a VM; `pending` while the reaper still owes a destroy. */
+  readonly cleanup: "destroyed" | "pending";
+};
+
 export type RunView = {
   readonly id: string;
   readonly status: RunStatus;
+  readonly environment: RunEnvironment;
+  /** The pinned manifest image of a sandboxed Run; null for persistent Runs. */
+  readonly image: { readonly id: string; readonly version: string | null } | null;
   readonly recipe: string;
   readonly desiredAttempts: number;
   readonly source: ImmutableRunSource;
@@ -128,6 +219,8 @@ export type RunSnapshotView = {
   readonly run: RunView;
   readonly attempts: readonly RunAttemptView[];
   readonly artifacts: readonly RunArtifactView[];
+  /** Present once a sandboxed Run is terminal. */
+  readonly receipt: SandboxRunReceipt | null;
 };
 
 export type RunEventView = {

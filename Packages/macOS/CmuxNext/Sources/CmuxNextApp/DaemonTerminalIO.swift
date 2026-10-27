@@ -49,6 +49,8 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     let events: AsyncStream<TerminalIOEvent>
     private let driver: TerminalAttachDriver<TerminalAttachment>
     private let creatingInput: CreatingTerminalInput?
+    /// The target's surface id for the typing probe (0: not resolved at init, a terminal still being made).
+    private let probeSurface: UInt64
     /// The burst bench's grid echo and first-output marks (nil: none; a Release build compiles them out).
     private let burstTrace: BurstTrace?
     /// The app's grid sender (`AppServices.resizes`): next frame, one in flight, a final grid now.
@@ -68,6 +70,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
          burstTrace: BurstTrace? = nil, policyBlocked: @escaping @Sendable () -> Bool = { false },
          endpoint: @escaping @Sendable () async throws -> DaemonEndpoint) {
         self.resizes = resizes
+        probeSurface = target.attachment.surface.rawValue
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.terminal")
         let surface = target.attachment.surface.rawValue
         let driver = TerminalAttachDriver<TerminalAttachment>(
@@ -145,6 +148,9 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     }
 
     // MARK: TerminalIO
+
+    /// The daemon terminal by its surface id, as its attachment names it to the typing probe.
+    nonisolated var typingProbeSource: TypingLatencyProbe.Source? { probeSurface == 0 ? nil : .terminal(probeSurface) }
 
     /// The daemon's VT core answers DA/DSR, so the surface mirrors only.
     var answersTerminalQueries: Bool { true }

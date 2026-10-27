@@ -22,6 +22,7 @@ mod app_browser_route;
 mod app_focus;
 #[cfg(unix)]
 mod apps_run;
+mod beside;
 #[cfg(unix)]
 mod billing;
 mod capability_cache;
@@ -30,6 +31,8 @@ mod chief;
 mod chief_target;
 #[cfg(unix)]
 mod cloud_machines;
+#[cfg(unix)]
+mod cloud_secret;
 mod code_mode;
 #[cfg(unix)]
 mod coderouter;
@@ -48,6 +51,8 @@ mod host_mount;
 mod launch_credential;
 mod lifecycle;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
+#[cfg(unix)]
+mod sandbox_run;
 #[cfg(unix)]
 mod vm;
 #[cfg(unix)]
@@ -347,7 +352,9 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| chief::run_avatar_if_requested(args))
         .or_else(|| coderouter::run_if_requested(args))
         .or_else(|| billing::run_if_requested(args))
+        .or_else(|| sandbox_run::run_if_requested(args))
         .or_else(|| vm::run_if_requested(args))
+        .or_else(|| cloud_secret::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
@@ -865,7 +872,15 @@ fn print_scope_help(scope: Option<&str>, surface: Surface) {
     let text = match (scope, surface) {
         (Some("machine"), Surface::Cmux) => Cow::Borrowed(MACHINE_CATALOG_HELP),
         (Some(scope), _) => scope_help(scope),
-        (None, Surface::Cmux) => Cow::Borrowed(catalog.local_server.cmux_root_help),
+        (None, Surface::Cmux) => {
+            let root = catalog.local_server.cmux_root_help;
+            let cloud = if root.contains("SCOPES") {
+                "  cloud         Run Cloud machine actions (`cmux cloud --help`)\n"
+            } else {
+                "  cloud         Cloud マシンのアクション (`cmux cloud --help`)\n"
+            };
+            Cow::Owned(root.replacen("  room", &format!("{cloud}  room"), 1))
+        }
         (None, Surface::CmuxTui) => Cow::Owned(root_help(&catalog.local_server)),
     };
     let mut stdout = io::stdout().lock();
@@ -907,6 +922,11 @@ fn scope_help_for(
         "notification" => Cow::Borrowed(scope_help::NOTIFICATION_HELP),
         "attention" => Cow::Borrowed(scope_help::ATTENTION_HELP),
         "agent" => Cow::Borrowed(AGENT_HELP),
+        "agent open" => Cow::Borrowed(crate::localization::catalog().app_control.agent_open_usage),
+        "agent open-tab" => {
+            Cow::Borrowed(crate::localization::catalog().app_control.agent_open_tab_usage)
+        }
+        "cloud" => Cow::Borrowed(CLOUD_HELP),
         "room" => Cow::Borrowed(scope_help::ROOM_HELP),
         "closed" => Cow::Borrowed(scope_help::CLOSED_HELP),
         "git" => Cow::Borrowed(scope_help::GIT_HELP),
@@ -929,6 +949,7 @@ USAGE
   cmux attach [START OPTIONS]
   cmux relay [ROUTING OPTIONS]
   cmux wg hub --config <wg-quick file> --socket <unix socket>
+  cmux wg dial --hub <unix socket> <host> <port>
 ";
 
 const ROOT_HELP_PROCESS_SUFFIX: &str = "\
@@ -1057,6 +1078,8 @@ USAGE
 
 const AGENT_HELP: &str = "\
 USAGE
+  cmux agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--focus]
+  cmux agent open-tab <session id> [--target PANE_OR_TAB] [--host HOST] [--focus]
   cmux agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
   cmux agent message --reply-to <message-id> [--from <name>] [--] <text...|->
   cmux agent message release <message-id> --recipient <agent> --approve|--decline
@@ -1072,6 +1095,76 @@ USAGE
   cmux agent plugin install <git-url> [--name <value>] [--force]
   cmux agent plugin use|update|remove <name-or-id>
   cmux agent plugin use --builtin
+";
+
+const CLOUD_HELP: &str = "\
+USAGE
+  cmux cloud <action> [--target machine:MACHINE_ID] [--<argument> VALUE]...
+
+CLI actions (the live action catalog is authoritative):
+  new-workspace             new-machine
+  fork-machine              snapshot-machine
+  restore-machine           promote-machine-to-template
+  machine-status            machine-ports
+  hand-off-machine          move
+  bring-back                ssh
+  exec                      setup-github
+  files-list                file-read
+  file-write                file-mkdir
+  file-remove               file-stat
+  prepare-scp               tunnel-attach
+  tunnel-detach             tunnel-rotate-key
+  network-list              firewall-list
+  firewall-get              firewall-create
+  firewall-delete            domain-list
+  publication-list           list-machines
+  new-terminal-on-machine    rename-machine
+  kill-machine               pause-machine
+  resume-machine             resize-machine
+  set-idle-pause             delete-snapshot
+  diagnostics               sign-in
+  sign-out                  open-mobile-pairing
+  open-browser              port-list
+  port-forward              port-close
+  machine-link              enroll-machine
+
+Run `cmux action list --category cloud --json` for the current catalog and
+`cmux action describe <action> --json` for an action's arguments.
+";
+
+const CLOUD_HELP_JA: &str = "\
+使い方
+  cmux cloud <アクション> [--target machine:MACHINE_ID] [--<引数> VALUE]...
+
+CLI アクション（現在の一覧はアクションカタログを参照）:
+  new-workspace             new-machine
+  fork-machine              snapshot-machine
+  restore-machine           promote-machine-to-template
+  machine-status            machine-ports
+  hand-off-machine          move
+  bring-back                ssh
+  exec                      setup-github
+  files-list                file-read
+  file-write                file-mkdir
+  file-remove               file-stat
+  prepare-scp               tunnel-attach
+  tunnel-detach             tunnel-rotate-key
+  network-list              firewall-list
+  firewall-get              firewall-create
+  firewall-delete            domain-list
+  publication-list           list-machines
+  new-terminal-on-machine    rename-machine
+  kill-machine               pause-machine
+  resume-machine             resize-machine
+  set-idle-pause             delete-snapshot
+  diagnostics               sign-in
+  sign-out                  open-mobile-pairing
+  open-browser              port-list
+  port-forward              port-close
+  machine-link              enroll-machine
+
+現在のカタログは `cmux action list --category cloud --json`、引数は
+`cmux action describe <action> --json` で確認できます。
 ";
 
 const SIDEBAR_HELP: &str = "\

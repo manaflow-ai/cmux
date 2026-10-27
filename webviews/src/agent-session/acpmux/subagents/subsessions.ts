@@ -8,6 +8,7 @@
 // a small store fed from the session list, so a card never redraws its turn when a session changes.
 import { createContext, useContext, useSyncExternalStore } from "react";
 import type { StringKey, Translate } from "../i18n";
+import type { RetryState } from "./retryState";
 import { cloudHost, type AcpmuxSessionEntry, type SessionWaiting } from "../sessionList";
 
 /// What a sub-session is doing: its turn runs, it waits on the person (a permission or a question),
@@ -27,6 +28,16 @@ export type SubsessionInfo = {
   doing?: string;
   /// What it waits on the person for, while it does and acpmux says.
   waiting?: SessionWaiting;
+  /// It waits for a run slot (its parent runs `maxRunning` already): it has not started.
+  slot?: true;
+  /// Its model, as acpmux names it.
+  model?: string;
+  /// acpmux's retry of its failed turn, while one waits (retryState.ts).
+  retry?: RetryState;
+  /// acpmux settles, starts or runs its failed turn's retry: no Retry meanwhile.
+  retryDeciding?: true;
+  /** Why its turn failed, while it is failed (acpmux's `lane.error`). */
+  error?: string;
 };
 
 /// What a sub-session waiting on the person waits for, in one line: a question (and its first
@@ -41,7 +52,7 @@ export function waitingLine(t: Translate, waiting: SessionWaiting): string {
 /// Each state's word.
 export const SUBSESSION_STATE_LABEL: Record<SubsessionState, StringKey> = {
   working: "subsession.state.working",
-  input: "home.needsInput",
+  input: "subsession.state.input",
   failed: "subagents.state.failed",
   done: "subagents.state.completed",
 };
@@ -75,6 +86,12 @@ export function subsessionInfo(entry: AcpmuxSessionEntry): SubsessionInfo {
     ...(entry.queued ? { queued: entry.queued } : {}),
     ...(state === "working" && entry.doing ? { doing: entry.doing } : {}),
     ...(state === "input" && entry.waitingOn ? { waiting: entry.waitingOn } : {}),
+    ...(entry.waitsForSlot ? { slot: true as const } : {}),
+    ...(entry.model ? { model: entry.model } : {}),
+    // Read through retryState.ts ``sessionRetry``, which ignores them on a row that isn't failed.
+    ...(entry.retry ? { retry: entry.retry } : {}),
+    ...(entry.retryDeciding ? { retryDeciding: true as const } : {}),
+    ...(state === "failed" && !entry.retry && entry.laneError ? { error: entry.laneError } : {}),
   };
 }
 
@@ -134,6 +151,7 @@ export class SubsessionStore {
   /// Where each listed chat works, by id: its folder and the other machine it runs on, for the
   /// files its messages name (IncomingMessageCard.tsx), read with the same listeners.
   private places = new Map<string, SenderPlace>();
+  private ids = new Set<string>();
   private namedKey = "";
   private readonly nameListeners = new Set<() => void>();
 
@@ -171,9 +189,15 @@ export class SubsessionStore {
       const cwd = entry.cwd?.trim();
       if (cwd || host) places.set(entry.sessionId, { ...(cwd && { cwd }), ...(host && { host }) });
     }
-    const namedKey = JSON.stringify([[...named], [...harnesses], [...places]]);
+    const namedKey = JSON.stringify([
+      [...named],
+      [...harnesses],
+      [...places],
+      sessions.map((entry) => entry.sessionId),
+    ]);
     const renamed = namedKey !== this.namedKey;
     this.named = named;
+    this.ids = new Set(sessions.map((entry) => entry.sessionId));
     this.harnesses = harnesses;
     this.hosts = hosts;
     if (renamed) this.places = places;
@@ -212,6 +236,11 @@ export class SubsessionStore {
   /// The listed chat named `name`, if one is.
   find(name: string): string | undefined {
     return this.named.get(name.trim());
+  }
+
+  /// Whether the list has chat `sessionId` (any listed chat, not only a sub-session).
+  has(sessionId: string): boolean {
+    return this.ids.has(sessionId);
   }
 
   harness(sessionId: string): string | undefined {

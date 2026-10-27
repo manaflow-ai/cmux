@@ -1,13 +1,20 @@
 #!/usr/bin/env bash
 # Select bounded, worker-local Release build state after Select Xcode. One runner
 # executes one job at a time; separate lanes/workspaces never prune each other.
+# --host selects the lane's one per-host state instead, for a caller that holds
+# the host's build lock (compile-dev-release.sh, host_build_lock.py).
 set -euo pipefail
 
 lane="${1:?Release cache lane required (release-compile or dev-daily-release)}"
 configuration="${2:?Release configuration required}"
+scope="${3:-}"
 case "$lane:$configuration" in
   release-compile:Release|dev-daily-release:Release) ;;
   *) echo "unsupported Release cache lane/configuration: $lane:$configuration" >&2; exit 2 ;;
+esac
+case "$scope" in
+  ""|--host) ;;
+  *) echo "unsupported Release cache scope: $scope (want --host or nothing)" >&2; exit 2 ;;
 esac
 
 if [[ "${CMUX_NEXT_RUNNER:-}" != glaeda-* ]]; then
@@ -17,8 +24,13 @@ fi
 
 # RUNNER_NAME isolates concurrent root/side workers on the same host. Xcode's
 # build database also contains absolute source paths, so a workspace move is a
-# new cache. Never share a fallback worker name or an unknown workspace.
-worker_key="$(printf '%s\n' "${RUNNER_NAME:?}" "${GITHUB_WORKSPACE:?}" | shasum -a 256 | cut -c1-16)"
+# new cache. Never share a fallback worker name or an unknown workspace. The
+# host scope is shared by design: its caller's host lock keeps it to one build.
+if [[ "$scope" == --host ]]; then
+  worker_key=host
+else
+  worker_key="$(printf '%s\n' "${RUNNER_NAME:?}" "${GITHUB_WORKSPACE:?}" | shasum -a 256 | cut -c1-16)"
+fi
 xcode_version="$(xcodebuild -version)"
 sdk_build="$(xcrun --sdk macosx --show-sdk-build-version)"
 toolchain_key="$(printf '%s\n' "${DEVELOPER_DIR:?}" "$xcode_version" "$sdk_build" | shasum -a 256 | cut -c1-16)"

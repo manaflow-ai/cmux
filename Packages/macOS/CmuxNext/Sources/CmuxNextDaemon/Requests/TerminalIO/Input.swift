@@ -13,7 +13,7 @@ public struct SendInputRequest: DaemonRequest {
     /// right before the write, and fails the request otherwise. A daemon without the capability
     /// ignores it, so a caller keeps its own check first.
     public var expectForeground: String?
-    /// The key press this input carries (`CMUX_NEXT_TRACE_FLOWS`, `TypingLatencyProbe.openFlow`): the daemon
+    /// The key press this input carries (`CMUX_NEXT_TRACE_FLOWS`, `TypingLatencyProbe.openFlow(for:)`): the daemon
     /// only records it in its flow marks. Nil (left out of the line) otherwise; an older daemon ignores it.
     public var flow: UInt64?
     public init(surface: SurfaceID, text: String? = nil, bytes: Data? = nil, paste: Bool? = nil,

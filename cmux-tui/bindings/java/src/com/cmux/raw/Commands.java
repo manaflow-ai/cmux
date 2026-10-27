@@ -49,6 +49,7 @@ public final class Commands {
     public static final CommandMetadata CLOUD_CONVERSATION_HISTORY = new CommandMetadata("cloud-conversation-history", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_CONVERSATION_LIVE = new CommandMetadata("cloud-conversation-live", Authority.LOCAL_ADMIN, 12, "cloud-chief-live-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_CONVERSATION_OP = new CommandMetadata("cloud-conversation-op", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CLOUD_CONVERSATION_PRESENCE = new CommandMetadata("cloud-conversation-presence", Authority.LOCAL_ADMIN, 12, "cloud-conversation-presence-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_CONVERSATION_RUN = new CommandMetadata("cloud-conversation-run", Authority.LOCAL_ADMIN, 12, "cloud-conversation-runs-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_CONVERSATION_RUNS = new CommandMetadata("cloud-conversation-runs", Authority.LOCAL_ADMIN, 12, "cloud-conversation-runs-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_CONVERSATION_SNAPSHOT = new CommandMetadata("cloud-conversation-snapshot", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -338,6 +339,7 @@ public final class Commands {
         values.put("cloud-conversation-history", CLOUD_CONVERSATION_HISTORY);
         values.put("cloud-conversation-live", CLOUD_CONVERSATION_LIVE);
         values.put("cloud-conversation-op", CLOUD_CONVERSATION_OP);
+        values.put("cloud-conversation-presence", CLOUD_CONVERSATION_PRESENCE);
         values.put("cloud-conversation-run", CLOUD_CONVERSATION_RUN);
         values.put("cloud-conversation-runs", CLOUD_CONVERSATION_RUNS);
         values.put("cloud-conversation-snapshot", CLOUD_CONVERSATION_SNAPSHOT);

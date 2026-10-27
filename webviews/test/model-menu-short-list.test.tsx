@@ -296,18 +296,18 @@ test("the Effort row names the level the chat is on, and its submenu checks it",
   expect(checked && label(checked)).toBe("High");
 });
 
-test("the Fast mode row says whether it is on", async () => {
+test("the Fast mode switch shows whether it is on", async () => {
   const { sent } = await mount({ harness: "claude", family: "claude", fast: true });
   await open();
   const fast = () => menu()!.querySelector<HTMLElement>('.acpmux-quick-fast[role="menuitemcheckbox"]')!;
   expect(fast().getAttribute("aria-checked")).toBe("false");
-  expect(fast().querySelector(".acpmux-quick-value")?.textContent).toBe("Off");
+  expect(fast().querySelector(".acpmux-quick-fast-toggle")).not.toBeNull();
   await act(async () => fast().click());
   await settle();
   expect(sent).toEqual([{ id: "fast-mode", value: "on" }]);
   if (!menu()) await open();
   expect(fast().getAttribute("aria-checked")).toBe("true");
-  expect(fast().querySelector(".acpmux-quick-value")?.textContent).toBe("On");
+  expect(fast().querySelector(".acpmux-menu-label")?.textContent).toBe("Fast mode");
 });
 
 // Codex review at 87da5d12: a profile that declares no levels for `opus` (efforts: []) left the chat
@@ -324,4 +324,21 @@ test("a model its profile declares with no effort levels shows no Effort row, th
   expect(rows.map(label), "the running model is still the checked row").toContain("Opus 5.5");
   expect(menu()!.querySelector('[role="menuitemradio"][aria-checked="true"]')?.textContent).toContain("Opus 5.5");
   expect(sent).toEqual([]);
+});
+
+// A profile may declare one alias without effort levels while another model still supports them.
+// The no-effort declaration must be scoped to the running model, not disable the whole profile.
+test("a sibling no-effort model does not hide Effort for the running model", async () => {
+  await mount({
+    harness: "claude-sr2",
+    family: "claude-sr2",
+    model: "claude-fable-5-1",
+    effort: "high",
+    declared: { opus: { efforts: [] } },
+  });
+  await open();
+  const effortRow = [...menu()!.querySelectorAll<HTMLElement>("[role=menuitem]")].find((item) =>
+    label(item).startsWith("Effort"),
+  );
+  expect(effortRow?.querySelector(".acpmux-quick-value")?.textContent).toBe("High");
 });

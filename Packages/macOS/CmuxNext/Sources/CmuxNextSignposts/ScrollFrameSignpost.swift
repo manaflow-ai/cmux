@@ -6,7 +6,8 @@ public import Foundation
 ///
 /// Begin message: `phase=<phase> age_ms=<age>`, the event's age when its dispatch began (its wait in the event
 /// queue), so a reader adds that wait to the interval: input to frame. End message: `target=<layout|content>`.
-/// A layout scroll applies its move in that turn, so its commit shows it; a scroll that went on to content may
+/// A layout scroll applies its move in that turn, so its commit shows it (a strip pan's second event in one display
+/// frame shows at the next frame's tick instead, one presentation per frame); a scroll that went on to content may
 /// show in a later frame, as a terminal key's echo does (``KeyFrameSignpost``).
 ///
 /// It runs on every scroll event for every user, recorder attached or not (``Signposter/isEnabled`` is true in

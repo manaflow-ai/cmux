@@ -58,13 +58,21 @@ final class CEFMediaBridge {
     }
 
     private func run(_ calls: [(String, [String: Any])], _ browser: Int32) {
+        // `CEFTab.runtime` is `unowned`, so it is read here, on the caller's turn while the runtime
+        // is known alive, and held for the Task. `[weak tab]` guards the tab and never the runtime
+        // behind it: a Task still draining after the runtime was destroyed read a dangling
+        // `tab.runtime` and trapped in `swift_unownedRetainStrong`, which aborts the process in
+        // `swift_abortRetainUnowned` rather than failing one call, so a test job that hit it stopped
+        // reporting part-way through. Same shape as `CEFFirstPaintBridge.attach`.
+        guard let tab else { return }
+        let runtime = tab.runtime
         Task { [weak tab] in
             for (method, params) in calls {
                 guard let tab, tab.browserID == browser else { return }
                 do {
-                    _ = try await tab.runtime.devTools(browser, method: method, params: params)
+                    _ = try await runtime.devTools(browser, method: method, params: params)
                 } catch {
-                    tab.runtime.logger.info("media hub: \(method, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+                    runtime.logger.info("media hub: \(method, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                 }
             }
         }
@@ -87,11 +95,12 @@ final class CEFMediaBridge {
         return true
     }
 
-    /// The page's media report (a binding call's payload, or a page channel post): untrusted JSON.
+    /// One frame's media report (a binding call's payload, or a page channel post): untrusted JSON,
+    /// `{frame, report}` (``BrowserMediaState/frameReport(json:)``).
     func report(_ payload: String) {
-        guard let tab, let media = BrowserMediaState.report(json: payload) else { return }
-        tab.machine.apply(.mediaChanged(media))
-        tab.keepAudioMute(after: media)
+        guard let tab, let report = BrowserMediaState.frameReport(json: payload) else { return }
+        tab.machine.apply(.mediaChanged(report.media, frame: report.frame))
+        tab.keepAudioMute(after: report.media)
     }
 
     /// A refused protected media request: the key system's name, untrusted.

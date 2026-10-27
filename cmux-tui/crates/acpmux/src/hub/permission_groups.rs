@@ -1,7 +1,7 @@
 //! Session-local permission batches. One lock owns membership, chat grants,
 //! callbacks and receipts, so a decision cannot approve an unseen member.
 use super::*;
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
 pub const PERMISSION_GROUP_OPERATIONS: [&str; 3] = [
@@ -16,9 +16,31 @@ const LANDING_BOUND: Duration = Duration::from_secs(2);
 const MAX_ITEMS: usize = 32;
 const MAX_GROUPS: usize = 64;
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(super) struct AgentRequestKey {
+    pub(super) host_incarnation: Option<String>,
+    pub(super) request_id: String,
+}
+
+impl AgentRequestKey {
+    pub(super) fn new(host_incarnation: Option<&str>, request_id: &Value) -> Self {
+        Self {
+            host_incarnation: host_incarnation.map(str::to_owned),
+            request_id: request_id.to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub(super) struct PermissionState {
     pub pending: HashMap<String, PendingPermission>,
+    /// What the asks no longer pending were answered, for a later answer (`permission_settled.rs`).
+    pub settled: super::permissions::settled::Settled,
+    /// Permission requests whose handlers have been admitted but have not
+    /// completed. Cancellation markers are limited to this set and are
+    /// removed when the handler finishes.
+    pub active_requests: HashSet<AgentRequestKey>,
+    pub cancelled_requests: HashSet<AgentRequestKey>,
     groups: VecDeque<Group>,
     pub chat_allowed: bool,
 }
@@ -43,11 +65,28 @@ struct Item {
 }
 
 pub(super) fn eligible(request: &Value) -> bool {
-    let tool = &request["toolCall"];
     matches!(
-        tool["kind"].as_str(),
+        request["toolCall"]["kind"].as_str(),
         Some("read" | "search" | "edit" | "delete" | "move" | "execute" | "fetch" | "think")
-    ) && request.get("interactive").and_then(Value::as_bool) != Some(true)
+    ) && not_interactive(request)
+}
+
+/// Whether `request` only asks to run a tool: no question, plan approval, folder trust or other
+/// interactive ask, which only a person answers. Full access answers only these
+/// (`permissions.rs` `full_access_allow`). A request shaped like a question that `normalize` could
+/// not read (a Codex user-input request with no prompt text) is a question too.
+pub(super) fn plain_tool_ask(request: &Value) -> bool {
+    let tool = &request["toolCall"];
+    tool["kind"].as_str() != Some("switch_mode")
+        && super::questions::trust_cwd(request).is_none()
+        && tool.pointer("/rawInput/questions").is_none()
+        && tool.pointer("/_meta/codexAppServer/question").and_then(Value::as_bool) != Some(true)
+        && not_interactive(request)
+}
+
+fn not_interactive(request: &Value) -> bool {
+    let tool = &request["toolCall"];
+    request.get("interactive").and_then(Value::as_bool) != Some(true)
         && request.pointer("/_meta/acpmux/interactive").and_then(Value::as_bool) != Some(true)
         && tool.pointer("/_meta/acpmux/interactive").and_then(Value::as_bool) != Some(true)
         && tool.pointer("/_meta/claude/interactive").and_then(Value::as_bool) != Some(true)
@@ -312,8 +351,10 @@ impl Hub {
         params: Value,
         control: Control,
     ) -> Result<Value, RpcError> {
-        // Checked again here, at the answer, not only in the remote guard.
-        self.web_control_check(session, control)?;
+        // The Web's asking rule, at the answer: a deny only narrows
+        // (`Hub::web_answer_check`). A group allow carries no proof.
+        let narrows = params["decision"].as_str() == Some("deny");
+        self.web_answer_check(session, control, narrows, false)?;
         let text = |key: &str| -> Result<String, RpcError> {
             params[key]
                 .as_str()
@@ -404,6 +445,8 @@ impl Hub {
         let mut replies = Vec::new();
         for (id, outcome) in answers {
             if let Some(pending) = state.pending.remove(&id) {
+                // Told to a later answer at once (`permission_settled.rs`), as one answer is.
+                state.settled.remember(&id, None, &outcome);
                 replies.push((id, pending.reply, outcome));
             }
         }
@@ -466,6 +509,34 @@ impl Hub {
     pub(crate) fn permission_defaults_changed(&self) {
         for session in self.sessions() {
             self.permission_policy_changed(&session, |_| {});
+        }
+    }
+}
+
+#[cfg(test)]
+mod plain_tool_ask_tests {
+    use super::plain_tool_ask;
+    use serde_json::json;
+
+    /// Full access answers a tool approval, never anything only a person answers.
+    #[test]
+    fn only_a_tool_approval_is_a_plain_tool_ask() {
+        let ask = |tool: serde_json::Value| json!({"toolCall": tool, "options": []});
+        assert!(plain_tool_ask(&ask(json!({"kind": "execute", "title": "rm -rf f/*"}))));
+        assert!(plain_tool_ask(&ask(json!({"kind": "other", "title": "Allow network access"}))));
+        for not_plain in [
+            json!({"kind": "switch_mode", "title": "Ready to code?"}),
+            json!({"kind": "other", "_meta": {"acpmux": {"trust": {"cwd": "/w"}}}}),
+            json!({"kind": "other", "_meta": {"claude": {"tool": "AskUserQuestion"}}}),
+            json!({"kind": "other", "_meta": {"claude": {"tool": "ExitPlanMode"}}}),
+            json!({"kind": "execute", "_meta": {"claude": {"interactive": true}}}),
+            // A Codex user-input request with no prompt text: no normalized question, still one.
+            json!({"kind": "other", "rawInput": {"questions": [{"id": "q", "question": ""}]},
+                   "_meta": {"codexAppServer": {"question": true}}}),
+            json!({"kind": "other", "_meta": {"codexAppServer": {"question": true}}}),
+            json!({"kind": "execute", "rawInput": {"questions": []}}),
+        ] {
+            assert!(!plain_tool_ask(&ask(not_plain.clone())), "{not_plain}");
         }
     }
 }

@@ -49,9 +49,12 @@ extension DaemonStore {
     /// Events superseded by the last snapshot are skipped.
     @discardableResult
     public func apply(batch: [DaemonEventEnvelope]) -> Followup {
+        // A staged script batch keeps the events of the workspaces it touches (DaemonStore+Stage.swift).
+        let batch = stage?.passing(batch, in: self) ?? batch
+        guard !batch.isEmpty else { return .none }
         // An observer that applies events while this batch applies is an
         // update cycle (idle-wakeups.md): counted, logged in debug builds.
-        updateCycles.run { applyBatch(batch) }
+        return updateCycles.run { applyBatch(batch) }
     }
 
     private func applyBatch(_ batch: [DaemonEventEnvelope]) -> Followup {
@@ -96,6 +99,8 @@ extension DaemonStore {
     }
 
     func advanceAppliedSequence(to sequence: UInt64) {
+        // Not past an event a stage still holds: nothing it holds counts as applied yet.
+        let sequence = stage?.cappedSequence(sequence) ?? sequence
         guard sequence > appliedSequence else { return }
         appliedSequence = sequence
         // Intents first, so waiters see the visible state without them.

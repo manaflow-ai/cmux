@@ -612,13 +612,16 @@ class WriterInventoryTests(unittest.TestCase):
     CHECKS_ITSELF = {"scripts/pr-media.py"}
     # Writes only through scripts/pr-media.py, which checks.
     THROUGH_PR_MEDIA_PY = {"scripts/cmux-next/media/publish.py", "scripts/cmux-next/media/reel.py",
+                           "scripts/cmux-next/media/whats-new-clips.py",
                            ".github/workflows/cmux-next-media.yml", ".github/workflows/nightly.yml",
                            ".github/actions/pr-media-publish/action.yml"}
     # Remove files or rewrite the retention index; they add no capture.
     REMOVES_ONLY = {"scripts/ci/pr_media_privacy.py", "scripts/ci/prune_pr_media.py",
                     ".github/workflows/pr-media-prune.yml"}
     # Name the branch or pr-media.py's file names for links; write nothing.
-    NOT_WRITERS = {"scripts/gallery-matrix/report.ts", "scripts/gallery-matrix/compare.test.ts"}
+    # Name pr-media URLs and push words but write nothing there (release-notes.py reads clip URLs).
+    NOT_WRITERS = {"scripts/gallery-matrix/report.ts", "scripts/gallery-matrix/compare.test.ts",
+                   "scripts/cmux-next/release-notes.py"}
     SKIP_SUFFIXES = (".md", ".json", ".xcstrings", ".txt", ".png", ".gif", ".mp4", ".webp", ".jpg", ".svg")
 
     @classmethod

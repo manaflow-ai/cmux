@@ -2,7 +2,7 @@
 /// it once with ``forProcess()`` and passes it to what installs the sink (the opt-in hang reports, once
 /// they are wired), the `debug.blocking` control method and the Debug menu.
 ///
-/// In Debug and bench builds (Nightly to come) it refers to the detector's process-wide table (see
+/// In Debug and bench builds (and cmux NEXT Nightly) it refers to the detector's process-wide table (see
 /// ``assertBlockingAllowed(_:fileID:line:)``); in Release it reads as empty and its calls do nothing.
 ///
 /// ```swift
@@ -33,7 +33,7 @@ public struct BlockingDetector: Sendable {
         #endif
     }
 
-    /// Whether this build has the detector (Debug and bench builds; Nightly to come).
+    /// Whether this build has the detector (Debug, bench and Nightly builds).
     public var isCompiledIn: Bool {
         #if DEBUG || CMUX_BLOCKING_CHECKS
         true

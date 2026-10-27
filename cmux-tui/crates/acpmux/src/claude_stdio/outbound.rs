@@ -304,6 +304,20 @@ impl Translator {
                             json!({"type": "control_request", "request_id": format!("bg-{}", id), "request": request}),
                         ])
                     }
+                    MCP_RECONNECT => {
+                        let server = p.get("server").and_then(Value::as_str).unwrap_or("");
+                        if server.is_empty() {
+                            return Outbound::Reply(Message::err(
+                                id.clone(),
+                                RpcError::invalid_params("server is required"),
+                            ));
+                        }
+                        // Nothing kept here: its answer carries the ACP id (`mcp-<id>`), so an
+                        // answer that never comes leaves nothing behind (the hub gives up on it).
+                        Outbound::Lines(vec![
+                            json!({"type": "control_request", "request_id": format!("mcp-{}", id), "request": {"subtype": "mcp_reconnect", "serverName": server}}),
+                        ])
+                    }
                     method::MUX_SUBAGENT_STOP => self.subagent_stop(id, &p).await,
                     method::MUX_STEER_WITHDRAW => self.withdraw_steer(id, &p).await,
                     // Send now on a steer Claude Code has not read: its step stops, so it
@@ -346,15 +360,23 @@ impl Translator {
             }
             Message::Response { id, result, error } => {
                 // The hub answered a permission request we raised.
-                let ctl = self
-                    .control_out
-                    .lock()
-                    .await
-                    .iter()
-                    .find(|(_, v)| **v == *id)
-                    .map(|(k, _)| k.clone());
-                let Some(ctl_id) = ctl else { return Outbound::Lines(vec![]) };
-                self.control_out.lock().await.remove(&ctl_id);
+                // The request and its form (an elicitation's) are taken under
+                // the request map's lock, as a withdrawal takes them
+                // (`elicitation.rs` forget_elicitation): one of the two wins,
+                // and a withdrawn form never falls through to a tool reply.
+                let (ctl_id, form) = {
+                    let mut out = self.control_out.lock().await;
+                    let ctl = out.iter().find(|(_, v)| **v == *id).map(|(k, _)| k.clone());
+                    let Some(ctl_id) = ctl else { return Outbound::Lines(vec![]) };
+                    out.remove(&ctl_id);
+                    let form = self.elicitations.lock().await.remove(&ctl_id);
+                    (ctl_id, form)
+                };
+                if let Some(form) = form {
+                    let reply =
+                        super::elicitation::reply(&ctl_id, &form, result.as_ref(), error.is_some());
+                    return Outbound::Lines(vec![reply]);
+                }
                 let suggested = self.suggestions.lock().await.remove(&ctl_id);
                 let asked = self.inputs.lock().await.remove(&ctl_id);
                 let outcome =

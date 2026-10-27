@@ -317,6 +317,15 @@ import Testing
         #expect(String(decoding: MobileHostLaunch.dropPhoneLine("p1"), as: UTF8.self) == #"{"phone_device_id":"p1","type":"drop_phone"}"# + "\n")
     }
 
+    /// Each phone's own acpmux credential reaches hostd as one `phone_credentials` line, and the
+    /// phone's record name is one acpmux accepts (`session_name::validate`).
+    @Test func phoneCredentialsAreOneControlLine() {
+        #expect(String(decoding: MobileHostLaunch.phoneCredentialsLine(["p1": "tok"]), as: UTF8.self)
+            == #"{"credentials":{"p1":"tok"},"type":"phone_credentials"}"# + "\n")
+        #expect(MobileHostPairedDevices.acpmuxRecordName("AB/C d-1") == "phone-abcd-1")
+        #expect(MobileHostPairedDevices.acpmuxRecordName(String(repeating: "a", count: 200)).count == 80)
+    }
+
     @Test func directoryListsAndRemovesWithTheBearerToken() async throws {
         let base = try #require(URL(string: "https://cmuxMobile.test"))
         let log = RequestLog()

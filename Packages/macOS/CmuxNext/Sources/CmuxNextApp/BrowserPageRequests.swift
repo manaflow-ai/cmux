@@ -138,7 +138,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             try? ChromiumPageRouter.showPasswords(services, focus: disposition != .backgroundTab)
             return
         }
-        let engine = BrowserEngineResolver.tag(for: page.engineKind).rawValue
+        let engine = page.engineKind.daemonEngine.rawValue
         // A page's new tabs stay in its browser profile (its cookies, and the
         // store an engine-made child page already uses).
         let profile = services.cache.tabModel(key).map(services.browserProfiles.profileID(ofTab:))
@@ -305,7 +305,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             if let url { browserTab(page, didRequest: .openURL(url, .foregroundTab)) }
             return
         }
-        let engine = BrowserEngineResolver.tag(for: page.engineKind).rawValue
+        let engine = page.engineKind.daemonEngine.rawValue
         let choice = Self.choice(adopting: child, inherited: engine, browserTabs: browserTabs)
         let profile = services.browserProfiles.profileID(ofTab: tab)
         let address = child == nil ? (url?.absoluteString ?? "about:blank") : BrowserNewTabPage.blankURL
@@ -363,7 +363,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
         services.registry.track(Task { [weak self] in
             do {
                 let surface = try await openers.open(opener, foreground: !background, in: pane, browserTabs: browserTabs) { after in
-                    try await browserTabs.open(choice, in: pane, url: address, profile: profile, after: after)
+                    try await browserTabs.open(choice, in: pane, url: address, profile: profile, activate: !background, after: after)
                 }
                 if let child { self?.adopt(child, surface: surface) }
                 return nil
@@ -377,7 +377,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
     /// The engine for a page-requested tab: the child's own engine when the
     /// engine already made the page, else the opener's (with the fallback).
     static func choice(adopting child: (any BrowserTab)?, inherited: String?, browserTabs: BrowserTabService) -> BrowserEngineChoice {
-        if let child { return BrowserEngineChoice(engine: BrowserEngineResolver.tag(for: child.engineKind), inherited: true) }
+        if let child { return BrowserEngineChoice(engine: child.engineKind.daemonEngine, inherited: true) }
         if case .open(let choice) = browserTabs.resolve(requested: nil, inherited: inherited) { return choice }
         return BrowserEngineChoice(engine: .webkit)
     }

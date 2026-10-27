@@ -77,6 +77,10 @@ public final class BrowserChromeView: NSView {
     /// square; the pane's one rounded content area clips this whole view.
     let contentContainer = NSView()
     public var onPaneHeaderHeightChange: (() -> Void)?
+    /// The page entered (true) or left (false) element fullscreen: the host may give it the whole
+    /// screen, as Chrome does (`WindowController+FullScreen`).
+    public var onContentFullscreenChange: ((Bool) -> Void)?
+    private var reportedContentFullscreen = false
     /// The band under the toolbar rows for the pane's tab strip (R109).
     let headerBand = BrowserHeaderBand()
     let findBar = FindBarView()
@@ -416,6 +420,11 @@ public final class BrowserChromeView: NSView {
 
         setToolbarHidden(state.isContentFullscreen || isOmnibarHidden)
         updateOcclusion()
+        if state.isContentFullscreen != reportedContentFullscreen {
+            reportedContentFullscreen = state.isContentFullscreen
+            // task-owner: the host's window work runs after this render, outside its observation.
+            Task { @MainActor [weak self, on = reportedContentFullscreen] in self?.onContentFullscreenChange?(on) }
+        }
     }
 
     /// A move to a screen with another scale snaps the toolbar gap again.

@@ -118,7 +118,8 @@ extension SidebarListViewComponents {
     func railReach(for row: SidebarRow) -> CGFloat {
         guard case .group = row.key else { return 0 }
         let membersX = inset + indentOffset(for: row)
-        return membersX - max(0, SidebarStyle.groupLineX(membersMinX: membersX) - SidebarStyle.groupHeaderOverhang)
+        let barX = max(0, SidebarStyle.groupLineX(membersMinX: membersX) - SidebarStyle.groupHeaderOverhang)
+        return membersX - min(membersX, max(barX, SidebarStyle.groupEdgePadding))
     }
     /// Whether `group` sits somewhere under `ancestor`, by the groups' parent links (cycle-safe).
     static func isNested(_ group: SidebarGroup, under ancestor: GroupID, in groups: [GroupID: SidebarGroup]) -> Bool {

@@ -23,7 +23,7 @@ public nonisolated enum BrowserTabRoute: Equatable, Sendable {
     /// tabs. Never for a Chromium request or a Chromium internal page: those are refused rather
     /// than shown by the wrong engine.
     public static func allowsSessionLocalTab(url: URL?, requested: String?) -> Bool {
-        if BrowserEngineResolver.explicitEngine(requested) == .cef { return false }
+        if CmuxNextDaemon.BrowserEngine(requested: requested) == .cef { return false }
         return !(url.map(ChromiumInternalURL.needsChromium) ?? false)
     }
 }

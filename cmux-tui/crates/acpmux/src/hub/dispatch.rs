@@ -10,8 +10,9 @@ pub(crate) struct Briefs {
 }
 
 impl Briefs {
-    pub(crate) fn open() -> Self {
-        let path = crate::config::home().join("briefs.json");
+    /// The ledger saved at `path` (`Store::briefs_path`), or one in memory only.
+    pub(crate) fn open(path: Option<std::path::PathBuf>) -> Self {
+        let Some(path) = path else { return Self::default() };
         let (rows, load_failed) = match std::fs::read(&path) {
             Ok(bytes) => match serde_json::from_slice(&bytes) {
                 Ok(rows) => (rows, false),
@@ -104,6 +105,12 @@ impl Briefs {
             rows.remove(id);
             self.save(&rows);
         }
+    }
+
+    /// Every row `keep` keeps, unpaged: for the daemon's own sweeps, not for a client.
+    pub(crate) fn matching(&self, keep: impl Fn(&Value) -> bool) -> Vec<Value> {
+        let rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
+        rows.values().filter(|row| keep(row)).cloned().collect()
     }
 
     pub(crate) fn list(&self, status: Option<&str>, limit: usize) -> Vec<Value> {

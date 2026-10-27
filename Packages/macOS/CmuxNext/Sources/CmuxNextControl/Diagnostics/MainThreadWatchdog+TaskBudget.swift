@@ -26,7 +26,7 @@ extension MainThreadWatchdog {
     /// negative when it began before the stall). With `recordTaskBudgets`, every
     /// scheduled task that ran past its class's per-frame budget is also recorded in ``overBudget``,
     /// with a stack sampled the moment it crossed the budget: the board wakes this thread at each
-    /// task start so it can sample in time (one semaphore signal per task).
+    /// task start so it can sample in time (one kqueue user event per task, `MainThreadWatchdogAlarm`).
     ///
     /// Call it on the main thread (the task sampler samples the calling thread).
     ///

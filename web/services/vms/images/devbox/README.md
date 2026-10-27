@@ -84,7 +84,10 @@ writes):
   comments are intentionally part of the digest, because telling a comment
   from code in TypeScript needs a full lexer and any line heuristic can hide
   a code change, so a comment-only edit to the bake script also asks for a
-  re-promotion) was baked from exactly this checkout's sources. An entry is checked with the schema it was recorded
+  re-promotion), and from schema 3 the files the bake installs from outside
+  this directory (`DEVBOX_BAKED_PAYLOADS`: `cmux-machine-health`, its hygiene
+  command and their installer module) was baked from exactly this checkout's
+  sources. An entry is checked with the schema it was recorded
   with (absent: 1), so a formula change never forces a rebake; new bakes
   record `DEVBOX_SOURCE_SCHEMA`, and `bun run devbox:promote -- freestyle
   --upgrade-source-schema` moves older defaults up without a bake only where
@@ -92,7 +95,9 @@ writes):
   its digest at its own schema, its `builderScriptVersion` against this
   checkout's bake script, and the Dockerfile's instructions at its
   `repoCommit` (read from git) against this checkout's. Anything else is
-  kept and reported; a rebake is the only other way up.
+  kept and reported; a rebake is the only other way up. Git proves no
+  schema-3 payload, so that upgrade stops at schema 2
+  (`DEVBOX_SOURCE_PROVABLE_SCHEMA`).
 
 A source change that landed before its bake is listed in `DEVBOX_AWAITING_REBAKE` (`devbox-image-common.ts`), which
 excuses exactly that drift for `devbox:manifest:check` and the manifest test, never for `promote`;

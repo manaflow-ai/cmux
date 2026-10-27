@@ -22,6 +22,20 @@ public actor HomeCache {
     /// Messages kept per opened conversation.
     public static let windowLimit = 200
 
+    /// Writes one file (data, then its URL): the default replaces it atomically (a temporary file renamed over
+    /// it, so a process end mid-write never leaves a torn file) and makes it owner-only.
+    public typealias FileWriter = @Sendable (Data, URL) throws -> Void
+
+    /// The queue this actor runs on (threading-model.md, `com.cmuxterm.home.cache`): its file calls block a
+    /// thread of its own, never a cooperative pool thread, so a full pool (a stuck quit) cannot hold the
+    /// forced quit's last draft write.
+    private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.home.cache", qos: .userInitiated)
+
+    /// Runs the actor on ``queue``.
+    public nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+
+    private nonisolated let writeFile: FileWriter
+
     /// The index file; the windows are in ``windowsDirectory`` beside it.
     public nonisolated let url: URL
 
@@ -41,8 +55,13 @@ public actor HomeCache {
         var windows: [ConversationID: [Message]] = [:]
     }
 
-    public init(url: URL) {
+    /// - Parameters:
+    ///   - url: The index file (`home.json`).
+    ///   - writeFile: Writes each file; the default replaces it atomically and makes it owner-only. Tests pass
+    ///     one that fails or records.
+    public init(url: URL, writeFile: @escaping FileWriter = { try HomeCache.atomicWrite($0, to: $1) }) {
         self.url = url
+        self.writeFile = writeFile
     }
 
     /// `Caches/cmux-home/<owner>/home.json` in the user's Caches folder; `owner` is made a single path component.
@@ -103,9 +122,7 @@ public actor HomeCache {
     /// Writes the changed windows, then the index (so it never names a window not yet on disk),
     /// then removes the windows that left. True when all of it reached disk.
     ///
-    /// The file calls block this actor's pool thread: CmuxHomeCore is shared with iOS and has no
-    /// BackgroundWork `.files` lane (threading-model.md). A write is one index plus the changed
-    /// windows, and one actor serializes them, so at most one pool thread waits on this disk.
+    /// The file calls block this actor's own queue (``unownedExecutor``), never a cooperative pool thread.
     private func commit(_ state: HomeCacheState) -> Bool {
         var written = self.written ?? readWritten()
         defer { self.written = written }
@@ -119,7 +136,7 @@ public actor HomeCache {
         for (id, messages) in state.windows {
             let kept = Array(messages.suffix(Self.windowLimit))
             if written.windows[id] == kept { continue }
-            if (try? Self.writeFile(Self.encoder().encode(kept), to: windowURL(id))) != nil {
+            if (try? writeFile(Self.encoder().encode(kept), windowURL(id))) != nil {
                 written.windows[id] = kept
             } else {
                 written.windows[id] = nil
@@ -128,7 +145,7 @@ public actor HomeCache {
         }
         let index = state.index
         if index != written.index {
-            if let data = try? Self.encoder().encode(index), (try? Self.writeFile(data, to: url)) != nil {
+            if let data = try? Self.encoder().encode(index), (try? writeFile(data, url)) != nil {
                 written.index = index
             } else {
                 complete = false
@@ -188,7 +205,8 @@ public actor HomeCache {
         return windowsDirectory.appendingPathComponent(name + ".json")
     }
 
-    private static func writeFile(_ data: Data, to url: URL) throws {
+    /// The default ``FileWriter``: an atomic replace, then owner-only permissions.
+    public static func atomicWrite(_ data: Data, to url: URL) throws {
         try data.write(to: url, options: [.atomic])
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }

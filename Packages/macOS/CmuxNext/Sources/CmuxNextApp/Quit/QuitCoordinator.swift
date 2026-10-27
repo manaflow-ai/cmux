@@ -23,6 +23,8 @@ final class QuitCoordinator {
     private(set) var failureAlert: QuitFailureAlert?
     /// A quit is in progress (deciding, asking or completing).
     private(set) var isQuitting = false
+    /// Runs once when the next quit is refused (an update's relaunch behind waits on that quit).
+    var onQuitRefused: (() -> Void)?
     /// The last dialog brought the app forward (`debug.quit`).
     private(set) var lastAskActivated = false
     private unowned let services: AppServices
@@ -92,6 +94,7 @@ final class QuitCoordinator {
             guard await resolveUnsaved(origin) else {
                 isQuitting = false
                 sender.reply(toApplicationShouldTerminate: false)
+                quitRefused()
                 return
             }
             let facts = QuitPolicy.needsFacts(origin) && !askedUnsaved ? await QuitFactsReader.read(services) : .none
@@ -104,6 +107,13 @@ final class QuitCoordinator {
             }
         }
         return .terminateLater
+    }
+
+    /// The quit was refused: whatever waited on it learns so, once.
+    private func quitRefused() {
+        let refused = onQuitRefused
+        onQuitRefused = nil
+        refused?()
     }
 
     /// The unsaved step for `origin` (`QuitUnsavedStep.resolve`).
@@ -130,6 +140,7 @@ final class QuitCoordinator {
             case .cancel:
                 self.isQuitting = false
                 sender.reply(toApplicationShouldTerminate: false)
+                self.quitRefused()
             case .quit(let choice, let remember):
                 Task { @MainActor [services] in
                     await self.complete(choice, remember: remember, sender)
@@ -186,13 +197,21 @@ final class QuitCoordinator {
                 // The Chief home's host ends with the sessions (home-state-ownership.md section 3),
                 // and Home does not start it again.
                 await services.home.brain.stop()
-                await ChiefHostStop.endChiefSessions(home: services.home.chief.home,
-                                                     bundledBin: Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true))
+                let acpmux = QuitAgents.environment(services)
+                // A Chief home whose acpmux is the attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) ends nothing there.
+                if !QuitAgents.isAttached(acpmux, to: services.home.chief.home.acpmuxHome) {
+                    await ChiefHostStop.endChiefSessions(home: services.home.chief.home,
+                                                         bundledBin: Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true))
+                }
                 await services.home.chief.shutdownForEndSessions()
                 let keep = ChiefHostStop.appAcpmuxEndKeep(chiefUsesAppAcpmux: services.home.chief.home.usesAppAcpmux)
-                return await QuitAgents.end(QuitAgents.environment(services), keep: keep, waitForShutdown: attempts.isRetry())
+                return await QuitAgents.end(acpmux, keep: keep, waitForShutdown: attempts.isRetry())
             },
             stopBrowserEngines: { [weak self, deadline = self.deadline] in
+                // Drafts typed after the save step (while "Some sessions did not end" waited) reach disk
+                // before the engines stop: nothing the user asked for comes after that (QuitSteps).
+                // Nothing is written when nothing changed.
+                await services.home.flushCacheForQuit()
                 // CefShutdown runs on the main thread and can block it for
                 // good: from here the quit ends by a deadline whatever it
                 // does, and a debug build reports that hang, never asserts it.
@@ -204,9 +223,6 @@ final class QuitCoordinator {
                 await services.cache.cef.shutdown()
             }
         ))
-        // Drafts typed after the save step (while "Some sessions did not end" waited) reach disk too;
-        // nothing is written when nothing changed.
-        await services.home.flushCacheForQuit()
         sender.reply(toApplicationShouldTerminate: true)
     }
 

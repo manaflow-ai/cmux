@@ -1,8 +1,8 @@
 name: cmux-next media
 
-# Screenshots and a short video of each cmux-next UI merge, and of a pull
-# request on demand, posted in the `tour` part of the PR's status comment
-# (scripts/cmux-next/media/publish.py).
+# Screenshots and a short video of each cmux-next nightly's UI changes, and of
+# a pull request on demand, posted in the `tour` part of the PR's status
+# comment (scripts/cmux-next/media/publish.py).
 # The tour builds the merge base and head as separate tagged dev apps on an
 # owned Mac's gui runner, launches each, drives them through the bundled cmux CLI
 # (scripts/cmux-next/media/tour.py), and captures every affected step. Path
@@ -15,7 +15,7 @@ name: cmux-next media
 # Same-repository heads only: owned Macs run trusted code. Only the publish job
 # holds the pr-media write token and the private-terms list, and it runs only
 # on feat-cmux-next, in the pr-media environment (which admits only the
-# protected branches): a merge tour publishes from its own run, and a pull
+# protected branches): a pull
 # request run's hand-off job starts a run here on feat-cmux-next with
 # publish_run=<its run id>. So a pull request run, which takes this file from
 # the pull request, never sees the secret: its ref cannot enter the environment.
@@ -31,14 +31,17 @@ name: cmux-next media
 # to two hours. Run on every push of every UI pull request, it had 32 queued
 # and 8 running jobs on 2026-10-14 and saturated those runners; on every push
 # of a labeled pull request, and on unlabeled Swift UI a tour covered, it was
-# still second in queued minutes. Since 2026-10-21 (Leo: only on a merge or on
-# demand, never on every pull request push) it runs:
-#   - on a merge: a push to feat-cmux-next that touches the UI paths tours
-#     that merge (the previous head against the new one) and comments on the
-#     merged pull request. Every merge gets its own run and is never
-#     cancelled: tours run side by side in a Mac's slots (#22046) and queue
-#     for a gui runner otherwise. A merge that changes nothing a Mac tours
-#     takes no Mac and finishes in the route job.
+# still second in queued minutes. From 2026-10-21 (Leo: only on a merge or on
+# demand, never on every pull request push) every feat-cmux-next merge toured:
+# 144 tours and 3,408 Mac-minutes a day on 2026-10-26. Since 2026-10-27 (Leo:
+# "GO LOOK FOR WASTE AND REDUNDANCY AND SEE WHAT WE CAN SKIP") it runs:
+#   - on the nightly tip: a push to nightly-next (request-nightly-next moves it
+#     to the feat-cmux-next tip it builds) that touches the UI paths tours the
+#     previous nightly tip against the new one, every merge in between at
+#     once. That spans many pull requests, so it comments on none; the media
+#     is the run's artifact. Each tip gets its own run and is never cancelled:
+#     tours run side by side in a Mac's slots (#22046). A tip that changes
+#     nothing a Mac tours takes no Mac and finishes in the route job.
 #   - once per `media-tour` label: the `labeled` event that adds it tours the
 #     pull request's head at that moment (scripts/ci/media_auto_tour.py; never
 #     with the `no-media-tour` label). A later push does not tour again, and
@@ -58,16 +61,12 @@ name: cmux-next media
 # Classic main has no cmux-next UI, and a nightly schedule would run only
 # from main's copy of this file, so neither has a tour.
 on:
+  # No path filter: GitHub matches a push's paths against its first 300 changed
+  # files only, and a nightly tip spans many merges, so a UI change past that
+  # window would start no run. The route job lists the paths on Linux and takes
+  # no Mac when nothing UI changed (past the compare API's 300, the Mac maps them).
   push:
-    branches: [feat-cmux-next]
-    paths:
-      - 'Packages/macOS/CmuxNext/Sources/**'
-      - 'Packages/macOS/CmuxNext/Resources/**'
-      - 'Packages/macOS/CmuxNext/Tests/**'
-      - 'webviews/**'
-      - 'agent-chat/**'
-      # A change to a tour tours it (path_map.py maps tours/<name>.json to <name>).
-      - 'scripts/cmux-next/media/tours/**'
+    branches: [nightly-next]
   pull_request:
     branches: [feat-cmux-next]
     # Only adding a label starts a run: no push of a pull request tours.
@@ -100,7 +99,7 @@ permissions: {}
 # replaces the older tour. Adding `no-media-tour` joins it too, so it cancels a
 # running tour. A label event for another label
 # gets a group of its own, so it cancels nothing.
-# Each merge run gets a group of its own. One shared merge group made every
+# Each nightly tip's run gets a group of its own. One shared merge group made every
 # merge wait behind the running tour, and a newer merge then replaced the
 # waiting run: 95 of 100 cancelled runs on 2026-10-20 were such zero-job
 # replacements, and each replaced merge lost its tour and its PR comment.
@@ -146,7 +145,7 @@ jobs:
           set -euo pipefail
           if [ "$EVENT" != pull_request ]; then
             echo "wanted=true" >> "$GITHUB_OUTPUT"
-            echo "a merge to feat-cmux-next or a batch dispatch tours"
+            echo "a nightly-next tip or a batch dispatch tours"
             exit 0
           fi
           # The changed paths from git, not the files API (a call per 100
@@ -249,7 +248,7 @@ jobs:
       # apps never share state or sockets. A tour past K takes an overflow
       # slot (cold, pruned once idle) rather than wait.
       CMUX_MEDIA_TOUR_SLOTS: ${{ vars.CMUX_MEDIA_TOUR_SLOTS || '2' }}
-      # A merge tour compares the previous feat-cmux-next head with the merge.
+      # A nightly tour compares the previous nightly-next tip with the new one.
       BASE_SHA: ${{ github.event.pull_request.base.sha || inputs.base_sha || github.event.before || github.sha }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
@@ -323,7 +322,7 @@ jobs:
         if: steps.scope.outputs.is_ui == 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       # The minis share ~/.bun with workflows that install another bun; this
       # job runs on its own copy of the pinned one (private-bun.sh).
@@ -654,10 +653,10 @@ jobs:
   publish:
     name: Post the tour media
     needs: [route, tour]
-    # A merge tour publishes from its own run; a pull request's tour from the run
-    # its hand-off job starts. A batch dispatch has no PR to post on: the queue
-    # reads the tour's artifact.
-    if: ${{ !cancelled() && (github.event_name == 'push' && needs.route.result == 'success' && needs.route.outputs.wanted == 'true' || github.event_name == 'workflow_dispatch' && inputs.publish_run != '') }}
+    # A pull request's tour publishes from the run its hand-off job starts. A
+    # nightly tour spans many pull requests and a batch dispatch has none, so
+    # neither posts: the tour's artifact is the result.
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.publish_run != '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # OCR of every still and of one frame per second of each video comes first.
     timeout-minutes: 30
@@ -692,33 +691,25 @@ jobs:
             scripts/cmux-next/media/publish.py
           sparse-checkout-cone-mode: false
 
-      # The pull request to comment on: for a merge tour the one merged as this
-      # feat-cmux-next commit; for a pull request's tour the one its run was for,
-      # read from that run's record (publish.py posts only while that pull
-      # request's head is the one given).
+      # The pull request to comment on: the one the handed-off run was for, read
+      # from that run's record (publish.py posts only while that pull request's
+      # head is the one given).
       - name: Find the pull request
         id: target
         env:
           GH_TOKEN: ${{ github.token }}
-          EVENT_NAME: ${{ github.event_name }}
           PUBLISH_RUN: ${{ inputs.publish_run }}
-          SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           PR=""
           PR_HEAD=""
-          if [ "$EVENT_NAME" = push ]; then
-            found="$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/pulls" \
-              --jq '[.[] | select(.merged_at != null and .base.ref == "feat-cmux-next")][0] | "\(.number)\t\(.head.sha)"' || true)"
-          else
-            case "$PUBLISH_RUN" in ''|*[!0-9]*) echo "::error::publish_run must be a run id"; exit 1 ;; esac
-            # Only this workflow's run for a pull request from this repository.
-            found="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PUBLISH_RUN" --jq \
-              'select(.path == ".github/workflows/cmux-next-media.yml" and .event == "pull_request" and .head_repository.full_name == .repository.full_name) | "\([.pull_requests[] | select(.base.ref == "feat-cmux-next")][0].number // "")\t\(.head_sha)"')"
-            if [ -z "$found" ]; then
-              echo "::error::run $PUBLISH_RUN is not a cmux-next-media pull request run of this repository"
-              exit 1
-            fi
+          case "$PUBLISH_RUN" in ''|*[!0-9]*) echo "::error::publish_run must be a run id"; exit 1 ;; esac
+          # Only this workflow's run for a pull request from this repository.
+          found="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PUBLISH_RUN" --jq \
+            'select(.path == ".github/workflows/cmux-next-media.yml" and .event == "pull_request" and .head_repository.full_name == .repository.full_name) | "\([.pull_requests[] | select(.base.ref == "feat-cmux-next")][0].number // "")\t\(.head_sha)"')"
+          if [ -z "$found" ]; then
+            echo "::error::run $PUBLISH_RUN is not a cmux-next-media pull request run of this repository"
+            exit 1
           fi
           PR="$(printf '%s' "$found" | cut -f1)"
           PR_HEAD="$(printf '%s' "$found" | cut -f2)"
@@ -762,14 +753,6 @@ jobs:
               # One line each: a newline in the data must not start another output.
               print(f"{key}={' '.join(str(data.get(key, '')).split())}")
           PY
-
-      - name: Download the tour media
-        if: ${{ inputs.publish_run == '' && needs.tour.result != 'skipped' }}
-        continue-on-error: true
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: cmux-next-media
-          path: ${{ runner.temp }}/media
 
       # Without ffmpeg the comment still carries the screenshots, only no
       # video, so a slow or stuck apt never holds the comment back.

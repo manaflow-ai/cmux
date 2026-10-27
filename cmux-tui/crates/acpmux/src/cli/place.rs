@@ -10,11 +10,7 @@ use serde_json::{Value, json};
 /// The work `--host` names: `auto` an agent lane, `auto-build` a build; any
 /// other value is a host, not a placement.
 pub fn auto_work(host: Option<&str>) -> Option<&'static str> {
-    match host {
-        Some("auto") => Some("agent"),
-        Some("auto-build") => Some("build"),
-        _ => None,
-    }
+    host.and_then(crate::placement::Work::of_host).map(crate::placement::Work::as_str)
 }
 
 /// The host `new --host auto` creates on: the one already running a session
@@ -45,11 +41,12 @@ pub async fn resolve(
         }
     }
     let v = client.request("_acpmux/place", json!({"work": work})).await?;
-    let why = v.get("why").and_then(Value::as_str).unwrap_or_default();
-    let Some(pick) = v.get("pick").and_then(Value::as_str) else {
-        bail!("{why}");
+    let (Some(pick), Some(placed)) =
+        (v.get("pick").and_then(Value::as_str), crate::placement::placed(&v))
+    else {
+        bail!("{}", v.get("why").and_then(Value::as_str).unwrap_or_default());
     };
-    eprintln!("placed on {why}");
+    eprintln!("{placed}");
     Ok((v.get("local").and_then(Value::as_bool) != Some(true)).then(|| pick.to_owned()))
 }
 

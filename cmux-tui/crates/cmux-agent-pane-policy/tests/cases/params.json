@@ -638,7 +638,8 @@
    "method": "_acpmux/prewarm",
    "params": {
     "harness": 1,
-    "cwd": 1
+    "cwd": 1,
+    "release": 1
    }
   },
   "mode_fields": null,
@@ -1473,6 +1474,35 @@
   "breaks": true
  },
  {
+  "name": "subsession/limits known params pass",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/subsession/limits",
+   "params": {
+    "sessionId": "a",
+    "maxRunning": 8
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "subsession/limits width and depth are not the pane's",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/subsession/limits",
+   "params": {
+    "sessionId": "a",
+    "maxChildren": 1000,
+    "maxDepth": 8
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
   "name": "set_tools known params pass",
   "frame": {
    "jsonrpc": "2.0",
@@ -1498,6 +1528,46 @@
     "id": "mcp:github",
     "enabled": false,
     "harness": "x"
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "prompt inline display descriptors use the allowlisted metadata key",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "s",
+    "prompt": [],
+    "_meta": {
+     "acpmux": {
+      "promptId": "p",
+      "inlineParts": []
+     }
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "inline display descriptors do not allow other acpmux metadata",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "s",
+    "prompt": [],
+    "_meta": {
+     "acpmux": {
+      "inlineParts": [],
+      "harness": "codex"
+     }
+    }
    }
   },
   "mode_fields": null,

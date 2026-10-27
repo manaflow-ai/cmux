@@ -53,7 +53,7 @@ public final class AgentPaneLoadingView: NSView {
     private var revealWaiters: [() -> Void] = []
     /// While it fades out over the page, clicks and scrolls go to the page.
     private var leaving = false
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     var isLeaving: Bool { leaving }
     #endif
     /// Whether the page was asked to fade in when this left, nil until it has. The decision, not

@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 public import CoreGraphics
 
 /// Plays ``DebugKeySequence``s (DEBUG builds): one task posts every step in order at its offset, on an

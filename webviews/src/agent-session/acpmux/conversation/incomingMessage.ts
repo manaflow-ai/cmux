@@ -78,17 +78,150 @@ function digestReply(messages: unknown[]): Pick<IncomingMessage, "sessionId" | "
   return { sessionId: from.slice(4), msgId: last.msgId, ...threadId };
 }
 
-/// The message's first line of text as it reads, its spaces collapsed and its Markdown marks
-/// (a heading's or quote's or list item's lead, emphasis, code ticks) dropped: the closed line's
-/// preview.
+/// The message's first line of text as it reads: the closed line's preview (IncomingMessageCard.tsx
+/// in Minimal Mode). Its spaces are collapsed and its Markdown marks dropped: a heading's, quote's or
+/// list item's lead, emphasis and code ticks, a link's target and title (inline, with parentheses in
+/// it, or by reference), an image's address. A line of marks alone (a lone `>`) and a reference
+/// link's definition are no text; a code fence's marker line (```ts) is skipped and its first code
+/// line read as written, up to the fence that closes it (its marker, at least as long, alone).
 export function messagePreview(text: string): string {
-  const line = text.split("\n").find((part) => part.trim()) ?? "";
-  return line
-    .replace(/^\s*(?:#{1,6}\s+|>\s*|[-*+]\s+(?:\[[ xX]\]\s+)?)/, "")
-    .replace(/(\*\*|__|`)/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 240);
+  const lines = text.split("\n");
+  // The labels the message defines outside its code, which a reference (`[docs]`, `[text][docs]`) names.
+  const defined = new Set<string>();
+  let fence: Fence | undefined;
+  for (const raw of lines) {
+    const code = fenceStep(raw, fence);
+    fence = code.fence;
+    const definition = code.marker || code.inside ? null : LINK_DEFINITION.exec(raw);
+    if (definition) defined.add(linkLabel(definition[1]!));
+  }
+  fence = undefined;
+  for (const raw of lines) {
+    const code = fenceStep(raw, fence);
+    fence = code.fence;
+    if (code.marker) continue;
+    if (code.inside) {
+      if (raw.trim()) return clip(raw);
+      continue;
+    }
+    if (LINK_DEFINITION.test(raw) || THEMATIC_BREAK.test(raw)) continue;
+    const line = inlineText(raw.replace(LINE_LEAD, ""), defined);
+    if (line) return clip(line);
+  }
+  return "";
+}
+
+/// An open code fence: its marker's character and length.
+type Fence = { mark: string; length: number };
+
+/// `raw` read against the open `fence`: whether it opens or closes one (`marker`), whether it is a
+/// line of code (`inside`), and the fence open after it.
+function fenceStep(raw: string, fence: Fence | undefined): { fence?: Fence; marker: boolean; inside: boolean } {
+  if (fence) {
+    const closing = FENCE_CLOSE.exec(raw);
+    if (closing && closing[1]![0] === fence.mark && closing[1]!.length >= fence.length)
+      return { marker: true, inside: false };
+    return { fence, marker: false, inside: true };
+  }
+  const opening = FENCE.exec(raw);
+  if (opening) return { fence: { mark: opening[1]![0]!, length: opening[1]!.length }, marker: true, inside: false };
+  return { marker: false, inside: false };
+}
+
+/// A code fence's opening line: three or more backticks or tildes, an info string after them.
+const FENCE = /^\s{0,3}(`{3,}|~{3,})/;
+/// A fence's closing line: its marker alone, spaces after it.
+const FENCE_CLOSE = /^\s{0,3}(`{3,}|~{3,})\s*$/;
+/// A reference link's definition: `[id]: https://… "title"`.
+const LINK_DEFINITION = /^\s{0,3}\[([^\]\n]+)\]:\s*\S/;
+/// A thematic break: three or more of one of `-`, `*` or `_`, spaces between them allowed.
+const THEMATIC_BREAK = /^\s{0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
+/// A link label as references match it: case and runs of spaces ignored.
+const linkLabel = (label: string) => label.trim().replace(/\s+/g, " ").toLowerCase();
+/// A line's leading marks, nested: quotes, a heading, a list item (with a task box).
+const LINE_LEAD = /^(?:\s*(?:>\s?|#{1,6}(?:\s+|$)|[-*+]\s+(?:\[[ xX]\]\s+)?|\d{1,9}[.)]\s+))+/;
+
+/// A line's words without inline Markdown: links and images read as their labels, emphasis (strong,
+/// `*italic*` and `_italic_`, never a snake_case word's underscores) and code ticks dropped.
+function inlineText(line: string, defined: ReadonlySet<string>): string {
+  return withoutLinks(line, defined)
+    .replace(/<((?:https?|mailto):[^>\s]+)>/g, "$1")
+    .replace(/(\*\*|__|~~|`)/g, "")
+    .replace(/(^|[^\w*])\*([^\s*](?:[^*\n]*?[^\s*])?)\*(?![\w*])/g, "$1$2")
+    .replace(/(^|[^\w])_([^\s_](?:[^_\n]*?[^\s_])?)_(?!\w)/g, "$1$2")
+    .trim();
+}
+
+/// `line` with each link and image as its label: `[label](url "title")`, a URL with balanced
+/// parentheses in it; by reference, `[label][id]`, `[label][]` and `[label]`, only when the message
+/// defines the id (or the label); an undefined reference stays as written.
+function withoutLinks(line: string, defined: ReadonlySet<string>): string {
+  let out = "";
+  let at = 0;
+  while (at < line.length) {
+    const open = line.indexOf("[", at);
+    if (open < 0) break;
+    const close = labelEnd(line, open);
+    if (close < 0) break;
+    const label = line.slice(open + 1, close);
+    if (line[close + 1] === "[") {
+      const idEnd = line.indexOf("]", close + 2);
+      const end = idEnd < 0 ? close + 1 : idEnd + 1;
+      const id = idEnd < 0 ? undefined : line.slice(close + 2, idEnd) || label;
+      const image = open > at && line[open - 1] === "!";
+      out +=
+        id !== undefined && defined.has(linkLabel(id))
+          ? line.slice(at, image ? open - 1 : open) + label
+          : line.slice(at, end);
+      at = end;
+      continue;
+    }
+    const after = linkEnd(line, close + 1);
+    if (after < 0 && !defined.has(linkLabel(label))) {
+      out += line.slice(at, close + 1);
+      at = close + 1;
+      continue;
+    }
+    const image = open > at && line[open - 1] === "!";
+    out += line.slice(at, image ? open - 1 : open) + label;
+    at = after < 0 ? close + 1 : after;
+  }
+  return out + line.slice(at);
+}
+
+/// The index of the `]` that closes the label opened at `open`, nested brackets counted; -1 if none.
+function labelEnd(line: string, open: number): number {
+  let depth = 0;
+  for (let index = open; index < line.length; index += 1) {
+    const char = line[index];
+    if (char === "\\") index += 1;
+    else if (char === "[") depth += 1;
+    else if (char === "]" && --depth === 0) return index;
+  }
+  return -1;
+}
+
+/// Where an inline link's target that starts at `from` ends: past `(url "title")`, its parentheses
+/// balanced; -1 when none starts there.
+function linkEnd(line: string, from: number): number {
+  if (line[from] !== "(") return -1;
+  let depth = 0;
+  let quote: string | undefined;
+  for (let index = from; index < line.length; index += 1) {
+    const char = line[index];
+    if (char === "\\") index += 1;
+    else if (quote) {
+      if (char === quote) quote = undefined;
+    } else if (char === '"' && depth === 1) quote = char;
+    else if (char === "(") depth += 1;
+    else if (char === ")" && --depth === 0) return index + 1;
+  }
+  return -1;
+}
+
+/// A preview's spaces collapsed, at most 240 characters.
+function clip(line: string): string {
+  return line.replace(/\s+/g, " ").trim().slice(0, 240);
 }
 
 /// `text` without a signature naming `name` first (`[coord-deputy] Merged`, `From coord-deputy:

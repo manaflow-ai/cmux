@@ -196,9 +196,20 @@ final class InternalPageTabStore {
     func openStoreTab(_ page: InternalPageID, in pane: PaneController, window: WindowController,
                       focus: Bool, key given: String? = nil,
                       created onCreated: (@MainActor (SurfaceID) -> Void)? = nil) -> InternalPageView? {
-        let daemon = pane.daemon, store = daemon.store
+        openStoreTab(page, in: pane.pane, of: pane.daemon, services: pane.services, controller: pane, window: window,
+                     focus: focus, key: given, created: onCreated)
+    }
+
+    /// ``openStoreTab(_:in:window:focus:key:created:)`` in model pane `model` of `daemon`. With no
+    /// `controller` (a workspace parked off screen, whose new panes have none until it shows) the
+    /// tab goes into the model only, and its pane shows it when the workspace shows; `focus` then
+    /// selects nothing (a focused show leaves the top page first, which shows the workspace).
+    func openStoreTab(_ page: InternalPageID, in model: PaneModel, of daemon: DaemonService, services: AppServices,
+                      controller pane: PaneController?, window: WindowController, focus: Bool, key given: String? = nil,
+                      created onCreated: (@MainActor (SurfaceID) -> Void)? = nil) -> InternalPageView? {
+        let store = daemon.store
         // Nothing opens in Home's dock (an app page, a file): without a placement of the caller's, the tab moves beside it.
-        let onCreated = onCreated ?? HomeDockOpens.placing(pane.pane, services: pane.services, focus: focus, then: nil)
+        let onCreated = onCreated ?? HomeDockOpens.placing(model, services: services, focus: focus, then: nil)
         guard let provider = providers[page], daemon.supports(DaemonCapability.pageTabs.rawValue),
               case .connected = store.connectionState else { return nil }
         let provisional = ProvisionalTab()
@@ -215,15 +226,17 @@ final class InternalPageTabStore {
             self?.storeTabCreated(provisional, as: tab.id, surface: tab.surface)
         }
         let transaction = ClientTransactionID.generate()
-        store.intend(.createTab(pane: pane.pane.handle, provisional: snapshot), transaction: transaction)
-        if focus {
-            pane.selectWhenReported(surface: provisional.surface)
-            pane.focusContent()
-        } else {
-            pane.apply(pane.snapshot())
+        store.intend(.createTab(pane: model.handle, provisional: snapshot), transaction: transaction)
+        if let pane {
+            if focus {
+                pane.selectWhenReported(surface: provisional.surface)
+                pane.focusContent()
+            } else {
+                pane.apply(pane.snapshot())
+            }
         }
-        let create = createStoreTab, handle = pane.pane.handle
-        pane.services.registry.track(Task { @MainActor [weak self, weak pane] () -> ActionWorkFailure? in
+        let create = createStoreTab, handle = model.handle, paneKey = model.id
+        services.registry.track(Task { @MainActor [weak self, weak pane] () -> ActionWorkFailure? in
             do {
                 let (created, sequence) = try await create(handle, daemon, page.rawValue, route, transaction)
                 // Closed first (CancelledCreation): nothing moves to the store's tab, nothing is reported.
@@ -234,7 +247,9 @@ final class InternalPageTabStore {
                 if !store.creations.wasCancelled(transaction) { onCreated?(created.surface) }
             } catch {
                 daemon.logger.error("new-conversation-tab (page) failed: \(String(describing: error), privacy: .public)")
-                if !store.creations.wasCancelled(transaction) { self?.keepAsLocalTab(provisional.id, key: key, page: page, in: pane, store: store, window: window) }
+                if !store.creations.wasCancelled(transaction) {
+                    self?.keepAsLocalTab(provisional.id, key: key, page: page, in: paneKey, controller: pane, store: store, window: window)
+                }
                 store.rejectIntent(transaction)
             }
             return nil
@@ -259,17 +274,19 @@ final class InternalPageTabStore {
 
     /// The store refused provisional page tab `id`: its page stays, as an
     /// app-only tab in `pane` holding the same view, selected if it was.
-    private func keepAsLocalTab(_ id: String, key: String, page: InternalPageID, in pane: PaneController?,
+    private func keepAsLocalTab(_ id: String, key: String, page: InternalPageID, in paneKey: String, controller pane: PaneController?,
                                 store: DaemonStore, window: WindowController) {
         storeKeys[id] = nil
         storeTabStores[id] = nil
         seenLive.remove(id)
-        guard let pane else {
+        // The pane went meanwhile: nothing holds the page.
+        guard store.liveTreeLists(pane: paneKey) != false else {
             if !storeKeys.values.contains(key) { forget(key) }
             return
         }
-        let selected = pane.stripModel.selectedID?.rawValue == id
-        open(page, in: pane.paneKey, of: store, after: id, window: window, key: key)
+        let selected = pane?.stripModel.selectedID?.rawValue == id
+        open(page, in: paneKey, of: store, after: id, window: window, key: key)
+        guard let pane else { return }
         pane.apply(pane.snapshot())
         if selected { reveal(key, in: pane) }
     }

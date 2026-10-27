@@ -7,6 +7,7 @@ by who is calling, not by what is possible.
 | You are | Start an agent for a task | Talk to it, wait | Show it to the person |
 | --- | --- | --- | --- |
 | A script, a person, or an agent with a shell | `acpmux new -n NAME --worktree REPO[@BASE] --prompt-file F --report-to ME --group G -d` | `acpmux send`, `acpmux wait`, `acpmux last` | `--group G` on the same command (runs `cmux agent open`) |
+| An agent inside acpmux that wants a child of another harness, from its shell | `acpmux run --parent $ACPMUX_SESSION_ID -m codex PROMPT` (prints its reply), or `acpmux new --parent ... -d` | as below: it is the same sub-session | it lists under the parent's chat |
 | An agent inside acpmux that wants a child (`cmux-subsessions` MCP) | `start_session {prompt, name, worktree: true}` | `send_message`, `wait_for_sessions`, `get_session` | `app_agent_open {session, group}` through the cmux MCP |
 | The cmux app or an agent with the cmux MCP | the app's own New Chat, or one of the two above | the chat pane | `app_agent_open` (`cmux agent open SESSION [--group G]`), or a tab of a pane: `app_agent_open_tab` (`cmux agent open-tab SESSION --target PANE`) |
 
@@ -48,12 +49,13 @@ acpmux new -n gui/composer \
   (`Gui/Composer` is session `gui-composer`, folder `gui-composer`, branch
   `cmux/gui-composer`); the name as given is the sidebar title.
 - **Sidebar.** `--group G` runs `cmux agent open SESSION --group G` with a
-  workspace key derived from the session id, so a second run finds the same
-  row and opens nothing. A failed sidebar step warns; the prompt is still sent.
-  It needs the cmux app on this machine. Another machine's session cannot
-  be opened in a group yet: `cmux agent open` takes only this Mac's session
-  ids (no `HOST/NAME`), and its `host` only a Chief home (`chief:<id>`).
-  Leave `--group` off on other machines until it can.
+  workspace key derived from the session id, so reopening the same session
+  finds its row. Use `--name NAME --reuse` to reuse a launch; an unnamed launch
+  creates a new session each time. A failed sidebar step warns; the prompt is
+  still sent. It needs the cmux app on this machine. With `--host HOST`, the
+  returned session ID is mirrored locally, so the workspace opens here while
+  the agent runs there. A wrapper executing acpmux on HOST must omit `--group`
+  there and run `cmux agent open ID --group G` on the controller Mac afterward.
 
 ## Wrapping it
 

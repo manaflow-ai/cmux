@@ -90,14 +90,24 @@ extension AgentPaneView {
         String(localized: "agentPane.confirmMode.switch", defaultValue: "Switch Mode", bundle: .module)
     }
 
-    /// Shown when the pane's page keeps crashing and no longer reloads itself.
+    /// Shown when the pane's page crashed (it never reloads by itself; the notice offers Reload).
     static var crashedMessage: String {
-        String(localized: "agentPane.crashed.message", defaultValue: "The agent pane crashed repeatedly.", bundle: .module)
+        String(localized: "agentPane.crashed.message", defaultValue: "The agent pane crashed.", bundle: .module)
     }
 
     /// Shown when automation would open the inspector without an explicit focus request.
     static var inspectorNeedsFocus: String {
         String(localized: "agentPane.inspector.needsFocus", defaultValue: "Opening the ACP inspector requires focus.", bundle: .module)
+    }
+
+    /// Shown when automation would open Session Info without an explicit focus request.
+    static var sessionInfoNeedsFocus: String {
+        String(localized: "agentPane.sessionInfo.needsFocus", defaultValue: "Opening Session Info requires focus.", bundle: .module)
+    }
+
+    /// Shown when Toggle Session Info runs with Session Info turned off in Settings.
+    static var sessionInfoOff: String {
+        String(localized: "agentPane.sessionInfo.off", defaultValue: "Session Info is turned off in Settings.", bundle: .module)
     }
 
     /// cx-0q7o: an allow went to an agent daemon on another machine that holds no key of this
@@ -188,9 +198,9 @@ extension AgentPaneHostError {
             String(localized: "agentPane.error.daemonStopped", defaultValue: "acpmux is not running. Open a new agent chat to start it.", bundle: .module)
         case .chiefStopped:
             String(localized: "agentPane.error.chiefStopped", defaultValue: "The Chief is not running. Reopen cmux and open Home to start it.", bundle: .module)
-        case .daemonRefused(let holder?, _, _, _):
+        case .daemonRefused(let holder?, _, _, _, _):
             String(format: String(localized: "agentPane.error.daemonHeldByOtherBuild", defaultValue: "acpmux belongs to %@, and this build may not use it. Quit that app, then try again.", bundle: .module), holder)
-        case .daemonRefused(_, _, _, _):
+        case .daemonRefused(_, _, _, _, _):
             String(localized: "agentPane.error.daemonRefused", defaultValue: "Another acpmux service is using this socket. It will reconnect when that service is ready.", bundle: .module)
         case .timedOut, nil:
             String(localized: "agentPane.error.timedOut", defaultValue: "acpmux did not answer in time.", bundle: .module)

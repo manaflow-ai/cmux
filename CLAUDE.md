@@ -159,6 +159,22 @@ Swift/Rust builds and tests stay on the fleet.
   hook warns that its installed copy is not origin/feat-cmux-next's, run `scripts/install-git-hooks.sh` from a
   checkout at origin/feat-cmux-next. The hooks are per clone: every worktree of it, main-based ones too, runs them.
 
+## Crash classes
+
+Each class of nightly crash has one guard. Do not work around it; fix the code.
+- Unrecognized selector (a `super` call the framework class does not answer, a selector Chromium sends to
+  NSApp): `scripts/cmux-next/check-objc-selectors.py` and `ObjCSelectorRuntimeTests` (runtime walk).
+- AppKit off the main thread: suites run under Xcode's Main Thread Checker
+  (`scripts/ci/run_swift_test_bundle.py`, `CMUX_MAIN_THREAD_CHECKER`, `MainThreadCheckerLoadedTests`).
+- Stale AppKit index (-1 rows and columns): CmuxNextCompat's `clickedRowIfValid`, `selectedRowIfValid`,
+  `clickedItemIfValid`, `item(ifValidRow:inColumn:)`; guardrails rule `appkit-index`.
+- Undo into replaced text: set text from code only through `replaceAllTextUndoably(_:)` (CmuxNextDesign)
+  in a view with `allowsUndo = true`; guardrails rule `undo-text-write`.
+- Traps (`!`, `as!`, index, `fatalError`): `scripts/cmux-next/crash_ratchet.py`, whose baseline only goes down.
+- Memory corruption and data races: run the suites of risky code under `CMUX_SWIFT_SANITIZE=address` or
+  `thread` (`cmux-ci run --env CMUX_SWIFT_SANITIZE=...`); malloc zone changes: `malloc-zone-race/run.sh corrupt`.
+- A crash that hangs: `CrashDeadline` (10 s) and the out-of-process `CrashWatcher` (15 s) end the app.
+
 ## Swift namespace convention
 
 Public and package types in package source must expose an instance surface or
@@ -238,7 +254,7 @@ with the fast checks. Keep the target at zero queue.
   `gh api -X PUT repos/OWNER/REPO/pulls/N/merge -f merge_method=squash -f sha=SHA`, which names the cause. Never `--admin`.
 - A first implementation pass ends with passed scoped verification and an open PR;
   do not watch CI or run speculative reviews by default.
-- Never hand-edit or hand-merge generated files (`settings-schema.json`, `settings-schema.sources.sha256`,
+- Never hand-edit or hand-merge generated files (`settings-schema.json`,
   `docs/mdm/*`). On a conflict take either side; the PR or base autofix regenerates them (#21946, #21985).
 - Webview UI screenshots come from the gallery advisory run: add a gallery entry with fixture states.
   For a before/after in a minute or two, push and run `scripts/gallery-compare.sh [--open]`: it prints a

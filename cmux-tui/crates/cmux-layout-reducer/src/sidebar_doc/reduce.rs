@@ -13,7 +13,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use super::archive::{archive, archived_side, unarchive};
+use super::archive::{archive, archived_side, unarchive, wake_groups_of};
 use super::check;
 use super::doc::{Doc, ListEntry};
 use super::model::*;
@@ -275,7 +275,10 @@ impl Tx<'_> {
 
 fn apply_op(tx: &mut Tx, op: &Op, mint: &mut dyn FnMut() -> ItemId) -> Result<(), Refusal> {
     match op {
-        Op::Move { items, to } => place(tx, items, to),
+        Op::Move { items, to } => {
+            place(tx, items, to)?;
+            wake_groups_of(tx, items)
+        }
         Op::Pin { items } => pin(tx, items),
         Op::Unpin { items } => unpin(tx, items),
         Op::Archive { items } => archive(tx, items),
@@ -363,6 +366,16 @@ fn apply_op(tx: &mut Tx, op: &Op, mint: &mut dyn FnMut() -> ItemId) -> Result<()
             if let Some(value) = patch.collapsed {
                 *collapsed = value;
             }
+            match &patch.auto_archive {
+                Patch::Keep => {}
+                Patch::Clear => {
+                    item.extra.remove(AUTO_ARCHIVE_KEY);
+                }
+                Patch::Set(value) => {
+                    let rule = AutoArchiveRule::read(value).ok_or(Refusal::InvalidValue)?;
+                    item.extra.insert(AUTO_ARCHIVE_KEY.into(), rule.value());
+                }
+            }
             Ok(())
         }),
         Op::GroupUngroup { id } => {
@@ -382,7 +395,16 @@ fn apply_op(tx: &mut Tx, op: &Op, mint: &mut dyn FnMut() -> ItemId) -> Result<()
             tx.remove_item(id);
             Ok(())
         }
-        Op::Adopt { refs, to } => adopt(tx, refs, to.as_ref()),
+        Op::Adopt { refs, to } => {
+            adopt(tx, refs, to.as_ref())?;
+            let placed: Vec<ItemId> = refs
+                .iter()
+                .filter_map(|reference| {
+                    tx.doc.workspace_item(reference).map(|item| item.id.clone())
+                })
+                .collect();
+            wake_groups_of(tx, &placed)
+        }
         Op::Close { refs } => {
             close(tx, refs);
             Ok(())
@@ -1020,6 +1042,7 @@ fn add_section(tx: &mut Tx, section: &Section, place: &SectionPlace) -> Result<(
         }
         _ => {}
     }
+    validate_host_group_flags(section)?;
     if let Some(title) = &section.title {
         validate_title(title)?;
     }
@@ -1063,10 +1086,30 @@ fn update_section(tx: &mut Tx, id: &str, patch: &SectionPatch) -> Result<(), Ref
             return Err(Refusal::InvalidValue);
         }
         section.host_group = host_group;
+        // Older clients only sent `host_group`; preserve their explicit
+        // Remove/mark choice in the durable opt-out field unless a newer
+        // client supplied that field explicitly.
+        if patch.host_group_opt_out.is_none() {
+            section.host_group_opt_out = section.kind.machine().is_some() && !host_group;
+        }
     }
+    if let Some(opt_out) = patch.host_group_opt_out {
+        section.host_group_opt_out = opt_out;
+    }
+    validate_host_group_flags(&section)?;
     validate_section_numbers(&section)?;
     if tx.doc.section(id) != Some(&section) {
         tx.put_section(section);
+    }
+    Ok(())
+}
+
+fn validate_host_group_flags(section: &Section) -> Result<(), Refusal> {
+    if section.host_group_opt_out && section.kind.machine().is_none() {
+        return Err(Refusal::InvalidValue);
+    }
+    if section.host_group && section.host_group_opt_out {
+        return Err(Refusal::InvalidValue);
     }
     Ok(())
 }

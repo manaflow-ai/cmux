@@ -8,6 +8,9 @@ import CmuxNextRemote
 import CmuxNextTerminal
 import CmuxNextWakeups
 import Observation
+import os
+
+private let fallbackLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "browser.engine")
 
 /// Owns every terminal surface and browser page in the process
 /// (architecture.md 4). Surfaces are keyed by tab, not by pane: a tab moved
@@ -355,6 +358,10 @@ final class TabContentCache {
     /// A WebKit page for a Chromium record, with the fallback recorded and
     /// the one-time notice shown when this is the first.
     private func fallBack(_ tab: TabModel, url: URL?, reason: CEFUnavailableReason) -> BrowserEntry {
+        // The page loads again in WebKit, without Chromium's cookies (a second copy of the app,
+        // whose Chromium cannot start while the first holds its profile, shows signed-out pages).
+        let tabID = tab.id, code = reason.code
+        fallbackLogger.notice("tab \(tabID, privacy: .public) loads in WebKit: Chromium unavailable (\(code, privacy: .public)); its page reloads without Chromium's cookies")
         let fallbacks = browserTabs.fallbacks
         fallbacks.record(reason, source: .recordedTab, machine: browserTabs.daemon(for: tab).machineID, surface: tab.surface)
         return tracked(browserTabs.historyStarts.page(tab, url: url, cache: self) ?? browser(for: tab.id, url: url), tab)
@@ -459,6 +466,8 @@ final class TabContentCache {
     /// The tab closed: free everything it held (a conversation tab's view: `onRelease`).
     func release(_ key: String, displacing: Bool = true) { // displacing false: the pane keeps its view (a stand-in's moved to its daemon tab)
         onRelease?(key)
+        // A closed tab is mirrored nowhere any more (`TabMirrors`); a stand-in moving to its daemon tab keeps nothing to drop.
+        if displacing { pageRequests.services?.tabMirrors.remove(key) }
         if let owner = ledger.remove(key), displacing { presenters[owner]?.value?.surfaceWasDisplaced(key) }
         applyLifecycle(lifecycle.send(.removed(key)))
         pendingMounts[key] = nil; framedStandIns.remove(key); pendingBrowsers.remove(key)

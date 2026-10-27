@@ -18,6 +18,11 @@
 //!   that pinned it (`pairing.rs`). Sent at start; never logged.
 //! - `{"type":"drop_phone","phone_device_id":"<uuid>"}`: the owner removed this
 //!   phone (Settings > Mobile > Remove): hostd closes its live links now.
+//! - `{"type":"phone_credentials","credentials":{"<phone device id>":"<token>"}}`: each
+//!   paired phone's own acpmux credential (acpmux pairing role `phone`, which the person
+//!   issued through the app), the whole set each time. That phone's `acpmux` channel
+//!   presents it instead of the dashboard token, so acpmux knows which phone it is and
+//!   that phone's Full-access setting can cover it (`services.rs`). Never logged.
 //!
 //! End of stdin means the app is gone: the process exits.
 //!
@@ -36,6 +41,20 @@ pub type AcpmuxEndpoint = Option<(String, Option<String>)>;
 
 static ENABLED: OnceLock<bool> = OnceLock::new();
 static DROPS: OnceLock<broadcast::Sender<String>> = OnceLock::new();
+static PHONE_CREDENTIALS: std::sync::Mutex<Option<std::collections::HashMap<String, Secret>>> =
+    std::sync::Mutex::new(None);
+
+/// The acpmux credential the app gave phone `phone_device_id` (`phone_credentials`), if any.
+pub fn phone_credential(phone_device_id: &str) -> Option<String> {
+    let credentials = PHONE_CREDENTIALS.lock().unwrap_or_else(|e| e.into_inner());
+    credentials.as_ref()?.get(&phone_device_id.to_lowercase()).map(|s| s.0.clone())
+}
+
+/// Replaces every phone's acpmux credential (`phone_credentials`); keys are lowercased.
+pub fn set_phone_credentials(credentials: std::collections::HashMap<String, Secret>) {
+    let lowered = credentials.into_iter().map(|(id, token)| (id.to_lowercase(), token)).collect();
+    *PHONE_CREDENTIALS.lock().unwrap_or_else(|e| e.into_inner()) = Some(lowered);
+}
 
 /// Phone device ids the app removed, as they arrive (lowercased).
 pub fn drops() -> broadcast::Receiver<String> {
@@ -112,6 +131,10 @@ pub enum Inbound {
     DropPhone {
         phone_device_id: String,
     },
+    /// Each paired phone's own acpmux credential, by phone device id. Never logged.
+    PhoneCredentials {
+        credentials: std::collections::HashMap<String, Secret>,
+    },
 }
 
 impl Inbound {
@@ -158,6 +181,10 @@ pub enum Event {
         approval_key: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         registered_at_ms: Option<i64>,
+        /// The pre-approval from the Mac's pairing code the phone presented with its
+        /// signature (the app checks and burns it; hostd only forwards it). Absent without one.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pair_token: Option<String>,
     },
     /// A paired phone signed out and asks the Mac to forget it.
     Unpaired { phone_device_id: String },
@@ -230,6 +257,7 @@ pub fn spawn_stdin_reader() -> Supplied {
                 Some(Inbound::Devices(trust)) => {
                     devices_tx.send_replace(Some(trust));
                 }
+                Some(Inbound::PhoneCredentials { credentials }) => set_phone_credentials(credentials),
                 Some(Inbound::DropPhone { phone_device_id }) => {
                     let _ =
                         DROPS.get_or_init(|| broadcast::channel(16).0).send(phone_device_id.to_lowercase());
@@ -316,6 +344,21 @@ mod tests {
     }
 
     #[test]
+    fn phone_credentials_replace_the_set_and_never_print() {
+        let Some(Inbound::PhoneCredentials { credentials }) =
+            Inbound::parse(r#"{"type":"phone_credentials","credentials":{"AB-1":"tok"}}"#)
+        else {
+            panic!("a phone_credentials line")
+        };
+        assert!(!format!("{credentials:?}").contains("tok"));
+        set_phone_credentials(credentials);
+        assert_eq!(phone_credential("ab-1").as_deref(), Some("tok"));
+        assert_eq!(phone_credential("AB-1").as_deref(), Some("tok"));
+        set_phone_credentials(Default::default());
+        assert_eq!(phone_credential("ab-1"), None, "a phone the app no longer lists has none");
+    }
+
+    #[test]
     fn events_are_tagged_json() {
         let line = serde_json::to_string(&Event::PhoneUp {
             session_id: "s".into(),
@@ -329,18 +372,26 @@ mod tests {
             r#"{"type":"phone_up","session_id":"s","phone_device_id":"p","transport":"wireguard","path":"turn-tls"}"#
         );
         assert_eq!(serde_json::to_string(&Event::NeedToken).unwrap(), r#"{"type":"need_token"}"#);
-        let request = |registered_at_ms| Event::PairRequest {
+        let request_with = |registered_at_ms, pair_token| Event::PairRequest {
             phone_device_id: "p".into(),
             name: "n".into(),
             identity_key: "04".into(),
             approval_key: "04".into(),
             registered_at_ms,
+            pair_token,
         };
+        let request = |registered_at_ms| request_with(registered_at_ms, None);
         assert_eq!(
             serde_json::to_string(&request(Some(1_791_961_929_681))).unwrap(),
             r#"{"type":"pair_request","phone_device_id":"p","name":"n","identity_key":"04","approval_key":"04","registered_at_ms":1791961929681}"#
         );
         assert!(!serde_json::to_string(&request(None)).unwrap().contains("registered_at_ms"));
+        assert!(!serde_json::to_string(&request(None)).unwrap().contains("pair_token"));
+        let scanned = request_with(None, Some("AbC-dEf_0123456789".into()));
+        assert_eq!(
+            serde_json::to_string(&scanned).unwrap(),
+            r#"{"type":"pair_request","phone_device_id":"p","name":"n","identity_key":"04","approval_key":"04","pair_token":"AbC-dEf_0123456789"}"#
+        );
         assert_eq!(serde_json::to_string(&Event::Removed).unwrap(), r#"{"type":"removed"}"#);
         assert_eq!(
             serde_json::to_string(&Event::NeedBrowser {

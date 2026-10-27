@@ -30,7 +30,7 @@ export default componentEntry<{ path: string; label?: string; written?: string }
     file: { chipHost: rootFile, props: { path: file } },
     folder: { chipHost: rootFolder, props: { path: folder } },
     "outside-lock": {
-      note: "Outside the session roots: the lock advertises the host confirmation boundary.",
+      note: "Outside the session roots: hover explains the boundary without a persistent lock.",
       chipHost: outsideConfirm,
       props: { path: outside },
       play: async (ctx) => {

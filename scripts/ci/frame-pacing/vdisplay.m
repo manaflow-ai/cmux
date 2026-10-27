@@ -64,6 +64,31 @@ static CGError makeMain(CGDirectDisplayID display) {
   return CGCompleteDisplayConfiguration(config, kCGConfigureForAppOnly);
 }
 
+/// Whether AppKit's screen list has DISPLAY yet.
+static NSScreen *screenFor(CGDirectDisplayID display) {
+  for (NSScreen *screen in [NSScreen screens])
+    if ([screen.deviceDescription[@"NSScreenNumber"] unsignedIntValue] == display) return screen;
+  return nil;
+}
+
+/// Runs the main run loop until AppKit has handled a screen change (NSApplicationDidChangeScreenParametersNotification)
+/// and, when WANT is set, until DISPLAY is in [NSScreen screens] and AppKit's main screen. AppKit refreshes its
+/// screen list only on the main run loop: an NSThread sleep before the read left the new display out of
+/// [NSScreen screens], so "visible=0x0" (2026-10-25: cmux9s, cmuxs-Mac-mini, cmux20-bench). Bounded by SECONDS.
+static void waitForScreens(CGDirectDisplayID display, BOOL wantMain, NSTimeInterval seconds) {
+  __block BOOL changed = NO;
+  id token = [[NSNotificationCenter defaultCenter] addObserverForName:NSApplicationDidChangeScreenParametersNotification
+                                                                object:nil queue:nil usingBlock:^(NSNotification *note) { changed = YES; }];
+  NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:seconds];
+  while ([deadline timeIntervalSinceNow] > 0) {
+    [[NSRunLoop mainRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+    NSScreen *screen = screenFor(display);
+    if (changed && screen && (!wantMain || [NSScreen screens].firstObject == screen)) break;
+  }
+  [[NSNotificationCenter defaultCenter] removeObserver:token];
+  if (!screenFor(display)) fprintf(stderr, "vdisplay: AppKit did not list display %u within %.0f s\n", display, seconds);
+}
+
 static int compare(const void *a, const void *b) { double x = *(const double *)a, y = *(const double *)b; return x < y ? -1 : x > y; }
 
 /// Median CVDisplayLink interval on DISPLAY over one second, in ms (0 when it does not tick).
@@ -117,17 +142,15 @@ int main(int argc, char **argv) {
     settings.hiDPI = 0;
     settings.modes = @[[[CGVirtualDisplayMode alloc] initWithWidth:width height:height refreshRate:hz]];
     if (![display applySettings:settings]) { printf("error: applySettings failed\n"); return 1; }
-    [NSThread sleepForTimeInterval:1.0];
+    waitForScreens(display.displayID, NO, 5.0);
     if (wantMain && CGMainDisplayID() != display.displayID) {
       CGError error = makeMain(display.displayID);
       if (error != kCGErrorSuccess) fprintf(stderr, "vdisplay: could not make display %u main (CGError %d)\n", display.displayID, error);
-      [NSThread sleepForTimeInterval:1.0];
+      else waitForScreens(display.displayID, YES, 5.0);
     }
     // The visible frame (points, under the menu bar and the Dock) of the virtual display: what a window may fill.
-    NSRect visible = NSZeroRect;
-    for (NSScreen *screen in [NSScreen screens]) {
-      if ([screen.deviceDescription[@"NSScreenNumber"] unsignedIntValue] == display.displayID) visible = screen.visibleFrame;
-    }
+    NSScreen *screen = screenFor(display.displayID);
+    NSRect visible = screen ? screen.visibleFrame : NSZeroRect;
     printf("ready %u %.2f main=%u size=%ux%u visible=%.0fx%.0f\n", display.displayID, medianInterval(display.displayID),
            CGMainDisplayID(), width, height, visible.size.width, visible.size.height);
     [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:hold]];

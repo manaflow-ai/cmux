@@ -34,6 +34,9 @@ extension PaneController {
         case .toggleAudioMute(let id):
             _ = services.registry.perform(BrowserTabAudio.toggleActionID,
                                           invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: id.rawValue), origin: .user))
+        // A tab's double-click runs Toggle Pane Zoom on this pane, Cmd-Shift-Return's one path.
+        case .toggleZoom:
+            _ = services.registry.perform(PaneToolbar.zoom, invocation: Self.zoomInvocation(pane: paneKey))
         case .moveToNewSplit(let id, let direction):
             guard let tab = tab(id) else { return }
             TabMoves.toNewSplit(tab, pane: pane, edge: direction == .right ? .right : .bottom, services: services)
@@ -45,6 +48,12 @@ extension PaneController {
         case .toggleGroupCollapsed, .moveGroup, .addToGroup, .removeFromGroup, .group, .createGroup:
             handleGroup(intent)
         }
+    }
+
+    /// Toggle Pane Zoom for pane `pane` (a tab's double-click): the pane, not the tab, so a window's
+    /// own page or browser tab, which the store does not list, zooms its pane too.
+    static func zoomInvocation(pane: String) -> ActionInvocation {
+        ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane), origin: .user)
     }
 
     /// A user selection (strip click, shortcut, palette, CLI): goes through
@@ -230,6 +239,11 @@ extension PaneController {
         var surfaces: [SurfaceID] = []
         var keys: [String] = []
         for id in ids {
+            // A mirror's close takes the mirror out; the tab and its page stay in their own pane.
+            if isMirror(id) {
+                services.tabMirrors.remove(id.rawValue, from: paneKey) // its strip maps again (observed)
+                continue
+            }
             if id.rawValue.hasPrefix(LocalBrowserTab.prefix) {
                 state?.localBrowserTabs[paneKey].removeAll { $0.id == id.rawValue }
                 services.cache.release(id.rawValue)
@@ -369,7 +383,9 @@ extension PaneController {
         let registry = services.registry
         switch target {
         case .tab(let id, let selection):
-            select(id) // one of the selected tabs keeps the selection (TabMultiSelection)
+            // Building the menu selects nothing and moves no focus (#24913: the selection's focus
+            // move made a Chromium page window key inside the right-click). The rows act on the
+            // right-clicked tab, or on the selection it is one of (`AppActionContext.actionTabs`).
             return Self.tabMenu(id.rawValue, tab: tab(id), keepsTab: TabPromotion.staysPut(tab: id.rawValue, in: workspace?.workspace),
                                 sameKind: NewTabKind.of(id.rawValue, tab: tab(id), services: services),
                                 registry: registry, selectionPins: selection.count > 1 ? stripModel.pinsAll(selection) : nil).themeRows(in: view.themeScope.fullStrength)

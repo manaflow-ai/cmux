@@ -50,6 +50,7 @@ export const mockGoBack: ChannelSwitch = {
 export const mockChannels: ChannelsState = {
   title: "Channels",
   installed: "This Mac runs 1.0.0-nightly.3419.",
+  daemon: { title: "acpmux daemon", value: "9f1e2d3c (up to date)" },
   switch: null,
   labels: {
     you_are_here: "You Are Here",

@@ -2,7 +2,7 @@
 
 nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
-        [
+        var actions: [ActionDescriptor] = [
             ActionDescriptor(
                 id: "reloadConfiguration",
                 title: String(localized: "action.reloadConfiguration", defaultValue: "Reload Configuration", bundle: .module),
@@ -20,7 +20,7 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "palette.openGhosttySettings",
                 title: String(localized: "action.palette.openGhosttySettings", defaultValue: "Open Ghostty Config", bundle: .module),
-                keywords: ["config", "settings", "file"], category: .settings, symbol: "doc.plaintext",
+                keywords: ["config", "settings", "file", "edit", "ghostty"], category: .settings, symbol: "doc.plaintext",
                 surfaces: [.palette, .menu], cliName: "settings open-ghostty-config", mainMenu: .app
             ),
             // R92 diagnostics: Settings > Terminal lists the Ghostty lines cmux
@@ -460,6 +460,16 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
+            // Debug menu > Main-Thread Blocking (N) > Reset Counts (threading-model.md): zeroes the blocking
+            // detector's per-site counts. `BlockingCallsMenu` places the row in its submenu, so no `mainMenu`.
+            ActionDescriptor(
+                id: "debug.blockingCalls.reset",
+                title: String(localized: "action.debug.blockingCalls.reset", defaultValue: "Reset Main-Thread Blocking Counts",
+                              bundle: .module),
+                keywords: ["blocking", "main thread", "hang", "stall", "reset", "counts", "debug"],
+                category: .settings, symbol: "arrow.counterclockwise", surfaces: [.palette, .menu], isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
             ActionDescriptor(
                 id: "appearance.customize",
                 title: String(localized: "action.appearance.customize", defaultValue: "Customize Appearance…", bundle: .module),
@@ -509,5 +519,12 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 symbol: "1.magnifyingglass", surfaces: [.palette, .keyboard, .menu], cliName: "settings reset-interface-scale", mainMenu: .view
             ),
         ]
+        // A CLI or agent run answers with the result: the feed's newest build, or whether the
+        // update installs and why not (UpdateHandlers+Results.swift).
+        let waitsForResult: Set<ActionID> = ["palette.checkForUpdates", "palette.applyUpdateIfAvailable", "palette.attemptUpdate"]
+        for index in actions.indices where waitsForResult.contains(actions[index].id) {
+            actions[index].waitsForResult = true
+        }
+        return actions
     }
 }

@@ -120,6 +120,9 @@ parser.add_argument("--settle", type=float, default=0.5, help="seconds of frames
 parser.add_argument("--no-interactions", action="store_true")
 parser.add_argument("--write-gaps", action="store_true", help="rewrite every-action-gaps.json from this whole-catalog run")
 parser.add_argument("--keep", action="store_true", help="leave the app running")
+parser.add_argument("--app-env", action="append", default=[], metavar="NAME=VALUE",
+                    help="one more variable in the app's environment (repeatable), e.g. a measurement tool's "
+                         "DYLD_INSERT_LIBRARIES (scripts/measure/blocking-probe.sh)")
 opts = parser.parse_args()
 
 OUT = os.path.abspath(opts.out)
@@ -302,6 +305,11 @@ class App:
                "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": GHOSTTY, "CMUX_NEXT_CHIEF_ISOLATED": "1",
                "CMUX_NEXT_CHIEF_HOME": os.path.join(SCRATCH, "chief"), "CMUX_NEXT_TYPING_PROBE": PROBE,
                "CMUX_NEXT_HANG_THRESHOLD_MS": "8", "ACPMUX_AGENT_LAUNCH": "deny"}
+        for item in opts.app_env:
+            name, equals, value = item.partition("=")
+            if not equals or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+                raise SystemExit(f"every-action: --app-env takes NAME=VALUE (got {item!r})")
+            env[name] = value
         def started(process):
             self.process = process
             self.pids.append(process.pid)

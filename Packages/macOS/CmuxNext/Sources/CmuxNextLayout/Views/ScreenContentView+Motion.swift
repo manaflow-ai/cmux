@@ -12,6 +12,8 @@ extension ScreenContentView {
     /// true while anything still moves. A screen at rest (a drag frame that
     /// moved nothing, a still pointer) does no work.
     func step(_ dt: Double, policy: MotionPolicy = Motion.panes.policy) -> Bool { // perf-hot: 4ms motion-frame
+        // A released resize drag ends for the pane contents in the frame its layout lands.
+        defer { if resizeGesture == .landing { finishResizeGestureIfLanded() } }
         guard hasMotion || reportScrollOnSettle else {
             scrollRidesFrames = false
             return false
@@ -82,6 +84,41 @@ extension ScreenContentView {
         applyPresentation()
     }
 
+    /// Frame ticks a strip pan keeps after its last event: a trackpad sends about one event per
+    /// frame, and a gap of a frame or two must not drop the window's display link (an idle
+    /// scheduler drops its link, and the next event would make a new one). About 67 ms at 120 Hz.
+    static let panTickTail = 8
+
+    /// Shows a strip pan event: now when this display frame shows no pan yet, else at the frame's
+    /// tick (``displayFrameBegan()``), so a burst of events costs one presentation (one layout
+    /// pass and commit of the moved panes) per frame. The frame's first event still shows in its
+    /// own turn, so a pan of about one event per frame shows each event as soon as before.
+    func presentPan() {
+        panTicksLeft = Self.panTickTail
+        if panPresentedInFrame {
+            panPresentationPending = true
+        } else {
+            panPresentedInFrame = true
+            applyPresentation()
+        }
+        // The tick that opens the next frame (and shows a waiting event).
+        context.requestFrames()
+    }
+
+    /// A display frame began (the layout's frame tick, before its springs step): the pan events
+    /// that waited in the last frame show now. Returns true while a pan in progress keeps the frame
+    /// ticks (``panTickTail`` frames after its last event).
+    func displayFrameBegan() -> Bool {
+        panPresentedInFrame = false
+        if panPresentationPending { applyPresentation() }
+        guard panTicksLeft > 0, isUserScrolling else {
+            panTicksLeft = 0
+            return false
+        }
+        panTicksLeft -= 1
+        return true
+    }
+
     /// Sets `frame`'s target (opaque); without animation it snaps there. During a pointer gesture (a divider drag)
     /// only a frame the gesture retargets snaps: a spring already running elsewhere (a close landing in another
     /// column) keeps going (M3). Reduce Motion snaps every frame.
@@ -102,6 +139,8 @@ extension ScreenContentView {
     /// nothing asks for no overlay sync and no hover refresh (`PaneMotionBench`, perf-lead issue 3).
     /// `force`: a structural or style change; everything is re-placed and the overlay syncs.
     func applyPresentation(force: Bool = false) { // perf-hot: 4ms motion-frame
+        // Every presentation shows the latest pan: no pan event waits after it.
+        panPresentationPending = false
         let strip = stripShift, restStrip = geometry.viewShift(offset: isUserScrolling ? scroll.value : scroll.target)
         let uncovered = uncoveredRect, clip = PaneArrival.stripClip(geometry, docks: growingDocks), zooming = zoomMotion.pane
         var clips: [(host: PaneHostView, scrolls: Bool)] = []

@@ -257,13 +257,18 @@ class Stress:
         before = {t.get("id") for t in self.tabs(workspace_id, pane_id)}
         count = len(before)
         target = f"pane:{pane_id}"
+        # The new-tab actions (newSurface, openBrowser.*) take a tab target: the tab the new one opens
+        # beside, in that tab's pane. A pane target is refused (invalid_params), and no tab opens.
+        tabs = self.tabs(workspace_id, pane_id)
+        beside = next((t for t in tabs if t.get("selected")), tabs[-1] if tabs else None)
+        tab_target = f"tab:{beside['id']}" if beside and beside.get("id") else target
         fallback = False
         if kind == "terminal":
-            self.action("newSurface", target=target)
+            self.action("newSurface", target=tab_target)
         elif kind == "chromium":
-            self.action("openBrowser.chromium", {"url": self.pages.url()}, target=target)
+            self.action("openBrowser.chromium", {"url": self.pages.url()}, target=tab_target)
         elif kind == "webkit":
-            self.action("openBrowser.webkit", {"url": self.pages.url()}, target=target)
+            self.action("openBrowser.webkit", {"url": self.pages.url()}, target=tab_target)
         else:
             # The reply comes when the action has run. Only the app's typed refusal (an error with a code:
             # launch denied, a build without agent chats) falls back to the New Tab page; a reply that does not
@@ -274,7 +279,12 @@ class Stress:
                 self.chat_fallbacks += 1
                 fallback = True
                 self.action("newTab.page", target=target)
-        wait(lambda: len(self.tabs(workspace_id, pane_id)) > count, 20, step=0.1)
+        appeared = wait(lambda: len(self.tabs(workspace_id, pane_id)) > count, 20, step=0.1)
+        if not appeared and kind in ("terminal", "chromium", "webkit"):
+            # No silent go-on: a run that measures a pane without the tab it asked for measures the wrong
+            # pane (the Command-pan bench over Chromium measured a terminal, 2026-10-24). A chat may still
+            # open late; the pane's mix check names it.
+            raise RuntimeError(f"{kind} tab did not appear in {pane_id} in 20 s (refusals: {self.refusals[-3:]})")
         new = [t.get("id") for t in self.tabs(workspace_id, pane_id) if t.get("id") not in before]
         self.made.setdefault(pane_id, []).append((kind, new[0] if len(new) == 1 else None, fallback))
 

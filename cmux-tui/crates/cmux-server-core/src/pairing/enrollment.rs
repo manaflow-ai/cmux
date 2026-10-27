@@ -127,6 +127,7 @@ impl Paired {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Waited {
     Paired(Paired),
+    NetworkPaired { paired: Paired, grant: Box<super::native::Grant> },
     Refused,
     Expired,
 }
@@ -214,10 +215,24 @@ pub fn read_frame(text: &str) -> Result<Option<Waited>, String> {
     let frame: Value = serde_json::from_str(text).map_err(|_| "pairing.invalid_frame")?;
     match frame["t"].as_str() {
         Some("paired") => {
+            let network = match (frame.get("network"), frame.get("network_enrollment")) {
+                (None, None) => None,
+                (Some(reservation), Some(value)) => {
+                    let grant = super::native::Grant::parse(value)?;
+                    if !grant.matches_reservation(reservation) {
+                        return Err("pairing.invalid_network_enrollment".into());
+                    }
+                    Some(grant)
+                }
+                _ => return Err("pairing.invalid_network_enrollment".into()),
+            };
             let paired: Paired =
                 serde_json::from_value(frame).map_err(|_| "pairing.invalid_result")?;
             paired.validate()?;
-            Ok(Some(Waited::Paired(paired)))
+            Ok(Some(match network {
+                Some(grant) => Waited::NetworkPaired { paired, grant: Box::new(grant) },
+                None => Waited::Paired(paired),
+            }))
         }
         Some("refused") => Ok(Some(Waited::Refused)),
         // Pending, or a type a newer backend added: keep waiting, as Chief did.

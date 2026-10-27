@@ -324,7 +324,8 @@ pub(super) async fn tasks(
         .filter(|row| !open_only || tasks::open(row))
         .collect();
     rows.sort_by_key(|row| {
-        (!tasks::open(row), std::cmp::Reverse(row["createdAt"].as_u64().unwrap_or(0)))
+        let first = (!tasks::orphaned(row), !tasks::open(row));
+        (first, std::cmp::Reverse(row["createdAt"].as_u64().unwrap_or(0)))
     });
     let rows: Vec<Value> = rows.iter().take(limit).map(|row| task_row(hub, row)).collect();
     Ok(json!({"tasks": rows}))

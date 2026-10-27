@@ -4,24 +4,30 @@ public import CmuxNextCompat
 
 /// Debug menu > Main-Thread Blocking (N): how many call sites blocked the main thread since launch
 /// (the main-thread blocking detector, plans/cmux-next/threading-model.md), one row per site with
-/// its count, and Reset Counts. Debug builds only: a Nightly (to come) will send its sites to the opt-in hang
-/// reports and show nothing.
+/// its count, and Reset Counts. Debug builds only: a Nightly logs its sites (``BlockingLogSink``) and shows
+/// nothing.
 ///
 /// It is the delegate of the Debug menu that holds its item (``attach(to:)``), so the count is read
 /// when that menu opens and the rows when the submenu opens; nothing runs while they are closed.
+/// Reset Counts is the registered action `debug.blockingCalls.reset` (scripts/cmux-next/check-menu-actions.py:
+/// a menu row runs the action the palette runs), made by the caller's `resetItem` and shown as "Reset Counts".
 ///
 /// ```swift
-/// let blocking = BlockingCallsMenu(detector: services.blocking)
+/// let blocking = BlockingCallsMenu(detector: services.blocking,
+///                                  resetItem: { registry.makeMenuItem(for: "debug.blockingCalls.reset") })
 /// blocking.attach(to: debugMenu)
 /// ```
 public final class BlockingCallsMenu: NSObject, NSMenuDelegate {
     private let detector: BlockingDetector
     private let item: NSMenuItem
     private let submenu: NSMenu
+    private let resetItem: () -> NSMenuItem?
 
-    /// Makes the menu over the composition root's detector handle.
-    public init(detector: BlockingDetector) {
+    /// Makes the menu over the composition root's detector handle. `resetItem` makes the Reset Counts
+    /// row (the registry's item for `debug.blockingCalls.reset`); nil leaves the row out.
+    public init(detector: BlockingDetector, resetItem: @escaping () -> NSMenuItem?) {
         self.detector = detector
+        self.resetItem = resetItem
         item = NSMenuItem(title: "", action: nil, keyEquivalent: "")
         submenu = NSMenu(title: "")
         super.init()
@@ -53,15 +59,11 @@ public final class BlockingCallsMenu: NSObject, NSMenuDelegate {
             row.isEnabled = false
             menu.addItem(row)
         }
+        guard let reset = resetItem() else { return }
         if !menu.items.isEmpty { menu.addItem(.separator()) }
-        let reset = NSMenuItem(title: String(localized: "debug.blockingCalls.reset", defaultValue: "Reset Counts", bundle: .module),
-                               action: #selector(resetCounts(_:)), keyEquivalent: "")
-        reset.target = self
+        // Inside this submenu the short title reads right; the palette shows the action's full title.
+        reset.title = String(localized: "debug.blockingCalls.reset", defaultValue: "Reset Counts", bundle: .module)
         menu.addItem(reset)
-    }
-
-    @objc private func resetCounts(_ sender: NSMenuItem) {
-        detector.resetCounts()
     }
 
     private static func title(_ count: Int) -> String {

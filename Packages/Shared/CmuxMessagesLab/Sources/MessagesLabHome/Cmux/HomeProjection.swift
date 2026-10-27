@@ -579,6 +579,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
         (controller.store?.state.ui.draft.attachments ?? []).compactMap { drafts[$0.id] }
     }
 
+    var isRestoringDraftAttachments: Bool { restoringDraftAttachments }
+
     func removeDraft(_ hash: String) {
         drafts[hash] = nil
         controller.dispatch(.removeDraftAttachment(hash))
@@ -897,7 +899,7 @@ struct ProjectionCore {
         let conv = Conversation(id: id.rawValue, title: HomeMapping.title(summary, me: me),
                                 participants: HomeMapping.participants(summary, me: me, avatars: avatars),
                                 messages: items.map { HomeMapping.message($0, aliases: aliases, me: me, summary: summary, media: media, links: links, roots: roots) },
-                                cmuxGroup: summary?.kind(me: me) == .group)
+                                cmuxGroup: summary?.showsSenderNames(me: me) == true)
         return (conv, HomeMapping.window(items))
     }
 

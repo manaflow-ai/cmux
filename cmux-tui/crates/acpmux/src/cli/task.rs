@@ -22,6 +22,9 @@ pub enum TaskCmd {
         /// When it is done, e.g. "#24961 is merged".
         #[arg(long)]
         stop: Option<String>,
+        /// The tracker bead it is (`acpmux bead`): SESSION is linked to it; repeat for more.
+        #[arg(long = "bead", value_name = "ID")]
+        beads: Vec<String>,
         /// The brief; default the title. `-` reads stdin.
         brief: Vec<String>,
     },
@@ -87,8 +90,12 @@ pub enum BriefsCmd {
 }
 
 pub async fn run(cmd: TaskCmd, json_out: bool) -> Result<()> {
+    // The session a new task's beads link.
+    let mut beads = None;
     let (m, params) = match cmd {
-        TaskCmd::New { session, title, stop, brief } => {
+        TaskCmd::New { session, title, stop, beads: ids, brief } => {
+            crate::beads::checked(&ids)?;
+            beads = Some((session.clone(), ids));
             let mut params = json!({"sessionId": session, "title": title, "stopCondition": stop});
             if !brief.is_empty() {
                 params["brief"] = json!(arg_or_stdin(&brief)?);
@@ -106,6 +113,11 @@ pub async fn run(cmd: TaskCmd, json_out: bool) -> Result<()> {
         }
     };
     let client = crate::daemon::connect(true).await?;
+    // Linked before the task is given, so the agent never starts on it unlinked, and a failed
+    // link gives no task. A failed task leaves only the link, which a retry sets again.
+    if let Some((session, ids)) = beads {
+        crate::cli::beads::link(&client, &session, &ids).await?;
+    }
     let reply = client.request(m, params).await?;
     if json_out {
         print_json(&reply);

@@ -6,7 +6,8 @@
 // - Where it runs: the Environment's rows, the machine, the folder, the repository, the branch or
 //   worktree (EnvironmentSection); then Context, how much of the context window the chat used, with a
 //   bar, open the token counts; then Connectors, the MCP servers its harness loaded, with how many
-//   need reconnecting. Context and Connectors are one row each until opened.
+//   need reconnecting, each failed one with a Reconnect where acpmux reconnects it (ConnectorsSection).
+//   Context and Connectors are one row each until opened.
 // - What it made: Changes, the pull requests it opened, touched or named, in any repository
 //   (ChangesSection); Outputs, the files, artifacts and links it produced (OutputsSection).
 // - What it runs: Subagents, each running subagent and started chat on its own line, the ended ones
@@ -24,8 +25,9 @@
 // (a turn's diff in place, the event Inspector) it steps aside and comes back when that view closes,
 // and with the side panel open beside the chat it floats in the chat's gutter, never over the
 // document (Leo, 2026-10-22: "WHY DOES IT STAY ON IN THESE RANDOM SITUATIONS WITHOUT BEING
-// CLOSABLE!?"). Its left edge drags to resize it. Open, width and folds are the viewer's
-// and hold in every chat tab (inspectorState.ts). Debug Settings `agent.inspector` (on by default)
+// CLOSABLE!?"). Its left edge drags to resize it. Open, width and folds are each pane's own
+// (Leo, 2026-10-25: "they should all be individual per pane"), kept under the chat's session
+// (inspectorState.ts). Debug Settings `agent.inspector` (on by default)
 // turns it off, which brings back the summary card it replaces (summary/SummaryCard.tsx). It reads
 // only acpmux's common snapshot and the App's header state, never one harness's own fields.
 // While the pane shows a subagent's own view, it lists that subagent's things alone, under
@@ -62,12 +64,15 @@ import type { Artifact } from "../conversation/artifactPreview";
 import type { TurnFile } from "../diff";
 import type { StartedSession } from "../started/startedSessions";
 import { ChangesSection, headerStatus, visibleChanges, type InspectorPullRequestStatus } from "./ChangesSection";
+import { useChangesStatuses, useStableUrls, withHeader } from "./changesStatus";
+import { ConnectorsSection } from "./ConnectorsSection";
 import { ContextSection } from "./ContextSection";
 import { EnvironmentSection } from "./EnvironmentSection";
 import { InspectorSection } from "./InspectorSection";
 import { SUBAGENT_HEADER, SubagentBanner, SubagentTitle } from "./SubagentScopeHeader";
 import { subagentProcesses, subagentSummary, withChatEnds, type SubagentScope } from "./subagentScope";
 import {
+  bindInspectorPane,
   INSPECTOR_WIDTH,
   setInspectorOpen,
   setInspectorSection,
@@ -80,12 +85,14 @@ import {
 import { OutputsSection, outputArtifacts, outputLinks, type OutputArtifact, type OutputLink } from "./OutputsSection";
 import { inspectorLists, type InspectorProcess, type ProcessRegistry } from "./processes";
 import { ServersSection } from "./ServersSection";
+import { SubagentLimitStepper } from "./SubagentLimitStepper";
 import { SubagentsSection, subagentCounts } from "./SubagentsSection";
 import { TasksSection } from "./TasksSection";
 import { WorkflowTasks } from "./WorkflowTasks";
 import type { WorkflowSummary } from "../summary/workflow";
 import type { Subagent } from "../subagents/subagentFold";
 import { subagentProgress } from "../subagents/subagentProgress";
+import { RAIL_MIN_GUTTER } from "../threadMinimap/model";
 import "./inspector.css";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
@@ -114,18 +121,36 @@ export const pushedWidth = (paneWidth: number, width: number) =>
 /// part of the true agent pane area except in the case when both would fit if only the agent pane
 /// shifted left". When the right gutter (model.ts transcriptColumn) holds the panel and its margins,
 /// nothing moves; when the two gutters together hold it, the column moves left by what the right one
-/// lacks; otherwise nothing moves and the panel floats over the chat.
+/// lacks; otherwise nothing moves and the panel floats over the chat. The left gutter keeps the
+/// thread rail's usable gutter (threadMinimap/model.ts RAIL_MIN_GUTTER), so the column only slides
+/// as far as the rail can follow it. The rail itself moves toward the text as the gutter shrinks.
 /// A handoff review's form (handoff/styles.css: 760px, 18px from each edge) is wider than the column:
-/// with `wide`, the gutter is the form's.
+/// with `wide`, the gutter is the form's. The form takes the transcript's place, so no thread rail
+/// draws beside it: the shift keeps the form's own edge clearance instead of the rail's room.
 export const HANDOFF_FORM_WIDTH = 760;
+/// The form's clearance from each pane edge (handoff/styles.css `min(760px, calc(100% - 36px))`).
+export const HANDOFF_FORM_EDGE = 18;
 export const inspectorChatShift = (paneWidth: number, width: number, column?: ChatColumn, wide = false) => {
   if (paneWidth <= 0 || width <= 0) return 0;
   const columnInset = transcriptColumn(paneWidth, column).inset;
   const inset = wide
-    ? Math.min(columnInset, (paneWidth - Math.min(HANDOFF_FORM_WIDTH, paneWidth - 36)) / 2)
+    ? Math.min(columnInset, (paneWidth - Math.min(HANDOFF_FORM_WIDTH, paneWidth - 2 * HANDOFF_FORM_EDGE)) / 2)
     : columnInset;
   const lacks = width + 2 * FLOAT_MARGIN - inset;
-  return lacks > 0 && lacks <= inset ? lacks : 0;
+  const room = inset - (wide ? HANDOFF_FORM_EDGE : RAIL_MIN_GUTTER);
+  return lacks > 0 && lacks <= room ? lacks : 0;
+};
+
+/// Whether the floating panel lies over the chat's column: the right gutter cannot hold it and the
+/// column cannot move left far enough (inspectorChatShift is 0 though it lacks room). Then the card,
+/// full length otherwise, stops above the composer's stack so it never covers the composer.
+export const inspectorOverChat = (paneWidth: number, width: number, column?: ChatColumn, wide = false) => {
+  if (paneWidth <= 0 || width <= 0) return false;
+  const columnInset = transcriptColumn(paneWidth, column).inset;
+  const inset = wide
+    ? Math.min(columnInset, (paneWidth - Math.min(HANDOFF_FORM_WIDTH, paneWidth - 2 * HANDOFF_FORM_EDGE)) / 2)
+    : columnInset;
+  return width + 2 * FLOAT_MARGIN - inset > 0 && inspectorChatShift(paneWidth, width, column, wide) === 0;
 };
 
 /// Whether the Inspector shows: on (Debug Settings `agent.inspector`), open (the viewer's, in every
@@ -146,6 +171,50 @@ export const inspectorShown = ({
 /// The side panel beside the chat (conversation/ArtifactPanel.tsx), a child of the pane's shell.
 const SIDE_PANEL = ":scope > .acpmux-artifact";
 
+/// The Inspector starts right below the header: the pane's tab row when the header is in it.
+export function inspectorTopOffset(tabRowHeight: number): string {
+  return tabRowHeight > 0 ? `${tabRowHeight}px` : "var(--acpmux-header-height, 44px)";
+}
+
+/// The composer's stack height (`.acpmux-dock` in `shell`) while `on`: from the top of its highest
+/// child to the shell's foot. A new chat's dock is `display: contents` (bottomStack.css), so its own
+/// box is empty and only its children have one. One ResizeObserver on the dock and its children (a
+/// MutationObserver re-observes when its children change), both disconnected when `on` goes false or
+/// the shell changes.
+function useDockHeight(shell: HTMLElement | null | undefined, on: boolean): number {
+  const [height, setHeight] = useState(0);
+  useLayoutEffect(() => {
+    const dock = on ? shell?.querySelector<HTMLElement>(".acpmux-dock") : null;
+    if (!shell || !dock) return;
+    const read = () => {
+      let top = Infinity;
+      for (const part of [dock, ...dock.children]) {
+        const box = part.getBoundingClientRect();
+        if (box.height > 0) top = Math.min(top, box.top);
+      }
+      setHeight(top === Infinity ? 0 : Math.max(0, Math.round(shell.getBoundingClientRect().bottom - top)));
+    };
+    const resize = new ResizeObserver(read);
+    const observe = () => {
+      resize.disconnect();
+      resize.observe(dock);
+      for (const child of dock.children) resize.observe(child);
+    };
+    observe();
+    read();
+    const children = new MutationObserver(() => {
+      observe();
+      read();
+    });
+    children.observe(dock, { childList: true });
+    return () => {
+      children.disconnect();
+      resize.disconnect();
+    };
+  }, [shell, on]);
+  return height;
+}
+
 /// The chat's room in the pane: the pane's width less the side panel's beside the chat, and that
 /// panel's width, which the floating Inspector keeps clear of.
 export type PaneRoom = { width: number; side: number };
@@ -160,13 +229,29 @@ export function paneRoom(shell: HTMLElement): PaneRoom {
 /// the new width: the observer runs after that frame's layout and before its paint, and `flushSync`
 /// renders the panel's place there (state set plainly drew a frame or more later, the panel floating
 /// over the narrowed transcript before the chat jumped aside: "WHY DOES IT FLICKER").
-function usePaneRoom(shell: HTMLElement | null | undefined, live: boolean, beside: unknown): PaneRoom {
-  const [room, setRoom] = useState(UNMEASURED);
+type PaneRoomState = PaneRoom & { shellWidth: number; suppressShiftTransition: boolean };
+
+function usePaneRoom(shell: HTMLElement | null | undefined, live: boolean, beside: unknown): PaneRoomState {
+  const [room, setRoom] = useState<PaneRoomState>({ ...UNMEASURED, shellWidth: 0, suppressShiftTransition: false });
   useLayoutEffect(() => {
     if (!shell || !live) return;
+    let lastShellWidth = shell.clientWidth;
     const measure = () => {
       const next = paneRoom(shell);
-      setRoom((current) => (current.width === next.width && current.side === next.side ? current : next));
+      const shellWidth = shell.clientWidth;
+      const suppressShiftTransition = lastShellWidth !== shellWidth;
+      setRoom((current) =>
+        current.width === next.width && current.side === next.side && current.shellWidth === shellWidth
+          ? current
+          : {
+              ...next,
+              shellWidth,
+              // A native pane changes the shell's own width. An artifact only changes `side`, so it
+              // keeps the Session Info shift transition and its normal floating motion.
+              suppressShiftTransition,
+            },
+      );
+      lastShellWidth = shellWidth;
     };
     measure();
     if (typeof ResizeObserver !== "function") return;
@@ -176,6 +261,15 @@ function usePaneRoom(shell: HTMLElement | null | undefined, live: boolean, besid
     if (side) observer.observe(side);
     return () => observer.disconnect();
   }, [shell, live, beside]);
+  useLayoutEffect(() => {
+    if (!room.suppressShiftTransition) return;
+    const frame = requestAnimationFrame(() =>
+      setRoom((current) =>
+        current.suppressShiftTransition ? { ...current, suppressShiftTransition: false } : current,
+      ),
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [room]);
   return room;
 }
 
@@ -197,6 +291,7 @@ export function useChatInspector({
   onStopProcess,
   subagents,
   sessions,
+  onSetRunningLimit,
   workflows,
   onOpenFolder,
   onSaveEnvironment,
@@ -206,6 +301,7 @@ export function useChatInspector({
   onUncover,
   beside,
   wide = false,
+  onReconnectMcp,
 }: {
   snapshot: AcpmuxSnapshot;
   /// A view has the pane in the chat's place (App.tsx: a turn's diff in place, the event Inspector):
@@ -246,6 +342,8 @@ export function useChatInspector({
   };
   /// The chats the chat's agent started (App.tsx `childSessions`), and how one opens.
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
+  /// `_acpmux/subsession/limits` (direct.ts setRunningLimit): chat `sessionId`'s running limit.
+  onSetRunningLimit?: (sessionId: string, maxRunning: number | null, from?: number) => Promise<unknown>;
   /// The chat's Claude workflows (Labs, App.tsx `workflows`), in Background tasks (WorkflowTasks.tsx).
   workflows?: { list: readonly WorkflowSummary[]; onStop?: (id: string) => Promise<unknown> };
   /// Opens one of the chat's folders in the Files tree beside the chat (a chat on this Mac).
@@ -256,18 +354,29 @@ export function useChatInspector({
   onShowCall?: (toolCallId: string) => boolean;
   /// The subagent whose own view the pane shows: the Inspector lists its things, not the chat's.
   subagent?: SubagentScope;
+  /// Reconnects one of the chat's failed MCP servers by name (`_acpmux/mcp/reconnect`).
+  onReconnectMcp?: (server: string) => Promise<unknown>;
 }): {
   on: boolean;
   button?: ReactNode;
   panel?: ReactNode;
+  // The native command palette shares the header's visibility and uncover behavior.
+  toggle?: () => void;
   // Opens the Inspector with `section` unfolded (the running line's counts: App.tsx).
   reveal?: (section: InspectorSectionId) => void;
 } {
   const t = useT();
   const { inspector: on, pullRequest } = useHeaderState();
+  // This pane's state is its chat's: a relaunched pane shows its Inspector as it left it, and a
+  // toggle in another pane never reaches it (inspectorState.ts).
+  // The chat's state is read from its first frame (`useInspectorOpen(paneSession)`), before the bind,
+  // and the panel is keyed by the chat, so a pane switched to another chat shows that chat's
+  // Inspector at once instead of playing the last chat's panel out.
+  const paneSession = snapshot.sessionId ?? snapshot.summary?.sessionId;
+  useLayoutEffect(() => bindInspectorPane(paneSession), [paneSession]);
   // Open alone: the width and the folds are the panel's (InspectorPresence), so a drag step or a fold
   // does not draw the whole chat pane again.
-  const open = useInspectorOpen();
+  const open = useInspectorOpen(paneSession);
   // Closed for now (not remembered): an output's diff split left no room beside the chat.
   const [suppressed, setSuppressed] = useState(false);
   const suppress = useCallback(() => setSuppressed(true), []);
@@ -340,10 +449,13 @@ export function useChatInspector({
     : undefined;
   return {
     on: true,
+    toggle,
     reveal,
     button: <PanelToggle className="acpmux-chat-inspector-toggle" label={label} shown={shown} onToggle={toggle} />,
     panel: (
       <InspectorPresence
+        key={paneSession ?? ""}
+        chat={paneSession}
         shown={shown}
         snapshot={snapshot}
         pullRequest={pullRequest}
@@ -357,6 +469,7 @@ export function useChatInspector({
         registry={registry}
         subagents={subagents}
         sessions={sessions}
+        onSetRunningLimit={onSetRunningLimit}
         workflows={workflows}
         revealed={revealed}
         onRevealed={clearRevealed}
@@ -366,6 +479,7 @@ export function useChatInspector({
         onOpenImage={onOpenImage}
         onOpenFolder={onOpenFolder}
         onSaveEnvironment={onSaveEnvironment}
+        onReconnectMcp={onReconnectMcp}
         onOpenDocument={onOpenDocument}
         onShowCall={onShowCall}
         scope={subagent}
@@ -389,6 +503,7 @@ const closeInspector = () => {
 /// alone, not the chat pane that calls useChatInspector (one Inspector open drew that pane five
 /// times in a frame).
 function InspectorPresence({
+  chat,
   shown,
   snapshot,
   pullRequest,
@@ -402,6 +517,7 @@ function InspectorPresence({
   registry,
   subagents,
   sessions,
+  onSetRunningLimit,
   workflows,
   revealed,
   onRevealed,
@@ -411,10 +527,13 @@ function InspectorPresence({
   onOpenImage,
   onOpenFolder,
   onSaveEnvironment,
+  onReconnectMcp,
   onOpenDocument,
   onShowCall,
   scope,
 }: {
+  /// The chat whose width and folds it draws (inspectorState.ts `useInspectorState`).
+  chat: string | undefined;
   shown: boolean;
   snapshot: AcpmuxSnapshot;
   /// What the App read of the chat's pull requests (header state), which the hook already follows.
@@ -437,6 +556,7 @@ function InspectorPresence({
     onOpen: (id: string) => void;
   };
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
+  onSetRunningLimit?: (sessionId: string, maxRunning: number | null, from?: number) => Promise<unknown>;
   /// The chat's Claude workflows (Labs, App.tsx `workflows`), in Background tasks (WorkflowTasks.tsx).
   workflows?: { list: readonly WorkflowSummary[]; onStop?: (id: string) => Promise<unknown> };
   revealed?: { section: InspectorSectionId; at: number };
@@ -447,12 +567,13 @@ function InspectorPresence({
   onOpenImage?: (src: string, alt: string) => void;
   onOpenFolder?: (path: string) => void;
   onSaveEnvironment?: () => Promise<unknown>;
+  onReconnectMcp?: (server: string) => Promise<unknown>;
   onOpenDocument?: (artifact: Artifact) => void;
   onShowCall?: (toolCallId: string) => boolean;
   /// The subagent it lists, while the pane shows one's own view.
   scope?: SubagentScope;
 }) {
-  const { width, sections } = useInspectorState();
+  const { width, sections } = useInspectorState(chat);
   const display = useChatDisplay();
   const column = chatColumnOf(useChatWidth(), display);
   // It slides in from the pane's right edge and back out (ui/presence.ts), keeping its sections
@@ -461,10 +582,15 @@ function InspectorPresence({
   const drawn = presence.present;
   // The chat's room: the pane less the side panel beside it (a document), whose edge the floating
   // panel keeps clear of, so it never lies over the document.
-  const { width: paneWidth, side } = usePaneRoom(shell, drawn, beside);
+  const { width: paneWidth, side, suppressShiftTransition } = usePaneRoom(shell, drawn, beside);
   const push = pushes(display.inspector);
   const chatShift = push ? 0 : inspectorChatShift(paneWidth, width, column, wide);
+  const overChat = !push && inspectorOverChat(paneWidth, width, column, wide);
+  // Over the chat, the card stops above the composer's stack: its height, followed while it lies over
+  // the chat (one ResizeObserver on the dock, disconnected when it no longer does or the panel goes).
+  const dockHeight = useDockHeight(shell, drawn && overChat);
   const tabRowHeight = useTabRow().height;
+  const inspectorTop = inspectorTopOffset(tabRowHeight);
   // The overlay handoff is a layout assist, not panel motion. Set the placement marker before the
   // shift so the overlay transition is disabled for the one frame where flex layout takes the panel's
   // room; otherwise the old overlay shift would animate back and briefly move the chat right again.
@@ -472,16 +598,20 @@ function InspectorPresence({
     if (!shell) return;
     if (!drawn) {
       delete shell.dataset.inspectorChatPlacement;
+      delete shell.dataset.inspectorChatResizing;
       shell.style.removeProperty("--acpmux-chat-shift");
       return;
     }
     shell.dataset.inspectorChatPlacement = push ? "push" : "overlay";
+    if (suppressShiftTransition) shell.dataset.inspectorChatResizing = "true";
+    else delete shell.dataset.inspectorChatResizing;
     shell.style.setProperty("--acpmux-chat-shift", `${chatShift}px`);
-  }, [shell, drawn, push, chatShift]);
+  }, [shell, drawn, push, chatShift, suppressShiftTransition]);
   useLayoutEffect(() => {
     if (!shell) return;
     return () => {
       delete shell.dataset.inspectorChatPlacement;
+      delete shell.dataset.inspectorChatResizing;
       shell.style.removeProperty("--acpmux-chat-shift");
     };
   }, [shell]);
@@ -517,7 +647,11 @@ function InspectorPresence({
     () => (drawn && asks ? waitingSubagents(asks, views) : new Set<string>()),
     [drawn, asks, views],
   );
-  const statuses = useMemo(() => headerStatus(pullRequest), [pullRequest]);
+  // Every pull request's title, state, lines and checks from the App's cache, the folder's live
+  // read over it (changesStatus.ts); asked for only while Changes is unfolded.
+  const prUrls = useStableUrls(made?.pullRequests);
+  const { statuses: cached, unsettled } = useChangesStatuses(prUrls, drawn, drawn && sections.changes);
+  const statuses = useMemo(() => withHeader(cached, headerStatus(pullRequest)), [cached, pullRequest]);
   // An output's diff opens beside the chat. Pushing (Settings Push always), when that split leaves too
   // little room for a readable chat beside the Inspector, it steps aside until the toggle opens it
   // again. Floating, it takes no room from the chat and stays.
@@ -536,8 +670,9 @@ function InspectorPresence({
       placement={push ? "push" : "overlay"}
       // Floating or pushing, it starts under the chat header (styles.css --acpmux-header-height; in the
       // pane's tab row, the row's height), so the header's tools, its own toggle among them, stay in reach.
-      under={tabRowHeight > 0 ? `${tabRowHeight}px` : "var(--acpmux-header-height, 44px)"}
+      under={inspectorTop}
       side={push ? 0 : side}
+      foot={overChat ? dockHeight : undefined}
       presence={presence}
     >
       {/* Another chat's sections start drawn with what that chat has: none of its rows drops in. */}
@@ -560,6 +695,7 @@ function InspectorPresence({
         waiting={waiting}
         onOpenSubagent={subagents?.onOpen}
         statuses={statuses}
+        changesUnsettled={unsettled}
         processes={processes}
         listed={registry?.listed}
         transcriptTasks={transcriptTasks}
@@ -568,6 +704,7 @@ function InspectorPresence({
         workflows={scope ? undefined : workflows?.list}
         onStopWorkflow={workflows?.onStop}
         onOpenSession={sessions?.onOpen}
+        onSetRunningLimit={onSetRunningLimit}
         revealed={revealed}
         onRevealed={onRevealed}
         onStopProcess={onStopProcess}
@@ -579,6 +716,7 @@ function InspectorPresence({
         onOpenFolder={onOpenFolder}
         // Save keeps the chat's machine and folder, not a subagent's.
         onSaveEnvironment={scope ? undefined : onSaveEnvironment}
+        onReconnectMcp={onReconnectMcp}
         onOpenDocument={onOpenDocument}
         onShowCall={onShowCall}
       />
@@ -598,6 +736,7 @@ export function InspectorPanel({
   width,
   placement,
   under,
+  foot,
   side = 0,
   presence,
   onClose,
@@ -608,6 +747,8 @@ export function InspectorPanel({
   width: number;
   placement: InspectorPlacement;
   under?: string;
+  /// Over the chat's column, the composer's stack height in px: the card stops above it.
+  foot?: number;
   /// Floating, how far from the pane's right edge the chat ends (the side panel's width): the panel
   /// floats in the chat's gutter, left of the side panel.
   side?: number;
@@ -635,12 +776,14 @@ export function InspectorPanel({
       className="ui-glass ui-glass-floats acpmux-chat-inspector"
       data-placement={placement}
       data-chrome={title ? "title" : onClose ? chrome : "none"}
+      data-over-chat={foot !== undefined ? "" : undefined}
       style={
         {
           width,
           // Pushing, its enter and exit run its right margin from minus this (inspector.css).
           "--acpmux-inspector-width": `${width}px`,
           ...(under ? { "--acpmux-inspector-top": under } : {}),
+          ...(foot !== undefined ? { "--acpmux-inspector-foot": `${foot}px` } : {}),
           ...(side > 0 ? { "--acpmux-inspector-side": `${side}px` } : {}),
         } as CSSProperties
       }
@@ -735,6 +878,7 @@ export function ChatInspector({
   waiting = new Set(),
   onOpenSubagent,
   statuses = {},
+  changesUnsettled = false,
   processes = [],
   listed = false,
   transcriptTasks = [],
@@ -742,6 +886,7 @@ export function ChatInspector({
   workflows = [],
   onStopWorkflow,
   onOpenSession,
+  onSetRunningLimit,
   revealed,
   onRevealed,
   onStopProcess,
@@ -753,6 +898,7 @@ export function ChatInspector({
   onOpenDocument,
   remoteControl,
   onSaveEnvironment,
+  onReconnectMcp,
   onOpenFolder,
   onShowCall,
   banner,
@@ -778,6 +924,10 @@ export function ChatInspector({
   onOpenSubagent?: (id: string) => void;
   /// What the App read of the pull requests, by URL.
   statuses?: Readonly<Record<string, InspectorPullRequestStatus>>;
+  /// A pull request the chat named has no settled answer from the App yet (none asked for while
+  /// Changes is folded, or the host still reading): Changes keeps its header, with no rows and no
+  /// count for them, so it can be opened to ask.
+  changesUnsettled?: boolean;
   /// The chat's background processes, in the order they started.
   processes?: readonly InspectorProcess[];
   /// The registry answered a listing for the chat: a transcript task it does not list no longer
@@ -789,6 +939,8 @@ export function ChatInspector({
   /// The chats the agent started, listed under Subagents.
   sessions?: readonly StartedSession[];
   onOpenSession?: (sessionId: string) => void;
+  /// Sets or drops the chat's running limit (SubagentLimitStepper.tsx); without it the limit only reads.
+  onSetRunningLimit?: (sessionId: string, maxRunning: number | null, from?: number) => Promise<unknown>;
   /// The chat's Claude workflows (Labs): they head Background tasks, and leave Subagents.
   workflows?: readonly WorkflowSummary[];
   onStopWorkflow?: (id: string) => Promise<unknown>;
@@ -805,6 +957,8 @@ export function ChatInspector({
   onOpenImage?: (src: string, alt: string) => void;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
   onSaveEnvironment?: () => Promise<unknown> | void;
+  /// Reconnects one of the chat's failed MCP servers by name (`_acpmux/mcp/reconnect`).
+  onReconnectMcp?: (server: string) => Promise<unknown>;
   /// Opens one of the chat's folders in the Files tree beside the chat.
   onOpenFolder?: (path: string) => void;
   /// Shows the Bash call that started a background command in the transcript: what its row opens
@@ -869,6 +1023,19 @@ export function ChatInspector({
   const mcp = summary?.mcpServers ?? [];
   const reconnect = mcp.filter((server) => server.status === "failed").length;
   const runningTasks = commands.filter((command) => command.state === "running").length;
+  // Subagents shows only for a chat that has had subagents or sub-sessions, or whose running limit
+  // someone set (its own, an ancestor's, the workspace's or the settings'): a chat that never used
+  // them, at acpmux's default, shows nothing.
+  const limits = summary?.subsessionLimits;
+  const limitSet =
+    limits !== undefined && limits.maxRunningSource !== undefined && limits.maxRunningSource !== "default";
+  const chatId = summary?.sessionId;
+  // A chat on another machine: its sub-sessions live on that machine's acpmux, which takes the
+  // limit only from its own person, so the line only reads.
+  const setRunningLimit =
+    onSetRunningLimit && chatId && !summary?.peer
+      ? (maxRunning: number | null, from?: number) => onSetRunningLimit(chatId, maxRunning, from)
+      : undefined;
   const progress = !known && agent ? subagentProgress(t, language, agent) : [];
   const value = (text: string) => <span className="acpmux-chat-inspector-section__value">{text}</span>;
   const glance = layout === "glance";
@@ -937,34 +1104,21 @@ export function ChatInspector({
           : t("rail.connected", { count: mcp.filter((server) => server.status === "connected").length }),
       )}
     >
-      <ul className="acpmux-chat-inspector-list">
-        {mcp.map((server) => (
-          <li key={server.name} className="acpmux-chat-inspector-row">
-            <Icon name="extension" size={12} row />
-            <span className="acpmux-chat-inspector-row__name">{server.name}</span>
-            <span className="acpmux-chat-inspector-row__end" data-state={server.status}>
-              {t(
-                server.status === "failed"
-                  ? "chatInspector.connectors.needsReconnect"
-                  : server.status === "pending"
-                    ? "rail.connectorPending"
-                    : "composer.envConnected",
-              )}
-            </span>
-          </li>
-        ))}
-      </ul>
+      <ConnectorsSection servers={mcp} onReconnect={onReconnectMcp} />
     </InspectorSection>
   );
-  const changes = pullRequests.length > 0 && (
+  const candidates = made?.pullRequests.length ?? 0;
+  const changes = (pullRequests.length > 0 || (changesUnsettled && candidates > 0)) && (
     <InspectorSection
       id="changes"
       title={t("header.changes")}
       open={state.changes}
       onOpenChange={fold("changes")}
-      meta={value(String(pullRequests.length))}
+      meta={pullRequests.length > 0 ? value(String(pullRequests.length)) : undefined}
     >
-      <ChangesSection pullRequests={pullRequests} statuses={statuses} onOpenBeside={onOpenUrl} />
+      {pullRequests.length > 0 && (
+        <ChangesSection pullRequests={pullRequests} statuses={statuses} onOpenBeside={onOpenUrl} />
+      )}
     </InspectorSection>
   );
   const outputsShown = outputs.length + links.length + artifacts + (onOpenDocument ? documents.length : 0) > 0;
@@ -984,7 +1138,7 @@ export function ChatInspector({
   // A workflow Background tasks lists (Labs) is not a Subagents row too.
   const workflowIds = new Set(workflows.map((workflow) => workflow.id));
   const listedAgents = workflowIds.size > 0 ? agents.filter((agent) => !workflowIds.has(agent.id)) : agents;
-  const subagentsSection = listedAgents.length + sessions.length > 0 && (
+  const subagentsSection = (listedAgents.length + sessions.length > 0 || limitSet) && (
     <InspectorSection
       id="subagents"
       title={t("summary.subagents")}
@@ -992,13 +1146,16 @@ export function ChatInspector({
       onOpenChange={fold("subagents")}
       meta={value(subagentCounts(t, listedAgents, waiting, sessions))}
     >
-      <SubagentsSection
-        agents={listedAgents}
-        waiting={waiting}
-        onOpen={onOpenSubagent}
-        sessions={sessions}
-        onOpenSession={onOpenSession}
-      />
+      <SubagentLimitStepper chatId={chatId} limits={limits} sessions={sessions} onSet={setRunningLimit} />
+      {listedAgents.length + sessions.length > 0 && (
+        <SubagentsSection
+          agents={listedAgents}
+          waiting={waiting}
+          onOpen={onOpenSubagent}
+          sessions={sessions}
+          onOpenSession={onOpenSession}
+        />
+      )}
     </InspectorSection>
   );
   // The dev servers are background commands too: their rows head the one Background tasks section

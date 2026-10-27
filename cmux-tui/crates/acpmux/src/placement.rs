@@ -1,6 +1,7 @@
-//! Where new work goes: the one placement engine `new --host auto`,
-//! `dispatch --host auto` and the sub-session tool's host `auto` call
-//! (`pick`).
+//! Where new work goes: the one placement engine `new --host auto` and
+//! `dispatch --host auto` call (`pick`), and the sub-session tool's host
+//! `auto` too, with this machine its only candidate (a family lives on one
+//! daemon; `server/place.rs` `subsession_host`).
 //!
 //! Each candidate is a connected peer (or this machine) with its last health
 //! reading (`peer_health.rs`). A host's room is counted in lanes it can still
@@ -13,11 +14,15 @@
 //! - lanes: `max_lanes` − live agents.
 //!
 //! The smallest of the four is its room. The most room wins, then the
-//! registry's `rank`, then fewer live agents. A host is refused when its room
-//! is under one lane, its budget verdict is over, its swap is fuller than
-//! the `max_swap_used_fraction` its entry sets (none by default: a Linux host
-//! often keeps a small swap full with plenty of RAM free, which is not
-//! pressure), or its role forbids the work. Builds go only to
+//! registry's `rank`, then fewer live agents. A host is passed over when its
+//! room is under one lane, its budget verdict is over, or its swap is fuller
+//! than the `max_swap_used_fraction` its entry sets (none by default: a Linux
+//! host often keeps a small swap full with plenty of RAM free, which is not
+//! pressure); it is refused when its role forbids the work. When every host
+//! is passed over for room, load or swap, the one with the most room takes
+//! the work anyway and the verdict says so (`overloaded`): load, swap and lane
+//! caps only warn, and no launch is refused for them (Leo's rulebook, as
+//! lane-place does). Builds go only to
 //! `lanes.build: true`; `"fallback"` takes a build only when no `true` host
 //! has room. Hosts, sizes and roles come from fleet-registry.json's
 //! `lanes` entries (no name here); a host with none is not a lane host. A
@@ -35,6 +40,34 @@ use std::path::PathBuf;
 pub enum Work {
     Agent,
     Build,
+}
+
+impl Work {
+    /// The work a host value names: `auto` an agent lane, `auto-build` a
+    /// build; any other value is a host, not a placement.
+    pub fn of_host(host: &str) -> Option<Self> {
+        match host {
+            "auto" => Some(Self::Agent),
+            "auto-build" => Some(Self::Build),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Agent => "agent",
+            Self::Build => "build",
+        }
+    }
+}
+
+/// Where a verdict of [`place`] put the work, in the words `new --host auto`
+/// prints and the sub-session tool returns: `placed on NAME: 31 GB RAM free,
+/// ...`. When no host had room the pick takes it anyway and the line says so
+/// (`overloaded`). `None`: no host's role takes the work.
+pub fn placed(verdict: &Value) -> Option<String> {
+    verdict.get("pick")?.as_str()?;
+    Some(format!("placed on {}", verdict.get("why").and_then(Value::as_str).unwrap_or_default()))
 }
 
 /// One host to weigh: its name, whether it is this machine, and its last
@@ -174,6 +207,9 @@ struct Weighed {
     /// Live agents from the reading; `None` when it has none (unknown, never 0).
     live: Option<u64>,
     refused: Option<String>,
+    /// `refused` is for room, load or swap, not the host's role: it may still
+    /// take the work when no host has room (`place`).
+    load: bool,
     why: String,
 }
 
@@ -195,6 +231,7 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
         room: None,
         live,
         refused: None,
+        load: false,
         why: String::new(),
     };
     let Some(lanes) = lanes else {
@@ -242,6 +279,7 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
             .filter_map(Value::as_str)
             .collect();
         w.refused = Some(format!("over its budget ({})", over.join(", ")));
+        w.load = true;
     } else if let (Some(used), Some(total), Some(max)) =
         (swap.0, swap.1, lanes.max_swap_used_fraction)
         && used / total >= max
@@ -252,16 +290,19 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
             total / GB,
             max * 100.0
         ));
+        w.load = true;
     } else if let (Some((what, _)), Some(r)) = (tightest, room)
         && r < 1.0
     {
         w.refused = Some(format!("no room: {what} is the limit"));
+        w.load = true;
     }
     w
 }
 
 /// The pick and every host's verdict, as `_acpmux/place` returns them:
-/// `{"pick": NAME|null, "local": bool, "why": TEXT, "work": "agent"|"build",
+/// `{"pick": NAME|null, "local": bool, "overloaded": bool (no host had room and the pick
+/// takes it anyway), "why": TEXT, "work": "agent"|"build",
 /// "hosts": [{name, local, ok, room, rank, live, why, refused}]}`.
 pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> Value {
     let hosts = lane_hosts(registry);
@@ -289,8 +330,16 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
         }
     }
     // Most room first (a host with no reading after every host with one),
-    // then the registry's rank, then fewer live agents.
+    // then the registry's rank, then fewer live agents. With none left, the
+    // hosts passed over only for room, load or swap whose role takes the work.
     let mut order: Vec<&Weighed> = weighed.iter().filter(|w| w.refused.is_none()).collect();
+    let overloaded = order.is_empty();
+    if overloaded {
+        order = weighed
+            .iter()
+            .filter(|w| w.load && (work == Work::Agent || w.lanes.build != Build::No))
+            .collect();
+    }
     order.sort_by(|a, b| {
         let room = |w: &Weighed| w.room.unwrap_or(-1.0);
         room(b)
@@ -300,6 +349,12 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
     });
     let pick = order.first();
     let why = match pick {
+        Some(w) if overloaded => format!(
+            "{}: {} ({}; no host has room, so the one with the most takes it: load and lane caps only warn)",
+            w.name,
+            w.why,
+            w.refused.as_deref().unwrap_or_default()
+        ),
         Some(w) => format!("{}: {}", w.name, w.why),
         None => "no host has room for this; `acpmux host place --json` says why each was refused"
             .to_owned(),
@@ -307,8 +362,9 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
     json!({
         "pick": pick.map(|w| w.name.clone()),
         "local": pick.is_some_and(|w| w.local),
+        "overloaded": overloaded && pick.is_some(),
         "why": why,
-        "work": if work == Work::Build { "build" } else { "agent" },
+        "work": work.as_str(),
         "hosts": weighed.iter().map(|w| json!({
             "name": w.name,
             "local": w.local,

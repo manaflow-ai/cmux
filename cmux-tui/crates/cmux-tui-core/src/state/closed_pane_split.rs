@@ -49,14 +49,22 @@ fn placement_in(node: &Value, pane_id: &str) -> Option<Value> {
     let down = node["direction"] == "down";
     let is_pane = |child: &Value| child["kind"] == "leaf" && child["pane"] == pane_id;
     // The neighbor is the leaf of the other side that touches the pane.
-    let (neighbor, direction, share) = if is_pane(first) {
-        (edge_leaf(second, true)?, if down { "up" } else { "left" }, ratio)
+    let (sibling, neighbor, direction, share) = if is_pane(first) {
+        (second, edge_leaf(second, true)?, if down { "up" } else { "left" }, ratio)
     } else if is_pane(second) {
-        (edge_leaf(first, false)?, if down { "down" } else { "right" }, 1.0 - ratio)
+        (first, edge_leaf(first, false)?, if down { "down" } else { "right" }, 1.0 - ratio)
     } else {
         return placement_in(first, pane_id).or_else(|| placement_in(second, pane_id));
     };
-    Some(json!({"neighbor": neighbor, "direction": direction, "ratio": share}))
+    let mut placement = json!({"neighbor": neighbor, "direction": direction, "ratio": share});
+    // A sibling that is itself a split: the reopened pane splits off all of
+    // it again, so its share is of the whole parent, not of one leaf.
+    if sibling["kind"] == "split"
+        && let Some(around) = sibling["split"].as_str()
+    {
+        placement["around"] = json!(around);
+    }
+    Some(placement)
 }
 
 /// The first (or last) leaf of `node`; a stack's shown pane.
@@ -178,6 +186,66 @@ pub(super) fn follow_split_panes(members: &mut [Value], panes: &HashMap<String, 
     }
 }
 
+/// Point the members of every other closed group (all but `reopening`)
+/// whose split neighbor is a closed pane that this reopen split again
+/// (`panes`, by closed pane id) at that new pane and its screen: close A,
+/// then its neighbor B, and two reopens put B back and then A beside it,
+/// not into the focused pane. Only the groups whose record names such a
+/// pane are read.
+pub(super) fn retarget_split_neighbors(
+    transaction: &rusqlite::Transaction<'_>,
+    reopening: &str,
+    panes: &HashMap<String, SplitPane>,
+) -> anyhow::Result<()> {
+    for closed in panes.keys() {
+        let rows = {
+            let mut statement = transaction.prepare(
+                "SELECT closed_id, record_json FROM closed_groups
+                 WHERE instr(record_json, ?1) > 0 AND closed_id != ?2",
+            )?;
+            statement
+                .query_map(rusqlite::params![closed, reopening], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        for (closed_id, record) in rows {
+            let mut record: Value = serde_json::from_str(&record)?;
+            let changed = record
+                .get_mut("members")
+                .and_then(Value::as_array_mut)
+                .is_some_and(|members| retarget_members(members, panes));
+            if changed {
+                transaction.execute(
+                    "UPDATE closed_groups SET record_json = ?2 WHERE closed_id = ?1",
+                    rusqlite::params![closed_id, serde_json::to_string(&record)?],
+                )?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Point each of `members` whose split neighbor is a closed pane in `panes`
+/// at the pane it was split again as. Returns whether any changed.
+pub(super) fn retarget_members(members: &mut [Value], panes: &HashMap<String, SplitPane>) -> bool {
+    let mut changed = false;
+    for member in members {
+        let Some(placement) = member.get_mut("split") else { continue };
+        let Some(split) = placement["neighbor"].as_str().and_then(|pane| panes.get(pane)) else {
+            continue;
+        };
+        placement["neighbor"] = json!(split.pane);
+        placement["screen"] = json!(split.screen);
+        // The split it sat beside may be gone with that pane.
+        if let Some(fields) = placement.as_object_mut() {
+            fields.remove("around");
+        }
+        changed = true;
+    }
+    changed
+}
+
 impl Mux {
     /// Move the reopened tab `surface` from `neighbor` into a new pane
     /// split off it as its closed pane was (`split`, from
@@ -192,7 +260,11 @@ impl Mux {
     ) -> Option<PaneId> {
         let edge = TabDropEdge::parse(split["direction"].as_str()?).ok()?;
         let ratio = split["ratio"].as_f64().map(|ratio| (ratio as f32).clamp(0.05, 0.95));
-        match self.move_tab_to_split_as(actor, surface, neighbor, edge, ratio, false, None) {
+        let around = split["around"].as_str().and_then(|around| {
+            let around = crate::resource::SplitPublicId::parse(around.to_string()).ok()?;
+            self.with_state(|state| state.resource_indexes.splits.get(&around).copied())
+        });
+        match self.move_tab_to_split_around_as(actor, surface, neighbor, edge, ratio, around) {
             Ok(outcome) => Some(outcome.pane),
             Err(error) => {
                 eprintln!("cmux-tui: a reopened pane could not split again: {error:#}");

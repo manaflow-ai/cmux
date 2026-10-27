@@ -402,8 +402,9 @@ fn is_bundled_mobile_host_path(path: &Path) -> bool {
 /// The executable of the accepted peer, read so that a process that reused
 /// the peer's pid never answers for it. macOS reads it by the peer's audit
 /// token (the kernel refuses a token whose pid version is stale; exec gives
-/// a process a new pid version). Linux reads `/proc/<pid>/exe` and then
-/// checks the pid still has the start time in the peer key; a process that
+/// a process a new pid version). Linux reads the peer pid's executable and
+/// then checks the pid still has the start time in the peer key
+/// (`platform::peer_executable`, the peer authentication module); a process that
 /// exec'd after it connected keeps its pid and start time there, which
 /// PROTOCOL.md lists as the residual risk.
 fn peer_executable(
@@ -418,11 +419,7 @@ fn peer_executable(
     #[cfg(target_os = "linux")]
     {
         let _ = peer_token;
-        let (pid, version) = peer_key?.strip_prefix("token:")?.split_once('.')?;
-        let path = std::fs::read_link(format!("/proc/{pid}/exe")).ok()?;
-        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-        let start = stat.rsplit_once(')')?.1.split_whitespace().nth(19)?;
-        (start == version).then_some(path)
+        platform::peer_executable(peer_key?)
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {

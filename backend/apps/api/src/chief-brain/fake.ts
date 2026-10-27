@@ -227,8 +227,10 @@ const respond: FauxResponseFactory = async (context, options, _state, model) => 
     const then = /then:([a-z_]+)\s+(\{[^\n]*?\})\s+tool:/.exec(blocksOf(firstUser?.content).join("\n"));
     if (then) return withThinking(fauxAssistantMessage([fauxToolCall(then[1]!, JSON.parse(then[2]!) as Parameters<typeof fauxToolCall>[1])], { stopReason: "toolUse" }));
   }
-  const anyTool = /tool:([a-z_]+)\s+(\{[\s\S]*\})\s*$/.exec(text);
-  if (anyTool) {
+  // A batch of several messages (a group: other members' lines come first as context) asks with its last line.
+  const lastLine = /tool:([a-z_]+)\s+(\{[^\n]*\})\s*$/.exec(text);
+  for (const anyTool of [/tool:([a-z_]+)\s+(\{[\s\S]*\})\s*$/.exec(text), lastLine]) {
+    if (!anyTool) continue;
     try {
       return withThinking(fauxAssistantMessage([fauxToolCall(anyTool[1]!, JSON.parse(anyTool[2]!) as Parameters<typeof fauxToolCall>[1])], { stopReason: "toolUse" }));
     } catch {

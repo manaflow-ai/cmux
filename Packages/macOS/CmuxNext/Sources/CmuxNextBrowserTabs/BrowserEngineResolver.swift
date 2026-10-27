@@ -15,7 +15,22 @@ public import CmuxNextSettings
 ///   fallback.
 /// - Else `browser.defaultEngine` (Chromium unless set to WebKit), with the
 ///   same fallback.
-public nonisolated enum BrowserEngineResolver {
+///
+/// ```swift
+/// let resolver = BrowserEngineResolver(defaultEngine: preference.defaultEngine, cefUnavailable: cefUnavailable())
+/// let outcome = resolver.resolve(requested: "chromium")
+/// ```
+public nonisolated struct BrowserEngineResolver: Sendable {
+    /// `browser.defaultEngine`.
+    public let defaultEngine: BrowserDefaultEngine
+    /// Why Chromium cannot open a tab now, nil when it can.
+    public let cefUnavailable: CEFUnavailableReason?
+
+    public init(defaultEngine: BrowserDefaultEngine, cefUnavailable: CEFUnavailableReason?) {
+        self.defaultEngine = defaultEngine
+        self.cefUnavailable = cefUnavailable
+    }
+
     /// What a new tab does: open on a choice, or refuse with the reason Chromium cannot open it.
     public enum Outcome: Equatable, Sendable {
         /// The tab opens on this engine choice.
@@ -28,9 +43,8 @@ public nonisolated enum BrowserEngineResolver {
     /// and `chromium`; nil, empty, or anything else means "none".
     /// `siteEngine` is the `browser.siteEngines` rule for the tab's URL, nil
     /// when none matches (or the tab has no URL yet).
-    public static func resolve(requested: String?, inherited: String? = nil, siteEngine: BrowserDefaultEngine? = nil,
-                               defaultEngine: BrowserDefaultEngine, cefUnavailable: CEFUnavailableReason?) -> Outcome {
-        switch explicitEngine(requested) {
+    public func resolve(requested: String?, inherited: String? = nil, siteEngine: BrowserDefaultEngine? = nil) -> Outcome {
+        switch CmuxNextDaemon.BrowserEngine(requested: requested) {
         case .webkit?:
             return .open(BrowserEngineChoice(engine: .webkit, pinned: true))
         case .cef?:
@@ -42,7 +56,7 @@ public nonisolated enum BrowserEngineResolver {
         let wanted: CmuxNextDaemon.BrowserEngine
         let isInherited: Bool
         let pinned: Bool
-        if let engine = explicitEngine(inherited) {
+        if let engine = CmuxNextDaemon.BrowserEngine(requested: inherited) {
             (wanted, isInherited, pinned) = (engine, true, false)
         } else if let siteEngine {
             (wanted, isInherited, pinned) = (siteEngine == .chromium ? .cef : .webkit, false, true)
@@ -54,19 +68,24 @@ public nonisolated enum BrowserEngineResolver {
         }
         return .open(BrowserEngineChoice(engine: .webkit, fallback: cefUnavailable, inherited: isInherited))
     }
+}
 
-    /// The engine a request names, nil when it names none.
-    public static func explicitEngine(_ requested: String?) -> CmuxNextDaemon.BrowserEngine? {
+extension CmuxNextDaemon.BrowserEngine {
+    /// The engine a request names (`cef`, `chromium`, `chrome`, `webkit`,
+    /// `safari`, any case), nil when it names none.
+    public nonisolated init?(requested: String?) {
         switch requested?.lowercased() {
-        case "cef", "chromium", "chrome": .cef
-        case "webkit", "safari": .webkit
-        default: nil
+        case "cef", "chromium", "chrome": self = .cef
+        case "webkit", "safari": self = .webkit
+        default: return nil
         }
     }
+}
 
+extension BrowserEngineKind {
     /// The daemon tag for a live page's engine (page popups keep their
     /// opener's engine: `window.opener` and cookies live in one engine).
-    public static func tag(for kind: BrowserEngineKind) -> CmuxNextDaemon.BrowserEngine {
-        kind == .cef ? .cef : .webkit
+    public nonisolated var daemonEngine: CmuxNextDaemon.BrowserEngine {
+        self == .cef ? .cef : .webkit
     }
 }

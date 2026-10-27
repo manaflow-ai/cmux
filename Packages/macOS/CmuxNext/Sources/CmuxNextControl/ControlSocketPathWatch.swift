@@ -111,7 +111,9 @@ final class ControlSocketPathWatch: Sendable {
     /// the current watch unless the entry can be followed now.
     private func watch(entryOnly: Bool = false) {
         dispatchPrecondition(condition: .onQueue(queue))
-        let entry = open(path, O_EVTONLY | O_SYMLINK)
+        // O_NONBLOCK: whatever is at the path is opened, and a FIFO there would block open(2) on this
+        // queue until some process opened it for writing (the accept queue: no request answered).
+        let entry = open(path, O_EVTONLY | O_SYMLINK | O_NONBLOCK)
         let followsEntry = entry >= 0
         if entryOnly, !followsEntry { return }
         let descriptor: Int32

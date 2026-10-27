@@ -166,7 +166,7 @@ jobs:
   linux:
     needs: plan
     if: ${{ needs.plan.outputs.linux == 'true' }}
-    name: car guards (linux)
+    name: car guards (portable)
     outputs:
       status: ${{ steps.guards.outputs.status }}
     # 32 vCPU: the guards and focused python tests run side by side (car_guards.py CHEAP)
@@ -215,7 +215,7 @@ jobs:
         if: ${{ needs.plan.outputs.web == 'true' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       - name: Install the webviews dependencies
         if: ${{ needs.plan.outputs.web == 'true' }}
@@ -245,6 +245,7 @@ jobs:
         if: ${{ needs.plan.outputs.rust == 'true' }}
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          cache-bin: false
           workspaces: cmux-tui -> target
           shared-key: cmux-next-fast-tier-cargo
           save-if: false
@@ -270,7 +271,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: car-guards-${{ needs.plan.outputs.car }}-linux
+          name: car-guards-${{ needs.plan.outputs.car }}-portable
           path: ${{ runner.temp }}/car-guards.json
           if-no-files-found: warn
           retention-days: 14

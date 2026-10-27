@@ -35,17 +35,17 @@ LAYOUT="versioned-3-locale-fallback-allowlist-credits-license-stripped-libs"
 
 app="${TARGET_BUILD_DIR:?}/${WRAPPER_NAME:?}"
 frameworks="$app/Contents/Frameworks"
-stamp="${TARGET_TEMP_DIR:-$TARGET_BUILD_DIR}/embed-cef.stamp"
+phase_stamp="${TARGET_TEMP_DIR:-$TARGET_BUILD_DIR}/embed-cef.stamp"
 on_exit() {
   status=$?
   if (( status == 0 )); then
-    mkdir -p "$(dirname "$stamp")"
-    printf 'completed\n' > "$stamp"
+    mkdir -p "$(dirname "$phase_stamp")"
+    printf 'completed\n' > "$phase_stamp"
   fi
   exit "$status"
 }
 trap on_exit EXIT
-rm -f "$stamp"
+rm -f "$phase_stamp"
 
 # The built-in full uBlock Origin (a Chromium extension, so it rides on this
 # phase; it does not need the CEF artifact). Its own failures are warnings
@@ -58,8 +58,9 @@ rm -f "$stamp"
 remove_embed() {
   rm -rf "$frameworks/$FW_NAME" "$frameworks/libcmux_cef_shim.dylib"
   for helper in "$frameworks"/*" Helper"*.app "$frameworks"/*" Chromium Host.app"; do
-    [[ -e "$helper" ]] && rm -rf "$helper"
+    if [[ -e "$helper" ]]; then rm -rf "$helper"; fi
   done
+  return 0
 }
 
 if [[ "${CMUX_NEXT_SKIP_CEF:-0}" == "1" ]]; then

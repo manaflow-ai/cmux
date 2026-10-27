@@ -35,6 +35,9 @@ final class CEFPaneHost {
     /// A popup host's about:blank browser that created its Chromium window;
     /// it closes once the popup moved in (`CEFPaneHost+Popups`).
     var placeholder: CEFTab?
+    /// The placeholder's page is frozen as soon as its browser exists (the spare window, `CEFSpareWindow`):
+    /// it is never shown, so Chromium never learns it is hidden and would run its frames and timers.
+    var freezesPlaceholder = false
     /// An extension's popup window (chrome.windows.create type popup, fork
     /// API 11): the hidden Chromium window this popup host attaches to its
     /// view when the panel first shows it (`CEFPaneHost+PopupWindows`).
@@ -156,6 +159,7 @@ final class CEFPaneHost {
             ensureOwnWindow(for: tab)
         } else {
             showBrowser(of: tab)
+            tab.grantPendingFocusIfShown()
         }
     }
 

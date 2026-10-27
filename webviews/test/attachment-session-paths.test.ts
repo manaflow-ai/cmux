@@ -20,7 +20,8 @@ function imageEngine(width: number, height: number) {
       return { drawImage() {}, fillRect() {}, fillStyle: "" };
     }
     async convertToBlob({ type }: { type: string }) {
-      encoded.push({ width: this.width, height: this.height });
+      // The chip's thumbnail (160 px tall) is drawn from the same decode; only the preview counts.
+      if (this.height !== 160) encoded.push({ width: this.width, height: this.height });
       return new Blob(["clean pixels"], { type });
     }
   };

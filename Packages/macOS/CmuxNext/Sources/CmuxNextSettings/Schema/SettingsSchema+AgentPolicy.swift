@@ -24,6 +24,7 @@ extension SettingsSchema {
     /// `appearance.surfaces.<surface>.color|opacity` row (looks only, R55).
     public static let agentSettableKeys: Set<String> = agentSettableTable.union(SurfaceBackgroundSetting.keys).union(BrowserLinkClickSchema.agentSettableKeys)
         .union(OmnibarSettingsSchema.agentSettableKeys)
+        .union(NotificationSoundSettingsSchema.agentSettableKeys) // notification sounds per event and level (sound only)
         .union(ChiefReactionSettings.keys) // a Chief configures its own reaction classifier (Lawrence 2026-10-21)
         // What sidebar rows show (looks only, SIDEBAR-ROWS-MINIMAL-AND-CUSTOMIZABLE).
         .union(WorkspaceRowSetting.keys)
@@ -97,6 +98,7 @@ extension SettingsSchema {
         "appearance.backgroundOpacity",
         "appearance.backgroundBlur",
         "appearance.inactiveWindowDim",
+        "appearance.wallpaperTint",
         "appearance.background",
         "appearance.backgroundRotation",
         "appearance.paneBackgrounds",
@@ -173,14 +175,14 @@ extension SettingsSchema {
         "sidebar.sectionLook",
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
-        "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.showChats", "sidebar.sessionTree",
+        "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.noFade", "sidebar.showChats", "sidebar.sessionTree",
         "sidebar.cards.tips", "sidebar.hoverCards.enabled", "sidebar.hoverCards.delay", "sidebar.hoverCards.layout", "sidebar.hoverCards.maxRows",
         "sidebar.hoverCards.sections.timings", "sidebar.hoverCards.sections.prompts", "sidebar.hoverCards.sections.waiting",
         "sidebar.hoverCards.sections.git", "sidebar.hoverCards.sections.ports", "sidebar.hoverCards.groups.workspaceGroups", "sidebar.hoverCards.groups.tabGroups",
         "sidebar.hoverCards.groups.delay", "sidebar.hoverCards.groups.order", "sidebar.hoverCards.groups.maxMembers",
         "sidebar.hoverCards.groups.sections.status", "sidebar.hoverCards.groups.sections.members",
         "sidebar.hoverCards.groups.sections.activity", "sidebar.hoverCards.groups.sections.git",
-        "sidebar.hoverCards.groups.sections.ports", "sidebar.nowPlaying.enabled", "tabs.newTabNowPlaying", "media.pictureInPicture.enabled", "tabs.newTabWidgets.greeting", "tabs.newTabWidgets.projects", "tabs.newTabWidgets.actions", "tabs.newTabWidgets.chats", "tabs.newTabWidgets.styleDots", "tabs.newTabWidgets.order", "tabs.newTabWidgets.machines", "sidebar.showProjects", "sidebar.showSpaces", "sidebar.showProfileControl", "sidebar.showSearchButton", "sidebar.groupBy",
+        "sidebar.hoverCards.groups.sections.ports", "sidebar.nowPlaying.enabled", "tabs.newTabNowPlaying", "media.pictureInPicture.enabled", "tabs.newTabWidgets.greeting", "tabs.newTabWidgets.projects", "tabs.newTabWidgets.actions", "tabs.newTabWidgets.chats", "tabs.newTabWidgets.styleDots", "tabs.newTabWidgets.order", "tabs.newTabWidgets.machines", "tabs.newTabWidgets.clock", "tabs.newTabWidgets.timer", "tabs.newTabWidgets.warmGreeting", "tabs.newTabWidgets.quote", "sidebar.showProjects", "sidebar.showSpaces", "sidebar.showProfileControl", "sidebar.showSearchButton", "sidebar.groupBy",
         "sidebar.priorityView.enabled", "sidebar.priorityView.shown",
         "browser.defaultEngine",
         "browser.siteEngines",
@@ -246,8 +248,11 @@ extension SettingsSchema {
         "freeModel.enabled": .privacy,
         "agents.chats.roots": .privacy,
         "agents.chats.discovery": .privacy,
+        "agentPane.scrollToBottomOnSend": .userOnly,
         "agents.chats.enabled": .privacy,
         "picker.pinned": .userOnly,
+        // Whether workspaces leave the sidebar on their own: the person decides (auto-archive-DESIGN.md).
+        "workspaces.autoArchive.style": .userOnly, "workspaces.autoArchive.idleDays": .userOnly,
         // Which of the person's folders the Screenshots page reads.
         "screenshots.findTools": .privacy, "screenshots.folders": .privacy,
         // A pin leads the empty palette and an alias wins its word: an agent could put Close Window
@@ -280,6 +285,8 @@ extension SettingsSchema {
         "browser.openLinksInCmuxBrowser": .privacy,
         // Off, the person's links leave cmux and no page opens: an agent must not turn the browser it drives off or on.
         "browser.enabled": .userOnly,
+        // On, agents can ask to read another browser's cookies and data again (`browser.importCookies`, `import.suggest`).
+        "browser.import.enabled": .privacy,
         "browser.openTerminalLinksInCmuxBrowser": .privacy,
         // The app that opens your files from a menu: an agent must not pick what runs them.
         "files.textEditor": .userOnly,
@@ -297,6 +304,8 @@ extension SettingsSchema {
         "home.attachments.keepLocation": .privacy,
         // Where the person's direct messages and group chats go: an agent must not move them to another server.
         "home.server": .privacy,
+        // Whether the person's Chief runs on this Mac or in the cloud: where their messages go.
+        "home.chiefEngine": .privacy,
         // A reply's file link outside the project, and a reply's web image (D4, D5).
         "agentPane.links.outsideRoots": .privacy,
         "agentPane.images.remote": .network,
@@ -346,12 +355,16 @@ extension SettingsSchema {
         // Who answers a sub-session's questions is the person's call too.
         "agents.subsessions.answerQuestions": .userOnly,
         "agents.subsessions.maxChildren": .userOnly,
+        "agents.subsessions.maxRunning": .userOnly,
         "agents.subsessions.maxDepth": .userOnly,
         // Which folders an agent may open without asking is the person's call: an agent must not
         // widen what it may open without asking.
         "agents.trust.autoTrust": .userOnly,
         "agents.trust.projectRoots": .userOnly,
         "agents.trust.ownOrgs": .userOnly,
+        // Which hosts an ssh:// link from another app connects to without asking: only the person
+        // trusts a host, so a page or an agent cannot add one and skip the confirmation.
+        "ssh.linkAllowedHosts": .network,
         // What reaches this Mac from outside and what leaves it: only the person opens phone access.
         "phone.allowConnections": .network,
         "phone.startSessions": .network,

@@ -1,7 +1,9 @@
 // What became of a single permission card (an ask outside the grouped panel, PermissionCard.tsx),
 // read back from acpmux's `permission_decision` record: the transcript keeps a one-line receipt
 // once the card goes (direct.ts, the `permissionRecord` row), so a reload shows it again. The
-// grouped panel keeps its own receipt (permissions/Panel.tsx).
+// grouped panel keeps its own receipt (permissions/Panel.tsx). An ask a chat in Full access answered
+// unasked (acpmux's `permission_auto` with `fullAccess`) leaves the same line: "Approved: … (Full
+// access)".
 import type { AcpmuxPermission } from "../model";
 import { permissionOptionKind } from "./prompt";
 
@@ -11,7 +13,7 @@ export const PERMISSION_RECORD = "permissionRecord";
 /// How an ask was answered. `answered` is an option neither its ACP kind nor its name places (a
 /// custom choice, or one the ask no longer lists): the receipt names it rather than guess.
 export type PermissionDecision =
-  | { kind: "allowed" | "allowedAlways" | "denied" | "cancelled" }
+  | { kind: "allowed" | "allowedAlways" | "denied" | "cancelled" | "fullAccess" }
   | { kind: "answered"; option: string };
 
 /// How `outcome` answered `permission`, read as the card reads its options (`permissionOptionKind`).
@@ -39,4 +41,5 @@ export const DECISION_TEXT = {
   denied: "permission.receipt.denied",
   cancelled: "permission.receipt.cancelled",
   answered: "permission.receipt.answered",
+  fullAccess: "permission.receipt.fullAccess",
 } as const satisfies Record<PermissionDecision["kind"], string>;

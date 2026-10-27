@@ -54,6 +54,7 @@ ghostty-vt.workspace = true
 cmux-tui-core.workspace = true
 # `cmux vm`: the cmux-vm child starts through the daemon-safe spawn.
 cmux-process.workspace = true
+cmux-api-compat.workspace = true
 # `cmux settings list|schema|validate`: the settings schema and owner state.
 cmux-config.workspace = true
 # `cmux agent hooks` and the hook paths the Claude wrapper reads.
@@ -132,6 +133,10 @@ rusqlite.workspace = true
 [target.'cfg(windows)'.dependencies]
 tokio.workspace = true
 windows-sys = { workspace = true, features = ["Win32_System_LibraryLoader"] }
+
+[build-dependencies]
+# build.rs reads the browser registry's ids and names.
+serde_json.workspace = true
 
 [dev-dependencies]
 cmux-pty.workspace = true

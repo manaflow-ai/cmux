@@ -29,8 +29,11 @@ git_fixture_env = _load_git_fixture_env()
 SOURCE = Path(__file__).resolve().parents[1]
 INSTALLER = "scripts/install-git-hooks.sh"
 GATE = "scripts/cmux-next/prepush-gate.py"
+# The fixture is a developer's own push: GITHUB_ACTIONS (set on CI) would turn the guardrails off in the hook
+# (prepush-gate.py runs them locally only), and the tests that expect a guardrails line would fail only on CI.
 AGENT_VARS = ("CMUX_AGENT", "CMUX_REQUIRE_FORMATTERS", "CI", "CLAUDECODE", "CODEX_CI", "CODEX_THREAD_ID",
-              "CODEX_SANDBOX", "CMUX_WEB_LINT_SKIP_REASON", "CMUX_NEXT_CHECKS_SKIP_REASON")
+              "CODEX_SANDBOX", "CMUX_WEB_LINT_SKIP_REASON", "CMUX_NEXT_CHECKS_SKIP_REASON",
+              "CMUX_GUARDRAILS_SKIP_REASON", "GITHUB_ACTIONS")
 PKG = "Packages/macOS/CmuxNext"
 # The pinned tools are downloaded once per machine; the fixture HOME must not hide that cache.
 if os.uname().sysname == "Darwin":
@@ -73,10 +76,20 @@ final class Fresh {
     init(owner: Owner) { self.owner = owner }
 }
 """
+# A try! and nothing else: no blocking read for the guardrails (main-blocking) to refuse on their own.
+NEW_WITH_TRY_ONLY = """import Foundation
+struct Fresh {
+    func pattern() -> NSRegularExpression {
+        try! NSRegularExpression(pattern: "a+")
+    }
+}
+"""
+# Clean for the scanners and the guardrails: the read goes through the checked seam (CmuxNextCompat/Threading)
+# off the main thread.
 NEW_CLEAN = """import Foundation
 struct Fresh {
     func load(_ url: URL) async throws -> Data {
-        try await Task.detached(priority: .utility) { try Data(contentsOf: url) }.value
+        try await Task.detached(priority: .utility) { try Data(blockingContentsOf: url) }.value
     }
 }
 """
@@ -559,6 +572,25 @@ class PrePushGateTests(unittest.TestCase):
         self.assertIn("Sidebar look owner", output)
         self.assertIn("no `Sidebar-Look:` trailer", output)
 
+    def test_a_sidebar_change_outside_views_also_needs_the_trailer(self):
+        # a702 (2026-10-25) turned the pinned section's tiles into rows in Sections/, outside Views/.
+        self.write(f"{PKG}/Sources/CmuxNextSidebar/Sections/SectionFlow.swift", "struct SectionFlow {\n    let rows = true\n}\n")
+        self.commit("sidebar: pinned section draws rows")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("no `Sidebar-Look:` trailer", output)
+
+    def test_sidebar_strings_need_no_trailer(self):
+        self.write(f"{PKG}/Sources/CmuxNextSidebar/Strings.swift", "let hello = \"Hello\"\n")
+        self.commit("sidebar: copy")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_a_visual_sidebar_change_must_update_the_owner_note(self):
         self.write(self.SIDEBAR_VIEW, "struct RowView {\n    let inset = 22\n}\n")
         self.commit("sidebar: move the title\n\nSidebar-Look: Lawrence 11405 text as left as possible")
@@ -748,7 +780,7 @@ class PrePushGateTests(unittest.TestCase):
         self.assertEqual(self.git("diff", "--cached", "--name-only").stdout, "")
 
     def test_skip_reason_lets_the_push_through_and_says_so(self):
-        self.write(f"{PKG}/Sources/CmuxNextKit/Fresh.swift", NEW_WITH_TRY)
+        self.write(f"{PKG}/Sources/CmuxNextKit/Fresh.swift", NEW_WITH_TRY_ONLY)
         self.commit("adds a try!")
 
         result = self.push(CMUX_NEXT_CHECKS_SKIP_REASON="fixture: the try! is in a file this push does not touch")

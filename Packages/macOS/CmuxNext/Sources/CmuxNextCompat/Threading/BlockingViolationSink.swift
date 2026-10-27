@@ -1,5 +1,5 @@
-/// Receives each new main-thread blocking call site once per launch (to come: the opt-in hang
-/// reports; tests: a recorder).
+/// Receives each new main-thread blocking call site once per launch (the app: ``BlockingLogSink``;
+/// to come: the opt-in hang reports; tests: a recorder).
 ///
 /// ``BlockingDetector/install(sink:)`` installs one at the composition root. ``record(_:)`` runs
 /// on the detector's drain queue (`com.cmuxterm.app.next.blocking-drain`, utility QoS), never on

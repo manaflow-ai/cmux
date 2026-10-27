@@ -114,13 +114,10 @@ public final class MainActorWorkQueue: Sendable {
     public let limits: Limits
     private let frameSource: any ControlFrameSource
     private let state = Mutex(State())
-    /// The snapshot publish's owner on the app's board, interned once.
-    private let publishOwner: MainTaskOwner?
 
     public init(limits: Limits = Limits(), frameSource: any ControlFrameSource = MainQueueFrameSource()) {
         self.limits = limits
         self.frameSource = frameSource
-        publishOwner = frameSource.mainTaskBoard?.owner("control.publish")
     }
 
     public var stats: Stats { state.withLock { $0.stats } }
@@ -140,8 +137,8 @@ public final class MainActorWorkQueue: Sendable {
         }
     }
 
-    /// Called on the main actor after a frame that ran at least one item,
-    /// e.g. to republish the control snapshot.
+    /// Called on the main actor after a frame that ran at least one item, inside that frame's
+    /// drain: the control snapshot marks itself stale there.
     public func setAfterFrame(_ hook: (@MainActor @Sendable () -> Void)?) {
         state.withLock { $0.afterFrame = hook }
     }
@@ -343,11 +340,10 @@ public final class MainActorWorkQueue: Sendable {
             if !more { state.framePending = false }
             return (more, ran > 0 ? state.afterFrame : nil)
         }
-        // The hook (the control snapshot publish) is automation work too: named and charged to the
-        // automation budget, so a request storm's per-frame publish counts against it.
-        if let hook {
-            if let budget, let publishOwner { budget.run(.automation, owner: publishOwner) { hook() } } else { hook() }
-        }
+        // The hook marks the control snapshot stale (ControlSnapshotPublisher: the next read builds it; only a
+        // read already waiting on its barrier builds it now). It runs inside this drain's own automation task,
+        // so a request storm costs no publish per frame and needs no separate charge.
+        hook?()
         if more { scheduleDrain() }
     }
 }

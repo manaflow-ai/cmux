@@ -12,7 +12,7 @@ name: cmux-next fast-tier seed
 #
 # A seed is one cold build of exactly what the Mac fast tier builds (its Swift
 # entries; the cargo entries run on Linux with their own cargo cache), on the
-# pool the fast tier overflows to, plus the input-time manifest the fast tier replays
+# Blacksmith pool the fast tier overflows to, plus the input-time manifest the fast tier replays
 # (scripts/ci/e2e_warm_derived_data.py) so a pull request rebuilds only the
 # files that differ from the seed. It runs when the newest seed is older than
 # SEED_INTERVAL_MINUTES (scripts/cmux-next/fast-tier-seed-due.py), and prunes
@@ -44,16 +44,18 @@ jobs:
     permissions:
       contents: read
     env:
-      # The pools the cmux-next fast tier lands on (scripts/ci/next_macos_cascade.py):
-      # Blacksmith, then hosted macos-26 when Blacksmith is full or stalled. Each needs
-      # its own seed: the cache key holds the workspace path (fast-tier-cache-key.sh),
-      # and the two pools check out to different paths. 6 vCPU, not 12, for Blacksmith:
-      # same image, Xcode pin and workspace path, and the cascade fills 12 vCPU first
-      # (a seed queued there held the old workflow group 85+ minutes, run 39351410275).
-      # A cold hosted build of CmuxNext took 20 to 28 minutes on 2026-10-20.
+      # The pool the cmux-next fast tier restores a seed on (scripts/ci/next_macos_cascade.py):
+      # Blacksmith. The owned minis keep their builds on their own SSD and read no seed.
+      # The cache key holds the workspace path (fast-tier-cache-key.sh), so a seed is
+      # per pool. 6 vCPU, not 12: same image, Xcode pin and workspace path, and the
+      # cascade fills 12 vCPU first (a seed queued there held the old workflow group 85+
+      # minutes, run 39351410275).
+      # No GitHub-hosted pool: the cascade no longer overflows to hosted macos-26, so
+      # nothing restores a hosted seed (Leo, 2026-10-27: "THE GITHUB HOSTED MACS / ARE
+      # THE SLOWEST THINGS"; tests/test_ci_no_github_hosted_macos.py). That pool's seeds
+      # were 21 hosted jobs and 891 hosted minutes a day (2026-10-27).
       SEED_POOLS: >-
-        [{"pool": "hosted", "runner": "macos-26", "workspace": "/Users/runner/work/cmux/cmux", "timeout": 50},
-        {"pool": "blacksmith", "runner": "blacksmith-6vcpu-macos-26", "workspace": "/Users/runner/_work/cmux/cmux", "timeout": 30}]
+        [{"pool": "blacksmith", "runner": "blacksmith-6vcpu-macos-26", "workspace": "/Users/runner/_work/cmux/cmux", "timeout": 30}]
     outputs:
       pools: ${{ steps.due.outputs.pools }}
     steps:
@@ -190,5 +192,6 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-next-fast-tier-seed-receipt-${{ matrix.pool }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          retention-days: 3
           path: ${{ runner.temp }}/cmux-next-fast-tier.json
           if-no-files-found: ignore

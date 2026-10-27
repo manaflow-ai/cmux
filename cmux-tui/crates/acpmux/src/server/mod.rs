@@ -37,6 +37,9 @@ pub struct SubOpts {
     pub filter: EventFilter,
     /// Attached without showing the chat (`view.rs`).
     pub hidden: bool,
+    /// A peer's chat, attached through this daemon (`peer_forward.rs`): this daemon's presence
+    /// for the same raw id is never its (`hub/presence.rs`).
+    pub remote: bool,
 }
 
 pub struct Conn {
@@ -45,10 +48,15 @@ pub struct Conn {
     pub origin: Origin,
     /// The proof it presented (`conn_auth.rs`); what the mode rule reads.
     pub auth: ConnAuth,
+    /// The paired machine whose credential it presented (`ConnAuth::Device`
+    /// or `ReadOnlyDevice`), from the handshake only, never from a request.
+    device: Option<String>,
     /// It reads session text raw (`peer_text.rs`): every origin but a peer.
     raw_text: bool,
     name: StdMutex<String>,
     out: mpsc::Sender<String>,
+    /// True once the client stopped sending (its read side ended): it exited or hung up.
+    ended: tokio::sync::watch::Sender<bool>,
     /// Serializes the capacity check and enqueue across request and watch tasks.
     outbound_lock: Arc<StdMutex<()>>,
     /// Number of notifications rejected because the reader fell behind.
@@ -87,6 +95,9 @@ pub struct Conn {
     ephemeral: StdMutex<Option<Vec<String>>>,
     /// The media files it opened (`hub/media_read.rs`), closed when it closes.
     media: crate::hub::media_handles::Handles,
+    /// The media files of peers' chats it opened, closed on the peer when it closes
+    /// (`media_forward.rs`).
+    pub(super) remote_media: media_forward::RemoteMedia,
 }
 
 // Bound only request handlers that do finite work on behalf of the connection.
@@ -258,6 +269,17 @@ impl Conn {
         }
     }
 
+    /// Resolves once the client is gone: nobody reads its replies any more, or it stopped
+    /// sending. A unix socket's writer learns of a closed socket only when it writes, so the
+    /// read side ending counts too.
+    async fn closed(&self) {
+        let mut ended = self.ended.subscribe();
+        tokio::select! {
+            () = self.out.closed() => {}
+            _ = ended.wait_for(|ended| *ended) => {}
+        }
+    }
+
     fn send(&self, msg: &Message) {
         let control = matches!(msg, Message::Response { .. });
         let masked = (!self.raw_text).then(|| peer_text::masked(msg)).flatten();
@@ -297,6 +319,11 @@ impl Conn {
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
         self.subs.lock_or_recover().get(session_id).cloned()
     }
+    /// This daemon's own chats this connection is attached to.
+    fn local_attached_ids(&self) -> Vec<String> {
+        let subs = self.subs.lock_or_recover();
+        subs.iter().filter(|(_, opts)| !opts.remote).map(|(id, _)| id.clone()).collect()
+    }
     pub(super) fn bind_mailbox_receipt(&self, receipt: SessionReceipt) {
         self.mailbox_bindings.lock_or_recover().insert(receipt.mux_session_id.clone(), receipt);
     }
@@ -319,10 +346,6 @@ impl Conn {
         }
         subs.insert(session_id.to_owned(), SubOpts::default());
         true
-    }
-    /// Subscribe, replacing any options. True when the subscription is new.
-    fn subscribe_with(&self, session_id: &str, opts: SubOpts) -> bool {
-        self.subs.lock_or_recover().insert(session_id.to_owned(), opts).is_none()
     }
     fn label(&self) -> String {
         let n = self.name.lock_or_recover().clone();
@@ -588,6 +611,12 @@ pub struct WsAuth {
 /// is the local app (`local_app.rs`); after it, it is remote-origin.
 const FIRST_FRAME: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// Bound pre-authentication work separately from the per-connection request budget.
+/// A client can otherwise hold a task and file descriptor while it dribbles out
+/// an HTTP upgrade request.
+const WS_HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+const WS_HANDSHAKE_CONCURRENCY: usize = 64;
+
 /// The largest WebSocket frame or message a connection reads. The app's agent pane sends a frame
 /// of up to 32 MiB (`AcpmuxPaneMethods.maximumFrameBytes`); a prompt with a few screenshots is
 /// past tungstenite's 16 MiB frame default, which ended the read with no log line and reset the
@@ -627,6 +656,7 @@ pub async fn serve_ws_with(
     // (`hub/web_token.rs`) applies from the next one on. The daemon set it
     // already; a caller that did not (tests) gets `token`.
     hub.web_token.set_if_unset(token);
+    let handshake_slots = Arc::new(Semaphore::new(WS_HANDSHAKE_CONCURRENCY));
     loop {
         let (stream, peer) = match listener.accept().await {
             Ok(s) => s,
@@ -636,6 +666,14 @@ pub async fn serve_ws_with(
             }
         };
         tune_ws_socket(&stream);
+        let handshake_slot = match handshake_slots.clone().try_acquire_owned() {
+            Ok(slot) => slot,
+            Err(_) => {
+                tracing::warn!(peer = %peer, error = "handshake_capacity", "rejecting websocket handshake");
+                tokio::spawn(refuse_ws_transport(stream, 503, "handshake_capacity"));
+                continue;
+            }
+        };
         let hub = hub.clone();
         // Read and subscribed before the handshake, so a rotation during it
         // still closes a connection that presented the old token.
@@ -644,13 +682,9 @@ pub async fn serve_ws_with(
         let local_app = auth.local_app.clone();
         let peer_auth = auth.peer.clone();
         tokio::spawn(async move {
+            let _handshake_slot = handshake_slot;
             let mut head = [0u8; 4096];
-            let n = match tokio::time::timeout(
-                std::time::Duration::from_secs(5),
-                stream.peek(&mut head),
-            )
-            .await
-            {
+            let n = match tokio::time::timeout(WS_HANDSHAKE_TIMEOUT, stream.peek(&mut head)).await {
                 Ok(Ok(n)) => n,
                 _ => return,
             };
@@ -706,19 +740,29 @@ pub async fn serve_ws_with(
                 *record_admitted.lock().unwrap_or_else(|e| e.into_inner()) = proof.map_err(refuse)?;
                 Ok(resp)
             };
-            let ws = match tokio_tungstenite::accept_hdr_async_with_config(
-                stream,
-                callback,
-                Some(ws_config()),
+            let ws = match tokio::time::timeout(
+                WS_HANDSHAKE_TIMEOUT,
+                tokio_tungstenite::accept_hdr_async_with_config(
+                    stream,
+                    callback,
+                    Some(ws_config()),
+                ),
             )
             .await
             {
-                Ok(ws) => ws,
-                Err(e) => {
+                Err(_) => {
+                    tracing::warn!(peer = %peer, error = "handshake_timeout", "closing stalled websocket handshake");
+                    return;
+                }
+                Ok(Ok(ws)) => ws,
+                Ok(Err(e)) => {
                     tracing::warn!("ws handshake from {peer} rejected: {e}");
                     return;
                 }
             };
+            // Only the HTTP upgrade is admission-controlled; an established
+            // connection is governed by its authenticated request budget.
+            drop(_handshake_slot);
             let admitted = std::mem::take(&mut *admitted.lock().unwrap_or_else(|e| e.into_inner()));
             let device = match admitted {
                 pairing::Admitted::Ticket(secret) => {
@@ -774,6 +818,9 @@ pub async fn serve_ws_with(
             {
                 return;
             }
+            // Binary frames are upload data (`upload_frames.rs`), written in order by their own
+            // worker; it refuses them on any connection but the local app's.
+            let frames = upload_frames::spawn(hub.clone(), origin, proof, out_tx.clone());
             let reader = tokio::spawn(async move {
                 while let Some(frame) = source.next().await {
                     let frame = match frame {
@@ -784,9 +831,16 @@ pub async fn serve_ws_with(
                             break;
                         }
                     };
-                    if let tokio_tungstenite::tungstenite::Message::Text(t) = frame
-                        && in_tx.send(t.to_string()).await.is_err()
-                    {
+                    let sent = match frame {
+                        // After the frames before it are written (`upload_frames::InFlight`).
+                        tokio_tungstenite::tungstenite::Message::Text(t) => {
+                            frames.in_flight.drained().await;
+                            in_tx.send(t.to_string()).await.is_ok()
+                        }
+                        tokio_tungstenite::tungstenite::Message::Binary(b) => frames.send(b).await,
+                        _ => true,
+                    };
+                    if !sent {
                         break;
                     }
                 }
@@ -833,7 +887,10 @@ pub async fn serve_ws_with(
                     read_half.abort();
                 })
             });
-            serve_connection_authed(hub, in_rx, out_tx, origin, proof).await;
+            match device {
+                Some(device) => serve_connection_device(hub, in_rx, out_tx, device).await,
+                None => serve_connection_authed(hub, in_rx, out_tx, origin, proof).await,
+            }
             if let Some(watcher) = watcher {
                 watcher.abort();
             }
@@ -842,6 +899,20 @@ pub async fn serve_ws_with(
             reader.abort();
         });
     }
+}
+
+async fn refuse_ws_transport(mut stream: tokio::net::TcpStream, status: u16, error: &str) {
+    let reason = match status {
+        503 => "Service Unavailable",
+        _ => "Bad Request",
+    };
+    let body = format!("{{\"error\":\"{error}\"}}\n");
+    let response = format!(
+        "HTTP/1.1 {status} {reason}\r\ncontent-type: application/json\r\ncontent-length: {}\r\ncache-control: no-store\r\nconnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    let _ = stream.write_all(response.as_bytes()).await;
+    let _ = stream.shutdown().await;
 }
 
 /// Check the `Host` and `Origin` values of a complete request head.
@@ -933,7 +1004,7 @@ async fn serve_http(
         if cmux_local_auth::check_token(cmux_local_auth::query_token(query), token).is_ok() {
             ("200 OK", INDEX_HTML.to_owned(), "text/html; charset=utf-8")
         } else {
-            ("401 Unauthorized", "<!doctype html><meta charset=utf-8><title>acpmux</title><p style=\"font-family:system-ui;padding:2rem\">This dashboard needs its token. Run <code>acpmux web</code> in a terminal to get the full link.</p>".to_owned(), "text/html; charset=utf-8")
+            ("401 Unauthorized", "<!doctype html><meta charset=utf-8><title>acpmux</title><p style=\"font-family:system-ui;padding:2rem\">This dashboard needs its token. Run <code>acpmux web</code> in a terminal to open it with its token (<code>acpmux web --no-open --show-token</code> prints the link).</p>".to_owned(), "text/html; charset=utf-8")
         }
     } else {
         ("404 Not Found", "not found".to_owned(), "text/plain")
@@ -1009,7 +1080,20 @@ pub async fn serve_connection_authed(
     origin: Origin,
     auth: ConnAuth,
 ) {
-    serve_connection_from(hub, inbound, out, origin, auth, None).await
+    serve_connection_from(hub, inbound, out, origin, auth, None, None).await
+}
+
+/// A paired machine's connection, served as its role says
+/// (`pairing::origin_of`): the WebSocket listener's, once the handshake
+/// proved `device`'s credential, or an in-process caller that vouches for it.
+pub async fn serve_connection_device(
+    hub: Arc<Hub>,
+    inbound: mpsc::Receiver<String>,
+    out: mpsc::Sender<String>,
+    device: crate::pairing::DeviceAuth,
+) {
+    let (origin, auth) = pairing::origin_of(&device);
+    serve_connection_from(hub, inbound, out, origin, auth, None, Some(device.id)).await
 }
 
 /// `serve_connection_authed` for a unix socket peer named by its audit token.
@@ -1020,6 +1104,7 @@ async fn serve_connection_from(
     origin: Origin,
     auth: ConnAuth,
     peer: Option<cmux_link::app_caller::PeerToken>,
+    device: Option<String>,
 ) {
     if !auth.authenticated() {
         refuse_unauthenticated(&mut inbound, &out, origin).await;
@@ -1030,6 +1115,7 @@ async fn serve_connection_from(
         id: uuid::Uuid::now_v7().to_string(),
         origin,
         auth,
+        device,
         raw_text,
         name: StdMutex::new(String::new()),
         out,
@@ -1051,7 +1137,15 @@ async fn serve_connection_from(
         unproven_caller: std::sync::OnceLock::new(),
         peer_leases: StdMutex::new(Some(Vec::new())),
         ephemeral: StdMutex::new(Some(Vec::new())),
-        media: crate::hub::media_handles::Handles::default(),
+        ended: tokio::sync::watch::Sender::new(false),
+        // A peer daemon's link carries all its clients' reads, which it caps one by one
+        // (`media_forward.rs`).
+        media: if auth == ConnAuth::PeerToken {
+            crate::hub::media_handles::Handles::for_peer_link()
+        } else {
+            crate::hub::media_handles::Handles::default()
+        },
+        remote_media: media_forward::RemoteMedia::default(),
     });
     tracing::debug!(conn = %conn.id, "client connected");
 
@@ -1113,7 +1207,11 @@ async fn serve_connection_from(
                     let result = chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null)).await;
                     conn.send(&match result {
                         Ok(v) => Message::ok(id, v),
-                        Err(e) => Message::err(id, e),
+                        Err(mut e) => {
+                            // What kind of failure, and what to do (`recovery.rs`).
+                            crate::recovery::annotate(&mut e, None);
+                            Message::err(id, e)
+                        }
                     });
                 });
             }
@@ -1159,6 +1257,7 @@ async fn serve_connection_from(
             }
         }
     }
+    conn.ended.send_replace(true);
     // Cancellation has to reach the hub even when ordinary notifications are
     // still draining. Its worker is bounded independently and must never be
     // aborted by connection cleanup.
@@ -1196,6 +1295,7 @@ async fn serve_connection_from(
     }
     fan.abort();
     conn.media.close_all();
+    conn.remote_media.close_all();
     view::release_all(&hub, &conn);
     // Leases first: ending one is cheap and synchronous, while the ephemeral
     // release awaits each session's kill. A leased peer must not keep
@@ -1371,12 +1471,16 @@ pub mod conn_auth;
 mod ephemeral;
 mod fanout;
 mod forum;
+mod media_forward;
 pub use conn_auth::ConnAuth;
 mod fork_through;
 mod harness_admin;
 mod harness_enable;
 mod inventory_watch;
+mod lane_parent;
+use lane_parent::lane_parent;
 pub mod local_app;
+pub(crate) mod machine_health;
 mod models_fanout;
 mod new_worktree;
 pub(crate) mod outbox;
@@ -1393,6 +1497,7 @@ use crate::hub::is_permission_ask;
 pub use pending::{event_value, into_event_value};
 use pending::{peer_permission_pending, permission_pending};
 mod redact;
+pub(crate) use redact::url_without_secrets;
 pub(crate) mod remote_guard;
 mod requests;
 mod routes;
@@ -1401,8 +1506,10 @@ mod session_files;
 mod stream;
 mod subsessions;
 pub(crate) mod trust_gate;
+pub mod upload_frames;
 mod view;
-mod wait;
+mod vm_host;
+pub(crate) mod wait;
 #[cfg(windows)]
 mod windows_socket;
 use requests::handle_notification;
@@ -1425,7 +1532,10 @@ mod request_admission_tests {
         assert!(!request_uses_work_budget(crate::rpc::method::SESSION_RESUME));
         assert!(!request_uses_work_budget(crate::rpc::method::SESSION_FORK));
         assert!(!request_uses_work_budget(crate::rpc::method::MUX_ATTACH));
-        assert!(request_uses_work_budget("_acpmux/unknown"));
+        // A method no handler serves; built, not a literal, so the registry check
+        // (protocol::tests) does not read it as a served method.
+        let unknown = ["_acpmux", "unknown"].join("/");
+        assert!(request_uses_work_budget(&unknown));
 
         let slots = Semaphore::new(REQUEST_WORK_LIMIT);
         let _holds: Vec<_> = (0..REQUEST_WORK_LIMIT)

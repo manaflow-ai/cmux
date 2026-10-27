@@ -12183,6 +12183,399 @@
           }
         }
       }
+    },
+    "remote.terminal.splitRightOrDown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A terminal from another machine can split right or down only."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يمكن تقسيم طرفية من جهاز آخر إلى اليمين أو للأسفل فقط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal s drugog uređaja može se podijeliti samo udesno ili nadolje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En terminal fra en anden maskine kan kun deles til højre eller nedad."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein Terminal einer anderen Maschine lässt sich nur nach rechts oder nach unten teilen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un terminal de otra máquina solo se puede dividir a la derecha o hacia abajo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un terminal d'une autre machine ne peut être divisé qu'à droite ou vers le bas."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un terminale di un'altra macchina può essere diviso solo a destra o in basso."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "別のマシンのターミナルは、右または下にのみ分割できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្ថានីយពីម៉ាស៊ីនផ្សេងអាចបំបែកបានតែទៅស្តាំ ឬចុះក្រោមប៉ុណ្ណោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다른 머신의 터미널은 오른쪽 또는 아래로만 분할할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En terminal fra en annen maskin kan bare deles til høyre eller nedover."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal z innej maszyny można podzielić tylko w prawo lub w dół."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um terminal de outra máquina só pode ser dividido à direita ou para baixo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Терминал другой машины можно разделить только вправо или вниз."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เทอร์มินัลจากเครื่องอื่นแยกได้เฉพาะไปทางขวาหรือลงด้านล่างเท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Başka bir makinenin terminali yalnızca sağa veya aşağıya bölünebilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Термінал іншої машини можна розділити лише вправо або вниз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal của máy khác chỉ có thể chia sang phải hoặc xuống dưới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "其他机器的终端只能向右或向下拆分。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "其他機器的終端機只能向右或向下分割。"
+          }
+        }
+      }
+    },
+    "remote.openRemote.hostNotFound": {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No machine named %@ is added. Add it first, or check the name."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لم تتم إضافة أي جهاز باسم %@. أضفه أولاً أو تحقق من الاسم."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nijedan uređaj pod imenom %@ nije dodan. Prvo ga dodajte ili provjerite ime."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Der er ikke tilføjet nogen maskine ved navn %@. Tilføj den først, eller tjek navnet."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Es wurde kein Rechner namens %@ hinzugefügt. Füge ihn zuerst hinzu oder prüfe den Namen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "No se ha añadido ninguna máquina llamada %@. Añádela primero o revisa el nombre."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Aucune machine nommée %@ n’est ajoutée. Ajoutez-la d’abord ou vérifiez le nom."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nessuna macchina di nome %@ è stata aggiunta. Aggiungila prima o controlla il nome."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@ という名前のマシンは追加されていません。先に追加するか、名前を確認してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "មិនទាន់បានបន្ថែមម៉ាស៊ីនឈ្មោះ %@ ទេ។ សូមបន្ថែមវាជាមុន ឬពិនិត្យឈ្មោះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@ 이름의 머신이 추가되지 않았습니다. 먼저 추가하거나 이름을 확인하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ingen maskin med navnet %@ er lagt til. Legg den til først, eller sjekk navnet."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nie dodano maszyny o nazwie %@. Najpierw ją dodaj albo sprawdź nazwę."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nenhuma máquina chamada %@ foi adicionada. Adicione-a primeiro ou confira o nome."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Машина с именем %@ не добавлена. Сначала добавьте её или проверьте имя."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ยังไม่ได้เพิ่มเครื่องที่ชื่อ %@ โปรดเพิ่มก่อน หรือตรวจสอบชื่อ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@ adlı makine eklenmemiş. Önce ekleyin veya adı kontrol edin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Машину з назвою %@ не додано. Спершу додайте її або перевірте назву."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chưa thêm máy nào tên %@. Hãy thêm trước hoặc kiểm tra lại tên."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "尚未添加名为 %@ 的机器。请先添加，或检查名称。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "尚未新增名為 %@ 的機器。請先新增，或檢查名稱。"
+          }
+        }
+      }
+    },
+    "remote.openRemote.badRatio": {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The ratio %@ must be a number between 0 and 1."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يجب أن تكون النسبة %@ رقماً بين 0 و1."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Omjer %@ mora biti broj između 0 i 1."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Forholdet %@ skal være et tal mellem 0 og 1."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Das Verhältnis %@ muss eine Zahl zwischen 0 und 1 sein."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La proporción %@ debe ser un número entre 0 y 1."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le ratio %@ doit être un nombre entre 0 et 1."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Il rapporto %@ deve essere un numero tra 0 e 1."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "比率 %@ は 0 から 1 の間の数値にしてください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "សមាមាត្រ %@ ត្រូវតែជាលេខចន្លោះ 0 និង 1។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "비율 %@ 은(는) 0과 1 사이의 숫자여야 합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Forholdet %@ må være et tall mellom 0 og 1."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Proporcja %@ musi być liczbą od 0 do 1."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "A proporção %@ deve ser um número entre 0 e 1."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Соотношение %@ должно быть числом от 0 до 1."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "อัตราส่วน %@ ต้องเป็นตัวเลขระหว่าง 0 ถึง 1"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@ oranı 0 ile 1 arasında bir sayı olmalı."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Співвідношення %@ має бути числом від 0 до 1."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tỷ lệ %@ phải là số từ 0 đến 1."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "比例 %@ 必须是 0 到 1 之间的数字。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "比例 %@ 必須是 0 到 1 之間的數字。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
