@@ -53,7 +53,7 @@ Uploads now retry **three times**, doubling from 200 ms.
 const liveReply = (text: string, version: number, streaming = true) =>
   chat([
     user("Update the release notes while I read the preview", 1),
-    assistant(fence("markdown", text), 0, { id: "artifact-live", version, streaming }),
+    assistant(`${fence("markdown", text)}\n`, 0, { id: "artifact-live", version, streaming }),
   ]);
 const liveChecks = {
   layoutShiftMax: {
