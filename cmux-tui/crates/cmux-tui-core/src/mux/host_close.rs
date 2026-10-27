@@ -29,6 +29,8 @@ struct PendingHostClose {
     step: HostCloseStep,
     identity: Option<TerminalHostIdentity>,
     host_root: Option<PathBuf>,
+    /// The mux, for a record cleanup retry when the host does not exit.
+    owner: Weak<Mux>,
     /// Where the host's crash sidecar goes before its records are removed.
     panic_log: Option<crate::terminal_host_runtime::HostPanicLog>,
 }
@@ -170,6 +172,7 @@ fn signal_host_close(mut close: PendingHostClose) -> Option<PendingHostClose> {
                 (close.identity.as_ref(), close.host_root.as_ref())
             {
                 terminate_discovered_terminal_host_in(
+                    &close.owner,
                     root,
                     &identity.terminal_id,
                     Some(&identity.incarnation),
@@ -194,7 +197,7 @@ fn signal_host_close(mut close: PendingHostClose) -> Option<PendingHostClose> {
 
 #[cfg(any(unix, windows))]
 fn finish_host_close(close: PendingHostClose) {
-    let PendingHostClose { runtime, step, identity, host_root, panic_log } = close;
+    let PendingHostClose { runtime, step, identity, host_root, owner, panic_log } = close;
     let HostCloseStep::Await(termination, deadline) = step else {
         unreachable!("only a signaled host close is awaited");
     };
@@ -217,6 +220,7 @@ fn finish_host_close(close: PendingHostClose) {
     runtime.kill();
     if !acknowledged && let (Some(identity), Some(root)) = (identity, host_root) {
         terminate_discovered_terminal_host_in(
+            &owner,
             &root,
             &identity.terminal_id,
             Some(&identity.incarnation),
@@ -254,6 +258,7 @@ impl Mux {
                 step: HostCloseStep::Signal,
                 identity,
                 host_root,
+                owner: self.work_owner(),
                 panic_log: self.host_panic_log(),
             });
         }
@@ -283,6 +288,7 @@ impl Mux {
                     step: HostCloseStep::Signal,
                     identity,
                     host_root: host_root.clone(),
+                    owner: self.work_owner(),
                     panic_log: panic_log.clone(),
                 });
             }

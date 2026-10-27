@@ -4,8 +4,10 @@
 //! (`SurfaceOptions::host_panic_log`): the host's crash sidecar goes there
 //! as one line before it is removed, whichever path removes it.
 
+use super::mux_work::{self, Retry};
 use super::*;
 use crate::terminal_host_runtime::HostPanicLog;
+use cmux_threads::work::{Lane, Priority};
 
 impl Mux {
     /// The owner's panic log for its terminal hosts' crash sidecars.
@@ -15,9 +17,11 @@ impl Mux {
 }
 
 /// Terminate every host record under `root` for one terminal and
-/// acknowledge its exit sidecar.
+/// acknowledge its exit sidecar. A host that does not accept termination
+/// gets a cleanup retry on `owner`'s work.
 #[cfg(any(unix, windows))]
 pub(super) fn terminate_discovered_terminal_host_in(
+    owner: &Weak<Mux>,
     root: &Path,
     terminal_id: &str,
     incarnation: Option<&str>,
@@ -31,7 +35,7 @@ pub(super) fn terminate_discovered_terminal_host_in(
             && incarnation.is_none_or(|expected| record.incarnation == expected)
             && !terminate_host_record(record.clone(), path.clone(), panic_log)
         {
-            schedule_terminal_host_record_cleanup(record, path, panic_log.cloned());
+            schedule_terminal_host_record_cleanup(owner, record, path, panic_log.cloned());
         }
     }
     pending_terminals::terminate_unadoptable_hosts_in(root, terminal_id);
@@ -91,40 +95,39 @@ pub(super) fn acknowledge_terminal_exit_sidecar(
     acknowledge_exact_terminal_host_exit(&exit_path, &exit, panic_log)
 }
 
+/// Retries the cleanup of a host record that did not accept termination,
+/// with backoff from 25 ms to 5 s, until the host accepts or proves itself
+/// dead: a work retry (`post_mux_retry_from`), no thread per terminal. Each
+/// try's termination wait runs inside `will_block`. Shutdown drops a waiting
+/// try; the next owner's start sweep reconciles the record then.
 #[cfg(any(unix, windows))]
 pub(super) fn schedule_terminal_host_record_cleanup(
+    owner: &Weak<Mux>,
     record: crate::terminal_host_runtime::TerminalHostRecord,
     record_path: std::path::PathBuf,
     panic_log: Option<HostPanicLog>,
 ) {
-    let fallback = (record.clone(), record_path.clone(), panic_log.clone());
-    let name = format!("terminal-clean-{}", record.terminal_id);
-    if std::thread::Builder::new()
-        .name(name)
-        .spawn(move || retry_terminal_host_record_cleanup(record, record_path, panic_log))
-        .is_err()
-    {
-        // Thread exhaustion cannot turn a durable close into a permanent
-        // orphan. The request may remain blocked, but the exact host keeps
-        // being reconciled until it accepts termination or proves itself dead.
-        let (record, record_path, panic_log) = fallback;
-        retry_terminal_host_record_cleanup(record, record_path, panic_log);
-    }
-}
-
-#[cfg(any(unix, windows))]
-pub(super) fn retry_terminal_host_record_cleanup(
-    record: crate::terminal_host_runtime::TerminalHostRecord,
-    record_path: std::path::PathBuf,
-    panic_log: Option<HostPanicLog>,
-) {
+    let terminal_id = record.terminal_id.clone();
     let mut delay = Duration::from_millis(25);
-    loop {
-        crate::request_path::sleep(delay);
-        if cleanup_terminal_host_record(&record, &record_path, panic_log.as_ref()) {
-            return;
-        }
-        delay = (delay * 2).min(Duration::from_secs(5));
+    let posted = mux_work::post_mux_retry_from(
+        owner,
+        delay,
+        Priority::BestEffort,
+        Lane::System,
+        move |_| {
+            if cmux_threads::work::will_block(|| {
+                cleanup_terminal_host_record(&record, &record_path, panic_log.as_ref())
+            }) {
+                return Retry::Done;
+            }
+            delay = (delay * 2).min(Duration::from_secs(5));
+            Retry::After(delay)
+        },
+    );
+    if posted.is_err() {
+        eprintln!(
+            "cmux-tui: no cleanup retry for the host of terminal {terminal_id}: shutting down"
+        );
     }
 }
 

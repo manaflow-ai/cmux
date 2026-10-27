@@ -246,10 +246,11 @@ public struct MobileWorkspaceAggregation: Sendable {
         var result: [MobileWorkspaceGroupPreview] = []
         for macID in orderedMacIDs {
             guard let state = statesByMac[macID] else { continue }
+            // A Mac that lists one workspace twice keeps its first row.
             let remoteWorkspaceIDByLocalID = Dictionary(
-                uniqueKeysWithValues: state.workspaces.map { workspace in
+                state.workspaces.map { workspace in
                     (workspace.id, workspace.remoteWorkspaceID ?? workspace.id)
-                }
+                }, uniquingKeysWith: { first, _ in first }
             )
             for group in state.groups {
                 let remoteGroupID = group.remoteGroupID ?? group.id

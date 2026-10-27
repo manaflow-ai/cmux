@@ -293,6 +293,7 @@ impl Mux {
             let Some(root) = root else { return };
             let panic_log = self.host_panic_log();
             terminate_discovered_terminal_host_in(
+                &self.work_owner(),
                 &root,
                 terminal_id,
                 incarnation,
