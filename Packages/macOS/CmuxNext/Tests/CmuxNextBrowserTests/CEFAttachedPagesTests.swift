@@ -261,7 +261,7 @@ import Testing
 
     // MARK: The shim
 
-    @Test func theShimsAttachCallNeedsTheFeatureForkAPI33AndAnInProcessShim() throws {
+    @Test func theShimsAttachCallNeedsTheFeatureForkAPI36AndAnInProcessShim() throws {
         AttachSpy.calls = []
         let shim = try CEFShimLibrary.resolving(AttachSpy.symbol)
         let policy = CEFLayerHosting.Policy(attachesViews: true)
@@ -273,7 +273,7 @@ import Testing
         let pointer = Unmanaged.passUnretained(parent).toOpaque()
         #expect(AttachSpy.calls.map(\.browser) == [9, AttachSpy.refusedBrowser])
         #expect(AttachSpy.calls.allSatisfy { $0.parent == pointer })
-        // Fork API 32: the shim exports the call, but the fork has no binding and refuses every page.
+        // Fork API 35 (056's widget hosting) and earlier: no fork binding, so the shim refuses every page.
         let older = try #require(CEFLayerHosting.Fork(shim: shim, apiVersion: CEFLayerHosting.attachViewForkAPI - 1, policy: policy))
         #expect(older.attachView == nil)
         let off = try #require(CEFLayerHosting.Fork(shim: shim, apiVersion: CEFLayerHosting.attachViewForkAPI,

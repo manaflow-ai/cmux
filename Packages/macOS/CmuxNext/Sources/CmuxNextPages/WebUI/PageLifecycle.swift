@@ -34,61 +34,14 @@ package protocol PageLifecycleTarget {
     /// - Returns: False when the page refused (it shows after all): it keeps its state, and a later
     ///   pass tries again.
     func discard() -> Bool
+    /// The page holds an engine page now (its document ran and was not discarded): only then does a
+    /// discard free memory, so only then does the app's urgent pass rank it (``PageLifecycle/urgentCandidates()``).
+    var holdsEnginePage: Bool { get }
 }
 
-/// A ``PageWebView`` as the lifecycle drives it. A hide keeps the page's last frame, encoded
-/// (``PageWebView/keepHideSnapshot(encoder:)``), so a discard has nothing left to ask or encode.
-/// Freeze and thaw are the view's (``PageWebView/freezePage()``: Chromium SetPageFrozen, WebKit
-/// hidden in its window); the discard ends the document and thaw brings a discarded page back behind
-/// that picture (PageWebView+Discard.swift).
-package struct PageWebViewLifecycle: PageLifecycleTarget {
-    package private(set) weak var view: PageWebView?
-    private let encoder: PageSnapshotEncoder
-
-    /// - Parameters:
-    ///   - view: The page.
-    ///   - encoder: Encodes its hide-time frame as it comes, and decodes it for the cover a discarded
-    ///     page shows when it comes back (the app's one, on its lanes).
-    package init(_ view: PageWebView, encoder: PageSnapshotEncoder) {
-        self.view = view
-        self.encoder = encoder
-    }
-
-    package var object: AnyObject? { view }
-
-    package var lifecycleGroup: String? { view?.descriptor.processGroup.rawValue }
-
-    /// Loading while its document loads (``PageLoadState``: Chrome's kLoading reads the
-    /// page's loading state, which also ends while the page is hidden), focused while it holds its
-    /// window's first responder, the reasons of ``PageKeepReasons``: its document's
-    /// `cmux.page.keepAlive` and the host's holds (a confirmation sheet, a menu or popup, a drop it
-    /// reads, Web Inspector, dictation), each of which tells the lifecycle when it starts or ends, and
-    /// preload while it is the pool's parked spare (the pool owns its life; a claimed pooled host is a
-    /// page like any other).
-    package var lifecycleKeepReasons: Set<PageLifecyclePlanner.KeepReason> {
-        guard let view else { return [] }
-        var reasons = view.keepReasons.current
-        if view.isParkedSpare { reasons.insert(.preload) }
-        if view.loadState.isLoading { reasons.insert(.loading) }
-        if let responder = view.window?.firstResponder as? NSView, responder.isDescendant(of: view) { reasons.insert(.focused) }
-        return reasons
-    }
-
-    package func reportsReasonChanges(to lifecycle: PageLifecycle) {
-        view?.loadState.lifecycle = lifecycle
-        view?.keepReasons.lifecycle = lifecycle
-    }
-
-    package func keepHideSnapshot() { view?.keepHideSnapshot(encoder: encoder) }
-    package func dropHideSnapshot() { view?.hideState.drop() }
-    package func freeze() -> Bool { view?.freezePage() ?? false }
-    /// Thaws a frozen page, or brings a discarded one back; each step does nothing on a page in the
-    /// other state.
-    package func thaw() {
-        view?.thawPage()
-        view?.restoreDiscardedPage()
-    }
-    package func discard() -> Bool { view?.discardPage(decoder: encoder) ?? false }
+extension PageLifecycleTarget {
+    /// A target with no engine of its own to ask (a test page) counts as holding one.
+    package var holdsEnginePage: Bool { true }
 }
 
 /// The page lifecycle controller (plans/cmux-next/chrome-parity/p13-webui.md 3.C): it takes each
@@ -122,6 +75,8 @@ package final class PageLifecycle {
         var hiddenAt: Duration?
         /// The reasons its owners set (``setKeepReasons(_:for:)``).
         var reasons: Set<KeepReason> = []
+        /// A call thawed the page (``thawForCall(_:)``): it keeps ``KeepReason/pageCall`` until then.
+        var callThawEnds: Duration?
     }
 
     private let planner: PageLifecyclePlanner
@@ -142,6 +97,13 @@ package final class PageLifecycle {
     package private(set) var nextPassAt: Duration?
     /// Runs after each pass (debug trace and tests).
     package var didRunPass: (@MainActor () -> Void)?
+    /// The app's one urgent pass over tabs, chats and pages takes the critical memory event's discard
+    /// (feature `memoryUrgentDiscardRanking`, set by the browser hibernation): this lifecycle then
+    /// discards nothing until one urgent pace interval after the pressure turns critical, and after
+    /// each urgent pass (``urgentPassDidRun()``). Freezes and thaws go on as before.
+    package var leavesCriticalEventToUrgentPass = false
+    /// Until when (the scheduler's uptime) a pass discards nothing (``leavesCriticalEventToUrgentPass``).
+    package private(set) var noDiscardBefore: Duration?
     /// The page that tab `key` shows, nil for a tab with no cmux page; the composition root sets it
     /// (page tabs now, agent chats in p13-webui-038). Read by ``tabDidShow(_:)`` and ``tabDidHide(_:)``.
     package var pageOfTab: @MainActor (String) -> (any PageLifecycleTarget)? = { _ in nil }
@@ -190,6 +152,7 @@ package final class PageLifecycle {
         var entry = adopt(key, page: page, object: object)
         entry.state = .active
         entry.hiddenAt = nil
+        entry.callThawEnds = nil
         entries[key] = entry
         hiddenKeys.remove(key)
         if mostRecentlyHidden == key { mostRecentlyHidden = nil }
@@ -264,12 +227,41 @@ package final class PageLifecycle {
         if dropped, hiddenKeys.contains(key) { arm(at: uptime()) }
     }
 
+    /// A call that needs `page` running reached it frozen (``PageFrozenPush/thawsFirst``): it thaws now
+    /// and counts as hidden. For one recently visible window it keeps ``KeepReason/pageCall``, so a pass
+    /// armed before does not freeze it under the call; the page reports a longer call that waits for its
+    /// answer itself. The pass at the window's end freezes it again, as Chrome refreezes once no
+    /// `CannotFreezeReason` holds (components/performance_manager/freezing/freezing_policy.cc). Its hidden
+    /// time stays: a call neither makes it the most recently used page nor moves its discard.
+    package func thawForCall(_ page: AnyObject) {
+        guard let key = keys[ObjectIdentifier(page)], var entry = entries[key], entry.target.object === page,
+              entry.state == .frozen else { return }
+        let ends = uptime() + .seconds(planner.timing.visibleWindow(energySaver: conditions.energySaver))
+        entry.state = .hidden
+        entry.callThawEnds = ends
+        entries[key] = entry
+        entry.target.thaw()
+        arm(at: ends)
+    }
+
     /// The memory pressure, Energy Saver, or `browser.hibernation` and its companions changed (the
-    /// app's browser hibernation passes on what it follows): a pass looks again.
+    /// app's browser hibernation passes on what it follows): a pass looks again. When pressure turns
+    /// critical and ``leavesCriticalEventToUrgentPass`` is set, that pass discards nothing: the event's
+    /// discard is the app's urgent pass (``urgentCandidates()``, ``urgentDiscard(_:)``).
     package func setConditions(_ conditions: PageLifecyclePlanner.Conditions) {
         guard conditions != self.conditions else { return }
+        let turnsCritical = conditions.pressure == .critical && self.conditions.pressure != .critical
         self.conditions = conditions
+        if turnsCritical, leavesCriticalEventToUrgentPass { holdDiscards() }
+        if conditions.pressure != .critical { noDiscardBefore = nil }
         if !hiddenKeys.isEmpty { arm(at: uptime()) }
+    }
+
+    // MARK: Urgent pass (the app's critical memory event, O(hidden pages))
+
+    /// Discards wait one urgent pace interval from now.
+    private func holdDiscards() {
+        noDiscardBefore = uptime() + .seconds(planner.timing.urgentPace.interval)
     }
 
     // MARK: Pass (at a deadline, O(hidden pages))
@@ -280,28 +272,24 @@ package final class PageLifecycle {
         nextPassAt = nil
         deadline.cancel()
         let now = uptime()
-        var pages: [PageLifecyclePlanner.Page] = []
-        pages.reserveCapacity(hiddenKeys.count)
-        var gone: [String] = []
-        for key in hiddenKeys {
-            guard let entry = entries[key], entry.target.object != nil, let hiddenAt = entry.hiddenAt else {
-                gone.append(key)
-                continue
-            }
-            pages.append(PageLifecyclePlanner.Page(
-                key: key, group: entry.target.lifecycleGroup, hiddenFor: Self.seconds(now - hiddenAt),
-                keepReasons: entry.reasons.union(entry.target.lifecycleKeepReasons),
-                isDiscarded: entry.state == .discarded))
-        }
-        for key in gone { remove(key) }
+        let (pages, callThawEnds) = hiddenPages(at: now)
         let plan = planner.plan(pages, conditions: conditions)
         mostRecentlyHidden = nil
+        if let hold = noDiscardBefore, now >= hold { noDiscardBefore = nil }
         var refused = false
+        var held = false
         for decision in plan.decisions.values {
-            if !perform(decision) { refused = true }
             if decision.keptBy.contains(.mostRecentlyUsed) { mostRecentlyHidden = decision.key }
+            // The urgent pass took the critical event's discard: this one waits (freezes go on).
+            if noDiscardBefore != nil, decision.state == .discarded, entries[decision.key]?.state != .discarded {
+                held = true
+                continue
+            }
+            if !perform(decision) { refused = true }
         }
         if let next = plan.nextCheck { arm(at: now + .seconds(next)) }
+        if let callThawEnds { arm(at: callThawEnds) }
+        if held, let hold = noDiscardBefore { arm(at: hold) }
         // A refused discard is due still: the next pass tries again at the discard pace, as Chrome's
         // discarder takes a tab it could not discard on its next pass.
         if refused { arm(at: now + .seconds(planner.timing.pace(at: conditions.pressure).interval)) }
@@ -343,6 +331,35 @@ package final class PageLifecycle {
 
     private func uptime() -> Duration { deadlines.uptime }
 
+    /// The hidden pages, discarded ones included, as the planner takes them at `now`, and the earliest
+    /// end of a call's thaw still to come (``thawForCall(_:)``); pages whose view went away are forgotten.
+    private func hiddenPages(at now: Duration) -> (pages: [PageLifecyclePlanner.Page], callThawEnds: Duration?) {
+        var pages: [PageLifecyclePlanner.Page] = []
+        pages.reserveCapacity(hiddenKeys.count)
+        var gone: [String] = []
+        var callThawEnds: Duration?
+        for key in hiddenKeys {
+            guard let entry = entries[key], entry.target.object != nil, let hiddenAt = entry.hiddenAt else {
+                gone.append(key)
+                continue
+            }
+            var reasons = entry.reasons.union(entry.target.lifecycleKeepReasons)
+            if let ends = entry.callThawEnds {
+                if ends > now {
+                    reasons.insert(.pageCall)
+                    callThawEnds = min(callThawEnds ?? ends, ends)
+                } else {
+                    entries[key]?.callThawEnds = nil
+                }
+            }
+            pages.append(PageLifecyclePlanner.Page(
+                key: key, group: entry.target.lifecycleGroup, hiddenFor: Self.seconds(now - hiddenAt),
+                keepReasons: reasons, isDiscarded: entry.state == .discarded))
+        }
+        for key in gone { remove(key) }
+        return (pages, callThawEnds)
+    }
+
     /// `key`'s entry with `page` as its target; a new page object starts a fresh entry and reports
     /// its reason changes from now on.
     private func adopt(_ key: String, page: any PageLifecycleTarget, object: AnyObject) -> Entry {
@@ -369,5 +386,33 @@ package final class PageLifecycle {
     private static func seconds(_ duration: Duration) -> Double {
         let parts = duration.components
         return Double(parts.seconds) + Double(parts.attoseconds) / 1e18
+    }
+}
+
+// The app's one urgent pass over tabs, chats and pages (``UrgentDiscardRanker/run(_:)``) ranks this
+// lifecycle's hidden pages with the others, O(hidden pages).
+extension PageLifecycle: UrgentDiscardOwner {
+    /// The hidden pages the urgent pass may discard (``PageLifecyclePlanner/urgentCandidates(_:conditions:)``)
+    /// whose discard frees an engine page (``PageLifecycleTarget/holdsEnginePage``).
+    package func urgentCandidates() -> [UrgentDiscardRanker.Candidate] {
+        planner.urgentCandidates(hiddenPages(at: uptime()).pages, conditions: conditions)
+            .filter { entries[$0.key]?.target.holdsEnginePage == true }
+    }
+
+    /// The urgent pass chose hidden page `key`: it is discarded now, from the hide-time picture and
+    /// state, with no call into the page and no lifecycle pass. False for a page that is shown, already
+    /// discarded or unknown, or that refused.
+    package func urgentDiscard(_ key: String) -> Bool {
+        guard var entry = entries[key], hiddenKeys.contains(key), entry.target.object != nil,
+              entry.state == .hidden || entry.state == .frozen, entry.target.discard() else { return false }
+        entry.state = .discarded
+        entries[key] = entry
+        return true
+    }
+
+    /// The urgent pass ran: this lifecycle's own discards wait one urgent pace interval from now.
+    package func urgentPassDidRun() {
+        holdDiscards()
+        if !hiddenKeys.isEmpty, let hold = noDiscardBefore { arm(at: hold) }
     }
 }

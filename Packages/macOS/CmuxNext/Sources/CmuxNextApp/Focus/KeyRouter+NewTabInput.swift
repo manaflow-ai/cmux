@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextFocusUI
 import CmuxNextAgentPane
 import CmuxNextWakeups
 
@@ -20,7 +21,8 @@ import CmuxNextWakeups
 @MainActor
 final class NewTabInputCoordinator {
     weak var router: KeyRouter?
-    private var buffers: [Int: Entry] = [:]
+    /// The router's typing keys come here only while some window holds keys (``KeyRouterMode/newTabCapture``).
+    private var buffers: [Int: Entry] = [:] { didSet { router?.modes.set(.newTabCapture, !buffers.isEmpty) } }
     /// The longest a key may wait for the New Tab field. Its readiness normally comes within one
     /// page render; past this the field (or whatever has focus) takes the keys directly.
     var holdLimit: Duration = .seconds(2)

@@ -22,6 +22,7 @@ public final class LaunchMarkView: NSView {
     public override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         layer?.masksToBounds = false
         mark.opacity = 0
         mark.shadowOffset = .zero
@@ -71,13 +72,15 @@ public final class LaunchMarkView: NSView {
         }
     }
 
+    // visibility-walk-allow: it only invalidates; AppKit runs updateLayer only for a view it draws, so a hidden mark costs one flag
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        needsDisplay = true
+        needsDisplay = true // invalidate: the appearance changed; the colors resolve again.
     }
 
     /// Resolves the mark in with `style` (`Motion.revealLaunchMark`).
     public func reveal(_ style: LaunchMarkStyle = LaunchMarkStyle.tunable.value) {
+        // sync-layout: revealLaunchMark animates the mark's layers from the paths layout() sets.
         layoutSubtreeIfNeeded()
         revealedStyle = style
         Motion.panes.revealLaunchMark(style, mark: mark, outline: outline, body: body)

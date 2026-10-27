@@ -11,7 +11,7 @@ public import SwiftUI
 public struct ChiefMemoryInspectorView: View {
     @Bindable var model: ChiefMemoryInspectorModel
 
-    /// The view of `model`; it reads the memory when it appears.
+    /// The view of `model`; it reads the memory when it first appears (``ChiefMemoryInspectorModel/readFirst()``).
     public init(model: ChiefMemoryInspectorModel) {
         self.model = model
     }
@@ -30,7 +30,9 @@ public struct ChiefMemoryInspectorView: View {
                 detailColumn.frame(minWidth: 320)
             }
         }
-        .task { await model.reload() }
+        // A gated page tab appears again on each show (`VisibilityGatedHostingView`): the memory is read
+        // once, and again on the Refresh button.
+        .task { await model.readFirst() }
     }
 
     /// The id of the delete dialog's Delete button.
@@ -41,6 +43,14 @@ public struct ChiefMemoryInspectorView: View {
         CmuxDialogSpec(title: ChiefMemoryStrings.deleteTitle, lines: [ChiefMemoryStrings.deleteMessage],
                        buttons: [.cancel(), CmuxDialogButton(id: deleteButton, title: ChiefMemoryStrings.deleteConfirm, role: .destructive)],
                        identifier: "chief-memory.delete")
+    }
+
+    /// Starts one of the model's calls for the person's click, Return or Cmd-Z; the model shows the answer
+    /// when the call resumes.
+    private func start(_ call: @escaping @MainActor (ChiefMemoryInspectorModel) async -> Void) {
+        let model = model
+        // main-hop-allow: the person's inspector action, userBlocking rest (p06 rule 2): every model call is main-actor async over the brain's inspector API (ChiefMemorySource, a socket call off main); this task only starts it
+        Task { await call(model) }
     }
 
     private var header: some View {
@@ -58,8 +68,8 @@ public struct ChiefMemoryInspectorView: View {
                 .textFieldStyle(.roundedBorder)
                 .focusEffectDisabled()
                 .frame(maxWidth: 260)
-                .onSubmit { Task { await model.search() } }
-            Button { Task { await model.reload() } } label: { Image(systemName: "arrow.clockwise") }
+                .onSubmit { start { await $0.search() } }
+            Button { start { await $0.reload() } } label: { Image(systemName: "arrow.clockwise") }
                 .buttonStyle(.borderless)
                 .disabled(model.busy)
         }
@@ -75,7 +85,7 @@ public struct ChiefMemoryInspectorView: View {
     }
 
     private var list: some View {
-        let open = { (name: String) -> () -> Void in { _ = Task { await model.open(name) } } }
+        let open = { (name: String) -> () -> Void in { start { await $0.open(name) } } }
         let selected = model.trail.last
         let searching = !model.query.trimmingCharacters(in: .whitespaces).isEmpty && !model.hits.isEmpty
         let lines = model.lines
@@ -108,7 +118,7 @@ public struct ChiefMemoryInspectorView: View {
             VStack(alignment: .leading, spacing: 12) {
                 if !model.trail.isEmpty {
                     HStack(spacing: 4) {
-                        Button(ChiefMemoryStrings.back) { Task { await model.back() } }
+                        Button(ChiefMemoryStrings.back) { start { await $0.back() } }
                         Text(model.trail.joined(separator: " › "))
                             .font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
                     }
@@ -123,7 +133,7 @@ public struct ChiefMemoryInspectorView: View {
                     }
                     if !node.children.isEmpty {
                         Text(ChiefMemoryStrings.covers).font(.headline)
-                        let open = { (name: String) -> () -> Void in { _ = Task { await model.open(name) } } }
+                        let open = { (name: String) -> () -> Void in { start { await $0.open(name) } } }
                         let stale = Set(model.status?.stale ?? [])
                         ForEach(node.children) { child in
                             ChiefMemoryLineRow(name: child.name, detail: "L\(child.level)", text: child.text ?? "…",
@@ -153,7 +163,7 @@ public struct ChiefMemoryInspectorView: View {
                 Spacer()
                 if editable, model.status?.editable == true, model.editing != target {
                     Button(ChiefMemoryStrings.edit) { model.beginEdit(target) }
-                    Button(ChiefMemoryStrings.delete, role: .destructive) { Task { await model.delete(target) } }
+                    Button(ChiefMemoryStrings.delete, role: .destructive) { start { await $0.delete(target) } }
                 }
             }
             if model.editing == target {
@@ -164,7 +174,7 @@ public struct ChiefMemoryInspectorView: View {
                 HStack {
                     Spacer()
                     CmuxDialogActionButton(ChiefMemoryStrings.cancel, hint: .escape) { model.cancelEdit() }
-                    CmuxDialogActionButton(ChiefMemoryStrings.save, hint: .command("s")) { Task { await model.saveEdit() } }
+                    CmuxDialogActionButton(ChiefMemoryStrings.save, hint: .command("s")) { start { await $0.saveEdit() } }
                         .disabled(model.busy || model.draft == text)
                 }
             } else {
@@ -175,13 +185,13 @@ public struct ChiefMemoryInspectorView: View {
 
     private var changeList: some View {
         let changes = model.changes
-        let undo = { (id: UInt64) -> () -> Void in { _ = Task { await model.undo(id) } } }
+        let undo = { (id: UInt64) -> () -> Void in { start { await $0.undo(id) } } }
         return VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(ChiefMemoryStrings.changes).font(.headline)
                 Spacer()
                 if changes.contains(where: { !$0.undone }), model.editing == nil {
-                    Button(ChiefMemoryStrings.undo) { Task { await model.undoLast() } }
+                    Button(ChiefMemoryStrings.undo) { start { await $0.undoLast() } }
                         .keyboardShortcut("z", modifiers: .command)
                 }
             }

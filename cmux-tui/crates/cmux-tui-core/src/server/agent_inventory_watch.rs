@@ -4,8 +4,9 @@
 //!
 //! Wire: the `agent-inventory-watch` command and the `agent-inventory-changed`
 //! (background priority) and `agent-inventory-watch-ended` events in
-//! spec/sdk-schema.json. `try_handle` decodes the command as [`Command`], so
-//! check-sdk-schema.py reads its request fields from it (scripts/handler_commands.py).
+//! spec/sdk-schema.json. This module's route ([`ROUTES`], server/routes.rs) decodes
+//! the command as [`Command`], so check-sdk-schema.py reads its request fields from it
+//! (scripts/handler_commands.py).
 
 #[path = "agent_inventory_watch/state.rs"]
 mod state;
@@ -13,12 +14,13 @@ pub(in crate::server) use state::Watches;
 
 use crate::mux::Mux;
 use crate::resource::MachinePublicId;
-use crate::server::MessageWriter;
 use crate::server::agent_inventory::{self, CALL_TIMEOUT, Failure};
 use crate::server::agent_session_attach::agent_session_link::{AcpmuxLink, Inbound, LinkError};
 use crate::server::command_args::present_non_null;
+use crate::server::routes::{Route, RouteLine, RouteName};
+use crate::server::{FrameStage, MessageWriter};
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use std::sync::Arc;
 
 pub(in crate::server) const CAPABILITY: &str = "agent-inventory-watch-v1";
@@ -28,7 +30,7 @@ const FEATURE: &str = "harnessInventoryWatch";
 const WATCH: &str = "_acpmux/harness/inventory/watch";
 const COMMAND: &str = "agent-inventory-watch";
 
-/// The request `try_handle` serves; spec/sdk-schema.json types it.
+/// The request [`handle`] serves; spec/sdk-schema.json types it.
 #[derive(Deserialize)]
 #[serde(tag = "cmd")]
 enum Command {
@@ -54,28 +56,18 @@ enum Dispatch {
 }
 
 /// The `cmd` names this module answers (server/routes.rs).
-pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
-    &[crate::server::routes::Route {
-        names: &[crate::server::routes::RouteName::Exact("agent-inventory-watch")],
-        stage: crate::server::FrameStage::AgentInventoryWatch,
-        entry: |line| try_handle(line.mux, line.client, line.message, line.writer),
-    }];
+pub(in crate::server) const ROUTES: &[Route] = &[Route {
+    names: &[RouteName::Exact(COMMAND)],
+    stage: FrameStage::AgentInventoryWatch,
+    entry: handle,
+}];
 
-pub(in crate::server) fn try_handle(
-    mux: &Arc<Mux>,
-    client: u64,
-    message: &str,
-    writer: &MessageWriter,
-) -> Option<bool> {
-    if !message.contains(COMMAND) {
-        return None;
-    }
-    let Ok(Value::Object(mut fields)) = crate::line_parses::parse::<Value>(message) else {
-        return None;
-    };
-    if fields.get("cmd").and_then(Value::as_str) != Some(COMMAND) {
-        return None;
-    }
+/// The route's typed handler: the line's `cmd` named [`Command`], so it decodes the line
+/// once and answers it. A line whose full decode fails is left to the `Command` parse
+/// (`None`).
+fn handle(line: &RouteLine<'_>) -> Option<bool> {
+    let RouteLine { mux, client, message, writer, .. } = *line;
+    let mut fields = crate::line_parses::parse::<Map<String, Value>>(message).ok()?;
     let id = fields.remove("id");
     let mut admission_receipt = false;
     let result = (|| {

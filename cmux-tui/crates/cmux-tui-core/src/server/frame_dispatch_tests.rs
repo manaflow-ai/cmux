@@ -378,6 +378,87 @@ fn frame_dispatch_a_cancel_must_name_its_request_method() {
     client.closed_with(CallRefusal::CancelPayload { request_id: 3 });
 }
 
+/// While a daemon handoff is pending, a framed request is refused unexecuted
+/// with its line's body (the same `daemon_shutdown_pending` code) as an
+/// ERROR frame (a body with bad parameters gets its line's bad request); it
+/// never runs, and the connection stays up.
+#[test]
+fn frame_dispatch_pending_handoff_refuses_with_the_line_error() {
+    let mut client = Client::granted("pending-handoff");
+    let mux = client.mux.clone();
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    mux.mark_server_lifecycle_ready();
+    mux.begin_daemon_handoff(client.client_id(), DaemonHandoffRequest::unfenced(false)).unwrap();
+
+    let workspaces = mux.with_state(|state| state.workspaces.len());
+    for (request_id, body, name) in [
+        (1, json!({"id": 7, "cmd": "new-workspace", "name": "must-not-exist"}), "new-workspace"),
+        (2, json!({"cmd": "ping"}), "ping"),
+        (3, json!({"id": "c", "cmd": "clear-history", "surface": surface.id}), "clear-history"),
+    ] {
+        let line = client.line_reply(&body);
+        assert_eq!(line["error_code"], json!(DAEMON_SHUTDOWN_PENDING_CODE), "{line}");
+        let (header, framed) = client.frame_reply(request_id, &body);
+        assert_answers(&header, FrameKind::Error, request_id, name);
+        assert_eq!(framed, line);
+    }
+    assert_eq!(
+        client.line_reply(&json!({"id": 4, "cmd": "clear-history", "surface": surface.id}))["error_delivery"],
+        json!("known-not-delivered")
+    );
+    assert_eq!(mux.with_state(|state| state.workspaces.len()), workspaces);
+
+    // Bad parameters fail like their line: a bad request, not a refusal to
+    // retry after the handoff.
+    let bad = json!({"id": 9, "cmd": "read-screen", "surface": "not-a-surface"});
+    let line = client.line_reply(&bad);
+    assert_ne!(line["error_code"], json!(DAEMON_SHUTDOWN_PENDING_CODE), "{line}");
+    let (header, framed) = client.frame_reply(9, &bad);
+    assert_answers(&header, FrameKind::Error, 9, "read-screen");
+    assert_eq!(framed, line);
+
+    // The header check's body parse and the refusal's `Request` parse, per
+    // frame (no resource-envelope probe), and the bad request's `id` read.
+    let parses = mux.ipc_stats().snapshot().parses.frames;
+    assert_eq!((parses.requests, parses.json_parses), (4, 9), "{parses:?}");
+
+    // A failed handoff leaves the connection serving frames.
+    mux.cancel_daemon_handoff(client.client_id());
+    let (header, reply) = client.frame_reply(10, &json!({"cmd": "ping"}));
+    assert_answers(&header, FrameKind::Reply, 10, "ping");
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    assert_eq!(client.finish(), ConnectionEnd::PeerClosed);
+}
+
+/// A client that declared another revision than this daemon's is granted no
+/// frames: its REQUEST frame closes the connection before any parse, and its
+/// lines are served.
+#[test]
+fn api_revision_frames_are_not_granted_at_another_revision() {
+    let mut client = Client::granted("other-revision");
+    let (current, _) = api_revision_wire::identify_fields();
+    let reply = client.line_reply(&json!({
+        "id": 2,
+        "cmd": "set-client-info",
+        "name": "frames",
+        "capabilities": ["ipc-frames-v2"],
+        "api_revision": current + 1,
+    }));
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    let id = client.client_id();
+    assert!(!client.mux.control_clients.supports_capability(id, "ipc-frames-v2"));
+    assert_eq!(client.line_reply(&json!({"id": 3, "cmd": "ping"}))["ok"], json!(true));
+
+    client.send(&request(4, &json!({"cmd": "ping"})));
+    assert!(client.next().is_none(), "the daemon answered an ungranted frame");
+    assert_eq!(
+        client.finish(),
+        ConnectionEnd::BadMessage(ConnectionBadMessage::Wire(
+            cmux_ipc::BadMessage::FramesNotNegotiated
+        ))
+    );
+}
+
 /// `server-stats` `ipc` counts a framed connection like a line one: the
 /// REQUEST frames that arrived and the REPLY frames sent, by kind, the
 /// framed requests and their parses, and a refused frame as a bad message.

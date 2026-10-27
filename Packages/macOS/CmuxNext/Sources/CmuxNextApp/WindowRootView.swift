@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHistory
+import CmuxNextLaunch
 import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextWakeups
@@ -26,13 +27,13 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     let titlebar = TitlebarView()
     /// The window's one material and tint (`WindowBackdrop`).
     let backdropView = WindowMaterialView(frame: .zero)
-    /// Whether Reduce Transparency is on (tests pin it; the host setting
-    /// differs between machines). Internal, not private: the painting itself
-    /// is in `WindowRootView+Surface`.
+    /// Whether Reduce Transparency is on (tests pin it; the host setting differs between machines).
+    /// Internal, not private: the painting itself is in `WindowRootView+Surface`.
     let reduceTransparency: @MainActor () -> Bool
-    /// Sets the window's behind-window blur radius (tests record it).
-    /// Internal for the same reason as `reduceTransparency`.
+    /// Sets the window's behind-window blur radius (tests record it). Internal like `reduceTransparency`.
     let applyWindowBlur: @MainActor (NSWindow, Int) -> Void
+    /// Feature `sidebarSlideHoldsContent`, asked at each slide's start (`WindowRootView+ContentAreaMotion`).
+    let slideHoldsContent: @MainActor () -> Bool
     /// The workspace content: the curved main pane, inset and rounded
     /// (cx-rkgu), or edge to edge.
     let contentHost = MainPaneCardView(frame: .zero)
@@ -91,35 +92,39 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             guard rightPanel !== oldValue else { return }
             oldValue?.removeFromSuperview()
             if let rightPanel { addSubview(rightPanel, positioned: .below, relativeTo: titlebarBandBlocker) }
-            needsLayout = true
+            needsLayout = true // invalidate: another right panel (the guard above) to place.
         }
     }
+    /// The launch picture's regions while the launch builds this view behind it (p08-startup-060); its layout keeps
+    /// each part on its area. The picture's phase owns them.
+    weak var launchPictureRegions: LaunchPictureRegions?
     /// The right sidebar's on-screen width (0 while hidden): the main pane
-    /// is inset by it (`applyMainPane`).
+    /// is inset by it (`applyMainPane`, which marks the root for the window's
+    /// next layout pass; a resize drag lays out once per frame, not per move).
     var rightPanelWidth: CGFloat = 0 {
         didSet {
             guard rightPanelWidth != oldValue else { return }
             applyMainPane()
-            layoutSubtreeIfNeeded()
         }
     }
 
     /// - Parameter sidebar: The window's sidebar.
-    /// - Parameter reduceTransparency: The user's Reduce Transparency
-    ///   setting, read on every theme and display-options change.
-    /// - Parameter applyWindowBlur: Sets the window's behind-window blur
-    ///   radius (the backdrop's ``WindowBackdrop/windowBlurRadius``).
-    /// - Parameter revealDeadlines: Times the collapsed band's close delay (the app's ``MainDeadlineScheduler``).
+    /// - Parameter reduceTransparency: The user's Reduce Transparency setting, read on every theme and display-options change.
+    /// - Parameter applyWindowBlur: Sets the window's behind-window blur radius (the backdrop's ``WindowBackdrop/windowBlurRadius``).
+    /// - Parameter revealDeadlines: Times the collapsed band's close delay and the paint hold's limit (the app's ``MainDeadlineScheduler``).
     /// - Parameter signals: Where display option changes come from (the composition root's ``AppearanceSignals``).
+    /// - Parameter slideHoldsContent: Feature `sidebarSlideHoldsContent` (the app's); on by default.
     init(sidebar: SidebarContainerView,
          reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency },
          applyWindowBlur: @escaping @MainActor (NSWindow, Int) -> Void = { $0.setBackgroundBlurRadius($1) },
          revealDeadlines: MainDeadlineScheduler = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())),
-         signals: AppearanceSignals = DesignSettings.shared.signals) {
+         signals: AppearanceSignals = DesignSettings.shared.signals, slideHoldsContent: @escaping @MainActor () -> Bool = { true }) {
         self.sidebar = sidebar
         collapsedBand = CollapsedBandReveal(deadlines: revealDeadlines)
+        paintHold = PanePaintHold(owner: "window.paint-hold", deadlines: revealDeadlines)
         self.reduceTransparency = reduceTransparency
         self.applyWindowBlur = applyWindowBlur
+        self.slideHoldsContent = slideHoldsContent
         super.init(frame: NSRect(x: 0, y: 0, width: 1100, height: 720))
         wantsLayer = true
         backdropView.frame = bounds
@@ -200,7 +205,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         titleHeight?.constant = minimal ? 0 : Metrics.titlebarHeight
         titlebar.isHidden = minimal
         sidebar.sidebarView.titlebarHeightOverride = minimal ? Metrics.tabStripHeight : Metrics.titlebarHeight
-        needsLayout = true
+        needsLayout = true // invalidate: init, or the token stream (it emits changed tokens only).
     }
 
     /// A view shown in the top row after the traffic lights while
@@ -209,12 +214,13 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// (`TitlebarAccessoryHosting`).
     var titlebarBadge: NSView? {
         didSet {
+            guard titlebarBadge !== oldValue else { return }
             oldValue?.removeFromSuperview()
             if let titlebarBadge {
                 titlebarBadge.translatesAutoresizingMaskIntoConstraints = true
                 addSubview(titlebarBadge, positioned: .above, relativeTo: nil)
             }
-            needsLayout = true
+            needsLayout = true // invalidate: another badge (the guard above) to place.
         }
     }
 
@@ -222,7 +228,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         didSet { if oldValue != showsTitlebarBadge { needsLayout = true } }
     }
     /// The host pressure indicator after the band and the badge (`layoutTitlebarAccessories`).
-    var hostPressureIndicator: NSView? { didSet { oldValue?.removeFromSuperview(); hostPressureIndicator.map { addSubview($0, positioned: .above, relativeTo: nil) }; needsLayout = true } }
+    var hostPressureIndicator: NSView? { didSet { guard hostPressureIndicator !== oldValue else { return }; oldValue?.removeFromSuperview(); hostPressureIndicator.map { addSubview($0, positioned: .above, relativeTo: nil) }; needsLayout = true } }
 
     var onHintGeometryChange: (() -> Void)?
     /// Called from layout when the band's presence changed, so strips under
@@ -236,6 +242,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// window's overlay host. The sidebar's resize band gets a catcher panel
     /// above pages, like a pane divider's hit area.
     func windowDidLayout() {
+        launchPictureRegions?.layout() // the panes' frames are final at the pass's end
         // Before the guard: the band's catcher needs no overlay host.
         (window as? ShellWindow)?.overlayLayer.setSidebarResizeBand(sidebar.resizeBandInWindow)
         guard let window, let host = WindowOverlayHost.existingHost(for: window) else { return }
@@ -294,7 +301,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     var onContentWithdrawn: (() -> Void)?
 
     /// Keeps the outgoing content until an unpainted top page paints.
-    let paintHold = PanePaintHold(owner: "window.paint-hold")
+    let paintHold: PanePaintHold
 
     /// Replaces the shown content. A workspace's view stays in the window, hidden (its controller
     /// keeps it mounted and removes it at teardown), so a switch moves no view out of the window or

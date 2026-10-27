@@ -32,6 +32,7 @@ enum SSHTargetHandlers {
         }
         ActionTargetVisibility.hide("disconnectRemoteTab", in: registry) { invocation in
             guard let target = invocation.target, target.kind == .tab else { return false }
+            // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051) per menu check, no observation
             return context.services.locateTab(target.id).flatMap { tabMachine($0.0, context.services) } == nil
         }
     }

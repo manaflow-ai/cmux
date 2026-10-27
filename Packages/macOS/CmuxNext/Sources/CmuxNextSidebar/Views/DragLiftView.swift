@@ -100,6 +100,7 @@ final class DragLiftView: NSView {
         CGPath(roundedRect: rect, cornerWidth: SidebarStyle.rowCornerRadius, cornerHeight: SidebarStyle.rowCornerRadius, transform: nil)
     }
 
+    // visibility-walk-allow: sets the lifted card's layer colors and its badge's text color only (no layout); it exists only during a drag
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateColors()
@@ -162,6 +163,7 @@ final class DragLiftView: NSView {
         let capStart = liftCap.map { $0.mask.position }
         Motion.withoutAnimation {
             self.frame = frame
+            // sync-layout: the additive springs below read each layer's new position and bounds.
             layoutSubtreeIfNeeded()
         }
         // The cut's fading edge rides on the card's bottom, on the same spring (it moves past the rows when the

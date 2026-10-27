@@ -1,0 +1,121 @@
+{
+  "$schema": "../../../../schemas/oracle/case-v1.schema.json",
+  "corpusVersion": 1,
+  "id": "new-tab",
+  "suite": "e2e",
+  "title": "Instant new tab: keys typed right after Cmd-T all reach the focused New Tab field; after Cmd-W the next Cmd-T keeps every key again, in the first window and in a second one",
+  "priority": "P0",
+  "surface": "cmux-next-native",
+  "source": {"repo": "manaflow-ai/cmux", "ref": "$RUN", "artifact": "$RUN"},
+  "environment": {"viewport": {"width": 1440, "height": 900}},
+  "fixture": {"seed": "e2e-new-tab-v1", "network": "offline", "clock": "fixed", "agent": "mock"},
+  "preconditions": [
+    "private scratch config",
+    "tagged bench build",
+    "no unrelated app instance",
+    "a fresh launch: one window, one workspace, one terminal tab with keyboard focus",
+    "converted from scripts/cmux-next/new-tab-e2e.py (plans/cmux-next/new-tab.md 2.3), which stays for its timing legs; tests/oracle/corpus/e2e/_scripts-094.json links them"
+  ],
+  "requires": ["keys", "gui"],
+  "platforms": ["mac"],
+  "steps": [
+    {
+      "id": "launched",
+      "op": "snapshot",
+      "args": {"facets": ["topology", "focus", "tabs", "webviews", "agents"]},
+      "settleMaxMs": 10000,
+      "note": "the settle lets the first spare page load and park"
+    },
+    {
+      "id": "open-and-type",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["cmd+t", "h", "e", "l", "l", "o"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/topology/tab_count", "predicate": "changed", "maxMs": 5000},
+      "checkpoint": ["turn", "settled"],
+      "settleMaxMs": 5000,
+      "note": "Cmd-T then 'hello' at once: the keys arrive before the page could report ready, so the New Tab key hold keeps them in order"
+    },
+    {
+      "id": "typed",
+      "op": "snapshot",
+      "args": {"facets": ["focus", "tabs", "webviews", "agents"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "close",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["cmd+w"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/topology/tab_count", "predicate": "changed", "maxMs": 5000},
+      "settleMaxMs": 10000,
+      "note": "Cmd-W closes the page; the settle covers the next spare loading"
+    },
+    {
+      "id": "again",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["cmd+t", "h", "e", "l", "l", "o"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/topology/tab_count", "predicate": "changed", "maxMs": 5000},
+      "settleMaxMs": 5000,
+      "note": "a second opening adopts the next spare and keeps every key the same way"
+    },
+    {
+      "id": "typed-again",
+      "op": "snapshot",
+      "args": {"facets": ["focus", "tabs", "webviews", "agents"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "second-window",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["cmd+shift+n"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/windows/count", "equals": 2, "maxMs": 30000},
+      "settleMaxMs": 10000,
+      "note": "the script's cross-window leg: a second window, whose Cmd-T reparents the one spare"
+    },
+    {
+      "id": "window-ids",
+      "op": "cli",
+      "readOnly": true,
+      "args": {"argv": ["--json", "app", "call", "debug.focus"]},
+      "expect": {"outcome": "ok"},
+      "note": "debug.focus lists the window controllers in creation order (WindowManager.controllers), so windows/1/id is the second window; the script takes its debug.key window ids from the same list"
+    },
+    {
+      "id": "open-in-second",
+      "op": "key",
+      "target": {"window": "$step:window-ids#/stdout/windows/1/id"},
+      "args": {"keys": ["cmd+t", "h", "e", "l", "l", "o"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/topology/tab_count", "predicate": "changed", "maxMs": 5000},
+      "settleMaxMs": 5000,
+      "note": "Cmd-T and the keys sent to the second window by id: with no window debug.key picks the launch window, and the reparent never runs"
+    },
+    {
+      "id": "typed-in-second",
+      "op": "snapshot",
+      "args": {"facets": ["windows", "focus", "tabs", "webviews", "agents"]},
+      "settleMaxMs": 5000
+    }
+  ],
+  "invariants": [
+    "focus at typed and typed-again resolves to the new New Tab page (an agentPage target) in the launch window: the field has the keyboard",
+    "focus at typed-in-second resolves to a new New Tab page in the window whose id window-ids read at windows/1, not in the launch window, and the launch window's tabs equal those at typed-again: the cross-window open adopted the spare there",
+    "the New Tab page's draft at typed, typed-again and typed-in-second is sha256 of 'hello': no key was lost or reordered (the script's 'no lost key')",
+    "the turn checkpoint of open-and-type already lists the new tab: the open lands in the key's own turn (instant create)",
+    "every mutation has one receipt or one typed error (I1)",
+    "ids stay stable unless the step created or closed them (I2)"
+  ],
+  "teardown": ["quit the tagged app the run started", "verify its debug socket is gone", "end the tag's daemons (TagTeardown)"],
+  "untested": [
+    "the main-thread time of an adoption (p95 under 16 ms), missed frames and the spare's WebContent footprint: timing, owned by the perf lab (scripts/perf-lab/stories.d/new-tab-page.json and the script's --bench and --bench-open legs), never an oracle value",
+    "whether an opening adopted a spare or was cold, and the spare retarget on a key-window change: debug.new_tab state only, which no facet records",
+    "typing in the same main-actor turn as the open (debug.new_tab open_and_type): debug.key sends one request per keystroke"
+  ]
+}

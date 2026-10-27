@@ -30,7 +30,8 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
     /// The time since the last poll refresh of this generation ended, on the injected clock; nil
     /// before its first, so a start while hidden refreshes on the first show.
     private var sinceLastRefresh: (@MainActor () -> Duration)?
-    private let clock: any Clock<Duration>
+    /// Starts a stopwatch on the injected clock (opened once, in ``init``, so its instants stay typed).
+    private let startStopwatch: @MainActor () -> @MainActor () -> Duration
     private let now: @MainActor () -> Date
     /// The poll's running refresh, which ``stop()`` cancels (that ends its `gh` child). Set from
     /// ``start()`` until ``stop()``; tests read it to await a refresh they stopped.
@@ -63,7 +64,7 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
         self.energy = energy
         self.shown = shown
         self.now = now
-        self.clock = clock
+        startStopwatch = GitHubFeedSource.stopwatches(on: clock)
         nextRefresh = DemandTimer(owner: "GitHubFeedSource.refresh", clock: clock)
         shownObservation = shown?.observe { [weak self] anyShown in self?.shownChanged(anyShown) }
     }
@@ -129,17 +130,19 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
             await refresh()
             guard generation == pollGeneration else { return }
             pollRefreshing = false
-            sinceLastRefresh = Self.stopwatch(clock)
+            sinceLastRefresh = startStopwatch()
             guard isShown else { return }
             // wakeup-allow: periodic GitHubFeedSource.refresh (GitHub has no push for the feed; stretched by the saver, none while no window shows; task 066b moves it to NSBackgroundActivityScheduler)
             nextRefresh.scheduleOnMain(after: currentInterval) { [weak self] in self?.beginRefresh(generation) }
         }
     }
 
-    /// The time since now on `clock`, read later.
-    private static func stopwatch<C: Clock<Duration>>(_ clock: C) -> @MainActor () -> Duration {
-        let start = clock.now
-        return { start.duration(to: clock.now) }
+    /// Starts stopwatches on `clock`: each call reads the time since that call, later.
+    private static func stopwatches<C: Clock<Duration>>(on clock: C) -> @MainActor () -> @MainActor () -> Duration {
+        {
+            let start = clock.now
+            return { start.duration(to: clock.now) }
+        }
     }
 
     /// Clears client-only detail when the signed-in account changes.

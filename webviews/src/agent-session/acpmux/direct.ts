@@ -40,6 +40,7 @@ import { postNative } from "./native";
 import { forgetTail, keptTail, KEPT_EVENTS, readHostTail, rememberReadAhead, rememberTail } from "./tailCache";
 import { readSummaryCheckpoint } from "./changes/turnCheckpointSource";
 import { HandoffClient } from "./handoff/client";
+import type { CheckpointMethod } from "./checkpoints/protocol";
 import { PermissionGroupClient } from "./permissions/client";
 import { cancelledKey, questionFromPermission, summaryLines, type AgentQuestion } from "./question/model";
 import { cancelledArgs, decidedQuestion, QUESTION_RECORD } from "./question/record";
@@ -2233,6 +2234,14 @@ export class AcpmuxDirectClient {
   /// One turn's repository changes: checkpoint `from` against checkpoint `to`.
   gitCheckpointDiff(from: string, to: string): Promise<unknown> {
     return this.git("git.checkpoint.diff", { from, to, include_patch: true });
+  }
+
+  /// The checkpoint feature's requests (checkpoints/protocol.ts `CHECKPOINT_METHODS`): the native
+  /// host owns them, and mock mode's in-page daemon answers them for the selected session, as it
+  /// answers `git.diff`.
+  gitCheckpoint(method: CheckpointMethod, params: Record<string, unknown>): Promise<unknown> {
+    if (this.gitRoute !== "daemon") return postNative(method, params);
+    return this.request(method, { sessionId: this.selectedSessionId, ...params });
   }
 
   private git(

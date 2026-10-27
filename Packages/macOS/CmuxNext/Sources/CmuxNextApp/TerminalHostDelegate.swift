@@ -73,14 +73,14 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
         // main-actor-ok: a right-click resolves one path (a few stat calls), as the click does.
         switch (text ?? session.model.hoveredLink).flatMap({ TerminalLinkResolver.resolve($0, cwd: cwd(of: session), allowsLocalFiles: canOpenLocalFiles) }) {
         case .url(let link)?:
-            let menu = LinkMenu { [weak services] url in
+            let menu = LinkMenu(queries: services.workspaceQueries) { [weak services] url in
                 services?.registry.perform("browser.link.openInNewTab", invocation: ActionInvocation(target: target, arguments: ["url": .string(url.absoluteString)]))
             }
             let rows = menu.linkRows(for: link)
             let more = TerminalLinkMenu.items(for: link, target: target, registry: services.registry) + BrowserProfileLinkMenu.items(for: link, target: target, services: services)
             return (rows, menu.items(rows, link: link) + (rows.isEmpty ? [] : [.separator()]) + more)
         case .file(let file, let isDirectory)?:
-            let menu = LinkMenu(), rows = menu.pathRows(for: file, isDirectory: isDirectory)
+            let menu = LinkMenu(queries: services.workspaceQueries), rows = menu.pathRows(for: file, isDirectory: isDirectory)
             return (rows, menu.items(rows, file: file) + [.separator()])
         case nil: return ([], [])
         }
@@ -145,10 +145,10 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
 
     /// What the click carried: Cmd-Option (`browserProfile.openLink` without a profile: the
     /// palette lists them; a plain Cmd-click uses the workspace's profile), Shift-Command (the
-    /// browser the link setting does not pick) and the clicked tab. Read now: the click is the
-    /// current event only during the delegate call.
+    /// browser the link setting does not pick) and the clicked tab. Read now: the click (or the link menu's
+    /// choice) is the action's event only during the delegate call; a CLI or script open has no modifiers.
     private func linkRequest(_ session: TerminalSession) -> (option: Bool, other: Bool, tab: ActionTargetRef?) {
-        let flags = NSApp.currentEvent?.modifierFlags ?? []
+        let flags = services?.inputTap.actionEvent?.modifierFlags ?? []
         return (flags.contains(.option), LinkRouter.isOtherTarget(flags), services.flatMap { target(of: session, in: $0) })
     }
 

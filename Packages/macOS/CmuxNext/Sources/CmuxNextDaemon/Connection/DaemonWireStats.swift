@@ -139,12 +139,13 @@ public final class DaemonWireStats: Sendable {
         /// Inbound lines by kind; the kinds sum to `linesRead`.
         public var framesRead: [FrameKind: UInt64]
         /// JSON parses of inbound lines by the app, counted where they happen (``WireDecoder`` and
-        /// the `JSONSerialization` reads of attach lines): the transport's envelope, each reply
-        /// type a waiter decodes, each payload type an event or stream line is decoded into. A
-        /// line nobody reads adds none; a line decoded twice adds two.
+        /// the `JSONSerialization` reads of attach lines): the transport's envelope of a line its
+        /// byte scan gives up or of an error reply, each reply type a waiter decodes, each payload
+        /// type an event or stream line is decoded into. A line nobody reads adds none; a line
+        /// decoded twice adds two.
         public var jsonDecodes: UInt64
-        /// Terminal output bytes the app copied: each attach connection byte the line splitter
-        /// copies in and each line it copies out, each `output` payload decoded out of its line
+        /// Terminal output bytes the app copied: each attach connection byte the transport's reader
+        /// copies in and each line it copies out and into its Data, each `output` payload decoded out of its line
         /// (dropped ones too), and each merge of queued chunks into one.
         public var outputBytesCopiedApp: UInt64
         public var connectionsOpened: [Role: UInt64]
@@ -277,13 +278,27 @@ public final class DaemonWireStats: Sendable {
         methodLatency = DaemonMethodLatency(methods: methods)
         self.clock = clock
         let count = Self.stripeCount * Self.stripeWords
-        let raw = UnsafeMutableRawPointer.allocate(byteCount: count * MemoryLayout<UInt64>.stride, alignment: 128)
-        words = raw.initializeMemory(as: UInt64.self, repeating: 0, count: count)
+        // SAFETY: a fresh 128-byte aligned allocation of `count` words, every one initialized to zero here; it
+        // is freed once, in deinit, and never resized.
+        let raw = unsafe UnsafeMutableRawPointer.allocate(byteCount: count * MemoryLayout<UInt64>.stride, alignment: 128)
+        words = unsafe raw.initializeMemory(as: UInt64.self, repeating: 0, count: count)
     }
 
     deinit {
-        words.deinitialize(count: Self.stripeCount * Self.stripeWords)
-        UnsafeMutableRawPointer(words).deallocate()
+        // SAFETY: the allocation of init, `stripeCount * stripeWords` initialized words; nothing else holds
+        // `self` any more, so no slot is in use.
+        unsafe words.deinitialize(count: Self.stripeCount * Self.stripeWords)
+        unsafe UnsafeMutableRawPointer(words).deallocate()
+    }
+
+    /// The counter `index` of `stripe`. Every caller passes a stripe under ``stripeCount`` and an index under
+    /// ``wordCount``, which is at most ``stripeWords``.
+    @inline(__always)
+    private func slot(_ stripe: Int, _ index: Int) -> AtomicPointerSlot {
+        assert(stripe >= 0 && stripe < Self.stripeCount && index >= 0 && index < Self.stripeWords)
+        // SAFETY: stripe * stripeWords + index is under stripeCount * stripeWords (the bounds above), so the
+        // word is inside the allocation, which lives as long as `self`; it is 8-byte aligned (128-byte base).
+        return unsafe AtomicPointerSlot(words + (stripe * Self.stripeWords + index))
     }
 
     /// A recorder for one new transport, on the next stripe.
@@ -294,13 +309,13 @@ public final class DaemonWireStats: Sendable {
 
     @inline(__always)
     private func add(_ stripe: Int, _ index: Int, _ amount: UInt64) {
-        AtomicPointerSlot(words + (stripe * Self.stripeWords + index)).add(amount, ordering: .relaxed)
+        slot(stripe, index).add(amount, ordering: .relaxed)
     }
 
     /// `index` summed over every stripe.
     private func load(_ index: Int) -> UInt64 {
         (0..<Self.stripeCount).reduce(0) { sum, stripe in
-            sum &+ AtomicPointerSlot(words + (stripe * Self.stripeWords + index)).load(ordering: .relaxed)
+            sum &+ slot(stripe, index).load(ordering: .relaxed)
         }
     }
 
@@ -308,14 +323,14 @@ public final class DaemonWireStats: Sendable {
 
     public func snapshot() -> Snapshot {
         func perRole(_ base: Int) -> [Role: UInt64] {
-            Dictionary(uniqueKeysWithValues: Role.allCases.map { ($0, load(base + $0.rawValue)) })
+            Dictionary(Role.allCases.map { ($0, load(base + $0.rawValue)) }, uniquingKeysWith: { first, _ in first })
         }
         return Snapshot(
             bytesRead: load(Counter.bytesRead.rawValue),
             bytesWritten: load(Counter.bytesWritten.rawValue),
             linesRead: load(Counter.linesRead.rawValue),
             linesWritten: load(Counter.linesWritten.rawValue),
-            framesRead: Dictionary(uniqueKeysWithValues: FrameKind.allCases.map { ($0, load(Self.frameBase + $0.rawValue)) }),
+            framesRead: Dictionary(FrameKind.allCases.map { ($0, load(Self.frameBase + $0.rawValue)) }, uniquingKeysWith: { first, _ in first }),
             jsonDecodes: load(Counter.jsonDecodes.rawValue),
             outputBytesCopiedApp: load(Counter.outputBytesCopiedApp.rawValue),
             connectionsOpened: perRole(Self.openedBase),
@@ -331,7 +346,7 @@ public final class DaemonWireStats: Sendable {
     public func resetTraffic() {
         for stripe in 0..<Self.stripeCount {
             for index in 0..<Self.openedBase {
-                AtomicPointerSlot(words + (stripe * Self.stripeWords + index)).store(0, ordering: .relaxed)
+                slot(stripe, index).store(0, ordering: .relaxed)
             }
         }
         methodLatency.reset()

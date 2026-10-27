@@ -14,8 +14,8 @@ import UniformTypeIdentifiers
 /// the system reports for the type, the default first, then Other….
 ///
 /// ```swift
-/// let menu = FileActionsMenu(actions: .init(openInCmux: { opener.openFile($0) },
-///                                           revealInFiles: { files.reveal($0) }))
+/// let menu = FileActionsMenu(apps: WorkspaceFileApps(queries: services.workspaceQueries),
+///                            actions: .init(openInCmux: { opener.openFile($0) }, revealInFiles: { files.reveal($0) }))
 /// menu.items(forFileNamed: "index.html") { url }.forEach(contextMenu.addItem)
 /// ```
 @MainActor
@@ -48,17 +48,26 @@ public final class FileActionsMenu {
     public static var openAsTextTitle: String { FileActionStrings.openAsText }
 
     private let apps: any FileAppsProviding
+    private let appIcon: @MainActor (URL, NSMenuItem) -> Void
     private let actions: Actions
     private let quickLook = QuickLookSource()
 
     /// A menu builder.
     ///
     /// - Parameters:
-    ///   - apps: the Open With seam; the system's apps by default, a fake in tests.
+    ///   - apps: the Open With seam; a fake in tests.
+    ///   - appIcon: sets an Open With row's image to the app's icon (now or when it arrives); nothing by default.
     ///   - actions: the host's cmux actions.
-    public init(apps: any FileAppsProviding = WorkspaceFileApps(), actions: Actions) {
+    public init(apps: any FileAppsProviding, appIcon: @escaping @MainActor (URL, NSMenuItem) -> Void = { _, _ in },
+                actions: Actions) {
         self.apps = apps
+        self.appIcon = appIcon
         self.actions = actions
+    }
+
+    /// A menu builder over the system's apps: Open With rows show each app's icon from `apps`' kept answers.
+    public convenience init(apps: WorkspaceFileApps, actions: Actions) {
+        self.init(apps: apps as any FileAppsProviding, appIcon: { apps.showIcon(of: $0, in: $1) }, actions: actions)
     }
 
     /// The rows for an item named `name`.
@@ -125,24 +134,32 @@ public final class FileActionsMenu {
         submenu.addItem(loading)
         submenu.autoenablesItems = false
         row.submenu = submenu
+        if let kept = self.apps.keptOpenWithList(forFileNamed: name, isDirectory: isDirectory) {
+            fill(submenu, with: kept, resolve: resolve)
+            return row
+        }
         let apps = self.apps
         // task-owner: one LaunchServices lookup; ends when the submenu is filled
         Task { @MainActor in
             let list = await apps.openWithList(forFileNamed: name, isDirectory: isDirectory)
-            submenu.removeAllItems()
-            for (index, app) in list.apps.enumerated() {
-                let title = app.isDefault ? FileActionStrings.defaultApp(app.name) : app.name
-                let item = menuRow(title, nil) { Self.run(resolve) { file in Task { _ = await apps.open([file], withApplicationAt: app.url) } } }
-                let icon = NSWorkspace.shared.icon(forFile: app.url.path)
-                icon.size = NSSize(width: 16, height: 16)
-                item.image = icon
-                submenu.addItem(item)
-                if index == 0, app.isDefault, list.apps.count > 1 { submenu.addItem(.separator()) }
-            }
-            if !list.apps.isEmpty { submenu.addItem(.separator()) }
-            submenu.addItem(menuRow(FileActionStrings.other, nil) { Self.run(resolve) { Self.chooseApp(for: $0, apps: apps) } })
+            self.fill(submenu, with: list, resolve: resolve)
         }
         return row
+    }
+
+    /// Puts `list`'s rows into `submenu`: each app (the default first), then Other….
+    private func fill(_ submenu: NSMenu, with list: OpenWithList, resolve: @escaping @MainActor @Sendable () async -> URL?) {
+        let apps = self.apps
+        submenu.removeAllItems()
+        for (index, app) in list.apps.enumerated() {
+            let title = app.isDefault ? FileActionStrings.defaultApp(app.name) : app.name
+            let item = menuRow(title, nil) { Self.run(resolve) { file in Task { _ = await apps.open([file], withApplicationAt: app.url) } } }
+            appIcon(app.url, item)
+            submenu.addItem(item)
+            if index == 0, app.isDefault, list.apps.count > 1 { submenu.addItem(.separator()) }
+        }
+        if !list.apps.isEmpty { submenu.addItem(.separator()) }
+        submenu.addItem(menuRow(FileActionStrings.other, nil) { Self.run(resolve) { Self.chooseApp(for: $0, apps: apps) } })
     }
 
     private static func run(_ resolve: @escaping @MainActor @Sendable () async -> URL?, _ action: @escaping @MainActor (URL) -> Void) {

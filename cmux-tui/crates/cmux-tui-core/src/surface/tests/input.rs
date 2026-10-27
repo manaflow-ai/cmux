@@ -122,7 +122,7 @@ fn deferred_cell_pixel_responses_run_on_the_bounded_mux_pool() {
 
     let thread_name = thread_name_rx.recv_timeout(Duration::from_secs(1)).unwrap();
     assert!(
-        thread_name.starts_with("mux-deadline-"),
+        thread_name == "mux-deadline",
         "deferred acknowledgement ran on unbounded worker {thread_name:?}"
     );
 }

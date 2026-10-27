@@ -564,6 +564,17 @@ class GeneratedFileTests(unittest.TestCase):
         self.assertIn(".bool(default: true)", swift)
         self.assertIn("expires: nil", swift)
 
+    def test_swift_carries_replaced_keys_for_the_local_override(self):
+        """The App reads each replaced tunable at launch as the feature's local override (p12-perf-process-100), so the
+        Swift handle names its `replaces`; a feature without them keeps the label off."""
+        self.repo.run()
+        swift = self.repo.read(gen.SWIFT_OUT)
+        perf = swift[swift.index("public static let cefLayerHosting = Feature("):]
+        self.assertIn('        runtimeMutable: false,\n        replaces: ["browserResize.layerHosting"]\n    )\n',
+                      perf[:perf.index("\n    )\n") + 7])
+        kill = swift[swift.index("public static let flagsFetch = Feature("):]
+        self.assertNotIn("replaces:", kill[:kill.index("\n    )\n")])
+
     def test_bench_only_features_are_compiled_out_of_shipped_builds(self):
         """A benchOnly handle and its registry slot exist only under DEBUG || CMUX_BENCH_HOOKS, after every
         shipped feature, so a Release registry is dense and keeps the shipped features' indices."""
@@ -607,6 +618,8 @@ class GeneratedFileTests(unittest.TestCase):
         table = rust[rust.index("pub(crate) const TABLE"):rust.index("pub mod feature")]
         self.assertLess(table.index('name: "flagsFetch"'), table.index('name: "terminalHolder"'))
         self.assertIn("process: crate::Process::Both,", table)
+        self.assertIn("kind: crate::Kind::KillSwitch,", table)
+        self.assertIn("kind: crate::Kind::PerfPath,", table)
         self.assertIn("defaults: crate::Defaults { dev: true, nightly: false, release: false },", table)
 
     def test_empty_registry(self):
@@ -653,6 +666,7 @@ class GeneratedFileTests(unittest.TestCase):
             crate.mkdir()
             shutil.copy(repo.root / gen.RUST_OUT, crate / "generated.rs")
             shutil.copy(RUST_LIB, crate / "lib.rs")
+            shutil.copy(RUST_LIB.with_name("hello.rs"), crate / "hello.rs")
             shutil.copy(repo.root / "cmux-tui/rustfmt.toml", crate / "rustfmt.toml")
             fmt = subprocess.run(["rustfmt", "--edition", gen.RUST_EDITION, "--check", "generated.rs"], cwd=crate,
                                  capture_output=True, text=True)
@@ -748,7 +762,7 @@ extension PaneHostView {
         self.assertEqual(stale, [], "every MQ6 seed still names a declared tunable or env read")
         keys = [key for key, _ in rows]
         self.assertIn("motion.pane.holdContent", keys)
-        self.assertIn("CMUX_TUI_TERMINAL_HOST_MODEL", keys)
+        self.assertNotIn("CMUX_TUI_TERMINAL_HOST_MODEL", keys, "terminalHolder replaces the env switch")
 
 
 if __name__ == "__main__":

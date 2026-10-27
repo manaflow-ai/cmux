@@ -45,17 +45,27 @@ public final class MainTurnHistogram: Sendable {
     nonisolated(unsafe) private let words: UnsafeMutablePointer<UInt64> // crash-allow: one fixed allocation; every access after init is an atomic operation (AtomicPointerSlot)
 
     public init() {
-        words = UnsafeMutablePointer<UInt64>.allocate(capacity: Self.wordCount)
-        words.initialize(repeating: 0, count: Self.wordCount)
+        // SAFETY: a fresh allocation of wordCount words, every one initialized to zero here; it is freed once, in
+        // deinit, and never resized.
+        words = unsafe UnsafeMutablePointer<UInt64>.allocate(capacity: Self.wordCount)
+        unsafe words.initialize(repeating: 0, count: Self.wordCount)
     }
 
     deinit {
-        words.deinitialize(count: Self.wordCount)
-        words.deallocate()
+        // SAFETY: the allocation of init, wordCount initialized words; nothing else holds `self` any more.
+        unsafe words.deinitialize(count: Self.wordCount)
+        unsafe words.deallocate()
     }
 
+    /// The word `index`: a bucket (under bucketCount, as bucket(forNanos:) returns and the reads loop over) or the
+    /// maximum (bucketCount).
     @inline(__always)
-    private func slot(_ index: Int) -> AtomicPointerSlot { AtomicPointerSlot(words + index) }
+    private func slot(_ index: Int) -> AtomicPointerSlot {
+        assert(index >= 0 && index < Self.wordCount)
+        // SAFETY: index < wordCount (see above), so the word is inside the allocation, which lives as long as
+        // `self`; allocate aligns it for UInt64.
+        return unsafe AtomicPointerSlot(words + index)
+    }
 
     @inline(__always)
     private var maximum: AtomicPointerSlot { slot(Self.bucketCount) }
@@ -152,6 +162,7 @@ extension MainThreadWatchdog {
     /// `CLOCK_UPTIME_RAW`) to `dispatchedNanos`, the uptime stamp its dispatch took (the turn meter's
     /// input span begins there), so time spent behind an earlier event's handler counts. An event counts
     /// once: one no newer than the newest counted (a held key replayed, a chord re-sent) counts nothing.
+    /// It is also the person's activity for `hang.over250.per_hour` (``MainThreadFieldMetrics``).
     /// Main thread; a timestamp of 0 (no OS time) counts nothing.
     // perf-hot: 1us frame-tick
     public func noteInputDispatch(eventTimestamp: Double, dispatchedNanos: UInt64) {
@@ -159,6 +170,7 @@ extension MainThreadWatchdog {
               event > newestQueuedInputNanos.load(ordering: .relaxed) else { return }
         newestQueuedInputNanos.store(event, ordering: .relaxed)
         inputQueueHistogram.record(nanos: dispatchedNanos > event ? dispatchedNanos - event : 0)
+        fieldMetrics.inputArrived(atNanos: event)
     }
 
     /// `debug.hangs` `turn_histogram`: the bucket edges in microseconds, then `main_turn` and

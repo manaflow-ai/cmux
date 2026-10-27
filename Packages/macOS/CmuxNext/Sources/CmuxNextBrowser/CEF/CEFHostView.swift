@@ -20,7 +20,13 @@ final class CEFHostView: NSView {
         didSet {
             guard occlusionRects != oldValue else { return }
             postGeometryChange()
+            for case let page as ChromiumHostPageView in subviews { showOcclusion(in: page) }
         }
+    }
+
+    /// Host mode: `page`'s cursor leaves out the native UI over the page, as the page window does.
+    func showOcclusion(in page: ChromiumHostPageView) {
+        page.cursorHoles = occlusionRects.map { convert($0, to: page) }
     }
     /// The shown page's own background (`CEFTab.pageBackdropColor`). While
     /// the window live-resizes, this view fills with it instead of the pane
@@ -64,7 +70,7 @@ final class CEFHostView: NSView {
         layerHosting.view = self
         // The page window ordered in or out for a widget: the fork places it over this view now.
         pageWindowWidgets.changed = { [weak self] in self?.childWindowPage.pagesNeedUpdate(force: true) }
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         Self.registerMotionSampler()
         #endif
     }
@@ -317,6 +323,6 @@ final class CEFTabContentView: NSView, PaneMotionSettling {
         } else if tab?.deviceEmulation?.fit == nil, let current {
             current.removeFromSuperview()
         }
-        needsLayout = true
+        needsLayout = true // invalidate: a new emulation (`applyEmulation`'s change check) moves the page to its fit
     }
 }

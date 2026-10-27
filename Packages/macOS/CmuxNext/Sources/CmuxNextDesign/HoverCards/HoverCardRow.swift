@@ -214,6 +214,7 @@ public final class HoverCardRowView: NSView {
 
     /// A store repaint with no new theme (a machine color picked while the card shows) reaches
     /// the row only through this hook.
+    // visibility-walk-allow: color stores only (a tint, four text colors, the accessory's layer colors), no layout or text measure; a row exists only in a shown card
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()
@@ -246,7 +247,7 @@ public final class HoverCardAccessoryView: NSView {
         didSet {
             guard accessory != oldValue else { return }
             invalidateIntrinsicContentSize()
-            needsLayout = true
+            needsLayout = true // invalidate: another mark (the guard above): new paths and percentage frame.
             percentLabel.stringValue = accessory?.label ?? ""
             percentLabel.isHidden = accessory?.label == nil
             applyColors()
@@ -350,7 +351,7 @@ public final class HoverCardAccessoryView: NSView {
             }
             percentLabel.textColor = Palette.textSecondary
         }
-        needsLayout = true
+        // No layout: `layout()` places the paths and the percentage from the mark, never from a color.
     }
 }
 
@@ -404,6 +405,7 @@ public final class HoverCardGalleryHost: NSView, ThemeResponsive {
         recolor()
     }
 
+    // visibility-walk-allow: DEBUG gallery host only, shown in the gallery's own window; it recolors one card body as the panel does
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         recolor()

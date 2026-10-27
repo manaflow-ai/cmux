@@ -119,7 +119,7 @@ fn classify_local_peer(
     LocalPeer::Other
 }
 
-fn peer_pid(key: &str) -> Option<u32> {
+pub(super) fn peer_pid(key: &str) -> Option<u32> {
     let (pid, version) = key.strip_prefix("token:")?.split_once('.')?;
     let pid = pid.parse().ok()?;
     (!version.is_empty() && pid > 0).then_some(pid)
@@ -301,19 +301,20 @@ pub(super) fn set_scoped_page(mux: &Mux, client: u64, page: String) {
 /// The conversation events a page-bound connection of the Channels page
 /// hears (and `chief-changed`, its Chiefs, and `participant-avatar-changed`,
 /// the pictures it draws); every other page-bound connection hears none.
-static CHANNELS_SCOPED_EVENTS: std::sync::LazyLock<[String; 8]> = std::sync::LazyLock::new(|| {
-    [
-        "conversation-changed",
-        "conversation-typing",
-        "conversation-draft",
-        "conversation-run-changed",
-        "conversation-live",
-        "conversation-inbox-changed",
-        "chief-changed",
-        "participant-avatar-changed",
-    ]
-    .map(String::from)
-});
+pub(super) static CHANNELS_SCOPED_EVENTS: std::sync::LazyLock<[String; 8]> =
+    std::sync::LazyLock::new(|| {
+        [
+            "conversation-changed",
+            "conversation-typing",
+            "conversation-draft",
+            "conversation-run-changed",
+            "conversation-live",
+            "conversation-inbox-changed",
+            "chief-changed",
+            "participant-avatar-changed",
+        ]
+        .map(String::from)
+    });
 
 /// The subscribe events a page relay connection hears (page-router.json
 /// `events` of its page; none for a relay without a page), a page-bound
@@ -374,6 +375,10 @@ pub(super) fn set_hello(
     record.origin.page = page;
     record.origin.verified_app = role == HelloRole::Main && signature_proved;
     sync_lock_caller(record);
+    let verified_process = record.origin.verified_app.then(|| record.origin.peer_key.clone());
+    if let Some(Some(peer_key)) = verified_process {
+        state.reclassify_process(&peer_key);
+    }
     true
 }
 
@@ -567,6 +572,9 @@ pub(super) fn set_install_proved(mux: &Mux, client: u64, install_id: &str) -> bo
     record.origin.verified_app = true;
     record.origin.install_id = Some(install_id.to_string());
     sync_lock_caller(record);
+    if let Some(peer_key) = record.origin.peer_key.clone() {
+        state.reclassify_process(&peer_key);
+    }
     true
 }
 

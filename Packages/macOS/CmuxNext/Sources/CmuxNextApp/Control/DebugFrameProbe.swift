@@ -6,12 +6,14 @@ import CmuxNextWakeups
 
 /// `debug.frames`: display-link frame intervals for the CLI storm bench.
 /// Runs only between `start` and `stop`, and at most `maximumRun` (a client
-/// that never sends `stop` must not keep the display link running).
+/// that never sends `stop` must not keep the display link running). The cap
+/// is read on the probe's own frames, so it needs no timer: the first frame
+/// past it ends the run (idle-wakeups.md, an event before a timer).
 /// A frame interval longer than the display's refresh period means the main
 /// thread missed a vsync.
 ///
 /// Per frame it also keeps the main thread's busy time since the previous
-/// frame (`main_*`: the main run loop's awake time, from two run-loop
+/// frame (`main_*`: the main run loop's awake time, ``MainRunLoopAwakeTime``'s
 /// observers that exist only between `start` and `stop`) and the
 /// `NSView.layout()` calls and window layout passes in it (`LayoutPassGuard`'s
 /// counters), for the app gesture bench (scripts/cmux-next/app-perf.py).
@@ -24,12 +26,12 @@ import CmuxNextWakeups
 /// (``RenderFrameLog/report(raw:)``), which stay readable after `stop`.
 @MainActor
 final class DebugFrameProbe {
-    static let maximumRun: Duration = .seconds(600)
+    static let maximumRun: CFTimeInterval = 600
     private lazy var client = FrameClient(owner: "debug.frames", isAnimation: false, on: .app) { [weak self] tick in
-        self?.tick(tick)
-        return true
+        self?.frame(tick) ?? false
     }
-    private let expiry = DemandTimer(owner: "debug.frames.expiry")
+    /// When the run started (CACurrentMediaTime base, the frames' clock).
+    private var runStart: CFTimeInterval = 0
     private var last: CFTimeInterval = 0
     private var intervals: [Double] = []
     private var expected: Double = 0
@@ -38,11 +40,9 @@ final class DebugFrameProbe {
     private var busy: [Double] = []
     private var viewLayouts: [Int] = []
     private var windowLayouts: [Int] = []
-    /// When the main run loop last woke (0 while it waits), and its awake time since the last frame.
-    private var awakeSince: CFTimeInterval = 0
-    private var awake: CFTimeInterval = 0
+    /// The main run loop's awake time since the last frame.
+    private let awakeTime = MainRunLoopAwakeTime()
     private var layoutMark = (view: 0, window: 0)
-    private var observers: [CFRunLoopObserver] = []
     private let render: RenderFrameLog
 
     /// - Parameter render: per-frame counts of the app's one ``RenderStats`` (AppControl owns it).
@@ -75,16 +75,19 @@ final class DebugFrameProbe {
 
     private func start() {
         clear()
+        runStart = CACurrentMediaTime()
         client.activate()
-        watchMainRunLoop()
-        expiry.scheduleOnMain(after: Self.maximumRun) { [weak self] in self?.stop() }
+        awakeTime.install()
     }
 
     private func stop() {
         client.deactivate()
-        expiry.cancel()
-        for observer in observers { CFRunLoopObserverInvalidate(observer) }
-        observers.removeAll()
+        endRun()
+    }
+
+    /// The run's observers and render arms go; the frame client is idle already or made idle by the caller.
+    private func endRun() {
+        awakeTime.remove()
         render.disarm()
     }
 
@@ -94,47 +97,24 @@ final class DebugFrameProbe {
         viewLayouts.removeAll(keepingCapacity: true)
         windowLayouts.removeAll(keepingCapacity: true)
         last = 0
-        awake = 0
-        awakeSince = CACurrentMediaTime()
+        awakeTime.reset()
         layoutMark = (LayoutPassGuard.shared.viewLayoutCalls, LayoutPassGuard.shared.windowLayoutPasses)
         render.clear()
     }
 
-    /// Two observers of the main run loop: one when it wakes (first of the
-    /// pass, `CFIndex.min`), one before it waits (last, `CFIndex.max`, after
-    /// AppKit's layout and display and the Core Animation commit), so the time
-    /// between them is the main thread's work. Removed by `stop`.
-    private func watchMainRunLoop() {
-        guard observers.isEmpty else { return }
-        let woke = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.afterWaiting.rawValue, true, CFIndex.min) { [weak self] _, _ in
-            MainActor.assumeIsolated { self?.didWake() } // main-proof: an observer of the main run loop
+    /// One frame of the run; false once the run passed ``maximumRun`` (the client goes idle and the run ends).
+    func frame(_ tick: FrameTick) -> Bool {
+        guard tick.timestamp - runStart < Self.maximumRun else {
+            endRun()
+            return false
         }
-        let sleeps = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue, true, CFIndex.max) { [weak self] _, _ in
-            MainActor.assumeIsolated { self?.willWait() } // main-proof: an observer of the main run loop
-        }
-        guard let woke, let sleeps else { return }
-        CFRunLoopAddObserver(CFRunLoopGetMain(), woke, .commonModes)
-        CFRunLoopAddObserver(CFRunLoopGetMain(), sleeps, .commonModes)
-        observers = [woke, sleeps]
+        record(tick)
+        return true
     }
 
-    private func didWake() {
-        awakeSince = CACurrentMediaTime()
-    }
-
-    private func willWait() {
-        guard awakeSince > 0 else { return }
-        awake += CACurrentMediaTime() - awakeSince
-        awakeSince = 0
-    }
-
-    private func tick(_ tick: FrameTick) {
+    private func record(_ tick: FrameTick) {
         if let refresh = tick.refreshInterval { expected = refresh }
-        let now = CACurrentMediaTime()
-        if awakeSince > 0 {
-            awake += now - awakeSince
-            awakeSince = now
-        }
+        let awake = awakeTime.take()
         let guardian = LayoutPassGuard.shared
         render.tick(record: last > 0 && intervals.count < Self.capacity)
         if last > 0, intervals.count < Self.capacity {
@@ -143,7 +123,6 @@ final class DebugFrameProbe {
             viewLayouts.append(guardian.viewLayoutCalls &- layoutMark.view)
             windowLayouts.append(guardian.windowLayoutPasses &- layoutMark.window)
         }
-        awake = 0
         layoutMark = (guardian.viewLayoutCalls, guardian.windowLayoutPasses)
         last = tick.timestamp
     }

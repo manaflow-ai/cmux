@@ -5,6 +5,9 @@ import CmuxNextDaemon
 import CmuxNextLayout
 import Foundation
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// beside_caller in the app (hq-6d right-column design). The control router
 /// picks the pane (ControlCaller): the column right of the agent's chat, or,
@@ -91,11 +94,12 @@ enum AgentBesidePlacement {
                 // The new tab is in the chat's pane, unselected: the chat docks, the tab stays. The
                 // chat stays where it shows; only the tab's pane comes in, from the right.
                 if let lone { content.layoutModel.handOffContent(of: lone.layoutPaneID) }
-                let docked = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+                // A move that drops its callback did not dock.
+                let docked = (try? await withOnceContinuation { (done: OnceContinuation<Bool, OnceContinuationError>) in
                     TabMoves.toNewDockColumn(chat, anchor: anchor, edge: .left, role: .agentChat, services: services) {
                         done.resume(returning: $0)
                     }
-                }
+                }) ?? false
                 guard docked else {
                     content.layoutModel.cancelContentHandoff()
                     return "beside-caller: the chat did not dock (see the app log)"
@@ -146,9 +150,9 @@ enum AgentBesidePlacement {
                 return nil
             }
             let after = newColumn(beside: anchor, in: services.daemon(for: anchor).store)
-            moved = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+            moved = (try? await withOnceContinuation { (done: OnceContinuation<Bool, OnceContinuationError>) in
                 TabMoves.toNewColumn(tab, anchor: anchor, afterColumn: after, services: services) { done.resume(returning: $0) }
-            }
+            }) ?? false
             guard moved else { return "beside-caller: the move into a new column failed (see the app log)" }
             if let clicked { focus(surface, returningTo: from, awayFrom: away, in: clicked, generation: intent, services: services) }
             await revealMoved(tab.id, from: anchor, services: services)

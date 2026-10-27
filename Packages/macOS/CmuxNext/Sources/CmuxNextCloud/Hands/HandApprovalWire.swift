@@ -78,7 +78,7 @@ final class HandApprovalWire {
                 case let .data(bytes): data = bytes
                 @unknown default: continue
                 }
-                let frame = await Task.detached(priority: .utility) { Frame.decode(data) }.value
+                let frame = await Task.detached(priority: Task.currentPriority) { Frame.decode(data) }.value
                 guard generation == self.generation else { throw CancellationError() }
                 switch frame {
                 case .welcome:

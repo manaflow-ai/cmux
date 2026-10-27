@@ -184,7 +184,13 @@ class FakeApp:
         if method != "action.run":
             return {}
         action, target = params.get("action"), params.get("target") or ""
-        pane = self.pane_by_id(target[len("pane:"):]) if target.startswith("pane:") else self.pane_by_id(self.focus["pane"])
+        if target.startswith("pane:"):
+            pane = self.pane_by_id(target[len("pane:"):])
+        elif target.startswith("tab:"):  # the new-tab actions aim at the tab they open beside, in its pane
+            pane = next((p for w in self.workspaces for p in self.panes_of(w)
+                         if any(t["id"] == target[len("tab:"):] for t in p["tabs"])), None)
+        else:
+            pane = self.pane_by_id(self.focus["pane"])
         workspace = self.owner(pane["id"]) if pane else None
         self.log.append((action, workspace and workspace["id"], bool(workspace) and workspace["id"] == self.shown))
         if action == "workspace.newAtBottom":

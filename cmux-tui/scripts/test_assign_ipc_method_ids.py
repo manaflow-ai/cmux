@@ -112,6 +112,16 @@ class LiveSchemaTests(unittest.TestCase):
         for name in ("loopback-data", "loopback-close"):
             self.assertIn("macos", commands[name]["clients"], name)
 
+    def test_typed_swift_command_names_count_as_macos_commands(self) -> None:
+        """Request types migrated to `static let commandName: DaemonCommandName` leave census Q1
+        and still name macos commands; without them nearly every command loses `macos`."""
+
+        names = ASSIGN.swift_typed_commands()
+        self.assertTrue({"chief-inspect", "machine-listening-tcp"} <= names, sorted(names)[:20])
+        commands = live()["commands"]
+        for name in ("chief-inspect", "machine-listening-tcp"):
+            self.assertIn("macos", commands[name]["clients"], name)
+
     def test_independent_commands_are_daemon_queries_or_local_probes(self) -> None:
         """A Cloud, Create or Topology command needs state its connection set before it."""
 
