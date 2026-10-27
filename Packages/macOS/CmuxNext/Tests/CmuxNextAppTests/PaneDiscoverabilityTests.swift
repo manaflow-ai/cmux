@@ -136,12 +136,19 @@ import Testing
         }
     }
 
-    @Test func narrowBrowserBandKeepsTabsAndOverflowActionsAccessible() throws {
+    @Test(arguments: [false, true])
+    func narrowBrowserBandKeepsTabsAndOverflowActionsAccessible(inSplit: Bool) throws {
         let density = DesignSettings.shared.density
         DesignSettings.shared.density = .comfortable
         defer { DesignSettings.shared.density = density }
         let tab = PaneToolbarBottomTests.Pane(tabBar: .top, toolbar: .top, order: .belowToolbar)
         defer { tab.tearDown() }
+        if inSplit {
+            let container = NSView(frame: tab.window.contentLayoutRect)
+            tab.window.contentView = container
+            tab.pane.autoresizingMask = []
+            container.addSubview(tab.pane)
+        }
         let registry = ActionRegistry.standard()
         let target = ActionTargetRef(kind: .pane, id: "sample-pane")
         let pins = ["splitRight", "splitDown", "toggleSplitZoom"]
@@ -150,10 +157,14 @@ import Testing
         toolbar.update(target: "sample-browser", kind: .browser, pinned: pins)
         tab.pane.toolbar = toolbar
         for width: CGFloat in [200, 600, 200] {
-            tab.window.setContentSize(NSSize(width: width, height: 400))
-            tab.pane.frame = tab.window.contentLayoutRect
-            tab.pane.layoutSubtreeIfNeeded()
+            if inSplit {
+                tab.pane.frame = NSRect(x: 0, y: 0, width: width, height: 400)
+            } else {
+                tab.window.setContentSize(NSSize(width: width, height: 400))
+            }
+            tab.window.contentView?.layoutSubtreeIfNeeded()
             toolbar.view.layoutSubtreeIfNeeded()
+            try #require(tab.pane.bounds.width == width, "the toolbar must not widen the pane or window")
             #expect(tab.pane.isBandActive)
             #expect(toolbar.view.frame.width <= width / 2)
             #expect(tab.pane.stripView.tabAvailableWidth > 0, "the browser band must retain a tab viewport")
