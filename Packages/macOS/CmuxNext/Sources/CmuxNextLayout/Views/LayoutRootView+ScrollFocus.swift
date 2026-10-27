@@ -31,6 +31,22 @@ extension LayoutRootView {
         model.focus(pane, source: .scroll)
     }
 
+    /// The pointer moved over the layout: focus-follows-mouse resolves the pane under it on a frame
+    /// interval's first move and once more at the frame, at the latest point (feature `pointerFrameHover`,
+    /// the window's coalescers read when the root joins it, ``hoverFocus``), as Chromium delivers
+    /// rAF-aligned moves (`third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`);
+    /// without them, on every move. With the setting off a move only clears the hovered pane: nothing
+    /// waits for a frame.
+    override public func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        guard event.window === window else { return }
+        guard model.focusFollowsMouse else {
+            focusPaneForPointerHover(at: event.locationInWindow)
+            return
+        }
+        hoverFocus.moved(event)
+    }
+
     /// Hover half of focus-follows-mouse: focuses the pane under
     /// `locationInWindow` (window coordinates) when the pointer has just entered
     /// it and the rules above allow it. Returns the pane it focused.

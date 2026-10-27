@@ -25,7 +25,7 @@ nonisolated extension ScreenGeometry {
         let result = SplitGeometry.layout(root, in: overflow.content, style: style, scale: scale)
         let cells = ScrollAreaGeometry.cells(of: root).map { cell in
             let panes = cell.panes
-            let frames = Dictionary(uniqueKeysWithValues: panes.compactMap { pane in result.panes[pane].map { (pane, $0) } })
+            let frames = Dictionary(panes.compactMap { pane in result.panes[pane].map { (pane, $0) } }, uniquingKeysWith: { first, _ in first })
             return ScrollAreaGeometry.Cell(panes: panes, frame: frames.values.reduce(CGRect.null) { $0.union($1) }, paneFrames: frames)
         }
         let area = ScrollAreaGeometry(id: overflow.id, window: frame, contentWidth: overflow.content.width, panes: root.panes,
