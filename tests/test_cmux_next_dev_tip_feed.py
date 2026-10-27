@@ -170,10 +170,34 @@ check("--write-once" in tip, "tip archives and deltas are write-once, so a feed'
 
 # Move 4 (Leo, 2026-10-26: "And I thought we were incremental..."): tip-dmg builds, signs and
 # notarizes while verify runs; tip, the only R2 writer, still needs verify.
+import json
 import yaml
 jobs = yaml.safe_load(workflow)["jobs"]
 build_job, dmg_job, feed_job = jobs["tip-dmg-build"], jobs["tip-dmg"], jobs["tip"]
-check(build_job["needs"] == ["sign"] and "verify" not in build_job["if"], "tip-dmg-build starts right after sign, alongside verify")
+check(build_job["needs"] == ["sign", "runner"] and "verify" not in build_job["if"]
+      and "needs.runner" not in build_job["if"], "tip-dmg-build starts right after sign, alongside verify")
+# Owned Macs first, Blacksmith macOS last, never a hosted Mac in this repository: attempt 1 takes
+# the runner job's dmg_label (two owned machines free now) and every re-run takes Blacksmith.
+check(build_job["runs-on"] == "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+      "(github.run_attempt == 1 && needs.runner.outputs.dmg_label || 'blacksmith-6vcpu-macos-26') }}",
+      "tip-dmg-build takes an owned pick on attempt 1 only, else Blacksmith macOS")
+runner_job = jobs["runner"]
+pick = next(step for step in runner_job["steps"] if step.get("id") == "pool")
+check(runner_job["outputs"]["dmg_label"] == "${{ steps.pool.outputs.dmg_label }}"
+      and 'label="$(pick 2)"' in pick["run"] and 'glaeda-*) dmg_label="$label" ;;' in pick["run"]
+      and 'label="$(pick 1)"' in pick["run"] and '--jobs "$1"' in pick["run"],
+      "dmg_label is an owned pool with two machines free, so tip-dmg-build never queues behind verify")
+build_steps = [step for step in build_job["steps"] if isinstance(step, dict)]
+fresh = [i for i, step in enumerate(build_steps) if 'rm -rf "$dir"' in str(step.get("run", ""))
+         and '"$RUNNER_TEMP/' in str(step.get("run", ""))]
+removed = [i for i, step in enumerate(build_steps) if "always()" in str(step.get("if", ""))
+           and 'rm -rf "$TIP_WORK_DIR"' in str(step.get("run", ""))]
+check(fresh and removed and fresh[0] < removed[-1] and removed[-1] == len(build_steps) - 1
+      and "github.token" not in json.dumps(build_job),
+      "tip-dmg-build works in a fresh $RUNNER_TEMP directory it removes last, and holds no token")
+check(build_job["steps"][next(i for i, step in enumerate(build_steps) if step.get("name") == "Upload the unsigned tip DMG")]
+      ["with"]["path"] == "${{ env.TIP_WORK_DIR }}/tip-unsigned/*",
+      "the unsigned DMG hand-off to tip-dmg has the same files")
 check(dmg_job["needs"] == ["sign", "tip-dmg-build"] and "verify" not in dmg_job["if"]
       and "needs.tip-dmg-build.outputs.fresh == 'true'" in dmg_job["if"],
       "tip-dmg signs only a DMG tip-dmg-build uploaded for a fresh build, alongside verify")
@@ -678,6 +702,7 @@ check(delta_steps.index("Download the tip DMG") < delta_steps.index("Check the p
 
 # The Linux appcast (scripts/ci/tip_appcast_linux.py) against openssl and a fake signed archive.
 import base64
+import hashlib
 import plistlib
 import zipfile
 spec = importlib.util.spec_from_file_location("tip_appcast_linux", ROOT / "scripts/ci/tip_appcast_linux.py")
@@ -698,7 +723,8 @@ with tempfile.TemporaryDirectory() as tmp:
     check(tip_appcast.sign_file(scalar.to_bytes(32, "little") + nonce + public, str(dmg)) == (signature, public),
           "the old 96-byte Sparkle key signs the same as its seed")
     def write_archive(build, key):
-        archive = tmp / f"app-{build}-{key[:4]}.zip"
+        # A base64 key can hold '/', which is no file name (run 40442893396 failed on one).
+        archive = tmp / f"app-{build}-{hashlib.sha256(key.encode()).hexdigest()[:8]}.zip"
         with zipfile.ZipFile(archive, "w") as zf:
             zf.writestr("cmux NEXT DEV.app/Contents/Info.plist", plistlib.dumps({
                 "CFBundleVersion": build, "CFBundleShortVersionString": f"1.0.0-tip.{build}", "CFBundleName": "cmux NEXT DEV",

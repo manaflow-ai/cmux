@@ -2048,6 +2048,19 @@ class RootRunners(unittest.TestCase):
         self.assertEqual(output.getvalue().strip(), GUI_MINI)
         self.assertEqual(resolve.call_args.kwargs["test_filter"], "cmuxUITests/DogfoodScenarioUITests")
 
+    def test_auto_pick_asks_the_simple_picker_for_the_jobs_it_holds(self):
+        """cmux-next-dev-daily.yml asks --jobs 2 (verify and tip-dmg-build); the default stays 1."""
+        for argv, jobs in (([], 1), (["--jobs", "2"], 2)):
+            with unittest.mock.patch.object(e2e_pool.simple_pool_picker, "observe", return_value="state") as observe, \
+                 unittest.mock.patch.object(e2e_pool.simple_pool_picker, "pick",
+                                            return_value=e2e_pool.simple_pool_picker.Choice(MINI, "free")):
+                output = io.StringIO()
+                with unittest.mock.patch("sys.stdout", output):
+                    e2e_pool.main(["--requested", "auto", "--owned", "1", *argv],
+                                  env={"GITHUB_REPOSITORY": "manaflow-ai/cmux"})
+            self.assertEqual(observe.call_args.kwargs["jobs"], jobs)
+            self.assertEqual(output.getvalue().strip(), MINI)
+
     def test_ui_auto_resolve_selects_gui_label_from_measured_capacity(self):
         """The real resolver keeps a UI tour on the GUI label when minis are busy."""
         load = e2e_pool.PoolLoad(fleet(busy=4))
