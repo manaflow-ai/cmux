@@ -166,7 +166,8 @@ class Job:
 JOBS = {
     "fast-tier": Job(MAC_TOOLCHAIN),
     "fast-tier-cargo": Job(("runner", "rustc", "cargo", "zig", "clang")),
-    "swift-test": Job(MAC_TOOLCHAIN + ("web_bundles",), ("swift_targets", "swift_filter", "mini", "xcode_app"),
+    "swift-test": Job(MAC_TOOLCHAIN + ("web_bundles",), ("swift_targets", "swift_filter", "mini", "xcode_app",
+                                                         "layout_reducer"),
                       SWIFT_TEST, web=True),
     "generated-files": Job(MAC_TOOLCHAIN + ("web_bundles",), ("mini", "xcode_app"), GENERATED, web=True,
                            base_inputs=SETTINGS_BASE),
@@ -179,7 +180,7 @@ JOBS = {
     # own key is a function of TUI_TREE_INPUTS, which the closure keeps). The build
     # settings are the compile step's env (this workflow) and check-cmux-scheme-compile.sh's flags.
     "dev-release-product": Job(("xcode", "sdk", "arch", "recipe", "tui_tree"), product=True),
-    # The unsigned cmux NEXT Nightly app before stamping (dev_release_product_reuse.NIGHTLY_NEXT; nightly.yml wires it in a follow-up):
+    # The unsigned cmux NEXT Nightly app before stamping (scripts/ci/nightly_release_product_reuse.py):
     # the same closure, but keyed by nightly.yml (its build steps and their flags), never cmux-next.yml
     # alone, and by `decide`'s outputs that reach the build (NIGHTLY_PRODUCT_FLAGS): the identity, the
     # icon, the arches and the browser-import variant. The job name is part of the key, so a nightly

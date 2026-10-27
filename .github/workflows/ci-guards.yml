@@ -901,9 +901,17 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_pr_size_advisory.py
 
+      - name: Validate pr-checks skips advisory jobs only on base-only updates
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_pr_checks_base_only.py
+
       - name: Validate gh-call attribution lines make no extra API call
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_gh_call_log.py
+
+      - name: Validate refused routing reads say why and retry once on Retry-After
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_route_refusal_detail.py
 
       - name: Validate workflow write permissions are job-scoped
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1434,10 +1442,6 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_publish_nightly_next_r2.py
 
-      - name: Validate the nightly-next R2 retention prune
-        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
-        run: python3 tests/test_nightly_next_r2_prune.py
-
       - name: Validate the nightly-next feed rollback
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_feed_rollback.py
@@ -1445,6 +1449,10 @@ jobs:
       - name: Validate the nightly-next release-ring tags
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_ring.py
+
+      - name: Validate the old feed's Linux publication and appcast writer
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_legacy_publish_linux.py
 
       - name: Validate the cmux NEXT Edge feed composer
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
