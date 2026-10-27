@@ -549,7 +549,7 @@ fn finish(session: &str, params: &Value) -> Result<Value, RpcError> {
                     .with_data(json!({"reason": "upload.corrupt", "sha256": got})));
             }
         }
-        Ok(json!({"path": path.to_string_lossy()}))
+        Ok(finished(&path, size, upload))
     };
     let declared = match declared(session, upload) {
         Ok(declared) => declared,
@@ -586,7 +586,14 @@ fn finish(session: &str, params: &Value) -> Result<Value, RpcError> {
     }
     std::fs::rename(&part, &path).map_err(|e| failed("cannot finish upload", &path, &e, None))?;
     let _ = std::fs::remove_file(meta);
-    Ok(json!({"path": path.to_string_lossy()}))
+    Ok(finished(&path, size, upload))
+}
+
+/// A finish's answer: the finished file's path and byte count, and the upload it was, all a
+/// sender needs to call it finished (`docs/prompt-uploads.md` section 1b).
+fn finished(path: &Path, size: u64, upload: &str) -> Value {
+    let id = upload_id(upload).unwrap_or_else(|| upload.to_owned());
+    json!({"path": path.to_string_lossy(), "size": size, "uploadId": id})
 }
 
 /// The request's `fileName` and `data` (base64) when they keep the contract, before anything is
