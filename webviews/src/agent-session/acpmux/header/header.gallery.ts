@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample chats and connection errors), not shipped UI.
 // The pane header (ChatHeaderStatus.tsx): tools and connection failures only.
-// Machine and folder stay in the composer chips, never repeated in the header.
+// Where a started chat runs is the Inspector's Environment; the header never repeats it.
 import { agentPaneEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
@@ -43,7 +43,7 @@ export default agentPaneEntry({
       snapshot: chat(finished),
     },
     "long-branch": {
-      note: "A chat with a long branch keeps the same quiet header; location belongs in the composer chips.",
+      note: "A chat with a long branch keeps the same quiet header: no machine, folder or branch label.",
       snapshot: chat(finished, { branch: "leo/inspector-overlay-default-and-hidden-empty-sections-follow-up" }),
     },
     disconnected: {
