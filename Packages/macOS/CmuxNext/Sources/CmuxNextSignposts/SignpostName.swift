@@ -17,7 +17,8 @@
 /// ``launchStartupTask``, ``launchStartupComplete``, ``launchReadDone``, ``stallPaletteOpen``, ``stallIconPickerOpen``,
 /// ``webuiOpen``, ``webuiScheme``, ``stallCreateSurface``, ``daemonStep``, ``webuiAgentPaneStep``, ``createTab``,
 /// ``createWorkspace``, ``stallGhosttyRuntimePhase``, ``switchWorkspace``, ``switchTab``, ``switchPaneFocus``,
-/// ``burstEvent``, ``motionLateCommits``, ``actionPresentedEstimate`` and ``cefMemoryPressureVote`` have an emitter
+/// ``burstEvent``, ``motionLateCommits``, ``actionPresentedEstimate``, ``cefMemoryPressureVote`` and
+/// ``launchActionCatalogFirstMainAccess`` have an emitter
 /// today. The
 /// other cases are **reserved**: the task and owner named on each add the emitter. Until then no build records them,
 /// and no bench or report may quote them. "Ring" on a reserved case gives its record phases and the
@@ -468,6 +469,15 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// the level. Once per change of the coordinator's vote.
     case cefMemoryPressureVote = 86
 
+    // MARK: launch catalog read (emitter: CmuxNextActions `ActionCatalogLaunch`, task p08-startup-092)
+
+    /// The registry's first read of the action catalog on the main thread (`ActionCatalogLaunch.descriptors()`),
+    /// from its start to its return: 0 when the launch warm-up thread had built the catalog, the rest of that build
+    /// when it was still running, the whole build when main claimed it. Message: `outcome=<ready|waited|
+    /// built_on_main>`. Ring: B/E; begin arg0 the outcome (`ActionCatalogMainAccess.Outcome`'s raw value). Once
+    /// per launch.
+    case launchActionCatalogFirstMainAccess = 87
+
     /// The name `os_signpost` records (a compile-time string, as the API requires).
     public var staticName: StaticString {
         switch self {
@@ -557,6 +567,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
         case .actionPresentedEstimate: "action.presented_estimate"
         case .actionPresented: "action.presented"
         case .cefMemoryPressureVote: "cef.memory_pressure_vote"
+        case .launchActionCatalogFirstMainAccess: "launch.action_catalog_first_main_access"
         }
     }
 }

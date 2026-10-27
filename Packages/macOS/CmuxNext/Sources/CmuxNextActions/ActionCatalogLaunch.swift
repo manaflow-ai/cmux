@@ -1,7 +1,6 @@
 import CmuxNextCompat
 import CmuxNextSignposts
 import Dispatch
-import os
 
 /// What the main thread's read of the action catalog for the registry cost at launch: `debug.startup`'s
 /// `action_catalog_main_wait_ms` is ``waitMilliseconds``.
@@ -10,12 +9,13 @@ public nonisolated struct ActionCatalogMainAccess: Sendable, Equatable {
     public nonisolated enum Outcome: UInt64, Sendable, CaseIterable {
         /// The launch warm-up thread had finished the build: the read cost nothing.
         case ready = 1
-        /// The launch warm-up thread was still building: the main thread waited for the rest of that build.
+        /// The launch warm-up thread had claimed the build and not finished it: the main thread's read lasted until
+        /// the catalog was there.
         case waited = 2
         /// No build had started: the main thread built the catalog itself.
         case builtOnMain = 3
 
-        /// The value of the read's signpost `outcome=` field.
+        /// The value of the read's signpost `outcome=` field (its ring `arg0` is the raw value).
         public var name: String {
             switch self {
             case .ready: "ready"
@@ -50,12 +50,15 @@ public nonisolated struct ActionCatalogMainAccess: Sendable, Equatable {
 /// The launch's build of ``ActionCatalog/all``: the warm-up thread runs ``build()`` at the top of `main`,
 /// and the registry takes ``descriptors()`` on the main thread before the first window.
 ///
-/// The catalog is one `swift_once` global: the first reader builds it, any other reader waits for that
-/// build, and with no build started the main thread builds it itself (Chromium's
-/// `base/lazy_instance_helpers.cc` has the same contract). The registry's read is a signpost interval
-/// (`action_catalog.first_main_access`, category `launch`) and is recorded as ``mainAccess``, so a launch
-/// shows whether the main thread waited, the way Chromium's `base/threading/scoped_blocking_call.h` makes a
-/// UI-thread wait visible. Lock-free: two atomics.
+/// The catalog is one `swift_once` global, so whoever reads it first builds it and any other reader waits for
+/// that build. Who builds it is decided by one atomic claim before the read, the way Chromium's
+/// `base/lazy_instance_helpers.cc` claims a lazy instance with a compare-and-swap: ``build()`` claims it for the
+/// warm-up thread and skips the read when main already holds it; the registry's first read claims it for main
+/// when no build has started (``ActionCatalogMainAccess/Outcome/builtOnMain``), and otherwise records the claim
+/// it found: a finished build (``ActionCatalogMainAccess/Outcome/ready``) or one still running, whose rest main
+/// waits for (``ActionCatalogMainAccess/Outcome/waited``). That read is the catalog's
+/// `launch.action_catalog_first_main_access` interval and is recorded as ``mainAccess``, so a launch shows a
+/// main-thread wait the way Chromium's `base/threading/scoped_blocking_call.h` does. Lock-free: two atomics.
 ///
 /// ```swift
 /// let catalog = ActionCatalogLaunch()
@@ -65,17 +68,22 @@ public nonisolated struct ActionCatalogMainAccess: Sendable, Equatable {
 /// ```
 public nonisolated final class ActionCatalogLaunch: Sendable {
     private nonisolated enum Phase: Int {
-        case notStarted = 0, building, built
+        /// Nobody has claimed the build.
+        case notStarted = 0
+        /// The warm-up thread claimed it and is reading the catalog.
+        case building
+        /// The warm-up thread's read returned.
+        case built
+        /// Main claimed it first and read the catalog itself; no other build runs.
+        case claimedByMain
     }
-
-    private static let intervalName: StaticString = "action_catalog.first_main_access"
 
     private let phase = Atomic<Int>(Phase.notStarted.rawValue)
     /// The recorded read: microseconds << 2 | outcome; 0 until the main thread's read.
     private let access = Atomic<UInt64>(0)
     private let read: @Sendable () -> [ActionDescriptor]
     private let uptimeNanoseconds: @Sendable () -> UInt64
-    private let signposter = OSSignposter(subsystem: SignpostCategory.subsystem, category: SignpostCategory.launch.rawValue)
+    private let signposter: Signposter
 
     /// The build of the app's catalog.
     public convenience init() {
@@ -85,45 +93,46 @@ public nonisolated final class ActionCatalogLaunch: Sendable {
     /// - Parameters:
     ///   - read: Reads the catalog (``ActionCatalog/all``; tests pass their own).
     ///   - uptimeNanoseconds: The clock the main thread's read is timed with.
-    init(read: @escaping @Sendable () -> [ActionDescriptor], uptimeNanoseconds: @escaping @Sendable () -> UInt64) {
+    ///   - signposter: Emits the read's `launch.action_catalog_first_main_access` interval.
+    init(read: @escaping @Sendable () -> [ActionDescriptor], uptimeNanoseconds: @escaping @Sendable () -> UInt64,
+         signposter: Signposter = .launch) {
         self.read = read
         self.uptimeNanoseconds = uptimeNanoseconds
+        self.signposter = signposter
     }
 
-    /// Builds the catalog on the calling thread (the launch warm-up thread).
+    /// Builds the catalog on the calling thread (the launch warm-up thread), unless main or an earlier
+    /// ``build()`` already claimed it.
     public func build() {
-        buildBegan()
+        guard claimBuild() else { return }
         _ = read()
-        buildEnded()
-    }
-
-    func buildBegan() {
-        phase.store(Phase.building.rawValue, ordering: .releasing)
-    }
-
-    func buildEnded() {
         phase.store(Phase.built.rawValue, ordering: .releasing)
     }
 
+    /// Claims the build for the calling thread; false when it was already claimed.
+    func claimBuild() -> Bool {
+        phase.compareExchange(expected: Phase.notStarted.rawValue, desired: Phase.building.rawValue,
+                              ordering: .acquiringAndReleasing).exchanged
+    }
+
     /// The catalog, for the registry; the first read is timed, signposted and recorded as ``mainAccess``.
-    ///
-    /// A ``build()`` that has entered the read but not yet marked itself is recorded as
-    /// ``ActionCatalogMainAccess/Outcome/builtOnMain``, with the time of the wait.
     @MainActor
     public func descriptors() -> [ActionDescriptor] {
         guard access.load(ordering: .relaxed) == 0 else { return read() }
-        let phaseAtRead = Phase(rawValue: phase.load(ordering: .acquiring)) ?? .notStarted
-        let interval = signposter.beginInterval(Self.intervalName, id: signposter.makeSignpostID())
+        let claim = phase.compareExchange(expected: Phase.notStarted.rawValue, desired: Phase.claimedByMain.rawValue,
+                                          ordering: .acquiringAndReleasing)
+        let outcome: ActionCatalogMainAccess.Outcome = if claim.exchanged {
+            .builtOnMain
+        } else {
+            Phase(rawValue: claim.original) == .built ? .ready : .waited
+        }
+        let name = SignpostName.launchActionCatalogFirstMainAccess
+        let interval = signposter.begin(name, "outcome=\(outcome.name)", arg0: outcome.rawValue)
         let start = uptimeNanoseconds()
         let descriptors = read()
         let microseconds = (uptimeNanoseconds() &- start) / 1_000
-        let outcome: ActionCatalogMainAccess.Outcome = switch phaseAtRead {
-        case .built: .ready
-        case .building: .waited
-        case .notStarted: .builtOnMain
-        }
+        signposter.end(name, interval)
         access.store(microseconds << 2 | outcome.rawValue, ordering: .relaxed)
-        signposter.endInterval(Self.intervalName, interval, "outcome=\(outcome.name, privacy: .public) us=\(microseconds, privacy: .public)")
         return descriptors
     }
 
