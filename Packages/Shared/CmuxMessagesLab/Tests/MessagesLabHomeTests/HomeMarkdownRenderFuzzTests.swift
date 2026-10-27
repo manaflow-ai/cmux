@@ -112,7 +112,7 @@ struct HomeMarkdownRenderFuzzTests {
 
     /// A viewport-sized bitmap context, flipped to top-left points as the row bitmaps are.
     static func context() -> CGContext? {
-        let ctx = CGContext(data: nil, width: 480, height: 640, bitsPerComponent: 8, bytesPerRow: 0,
+        let ctx = CGContext.ownedBitmap(width: 480, height: 640, bitsPerComponent: 8, bytesPerRow: 0,
                             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         ctx?.translateBy(x: 0, y: 640)
         ctx?.scaleBy(x: 1, y: -1)

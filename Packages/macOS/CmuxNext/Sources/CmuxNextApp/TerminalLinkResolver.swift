@@ -176,9 +176,9 @@ nonisolated enum TerminalLinkResolver {
 
     private static func existing(_ path: String, fileManager: FileManager) -> TerminalLinkTarget? {
         let standardized = (path as NSString).standardizingPath
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: standardized, isDirectory: &isDirectory) else { return nil }
-        return .file(URL(fileURLWithPath: standardized, isDirectory: isDirectory.boolValue), isDirectory: isDirectory.boolValue)
+        guard let kind = fileManager.entryKind(atPath: standardized) else { return nil }
+        let isDirectory = kind == .directory
+        return .file(URL(fileURLWithPath: standardized, isDirectory: isDirectory), isDirectory: isDirectory)
     }
 
     /// `text` as a web URL when its host can be one: localhost (http), an IPv4 address with a

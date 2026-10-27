@@ -296,6 +296,7 @@ struct Views : cmux_host::PageViews {
   int view = 0;
   void* Open(uint64_t) override { return &view; }
   void Close(uint64_t) override {}
+  void Place(uint64_t, const cmux_host::PageGeometry&) override {}
 };
 
 struct Event {
@@ -437,9 +438,11 @@ void LoadStartReadsTheNewEntry() {
   Check(w.delegate.bad.empty() && ended == -1, "neither side ended the wire");
 }
 
-// One navigation reads the history (page state included) at ADDRESS and
-// LOAD_START only: TITLE, LOAD_END and LOADING_STATE read and push nothing.
-void OneNavigationPushesTheHistoryTwice() {
+// One navigation cmux starts reads the history (page state included) when
+// the host runs load_url, before its ACK (its pending keys, task 016b), then
+// at ADDRESS and LOAD_START only: TITLE, LOAD_END and LOADING_STATE read and
+// push nothing.
+void OneNavigationPushesTheHistoryThreeTimes() {
   World w;
   const int tab = w.CreateWindow("file:///a.html");
   shim.state_reads = shim.entries_reads = 0;
@@ -447,13 +450,13 @@ void OneNavigationPushesTheHistoryTwice() {
   w.mirrors.clear();
   client.load_url(tab, "file:///b.html");
   w.PumpUntilEvent(CMUX_SHIM_LOAD_END);
-  Check(shim.state_reads == 2 && shim.entries_reads == 2,
-        "the history is read at ADDRESS and LOAD_START, got " + std::to_string(shim.state_reads) + " and " +
-            std::to_string(shim.entries_reads) + " reads");
-  Check(w.MirrorCount(cmux_host::kOpTabNavigationState) == 2 && w.MirrorCount(cmux_host::kOpTabNavigationEntries) == 2,
-        "and pushed twice each");
+  Check(shim.state_reads == 3 && shim.entries_reads == 3,
+        "the history is read at load_url's ACK, ADDRESS and LOAD_START, got " + std::to_string(shim.state_reads) +
+            " and " + std::to_string(shim.entries_reads) + " reads");
+  Check(w.MirrorCount(cmux_host::kOpTabNavigationState) == 3 && w.MirrorCount(cmux_host::kOpTabNavigationEntries) == 3,
+        "and pushed three times each");
   const size_t bytes = w.MirrorBytes(cmux_host::kOpTabNavigationState);
-  Check(bytes < 2 * 1200, "history bytes per navigation: " + std::to_string(bytes));
+  Check(bytes < 3 * 1200, "history bytes per navigation: " + std::to_string(bytes));
   std::printf("chromium-host-mirror: one navigation pushes %zu bytes of history with 1000 bytes of page state\n", bytes);
   shim.state_reads = shim.entries_reads = 0;
   Emit(CMUX_SHIM_TITLE, 3, 0, 0, 0, "a title the page animates");
@@ -753,7 +756,7 @@ int main() {
   callbacks.ended = &OnEnded;
   client.configure(&callbacks);
   LoadStartReadsTheNewEntry();
-  OneNavigationPushesTheHistoryTwice();
+  OneNavigationPushesTheHistoryThreeTimes();
   AHistoryOverTheFrameBoundIsForgotten();
   WindowIdFromTheEvent();
   Counts();

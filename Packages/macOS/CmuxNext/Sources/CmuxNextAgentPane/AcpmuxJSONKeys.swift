@@ -15,27 +15,36 @@ nonisolated enum AcpmuxJSONKeys {
     nonisolated enum Verdict: Equatable { case clean, malformed, duplicate }
 
     static func verdict(_ bytes: [UInt8]) -> Verdict {
-        bytes.withUnsafeBufferPointer { verdict($0) }
+        // SAFETY: the buffer is the array's storage, lent for the closure; verdict reads it only during the call.
+        unsafe bytes.withUnsafeBufferPointer { unsafe verdict($0) }
     }
 
     /// The page frame's own UTF-8, read in place.
     static func verdict(_ text: String) -> Verdict {
         var text = text
-        return text.withUTF8 { verdict($0) }
+        // SAFETY: the buffer is the string's contiguous UTF-8, lent for the closure; verdict reads it only during the call.
+        return unsafe text.withUTF8 { unsafe verdict($0) }
     }
 
-    static func verdict(_ buffer: UnsafeBufferPointer<UInt8>) -> Verdict {
-        guard let base = buffer.baseAddress, !buffer.isEmpty else { return .malformed }
-        var reader = Reader(bytes: base, count: buffer.count)
+    /// Reads `buffer` only during the call: the Reader that holds it is a local of this call.
+    private static func verdict(_ buffer: UnsafeBufferPointer<UInt8>) -> Verdict {
+        guard unsafe !buffer.isEmpty else { return .malformed }
+        // SAFETY: the caller lends `buffer` for this whole call, and `reader` does not outlive it.
+        var reader = unsafe Reader(bytes: buffer)
         let wellFormed = reader.wellFormedWithoutDuplicates()
         return reader.duplicate ? .duplicate : wellFormed ? .clean : .malformed
     }
 
     private nonisolated enum Expect { case value, valueOrEnd, key, keyOrEnd, commaOrEnd }
 
+    /// Memory safety, as Chromium's base::span (base/containers/span.h), which checks every index: each byte is
+    /// read through ``load(_:)`` or ``special(_:)``, which check their index against `count` (a byte past the
+    /// frame reads 0, a control byte the grammar refuses; never a read past it), and the Reader lives only inside
+    /// the ``verdict(_:)`` call that lends it the buffer.
+    @safe
     private nonisolated struct Reader {
         /// The frame's bytes, `count` of them (read only while the caller holds the buffer).
-        let bytes: UnsafePointer<UInt8>
+        private let bytes: UnsafeBufferPointer<UInt8>
         let count: Int
         var i = 0
         /// The open containers: an object's keys so far, or nil for an array.
@@ -43,15 +52,25 @@ nonisolated enum AcpmuxJSONKeys {
         /// Set when the read stopped at a repeated key.
         var duplicate = false
 
-        init(bytes: UnsafePointer<UInt8>, count: Int) {
-            self.bytes = bytes
-            self.count = count
+        init(bytes: UnsafeBufferPointer<UInt8>) {
+            unsafe self.bytes = bytes
+            count = unsafe bytes.count
+        }
+
+        /// The byte at `k`; 0 (a control byte, which no JSON token accepts) when `k` is outside the frame.
+        @inline(__always) func load(_ k: Int) -> UInt8 {
+            guard k >= 0, k < count else { return 0 }
+            // SAFETY: 0 <= k < count (checked above), the lent buffer's length.
+            return unsafe bytes[k]
         }
 
         /// Whether the 8 bytes at `at` may hold a quote, a backslash, a control byte or a byte of
         /// a multi-byte sequence. A false alarm only sends the word to the byte path.
         @inline(__always) func special(_ at: Int) -> Bool {
-            let w = UnsafeRawPointer(bytes + at).loadUnaligned(as: UInt64.self)
+            // A word that does not fit the frame goes to the byte path.
+            guard at >= 0, at + 8 <= count else { return true }
+            // SAFETY: at..<at + 8 is inside the lent buffer (checked above); loadUnaligned needs no alignment.
+            let w = unsafe UnsafeRawBufferPointer(bytes).loadUnaligned(fromByteOffset: at, as: UInt64.self)
             let high: UInt64 = 0x8080_8080_8080_8080
             let ones: UInt64 = 0x0101_0101_0101_0101
             let control = (w &- 0x2020_2020_2020_2020) & ~w & high
@@ -67,12 +86,12 @@ nonisolated enum AcpmuxJSONKeys {
             while i < count {
                 switch expect {
                 case .value, .valueOrEnd:
-                    if expect == .valueOrEnd, bytes[i] == 0x5D {
+                    if expect == .valueOrEnd, load(i) == 0x5D {
                         i += 1
-                        stack.removeLast()
+                        guard stack.popLast() != nil else { return false }
                         expect = .commaOrEnd
                     } else {
-                        switch bytes[i] {
+                        switch load(i) {
                         case 0x7B: stack.append(Set<String>()); i += 1; expect = .keyOrEnd
                         case 0x5B: stack.append(nil); i += 1; expect = .valueOrEnd
                         case 0x22: guard string(decode: false) != nil else { return false }; expect = .commaOrEnd
@@ -82,24 +101,24 @@ nonisolated enum AcpmuxJSONKeys {
                         }
                     }
                 case .key, .keyOrEnd:
-                    if expect == .keyOrEnd, bytes[i] == 0x7D {
+                    if expect == .keyOrEnd, load(i) == 0x7D {
                         i += 1
-                        stack.removeLast()
+                        guard stack.popLast() != nil else { return false }
                         expect = .commaOrEnd
                     } else {
-                        guard bytes[i] == 0x22, let key = string(decode: true) else { return false }
+                        guard load(i) == 0x22, let key = string(decode: true) else { return false }
                         guard stack[stack.count - 1]?.insert(key).inserted == true else { duplicate = true; return false }
                         space()
-                        guard i < count, bytes[i] == 0x3A else { return false }
+                        guard i < count, load(i) == 0x3A else { return false }
                         i += 1
                         expect = .value
                     }
                 case .commaOrEnd:
                     guard let top = stack.last else { return false }
-                    switch (bytes[i], top == nil) {
+                    switch (load(i), top == nil) {
                     case (0x2C, false): expect = .key
                     case (0x2C, true): expect = .value
-                    case (0x7D, false), (0x5D, true): stack.removeLast(); expect = .commaOrEnd
+                    case (0x7D, false), (0x5D, true): _ = stack.popLast(); expect = .commaOrEnd
                     default: return false
                     }
                     i += 1
@@ -110,31 +129,31 @@ nonisolated enum AcpmuxJSONKeys {
         }
 
         mutating func space() {
-            while i < count, bytes[i] == 0x20 || bytes[i] == 0x0A || bytes[i] == 0x0D || bytes[i] == 0x09 { i += 1 }
+            while i < count, load(i) == 0x20 || load(i) == 0x0A || load(i) == 0x0D || load(i) == 0x09 { i += 1 }
         }
 
         mutating func literal() -> Bool {
             for word in ["true", "false", "null"] {
                 let w = Array(word.utf8)
-                if i + w.count <= count, (0..<w.count).allSatisfy({ bytes[i + $0] == w[$0] }) { i += w.count; return true }
+                if i + w.count <= count, (0..<w.count).allSatisfy({ load(i + $0) == w[$0] }) { i += w.count; return true }
             }
             return false
         }
 
         mutating func digits() -> Bool {
             let start = i
-            while i < count, (0x30...0x39).contains(bytes[i]) { i += 1 }
+            while i < count, (0x30...0x39).contains(load(i)) { i += 1 }
             return i > start
         }
 
         mutating func number() -> Bool {
-            if bytes[i] == 0x2D { i += 1 }
+            if load(i) == 0x2D { i += 1 }
             guard i < count else { return false }
-            if bytes[i] == 0x30 { i += 1 } else if (0x31...0x39).contains(bytes[i]) { _ = digits() } else { return false }
-            if i < count, bytes[i] == 0x2E { i += 1; guard digits() else { return false } }
-            if i < count, bytes[i] == 0x65 || bytes[i] == 0x45 {
+            if load(i) == 0x30 { i += 1 } else if (0x31...0x39).contains(load(i)) { _ = digits() } else { return false }
+            if i < count, load(i) == 0x2E { i += 1; guard digits() else { return false } }
+            if i < count, load(i) == 0x65 || load(i) == 0x45 {
                 i += 1
-                if i < count, bytes[i] == 0x2B || bytes[i] == 0x2D { i += 1 }
+                if i < count, load(i) == 0x2B || load(i) == 0x2D { i += 1 }
                 guard digits() else { return false }
             }
             return true
@@ -143,7 +162,8 @@ nonisolated enum AcpmuxJSONKeys {
         func hex4(_ at: Int) -> UInt32? {
             guard at + 4 <= count else { return nil }
             var value: UInt32 = 0
-            for byte in UnsafeBufferPointer(start: bytes + at, count: 4) {
+            for k in at..<at + 4 {
+                let byte = load(k)
                 let digit: UInt32
                 switch byte {
                 case 0x30...0x39: digit = UInt32(byte - 0x30)
@@ -158,7 +178,7 @@ nonisolated enum AcpmuxJSONKeys {
 
         /// The length of the well-formed UTF-8 sequence at `i`, or nil.
         func sequence() -> Int? {
-            let lead = bytes[i]
+            let lead = load(i)
             let (length, second): (Int, ClosedRange<UInt8>) = switch lead {
             case 0x00...0x7F: (1, 0x80...0xBF)
             case 0xC2...0xDF: (2, 0x80...0xBF)
@@ -171,8 +191,8 @@ nonisolated enum AcpmuxJSONKeys {
             default: (0, 0x80...0xBF)
             }
             guard length > 0, i + length <= count else { return nil }
-            guard length == 1 || second.contains(bytes[i + 1]) else { return nil }
-            for k in 2..<max(length, 2) where !(0x80...0xBF).contains(bytes[i + k]) { return nil }
+            guard length == 1 || second.contains(load(i + 1)) else { return nil }
+            for k in 2..<max(length, 2) where !(0x80...0xBF).contains(load(i + k)) { return nil }
             return length
         }
 
@@ -186,7 +206,7 @@ nonisolated enum AcpmuxJSONKeys {
                     while i + 8 <= count, !special(i) { i += 8 }
                     guard i < count else { return nil }
                 }
-                let byte = bytes[i]
+                let byte = load(i)
                 if byte == 0x22 {
                     i += 1
                     return decode ? String(decoding: out, as: UTF8.self) : ""
@@ -195,8 +215,8 @@ nonisolated enum AcpmuxJSONKeys {
                 if byte == 0x5C {
                     guard i + 1 < count else { return nil }
                     let escaped: UInt8
-                    switch bytes[i + 1] {
-                    case 0x22, 0x5C, 0x2F: escaped = bytes[i + 1]
+                    switch load(i + 1) {
+                    case 0x22, 0x5C, 0x2F: escaped = load(i + 1)
                     case 0x62: escaped = 0x08
                     case 0x66: escaped = 0x0C
                     case 0x6E: escaped = 0x0A
@@ -206,7 +226,7 @@ nonisolated enum AcpmuxJSONKeys {
                         guard var scalar = hex4(i + 2) else { return nil }
                         i += 6
                         if (0xD800...0xDBFF).contains(scalar) {
-                            guard i + 1 < count, bytes[i] == 0x5C, bytes[i + 1] == 0x75, let low = hex4(i + 2),
+                            guard i + 1 < count, load(i) == 0x5C, load(i + 1) == 0x75, let low = hex4(i + 2),
                                   (0xDC00...0xDFFF).contains(low) else { return nil }
                             i += 6
                             scalar = 0x10000 + ((scalar - 0xD800) << 10) + (low - 0xDC00)
@@ -223,7 +243,7 @@ nonisolated enum AcpmuxJSONKeys {
                     continue
                 }
                 guard let length = sequence() else { return nil }
-                if decode { out.append(contentsOf: UnsafeBufferPointer(start: bytes + i, count: length)) }
+                if decode { for k in i..<i + length { out.append(load(k)) } }
                 i += length
             }
             return nil

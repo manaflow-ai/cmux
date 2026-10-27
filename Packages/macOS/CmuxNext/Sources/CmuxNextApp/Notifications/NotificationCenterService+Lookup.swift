@@ -103,7 +103,7 @@ extension NotificationCenterService {
             isSignedIn: { [weak feed] in feed?.isSignedIn ?? false },
             installID: { principal.installID },
             policy: { [weak self] in self?.feedHandoffPolicy() ?? FeedHandoffPolicy(preferences: .init(), mutedWorkspaces: []) },
-            since: Self.handoffSince)
+            since: Self.handoffSince, work: services.work)
     }
 
     /// The first time the driver ran for `install` (ms), kept per Mac: open

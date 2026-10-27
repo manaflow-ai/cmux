@@ -533,6 +533,7 @@
       "browser-activate",
       "subscribe",
       "attach-surface",
+      "cancel-stream",
       "resize-attached-view",
       "release-attached-view-size",
       "detach-attached-view",
@@ -545,6 +546,9 @@
     ],
     "local-admin": [
       "server-stats",
+      "debug-daemon-locks",
+      "server-threads",
+      "server-blocking",
       "trace-start",
       "trace-stop",
       "trace-status",
@@ -678,7 +682,10 @@
       "loopback-close",
       "loopback-status",
       "client-hello",
-      "machine-catalog-publish"
+      "machine-catalog-publish",
+      "agent-inventory",
+      "agent-inventory-refresh",
+      "agent-inventory-watch"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",
@@ -1010,6 +1017,14 @@
       "name": "status",
       "streams": [
         "subscribe"
+      ]
+    },
+    {
+      "name": "stream-end",
+      "streams": [
+        "attach-byte",
+        "attach-render",
+        "attach-browser"
       ]
     },
     {

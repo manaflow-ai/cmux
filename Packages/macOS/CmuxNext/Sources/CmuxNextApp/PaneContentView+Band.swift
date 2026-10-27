@@ -54,6 +54,8 @@ extension PaneContentView {
             wanted.onPaneHeaderBandReattach = { [weak self] in self?.updateBand() }
             pinBand()
         }
+        // Every caller changed what the pane shows or where its strip goes (a show, a detach, a window move).
+        // invalidate: the strip, ring and tag are placed again.
         needsLayout = true
     }
 
@@ -90,7 +92,7 @@ extension PaneContentView {
         toolbar?.view.translatesAutoresizingMaskIntoConstraints = true
         setAccessibilityChildren(nil)
         if let host = bandHost, let view = host as? NSView, view.superview === contentHost { host.setPaneHeaderBandHeight(0) }
-        needsLayout = true
+        needsLayout = true // invalidate: the pins ended (the guard above); the strip goes back to frame layout.
     }
 
     /// The strip height changed (density, metrics, scale): the band follows.

@@ -199,6 +199,8 @@ enum HomeFonts {
     /// optional: under concurrency these factories can return nil (cx-qpqs),
     /// and Swift would trust the annotation.
     private static func unannotated(_ font: UIFont) -> UIFont? {
-        unsafeBitCast(font, to: UIFont?.self)
+        // SAFETY: a class reference and its Optional have one layout (a null reference is `.none`), so the cast
+        // reinterprets no bits; it only lets the caller see the nil the nonnull annotation hides.
+        unsafe unsafeBitCast(font, to: UIFont?.self)
     }
 }

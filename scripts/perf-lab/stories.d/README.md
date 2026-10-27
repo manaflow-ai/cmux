@@ -12,6 +12,7 @@ python3 -I scripts/perf-lab/lab.py stories --lint        # or catalog.py stories
 python3 -I scripts/perf-lab/lab.py targets --check        # N/12 fixed targets mapped
 python3 -I scripts/perf-lab/lab.py targets --uncovered    # MQ8: target rows that no story claims
 python3 -I scripts/perf-lab/lab.py hot-paths --uncovered  # MQ9: perf-hot paths whose bench is not a story
+python3 -I scripts/perf-lab/lab.py stories --orphans     # MQ12: perf scripts not in a story or ../retired.json
 python3 -m unittest scripts/perf-lab/tests/test_catalog.py
 ```
 
@@ -22,7 +23,7 @@ python3 -m unittest scripts/perf-lab/tests/test_catalog.py
 | `id` | Same as the file name. It is also the result-v1 `story`. |
 | `tier` | `T0` (every batch, 480 s in total over all T0 stories), `T1` (every 2 h), `T2` (nightly), `linux` (no Mac), `builder` (a builder host). |
 | `description` | What the story measures, in one sentence. |
-| `command` | argv. The first item is a repository path that must exist. The runner (task 008) adds `--app`, `--tag`, `--out` and the session. |
+| `command` | argv. The first item is a repository path that must exist. The runner (task 008) adds `--app APP --tag TAG --out DIR`, so the command must take those three flags, and the bench writes its result-v1 into `DIR` (subfolders too) with `BenchApp.record`. The session, config and host block come as `PERF_LAB_SESSION`, `PERF_LAB_CONFIG` and `PERF_LAB_HOST_FILE`, which `BenchApp` reads as its defaults. |
 | `session` | `light`, `stress` or `corpus:<id>`. |
 | `engine` | `chromium`, `webkit` or `none`. A browser story has one file per engine, or one per arm. |
 | `config` | Exactly one of `bench`, `bench-checks` or `release` (R6). Debug is never a lab config. Only the blocking stories (blocking-sites, startup Q5) use `bench-checks`. A `builder` story times a build, not an app, and may say `debug` (`incremental-build`: the Debug edit loop). |
@@ -34,6 +35,8 @@ python3 -m unittest scripts/perf-lab/tests/test_catalog.py
 | `owner` | An owner from `plans/cmux-next/OWNERS.md`: a `PL-*` lane, the Performance Lead or an agent name. Alerts go to this owner. |
 | `component` | `Area>Sub`, in the form of a Chrome bug component. |
 | `perf_cron_part` | The `perf-cron.py` part that this story replaces. Each part must have one story. |
+| `not_measurable` | Optional. The reason the lab cannot run the story yet, for example a build or a runner argument that does not exist. The lint checks the story as usual, and `lab.py stories` lists the reason. The shard map, the scheduler and the runner skip the story. Remove the field in the change that adds the missing support. |
+| `runs` | Optional. The repository paths of the scripts that `command` runs on every run, besides its own paths: the bench that a session script starts, or the story module of a fleet step. `lab.py stories --orphans` (MQ12) counts a script as run by a story only when the command or `runs` names it. A suite branch that the command does not select, an imported module or a name in a help text is not a run. |
 
 ## Thresholds are references, never copies (R4)
 

@@ -16,7 +16,7 @@ extension MainFrameBudgetTests {
         #expect(!budget.isInputResponseOpen)
         #expect(budget.mayRun(.automation))
         #expect(budget.mayRun(.background))
-        #expect(budget.stats.yieldedToInputResponse == [0, 0, 0])
+        #expect(budget.stats.yieldedToInputResponse == [0, 0, 0, 0])
     }
 
     @Test func automationWaitsForTheNextTicksRenderNotTheKeysOwnCommit() {
@@ -37,7 +37,7 @@ extension MainFrameBudgetTests {
         #expect(!budget.isInputResponseOpen)
         #expect(budget.mayRun(.automation))
         #expect(budget.mayRun(.background))
-        #expect(budget.stats.yieldedToInputResponse == [0, 2, 1], "counted once per class and frame")
+        #expect(budget.stats.yieldedToInputResponse == [0, 2, 1, 0], "counted once per class and frame")
         #expect(budget.stats.maxInputResponseNanos == ResponseClock.frame)
         #expect(budget.stats.inputResponseCapHits == 0)
     }

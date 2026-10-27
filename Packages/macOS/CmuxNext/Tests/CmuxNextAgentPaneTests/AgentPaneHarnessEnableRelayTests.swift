@@ -70,4 +70,40 @@ struct AgentPaneHarnessEnableRelayTests {
         #expect(data["code"] as? String == "transport.harness_not_confirmed")
         #expect(data["reason"] as? String == "harness.prompt_unavailable")
     }
+
+    /// p10-stability-085: a sheet dropped without an answer (the pane closed while it was up) is a
+    /// refusal, not a send line that waits for ever. A raw continuation leaked the wait here.
+    @Test(.timeLimit(.minutes(1)))
+    func anEnableWhoseSheetIsDroppedUnansweredIsNotConfirmed() async throws {
+        let server = AcpmuxStandInServer()
+        try await server.start()
+        defer { server.stop() }
+        let folder = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
+            .appendingPathComponent("p10-085-\(UUID().uuidString)").path
+        try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: folder) }
+        let inbox = AgentPaneRelayedAllowTests.PageInbox()
+        let transport = AgentPaneTransport()
+        transport.deliver = { event, done in inbox.deliver(event.frames); done() }
+        transport.roots = { [folder] }
+        transport.harnessEnablePrompt = { asked, id in
+            AgentPaneHarnessEnablePrompt(id: id, folder: asked, path: asked + "/.acpmux/harness.toml", argv: ["mine"],
+                                         program: nil, env: [], checkedFiles: [], warnings: [], sha256: "abc")
+        }
+        var sheets = 0
+        transport.requestHarnessEnable = { _, _ in sheets += 1 }
+        let id = try await transport.open(AcpmuxConnection(url: server.url, dashboardToken: "t", localAppToken: nil))
+        #expect(await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#]) == nil)
+
+        transport.gestures.record()
+        let enable = #"{"jsonrpc":"2.0","id":9,"method":"_acpmux/harness_enable","params":{"folder":"\#(folder)","id":"mine"}}"#
+        #expect(await transport.send(connection: id, frames: [enable]) == .harnessNotConfirmed)
+        let reply = await inbox.frame(containing: #""id":9"#)
+        let object = try JSONSerialization.jsonObject(with: Data(reply.utf8)) as? [String: Any]
+        let data = try #require((object?["error"] as? [String: Any])?["data"] as? [String: Any])
+        #expect(data["code"] as? String == "transport.harness_not_confirmed")
+        #expect(sheets == 1, "the sheet was asked for once")
+        #expect(server.peers.first?.frames.contains { $0.contains("harness_enable") } != true,
+                "nothing reached acpmux")
+    }
 }

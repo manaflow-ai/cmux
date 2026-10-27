@@ -92,7 +92,31 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "takes back every delivery of the fixture message"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "agent.message.unsend",
+        "params": {
+          "message_id": "$step:fx-message#/value/id"
+        },
+        "idempotencyKey": "agent-message-unsend-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [
@@ -101,5 +125,8 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
+  ],
+  "untested": [
+    "no product runs it yet: only the message's verified sender or the person in the verified cmux app takes a message back, and the case connection is a plain local client. p15-oracle-240 gives driver_daemon.py 237's user connection for it"
   ]
 }

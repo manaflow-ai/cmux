@@ -1,6 +1,6 @@
 public import AppKit
 import CmuxNextDesign
-import WebKit
+import CmuxNextWakeups
 
 extension AgentPaneView {
     /// The pane's side of the host transport: the native sheet it asks for (a config option that is
@@ -8,6 +8,7 @@ extension AgentPaneView {
     func installTransport() {
         // A config option that is not free (paired devices): the user confirms it natively.
         model.onConfirmMode = { [weak self] asked, answer in
+            // visibility-walk-allow: a sheet AppKit shows over this pane: one that AppKit does not show refuses at once, as the sheet could not be seen; read once per ask
             guard let self, self.window != nil, !self.isHiddenOrHasHiddenAncestor else { return answer(false) }
             let spec = Self.confirmationSpec(asked)
             // Pane scope: a closed pane ends the sheet as Cancel, so the app-wide gate never stays shut.
@@ -15,6 +16,7 @@ extension AgentPaneView {
         }
         // A folder harness profile: the user reads acpmux's prompt and enables it natively.
         model.onConfirmHarness = { [weak self] prompt, answer in
+            // visibility-walk-allow: as above, the sheet AppKit shows over this pane; read once per ask
             guard let self, self.window != nil, !self.isHiddenOrHasHiddenAncestor else { return answer(false) }
             _ = CmuxDialogCenter.shared.present(Self.harnessEnableSpec(prompt), in: .tab(self)) { reply in
                 answer(reply.button == "enable")
@@ -22,21 +24,35 @@ extension AgentPaneView {
         }
         installReplyLinks()
         // The host owns the acpmux socket; its frames reach the page in display-frame batches.
-        let pacer = AgentPaneFramePacer(view: self)
+        let pacer = AgentPaneFramePacer(view: self, mainThread: mainThread)
+        let completions = model.deadlines.work.board.owner("agentPane.transport.delivered")
         transportPacer = pacer
         model.transport.pacer = pacer
         model.transport.onOtherInstall = { [weak self] other in self?.showOtherInstallNotice(other) }
         model.transport.onRemoteApprovalsOff = { [weak self] approvals in self?.showRemoteApprovalsOff(approvals) }
-        model.transport.deliver = { [weak self] event, done in
+        model.transport.deliver = { [weak self, completions] event, done in
             guard let self else { return done() }
             self.pageEvents.transportDidOpen(event.connection)
             // The page host's events carry no completion: the next push may follow next turn.
             if !self.pageEvents.publish(.transport(event)) {
                 self.model.transport.close(connection: event.connection)
             }
-            // task-owner: one completion for the pacer, on the main actor
-            Task { @MainActor in done() }
+            // The page host's push is queued, not run: the pacer hears it done in a later visible task, so its next
+            // flush never runs in this one (Chrome's renderer acks a frame's IPC on a later task).
+            self.model.deadlines.work.post(.visible, owner: completions) { done() }
         }
+    }
+
+    /// The page lifecycle froze the chat's page (``AgentPageLifecycleTarget/freeze()``): the transport
+    /// makes no call and arms no deadline until the thaw.
+    func pageDidFreeze() {
+        transportPacer?.pageDidFreeze()
+    }
+
+    /// The chat's page runs again, in the thaw's turn (``AgentPageLifecycleTarget/thaw()``): what the
+    /// transport kept goes in one call, before the page shows and the router sends its held batch.
+    func pageDidThaw() {
+        transportPacer?.pageDidThaw()
     }
 
     /// The native sheet for `asked`: the option and the value it would take.
@@ -74,11 +90,12 @@ extension AgentPaneView {
             return judgeChromium(event, eventWindow: eventWindow)
         }
         guard let window, eventWindow === window, AgentPanePersonInput.isPerson(event) else { return }
+        // The page view holds whichever engine's view shows the chat, at the same frame.
         switch event.type {
         case .keyDown:
-            guard !event.isARepeat, (window.firstResponder as? NSView)?.isDescendant(of: webView) == true else { return }
+            guard !event.isARepeat, (window.firstResponder as? NSView)?.isDescendant(of: page) == true else { return }
         default:
-            guard webView.bounds.contains(webView.convert(event.locationInWindow, from: nil)) else { return }
+            guard page.bounds.contains(page.convert(event.locationInWindow, from: nil)) else { return }
         }
         model.transport.gestures.record(click: event.type != .keyDown)
     }

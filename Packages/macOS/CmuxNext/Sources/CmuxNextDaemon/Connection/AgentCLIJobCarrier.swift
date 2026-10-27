@@ -1,3 +1,4 @@
+import CmuxNextIPC
 import Foundation
 
 /// A proved machine/session control transport captured for native UI job intent.
@@ -28,9 +29,6 @@ public nonisolated struct AgentCLIJobCarrier: Sendable {
         return result
     }
 
-    /// The v2 operation ``observe(_:)`` sends.
-    private static let waitExit: DaemonCommandName = "terminal.wait_exit"
-
     private struct Resolve: DaemonRequest {
         typealias Response = AgentCLIJobResolution
         static let commandName: DaemonCommandName = "agent-cli-update-job-resolve"
@@ -39,6 +37,11 @@ public nonisolated struct AgentCLIJobCarrier: Sendable {
         let expectedSessionID: ResourceID
         let cli: String
         let idempotencyKey: String
+
+        enum CodingKeys: String, CodingKey {
+            case expectedMachineID = "expected_machine_id", expectedSessionID = "expected_session_id", cli
+            case idempotencyKey = "idempotency_key"
+        }
     }
 
     /// Reads family evidence on this captured transport before an explicit update.
@@ -76,19 +79,23 @@ public nonisolated struct AgentCLIJobCarrier: Sendable {
         guard job.machine == machine, job.session == session else {
             throw DaemonError.malformedResponse("Job receipt did not match the captured owner and session")
         }
-        let params: [String: JSONValue] = [
-            "machine": .string(machine.rawValue),
-            "session": .string(session.rawValue),
-            "terminal": .string(job.path.terminalID.rawValue),
-            "timeout_ms": .string("5000"),
-        ]
-        let response = try await transport.request(cmd: Self.waitExit, timeout: .seconds(8)) { id in
-            try ResourceRequestEnvelope(id: id, operation: Self.waitExit.wire, params: params).line()
+        let request = Self.waitExitRequest(machine: machine, session: session, terminal: job.path.terminalID)
+        let command = DaemonCommandName(wire: V2TerminalWaitExitRequest.resourceOperation)
+        let response = try await transport.request(cmd: command, timeout: .seconds(8)) { id in
+            try ResourceRequestLine(id: id, request: request).line()
         }
         let status = try ResourceRequestEnvelope.decodeResult(AgentCLIJobStatus.self, from: response)
         guard status.terminalID == job.path.terminalID else {
             throw DaemonError.malformedResponse("Job status did not match the original terminal")
         }
         return status
+    }
+
+    /// The bounded `terminal.wait_exit` ``observe(_:)`` sends: the daemon answers within 5 s,
+    /// inside the request's 8 s deadline.
+    static func waitExitRequest(machine: ResourceID, session: ResourceID, terminal: ResourceID) -> V2TerminalWaitExitRequest {
+        V2TerminalWaitExitRequest(machine: ResourceSelector(rawValue: machine.rawValue),
+                                  session: ResourceSelector(rawValue: session.rawValue),
+                                  terminal: ResourceSelector(rawValue: terminal.rawValue), timeoutMs: "5000")
     }
 }

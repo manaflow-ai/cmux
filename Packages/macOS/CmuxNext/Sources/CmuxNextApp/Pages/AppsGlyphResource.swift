@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextIcons
 import CmuxNextPages
 import CoreGraphics
@@ -15,14 +16,21 @@ final class AppsGlyphResource: PageDynamicResourceSource {
     /// Points of the mask; the page scales it down, so one size serves every tile.
     nonisolated static let side: CGFloat = 32
     nonisolated static let scale: CGFloat = 2
-    private var cache: [String: Data] = [:]
+    /// The masks served, by name: a memory consumer of `memory` (critical pressure empties it).
+    let cache: PageResourceDataCache
+
+    /// - Parameter memory: The app-cache registry (`AppMemoryConsumers.appCacheRegistry`); nil, while
+    ///   `memoryAppCaches` is off or in tests, keeps every mask for the page's life.
+    init(memory: (any MemoryConsumerRegistry)? = nil) {
+        cache = PageResourceDataCache(name: "apps-glyphs", memory: memory)
+    }
 
     func resource(for request: PageResourceRequest) async -> PageResource? {
         guard request.path.count == 1, let name = request.path[0].removingPercentEncoding else { return nil }
         guard request.prefix == Self.prefix else { return nil }
         if let data = cache[name] { return PageResource(data: data, mimeType: "image/png") }
         guard let data = Self.png(name) else { return nil }
-        cache[name] = data
+        cache.store(data, for: name)
         return PageResource(data: data, mimeType: "image/png")
     }
 

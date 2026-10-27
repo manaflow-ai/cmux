@@ -120,7 +120,9 @@ extension SessionTransferService {
     /// Whether two paths name one file (a socket reached as `/tmp/…` and `/private/tmp/…`).
     private nonisolated static func sameFile(_ a: String, _ b: String) -> Bool {
         var first = stat(), second = stat()
-        guard stat(a, &first) == 0, stat(b, &second) == 0 else { return a == b }
+        // SAFETY: each stat reads the NUL-terminated copy of its path made for the call and writes one struct
+        // stat into a local live for the call.
+        guard unsafe stat(a, &first) == 0, unsafe stat(b, &second) == 0 else { return a == b }
         return first.st_dev == second.st_dev && first.st_ino == second.st_ino
     }
 
@@ -130,20 +132,10 @@ extension SessionTransferService {
         guard descriptor >= 0 else { return false }
         defer { close(descriptor) }
         var noSigPipe: Int32 = 1 // it only connects, but no write on it may ever signal
-        _ = setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
-        var address = sockaddr_un()
-        address.sun_family = sa_family_t(AF_UNIX)
-        let bytes = Array(path.utf8)
-        guard bytes.count < MemoryLayout.size(ofValue: address.sun_path) else { return false }
-        withUnsafeMutableBytes(of: &address.sun_path) { raw in
-            raw.copyBytes(from: bytes)
-            raw[bytes.count] = 0
-        }
-        return withUnsafePointer(to: &address) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                connect(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) == 0
-            }
-        }
+        // SAFETY: setsockopt reads the Int32 it is given the size of, a local live for the call.
+        _ = unsafe setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
+        guard let address = UnixSocketAddress(path: path) else { return false }
+        return address.connect(descriptor) == 0
     }
 
     /// Runs `executable` and returns its exit status and output, or nil when it is still running

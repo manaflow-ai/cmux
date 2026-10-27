@@ -88,8 +88,12 @@ import Testing
             return ChromiumHostControlChannel(
                 fd: fd, options: options, post: { drain in Task { @MainActor in drain() } },
                 onMessages: { batch in
-                    for message in batch { onMessage?(message) }
-                    continuation.yield(.messages(batch))
+                    var messages: [Message] = []
+                    for message in batch {
+                        onMessage?(message)
+                        messages.append(message)
+                    }
+                    continuation.yield(.messages(messages))
                 },
                 onEnd: { continuation.yield(.end($0)) })
         }
@@ -405,6 +409,35 @@ import Testing
         await #expect(throws: ChromiumHostControlError.hostGone(.peerClosed), "a request after the end throws at once") {
             try await channel.request(Self.geometry(3, 1))
         }
+    }
+
+    /// Task 091: every request still waiting when the host closes its end resumes with hostGone, and
+    /// none stays in the channel.
+    @Test func fiftyWaitingRequestsResumeWhenTheHostEnds() async throws {
+        let (fd, peerFD) = try Self.socketPair()
+        let cmux = Recorder(), host = Recorder()
+        let channel = cmux.channel(fd: fd)
+        let peer = host.channel(fd: peerFD)  // answers nothing
+        let requests = (0..<50).map { index in
+            Task { try await channel.request(Message(op: 99, fields: [.init(tag: 1, value: .i32(Int32(index)))])) }
+        }
+        await host.wait { host.messages.count >= 50 }
+        #expect(channel.stats.awaitingReplies == 50)
+
+        peer.close()
+        var gone = 0
+        for request in requests {
+            do {
+                _ = try await request.value
+            } catch let error as ChromiumHostControlError where error == .hostGone(.peerClosed) {
+                gone += 1
+            } catch {}
+        }
+
+        #expect(gone == 50, "a request waiting on the ended host resumed otherwise, or not at all")
+        #expect(channel.stats.awaitingReplies == 0, "the ended channel kept a request's continuation")
+        await cmux.wait { cmux.end != nil }
+        #expect(cmux.end == .peerClosed)
     }
 
     @Test func anUnaskedReplyIsMalformed() async throws {

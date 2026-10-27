@@ -1,13 +1,17 @@
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// The critical banner a window's host pressure indicator shows (an untilClosed toast). It ends
 /// itself when released, on the main actor, so a banner never outlives its indicator, even one
 /// deinitialized off the main thread (as `HostPressureSubscription` does for the service).
 nonisolated final class HostPressureBanner: Sendable {
     let handle: CmuxToastHandle
+    /// Where a banner released without ``end()`` posts its end.
+    private let mainWork: MainWorkScheduler
 
-    @MainActor init(_ handle: CmuxToastHandle) {
+    @MainActor init(_ handle: CmuxToastHandle, mainWork: MainWorkScheduler) {
         self.handle = handle
+        self.mainWork = mainWork
     }
 
     /// Ends the toast now (a no-op once it has ended).
@@ -17,7 +21,7 @@ nonisolated final class HostPressureBanner: Sendable {
 
     deinit {
         let handle = handle
-        // task-owner: one hop that ends a banner released without end(); it ends after the call
-        Task { @MainActor in handle.dismiss() }
+        // One visible task (the toast leaves the screen) that ends a banner released without end(); a no-op after it.
+        mainWork.postFromAnyThread(.visible, owner: "HostPressureBanner.release") { handle.dismiss() }
     }
 }

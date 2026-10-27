@@ -65,7 +65,7 @@ public struct ServerHelperConstants {
 
 /// The helper side: validates the fix id, records the value it replaces and
 /// runs exactly the fix's argv; revert restores the recorded value.
-public final nonisolated class ServerHelperService: NSObject, ServerHelperProtocol, @unchecked Sendable {
+public final nonisolated class ServerHelperService: NSObject, ServerHelperProtocol, Sendable {
     private let runner: any ServerFixRunner
     private let priors: any ServerFixPriorStore
     /// Apply and revert run one at a time, so a revert never interleaves

@@ -9,4 +9,17 @@ public protocol InputPendingSource: AnyObject {
     ///
     /// - Parameter uptime: Now, in seconds since boot (the `NSEvent.timestamp` base).
     func hasPendingInput(uptime: TimeInterval) -> Bool
+
+    /// Whether pending input includes a mouse button, a scroll begin or a drag: input that goes to
+    /// the view under the pointer, not to the key window. The default is ``hasPendingInput(uptime:)``
+    /// (a source that does not tell kinds apart counts every input as pointer input).
+    ///
+    /// - Parameter uptime: Now, in seconds since boot.
+    func hasPendingPointerInput(uptime: TimeInterval) -> Bool
+}
+
+extension InputPendingSource {
+    public func hasPendingPointerInput(uptime: TimeInterval) -> Bool {
+        hasPendingInput(uptime: uptime)
+    }
 }

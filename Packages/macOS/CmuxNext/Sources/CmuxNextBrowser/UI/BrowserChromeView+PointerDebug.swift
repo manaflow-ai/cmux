@@ -75,12 +75,14 @@ extension BrowserChromeView {
         }
         var frames: [String: CGRect] = [:]
         func record(_ name: String, _ view: NSView) {
+            // visibility-walk-allow: debug.omnibar reports the frames AppKit shows, once per request, the ground truth a test checks the pointer against
             guard !view.isHiddenOrHasHiddenAncestor, let rect = topLeftFrame(of: view) else { return }
             frames[name] = rect
         }
         record("toolbar", toolbar)
         record("bar", addressBar)
         record("text", addressBar.field)
+        // visibility-walk-allow: debug.omnibar reports the text area AppKit shows, once per request
         if let window, let content = window.contentView, !addressBar.isHiddenOrHasHiddenAncestor {
             let rect = addressBar.convert(addressBar.textArea, to: nil)
             frames["text_area"] = CGRect(x: rect.minX, y: content.bounds.height - rect.maxY, width: rect.width, height: rect.height)

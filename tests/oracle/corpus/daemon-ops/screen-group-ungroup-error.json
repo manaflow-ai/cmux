@@ -29,6 +29,48 @@
   ],
   "steps": [
     {
+      "id": "fx-workspace",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "workspace.create",
+        "params": {
+          "initial_content": "terminal",
+          "name": "oracle"
+        },
+        "idempotencyKey": "screen-group-ungroup-error.fx-workspace"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "fx-screen-group",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "screen_group.create",
+        "params": {
+          "screens": [
+            "$step:fx-workspace#/value/screen_id"
+          ],
+          "name": "oracle"
+        },
+        "idempotencyKey": "screen-group-ungroup-error.fx-screen-group"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -38,19 +80,32 @@
       "args": {
         "method": "screen_group.ungroup",
         "params": {
-          "screen_group": ""
+          "screen_group": "oracle-missing"
         },
         "idempotencyKey": "screen-group-ungroup-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "operation.failed",
+        "errorDetails": {
+          "reason": "unknown screen group oracle-missing"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "screen_group breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "a group id that names no group: operation.failed, the fixture group is unchanged"
+    },
+    {
+      "id": "still-grouped",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/extra/screen_group_id",
+        "equals": "$step:fx-screen-group#/value/id",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
     }
   ],
   "invariants": [
@@ -59,5 +114,8 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
+  ],
+  "untested": [
+    "the catalog also lists resource.not_found for screen_group.ungroup; the daemon answers an unknown group with operation.failed (screen_group_ops), and this case records that"
   ]
 }

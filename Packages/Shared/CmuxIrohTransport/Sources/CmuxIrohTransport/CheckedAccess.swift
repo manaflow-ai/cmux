@@ -38,6 +38,16 @@ struct WireByteReader {
     }
 }
 
+extension Data {
+    /// Appends `value` most significant byte first (network order): the writing
+    /// side of ``WireByteReader/bigEndian(_:)``, with no pointer view of the value.
+    mutating func appendBigEndian<Value: FixedWidthInteger>(_ value: Value) {
+        for shift in stride(from: Value.bitWidth - 8, through: 0, by: -8) {
+            append(UInt8(truncatingIfNeeded: value >> shift))
+        }
+    }
+}
+
 extension Int {
     /// Identity generations are 1...Int32.max (a stored record keeps 32 bits).
     var isValidIdentityGeneration: Bool {

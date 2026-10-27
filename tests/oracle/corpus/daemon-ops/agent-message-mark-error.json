@@ -29,6 +29,26 @@
   ],
   "steps": [
     {
+      "id": "fx-workspace",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "workspace.create",
+        "params": {
+          "initial_content": "terminal",
+          "name": "oracle"
+        },
+        "idempotencyKey": "agent-message-mark-error.fx-workspace"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -38,21 +58,27 @@
       "args": {
         "method": "agent.message.mark",
         "params": {
-          "ids": [],
-          "recipient": "oracle",
-          "state": "delivered"
+          "ids": [
+            "msg_00000000000000000000000000000000"
+          ],
+          "recipient": "$step:fx-workspace#/value/terminal_id",
+          "state": "acknowledged"
         },
         "idempotencyKey": "agent-message-mark-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "resource.not_found",
+        "errorDetails": {
+          "scope": "agent",
+          "id": "msg_00000000000000000000000000000000"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "ids breaks its catalog type (value has too few items); the daemon's catalog check refuses it"
+      "note": "a well-formed message id that names no message to the fixture terminal"
     }
   ],
   "invariants": [
@@ -61,8 +87,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.ids[0] is a fixed placeholder, not a fixture object; chief/_tuning.json tunes it"
   ]
 }

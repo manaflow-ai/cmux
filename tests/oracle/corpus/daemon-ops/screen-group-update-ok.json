@@ -81,7 +81,8 @@
         "method": "screen_group.update",
         "params": {
           "screen_group": "$step:fx-screen-group#/value/id",
-          "name": "oracle"
+          "name": "renamed",
+          "collapsed": true
         },
         "idempotencyKey": "screen-group-update-ok.call"
       },
@@ -93,7 +94,53 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "name and collapsed of the fixture group change in one commit"
+    },
+    {
+      "id": "renamed",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/extra/state/screen_groups/0/name",
+        "equals": "renamed",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "collapsed",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/extra/state/screen_groups/0/collapsed",
+        "equals": true,
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "screen_group.update",
+        "params": {
+          "screen_group": "$step:fx-screen-group#/value/id",
+          "name": "renamed",
+          "collapsed": true
+        },
+        "idempotencyKey": "screen-group-update-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

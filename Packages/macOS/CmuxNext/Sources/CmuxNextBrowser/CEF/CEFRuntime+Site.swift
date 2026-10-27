@@ -18,7 +18,16 @@ extension CEFRuntime {
     /// profile default. Nil when the browser is gone or the kind is unknown.
     /// In host mode the host answers in a REPLY (task 018).
     func contentSetting(_ browser: Int32, url: String?, kind: SitePermissionKind) async -> CEFContentSetting? {
-        Self.contentSetting(try? await answer(sendContentSetting(browser, url: url, kind: kind), label: "content setting"))
+        await contentSettings(browser, [(url, kind)])[0]
+    }
+
+    /// ``contentSetting(_:url:kind:)`` for each query, in order: every read is sent in this turn and
+    /// the answers are awaited after, so in host mode they cost one round trip, not one each.
+    func contentSettings(_ browser: Int32, _ queries: [(url: String?, kind: SitePermissionKind)]) async -> [CEFContentSetting?] {
+        let sent = queries.map { sendContentSetting(browser, url: $0.url, kind: $0.kind) }
+        var values: [CEFContentSetting?] = []
+        for pending in sent { values.append(Self.contentSetting(try? await answer(pending, label: "content setting"))) }
+        return values
     }
 
     /// ``contentSetting(_:url:kind:)`` for a synchronous turn: `then` runs with
@@ -77,7 +86,7 @@ extension CEFRuntime {
     }
 
     private func sendSSLStatus(_ browser: Int32) -> CEFShimAnswer<String?> {
-        sendAsync { shim in shim.takeOwnedString(shim.sslStatus(browser)) }
+        sendAsync { shim in shim.sslStatus(browser) }
     }
 
     /// Forgets every certificate error the user proceeded past in the tab's

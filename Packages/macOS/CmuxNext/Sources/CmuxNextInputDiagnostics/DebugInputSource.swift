@@ -19,6 +19,8 @@ public nonisolated enum DebugInputSection: String, CaseIterable, Sendable, Codab
     case scrollViews = "scroll_views"
     /// Chromium's own EventLatency and ScrollJank histograms (task 091).
     case chromium
+    /// ``DebugInputPrewarm``: intent prewarm's counters, hover and press apart (tasks 042, 043).
+    case prewarm
 }
 
 /// The producer of one `debug.input` section. Its owner keeps the counters off the main thread (an

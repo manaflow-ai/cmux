@@ -17,25 +17,70 @@ public final class CEFBookmarkBridge {
     /// Stores that reported, per cmux profile.
     public private(set) var stores: [BrowserProfileID: Set<String>] = [:]
 
+    /// The Chromium that holds the stores: the process-wide runtime (tests pass their own).
+    private let runtime: CEFRuntime
+
+    init(runtime: CEFRuntime = .shared) {
+        self.runtime = runtime
+    }
+
+    /// Why a ``sync(store:treeJSON:onFailure:)`` did not apply.
+    public nonisolated enum SyncFailure: Equatable, Sendable {
+        /// Chromium refused the tree; the store is forgotten until it reports again.
+        case refused
+        /// The Chromium Host exited before it answered; the store is forgotten (the next host's stores report again).
+        case hostGone
+        /// No answer in time: the host may still apply it, and the store stays.
+        case noAnswer
+        /// Chromium is not running, or no host is attached: nothing was sent.
+        case notRunning
+    }
+
+    /// How many events each store reported: a sync's refusal forgets the store only when no event
+    /// came after the sync was sent (a store that reported again is live again).
+    private var reports: [String: UInt64] = [:]
+
+    /// How long a sync waits for the host's answer: a whole tree is applied in one op, which a
+    /// busy host can take longer than a site query's ``CEFRuntime/siteReplyTimeout`` for.
+    static let syncReplyTimeout: Duration = .seconds(30)
+
     func arrived(json: String, cachePath: String) {
         guard let profile = Self.profile(ofCachePath: cachePath), let event = CEFBookmarkEvent(json: json) else { return }
         stores[profile, default: []].insert(cachePath)
+        reports[cachePath, default: 0] &+= 1
         onEvent?(profile, cachePath, event)
     }
 
     /// Makes the store's Chromium tree equal to `treeJSON` ({"nodes": [...]},
-    /// pre-order). 1 applied; 0 not loaded yet (`.loaded` follows); -1 refused,
-    /// also when Chromium is not running or has no bridge.
-    @discardableResult
-    public func sync(store: String, treeJSON: String) -> Int32 {
-        let runtime = CEFRuntime.shared
-        guard let shim = runtime.shim, runtime.state == .ready else { return -1 }
-        let result = shim.bookmarksSync(store, treeJSON)
-        if result < 0 { forget(store) }
-        return result
+    /// pre-order), sent in this turn. Chromium's answer is the call's own in
+    /// process and the host's REPLY in host mode
+    /// (``CEFRuntime/whenSettled(_:label:timeout:then:)``): 1 applied; 0 not
+    /// loaded yet (`.loaded` follows); below 0 refused. A refusal, or a host
+    /// that exited before it answered (the next host's stores report again),
+    /// forgets the store unless it reported after this sync. No answer by
+    /// ``syncReplyTimeout`` keeps the store: the host may still apply it.
+    /// `onFailure` runs once for anything but 1 or 0.
+    public func sync(store: String, treeJSON: String, onFailure: @escaping (SyncFailure) -> Void = { _ in }) {
+        guard runtime.shim != nil, runtime.state == .ready else { return onFailure(.notRunning) }
+        let reported = reports[store]
+        let sent = runtime.sendAsync { shim in shim.bookmarksSync(store, treeJSON) }
+        runtime.whenSettled(sent, label: "bookmarks sync", timeout: Self.syncReplyTimeout) { [weak self] settled in
+            let failure: SyncFailure
+            switch settled {
+            case .success(let answer) where answer >= 0: return
+            case .success: failure = .refused
+            case .failure(.hostGone): failure = .hostGone
+            case .failure(.unsent): failure = .notRunning
+            case .failure: failure = .noAnswer
+            }
+            if failure == .refused || failure == .hostGone { self?.forget(store, reported: reported) }
+            onFailure(failure)
+        }
     }
 
-    private func forget(_ store: String) {
+    /// Forgets `store` when it reported nothing since `reported`.
+    private func forget(_ store: String, reported: UInt64?) {
+        guard reports[store] == reported else { return }
         for profile in stores.keys { stores[profile]?.remove(store) }
     }
 

@@ -236,7 +236,7 @@ struct ImportFuzzCases {
     static func exportArchive(_ data: Data) throws {
         let archive: ExportArchive
         do {
-            archive = try data.withUnsafeBytes { try ExportArchive.archive(in: $0) }
+            archive = try ExportArchive.archive(in: SecretBytes(copying: data))
         } catch is ExportArchive.Failure {
             return
         }
@@ -247,7 +247,7 @@ struct ImportFuzzCases {
         }
         for csv in archive.passwordCSVs {
             try FuzzRun.check(csv.count <= ExportArchive.maximumPart, "a password part of \(csv.count) bytes")
-            try csv.withUnsafeBytes { try passwordCSV($0) }
+            try passwordCSV(csv)
         }
         if data == ZipFixture.sample {
             try FuzzRun.check(archive.bookmarksHTML.count == 1 && archive.historyJSON.count == 1 && archive.passwordCSVs.count == 1,
@@ -256,13 +256,16 @@ struct ImportFuzzCases {
     }
 
     static func passwordCSV(_ data: Data) throws {
-        try data.withUnsafeBytes { try passwordCSV($0) }
+        try passwordCSV(SecretBytes(copying: data))
     }
 
     /// Every data row of the file becomes a sign-in or is counted as skipped.
-    static func passwordCSV(_ bytes: UnsafeRawBufferPointer) throws {
+    static func passwordCSV(_ bytes: SecretBytes) throws {
         _ = PasswordCSVHeader.read(bytes)
-        let rows = PasswordCSVReader.records(in: bytes).dropFirst().filter { !($0.count == 1 && $0[0].isEmpty) }
+        let rows = bytes.withUnsafeBytes { raw in
+            // SAFETY: the view is read only inside this closure, while `bytes` lends its buffer.
+            PasswordCSVReader.records(in: unsafe ByteView(raw)).dropFirst().filter { !($0.count == 1 && $0[0].isEmpty) }
+        }
         for columns in [nil, PasswordCSVColumns(url: 1, username: 2, password: 3), PasswordCSVColumns(url: 0, username: 0, password: 9)] {
             let read: (logins: [ImportedLogin], skipped: LoginSkipCounts)
             do {
@@ -274,9 +277,9 @@ struct ImportFuzzCases {
                               "\(rows.count) rows gave \(read.logins.count) sign-ins and \(read.skipped.total) skipped")
             for login in read.logins {
                 try FuzzRun.check(login.signonRealm.hasPrefix("http") && login.signonRealm.hasSuffix("/"), "realm \(login.signonRealm)")
-                try FuzzRun.check(!login.password.isEmpty && login.password.withUnsafeBytes { $0.isValidUTF8 }, "a password that is empty or not UTF-8")
+                try FuzzRun.check(!login.password.isEmpty && login.password.isValidUTF8, "a password that is empty or not UTF-8")
             }
-            if columns == nil, Data(bytes) == PasswordCSVFixture.sample {
+            if columns == nil, bytes.matches(SecretBytes(copying: PasswordCSVFixture.sample)) {
                 try FuzzRun.check(read.skipped.duplicate == 1 && read.skipped.empty == 1 && read.skipped.notWebForm >= 1,
                                   "the CSV seed skipped \(read.skipped)")
             }

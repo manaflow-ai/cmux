@@ -42,7 +42,9 @@ public struct IrxKeychainJSONCache<Value: Codable & Sendable>: IrxJSONCache {
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        // SAFETY: SecItemCopyMatching stores at most one +1 CFTypeRef in the local
+        // `result`, live for this call; the Swift import takes ownership of it.
+        let status = unsafe SecItemCopyMatching(query as CFDictionary, &result)
         guard status == errSecSuccess, let data = result as? Data else { return nil }
         return try? JSONDecoder().decode(Value.self, from: data)
     }
@@ -62,7 +64,8 @@ public struct IrxKeychainJSONCache<Value: Codable & Sendable>: IrxJSONCache {
         guard updateStatus == errSecItemNotFound else { return false }
         var insert: [String: Any] = query
         attributes.forEach { insert[$0.key] = $0.value }
-        let addStatus = SecItemAdd(insert as CFDictionary, nil)
+        // SAFETY: with a nil result pointer SecItemAdd writes nothing back.
+        let addStatus = unsafe SecItemAdd(insert as CFDictionary, nil)
         if addStatus == errSecSuccess { return load() != nil }
         if addStatus == errSecDuplicateItem {
             let retry = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)

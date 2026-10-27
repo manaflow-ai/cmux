@@ -11,13 +11,14 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::{
-    ResourceClientRecord, ViewLeaseStatus, ViewReleasePreparation, ViewResizePreparation,
-    conversation_tabs_wire, detached_terminals::accepts_view_sizing,
+    MessageWriter, ResourceClientRecord, ViewLeaseStatus, ViewReleasePreparation,
+    ViewResizePreparation, conversation_tabs_wire, detached_terminals::accepts_view_sizing,
+    send_resource_response,
 };
 use crate::mux::{Mux, clamp_terminal_size};
 use crate::resource::{
-    BrowserPublicId, ClientPublicId, ContentPublicId, ResourceError, Selector, SessionPublicId,
-    TerminalPublicId,
+    BrowserPublicId, ClientPublicId, ContentPublicId, ResourceError, ResourceOperation, Selector,
+    SessionPublicId, TerminalPublicId,
 };
 use crate::{MuxEvent, SurfaceId, SurfaceKind};
 
@@ -381,16 +382,56 @@ fn surface_public_content_id(mux: &Mux, surface: SurfaceId) -> Option<String> {
     surface.resource_identity().map(|identity| identity.content_id.as_str().to_string())
 }
 
-pub(super) fn resource_client_cell_pixels_set(
+/// `client.cell_pixels.set`: checks the request here and answers from the
+/// System lane once the terminal hosts took the size (the fan-out waits up
+/// to the control response timeout, never on this request thread).
+pub(super) fn start_resource_client_cell_pixels_set(
     mux: &Arc<Mux>,
     requesting_client: u64,
     request: &crate::resource_router::ParsedResourceRequest,
-) -> Result<Value, ResourceError> {
-    let operation = "client.cell_pixels.set";
-    let _ = resolve_resource_client(mux, requesting_client, &request.selectors)?;
-    let width_px = checked_resource_u16(operation, &request.fields, "width_px")?;
-    let height_px = checked_resource_u16(operation, &request.fields, "height_px")?;
-    let update = mux.set_cell_pixel_size(width_px, height_px);
+    id: crate::resource::RequestId,
+    writer: &MessageWriter,
+) -> bool {
+    let operation = ResourceOperation::ClientCellPixelsSet;
+    let size = resolve_resource_client(mux, requesting_client, &request.selectors).and_then(|_| {
+        Ok((
+            checked_resource_u16(CELL_PIXELS_SET, &request.fields, "width_px")?,
+            checked_resource_u16(CELL_PIXELS_SET, &request.fields, "height_px")?,
+        ))
+    });
+    let (width_px, height_px) = match size {
+        Ok(size) => size,
+        Err(error) => return send_resource_response(writer, id, operation, Err(error)),
+    };
+    let answer_mux = Arc::downgrade(mux);
+    let writer = writer.clone();
+    mux.set_cell_pixel_size_then(width_px, height_px, move |update| {
+        let result = match (update, answer_mux.upgrade()) {
+            (Ok(update), Some(mux)) => {
+                Ok(cell_pixels_set_answer(&mux, width_px, height_px, update))
+            }
+            (Ok(_), None) => Err(ResourceError::operation_failed(
+                CELL_PIXELS_SET,
+                "the daemon is shutting down",
+                json!({}),
+            )),
+            (Err(error), _) => {
+                Err(ResourceError::operation_failed(CELL_PIXELS_SET, error.to_string(), json!({})))
+            }
+        };
+        let _ = send_resource_response(&writer, id, operation, result);
+    });
+    true
+}
+
+const CELL_PIXELS_SET: &str = "client.cell_pixels.set";
+
+fn cell_pixels_set_answer(
+    mux: &Mux,
+    width_px: u16,
+    height_px: u16,
+    update: crate::mux::CellPixelUpdate,
+) -> Value {
     let mut resized_terminals = update
         .resizes
         .into_iter()
@@ -413,12 +454,12 @@ pub(super) fn resource_client_cell_pixels_set(
                 .map(|id| (id, Value::String(failure.error)))
         })
         .collect::<serde_json::Map<_, _>>();
-    Ok(json!({
+    json!({
         "width_px":u32::from(width_px),
         "height_px":u32::from(height_px),
         "resized_terminals":resized_terminals,
         "failures":failures,
-    }))
+    })
 }
 
 pub(super) fn resource_terminal_viewer_resize(

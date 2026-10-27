@@ -231,6 +231,101 @@ def package_targets(manifest: str) -> list[Target]:
     return targets
 
 
+class Dependency(NamedTuple):
+    """One entry of a target's `dependencies:`: `.product(name:package:)` names its PACKAGE; `.target(name:)` is
+    KIND `target`; a string literal or `.byName(name:)` is KIND `byName` (this package's target of that name, else
+    the product of that name from the package of that name)."""
+    kind: str  # product, target or byName
+    name: str
+    package: str | None = None
+
+
+class PackageGraph(NamedTuple):
+    """What a Package.swift links: each target's kind and dependencies, its library products and its path links."""
+    kinds: dict[str, str]  # target name -> target, executableTarget, testTarget or macro
+    dependencies: dict[str, list[Dependency]]  # target name -> its literal dependencies (a variable is skipped)
+    libraries: dict[str, list[str]]  # library product name -> its targets (executable products link nothing)
+    paths: dict[str, str]  # package identity, lowercased (the path's last component, or `name:`) -> its `path:`
+
+
+PRODUCT_CALL = re.compile(r"(?<![\w.])(?:Product)?\.library\s*\(")
+PATH_PACKAGE_CALL = re.compile(r"(?<![\w.])(?:Package\.Dependency)?\.package\s*\(")
+DEPENDENCY_CALL = re.compile(r"\.(product|target|byName)\s*\(")
+
+
+def _elements(masked: str, start: int, end: int) -> list[tuple[int, int]]:
+    """The (start, end) of each top-level element of the array literal in MASKED[START:END] (none if no `[`),
+    without the whitespace and comments around it."""
+    opening = masked.find("[", start, end)
+    if opening < 0:
+        return []
+    closing = _closing(masked, opening)
+    found, depth, segment = [], 0, opening + 1
+    for k in range(opening + 1, closing + 1):
+        c = masked[k]
+        if c in "([{":
+            depth += 1
+        elif c in ")]}" and depth > 0:
+            depth -= 1
+        elif (c == "," and depth == 0) or k == closing:
+            element = masked[segment:k]
+            if element.strip():
+                found.append((segment + len(element) - len(element.lstrip()), segment + len(element.rstrip())))
+            segment = k + 1
+    return found
+
+
+def package_graph(manifest: str) -> PackageGraph:
+    """The PackageGraph of a Package.swift text, each call read alone by balanced parentheses with comments and
+    string contents masked, as package_targets() reads targets. Only plain string literals count."""
+    masked = mask_code(manifest)
+
+    def literals(start: int, end: int) -> dict[str, str]:
+        found = {}
+        for label, (a, b) in _arguments(masked, start, end).items():
+            value = masked[a:b]  # its own text without the whitespace and comments around it
+            value = _PLAIN_LITERAL.fullmatch(manifest[a + len(value) - len(value.lstrip()):a + len(value.rstrip())])
+            if value is not None:
+                found[label] = value.group(1)
+        return found
+
+    def calls(pattern: re.Pattern) -> list[tuple[re.Match, int]]:
+        found, position = [], 0
+        while (call := pattern.search(masked, position)) is not None:
+            end = _closing(masked, call.end() - 1)
+            found.append((call, end))
+            position = end + 1
+        return found
+
+    graph = PackageGraph({}, {}, {}, {})
+    for call, end in calls(TARGET_CALL):
+        args = _arguments(masked, call.end(), end)
+        name = literals(call.end(), end).get("name")
+        if name is None:
+            continue
+        graph.kinds[name] = call.group(1)
+        dependencies = graph.dependencies.setdefault(name, [])
+        for a, b in _elements(masked, *args["dependencies"]) if "dependencies" in args else []:
+            if (plain := _PLAIN_LITERAL.fullmatch(manifest[a:b])) is not None:
+                dependencies.append(Dependency("byName", plain.group(1)))
+            elif (inner := DEPENDENCY_CALL.match(masked, a)) is not None:
+                values = literals(inner.end(), _closing(masked, inner.end() - 1))
+                if "name" in values:
+                    dependencies.append(Dependency(inner.group(1), values["name"], values.get("package")))
+    for call, end in calls(PRODUCT_CALL):
+        args = _arguments(masked, call.end(), end)
+        name = literals(call.end(), end).get("name")
+        if name is not None and "targets" in args:
+            graph.libraries[name] = [plain.group(1) for a, b in _elements(masked, *args["targets"])
+                                     if (plain := _PLAIN_LITERAL.fullmatch(manifest[a:b])) is not None]
+    for call, end in calls(PATH_PACKAGE_CALL):
+        values = literals(call.end(), end)
+        if "path" in values:
+            for identity in {posixpath.basename(posixpath.normpath(values["path"])), values.get("name")} - {None}:
+                graph.paths[identity.lower()] = values["path"]
+    return graph
+
+
 def default_isolation(relative: str, targets: list[Target]) -> bool | None:
     """Whether the file at RELATIVE (relative to the package root, `/`-separated) is in a target that is main
     actor by default; None when no target's folder holds it. The deepest folder wins."""

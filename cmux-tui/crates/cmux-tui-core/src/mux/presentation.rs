@@ -13,9 +13,12 @@ use crate::workspace_registry::{
     FrontendBrowserRecord, PresentationSnapshot, WorkspaceGroupRecord, WorkspacePresentationUpdate,
     new_workspace_group_id, validate_workspace_group_id,
 };
+use cmux_threads::checked::fs as checked_files;
 use std::ops::Deref;
 
 mod frontend_browser_history;
+mod git_heads;
+pub(crate) use git_heads::GitHeads;
 
 /// Per-snapshot data the tree serializer adds to the live [`State`]:
 /// unread notification markers and the shared presentation metadata.
@@ -80,19 +83,14 @@ pub(crate) struct GitHead {
     detached: bool,
 }
 
-/// A cached HEAD lookup is reused for this long, which bounds both the
-/// filesystem work of a tree snapshot and the staleness of a branch switch
-/// made without changing directory.
-const GIT_HEAD_TTL: Duration = Duration::from_secs(2);
-const GIT_HEAD_CACHE_LIMIT: usize = 4096;
 const GIT_METADATA_MAX_BYTES: u64 = 4096;
 
 fn read_small_file(path: &Path) -> Option<String> {
-    let metadata = std::fs::metadata(path).ok()?;
+    let metadata = checked_files::metadata(path).ok()?;
     if !metadata.is_file() || metadata.len() > GIT_METADATA_MAX_BYTES {
         return None;
     }
-    std::fs::read_to_string(path).ok()
+    checked_files::read_to_string(path).ok()
 }
 
 fn read_git_head_file(git_dir: &Path) -> Option<GitHead> {
@@ -113,7 +111,7 @@ pub(crate) fn read_git_head(directory: &Path) -> Option<GitHead> {
     let mut current = Some(directory);
     while let Some(candidate) = current {
         let dot_git = candidate.join(".git");
-        match std::fs::metadata(&dot_git) {
+        match checked_files::metadata(&dot_git) {
             Ok(metadata) if metadata.is_dir() => return read_git_head_file(&dot_git),
             Ok(metadata) if metadata.is_file() => {
                 let pointer = read_small_file(&dot_git)?;
@@ -244,7 +242,8 @@ impl Mux {
     }
 
     /// Notifications, presentation, and tab directories for serializing the
-    /// whole tree. Git HEAD lookups run after the state lock is released.
+    /// whole tree. Git HEADs come from memory; a stale one is read off this
+    /// thread and its tabs get a `tab-changed` delta (presentation/git_heads.rs).
     #[track_caller]
     pub fn tree_decorations(&self) -> TreeDecorations {
         let presentation = self.presentation_snapshot();
@@ -312,27 +311,6 @@ impl Mux {
             );
         }
         result
-    }
-
-    fn git_head(&self, cwd: &str, now: Instant, refresh: bool) -> Option<GitHead> {
-        {
-            let cache = self.git_heads.lock().unwrap();
-            if let Some((checked, head)) = cache.get(cwd)
-                && (!refresh || now.saturating_duration_since(*checked) < GIT_HEAD_TTL)
-            {
-                return head.clone();
-            }
-        }
-        if !refresh {
-            return None;
-        }
-        let head = read_git_head(Path::new(cwd));
-        let mut cache = self.git_heads.lock().unwrap();
-        if cache.len() >= GIT_HEAD_CACHE_LIMIT {
-            cache.clear();
-        }
-        cache.insert(cwd.to_string(), (now, head.clone()));
-        head
     }
 
     /// Tell subscribers that one tab's metadata (pin, directory, git HEAD,

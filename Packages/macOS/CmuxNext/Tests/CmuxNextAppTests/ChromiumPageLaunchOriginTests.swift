@@ -164,6 +164,8 @@ import Testing
     private let descriptor = PageDescriptor(id: "test.launch-origin", resource: "launch-origin", processGroup: .solo, namespaces: [])
     private var windows: [NSWindow] = []
     private var views: [PageWebView] = []
+    /// The scheduler ``settle()`` waits on: one background task of it is one main-actor turn.
+    private let settleWork = MainWorkScheduler(budget: MainFrameBudget())
 
     /// - Parameter launchRuns: The slot's launch order is over the launch's scheduler (feature `cefLaunchOrigin` on).
     init(launchRuns: Bool = true) throws {
@@ -171,14 +173,15 @@ import Testing
         let fixture = CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: InputEventTap())
         let slot = ChromiumEngineSlot(stores: fixture.stores, waitDeadlines: fixture.waitDeadlines, source: CEFRuntimeSource(layout: nil),
                                       launch: launchRuns ? launch.startup : nil, make: { _, _, _ in fixture }, stop: { _ in })
-        let host = ChromiumPageHost(chromium: slot, preference: { BrowserDefaultEngine.chromium }, keyRouter: nil, work: hosting.work)
+        let host = ChromiumPageHost(chromium: slot, preference: { BrowserDefaultEngine.chromium }, keyRouter: nil, work: hosting.work,
+                                    dialogs: hosting.dialogs, hangWork: nil)
         (self.launch, self.hosting, self.slot) = (launch, hosting, slot)
         hosting.launchOrder = FakeChromiumHosting.LaunchOrder(
             restoredOrigin: { host.restoredOrigin(isShown: $0) },
             startHidden: { host.startHidden(when: $0, $1) },
             // CEFEngine.makeTab's wait, over the tab origin ChromiumPageHost.makePage sets.
             waitForStart: { await slot.launchOrder.waitForStart(of: BrowserTabOrigin($0)) })
-        webUI = WebUIHost(chromium: hosting, openPanel: nil, memory: QuietMemoryRegistry(), clock: ManualClock())
+        webUI = WebUIHost(chromium: hosting, openPanel: nil, memory: QuietMemoryRegistry())
         root = FileManager.default.temporaryDirectory.appendingPathComponent("page-launch-origin-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try Data("<!doctype html><title>Page</title>".utf8).write(to: root.appendingPathComponent("index.html"))
@@ -205,7 +208,7 @@ import Testing
 
     /// A few main-actor turns: a start that is not held reaches the engine in them.
     func settle() async {
-        for _ in 0..<5 { await PageHostPool.nextTurn() }
+        for _ in 0..<5 { await settleWork.apply(.background, owner: "ChromiumPageLaunchOriginTests.settle") { () -> Void in } }
     }
 
     /// A few display frames: the released afterFirstFrame and afterStartup tasks run in them.

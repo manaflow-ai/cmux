@@ -669,6 +669,84 @@
       "row": "global_mutable_statics",
       "allow": 1,
       "why": "p10-stability-055: HomeFlightRecorder.policy, one lock for the flight recorder policy the app sets once at launch (CmuxNextHome HomeFlightRecording.install) and the vendored FlightRecorder reads statically after a send and on its dump queue. It replaces three nonisolated(unsafe) static vars (isEnabled, capturesWindow, logFolder), now computed accessors over it; MessagesLabHome global_mutable_statics -2 net. It goes when FlightRecorder takes its policy from the pane that owns it (an injected value) instead of a static."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "global_mutable_statics",
+      "allow": 1,
+      "why": "CmuxNextDesign MotionActivity.end (p03-rendering-004, review of cp/p03-rendering-004): one main-actor time, when the last Motion animation ends, that every gate path moves forward. The gates are process-wide static values (Motion.panes, Motion.tabs, ... and Motion.gate(_:)) called from every UI module with no injection point, as MotionInFlight's settle entries and MotionTrace already are; motion.late_commits needs every gate animation, not the few that opt in to settle at sleep, so the signal must sit where the gates are. Written only by gate paths and MotionClock steps on main, read once per main run-loop turn by the composition root's MotionLateCommits (an injected closure); no lock, no cache, bounded to one Double."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "stateful_singletons",
+      "allow": 1,
+      "why": "p01-process-231: CEFMirrorExports.served, a weak reference to the cache the deferred-event mode's mirror exports read. Those exports replace cmux_shim_* functions whose C signatures (cmux_cef_shim.h, fixed by the shim ABI) carry no context argument, so a @convention(c) function cannot reach an instance; the remote shim keeps its mirror cache as a dylib global for the same reason (ChromiumHost/client/remote_shim.mm). Only with CMUX_CEF_DEFER_EVENTS=1 (a test mode); every shim over the cache holds it, the static holds it weakly, and CEFMirrorCache.shim(helloNow:) refuses a second cache while it lives (that runtime faults and reads live), so one runtime's reads and frees never reach another's cache or source. The env run of the suites is swift test --no-parallel. Main-thread only (an off-main read gets the C zero value and a fault)."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "observer_sites",
+      "allow": 1,
+      "why": "p04-input-015: ScreenDragSession ends a screen drag when the app goes inactive (the mouse-up then goes to another app, so the drag's tap intercept never hears it). It subscribes through the app's one AppEvents fan-out (AppServices.appEvents: one NotificationCenter observer for didResignActive for the whole app), only for the drag's life; the subscription is released when the drag ends. TabDragSession and LinkDragSession also end on resign. The fan-out registers no second NotificationCenter observer."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "observer_sites",
+      "allow": 2,
+      "why": "p12-perf-process-043: MainThreadActivityFeed (CmuxNextHangReports) subscribes once per app to NSApplication didBecomeActive and didResignActive through the app's AppEvents fan-out (recipe R-notif), the two sites counted. Hang reports' active_seconds follows Chrome's DesktopSessionDurationTracker (chrome/browser/metrics/desktop_session_duration/desktop_session_duration_tracker.cc), which hears browser window activation the same way; no typed app-activation source exists in Wakeups to subscribe to instead. Made only on builds whose hang report schema carries active time, released with the controller."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "stateful_singletons",
+      "allow": 1,
+      "why": "p02-threads-124: CmuxNextCompat BlockingTraceHook.process, one word holding the trace sink that records the process's checked blocking calls (0 while the task category is off, so a blockingCall pays one acquiring load in every build). blockingCall is a free function that every module's seams call on any thread, inside locks and before the composition root exists, so it has no instance to take the hook through; and Compat sits below CmuxNextTrace, so it cannot read TraceRuntime.shared itself. Only TraceRuntime.shared stores into it, when its task category turns on or off. Chrome: ScopedBlockingCall writes its trace event through the process-wide TraceLog (base/threading/scoped_blocking_call.cc)."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "stateful_singletons",
+      "allow": 1,
+      "why": "CmuxNextCompat CheckedQueueLog.app (Debug and bench builds only, #if DEBUG || CMUX_BENCH_HOOKS): the record of every queue DispatchQueue.checked made (label, QoS, target, call site, registry problem), which debug.threads lists (p02-threads-018, RUN-3(b)). DispatchQueue.checked is a static factory called wherever a queue is made, in every module and before any composition root exists, so it has no injection path; the same shape as BlockingViolationTable.shared. Written once per queue creation under CmuxNextCompat Mutex, bounded at 512 records; ThreadsControl takes it injected (tests pass their own log). Not in Release builds."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "observer_sites",
+      "allow": 2,
+      "why": "p09-observability-059 (fixer): IdleWakeupSampler opens and closes its idle periods at NSApplication didResignActive and didBecomeActive, subscribed once per app through the app's one AppEvents fan-out (AppServices.startIdleWakeups), the two sites counted. They replace the two NSApplicationDelegate methods (applicationDidResignActive, applicationDidBecomeActive), each of which AppKit registers as its own NotificationCenter observer; the fan-out already observes both names for FocusEffectApplier, KeyRouter and the others, so the app gains no NotificationCenter observer and loses two. Chrome's AppController observes the NSApp notices once and fans out (chrome/browser/app_controller_mac.mm). Made once after startup, held for the app's life."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "stateful_singletons",
+      "allow": 1,
+      "why": "p02-threads-130: CmuxThreading BlockingCallHookSlot.process, the one slot holding the hook that checks the linked Shared/iOS packages' blockingCall and times their Mutex waits (empty, so a call is its body, until the app installs its detector, and always on iOS). CmuxThreading's blockingCall is a free function those packages call on any thread, inside locks and before any composition root exists, so it has no instance to take the hook through; the slot takes one install (BlockingDetector.forProcess(), in the composition root) and refuses a second. Chrome: ScopedBlockingCall reaches the process's blocking observer from every component (base/threading/scoped_blocking_call_internal.cc)."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "observer_sites",
+      "allow": 4,
+      "why": "p14-energy-120: SuspendWatch (CmuxNextEnergy) is the app's one sleep, wake and display sleep adapter the task asks for: it subscribes once per app to NSWorkspace willSleep, didWake, screensDidSleep and screensDidWake through the app's workspace AppEvents fan-out (recipe R-notif; the display notices share AppVisibilitySource's NotificationCenter observer there), the four sites counted, and publishes them to every keepalive owner through EnergyPolicy instead of each owner observing them. Chrome's PowerMonitor is the same single suspend and resume source (base/power_monitor/power_monitor.h). Made only with the sleepWakeKeepalives feature on; FeedService's own sleep notices move onto it once that feature ships."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "stateful_singletons",
+      "allow": 1,
+      "why": "p04-input-076: CmuxNextWakeups MainJobGateRoute.installed, the address of the one installed MainJobGate. The Swift runtime's swift_task_enqueueMainExecutor_hook is itself one process-wide variable holding a thin function with no context argument, so the hook reaches its gate only through a process-wide word; the gate is made in the composition root (CmuxNextApp.main, MainJobGateSwitch) and injected into MainJobGateHook.install, which claims the word once and refuses a second gate. Like p02-threads-130's BlockingCallHookSlot.process for the same reason (a context-free entry point), and Chrome's base::TaskAnnotator observer hook (base/task/common/task_annotator.cc)."
+    },
+    {
+      "date": "2026-10-27",
+      "row": "observer_sites",
+      "allow": 1,
+      "why": "p04-input-080: MainNotificationObserver (CmuxNextWakeups) is the classed notification wrapper the task asks for: one MainActorObservation registration whose handler runs in a declared MainWorkClass through MainWorkScheduler.callbackClass. It has no caller yet, so its body counts once; batches p04-input-081 and 082 move existing MainActorObservation sites onto it, each a swap of one registration for one, and the count then drops by this one."
+    },
+    {
+      "date": "2026-10-27",
+      "row": "global_mutable_statics",
+      "allow": 1,
+      "why": "p08-startup-082: GlobalJobCensus.installedBits (CmuxNextLaunch), the one word through which the launch's off-main job census reaches its recorder. swift_task_enqueueGlobal_hook is a thin function with no context argument, so the census the composition root makes is published here once (a compare-exchange from 0; a second install is refused). Debug and bench-hooks builds only, and only in a launch armed by CMUX_NEXT_GLOBAL_JOB_CENSUS=1. Chrome reaches its process-wide task observers from the posting thread the same way (base/task/common/task_annotator.cc)."
+    },
+    {
+      "date": "2026-10-27",
+      "row": "global_mutable_statics",
+      "allow": 1,
+      "why": "p08-startup-080: MainJobRing.installedBits (CmuxNextCompat), the one word through which the launch's main-job census reaches its ring. swift_task_enqueueMainExecutor_hook is a thin function with no context, and the app's posting seams (MainDelivery(), MainRunLoopBlock, a DemandTimer fire) have no instance to take a recorder through, so the ring the composition root makes is published here once (a compare-exchange from 0; a second install is refused). Debug and bench-hooks builds only, and only in a launch armed by CMUX_NEXT_MAIN_JOB_CENSUS=1. Chrome reaches its process-wide task observers from the posting thread the same way (base/task/common/task_annotator.cc)."
     }
   ],
   "observer_wrappers": [

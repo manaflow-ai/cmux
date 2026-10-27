@@ -11,9 +11,10 @@
 //! re-classifies an unsettled receipt at startup against the recorded
 //! shutdown window, with the same result.
 
+use cmux_threads::sync::{Condvar, Mutex};
 use std::collections::BTreeMap;
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
+use std::sync::{Arc, OnceLock, Weak};
 use std::time::Duration;
 
 use super::Mux;
@@ -119,7 +120,11 @@ impl ExitSettleTimer {
             let state = self.state.lock().unwrap();
             // An earlier deadline scheduled meanwhile restarts the loop.
             if Self::earliest(&state) == Some(next) {
-                let _ = self.changed.wait_timeout(state, Duration::from_millis(next - now_ms));
+                let _ = cmux_threads::checked::sync::wait_timeout(
+                    &self.changed,
+                    state,
+                    Duration::from_millis(next - now_ms),
+                );
             }
         }
     }

@@ -61,6 +61,8 @@ public enum PhoneError: Error, Sendable, Hashable, CustomStringConvertible {
     case outsideScreen
     /// The tool answered something cmux could not read.
     case unreadable(what: String)
+    /// A number no phone input or recording can have (a swipe longer than ``PhoneInput/longestSwipe``).
+    case outOfRange(what: String)
 
     public var description: String {
         switch self {
@@ -76,6 +78,7 @@ public enum PhoneError: Error, Sendable, Hashable, CustomStringConvertible {
             "the Android SDK is not installed; install Android Studio or set ANDROID_HOME for Android emulators"
         case .unreadable(let what): "could not read \(what)"
         case .outsideScreen: "that point is outside the phone's screen"
+        case .outOfRange(let what): "\(what) is out of range"
         }
     }
 }

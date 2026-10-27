@@ -1,4 +1,4 @@
-import CmuxNextCompat
+public import CmuxNextCompat
 public import Foundation
 public import WebKit
 
@@ -13,6 +13,12 @@ public import WebKit
 /// update, else the bundled root. The web-dev.json server and overlay (live reload) stay ahead
 /// of it, so the order is dev server, dev overlay, update, bundle.
 ///
+/// Every web tree imports React from `cmux-page://cmux.shared/`, the pages' `_shared` folder
+/// (`PageID.sharedBundleRoot`), which maps into an update with this module's pages. So every page
+/// that imports it is registered too (the agent pane, the webviews app, Agent Activity): a page and
+/// the shared files it names then always come from the same update, and an update holds every shared
+/// file its pages name (`WebUpdateTree.missingSharedFiles()` refuses one that does not).
+///
 /// Only the app's web updater activates a folder, after it checked the folder against a
 /// signed pointer (``load(_:)`` at launch, ``activate(_:)`` for a new update); nothing a page
 /// or a file says can point the app at other files.
@@ -21,6 +27,10 @@ public nonisolated final class WebBundleOverlay: Sendable {
 
     /// Where this module's pages sit in the update layout (web-bundle-key.py OUTPUTS).
     public static let pagesOutput = "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages"
+    /// Where the Agent Activity page sits in the update layout (web-bundle-key.py OUTPUTS). Its React is
+    /// the shared one under ``pagesOutput``'s `_shared`, so the page is served from the same update as
+    /// that folder (the app registers its bundled folder at launch).
+    public static let agentActivityOutput = "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity"
 
     nonisolated struct Base: Equatable {
         /// The bundled folder's real path.
@@ -34,6 +44,8 @@ public nonisolated final class WebBundleOverlay: Sendable {
         var bases: [Base] = []
         /// The launch check of the kept update; requests wait for it.
         var pending: Task<URL?, Never>?
+        /// The bundled shared chunks in memory (``readBundledShared(on:)``).
+        var shared: PageSharedChunkCache?
     }
 
     private let state: Mutex<State>
@@ -89,6 +101,29 @@ public nonisolated final class WebBundleOverlay: Sendable {
 
     /// The update folder served now, nil for the bundle (or while the launch check runs).
     public var activeTree: URL? { state.withLock { $0.tree } }
+
+    /// Reads the bundled shared chunks (``PageSharedChunks/bundledRoot``) into memory on `runner`'s
+    /// files lane, once at launch, so the WebKit scheme handler answers them in the turn it is asked
+    /// (``PageSchemeHandler/sharedReplyInTurn(to:origin:mainDocument:)``). The bundle lookup runs on the
+    /// lane too; without a shared folder no table is kept.
+    public func readBundledShared(on runner: any MayBlockRunner) {
+        readShared(on: runner) { PageSharedChunks.bundledRoot }
+    }
+
+    /// Reads the shared chunks at the folder `root` names on `runner`'s files lane and keeps the table;
+    /// no folder, or a missing one, keeps none.
+    func readShared(on runner: any MayBlockRunner, root: @escaping @Sendable () -> URL?) {
+        runner.postFiles(.userVisible, shutdown: .skipOnShutdown) { [self] in
+            let table = root().flatMap { try? PageSharedChunkCache(reading: $0) }
+            state.withLock { $0.shared = table }
+        }
+    }
+
+    /// The shared chunks in memory, only while requests serve the bundle: nil while an update is active
+    /// or the launch check of a kept update runs, so those requests take the scheme handler's async path.
+    var bundledShared: PageSharedChunkCache? {
+        state.withLock { $0.tree == nil && $0.pending == nil ? $0.shared : nil }
+    }
 
     /// The folder to serve a request for the bundled root `bundled` from.
     public func root(for bundled: URL) async -> URL {

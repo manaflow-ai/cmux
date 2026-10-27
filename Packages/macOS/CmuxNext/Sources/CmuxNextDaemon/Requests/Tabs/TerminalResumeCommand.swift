@@ -43,7 +43,7 @@ public struct TerminalResumeCommandRequest: DaemonRequest {
         self.change = change
     }
 
-    enum CodingKeys: String, CodingKey { case surface, terminalID, command }
+    enum CodingKeys: String, CodingKey { case surface, terminalID = "terminal_id", command }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         switch target {

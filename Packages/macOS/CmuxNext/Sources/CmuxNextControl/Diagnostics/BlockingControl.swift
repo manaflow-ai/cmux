@@ -2,12 +2,17 @@
 public import CmuxNextCompat
 internal import CmuxNextSettings
 
-/// `debug.blocking`: the call sites that blocked the main thread, a shared pool thread or a `.cpu` lane item since
-/// launch (the blocking detector, plans/cmux-next/threading-model.md), for the every-action sweep and the benches
-/// (Debug and bench-checks builds). Each site has its context (`main`, `pool`, or `cpu-lane` with kind
-/// `wrong-lane`, whose `seam_kind` says what the seam waited on), its call count and, for calls timed by
+/// `debug.blocking`: the call sites that blocked the main thread, a shared pool thread or a `.cpu` lane item, or
+/// waited on a sync primitive in a lane item, since launch (the blocking detector, plans/cmux-next/threading-model.md),
+/// for the every-action sweep and the benches (Debug and bench-checks builds). Each site has its context (`main`,
+/// `pool`, `cpu-lane` with kind `wrong-lane`, whose `seam_kind` says what the seam waited on, or `lane-sync`), its
+/// call count and, for calls timed by
 /// `blockingCall`, the wall time they blocked (`total_ms`, `max_ms`); `contexts` sums the sites per context,
 /// with each context's `overflow` (calls not recorded as a site; the top-level `overflow` is their sum).
+/// `inversions` lists the QoS inversions of the waiting seams (a thread waited on a queue below its own QoS):
+/// `count` (inversions at the recorded sites since launch or the last reset), `overflow` (inversions not recorded
+/// as a site, since launch) and `sites`, each with its
+/// `location`, `waiter` and `target` QoS and `count`; the perf lab's `qos.inversions` story reads it.
 /// `{"reset": true}` zeroes the counts and times after the report; no other parameter is read (trap modes are set
 /// only by `CMUX_BLOCKING_TRAP=1` and `CMUX_BLOCKING_TRAP_POOL=1` at launch). It reads the detector's own tables,
 /// so it runs off the main thread (socket threading policy) and answers while the main thread is busy.
@@ -30,7 +35,7 @@ public struct BlockingControl: Sendable {
     static func report(_ params: [String: JSONValue], detector: BlockingDetector) -> JSONValue {
         let sites = detector.sites
         var contexts: [String: JSONValue] = [:]
-        for context in [BlockingContext.main, .pool, .cpuLane] {
+        for context in [BlockingContext.main, .pool, .cpuLane, .laneSync] {
             let inContext = sites.filter { $0.context == context }
             contexts[context.rawValue] = .object([
                 "sites": .number(Double(inContext.count)),
@@ -44,6 +49,7 @@ public struct BlockingControl: Sendable {
             "pool_mode": .string(detector.poolMode.rawValue),
             "overflow": .number(Double(detector.overflow)),
             "contexts": .object(contexts),
+            "inversions": inversionReport(detector),
             "sites": .array(sites.map { site in
                 .object([
                     "context": .string(site.context.rawValue),
@@ -58,6 +64,22 @@ public struct BlockingControl: Sendable {
         ])
         if params["reset"]?.boolValue == true { detector.resetCounts() }
         return report
+    }
+
+    private static func inversionReport(_ detector: BlockingDetector) -> JSONValue {
+        let inversions = detector.qosInversions
+        return .object([
+            "count": .number(Double(inversions.reduce(0) { $0 + $1.count })),
+            "overflow": .number(Double(detector.qosInversionOverflow)),
+            "sites": .array(inversions.map { inversion in
+                .object([
+                    "location": .string(inversion.location),
+                    "waiter": .string(inversion.waiter.rawValue),
+                    "target": .string(inversion.target.rawValue),
+                    "count": .number(Double(inversion.count)),
+                ])
+            }),
+        ])
     }
 }
 #endif

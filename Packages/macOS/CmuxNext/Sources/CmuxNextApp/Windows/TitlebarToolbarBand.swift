@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHistory
+import CmuxNextWakeups
 import Observation
 
 /// The toolbar band in the window's top row, right of the traffic lights
@@ -25,7 +26,7 @@ final class TitlebarToolbarBand: NSView {
         didSet {
             guard presence != oldValue else { return }
             alphaValue = presence
-            needsLayout = true
+            needsLayout = true // invalidate: a new presence (the guard above) closes the items up.
         }
     }
     /// Where the icon choice is read (tests pass their own store).
@@ -34,7 +35,10 @@ final class TitlebarToolbarBand: NSView {
     }
     /// The sidebar state the toggle's glyph shows.
     private(set) var showsSidebarHidden = false
-    private var iconObservation: Task<Void, Never>?
+    /// The window's node and the app's scheduler its observations run on (``follow(on:work:title:shortcut:)``):
+    /// the band's glyph and names are view work, read while the window shows.
+    private var observing: (node: VisibilityNode, work: MainWorkScheduler)?
+    private var iconObservation: VisibleObservation<SidebarToggleIcon>?
     /// Back and Forward through the location trail (R69).
     let backButton = TitlebarBandButton(symbol: "chevron.left")
     let forwardButton = TitlebarBandButton(symbol: "chevron.right")
@@ -62,19 +66,30 @@ final class TitlebarToolbarBand: NSView {
         sidebarToggle.setAccessibilityIdentifier("cmux.titlebar.toggleSidebar")
         backButton.setAccessibilityIdentifier("cmux.titlebar.back")
         forwardButton.setAccessibilityIdentifier("cmux.titlebar.forward")
+    }
+
+    /// Follows the icon choice and the toggle's title and key on `node` (the window's), with `work`.
+    func follow(on node: VisibilityNode, work: MainWorkScheduler, title: @escaping @MainActor () -> String,
+                shortcut: @escaping @MainActor () -> String?) {
+        observing = (node, work)
         followIcon()
+        descriptionObservation = VisibleObservation(node, owner: "TitlebarToolbarBand.toggleDescription", on: work) {
+            (title(), shortcut())
+        } apply: { [weak self] description in
+            self?.describeToggle(title: description.0, shortcut: description.1)
+        }
     }
 
     /// Applies the Debug Settings / Debug menu icon choice live.
     private func followIcon() {
+        guard let observing else { return }
         iconObservation?.cancel()
         let store = iconStore
-        // task-owner: the band (cancelled in deinit and on a store change); event-driven (Observation)
-        iconObservation = Task { [weak self] in
-            for await _ in ObservationStream({ SidebarToggleIcon.tunable.value(in: store) }) {
-                guard let self else { return }
-                showSidebarState(hidden: showsSidebarHidden)
-            }
+        iconObservation = VisibleObservation(observing.node, owner: "TitlebarToolbarBand.icon", on: observing.work) {
+            SidebarToggleIcon.tunable.value(in: store)
+        } apply: { [weak self] _ in
+            guard let self else { return }
+            showSidebarState(hidden: showsSidebarHidden)
         }
     }
 
@@ -142,24 +157,6 @@ final class TitlebarToolbarBand: NSView {
         sidebarToggle.themedToolTipShortcut = shortcut
     }
 
-    private var descriptionObservation: Task<Void, Never>?
-
-    /// Keeps the toggle's title and key current: a rebind (cmux.json,
-    /// Settings) shows at once (R68 follow-up).
-    func followToggleDescription(title: @escaping @MainActor () -> String, shortcut: @escaping @MainActor () -> String?) {
-        descriptionObservation?.cancel()
-        // task-owner: the band (cancelled in deinit); event-driven (Observation)
-        descriptionObservation = Task { [weak self] in
-            for await (title, shortcut) in ObservationStream({ (title(), shortcut()) }) {
-                self?.describeToggle(title: title, shortcut: shortcut)
-            }
-        }
-    }
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
-    nonisolated deinit {
-        descriptionObservation?.cancel()
-        iconObservation?.cancel()
-    }
+    /// Keeps the toggle's title and key current: a rebind (cmux.json, Settings) shows at once (R68 follow-up).
+    private var descriptionObservation: VisibleObservation<(String, String?)>?
 }

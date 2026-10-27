@@ -67,7 +67,7 @@ extension BrowserStreamedPage {
         // timer-class-allow: the cap runs on the clock BrowserWakeStandIn hands in (WebKitTab's cap does the same)
         let timer = DemandTimer(owner: "BrowserWakeCover", clock: clock)
         // Justified delay: the cap of a stand-in, not a poll; the first frame, a failure or a close cancels it.
-        timer.schedule(after: cap) { @MainActor [weak self, weak view] in
+        timer.scheduleOnMain(after: cap) { [weak self, weak view] in
             guard let self, let view, self.shown?.view === view else { return }
             self.remove()
         }

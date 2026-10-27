@@ -10,7 +10,9 @@ import CmuxNextPagesTestSupport
 @testable import CmuxNextWakeups
 import Foundation
 import ImageIO
+import CmuxNextSettings
 import Testing
+import WebKit
 
 /// A page keeps its picture and its state from the turn it hides, and a discard makes no call into the
 /// page (p13-webui-088): a frozen page cannot answer, so the old design's discard-time save call kept a
@@ -31,21 +33,32 @@ struct PageDiscardTests {
         func reportsReasonChanges(to lifecycle: PageLifecycle) {}
         func keepHideSnapshot() { page.lines.append("keep \(name)") }
         func dropHideSnapshot() { page.lines.append("drop \(name)") }
-        func freeze() { page.lines.append("freeze \(name)") }
+        func freeze() -> Bool {
+            page.lines.append("freeze \(name)")
+            return true
+        }
         func thaw() { page.lines.append("thaw \(name)") }
-        func discard() { page.lines.append("discard \(name)") }
+        func discard() -> Bool {
+            page.lines.append("discard \(name)")
+            return true
+        }
     }
 
-    /// An encoder that records what it is given and answers at once with ``answer``.
+    /// An encoder that records what it is given and answers at once: a frame with ``answer``, a surface
+    /// copy with its own PNG.
     @MainActor private final class RecordingEncoder {
         var images: [CGImage] = []
+        var unpacked: [PageSurfaceCopy] = []
         var answer: PageEncodedSnapshot?
 
         var encoder: PageSnapshotEncoder {
-            PageSnapshotEncoder { [self] image, done in
+            PageSnapshotEncoder(start: { [self] image, done in
                 images.append(image)
                 done(answer)
-            }
+            }, unpack: { [self] copy, done in
+                unpacked.append(copy)
+                done(copy.encoded())
+            })
         }
 
         /// An encoder whose answer waits for ``finish(_:)`` (an encode still on the lane).
@@ -67,6 +80,8 @@ struct PageDiscardTests {
     private let lifecycle: PageLifecycle
     private let descriptor = PageDescriptor(id: "test.page-discard", resource: "page-discard", processGroup: .solo, namespaces: [])
     private static let picture = PageEncodedSnapshot(data: Data([0x89, 0x50, 0x4E, 0x47]), pixelSize: CGSize(width: 200, height: 160))
+    /// ``picture`` as Chromium's surface copy answers it, in base64.
+    private static let surfaceCopy = PageSurfaceCopy(base64: picture.data.base64EncodedString(), pixelSize: picture.pixelSize)
 
     init() {
         lifecycle = PageLifecycle(deadlines: rig.scheduler)
@@ -93,7 +108,7 @@ struct PageDiscardTests {
     private func chromiumView(root: URL) async throws -> (PageWebView, FakeChromiumPage) {
         let hosting = FakeChromiumHosting()
         let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: hosting))
-        view.chromiumClock = PageTestClock.never
+        view.chromiumDeadlines = LifecycleDeadlineRig.never
         await view.chromiumStart?.value
         view.frame = NSRect(x: 0, y: 0, width: 100, height: 80)
         view.loaded = true // its document finished: no loading keep reason
@@ -155,18 +170,20 @@ struct PageDiscardTests {
 
     // MARK: A real page
 
-    /// A Chromium page copies its surface when it hides (no DevTools), and the discard 300 s later makes
-    /// no call into the page and encodes nothing more: Chromium's copy comes encoded.
+    /// A Chromium page copies its surface when it hides (no DevTools), its base64 goes to the encoder's
+    /// unpack (off the main thread in the app), and the discard 300 s later makes no call into the page and
+    /// encodes nothing more: Chromium's copy comes encoded.
     @Test func aChromiumPageKeepsItsSurfaceCopyAtTheHideAndIsDiscardedWithNoPageCall() async throws {
         let root = try pageRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let (view, page) = try await chromiumView(root: root)
         let (other, _) = try await chromiumView(root: root)
-        page.surfaceCopy = Self.picture
+        page.surfaceCopy = Self.surfaceCopy
         let encoder = RecordingEncoder()
         let calls = page.calls.count, evaluations = page.evaluations.count
         lifecycle.hide("a", page: PageWebViewLifecycle(view, encoder: encoder.encoder))
         #expect(page.surfaceCopies == [CGSize(width: 200, height: 160)], "one copy at the view's 2x size, in the hide's turn")
+        #expect(encoder.unpacked == [Self.surfaceCopy], "the copy's base64 was not unpacked by the encoder")
         #expect(view.hideState.encoded == Self.picture)
         rig.advance(to: .seconds(5))
         lifecycle.hide("b", page: PageWebViewLifecycle(other, encoder: encoder.encoder))
@@ -177,6 +194,7 @@ struct PageDiscardTests {
         #expect(page.evaluations.count == evaluations, "a call into the page")
         #expect(page.surfaceCopies.count == 1, "the discard took a picture of its own")
         #expect(encoder.images.isEmpty, "a Chromium copy is encoded already")
+        #expect(encoder.unpacked.count == 1, "the discard unpacked again")
         #expect(view.hideState.encoded == Self.picture)
         view.close()
         other.close()
@@ -209,6 +227,7 @@ struct PageDiscardTests {
         #expect(encoder.images.count == 1, "the frame was not encoded as it came")
         #expect(view.hideState.encoded == Self.picture)
         #expect(lifecycle.state(of: "a") == .hidden, "the picture came after a freeze")
+        view.isHidden = true // the tab's conceal hides the view after the lifecycle's hide
 
         rig.advance(to: .seconds(5))
         lifecycle.hide("b", page: Target(name: "other", page: Steps()))
@@ -313,6 +332,30 @@ struct PageDiscardTests {
         #expect(state.encoded == Self.picture)
     }
 
+    /// The app's encoder unpacks a surface copy's base64 (megabytes of text for a full window) on the `.cpu`
+    /// lane, never in the main actor's turn: the main thread records no cpu-intensive site.
+    @Test func theAppEncoderUnpacksASurfaceCopyOnTheCPULane() async throws {
+        let (ran, report) = AsyncStream<BlockingLane>.makeStream()
+        let work = BackgroundWork(cpuWidth: 1, label: "test.page-unpack", onRan: { lane, _, _, _ in report.yield(lane) })
+        let encoder = PageSnapshotEncoder(work: work, mainWork: rig.work)
+        let png = Data(repeating: 0xAB, count: 256 * 1024)
+        let copy = PageSurfaceCopy(base64: png.base64EncodedString(), pixelSize: CGSize(width: 512, height: 512))
+        try #require(copy.base64.utf8.count > BlockingKind.cpuIntensiveJSONBytes)
+        #if DEBUG || CMUX_BLOCKING_CHECKS
+        let table = BlockingViolationTable(mode: .record)
+        BlockingViolationTable.$scoped.withValue(table) { encoder.unpack(copy) { _ in } }
+        #else
+        encoder.unpack(copy) { _ in }
+        #endif
+        var lanes = ran.makeAsyncIterator()
+        #expect(await lanes.next() == .cpu, "the unpack did not run on the .cpu lane")
+        #if DEBUG || CMUX_BLOCKING_CHECKS
+        await table.flush()
+        #expect(table.sites.filter { $0.kind == .cpuIntensive }.isEmpty, "the unpack ran on the main thread: \(table.sites)")
+        #endif
+        await work.shutdown()
+    }
+
     /// The app's encoder runs the encode on the `.cpu` lane at QoS utility, never on the main thread,
     /// makes a PNG of the frame's size, and records no wrong-lane site: the in-memory encode goes through
     /// the CPU seam (`blockingImageEncode`), not a file seam.
@@ -364,3 +407,341 @@ private nonisolated final class PageDiscardViolations: BlockingViolationSink, Se
     }
 }
 #endif
+
+/// A page's discard and restore (plans/cmux-next/chrome-parity/p13-webui.md 3.C, task 030): the
+/// discard makes no call into the page and ends its engine page and subscriptions in one turn, the
+/// shell keeps route, snapshot and state, and the show draws the snapshot, makes the engine page
+/// again from the same host and hands the new document its state before its first paint.
+@MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
+struct PageDiscardRestoreTests {
+    private let root: URL
+    private let descriptor = PageDescriptor(id: "test.discard-page", resource: "discard-page", processGroup: .viewer,
+                                            namespaces: ["test.discard."])
+    private let provider = LiveSubscriptions()
+    /// The hide's encoded picture as the tests keep it (its bytes are never decoded: ``decoder`` answers).
+    private static let encoded = PageEncodedSnapshot(data: Data([0x89, 0x50, 0x4E, 0x47]), pixelSize: CGSize(width: 4, height: 2))
+    /// Encodes nothing and decodes the kept picture at once to ``picture``.
+    private let decoder: PageSnapshotEncoder
+    private let picture: CGImage
+
+    init() throws {
+        let picture = try Self.image()
+        self.picture = picture
+        decoder = PageSnapshotEncoder(start: { _, done in done(nil) }, decode: { _, done in done(picture) })
+        root = FileManager.default.temporaryDirectory.appendingPathComponent("page-discard-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data("<!doctype html><title>Page</title>".utf8).write(to: root.appendingPathComponent("index.html"))
+    }
+
+    private func makeView(_ hosting: FakeChromiumHosting?) throws -> PageWebView {
+        let view = try #require(PageWebView(descriptor: descriptor, root: root,
+                                            routes: [PageRoute(prefix: "test.discard.", provider: provider)],
+                                            route: "#/a", chromium: hosting))
+        view.chromiumDeadlines = LifecycleDeadlineRig.never
+        view.frame = NSRect(x: 0, y: 0, width: 200, height: 100)
+        return view
+    }
+
+    private func subscribe(_ view: PageWebView) async {
+        let reply = await view.router.handle(["t": "sub", "id": 1, "stream": "test.discard.changed"])
+        #expect(reply["t"]?.stringValue == "ok")
+    }
+
+    /// The acceptance: a discarded shell holds no engine page and no subscription, and the discard
+    /// made no call into the page (no DevTools call, no script), all before it returned.
+    @Test func aDiscardEndsTheEnginePageAndSubscriptionsWithNoCallIntoThePage() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let view = try makeView(hosting)
+        defer { view.close() }
+        await view.chromiumStart?.value
+        let page = try #require(hosting.made.first)
+        await subscribe(view)
+        #expect(view.router.subscriptionCount == 1)
+        #expect(provider.live == 1)
+        let calls = page.calls.count, evaluations = page.evaluations.count
+
+        #expect(view.discardPage(decoder: decoder))
+
+        #expect(view.isDiscarded)
+        #expect(view.chromiumPage == nil)
+        #expect(page.closed)
+        #expect(page.contentView.superview == nil)
+        #expect(view.router.subscriptionCount == 0)
+        #expect(provider.live == 0)
+        #expect(page.calls.count == calls, "the discard called into the page")
+        #expect(page.evaluations.count == evaluations, "the discard ran a script in the page")
+        #expect(!view.loadState.isLoading, "a discarded page reads as loading and blocks its lifecycle")
+        // The old document may still post (a message WebKit queued before the discard, its
+        // `pagehide`): the router stays closed until the restore, so no provider sees it.
+        let late = await view.router.handle(["t": "sub", "id": 2, "stream": "test.discard.changed"])
+        #expect(late["t"]?.stringValue == "err", "a discarded shell took a subscription")
+        #expect(provider.live == 0)
+        #expect(view.router.subscriptionCount == 0)
+        // The shell keeps its route; nothing loads until it shows.
+        view.open(route: "/b")
+        #expect(view.route == "#/b")
+        #expect(hosting.made.count == 1)
+        view.reload()
+        #expect(hosting.made.count == 1)
+    }
+
+    @Test func aShownPageIsNotDiscarded() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let view = try makeView(nil)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless],
+                              backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        window.contentView?.addSubview(view)
+        defer {
+            view.close()
+            view.removeFromSuperview()
+        }
+        #expect(!view.discardPage(decoder: decoder))
+        #expect(!view.isDiscarded)
+        #expect(view.webView.navigationDelegate === view)
+    }
+
+    /// The pool's parked spare refuses (the pool owns its life); a pooled host a page claimed is a page
+    /// like any other: it discards, and its show brings it back.
+    @Test func aClaimedPooledHostDiscardsAndTheParkedSpareRefuses() throws {
+        let configuration = WKWebViewConfiguration()
+        let view = PageWebView(descriptor: descriptor, configuration: configuration,
+                               inputReadiness: PageInputReadiness(configuration: configuration), routes: [], route: "#/a",
+                               options: .standard, surface: nil, dynamicResources: nil, pooled: true, load: false,
+                               chromium: nil)
+        defer { view.close() }
+        #expect(view.isPooled)
+        let parking = PageHostParking()
+        parking.addSubview(view)
+        #expect(view.isParkedSpare)
+        #expect(!view.discardPage(decoder: decoder))
+        #expect(!view.isDiscarded)
+        #expect(PageWebViewLifecycle(view, encoder: decoder).lifecycleKeepReasons.contains(.preload),
+                "the lifecycle plans a discard the parked spare refuses")
+
+        // Claimed: out of the parking, into a page's place.
+        view.removeFromSuperview()
+        #expect(!view.isParkedSpare)
+        #expect(!PageWebViewLifecycle(view, encoder: decoder).lifecycleKeepReasons.contains(.preload))
+        #expect(view.discardPage(decoder: decoder))
+        #expect(view.isDiscarded)
+        view.restoreDiscardedPage()
+        #expect(!view.isDiscarded)
+    }
+
+    /// Through the lifecycle: a page that refuses its discard (it is concealed but still shows in its
+    /// window) keeps its state, so the lifecycle never reports a page discarded that holds its document.
+    @Test func aRefusedDiscardLeavesTheLifecycleStateUnchanged() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let rig = LifecycleDeadlineRig()
+        let lifecycle = PageLifecycle(deadlines: rig.scheduler)
+        let view = try makeView(nil)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless],
+                              backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        window.contentView?.addSubview(view)
+        defer {
+            view.close()
+            view.removeFromSuperview()
+        }
+        view.loaded = true
+        let target = PageWebViewLifecycle(view, encoder: decoder)
+        lifecycle.hide("tab", page: target)
+        rig.advance(to: .seconds(900))
+        lifecycle.runPass()
+        #expect(!view.isDiscarded)
+        #expect(lifecycle.state(of: "tab") != .discarded, "the lifecycle reports a refused discard as done")
+        #expect(lifecycle.nextPassAt != nil, "nothing looks at the refused page again")
+
+        // Hidden in AppKit too: the next pass discards it.
+        view.isHidden = true
+        lifecycle.runPass()
+        #expect(view.isDiscarded)
+        #expect(lifecycle.state(of: "tab") == .discarded)
+    }
+
+    /// 10 discard and restore cycles make one engine page per restore from the same host and close
+    /// each before the next: one live engine page at the end, as at the start, loading the route the
+    /// shell kept (the fake's count stands for `runtime.hosts`, which p13-webui-062 empties per close).
+    @Test func tenDiscardAndRestoreCyclesLeaveOneLiveEnginePage() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let view = try makeView(hosting)
+        defer { view.close() }
+        await view.chromiumStart?.value
+        for cycle in 0..<10 {
+            if cycle == 4 { view.open(route: "/b") }
+            #expect(view.discardPage(decoder: decoder))
+            #expect(hosting.made.filter { !$0.closed }.isEmpty)
+            view.restoreDiscardedPage()
+            #expect(!view.isDiscarded)
+            await view.chromiumStart?.value
+            #expect(hosting.made.filter { !$0.closed }.count == 1)
+        }
+        #expect(hosting.made.count == 11)
+        let last = try #require(hosting.made.last)
+        #expect(view.chromiumPage === last)
+        #expect(last.loaded == [descriptor.url(route: "#/b")])
+    }
+
+    /// The show draws the hide-time snapshot in its own turn, in a layer with no implicit actions;
+    /// the new document gets the saved state from a document-start script; both go at its first paint.
+    @Test func theRestoreDrawsTheSnapshotAndHandsTheStateToTheNewDocumentUntilItPaints() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let view = try makeView(hosting)
+        defer { view.close() }
+        await view.chromiumStart?.value
+        let image = picture
+        Self.keepHide(view, state: #"{"draft":"hello"}"#)
+        #expect(view.discardPage(decoder: decoder))
+
+        view.restoreDiscardedPage()
+
+        #expect(view.showsDiscardSnapshot)
+        #expect(view.drawsDiscardSnapshot)
+        let restore = try #require(view.lastRestoreTimes)
+        #expect(restore.covered == restore.started, "the snapshot went over the page after the show's turn")
+        #expect(restore.painted == nil)
+        let cover = try #require(view.discardShell.cover)
+        #expect(cover.superlayer === view.layer)
+        #expect(cover.frame == view.bounds)
+        #expect((cover.contents as AnyObject?) === image)
+        for key in ["contents", "bounds", "position", "hidden", "onOrderIn", "onOrderOut"] {
+            #expect(cover.actions?[key] is NSNull, "the snapshot layer animates \(key)")
+        }
+        #expect(view.loadState.isLoading)
+        let scripts = view.userContent.userScripts.map(\.source)
+        let script = try #require(scripts.first { $0.contains(PageWebView.restoreGlobal) })
+        #expect(script.contains(#""{\"draft\":\"hello\"}""#), "the saved state went in as anything but a string literal")
+        #expect(script.contains("wasDiscarded: true"))
+        #expect(script.contains(#"sessionStorage.setItem("cmux.page.state", text)"#))
+        #expect(view.hideState.encoded == nil, "a shown page keeps the picture of its last hide")
+        #expect(view.hideState.savedState == nil, "a shown page keeps the state of its last hide")
+
+        await view.chromiumStart?.value
+        let page = try #require(hosting.made.last)
+        #expect(page.calls.contains { $0.method == "Page.addScriptToEvaluateOnNewDocument"
+            && ($0.params["source"] as? String)?.contains(PageWebView.restoreGlobal) == true },
+                "the Chromium page got no restore script before its document")
+        #expect(page.loaded == [descriptor.url(route: "#/a")])
+
+        let painted: Bool? = await PageTestWait.value("paint") { done in
+            view.whenPainted { done(true) }
+            page.onEvent?(.devTools(FakeChromiumPage.bindingCall(["name": PagePaintProbe.handlerName, "body": 5])))
+        }
+        #expect(painted == true)
+        #expect(!view.showsDiscardSnapshot)
+        #expect(cover.superlayer == nil)
+        #expect(!view.userContent.userScripts.contains { $0.source.contains(PageWebView.restoreGlobal) })
+        #expect(view.discardShell.snapshot == nil)
+        #expect(view.lastRestoreTimes?.painted == view.paintedUptime)
+        #expect(view.lastRestoreTimes?.painted != nil)
+    }
+
+    /// A discarded page with a kept snapshot draws it as its next frame, before its show: the pane
+    /// holds nothing for it (InternalPageView reads this). One with no snapshot waits for its paint.
+    @Test func aDiscardedPageWithASnapshotHasAFrameBeforeItsShow() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let view = try makeView(hosting)
+        defer { view.close() }
+        await view.chromiumStart?.value
+        #expect(view.discardPage(decoder: decoder))
+        #expect(!view.drawsDiscardSnapshot, "no snapshot was kept: the page has no frame to show")
+        view.restoreDiscardedPage()
+        await view.chromiumStart?.value
+
+        Self.keepHide(view, state: nil)
+        #expect(view.discardPage(decoder: decoder))
+        #expect(!view.hasPainted)
+        #expect(view.drawsDiscardSnapshot)
+    }
+
+    /// A WebKit page leaves its document with no delegate, so nothing of it reaches the host, and
+    /// comes back in the same view (its process group) with the delegate set again.
+    @Test func aWebKitPageLeavesItsDocumentAndComesBackInTheSameView() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let view = try makeView(nil)
+        defer { view.close() }
+        let webView = view.webView
+        #expect(view.discardPage(decoder: decoder))
+        #expect(webView.navigationDelegate == nil)
+        #expect(webView.isHidden)
+        view.restoreDiscardedPage()
+        #expect(view.webView === webView)
+        #expect(webView.navigationDelegate === view)
+        #expect(!webView.isHidden)
+        #expect(!view.showsDiscardSnapshot, "no snapshot was kept, so none is drawn")
+    }
+
+    /// The restore script hands its state to the first document only: a later document of the same
+    /// Chromium page (a reload after a crash) finds the token in session storage.
+    @Test func theRestoreScriptRunsOncePerRestore() {
+        let script = PageWebView.restoreScript(state: nil, token: "t1")
+        #expect(script.contains(#"sessionStorage.getItem("cmux.page.restore.t1")"#))
+        #expect(script.contains(#"window.__cmuxPageRestore = {"#))
+        #expect(script.contains("const text = null;"))
+        #expect(script.contains(#"Object.defineProperty(document, "wasDiscarded""#))
+        // Text the page saved is a string literal the page parses: it never runs as script.
+        let hostile = PageWebView.restoreScript(state: #"1}); alert(1); ({"#, token: "t2")
+        #expect(hostile.contains(#"const text = "1}); alert(1); ({";"#))
+    }
+
+    /// Through the lifecycle: a discard-blocking keep reason keeps a page past its discard time; once
+    /// it goes, the next pass discards the page, and its show brings it back.
+    @Test func aKeepReasonBlocksTheDiscard() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let rig = LifecycleDeadlineRig()
+        let lifecycle = PageLifecycle(deadlines: rig.scheduler)
+        let view = try makeView(nil)
+        defer { view.close() }
+        view.loaded = true
+        let target = PageWebViewLifecycle(view, encoder: decoder)
+        lifecycle.hide("tab", page: target)
+        lifecycle.setKeepReasons([.userEdits], for: "tab")
+        rig.advance(to: .seconds(900))
+        lifecycle.runPass()
+        #expect(lifecycle.state(of: "tab") != .discarded)
+        #expect(!view.isDiscarded)
+
+        lifecycle.setKeepReasons([], for: "tab")
+        lifecycle.runPass()
+        #expect(lifecycle.state(of: "tab") == .discarded)
+        #expect(view.isDiscarded)
+
+        lifecycle.show("tab", page: target)
+        #expect(lifecycle.state(of: "tab") == .active)
+        #expect(!view.isDiscarded)
+    }
+
+    /// What a hide keeps (PageWebView+Snapshot.swift): the encoded picture and the state the page posted.
+    private static func keepHide(_ view: PageWebView, state: String?) {
+        view.hideState.captured(view.hideState.beginCapture(), encoded: encoded)
+        view.hideState.saveState(state ?? PageHideState.noStateText)
+    }
+
+    private static func image() throws -> CGImage {
+        let context = try #require(CGContext(data: nil, width: 4, height: 2, bitsPerComponent: 8, bytesPerRow: 0,
+                                             space: CGColorSpaceCreateDeviceRGB(),
+                                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(NSColor.systemTeal.cgColor)
+        context.fill(CGRect(x: 0, y: 0, width: 4, height: 2))
+        return try #require(context.makeImage())
+    }
+}
+
+/// A provider whose streams count while they live: the router's cancel ends one.
+@MainActor
+private final class LiveSubscriptions: PageProvider {
+    private(set) var live = 0
+
+    func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue { .null }
+
+    func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
+                   onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
+        live += 1
+        return PageSubscription(frozenDelivery: .resync) { [weak self] in self?.live -= 1 }
+    }
+}

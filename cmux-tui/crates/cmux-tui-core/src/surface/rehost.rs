@@ -209,6 +209,7 @@ fn replace_host(
             root,
             adoption,
             Some(program_status),
+            mux.host_reaper(),
         ) {
             Ok(attachment) => attachment,
             Err(error) => {

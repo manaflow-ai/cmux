@@ -141,9 +141,13 @@ final class RemoteInputController {
     /// Whether the selected input source can type ASCII (false for an IME
     /// such as Japanese kana input), for `keyboard.mode = auto`.
     nonisolated static func currentInputSourceIsASCIICapable() -> Bool {
-        guard let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
-              let raw = TISGetInputSourceProperty(source, kTISPropertyInputSourceIsASCIICapable) else { return true }
-        let value = Unmanaged<CFBoolean>.fromOpaque(raw).takeUnretainedValue()
+        // SAFETY: a Copy function returns its source at +1: taken once here. The property
+        // getter returns a +0 pointer owned by `source`, which lives to the end of this function.
+        guard let source = unsafe TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
+              let raw = unsafe TISGetInputSourceProperty(source, kTISPropertyInputSourceIsASCIICapable) else { return true }
+        // SAFETY: kTISPropertyInputSourceIsASCIICapable is a CFBoolean (TextInputSources.h),
+        // read at +0 while `source` keeps it alive.
+        let value = unsafe Unmanaged<CFBoolean>.fromOpaque(raw).takeUnretainedValue()
         return CFBooleanGetValue(value)
     }
 }

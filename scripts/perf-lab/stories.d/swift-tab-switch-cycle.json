@@ -1,0 +1,19 @@
+{
+  "id": "swift-tab-switch-cycle",
+  "tier": "builder",
+  "description": "TabSwitchCycleBench: held Ctrl-Tab over 2, 10 and 30 warm WebKit pages in one pane, each switch with the rest of its turn, and the page window moves (none expected).",
+  "command": ["scripts/perf-lab/stories/swift_benches.py", "run", "--story", "swift-tab-switch-cycle", "--filter", "TabSwitchCycleBench"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "swift\\.tab_switch_cycle\\.[0-9]+\\.switch", "unit": "ms", "better": "lower"},
+    {"name": "swift\\.tab_switch_cycle\\.[0-9]+\\.moves", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 1200,
+  "needs": ["file:Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/TabSwitchCycleBench.swift", "file:Packages/macOS/CmuxNext/Tests/CmuxNextTestSupport/PerfResultWriter.swift"],
+  "owner": "PL-switch",
+  "component": "Switch>Tab",
+  "hot_paths": ["tab-switch"]
+}

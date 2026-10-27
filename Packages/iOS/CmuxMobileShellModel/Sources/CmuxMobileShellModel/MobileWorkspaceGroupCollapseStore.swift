@@ -16,7 +16,7 @@ public import Foundation
 /// at the composition root with `UserDefaults.standard`.
 ///
 /// ```swift
-/// var store = MobileWorkspaceGroupCollapseStore(defaults: .standard)
+/// var store = MobileWorkspaceGroupCollapseStore(defaults: { .standard })
 /// let shown = store.apply(to: groupsFromMac)   // seeds unknown groups, applies local
 /// store.set(shown[0].collapseStateID, collapsed: true) // device-local, not sent to Mac
 /// ```
@@ -24,8 +24,9 @@ public struct MobileWorkspaceGroupCollapseStore: Sendable {
     /// The defaults key under which the `[collapseStateID: collapsed]` map is stored.
     public static let defaultsKey = "dev.cmux.mobile.workspaceGroup.collapse.v1"
 
-    // UserDefaults is Apple-documented thread-safe; OK to hold nonisolated.
-    private nonisolated(unsafe) let defaults: UserDefaults
+    /// Opens the backing store. `UserDefaults` is not `Sendable`, so this
+    /// `Sendable` value holds a way to open it, never the object.
+    private let defaults: @Sendable () -> UserDefaults
     /// group.collapseStateID -> this device's collapse decision. The map doubles
     /// as the "have I seen this group?" set: a present key means the group's
     /// collapse is device-owned; an absent key means it still inherits the Mac's
@@ -33,11 +34,11 @@ public struct MobileWorkspaceGroupCollapseStore: Sendable {
     private var map: [String: Bool]
 
     /// Create a store backed by the given defaults.
-    /// - Parameter defaults: The persistence store for the collapse map. Inject a
-    ///   suite-scoped `UserDefaults` in tests; the app passes `.standard`.
-    public init(defaults: UserDefaults = .standard) {
+    /// - Parameter defaults: Opens the persistence store for the collapse map.
+    ///   Tests open a suite-scoped `UserDefaults`; the app opens `.standard`.
+    public init(defaults: @escaping @Sendable () -> UserDefaults = { .standard }) {
         self.defaults = defaults
-        if let data = defaults.data(forKey: Self.defaultsKey),
+        if let data = defaults().data(forKey: Self.defaultsKey),
            let decoded = try? JSONDecoder().decode([String: Bool].self, from: data) {
             map = decoded
         } else {
@@ -115,7 +116,7 @@ public struct MobileWorkspaceGroupCollapseStore: Sendable {
 
     private func persist() {
         if let data = try? JSONEncoder().encode(map) {
-            defaults.set(data, forKey: Self.defaultsKey)
+            defaults().set(data, forKey: Self.defaultsKey)
         }
     }
 }

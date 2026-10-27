@@ -142,7 +142,8 @@ public nonisolated struct AcpmuxQuitProof {
     /// app's next findOrStart retries (acpmux's own host probe has the same
     /// window; accepted in the durable review).
     static func lockState(_ url: URL) -> LockState {
-        let fd = open(url.path, O_RDWR | O_CLOEXEC)
+        // SAFETY: open reads the NUL-terminated copy of the path made for the call.
+        let fd = unsafe open(url.path, O_RDWR | O_CLOEXEC)
         if fd < 0 { return errno == ENOENT ? .free : .unknown }
         defer { close(fd) }
         // One retry covers an interrupted call (EINTR); anything else decides.

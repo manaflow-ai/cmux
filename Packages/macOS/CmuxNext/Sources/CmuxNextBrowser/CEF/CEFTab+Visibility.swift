@@ -1,15 +1,29 @@
 public import AppKit
+public import CmuxNextWakeups
 
-extension CEFTab: BrowserContentVisibilityReporting {
-    /// The page window over this tab's content view, if the fork shows one
-    /// there: a visible, non-panel child of the host window whose frame
-    /// matches the host view's screen rect.
+// Chromium follows the tab's visibility tree node through `nodeVisibility` (``CEFTabNodeVisibility``).
+extension CEFTab: BrowserContentVisibilityReporting, BrowserVisibilityFollowing {
+    @discardableResult
+    public func followVisibility(of node: VisibilityNode, capture: @escaping @MainActor (VisibilityNode) -> BrowserPageCapture) -> Bool {
+        nodeVisibility.follow(node, capture: capture, of: self)
+    }
+
+    /// Whether this tab's page draws over its content view. Host mode: what the pane's page view
+    /// shows (``ChromiumHostPageView/contentVisibility``, task p01-process-220), since the host's
+    /// page windows are never in cmux. In process: the fork's page window over the view.
     public var contentVisibility: BrowserContentVisibility {
         guard !isClosed else { return .hidden("closed") }
         guard let window = container.window else { return .hidden("not_in_window") }
         guard host.visibleTab === self, host.hostView.superview === container else { return .hidden("host_elsewhere") }
         guard !host.hostView.isHiddenOrHasHiddenAncestor else { return .hidden("host_hidden") }
         guard browserID != nil else { return .hidden("no_page") }
+        if host.isHostMode { return host.hostedPageView?.contentVisibility ?? .hidden("no_page_view") }
+        return inProcessPageWindowVisibility(in: window)
+    }
+
+    /// In process: a visible, non-panel child of the host window whose frame matches the host
+    /// view's screen rect.
+    private func inProcessPageWindowVisibility(in window: NSWindow) -> BrowserContentVisibility {
         let rect = window.convertToScreen(host.hostView.convert(host.hostView.bounds, to: nil))
         let pages = (window.childWindows ?? []).filter { !($0 is NSPanel) && !devToolsContains(window: $0) }
         let placed = pages.filter { Self.frame($0.frame, isPlacedAt: rect) }
@@ -36,9 +50,35 @@ extension CEFTab: BrowserContentVisibilityReporting {
         return Self.frame(window.frame, isPlacedAt: owner.convertToScreen(host.hostView.convert(host.hostView.bounds, to: nil)))
     }
 
+    /// Chromium Host: whether this tab's page view (``ChromiumHostPageView/InputTarget/view``) is
+    /// `window`'s first responder and its host reports the chords the page leaves unhandled
+    /// (``ChromiumHostPageView/hostReportsUnhandledKeys``, p01-process-030), so the page gets
+    /// page-ownable keys first.
+    public func hostedPageHasKeys(in window: NSWindow) -> Bool {
+        guard !isClosed, host.visibleTab === self, let page = host.hostedPageView, page.inputTarget == .view,
+              page.hostReportsUnhandledKeys else { return false }
+        return window.firstResponder === page
+    }
+
     /// A page window sits at the host view's screen rect to within 2 points.
     nonisolated static func frame(_ frame: CGRect, isPlacedAt rect: CGRect) -> Bool {
         abs(frame.minX - rect.minX) <= 2 && abs(frame.minY - rect.minY) <= 2
             && abs(frame.width - rect.width) <= 2 && abs(frame.height - rect.height) <= 2
+    }
+
+    // MARK: Content view
+
+    func contentDidAppear(in view: CEFTabContentView) {
+        guard !isClosed else { return }
+        host.present(self, in: view)
+        view.layoutContent()
+        if reloadWhenShown {
+            reloadWhenShown = false
+            if state.processExit != nil { reload() }
+        }
+    }
+
+    func contentDidDisappear() {
+        host.conceal(self)
     }
 }

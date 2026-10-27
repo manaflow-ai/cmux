@@ -38,20 +38,24 @@
       "args": {
         "method": "room.move",
         "params": {
-          "room": "",
+          "room": "room_unknown",
           "index": 0
         },
         "idempotencyKey": "room-move-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "resource.not_found",
+        "errorDetails": {
+          "scope": "room",
+          "id": "room_unknown"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "room breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "a room id that names no room"
     }
   ],
   "invariants": [

@@ -92,7 +92,7 @@ public struct EnergyReport: Sendable {
                        tabs: [ProcessUsage.TabUsage] = []) -> JSONValue {
         let fire = ledger.first { $0.owner == MainWakeUpQueue.ledgerOwner && $0.reason == "fire" }
         return [
-            "policy": state.policyJSON,
+            "policy": Self.policyJSON(state.policy),
             "inputs": state.inputs.json(policy: state.policy),
             "wake_queue": state.wakeQueue.json(fire: fire, alignment: state.policy.wakeAlignment),
             "ledger_top": .array(LedgerOwner.top(ledger, count: Self.ledgerTopCount).map(\.json)),
@@ -286,20 +286,6 @@ extension EnergyReport.Inputs {
             "screensAsleep": .bool(policy.screensAsleep),
             "reason": policy.reason.map { EnergyReport.JSONValue.string($0.rawValue) } ?? .null,
             "simulated": .bool(simulated),
-        ]
-    }
-}
-
-extension EnergyReport.State {
-    var policyJSON: EnergyReport.JSONValue {
-        [
-            "isSaver": .bool(policy.isSaver),
-            "reason": policy.reason.map { EnergyReport.JSONValue.string($0.rawValue) } ?? .null,
-            "wakeAlignmentMs": EnergyReport.ms(policy.wakeAlignment),
-            "ambientMaxFPS": policy.ambientMaxFPS.map { EnergyReport.JSONValue($0) } ?? .null,
-            "webFrameRate": policy.webFrameRate.map { EnergyReport.JSONValue($0) } ?? .null,
-            "pollStretch": EnergyReport.JSONValue(policy.pollStretch),
-            "pageSaver": .bool(policy.pageSaver),
         ]
     }
 }

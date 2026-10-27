@@ -113,7 +113,7 @@ public final class BrowserTabsNowPlaying: NowPlayingSource {
         let count = artworkFailures?.url == url ? (artworkFailures?.count ?? 0) + 1 : 1
         artworkFailures = (url, count)
         let delay = min(artworkRetry * (1 << min(count - 1, 16)), Self.artworkRetryLimit)
-        artworkWait.schedule(after: delay) { @MainActor [weak self] in
+        artworkWait.scheduleOnMain(after: delay) { [weak self] in
             guard let self, self.artwork?.url == url, self.artwork?.data == nil else { return }
             self.artwork = nil
         }

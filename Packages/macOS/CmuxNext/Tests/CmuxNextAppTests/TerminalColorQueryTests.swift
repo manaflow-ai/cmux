@@ -22,7 +22,7 @@ struct TerminalColorQueryTests {
     static let daemonConfigBackground = "#0a0b0c"
 
     @Test func osc11AnswersTheBackgroundTheAppPaints() async throws {
-        let expected = try #require(GhosttyRuntime.shared.themeColors, "the app's Ghostty config did not load")
+        let expected = try #require(GhosttyRuntime.startedForTests().themeColors, "the app's Ghostty config did not load")
         let reply = Self.reply(expected.background)
         #expect(reply != "rgb:0a0a/0b0b/0c0c", "the app's theme uses the daemon config's background; pick another")
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-oscq-\(UUID().uuidString.prefix(8))")

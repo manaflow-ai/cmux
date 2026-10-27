@@ -66,6 +66,11 @@ public struct MethodTable: Sendable {
         eventNames = Self.names(events, id: \.id, name: \.name)
     }
 
+    /// Every v12 command, then every v2 operation, in id order.
+    public var methods: [MethodAttributes] {
+        (v12Families + v2Families).flatMap { $0?.entries ?? [] }.compactMap { $0 }
+    }
+
     /// The command or v2 operation with `id`, by its family range.
     public func method(_ id: MethodID) -> MethodAttributes? {
         v12(id) ?? v2(id)

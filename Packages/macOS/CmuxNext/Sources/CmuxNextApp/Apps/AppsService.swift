@@ -7,6 +7,7 @@ import CmuxNextHibernation
 import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 /// App platform in the App (plans/cmux-next/app-platform.md section 13):
@@ -47,10 +48,11 @@ final class AppsService {
     init(services: AppServices, makeStorePage: ((String) -> PageWebView?)? = nil) {
         self.services = services
         self.makeStorePage = makeStorePage
-        transport = DaemonAppsTransport(daemon: services.daemon, inventoryRoutes: { [weak machines = services.machines] in
+        transport = DaemonAppsTransport(daemon: services.daemon, mainWork: services.mainWork, inventoryRoutes: { [weak machines = services.machines] in
             machines?.agentInventoryWatchRoutes() ?? []
         })
-        client = AppsClient(transport: transport)
+        client = AppsClient(transport: transport, bundleImages: AppBundleImageCache())
+        AppMemoryConsumers(services: services).registerAppBundleImages(client.bundleImages)
     }
 
     /// Turning apps off (DisabledFeatures) makes the supervisor unreachable
@@ -65,8 +67,13 @@ final class AppsService {
 
     func start() {
         client.start()
-        // task-owner: one off-main load of the bundled package directories and the scope table at launch
-        Task { [client] in client.useBundledDirectories(await AppPlatformResources.bundledDirectories()) }
+        let client = client, mainWork = services.mainWork
+        // task-owner: one off-main load of the bundled package directories and the scope table at launch. R-hop: read
+        // off main; the client takes them in one visible task (app icons draw from them).
+        services.work.task(.userVisible) {
+            let directories = await AppPlatformResources.bundledDirectories()
+            mainWork.postFromAnyThread(.visible, owner: "AppsService.bundledDirectories") { client.useBundledDirectories(directories) }
+        }
     }
 
     /// Serves app-side operations, admitted machine inventory reads and the

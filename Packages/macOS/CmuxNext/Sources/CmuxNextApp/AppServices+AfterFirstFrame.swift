@@ -11,7 +11,7 @@ extension AppServices {
     func postNonPaintServices(on startup: StartupScheduler) {
         serviceStartPosts().post(on: startup)
         let attest = FreeTierAttestStarter(build: environment.build, bundle: .main, apiBaseURL: FeedService.apiBaseURL(auth: cloudAuth), settings: settings, signedIn: { [weak self] in self.map { $0.cloudAuth.isSignedIn || $0.cloudAuth.isRestoring } ?? true })
-        LaunchServicePosts.nonPaint(freeTierAttest: { attest.start() }, ssh: { [weak self] in self?.ssh.start() }, serverReach: { [weak self] in self?.serverReach.start() },
+        LaunchServicePosts.nonPaint(freeTierAttest: { [weak self] in if let self, let follow = attest.start(on: self.mainWork) { self.lifetimeFollowers.append(follow) } }, ssh: { [weak self] in self?.ssh.start() }, serverReach: { [weak self] in self?.serverReach.start() },
                                     updater: { [weak self] in self?.updater.start(); DebugTimings.markLaunch("launch.non_paint_services") },
                                     emptyWorkspaceRepair: { [weak self] in _ = self?.emptyWorkspaces }).post(on: startup)
     }
@@ -29,24 +29,19 @@ extension AppServices {
     }
 
     /// Warm-ups for later tabs (WebKit for agent pages, Chromium, the New Tab spare, page hosts), the agent tab
-    /// import and the right sidebar's icons (on the cpu lane; a panel built first posted them already). The agent
-    /// pages' WebKit warm-up makes no WebKit page when they open in Chromium (`AgentPageWarmup.start(webUI:)`
-    /// decides when it runs); each outcome leaves its own launch mark (`AgentPageWarmupOutcome.launchMark`).
+    /// import and the right sidebar's icons (on the cpu lane; a panel built first posted them already), through
+    /// ``LaterTabWarmups`` on this app (`AppServices+LaterTabWarmupHost`). No WebKit view is made by these before
+    /// startup completes (p08-startup-042). The warm-up makes no WebKit page when a shown agent tab made its view
+    /// or agent pages open in Chromium (`AgentPageWarmup.start(webUI:)` decides when it runs).
     func postLaterTabWarmups(on startup: StartupScheduler) {
-        LaunchServicePosts.laterTabs(chromiumWarmup: { [weak self] in if let self, !crashRecovery.recovery.skipsBrowserPages { startChromiumWarmup() } },
-                                     spareHooks: { [weak self] in self?.newTabSpares.start(holdingWarm: true) }, spareWarming: { [weak self] in self?.newTabSpares.startWarming() },
-                                     pageHostPool: { [weak self] in
-                                         guard let self else { return }
-                                         pageHostPool.start(isMainWindow: { [weak self] window in self?.windows.controllers.contains { $0.window === window } == true },
-                                                            fallback: { [weak self] window in self?.windows.controllers.compactMap(\.window).first { $0 !== window && $0.isVisible } })
-                                         pageHostPool.noteLikely()
-                                     },
-                                     agentTabImport: { [weak self] in if let self { AgentTabImport.start(self); DebugTimings.markLaunch("launch.post_window_warmups") } },
-                                     rightSidebarIcons: { [weak self] in self?.rightSidebarSections.buildIcons(.afterStartup) }).post(on: startup)
-        let warmup = AgentPageWarmupSlot(startup: startup) { [weak self] in
-            if let mark = self.flatMap({ $0.agentPageWarmup.start(webUI: $0.webUI).launchMark }) { DebugTimings.markLaunch(mark) }
-        }
-        windows.whenRestored { [weak self] in warmup.restored(showsWebKitAgentChat: self?.showsWebKitAgentChat == true) }
+        LaterTabWarmups(host: self).posts().post(on: startup)
+    }
+
+    /// The page host pool follows the main windows (``LaterTabWarmupHost``); it makes no host until a page is likely.
+    func followWindowsForPageHosts() {
+        pageHostPool.start(isMainWindow: { [weak self] window in self?.windows.controllers.contains { $0.window === window } == true },
+                           fallback: { [weak self] window in self?.windows.controllers.compactMap(\.window).first { $0 !== window && $0.isVisible } },
+                           mainWork: mainWork)
     }
 
     /// The platform services (p08-startup-029). Now, before the windows build and the restore mounts a page:
@@ -92,12 +87,5 @@ extension AppServices {
                                     notifications: notificationsStart, macScreenSettings: macScreenSettingsStart, deviceHub: deviceHubStart,
                                     computerUseHelper: computerUseHelperStart, hibernationMeasurements: hibernationMeasurementsStart,
                                     apps: appsStart, macScreen: macScreenStart, updateFeed: updateFeedStart).post(on: startup)
-    }
-
-    /// The front window's focused pane shows an agent chat (`agentSession` is a conversation's only) that opens in WebKit,
-    /// by the warm-up's own engine decision (`AgentPageWarmup.agentPagesShowInWebKit(webUI:)`), so the post's place and
-    /// the warm-up's make-or-skip come from one seam.
-    private var showsWebKitAgentChat: Bool {
-        windows.active?.focusedPane?.selectedTab?.agentSession != nil && agentPageWarmup.agentPagesShowInWebKit(webUI: webUI)
     }
 }

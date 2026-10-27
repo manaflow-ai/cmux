@@ -79,6 +79,21 @@ public abstract class GeneratedCmuxClient {
         return AgentCLIJobResolution.fromWire(result);
     }
 
+    public final AgentInventoryResult agentInventory(AgentInventoryRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_INVENTORY, request.toWire());
+        return AgentInventoryResult.fromWire(result);
+    }
+
+    public final AgentInventoryRefreshResult agentInventoryRefresh(AgentInventoryRefreshRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_INVENTORY_REFRESH, request.toWire());
+        return AgentInventoryRefreshResult.fromWire(result);
+    }
+
+    public final AgentInventoryWatchResult agentInventoryWatch(AgentInventoryWatchRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_INVENTORY_WATCH, request.toWire());
+        return AgentInventoryWatchResult.fromWire(result);
+    }
+
     public final Object agentSessionAttach(AgentSessionAttachRequest request) throws CmuxException {
         Object result = execute(Commands.AGENT_SESSION_ATTACH, request.toWire());
         return Wire.immutableJson(result);
@@ -356,6 +371,11 @@ public abstract class GeneratedCmuxClient {
     public final EmptyResult cancelRequest(CancelRequestRequest request) throws CmuxException {
         Object result = execute(Commands.CANCEL_REQUEST, request.toWire());
         return EmptyResult.fromWire(result);
+    }
+
+    public final CancelStreamResult cancelStream(CancelStreamRequest request) throws CmuxException {
+        Object result = execute(Commands.CANCEL_STREAM, request.toWire());
+        return CancelStreamResult.fromWire(result);
     }
 
     public final ChiefInspectResult chiefInspect(ChiefInspectRequest request) throws CmuxException {
@@ -735,6 +755,11 @@ public abstract class GeneratedCmuxClient {
 
     public final Object createWorkspaceGroup(CreateWorkspaceGroupRequest request) throws CmuxException {
         Object result = execute(Commands.CREATE_WORKSPACE_GROUP, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object debugDaemonLocks() throws CmuxException {
+        Object result = execute(Commands.DEBUG_DAEMON_LOCKS, Map.of());
         return Wire.immutableJson(result);
     }
 
@@ -1457,9 +1482,19 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final Object serverBlocking() throws CmuxException {
+        Object result = execute(Commands.SERVER_BLOCKING, Map.of());
+        return Wire.immutableJson(result);
+    }
+
     public final ServerStatsResult serverStats(ServerStatsRequest request) throws CmuxException {
         Object result = execute(Commands.SERVER_STATS, request.toWire());
         return ServerStatsResult.fromWire(result);
+    }
+
+    public final Object serverThreads() throws CmuxException {
+        Object result = execute(Commands.SERVER_THREADS, Map.of());
+        return Wire.immutableJson(result);
     }
 
     public final SetCellPixelsResult setCellPixels(SetCellPixelsRequest request) throws CmuxException {

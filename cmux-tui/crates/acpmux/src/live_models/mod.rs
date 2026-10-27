@@ -61,6 +61,21 @@ pub struct LiveModel {
     pub is_default: bool,
 }
 
+impl LiveModel {
+    /// What the model keeps on the heap and inline (a memory consumer's bytes;
+    /// a service tier's JSON counts as its text).
+    pub fn approx_bytes(&self) -> u64 {
+        use crate::memory::string_bytes;
+        let words = |list: &[String]| list.iter().map(|s| string_bytes(s)).sum::<u64>();
+        crate::memory::inline_bytes::<Self>(1)
+            + string_bytes(&self.id)
+            + string_bytes(&self.name)
+            + words(&self.efforts)
+            + self.default_effort.as_deref().map_or(0, string_bytes)
+            + self.service_tiers.iter().map(|t| t.to_string().len() as u64).sum::<u64>()
+    }
+}
+
 /// Which CLI a harness's live list comes from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Cli {

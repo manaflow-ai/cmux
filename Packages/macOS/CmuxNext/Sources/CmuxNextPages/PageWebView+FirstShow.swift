@@ -111,7 +111,7 @@ extension PageWebView {
             startChromium(hosting: hosting, origin: origin)
         } else {
             traceMark(.navigationStart)
-            webView.load(URLRequest(url: descriptor.url(route: route)))
+            webKit.view.load(URLRequest(url: descriptor.url(route: route)))
         }
     }
 }

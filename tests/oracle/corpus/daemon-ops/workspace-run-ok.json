@@ -60,9 +60,7 @@
         "method": "workspace.run",
         "params": {
           "argv": [
-            "/bin/sh",
-            "-c",
-            "exit 0"
+            "/bin/cat"
           ]
         },
         "idempotencyKey": "workspace-run-ok.call"
@@ -75,7 +73,67 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "the command (cat, which runs until the teardown ends it; a command that exits closes its tab, after the reply, so no checkpoint could hold it) runs in a new terminal tab of the workspace, which becomes the focused tab"
+    },
+    {
+      "id": "two-tabs",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/layout/root/tab_ids",
+        "predicate": {
+          "op": "lengthEquals",
+          "value": 2
+        },
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "run-tab-focused",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/tabs/1/focused",
+        "equals": true,
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "running",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/terminals/1/lifecycle",
+        "equals": "running",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:fx-workspace#/value/workspace_id"
+      },
+      "args": {
+        "method": "workspace.run",
+        "params": {
+          "argv": [
+            "/bin/cat"
+          ]
+        },
+        "idempotencyKey": "workspace-run-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

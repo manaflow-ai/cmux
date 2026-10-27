@@ -76,9 +76,12 @@ public nonisolated final class AcpmuxCheckedLine: @unchecked Sendable { // crash
         guard !closed, descriptor >= 0 else { return }
         var offset = 0
         while offset < data.count {
-            let sent = data.withUnsafeBytes { bytes -> Int in
-                guard let base = bytes.baseAddress else { return -1 }
-                return Darwin.send(descriptor, base + offset, data.count - offset, 0)
+            // SAFETY: `bytes` is the data's contiguous storage, valid only inside this closure, which never lets a
+            // pointer out; 0 <= offset < data.count (the loop's condition), so the send covers the data.count - offset
+            // bytes from base + offset to the buffer's end.
+            let sent = unsafe data.withUnsafeBytes { bytes -> Int in
+                guard let base = unsafe bytes.baseAddress else { return -1 }
+                return unsafe Darwin.send(descriptor, base + offset, data.count - offset, 0)
             }
             if sent < 0, errno == EINTR { continue }
             guard sent > 0 else { return finish() }
@@ -88,7 +91,8 @@ public nonisolated final class AcpmuxCheckedLine: @unchecked Sendable { // crash
 
     private func readable() {
         var chunk = [UInt8](repeating: 0, count: 64 * 1024)
-        let count = Darwin.recv(descriptor, &chunk, chunk.count, 0)
+        // SAFETY: recv writes at most chunk.count bytes into the array's own storage, lent for the call.
+        let count = unsafe Darwin.recv(descriptor, &chunk, chunk.count, 0)
         guard count > 0 else { return finish() }
         buffer.append(contentsOf: chunk[0..<count])
         while let newline = buffer.firstIndex(of: 0x0A) {

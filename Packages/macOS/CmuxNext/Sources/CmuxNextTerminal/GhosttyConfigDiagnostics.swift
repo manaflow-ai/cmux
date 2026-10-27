@@ -84,18 +84,26 @@ extension GhosttyRuntime {
     /// The applied config's diagnostics snapshot; nil when none loaded.
     public var configDiagnosticsSnapshot: GhosttyConfigDiagnosticsSnapshot? {
         guard let config else { return nil }
-        return Self.snapshot(of: config)
+        // SAFETY: the runtime's live applied config (GhosttyRuntime.config).
+        return unsafe Self.snapshot(of: config)
     }
 
     /// The diagnostics of the file at `path` loaded alone with its includes,
     /// as libghostty loads a config file (tests).
     public static func configDiagnostics(configFile path: String) async -> [GhosttyConfigDiagnostic] {
-        guard let config = ghostty_config_new() else { return [] }
-        ghostty_config_load_file(config, path)
-        ghostty_config_load_recursive_files(config)
-        ghostty_config_finalize(config)
-        let snapshot = snapshot(of: config)
-        ghostty_config_free(config)
+        // SAFETY: a new config this function owns and frees once, after its last use; Swift
+        // passes a NUL-terminated copy of `path` for the load call.
+        guard let config = unsafe ghostty_config_new() else { return [] }
+        // SAFETY: as above.
+        unsafe ghostty_config_load_file(config, path)
+        // SAFETY: as above.
+        unsafe ghostty_config_load_recursive_files(config)
+        // SAFETY: as above.
+        unsafe ghostty_config_finalize(config)
+        // SAFETY: as above.
+        let snapshot = unsafe snapshot(of: config)
+        // SAFETY: as above.
+        unsafe ghostty_config_free(config)
         return await snapshot.diagnostics()
     }
 
@@ -103,8 +111,10 @@ extension GhosttyRuntime {
     /// each key, so includes and the last assignment count as in Ghostty;
     /// cmux's built-in defaults are not files and never show), libghostty's
     /// messages and the loaded files.
+    /// `config` is a live handle the caller owns for the call.
     static func snapshot(of config: ghostty_config_t) -> GhosttyConfigDiagnosticsSnapshot {
-        let files = loadedFiles(of: config)
+        // SAFETY: the caller's live config.
+        let files = unsafe loadedFiles(of: config)
         var order: [String: Int] = [:]
         for (index, file) in files.enumerated() where order[resolved(file)] == nil {
             order[resolved(file)] = index
@@ -112,17 +122,29 @@ extension GhosttyRuntime {
         var keys: [GhosttyConfigDiagnosticsSnapshot.Ranked] = []
         for (key, support) in GhosttyKeySupport.unsupported {
             var source = ghostty_config_source_s()
-            let found = key.withCString { ghostty_config_key_source(config, $0, UInt(key.utf8.count), &source) }
-            guard found, let pointer = source.path else { continue }
-            let path = String(cString: pointer)
+            // SAFETY: the caller's live config; Swift passes a NUL-terminated copy of `key` for
+            // the call; Ghostty fills `source`, which lives for the call.
+            // decode-trap-allow: the byte count of a GhosttyKeySupport key name, never negative.
+            let found = unsafe ghostty_config_key_source(config, key, UInt(key.utf8.count), &source)
+            // SAFETY: the source path is a NUL-terminated string the live config owns;
+            // String(cString:) copies it at once.
+            guard found, let pointer = unsafe source.path else { continue }
+            // SAFETY: as above.
+            let path = unsafe String(cString: pointer)
             guard let rank = order[resolved(path)] else { continue }
+            // decode-trap-allow: a line number libghostty counted in a file it read, far below Int.max.
             let line = Int(source.line)
             keys.append(.init(rank: rank, line: line, diagnostic: GhosttyConfigDiagnostic(kind: .key, name: key, file: path, line: line,
                                                                                          support: support)))
         }
-        let invalid = (0..<ghostty_config_diagnostics_count(config)).compactMap { index in
-            ghostty_config_get_diagnostic(config, index).message.map {
-                GhosttyConfigDiagnostic(kind: .invalid, name: String(cString: $0))
+        // SAFETY: the caller's live config; each index is below the count it reported, and each
+        // message is a NUL-terminated string the config owns, copied by String(cString:) at once.
+        let count = unsafe ghostty_config_diagnostics_count(config)
+        let invalid = (0..<count).compactMap { index in
+            // SAFETY: as above.
+            unsafe ghostty_config_get_diagnostic(config, index).message.map {
+                // SAFETY: as above.
+                GhosttyConfigDiagnostic(kind: .invalid, name: unsafe String(cString: $0))
             }
         }
         return GhosttyConfigDiagnosticsSnapshot(files: files, keys: keys, invalid: invalid)
@@ -138,9 +160,12 @@ extension GhosttyRuntime {
         var found: [(Int, (name: String, support: GhosttyUnsupported))] = []
         for (index, raw) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
             let line = raw.trimmingCharacters(in: CharacterSet(charactersIn: " \t\r"))
-            guard !line.hasPrefix("#"), let equals = line.firstIndex(of: "="),
-                  line[..<equals].trimmingCharacters(in: .whitespaces) == "keybind" else { continue }
-            var value = line[line.index(after: equals)...].trimmingCharacters(in: .whitespaces)
+            guard !line.hasPrefix("#") else { continue }
+            // The key and the value around the first `=`; a line with none has one part.
+            let pair = line.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            guard pair.count == 2, let key = pair.first, let rest = pair.last,
+                  key.trimmingCharacters(in: .whitespaces) == "keybind" else { continue }
+            var value = rest.trimmingCharacters(in: .whitespaces)
             if value.count >= 2, value.hasPrefix("\""), value.hasSuffix("\"") { value = String(value.dropFirst().dropLast()) }
             guard let action = keybindAction(value) else { continue }
             let name = action.split(separator: ":", maxSplits: 1).first.map(String.init) ?? action
@@ -152,21 +177,31 @@ extension GhosttyRuntime {
     /// The action of one `keybind` value, or nil (`clear`, no action).
     private nonisolated static func keybindAction(_ value: String) -> String? {
         var input = Substring(value)
-        while let colon = input.firstIndex(of: ":"),
-              ["global", "all", "unconsumed", "performable"].contains(String(input[..<colon])) {
-            input = input[input.index(after: colon)...]
+        while let flag = leadingFlag(of: input) {
+            input = input.dropFirst(flag.count + 1)
         }
-        var search = input.startIndex
-        while let equals = input[search...].firstIndex(of: "=") {
-            let next = input.index(after: equals)
-            if next < input.endIndex, input[next] == "+" || input[next] == "=" {
-                search = next
+        // From each `=` on: the first one not followed by `+` or `=` ends the trigger.
+        var rest = input.drop { $0 != "=" }
+        while !rest.isEmpty {
+            let after = rest.dropFirst()
+            if let next = after.first, next == "+" || next == "=" {
+                rest = after.drop { $0 != "=" }
                 continue
             }
-            let action = input[next...].trimmingCharacters(in: .whitespaces)
+            let action = after.trimmingCharacters(in: .whitespaces)
             return action.isEmpty ? nil : action
         }
         return nil
+    }
+
+    /// The binding flag `input` starts with (`global:`, `all:`, `unconsumed:`, `performable:`), without
+    /// its colon, or nil.
+    private nonisolated static func leadingFlag(of input: Substring) -> Substring? {
+        let head = input.prefix { $0 != ":" }
+        guard head.endIndex < input.endIndex, ["global", "all", "unconsumed", "performable"].contains(String(head)) else {
+            return nil
+        }
+        return head
     }
 
     /// One spelling per file (`/var` and `/private/var` are the same file).

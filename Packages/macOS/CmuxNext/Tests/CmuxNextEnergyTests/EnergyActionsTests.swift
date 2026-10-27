@@ -74,7 +74,7 @@ import Testing
         let (registry, driver) = harness(setting: .auto, inputs: Self.lowBattery)
         #expect(driver.source.policy == EnergyPolicy(saverReason: .battery, onBattery: true))
         #expect(registry.perform(Self.turnOff))
-        #expect(driver.source.policy == EnergyPolicy(onBattery: true))
+        #expect(driver.source.policy == EnergyPolicy(onBattery: true, offForNow: true))
 
         let work = registry.capturingWork { #expect(registry.perform(Self.turnOn)) }
         #expect(work.isEmpty)

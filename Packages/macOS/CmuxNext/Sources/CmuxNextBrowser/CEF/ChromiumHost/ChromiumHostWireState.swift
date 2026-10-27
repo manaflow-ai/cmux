@@ -4,6 +4,9 @@ import CmuxNextCompat
 import CmuxNextWakeups
 import Darwin
 import Dispatch
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The descriptors, the input outbox and the protocol-error flag of one
 /// ``ChromiumHostConnection``, shared by the connection, its reader thread
@@ -69,7 +72,8 @@ nonisolated final class ChromiumHostWireState: Sendable {
     /// the socket is full and disarms it once drained.
     private func flushLocked(_ wire: inout ChromiumHostWire) -> AfterFlush {
         let fd = wire.writeFD
-        switch wire.outbox.flush({ Self.write(fd, $0) }) {
+        // SAFETY: the outbox's view is valid for the call, and write only reads it during the call.
+        switch wire.outbox.flush({ unsafe Self.write(fd, $0) }) {
         case .drained:
             if wire.writableArmed {
                 wire.writable?.suspend()
@@ -141,7 +145,8 @@ nonisolated final class ChromiumHostWireState: Sendable {
     }
 
     private static func write(_ fd: Int32, _ bytes: UnsafeRawBufferPointer) -> ChromiumHostInputOutbox.WriteOutcome {
-        let written = Darwin.write(fd, bytes.baseAddress, bytes.count)
+        // SAFETY: write reads at most bytes.count bytes of the caller's view during the call.
+        let written = unsafe Darwin.write(fd, bytes.baseAddress, bytes.count)
         if written >= 0 { return .wrote(written) }
         switch errno {
         case EINTR: return .interrupted
@@ -181,13 +186,13 @@ nonisolated final class ChromiumHostWireState: Sendable {
     /// Returns once the reader thread has closed its descriptor: at once when
     /// it has, else when ``readFrames(fd:into:)`` closes it.
     func readerEnded() async {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
             let ended = wire.withLock { wire -> Bool in
                 guard wire.readFD >= 0 else { return true }
                 wire.readerEndWaiters.append(continuation)
                 return false
             }
-            if ended { continuation.resume() }
+            if ended { continuation.resume(returning: ()) }
         }
     }
 
@@ -199,7 +204,9 @@ nonisolated final class ChromiumHostWireState: Sendable {
         var chunk = [UInt8](repeating: 0, count: 64 * 1024)
         var open = true
         while open {
-            let count = chunk.withUnsafeMutableBytes { Darwin.read(fd, $0.baseAddress, $0.count) }
+            let room = chunk.count
+            // SAFETY: read writes at most `room` bytes, the array's size, into its buffer during the call.
+            let count = unsafe Darwin.read(fd, &chunk, room)
             if count < 0, errno == EINTR { continue }
             guard count > 0 else { break }  // EOF: the host ended, or close() shut the socket down
             buffer.append(contentsOf: chunk[0..<count])
@@ -214,21 +221,22 @@ nonisolated final class ChromiumHostWireState: Sendable {
                 start += consumed
                 decoded = ChromiumHostFrame.decode(buffer[start...])
             }
-            if decoded == .invalid {
+            // A frame never claims more than the bytes read; one that does is an invalid wire too.
+            if decoded != .invalid, start <= buffer.count {
+                buffer.removeFirst(start)
+            } else {
                 protocolError.store(true, ordering: .releasing)
                 open = false
-            } else {
-                buffer.removeFirst(start)
             }
         }
-        let waiters = wire.withLock { wire -> [CheckedContinuation<Void, Never>] in
+        let waiters = wire.withLock { wire -> [OnceContinuation<Void, OnceContinuationError>] in
             Darwin.close(wire.readFD)
             wire.readFD = -1
             let waiters = wire.readerEndWaiters
             wire.readerEndWaiters = []
             return waiters
         }
-        for waiter in waiters { waiter.resume() }
+        for waiter in waiters { waiter.resume(returning: ()) }
         if protocolError.load(ordering: .acquiring) { close() }
         continuation.finish()
     }
@@ -240,7 +248,7 @@ nonisolated final class ChromiumHostWireState: Sendable {
 nonisolated struct ChromiumHostWire {
     var readFD: Int32
     var writeFD: Int32
-    var readerEndWaiters: [CheckedContinuation<Void, Never>] = []
+    var readerEndWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
     var outbox = ChromiumHostInputOutbox()
     /// Flushes ``outbox`` when the full socket takes more; made on the first full socket.
     var writable: (any DispatchSourceWrite)?

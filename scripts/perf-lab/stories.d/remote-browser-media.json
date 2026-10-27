@@ -1,0 +1,21 @@
+{
+  "id": "remote-browser-media",
+  "tier": "T1",
+  "description": "Remote browser media on the local host the app embeds (remote-browser-local-live.py --stats, opened through debug.remote_browser open_local): the animated page's frame rate, the frames and bytes a still page sends, and each click's input to the frame the host sends, from the host's serve stats lines, light session.",
+  "command": ["scripts/cmux-next/remote-browser-local-live.py", "--bundled", "--stats"],
+  "session": "light",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {"name": "remote_browser\\.motion\\.fps", "unit": "fps", "better": "higher"},
+    {"name": "remote_browser\\.still\\.frames", "unit": "count", "better": "lower"},
+    {"name": "remote_browser\\.still\\.bytes", "unit": "bytes", "better": "lower"},
+    {"name": "remote_browser\\.tap\\.input_to_frame", "unit": "ms", "better": "lower"},
+    {"name": "remote_browser\\.tap\\.input_to_frame\\.missed_runs", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 90,
+  "needs": ["debug:debug.remote_browser", "debug:debug.window_snapshot"],
+  "owner": "Performance Lead",
+  "component": "Browser>RemoteBrowser"
+}

@@ -1,6 +1,7 @@
 //! Surface teardown: kill, daemon shutdown and disconnect, terminal reader and
 //! reaper completion, and the hosted launch release.
 
+use super::terminal_runtime::{EndingTerminal, LocalReaper};
 use super::*;
 
 impl Surface {
@@ -13,12 +14,17 @@ impl Surface {
         // Decide self-join under the lock and leave the reaper's own handle
         // in place: taking it and putting it back let a concurrent caller
         // see an empty slot and return while the handle was restored later.
+        // The reaper marks `reaper_completion` only after it published the
+        // exit; a teardown that publish runs is on the reaper's own thread or
+        // work item (`EndingTerminal`) and must not wait for itself.
         let reaper = {
             let mut slot = pty.reaper_thread.lock().unwrap();
-            if slot
-                .as_ref()
-                .is_some_and(|reaper| reaper.thread().id() == std::thread::current().id())
-            {
+            let own_thread = matches!(
+                slot.as_ref(),
+                Some(LocalReaper::Thread(reaper))
+                    if reaper.thread().id() == std::thread::current().id()
+            );
+            if own_thread || EndingTerminal::is_current(&pty.reaper_completion) {
                 eprintln!("cmux-tui: child reaper skipped self-join during shutdown");
                 None
             } else {
@@ -27,7 +33,9 @@ impl Surface {
         };
         if let Some(reaper) = reaper {
             if pty.reaper_completion.wait_until(deadline) {
-                if reaper.join().is_err() {
+                if let LocalReaper::Thread(reaper) = reaper
+                    && reaper.join().is_err()
+                {
                     eprintln!("cmux-tui: child reaper thread panicked during shutdown");
                 }
             } else {
@@ -39,7 +47,9 @@ impl Surface {
         }
         if let Some(reader) = pty.reader_thread.lock().unwrap().take() {
             if pty.reader_completion.wait_until(deadline) {
-                if reader.join().is_err() {
+                if let TerminalReader::Thread(reader) = reader
+                    && reader.join().is_err()
+                {
                     eprintln!("cmux-tui: terminal reader thread panicked during shutdown");
                 }
             } else {
@@ -73,7 +83,7 @@ impl Surface {
             completion.complete();
             result.expect("installed test terminal reader panicked");
         });
-        let previous = pty.reader_thread.lock().unwrap().replace(reader);
+        let previous = pty.reader_thread.lock().unwrap().replace(TerminalReader::Thread(reader));
         assert!(previous.is_none(), "test PTY already owns a reader thread");
     }
 
@@ -87,7 +97,7 @@ impl Surface {
             completion.complete();
             result.expect("installed test terminal reaper panicked");
         });
-        let previous = pty.reaper_thread.lock().unwrap().replace(reaper);
+        let previous = pty.reaper_thread.lock().unwrap().replace(LocalReaper::Thread(reaper));
         assert!(previous.is_none(), "test PTY already owns a reaper thread");
     }
 
@@ -108,7 +118,7 @@ impl Surface {
             reaper_completion.complete();
             surface.finish_terminal_reader(Instant::now() + Duration::from_secs(1));
         });
-        let previous = pty.reaper_thread.lock().unwrap().replace(reaper);
+        let previous = pty.reaper_thread.lock().unwrap().replace(LocalReaper::Thread(reaper));
         assert!(previous.is_none(), "test PTY already owns a reaper thread");
         completion
     }

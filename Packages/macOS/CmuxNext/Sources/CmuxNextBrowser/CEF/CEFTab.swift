@@ -6,16 +6,19 @@ public import Foundation
 public import Observation
 import CmuxNextWakeups
 
-/// A Chromium tab (CEF fork, Chrome style). Its page is a child window that
-/// tracks `contentView` (`.childWindow` presentation). The Chromium browser
-/// is created the first time the tab is shown, so hidden background tabs
+/// A Chromium tab (CEF fork, Chrome style). In process its page is a child window that tracks `contentView`
+/// (`.childWindow` presentation); in host mode it is the pane's `ChromiumHostPageView` inside `contentView`
+/// (`.inView`). The Chromium browser is created the first time the tab is shown, so hidden background tabs
 /// cost nothing until selected.
 @Observable
-public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtensionActionHosting, BrowserDevToolsHosting, BrowserHangAnswering {
+public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCovering, BrowserExtensionActionHosting, BrowserDevToolsHosting, BrowserHangAnswering, BrowserCrashPageHosting {
     public let id: BrowserTabID
     public let engineKind: BrowserEngineKind = .cef
     public let profileID: BrowserProfileID
-    public let presentation: BrowserPresentation = .childWindow
+    /// `.childWindow` in process, where the fork's page window tracks `contentView`; `.inView` in
+    /// host mode, where the page is a view in the pane (task 028 of
+    /// plans/cmux-next/chrome-parity/p01-process.md). The backend is fixed for the process.
+    public var presentation: BrowserPresentation { host.isHostMode ? .inView : .childWindow }
 
     public var state: BrowserTabState { machine.state }
     public internal(set) var favicon: NSImage?
@@ -37,7 +40,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored public internal(set) lazy var automaticDownloads = makeAutomaticDownloadGate()
 
     /// Chromium browser identifier once created.
-    @ObservationIgnored public private(set) var browserID: Int32?
+    @ObservationIgnored public internal(set) var browserID: Int32?
     /// The `switch.tab` interval waiting for this tab's page window to show it (the app's visible-time
     /// request, as Chrome stores one on the destination WebContents): the next show takes it.
     @ObservationIgnored var tabSwitchShow: TabSwitchSignpost.PageShow?
@@ -51,6 +54,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     public var occlusionRects: [CGRect] = [] {
         didSet { applyOcclusion() }
     }
+    /// A view shows in the page's place (``BrowserPageCovering``): the whole page is a hole.
+    @ObservationIgnored public var isPageCovered = false { didSet { if isPageCovered != oldValue { applyOcclusion() } } }
 
     /// DevTools of this page (docked in `contentView` or in a window).
     public internal(set) var devTools: BrowserDevToolsState
@@ -73,14 +78,15 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         didSet {
             let phaseChanged = machine.state.phase != oldValue.state.phase
             if phaseChanged { pageWaiters.notePhase(machine.state.phase) }
-            if phaseChanged || machine.state.processExit != oldValue.state.processExit, runtime.hostReplies == nil { onRenderersMayChange?() }
+            if phaseChanged || machine.state.processExit != oldValue.state.processExit, runtime.hostStart == nil { onRenderersMayChange?() }
         }
     }
-    /// Runs when the renderers that serve this page may have changed: its load phase changed (a navigation
-    /// can move it to another renderer) or its renderer ended (``publishRenderers(as:into:while:)``,
-    /// p14-energy-124). In process only: with the Chromium Host on, those shim calls are replies over the
-    /// wire, and attribution there is p14-energy-124a.
+    /// Runs when the renderers that serve this page may have changed: its load phase changed (a navigation can
+    /// move it to another renderer) or its renderer ended (``publishRenderers(as:into:while:)``, p14-energy-124).
+    /// In process only: with the Chromium Host on, those shim calls are wire replies (p14-energy-124a).
     @ObservationIgnored var onRenderersMayChange: (() -> Void)?
+    /// Shows the crash page in the turn this page's process or its host ended (``BrowserCrashPageHosting``).
+    @ObservationIgnored weak var crashPagePresenter: (any BrowserCrashPagePresenter)?
     /// The page plays unmuted media (`BrowserAudibleReporting`): `state.media?.isAudible`, kept
     /// apart so its observers wake on the flip only, not on each load tick or title.
     public internal(set) var isAudible = false
@@ -97,6 +103,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var pendingFocus = false
     /// True while cmux's own `SetFocus(true)` runs (`chromiumRequestsFocus`).
     @ObservationIgnored var isGrantingFocus = false
+    /// Host mode: the embedder-active state last posted, and for which browser (a restarted host's
+    /// browser has a new id and hears it again).
+    @ObservationIgnored var embedderActive: (browser: Int32, active: Bool)?
     /// Navigation state to restore once the browser exists (created with
     /// an empty URL so its history starts empty).
     @ObservationIgnored var pendingRestore: String?
@@ -161,6 +170,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var committedURL: URL?
     /// ``discard()`` emptied the tab in place; any commit, load or reload ends it.
     @ObservationIgnored var isDiscardedInPlace = false
+    /// The visibility tree node Chromium hears for this tab, and its freeze (`CEFTab+Visibility`).
+    @ObservationIgnored let nodeVisibility = CEFTabNodeVisibility()
     /// Chromium's own Back/Forward state; the tab also offers the entries
     /// saved before a relaunch (`restored`).
     @ObservationIgnored var nativeHistory = (back: false, forward: false)
@@ -265,7 +276,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         leaveAutomaticDownloadsToCmux(browser)
         applyDeviceEmulation()
         agentRelay.browserAttached()
-        if host.quietsPlaceholder, host.placeholder === self { freezeNeverShownPage(browser) }
+        if isFrozenSparePlaceholder { freezeNeverShownPage(browser) }
+        nodeVisibility.apply() // a new browser hears its tab's node before it paints
         let zoom = machine.state.zoom
         if zoom != 1 { runtime.shim?.setZoomLevel(browser, CEFZoom.level(forFactor: zoom)) }
         // Focus asked for while the page was being created applies only if
@@ -274,7 +286,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // it back on screen over the pane's current tab.
         let shown = host.visibleTab === self && !isOccluded
         host.lifecycleTrace.record(id, "attach pendingFocus=\(pendingFocus) shown=\(shown)")
-        if pendingFocus, shown { grantFocus(browser) }
+        if pendingFocus, shown { applyFocus(true, browser: browser) }
         if let action = pendingExtensionAction {
             pendingExtensionAction = nil
             runExtensionAction(action.id, anchor: action.anchor)
@@ -283,7 +295,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
             pendingRestore = nil
             // 1 = restored; fork API 10 reports why not (-1 committed entries,
             // -2 navigation not dropped, -3 state does not decode).
-            let code = state.withCString { runtime.shim?.tabRestoreNavigation(browser, $0) } ?? 0
+            let code = runtime.shim?.tabRestoreNavigation(browser, state) ?? 0
             host.lifecycleTrace.record(id, "restore-navigation \(code == 1 ? "ok" : "failed(\(code))")")
             if code != 1, let url = pendingURL { runtime.shim?.loadURL(browser, url.absoluteString) }
         }
@@ -316,20 +328,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
             isClosed = true
             if closesTab { emit(.close) }
         }
-    }
-
-    func contentDidAppear(in view: CEFTabContentView) {
-        guard !isClosed else { return }
-        host.present(self, in: view)
-        view.layoutContent()
-        if reloadWhenShown {
-            reloadWhenShown = false
-            if state.processExit != nil { reload() }
-        }
-    }
-
-    func contentDidDisappear() {
-        host.conceal(self)
     }
 
     func emit(_ intent: BrowserTabIntent) {
@@ -377,8 +375,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     }
 
     public func reload() {
-        reloadWhenShown = false
-        isDiscardedInPlace = false
+        (reloadWhenShown, isDiscardedInPlace) = (false, false)
+        if runtime.awaitsHostRestart { return runtime.reloadAfterHostRestart(self) }
         guard let browserID else {
             if let url = pendingURL ?? state.url { load(url) }
             return
@@ -431,7 +429,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         pendingFocus = focused
         // Never activate a hidden page's window (see `attach`).
         guard !focused || shown, let browserID else { return }
-        if focused { grantFocus(browserID) } else { runtime.shim?.setFocus(browserID, 0) }
+        applyFocus(focused, browser: browserID)
     }
 
     /// Shows the page window (and a docked DevTools) at once, or hides it by
@@ -451,9 +449,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// Whether the content lifecycle hid this page (read by the pane host
     /// when the tab's content view enters a window).
     var isContentHidden: Bool { isOccluded }
-
-    public func snapshot() async throws -> CGImage { try await CEFThumbnail.capture(self, CEFThumbnail.png) }
-    public func thumbnail() async throws -> CGImage { try await CEFThumbnail.capture(self, CEFThumbnail.params) }
 
     public func setZoom(_ zoom: Double) {
         machine.apply(.zoomChanged(zoom))
@@ -476,8 +471,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         faviconTask?.cancel()
         dismissPrompts()
         pageWaiters.pageEnded()
-        if let browserID {
-            runtime.shim?.close(browserID)
+        // With no wire (the host ended), no BEFORE_CLOSE comes for the browser: the tab leaves its pane now.
+        if let browserID, let shim = runtime.shim {
+            shim.close(browserID)
         } else {
             host.removed(self)
         }

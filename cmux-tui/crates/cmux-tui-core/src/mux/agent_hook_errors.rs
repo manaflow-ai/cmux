@@ -35,19 +35,7 @@ pub(super) fn agent_hook_retry_class(
     error: &anyhow::Error,
 ) -> crate::workspace_registry::AgentHookRetryClass {
     if error.downcast_ref::<AgentHookTerminalUnavailable>().is_some()
-        || error.chain().any(|cause| {
-            matches!(
-                cause.downcast_ref::<rusqlite::Error>(),
-                Some(rusqlite::Error::SqliteFailure(
-                    rusqlite::ffi::Error {
-                        code: rusqlite::ErrorCode::DatabaseBusy
-                            | rusqlite::ErrorCode::DatabaseLocked,
-                        ..
-                    },
-                    _
-                ))
-            )
-        })
+        || crate::workspace_registry::AgentHookRetryClass::registry_busy(error)
     {
         crate::workspace_registry::AgentHookRetryClass::Transient
     } else {

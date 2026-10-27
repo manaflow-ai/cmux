@@ -14,15 +14,18 @@ dependencies = [
  "cmux-chat-index",
  "cmux-coderouter",
  "cmux-codex-acp",
+ "cmux-features",
  "cmux-git",
  "cmux-link",
  "cmux-local-auth",
  "cmux-lock-rank",
+ "cmux-memory",
  "cmux-panic-log",
  "cmux-sdk",
  "cmux-server-core",
  "cmux-trace",
  "cmux-unix-socket",
+ "cmux-wake",
  "cmux-worktree-care",
  "crossterm",
  "dirs",
@@ -618,6 +621,7 @@ dependencies = [
 name = "cmux-app-host"
 version = "0.1.0"
 dependencies = [
+ "cmux-threads",
  "libc",
  "serde",
  "serde_json",
@@ -678,6 +682,7 @@ dependencies = [
  "cmux-link",
  "cmux-local-auth",
  "cmux-panic-log",
+ "cmux-threads",
  "fs4",
  "futures-util",
  "getrandom 0.3.4",
@@ -736,6 +741,15 @@ dependencies = [
 [[package]]
 name = "cmux-features"
 version = "0.1.0"
+dependencies = [
+ "base64",
+ "cmux-agent-pane-policy",
+ "cmux-config",
+ "cmux-tui-platform",
+ "plist",
+ "ring",
+ "serde_json",
+]
 
 [[package]]
 name = "cmux-feed-core"
@@ -749,15 +763,16 @@ dependencies = [
 name = "cmux-flow-trace"
 version = "0.1.0"
 dependencies = [
- "libc",
+ "cmux-trace",
 ]
 
 [[package]]
 name = "cmux-git"
 version = "0.1.0"
 dependencies = [
+ "cmux-process",
+ "cmux-threads",
  "libc",
- "wait-timeout",
 ]
 
 [[package]]
@@ -780,6 +795,7 @@ dependencies = [
  "cmux-flow-trace",
  "cmux-ipc",
  "cmux-memory",
+ "cmux-threads",
  "cmux-trace",
  "libc",
 ]
@@ -854,6 +870,7 @@ version = "0.1.0"
 name = "cmux-memory"
 version = "0.1.0"
 dependencies = [
+ "cmux-threads",
  "libc",
 ]
 
@@ -886,14 +903,18 @@ dependencies = [
 name = "cmux-panic-log"
 version = "0.1.0"
 dependencies = [
+ "cmux-trace",
  "libc",
  "serde_json",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]
 name = "cmux-process"
 version = "0.1.0"
 dependencies = [
+ "cmux-threads",
  "libc",
  "wait-timeout",
 ]
@@ -926,6 +947,7 @@ dependencies = [
  "cmux-panic-log",
  "cmux-pty",
  "cmux-remote-protocol",
+ "cmux-threads",
  "cmux-tui-core",
  "cmux-wg",
  "diffy",
@@ -985,6 +1007,7 @@ dependencies = [
  "cmux-blocking",
  "cmux-panic-log",
  "cmux-server-core",
+ "cmux-threads",
  "flate2",
  "futures-util",
  "getrandom 0.3.4",
@@ -1059,8 +1082,10 @@ dependencies = [
  "cmux-blocking",
  "cmux-build-identity",
  "cmux-config",
+ "cmux-features",
  "cmux-holder",
  "cmux-host",
+ "cmux-ipc",
  "cmux-link",
  "cmux-lock-rank",
  "cmux-panic-log",
@@ -1069,6 +1094,7 @@ dependencies = [
  "cmux-remote-protocol",
  "cmux-server",
  "cmux-server-core",
+ "cmux-threads",
  "cmux-trace",
  "cmux-tui-cdp",
  "cmux-tui-core",
@@ -1128,6 +1154,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-cloud-wire",
+ "cmux-threads",
  "serde",
  "serde_json",
  "url",
@@ -1140,6 +1167,7 @@ version = "1.0.0"
 dependencies = [
  "anyhow",
  "base64",
+ "bytes",
  "cmux-agent-pane-policy",
  "cmux-api-compat",
  "cmux-app-host",
@@ -1153,6 +1181,7 @@ dependencies = [
  "cmux-git",
  "cmux-history",
  "cmux-holder",
+ "cmux-ipc",
  "cmux-kitty-media",
  "cmux-layout-reducer",
  "cmux-link",
@@ -1175,6 +1204,7 @@ dependencies = [
  "cmux-tui-remote-access",
  "cmux-tui-util",
  "cmux-unix-socket",
+ "cmux-wake",
  "flate2",
  "fs4",
  "getrandom 0.3.4",
@@ -1182,6 +1212,7 @@ dependencies = [
  "jsonschema",
  "libc",
  "notify",
+ "objc2-foundation",
  "parking_lot",
  "quick-xml",
  "regex",
@@ -1237,6 +1268,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "cmux-process",
+ "cmux-threads",
  "cmux-tui-platform",
  "getrandom 0.3.4",
  "libc",
@@ -1252,6 +1284,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
+ "cmux-threads",
  "getrandom 0.3.4",
  "libc",
  "serde",
@@ -1314,6 +1347,7 @@ version = "0.0.0"
 name = "cmux-tui-util"
 version = "0.1.0"
 dependencies = [
+ "cmux-threads",
  "cmux-trace",
  "cmux-tui-platform",
  "getrandom 0.3.4",
@@ -1326,6 +1360,14 @@ dependencies = [
 name = "cmux-unix-socket"
 version = "0.1.0"
 dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "cmux-wake"
+version = "0.1.0"
+dependencies = [
+ "cmux-threads",
  "libc",
 ]
 
@@ -1354,6 +1396,7 @@ name = "cmux-worktree-care"
 version = "0.1.0"
 dependencies = [
  "cmux-git",
+ "cmux-threads",
  "libc",
  "serde",
  "serde_json",
@@ -2078,6 +2121,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-memory",
+ "flate2",
  "ghostty-vt-sys",
  "png",
 ]
@@ -3009,6 +3053,31 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5c7398b9c8b70908f6371f47ed36737907c87c52af34c268fed0bf0ceb92ead9"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "objc2"
+version = "0.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3a12a8ed07aefc768292f076dc3ac8c48f3781c8f2d5851dd3d98950e8c5a89f"
+dependencies = [
+ "objc2-encode",
+]
+
+[[package]]
+name = "objc2-encode"
+version = "4.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef25abbcd74fb2609453eb695bd2f860d389e457f67dc17cafc8b8cbc89d0c33"
+
+[[package]]
+name = "objc2-foundation"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3e0adef53c21f888deb4fa59fc59f7eb17404926ee8a6f59f5df0fd7f9f3272"
+dependencies = [
+ "bitflags 2.13.1",
+ "objc2",
 ]
 
 [[package]]

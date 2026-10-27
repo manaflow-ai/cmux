@@ -63,6 +63,7 @@ import Foundation
 
     private func refresh(city: String, unit: String, key: String) {
         refreshing = key
+        // main-hop-allow: the fetch and its parse are @concurrent (off main); this task resumes on main once to store the reading
         Task { [weak self] in
             let reading = await Self.fetch(city: city, unit: unit)
             guard let self else { return }
@@ -82,8 +83,9 @@ import Foundation
         }
     }
 
-    /// Geocodes `city` and reads its forecast; nil on any failure (offline, no such city).
-    private nonisolated static func fetch(city: String, unit: String) async -> AgentPaneNewTabWeather? {
+    /// Geocodes `city` and reads its forecast; nil on any failure (offline, no such city). Off the
+    /// main actor, the two parses included.
+    @concurrent private nonisolated static func fetch(city: String, unit: String) async -> AgentPaneNewTabWeather? {
         guard let geocoding = AgentPaneNewTabWeather.geocodingURL(city: city),
               let (placeData, _) = try? await URLSession.shared.data(from: geocoding),
               let place = AgentPaneNewTabWeather.place(fromGeocoding: placeData),

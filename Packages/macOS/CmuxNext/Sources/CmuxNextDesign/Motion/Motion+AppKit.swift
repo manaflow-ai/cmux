@@ -76,7 +76,7 @@ extension Motion {
             context.timingFunction = curve ?? fadeCurve
             context.allowsImplicitAnimation = duration > 0
             changes()
-        }, completionHandler: completion.map { done in { @Sendable in MainDelivery().run(done) } })
+        }, completionHandler: completion.map { done in { @Sendable in MainDelivery().run(done) } }) // main-hop-allow: AppKit calls a group's completion on main, so it runs inline there
     }
 
     /// Applies `animator()` changes at once (a zero-length group, so implicit
@@ -86,7 +86,7 @@ extension Motion {
             context.duration = 0
             context.allowsImplicitAnimation = false
             changes()
-        }, completionHandler: completion.map { done in { @Sendable in MainDelivery().run(done) } })
+        }, completionHandler: completion.map { done in { @Sendable in MainDelivery().run(done) } }) // main-hop-allow: AppKit calls a group's completion on main, so it runs inline there
     }
 
     /// A layer action for properties that fade (`CALayer.actions`). Its
@@ -181,6 +181,7 @@ extension MotionGate {
         guard canAnimate(in: view) else { return snap(changes, completion: completion) }
         let duration = self.duration(token)
         guard duration > 0 else { return withoutAnimation(changes, completion: completion) }
+        MotionActivity.began(seconds: duration)
         guard #available(macOS 15, *) else {
             return runTimed(duration, changes, completion: traced("appkit.\(token.rawValue)", completion))
         }
@@ -194,6 +195,7 @@ extension MotionGate {
                                     completion: (@MainActor @Sendable () -> Void)? = nil) {
         guard canAnimate(in: view) else { return snap(changes, completion: completion) }
         let duration = self.duration(token)
+        MotionActivity.began(seconds: duration)
         runTimed(duration, changes, completion: duration > 0 ? traced("timed.\(token.rawValue)", completion) : completion)
     }
 
@@ -203,6 +205,7 @@ extension MotionGate {
                                    completion: (@MainActor @Sendable () -> Void)? = nil) {
         guard canAnimate(in: view) else { return snap(changes, completion: completion) }
         let duration = self.duration(token)
+        MotionActivity.began(seconds: duration)
         runTimed(duration, changes, completion: duration > 0 ? traced("exit.\(token.rawValue)", completion) : completion,
                  curve: CAMediaTimingFunction(controlPoints: 0.7, 0, 0.3, 1))
     }
@@ -212,6 +215,7 @@ extension MotionGate {
                                     completion: (@MainActor @Sendable () -> Void)? = nil) {
         guard canAnimate(in: view) else { return snap(changes, completion: completion) }
         let duration = self.duration(token)
+        MotionActivity.began(seconds: duration)
         runTimed(duration, changes, completion: duration > 0 ? traced("timed.\(token.rawValue)", completion) : completion)
     }
 
@@ -223,6 +227,7 @@ extension MotionGate {
         let duration = token.map(self.duration) ?? 0
         CATransaction.begin()
         if duration > 0 {
+            MotionActivity.began(seconds: duration)
             CATransaction.setAnimationDuration(duration)
             CATransaction.setAnimationTimingFunction(fadeCurve)
         } else {
@@ -238,6 +243,7 @@ extension MotionGate {
         let duration = self.duration(token)
         CATransaction.begin()
         if duration > 0 {
+            MotionActivity.began(seconds: duration)
             CATransaction.setAnimationDuration(duration)
             CATransaction.setAnimationTimingFunction(fadeCurve)
         } else {
@@ -272,7 +278,7 @@ extension MotionGate {
         animation.duration = spring.settlingTime(within: 0.002)
         animation.fromValue = from
         animation.toValue = to
-        return animation
+        return MotionActivity.began(animation)
     }
 
     /// A `token` fade of `keyPath` from `from` to `to` that starts `delay`
@@ -291,7 +297,7 @@ extension MotionGate {
         animation.beginTime = layer.convertTime(CACurrentMediaTime(), from: nil) + delay
         animation.fillMode = .forwards
         animation.isRemovedOnCompletion = false
-        return animation
+        return MotionActivity.began(animation, after: delay)
     }
 
     /// Sets `layer.keyPath` to `value` with a timed fade from the current
@@ -310,7 +316,7 @@ extension MotionGate {
         animation.timingFunction = fadeCurve
         animation.fromValue = start
         animation.toValue = value
-        Motion.add(animation, to: layer, keyPath: keyPath, trace: "layer.\(keyPath).\(token.rawValue)")
+        Motion.add(MotionActivity.began(animation), to: layer, keyPath: keyPath, trace: "layer.\(keyPath).\(token.rawValue)")
         return animation
     }
 
@@ -331,7 +337,7 @@ extension MotionGate {
         animation.timingFunction = fadeCurve
         animation.fromValue = start
         animation.toValue = value
-        Motion.add(animation, to: layer, keyPath: keyPath, trace: "layer.\(keyPath).timed")
+        Motion.add(MotionActivity.began(animation), to: layer, keyPath: keyPath, trace: "layer.\(keyPath).timed")
         return animation
     }
 
@@ -351,6 +357,11 @@ extension MotionGate {
 
     /// A continuous clockwise rotation for a busy spinner, or nil when loops are off (Reduce
     /// Motion, Energy Saver, the category or speed off). Clockwise only: every spinner turns the same way.
+    ///
+    /// Every infinite loop made here runs through a ``LoopHost`` (``LoopVisibility``, or a host that
+    /// gates it on its own ``VisibilityNode``, ``StatusIndicatorView``), never a bare `layer.add`: a
+    /// loop in a hidden or occluded view costs the render server frames nobody sees (p03-rendering.md,
+    /// R6). `LoopRegistrationTests` checks every `repeatCount = .infinity` in CmuxNext's sources.
     public func spinAnimation() -> CAAnimation? {
         guard let period = period(.spinner) else { return nil }
         let spin = CABasicAnimation(keyPath: "transform.rotation.z")
@@ -451,7 +462,7 @@ extension MotionGate {
             flash.values = [1, 0]
             flash.duration = MotionLoop.flash.period / 2
         }
-        return flash
+        return MotionActivity.began(flash)
     }
 
     /// Keeps a layer hidden while a `token` move is still more than 3% from
@@ -465,7 +476,7 @@ extension MotionGate {
         hide.values = [0, 0, 1]
         hide.keyTimes = [0, NSNumber(value: settle / total), 1]
         hide.duration = total
-        return hide
+        return MotionActivity.began(hide)
     }
 
     /// Under Reduce Motion, a change that would move things crossfades in place instead
@@ -478,7 +489,7 @@ extension MotionGate {
         let transition = crossfadeAction
         transition.duration = seconds
         transition.timingFunction = fadeCurve
-        layer.add(transition, forKey: "cmux.reduceMotionCrossfade")
+        layer.add(MotionActivity.began(transition), forKey: "cmux.reduceMotionCrossfade")
         return transition
     }
 }

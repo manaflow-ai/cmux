@@ -9,6 +9,7 @@ final class OverlayBackingView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
     }
 
     @available(*, unavailable)

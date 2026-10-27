@@ -89,6 +89,7 @@ import Testing
 
     @Test func scrollbarChangesReachTheScrollerOnceInTheNextFrame() throws {
         _ = NSApplication.shared
+        GhosttyRuntime.startedForTests()
         let rig = TerminalFrameRig()
         let io = ScriptedTerminalIO()
         defer { io.finish() }
@@ -106,6 +107,7 @@ import Testing
     /// and a frame with no change places nothing; the scroller adds no frame client of its own.
     @Test func streamingOutputPlacesTheKnobOncePerFrame() throws {
         _ = NSApplication.shared
+        GhosttyRuntime.startedForTests()
         let rig = TerminalFrameRig()
         let io = ScriptedTerminalIO()
         defer { io.finish() }
@@ -129,6 +131,7 @@ import Testing
     /// before the commit, so the knob is never drawn a frame after the content it describes.
     @Test func aPersonsScrollsPlaceTheKnobInTheirOwnPass() throws {
         _ = NSApplication.shared
+        GhosttyRuntime.startedForTests()
         let rig = TerminalFrameRig()
         let io = ScriptedTerminalIO()
         defer { io.finish() }
@@ -144,6 +147,7 @@ import Testing
 
     @Test func aSurfaceSwapCancelsTheOldSurfacesScrollbarWatch() throws {
         _ = NSApplication.shared
+        GhosttyRuntime.startedForTests()
         let rig = TerminalFrameRig()
         let (firstIO, secondIO) = (ScriptedTerminalIO(), ScriptedTerminalIO())
         defer { firstIO.finish(); secondIO.finish() }
@@ -166,6 +170,7 @@ import Testing
     /// for its output: it tracks nothing, and reads once when the tab shows.
     @Test func aHiddenTerminalsScrollbarAppliesOnceWhenItShows() throws {
         _ = NSApplication.shared
+        GhosttyRuntime.startedForTests()
         let rig = TerminalFrameRig()
         let io = ScriptedTerminalIO()
         defer { io.finish() }

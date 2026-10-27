@@ -22,10 +22,25 @@ import Foundation
 /// the delay against a stale `recent_now`: a 7.9 ms task fired at 7 ms, found nothing due, and the
 /// re-ask truncated to 0, "now" (``CEFPumpStats/earlyPasses``). An older fork keeps that path.
 nonisolated struct CEFPumpSchedule: Equatable, Sendable {
-    /// CEF's `max_time_slice` for one `CefDoMessageLoopWork` call.
+    /// CEF's `max_time_slice` for one `CefDoMessageLoopWork` call on a fork below
+    /// ``pumpTimeSliceSwitchForkAPI``, which may ignore `--cmux-pump-time-slice-us`.
     static let timeSlice: TimeInterval = 0.010
+    /// The first fork API every build of which honours `--cmux-pump-time-slice-us` (cef-cmux 066b083f,
+    /// which kept API 24): API 26 (layer hosting) is the first API made on top of that commit. API 24 and 25 builds exist with and without it (cmux.28 and the API 25 keychain
+    /// line lack it), so they are judged by CEF's 10 ms. cmux always passes the switch, so the fork's own
+    /// default (2 ms from manaflow-ai/cef cp/p14-energy-037, in the p14-energy-136 bundle) changes nothing
+    /// here. The same number as `CEFLayerHosting.forkAPI`, which is main-actor isolated.
+    static let pumpTimeSliceSwitchForkAPI: Int32 = 26
     /// The first fork API whose `MessagePumpExternal` is demand-driven.
     static let demandDrivenForkAPI: Int32 = 7
+
+    /// The longest one `CefDoMessageLoopWork` call runs ready work on a fork of `forkAPI` between `DoWork`
+    /// batches before it returns and asks for "now": the switch's 2 ms
+    /// (``CEFSwitches/pumpTimeSliceMicroseconds``) from ``pumpTimeSliceSwitchForkAPI``, CEF's 10 ms below
+    /// it. A pass that runs this long may have left work.
+    static func timeSlice(forkAPI: Int32) -> TimeInterval {
+        forkAPI >= pumpTimeSliceSwitchForkAPI ? TimeInterval(CEFSwitches.pumpTimeSliceMicroseconds) / 1_000_000 : timeSlice
+    }
     /// Leeway of a whole-millisecond delayed request: Chromium's own default for delayed tasks
     /// (base's `kDefaultLeeway`, 8 ms), so the system can coalesce the wake with others (an idle
     /// browser asks about 1.7 times a second). Never more than a tenth of the delay; a request for
@@ -37,6 +52,47 @@ nonisolated struct CEFPumpSchedule: Equatable, Sendable {
         let (seconds, attoseconds) = DelayPolicy.maxPreciseDelay.components
         return TimeInterval(seconds) + TimeInterval(attoseconds) / 1e18
     }()
+
+    /// The class a pass runs in on the main-thread task board (``CEFPumpBoard``, p06-scheduler-048):
+    /// input while a page has the keyboard or its ack of a page input may still be due
+    /// (``RecentPageInput``; Chromium's input router runs inside `CefDoMessageLoopWork`), frame
+    /// otherwise. Never a budgeted class and never by visibility: Chromium's one UI thread serves every
+    /// page, a hidden tab's CDP round trip included, as Chrome's browser UI thread runs input at
+    /// USER_BLOCKING and its other work unbudgeted (content/browser/scheduler/browser_task_queues.cc).
+    static func workClass(pageHasFocus: Bool, pageInputRecent: Bool) -> MainWorkClass {
+        pageHasFocus || pageInputRecent ? .input : .frame
+    }
+
+    /// The last input AppKit delivered to a Chromium page, while its ack may still be due. The pump
+    /// sees no ack: the renderer's comes back through the IO thread, and a later pass handles it after
+    /// an `OnScheduleMessagePumpWork` (content/browser/renderer_host/input/input_router_impl.cc; the
+    /// wheel queue of components/input/mouse_wheel_event_queue.cc sends the next event only then). So
+    /// an input counts until a pass began after it and one refresh passed since its dispatch ended.
+    nonisolated struct RecentPageInput: Equatable, Sendable {
+        /// When the last page input's dispatch ended, in the pump's clock (nil: none since start).
+        private var dispatchedAt: TimeInterval?
+        /// A pass began after it.
+        private var passSince = false
+
+        init() {}
+
+        /// An input's dispatch to a page ended at `now` (a pass running then does not count).
+        mutating func dispatched(at now: TimeInterval) {
+            dispatchedAt = now
+            passSince = false
+        }
+
+        /// A pass begins.
+        mutating func passBegan() {
+            passSince = true
+        }
+
+        /// Whether a pass at `now` may still be the one that handles that input's ack.
+        func isRecent(at now: TimeInterval, refresh: TimeInterval) -> Bool {
+            guard let dispatchedAt else { return false }
+            return !passSince || now < dispatchedAt + refresh
+        }
+    }
 
     /// The next timer fire, in the clock's seconds.
     struct Wake: Equatable, Sendable {

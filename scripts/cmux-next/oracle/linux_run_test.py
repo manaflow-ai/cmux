@@ -21,6 +21,7 @@ import unittest
 import unittest.mock
 from contextlib import redirect_stderr
 from pathlib import Path
+from typing import Optional
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -33,7 +34,7 @@ profile=""
 while [ $# -gt 0 ]; do
   case "$1" in --profile) profile="$2"; shift 2 ;; *) shift ;; esac
 done
-echo "cargo $(git -C .. rev-parse HEAD) $CARGO_TARGET_DIR" >> "$ORACLE_TEST_LOG"
+echo "cargo $(git -C .. rev-parse HEAD) $CARGO_TARGET_DIR changed=$(git -C .. diff --name-only | tr '\\n' ,)" >> "$ORACLE_TEST_LOG"
 sleep 0.5
 mkdir -p "$CARGO_TARGET_DIR/$profile"
 printf '#!/bin/sh\\necho stub\\n' > "$CARGO_TARGET_DIR/$profile/cmux-tui"
@@ -79,11 +80,20 @@ class LinuxRunCase(unittest.TestCase):
         oracle_dir = repo / "scripts" / "cmux-next" / "oracle"
         oracle_dir.mkdir(parents=True)
         git("init", "-q", cwd=repo)
-        for name in ("linux_run.sh", "runnerd.py"):
+        for name in ("linux_run.sh", "runnerd.py", "patch_mutants.py", "baselines.py"):
             shutil.copy(HERE / name, oracle_dir / name)
         (oracle_dir / "oracle.py").write_text(STUB_ORACLE)
         (repo / "cmux-tui").mkdir()
         (repo / "cmux-tui" / "Cargo.toml").write_text("[workspace]\n\n[profile.oracle]\ninherits = \"release\"\n")
+        lib = repo / "cmux-tui" / "crates" / "core" / "src" / "lib.rs"
+        lib.parent.mkdir(parents=True)
+        lib.write_text("pub fn index(i: usize) -> usize {\n    i\n}\n")
+        # A cmux-tui tag from before ghostty-next builds its VT library from the ghostty submodule (p15-oracle-208).
+        git("submodule", "add", "-q", str(ghostty), "ghostty", cwd=repo)
+        git("add", "-A", cwd=repo)
+        git("commit", "-q", "-m", "tag", cwd=repo)
+        cls.tag_sha = git("rev-parse", "HEAD", cwd=repo)
+        git("rm", "-q", "ghostty", cwd=repo)
         git("submodule", "add", "-q", str(ghostty), "ghostty-next", cwd=repo)
         git("add", "-A", cwd=repo)
         git("commit", "-q", "-m", "base", cwd=repo)
@@ -92,12 +102,41 @@ class LinuxRunCase(unittest.TestCase):
         git("add", "-A", cwd=repo)
         git("commit", "-q", "-m", "head", cwd=repo)
         cls.head_sha = git("rev-parse", "HEAD", cwd=repo)
+        # Seeded daemon mutants as tests/oracle/mutants/ holds them (p15-oracle-026), left untracked.
+        mutants = repo / "tests" / "oracle" / "mutants"
+        cls.mutant = cls.write_mutant(mutants / "daemon" / "index-off-by-one.patch", "    i\n", "    i + 1\n")
+        cls.stale_mutant = cls.write_mutant(mutants / "daemon" / "stale-context.patch", "    i\n", "    i - 1\n",
+                                            context="    j\n")
+        # patch_mutants.parse takes `Key:value` with no space after the colon; the receipt must record it too.
+        cls.tight_mutant = mutants / "daemon" / "tight-header.patch"
+        cls.tight_mutant.write_text(cls.mutant.read_text()
+                                    .replace("Mutant: daemon/index-off-by-one", "Mutant:daemon/tight-header")
+                                    .replace("Fault: off by one.", "Fault:off by one.")
+                                    .replace("i + 1", "i + 2"))
+        cls.app_mutant = mutants / "app" / "index-off-by-one.patch"
+        cls.app_mutant.parent.mkdir(parents=True)
+        cls.app_mutant.write_text(cls.mutant.read_text().replace("daemon/", "app/"))
         bin_dir = cls.bin_dir = base / "bin"
         bin_dir.mkdir()
         (bin_dir / "cargo").write_text(STUB_CARGO)
         (bin_dir / "rustc").write_text("#!/bin/sh\necho rustc 0.0.0-stub\n")
         for name in ("cargo", "rustc"):
             (bin_dir / name).chmod(0o755)
+
+    @classmethod
+    def write_mutant(cls, path: Path, old: str, new: str, context: Optional[str] = None) -> Path:
+        """A patch of the stub crate's lib.rs (made with git diff, then reverted) under a mutant header;
+        `context` replaces the patch's context line, so the patch no longer applies."""
+        lib = cls.repo / "cmux-tui" / "crates" / "core" / "src" / "lib.rs"
+        text = lib.read_text()
+        lib.write_text(text.replace(old, new))
+        body = git("diff", "--", str(lib.relative_to(cls.repo)), cwd=cls.repo) + "\n"
+        lib.write_text(text)
+        if context is not None:
+            body = body.replace("-" + old, "-" + context)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"Mutant: daemon/{path.stem}\nSuite: daemon-ops\nExercises: index\nFault: off by one.\n\n{body}")
+        return path
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -190,6 +229,19 @@ class BuildTests(LinuxRunCase):
         self.assertEqual({Path(t).name for t in targets},
                          {f"{self.base_sha}-oracle-feat-oracle", f"{self.base_sha}-oracle-feat-none"})
 
+    def test_a_sha_from_before_ghostty_next_builds_with_its_ghostty_submodule(self) -> None:
+        result = self.linux_run("build", self.tag_sha, "--profile", "release", "--features", "")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = json.loads((Path(result.stdout.strip()).parent / "build.json").read_text())
+        self.assertEqual(receipt["vtModule"], "ghostty")
+        self.assertIsNone(receipt["ghosttyNext"])
+        self.assertEqual(receipt["gitlinks"], {"ghostty": git("rev-parse", f"{self.tag_sha}:ghostty", cwd=self.repo)})
+        base = self.linux_run("build", self.base_sha)
+        self.assertEqual(base.returncode, 0, base.stderr)
+        receipt = json.loads((Path(base.stdout.strip()).parent / "build.json").read_text())
+        self.assertEqual((receipt["vtModule"], receipt["ghosttyNext"]),
+                         ("ghostty-next", git("rev-parse", f"{self.base_sha}:ghostty-next", cwd=self.repo)))
+
     def test_the_build_worktree_is_gone_after_the_job(self) -> None:
         result = self.linux_run("build", self.base_sha)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -272,6 +324,66 @@ class RunTests(LinuxRunCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("outside the checkout", result.stderr)
         self.assertEqual(self.logged("cargo"), [])
+
+
+class MutantTests(LinuxRunCase):
+    """Seeded patch mutants (p15-oracle-026): applied in the job worktree only, keyed and recorded."""
+
+    def receipt(self, result: subprocess.CompletedProcess) -> dict:
+        return json.loads((Path(result.stdout.strip().splitlines()[-1]).parent / "build.json").read_text())
+
+    def test_a_mutant_build_applies_the_patch_in_its_own_worktree(self) -> None:
+        mutated = self.linux_run("build", self.base_sha, "--mutant", str(self.mutant))
+        self.assertEqual(mutated.returncode, 0, mutated.stderr)
+        clean = self.linux_run("build", self.base_sha)
+        self.assertEqual(clean.returncode, 0, clean.stderr)
+        builds = self.logged("cargo")
+        self.assertEqual(len(builds), 2, "a mutant build and a clean build are two keys")
+        self.assertTrue(builds[0].endswith("changed=cmux-tui/crates/core/src/lib.rs,"), builds[0])
+        self.assertTrue(builds[1].endswith("changed="), builds[1])
+        receipt = self.receipt(mutated)
+        self.assertEqual(receipt["mutant"]["id"], "daemon/index-off-by-one")
+        self.assertEqual(receipt["mutant"]["suite"], "daemon-ops")
+        self.assertEqual(Path(receipt["targetDir"]).name, f"{self.base_sha}-oracle-feat-oracle+mutant")
+        self.assertIsNone(self.receipt(clean)["mutant"])
+        self.assertEqual(Path(self.receipt(clean)["targetDir"]).name, f"{self.base_sha}-oracle-feat-oracle")
+        lib = self.repo / "cmux-tui" / "crates" / "core" / "src" / "lib.rs"
+        self.assertNotIn("i + 1", lib.read_text(), "the submitter's checkout stays clean")
+
+    def test_the_receipt_records_the_header_as_the_validator_parses_it(self) -> None:
+        result = self.linux_run("build", self.base_sha, "--mutant", str(self.tight_mutant))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        mutant = self.receipt(result)["mutant"]
+        self.assertEqual(mutant["id"], "daemon/tight-header")
+        self.assertEqual(mutant["fault"], "off by one.")
+        self.assertEqual(mutant["exercises"], "index")
+        self.assertEqual(mutant["files"], ["cmux-tui/crates/core/src/lib.rs"])
+
+    def test_a_mutant_that_does_not_apply_fails_its_build(self) -> None:
+        result = self.linux_run("build", self.base_sha, "--mutant", str(self.stale_mutant))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("does not apply", result.stderr)
+        self.assertEqual(self.logged("cargo"), [])
+
+    def test_an_app_mutant_is_refused_before_anything_is_queued(self) -> None:
+        for command in (["build", self.base_sha], ["diff", self.base_sha, self.base_sha, "--out", str(self.work / "c")]):
+            result = self.linux_run(*command, "--mutant", str(self.app_mutant))
+            self.assertEqual(result.returncode, 2, command)
+            self.assertIn("not a daemon mutant", result.stderr)
+        self.assertFalse((self.work / "root").exists())
+
+    def test_diff_builds_the_mutant_on_the_head_side_only(self) -> None:
+        out = self.work / "cmp"
+        result = self.linux_run("diff", self.base_sha, self.base_sha, "--suite", "theta", "--out", str(out),
+                                "--mutant", str(self.mutant))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(sorted(line.rsplit("changed=", 1)[1] for line in self.logged("cargo")),
+                         ["", "cmux-tui/crates/core/src/lib.rs,"])
+        self.assertEqual(len(self.logged("run")), 2)
+        receipt = json.loads((out / "linux-run.json").read_text())
+        self.assertIsNone(receipt["base"]["build"]["mutant"])
+        self.assertEqual(receipt["head"]["build"]["mutant"]["id"], "daemon/index-off-by-one")
+        self.assertEqual(receipt["mutant"]["id"], "daemon/index-off-by-one")
 
 
 class QueuedDiffArgsTests(unittest.TestCase):

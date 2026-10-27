@@ -21,7 +21,7 @@
 public import Foundation
 
 // MARK: - CTLACK
-public struct CTLACK: Codable, Equatable {
+public struct CTLACK: Codable, Equatable, Sendable {
     public let payload: CTLACKPayload
     /// directory/hint revision the client has applied; stops the server's retry ladder for
     /// revisions up to and including it
@@ -52,7 +52,7 @@ public struct CTLACK: Codable, Equatable {
 // synthesized for types that have collections (such as arrays or dictionaries).
 
 // MARK: - CTLACKPayload
-public struct CTLACKPayload: Codable, Equatable {
+public struct CTLACKPayload: Codable, Equatable, Sendable {
     /// optional client stamp of when the acked revision was applied
     public let appliedAt: Date?
 
@@ -65,7 +65,7 @@ public struct CTLACKPayload: Codable, Equatable {
     }
 }
 
-public enum CTLACKType: String, Codable, Equatable {
+public enum CTLACKType: String, Codable, Equatable, Sendable {
     case ack = "ack"
 }
 
@@ -76,7 +76,7 @@ public enum CTLACKType: String, Codable, Equatable {
 // synthesized for types that have collections (such as arrays or dictionaries).
 
 // MARK: - CTLError
-public struct CTLError: Codable, Equatable {
+public struct CTLError: Codable, Equatable, Sendable {
     public let payload: CTLErrorPayload
     public let type: CTLErrorType
     /// control-plane protocol version, 1
@@ -102,7 +102,7 @@ public struct CTLError: Codable, Equatable {
 // synthesized for types that have collections (such as arrays or dictionaries).
 
 // MARK: - CTLErrorPayload
-public struct CTLErrorPayload: Codable, Equatable {
+public struct CTLErrorPayload: Codable, Equatable, Sendable {
     public let code: String
     public let message: String
     public let retryable: Bool
@@ -120,7 +120,7 @@ public struct CTLErrorPayload: Codable, Equatable {
     }
 }
 
-public enum CTLErrorType: String, Codable, Equatable {
+public enum CTLErrorType: String, Codable, Equatable, Sendable {
     case error = "error"
 }
 
@@ -131,7 +131,7 @@ public enum CTLErrorType: String, Codable, Equatable {
 // synthesized for types that have collections (such as arrays or dictionaries).
 
 // MARK: - CTLDirectory
-public struct CTLDirectory: Codable, Equatable {
+public struct CTLDirectory: Codable, Equatable, Sendable {
     public let payload: CTLDirectoryPayload
     /// monotonic account route revision this fact reflects
     public let rev: Int
@@ -161,7 +161,7 @@ public struct CTLDirectory: Codable, Equatable {
 // synthesized for types that have collections (such as arrays or dictionaries).
 
 // MARK: - CTLDirectoryPayload
-public struct CTLDirectoryPayload: Codable, Equatable {
+public struct CTLDirectoryPayload: Codable, Equatable, Sendable {
     public let bindings: [Binding]
     public let grantVerificationKeys: [GrantVerificationKey]
     /// server stamp when this directory was issued; anchor of the trust lease
@@ -202,7 +202,7 @@ public struct CTLDirectoryPayload: Codable, Equatable {
 // synthesized for types that have collections (such as arrays or dictionaries).
 
 // MARK: - Binding
-public struct Binding: Codable, Equatable {
+public struct Binding: Codable, Equatable, Sendable {
     public let appVersion: String?
     public let bindingID: String
     public let capabilities: [String]?
@@ -255,7 +255,7 @@ public struct Binding: Codable, Equatable {
     }
 }
 
-public enum ReleaseTrack: String, Codable, Equatable {
+public enum ReleaseTrack: String, Codable, Equatable, Sendable {
     case appstore = "appstore"
     case beta = "beta"
     case dev = "dev"
@@ -266,7 +266,7 @@ public enum ReleaseTrack: String, Codable, Equatable {
 
 /// device lifecycle state from the account overlay; a binding never confirmed by its own
 /// hello stays seeded
-public enum Status: String, Codable, Equatable {
+public enum Status: String, Codable, Equatable, Sendable {
     case active = "active"
     case pending = "pending"
     case retired = "retired"
@@ -283,7 +283,7 @@ public enum Status: String, Codable, Equatable {
 // synthesized for types that have collections (such as arrays or dictionaries).
 
 // MARK: - GrantVerificationKey
-public struct GrantVerificationKey: Codable, Equatable {
+public struct GrantVerificationKey: Codable, Equatable, Sendable {
     public let alg: String
     public let keyID: String
     public let publicKey: String
@@ -309,7 +309,7 @@ public struct GrantVerificationKey: Codable, Equatable {
 
 /// per-platform app-version floors; clients below the floor must update before participating
 // MARK: - PurpleMinimumSupportedVersion
-public struct PurpleMinimumSupportedVersion: Codable, Equatable {
+public struct PurpleMinimumSupportedVersion: Codable, Equatable, Sendable {
     public let ios: String?
     public let mac: String?
 
@@ -324,7 +324,7 @@ public struct PurpleMinimumSupportedVersion: Codable, Equatable {
     }
 }
 
-public enum CTLDirectoryType: String, Codable, Equatable {
+public enum CTLDirectoryType: String, Codable, Equatable, Sendable {
     case directory = "directory"
 }
 
@@ -335,7 +335,7 @@ public enum CTLDirectoryType: String, Codable, Equatable {
 // synthesized for types that have collections (such as arrays or dictionaries).
 
 // MARK: - CTLHelloACK
-public struct CTLHelloACK: Codable, Equatable {
+public struct CTLHelloACK: Codable, Equatable, Sendable {
     public let payload: CTLHelloACKPayload
     public let type: CTLHelloACKType
     /// control-plane protocol version, 1
@@ -361,7 +361,7 @@ public struct CTLHelloACK: Codable, Equatable {
 // synthesized for types that have collections (such as arrays or dictionaries).
 
 // MARK: - CTLHelloACKPayload
-public struct CTLHelloACKPayload: Codable, Equatable {
+public struct CTLHelloACKPayload: Codable, Equatable, Sendable {
     /// echo of the directory's per-platform version floors so clients get them before the
     /// directory body
     public let minimumSupportedVersion: FluffyMinimumSupportedVersion?
@@ -395,7 +395,7 @@ public struct CTLHelloACKPayload: Codable, Equatable {
 /// echo of the directory's per-platform version floors so clients get them before the
 /// directory body
 // MARK: - FluffyMinimumSupportedVersion
-public struct FluffyMinimumSupportedVersion: Codable, Equatable {
+public struct FluffyMinimumSupportedVersion: Codable, Equatable, Sendable {
     public let ios: String?
     public let mac: String?
 
@@ -410,7 +410,7 @@ public struct FluffyMinimumSupportedVersion: Codable, Equatable {
     }
 }
 
-public enum CTLHelloACKType: String, Codable, Equatable {
+public enum CTLHelloACKType: String, Codable, Equatable, Sendable {
     case helloACK = "hello_ack"
 }
 
@@ -421,7 +421,7 @@ public enum CTLHelloACKType: String, Codable, Equatable {
 // synthesized for types that have collections (such as arrays or dictionaries).
 
 // MARK: - CTLHello
-public struct CTLHello: Codable, Equatable {
+public struct CTLHello: Codable, Equatable, Sendable {
     public let payload: CTLHelloPayload
     public let type: CTLHelloType
     /// control-plane protocol version, 1
@@ -447,7 +447,7 @@ public struct CTLHello: Codable, Equatable {
 // synthesized for types that have collections (such as arrays or dictionaries).
 
 // MARK: - CTLHelloPayload
-public struct CTLHelloPayload: Codable, Equatable {
+public struct CTLHelloPayload: Codable, Equatable, Sendable {
     public let appVersion: String?
     public let capabilities: [String]?
     /// optional client self-identification; presence of any client-info field confirms the
@@ -484,12 +484,12 @@ public struct CTLHelloPayload: Codable, Equatable {
     }
 }
 
-public enum Platform: String, Codable, Equatable {
+public enum Platform: String, Codable, Equatable, Sendable {
     case ios = "ios"
     case mac = "mac"
 }
 
-public enum CTLHelloType: String, Codable, Equatable {
+public enum CTLHelloType: String, Codable, Equatable, Sendable {
     case hello = "hello"
 }
 
@@ -500,7 +500,7 @@ public enum CTLHelloType: String, Codable, Equatable {
 // synthesized for types that have collections (such as arrays or dictionaries).
 
 // MARK: - CTLHintUpdate
-public struct CTLHintUpdate: Codable, Equatable {
+public struct CTLHintUpdate: Codable, Equatable, Sendable {
     public let payload: CTLHintUpdatePayload
     /// monotonic account route revision this fact reflects
     public let rev: Int
@@ -530,7 +530,7 @@ public struct CTLHintUpdate: Codable, Equatable {
 // synthesized for types that have collections (such as arrays or dictionaries).
 
 // MARK: - CTLHintUpdatePayload
-public struct CTLHintUpdatePayload: Codable, Equatable {
+public struct CTLHintUpdatePayload: Codable, Equatable, Sendable {
     public let endpointID: String
     public let homeRelayURL: String
     public let updatedAt: Date?
@@ -548,7 +548,7 @@ public struct CTLHintUpdatePayload: Codable, Equatable {
     }
 }
 
-public enum CTLHintUpdateType: String, Codable, Equatable {
+public enum CTLHintUpdateType: String, Codable, Equatable, Sendable {
     case hintUpdate = "hint_update"
 }
 
@@ -559,7 +559,7 @@ public enum CTLHintUpdateType: String, Codable, Equatable {
 // synthesized for types that have collections (such as arrays or dictionaries).
 
 // MARK: - CTLMintRequest
-public struct CTLMintRequest: Codable, Equatable {
+public struct CTLMintRequest: Codable, Equatable, Sendable {
     public let payload: CTLMintRequestPayload
     public let type: CTLMintRequestType
     /// control-plane protocol version, 1
@@ -585,7 +585,7 @@ public struct CTLMintRequest: Codable, Equatable {
 // synthesized for types that have collections (such as arrays or dictionaries).
 
 // MARK: - CTLMintRequestPayload
-public struct CTLMintRequestPayload: Codable, Equatable {
+public struct CTLMintRequestPayload: Codable, Equatable, Sendable {
     public let endpointID: String
     /// Optional signed identity assertion (reserved for the source-of-truth migration; phase A
     /// authorizes via the bearer-authenticated socket and confirms hints by re-fetching
@@ -613,7 +613,7 @@ public struct CTLMintRequestPayload: Codable, Equatable {
 /// authorizes via the bearer-authenticated socket and confirms hints by re-fetching
 /// discovery)
 // MARK: - PurpleProof
-public struct PurpleProof: Codable, Equatable {
+public struct PurpleProof: Codable, Equatable, Sendable {
     public let bindingID: String
     /// base64 Ed25519 signature by the endpoint key
     public let signature: String
@@ -633,7 +633,7 @@ public struct PurpleProof: Codable, Equatable {
     }
 }
 
-public enum CTLMintRequestType: String, Codable, Equatable {
+public enum CTLMintRequestType: String, Codable, Equatable, Sendable {
     case mintRequest = "mint_request"
 }
 
@@ -644,7 +644,7 @@ public enum CTLMintRequestType: String, Codable, Equatable {
 // synthesized for types that have collections (such as arrays or dictionaries).
 
 // MARK: - CTLPublishHint
-public struct CTLPublishHint: Codable, Equatable {
+public struct CTLPublishHint: Codable, Equatable, Sendable {
     public let payload: CTLPublishHintPayload
     public let type: CTLPublishHintType
     /// control-plane protocol version, 1
@@ -670,7 +670,7 @@ public struct CTLPublishHint: Codable, Equatable {
 // synthesized for types that have collections (such as arrays or dictionaries).
 
 // MARK: - CTLPublishHintPayload
-public struct CTLPublishHintPayload: Codable, Equatable {
+public struct CTLPublishHintPayload: Codable, Equatable, Sendable {
     public let endpointID: String
     public let homeRelayURL: String
     /// Optional signed identity assertion (reserved for the source-of-truth migration; phase A
@@ -701,7 +701,7 @@ public struct CTLPublishHintPayload: Codable, Equatable {
 /// authorizes via the bearer-authenticated socket and confirms hints by re-fetching
 /// discovery)
 // MARK: - FluffyProof
-public struct FluffyProof: Codable, Equatable {
+public struct FluffyProof: Codable, Equatable, Sendable {
     public let bindingID: String
     /// base64 Ed25519 signature by the endpoint key
     public let signature: String
@@ -721,7 +721,7 @@ public struct FluffyProof: Codable, Equatable {
     }
 }
 
-public enum CTLPublishHintType: String, Codable, Equatable {
+public enum CTLPublishHintType: String, Codable, Equatable, Sendable {
     case publishHint = "publish_hint"
 }
 
@@ -732,7 +732,7 @@ public enum CTLPublishHintType: String, Codable, Equatable {
 // synthesized for types that have collections (such as arrays or dictionaries).
 
 // MARK: - CTLRelayPasses
-public struct CTLRelayPasses: Codable, Equatable {
+public struct CTLRelayPasses: Codable, Equatable, Sendable {
     public let payload: CTLRelayPassesPayload
     /// monotonic account route revision this fact reflects
     public let rev: Int
@@ -762,7 +762,7 @@ public struct CTLRelayPasses: Codable, Equatable {
 // synthesized for types that have collections (such as arrays or dictionaries).
 
 // MARK: - CTLRelayPassesPayload
-public struct CTLRelayPassesPayload: Codable, Equatable {
+public struct CTLRelayPassesPayload: Codable, Equatable, Sendable {
     public let endpointID: String
     public let passes: [Pass]
 
@@ -784,7 +784,7 @@ public struct CTLRelayPassesPayload: Codable, Equatable {
 // synthesized for types that have collections (such as arrays or dictionaries).
 
 // MARK: - Pass
-public struct Pass: Codable, Equatable {
+public struct Pass: Codable, Equatable, Sendable {
     public let expiresAt: Date
     public let generation: Int
     /// server-driven early-refresh point (expiry minus margin)
@@ -809,7 +809,7 @@ public struct Pass: Codable, Equatable {
     }
 }
 
-public enum CTLRelayPassesType: String, Codable, Equatable {
+public enum CTLRelayPassesType: String, Codable, Equatable, Sendable {
     case relayPasses = "relay_passes"
 }
 
@@ -820,7 +820,7 @@ public enum CTLRelayPassesType: String, Codable, Equatable {
 // synthesized for types that have collections (such as arrays or dictionaries).
 
 // MARK: - CTLSnapshotComplete
-public struct CTLSnapshotComplete: Codable, Equatable {
+public struct CTLSnapshotComplete: Codable, Equatable, Sendable {
     public let payload: CTLSnapshotCompletePayload
     /// monotonic account route revision this fact reflects
     public let rev: Int
@@ -850,7 +850,7 @@ public struct CTLSnapshotComplete: Codable, Equatable {
 // synthesized for types that have collections (such as arrays or dictionaries).
 
 // MARK: - CTLSnapshotCompletePayload
-public struct CTLSnapshotCompletePayload: Codable, Equatable {
+public struct CTLSnapshotCompletePayload: Codable, Equatable, Sendable {
     /// server freshness re-stamp; when a hello's haveRev already matches head this frame alone
     /// re-arms the directory trust lease without resending the body
     public let issuedAt: Date?
@@ -864,6 +864,6 @@ public struct CTLSnapshotCompletePayload: Codable, Equatable {
     }
 }
 
-public enum CTLSnapshotCompleteType: String, Codable, Equatable {
+public enum CTLSnapshotCompleteType: String, Codable, Equatable, Sendable {
     case snapshotComplete = "snapshot_complete"
 }

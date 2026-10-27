@@ -20,7 +20,7 @@ struct AgentPaneDictationAudioTests {
         let recording = DictationAudioRecording()
         // One second at 48 kHz: a constant half-scale signal.
         let input = [Float](repeating: 0.5, count: 48_000)
-        input.withUnsafeBufferPointer { recording.append($0, sampleRate: 48_000) }
+        recording.append(input, sampleRate: 48_000)
         let wav = try #require(recording.wav())
         #expect(wav.count == 44 + 16_000 * 2)
         #expect(String(decoding: wav.prefix(4), as: UTF8.self) == "RIFF")
@@ -33,13 +33,27 @@ struct AgentPaneDictationAudioTests {
         #expect(field(44, 2) == Int(Int16(0.5 * Float(Int16.max))))
     }
 
+    /// The WAV is written byte by byte: every header field and each sample is little-endian, a
+    /// negative sample in two's complement.
+    @Test func headerAndSamplesAreLittleEndian() throws {
+        let recording = DictationAudioRecording()
+        recording.append([Float](repeating: -0.5, count: 16_000), sampleRate: 16_000)
+        let wav = try #require(recording.wav())
+        #expect(Array(wav[4..<8]) == [0x24, 0x7D, 0x00, 0x00]) // RIFF size: 36 + 32 000
+        #expect(Array(wav[16..<20]) == [0x10, 0x00, 0x00, 0x00]) // fmt chunk size: 16
+        #expect(Array(wav[28..<32]) == [0x00, 0x7D, 0x00, 0x00]) // bytes a second: 32 000
+        let sample = UInt16(bitPattern: Int16(-0.5 * Double(Int16.max)))
+        #expect(Array(wav[44..<46]) == [UInt8(truncatingIfNeeded: sample), UInt8(truncatingIfNeeded: sample >> 8)])
+        #expect(Array(wav[(wav.count - 2)...]) == Array(wav[44..<46]))
+    }
+
     /// 44.1 and 24 kHz are no whole multiple of 16 kHz; a level input must come out level, not
     /// amplitude-modulated by how the spans fall.
     @Test(arguments: [44_100.0, 24_000.0, 22_050.0, 16_000.0])
     func aLevelInputStaysLevelAtAnyRate(rate: Double) throws {
         let recording = DictationAudioRecording()
         let input = [Float](repeating: 0.5, count: Int(rate))
-        input.withUnsafeBufferPointer { recording.append($0, sampleRate: rate) }
+        recording.append(input, sampleRate: rate)
         let wav = try #require(recording.wav())
         let samples = stride(from: 44, to: wav.count - 1, by: 2).map { Int(Int16(bitPattern: UInt16(wav[$0]) | UInt16(wav[$0 + 1]) << 8)) }
         #expect(abs(samples.count - 16_000) <= 1)
@@ -50,7 +64,7 @@ struct AgentPaneDictationAudioTests {
     @Test func narrowbandInputGoesAsTextAlone() {
         let recording = DictationAudioRecording()
         let input = [Float](repeating: 0.5, count: 8_000)
-        input.withUnsafeBufferPointer { recording.append($0, sampleRate: 8_000) }
+        recording.append(input, sampleRate: 8_000)
         #expect(recording.wav() == nil)
         #expect(recording.omission == .narrowband)
     }
@@ -59,7 +73,7 @@ struct AgentPaneDictationAudioTests {
         let recording = DictationAudioRecording()
         let second = [Float](repeating: 0.1, count: 16_000)
         for _ in 0...Int(DictationAudioRecording.maximumDuration) {
-            second.withUnsafeBufferPointer { recording.append($0, sampleRate: 16_000) }
+            recording.append(second, sampleRate: 16_000)
         }
         #expect(recording.wav() == nil)
         #expect(recording.omission == .tooLong)

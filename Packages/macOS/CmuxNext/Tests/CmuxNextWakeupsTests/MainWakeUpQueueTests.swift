@@ -250,6 +250,85 @@ struct MainWakeUpQueueTests {
         #expect(rig.fires == 1 && rig.queue.count == 0)
     }
 
+    // MARK: Per-fire budget (p14-energy-037)
+
+    @Test("Fifty due entries of 0.1 ms run in three fires: each stops once its 2 ms budget has passed")
+    func fireBudgetSplitsALongFire() {
+        let rig = WakeUpQueueRig()
+        let log = RunLog()
+        Self.insertBusyEntries(into: rig, log: log, count: 50, cost: Self.ms / 10)
+        var perFire: [Int] = []
+        while rig.timer.armedDate != nil {
+            let before = log.ran.count
+            rig.fire()
+            perFire.append(log.ran.count - before)
+        }
+        #expect(perFire == [20, 20, 10])
+        #expect(log.ran == [UInt64](0..<50), "the entries left keep their order across fires")
+        #expect(rig.queue.count == 0)
+        #expect(rig.fires == 1, "the continuations are the same wake: one fire record")
+        #expect(rig.deadlines(of: "busy") == 1, "one record per owner per wake")
+        #expect(rig.queue.coalescedFires == 1, "a split wake counts once")
+    }
+
+    @Test("A fire that stops at its budget arms the rest for the current uptime with no tolerance")
+    func aBudgetStopArmsTheRestForNowWithNoTolerance() {
+        let rig = WakeUpQueueRig()
+        let log = RunLog()
+        Self.insertBusyEntries(into: rig, log: log, count: 50, cost: Self.ms / 10)
+        rig.fire()
+        #expect(rig.queue.count == 30)
+        #expect(rig.timer.arms.last == FakeWakeUpTimer.Arm(date: rig.uptime.now, tolerance: 0),
+                "the next run-loop pass, not a later grid tick or the top's latest time")
+        rig.fire()
+        #expect(log.ran == [UInt64](0..<40), "the rest runs on the next fire, in order")
+    }
+
+    @Test("An insert or a cancel during a continuation keeps its arm; emptying the queue ends the wake")
+    func aContinuationKeepsItsArm() throws {
+        let rig = WakeUpQueueRig()
+        let log = RunLog()
+        let tokens = Self.insertBusyEntries(into: rig, log: log, count: 2, cost: 5 * Self.ms)
+        rig.fire()
+        let continuation = try #require(rig.timer.arms.last)
+        rig.queue.insert(owner: "later", after: .milliseconds(50)) {}
+        rig.queue.insert(owner: "precise", at: rig.uptime.now + Self.ms, window: .window(delay: .milliseconds(1), policy: .precise)) {}
+        #expect(rig.timer.arms.last == continuation && rig.timer.armedDate == continuation.date)
+        for token in tokens { rig.queue.cancel(token) }
+        #expect(rig.timer.armedDate == continuation.date, "entries are left: the continuation still fires")
+        rig.fire()
+        #expect(log.ran == [0] && rig.fires == 1)
+        rig.fire()
+        rig.fire()
+        #expect(rig.queue.count == 0 && rig.fires == 3, "the fires after the continuation are wakes of their own")
+    }
+
+    @Test("The entry that crosses the budget finishes; the next one waits for the next fire")
+    func longEntryRunsAlone() {
+        let rig = WakeUpQueueRig()
+        let log = RunLog()
+        Self.insertBusyEntries(into: rig, log: log, count: 2, cost: 5 * Self.ms)
+        rig.fire()
+        #expect(log.ran == [0], "at least one entry per fire, however long")
+        rig.fire()
+        #expect(log.ran == [0, 1])
+        #expect(rig.fires == 1 && rig.deadlines(of: "busy") == 1)
+    }
+
+    /// `count` entries due at 100 ms that each advance the fake uptime by `cost` ns and log their index.
+    @discardableResult
+    private static func insertBusyEntries(
+        into rig: WakeUpQueueRig, log: RunLog, count: UInt64, cost: UInt64
+    ) -> [MainWakeUpQueue.Token] {
+        let uptime = rig.uptime
+        return (0..<count).map { index in
+            rig.queue.insert(owner: "busy", at: 100 * ms, window: .window(delay: .milliseconds(100))) {
+                uptime.now += cost
+                log.ran.append(index)
+            }
+        }
+    }
+
     // MARK: Energy Saver (p14-energy-023)
 
     @Test("Energy Saver snaps pending flexible entries to the 32 ms grid inside the latest they were inserted with")

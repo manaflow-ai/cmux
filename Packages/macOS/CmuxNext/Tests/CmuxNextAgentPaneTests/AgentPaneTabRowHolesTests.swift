@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextPages
 import CmuxNextPagesTestSupport
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -23,7 +24,7 @@ struct AgentPaneTabRowHolesTests {
     private func chromiumChat() async throws -> (AgentPaneView, FakeChromiumPage) {
         let file = try #require(AgentPageTestRoot.page)
         let hosting = FakeChromiumHosting()
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file),
+        let view = try #require(AgentPaneView(mainThread: .standalone(), model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file),
                                               webUI: .agentPaneTestHost(chromium: hosting), gestures: .testing()))
         view.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
         view.layoutSubtreeIfNeeded()
@@ -49,7 +50,7 @@ struct AgentPaneTabRowHolesTests {
     @Test func aChromiumChatInTheTabRowLeavesTheTabsAndToolbarUncovered() async throws {
         let (view, page) = try await chromiumChat()
         view.model.tabRow.report(width: 120)
-        let tools = try #require(view.model.tabRow.sharedWidth(zoom: view.webView.pageZoom))
+        let tools = try #require(view.model.tabRow.sharedWidth(zoom: CGFloat(view.page.pageZoom)))
         let room: CGFloat = 800 - 60
         let span = min(tools, room / 2)
 
@@ -81,7 +82,7 @@ struct AgentPaneTabRowHolesTests {
         view.frame = NSRect(x: 0, y: 0, width: 1000, height: 600)
         view.layoutSubtreeIfNeeded()
         AgentPaneTabRow.offer(points: 36, trailingInset: 60, to: view)
-        let tools = try #require(view.model.tabRow.sharedWidth(zoom: view.webView.pageZoom))
+        let tools = try #require(view.model.tabRow.sharedWidth(zoom: CGFloat(view.page.pageZoom)))
         let room: CGFloat = 1000 - 60
         #expect(holes(page, in: view) == [
             CGRect(x: 0, y: 0, width: room - min(tools, room / 2), height: 36),

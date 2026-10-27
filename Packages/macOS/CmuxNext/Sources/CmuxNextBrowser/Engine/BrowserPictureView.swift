@@ -44,6 +44,7 @@ public final class BrowserPictureView: NSImageView {
         decodedPicture = nil
         image = nil
         guard newWindow != nil, let picture = picture() else { return }
+        // main-hop-allow: the decode runs detached; the resume is this view's one image store, only for the window it is moving into (a move out cancels it)
         decoding = Task { [weak self] in
             let decoded = await Task.detached(priority: .userInitiated) { Self.decoded(picture) }.value
             guard let self, !Task.isCancelled else { return }
@@ -57,12 +58,14 @@ public final class BrowserPictureView: NSImageView {
     }
 
     /// `image` drawn into a bitmap of its size and color space, keeping its alpha if it has one
-    /// (a page with a transparent background).
-    private nonisolated static func decoded(_ image: CGImage) -> CGImage {
+    /// (a page with a transparent background). Blocking CPU work: call it off the main thread (the intent
+    /// prewarm decodes a hibernated tab's picture on the app's `.cpu` lane ahead of its wake).
+    public nonisolated static func decoded(_ image: CGImage) -> CGImage {
         let opaque = [CGImageAlphaInfo.none, .noneSkipFirst, .noneSkipLast].contains(image.alphaInfo)
-        guard let context = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: 0,
-                                      space: image.colorSpace ?? CGColorSpaceCreateDeviceRGB(),
-                                      bitmapInfo: (opaque ? CGImageAlphaInfo.noneSkipLast : .premultipliedLast).rawValue) else { return image }
+        guard let context = CGContext.ownedBitmap(width: image.width, height: image.height,
+                                                  space: image.colorSpace ?? CGColorSpaceCreateDeviceRGB(),
+                                                  bitmapInfo: (opaque ? CGImageAlphaInfo.noneSkipLast : .premultipliedLast).rawValue)
+        else { return image }
         context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
         return context.makeImage() ?? image
     }

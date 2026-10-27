@@ -11,9 +11,11 @@
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicU8;
-use std::sync::mpsc::{Receiver, TryRecvError, sync_channel};
 use std::time::Instant;
 
+use cmux_threads::sync::mpsc::{Receiver, RecvTimeoutError, TryRecvError, sync_channel};
+
+use super::writer_qos::RequestWait;
 use super::{
     COMMIT_PENDING, JournalCommitIndeterminate, JournalIngressCompletion, JournalIngressEvent,
     JournalIngressSender, JournalWriterOwner, QueuedJournalEvent, journal_durable_wait,
@@ -33,43 +35,72 @@ pub(crate) enum EffectSend {
     NotQueued(Box<RegistryIntent>),
 }
 
-/// The receipt channel of an indeterminate registry commit.
-pub(crate) struct PendingRegistryReceipt(Receiver<Result<RegistryReceipt, String>>);
+/// The receipt channel of an indeterminate registry commit. Until its answer
+/// is taken it counts as a request wait (`writer_qos`): a later request
+/// blocks on it in `drain_unsettled`, so the writer attempt that answers it
+/// runs at the writer's class, not at utility.
+pub(crate) struct PendingRegistryReceipt {
+    receiver: Receiver<Result<RegistryReceipt, String>>,
+    wait: Option<RequestWait>,
+}
 
 impl PendingRegistryReceipt {
+    /// A receipt whose answer arrives on `receiver`, counted by `wait` until
+    /// that answer is taken.
+    pub(super) fn counted(
+        receiver: Receiver<Result<RegistryReceipt, String>>,
+        wait: RequestWait,
+    ) -> Self {
+        Self { receiver, wait: Some(wait) }
+    }
+
     /// A receipt whose answer arrives on `receiver` (registry tests).
     #[cfg(test)]
     pub(crate) fn for_test(receiver: Receiver<Result<RegistryReceipt, String>>) -> Self {
-        Self(receiver)
+        Self { receiver, wait: None }
     }
 
     /// The receipt once the writer answered, `None` while it has not. A
     /// writer that dropped the channel without an answer reports an error.
-    pub(crate) fn try_take(&self) -> Option<Result<RegistryReceipt, String>> {
-        match self.0.try_recv() {
+    pub(crate) fn try_take(&mut self) -> Option<Result<RegistryReceipt, String>> {
+        let taken = match self.receiver.try_recv() {
             Ok(result) => Some(result),
             Err(TryRecvError::Empty) => None,
             Err(TryRecvError::Disconnected) => {
                 Some(Err("the session journal writer dropped the receipt".into()))
             }
-        }
+        };
+        self.settle_wait(taken)
     }
 
     /// [`Self::try_take`], waiting at most `timeout` for the answer: a
     /// `journal_wait` (`request_path`) at `site`.
     pub(crate) fn wait_take(
-        &self,
+        &mut self,
         timeout: std::time::Duration,
         site: &'static std::panic::Location<'static>,
     ) -> Option<Result<RegistryReceipt, String>> {
         crate::request_path::note_at(crate::request_path::BlockingKind::JournalWait, site);
-        match cmux_threads::checked::sync::recv_timeout(&self.0, timeout) {
+        // wakeup-allow: deadline the caller's own timeout, forwarded unchanged
+        let taken = match self.receiver.recv_timeout(timeout) {
             Ok(result) => Some(result),
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => None,
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            Err(RecvTimeoutError::Timeout) => None,
+            Err(RecvTimeoutError::Disconnected) => {
                 Some(Err("the session journal writer dropped the receipt".into()))
             }
+        };
+        self.settle_wait(taken)
+    }
+
+    /// Stops counting the wait once the answer is taken.
+    fn settle_wait(
+        &mut self,
+        taken: Option<Result<RegistryReceipt, String>>,
+    ) -> Option<Result<RegistryReceipt, String>> {
+        if taken.is_some() {
+            self.wait = None;
         }
+        taken
     }
 }
 
@@ -101,6 +132,7 @@ impl JournalIngressSender {
         if !self.accepts_effects() {
             return EffectSend::NotQueued(intent);
         }
+        let wait = self.state.request_waits.enter();
         let (completion, result) = sync_channel(1);
         let deadline = Instant::now() + journal_durable_wait();
         let commit_fence = Arc::new(AtomicU8::new(COMMIT_PENDING));
@@ -139,7 +171,7 @@ impl JournalIngressSender {
         self.state.stats.receipt_waited(waited.elapsed());
         match outcome {
             Err(error) if error.downcast_ref::<JournalCommitIndeterminate>().is_some() => {
-                EffectSend::Indeterminate(error, PendingRegistryReceipt(result))
+                EffectSend::Indeterminate(error, PendingRegistryReceipt::counted(result, wait))
             }
             outcome => EffectSend::Sent(outcome),
         }

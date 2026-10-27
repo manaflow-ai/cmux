@@ -115,7 +115,7 @@ extension CaptureSceneRegistry {
     /// with a second snapshot at `click_path`. Nil without `click_agent`.
     func clickHomeAgent(_ params: [String: CmuxNextSettings.JSONValue], windowID: String) async -> CmuxNextSettings.JSONValue? {
         guard let index = params["click_agent"]?.intValue else { return nil }
-        guard let controller = services.windows.controller(for: windowID),
+        guard let controller = services.windows.controllerBuildingIfWaiting(for: windowID),
               let page = controller.topPages.views[.home] as? TopHomePageView,
               let chief = TopHomePageView.chief(services.home) else {
             return .object(["error": .string("Home is not shown")])

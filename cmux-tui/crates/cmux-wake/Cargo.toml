@@ -1,0 +1,20 @@
+[package]
+name = "cmux-wake"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Shared wakes for cmux's Rust processes (the daemon and acpmux): aligned one-shot deadlines, the Energy Saver mode and one MaintenanceClock per process"
+
+[lints]
+workspace = true
+
+# A leaf crate: std, libc and cmux-threads (std and libc only), so acpmux
+# (which depends on neither cmux-tui-core nor cmux-tui-platform) registers on
+# the same clock as the daemon. cmux-tui-core re-exports it as `wake`. No tokio.
+[dependencies]
+cmux-threads.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true

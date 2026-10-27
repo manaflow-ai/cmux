@@ -71,6 +71,8 @@ nonisolated public final class ChromeTextLayer: CALayer {
     private var drawnWeight: Int?
     /// The line's glyph image per stem weight: a color change between two weights (a tab's selected
     /// and plain colors) swaps images and draws each weight once.
+    // memory: fixed one image per GlyphMask stem step (four) of this layer's own line at its size;
+    // any text, font, size or scale change empties it.
     private var images: [Int: CGImage] = [:]
 
     override public init() {

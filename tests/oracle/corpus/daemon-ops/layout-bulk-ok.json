@@ -49,6 +49,38 @@
       }
     },
     {
+      "id": "fx-split",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:fx-workspace#/value/workspace_id",
+        "screen": "$step:fx-workspace#/value/screen_id",
+        "pane": "$step:fx-workspace#/value/pane_id"
+      },
+      "args": {
+        "method": "pane.split",
+        "params": {
+          "direction": "right"
+        },
+        "idempotencyKey": "layout-bulk-ok.fx-split"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "split-in-place",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/layout/root/second/pane_id",
+        "equals": "$step:fx-split#/value/pane_id",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -56,15 +88,14 @@
         "session": "current",
         "workspace": "$step:fx-workspace#/value/workspace_id",
         "screen": "$step:fx-workspace#/value/screen_id",
-        "pane": "$step:fx-workspace#/value/pane_id",
-        "tab": "$step:fx-workspace#/value/tab_id"
+        "pane": "$step:fx-workspace#/value/pane_id"
       },
       "args": {
         "method": "layout.bulk",
         "params": {
           "verb": "close",
-          "level": "tab",
-          "selector": "this"
+          "level": "pane",
+          "selector": "others"
         },
         "idempotencyKey": "layout-bulk-ok.call"
       },
@@ -76,7 +107,69 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "close the other panes of the anchor's screen: the fixture split collapses to the anchor's leaf"
+    },
+    {
+      "id": "one-leaf",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/layout/root/kind",
+        "equals": "leaf",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "anchor-kept",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/layout/root/pane_id",
+        "equals": "$step:fx-workspace#/value/pane_id",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "one-pane",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/panes",
+        "predicate": {
+          "op": "lengthEquals",
+          "value": 1
+        },
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:fx-workspace#/value/workspace_id",
+        "screen": "$step:fx-workspace#/value/screen_id",
+        "pane": "$step:fx-workspace#/value/pane_id"
+      },
+      "args": {
+        "method": "layout.bulk",
+        "params": {
+          "verb": "close",
+          "level": "pane",
+          "selector": "others"
+        },
+        "idempotencyKey": "layout-bulk-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

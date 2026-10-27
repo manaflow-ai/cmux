@@ -6,11 +6,22 @@
 //! Mojo generates each interface's request structs from its mojom
 //! (mojo/public/tools/bindings/generators/cpp_templates/struct_declaration.tmpl);
 //! here each listed family's commands become structs, one per command, with the
-//! serde rules the hand-written `Command` variants had: a field the schema
-//! makes optional and nullable is `Option<T>` (absent and `null` are `None`); an
-//! optional field that is not nullable takes its schema default; a required
-//! field has neither. The structs ignore unknown fields, as the hand-written
-//! enum did.
+//! serde rules the hand-written `Command` variants had:
+//!
+//! - required: the type, no default;
+//! - required and nullable: `Option<T>` that must be present (`null` is `None`);
+//! - optional and nullable with a schema `default`: `Option<T>`, absent and
+//!   `null` both `None` (the handler applies a non-null default);
+//! - optional and nullable without a `default`: absent and `null` differ, so
+//!   `Option<Option<T>>` (absent `None`, `null` `Some(None)`: "null clears");
+//! - optional, not nullable: the type, with its schema default.
+//!
+//! `server-families.json` `refused_fields` adds, per command, a pre-rename
+//! field the handler refuses: `Option<serde_json::Value>`. The structs ignore
+//! unknown fields, as the hand-written enum did. Its `boxed` names, per
+//! command, a params struct the enum holds in a `Box`, with its reason: one
+//! large, rarely sent command must not grow every `Command` (clippy's
+//! `large_enum_variant`, which cannot see a macro's variants).
 //!
 //! The output is two kinds of `#[macro_export]` macro, so the structs are local
 //! types of the daemon crate (which owns the field types the schema names by
@@ -20,8 +31,8 @@
 //!   Each object type the family names by ref is a parameter, in name order.
 //! - `server_command_enum! { <family> = <module>; <enum> }` appends one variant
 //!   per command of every listed family to the enum it is given: a newtype
-//!   over the struct in `<module>`, or a unit variant for a command with no
-//!   fields.
+//!   over the struct in `<module>` (or over its `Box`), or a unit variant for
+//!   a command with no fields.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Write as _};
@@ -74,7 +85,59 @@ pub struct Field {
     pub serde: Vec<String>,
     /// A default other than the type's `Default`: `(fn name, Rust type, expression)`.
     pub default_fn: Option<(String, String, String)>,
+    /// The `deserialize_with` reader of a nullable field that tells `null`
+    /// from absent; the params macro defines each reader its family uses.
+    pub reader: Option<Reader>,
 }
+
+/// A serde reader the params macro defines once in its family's module.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Reader {
+    /// Required and nullable: must be present; `null` is `None`.
+    RequiredNullable,
+    /// Optional and nullable without a default: absent is `None` (by
+    /// `default`), `null` is `Some(None)`.
+    PresentNullable,
+}
+
+impl Reader {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::RequiredNullable => "required_nullable",
+            Self::PresentNullable => "present_nullable",
+        }
+    }
+
+    /// The reader's function, generic over the type inside the options.
+    fn definition(self) -> String {
+        let (output, wrap) = match self {
+            Self::RequiredNullable => ("::core::option::Option<T>", ""),
+            Self::PresentNullable => (
+                "::core::option::Option<::core::option::Option<T>>",
+                ".map(::core::option::Option::Some)",
+            ),
+        };
+        let name = self.name();
+        let mut code = String::new();
+        let _ = writeln!(code, "        fn {name}<'de, D, T>(");
+        let _ = writeln!(code, "            deserializer: D,");
+        let _ = writeln!(code, "        ) -> ::core::result::Result<{output}, D::Error>");
+        let _ = writeln!(code, "        where");
+        let _ = writeln!(code, "            D: ::serde::Deserializer<'de>,");
+        let _ = writeln!(code, "            T: ::serde::Deserialize<'de>,");
+        let _ = writeln!(code, "        {{");
+        let _ = writeln!(
+            code,
+            "            <::core::option::Option<T> as ::serde::Deserialize>::deserialize(deserializer){wrap}"
+        );
+        let _ = writeln!(code, "        }}");
+        code
+    }
+}
+
+/// The type of a refused field (`server-families.json` `refused_fields`): the
+/// handler refuses any value but `null`.
+pub const REFUSED_TYPE: &str = "::core::option::Option<::serde_json::Value>";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Command {
@@ -82,6 +145,8 @@ pub struct Command {
     pub method_id: u16,
     pub variant: String,
     pub fields: Vec<Field>,
+    /// The enum holds the params in a `Box` (`server-families.json` `boxed`).
+    pub boxed: bool,
 }
 
 impl Command {
@@ -128,6 +193,76 @@ pub fn read(sdk: &Value, listed: &[String]) -> Result<Vec<Family>, EmitError> {
     Ok(families)
 }
 
+/// Adds `server-families.json` `refused_fields` (`{command: {field: reason}}`)
+/// to the generated commands: each one a [`REFUSED_TYPE`] field after the
+/// schema's. A refused field must name a generated command, must not be a
+/// schema field and needs a reason.
+pub fn add_refused_fields(families: &mut [Family], doc: &Value) -> Result<(), EmitError> {
+    let Some(refused) = doc.get("refused_fields") else {
+        return Ok(());
+    };
+    let refused = refused
+        .as_object()
+        .ok_or_else(|| error("$.refused_fields", "must be an object of commands"))?;
+    for (wire, fields) in refused {
+        let path = format!("$.refused_fields.{wire}");
+        let command = families
+            .iter_mut()
+            .flat_map(|family| family.commands.iter_mut())
+            .find(|command| command.wire == *wire)
+            .ok_or_else(|| error(&path, "is not a command of a listed family"))?;
+        let fields =
+            fields.as_object().ok_or_else(|| error(&path, "must be an object of fields"))?;
+        for (name, reason) in fields {
+            let field_path = format!("{path}.{name}");
+            if reason.as_str().is_none_or(|reason| reason.trim().is_empty()) {
+                return Err(error(&field_path, "needs a reason"));
+            }
+            if command.fields.iter().any(|field| field.wire == *name) {
+                return Err(error(&field_path, "is a schema field"));
+            }
+            let ident =
+                field_ident(name).ok_or_else(|| error(&field_path, "is not a snake_case name"))?;
+            command.fields.push(Field {
+                wire: name.clone(),
+                ident,
+                rust_type: REFUSED_TYPE.to_owned(),
+                serde: vec!["default".to_owned()],
+                default_fn: None,
+                reader: None,
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Marks the commands `server-families.json` `boxed` (`{command: reason}`):
+/// the enum holds their params in a `Box`. A boxed command must be a generated
+/// command with params and needs a reason.
+pub fn box_variants(families: &mut [Family], doc: &Value) -> Result<(), EmitError> {
+    let Some(boxed) = doc.get("boxed") else {
+        return Ok(());
+    };
+    let boxed =
+        boxed.as_object().ok_or_else(|| error("$.boxed", "must be an object of commands"))?;
+    for (wire, reason) in boxed {
+        let path = format!("$.boxed.{wire}");
+        let command = families
+            .iter_mut()
+            .flat_map(|family| family.commands.iter_mut())
+            .find(|command| command.wire == *wire)
+            .ok_or_else(|| error(&path, "is not a command of a listed family"))?;
+        if reason.as_str().is_none_or(|reason| reason.trim().is_empty()) {
+            return Err(error(&path, "needs a reason"));
+        }
+        if command.fields.is_empty() {
+            return Err(error(&path, "has no params to box"));
+        }
+        command.boxed = true;
+    }
+    Ok(())
+}
+
 fn family(
     name: &str,
     id: u8,
@@ -148,7 +283,10 @@ fn family(
         }
         let variant = pascal(wire).ok_or_else(|| error(&path, "is not a kebab-case name"))?;
         let fields = request_fields(&path, wire, command, types, &mut refs)?;
-        found.insert(method_id, Command { wire: wire.clone(), method_id, variant, fields });
+        found.insert(
+            method_id,
+            Command { wire: wire.clone(), method_id, variant, fields, boxed: false },
+        );
     }
     if found.is_empty() {
         return Err(error(format!("$.families.{name}"), "has no command with a method_id"));
@@ -210,11 +348,27 @@ fn request_field(
     let nullable = field.get("nullable").and_then(Value::as_bool).unwrap_or(false);
     let mut serde = Vec::new();
     let mut default_fn = None;
+    let mut reader = None;
     let rust_type = match (required, nullable) {
         (true, false) => base,
-        (false, true) => {
+        (true, true) => {
+            // serde reads an absent `Option` field as `None`; a reader keeps
+            // the field required.
+            reader = Some(Reader::RequiredNullable);
+            serde.push(format!("deserialize_with = {:?}", Reader::RequiredNullable.name()));
+            format!("::core::option::Option<{base}>")
+        }
+        (false, true) if field.get("default").is_some() => {
             serde.push("default".to_owned());
             format!("::core::option::Option<{base}>")
+        }
+        (false, true) => {
+            reader = Some(Reader::PresentNullable);
+            serde.push("default".to_owned());
+            serde.push(format!("deserialize_with = {:?}", Reader::PresentNullable.name()));
+            // The tests' Serialize derive writes absent as absent, `null` as `null`.
+            serde.push("skip_serializing_if = \"::core::option::Option::is_none\"".to_owned());
+            format!("::core::option::Option<::core::option::Option<{base}>>")
         }
         (false, false) => {
             let default = field.get("default").ok_or_else(|| {
@@ -230,11 +384,6 @@ fn request_field(
             }
             base
         }
-        (true, true) => {
-            // serde reads an absent `Option` field as `None`, so "required"
-            // would not be enforced; no listed family has such a field yet.
-            return Err(error(path, "a required nullable field cannot be generated yet"));
-        }
     };
     if let Some(aliases) = field.get("aliases") {
         let aliases = aliases
@@ -247,7 +396,7 @@ fn request_field(
             serde.push(format!("alias = {alias:?}"));
         }
     }
-    Ok(Field { wire: name.to_owned(), ident, rust_type, serde, default_fn })
+    Ok(Field { wire: name.to_owned(), ident, rust_type, serde, default_fn, reader })
 }
 
 /// The Rust type of a schema type expression. An object type named by ref
@@ -285,6 +434,12 @@ fn rust_type(
             let items = expression.get("items").ok_or_else(|| error(path, "array has no items"))?;
             let item = rust_type(&format!("{path}.items"), items, types, refs)?;
             Ok(format!("::std::vec::Vec<{item}>"))
+        }
+        "map" => {
+            let values =
+                expression.get("values").ok_or_else(|| error(path, "map has no values"))?;
+            let value = rust_type(&format!("{path}.values"), values, types, refs)?;
+            Ok(format!("::std::collections::BTreeMap<::std::string::String, {value}>"))
         }
         "ref" => {
             let name = expression.get("name").and_then(Value::as_str).unwrap_or_default();
@@ -331,6 +486,15 @@ fn default_expression(
     let mismatch = || error(path, format!("does not fit the field type {rust}"));
     match (rust, default) {
         ("bool", Value::Bool(value)) => Ok(value.then(|| "true".to_owned())),
+        // `[]` and `{}` are an empty Vec's and BTreeMap's `Default`.
+        (_, Value::Array(items)) if items.is_empty() && rust.starts_with("::std::vec::Vec<") => {
+            Ok(None)
+        }
+        (_, Value::Object(members))
+            if members.is_empty() && rust.starts_with("::std::collections::BTreeMap<") =>
+        {
+            Ok(None)
+        }
         ("::std::string::String", Value::String(value)) => {
             Ok((!value.is_empty()).then(|| format!("::std::string::String::from({value:?})")))
         }
@@ -418,6 +582,14 @@ fn emit_params(code: &mut String, family: &Family) {
     let parameters: Vec<String> =
         family.refs.iter().map(|name| format!("{name} = ${name}:ty")).collect();
     let _ = writeln!(code, "    ({} $(,)?) => {{", parameters.join(", "));
+    let readers: BTreeSet<Reader> = family
+        .commands
+        .iter()
+        .flat_map(|command| command.fields.iter().filter_map(|field| field.reader))
+        .collect();
+    for reader in readers {
+        code.push_str(&reader.definition());
+    }
     for command in &family.commands {
         let Some(params) = command.params() else { continue };
         for field in &command.fields {
@@ -472,6 +644,13 @@ fn emit_enum(code: &mut String, families: &[Family]) {
             let _ = writeln!(code, "            #[doc = {doc:?}]");
             let _ = writeln!(code, "            #[serde(rename = {:?})]", command.wire);
             match command.params() {
+                Some(params) if command.boxed => {
+                    let _ = writeln!(
+                        code,
+                        "            {}(::std::boxed::Box<${}::{params}>),",
+                        command.variant, family.snake
+                    );
+                }
                 Some(params) => {
                     let _ = writeln!(
                         code,

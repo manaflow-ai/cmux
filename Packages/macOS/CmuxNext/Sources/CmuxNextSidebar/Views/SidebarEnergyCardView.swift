@@ -71,6 +71,7 @@ final class SidebarEnergyCardView: NSView, HoverCardTextReporting {
         turnOff.needsDisplay = true
     }
 
+    // visibility-walk-allow: sets the labels' text colors and invalidates the button only (no layout)
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()
@@ -79,7 +80,7 @@ final class SidebarEnergyCardView: NSView, HoverCardTextReporting {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self)
         addTrackingArea(area)
         tracking = area
     }

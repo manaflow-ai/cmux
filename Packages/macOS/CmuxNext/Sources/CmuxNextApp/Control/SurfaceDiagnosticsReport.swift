@@ -136,6 +136,9 @@ enum SurfaceDiagnosticsReport {
             "cold_shows_total": JSONValue(hibernation.coldShows),
             "uncovered_wakes_total": JSONValue(hibernation.uncoveredWakes),
             "urgent_passes_total": JSONValue(hibernation.urgentPasses),
+            "last_urgent_discard": hibernation.lastUrgentPass.discards.first.map { candidate -> JSONValue in
+                ["key": .string(candidate.key), "kind": .string(candidate.kind.rawValue)]
+            } ?? .null,
             "exemptions": .object(hibernation.exemptions.mapValues { .string($0.rawValue) }),
             "snapshots": JSONValue(hibernation.snapshots.count),
             "snapshot_bytes": JSONValue(hibernation.snapshots.totalBytes),

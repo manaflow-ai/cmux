@@ -61,7 +61,8 @@ Paths are in chromium/src at main.
    RenderProcessHost". Top-chrome WebUIs use this (`tab-search.top-chrome`, `chrome/common/webui_url_constants.h`
    kChromeUITopChromeDomain). Embedder hooks: `ContentBrowserClient::GetAdditionalWebUISchemes`,
    `ShouldUseProcessPerSite`, `ShouldAllowProcessPerSiteForMultipleMainFrames`, and the feature
-   `ProcessPerSiteUpToMainFrameThreshold` (`content/public/common/content_features.cc`).
+   `ProcessPerSiteUpToMainFrameThreshold` (`content/public/common/content_features.cc`; HTTP(S) sites only, see
+   `GetProcessReusePolicyForMainFrame` in `render_frame_host_manager.cc`).
    Untrusted content goes in `chrome-untrusted://` documents, never in a process with stronger bindings.
 2. Preloading WebUI. `chrome/browser/ui/webui/top_chrome/webui_contents_preload_manager.h`: "At anytime, at most
    one WebContents is preloaded across all profiles". The preload is made visible so that resources load at once,
@@ -215,9 +216,11 @@ Chromium mechanism (fork, through the shared fork train, task 086):
   3 origins, B gives 1 with no bad-message kill. 011 implements the option that passes.
 - If B wins, the origin rename is machine queue MQ15 (task 094). Page storage is off-the-record and WebKit
   stores are non-persistent, so no stored data needs migration. The OTA abi bump (071) covers it.
-- The agent group needs no new fork code: one origin plus `ProcessPerSiteUpToMainFrameThreshold`. The cap for
-  cmux-page sites (8) is one table entry in PL-memory's per-site sharing switch (web tabs: 2), reviewed by
-  PL-memory, measured with bench_renderer_sharing.py (task 085).
+- The agent group needs the same fork code as the other groups. At 154.0.8037.98,
+  `ProcessPerSiteUpToMainFrameThreshold` applies only to HTTP(S) sites (`render_frame_host_manager.cc`
+  `GetProcessReusePolicyForMainFrame`, `kSchemeIsNotHttpOrHttps`), so it does not share `cmux.agent`. Its cap of 8 is
+  011's embedder cap; the cmux-page entry in PL-memory's per-site sharing switch (web tabs: 2) holds the same value,
+  reviewed by PL-memory, measured with bench_renderer_sharing.py (task 085). Spike 091 measures nine agent pages.
 - The page bridge leaves DevTools (013, 014, 078): page channel `cmuxPageHost`, document scripts limited to
   cmux-page, tabEvaluate, a surface copy export (077) and native clicks. The host takes the sender's browser id,
   frame and committed origin from the CEF frame that delivered the message, never from the payload.
@@ -465,7 +468,8 @@ Each command runs from the repo root. Each hit is one unit of work in the named 
    train (one reserved number per export, one dist, one pin bump by T+30 h). If the train is late, the "train"
    rows of D1, D3 and D12 cannot pass; the "pinned" rows still give a measured result.
 2. Process lock. If spike 091 finds that neither option shares a renderer across origins without bad-message
-   kills, groups fall back to one origin per process, and only the agent group shares (085). D3 then expects
+   kills, groups fall back to one origin per process, and only the agent group shares (one origin, through 011's
+   existing-process reuse and cap; the 085 threshold does not cover a site that is not HTTP(S)). D3 then expects
    renderers == pages open, and the rest of the program still lands.
 3. Security of shared renderers. The capability test (087) is the guard. Groups are risk:high. A new op with a
    dangerous prefix on a viewer page makes the test fail.
@@ -550,6 +554,7 @@ Size: S <= 150 lines, M <= 400, L = split into commits of <= 400. "Tell" names t
 | 062 | CEF pane hosts of closed pages are removed | S | - | - |
 | 063 | Page tabs share one Chromium window per pane | M | 005, 062 | - |
 | 064 | Page teardown leaves the Cmd-W turn (PageRetirer) | S | 061 | - |
+| 064b | Reopen Closed takes back a page tab's retired page | M | 064 | - |
 | 065 | Native pushes held or thaw-first while frozen | M | 028 | MQ12 |
 | 066 | Provider freeze hooks; page relay channels in WebUIHost | M | 023 | MQ10 |
 | 067 | Daemon: page-relay subscriptions filter by event kind | M | - | - |
@@ -638,14 +643,23 @@ those MQ10 hits == 0; one WKProcessPool() in Sources; a fleet trace shows page b
 Test: CmuxNextPagesTests, compile-check --package CmuxNext.
 
 **011 Fork page groups.** Files: fork include/cef_cmux.h, libcef/browser/chrome/chrome_content_browser_client_cef.cc,
-the cmux page scheme table. Change: the mechanism that spike 091 proved: either cmux-page as an additional WebUI
-scheme with the last-label lock rule (option B), or the lock override with an explicit commit allowlist
-(option A). Export `cmux_shim_page_scheme_set_group(id, group)` before CefInitialize ends. `solo` and `secrets`
-keep one process per page. The per-site main-frame cap for cmux-page sites is the entry in PL-memory's sharing
-switch (085), not a second switch. Acceptance: fork test opens 3 origins of one group: 1 RenderProcessHost,
-0 bad-message kills after localStorage, fetch and postMessage on each; a 9th frame gets a second process; a
-secrets page gets its own; API number from the train reservation (086). Tell PL-memory. Test: fork browser
-tests; pin a dev dist for 012.
+the cmux page scheme table. Its ref (`17a7f8ff`) stays unpinned until spike 091 has run: its Measured column (webui-DESIGN.md section 5.1) needs
+a job id, and 091 names no winner before that. Change: the mechanism that the 091 run proves. Hypothesis (expected
+B, unmeasured): cmux-page as an additional WebUI scheme with the last-label lock rule, and existing-process reuse
+(`ShouldTryToUseExistingProcessHost`, as top-chrome WebUI) for the grouped hosts of `privileged`, `viewer` and
+`agent` (`cmux.agent`). That reuse (`GetExistingProcessHost`) has no cap, and `ProcessPerSiteUpToMainFrameThreshold`
+refuses a site that is not HTTP(S), so it cannot cap the agent group. Thus 011 has one cap of 8 main frames per
+group renderer for every grouped host, the agent group too, in the content patch `cmux_page_process_groups`
+(`ContentBrowserClient::ShouldUseExistingProcessHost`, asked only in `GetExistingProcessHost`), not in
+`IsSuitableHost`, so a navigating page never moves off a full renderer (webui-DESIGN.md sections 3.2 and 5.1). The value 8 is the same as the cmux-page entry of
+PL-memory's sharing switch (085), not a second setting. Export `cmux_shim_page_scheme_set_group(id, group)` before
+CefInitialize ends. `solo` and `secrets` keep one process per page. Acceptance: fork test opens 3 origins of one
+group: 1 RenderProcessHost, 0 bad-message kills after localStorage, fetch and postMessage on each; a 9th frame gets
+a second process, in a `privileged` group and in the agent group (nine `cmux.agent` pages give 2 renderers); pages
+of two groups never share a renderer; a secrets page gets its own; cmux-page sites do not use process-per-site (no
+WebUIControllerFactory and no WebUI data source is registered for cmux-page, and it is not privileged embedder
+content: `SiteInfo::ShouldUseProcessPerSite`); API number from the train reservation (086). Tell PL-memory. Test:
+fork browser tests; pin a dev dist for 012.
 
 **012 processGroup.** Files: PageDescriptor.swift, WebUI/PageProcessGroup.swift (new), CmuxNextBrowser/CEF/CEFPageSchemes.swift,
 CEFRuntime.swift, CEFShimLibrary.swift, CEFForkFeatures.swift, CmuxNextApp/Pages/FirstPartyPageSchemes.swift.
@@ -875,10 +889,14 @@ Acceptance: `--check` works; no inline module code; a script test resolves every
 `build-pages-web.sh --check` locally, web-lint.sh.
 
 **050 Shared origin.** Files: FirstPartyPageSchemes.swift, PageServedHosts.swift, PageSchemeHandler.swift, PageCSP.swift,
-CEFShim/src/shim_page_scheme.mm, PageID.swift. Change: `cmux.shared` root serves only .js and .css, ACAO set to the
+CEFShim/src/shim_page_scheme.mm, PageID.swift, webviews/scripts/pages/build-pages.mjs, cmux-tui-core
+server/page_files.rs. Change: `cmux.shared` root serves only .js and .css, ACAO set to the
 requesting first-party cmux-page origin, CSP `script-src 'self' cmux-page://cmux.shared`; cmux.shared cannot be
-opened as a page. Acceptance: a non-cmux origin gets no ACAO; navigation to it refused; React chunk URL identical
-across pages. Test: MarkdownPageSecurityTests (shared case), PageSharedOriginTests, bundle report.
+opened as a page. The page build names every shared chunk `cmux-page://cmux.shared/<chunk>.js` (entry imports and
+modulepreload) and no page folder keeps a `_shared` copy; the daemon's /pages/ serves those URLs as /pages/_shared/.
+Acceptance: a non-cmux origin gets no ACAO; navigation to it refused; React chunk URL identical
+across pages. Test: MarkdownPageSecurityTests (shared case), PageSharedOriginTests, PageChromiumCoverageTests,
+webviews pages-split-build.test.ts, cmux-tui-core page_files tests, bundle report.
 
 **051 Bundle report.** Files: scripts/cmux-next/page-bundle-report.mjs (new). Change: per page first-load bytes,
 shared bytes, total, request count, lazy chunk count, React chunk URL. Acceptance: prints every D8 field; agents run
@@ -949,9 +967,20 @@ CmuxNextBrowserTests; pages10: CEF windows <= panes in use.
 
 **064 PageRetirer.** Files: WebUI/PageRetirer.swift (new), WebUIHost.swift, CmuxNextApp/NewTab/AgentPageRetirer.swift
 (deleted), AgentTabs.swift. Change: retire detaches the view at once and closes the engine page on one DemandTimer
-at a quiet moment, for every page; undo-close re-adopts. Acceptance: 0 engine close calls in the close turn, 1 after
-the timer; a re-adopted page is never closed; `final class AgentPageRetirer` == 0. Test: PageRetirerTests; Cmd-W
-row.
+at a quiet moment, for every page; the routes, subscriptions and bridge end in the close's turn. Acceptance: 0
+engine close calls in the close turn, 1 after the timer; the page's routes and subscriptions end in the close's
+turn; `final class AgentPageRetirer` == 0. Test: PageRetirerTests, WebUIHostTests; CmuxNextAppTests
+DebugSettingsHangWatchTests and InternalPageDiscardPolicyCoverageTests; bench-webui.py open
+`settings.cmd_w_engine_close_calls` == 0 (`debug.webui` `retire`).
+
+**064b Reopen Closed takes back a retired page.** Files: WebUI/PageRetirer.swift, WebUIHost.swift, PageRouter.swift,
+CmuxNextApp/InternalPages/InternalPageTabStore.swift, Handlers/CloseUndoToasts.swift. Change: undo-close
+re-adoption, left out of 064 (the daemon's closed history reopens a page tab as a new tab): keep each closed page
+tab's view by its closed record while the retirer holds it; a Reopen Closed or close-toast Undo before the deadline
+takes it back, gives its router the new routes and reloads its document in the same engine page. Chrome's
+TabRestoreService makes a new WebContents, so the commit says what the reuse saves. Acceptance: a page tab closed
+and reopened before the deadline shows the same view and its engine page never closes; one reopened later opens
+a new page. Test: PageRetirerTests; CmuxNextAppTests filter ClosedHistory, CloseUndoToasts.
 
 **065 Native pushes while frozen.** Files: PageWebView+EngineNeutral.swift, PageWebView.swift,
 CmuxNextDesign/GlassLens/GlassBackdropFeed.swift, AgentPaneView.swift, Tests/.../PageFrozenEvaluateTests.swift.
@@ -1031,7 +1060,8 @@ selection; the domains call awaits the cached value. Acceptance: no font or dire
 (injected source asserts); same values. Test: SettingsPage filter; open bench Settings cold; debug.hangs 0.
 
 **077 Fork surface copy and native click.** Change: `cmux_shim_tab_copy_surface(browser, max_w, max_h, callback)`
-(CopyFromSurface, encode on the thread pool) and the API 29 native click for debug input. If PL-cef-layer's
+(CopyFromSurface, encode on the thread pool), `cmux_shim_tab_send_mouse_move(browser, x, y, modifiers)`
+(SendMouseMoveEvent with no button, for 078's debug hover) and the API 29 native click for debug input. If PL-cef-layer's
 `cmux_browser_capture` exists in the train, reuse it and add nothing. Acceptance: after a copy, the renderer has no
 DevTools agent and is still shareable. Test: fork browser test.
 
@@ -1040,12 +1070,41 @@ DevTools agent and is still shareable. Test: fork browser test.
 to tabEvaluate, copySurface or the native click; DevTools kept only for fork < 29. Acceptance: MQ3 only in the
 fallback branch; 0 devTools() calls for snapshot, menu copy, evaluate and debug click (fake). Test:
 PageWebViewChromiumTests, EngineNeutralTests; pages10 DevTools sessions 0 (train).
+As built: `PageChromiumPage` gains `copiesSurface`, `sendClick(at:)` and `copySelection()`; the three
+`Page.captureScreenshot` sites share `PageWebView.chromiumPictureData`, whose DevTools branch runs only when the page
+cannot copy its surface. The copy is `cmux_shim_tab_copy_surface` (optional export, fork API 38, answered by
+`CMUX_SHIM_REPLY`; webui-DESIGN.md "Binding"), so its fallback covers forks below 38, not only below 29. MQ3 went
+from 17 to 11 hits. Of 078's sites three stay, each in the fallback branch of a fork without the path: the picture
+fallback, the debug press fallback (below 29), and the debug hover's `mouseMoved` (below 38: the native move is
+`cmux_shim_tab_send_mouse_move`, a `post` optional export with `fork_api` 38 that 077's fork line adds). The other
+eight are 013's bridge and setup sites (5), 014's `devToolsEvaluate` fallback and the `.devTools` event case
+(declared and matched). The press and the hover report the path that ran in `delivered` (`native` or `devtools`).
+A surface copy keeps alpha, so `snapshotKeepsClearAreas` is true for a page that copies. Its answer stays base64 on
+the main actor and is decoded on the `.cpu` lane (the hide picture through `PageSnapshotEncoder.unpack`). Test:
+PageChromiumDevToolsFreeTests, PageChromiumWindowImageTests.aLargeSurfaceCopyIsDecodedOnTheCPULane,
+PageDiscardTests.theAppEncoderUnpacksASurfaceCopyOnTheCPULane, CEFRendererPathsTests
+(aTabOnForkAPI38CopiesItsSurfaceWithNoDevToolsCall, aForkBeforeTheSurfaceCopyAnswersNoPictureAtOnce,
+aTabMovesTheMouseNativelyFromForkAPI38, aPerformedScriptLeavesWithNoWaiter). The copy and the menu's Copy start no
+task: the copy's answer comes in a synchronous turn (`CEFSurfaceCopies`), and Copy is sent with no waiter
+(`CEFTab.perform`).
 
 **079 Push channel.** Files: fork include/cef_cmux.h, libcef/renderer/, ChromiumPageHostBridge.swift, pageClient.ts.
 Change: a fork export posts a string to the page's registered receiver; router batches and replies use it.
 Acceptance: 0 evaluate calls for deliveries; events queue until the receiver registers; code lands only with a
 gain beyond noise in renderer CPU per 1,000 events or p99 delivery at 10 Hz x 10 pages. Test: fork test, bridge
 suite, delivery bench with and without the flag.
+As built: fork API 39, manaflow-ai/cef `cp/p13-webui-079` (37353c1b, on `cp/p06-scheduler-212`; not built yet). 077 took 38 first, so the fork line takes 39 in the train (086).
+`cmux_tab_page_push(browser, text, length)` sends over the main frame's `cef::mojom::RenderFrame` pipe, so pushes
+keep their order with the frame's scripts; the renderer defines `cmuxPageListen` only in the main world of a
+cmux-page main frame and keeps pushes until the receiver registers or a frozen page runs again. The shim export
+`cmux_shim_tab_page_push` is a host-mode post; `CEFForkFeatures.pagePush` needs it and API 39. Default-off feature
+`pagePushChannel`: the bridge's FIFO (`ChromiumPageHostBridge`) carries scripts and pushes in order, a run of
+envelopes is its JSON array (`PageRouter.receiveManyData`) and a main-frame reply is `{"r":seq,"d":doc,"v":reply}` (`doc`: the sending document's token, since every
+document counts seq from 1; another document's receiver ignores the reply); the
+page script's receiver hands runs to pageClient's `__cmuxPageHostListen` receiver (held until it registers). Page
+to host stays the DevTools binding until 013. Bench: `bench-webui.py push` with and without
+`--enable-feature pagePushChannel` (`debug.page ping` round trips, page renderer CPU per 1,000 deliveries,
+`debug.webui` `script_deliveries`/`data_deliveries`); not run, so the feature stays off (perf-lead.md row).
 
 **080 Frozen chats leave acpmux.** Files: AgentPaneTransport.swift, AgentPaneView+Transport.swift, AgentPageHibernation.swift.
 Change: a frozen chat with no running turn closes its transport connection; thaw reconnects with replay from the
@@ -1080,8 +1139,10 @@ automation suite.
 **085 Agent origin sharing.** Files: CEFSwitches.swift, Tests/.../CEFSwitchesTests.swift. Change: with rendererPaths,
 the cmux-page entry in PL-memory's per-site sharing switch (ProcessPerSiteUpToMainFrameThreshold, cap 8 for
 cmux-page sites, web tabs keep 2), constant cites content_features.cc. Acceptance: present only with rendererPaths;
-test for API 28 and 29; reviewed by PL-memory. Test: CEFSwitchesTests; with 5 chats, cmux.agent renderers == 1
-(train), measured with bench_renderer_sharing.py.
+test for API 28 and 29; reviewed by PL-memory. At 154.0.8037.98 the threshold policy refuses a site that is not
+HTTP(S), so this entry alone does not share `cmux.agent`; the "5 chats" row needs 011's reuse and cap (spike 091).
+Test: CEFSwitchesTests; with 5 chats, cmux.agent renderers == 1 (train, with 011), measured with
+bench_renderer_sharing.py.
 
 **086 Fork train.** Files: scripts/cmux-next/cef-manifest.json, remote-browser-host.pin.json, perf-lead.md. Change:
 reserve one API number per p13 export (page groups, renderer-less spare, discard, surface copy if not reused, push
@@ -1135,6 +1196,7 @@ the async path. Acceptance: 0 `Task {` hops for a shared request; table holds on
 --engine webkit main-thread time before and after.
 
 **094 Origin rename.** Files: MQ15 hits, PageDescriptor.swift, a generated TS origin table. Change: only if 091 picks
-option B: every page origin becomes `<page>.<group>`, built in one place. Acceptance: MQ15 literals only in the
+option B after its measured run (blocked until then, webui-DESIGN.md section 5.1): every page origin becomes
+`<page>.<group>`, built in one place. Acceptance: MQ15 literals only in the
 origin table and tests; CSP, router namespaces and storage tests pass; risk:high. Test: CmuxNextPagesTests,
 `bun run check`, compile-check --app.

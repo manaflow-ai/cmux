@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 
 import PackageDescription
 
@@ -19,11 +19,18 @@ let package = Package(
     dependencies: [
         // Agent questions (plans/cmux-next/agent-questions.md): the `question` part's model.
         .package(path: "../CmuxAgentQuestion"),
+        // The portable Mutex (p10-stability-172). The CmuxHomeCore library itself depends on it, for
+        // GatedHomeSource's state (Mock/, shipped in the library like MockHomeSource), so every
+        // consumer links CmuxSafeConcurrency.
+        .package(path: "../CmuxSafeConcurrency"),
     ],
     targets: [
         .target(
             name: "CmuxHomeCore",
-            dependencies: [.product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion")],
+            dependencies: [
+                .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
+                .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
+            ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         // One condition-polling wait for every suite (no per-suite yield loops).
@@ -39,3 +46,25 @@ let package = Package(
         ),
     ]
 )
+
+// BEGIN apply-stability-settings.py: generated from scripts/cmux-next/stability-settings.json; do not edit.
+// p10 stability settings per target (plans/cmux-next/chrome-parity/p10-stability.md C.5): add a row to
+// stability-settings.json and run the lander instead of editing this block or a target's settings.
+let stabilitySettingGroups: [(targets: [String], settings: [SwiftSetting])] = [
+    (
+        targets: [
+            "CmuxHomeCore",
+            "CmuxHomeCoreTestSupport",
+            "CmuxHomeCoreTests",
+        ],
+        settings: [
+            .strictMemorySafety(),
+        ]
+    ),
+]
+for group in stabilitySettingGroups {
+    for target in package.targets where group.targets.contains(target.name) {
+        target.swiftSettings = (target.swiftSettings ?? []) + group.settings
+    }
+}
+// END apply-stability-settings.py

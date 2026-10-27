@@ -8,6 +8,8 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextChiefViews
 import CmuxNextCompat
+import CmuxNextControl
+import CmuxNextCrashReporting
 import CmuxNextDesign
 import CmuxNextFeed
 import CmuxNextFloating
@@ -38,7 +40,7 @@ enum TunableCatalog {
             + [AgentPaneTunables.inspector.descriptor]
             + AgentActivityTunables.all + TasksTunables.all + AppsTunables.all + PageTunables.all + AgentPaneTunables.all + PaletteTunables.all + ServerTunables.all + FeedTunables.all
             + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + WorkspaceAutoNameTunables.all + QuickComposerTunables.all + HomeTunables.all + HomeTunables.headerPanels + [SidebarToggleIcon.tunable.descriptor] + BrowserImportTunables.all + NavigationTunables.all + BrowserResizeTunables.all + BrowserPageTunables.all + AccountTunables.all
-            + TitlebarHistoryTunables.all + HibernationTunables.all
+            + TitlebarHistoryTunables.all + HibernationTunables.all + MemoryDiscardToggles.all
             + HangFileTunables.all + HostPressureTunables.all
             + BrowserHostTunables.all
     }
@@ -81,20 +83,26 @@ final class DebugSettingsService: InternalPageProvider {
 
     /// Registers the catalog and activates the store (dev tools, or a bench run's override file).
     func start() {
-        let environment = ProcessInfo.processInfo.environment
-        let launch = services.environment.launch
-        guard Self.loadsTunables(devTools: isAvailable, benchBuild: Self.isBenchBuild,
-                                 bundleID: launch.bundleID, environment: environment) else { return }
+        guard let url = Self.launchFile(launch: services.environment.launch, environment: ProcessInfo.processInfo.environment) else { return }
         let store = TunableStore.shared
         store.register(TunableCatalog.all)
-        let url = Self.fileURL(environment: environment, tag: launch.tag,
-                               bundleID: launch.bundleID, build: launch.build)
         fileURL = url
         store.activate(file: url)
+        // The Sentry scope names the arm features.list reports, the file's toggles and later changes included.
+        let features = FeatureFlagsPage.report(services.features, tunables: store, daemon: services.environment.daemonFeatureHello)
+        services.lifetimeFollowers.append(services.crashReporting.reporter.followFeatures(on: services.mainWork) { CrashFeatureScope(features.fieldState) })
         // CmuxNextCloud does not see tunables; Release keeps CloudAuth's default (automatic).
         services.cloud.auth.signInWindow = { .init(rawValue: AccountTunables.signInWindow.value.rawValue) ?? .automatic }
         // The store loads the file off the main actor, after the first icons draw: the family is read here.
         IconPack.useOverlay(Self.launchIconFamily(url).overlay)
+    }
+
+    /// The override file launch activates the tunable store with (``loadsTunables``), or nil where it stays inert.
+    /// `main` reads the tunables features replace from it before the launch's features resolve.
+    nonisolated static func launchFile(launch: LaunchIdentity, environment: [String: String]) -> URL? {
+        guard loadsTunables(devTools: DevTools.isEnabled, benchBuild: isBenchBuild,
+                            bundleID: launch.bundleID, environment: environment) else { return nil }
+        return fileURL(environment: environment, tag: launch.tag, bundleID: launch.bundleID, build: launch.build)
     }
 
     /// Whether launch activates the tunable store: with dev tools, or in a bench build
@@ -204,7 +212,7 @@ final class DebugSettingsService: InternalPageProvider {
             DebugSettingsModel.followTheme(window?.themeScope ?? .app)
             return page
         }
-        return model.makePaneView(scope: window?.themeScope ?? .app)
+        return VisibilityGatedHostingView(owner: "DebugSettingsPage", hosting: model.makePaneView(scope: window?.themeScope ?? .app))
     }
 
     /// The React page over `model` when Debug Settings `debugSettings.surface` is `web` (the

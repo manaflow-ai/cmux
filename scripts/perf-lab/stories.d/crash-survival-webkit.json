@@ -1,0 +1,22 @@
+{
+  "id": "crash-survival-webkit",
+  "tier": "T1",
+  "description": "Crash survival, WebKit arm (F12): SIGKILL the WebContent process of a WebKit tab and of an agent page (pids the app reports, each proved the app's by its responsible process), the WebKit tab beside a terminal that is typed into. survived/cases per launch (a case it could not measure counts as not survived; .measured says how many were), the kill to the page answering again, and terminal key->frame after the tab's kill. The Chromium arm is crash-survival.",
+  "command": ["scripts/cmux-next/child-crash-e2e.py", "--engine", "webkit"],
+  "session": "light",
+  "engine": "webkit",
+  "config": "bench",
+  "metrics": [
+    {"name": "crash_survival\\.webkit", "unit": "ratio", "better": "higher",
+     "target_ref": {"target": "crash-survival.webkit"}},
+    {"name": "crash_survival\\.webkit\\.measured", "unit": "ratio", "better": "higher"},
+    {"name": "crash_survival\\.webkit\\.[a-z_]+\\.recover", "unit": "ms", "better": "lower"},
+    {"name": "crash_survival\\.webkit\\.[a-z_]+\\.key_to_frame", "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 3,
+  "seconds": 120,
+  "needs": ["debug:debug.browser.page_status", "debug:debug.agent_pane", "debug:debug.key",
+            "env:CMUX_NEXT_TYPING_PROBE"],
+  "owner": "PL-stability",
+  "component": "Browser>Crash"
+}

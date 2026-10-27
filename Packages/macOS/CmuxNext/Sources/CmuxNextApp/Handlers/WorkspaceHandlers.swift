@@ -162,7 +162,7 @@ enum WorkspaceHandlers {
     private static func selectInGroup(_ context: AppActionContext, _ invocation: ActionInvocation, offset: Int) throws {
         let current = try context.workspace(invocation).model
         guard let state = context.activeWindow?.state else { throw ActionFailure.invalidTarget(RefusalStrings.noWindowOpen) }
-        guard let group = try WorkspaceVerbHandlers.group(of: current, context) else {
+        guard let group = try WorkspaceVerbHandlers.group(of: current, context, builds: true) else {
             throw ActionFailure.noTarget(RefusalStrings.workspaceNotInGroup)
         }
         let peers = group.workspaces.map(\.id.rawValue)

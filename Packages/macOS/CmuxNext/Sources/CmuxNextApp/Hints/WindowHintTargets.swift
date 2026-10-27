@@ -3,13 +3,17 @@ import CmuxNextBrowser
 import CmuxNextCompat
 import WebKit
 import CmuxNextWakeups
+#if DEBUG || CMUX_BENCH_HOOKS
+import CmuxNextControl
+import CmuxNextOracle
+#endif
 
 /// The clickable controls hint mode labels (``WindowHintController``): the
 /// window's accessibility tree, walked in process, keeps each shown element
 /// whose role a person clicks (buttons, rows, tabs, links, fields, menus).
 /// A web view's tree lives in its page process, so first-party pages (New
 /// Tab, agent chat, Settings) are asked instead: the link hint script lists
-/// their clickable elements (``pageTargets(of:clip:)``). Chromium pages keep
+/// their clickable elements (``pageTargets(of:clip:deadlines:done:)``). Chromium pages keep
 /// their own link hints.
 @MainActor
 enum WindowHintTargets {
@@ -55,10 +59,8 @@ enum WindowHintTargets {
         while let next = stack.popLast(), visited < 5000, found.count < limit {
             visited += 1
             if let view = next as? NSView {
-                guard !view.isHiddenOrHasHiddenAncestor, view.alphaValue > 0.01 else { continue }
-                guard !(view is WKWebView) else { continue }
-                let name = NSStringFromClass(type(of: view))
-                guard !remoteViewNames.contains(where: name.contains) else { continue }
+                // visibility-walk-allow: hint mode's accessibility walk (R-vis keeps hit-test and accessibility uses): a hidden view's controls are not clickable
+                guard !view.isHiddenOrHasHiddenAncestor, view.alphaValue > 0.01, !isRemote(view) else { continue }
             }
             guard let element = next as? NSAccessibilityProtocol, !element.isAccessibilityHidden() else { continue }
             // Only controls report enabled; custom rows and tabs leave it unset.
@@ -77,6 +79,13 @@ enum WindowHintTargets {
         return Found(targets: found, pages: webViews(in: content), bounds: bounds)
     }
 
+    /// A web view: its tree lives in its page process (WebKit's, Chromium's).
+    static func isRemote(_ view: NSView) -> Bool {
+        if view is WKWebView { return true }
+        let name = NSStringFromClass(type(of: view))
+        return remoteViewNames.contains(where: name.contains)
+    }
+
     /// The shown web views under `view`, in subview order (the spare New
     /// Tab page parks under an alpha-0 view: not shown).
     private static func webViews(in view: NSView) -> [WKWebView] {
@@ -87,25 +96,29 @@ enum WindowHintTargets {
 
     /// The clickable elements of `pages`, in window coordinates and page
     /// order, from the link hint script (isolated from the page's own
-    /// scripts). Pages that have not answered by ``pageDeadline`` are left out.
-    static func pageTargets(of pages: [WKWebView], clip: CGRect) async -> [Target] {
-        guard !pages.isEmpty else { return [] }
-        let collection = PageCollection(count: pages.count)
-        return await withCheckedContinuation { continuation in
-            collection.continuation = continuation
-            for (index, page) in pages.enumerated() {
-                // task-owner: one page's answer; the collection resumes once, at the deadline at the latest.
-                Task { @MainActor in
-                    // No user gesture: listing a page's links must not hand it the person's activation.
-                    let value = try? await WebKitGestureFreeEvaluation(webView: page).evaluate(LinkHintSession.collectScript, in: .defaultClient)
-                    collection.answer(index, targets(value?.stringValue ?? "[]", in: page, clip: clip))
-                }
-            }
-            // The deadline; resuming twice is guarded by the collection, which cancels it on finish.
-            collection.deadline.schedule(after: pageDeadline) { @MainActor in
-                collection.finish()
+    /// scripts), handed to `done` once. Pages that have not answered by ``pageDeadline`` are left out.
+    ///
+    /// - Parameters:
+    ///   - pages: The shown web views (``Found/pages``).
+    ///   - clip: The content's window rect.
+    ///   - deadlines: The app's one deadline scheduler: the person waits for the labels, so the deadline is a
+    ///     `userBlocking` ``MainDeadline``.
+    ///   - done: The targets of the pages that answered; called once, unless the query is cancelled first.
+    /// - Returns: The query; ``PageCollection/cancel()`` drops its answer.
+    @discardableResult
+    static func pageTargets(of pages: [WKWebView], clip: CGRect, deadlines: MainDeadlineScheduler,
+                            done: @escaping @MainActor ([Target]) -> Void) -> PageCollection {
+        let query = PageCollection(count: pages.count, within: pageDeadline, deadlines: deadlines, done: done)
+        for (index, page) in pages.enumerated() {
+            // task-owner: one page's answer; the query answers once, at its deadline at the latest.
+            // main-hop-allow: WKWebView's gesture-free evaluation is main-actor async; the task only starts the page's script for the person's Cmd-J and hands its answer to the query, which the userBlocking deadline bounds
+            Task { @MainActor in
+                // No user gesture: listing a page's links must not hand it the person's activation.
+                let value = try? await WebKitGestureFreeEvaluation(webView: page).evaluate(LinkHintSession.collectScript, in: .defaultClient)
+                query.answer(index, targets(value?.stringValue ?? "[]", in: page, clip: clip))
             }
         }
+        return query
     }
 
     /// One page's script result (CSS pixels from its viewport's top left)
@@ -148,26 +161,51 @@ enum WindowHintTargets {
     }
 }
 
-/// The pages' answers for ``WindowHintTargets/pageTargets(of:clip:)``,
-/// kept in page order, and the one resume of its continuation.
+/// The pages' answers for ``WindowHintTargets/pageTargets(of:clip:deadlines:done:)``,
+/// kept in page order, and the one call of its `done`.
 @MainActor
-private final class PageCollection {
-    var continuation: CheckedContinuation<[WindowHintTargets.Target], Never>?
-    let deadline = DemandTimer(owner: "WindowHintTargets.pageDeadline")
+final class PageCollection {
+    /// Ends the wait for pages that have not answered (``WindowHintTargets/pageDeadline``): the person waits
+    /// for the labels, so it runs as `userBlocking` work.
+    private let deadline: MainDeadline
+    private var done: (@MainActor ([WindowHintTargets.Target]) -> Void)?
     private var answers: [[WindowHintTargets.Target]?]
 
-    init(count: Int) { answers = Array(repeating: nil, count: count) }
+    /// - Parameters:
+    ///   - count: How many pages answer (``answer(_:_:)``); none answers at once.
+    ///   - within: How long the pages may take; the answers so far go to `done` then.
+    ///   - deadlines: The app's one deadline scheduler.
+    ///   - done: The answers in page order, called once unless ``cancel()`` comes first.
+    init(count: Int, within: Duration, deadlines: MainDeadlineScheduler,
+         done: @escaping @MainActor ([WindowHintTargets.Target]) -> Void) {
+        answers = Array(repeating: nil, count: count)
+        deadline = MainDeadline(owner: "WindowHintTargets.pageDeadline", workClass: .userBlocking, scheduler: deadlines)
+        self.done = done
+        guard count > 0 else {
+            finish()
+            return
+        }
+        // Answering twice is guarded here: finish cancels the deadline and drops `done`.
+        deadline.schedule(after: within) { [weak self] in self?.finish() }
+    }
 
     func answer(_ index: Int, _ targets: [WindowHintTargets.Target]) {
         answers[index] = targets
         if answers.allSatisfy({ $0 != nil }) { finish() }
     }
 
+    /// Hands the answers so far to `done`, once.
     func finish() {
         deadline.cancel()
-        guard let continuation else { return }
-        self.continuation = nil
-        continuation.resume(returning: answers.compactMap { $0 }.flatMap { $0 })
+        guard let done else { return }
+        self.done = nil
+        done(answers.compactMap { $0 }.flatMap { $0 })
+    }
+
+    /// Drops the query: `done` is not called and the deadline goes.
+    func cancel() {
+        deadline.cancel()
+        done = nil
     }
 }
 
@@ -193,9 +231,9 @@ final class PageElement: Equatable {
     func click(menu: Bool) {
         guard let webView else { return }
         if !menu { webView.window?.makeFirstResponder(webView) }
-        // task-owner: fire-and-forget page click; nothing waits on it.
-        Task { _ = try? await webView.callAsyncJavaScript(Self.clickScript, arguments: ["x": x, "y": y, "menu": menu],
-                                                          in: nil, contentWorld: .defaultClient) }
+        // Fire and forget: the page clicks in its own process; nothing waits on the answer.
+        webView.callAsyncJavaScript(Self.clickScript, arguments: ["x": x, "y": y, "menu": menu], in: nil, in: .defaultClient,
+                                    completionHandler: nil)
     }
 
     private static let clickScript = """
@@ -210,3 +248,37 @@ final class PageElement: Equatable {
         return true;
         """
 }
+
+#if DEBUG || CMUX_BENCH_HOOKS
+/// The oracle's `ax` facet (p15-oracle-216, ``OracleAccessibilityFacet``) over the shown tree hint mode walks.
+extension WindowHintTargets {
+    /// The `ax` walk: the roles hint mode labels, text areas and menu items, with hint mode's page rule.
+    static var oracleWalk: OracleAccessibilityWalk {
+        OracleAccessibilityWalk(roles: Set(clickable.union([.textArea, .menuItem]).map(\.rawValue))) { isRemote($0) }
+    }
+
+    /// The app's provider over `windows`' windows; the string tables are read on `work`'s files lane.
+    static func oracleAccessibilityFacet(windows: WindowManager, work: BackgroundWork) -> OracleAccessibilityFacet {
+        let walk = oracleWalk
+        return OracleAccessibilityFacet { [weak windows] () throws(OracleFacetError) -> [OracleAccessibilityFacet.Window] in
+            guard let windows else { throw OracleFacetError("the window manager is gone") }
+            var read: [OracleAccessibilityFacet.Window] = []
+            for controller in windows.controllers {
+                guard let window = controller.window else { continue }
+                read.append(.init(id: ControlWindowInfo.publicID(forKey: controller.state.id), nodes: try walk.nodes(in: window)))
+            }
+            return read
+        } index: { () async throws(OracleFacetError) -> OracleAccessibilityFacet.StringIndex in
+            do {
+                return try await work.run(.userBlocking, mayBlock: .files) {
+                    try OracleAccessibilityFacet.StringIndex(OracleAccessibilityFacet.StringTable.bundleTables())
+                }
+            } catch let error as OracleFacetError {
+                throw error
+            } catch {
+                throw OracleFacetError("the string tables could not be read: \(error)")
+            }
+        }
+    }
+}
+#endif

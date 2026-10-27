@@ -1,6 +1,7 @@
 import CmuxNextCompat
 @testable import CmuxNextDaemon
 @testable import CmuxNextTrace
+import Darwin
 import Foundation
 import Testing
 
@@ -190,6 +191,30 @@ import Testing
         daemon.write([#"{"id":\#(id),"ok":true,"data":{}}"#])
         _ = try await answered.value
         expectMatchedPairs(records.all, count: 1)
+    }
+
+    /// Each link kind reads and writes at its role's class, read back from the kernel on the reader thread: the
+    /// terminal attach link (typed keys and their echo) at user-interactive, the control link (commands, replies,
+    /// automation and sidebar events) one class below, so its churn never shares typing's class (p04-input-059).
+    @Test(arguments: [DaemonWireStats.Role.control, .terminalAttach])
+    func eachLinkKindReadsAndWritesAtItsClass(role: DaemonWireStats.Role) async throws {
+        let typing = role == .terminalAttach
+        let reader = (typing ? QOS_CLASS_USER_INTERACTIVE : QOS_CLASS_USER_INITIATED).rawValue
+        let writer: DispatchQoS = typing ? .userInteractive : .userInitiated
+        let daemon = try FakeDaemon()
+        let transport = try LineTransport(path: daemon.path, role: role, stats: nil)
+        try daemon.accept()
+        defer { transport.close() }
+        // The class the kernel runs the reader thread at, sampled inside its event handler.
+        let (classes, continuation) = AsyncStream<UInt32>.makeStream()
+        transport.start(onEvent: { _, _, _ in continuation.yield(qos_class_self().rawValue) }, onClose: { _ in })
+
+        daemon.write([#"{"event":"probe"}"#])
+        var iterator = classes.makeAsyncIterator()
+        let observed = await iterator.next()
+
+        #expect(observed == reader, "\(role.name) reader thread ran at \(observed.map { String($0, radix: 16) } ?? "nothing")")
+        #expect(transport.writerQoS == writer, "\(role.name) writer queue")
     }
 
     @Test func namesMapToTheDaemonsMethodIDs() {

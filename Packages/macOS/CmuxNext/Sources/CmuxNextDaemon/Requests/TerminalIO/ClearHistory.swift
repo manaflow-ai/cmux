@@ -21,6 +21,10 @@ public struct ClearHistoryRequest: DaemonRequest {
         self.surface = surface
         self.fallbackKey = fallbackKey
     }
+
+    enum CodingKeys: String, CodingKey {
+        case surface, fallbackKey = "fallback_key"
+    }
 }
 
 /// One key press the daemon encodes with the terminal's own keyboard modes (Kitty flags,
@@ -33,6 +37,10 @@ public struct DaemonKeyInput: Encodable, Sendable, Equatable {
         public var `super` = false
         public var capsLock = false
         public var numLock = false
+
+        enum CodingKeys: String, CodingKey {
+            case shift, control, alt, `super`, capsLock = "caps_lock", numLock = "num_lock"
+        }
     }
 
     /// Ghostty's kebab-case key name (`k`, `digit-1`, `arrow-left`).
@@ -47,5 +55,10 @@ public struct DaemonKeyInput: Encodable, Sendable, Equatable {
     /// Command plus a lowercase ASCII letter (Cmd-K).
     public static func command(_ letter: Character) -> DaemonKeyInput {
         DaemonKeyInput(key: String(letter), mods: Modifiers(super: true), unshiftedCodepoint: String(letter))
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case key, mods, consumedMods = "consumed_mods", utf8, unshiftedCodepoint = "unshifted_codepoint", action
+        case macosOptionAsAlt = "macos_option_as_alt"
     }
 }

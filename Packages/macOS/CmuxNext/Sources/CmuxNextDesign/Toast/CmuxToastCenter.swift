@@ -166,7 +166,7 @@ public final class CmuxToastCenter {
             quieted[quiet]?.cancel()
             let timer = DemandTimer(owner: "toast.quiet", clock: clock)
             quieted[quiet] = timer
-            timer.schedule(after: closedCooldown) { @MainActor [weak self] in self?.quieted[quiet] = nil }
+            timer.scheduleOnMain(after: closedCooldown) { [weak self] in self?.quieted[quiet] = nil }
         }
         end(serial, .closed)
     }
@@ -207,7 +207,7 @@ public final class CmuxToastCenter {
 
     private func startTimer(_ serial: Int) {
         guard let entry = entries[serial], entry.handle.toast.duration != CmuxToast.untilClosed else { return }
-        entry.timer.schedule(after: entry.handle.toast.duration) { @MainActor [weak self] in
+        entry.timer.scheduleOnMain(after: entry.handle.toast.duration) { [weak self] in
             self?.end(serial, .timeout)
         }
     }

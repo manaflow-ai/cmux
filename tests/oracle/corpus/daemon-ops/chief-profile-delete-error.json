@@ -38,19 +38,23 @@
       "args": {
         "method": "chief.profile.delete",
         "params": {
-          "chief": ""
+          "chief": "agent_mux"
         },
         "idempotencyKey": "chief-profile-delete-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "operation.failed",
+        "errorDetails": {
+          "operation": "chief.profile.delete",
+          "reason": "chief_is_default"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "chief breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "the owner may do everything except delete the default Chief"
     }
   ],
   "invariants": [

@@ -51,7 +51,9 @@ public actor CmxIrohKeychainCredentialStore: CmxIrohSecureCredentialStoring {
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        // SAFETY: SecItemCopyMatching stores at most one +1 CFTypeRef in the local
+        // `result`, live for this call; the Swift import takes ownership of it.
+        let status = unsafe SecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecItemNotFound {
             return nil
         }
@@ -91,7 +93,8 @@ public actor CmxIrohKeychainCredentialStore: CmxIrohSecureCredentialStoring {
 
         var insert: [String: Any] = query
         attributes.forEach { insert[$0.key] = $0.value }
-        let addStatus = SecItemAdd(insert as CFDictionary, nil)
+        // SAFETY: with a nil result pointer SecItemAdd writes nothing back.
+        let addStatus = unsafe SecItemAdd(insert as CFDictionary, nil)
         if addStatus == errSecSuccess {
             return
         }

@@ -42,9 +42,9 @@ public import QuartzCore
 /// ```swift
 /// // The composition root builds the app's clock and installs it:
 /// let displays = DisplayClock()
-/// FrameScheduler.install(displays: displays)
-/// displays.hub = features.isEnabled(.vsyncHub) ? VSyncHub() : nil // at launch
 /// let mainWork = MainWorkScheduler(budget: budget, displays: displays)
+/// FrameScheduler.install(displays: displays, energy: mainWork.energy)
+/// displays.hub = features.isEnabled(.vsyncHub) ? VSyncHub() : nil // at launch
 ///
 /// // A test counts links with a fake factory and fires frames by hand:
 /// let displays = DisplayClock(makeLink: { _, _ in FakeLink() }, displayOf: { _ in 1 })
@@ -97,8 +97,13 @@ public final class DisplayClock {
     /// Display links made since creation, stall rebuilds included (debug.wakeups).
     public private(set) var linksMade: UInt64 = 0
 
+    /// The display links ``FrameScheduler/app`` and the window schedulers on this clock tick on, and
+    /// their frames: the ``MainWorkScheduler`` waits for none to run before a long idle period, and
+    /// their frames open short ones. The budgeted scheduler does not report here.
+    public let unbudgetedLinks: UnbudgetedFrameLinks
+
     /// Each display's link runs at the highest ``FrameClient/rate`` armed on it (feature
-    /// `frameRateClasses`); false: every link runs at ``FrameRate/motion``, whatever its clients ask.
+    /// `frameRateClasses`); false: links run at ``FrameRate/motion`` but for saver-capped ambient clients.
     public var followsClientRates: Bool {
         didSet {
             guard followsClientRates != oldValue else { return }
@@ -123,6 +128,7 @@ public final class DisplayClock {
                 mediaTime: @escaping @MainActor () -> CFTimeInterval = { CACurrentMediaTime() },
                 followsClientRates: Bool = false, presents: FramePresentEstimate? = nil) {
         self.presents = presents ?? FramePresentEstimate()
+        unbudgetedLinks = UnbudgetedFrameLinks()
         self.followsClientRates = followsClientRates
         self.hub = hub
         self.makeLink = makeLink
@@ -161,6 +167,26 @@ public final class DisplayClock {
 
     /// The rate `display`'s link was last asked for; nil while the display has no link.
     public func frameRate(on display: CGDirectDisplayID) -> FrameRate? { displays[display]?.rate }
+
+    /// The last link frame of the key window's display (``newestFrame(for:)`` with no window): the grid an action's
+    /// estimated present and a late motion commit are placed on, as the person acts in and watches the key window.
+    public func newestFrame() -> DisplayFrameSample? { newestFrame(for: nil) }
+
+    /// The last link frame of the display `window` is on (nil: the key window's), with whether that display's link
+    /// runs now: the vsync grid ``DisplayFrameSample`` places a time on, as Chrome's compositor reads the
+    /// `BeginFrameSource` of its own display (ui/display/mac/display_link_mac.h, one link per display). Nil when
+    /// that display had no link frame yet. With no screen at all, the newest frame of any display, never marked
+    /// running (its phase is another display's). Reads only: no link is made or resumed, and a display keeps its
+    /// last frame when its link stops.
+    public func newestFrame(for window: NSWindow?) -> DisplayFrameSample? {
+        if let id = displayOf(window) {
+            guard let display = displays[id], let vsync = display.lastVsync else { return nil }
+            return DisplayFrameSample(timestamp: vsync.timestamp, interval: vsync.interval,
+                                      linkRunning: display.link.map { !$0.isPaused } ?? false)
+        }
+        let newest = displays.values.compactMap { $0.lastVsync }.max { $0.timestamp < $1.timestamp }
+        return newest.flatMap { DisplayFrameSample(timestamp: $0.timestamp, interval: $0.interval, linkRunning: false) }
+    }
 
     // MARK: Subscribers
 
@@ -257,15 +283,15 @@ public final class DisplayClock {
         case setting
     }
 
-    /// Asks `display`'s link for the rate its subscribers need now (``FrameRate/motion`` unless
-    /// ``followsClientRates``): the highest ``FrameScheduler/frameRate`` of the subscribers a person
-    /// can see, or of all of them while nobody can see any. Chrome's `FrameRateDecider` counts only
+    /// Asks `display`'s link for the rate its subscribers need now: the highest ``FrameScheduler/linkRate``
+    /// (``FrameRate/motion`` unless ``followsClientRates`` or the saver caps an ambient client) of the
+    /// subscribers a person can see, or of all of them while nobody can see any. Chrome's `FrameRateDecider` counts only
     /// the frame sinks that drew (components/viz/service/display/frame_rate_decider.cc); a window
     /// nobody can see ticks on the stall deadline, not the link. A higher rate applies at once, a
     /// lower one after ``framesBeforeLowering`` frames.
     private func applyRate(_ display: Display, _ trigger: RateTrigger = .clients) {
         guard let link = display.link else { return }
-        let rate = followsClientRates ? decidedRate(display) : .motion
+        let rate = decidedRate(display)
         guard let current = display.rate else { return request(rate, display, link) }
         if rate.hertz < current.hertz, trigger != .setting {
             guard trigger == .frame else { return }
@@ -304,9 +330,9 @@ public final class DisplayClock {
     private func decidedRate(_ display: Display) -> FrameRate {
         var seen: FrameRate?, all: FrameRate?
         for scheduler in display.subscribers {
-            guard let rate = scheduler.frameRate else { continue }
+            guard let rate = scheduler.linkRate else { continue }
             if all.map({ rate.hertz > $0.hertz }) ?? true { all = rate }
-            let visible = scheduler.hostWindow.map { isVisible($0) } ?? true
+            let visible = scheduler.isSeen(by: isVisible)
             if visible, seen.map({ rate.hertz > $0.hertz }) ?? true { seen = rate }
         }
         return seen ?? all ?? .motion
@@ -323,14 +349,15 @@ public final class DisplayClock {
         display.frames &+= 1
         display.lastFrame = now
         display.stalls = 0
+        if let timestamp, let refreshInterval { display.lastVsync = (timestamp, refreshInterval) }
         deliver(display, timestamp: timestamp, refreshInterval: refreshInterval, targetTimestamp: targetTimestamp,
                 hiddenUntil: now - Self.stallSeconds)
         guard !display.subscribers.isEmpty else { return idle(display) }
         // Only windows nobody can see are left: the link stops, they tick on the stall deadline.
         if allHidden(display) { display.link?.isPaused = true }
-        // A window that became visible or hidden changes which clients count; a lower rate counts
-        // its frames here.
-        if followsClientRates { applyRate(display, .frame) }
+        // A window that became visible or hidden changes which clients count; a lower rate (client
+        // rates, or a saver-capped ambient client) counts its frames here.
+        if followsClientRates || display.subscribers.contains(where: { $0.ambientCap != nil }) { applyRate(display, .frame) }
         arm(display)
     }
 
@@ -355,7 +382,7 @@ public final class DisplayClock {
                   scheduler.takesTick(timestamp: timestamp, refreshInterval: refreshInterval, targetTimestamp: targetTimestamp)
             else { return nil }
             return (scheduler, scheduler.beginFrame(timestamp: timestamp, refreshInterval: refreshInterval,
-                                                    targetTimestamp: targetTimestamp, offLink: pace == .stallRate))
+                                                    targetTimestamp: targetTimestamp, offLink: pace != .link, seen: pace != .hidden))
         }
         func subscribed(_ scheduler: FrameScheduler) -> Bool { display.subscribers.contains { $0 === scheduler } }
         for (scheduler, tick) in ticking where scheduler.holdsBudget && subscribed(scheduler) {
@@ -372,27 +399,24 @@ public final class DisplayClock {
         }
     }
 
-    /// What paces a scheduler's ticks.
-    private enum Pace {
-        /// Every frame of the display's link.
-        case link
-        /// The stall deadline: the link stopped, or nobody can see the scheduler's window.
-        case stallRate
-    }
+    /// What paces a scheduler's ticks: every frame of the display's `link`; the `stall` deadline (no link
+    /// frame came in time) of a window someone sees, or of a window-less scheduler; the stall rate of a
+    /// `hidden` window, one nobody can see.
+    private enum Pace { case link, stall, hidden }
 
     /// Whether `scheduler` ticks in this frame, and at what pace (nil: not this frame). A window nobody
     /// can see ticks at the stall rate, not the display's (R6: hidden and occluded cost nothing); the
     /// app and budgeted schedulers always tick.
     private func pace(_ scheduler: FrameScheduler, hiddenUntil: CFTimeInterval?) -> Pace? {
-        guard let hiddenUntil else { return .stallRate }
-        guard let window = scheduler.hostWindow, !isVisible(window) else { return .link }
+        guard let hiddenUntil else { return scheduler.isSeen(by: isVisible) ? .stall : .hidden }
+        guard !scheduler.isSeen(by: isVisible) else { return .link }
         let due = scheduler.lastTickTimestamp.map { $0 <= hiddenUntil + Self.stallSlack } ?? true
-        return due ? .stallRate : nil
+        return due ? .hidden : nil
     }
 
     /// Every subscriber of `display` is a window nobody can see.
     private func allHidden(_ display: Display) -> Bool {
-        !display.subscribers.isEmpty && display.subscribers.allSatisfy { $0.hostWindow.map { !isVisible($0) } ?? false }
+        !display.subscribers.isEmpty && display.subscribers.allSatisfy { !$0.isSeen(by: isVisible) }
     }
 
     private func record(_ id: CGDirectDisplayID) -> Display {
@@ -460,7 +484,7 @@ public final class DisplayClock {
         guard !display.stall.isScheduled else { return }
         display.stallTimerArms += 1
         let id = display.id
-        display.stall.schedule(after: delay) { @MainActor [weak self] in self?.stallTimerFired(id) }
+        display.stall.scheduleOnMain(after: delay) { [weak self] in self?.stallTimerFired(id) }
     }
 
     /// Half a millisecond of slack: a timer that fires on its deadline is not early by float rounding.
@@ -524,6 +548,8 @@ public final class DisplayClock {
         var frames: UInt64 = 0
         /// A next-turn tick is queued for a client that raised the rate (``tickOnNextTurn(_:)``).
         var raiseTickQueued = false
+        /// The last link frame's vsync time and refresh period (``DisplayClock/newestFrame(for:)``), kept when the link stops.
+        var lastVsync: (timestamp: CFTimeInterval, interval: Double)?
         /// A next-turn tick is queued for subscribers that came while the display had no link.
         var linklessTickQueued = false
 

@@ -23,7 +23,7 @@ enum PaletteSourcesBridge {
         // cmux.json `palette.scopes.<id>.prefix`, read on every open.
         sources.scopePrefixes = { [weak services] in
             let assigned = services?.settings?.snapshot.paletteScopePrefixes.assigned ?? [:]
-            return Dictionary(uniqueKeysWithValues: assigned.map { (PaletteScopeID($0.key), $0.value) })
+            return Dictionary(assigned.map { (PaletteScopeID($0.key), $0.value) }, uniquingKeysWith: { first, _ in first })
         }
         // cmux.json `palette.aliases` and `palette.pins`, read on every open.
         sources.rankSettings = { [weak services] in
@@ -178,12 +178,14 @@ enum PaletteSourcesBridge {
         }
 
         func renameTab(id: String, to title: String) {
+            // view-observation-allow: locateTab is one MachineTabIndex lookup (R-index's target), not an observation
             guard let (tab, pane) = services.locateTab(id) else { return }
             let surface = tab.surface
             services.daemon(for: pane).send("rename-surface") { connection in try await connection.renameTab(surface, to: title) }
         }
 
         func closeTab(id: String) {
+            // view-observation-allow: locateTab is one MachineTabIndex lookup (R-index's target), not an observation
             guard let (_, pane) = services.locateTab(id), let controller = services.paneController(for: pane) else { return }
             controller.close([StripTabID(id)])
         }

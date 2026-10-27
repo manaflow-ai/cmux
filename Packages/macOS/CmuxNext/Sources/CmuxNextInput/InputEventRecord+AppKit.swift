@@ -74,7 +74,7 @@ extension InputEventRecord {
     }
 
     /// Where a scroll event is in its gesture: momentum first, then the gesture phase.
-    private static func scrollPhase(of event: NSEvent) -> InputScrollPhase {
+    public static func scrollPhase(of event: NSEvent) -> InputScrollPhase {
         let momentum = event.momentumPhase
         if !momentum.isEmpty { return momentum.isDisjoint(with: [.ended, .cancelled]) ? .momentum : .momentumEnded }
         let phase = event.phase

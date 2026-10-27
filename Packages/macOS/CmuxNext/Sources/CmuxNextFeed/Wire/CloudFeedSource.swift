@@ -1,6 +1,6 @@
 import CmuxNextCompat
 public import Foundation
-import CmuxNextWakeups
+public import CmuxNextWakeups
 
 /// The `FeedDO` stream over `cmux.wire/1` (`/v1/wire/feed`, plans/cmux-next/feed.md
 /// sections 4 and 6). The owner sends a snapshot on subscribe and, on every
@@ -9,13 +9,19 @@ import CmuxNextWakeups
 /// out as `op` frames with origin `user`; an intent sent before a disconnect is
 /// resent with the same key after the reconnect (the owner's ledger answers a
 /// decided key from the ledger); nothing new is sent while disconnected.
+///
+/// With the app's Energy Saver policy (p14-energy-120, ``KeepaliveGate``) a sleep of the Mac or its
+/// displays drops a pending pong deadline (its 10 s would run through the sleep), and a wake that
+/// finds the network closes the socket once and reconnects within ``EnergyPolicy/reconnectJitter``.
 @MainActor
 public final class CloudFeedSource: FeedSource {
     /// Returns a fresh bearer token (a Stack session token today; an install token later).
     public typealias TokenProvider = @Sendable () async throws -> String
-    /// One wire connection with `bearer`: returns or throws when the socket closes, and calls
-    /// `onSnapshot` when a snapshot made the mirror current. Tests pass a fake; nil is the socket.
-    typealias Connect = @MainActor (_ bearer: String, _ onSnapshot: () -> Void) async throws -> Void
+    /// One wire connection with `bearer`: returns or throws when the socket closes, calls
+    /// `onSnapshot` when a snapshot made the mirror current, and hands `opened` the closer a wake's
+    /// reconnect uses. Tests pass a fake; nil is the socket.
+    typealias Connect = @MainActor (_ bearer: String, _ onSnapshot: () -> Void,
+                                    _ opened: (_ close: @escaping @Sendable () -> Void) -> Void) async throws -> Void
     /// The wire upgrade was answered 401: the server refused this token.
     nonisolated struct Unauthorized: Error, Sendable {}
     /// The disconnected reason while the loop holds a token the server refused.
@@ -25,6 +31,10 @@ public final class CloudFeedSource: FeedSource {
     private let token: TokenProvider
     private let connect: Connect?
     private let reconnect: Backoff
+    /// Sleep and wake from the app's Energy Saver policy; with no policy it never pauses or reconnects.
+    private let gate: KeepaliveGate
+    /// The wait between connections (``KeepaliveGate/retryWait(_:timer:)``).
+    private let retry: DemandTimer
     private let device: String
     private var sink: (@MainActor (FeedSourceEvent) -> Void)?
     private var runner: Task<Void, Never>?
@@ -47,12 +57,15 @@ public final class CloudFeedSource: FeedSource {
     private var unread: [String: Date] = [:]
     private var known: Set<String> = []
 
-    public convenience init(apiBaseURL: URL, device: String, token: @escaping TokenProvider) {
-        self.init(apiBaseURL: apiBaseURL, device: device, token: token, reconnect: Backoff(initial: .milliseconds(500), maximum: .seconds(30)), connect: nil)
+    /// `energy` is the app's Energy Saver policy (`MainWorkScheduler.energy`); nil keeps the socket as if always awake.
+    public convenience init(apiBaseURL: URL, device: String, energy: EnergyPolicySource? = nil, token: @escaping TokenProvider) {
+        self.init(apiBaseURL: apiBaseURL, device: device, token: token, reconnect: Backoff(initial: .milliseconds(500), maximum: .seconds(30)),
+                  connect: nil, energy: energy)
     }
 
     init(apiBaseURL: URL, device: String, token: @escaping TokenProvider, reconnect: Backoff, connect: Connect?,
-         clock: any Clock<Duration> = ContinuousClock()) {
+         clock: any Clock<Duration> = ContinuousClock(), energy: EnergyPolicySource? = nil,
+         wakeJitter: @escaping @Sendable () -> Double = { Double.random(in: 0..<1) }) {
         var c = URLComponents(url: apiBaseURL, resolvingAgainstBaseURL: false) ?? URLComponents()
         c.scheme = c.scheme == "http" ? "ws" : "wss"
         c.path = "/v1/wire/feed"
@@ -63,6 +76,10 @@ public final class CloudFeedSource: FeedSource {
         self.connect = connect
         // timer-class-allow: off-main: the pong deadline only cancels the probed socket (thread-safe) and runs no main-thread job.
         probe = DemandTimer(owner: "CloudFeedSource.pong", clock: clock)
+        // timer-class-allow: off-main: the retry deadline only resolves the gate's wait (thread-safe); the run loop resumes on its own actor.
+        retry = DemandTimer(owner: "feed.cloud.reconnect", clock: clock)
+        gate = KeepaliveGate(energy, random: wakeJitter)
+        gate.follow { [probe] edge in if edge == .pause { probe.cancel() } }
     }
 
     public func start(_ sink: @escaping @MainActor (FeedSourceEvent) -> Void) {
@@ -79,6 +96,7 @@ public final class CloudFeedSource: FeedSource {
         runner?.cancel()
         runner = nil
         probe.cancel()
+        gate.closed()
         socket?.cancel(with: .goingAway, reason: nil)
         socket = nil
         connected = false
@@ -168,7 +186,7 @@ public final class CloudFeedSource: FeedSource {
                 bearer = next
                 sink?(.connection(.connecting))
                 if let connect {
-                    try await connect(next) { backoff.reset() }
+                    try await connect(next, { backoff.reset() }, { [gate] close in gate.opened(close: close) })
                 } else {
                     try await session(bearer: next) { backoff.reset() }
                 }
@@ -181,11 +199,12 @@ public final class CloudFeedSource: FeedSource {
                 reason = String(describing: error)
             }
             guard generation == self.generation else { return }
+            gate.closed()
             connected = false
             socket = nil
             sink?(.connection(.disconnected(reason)))
-            // concurrency-allow: Backoff.wait is an async sleep after a failure, not a blocking wait.
-            do { try await backoff.wait(owner: "feed.cloud.reconnect") } catch { return }
+            // concurrency-allow: the gate's retry wait is a one-shot DemandTimer (Backoff's step after a failure, or the short wait after a wake), not a blocking wait.
+            do { try await gate.retryWait(&backoff, timer: retry) } catch { return }
         }
     }
 
@@ -206,6 +225,7 @@ public final class CloudFeedSource: FeedSource {
         task.maximumMessageSize = 8 << 20
         socket = task
         task.resume()
+        gate.opened { task.cancel(with: .goingAway, reason: nil) }
         defer { task.cancel(with: .goingAway, reason: nil) }
         // wakeup-allow: each turn awaits the next frame; a closed socket throws and ends the loop.
         while !Task.isCancelled {

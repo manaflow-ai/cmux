@@ -30,10 +30,6 @@ public final class AgentPaneModel {
 
     /// Called when the page switches to or creates a session, so the App can keep it with the tab.
     @ObservationIgnored public var onSessionChange: ((String) -> Void)?
-    /// Called when acpmux reports the agent the pane's session runs (its `session/new` or
-    /// `_acpmux/attach` reply; ``AcpmuxPaneSessions/harness(of:)``), so the App records the
-    /// harness on the tab (cx-w4bbw). Only for the session the pane shows.
-    @ObservationIgnored public var onSessionHarness: ((_ session: String) -> Void)?
     @ObservationIgnored public var onUnsentDraft: ((String) -> Void)? // a new chat's typed text, until it has a session
     /// Reports each settled scroll and returns the native display settings to the page.
     @ObservationIgnored public var onFramePacing: (([Double]) -> [String: Any])?
@@ -129,13 +125,16 @@ public final class AgentPaneModel {
     /// Whether the Changes view's git writes (cx-tcwj) may run here: only a chat on this Mac. Unset: never.
     @ObservationIgnored public var gitWritesHere: (@MainActor () -> Bool)?
     /// Moves a file the turn created to the Trash (`turn.undo`); tests replace it.
-    @ObservationIgnored public var trashFile: @Sendable (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
+    @ObservationIgnored public var trashFile: @Sendable (URL) throws -> Void = AgentPaneGitDiscard.systemTrash
 
     /// Whether this pane's tab may turn into a terminal or browser tab (`tab.open`, `tab.typeAhead`): a local tab's, also one that adopted the spare (cx-ckt2z).
     @ObservationIgnored public package(set) var allowsTabConversion: Bool
     /// The host's acpmux socket for this pane (in the app the page never holds one).
     @ObservationIgnored public let transport: AgentPaneTransport
-    @ObservationIgnored public let shell = AgentPaneShell() // shell mode: shell.run, shell.read, shell.stop
+    /// The app's one deadline placer (`AppServices.mainDeadlines`); its `work` is the app's one main-thread scheduler,
+    /// which the pane's main-thread follow-ups, observations and deadlines are posted on.
+    @ObservationIgnored public let deadlines: MainDeadlineScheduler
+    @ObservationIgnored public let shell: AgentPaneShell // shell mode: shell.run, shell.read, shell.stop
     /// The App's side of reply chips, images and the preview card's browsers.
     @ObservationIgnored public let replyLinks = AgentPaneReplyLinks()
     /// The last handshake's connection, until the page opens it: used once, so the LocalApp token is never kept beyond one handshake.
@@ -203,10 +202,14 @@ public final class AgentPaneModel {
         seed: AgentPaneSeedSource? = nil,
         newTab: AgentPaneNewTab? = nil,
         allowsTabConversion: Bool = false,
-        transport: AgentPaneTransport = AgentPaneTransport()
+        transport: AgentPaneTransport? = nil,
+        deadlines: MainDeadlineScheduler
     ) {
         self.allowsTabConversion = allowsTabConversion
         self.host = host
+        self.deadlines = deadlines
+        shell = AgentPaneShell(deadlines: deadlines)
+        let transport = transport ?? AgentPaneTransport(mainWork: deadlines.work)
         self.transport = transport
         self.sessionId = sessionId
         self.seed = seed
@@ -224,12 +227,21 @@ public final class AgentPaneModel {
             guard let onConfirmHarness = self?.onConfirmHarness else { return answer(false) }
             onConfirmHarness(prompt, answer)
         }
-        transport.sessions.onHarness { [weak self] session, _ in
-            // task-owner: one hop to the main actor per reply that names a session's harness
-            Task { @MainActor in
-                guard let self, session == self.sessionId else { return }
-                self.onSessionHarness?(session)
-            }
+    }
+
+    /// Calls `handler` when acpmux reports the agent the pane's session runs (its `session/new` or
+    /// `_acpmux/attach` reply; ``AcpmuxPaneSessions/harness(of:)``), so the App records the harness on
+    /// the tab (cx-w4bbw). Only for the session the pane shows. The reply is read on the socket's
+    /// queue; each report reaches the main actor as one `visible` task on `mainWork` (the tab's mark
+    /// shows it, and the daemon, not the person, caused it).
+    public func followSessionHarness(on mainWork: MainWorkScheduler, _ handler: @escaping @MainActor @Sendable (_ session: String) -> Void) {
+        let owner = mainWork.board.owner("AgentPaneModel.sessionHarness")
+        let report: @MainActor @Sendable (String) -> Void = { [weak self] session in
+            guard let self, session == self.sessionId else { return }
+            handler(session)
+        }
+        transport.sessions.onHarness { session, _ in
+            mainWork.postFromAnyThread(.visible, owner: owner) { report(session) }
         }
     }
 

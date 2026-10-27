@@ -61,7 +61,7 @@ extension PaneContentView {
             // Sized to the host here first, its page drew a frame at the strip's height less and
             // then grew back: the whole chat jumped as it showed.
             view.autoresizingMask = []
-            needsLayout = true
+            needsLayout = true // invalidate: the chat shows again; the pane's layout puts it under the tab row.
         } else {
             if view.frame != contentHost.bounds { view.frame = contentHost.bounds }
             view.autoresizingMask = [.width, .height]

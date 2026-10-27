@@ -39,7 +39,7 @@ import UniformTypeIdentifiers
         guard let layer = rig.view.layer else { return nil }
         let scale: CGFloat = 2
         let size = rig.view.bounds.size
-        guard let ctx = CGContext(data: nil, width: Int(size.width * scale), height: Int(size.height * scale), bitsPerComponent: 8, bytesPerRow: 0,
+        guard let ctx = CGContext.ownedBitmap(width: Int(size.width * scale), height: Int(size.height * scale), bitsPerComponent: 8, bytesPerRow: 0,
                                   space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         else { return nil }
         ctx.scaleBy(x: scale, y: scale)
@@ -54,7 +54,7 @@ import UniformTypeIdentifiers
         let narrow = try #require(try await render(width: 420))
         let wide = try #require(try await render(width: 760))
         let gap = 40
-        guard let ctx = CGContext(data: nil, width: narrow.width + gap + wide.width, height: max(narrow.height, wide.height), bitsPerComponent: 8,
+        guard let ctx = CGContext.ownedBitmap(width: narrow.width + gap + wide.width, height: max(narrow.height, wide.height), bitsPerComponent: 8,
                                   bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         else { Issue.record("no context"); return }

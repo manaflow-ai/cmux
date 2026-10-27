@@ -110,6 +110,7 @@ public final class OverlayHandle {
         options.anchor = anchor
         options.modalRegion = modalRegion
         host?.layout(self)
+        host?.syncWindowButtons()
         host?.onBlockingChange?()
     }
 

@@ -36,8 +36,10 @@ final class HomeService {
     /// While the person's last message to this Mac's Chief has had no reply for two minutes
     /// (ChiefReplyWatchdog).
     var replyNotice: String?
-    @ObservationIgnored private var replyWatch: Task<Void, Never>?
-    @ObservationIgnored private let replyTimer = DemandTimer(owner: "HomeService.replyWatchdog")
+    @ObservationIgnored private var replyWatch: ServiceObservation<CmuxNextDaemon.ConversationSummary?>?
+    /// The watchdog's next check: a person reads the notice, so it is visible work on a flexible wake.
+    @ObservationIgnored private lazy var replyTimer = MainDeadline(owner: "HomeService.replyWatchdog", workClass: .visible,
+                                                                   scheduler: services.mainDeadlines)
     /// The Chief home's conversation owner serves `local-conversations-v1`.
     var isAvailable: Bool { chief.supports(DaemonCapability.localConversations.rawValue) }
     /// The owner answered and its build is too old: Home shows why only then.
@@ -59,20 +61,22 @@ final class HomeService {
         mint: { connection in try await ConversationClient(connection).agentToken(for: HomeService.mux.id) })
     @ObservationIgnored private(set) var sessions: [String: HomeConversationSession] = [:]
     @ObservationIgnored unowned let services: AppServices
-    @ObservationIgnored private var availability: Task<Void, Never>?
-    @ObservationIgnored private var listing: Task<Void, Never>?
+    /// The transcript and list caches' memory consumer (`memoryHomeLabCaches`, p07-memory-081); Home views track it.
+    @ObservationIgnored private(set) lazy var labCaches: MessagesLabMemoryConsumer? = AppMemoryConsumers(services: services).makeHomeLabCaches()
+    @ObservationIgnored private var availability: ServiceObservation<DaemonConnection?>?
+    @ObservationIgnored private var listing: Task<Void, any Error>?
+    /// The latest conversation-list read; only its answer is applied.
+    @ObservationIgnored private(set) var listGeneration = 0
     /// The launch's Home and New Tab feeds (``postLaunchFeeds(startup:)``, p08-startup-027): ``start()`` is one of their
     /// posts, after startup unless a Home view needs it right after the first frame. nil (tests, a
     /// service made after launch): nothing waits on the launch order.
     @ObservationIgnored var launchFeeds: LaunchNeedPosts?
-    /// Home opened in a window this launch; the host starts once the Chief
+    /// Home opened in a window this launch (the app links read it); the host starts once the Chief
     /// owner is connected, even when Home opened first.
-    @ObservationIgnored private var homeWasOpened = false
-    /// Whether Home opened this launch (for the app links).
-    var homeOpened: Bool { homeWasOpened }
+    @ObservationIgnored private(set) var homeOpened = false
     /// The tagged daemon socket this app last published (ChiefAppLinks).
     @ObservationIgnored var publishedDaemonSocket: String?
-    @ObservationIgnored var activationObserver: (any NSObjectProtocol)?
+    @ObservationIgnored var activationObserver: EventSubscription?
     /// The store's home workspace (`workspace-kind-v1`), from `workspace.ensure_home`.
     var homeWorkspaceID: ResourceID?
     /// An `ensure_home` is in flight. A tree snapshot taken meanwhile can
@@ -81,6 +85,9 @@ final class HomeService {
     var homeEnsureInFlight = false
     /// The latest `ensure_home`; only it clears `homeEnsureInFlight`.
     @ObservationIgnored var homeEnsureGeneration = 0
+    /// Waits for `homeEnsureInFlight` to clear (`awaitHomeEnsured`): keyed, settled when it clears, no observation.
+    @ObservationIgnored private(set) lazy var homeEnsureWaiters = KeyedWaiters<String, Bool>(
+        deadlines: AlignedWakeups(queue: services.mainWork.wakeUps), deadlineOwner: "HomeService.ensureHome")
     @ObservationIgnored var homeWorkspaceTask: Task<Void, Never>?
     /// The last step the home workspace setup reached, for `debug.home`.
     @ObservationIgnored var homeWorkspaceStep = "not started"
@@ -97,13 +104,15 @@ final class HomeService {
     var tabChiefs: HomeCloudChiefs { hostedChief.pending ? HomeCloudChiefs(hosted: nil, placed: cloudChiefs.placed) : cloudChiefs }
     /// The one-time copy of this Mac's Chief into the Hosted Chief and its brain check (HomeService+HostedChief).
     @ObservationIgnored let hostedChief = HostedChiefMigration()
-    @ObservationIgnored private var homeObservation: Task<Void, Never>?
+    @ObservationIgnored private var homeObservation: ServiceObservation<(DaemonConnection?, String?)>?
     /// The shared Home core over the local owner (home-mac.md): the native
     /// transcript of every conversation tab reads this one store.
     /// Mermaid fences in Home chat draw as diagrams with the bundled Ondine
     /// (`markdown-viewer/ondine.min.js`); one renderer (one JavaScriptCore context) for every pane.
-    /// nil when the bundle lacks the script: fences stay text.
-    @ObservationIgnored private(set) lazy var diagrams: OndineMermaidRenderer? = OndineMermaidRenderer.bundled()
+    /// nil when the bundle lacks the script: fences stay text. With `memoryFileHomeCaches` it is a memory
+    /// consumer (`home-diagrams`) and its context goes after 10 min with no diagram shown (p07-memory-082).
+    @ObservationIgnored private(set) lazy var diagrams: OndineMermaidRenderer? =
+        OndineMermaidRenderer.bundled(memory: AppMemoryConsumers(services: services).fileCacheRegistry)
     @ObservationIgnored let homeSource: DaemonHomeSource
     /// Cloud conversations through the daemon's proxy (home-cloud-proxy.md),
     /// merged with the local ones into the one store.
@@ -114,10 +123,12 @@ final class HomeService {
     /// The Home list rows (`home-inbox`) the Messages list maps: local from the Chief home, Cloud from the build daemon.
     @ObservationIgnored let homeInbox = HomeInboxSource(owners: ["local"])
     @ObservationIgnored let homeCloudInbox = HomeInboxSource(owners: ["cloud"])
-    /// The Home list's last state beyond the conversations, for the next launch's first frame
-    /// (HomeService+LaunchList), kept beside the conversations' cache of the same Chief owner.
-    @ObservationIgnored private(set) lazy var sidebarLaunch = HomeSidebarLaunchCache.standard(owner: chief.home.session,
-                                                                                               caches: homeCaches)
+    /// The Home list's two caches and their launch read (HomeService+LaunchList, p08-startup-076), of this Chief owner.
+    /// A folder of this service's own (no app caches folder: tests) is new, so there is nothing to read in it.
+    @ObservationIgnored private(set) lazy var listLaunch = HomeListLaunch(
+        read: services.environment.homeCachesDirectory == nil
+            ? .some(HomeListLaunchRead.nothingToRead(owner: chief.home.session, caches: homeCaches)) : services.environment.homeListRead,
+        owner: chief.home.session, caches: homeCaches, work: services.work, mainWork: services.mainWork)
     /// The folder of this service's Home caches: the app's (`AppEnvironment.homeCachesDirectory`), else
     /// a temporary folder of its own, so the drafts of one `AppServices` never reach another's.
     @ObservationIgnored private lazy var homeCaches: URL = services.environment.homeCachesDirectory
@@ -127,7 +138,7 @@ final class HomeService {
     /// The cloud Chiefs were read this launch (`setCloudChiefs`). Observed: the roster changes with it.
     var cloudChiefsRead = false
     @ObservationIgnored var homeListPrimed = false
-    @ObservationIgnored var launchListObservation: Task<Void, Never>?
+    @ObservationIgnored var launchListObservation: ServiceObservation<Void>?
     /// This Mac's old Messages-list pins, moved into those owners once (cx-frn2y).
     @ObservationIgnored private(set) lazy var pinMigration = HomePinMigration(account: { [weak self] in self?.pinAccount ?? "local" })
     /// The docked Home's shown view: the sidebar marks its Home or Channels entry by it (cx-frn2y).
@@ -139,7 +150,7 @@ final class HomeService {
     @ObservationIgnored private(set) lazy var homeStore = HomeStore(
         source: homeRouter,
         blobCacheDirectory: homeCaches.appending(path: "cmux-home-blobs", directoryHint: .isDirectory),
-        cache: HomeCache.standard(owner: chief.home.session, caches: homeCaches))
+        cache: listLaunch.read.conversations, waitsForPrime: true)
     @ObservationIgnored var cloudLink: Task<Void, Never>?
     /// Team members and Chiefs for the Home page's New Message and New Chief.
     @ObservationIgnored private(set) lazy var directory = HomeDirectory(
@@ -185,17 +196,15 @@ final class HomeService {
     func startWorkspace() {
         guard homeObservation == nil else { return }
         let (local, auth) = (services.machines.local, services.cloudAuth)
-        // task-owner: lives as long as the service; event-driven (Observation)
-        homeObservation = Task { [weak self] in
-            // A sign-in or account change re-reads the placed chief (G6), so the Chief tab follows it.
-            for await (connection, _) in ObservationStream({
-                (local.supports(DaemonCapability.workspaceKind.rawValue) ? local.connection : nil, auth.isSignedIn ? auth.user?.id : nil)
-            }) {
-                guard let self, let connection else { continue }
-                ensureHomeWorkspace(connection)
-                // The Chief's daemon link names this connection's socket, known only once it is up.
-                if homeWasOpened { publishAppLinks() }
-            }
+        // A sign-in or account change re-reads the placed chief (G6), so the Chief tab follows it. Visible: the
+        // launch's first workspace waits for the answer.
+        homeObservation = ServiceObservation(.visible, owner: "HomeService.homeWorkspace", on: services.mainWork) {
+            (local.supports(DaemonCapability.workspaceKind.rawValue) ? local.connection : nil, auth.isSignedIn ? auth.user?.id : nil)
+        } apply: { [weak self] link in
+            guard let self, let connection = link.0 else { return }
+            ensureHomeWorkspace(connection)
+            // The Chief's daemon link names this connection's socket, known only once it is up.
+            if homeOpened { publishAppLinks() }
         }
     }
 
@@ -216,38 +225,47 @@ final class HomeService {
         installChiefMigration()
         primeHomeList()
         pinMigration.attach([homeInbox, homeCloudInbox])
-        settleWatch = ChiefSettleWatch(home: chief.home) { [weak self] text in
+        settleWatch = ChiefSettleWatch(home: chief.home, mainWork: services.mainWork) { [weak self] text in
             if self?.settleNotice != text { self?.settleNotice = text }
         }
         watchReplies()
         chief.start(work: services.work)
-        let chief = chief
         startCloud()
-        // task-owner: lives as long as the service; event-driven (Observation)
-        homeStore.start()
-        keepHomeListForLaunch()
-        availability = Task { [weak self] in
-            for await connection in ObservationStream({ chief.supports(DaemonCapability.localConversations.rawValue) ? chief.connection : nil }) {
-                guard let self else { continue }
-                homeSource.connectionChanged(connection)
-                homeInbox.connectionChanged(connection)
-                guard let connection else { continue }
-                reloadList(connection)
-                // Home opened before the owner answered, or the owner came back
-                // after a stop: start the host now if it does not run.
-                if homeWasOpened { homeDidOpen(asked: false) }
-                // The Chief tab may wait on this owner (a local Chief with history
-                // takes it back from a placed chief): check it again now.
-                if let local = services.machines.local.connection,
-                   services.machines.local.supports(DaemonCapability.workspaceKind.rawValue) {
-                    ensureHomeWorkspace(local)
-                }
-                for session in sessions.values {
-                    session.load(from: connection) { [weak self, weak session] in
-                        guard let self, let session else { return }
-                        for send in session.log.resendable { submit(send, in: session) }
-                    }
-                }
+        // task-owner: lives as long as the service; event-driven (Observation). After the list's seed: its cache is read.
+        listLaunch.whenRead { [weak self] _ in self?.homeStore.start(); self?.keepHomeListForLaunch() }
+        watchChiefOwner()
+    }
+
+    /// The Chief owner's connection: each new one reloads the list and the open sessions, and checks the
+    /// Chief tab again, whether or not a Home shows (a service observation). Visible: Home shows it.
+    func watchChiefOwner() {
+        guard availability == nil else { return }
+        let chief = chief
+        availability = ServiceObservation(.visible, owner: "HomeService.chiefOwner", on: services.mainWork) {
+            chief.supports(DaemonCapability.localConversations.rawValue) ? chief.connection : nil
+        } apply: { [weak self] connection in
+            self?.chiefOwnerChanged(connection)
+        }
+    }
+
+    private func chiefOwnerChanged(_ connection: DaemonConnection?) {
+        homeSource.connectionChanged(connection)
+        homeInbox.connectionChanged(connection)
+        guard let connection else { return }
+        reloadList(connection)
+        // Home opened before the owner answered, or the owner came back
+        // after a stop: start the host now if it does not run.
+        if homeOpened { homeDidOpen(asked: false) }
+        // The Chief tab may wait on this owner (a local Chief with history
+        // takes it back from a placed chief): check it again now.
+        if let local = services.machines.local.connection,
+           services.machines.local.supports(DaemonCapability.workspaceKind.rawValue) {
+            ensureHomeWorkspace(local)
+        }
+        for session in sessions.values {
+            session.load(from: connection) { [weak self, weak session] in
+                guard let self, let session else { return }
+                for send in session.log.resendable { submit(send, in: session) }
             }
         }
     }
@@ -265,8 +283,8 @@ final class HomeService {
     /// the Chief home's brain host when none runs (ChiefBrainKeeper).
     func homeDidOpen(asked: Bool) {
         launchFeeds?.need()
-        if !homeWasOpened {
-            homeWasOpened = true
+        if !homeOpened {
+            homeOpened = true
             publishAppLinks()
             observeActivation()
         }
@@ -285,22 +303,32 @@ final class HomeService {
 
     func reloadList(_ connection: DaemonConnection) {
         listing?.cancel()
-        // task-owner: one conversation-list read; ends with its reply
-        listing = Task { [weak self] in
+        listGeneration &+= 1
+        let generation = listGeneration, logger = logger, work = services.mainWork
+        // task-owner: one conversation-list read off the main actor; its answer is posted as visible work, then it ends
+        listing = services.work.task(.userVisible) { [weak self] in
             do {
                 let list = try await ConversationClient(connection).list()
-                guard let self, !Task.isCancelled else { return }
-                // Keep any head an event already moved past the listed revision.
-                let current = Dictionary(conversations.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
-                conversations = list.map { listed in
-                    guard let known = current[listed.id], known.rev > listed.rev else { return listed }
-                    return known
+                work.postFromAnyThread(.visible, owner: "HomeService.conversationList") { [weak self] in
+                    self?.applyList(list, generation: generation)
                 }
-                openChiefDirectMessages()
+            } catch is CancellationError {
             } catch {
-                self?.logger.error("conversation-list: \(String(describing: error), privacy: .public)")
+                logger.error("conversation-list: \(String(describing: error), privacy: .public)")
             }
         }
+    }
+
+    /// Applies the answer of list read `generation`, unless a newer read started since.
+    private func applyList(_ list: [CmuxNextDaemon.ConversationSummary], generation: Int) {
+        guard generation == listGeneration else { return }
+        // Keep any head an event already moved past the listed revision.
+        let current = Dictionary(conversations.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
+        conversations = list.map { listed in
+            guard let known = current[listed.id], known.rev > listed.rev else { return listed }
+            return known
+        }
+        openChiefDirectMessages()
     }
 
     // MARK: Events
@@ -394,10 +422,11 @@ final class HomeService {
               seq > (head.readCursors[actor] ?? 0) else { return }
         let request = ConversationOpRequest(conversation: conversation, idempotencyKey: "read:\(actor):\(seq)",
                                             transaction: nil, op: .setReadCursor(seq: seq))
-        // task-owner: one conversation-op write; ends with its reply
-        Task { [weak self] in
+        let logger = logger
+        // task-owner: one conversation-op write off the main actor; nothing applies on main; ends with its reply
+        services.work.task(.userVisible) {
             do { _ = try await ConversationClient(connection).op(request) } catch {
-                self?.logger.error("read_cursor.set: \(String(describing: error), privacy: .public)")
+                logger.error("read_cursor.set: \(String(describing: error), privacy: .public)")
             }
         }
     }
@@ -413,6 +442,7 @@ final class HomeService {
         let request = ConversationOpRequest(conversation: send.conversation, idempotencyKey: send.clientMsgID,
                                             transaction: ClientTransactionID(rawValue: send.clientMsgID), op: send.op)
         // task-owner: one conversation-op write; ends with its reply
+        // main-hop-allow: the reply settles the person's own bubble, userBlocking (p06 rule 2); post has no userBlocking class
         Task { [weak self, weak session] in
             do {
                 let result = try await ConversationClient(connection).op(request)
@@ -431,14 +461,13 @@ final class HomeService {
 extension HomeService {
     /// Follows the local Chief conversation's head: when the person's last message has had no
     /// reply for `ChiefReplyWatchdog.limit`, the notice row says so, and it counts the minutes
-    /// until a reply lands. One timer at a time, armed for the next change; no polling.
+    /// until a reply lands. One deadline at a time, armed for the next change; no polling. The
+    /// notice is the model's, so it follows the head while no Home shows it.
     fileprivate func watchReplies() {
-        // task-owner: lives as long as the service; event-driven (Observation)
-        replyWatch = Task { [weak self] in
-            for await head in ObservationStream({ [weak self] in self.flatMap { HomeChiefName.select(from: $0.conversations) } }) {
-                guard let self else { return }
-                armReplyTimer(head)
-            }
+        replyWatch = ServiceObservation(.visible, owner: "HomeService.replyWatchdog", on: services.mainWork) { [weak self] in
+            self.flatMap { HomeChiefName.select(from: $0.conversations) }
+        } apply: { [weak self] head in
+            self?.armReplyTimer(head)
         }
     }
 
@@ -449,7 +478,7 @@ extension HomeService {
         if replyNotice != notice { replyNotice = notice }
         guard let head, let next = ChiefReplyWatchdog.nextCheck(head, now: now) else { return }
         // One deadline: when the notice appears or its minute count changes; the next head resets it.
-        replyTimer.schedule(after: .seconds(max(1, next.timeIntervalSinceNow))) { @MainActor [weak self] in
+        replyTimer.schedule(after: .seconds(max(1, next.timeIntervalSinceNow))) { [weak self] in
             guard let self else { return }
             armReplyTimer(HomeChiefName.select(from: conversations))
         }

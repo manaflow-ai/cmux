@@ -1,5 +1,14 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/Transcript.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/Transcript.swift
+@@ -369,7 +369,7 @@
+         return a
+     }
+ 
+-    static var longConnectors = !ProcessInfo.processInfo.arguments.contains("--no-long-connectors")
++    static let longConnectors = !ProcessInfo.processInfo.arguments.contains("--no-long-connectors")
+     /// Content y of a connector's top (the root's vertical center).
+     func connectorTop(_ c: (reply: Int, root: Int?)) -> CGFloat {
+         guard let r = c.root else { return rowsTop }
 @@ -533,6 +533,12 @@
      /// The typing row's insert time (RowSpec model time) that its dots and breathing run from (-inf: none).
      var typingInsertedAt = -Double.infinity
@@ -21,7 +30,7 @@
 +    /// text off main while its previous bitmap stays (drawing the whole bubble on main per token was the
 +    /// largest part of a streaming frame); a shorter one draws on main as before (cheap, and its look is
 +    /// unchanged).
-+    static var streamOffMainHeight: CGFloat = 160
++    static let streamOffMainHeight: CGFloat = 160 // cmux: let (no shared mutable state)
 +    /// Streaming rows that kept their previous bitmap while the next one is drawn off main (tests).
 +    static var streamKeptBitmaps = 0
 +    /// Whether `spec` is a tall streaming bubble's text row (it draws off main: `streamOffMainHeight`).
@@ -48,7 +57,15 @@
          typingBody.actions = noActions.merging(["fillColor": NSNull()]) { a, _ in a }
          fillMaskImage.actions = noActions.merging(["contentsCenter": NSNull()]) { a, _ in a }
          typingBody.frame = RowDraw.typingBubble
-@@ -645,8 +667,7 @@
+@@ -638,15 +660,14 @@
+         // Circular ends with a flat top and bottom, as Messages' (its stills: the top row fully covered between the
+         // ends). UIBezierPath(roundedRect:cornerRadius:) curves continuously at this radius: no flat part at all.
+         let r = RowDraw.typingBubble.height / 2
+-        typingBody.path = CGPath(roundedRect: typingBody.bounds, cornerWidth: r, cornerHeight: r, transform: nil)
++        typingBody.path = CGPath.roundedRect(typingBody.bounds, cornerWidth: r, cornerHeight: r)
+         let typing = Fixture.typingColors(inactive: inactive)
+         typingBody.fillColor = typing.fill.cgColor
+         connector.fillColor = nil
          connector.strokeColor = Fixture.connector.cgColor
          connector.lineWidth = 2.6
          connector.lineCap = .round
@@ -95,6 +112,15 @@
              default: return nil
              }
          }
+@@ -759,7 +792,7 @@
+         let frame = CGRect(x: span.lowerBound, y: 0, width: span.upperBound - span.lowerBound, height: s.height + 2 * RowDraw.margin)
+         if let img = RowBitmaps.shared.image(for: s, scale: renderScale) {
+             CATransaction.begin(); CATransaction.setDisableActions(true)
+-            Reclaimer.release(bitmap.contents)
++            Reclaimer.release(bitmap.bitmapContents)
+             bitmap.frame = frame
+             bitmap.contents = img
+             shown(s, img, scale: renderScale)
 @@ -782,7 +815,7 @@
          // A key state change of this cell's own window view repaints the row as a palette change did when the state
          // was process-wide (the typing colours follow it; host custom rows read their window's key state again).
@@ -121,6 +147,19 @@
              CATransaction.commit()
              self.spec = nil
          }
+@@ -835,10 +868,10 @@
+         //   until the new bitmap arrives, then swap both in one transaction.
+         // Old bitmaps are freed off the main thread (vm_deallocate blocked main
+         // for up to 291 ms in the uikit-virtual profile).
+-        Reclaimer.release(receiptOld.contents)
++        Reclaimer.release(receiptOld.bitmapContents)
+         let deferred = !RowCell.deferredKeys.isEmpty && RowCell.deferredKeys.contains(spec.key)
+         if let img = RowBitmaps.shared.image(for: spec, scale: renderScale) {
+-            Reclaimer.release(bitmap.contents)
++            Reclaimer.release(bitmap.bitmapContents)
+             MediaPlaceholder.clear(bitmap)
+             bitmap.frame = bitmapFrame
+             bitmap.contents = img
 @@ -857,6 +890,7 @@
              liveKept = true
              RowCell.liveKeptBitmaps += 1
@@ -129,7 +168,23 @@
                                                      && ((RowCell.transitionDepth > 0 && !RowCell.inPaging)
                                                          || (RowCell.mainDrawBudgetLeft() && Images.ready(spec)))) {
              // (A scrolled-in row whose image is not decoded waits for its off-main bitmap: no decode on main.)
-@@ -886,6 +920,14 @@
+@@ -865,7 +899,7 @@
+             RowCell.mainDrawSpent += CACurrentMediaTime() - t0
+             if let img { RowBitmaps.shared.insert([(spec, img)], scale: renderScale) } // an unallocated bitmap is not cached
+             RowCell.syncRenders += 1
+-            Reclaimer.release(bitmap.contents)
++            Reclaimer.release(bitmap.bitmapContents)
+             MediaPlaceholder.clear(bitmap)
+             bitmap.frame = bitmapFrame
+             bitmap.contents = img
+@@ -880,12 +914,20 @@
+             var queued = false
+             if deferred {
+                 RowCell.deferredRenders += 1
+-                Reclaimer.release(bitmap.contents)
++                Reclaimer.release(bitmap.bitmapContents)
+                 MediaPlaceholder.clear(bitmap)
+                 bitmap.frame = bitmapFrame
                  bitmap.contents = nil
                  bitmapCleared()
                  tintTypingDiscs()
@@ -144,7 +199,16 @@
              } else if showingThisRow {
                  // The same row is on screen with its previous bitmap and its spec changed: a new
                  // width (live resize, the sidebar divider: every visible row at once) or a palette
-@@ -923,7 +965,11 @@
+@@ -907,7 +949,7 @@
+                 }
+             } else {
+                 RowCell.overBudget += 1
+-                Reclaimer.release(bitmap.contents)
++                Reclaimer.release(bitmap.bitmapContents)
+                 MediaPlaceholder.clear(bitmap)
+                 bitmap.frame = bitmapFrame
+                 bitmap.contents = nil
+@@ -923,9 +965,13 @@
              RowBitmaps.shared.request(want, scale: renderScale) { [weak self, scale = renderScale] img in
                  if self?.pendingWant == want { self?.dropWant() }
                  // A bitmap of the scale the cell had at the request (a scale change since: its own request follows).
@@ -155,9 +219,48 @@
 +                      self.spec == want || (self.spec?.key == want.key && RowCell.streamDrawsOffMain(want)
 +                                            && self.drawn.map { $0.spec != want } ?? true) else { return }
                  CATransaction.begin(); CATransaction.setDisableActions(true)
-                 Reclaimer.release(self.bitmap.contents)
+-                Reclaimer.release(self.bitmap.contents)
++                Reclaimer.release(self.bitmap.bitmapContents)
                  MediaPlaceholder.clear(self.bitmap)
-@@ -1197,8 +1243,11 @@
+                 self.bitmap.frame = bitmapFrame
+                 self.bitmap.contents = img
+@@ -957,7 +1003,7 @@
+         }
+         guard bitmap.contents == nil || (bitmap.contents as AnyObject) !== (img as AnyObject) else { return }
+         let span = RowDraw.drawSpan(spec)
+-        Reclaimer.release(bitmap.contents)
++        Reclaimer.release(bitmap.bitmapContents)
+         MediaPlaceholder.clear(bitmap)
+         bitmap.frame = CGRect(x: span.lowerBound, y: 0, width: span.upperBound - span.lowerBound, height: spec.height + 2 * RowDraw.margin)
+         bitmap.contents = img
+@@ -1004,8 +1050,15 @@
+             DispatchQueue.concurrentPerform(iterations: specs.count) { i in
+                 // checked reads and writes (crash ratchet)
+                 let r0 = CACurrentMediaTime()
+-                if let slot = out.checkedIndex(i), let spec = specs[checked: i], let sc = scales[checked: i] { out[slot] = RowBitmaps.render(spec, scale: sc) }
+-                if let slot = ms.checkedIndex(i) { ms[slot] = (CACurrentMediaTime() - r0) * 1000 }
++                if let spec = specs[checked: i], let sc = scales[checked: i] {
++                    let image = RowBitmaps.render(spec, scale: sc)
++                    // SAFETY: out is the images array's storage, lent for this closure, which concurrentPerform does
++                    // not outlive; `checkedWrite` checks i against its bounds and changes only element i (the buffer
++                    // value itself is not written), and iteration i is the only writer of element i.
++                    unsafe out.checkedWrite(image, at: i)
++                }
++                // SAFETY: as above, for rowMs.
++                unsafe ms.checkedWrite((CACurrentMediaTime() - r0) * 1000, at: i)
+             }
+             }
+         }
+@@ -1023,7 +1076,7 @@
+         CATransaction.begin(); CATransaction.setDisableActions(true)
+         for (k, (cell, spec, frame, sc)) in q.enumerated() where cell.spec == spec && cell.renderScale == sc {
+             guard let img = images[k] else { continue }
+-            Reclaimer.release(cell.bitmap.contents)
++            Reclaimer.release(cell.bitmap.bitmapContents)
+             MediaPlaceholder.clear(cell.bitmap)
+             cell.bitmap.frame = frame
+             cell.bitmap.contents = img
+@@ -1197,8 +1250,11 @@
          box.position = CGPoint(x: c.x - 20 + box.anchorPoint.x * size.width, y: c.y - 20 + box.anchorPoint.y * size.height)
          box.contentsScale = renderScale
          badgeTop = c.y - 20
@@ -171,7 +274,7 @@
          RowCell.placeFill(fill, windowTop: contentWindowY + badgeTop, width: size.width, span: fillSpan, reachBelow: fillReachBelow)
          if let holder = fill.superlayer, let mask = holder.mask as? CAShapeLayer {
              holder.frame = CGRect(origin: .zero, size: size)
-@@ -1386,7 +1435,7 @@
+@@ -1386,7 +1442,7 @@
          case let .label(_, outgoing, _), let .replies(_, _, outgoing): return outgoing
          case .receipt: return true
          case let .threadPreview(pv): return pv.outgoing
@@ -180,7 +283,7 @@
          }
      }
      /// The x (view pt) of the row's anchored side for a cell at `frame` (snapRow, the send morph's landing place): the
-@@ -1451,6 +1500,16 @@
+@@ -1451,6 +1507,16 @@
          clipTypingBody(Springs.typingBreathBody, about: Springs.typingBreathAnchor, begin: c.beginTime - Springs.typingBreathBody.start)
      }
  
@@ -197,7 +300,7 @@
      /// Window y of the cell's top: the outgoing fill shades with it.
      var windowY: CGFloat = 0 {
          didSet {
-@@ -1471,10 +1530,12 @@
+@@ -1471,10 +1537,12 @@
      /// down to this bubble: an arc that hangs from the root and a vertical
      /// stroke whose bottom stays 8.5 pt above this bubble. When the two rows
      /// move apart, the arc and the stroke's height animate (no path animation).
@@ -213,7 +316,7 @@
          connectorState = state
          CATransaction.begin(); CATransaction.setDisableActions(true)
          defer { CATransaction.commit() }
-@@ -1487,7 +1548,7 @@
+@@ -1487,7 +1555,7 @@
              contentView.layer.insertSublayer(connector, at: 0)
              contentView.layer.insertSublayer(connectorLine, at: 1)
          }
@@ -222,7 +325,16 @@
          let cx = x + r, cy = top + r
          let w = spec?.width ?? 628
          let p = UIBezierPath()
-@@ -1566,6 +1627,9 @@
+@@ -1521,7 +1589,7 @@
+         CATransaction.begin(); CATransaction.setDisableActions(true)
+         receiptOld.frame = bitmap.frame
+         let span = RowDraw.drawSpan(spec)
+-        Reclaimer.release(receiptOld.contents)
++        Reclaimer.release(receiptOld.bitmapContents)
+         if receiptOld.superlayer == nil { contentView.layer.insertSublayer(receiptOld, above: bitmap) }
+         var reuse: CGImage?
+         #if !canImport(UIKit)
+@@ -1566,6 +1634,9 @@
              a.isRemovedOnCompletion = false
              a.calculationMode = .linear
              if let p = Springs.typingStillPhase { a.speed = 0; a.timeOffset = p }
@@ -232,7 +344,7 @@
              hi.add(a, forKey: "dots")
          }
      }
-@@ -1576,6 +1640,8 @@
+@@ -1576,6 +1647,8 @@
      func startTypingBreath(insert: CFTimeInterval) {
  #if !os(iOS) || targetEnvironment(macCatalyst)
          guard Springs.typingStillPhase == nil else { return }
@@ -241,7 +353,7 @@
          let a = RowDraw.typingAnchor, b = Springs.typingBreathAnchor
          // The container scales about RowDraw.typingAnchor; the opposite offset of a scale e about it moves the
          // fixed point to b: e x (a - b).
-@@ -1674,7 +1740,8 @@
+@@ -1674,7 +1747,8 @@
      /// The typing row should breathe but does not (macOS, not a still scene): its breathing was stopped or never started.
      var needsTypingBreath: Bool {
  #if !os(iOS) || targetEnvironment(macCatalyst)

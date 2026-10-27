@@ -1,5 +1,9 @@
 import Foundation
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// The URLSession WebSocket behind ``AgentPaneTransport``. Its callbacks run on its own serial
 /// queue; the queues are guarded by one Mutex that is never held across IO.
@@ -13,7 +17,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     private struct State {
         var session: URLSession?
         var task: URLSessionWebSocketTask?
-        var opening: CheckedContinuation<Void, any Error>?
+        var opening: OnceContinuation<Void, any Error>?
         var opened = false
         var inbox: [String] = []
         var inboxBytes = 0
@@ -34,7 +38,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         /// (nil when the reply had none), and who waits for it.
         var challengeRead = false
         var challenge: AcpmuxPersonChallenge?
-        var challengeWaiters: [CheckedContinuation<AcpmuxPersonChallenge?, Never>] = []
+        var challengeWaiters: [OnceContinuation<AcpmuxPersonChallenge?, OnceContinuationError>] = []
 
         /// A full flush waits: it goes even to a pane nobody can see (``pageWaits``).
         func backlogged(_ limits: AgentPaneTransport.Limits) -> Bool {
@@ -82,7 +86,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         request.timeoutInterval = timeout
         let task = session.webSocketTask(with: request)
         task.maximumMessageSize = AcpmuxPaneMethods.maximumFrameBytes
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+        try await withOnceThrowingContinuation { (continuation: OnceContinuation<Void, any Error>) in
             let cancelled = state.withLock { state -> Bool in
                 guard state.closed == nil else { return true }
                 state.session = session
@@ -211,7 +215,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     }
 
     private func resolveChallenge(_ challenge: AcpmuxPersonChallenge?) {
-        let waiters = state.withLock { state -> [CheckedContinuation<AcpmuxPersonChallenge?, Never>] in
+        let waiters = state.withLock { state -> [OnceContinuation<AcpmuxPersonChallenge?, OnceContinuationError>] in
             guard !state.challengeRead else { return [] }
             state.challengeRead = true
             state.challenge = challenge
@@ -225,7 +229,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     /// had none or the socket closed first. Only the local WebSocket has one (not a remote wire).
     func personChallenge() async -> AcpmuxPersonChallenge? {
         guard wire == nil else { return nil }
-        return await withCheckedContinuation { waiter in
+        return try? await withOnceContinuation { (waiter: OnceContinuation<AcpmuxPersonChallenge?, OnceContinuationError>) in
             let now = state.withLock { state -> (Bool, AcpmuxPersonChallenge?) in
                 if state.challengeRead || state.closed != nil { return (true, state.challenge) }
                 state.challengeWaiters.append(waiter)
@@ -287,7 +291,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                 count += 1
             }
             let frames = Array(state.inbox.prefix(count))
-            state.inbox.removeFirst(count)
+            state.inbox.removeSubrange(..<frames.count)
             state.awaitedThrough = max(0, state.awaitedThrough - count)
             state.inboxBytes -= bytes
             var closed: AgentPaneTransportClose?
@@ -384,7 +388,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     }
 
     private func finish(code: Int, reason: String, error: AgentPaneTransportError?) {
-        let (opening, session, wake) = state.withLock { state -> (CheckedContinuation<Void, any Error>?, URLSession?, Bool) in
+        let (opening, session, wake) = state.withLock { state -> (OnceContinuation<Void, any Error>?, URLSession?, Bool) in
             let opening = state.opening
             state.opening = nil
             guard state.closed == nil else { return (opening, nil, false) }
@@ -401,14 +405,14 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     // MARK: URLSessionWebSocketDelegate
 
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol subprotocol: String?) {
-        let opening = state.withLock { state -> CheckedContinuation<Void, any Error>? in
+        let opening = state.withLock { state -> OnceContinuation<Void, any Error>? in
             state.opened = true
             let opening = state.opening
             state.opening = nil
             return opening
         }
         receive(webSocketTask)
-        opening?.resume()
+        opening?.resume(returning: ())
     }
 
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask,

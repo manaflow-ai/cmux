@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 // The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 import CmuxNextSharedRegionC
 import Darwin
@@ -32,7 +32,9 @@ nonisolated struct ChromiumHostSharedRegion: Sendable {
     /// empty or over ``maxBytes``.
     init?(holding bytes: [UInt8]) {
         guard !bytes.isEmpty, bytes.count <= Self.maxBytes else { return nil }
-        let fd = bytes.withUnsafeBytes { cmux_shared_region_create($0.baseAddress, $0.count) }
+        let count = bytes.count
+        // SAFETY: the region copies `count` bytes, the array's size, from its buffer during the call.
+        let fd = unsafe cmux_shared_region_create(bytes, count)
         guard fd >= 0 else { return nil }
         self.fd = fd
     }
@@ -42,12 +44,15 @@ nonisolated struct ChromiumHostSharedRegion: Sendable {
     static func bytes(in fd: Int32, count: Int) -> [UInt8]? {
         guard count > 0, count <= maxBytes, cmux_shared_region_is_sealed(fd) != 0 else { return nil }
         var info = stat()
-        guard fstat(fd, &info) == 0, info.st_size >= off_t(count) else { return nil }
+        // SAFETY: fstat writes one `stat` into `info` during the call.
+        guard unsafe fstat(fd, &info) == 0, info.st_size >= off_t(count) else { return nil }
         // A mapping: a macOS shm descriptor has no read (xnu's pshm_read is ENOTSUP).
-        guard let mapping = mmap(nil, count, PROT_READ, MAP_SHARED, fd, 0),
-              mapping != UnsafeMutableRawPointer(bitPattern: -1) else { return nil }
-        defer { munmap(mapping, count) }
-        return [UInt8](UnsafeRawBufferPointer(start: mapping, count: count))
+        // SAFETY: a read-only mapping of `count` bytes, which the sealed region holds (st_size above); it is
+        // copied into the array and unmapped once, before this returns.
+        guard let mapping = unsafe mmap(nil, count, PROT_READ, MAP_SHARED, fd, 0),
+              unsafe mapping != UnsafeMutableRawPointer(bitPattern: -1) else { return nil }
+        defer { unsafe munmap(mapping, count) }
+        return unsafe [UInt8](UnsafeRawBufferPointer(start: mapping, count: count))
     }
 }
 
