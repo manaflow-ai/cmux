@@ -66,10 +66,32 @@ extension WindowManager {
         return newWindow()
     }
 
-    /// `preferred` when that window is open, else a new window id.
+    /// `preferred` when that window is open, else a new window id. The launch window counts as open
+    /// before restore registers it (it shows the connecting state outside the registry): a workspace
+    /// asked for in it while the app connects lands in it, never in a second window beside it, which
+    /// left the launch window on Home and the new terminal behind it (dogfood gate v2.2.3, `type`).
     func targetWindow(preferring preferred: String?) -> String {
-        if let preferred, registry.value.window(preferred)?.isOpen == true { return preferred }
+        if let preferred, registry.value.window(preferred)?.isOpen == true || awaitsRestore(preferred) { return preferred }
         return UUID().uuidString.lowercased()
+    }
+
+    /// The launch window before restore registered it: a workspace claimed for it waits for the
+    /// restore's reconcile, which registers it under the identity the restore gives it
+    /// (`adoptLaunchWindow`) with every workspace the live tree has.
+    func awaitsRestore(_ windowID: String) -> Bool {
+        windowID == launchWindowID && registry.isLaunching && registry.value.window(windowID) == nil && controller(for: windowID) != nil
+    }
+
+    /// The launch window took the identity of the saved window it stands for (`adoptLaunchWindow`): what
+    /// was asked for in it under its launch id (claims, sidebar rows and slots, a frame, a behind open)
+    /// goes with it, so restore's reconcile places those workspaces in it, not in a new window under the old id.
+    func launchWindowAdopted(from old: String, as new: String) {
+        guard old != new else { return }
+        for (id, window) in pendingClaims where window == old { pendingClaims[id] = new }
+        for (id, placement) in pendingPlacements where placement.window == old { pendingPlacements[id]?.window = new }
+        if let frame = pendingFrames.removeValue(forKey: old) { pendingFrames[new] = frame }
+        if behindWindows.remove(old) != nil { behindWindows.insert(new) }
+        PendingWorkspaceRows.shared.move(window: old, to: new)
     }
 
     /// Claims workspace `workspaceID`, which this app is about to create or
@@ -79,8 +101,11 @@ extension WindowManager {
     /// never opens before that.
     /// An action run without view-change permission files it into an open
     /// window without showing it, or opens the new window behind.
+    /// A claim for the launch window before restore stays pending even when the workspace is mirrored:
+    /// the restore replaces the registry with the saved one and may rename the launch window
+    /// (`awaitsRestore`), so only its reconcile places it.
     func claimNew(workspaceID: String, window windowID: String, frame: CGRect? = nil) {
-        guard services.machines.workspace(id: workspaceID) != nil else {
+        guard services.machines.workspace(id: workspaceID) != nil, !awaitsRestore(windowID) else {
             pendingClaims[workspaceID] = windowID
             if let frame, registry.value.window(windowID) == nil { pendingFrames[windowID] = frame }
             if !ActionRunScope.viewChangeAllowed() {

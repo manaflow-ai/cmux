@@ -299,7 +299,7 @@ final class WindowManager {
         registry.isLaunching = false
         fullScreenRestoreReady = true
         enterRestoredFullScreens()
-        FirstWorkspaceLaunch(manager: self).land(firstWorkspace) // its New Tab page, not Home
+        FirstWorkspaceLaunch(manager: self).land(firstWorkspace, leftover: leftover) // its New Tab page, not Home
         launchPaneRefs?.finishRestore(of: self)
         launchPaneRefs = nil
         let waiting = restoreWaiters ?? []
@@ -371,6 +371,7 @@ final class WindowManager {
               let record = records.first(where: { $0.id == front }) else { return nil }
         launch.state.adopt(record)
         launchWindowID = front
+        launchWindowAdopted(from: launchID, as: front)
         states[launchID] = nil
         states[front] = launch.state
         launch.sidebar.restore(width: record.sidebarWidth, hidden: record.sidebarHidden)

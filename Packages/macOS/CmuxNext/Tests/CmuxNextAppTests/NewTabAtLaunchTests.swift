@@ -79,4 +79,25 @@ struct NewTabAtLaunchTests {
         #expect(launch.state.workspaceID == Self.created, "the landing on Home replaced the workspace asked for at launch")
         #expect(launch.state.page == nil, "the landing on Home replaced the workspace asked for at launch")
     }
+
+    /// With saved windows and no launch snapshot, the launch window opens under a new id and restore gives
+    /// it the frontmost saved window's id (`adoptLaunchWindow`). A workspace claimed for it meanwhile goes
+    /// with it: a claim left on the old id would open a second window under that id.
+    @Test func aClaimOnTheLaunchWindowFollowsItsAdoptedIdentity() throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        AppActions.bind(services)
+        services.windows.ordersWindowsIn = false
+        services.windows.restoreWhenLoaded()
+        defer { for controller in services.windows.controllers { controller.window?.close() } }
+        let launch = try #require(services.windows.launchWindowID)
+        let target = services.windows.targetWindow(preferring: services.windows.active?.state.id)
+        #expect(target == launch, "New Workspace while connecting targets a second window, not the launch window")
+        services.windows.claimNew(workspaceID: Self.created, window: target, frame: CGRect(x: 10, y: 10, width: 800, height: 600))
+
+        services.windows.launchWindowAdopted(from: launch, as: "saved-front")
+
+        #expect(services.windows.pendingClaims[Self.created] == "saved-front")
+        #expect(services.windows.pendingFrames[launch] == nil && services.windows.pendingFrames["saved-front"] != nil)
+    }
 }
