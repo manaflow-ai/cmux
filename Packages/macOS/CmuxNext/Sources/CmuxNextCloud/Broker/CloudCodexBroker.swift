@@ -411,7 +411,7 @@ public actor CloudCodexBroker {
         guard !Task.isCancelled else { throw CloudCodexBrokerError.cancelled }
     }
 
-    func registeredMachineIDs() -> Set<String> { Set(targets.keys).union(revocationTargets.keys) }
+    func registeredMachineIDs() -> Set<String> { Set(targets.keys) }
 
     /// Stops the local process and renewal before erasing registered VM files.
     /// Returns failed cleanup IDs; retained local credentials allow reuse later.
