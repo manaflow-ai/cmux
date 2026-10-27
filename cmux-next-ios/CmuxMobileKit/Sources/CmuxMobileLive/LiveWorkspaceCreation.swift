@@ -583,6 +583,35 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         }
     }
 
+    /// A page's new tab or window (`rb.open_tab`): `new-browser-tab {url, pane}` in the pane of
+    /// the page that asked, as the Mac's own viewer opens it beside that page. The Mac's
+    /// mobile policy loads only `http(s)` and `about:blank` there; anything else is refused
+    /// here with words for the person.
+    public func openBrowserTab(_ url: URL, besides tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
+        let (client, _) = try target(tab, in: workspace)
+        guard let place = sync.tree?.tabPlaces[tab.id] else {
+            throw WorkspaceCreationError("The Mac doesn't list this tab")
+        }
+        let scheme = url.scheme?.lowercased() ?? ""
+        guard ["http", "https"].contains(scheme) || url.absoluteString == "about:blank" else {
+            throw WorkspaceCreationError("Only web pages can open in a new tab from your iPhone.", isForPerson: true)
+        }
+        do {
+            let reply = try await client.request("new-browser-tab", params: ["url": url.absoluteString, "pane": place.pane])
+            guard let surface = (try WorkspaceSync.check(reply)["data"] as? [String: Any])?["surface"] as? Int else {
+                throw WorkspaceCreationError("The Mac didn't say which tab it opened")
+            }
+            let id = DaemonTree.tabID(surface: surface)
+            let tree = try await sync.listNow()
+            guard let opened = tree.workspaces.flatMap(\.tabs).first(where: { $0.id == id }) else {
+                throw WorkspaceCreationError("The new tab didn't appear on the Mac")
+            }
+            return opened
+        } catch let error as DaemonReplyError {
+            throw WorkspaceCreationError(error.message)
+        }
+    }
+
     /// `move-tab {surface, pane, index}`: to the target's pane and place.
     /// Within the tab's own pane only: a drag onto a tab of another pane would move it into
     /// that pane (and could close a split), a layout change, not a reorder.

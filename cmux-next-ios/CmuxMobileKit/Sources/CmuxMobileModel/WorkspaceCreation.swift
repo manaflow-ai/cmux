@@ -216,6 +216,10 @@ public protocol WorkspaceCreationBackend: AnyObject {
     /// Opens a copy of a tab next to it on the Mac (a terminal in its pane's folder,
     /// the same page in a browser tab) and returns it once the Mac lists it.
     func duplicateTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab
+    /// A page's link that opens a new tab or window (`rb.open_tab`: `target=_blank`,
+    /// `window.open`, the page menu's Open Link in New Tab): a browser tab at `url` in the
+    /// pane of `tab`, the page that asked, returned once the Mac lists it.
+    func openBrowserTab(_ url: URL, besides tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab
     /// Moves a tab to the place of `target` (its pane and position there).
     func moveTab(_ tab: WorkspaceTab, to target: WorkspaceTab, in workspace: Workspace) async throws
     /// Move Tab to Workspace… (`destination`) or Move Tab to New Workspace (nil, named as the
@@ -274,6 +278,9 @@ extension WorkspaceCreationBackend {
         throw WorkspaceCreationError("Not connected to this Mac")
     }
     public func duplicateTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
+        throw WorkspaceCreationError("Not connected to this Mac")
+    }
+    public func openBrowserTab(_ url: URL, besides tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
         throw WorkspaceCreationError("Not connected to this Mac")
     }
     public func moveTab(_ tab: WorkspaceTab, to target: WorkspaceTab, in workspace: Workspace) async throws {
@@ -681,6 +688,11 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
         try await settle()
         return WorkspaceTab(id: "t-\(UUID().uuidString.prefix(8).lowercased())", kind: tab.kind, title: tab.title,
                      subtitle: tab.subtitle, harness: tab.harness, url: tab.url)
+    }
+
+    public func openBrowserTab(_ url: URL, besides tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
+        try await settle()
+        return WorkspaceTab(id: "t-\(UUID().uuidString.prefix(8).lowercased())", kind: .browser, title: url.host() ?? "New Tab", url: url)
     }
 
     public func moveTab(_ tab: WorkspaceTab, to target: WorkspaceTab, in workspace: Workspace) async throws {

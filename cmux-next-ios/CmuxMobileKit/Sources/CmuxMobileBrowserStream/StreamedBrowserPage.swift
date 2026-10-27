@@ -13,6 +13,8 @@ public struct StreamedBrowserPage: View {
     @State private var keyboard = false
     /// The keyboard rose because the page focused a field (it goes when the field does).
     @State private var raisedForField = false
+    /// A JavaScript prompt's answer while its alert shows.
+    @State private var promptText = ""
     @Environment(\.openURL) private var openURL
 
     /// What the page says when the Mac cannot stream browser tabs.
@@ -86,6 +88,29 @@ public struct StreamedBrowserPage: View {
         }
         .onChange(of: keyboard) { _, shown in if !shown { raisedForField = false } }
         .onDisappear { model.setVisible(false) }
+        // The page's `<select>`: its options in a sheet. Swiping it away cancels; the page
+        // closing the popup itself closes the sheet.
+        .sheet(item: Binding(get: { model.selectMenu }, set: { next in
+            if next == nil, let open = model.selectMenu { model.choose(.cancel, in: open.token) }
+        })) { open in
+            StreamedSelectSheet(open: open) { model.choose($0, in: open.token) }
+        }
+        // A JavaScript alert, confirm, prompt or leave-page question as a system alert,
+        // gone without an answer when the page closes it itself.
+        .alert(model.dialog?.dialog.title ?? "", isPresented: Binding(get: { model.dialog != nil }, set: { _ in }),
+               presenting: model.dialog) { open in
+            if open.dialog.kind == .prompt {
+                TextField(String(localized: "Answer"), text: $promptText)
+                    .accessibilityIdentifier("browser.dialog.field")
+            }
+            if open.dialog.hasCancel {
+                Button(String(localized: "Cancel"), role: .cancel) { model.answerDialog(open.token, accept: false) }
+            }
+            Button(open.dialog.acceptTitle) { model.answerDialog(open.token, accept: true, text: promptText) }
+        } message: { open in
+            if !open.dialog.message.isEmpty { Text(open.dialog.message) }
+        }
+        .onChange(of: model.dialog?.token, initial: true) { _, _ in promptText = model.dialog?.dialog.defaultText ?? "" }
     }
 
     /// An honest state, with the page in Safari on this iPhone when it has a web address.
@@ -251,7 +276,7 @@ struct StreamSurface: UIViewRepresentable {
 }
 
 /// Shows the decoder's layer and turns touches into rb input (CSS pixels).
-final class StreamView: UIView, UIKeyInput {
+final class StreamView: UIView, UIKeyInput, UIContextMenuInteractionDelegate {
     let model: StreamedBrowserModel
     var reportScroll: (@MainActor (CGFloat) -> Void)?
     var keyboardChanged: ((Bool) -> Void)?
@@ -283,6 +308,9 @@ final class StreamView: UIView, UIKeyInput {
         addGestureRecognizer(tap)
         addGestureRecognizer(pan)
         addGestureRecognizer(pinch)
+        // A long press shows the page's own menu for that spot (links, images, text), as
+        // a secondary click does on the Mac: Safari's long press, with the Mac's rows.
+        addInteraction(UIContextMenuInteraction(delegate: self))
         isAccessibilityElement = true
         accessibilityTraits = .allowsDirectInteraction
         accessibilityIdentifier = "browser.page"
@@ -403,6 +431,99 @@ final class StreamView: UIView, UIKeyInput {
         default: "cancelled"
         }
         model.input(model.wire.pinch(phase: phase, scale: gesture.scale, x: x, y: y), mustDeliver: phase != "changed")
+    }
+
+    // MARK: Page menu (long press)
+
+    /// Where the long press is, in this view.
+    private var menuPoint: CGPoint = .zero
+    /// An empty spot at the press: the menu opens from it instead of lifting the whole page.
+    private lazy var menuAnchor: UIView = {
+        let anchor = UIView(frame: CGRect(x: 0, y: 0, width: 2, height: 2))
+        anchor.isUserInteractionEnabled = false
+        anchor.backgroundColor = .clear
+        addSubview(anchor)
+        return anchor
+    }()
+
+    func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
+                                configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
+        guard model.phase == .live else { return nil }
+        stopMomentum()
+        menuPoint = location
+        let (x, y) = css(location)
+        // The page is asked at once; the menu fills in when its rows arrive.
+        let wait = StreamMenuWait()
+        model.requestContextMenu(x: x, y: y) { open in wait.arrived(open) }
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
+            UIMenu(children: [UIDeferredMenuElement.uncached { completion in
+                wait.whenArrived { open in completion(self?.menuElements(open) ?? []) }
+            }])
+        }
+    }
+
+    func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
+                                configuration: UIContextMenuConfiguration,
+                                highlightPreviewForItemWithIdentifier identifier: any NSCopying) -> UITargetedPreview? {
+        pressPreview()
+    }
+
+    func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
+                                configuration: UIContextMenuConfiguration,
+                                dismissalPreviewForItemWithIdentifier identifier: any NSCopying) -> UITargetedPreview? {
+        pressPreview()
+    }
+
+    /// The menu closed: a menu nobody chose from is cancelled on the page (its choice, when
+    /// there was one, has already gone; `choose` sends each menu's answer once).
+    func contextMenuInteraction(_ interaction: UIContextMenuInteraction, willEndFor configuration: UIContextMenuConfiguration,
+                                animator: (any UIContextMenuInteractionAnimating)?) {
+        guard let animator else { return model.abandonContextMenu() }
+        animator.addCompletion { [weak self] in
+            // UIKit runs the chosen row's handler as the menu finishes closing: the cancel
+            // waits for the next main-queue turn so a choice is never overtaken by it.
+            DispatchQueue.main.async { self?.model.abandonContextMenu() }
+        }
+    }
+
+    private func pressPreview() -> UITargetedPreview {
+        menuAnchor.center = menuPoint
+        let parameters = UIPreviewParameters()
+        parameters.backgroundColor = .clear
+        parameters.visiblePath = UIBezierPath(rect: menuAnchor.bounds)
+        return UITargetedPreview(view: menuAnchor, parameters: parameters)
+    }
+
+    /// The page's rows as a system menu: separators as sections, submenus nested, checked
+    /// rows marked. A page that sent no menu (it handles the press itself) says so.
+    private func menuElements(_ open: StreamedBrowserModel.OpenMenu?) -> [UIMenuElement] {
+        let rows = open?.menu.phoneItems ?? []
+        guard let open, !rows.isEmpty else {
+            return [UIAction(title: String(localized: "No actions for this spot"), attributes: .disabled) { _ in }]
+        }
+        return Self.sections(rows) { [weak self] id in self?.model.choose(.command(id), in: open.token) }
+    }
+
+    static func sections(_ rows: [RemoteBrowserMenuItem], choose: @escaping @MainActor (Int64) -> Void) -> [UIMenuElement] {
+        var sections: [[UIMenuElement]] = [[]]
+        for row in rows {
+            if row.type == "separator" {
+                sections.append([])
+                continue
+            }
+            if row.type == "submenu" {
+                sections[sections.count - 1].append(UIMenu(title: row.label, children: Self.sections(row.items, choose: choose)))
+                continue
+            }
+            let id = row.id
+            let action = UIAction(title: row.label, attributes: row.enabled ? [] : .disabled,
+                                  state: row.checked ? .on : .off) { _ in choose(id) }
+            action.accessibilityIdentifier = "browser.menu.\(id)"
+            sections[sections.count - 1].append(action)
+        }
+        let filled = sections.filter { !$0.isEmpty }
+        if filled.count == 1 { return filled[0] }
+        return filled.map { UIMenu(title: "", options: .displayInline, children: $0) }
     }
 
     // MARK: Keyboard
@@ -584,5 +705,100 @@ final class StreamKeyBar: UIInputView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+}
+#endif
+
+#if os(iOS)
+/// The page's menu for one long press: it may arrive before or after the system asks
+/// for the menu's rows.
+@MainActor
+final class StreamMenuWait {
+    private var result: StreamedBrowserModel.OpenMenu??
+    private var waiting: [(StreamedBrowserModel.OpenMenu?) -> Void] = []
+
+    func arrived(_ open: StreamedBrowserModel.OpenMenu?) {
+        result = .some(open)
+        let waiting = waiting
+        self.waiting = []
+        for waiter in waiting { waiter(open) }
+    }
+
+    func whenArrived(_ then: @escaping (StreamedBrowserModel.OpenMenu?) -> Void) {
+        if let result { then(result) } else { waiting.append(then) }
+    }
+}
+
+/// A `<select>`'s options, as Safari lists them: a tap picks one (a multiple select
+/// toggles rows and Done sends them); Cancel or a swipe leaves the page as it was.
+struct StreamedSelectSheet: View {
+    let open: StreamedBrowserModel.OpenMenu
+    let choose: (RemoteBrowserMenuChoice) -> Void
+    @State private var picked: Set<Int> = []
+
+    init(open: StreamedBrowserModel.OpenMenu, choose: @escaping (RemoteBrowserMenuChoice) -> Void) {
+        self.open = open
+        self.choose = choose
+        let checked = open.menu.items.indices.filter { open.menu.items[$0].checked }
+        _picked = State(initialValue: Set(open.menu.multiple ? checked : open.menu.selected.map { [$0] } ?? []))
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(Array(open.menu.items.enumerated()), id: \.offset) { index, item in
+                    row(index, item)
+                }
+            }
+            .listStyle(.insetGrouped)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(String(localized: "Cancel")) { choose(.cancel) }
+                        .accessibilityIdentifier("browser.select.cancel")
+                }
+                if open.menu.multiple {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(String(localized: "Done")) { choose(.indices(picked.sorted())) }
+                            .accessibilityIdentifier("browser.select.done")
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .accessibilityIdentifier("browser.select")
+    }
+
+    @ViewBuilder
+    private func row(_ index: Int, _ item: RemoteBrowserMenuItem) -> some View {
+        switch item.type {
+        case "separator":
+            EmptyView()
+        case "group":
+            Text(item.label)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.secondary)
+        default:
+            Button {
+                if open.menu.multiple {
+                    if picked.contains(index) { picked.remove(index) } else { picked.insert(index) }
+                } else {
+                    choose(.indices([index]))
+                }
+            } label: {
+                HStack {
+                    Text(item.label).foregroundStyle(item.enabled ? Color.primary : Color.secondary)
+                    Spacer()
+                    if picked.contains(index) {
+                        Image(systemName: "checkmark").foregroundStyle(.tint)
+                    }
+                }
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .disabled(!item.enabled)
+            .accessibilityAddTraits(picked.contains(index) ? .isSelected : [])
+            .accessibilityIdentifier("browser.select.option.\(index)")
+        }
+    }
 }
 #endif

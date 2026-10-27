@@ -649,7 +649,28 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   forward Delete and Command/Control shortcuts go to the page directly as
   `key` events (with the Mac's edit commands: Option-arrows by word,
   Command-arrows by line or document, Command-Z/Shift-Command-Z); Command-V
-  pastes the phone's clipboard. Under
+  pastes the phone's clipboard.
+  **Page asks** (2026-10-26, remote-tab-protocol.md section 4, as the Mac's
+  viewer answers them): a link that opens a new tab or window
+  (`rb.open_tab {request, url, disposition}`: `target=_blank`, `window.open`,
+  the menu's Open Link in New Tab) becomes a phone browser tab in the page's
+  pane (daemon `new-browser-tab {url, pane}`, so only `http(s)` and
+  `about:blank` open), shown unless `disposition` is `background_tab`, and the
+  phone answers `rb.open_tab.result {request, tab}` or `{request, refused}`. A
+  long press sends a secondary click at that spot (pointer `button` 2) and
+  shows the host's `rb.menu.show` of kind `context` as the system menu; rows
+  whose command acts on the Mac itself (Copy and Save rows, Paste, Print,
+  Inspect, Look Up) are left out. The pick goes back as `rb.menu.result
+  {token, choice: {choice: "command", id}}`, and a menu closed with no pick,
+  or one that arrives with no long press waiting (after 1.5 s), as `{choice:
+  "cancel"}`. A `<select>` (`rb.menu.show` of kind `select`) shows its options
+  in a sheet and answers `{choice: "indices", indices}`. JavaScript dialogs
+  (`rb.dialog.show`) show as a system alert (a prompt with a text field) and
+  answer `rb.dialog.result {token, accept, text}`. `rb.menu.cancel` and
+  `rb.dialog.cancel` close the sheet or alert with no answer; a new stream
+  session drops whatever was open. Popup surfaces (`rb.surface.show`: date,
+  color and datalist pickers) are not shown on the phone yet. The page menu's
+  Hard Reload sends `rb.history reload_no_cache`. Under
   `CMUX_MOBILE_CONTROL=stdio` the app starts the hosts: hostd writes
   `{"type":"need_browser","request","tab","url"}` and the app answers
   `{"type":"browser","request","addr":"127.0.0.1:PORT","secret"}` or
