@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import datetime as dt
 import importlib.util
@@ -1480,6 +1481,44 @@ class StrandedCancel(unittest.TestCase):
             self.assertEqual(self.follow(api, clock), said)
             self.assertEqual(mutations(api), [], note)
 
+    def test_real_http_responses_cut_short_are_not_judged(self):
+        # http.client's own framing: a chunked body cut after the SENT chunk, and a sized one cut short.
+        import http.client
+        sent, settled = f"{rescue.CANCEL_SENT} run 5 attempt 1\n".encode(), f"{rescue.CANCEL_SETTLED} run 5 attempt 1\n".encode()
+
+        class Sock:
+            def __init__(self, data):
+                self.data = data
+
+            def makefile(self, mode, *args, **kwargs):
+                return io.BytesIO(self.data)
+
+        def response(head, body):
+            found = http.client.HTTPResponse(Sock(b"HTTP/1.1 200 OK\r\n" + head + b"\r\n" + body))
+            found.begin()
+            return found
+        api = rescue.GitHub("t", "manaflow-ai/cmux")
+        chunked = response(b"Transfer-Encoding: chunked\r\n", b"%x\r\n" % len(sent) + sent + b"\r\n")
+        cut = response(b"Content-Length: %d\r\n" % len(sent + settled), sent)
+        whole = response(b"Content-Length: %d\r\n" % len(sent + settled), sent + settled)
+        for name, body, want in (("chunked", chunked, None), ("cut", cut, None), ("whole", whole, {(5, 1): "settled"})):
+            with unittest.mock.patch.object(rescue.urllib.request, "build_opener",
+                                            lambda *handlers, body=body: types.SimpleNamespace(
+                                                open=lambda request, timeout: contextlib.nullcontext(body))):
+                api._logs.clear()
+                self.assertEqual(api.job_marks(13), want, name)
+
+    def test_a_canceller_named_past_the_read_cap_is_unknown_not_none(self):
+        refused = {**refused_job("Verify signed cmux NEXT DEV (shard 2)", labels=(LIGHT,)), "id": 99}
+        many = [{**job(f"leg {index}", labels=[LIGHT]), "status": "completed", "conclusion": "cancelled", "steps": []}
+                for index in range(rescue.CANCELLED_BY_READS + 1)]
+        clock = Clock()
+        api = CancelledAPI(clock, note="", cancelled=True, extra=[refused, *many])
+        clock.sleep(60)
+        self.assertEqual(self.follow(api, clock),
+                         "stopped: the run was cancelled, and who cancelled it could not be read; left cancelled")
+        self.assertEqual(mutations(api), [])
+
     def test_a_cancel_no_annotation_explains_keeps_the_old_rules(self):
         # GitHub's own cancels (a job timeout) write no "canceled by" line: the refusal and timeout rules decide.
         clock = Clock()
@@ -1653,9 +1692,9 @@ class StrandedCancel(unittest.TestCase):
         found, api = marks(log_response(sent + settled, length=len(sent + settled), cut=len(sent)))
         self.assertIsNone(found)
         self.assertNotIn(12, api._logs)
-        # No length and not chunked: whether it all came cannot be told.
+        # No length, or chunked: whether it all came cannot be told.
         self.assertIsNone(marks(log_response(sent, length=None))[0])
-        self.assertEqual(marks(log_response(sent, length=None, chunked=True))[0], {(5, 1): "sent"})
+        self.assertIsNone(marks(log_response(sent, length=None, chunked=True))[0])
         # A line longer than JOB_LOG_LINE_BYTES is read in bounded pieces and skipped; the marks around it count.
         long_line = b"y" * (3 * 1024 * 1024) + b"\n"
         response = log_response(sent + long_line + settled)
