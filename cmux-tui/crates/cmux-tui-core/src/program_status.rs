@@ -308,7 +308,6 @@ impl ProgramStatusRecords {
     }
 
     /// True once per visible change, marking it published.
-
     pub(crate) fn take_change(&mut self) -> bool {
         let changed = self.revision != self.published;
         self.published = self.revision;
