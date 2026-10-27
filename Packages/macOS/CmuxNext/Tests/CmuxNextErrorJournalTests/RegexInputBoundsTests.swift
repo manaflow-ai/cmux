@@ -55,6 +55,15 @@ import Testing
         #expect(redactor.redact(hostile) == hostile)
     }
 
+    @Test func aShorterKeyOfAGroupIsReadWithoutItsPunctuation() {
+        // Only the shorter key `apikey.….` is sensitive (an exact name); the longest `x(apikey.….` is not.
+        let dots = String(repeating: ".", count: 100)
+        #expect(redactor.redact("x(apikey\(dots)=sekret") == "x(apikey\(dots)=<redacted>")
+        #expect(redactor.redact(String(repeating: "a(", count: 3000) + "apikey=sekret").hasSuffix("apikey=<redacted>"))
+        // A bad escape fails the longest key's decode; its words still count, decoded where they can be.
+        #expect(redactor.redact("%zz(%74oken" + dots + "a=sekret") == "%zz(%74oken" + dots + "a=<redacted>")
+    }
+
     // MARK: - Redactor rules
 
     @Test func secretsAreStillRedacted() {

@@ -29,7 +29,7 @@ public struct ErrorRedactor {
         "access_token", "refresh_token", "token", "key", "api_key", "apikey", "sig", "signature",
         "code", "auth", "authorization", "password", "passwd", "pwd", "secret",
     ]
-    private static let sensitiveQueryComponents: Set<String> = [
+    static let sensitiveQueryComponents: Set<String> = [
         "auth", "authorization", "code", "credential", "credentials", "key", "password", "passwd", "pwd",
         "secret", "sig", "signature", "token",
     ]
@@ -100,23 +100,17 @@ public struct ErrorRedactor {
 
     private func redactQueryAssignments(in text: String) -> String {
         let source = text as NSString
-        let keys = Self.queryKeys(in: Array(text.utf16))
+        let units = Array(text.utf16)
+        let keys = Self.queryKeys(in: units)
         var ranges: [NSRange] = []
         var coveredUntil = 0
         var index = 0
         while index < keys.count {
-            // The keys that end at one `=` (`a(b(c=`: `a(b(c`, `b(c`, `c`) share its value, which is
-            // redacted when one of them is sensitive. The longest comes first and holds the words of
-            // the others, so beyond it only short keys are read: exact names (`apikey`) and
-            // percent-encoded ones. Reading every key made `((((…=` quadratic.
+            // The keys that end at one `=` share its value (``isSensitiveQueryGroup``).
             let valueStart = NSMaxRange(keys[index]) + 1
             var next = index + 1
             while next < keys.count, NSMaxRange(keys[next]) + 1 == valueStart { next += 1 }
-            let sensitive = valueStart >= coveredUntil && keys[index..<next].indices.contains { position in
-                (position == index || keys[position].length <= Self.maxShortQueryKeyLength)
-                    && Self.isSensitiveQueryKey(source.substring(with: keys[position]))
-            }
-            if sensitive {
+            if valueStart >= coveredUntil, Self.isSensitiveQueryGroup(keys[index..<next], units: units, source: source) {
                 let valueEnd = Self.queryValueEnd(in: source, from: valueStart)
                 ranges.append(NSRange(location: valueStart, length: valueEnd - valueStart))
                 coveredUntil = valueEnd
@@ -125,9 +119,6 @@ public struct ErrorRedactor {
         }
         return Self.replacing(ranges, in: source)
     }
-
-    /// The longest key besides a group's first that ``redactQueryAssignments(in:)`` reads.
-    static let maxShortQueryKeyLength = 64
 
     /// `source` with each of `ranges` (in order, not overlapping) replaced by `<redacted>`, built in
     /// one forward pass.
@@ -142,7 +133,7 @@ public struct ErrorRedactor {
         return result + source.substring(from: copied)
     }
 
-    private static func isSensitiveQueryKey(_ key: String) -> Bool {
+    static func isSensitiveQueryKey(_ key: String) -> Bool {
         let encoded = key.replacingOccurrences(of: "+", with: " ")
         let decoded = encoded.removingPercentEncoding ?? encoded
         let components = decoded.lowercased()
