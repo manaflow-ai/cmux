@@ -21,6 +21,12 @@ name: rcodesign parity proof
 #   sparkle      Sparkle's own sign_update verifies the Linux EdDSA signature,
 #                and a BinaryDelta from the newest published nightly-next
 #                applies to the Linux-signed app
+#   helper_first (input) the app is signed by feat-cmux-next's
+#                scripts/ci/release-signer/sign-app.sh in CMUX_SIGN_MODE=helper-first
+#                (the Computer Use helper notarized and stapled on its own
+#                first), compare is skipped (the helper's nonce and ticket
+#                differ by design), and the gatekeeper job runs that commit's
+#                scripts/ci/check-signed-app.sh --require-helper-ticket
 #
 # The release-next environment releases its secrets to branch nightly-next
 # only, so this runs from main in `release`, as cmux-next-dev-daily.yml does.
@@ -35,6 +41,10 @@ on:
         required: true
       launch_reference:
         description: Also notarize the codesign app and launch it quarantined the same way, on its own fresh Mac
+        type: boolean
+        default: false
+      helper_first:
+        description: Sign with feat-cmux-next's release signer, Computer Use helper notarized and stapled first, and run its signed-app checks
         type: boolean
         default: false
 
@@ -327,9 +337,11 @@ jobs:
     needs: [prep, rcodesign]
     environment: release
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 20
+    timeout-minutes: ${{ inputs.helper_first && 50 || 20 }}
     permissions:
       contents: read
+    outputs:
+      signer_sha: ${{ steps.next-signer.outputs.sha }}
     steps:
       - name: Checkout trusted signing scripts
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -337,6 +349,23 @@ jobs:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 1
           persist-credentials: false
+
+      # helper_first: the reviewed signer on feat-cmux-next, the branch the
+      # nightly-next build is cut from.
+      - name: Checkout feat-cmux-next's release signer
+        if: inputs.helper_first
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: feat-cmux-next
+          path: .next-signer
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: scripts
+
+      - name: Record the signer commit
+        id: next-signer
+        if: inputs.helper_first
+        run: echo "sha=$(git -C .next-signer rev-parse HEAD)" | tee -a "$GITHUB_OUTPUT"
 
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -363,14 +392,25 @@ jobs:
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           UNSIGNED_SHA256: ${{ needs.prep.outputs.unsigned_sha256 }}
+          # helper_first only: the helper's own notarization.
+          ASC_API_KEY_ID: ${{ inputs.helper_first && secrets.ASC_API_KEY_ID || '' }}
+          ASC_API_ISSUER_ID: ${{ inputs.helper_first && secrets.ASC_API_ISSUER_ID || '' }}
+          ASC_API_KEY_P8_BASE64: ${{ inputs.helper_first && secrets.ASC_API_KEY_P8_BASE64 || '' }}
+          HELPER_FIRST: ${{ inputs.helper_first }}
         run: |
           set -euo pipefail
           echo "$UNSIGNED_SHA256  $RUNNER_TEMP/handoff/unsigned.tar" | sha256sum -c -
           work="$RUNNER_TEMP/work"
           mkdir -p "$work"
           tar -C "$work" -xf "$RUNNER_TEMP/handoff/unsigned.tar"
-          CMUX_HELPER_ENTITLEMENTS="$work/inputs/cmux-helper.entitlements" \
-            ./scripts/ci/rcodesign-sign-bundle-dev.sh "$work/$APP_NAME.app" "$work/inputs/cmux.next-dev.entitlements"
+          if [[ "$HELPER_FIRST" == true ]]; then
+            CMUX_SIGNER="$RCODESIGN" CMUX_SIGN_MODE=helper-first CMUX_HELPER_ENTITLEMENTS="$work/inputs/cmux-helper.entitlements" \
+              .next-signer/scripts/ci/release-signer/sign-app.sh "$work/$APP_NAME.app" "$work/inputs/cmux.next-dev.entitlements" 2>&1 | tee sign.log
+            grep -E 'Computer Use helper notarized|accepted ticket covers|stapled ticket covers' sign.log | sed 's/^/    /' >> "$GITHUB_STEP_SUMMARY"
+          else
+            CMUX_HELPER_ENTITLEMENTS="$work/inputs/cmux-helper.entitlements" \
+              ./scripts/ci/rcodesign-sign-bundle-dev.sh "$work/$APP_NAME.app" "$work/inputs/cmux.next-dev.entitlements"
+          fi
           mkdir -p out
           tar -C "$work" -cf out/signed.tar "$APP_NAME.app"
 
@@ -384,6 +424,7 @@ jobs:
 
   compare:
     name: Compare the payloads
+    if: ${{ !inputs.helper_first }}
     needs: [prep, sign-codesign, sign-rcodesign]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
@@ -618,7 +659,7 @@ jobs:
 
   gatekeeper:
     name: Apple's tools and a quarantined launch on a fresh Mac
-    needs: [sign-codesign, notarize-app, notarize-dmg]
+    needs: [sign-codesign, sign-rcodesign, notarize-app, notarize-dmg]
     # No environment and no secrets: this job runs the app.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 20
@@ -675,6 +716,27 @@ jobs:
           { echo '### Apple tools on the Linux-signed app and DMG'; echo '```'; cat out/apple-tools.txt; echo '```';
             echo '### codesign -dvvv: codesign (<) vs rcodesign (>)'; echo '```'; cat out/codesign-d.diff; echo '```';
             echo '### Designated requirement: codesign (<) vs rcodesign (>)'; echo '```'; cat out/requirements.diff; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Checkout the release signer's checks (helper_first)
+        if: inputs.helper_first
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.sign-rcodesign.outputs.signer_sha }}
+          path: .next-signer
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: scripts
+
+      # The checks verify-signed-nightly runs, on the stapled app, and the
+      # Computer Use helper's own ticket on a copy taken out of the app.
+      - name: Signed-app checks and the helper's own ticket (helper_first)
+        if: inputs.helper_first
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          "$GITHUB_WORKSPACE/.next-signer/scripts/ci/check-signed-app.sh" "r/$APP_NAME.app" \
+            "$GITHUB_WORKSPACE/cmux.next-dev.entitlements" --require-helper-ticket 2>&1 | tee out/signed-app-checks.txt
+          { echo '### Signed-app checks and the Computer Use helper ticket'; echo '```'; cat out/signed-app-checks.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       # Quarantined as a browser download, mounted, copied, then launched with
       # `open` (LaunchServices runs Gatekeeper's first-launch assessment).
