@@ -5,6 +5,7 @@
 // confirmation (coordinator Q4), so the page shows the owner's result, never its own guess.
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
+import { restoredPageInputs } from "../shared/pageState";
 import { fromDetail, listCatalog, listInstalled, listUpdates, type WireDetail } from "./wire";
 import {
   categories,
@@ -73,6 +74,26 @@ export interface AppsSnapshot {
 
 const LOG_LINES = 200;
 
+/** The page name its saved state carries (pageState.ts). */
+export const APPS_PAGE = "apps";
+
+/** What the App Store keeps across a discard: the search and the category. The tab, the layout and
+    the listing are the route's. */
+export interface AppsInputs {
+  query: string;
+  category?: string;
+}
+
+/** The valid fields of the inputs a discarded document saved; the rest keep their defaults. */
+export function restoredAppsInputs(state: unknown): Partial<AppsInputs> {
+  if (!state || typeof state !== "object") return {};
+  const saved = state as Record<string, unknown>;
+  const inputs: Partial<AppsInputs> = {};
+  if (typeof saved.query === "string") inputs.query = saved.query;
+  if (typeof saved.category === "string" && saved.category) inputs.category = saved.category;
+  return inputs;
+}
+
 /** The host's code for a declined native sheet: the person said no, which is not an error. */
 const CANCELLED = "cmux.page.cancelled";
 
@@ -105,6 +126,7 @@ export class AppsStore {
       layout: route.layout,
       card: route.card,
       query: "",
+      ...restoredAppsInputs(restoredPageInputs(client, APPS_PAGE)),
       catalog: [],
       visible: [],
       categories: [],
@@ -123,6 +145,12 @@ export class AppsStore {
   }
 
   getSnapshot = (): AppsSnapshot => this.snapshot;
+
+  /** What the page keeps when it hides (pageState.ts `keep`); `restoredAppsInputs` reads it back. */
+  pageInputs(): AppsInputs {
+    const { query, category } = this.snapshot;
+    return category === undefined ? { query } : { query, category };
+  }
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
