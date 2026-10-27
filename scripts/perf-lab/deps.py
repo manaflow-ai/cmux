@@ -15,8 +15,21 @@ cmux has three pins, read from the cmux tree at the culprit's two ends:
   cef           `fork_ref` of scripts/cmux-next/cef-manifest.json, in its `repo` (manaflow-ai/cef)
 
 expand() turns a culprit (parent P, change C) into a nested bisect Job when the diff P..C touches nothing but
-those pins (the CEF pin may move scripts/cmux-next/remote-browser-host.pin.json with it, as cef_pin_staging.py
-writes both). The nested range is the path of build states from P to C, one dependency commit at a time:
+those pins and the files a roll moves with each pin (COMPANIONS), each only together with its own pin and only as
+far as it follows that pin:
+
+  ghostty       scripts/ghosttykit-checksums.txt gains a checksum for the new commit and drops none;
+                docs/ghostty-fork.md and .github/workflows/build-ghosttykit.yml (the fork's notes and CI tests)
+  ghostty-next  Packages/Shared/CmuxGhosttyKit/Package.swift changes only comments and the GhosttyNextKit
+                binaryTarget, whose url names the new commit; cmux-tui/dist/notices/package-notices.json
+                (libghostty_vt) and scripts/cmux-next/notices/vt-link-graph.json record the new commit
+  cef           scripts/cmux-next/remote-browser-host.pin.json, rebuilt against the new CEF artifact (its cef_sha256
+                is the manifest's, its own source stays), as cef_pin_staging.py writes both
+
+A change of the CEF manifest that keeps fork_ref, or that changes a field other than the fork build's own artifact
+(CEF_ARTIFACT_FIELDS; require_dcheck_off is cmux's policy, not the fork's history), is never expanded, whatever
+else moves: no nested state holds it, so the last nested step would blame an upstream commit for it.
+The nested range is the path of build states from P to C, one dependency commit at a time:
 
   P                                    the outer culprit's parent, as measured
   P + dep@d1 ... P + dep@d(n-1)        each first-parent commit of the dependency after the old pin
@@ -27,7 +40,8 @@ one commit names it at once, with no nested job). Two pins
 moved by one culprit chain, in PINS order: the second pin's states keep the first at its new commit, the way
 _FindMidpoints appends each differing dependency after the last. A roll back to an older commit walks the
 dependency's first parents down to it. A pin whose old and new commits do not lie on one first-parent line is
-not expanded (catapult's NonLinearError), nor is a culprit that is already inside a nested bisect.
+not expanded (catapult's NonLinearError), nor is any culprit of a job that is already a nested bisect (its range
+holds a dependency state), even the range culprit (P, C) of one whose every middle state was skipped.
 
 A Change of the nested range is (P, deps) with deps ((pin, commit), ...): pinpoint.Change already carries them,
 and the core keys every Change by (sha, deps). Its build is P's tree with each pin checked out at its commit and
@@ -74,9 +88,33 @@ pinpoint = _load_pinpoint()
 GHOSTTY, GHOSTTY_NEXT, CEF = "ghostty", "ghostty-next", "cef"
 PINS = (GHOSTTY, GHOSTTY_NEXT, CEF)  # the order in which one culprit's moves chain
 SUBMODULES = (GHOSTTY, GHOSTTY_NEXT)  # pin name = submodule path
+PIN_LABELS = {GHOSTTY: "ghostty", GHOSTTY_NEXT: "ghostty-next", CEF: "CEF"}
 CEF_MANIFEST = "scripts/cmux-next/cef-manifest.json"
-CEF_COMPANIONS = ("scripts/cmux-next/remote-browser-host.pin.json",)  # may move with the CEF pin, never alone
 GITMODULES = ".gitmodules"
+GHOSTTYKIT_CHECKSUMS = "scripts/ghosttykit-checksums.txt"
+GHOSTTY_FORK_DOC = "docs/ghostty-fork.md"
+GHOSTTYKIT_WORKFLOW = ".github/workflows/build-ghosttykit.yml"
+GHOSTTY_NEXT_PACKAGE = "Packages/Shared/CmuxGhosttyKit/Package.swift"
+GHOSTTY_NEXT_TARGET = "GhosttyNextKit"
+PACKAGE_NOTICES = "cmux-tui/dist/notices/package-notices.json"
+PACKAGE_NOTICES_ENTRY = "libghostty_vt"
+VT_LINK_GRAPH = "scripts/cmux-next/notices/vt-link-graph.json"
+REMOTE_BROWSER_HOST_PIN = "scripts/cmux-next/remote-browser-host.pin.json"
+# The files a roll moves with each pin; each may change only together with its own pin.
+COMPANIONS = {
+    GHOSTTY: (GHOSTTYKIT_CHECKSUMS, GHOSTTY_FORK_DOC, GHOSTTYKIT_WORKFLOW),
+    GHOSTTY_NEXT: (GHOSTTY_NEXT_PACKAGE, PACKAGE_NOTICES, VT_LINK_GRAPH),
+    CEF: (REMOTE_BROWSER_HOST_PIN,),
+}
+# CEF manifest fields that describe the fork build at fork_ref: its artifact, version, API level and storage. Any
+# other field (repo, arch, require_dcheck_off, require_official_pgo, a new one) is cmux's own choice.
+CEF_ARTIFACT_FIELDS = frozenset({
+    "fork_ref", "fork_branch", "version", "cef", "chromium", "tag", "asset", "url", "sha256", "r2_bucket", "r2_key",
+    "debug_asset", "debug_sha256", "debug_r2_key", "debug_symbols", "cmux_cef_api_version", "missing_api", "x86_64",
+    "staging",
+})
+# Host pin fields that are the host's own build, which a CEF re-pin keeps.
+HOST_PIN_OWN_FIELDS = ("asset", "arch", "source_commit", "crate_tree")
 
 
 class DepsError(RuntimeError):
@@ -160,15 +198,20 @@ def build_id(change: "pinpoint.Change") -> str:
     return hashlib.sha1(text.encode("utf-8")).hexdigest()
 
 
-def _manifest(repo: Repo, sha: str) -> Mapping | None:
-    raw = repo.read_file(sha, CEF_MANIFEST)
+def _json(repo: Repo, sha: str, path: str) -> Mapping | None:
+    raw = repo.read_file(sha, path)
     if raw is None:
         return None
     try:
         document = json.loads(raw)
     except ValueError as error:
-        raise DepsError(f"{CEF_MANIFEST} at {sha[:12]} is not JSON: {error}") from error
+        raise DepsError(f"{path} at {sha[:12]} is not JSON: {error}") from error
     return document if isinstance(document, Mapping) else None
+
+
+def _text(repo: Repo, sha: str, path: str) -> str | None:
+    raw = repo.read_file(sha, path)
+    return None if raw is None else raw.decode("utf-8", "replace")
 
 
 def _submodule_url(repo: Repo, sha: str, path: str) -> str:
@@ -192,42 +235,172 @@ def _submodule_url(repo: Repo, sha: str, path: str) -> str:
     return url if current == path else ""
 
 
-def _pin_moves(repo: Repo, parent: str, change: str) -> list[tuple[str, str, str, str]] | NotExpanded:
-    """(pin, url, old, new) for each pin the diff moves, in PINS order, or why the diff is not only pin moves."""
+@dataclass(frozen=True)
+class _Pin:
+    """One pin the diff moves, before its dependency path is read."""
+
+    pin: str
+    url: str
+    old: str
+    new: str
+
+
+# ---------- companions: each returns why its diff does more than follow its pin, or None ----------
+
+def _checksums_follow(repo: Repo, parent: str, change: str, pin: _Pin) -> str | None:
+    before = set((_text(repo, parent, GHOSTTYKIT_CHECKSUMS) or "").splitlines())
+    after = _text(repo, change, GHOSTTYKIT_CHECKSUMS)
+    if after is None:
+        return f"{GHOSTTYKIT_CHECKSUMS} is removed"
+    lines = after.splitlines()
+    if not before <= set(lines):
+        return f"{GHOSTTYKIT_CHECKSUMS} drops or edits a checksum"
+    if not any(line.split()[:1] == [pin.new] for line in lines):
+        return f"{GHOSTTYKIT_CHECKSUMS} has no checksum for the new ghostty commit {pin.new[:12]}"
+    return None
+
+
+def _ghostty_notes_follow(repo: Repo, parent: str, change: str, pin: _Pin) -> str | None:
+    """The fork's notes and its CI tests are no input of a lab build: the ghostty pin moving with them is enough."""
+    return None
+
+
+def _package_code(text: str) -> tuple[list[str], str | None]:
+    """Package.swift's code lines, without comments and without the GhosttyNextKit binaryTarget's url and
+    checksum, and that url line."""
+    kept, url, in_target = [], None, False
+    for line in text.splitlines():
+        code = line.strip()
+        if not code or code.startswith("//"):
+            continue
+        if code == f'name: "{GHOSTTY_NEXT_TARGET}",':
+            in_target = True
+        elif in_target and code.startswith(("url:", "checksum:")):
+            url = code if code.startswith("url:") else url
+            continue
+        elif in_target and code.startswith(")"):
+            in_target = False
+        kept.append(code)
+    return kept, url
+
+
+def _package_follows(repo: Repo, parent: str, change: str, pin: _Pin) -> str | None:
+    before, after = _text(repo, parent, GHOSTTY_NEXT_PACKAGE), _text(repo, change, GHOSTTY_NEXT_PACKAGE)
+    if before is None or after is None:
+        return f"{GHOSTTY_NEXT_PACKAGE} is {'added' if before is None else 'removed'}"
+    (code_before, _), (code_after, url) = _package_code(before), _package_code(after)
+    if code_before != code_after:
+        return f"{GHOSTTY_NEXT_PACKAGE} changes more than the {GHOSTTY_NEXT_TARGET} binaryTarget"
+    if url is None or f"-{pin.new}-" not in url:
+        return f"{GHOSTTY_NEXT_PACKAGE} does not pin {GHOSTTY_NEXT_TARGET} at the new commit {pin.new[:12]}"
+    return None
+
+
+def _commit_of(document: Mapping) -> str | None:
+    commit = document.get("commit")
+    return commit if isinstance(commit, str) else None
+
+
+def _notices_follow(repo: Repo, parent: str, change: str, pin: _Pin) -> str | None:
+    before, after = _json(repo, parent, PACKAGE_NOTICES), _json(repo, change, PACKAGE_NOTICES)
+    if before is None or after is None:
+        return f"{PACKAGE_NOTICES} is {'added' if before is None else 'removed'}"
+    if {k: v for k, v in before.items() if k != PACKAGE_NOTICES_ENTRY} != \
+            {k: v for k, v in after.items() if k != PACKAGE_NOTICES_ENTRY}:
+        return f"{PACKAGE_NOTICES} changes more than {PACKAGE_NOTICES_ENTRY}"
+    old, new = before.get(PACKAGE_NOTICES_ENTRY), after.get(PACKAGE_NOTICES_ENTRY)
+    if not isinstance(old, Mapping) or not isinstance(new, Mapping) or old.get("source") != new.get("source") \
+            or _commit_of(new) != pin.new:
+        return f"{PACKAGE_NOTICES} does not move {PACKAGE_NOTICES_ENTRY} to the new commit {pin.new[:12]}"
+    return None
+
+
+def _link_graph_follows(repo: Repo, parent: str, change: str, pin: _Pin) -> str | None:
+    before, after = _json(repo, parent, VT_LINK_GRAPH), _json(repo, change, VT_LINK_GRAPH)
+    if before is None or after is None:
+        return f"{VT_LINK_GRAPH} is {'added' if before is None else 'removed'}"
+    if before.get("source") != after.get("source") or _commit_of(after) != pin.new:
+        return f"{VT_LINK_GRAPH} does not move to the new commit {pin.new[:12]}"
+    return None
+
+
+def _host_pin_follows(repo: Repo, parent: str, change: str, pin: _Pin) -> str | None:
+    before, after = _json(repo, parent, REMOTE_BROWSER_HOST_PIN), _json(repo, change, REMOTE_BROWSER_HOST_PIN)
+    if before is None or after is None:
+        return f"{REMOTE_BROWSER_HOST_PIN} is {'added' if before is None else 'removed'}"
+    own = [key for key in HOST_PIN_OWN_FIELDS if before.get(key) != after.get(key)]
+    if own:
+        return f"{REMOTE_BROWSER_HOST_PIN} changes the host's own {', '.join(own)}"
+    if after.get("cef_sha256") != (_json(repo, change, CEF_MANIFEST) or {}).get("sha256"):
+        return f"{REMOTE_BROWSER_HOST_PIN} is not built against the new CEF artifact"
+    return None
+
+
+_FOLLOWS: dict[str, Callable[[Repo, str, str, _Pin], str | None]] = {
+    GHOSTTYKIT_CHECKSUMS: _checksums_follow,
+    GHOSTTY_FORK_DOC: _ghostty_notes_follow,
+    GHOSTTYKIT_WORKFLOW: _ghostty_notes_follow,
+    GHOSTTY_NEXT_PACKAGE: _package_follows,
+    PACKAGE_NOTICES: _notices_follow,
+    VT_LINK_GRAPH: _link_graph_follows,
+    REMOTE_BROWSER_HOST_PIN: _host_pin_follows,
+}
+
+
+def _cef_move(repo: Repo, parent: str, change: str) -> _Pin | NotExpanded:
+    """The CEF pin's move. A manifest change that keeps fork_ref, or that changes a field outside the fork build's
+    own artifact, is NotExpanded whatever else the diff moves: no nested state holds it."""
+    before, after = _json(repo, parent, CEF_MANIFEST), _json(repo, change, CEF_MANIFEST)
+    if before is None or after is None:
+        return NotExpanded(f"{CEF_MANIFEST} is {'added' if before is None else 'removed'} by {change[:12]}")
+    old, new = before.get("fork_ref"), after.get("fork_ref")
+    if not isinstance(old, str) or not isinstance(new, str) or not old or not new:
+        return NotExpanded(f"{CEF_MANIFEST} has no fork_ref at {(parent if not old else change)[:12]}")
+    if before.get("repo") != after.get("repo"):
+        return NotExpanded(f"the CEF pin moves from {before.get('repo')} to {after.get('repo')}: no single history")
+    if old == new:
+        return NotExpanded(f"{change[:12]} changes {CEF_MANIFEST} at the same fork commit {new[:12]}: "
+                           "no fork commits to bisect it in")
+    policy = sorted(key for key in before.keys() | after.keys()
+                    if key not in CEF_ARTIFACT_FIELDS and before.get(key) != after.get(key))
+    if policy:
+        return NotExpanded(f"{change[:12]} changes {CEF_MANIFEST} {', '.join(policy)} with the fork commit: "
+                           "not a commit of the fork")
+    return _Pin(CEF, f"https://github.com/{after.get('repo')}.git", old, new)
+
+
+def _pin_moves(repo: Repo, parent: str, change: str) -> list[_Pin] | NotExpanded:
+    """Each pin the diff moves, in PINS order, or why the diff is more than pin moves and the files following them."""
     paths = set(repo.changed_paths(parent, change))
     if not paths:
         return NotExpanded(f"{parent[:12]}..{change[:12]} changes nothing")
-    pin_paths = {*SUBMODULES, CEF_MANIFEST, *CEF_COMPANIONS}
-    other = sorted(paths - pin_paths)
+    other = sorted(paths - {*SUBMODULES, CEF_MANIFEST, *_FOLLOWS})
     if other:
         shown = ", ".join(other[:3]) + (f" and {len(other) - 3} more" if len(other) > 3 else "")
         return NotExpanded(f"{change[:12]} changes more than a dependency pin: {shown}")
-    if paths & set(CEF_COMPANIONS) and CEF_MANIFEST not in paths:
-        return NotExpanded(f"{change[:12]} moves {', '.join(sorted(paths & set(CEF_COMPANIONS)))} without the CEF pin")
-    moves = []
+    moved: dict[str, _Pin] = {}
     for pin in SUBMODULES:
         if pin not in paths:
             continue
         old, new = repo.gitlink(parent, pin), repo.gitlink(change, pin)
         if old is None or new is None:
             return NotExpanded(f"the {pin} submodule is {'added' if old is None else 'removed'} by {change[:12]}")
-        moves.append((pin, _submodule_url(repo, change, pin), old, new))
+        moved[pin] = _Pin(pin, _submodule_url(repo, change, pin), old, new)
     if CEF_MANIFEST in paths:
-        before, after = _manifest(repo, parent), _manifest(repo, change)
-        if before is None or after is None:
-            return NotExpanded(f"{CEF_MANIFEST} is {'added' if before is None else 'removed'} by {change[:12]}")
-        old, new = before.get("fork_ref"), after.get("fork_ref")
-        if not isinstance(old, str) or not isinstance(new, str) or not old or not new:
-            return NotExpanded(f"{CEF_MANIFEST} has no fork_ref at {(parent if not old else change)[:12]}")
-        if before.get("repo") != after.get("repo"):
-            return NotExpanded(f"the CEF pin moves from {before.get('repo')} to {after.get('repo')}: no single history")
-        if old != new:
-            moves.append((CEF, f"https://github.com/{after.get('repo')}.git", old, new))
-        elif not moves:
-            return NotExpanded(f"{change[:12]} re-pins CEF at the same fork commit {new[:12]}: no commits to bisect")
-    if not moves:
+        cef = _cef_move(repo, parent, change)
+        if isinstance(cef, NotExpanded):
+            return cef
+        moved[CEF] = cef
+    for pin, files in COMPANIONS.items():
+        for path in sorted(paths.intersection(files)):
+            if pin not in moved:
+                return NotExpanded(f"{change[:12]} moves {path} without the {PIN_LABELS[pin]} pin")
+            reason = _FOLLOWS[path](repo, parent, change, moved[pin])
+            if reason is not None:
+                return NotExpanded(f"{change[:12]}: {reason}")
+    if not moved:
         return NotExpanded(f"{change[:12]} moves no dependency pin")
-    return moves
+    return [moved[pin] for pin in PINS if pin in moved]
 
 
 def moves(repo: Repo, parent: str, change: str) -> tuple[Move, ...] | NotExpanded:
@@ -236,7 +409,7 @@ def moves(repo: Repo, parent: str, change: str) -> tuple[Move, ...] | NotExpande
     if isinstance(found, NotExpanded):
         return found
     out = []
-    for pin, url, old, new in found:
+    for pin, url, old, new in ((p.pin, p.url, p.old, p.new) for p in found):
         path = repo.dep_path(pin, url, old, new)
         if path is None:
             return NotExpanded(f"{pin} {old[:12]}..{new[:12]} is not one first-parent line")
@@ -258,8 +431,9 @@ def expand(job: "pinpoint.Job", culprit: "pinpoint.Culprit", repo: Repo, *,
     if job.kind != pinpoint.BISECT:
         raise DepsError(f"a {job.kind} job has no culprit to expand")
     parent, change = culprit.parent, culprit.change
-    if parent.deps or change.deps:
-        return NotExpanded(f"{change.label()} is already a dependency state of a nested bisect")
+    if any(commit.deps for commit in job.range()):
+        return NotExpanded(f"{parent.label()}..{change.label()} is a culprit of a nested bisect: "
+                           "its dependency states are already expanded")
     found = moves(repo, parent.sha, change.sha)
     if isinstance(found, NotExpanded):
         return found

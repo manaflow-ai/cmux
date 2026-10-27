@@ -86,14 +86,68 @@ class FakeRepo:
         return tuple(line[i + 1:j + 1]) if i < j else tuple(reversed(line[j:i]))
 
 
-HOST_PIN = deps.CEF_COMPANIONS[0]
+HOST_PIN = deps.REMOTE_BROWSER_HOST_PIN
+
+
+def host_pin(cef_sha256: str = "a" * 64, crate_tree: str = "t1") -> bytes:
+    return json.dumps({"asset": "cmux-remote-browser-host-macos-arm64", "arch": "arm64", "sha256": cef_sha256[:8],
+                       "source_commit": "s1", "crate_tree": crate_tree, "cef_sha256": cef_sha256}).encode()
+
+
+def package_swift(commit: str, comment: str = "", other: str = "") -> bytes:
+    """CmuxGhosttyKit's Package.swift with GhosttyNextKit pinned at commit, in the shape of the real one."""
+    return f"""// swift-tools-version: 6.2
+import PackageDescription
+// Since a04c57e81 a snapshot restore keeps a scrolled-back viewport.{comment}
+let package = Package(
+    name: "CmuxGhosttyKit",
+    targets: [
+        .target(name: "CmuxGhosttyKitLink"{other}),
+        .binaryTarget(
+            name: "GhosttyNextKit",
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-{commit}-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "{commit[:8]}"
+        ),
+    ]
+)
+""".encode()
+
+
+def notices(commit: str, musl: str = "1.2.5") -> bytes:
+    return json.dumps({"comment": "c", "musl": {"version": musl},
+                       "libghostty_vt": {"source": "ghostty-next", "commit": commit, "license_tree": f"tree {commit}"}
+                       }).encode()
+
+
+def link_graph(commit: str) -> bytes:
+    return json.dumps({"commit": commit, "schema": 1, "source": "ghostty-next", "targets": {"t": commit[:4]}}).encode()
+
+
+def checksums(*commits: str) -> bytes:
+    return "".join(f"{c} {c[:8]}\n" for c in commits).encode()
 
 
 def tree(overrides: dict | None = None) -> dict:
-    """A cmux tree with every pin at its first commit, and overrides by path."""
+    """A cmux tree with every pin at its first commit and its companion files following it, and overrides by path."""
     return {"Sources/App.swift": b"app", ".gitmodules": gitmodules("ghostty", "ghostty-next"),
             "ghostty": ("commit", up(0, "g")), "ghostty-next": ("commit", up(0)),
-            deps.CEF_MANIFEST: manifest(up(0, "f")), HOST_PIN: b'{"cef_sha256": "a"}', **(overrides or {})}
+            deps.GHOSTTYKIT_CHECKSUMS: checksums(up(0, "g")), deps.GHOSTTY_FORK_DOC: b"# fork\n",
+            deps.GHOSTTYKIT_WORKFLOW: b"jobs: {}\n",
+            deps.GHOSTTY_NEXT_PACKAGE: package_swift(up(0)), deps.PACKAGE_NOTICES: notices(up(0)),
+            deps.VT_LINK_GRAPH: link_graph(up(0)),
+            deps.CEF_MANIFEST: manifest(up(0, "f")), HOST_PIN: host_pin(), **(overrides or {})}
+
+
+def ghostty_next_roll(new: str, **package) -> dict:
+    """The real shape of a ghostty-next roll (ede77f98de9, 8d71dd9520b): gitlink, Package.swift, both notices."""
+    return {"ghostty-next": ("commit", new), deps.GHOSTTY_NEXT_PACKAGE: package_swift(new, **package),
+            deps.PACKAGE_NOTICES: notices(new), deps.VT_LINK_GRAPH: link_graph(new)}
+
+
+def ghostty_roll(new: str) -> dict:
+    """The real shape of a ghostty roll (57ad4a5e09a, 11bd7073493): gitlink, checksums, fork notes, workflow."""
+    return {"ghostty": ("commit", new), deps.GHOSTTYKIT_CHECKSUMS: checksums(up(0, "g"), new),
+            deps.GHOSTTY_FORK_DOC: f"# fork\n{new}\n".encode(), deps.GHOSTTYKIT_WORKFLOW: b"jobs: {test: 1}\n"}
 
 
 def bisect_job(range_) -> "pinpoint.Job":
@@ -126,9 +180,10 @@ def culprit_of(job, level):
 GHOSTTY_NEXT_LINE = [up(i) for i in range(12)]  # u0 .. u11, first-parent line of ghostty-next main
 
 
-def bump_fixture(new_index: int = 8, other: dict | None = None):
-    """cmux c0 -> c1 -> c2 (ghostty-next u0 -> u<new_index>, nothing else) -> c3. The outer bisect's culprit is c2."""
-    bumped = {"ghostty-next": ("commit", up(new_index)), **(other or {})}
+def bump_fixture(new_index: int = 8, other: dict | None = None, roll: dict | None = None):
+    """cmux c0 -> c1 -> c2 (ghostty-next u0 -> u<new_index>: the gitlink alone, as 769ae064b16, or roll) -> c3.
+    The outer bisect's culprit is c2."""
+    bumped = {**(roll or {"ghostty-next": ("commit", up(new_index))}), **(other or {})}
     trees = {cmux(0): tree(), cmux(1): tree({"Sources/App.swift": b"app 1"}),
              cmux(2): tree({"Sources/App.swift": b"app 1", **bumped}),
              cmux(3): tree({"Sources/App.swift": b"app 3", **bumped})}
@@ -245,6 +300,112 @@ class SubmoduleBumpTests(unittest.TestCase):
         self.assertIsInstance(again, deps.NotExpanded)
         self.assertIn("already", again.reason)
 
+    def test_range_culprit_of_a_nested_job_whose_every_state_fails_to_build_is_not_expanded_again(self) -> None:
+        repo, job = bump_fixture()
+        expansion = deps.expand(job, culprit_of(job, outer_level), repo)
+        nested = expansion.job
+        level = lambda c: 14.0 if c == nested.bad else 10.0  # noqa: E731
+        result = pinpoint.run_to_end(pinpoint.JobState(nested), lambda change: not change.deps,
+                                     lambda change, k: pinpoint.Attempt(change, k, values=(level(change) + 0.1 * (k % 7),)))
+        self.assertEqual(result.outcome, pinpoint.CULPRITS)
+        (inner,) = result.culprits
+        self.assertEqual((inner.parent, inner.change), (nested.good, nested.bad), "the range culprit (P, C)")
+        self.assertEqual(len(expansion.dep_commits(inner)), 8)
+        repo.asked.clear()
+        again = deps.expand(nested, inner, repo)
+        self.assertIsInstance(again, deps.NotExpanded)
+        self.assertIn("nested bisect", again.reason)
+        self.assertEqual(repo.asked, [], "the nested range is not read again")
+
+
+class RealRollShapeTests(unittest.TestCase):
+    """The files a roll moves with its pin, in the shape of this repository's real rolls."""
+
+    def test_ghostty_next_roll_with_package_and_notices_becomes_a_nested_bisect(self) -> None:
+        repo, job = bump_fixture(roll=ghostty_next_roll(up(8), comment="\n// Since u8 the prompt redraws."))
+        culprit = culprit_of(job, outer_level)
+        expansion = deps.expand(job, culprit, repo)
+        self.assertIsInstance(expansion, deps.Expansion, getattr(expansion, "reason", ""))
+        (move,) = expansion.moves
+        self.assertEqual((move.pin, move.old, move.new), (deps.GHOSTTY_NEXT, up(0), up(8)))
+        self.assertEqual(len(expansion.job.commits), 9)
+
+        def nested_level(change):
+            at = dict(change.deps).get(deps.GHOSTTY_NEXT)
+            return 14.0 if change == culprit.change or (at and GHOSTTY_NEXT_LINE.index(at) >= 3) else 10.0
+
+        result, _ = run(expansion.job, nested_level)
+        (inner,) = result.culprits
+        self.assertEqual(expansion.dep_commits(inner), ((deps.GHOSTTY_NEXT, up(3)),))
+
+    def test_ghostty_roll_with_checksums_fork_notes_and_workflow_expands(self) -> None:
+        trees = {cmux(0): tree(), cmux(1): tree(ghostty_roll(up(3, "g")))}
+        repo = FakeRepo(trees, {deps.GHOSTTY: [up(i, "g") for i in range(5)]})
+        (move,) = deps.moves(repo, cmux(0), cmux(1))
+        self.assertEqual((move.pin, move.path), (deps.GHOSTTY, (up(1, "g"), up(2, "g"), up(3, "g"))))
+
+    def assertNotExpanded(self, overrides: dict, reason: str, histories: dict | None = None) -> None:
+        trees = {cmux(0): tree(), cmux(1): tree(overrides)}
+        found = deps.moves(FakeRepo(trees, histories or {deps.GHOSTTY_NEXT: GHOSTTY_NEXT_LINE,
+                                                         deps.GHOSTTY: [up(i, "g") for i in range(5)]}),
+                           cmux(0), cmux(1))
+        self.assertIsInstance(found, deps.NotExpanded)
+        self.assertIn(reason, found.reason)
+
+    def test_package_swift_changing_more_than_the_binary_target_is_not_expanded(self) -> None:
+        self.assertNotExpanded(ghostty_next_roll(up(4), other=', path: "Other"'), "more than the GhosttyNextKit")
+
+    def test_package_swift_pinned_at_another_commit_is_not_expanded(self) -> None:
+        self.assertNotExpanded({**ghostty_next_roll(up(4)), deps.GHOSTTY_NEXT_PACKAGE: package_swift(up(5))},
+                               "does not pin GhosttyNextKit at the new commit")
+
+    def test_notices_changing_more_than_libghostty_vt_is_not_expanded(self) -> None:
+        self.assertNotExpanded({**ghostty_next_roll(up(4)), deps.PACKAGE_NOTICES: notices(up(4), musl="1.2.6")},
+                               "more than libghostty_vt")
+
+    def test_link_graph_of_another_commit_is_not_expanded(self) -> None:
+        self.assertNotExpanded({**ghostty_next_roll(up(4)), deps.VT_LINK_GRAPH: link_graph(up(3))},
+                               "vt-link-graph.json does not move to the new commit")
+
+    def test_ghostty_next_companion_without_its_pin_is_not_expanded(self) -> None:
+        roll = ghostty_next_roll(up(4))
+        del roll["ghostty-next"]
+        self.assertNotExpanded(roll, "without the ghostty-next pin")
+
+    def test_ghostty_next_companion_with_only_the_ghostty_pin_is_not_expanded(self) -> None:
+        self.assertNotExpanded({"ghostty": ("commit", up(2, "g")), deps.VT_LINK_GRAPH: link_graph(up(4))},
+                               "without the ghostty-next pin")
+
+    def test_ghostty_checksums_that_drop_a_line_are_not_expanded(self) -> None:
+        self.assertNotExpanded({**ghostty_roll(up(3, "g")), deps.GHOSTTYKIT_CHECKSUMS: checksums(up(3, "g"))},
+                               "drops or edits a checksum")
+
+    def test_ghostty_checksums_without_the_new_commit_are_not_expanded(self) -> None:
+        self.assertNotExpanded({**ghostty_roll(up(3, "g")),
+                                deps.GHOSTTYKIT_CHECKSUMS: checksums(up(0, "g"), up(2, "g"))},
+                               "no checksum for the new ghostty commit")
+
+    def test_fork_notes_without_the_ghostty_pin_are_not_expanded(self) -> None:
+        self.assertNotExpanded({deps.GHOSTTY_FORK_DOC: b"# notes\n"}, "without the ghostty pin")
+
+    def test_this_repository_s_real_rolls(self) -> None:
+        """deps.moves on real roll commits of this checkout, when its history has them."""
+        root = LAB.parent.parent
+        rolls = {"ede77f98de926b108860ec4f855f56f6a8153e6f": deps.GHOSTTY_NEXT,
+                 "57ad4a5e09a3a95996feb94a642e32078336d436": deps.GHOSTTY}
+        for change, pin in rolls.items():
+            probe = subprocess.run(["git", "-C", str(root), "cat-file", "-e", f"{change}^^{{commit}}"],
+                                   capture_output=True, check=False)
+            if probe.returncode != 0:
+                self.skipTest(f"{change[:11]} is not in this checkout's history")
+            repo = deps.GitRepo(root, fetch=False)
+            repo.dep_path = lambda pin_, url, old, new: (new,)
+            with self.subTest(change=change[:11]):
+                found = deps.moves(repo, f"{change}^", change)
+                self.assertIsInstance(found, tuple, getattr(found, "reason", ""))
+                self.assertEqual([m.pin for m in found], [pin])
+                self.assertEqual(found[0].new, repo.gitlink(change, pin))
+
 
 class TwoPinsAndCefTests(unittest.TestCase):
     def test_two_pins_chain_in_pin_order(self) -> None:
@@ -269,7 +430,7 @@ class TwoPinsAndCefTests(unittest.TestCase):
 
     def test_cef_pin_with_its_host_pin_expands_into_fork_commits(self) -> None:
         trees = {cmux(0): tree(), cmux(1): tree({deps.CEF_MANIFEST: manifest(up(3, "f"), sha256="b" * 64),
-                                                   HOST_PIN: b'{"cef_sha256": "b"}'})}
+                                                   HOST_PIN: host_pin("b" * 64)})}
         repo = FakeRepo(trees, {deps.CEF: [up(i, "f") for i in range(5)]})
         (move,) = deps.moves(repo, cmux(0), cmux(1))
         self.assertEqual((move.pin, move.url, move.old, move.new), (deps.CEF, "https://github.com/manaflow-ai/cef.git",
@@ -280,6 +441,38 @@ class TwoPinsAndCefTests(unittest.TestCase):
         trees = {cmux(0): tree(), cmux(1): tree({deps.CEF_MANIFEST: manifest(up(0, "f"), sha256="c" * 64)})}
         found = deps.moves(FakeRepo(trees), cmux(0), cmux(1))
         self.assertIn("same fork commit", found.reason)
+
+    def test_ghostty_next_bump_with_a_same_fork_ref_manifest_change_is_not_expanded(self) -> None:
+        trees = {cmux(0): tree(), cmux(1): tree({**ghostty_next_roll(up(4)),
+                                                   deps.CEF_MANIFEST: manifest(up(0, "f"), sha256="c" * 64),
+                                                   HOST_PIN: host_pin("c" * 64)})}
+        repo = FakeRepo(trees, {deps.GHOSTTY_NEXT: GHOSTTY_NEXT_LINE})
+        found = deps.moves(repo, cmux(0), cmux(1))
+        self.assertIsInstance(found, deps.NotExpanded)
+        self.assertIn("same fork commit", found.reason)
+        self.assertEqual(repo.asked, [])
+
+    def test_cef_policy_change_with_the_fork_move_is_not_expanded(self) -> None:
+        before = json.loads(manifest(up(0, "f")))
+        after = {**json.loads(manifest(up(3, "f"))), "require_dcheck_off": True}
+        trees = {cmux(0): tree({deps.CEF_MANIFEST: json.dumps(before).encode()}),
+                 cmux(1): tree({**ghostty_next_roll(up(4)), deps.CEF_MANIFEST: json.dumps(after).encode()})}
+        found = deps.moves(FakeRepo(trees, {deps.CEF: [up(i, "f") for i in range(5)],
+                                            deps.GHOSTTY_NEXT: GHOSTTY_NEXT_LINE}), cmux(0), cmux(1))
+        self.assertIsInstance(found, deps.NotExpanded)
+        self.assertIn("require_dcheck_off", found.reason)
+
+    def test_host_pin_rebuilt_from_other_host_source_is_not_expanded(self) -> None:
+        trees = {cmux(0): tree(), cmux(1): tree({deps.CEF_MANIFEST: manifest(up(3, "f"), sha256="b" * 64),
+                                                   HOST_PIN: host_pin("b" * 64, crate_tree="t2")})}
+        found = deps.moves(FakeRepo(trees, {deps.CEF: [up(i, "f") for i in range(5)]}), cmux(0), cmux(1))
+        self.assertIn("crate_tree", found.reason)
+
+    def test_host_pin_not_built_against_the_new_cef_is_not_expanded(self) -> None:
+        trees = {cmux(0): tree(), cmux(1): tree({deps.CEF_MANIFEST: manifest(up(3, "f"), sha256="b" * 64),
+                                                   HOST_PIN: host_pin("d" * 64)})}
+        found = deps.moves(FakeRepo(trees, {deps.CEF: [up(i, "f") for i in range(5)]}), cmux(0), cmux(1))
+        self.assertIn("not built against the new CEF artifact", found.reason)
 
     def test_host_pin_alone_is_not_a_cef_roll(self) -> None:
         trees = {cmux(0): tree(), cmux(1): tree({HOST_PIN: b"{}"})}
