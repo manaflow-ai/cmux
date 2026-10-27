@@ -548,7 +548,7 @@ jobs:
           bun-version: "1.4.4"
 
       - name: Set up pinned cmux-tui Rust
-        if: steps.areas.outputs.fmt == 'true'
+        if: steps.areas.outputs.fmt == 'true' || steps.areas.outputs.settings == 'true'
         uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Download the webviews formatting patch
@@ -611,6 +611,22 @@ jobs:
             -m "scripts/cmux-next/base-autofix.sh: $RUN_URL"
           git show --stat --oneline HEAD | sed -n '1,40p' >> "$GITHUB_STEP_SUMMARY"
           echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      # The daemon embeds schemas/settings/settings-schema.json and panics at startup on a
+      # schema it cannot parse: 8091a040 pushed a "sound_rules" kind cmux-config did not know,
+      # and no cmux-tui tree could publish. A regenerated schema is pushed only after
+      # cmux-config parses it and its accepts/refuses samples pass.
+      - name: The daemon parses the regenerated settings schema
+        if: steps.commit.outputs.changed == 'true' && steps.areas.outputs.settings == 'true'
+        run: |
+          set -euo pipefail
+          if git diff --quiet HEAD~1 HEAD -- schemas/settings/settings-schema.json; then
+            echo "schemas/settings/settings-schema.json unchanged"; exit 0
+          fi
+          if ! (cd cmux-tui && cargo test --locked -p cmux-config 2>&1 | tail -60); then
+            echo "::error::the regenerated schemas/settings/settings-schema.json fails cmux-config's tests (the daemon would not start); not pushing. Teach cmux-tui/crates/cmux-config/src/schema the change first."
+            exit 1
+          fi
 
       # The push token: an App push starts the push workflows (Push identity, above).
       - name: Mint the push token
