@@ -93,13 +93,13 @@ const surfaces: [string, (open: Open) => ReactNode][] = [
   ["Session Info", (open) => <SubagentsSection agents={[agent]} waiting={waiting} onOpen={open} />],
 ];
 for (const [name, surface] of surfaces) {
-  test(`${name}: readable task name, raw identity available to hover and VoiceOver`, async () => {
+  test(`${name}: readable task name without raw transport identity`, async () => {
     await act(async () => root.render(surface(() => {})));
     const button = host.querySelector<HTMLButtonElement>("button")!;
     expect(button.textContent).toContain(agent.task);
     expect(button.textContent).not.toContain(agent.id);
-    expect(button.title || host.textContent).toContain(agent.id);
-    expect(button.getAttribute("aria-label")).toContain(agent.id);
+    expect(button.title ?? "").not.toContain(agent.id);
+    expect(button.getAttribute("aria-label") ?? "").not.toContain(agent.id);
   });
   test(`${name}: ordinary clicks select and Cmd-clicks open background tabs`, async () => {
     const calls: [string, Record<string, unknown>][] = [];
@@ -123,7 +123,7 @@ for (const [name, surface] of surfaces) {
     ]);
   });
 }
-test("child-session Cmd-click requests a background tab and exposes identity", async () => {
+test("child-session Cmd-click requests a background tab without exposing identity", async () => {
   const calls: Record<string, unknown>[] = [];
   const call = async (_method: string, params: Record<string, unknown>) => {
     calls.push(params);
@@ -142,7 +142,8 @@ test("child-session Cmd-click requests a background tab and exposes identity", a
   await act(async () => button.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, metaKey: true })));
   await act(async () => button.click());
   expect(calls).toEqual([{ sessionId: "child-1", focus: false }, { sessionId: "child-1" }]);
-  expect(button.title).toContain("child-1");
+  expect(button.title ?? "").not.toContain("child-1");
+  expect(button.getAttribute("aria-label") ?? "").not.toContain("child-1");
 });
 
 test("View all requests the full list in the companion pane", async () => {

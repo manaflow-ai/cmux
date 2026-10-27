@@ -267,6 +267,7 @@ export default agentPaneEntry({
     "codex-child": {
       note: "A Codex subagent's own view: its read, as Codex streams it under the child's session.",
       snapshot: CODEX,
+      native: { "chat.subagentPane": { nativeError: { code: "unsupported" } } },
       play: async (ctx) => {
         await openGroup(2)(ctx);
         await ctx.click({ role: "button", name: "Open Read a" });
@@ -370,12 +371,14 @@ export default agentPaneEntry({
       note: "A list line opened: the subagent's own view, under a Subagent of pill naming the chat.",
       height: 640,
       snapshot: NESTED_MIXED,
+      native: { "chat.subagentPane": { nativeError: { code: "unsupported" } } },
       play: openChild("Test coverage"),
     },
     "child-nested": {
       note: "A nested group in the child view opened, then its finished subagent: the pill names its parent.",
       height: 760,
       snapshot: NESTED_MIXED,
+      native: { "chat.subagentPane": { nativeError: { code: "unsupported" } } },
       play: async (ctx) => {
         await openChild("Test coverage")(ctx);
         // The nested group of a running agent starts open in the working turn.
@@ -389,6 +392,7 @@ export default agentPaneEntry({
       note: "The pill goes back to the parent: the chat's transcript, its group still open.",
       height: 680,
       snapshot: NESTED_MIXED,
+      native: { "chat.subagentPane": { nativeError: { code: "unsupported" } } },
       play: async (ctx) => {
         await openChild("Test coverage")(ctx);
         await ctx.click({ selector: ".cv-subagent-of__pill" });
@@ -520,15 +524,23 @@ export default agentPaneEntry({
       },
     },
     "card-open-child": {
-      note: "A card row shows that subagent: its own view, its row marked current; nested ones indented.",
+      note: "A card row opens that subagent in the companion pane; the source transcript stays visible.",
       height: 640,
       snapshot: NESTED_MIXED,
+      native: { "chat.subagentPane": { opened: true } },
       play: async (ctx) => {
         await openSummary(ctx);
         await ctx.click({ selector: '.acpmux-summary-agent[title="Test coverage"]' });
+        const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: PaneCall[] }).cmuxGalleryLog;
         await ctx.waitFor(
-          () => ctx.document.querySelector(".cv-subagent-of") && cardRow(ctx, "Test coverage")?.ariaCurrent === "true",
+          () => log.some((call) => call.method === "chat.subagentPane" && call.params?.subagent === COVERAGE),
         );
+        const call = log.find((entry) => entry.method === "chat.subagentPane");
+        if (call?.params?.focus !== true) throw new Error("a card click must focus the subagent's pane");
+        if (ctx.document.querySelector(".cv-subagent-of"))
+          throw new Error("the source transcript switched to the child");
+        if (!ctx.document.querySelector(".acpmux-summary-card .acpmux-summary-agents"))
+          throw new Error("the source summary card closed");
       },
     },
   }),
