@@ -16,53 +16,22 @@ struct AcpmuxUploadFrameTests {
         ], modeFields: nil))
     }
 
-    @Test func promptUploadRefsSurviveWhileOtherBlockMetadataIsStripped() throws {
-        let object: [String: Any] = [
-            "method": "session/prompt",
-            "params": [
-                "prompt": [[
-                    "type": "image",
-                    "name": "shot.png",
-                    "_meta": [
-                        "acpmux": [
-                            "upload": ["uploadId": "u", "fileName": "shot.png"],
-                            "ignored": "remove",
-                        ],
-                        "ignored": true,
-                    ],
-                ]],
-            ],
-        ]
-        let result = try #require(AcpmuxPaneMethods.strippingPromptMeta(object))
-        let blocks = try #require((result["params"] as? [String: Any])?["prompt"] as? [[String: Any]])
-        let block = try #require(blocks.first)
-        let meta = try #require(block["_meta"] as? [String: Any])
-        let acpmux = try #require(meta["acpmux"] as? [String: Any])
-        let upload = try #require(acpmux["upload"] as? [String: Any])
-        #expect(upload["uploadId"] as? String == "u")
-        #expect(upload["fileName"] as? String == "shot.png")
-        #expect(acpmux.count == 1)
-        #expect(meta.count == 1)
-    }
-
-    @Test func resourceUploadRefKeepsOnlyExactUri() throws {
-        let object: [String: Any] = [
-            "method": "session/prompt",
-            "params": [
-                "prompt": [[
-                    "type": "resource_link",
-                    "uri": "acpmux-upload:u",
-                    "name": "data.bin",
-                    "_meta": ["acpmux": ["upload": ["uploadId": "u", "fileName": "data.bin"]]],
-                ]],
-            ],
-        ]
-        let result = try #require(AcpmuxPaneMethods.strippingPromptMeta(object))
-        let blocks = try #require((result["params"] as? [String: Any])?["prompt"] as? [[String: Any]])
-        let block = try #require(blocks.first)
-        #expect((block["uri"] as? String) == "acpmux-upload:u")
-        let upload = try #require(((block["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?["upload"] as? [String: Any])
-        #expect(upload["uploadId"] as? String == "u")
+    @Test func sanctionedUploadRefsKeepOnlyTheirExactMetadata() throws {
+        for (kind, uri): (String, String?) in [("image", nil), ("resource_link", "acpmux-upload:u")] {
+            var block: [String: Any] = ["type": kind, "name": "data.bin",
+                "_meta": ["acpmux": ["upload": ["uploadId": "u", "fileName": "data.bin"], "ignored": true], "ignored": true]]
+            if let uri { block["uri"] = uri }
+            let frame: [String: Any] = ["method": "session/prompt", "params": ["prompt": [block]]]
+            let result = try #require(AcpmuxPaneMethods.strippingPromptMeta(frame))
+            let blocks = try #require((result["params"] as? [String: Any])?["prompt"] as? [[String: Any]])
+            let kept = try #require(blocks.first)
+            let meta = try #require(kept["_meta"] as? [String: Any])
+            let acpmux = try #require(meta["acpmux"] as? [String: Any])
+            let upload = try #require(acpmux["upload"] as? [String: Any])
+            #expect(upload["uploadId"] as? String == "u" && upload["fileName"] as? String == "data.bin")
+            #expect(meta.count == 1 && acpmux.count == 1 && upload.count == 2)
+            #expect(kept["uri"] as? String == uri)
+        }
     }
     @Test func invalidOrNestedUploadMetadataDoesNotSurvive() throws {
         for block: [String: Any] in [
@@ -92,18 +61,20 @@ struct AcpmuxUploadFrameTests {
 
     @Test @MainActor func cancellationEndsPendingUploadBeforeLateAcknowledgement() async throws {
         let sent = AsyncStream<Void>.makeStream()
-        let wire = UploadWire(holdReply: true, onSend: { sent.continuation.yield() })
+        let wire = UploadWire(holdReply: true, holdBegin: true, onSend: { sent.continuation.yield() })
         let transport = AgentPaneTransport()
         let socket = AcpmuxPaneSocket(request: URLRequest(url: URL(string: "ws://127.0.0.1")!),
             wire: wire, limits: transport.limits, options: transport.permissionOptions,
             sessions: transport.sessions, ids: AcpmuxRequestIds(), signal: {})
         try await socket.start(timeout: 1)
-        let request = Task { _ = try await socket.callHost("_acpmux/file_put_chunk", params: ["sessionId": "s"]); return true }
+        let request = Task { _ = try await socket.callHost("_acpmux/file_put_begin", params: ["sessionId": "s"]); return true }
         var events = sent.stream.makeAsyncIterator()
         _ = await events.next()
         request.cancel()
-        wire.reply()
+        wire.reply(begin: true)
         await #expect(throws: CancellationError.self) { try await request.value }
+        for _ in 0..<100 where wire.sentCount.withLock({ $0 }) < 2 { await Task.yield() }
+        #expect(wire.sentCount.withLock { $0 } == 2, "late begin ACK did not cancel its partial upload")
         socket.close(code: 1000, reason: "", error: nil)
     }
 
@@ -138,9 +109,11 @@ struct AcpmuxUploadFrameTests {
         let sentCount = Mutex(0)
         private let lastID = Mutex(0)
         private let holdReply: Bool
+        private let holdBegin: Bool
         private let onSend: @Sendable () -> Void
-        init(holdReply: Bool = false, onSend: @escaping @Sendable () -> Void = {}) {
+        init(holdReply: Bool = false, holdBegin: Bool = false, onSend: @escaping @Sendable () -> Void = {}) {
             self.holdReply = holdReply
+            self.holdBegin = holdBegin
             self.onSend = onSend
         }
         private let incoming = Mutex<(@Sendable (String) -> Void)?>(nil)
@@ -155,13 +128,13 @@ struct AcpmuxUploadFrameTests {
             completion(true)
             onSend()
             if object?["method"] as? String == "_acpmux/file_put_begin" {
-                let id = lastID.withLock { $0 }
-                incoming.withLock { $0 }?(#"{"id":\#(id),"result":{"uploadId":"u","offset":0}}"#)
+                if !holdBegin { reply(begin: true) }
             } else if !holdReply || object?["method"] as? String == "_acpmux/file_put_cancel" { reply() }
         }
-        func reply() {
+        func reply(begin: Bool = false) {
             let id = lastID.withLock { $0 }
-            incoming.withLock { $0 }?(#"{"id":\#(id),"result":{"offset":2}}"#)
+            let result = begin ? #"{"uploadId":"u","offset":0}"# : #"{"offset":2}"#
+            incoming.withLock { $0 }?(#"{"id":\#(id),"result":\#(result)}"#)
         }
         func cancel(code: Int, reason: String) {}
     }
