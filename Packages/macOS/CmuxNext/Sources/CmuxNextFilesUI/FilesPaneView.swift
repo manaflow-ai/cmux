@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxNextFiles
 import CmuxNextCompat
 import CmuxNextDesign
+public import CmuxNextWakeups
 public import Quartz
 
 /// A Files pane: toolbar (Back, Forward, Enclosing Folder, path bar, layout,
@@ -13,7 +14,9 @@ public import Quartz
 /// ```swift
 /// let model = FileBrowserModel(folder: FileManager.default.homeDirectoryForCurrentUser)
 /// let sidebar = SidebarModel(home: home, defaults: .standard)
-/// let pane = FilesPaneView(model: model, sidebar: sidebar, icons: icons) { url in NSWorkspace.shared.openInBackground(url) }
+/// let pane = FilesPaneView(model: model, sidebar: sidebar, icons: icons, mainWork: services.mainWork) { url in
+///     NSWorkspace.shared.openInBackground(url)
+/// }
 /// ```
 @MainActor
 public final class FilesPaneView: NSView {
@@ -44,7 +47,13 @@ public final class FilesPaneView: NSView {
     private var shown: (any FileContentView)?
     /// The icon arrivals the shown view has drawn (``FileIconProvider/arrivals``).
     private var drawnIconArrivals = 0
-    private var observation: Task<Void, Never>?
+    /// Renders the pane: only while it is on screen, once on show (made in `init`).
+    private var observation: VisibleObservation<Void>?
+    /// The app's main-thread scheduler: the pane's render and its replies from off main run on it.
+    let mainWork: MainWorkScheduler
+    /// This pane in the visibility tree: an unselected tab, a hidden pane or an occluded window renders nothing.
+    let visibility = ViewVisibility("filesPane")
+    var visibilityNode: VisibilityNode { visibility.node }
 
     /// Makes a pane over `model` and starts showing it.
     /// - Parameters:
@@ -52,29 +61,53 @@ public final class FilesPaneView: NSView {
     ///   - sidebar: Favorites and Locations (one model shared by every Files pane).
     ///   - icons: Shared icon and thumbnail cache.
     ///   - home: The person's home folder (Go menu, sidebar symbols).
+    ///   - mainWork: The app's main-thread scheduler.
     ///   - openFile: Opens a file the person activated.
     public init(model: FileBrowserModel, sidebar: SidebarModel, icons: FileIconProvider,
-                home: URL = FileManager.default.homeDirectoryForCurrentUser, openFile: @escaping (URL) -> Void) {
+                home: URL = FileManager.default.homeDirectoryForCurrentUser, mainWork: MainWorkScheduler,
+                openFile: @escaping (URL) -> Void) {
         self.model = model
         self.sidebar = sidebar
         self.icons = icons
         self.home = home
+        self.mainWork = mainWork
         self.openFile = openFile
         super.init(frame: .zero)
         buildChrome()
-        observation = Task { [weak self] in
-            guard let model = self?.model else { return }
-            guard let sidebar = self?.sidebar else { return }
-            guard let icons = self?.icons else { return }
-            for await _ in ObservationStream({ [model, sidebar] in
-                _ = (model.entries, model.selection, model.folder, model.viewMode, model.phase, model.canGoBack,
-                     model.canGoForward, model.showHidden, model.transferProgress, model.lastError,
-                     sidebar.favorites, sidebar.locations, sidebar.isVisible, icons.arrivals)
-            }) {
-                self?.render()
-            }
+        // The render touches only this pane's views: a VisibleObservation on its node. A person's Back or
+        // double-click renders before its commit; a listing that lands renders once per frame.
+        observation = VisibleObservation(visibilityNode, owner: "FilesPane.render", on: mainWork) { [model, sidebar, icons] in
+            _ = (model.entries, model.selection, model.folder, model.viewMode, model.phase, model.canGoBack,
+                 model.canGoForward, model.showHidden, model.transferProgress, model.lastError,
+                 sidebar.favorites, sidebar.locations, sidebar.isVisible, icons.arrivals)
+        } apply: { [weak self] _ in
+            self?.render()
         }
-        if model.phase != .ready { Task { await model.reload() } }
+        if model.phase != .ready { navigate { await $0.reload() } }
+    }
+
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        visibility.place(in: window)
+    }
+
+    override public func viewDidHide() {
+        super.viewDidHide()
+        visibilityNode.set(.hidden)
+    }
+
+    override public func viewDidUnhide() {
+        super.viewDidUnhide()
+        visibilityNode.set(.visible)
+    }
+
+    /// Starts a navigation of `model` (a toolbar click, the path bar, the first listing). FileBrowserModel's
+    /// navigations are main-actor: each changes the folder in its first step and lists off main.
+    private func navigate(_ step: @escaping @MainActor (FileBrowserModel) async -> Void) {
+        let model = model
+        // task-owner: one navigation; ends when its listing lands
+        // main-hop-allow: the person's click starts FileBrowserModel's main-actor navigation, whose listing runs off main; post has no async form
+        Task { await step(model) }
     }
 
     @available(*, unavailable)
@@ -158,11 +191,17 @@ public final class FilesPaneView: NSView {
 
     private func loadAvailable(_ folder: URL) {
         available = (folder, nil)
-        Task { [weak self] in
-            let bytes = await FileInfoReader().availableCapacity(of: folder)
+        let land: @MainActor @Sendable (Int64?) -> Void = { [weak self] bytes in
             guard let self, self.available?.folder == folder else { return }
             self.available = (folder, bytes)
             self.status.stringValue = self.statusText()
+        }
+        let mainWork = mainWork
+        // task-owner: one volume read off main; ends when the status line shows it
+        Task { @concurrent in
+            let bytes = await FileInfoReader().availableCapacity(of: folder)
+            // node-free: one status label write of the folder the pane rendered last; a hidden pane re-renders on show anyway
+            mainWork.postFromAnyThread(.visible, owner: "FilesPane.available") { land(bytes) }
         }
     }
 
@@ -172,7 +211,7 @@ public final class FilesPaneView: NSView {
         let made: any FileContentView = switch mode {
         case .list: FileListView(actions: actions, icons: icons)
         case .icons: FileIconGridView(actions: actions, icons: icons, tileSize: CGFloat(zoomSlider.doubleValue))
-        case .columns: FileColumnsView(actions: actions, icons: icons, lister: DirectoryLister())
+        case .columns: FileColumnsView(actions: actions, icons: icons, lister: DirectoryLister(), mainWork: mainWork)
         }
         views[mode] = made
         return made
@@ -256,12 +295,12 @@ public final class FilesPaneView: NSView {
         sidebarWidth = width
     }
 
-    @objc private func goBack() { Task { await model.goBack() } }
-    @objc private func goForward() { Task { await model.goForward() } }
-    @objc private func goUp() { Task { await model.goUp() } }
+    @objc private func goBack() { navigate { await $0.goBack() } }
+    @objc private func goForward() { navigate { await $0.goForward() } }
+    @objc private func goUp() { navigate { await $0.goUp() } }
     @objc private func pathClicked() {
         guard let url = pathControl.clickedPathItem?.url else { return }
-        Task { await model.open(url) }
+        navigate { await $0.open(url) }
     }
     @objc private func layoutChanged() {
         let modes = FileViewMode.allCases
@@ -289,12 +328,14 @@ public final class FilesPaneView: NSView {
     // seen) the change hops there instead of trapping.
     override nonisolated public func beginPreviewPanelControl(_ panel: QLPreviewPanel?) {
         guard let panel else { return }
+        // main-hop-allow: QLPreviewPanel calls on main (AppKit); this off-main branch is a never-seen fallback that hops instead of trapping
         guard Thread.isMainThread else { Task { @MainActor in attachQuickLook(panel, true) }; return }
         MainActor.assumeIsolated { attachQuickLook(panel, true) } // main-proof: checked Thread.isMainThread above
     }
 
     override nonisolated public func endPreviewPanelControl(_ panel: QLPreviewPanel?) {
         guard let panel else { return }
+        // main-hop-allow: as in beginPreviewPanelControl: a never-seen off-main fallback
         guard Thread.isMainThread else { Task { @MainActor in attachQuickLook(panel, false) }; return }
         MainActor.assumeIsolated { attachQuickLook(panel, false) } // main-proof: checked Thread.isMainThread above
     }

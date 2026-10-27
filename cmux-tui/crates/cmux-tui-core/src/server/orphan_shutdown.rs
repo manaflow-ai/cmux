@@ -35,18 +35,23 @@ impl ClientRegistry {
         }
     }
 
-    /// Connected clients, of any role.
-    pub(crate) fn client_count(&self) -> usize {
-        self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clients.len()
+    /// Connected clients, of any role, except the connections of `own_plugin`
+    /// (the daemon's own journal plugin, a reader of this daemon that needs it
+    /// only while something else does; cp/quit-chief-idle).
+    pub(crate) fn client_count(&self, own_plugin: Option<u32>) -> usize {
+        let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.clients.values().filter(|record| !is_own_plugin(record, own_plugin)).count()
     }
 
     /// Reserves the daemon handoff for an orphan exit, atomically with the
-    /// check that no client is connected. While it is held, a new
-    /// connection is closed at registration. False when a client is
-    /// connected or another handoff runs.
-    fn begin_orphan_shutdown(&self) -> bool {
+    /// check that no client but the daemon's own plugin is connected. While
+    /// it is held, a new connection is closed at registration. False when a
+    /// client is connected or another handoff runs.
+    fn begin_orphan_shutdown(&self, own_plugin: Option<u32>) -> bool {
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if state.daemon_handoff.is_some() || !state.clients.is_empty() {
+        if state.daemon_handoff.is_some()
+            || state.clients.values().any(|record| !is_own_plugin(record, own_plugin))
+        {
             return false;
         }
         state.daemon_handoff = Some(DaemonHandoffReservation::Pending(ORPHAN_SHUTDOWN_REQUESTER));
@@ -54,10 +59,20 @@ impl ClientRegistry {
     }
 }
 
+/// Whether `record`'s socket peer is `own_plugin`, by the kernel's peer pid
+/// at accept (`origin.peer_key`); a connection with no known peer counts.
+fn is_own_plugin(record: &ClientRecord, own_plugin: Option<u32>) -> bool {
+    own_plugin.is_some()
+        && record.origin.peer_key.as_deref().and_then(origin_gate::peer_pid) == own_plugin
+}
+
 impl Mux {
-    /// Number of connected clients, of any role.
+    /// Number of connected clients, of any role, except the daemon's own
+    /// journal plugin (`cmux-agent-screen-detection`): it connects to this
+    /// daemon for the daemon's whole life, so with it counted no exit that
+    /// waits for "no client" could ever fire.
     pub fn client_count(&self) -> usize {
-        self.control_clients.client_count()
+        self.control_clients.client_count(self.journal_plugin_pid())
     }
 
     /// Adds `observer`, called (with no registry lock held) each time a
@@ -106,7 +121,7 @@ impl Drop for OrphanFence<'_> {
 /// caller looked keeps the owner. `false` changes nothing: a client is
 /// connected, another handoff runs, or the check no longer holds.
 pub fn stop_orphaned_owner(mux: &Arc<Mux>, still_orphaned: impl FnOnce() -> bool) -> bool {
-    if !mux.control_clients.begin_orphan_shutdown() {
+    if !mux.control_clients.begin_orphan_shutdown(mux.journal_plugin_pid()) {
         return false;
     }
     let mut fence = OrphanFence { clients: &mux.control_clients, committed: false };

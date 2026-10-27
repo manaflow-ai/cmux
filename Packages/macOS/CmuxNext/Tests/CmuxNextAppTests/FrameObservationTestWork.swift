@@ -7,6 +7,12 @@ import Foundation
     MainWorkScheduler.testing { _ in nil }
 }
 
+/// A deadline placer on a ``linklessMainWork()`` scheduler (tests): the main thread's real wake-up queue;
+/// its deadlines fire on the real clock and their actions run on the next main run loop pass.
+@MainActor func linklessDeadlines() -> MainDeadlineScheduler {
+    MainDeadlineScheduler(work: linklessMainWork())
+}
+
 /// A root node a person can see (tests): views on it update as they do on screen.
 @MainActor func shownNode(_ name: String = "test.window") -> VisibilityNode {
     VisibilityNode(root: name, own: .visible)
@@ -25,4 +31,11 @@ import Foundation
 /// `RunLoop.run(mode:before:)` itself is unavailable from async contexts.
 @MainActor func runMainLoopPass(for seconds: TimeInterval) {
     _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: seconds))
+}
+
+/// A main-thread scheduler with no display link whose posted turns run as main-actor tasks (tests): an
+/// async test sees a posted flush (a `ServiceObservation`'s, a `MainDeadline`'s action) after it yields,
+/// with no main run loop pass.
+@MainActor func taskTurnMainWork() -> MainWorkScheduler {
+    MainWorkScheduler.testing(ledger: WakeupLedger(), performTurn: { turn in Task { @MainActor in turn() } }) { _ in nil }
 }

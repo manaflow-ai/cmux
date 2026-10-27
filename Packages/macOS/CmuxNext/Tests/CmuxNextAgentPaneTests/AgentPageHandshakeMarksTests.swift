@@ -20,7 +20,7 @@ struct AgentPageHandshakeMarksTests {
 
     private func provider(_ marks: Marks) -> (AgentPageProvider, AgentPaneModel) {
         let model = AgentPaneModel(host: NoHost())
-        let provider = AgentPageProvider { _ in model }
+        let provider = AgentPageProvider(mainWork: AgentPaneMainThread.standalone().mainWork) { _ in model }
         let timings = AgentPaneLaunchTimings()
         timings.install { marks.names.append($0) }
         provider.launchTimings = timings

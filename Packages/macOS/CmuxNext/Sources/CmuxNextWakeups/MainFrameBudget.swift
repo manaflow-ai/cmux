@@ -467,11 +467,19 @@ public final class MainFrameBudget {
     /// - Returns: What `body` returns.
     @discardableResult
     public func run<T>(_ workClass: MainWorkClass, owner: MainTaskOwner, posted post: MainTaskPost? = nil, _ body: () throws -> T) rethrows -> T {
+        try runTask(workClass, owner: owner, posted: post, inline: false, body)
+    }
+
+    /// ``run(_:owner:posted:_:)``, and ``runInline(_:owner:posted:_:)`` with `inline` (work the scheduler did not pick).
+    func runTask<T>(_ workClass: MainWorkClass, owner: MainTaskOwner, posted post: MainTaskPost?, inline: Bool,
+                    _ body: () throws -> T) rethrows -> T {
         sequence &+= 1
         let index = Self.index(workClass)
-        let task = OpenTask(workClass: workClass, owner: owner, sequence: sequence, start: uptimeNanos(),
+        var task = OpenTask(workClass: workClass, owner: owner, sequence: sequence, start: uptimeNanos(),
                             budgetNanos: shares.budget(workClass).map(Self.nanos) ?? 0, post: post)
-        if let index { (ranThisFrame[index], turns.ranBudgetedTask) = (true, true) }
+        task.isInline = inline
+        task.covers = board.spanCovered(outer: open.last)
+        if let index, !inline { (ranThisFrame[index], turns.ranBudgetedTask) = (true, true) }
         open.append(task)
         turns.beginSpan(.scheduled, at: task.start)
         board.begin(workClass, owner: owner.index, sequence: task.sequence, startNanos: task.start, budgetNanos: task.budgetNanos,
@@ -497,14 +505,14 @@ public final class MainFrameBudget {
         if task.parkedSince != nil { publish(task) }
         if !open.isEmpty {
             // A task run inside the outer task's nested loop is in that loop's time already.
-            if open[open.count - 1].parkedSince == nil { open[open.count - 1].childNanos &+= elapsed }
-            if open[open.count - 1].workClass == task.workClass { open[open.count - 1].isBatch = true }
+            if open[open.count - 1].parkedSince == nil { open[open.count - 1].addChild(elapsed, overSpan: task.covers != nil) }
+            if open[open.count - 1].workClass == task.workClass, !task.isInline { open[open.count - 1].isBatch = true }
         }
         turns.endTask(at: end, ownNanos: own)
         var over = false
         if let index {
-            // The typing burst's rate counts requests, not the batch that ran them (or ran none).
-            if !task.isBatch { response.noteTask(index, startedAt: task.start) }
+            // The typing burst's rate counts requests, not the batch that ran them (or ran none), nor inline work.
+            if !task.isBatch, !task.isInline { response.noteTask(index, startedAt: task.start) }
             spent[index] &+= own
             stats.tasks[index] += 1
             stats.maxTaskNanos[index] = max(stats.maxTaskNanos[index], own)
@@ -523,8 +531,8 @@ public final class MainFrameBudget {
         if !task.ranNothing {
             board.ledger.ended(task.workClass, owner: task.owner.index, post: task.post, startNanos: task.start, runNanos: own)
         }
-        // The outer task runs again: the watchdog names it (not while it waits in a nested loop).
-        if let outer = open.last, outer.parkedSince == nil { publish(outer) }
+        // The work it ran over runs again: the watchdog names it.
+        publishCovered(by: task, elapsed: elapsed)
     }
 
     /// What `workClass` spent this frame, its open tasks' time so far included.

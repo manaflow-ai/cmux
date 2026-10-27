@@ -108,22 +108,24 @@ export function FilesPage({ store, strings }: { store: FilesStore; strings: Stri
   return (
     <div className="files">
       <header className="files-header">{root.name}</header>
-      <ContextMenu items={menu(current)} className="files-scroll">
-        <Tree
-          lines={linesOf("", 0)}
-          selected={selected}
-          label={root.name}
-          className="files-tree"
-          rowClassName="files-row"
-          rowStyle={(item) => ({ paddingInlineStart: 8 + item.depth * 14 })}
-          onSelect={(path) => store.select(path)}
-          onExpand={(path, open) => (open ? store.expand(path) : store.collapse(path))}
-          onActivate={(item) => {
-            const row = rows.find((candidate) => candidate.path === item.key);
-            if (row) activate(row);
-          }}
-        />
-      </ContextMenu>
+      <div className="files-scroll" data-page-scroll="tree">
+        <ContextMenu items={menu(current)} className="files-menu">
+          <Tree
+            lines={linesOf("", 0)}
+            selected={selected}
+            label={root.name}
+            className="files-tree"
+            rowClassName="files-row"
+            rowStyle={(item) => ({ paddingInlineStart: 8 + item.depth * 14 })}
+            onSelect={(path) => store.select(path)}
+            onExpand={(path, open) => (open ? store.expand(path) : store.collapse(path))}
+            onActivate={(item) => {
+              const row = rows.find((candidate) => candidate.path === item.key);
+              if (row) activate(row);
+            }}
+          />
+        </ContextMenu>
+      </div>
       {snapshot.notice ? <p className="files-status is-failed files-notice">{snapshot.notice}</p> : null}
     </div>
   );
