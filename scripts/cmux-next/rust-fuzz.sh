@@ -11,15 +11,37 @@
 # Usage: scripts/cmux-next/rust-fuzz.sh (--all | --target NAME[,NAME...]) [--seconds N]
 #            [--parallel N] [--out DIR] [--corpus DIR] [--rss-limit-mb N] [--malloc-limit-mb N]
 #            [--timeout N] [--sanitizer address|leak|none] [--build-only] [--list]
-#            [-- EXTRA LIBFUZZER FLAGS]
+#            [--store DIR | --no-store] [--store-import TAR] [--store-export TAR]
+#            [--coverage [--file-quality-issues]] [-- EXTRA LIBFUZZER FLAGS]
+#        scripts/cmux-next/rust-fuzz.sh --minimize-crash TARGET FILE [--out DIR]
 #        scripts/cmux-next/rust-fuzz.sh --self-test [--out DIR] [--sanitizer address|leak]
 #   --all          every target in cmux-tui/fuzz/Cargo.toml except the selftest_ ones.
 #   --target       the named targets only.
 #   --seconds      fuzzing time per target (default 300).
 #   --parallel     targets fuzzed at once (default 1). Each run is one libFuzzer process.
 #   --out          results directory (default artifacts/rust-fuzz/<UTC>).
-#   --corpus       corpus root, one subdirectory per target (default <out>/corpus). Seeds from
-#                  cmux-tui/fuzz/seeds.py are added to it first; what the run finds stays in it.
+#   --corpus       corpus root, one subdirectory per target (default <out>/corpus). The stored
+#                  corpus and the seeds from cmux-tui/fuzz/seeds.py are added to it first; what
+#                  the run finds stays in it.
+#   --store        the stored corpus (scripts/cmux-next/fuzz-corpus.py; default
+#                  `fuzz-corpus.py default-store --family cmux-tui`, a persistent host cache).
+#                  Each target starts from its stored inputs (the log prints the count); after
+#                  the run its corpus is minimized with libFuzzer -merge=1 into
+#                  <out>/merged/<target> and stored back, so the next run starts there.
+#   --no-store     start from the seeds only and store nothing.
+#   --store-import, --store-export
+#                  add a packed store (fuzz-corpus.py export) before the run; pack the store
+#                  after it. A lab step on a fleet host carries the corpus this way (its
+#                  --artifact), so the corpus moves with the lane, not with the host.
+#   --coverage     instead of fuzzing, measure each target's stored corpus with
+#                  `cargo fuzz coverage` and llvm-cov (the weekly lane), add the covered regions
+#                  to the store's history and list the targets whose coverage was flat over the
+#                  last 3 measurements (fuzz-corpus.py quality). --file-quality-issues files one
+#                  fuzz-quality issue per flat target.
+#   --minimize-crash TARGET FILE
+#                  minimize a finding (libFuzzer -minimize_crash=1) and check it in as a
+#                  regression input, cmux-tui/fuzz/corpus/<target>/regress-<sha1> (at most
+#                  64 KiB), which every later run replays first. Commit it with the fix.
 #   --rss-limit-mb, --malloc-limit-mb, --timeout
 #                  libFuzzer limits (defaults 2048, 256 and 2 seconds).
 #   --sanitizer    cargo fuzz --sanitizer (default address). libFuzzer enforces the malloc
@@ -32,7 +54,7 @@
 #                  oom, a timeout, a leak and a clean input, all with the same --out, and
 #                  check each verdict and exit status. Exit 0 when all five match, 1 otherwise.
 # Results: <out>/summary.jsonl (one row per target: target, verdict, artifact, seconds, log,
-# sanitizer, malloc_limit_mb, leak_detection), <out>/logs/<target>.log,
+# sanitizer, malloc_limit_mb, leak_detection, corpus_stored), <out>/logs/<target>.log,
 # <out>/artifacts/<target>/<run>/{crash,oom,timeout,leak}-<sha1>. Each run writes its own
 # <run> directory, so an artifact an earlier run left under the same --out never decides a
 # later verdict.
@@ -57,6 +79,9 @@ FUZZ_DIR="$REPO/cmux-tui/fuzz"
 ALL=0 TARGETS="" SECONDS_PER_TARGET=300 PARALLEL=1 OUT="" CORPUS=""
 RSS_LIMIT_MB=2048 MALLOC_LIMIT_MB=256 TIMEOUT=2 SANITIZER=address BUILD_ONLY=0 LIST=0
 SELF_TEST=0 SELF_TEST_TARGET=selftest_findings
+STORE="" NO_STORE=0 STORE_IMPORT="" STORE_EXPORT="" COVERAGE=0 FILE_QUALITY_ISSUES=0
+MINIMIZE_TARGET="" MINIMIZE_INPUT=""
+CORPUS_TOOL="$REPO/scripts/cmux-next/fuzz-corpus.py"
 EXTRA=()
 
 usage() {
@@ -87,6 +112,15 @@ while [[ $# -gt 0 ]]; do
     --build-only) BUILD_ONLY=1; shift ;;
     --list) LIST=1; shift ;;
     --self-test) SELF_TEST=1; shift ;;
+    --store) need_value "$@"; STORE="$2"; shift 2 ;;
+    --no-store) NO_STORE=1; shift ;;
+    --store-import) need_value "$@"; STORE_IMPORT="$2"; shift 2 ;;
+    --store-export) need_value "$@"; STORE_EXPORT="$2"; shift 2 ;;
+    --coverage) COVERAGE=1; shift ;;
+    --file-quality-issues) FILE_QUALITY_ISSUES=1; shift ;;
+    --minimize-crash)
+      [[ $# -ge 3 && -n "$2" && -n "$3" ]] || { echo "rust-fuzz.sh: --minimize-crash needs TARGET FILE" >&2; exit 2; }
+      MINIMIZE_TARGET="$2"; MINIMIZE_INPUT="$3"; shift 3 ;;
     -h|--help) usage ;;
     --) shift; EXTRA=("$@"); break ;;
     *) echo "rust-fuzz.sh: unknown argument '$1'" >&2; usage ;;
@@ -97,6 +131,15 @@ case "$SANITIZER" in
   address|leak|none) ;;
   *) echo "rust-fuzz.sh: --sanitizer must be address, leak or none" >&2; exit 2 ;;
 esac
+if [[ "$NO_STORE" == 1 && -n "$STORE$STORE_IMPORT$STORE_EXPORT" ]]; then
+  echo "rust-fuzz.sh: --no-store excludes --store, --store-import and --store-export" >&2; exit 2
+fi
+if [[ "$NO_STORE" == 1 && "$COVERAGE" == 1 ]]; then
+  echo "rust-fuzz.sh: --coverage measures the stored corpus; it cannot run with --no-store" >&2; exit 2
+fi
+if [[ "$FILE_QUALITY_ISSUES" == 1 && "$COVERAGE" == 0 ]]; then
+  echo "rust-fuzz.sh: --file-quality-issues goes with --coverage" >&2; exit 2
+fi
 
 # Every [[bin]] name in the fuzz manifest, in file order.
 manifest_targets() {
@@ -125,7 +168,7 @@ self_test() {
     # --timeout 600: only the target's .options (timeout = 1) makes the timeout case finish.
     # -runs=0: execute the corpus input once and stop, no mutations.
     "${BASH_SOURCE[0]}" --target "$SELF_TEST_TARGET" --out "$out" --corpus "$out/inputs/$want_verdict" \
-      --sanitizer "$SANITIZER" --seconds 60 --timeout 600 -- -runs=0 \
+      --sanitizer "$SANITIZER" --seconds 60 --timeout 600 --no-store -- -runs=0 \
       >"$out/self-test-$want_verdict.log" 2>&1 || status=$?
     verdict="$(python3 -I -c 'import json, sys
 rows = [json.loads(line) for line in open(sys.argv[1]) if line.strip()]
@@ -151,6 +194,11 @@ if [[ "$LIST" == 1 ]]; then
   exit 0
 fi
 
+if [[ -n "$MINIMIZE_TARGET" ]]; then
+  [[ "$ALL" == 0 && -z "$TARGETS" ]] || { echo "rust-fuzz.sh: --minimize-crash takes its own TARGET" >&2; exit 2; }
+  [[ -f "$MINIMIZE_INPUT" ]] || { echo "rust-fuzz.sh: --minimize-crash: no file '$MINIMIZE_INPUT'" >&2; exit 2; }
+  TARGETS="$MINIMIZE_TARGET"
+fi
 if [[ "$ALL" == 1 && -n "$TARGETS" ]]; then
   echo "rust-fuzz.sh: give --all or --target, not both" >&2; exit 2
 fi
@@ -191,6 +239,15 @@ CORPUS="${CORPUS:-$OUT/corpus}"
 mkdir -p "$OUT/logs" "$OUT/artifacts" "$CORPUS"
 OUT="$(cd "$OUT" && pwd)"
 CORPUS="$(cd "$CORPUS" && pwd)"
+RUN_ID="${CMUX_FUZZ_RUN_ID:-$(basename "$OUT")}"
+if [[ "$NO_STORE" == 0 ]]; then
+  STORE="${STORE:-$(python3 -I "$CORPUS_TOOL" default-store --family cmux-tui)}"
+  mkdir -p "$STORE"
+  STORE="$(cd "$STORE" && pwd)"
+  if [[ -n "$STORE_IMPORT" ]]; then
+    python3 -I "$CORPUS_TOOL" import --store "$STORE" --in "$STORE_IMPORT" || exit 75
+  fi
+fi
 
 # A target's own settings, Chromium's <target>.options file (testing/libfuzzer/fuzzer_test.gni,
 # libfuzzer_options and asan_options): fuzz_targets/<target>.options, INI with a [libfuzzer]
@@ -214,6 +271,62 @@ cargo_fuzz() {
   (cd "$FUZZ_DIR" && cargo fuzz "$1" --fuzz-dir . --sanitizer "$SANITIZER" "${@:2}")
 }
 
+# The host llvm-cov of the pinned nightly (its llvm-tools component).
+llvm_cov() {
+  local sysroot host
+  sysroot="$(rustup run "$CHANNEL" rustc --print sysroot)"
+  host="$(rustup run "$CHANNEL" rustc -vV | sed -n 's/^host: //p')"
+  "$sysroot/lib/rustlib/$host/bin/llvm-cov" "$@"
+}
+
+export_store() {
+  if [[ -n "$STORE_EXPORT" ]]; then
+    python3 -I "$CORPUS_TOOL" export --store "$STORE" --out "$STORE_EXPORT" || exit 75
+  fi
+}
+
+# The weekly coverage lane: each target's stored corpus (plus seeds) through `cargo fuzz
+# coverage`, its covered regions into the store's history, then the flat-coverage report.
+coverage_run() {
+  local target host target_dir profile binary status=0 quality=0
+  host="$(rustup run "$CHANNEL" rustc -vV | sed -n 's/^host: //p')"
+  # Its own target directory: cargo fuzz coverage builds with -Cinstrument-coverage, which
+  # would otherwise rebuild the fuzzing binaries next to it.
+  target_dir="${CARGO_TARGET_DIR:-$FUZZ_DIR/target}/coverage"
+  mkdir -p "$OUT/coverage"
+  python3 -I "$CORPUS_TOOL" pull --store "$STORE" --into "$CORPUS" "${SELECTED[@]}"
+  python3 -I "$FUZZ_DIR/seeds.py" --repo "$REPO" --out "$CORPUS" "${SELECTED[@]}"
+  for target in "${SELECTED[@]}"; do
+    if ! cargo_fuzz coverage "$target" --target-dir "$target_dir" "$CORPUS/$target" \
+        >"$OUT/logs/coverage-$target.log" 2>&1; then
+      echo "rust-fuzz.sh: cargo fuzz coverage $target failed (log: $OUT/logs/coverage-$target.log)" >&2
+      status=75
+      continue
+    fi
+    profile="$FUZZ_DIR/coverage/$target/coverage.profdata"
+    binary="$target_dir/$host/release/$target"
+    if ! llvm_cov export -summary-only -instr-profile="$profile" "$binary" >"$OUT/coverage/$target.json" \
+        2>>"$OUT/logs/coverage-$target.log"; then
+      echo "rust-fuzz.sh: llvm-cov export $target failed (log: $OUT/logs/coverage-$target.log)" >&2
+      status=75
+      continue
+    fi
+    python3 -I "$CORPUS_TOOL" record-coverage --store "$STORE" --target "$target" --run "$RUN_ID" \
+      --llvm-cov-json "$OUT/coverage/$target.json" || status=75
+  done
+  local -a issues=()
+  [[ "$FILE_QUALITY_ISSUES" == 0 ]] || issues=(--file-issues)
+  # quality exits 1 when a target is flat: a fuzzer-quality finding it reports, not a failed run.
+  python3 -I "$CORPUS_TOOL" quality --store "$STORE" "${issues[@]}" || quality=$?
+  (( quality <= 1 )) || status=75
+  export_store
+  exit "$status"
+}
+
+if [[ "$COVERAGE" == 1 ]]; then
+  coverage_run
+fi
+
 echo "rust-fuzz.sh: building ${#SELECTED[@]} targets with $CHANNEL (sanitizer $SANITIZER)"
 for target in "${SELECTED[@]}"; do
   if ! cargo_fuzz build "$target" >"$OUT/logs/build-$target.log" 2>&1; then
@@ -227,7 +340,60 @@ if [[ "$BUILD_ONLY" == 1 ]]; then
   exit 0
 fi
 
+# A finding minimized to a checked-in regression input: libFuzzer -minimize_crash=1 keeps
+# shrinking while the input still fails, then fuzz-corpus.py regress refuses one over 64 KiB.
+if [[ -n "$MINIMIZE_TARGET" ]]; then
+  minimized="$OUT/minimized/$MINIMIZE_TARGET-$(sha1sum "$MINIMIZE_INPUT" | cut -c1-16)"
+  mkdir -p "$OUT/minimized"
+  cargo_fuzz run "$MINIMIZE_TARGET" "$MINIMIZE_INPUT" -- \
+    -minimize_crash=1 -max_total_time="$SECONDS_PER_TARGET" \
+    -rss_limit_mb="$RSS_LIMIT_MB" -malloc_limit_mb="$MALLOC_LIMIT_MB" -timeout="$TIMEOUT" \
+    -exact_artifact_path="$minimized" >"$OUT/logs/minimize-$MINIMIZE_TARGET.log" 2>&1 || true
+  if [[ ! -s "$minimized" ]]; then
+    echo "rust-fuzz.sh: libFuzzer kept no minimized input; does $MINIMIZE_INPUT still fail? (log: $OUT/logs/minimize-$MINIMIZE_TARGET.log)" >&2
+    exit 75
+  fi
+  python3 -I "$CORPUS_TOOL" regress --target "$MINIMIZE_TARGET" --input "$minimized" || exit 75
+  exit 0
+fi
+
+PULL_RECEIPT="$OUT/corpus-pull.json"
+if [[ "$NO_STORE" == 0 ]]; then
+  python3 -I "$CORPUS_TOOL" pull --store "$STORE" --into "$CORPUS" --receipt "$PULL_RECEIPT" "${SELECTED[@]}"
+fi
 python3 -I "$FUZZ_DIR/seeds.py" --repo "$REPO" --out "$CORPUS" "${SELECTED[@]}"
+
+# The binary `cargo fuzz build` made for a target. The merge runs it directly: a second
+# `cargo fuzz run` per target only waits on the build directory lock of the other targets.
+HOST_TRIPLE="$(rustup run "$CHANNEL" rustc -vV | sed -n 's/^host: //p')"
+fuzz_binary() {
+  printf '%s/%s/release/%s\n' "${CARGO_TARGET_DIR:-$FUZZ_DIR/target}" "$HOST_TRIPLE" "$1"
+}
+
+# The run's corpus minimized (libFuzzer -merge=1: the smallest set with every feature the
+# corpus reaches, ClusterFuzz's corpus pruning) and stored back. A merge that fails stores
+# nothing, so the stored corpus stays as it was. Takes the target and its own libFuzzer flags;
+# ASAN_OPTIONS is the run's. Prints true when the corpus was stored, else false.
+store_corpus() {
+  local target="$1" merged="$OUT/merged/$1" log="$OUT/logs/merge-$1.log"
+  shift
+  rm -rf "$merged"
+  mkdir -p "$merged"
+  # cargo fuzz run appends detect_odr_violation=0 to ASAN_OPTIONS; the direct call does the same.
+  if ! ASAN_OPTIONS="${ASAN_OPTIONS:+$ASAN_OPTIONS:}detect_odr_violation=0" "$(fuzz_binary "$target")" \
+      -merge=1 -rss_limit_mb="$RSS_LIMIT_MB" -malloc_limit_mb="$MALLOC_LIMIT_MB" -timeout="$TIMEOUT" \
+      -artifact_prefix="$OUT/merged/.$target-" "$@" "$merged" "$CORPUS/$target" >"$log" 2>&1; then
+    echo "rust-fuzz.sh: $target corpus merge failed; the stored corpus is unchanged (log: $log)" >&2
+    echo false
+    return
+  fi
+  if python3 -I "$CORPUS_TOOL" push --store "$STORE" --target "$target" --from "$merged" \
+      --receipt "$PULL_RECEIPT" --run "$RUN_ID" --fuzz-log "$OUT/logs/$target.log" >&2; then
+    echo true
+  else
+    echo false
+  fi
+}
 
 # One libFuzzer run of one target. Writes <out>/verdict-<target>.json.
 run_target() {
@@ -269,16 +435,21 @@ run_target() {
   else
     verdict=error
   fi
+  # A run that stopped without a verdict proved nothing about its corpus: keep the stored one.
+  local stored=false
+  if [[ "$NO_STORE" == 0 && "$verdict" != error ]]; then
+    stored="$(ASAN_OPTIONS="$asan" store_corpus "$target" "${own[@]}")"
+  fi
   python3 -I -c 'import json, sys
-target, verdict, artifact, seconds, status, log, sanitizer, malloc_limit, leaks, out = sys.argv[1:]
+target, verdict, artifact, seconds, status, log, sanitizer, malloc_limit, leaks, stored, out = sys.argv[1:]
 row = {"target": target, "verdict": verdict, "artifact": artifact or None,
        "seconds": int(seconds), "exit_status": int(status), "log": log,
        "sanitizer": sanitizer, "malloc_limit_mb": json.loads(malloc_limit),
-       "leak_detection": json.loads(leaks)}
+       "leak_detection": json.loads(leaks), "corpus_stored": json.loads(stored)}
 with open(out, "w") as handle:
     json.dump(row, handle)' \
     "$target" "$verdict" "$artifact" "$(( $(date +%s) - started ))" "$status" "$log" \
-    "$SANITIZER" "$MALLOC_LIMIT_RECORDED" "$LEAK_DETECTION" "$OUT/verdict-$target.json"
+    "$SANITIZER" "$MALLOC_LIMIT_RECORDED" "$LEAK_DETECTION" "$stored" "$OUT/verdict-$target.json"
   echo "rust-fuzz.sh: $target $verdict${artifact:+ ($artifact)}"
 }
 
@@ -313,6 +484,7 @@ rows = [json.loads(line) for line in open(sys.argv[1]) if line.strip()]
 print(sum(row["verdict"] in ("crash", "oom", "timeout", "leak") for row in rows),
       sum(row["verdict"] == "error" for row in rows))' "$OUT/summary.jsonl")"
 read -r finding_count error_count <<<"$findings"
+[[ "$NO_STORE" == 1 ]] || export_store
 echo "rust-fuzz.sh: $finding_count findings, $error_count runs without a verdict; summary $OUT/summary.jsonl"
 if (( finding_count > 0 )); then
   exit 1

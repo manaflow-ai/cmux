@@ -72,6 +72,8 @@ public enum FuzzError: Error, Sendable, Equatable, CustomStringConvertible {
     case badVariable(name: String, value: String)
     /// A corpus file or directory that cannot be read.
     case corpusUnreadable(path: String, reason: String)
+    /// A checked-in corpus or regression input over `FuzzCorpusStore.maxCheckedInInputBytes`.
+    case corpusInputTooLarge(path: String, bytes: Int)
     /// The artifacts directory or an artifact that cannot be written.
     case artifactUnwritable(path: String, reason: String)
     /// A property of one input does not hold (`FuzzRun.check`).
@@ -83,6 +85,9 @@ public enum FuzzError: Error, Sendable, Equatable, CustomStringConvertible {
         switch self {
         case let .badVariable(name, value): "\(name)=\(value) does not parse"
         case let .corpusUnreadable(path, reason): "corpus \(path) is unreadable: \(reason)"
+        case let .corpusInputTooLarge(path, bytes):
+            "corpus input \(path) is \(bytes) bytes, over the \(FuzzCorpusStore.maxCheckedInInputBytes)-byte limit "
+                + "of a checked-in input; minimize it first"
         case let .artifactUnwritable(path, reason): "artifact \(path) is unwritable: \(reason)"
         case let .property(message, location): "\(location): \(message)"
         case let .failed(failure): failure.description

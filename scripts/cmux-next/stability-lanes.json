@@ -1,0 +1,50 @@
+{
+  "schema": "cmux-stability-lanes/v1",
+  "note": "Lanes of the stability lab (plans/cmux-next/chrome-parity/p10-stability.md, section 3.A). stability-lab.py reads id and tier; the runner (task 003) reads the rest. Every lane runs through cmux-ci at the lowest priority, never on a bench host, and blocks no push, merge or nightly.",
+  "lanes": [
+    {
+      "id": "rust-fuzz",
+      "tier": "fast",
+      "summary": "cargo-fuzz, 5 minutes per cmux-tui/fuzz target, each from its stored corpus; the run's corpus is minimized (-merge=1) and stored back.",
+      "host_class": "preemptible",
+      "minutes": 45,
+      "priority": "background",
+      "never_with": ["bench"],
+      "step": {
+        "class": "isolated",
+        "script": "scripts/cmux-next/rust-fuzz.sh",
+        "args": ["--all", "--seconds", "300", "--parallel", "8", "--store", "artifacts/fuzz-corpus/cmux-tui",
+                 "--store-import", "{corpus_in}", "--store-export", "artifacts/rust-fuzz/corpus-store.tar.gz"],
+        "artifact": "artifacts/rust-fuzz/corpus-store.tar.gz"
+      },
+      "corpus": {
+        "family": "cmux-tui",
+        "tool": "scripts/cmux-next/fuzz-corpus.py",
+        "carry": "{corpus_in} is the newest passed rust-fuzz or rust-fuzz-coverage step's artifact, uploaded for this step's lane with `cmux-ci artifact-put` (store objects live 14 days; the daily run refreshes it). The step's --store is a fresh directory in its checkout, so the corpus moves with the lane, not with the host. With no earlier artifact the lane drops --store-import and starts from the seeds."
+      },
+      "findings": "summary.jsonl verdicts crash, oom, timeout and leak; each artifact goes through crash_signature.py and stability_issues.py. The fix commits `rust-fuzz.sh --minimize-crash TARGET FILE`, a regression input of at most 64 KiB under cmux-tui/fuzz/corpus/<target>/."
+    },
+    {
+      "id": "rust-fuzz-coverage",
+      "tier": "long",
+      "schedule": "weekly",
+      "summary": "cargo fuzz coverage + llvm-cov of every target's stored corpus; covered regions go into the store's history, and a target flat over its last 3 measurements gets one fuzz-quality issue.",
+      "host_class": "preemptible",
+      "minutes": 90,
+      "priority": "background",
+      "never_with": ["bench"],
+      "step": {
+        "class": "isolated",
+        "script": "scripts/cmux-next/rust-fuzz.sh",
+        "args": ["--all", "--coverage", "--file-quality-issues", "--store", "artifacts/fuzz-corpus/cmux-tui",
+                 "--store-import", "{corpus_in}", "--store-export", "artifacts/rust-fuzz/corpus-store.tar.gz"],
+        "artifact": "artifacts/rust-fuzz/corpus-store.tar.gz"
+      },
+      "corpus": {
+        "family": "cmux-tui",
+        "tool": "scripts/cmux-next/fuzz-corpus.py",
+        "carry": "the same {corpus_in} as rust-fuzz; its exported store carries the coverage history to the next run."
+      }
+    }
+  ]
+}
