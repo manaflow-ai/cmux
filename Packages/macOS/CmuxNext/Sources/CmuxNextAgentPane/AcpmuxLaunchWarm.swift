@@ -18,20 +18,24 @@ actor AcpmuxLaunchWarm {
         }
     }
 
+    private var requested = Set<String>()
+    var hasRequests: Bool { !requested.isEmpty }
+
     private var fences: [String: Fence] = [:]
     private let call: @Sendable (String, [String: any Sendable]) async throws -> Fence?
 
-    init() { call = Self.request }
-    init(call: @escaping @Sendable (String, [String: any Sendable]) async throws -> Fence?) { self.call = call }
-
-    private nonisolated static func request(socket: String, params: [String: any Sendable]) async throws -> Fence? {
-        let result = try await AcpmuxStatusClient.call(socketPath: socket, method: "_acpmux/warm", params: params, deadline: .seconds(60))
-        return Fence(result: result)
+    init() {
+        call = { socket, params in
+            let result = try await AcpmuxStatusClient.call(socketPath: socket, method: "_acpmux/warm", params: params,
+                                                          deadline: .seconds(60), requiredFeature: "launchWarm")
+            return Fence(result: result)
+        }
     }
+
+    init(call: @escaping @Sendable (String, [String: any Sendable]) async throws -> Fence?) { self.call = call }
 
     func warm(_ sessions: [String], socket: String) async throws {
         var failed: [String] = []
-        var accepted = false
         for session in sessions {
             try Task.checkCancellation()
             var params: [String: any Sendable] = ["sessionIds": [session], "limit": 1]
@@ -39,9 +43,10 @@ actor AcpmuxLaunchWarm {
                 params["expectedStopCounts"] = [session: fence.stops]
                 params["expectedDaemonEpoch"] = fence.epoch
             }
+            // Record before dispatch: a cancelled/lost reply can still have started this chat.
+            requested.insert(session)
             do {
                 fences[session] = try await call(socket, params)
-                accepted = true
                 if fences[session] != nil { failed.append(session) }
             } catch {
                 try Task.checkCancellation()
@@ -54,6 +59,18 @@ actor AcpmuxLaunchWarm {
                 }
             }
         }
-        if !failed.isEmpty { throw AgentPaneWarmFailure(sessionIds: failed, accepted: accepted) }
+        if !failed.isEmpty { throw AgentPaneWarmFailure(sessionIds: failed) }
+    }
+
+    /// Quit retries only unresolved targets; other sessions on a shared daemon are never ended.
+    func end(environment: AcpmuxEnvironment) async -> AcpmuxQuit.EndResult {
+        await end { await AcpmuxLaunchCleanup(environment: environment).end($0) }
+    }
+
+    func end(ending: @Sendable ([String]) async -> Set<String>) async -> AcpmuxQuit.EndResult {
+        guard !requested.isEmpty else { return .noDaemon }
+        let ended = await ending(requested.sorted())
+        requested.subtract(ended)
+        return requested.isEmpty ? .ended : .agentsStillRunning(requested.sorted())
     }
 }

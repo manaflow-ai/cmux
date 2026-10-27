@@ -73,23 +73,11 @@ public actor ChiefHomeDirectory {
     func warm(host: String, sessionIds: [String], fallback: any AgentPaneHostProviding) async throws {
         guard let own = await ownAcpmux(of: host) else { return try await fallback.warm(sessionIds: sessionIds) }
         let home = own.home
-        var owned = try await work.run(.userVisible, mayBlock: .files) { home.hostRuns }
+        let owned = try await work.run(.userVisible, mayBlock: .files) { home.hostRuns }
         try Task.checkCancellation()
-        // Fence the unlocked census through the daemon start. If a Chief acquires the home
-        // between the census and this point, fail closed into its attaching host.
-        let ownership: ChiefMigration.HostLock?
-        if owned {
-            ownership = nil
-        } else if let lock = ChiefMigration.HostLock(path: home.root.appendingPathComponent("state/host.lock")) {
-            ownership = lock
-        } else {
-            owned = true
-            ownership = nil
-        }
         let tag = "optchat-chief:" + host.dropFirst(ChiefHome.tabHostPrefix.count)
         let router = AcpmuxChiefSessionRouter(local: fallback, chief: owned ? own.attaching : own.starting,
                                               chiefEnvironment: own.environment, sessionsHome: home.acpmuxHome, parentTag: tag)
-        defer { ownership?.release() }
         do {
             try await router.warm(sessionIds: sessionIds)
         } catch {
@@ -103,21 +91,20 @@ public actor ChiefHomeDirectory {
     /// Called after launch cancellation/drain. Failed ends stay recorded so Quit's Retry can try again.
     public func endLaunchSessions(waitForShutdown: Bool, excludingAttachedHome: URL? = nil,
                                   end: (@Sendable (AcpmuxEnvironment?, Bool) async -> AcpmuxQuit.EndResult)? = nil) async -> [AcpmuxQuit.EndResult] {
-        let endAgents: @Sendable (AcpmuxEnvironment?, Bool) async -> AcpmuxQuit.EndResult = end ?? {
-            await AcpmuxQuit.endAgents($0, keep: .nothing, waitForShutdown: $1)
-        }
         var results: [AcpmuxQuit.EndResult] = []
         for host in launchHomes.sorted() {
             guard let own = await ownAcpmux(of: host) else { continue }
             let home = own.home
             if let attached = excludingAttachedHome,
                attached.standardizedFileURL.resolvingSymlinksInPath() == home.acpmuxHome.standardizedFileURL.resolvingSymlinksInPath() { continue }
-            // Acquire the ownership lock as the authoritative check and hold it through shutdown.
-            // If another Chief owns the home, acquisition fails; a separate hostRuns census would
-            // only widen the check-to-shutdown race.
-            guard let ownership = ChiefMigration.HostLock(path: home.root.appendingPathComponent("state/host.lock")) else { continue }
-            let result = await endAgents(own.environment, waitForShutdown)
-            ownership.release()
+            // End only the sessions this launch attempted through the host that could start the
+            // home's daemon. Named Chief brains may share that daemon; the host-level cleanup
+            // targets only this launch's restored session ids and never shuts down the daemon.
+            let result = if let end {
+                await end(own.environment, waitForShutdown)
+            } else {
+                await own.starting.endLaunchSessions(waitForShutdown: waitForShutdown)
+            }
             results.append(result)
             switch result {
             case .noDaemon, .ended: launchHomes.remove(host)

@@ -4,7 +4,7 @@ import Testing
 
 struct AcpmuxLaunchWarmTests {
     @Test func anAmbiguousFirstReplyIsNeverRetriedWithoutAStopFence() async throws {
-        let peer = WarmPeer([.lost])
+        let peer = AcpmuxLaunchWarmPeer([.lost])
         let warm = AcpmuxLaunchWarm { _, params in try await peer.reply(params) }
         // The daemon accepted the call, but its reply was lost. A person may Stop at any time.
         try await warm.warm(["chat"], socket: "unused")
@@ -13,7 +13,7 @@ struct AcpmuxLaunchWarmTests {
 
     @Test func retriesKeepTheOriginalFenceThroughLostRepliesAndStopAfterAnEpochMismatch() async throws {
         let fence = AcpmuxLaunchWarm.Fence(epoch: "123:456", stops: 7)
-        let peer = WarmPeer([.retry(fence), .lost, .skip])
+        let peer = AcpmuxLaunchWarmPeer([.retry(fence), .lost, .skip])
         let warm = AcpmuxLaunchWarm { _, params in try await peer.reply(params) }
         for _ in 0..<2 {
             await #expect(throws: AgentPaneWarmFailure.self) { try await warm.warm(["chat"], socket: "unused") }
@@ -33,22 +33,50 @@ struct AcpmuxLaunchWarmTests {
         #expect(AcpmuxLaunchWarm.Fence(result: ["daemonEpoch": "1:2", "failed": []]) == nil)
     }
 
-    private actor WarmPeer {
-        enum Reply: Sendable { case retry(AcpmuxLaunchWarm.Fence), lost, skip }
-        struct Request: Sendable { let epoch: String?; let stops: UInt64? }
-        private var replies: [Reply]
-        private(set) var requests: [Request] = []
-        init(_ replies: [Reply]) { self.replies = replies }
-        func reply(_ params: [String: any Sendable]) throws -> AcpmuxLaunchWarm.Fence? {
-            requests.append(Request(epoch: params["expectedDaemonEpoch"] as? String,
-                                    stops: (params["expectedStopCounts"] as? [String: UInt64])?["chat"]))
-            guard !replies.isEmpty else { Issue.record("unexpected warm retry"); return nil }
-            switch replies.removeFirst() {
-            case .retry(let fence): return fence
-            case .lost: throw AcpmuxStatusClient.Failure.closed
-            case .skip: return nil
-            }
+    @Test func endStopsOnlyRequestedChatsAndRetriesOnlyUnresolvedTargets() async throws {
+        let warm = AcpmuxLaunchWarm { _, _ in nil }
+        try await warm.warm(["mine", "mine-too"], socket: "unused")
+        let first = await warm.end { sessions in
+            #expect(sessions == ["mine", "mine-too"])
+            return ["mine"]
         }
+        #expect(first == .agentsStillRunning(["mine-too"]))
+        #expect(await warm.end { sessions in
+            #expect(sessions == ["mine-too"])
+            return Set(sessions)
+        } == .ended)
+        #expect(await warm.end { _ in Issue.record("completed cleanup sent another request"); return [] } == .noDaemon)
+    }
+
+    @Test func aLostWarmReplyStillRecordsTheExactChatForEndSessions() async throws {
+        let warm = AcpmuxLaunchWarm { _, _ in throw AcpmuxStatusClient.Failure.closed }
+        try await warm.warm(["mine"], socket: "unused")
+        #expect(await warm.end { sessions in
+            #expect(sessions == ["mine"])
+            return Set(sessions)
+        } == .ended)
+    }
+
+    @Test func cancellationRetainsEarlierAndInFlightChatsButNotQueuedOnes() async throws {
+        let (starts, started) = AsyncStream<Void>.makeStream()
+        let warm = AcpmuxLaunchWarm { _, params in
+            if (params["sessionIds"] as? [String]) == ["in-flight"] {
+                started.yield(())
+                try await Task.sleep(for: .seconds(60))
+            }
+            return nil
+        }
+        let task = Task { try await warm.warm(["completed", "in-flight", "queued"], socket: "unused") }
+        defer { task.cancel() }
+        try await withAgentPaneDeadline(.seconds(5), label: "sibling warm begins") {
+            for await _ in starts { return }
+        }
+        task.cancel()
+        await #expect(throws: CancellationError.self) { try await task.value }
+        #expect(await warm.end { sessions in
+            #expect(sessions == ["completed", "in-flight"])
+            return Set(sessions)
+        } == .ended)
     }
 
 }

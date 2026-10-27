@@ -24,6 +24,7 @@ struct AcpmuxWarmStartupCancellationTests {
         let cancelledAt = ContinuousClock.now
         warming.cancel()
         #expect(await warming.value)
+        #expect(await host.hasWarmedSessions == false, "a cancelled startup never claims a daemon")
         #expect(ContinuousClock.now - cancelledAt < .seconds(2))
     }
 }

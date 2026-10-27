@@ -215,11 +215,7 @@ final class QuitCoordinator {
                 var failures = olderHomes.flatMap(QuitAgents.failures)
                 if await services.agentTabs.legacyChiefWarmHost?.hasWarmedSessions == true,
                    !QuitAgents.isAttached(acpmux, to: services.home.chief.home.acpmuxHome),
-                   let result = await ChiefHostStop.endLegacyAcpmuxIfOwned(
-                       home: services.home.chief.home,
-                       bundledBin: Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true),
-                       waitForShutdown: retry
-                   ) {
+                   let result = await services.agentTabs.legacyChiefWarmHost?.endLaunchSessions(waitForShutdown: retry) {
                     failures += QuitAgents.failures(for: result)
                 }
                 return failures + (await QuitAgents.end(acpmux, keep: keep, waitForShutdown: retry))

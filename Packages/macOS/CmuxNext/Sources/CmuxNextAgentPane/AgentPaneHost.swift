@@ -202,31 +202,27 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// One `_acpmux/warm` per session: the daemon warms one session per folder in a call, so
     /// two chats in one folder would leave the second stopped.
     public func warm(sessionIds: [String]) async throws {
-        try await withTaskCancellationHandler {
-            try await warmSessions(sessionIds)
-        } onCancel: {
-            // task-owner: one cancellation hop into this actor. Launch warming is cancelled only
-            // when its owning app store ends or quits; all panes of that store are ending too.
-            Task { await self.cancelWarmStartup() }
-        }
-    }
-
-    private func cancelWarmStartup() {
-        for task in inFlight.values { task.cancel() }
+        try Task.checkCancellation()
+        guard !sessionIds.isEmpty else { return }
+        if environment == nil { environment = resolveEnvironment() }
+        guard var environment else { throw AgentPaneHostError.acpmuxNotFound }
+        environment.computerUse = computerUse()
+        environment.offersSessionTools = offersSessionTools()
+        environment.agentPairGuard = agentPairGuard()
+        (environment.agentPairCap, environment.agentPairWindowSeconds) = agentPairCap()
+        self.environment = environment
+        // Automatic restore never hands off or enrolls an existing daemon, including another
+        // Chief's shared one. A missing daemon starts under acpmux's own process lock.
+        try await AcpmuxLaunchConnection(environment: environment, mayStart: startsDaemons && !environment.isAttached).prepare()
+        try await launchWarm.warm(sessionIds, socket: environment.socketPath)
     }
 
     private let launchWarm = AcpmuxLaunchWarm()
-    /// Whether this host participated in launch warming (used to end legacy Chief daemons at quit).
-    public private(set) var hasWarmedSessions = false
+    public var hasWarmedSessions: Bool { get async { await launchWarm.hasRequests } }
 
-    private func warmSessions(_ sessionIds: [String]) async throws {
-        try Task.checkCancellation()
-        guard !sessionIds.isEmpty else { return }
-        hasWarmedSessions = true
-        _ = try await endpoint(startsDaemon: true)
-        try Task.checkCancellation()
-        guard let socket = environment?.socketPath else { throw AgentPaneHostError.acpmuxNotFound }
-        try await launchWarm.warm(sessionIds, socket: socket)
+    public func endLaunchSessions(waitForShutdown: Bool) async -> AcpmuxQuit.EndResult {
+        guard startsDaemons, let environment, !environment.isAttached else { return .noDaemon }
+        return await launchWarm.end(environment: environment)
     }
 
     public func sessionFolder(sessionId: String) async throws -> AgentPaneSessionFolder? {
