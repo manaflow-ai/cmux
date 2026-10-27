@@ -149,7 +149,7 @@ nonisolated struct HomeChiefModelMenu: Equatable {
             let key = ((release?.family != nil ? release?.id : nil) ?? base) + model.id.dropFirst(base.count)
             var title = isPlan ? planTitle(model) : (release?.family != nil ? release.map(displayName) : nil) ?? readable(model)
             if variant { title = variantTitle(base: title, id: model.id) }
-            let row = Row(item: Item(value: model.id, title: title, detail: isPlan ? model.name : nil), family: release?.family,
+            let row = Row(item: Item(value: model.id, title: title, detail: isPlan ? planDetail(model, title: title) : nil), family: release?.family,
                           release: release?.releaseDate, kind: isPlan ? .plan : .model, key: key, variant: variant,
                           description: model.description ?? release?.description)
             if let index = seen[key] {
@@ -208,5 +208,15 @@ nonisolated struct HomeChiefModelMenu: Equatable {
     /// Another plan reads by its own name, or by its id made readable (``readable(_:)``).
     private static func planTitle(_ model: ChiefEngineReport.Model) -> String {
         model.id == "opusplan" ? HomeEngineStrings.opusPlanTitle : readable(model)
+    }
+
+    /// A plan row's tooltip: the harness's own name for it, then the id the row writes.
+    private static func planDetail(_ model: ChiefEngineReport.Model, title: String) -> String? {
+        var lines: [String] = []
+        for line in [model.name.trimmingCharacters(in: .whitespacesAndNewlines), model.id]
+        where !line.isEmpty && line != title && !lines.contains(line) {
+            lines.append(line)
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
     }
 }

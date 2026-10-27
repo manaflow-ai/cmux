@@ -67,6 +67,12 @@ import Testing
         #expect(!items.map(\.title).contains("foo-plan"))
     }
 
+    /// A plan row's tooltip keeps the harness's name for it and the id it writes.
+    @Test func aPlanRowsTooltipNamesItsId() throws {
+        let items = HomeChiefModelMenu(models: [.init(id: "opusplan", name: "Opus Plan Mode")], chosen: nil, recents: []).items
+        #expect(try #require(items.first { $0.value == "opusplan" }).detail == "Opus Plan Mode\nopusplan")
+    }
+
     /// A chosen model the harness does not offer (set from the CLI) shows by a name, with its id
     /// as the row's tooltip.
     @Test func aChosenModelTheHarnessDoesNotOfferShowsByName() throws {
@@ -83,6 +89,13 @@ import Testing
         let titles = HomeChiefEngineTitles(snapshot)
         #expect(titles.defaultModel == String(format: HomeEngineStrings.defaultNamedFormat, "Claude Opus 5.5"))
         #expect(titles.defaultHarness == String(format: HomeEngineStrings.defaultNamedFormat, "\(ChiefBackend.claude.title) (SR2 Pipe)"))
+    }
+
+    /// A brain that says its harness is acpmux's own "default" reads as plain Default.
+    @Test func aDefaultHarnessReadsAsPlainDefault() {
+        var snapshot = HomeChiefSnapshot(harness: nil, model: nil, effort: nil, avatar: nil, turns: [])
+        snapshot.effective = ChiefEngineReport.Engine(harness: "default", model: nil, effort: nil)
+        #expect(HomeChiefEngineTitles(snapshot).defaultHarness == HomeEngineStrings.defaultValue)
     }
 
     /// What Default runs, offered by a row acpmux named by its id, reads by a name, not the id.
