@@ -29,12 +29,15 @@ final class PageClaimState {
     var pending = false
     var start = ContinuousClock.now
     var outcome: PageClaimOutcome?
-    /// The fallback deadline's clock (tests inject a manual one).
-    var clock: any Clock<Duration> = ContinuousClock() {
-        didSet { deadline = DemandTimer(owner: "PageWebView.claim", clock: clock) }
-    }
-    private(set) var deadline = DemandTimer(owner: "PageWebView.claim")
+    /// The fallback reload: a person waits on the claimed page (opening Settings), so it is visible work at its due
+    /// time (flexible), never held for a hidden node.
+    let deadline: MainDeadline
     var budget: Duration = PageWebView.claimAcknowledgementBudget
+
+    /// - Parameter deadlines: The page's deadline scheduler (``PageWebView/deadlines``).
+    init(deadlines: MainDeadlineScheduler) {
+        deadline = MainDeadline(owner: "PageWebView.claim", workClass: .visible, alignment: .flexible, scheduler: deadlines)
+    }
 
     /// Ends the pending claim; true when it was pending.
     func end() -> Bool {
@@ -89,6 +92,7 @@ extension PageWebView {
         applyLiveDocumentAttributes()
         let params: JSONValue = route.map { ["route": .string($0)] } ?? .object([:])
         let router = router
+        // main-hop-allow: callPage is the router's main-actor async page call (the claim runs in the page); the task only records its answer
         Task { @MainActor [weak self] in
             let path: PageClaimOutcome.Path
             do {
@@ -99,7 +103,7 @@ extension PageWebView {
             }
             self?.finishClaim(generation, path)
         }
-        state.deadline.scheduleOnMain(after: state.budget) { [weak self] in
+        state.deadline.schedule(after: state.budget) { [weak self] in
             self?.finishClaim(generation, .timedOut)
         }
     }

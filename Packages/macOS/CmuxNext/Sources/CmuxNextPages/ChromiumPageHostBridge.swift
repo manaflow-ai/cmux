@@ -105,6 +105,7 @@ public final class ChromiumPageHostBridge: PageHostPushing {
         outgoing.removeAll(where: \.isEnvelopes)
         guard let page else { return }
         // task-owner: one idempotent call on a page that may already be gone
+        // main-hop-allow: devTools is the page's main-actor async DevTools call (its IPC runs in Chromium); the task only sends it, and nobody reads its answer
         Task { _ = try? await page.devTools("Runtime.addBinding", params: ["name": Self.bindingName]) }
     }
 
@@ -131,6 +132,7 @@ public final class ChromiumPageHostBridge: PageHostPushing {
         guard !draining else { return }
         draining = true
         // task-owner: the bridge's script FIFO; it ends when the queue is empty or the page is gone
+        // main-hop-allow: the drain awaits the page's main-actor async DevTools evaluate per batch, in FIFO order; its main parts only take the next batch
         Task { [weak self] in await self?.drain() }
     }
 
@@ -196,6 +198,7 @@ public final class ChromiumPageHostBridge: PageHostPushing {
             return true
         }
         // task-owner: one message; its reply goes back to the context that sent it
+        // main-hop-allow: the trust check, the page's handler and the reply are the page's main-actor async calls (DevTools IPC, the provider op) with state checks between; the task only runs them
         Task { [weak self] in await self?.answer(message, context: call.contextID) }
         return true
     }

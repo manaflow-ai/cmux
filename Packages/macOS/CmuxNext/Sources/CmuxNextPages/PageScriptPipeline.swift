@@ -227,6 +227,7 @@ final class PageScriptPipeline {
         guard drain == nil else { return }
         let generation = generation
         // task-owner: drains this page's FIFO; ends when it is empty or on reset()
+        // main-hop-allow: the drain awaits the off-main render of large runs and the gates in FIFO order; its main parts only evaluate the rendered script in order (small runs drain inline in the frame task)
         drain = Task { @MainActor [weak self] in
             await self?.run(generation: generation)
         }

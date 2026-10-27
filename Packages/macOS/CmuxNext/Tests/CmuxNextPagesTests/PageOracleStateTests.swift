@@ -87,7 +87,7 @@ struct PageOracleStateTests {
         defer { try? FileManager.default.removeItem(at: root) }
         try Data("<!doctype html><title>Page</title>".utf8).write(to: root.appendingPathComponent("index.html"))
         let host = WebUIHost(chromium: nil, openPanel: nil, memory: QuietMemoryRegistry(),
-                             clock: PageTestClock.never)
+                             deadlines: LifecycleDeadlineRig.never)
         let page = try #require(host.open(PageOpenRequest(descriptor: Self.descriptor, root: root, routes: [])))
         defer { host.close(page) }
         try await body(host, page)
