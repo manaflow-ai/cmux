@@ -40,7 +40,7 @@ exported default keymap keeps Ghostty's split keys (schemas/keybindings/ghostty-
 and the push removes no reserved entry. CMUX_NEXT_CHECKS_SKIP_REASON does not skip it; only a
 `Ghostty-defaults-OK: <the user's words>` trailer on a pushed commit does (Lawrence 2026-10-20).
 Also on every push: "Sidebar look owner" (plans/cmux-next/sidebar-owner.md): a commit that changes the
-sidebar's drawing code (CmuxNextSidebar/Views/) carries a `Sidebar-Look: <the user's words, or "no visual
+sidebar package's code (CmuxNextSidebar/, not its strings, resources or mock) carries a `Sidebar-Look: <the user's words, or "no visual
 change">` trailer, and a visual change also edits plans/cmux-next/sidebar-owner.md in the same commit.
 233 sidebar commits in four days with no owner undid each other (Lawrence 2026-10-23: "why were there so
 many changes to sidebar?"). CMUX_NEXT_CHECKS_SKIP_REASON does not skip it. A commit the owner logged in
@@ -159,6 +159,12 @@ RESERVED_CHECK = "Ghostty-default keys (schemas/keybindings/ghostty-reserved-key
 CONFLICT_CHECK = "Merge conflict markers"
 SIDEBAR_CHECK = "Sidebar look owner (plans/cmux-next/sidebar-owner.md)"
 SIDEBAR_VIEWS = "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/"
+# The sidebar package's code, not only Views/: a702 (9a2fceefbbb, 2026-10-25) changed the pinned section from tiles
+# to rows in Sections/ and the gate never asked. Strings and resources (copy, catalogs) and the mock are left out.
+SIDEBAR_CODE = "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/"
+SIDEBAR_EXEMPT = ("Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Resources/",
+                  "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Mock/",
+                  "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Strings")
 SIDEBAR_NOTE = "plans/cmux-next/sidebar-owner.md"
 SIDEBAR_TRAILER = re.compile(r"^Sidebar-Look:[ \t]*(\S.*)$", re.MULTILINE)
 SIDEBAR_NO_VISUAL = re.compile(r"^no visual change\b", re.IGNORECASE)
@@ -732,7 +738,7 @@ def window_freezes(repo: Path, base: str, head: str, window: Path | None = None)
 def sidebar_owner(repo: Path, base: str, head: str, ack_rev: str | None = None) -> list[str]:
     """Each pushed commit that changes the sidebar's drawing code without the owner's record.
 
-    A commit touching `SIDEBAR_VIEWS` needs a `Sidebar-Look:` trailer: the user's words that asked for the
+    A commit touching the sidebar package's code (`SIDEBAR_CODE` but `SIDEBAR_EXEMPT`) needs a `Sidebar-Look:` trailer: the user's words that asked for the
     look (a visual change, which must also edit `SIDEBAR_NOTE` in that commit) or `no visual change` (a
     behavior or performance change; the sidebar look contract tests hold the look). Checked per commit, so a
     later commit cannot launder an earlier one.
@@ -751,7 +757,7 @@ def sidebar_owner(repo: Path, base: str, head: str, ack_rev: str | None = None) 
     for record in out.split("\x1e")[1:]:
         sha, message, names = (record.split("\x1f") + ["", ""])[:3]
         files = [f for f in names.split("\n") if f]
-        views = sorted(f for f in files if f.startswith(SIDEBAR_VIEWS))
+        views = sorted(f for f in files if f.startswith(SIDEBAR_CODE) and not f.startswith(SIDEBAR_EXEMPT))
         if not views or sha[:11] in logged:
             continue
         subject = message.strip().splitlines()[0] if message.strip() else ""

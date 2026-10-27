@@ -612,7 +612,7 @@ jobs:
         if: ${{ !cancelled() }}
         run: python3 tests/test_list_macho_candidates.py
 
-      - name: The Linux cross build's macOS link stubs and Mach-O parity verdict
+      - name: The cross build's macOS link stubs and Mach-O parity verdict
         if: ${{ !cancelled() }}
         run: |
           python3 tests/test_ci_macos_stubs.py

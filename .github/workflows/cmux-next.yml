@@ -1725,7 +1725,7 @@ jobs:
         run: |
           git submodule update --init --depth 1 --filter=blob:none ghostty-next
           bash scripts/cmux-next/tests/bundle-ghostty-resources.test.sh
-          # Ghostty's themes survive the Resources phase in either order (Xcode, fleet Linux builder).
+          # Ghostty's themes survive the Resources phase in either order (Xcode, the fleet builder).
           bash scripts/cmux-next/tests/bundle-resources-layout.test.sh
 
       # The bundled terminfo (Ghostty's entries with cmux's overlay on top)
@@ -1816,7 +1816,7 @@ jobs:
           python3 tests/test_ci_swiftpm_build_metrics.py
           python3 tests/test_cmux_next_route_replay.py
           python3 tests/test_ci_cmux_next_compile_revert.py
-          python3 tests/test_ci_cmux_next_linux_compile_status.py
+          python3 tests/test_ci_cmux_next_compile_status.py
 
       # The CmuxNextAppTests dependencies are one sorted entry per line, so two
       # pull requests adding different modules merge cleanly; the long lines they
@@ -1946,7 +1946,8 @@ jobs:
         run: |
           # Sidebar look owner sweep (plans/cmux-next/sidebar-owner.md): every commit since the check landed,
           # not only this push's, so a commit from an old hook copy or a cancelled run is still named.
-          sidebar_from=a1af264c7a7235c5863ade4f3448e2669265d6d0
+          # From where the check widened to the whole sidebar package (Views/ only before; that range swept clean).
+          sidebar_from=342462ca6ee97db1d23f013ad0d58dc942673c82
           sweep=0
           git fetch --no-tags --quiet --deepen=2000 origin "$GITHUB_SHA" || true
           if git merge-base --is-ancestor "$sidebar_from" HEAD 2>/dev/null; then
@@ -3085,7 +3086,7 @@ jobs:
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
           enableCrossOsArchive: true
 
-      - name: Download the web bundles this run's Linux job built
+      - name: Download the web bundles this run's bundle job built
         id: web-bundle-artifact
         if: ${{ ((steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') && steps.reuse.outputs.hit != 'true') && needs.web-bundles.result == 'success' }}
         continue-on-error: true
@@ -3426,7 +3427,7 @@ jobs:
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
           enableCrossOsArchive: true
 
-      - name: Download the web bundles this run's Linux job built
+      - name: Download the web bundles this run's bundle job built
         id: web-bundle-artifact
         if: ${{ (steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') && needs.web-bundles.result == 'success' }}
         continue-on-error: true
@@ -3808,7 +3809,7 @@ jobs:
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
           enableCrossOsArchive: true
 
-      - name: Download the web bundles this run's Linux job built
+      - name: Download the web bundles this run's bundle job built
         id: web-bundle-artifact
         if: ${{ ((steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') && steps.reuse.outputs.hit != 'true') && needs.web-bundles.result == 'success' }}
         continue-on-error: true
@@ -4021,7 +4022,9 @@ jobs:
     permissions:
       actions: write
       contents: read
-    timeout-minutes: 5
+    # The request fetches feat-cmux-next's recent history to find the newest
+    # commit with the published tree (the --tree-ready search).
+    timeout-minutes: 10
     steps:
       - name: Record the Release compile admission
         env:
@@ -4521,12 +4524,12 @@ jobs:
       # A feat-cmux-next push's DEV Release app is dev-landing-compile's (one producer of the
       # run's cmux-next-dev-daily-unsigned-<sha>); this job builds it on a push only while
       # vars.CMUX_NEXT_DEV_LANDING_COMPILE is 0.
-      # The Linux whole-app build plans from the rules of one real Mac build of the same shape
+      # The fleet whole-app build plans from the rules of one real Mac build of the same shape
       # (its REF). With CMUX_NEXT_HYBRID_REF_CAPTURE=1 this compile records them, on a mini only,
       # when the inputs that change build lines (scripts/cmux-next/hybrid_ref_capture.py key)
       # have no complete capture yet; most landings share a key and skip it.
       # tests/test_cmux_next_hybrid_ref_capture.py keeps HYBRID_REF_SETTINGS equal to the compile's.
-      - name: Decide the Linux build's REF capture
+      - name: Decide the fleet build's REF capture
         id: hybrid-ref
         # Before the product lookup: a key with no capture compiles instead of reusing a product
         # (a reused product compiles nothing, so there would be no build to capture).
@@ -4570,7 +4573,7 @@ jobs:
             exit 0
           fi
           # Unknown: capture, and compile so there is a build to capture (a lookup that fails for
-          # 10 minutes is rare; a lost capture costs the Linux build its REF).
+          # 10 minutes is rare; a lost capture costs the fleet build its REF).
           printf 'key=%s\ncapture=true\ncompile=true\n' "$key" >> "$GITHUB_OUTPUT"
           echo "::error title=REF capture lookup failed::the capture artifact lookup for REF key $key failed (log above); compiling and capturing anyway"
           exit 1
@@ -4951,7 +4954,7 @@ jobs:
       # per host, the paths every mini shares) is captured, from the snapshot compile-dev-release.sh
       # cloned while it held the host lock (another build may own the host tree by now). The packs go to the build fleet's
       # private store; the manifest artifact names their sizes and sha256 only.
-      - name: Capture the Linux build's REF
+      - name: Capture the fleet build's REF
         id: hybrid-ref-capture
         if: ${{ !cancelled() && steps.hybrid-ref.outputs.capture == 'true' && steps.compile-cmux-next-dev-release.outcome == 'success' && steps.compile-cmux-next-dev-release.outputs.build_mode == 'host' && steps.compile-cmux-next-dev-release.outputs.snapshot != '' }}
         continue-on-error: true
@@ -5361,68 +5364,6 @@ jobs:
           retention-days: 7
           overwrite: true
 
-  # A landing's DEV app goes to the publisher the moment dev-landing-compile has it, from this
-  # push run, with no DEV dispatch run in between. Before, main's dispatcher started a DEV run per
-  # tip (kicked by cmux-next-dev-kick.yml on every merge, else its cron), and the kick and the DEV
-  # build dispatch both hold GITHUB_TOKEN: on 2026-10-26, 139 of 272 kicks failed with "API rate
-  # limit exceeded for installation", and a landing waited 10.2 min (p50) and 34.6 min (p90) for
-  # the first DEV compile that covered it. The App token goes first (its own budget), GITHUB_TOKEN
-  # second. A landing that compiled no app (placement failed, no ready tree, a failed compile)
-  # asks main's dispatcher for a DEV build of the tip at once instead. With the landing compile
-  # off (vars.CMUX_NEXT_DEV_LANDING_COMPILE=0) this job skips too: the push's cmux-scheme-compile
-  # produces its DEV app and cmux-next-dev-kick.yml asks the dispatcher, as before. Neither
-  # dispatch starts a cmux-next run, so no workflow_run listener of cmux-next (nightly-next-tick,
-  # dogfood-artifact-publish) fires for it.
-  # The dispatcher is the backstop for a lost handoff: it hands a tip's finished landing app over
-  # too. Newest wins at publish (the publisher's record and the tip feed compare commits).
-  dev-landing-publish:
-    needs: [dev-landing-place, dev-landing-compile]
-    if: ${{ !cancelled() && needs.dev-landing-place.result != 'skipped' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' }}
-    name: Request cmux NEXT DEV publication (landing)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
-    # The App key is a repository secret; the credential-free environment dev-landing-place and
-    # request-cmux-next-dev-publish mint the same App's token under (test_supplychain_security.py).
-    environment: ci-routing-agent
-    timeout-minutes: 5
-    permissions:
-      actions: write
-    steps:
-      - name: Mint the handoff token
-        id: handoff-token
-        if: vars.GLAEDA_ROUTE_APP_ID != ''
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
-          permission-actions: write
-      - name: Hand the landing's app to the publisher, else ask for a DEV build
-        env:
-          APP_TOKEN: ${{ steps.handoff-token.outputs.token }}
-          REPO_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          COMPILED: ${{ needs.dev-landing-compile.result == 'success' }}
-          SOURCE_RUN_ID: ${{ github.run_id }}
-        run: |
-          set -uo pipefail
-          if [[ "$COMPILED" == true ]]; then
-            what="publication of landing run $SOURCE_RUN_ID"
-            args=(cmux-next-dev-daily.yml --repo "$GH_REPO" --ref main -f "source_run_id=$SOURCE_RUN_ID")
-          else
-            what="a DEV build of the tip (this landing compiled no app)"
-            args=(cmux-next-dev-daily-dispatch.yml --repo "$GH_REPO" --ref main)
-          fi
-          for token in "$APP_TOKEN" "$REPO_TOKEN"; do
-            [[ -n "$token" ]] || continue
-            if GH_TOKEN="$token" gh workflow run "${args[@]}"; then
-              echo "::notice title=DEV handoff::requested $what"
-              exit 0
-            fi
-          done
-          echo "::warning title=DEV handoff::could not request $what; main's dispatcher cron is the backstop"
-          exit 1
-
   request-cmux-next-dev-publish:
     needs: cmux-scheme-compile
     if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && needs.cmux-scheme-compile.result == 'success' && (inputs.same_tree_sha == '' || inputs.same_tree_sha == github.sha) && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' }}
@@ -5587,7 +5528,7 @@ jobs:
             --events push,workflow_dispatch --summary "$GITHUB_STEP_SUMMARY"
 
   # The base-break rule, automated: a feat-cmux-next push whose Mac Release compile failed in its
-  # compile step (pull requests compile on Linux at -Onone, so -O codegen and the final app link
+  # compile step (pull requests get the fleet compile at -Onone, so -O codegen and the final app link
   # are first compiled here) opens the revert of the one merge since the compile last passed,
   # within minutes. Several merges in the range, or a red older than the scanned runs, open
   # nothing (push attribution comments on each). The revert is pushed and opened by the
@@ -5675,18 +5616,18 @@ jobs:
           title="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq .title)"
           body="$(printf '%s\n\n%s\n\n%s\n' \
             "Reverts #$PR (\`$MERGE_SHA\`): the feat-cmux-next push run $RUN_URL failed its Mac Release compile (\`cmux-next Release compile (Xcode 26)\`) at \`$GITHUB_SHA\`; it last passed at \`$GOOD\`, and #$PR is the one merge since." \
-            "Pull requests compile on Linux at -Onone, so -O codegen and the final app link are first compiled on the base push. The base-break rule restores base first: land this, then reland #$PR with the fix." \
+            "Pull requests get the fleet compile at -Onone, so -O codegen and the final app link are first compiled on the base push. The base-break rule restores base first: land this, then reland #$PR with the fix." \
             "Opened by cmux-next.yml release-compile-revert.")"
           url="$(gh api -X POST "repos/$GITHUB_REPOSITORY/pulls" -f head="$branch" -f base=feat-cmux-next \
             -f title="Revert \"$title\" (broke the feat-cmux-next Release compile)" -f body="$body" --jq .html_url)"
           echo "::notice title=Release compile revert::$url reverts #$PR"
           echo "Revert pull request: $url" >> "$GITHUB_STEP_SUMMARY"
 
-  # The pull request's Linux Release compile gate: the commit status cmux-next/linux-compile on the
-  # exact head. The build fleet's controller compiles every feat-cmux-next head and same-repository
-  # PR head with cmux-next-swift-check --app --release (SwiftPM Release at -Onone with the Linux
-  # macOS SDK, on the Linux pool and Blacksmith 32 vCPU overflow); this job reads that one result
-  # and publishes it. The controller holds no GitHub key and posts nothing: the status comes only
+  # The pull request's Release compile gate: the commit status cmux-next/compile on the exact
+  # head. The build fleet's controller compiles every feat-cmux-next head and same-repository PR
+  # head (SwiftPM Release at -Onone); this job reads that one result and publishes it.
+  # It also posts the same state under the context's previous name, cmux-next/linux-compile,
+  # until every reader of the status takes cmux-next/compile. The controller holds no GitHub key and posts nothing: the status comes only
   # from here, with a cmux-bot token (statuses: write) minted from the repository secret. Any
   # other route that compiles the head (a Blacksmith job of this repository) posts the same
   # context with the same mapping.
@@ -5701,10 +5642,10 @@ jobs:
   #
   # Forks get no secret and no status: the job does not run, the gate is missing, and a missing
   # gate does not admit. The job checks nothing out: no pull request code runs beside the token.
-  linux-compile-status:
+  compile-status:
     needs: [path_route]
     if: ${{ !cancelled() && needs.path_route.result == 'success' && needs.path_route.outputs.native == 'true' && github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') }}
-    name: cmux-next Linux Release compile
+    name: cmux-next fleet Release compile
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds a statuses write App token; ephemeral Blacksmith VM, checks nothing out
     timeout-minutes: 55
@@ -5721,7 +5662,7 @@ jobs:
           repositories: ${{ github.event.repository.name }}
           permission-statuses: write
 
-      - name: Wait for the Linux Release compile and publish cmux-next/linux-compile
+      - name: Wait for the fleet Release compile and publish cmux-next/compile
         timeout-minutes: 50
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
@@ -5732,21 +5673,25 @@ jobs:
           RESULTS: https://gh-events.cmux.com/compile-checks/v1
         run: |
           set -uo pipefail
-          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error title=Linux compile::bad head sha '$SHA'"; exit 1; }
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error title=Compile check::bad head sha '$SHA'"; exit 1; }
           # One deadline for the pending post and the wait (40 min); the terminal post comes after it
-          # (at most 110 s), so the step (50 min) and the App token (60 min) always outlast both.
+          # (at most 110 s per context, 220 s for both), so the step (50 min) and the App token (60 min) always outlast both.
           deadline=$((SECONDS + ${WAIT_SECONDS:-2400}))
+          # The context and its previous name, posted together until every reader takes the new one.
+          contexts=(cmux-next/compile cmux-next/linux-compile)
           post() {  # state, description, target url
-            local body
-            body="$(jq -nc --arg s "$1" --arg d "${2:0:140}" --arg u "$3" \
-              '{state: $s, description: $d, target_url: $u, context: "cmux-next/linux-compile"}')"
-            # timeout bounds the whole post, retries and any Retry-After included.
-            timeout 110 curl -sS --fail-with-body --connect-timeout 10 --max-time 30 --retry 2 --retry-delay 10 --retry-all-errors \
-              -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
-              "$API/statuses/$SHA" -d "$body" > /dev/null
+            local body context
+            for context in "${contexts[@]}"; do
+              body="$(jq -nc --arg s "$1" --arg d "${2:0:140}" --arg u "$3" --arg c "$context" \
+                '{state: $s, description: $d, target_url: $u, context: $c}')"
+              # timeout bounds the whole post, retries and any Retry-After included.
+              timeout 110 curl -sS --fail-with-body --connect-timeout 10 --max-time 30 --retry 2 --retry-delay 10 --retry-all-errors \
+                -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+                "$API/statuses/$SHA" -d "$body" > /dev/null || return 1
+            done
           }
-          post pending "The Linux Release compile (-Onone) of this head is running" "$RUN_URL" \
-            || { echo "::error title=Linux compile::could not post the pending status"; exit 1; }
+          post pending "The Release compile (-Onone) of this head is running" "$RUN_URL" \
+            || { echo "::error title=Compile check::could not post the pending status"; exit 1; }
           reply="$RUNNER_TEMP/compile-check.json"
           state=""
           for attempt in 1 2 3; do
@@ -5758,7 +5703,7 @@ jobs:
             if ! timeout "$left" curl -sS --fail --connect-timeout 10 --max-time "$((wait + 30))" \
                 --retry 60 --retry-delay 30 --retry-max-time "$left" --retry-all-errors \
                 -o "$reply" "$RESULTS/$SHA?repo=${REPO/\//%2F}&wait=$wait"; then
-              echo "::warning title=Linux compile::no result for $SHA from the controller (attempt $attempt)"
+              echo "::warning title=Compile check::no result for $SHA from the controller (attempt $attempt)"
               continue
             fi
             state="$(jq -r --arg sha "$SHA" --arg repo "$REPO" '
@@ -5770,11 +5715,11 @@ jobs:
           log_url="$(jq -r '.log_url // empty' "$reply" 2>/dev/null || true)"
           [[ "$log_url" =~ ^https://github\.com/ ]] || log_url="$RUN_URL"
           case "$state" in
-            pass) post success "The app compiled and linked in SwiftPM Release (-Onone) on Linux" "$log_url" && exit 0 ;;
-            fail) post failure "The app did not compile in SwiftPM Release (-Onone) on Linux; see the log" "$log_url" ;;
-            unavailable) post failure "The Linux compile gave no verdict (unavailable); re-run this job" "$RUN_URL" ;;
+            pass) post success "The app compiled and linked in SwiftPM Release (-Onone)" "$log_url" && exit 0 ;;
+            fail) post failure "The app did not compile in SwiftPM Release (-Onone); see the log" "$log_url" ;;
+            unavailable) post failure "The compile check gave no verdict (unavailable); re-run this job" "$RUN_URL" ;;
             mismatch|unreadable) post failure "The compile result does not match this head; re-run this job" "$RUN_URL" ;;
-            *) post failure "No Linux compile result for this head in 40 minutes${state:+ (last: $state)}" "$RUN_URL" ;;
+            *) post failure "No compile result for this head in 40 minutes${state:+ (last: $state)}" "$RUN_URL" ;;
           esac
-          echo "::error title=Linux compile::cmux-next/linux-compile is not a pass for $SHA (${state:-no result})"
+          echo "::error title=Compile check::cmux-next/compile is not a pass for $SHA (${state:-no result})"
           exit 1
