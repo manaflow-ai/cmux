@@ -284,7 +284,7 @@ fn server_stats_report_lock_writer_and_connection_metrics() {
     let identity = handle_command(
         &mux,
         mux.local_test_client(0),
-        Command::Identify { machine_metadata: false, revisions: false },
+        Command::Identify(Default::default()),
         &test_writer(),
     )
     .unwrap();

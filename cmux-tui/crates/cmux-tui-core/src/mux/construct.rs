@@ -425,7 +425,7 @@ impl Mux {
                     .and_then(|value| value.parse().ok())
                     .unwrap_or(0),
             ),
-            server_lifecycle_ready: AtomicBool::new(false),
+            server_startup: Default::default(),
             shutting_down: AtomicBool::new(false),
             session_shutdown,
             exit_settles: Arc::default(),

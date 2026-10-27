@@ -107,13 +107,8 @@ fn server_threads_and_blocking_refuse_a_remote_client() {
 #[test]
 fn server_threads_is_in_the_capabilities() {
     let (mux, client) = local_mux("capability");
-    let identity = handle_command(
-        &mux,
-        client,
-        Command::Identify { machine_metadata: false, revisions: false },
-        &writer(),
-    )
-    .unwrap();
+    let identity =
+        handle_command(&mux, client, Command::Identify(Default::default()), &writer()).unwrap();
     assert!(
         identity["capabilities"]
             .as_array()

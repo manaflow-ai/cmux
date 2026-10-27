@@ -1168,6 +1168,21 @@ class CopyResult:
 
 
 @dataclass(frozen=True)
+class DaemonStartupMarks:
+    __cmux_schema_path__: ClassVar[str] = 'types/DaemonStartupMarks'
+    main_start_unix_us: int
+    config_loaded: Union[int, MissingType] = field(default=MISSING)
+    first_identify_served: Union[int, MissingType] = field(default=MISSING)
+    launch_snapshot_writer_started: Union[int, MissingType] = field(default=MISSING)
+    lifecycle_ready: Union[int, MissingType] = field(default=MISSING)
+    mux_restored: Union[int, MissingType] = field(default=MISSING)
+    owner_event_loop: Union[int, MissingType] = field(default=MISSING)
+    owner_prepared: Union[int, MissingType] = field(default=MISSING)
+    socket_bound: Union[int, MissingType] = field(default=MISSING)
+    websocket_ready: Union[int, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class DeadPane:
     __cmux_schema_path__: ClassVar[str] = 'types/DeadPane'
     dead: Literal[True]
@@ -1492,6 +1507,7 @@ class IdentifyResult:
     machine_platform: Union[MachinePlatform, MissingType] = field(default=MISSING)
     min_api_revision: Union[int, None, MissingType] = field(default=MISSING)
     session_id: Union[str, MissingType] = field(default=MISSING)
+    startup_marks: Union[DaemonStartupMarks, None, MissingType] = field(default=MISSING)
     update_command: Union[str, None, MissingType] = field(default=MISSING)
 
 
@@ -4908,6 +4924,7 @@ class IdentifyRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/identify/request'
     machine_metadata: Union[bool, MissingType] = field(default=MISSING)
     revisions: Union[bool, MissingType] = field(default=MISSING)
+    startup_marks: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -7752,6 +7769,7 @@ __all__ = [
     'ConversationThreadState',
     'ConversationThreadSummary',
     'CopyResult',
+    'DaemonStartupMarks',
     'DeadPane',
     'DeclarativeLayoutLeaf',
     'DeclarativeLayoutSplit',

@@ -378,7 +378,7 @@ fn identify_advertises_additive_capabilities() {
     let identity = handle_command(
         &mux,
         mux.local_test_client(0),
-        Command::Identify { machine_metadata: false, revisions: false },
+        Command::Identify(Default::default()),
         &test_writer(),
     )
     .unwrap();
@@ -901,4 +901,67 @@ fn title_changed_event_includes_authoritative_surface_title() {
             "title": "server title",
         })
     );
+}
+
+fn identify_with(mux: &Arc<Mux>, request: Value) -> Value {
+    let command = serde_json::from_value::<Command>(request).expect("identify decodes");
+    handle_command(mux, mux.local_test_client(0), command, &test_writer()).unwrap()
+}
+
+/// `identify {startup_marks: true}` reports the serving daemon's timeline in
+/// start order (`startup-marks-v1`); the default reply keeps its frozen shape
+/// and a mux no daemon serves reports `null` without the capability.
+#[test]
+fn identify_reports_the_startup_timeline_only_when_asked() {
+    use crate::startup_marks::{CAPABILITY, MAIN_START_FIELD, StartupMark, StartupMarks};
+    let advertises = |identity: &Value| {
+        identity["capabilities"].as_array().unwrap().iter().any(|value| value == CAPABILITY)
+    };
+    let mux = test_mux();
+    let bare = identify_with(&mux, json!({"cmd":"identify","startup_marks":true}));
+    assert!(!advertises(&bare));
+    assert_eq!(bare["startup_marks"], Value::Null);
+
+    let marks = Arc::new(StartupMarks::starting_now());
+    marks.mark(StartupMark::ConfigLoaded);
+    mux.install_startup_marks(marks.clone());
+    mux.mark_startup(StartupMark::SocketBound);
+    mux.mark_server_lifecycle_ready();
+    let default = identify_with(&mux, json!({"cmd":"identify"}));
+    assert!(advertises(&default));
+    assert!(default.get("startup_marks").is_none(), "{default}");
+    let served = marks.reached(StartupMark::FirstIdentifyServed).expect("first identify marked");
+
+    let reply = identify_with(&mux, json!({"cmd":"identify","startup_marks":true}));
+    let timeline = reply["startup_marks"].as_object().expect("timeline");
+    let keys = timeline.keys().map(String::as_str).collect::<std::collections::BTreeSet<_>>();
+    let expected = [
+        MAIN_START_FIELD,
+        "config_loaded",
+        "socket_bound",
+        "lifecycle_ready",
+        "first_identify_served",
+    ];
+    assert_eq!(keys, expected.into_iter().collect());
+    // The first identify keeps its time; later ones do not move it.
+    assert_eq!(timeline["first_identify_served"], served);
+    // Reached in start order, so their times follow `StartupMark::ALL`.
+    let in_order = StartupMark::ALL
+        .into_iter()
+        .filter_map(|mark| timeline.get(mark.wire_name()).and_then(Value::as_u64))
+        .collect::<Vec<_>>();
+    assert_eq!(in_order.len(), 4);
+    assert!(in_order.is_sorted(), "{timeline:?}");
+
+    // IdentifyResult and its timeline type are closed: every reported key is declared.
+    let schema: Value =
+        serde_json::from_str(include_str!("../../../../../spec/sdk-schema.json")).unwrap();
+    let identify_fields = schema["types"]["IdentifyResult"]["fields"].as_object().unwrap();
+    assert!(identify_fields.contains_key("startup_marks"));
+    let timeline_fields = schema["types"]["DaemonStartupMarks"]["fields"].as_object().unwrap();
+    for mark in StartupMark::ALL.map(StartupMark::wire_name).into_iter().chain([MAIN_START_FIELD]) {
+        assert_eq!(timeline_fields[mark]["type"]["name"], "uint64", "{mark}");
+    }
+    assert_eq!(timeline_fields.len(), StartupMark::ALL.len() + 1);
+    mux.shutdown();
 }

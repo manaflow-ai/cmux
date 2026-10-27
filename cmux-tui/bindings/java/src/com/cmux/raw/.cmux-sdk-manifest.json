@@ -1352,8 +1352,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "31ca5a627c7c518aa955c74c771a1173b8ce1d87558f0374f6fca8359a8cb59d",
-      "size": 97556
+      "sha256": "23159018d490c0e48164e001bf3d457d768cf992c42a4bba91305509f34f91c3",
+      "size": 97637
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1779,6 +1779,11 @@
       "path": "DaemonShutdownEvent.java",
       "sha256": "2a0ea8654faea4c26ad22a42a82cea6f061092bb66d870e1a45eb20a3ecd4179",
       "size": 1599
+    },
+    {
+      "path": "DaemonStartupMarks.java",
+      "sha256": "f5c03360fe4d2383423bb777cbba685bdd1f280ac4eb9a5891edebfc30af7365",
+      "size": 10758
     },
     {
       "path": "DeadPane.java",
@@ -2272,13 +2277,13 @@
     },
     {
       "path": "IdentifyRequest.java",
-      "sha256": "3251e325f31a9b8adde1ca82d219b351130a548291927a87ed603f9b04b6efc7",
-      "size": 2730
+      "sha256": "507690efc80dcb43824924e44bc526bd39412d0dac1041b181545d1c30a0e131",
+      "size": 3441
     },
     {
       "path": "IdentifyResult.java",
-      "sha256": "9a477d3fad70e41f884713eddaf939a6d359ea462c551932c0ab0239dd9a2a90",
-      "size": 21107
+      "sha256": "4956fdeef66014e71143066bca393e0688d9eb6003d3cea92ff197a0faafe1e8",
+      "size": 21888
     },
     {
       "path": "IdsRequest.java",
@@ -2967,7 +2972,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "f45decf68f2f87a5b3b44ff46ee7262707e2cdb1c8aaa7d5dc67e9d9126677c3",
+      "sha256": "d68c127887ea57d12404326e0df15162584459f4eae44937b19ed7613842716a",
       "size": 7841
     },
     {
@@ -4432,7 +4437,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "92ea0b6da7b0bd288ec4e10c0f31751140797c17e8fcdbcb3a76d518df4b8499",
+  "ir_sha256": "859372e7d0b532e8ef2fb66624f2232b92a0b10643e6825512427e3342b26fd1",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

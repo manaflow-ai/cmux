@@ -78,9 +78,7 @@ pub(super) fn handle_command_with_cancellation(
             cmd_server::trace_control(mux, client, || Ok(trace_control::Call::Status))
         }
         Command::BrowserHostProvider => cmd_browser::browser_host_provider(mux, client),
-        Command::Identify { machine_metadata, revisions } => {
-            cmd_server::identify(mux, client, machine_metadata, revisions)
-        }
+        Command::Identify(params) => cmd_server::identify(mux, client, params),
         Command::ShutdownDaemon { pid, generation, force, end_terminals, keep_layout } => {
             cmd_server::shutdown_daemon(
                 mux,

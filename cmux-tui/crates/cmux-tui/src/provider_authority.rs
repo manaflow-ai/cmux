@@ -142,6 +142,66 @@ fn read_authority(path: &Path) -> anyhow::Result<ProviderWorkspaceAuthority> {
     ProviderWorkspaceAuthority::new(authority)
 }
 
+/// The provider management listener systemd passed this daemon (socket
+/// activation, `LISTEN_FDS`), or `None` when it passed none.
+pub fn take_management_listener() -> anyhow::Result<Option<std::os::unix::net::UnixListener>> {
+    use std::os::fd::{FromRawFd, OwnedFd, RawFd};
+
+    const SYSTEMD_FIRST_FD: RawFd = 3;
+    const FD_NAME: &str = "cmux-provider-authority";
+    let listen_pid = std::env::var("LISTEN_PID").ok();
+    let listen_fds = std::env::var("LISTEN_FDS").ok();
+    let listen_names = std::env::var("LISTEN_FDNAMES").ok();
+    unsafe {
+        std::env::remove_var("LISTEN_PID");
+        std::env::remove_var("LISTEN_FDS");
+        std::env::remove_var("LISTEN_FDNAMES");
+    }
+    if listen_pid.is_none() && listen_fds.is_none() && listen_names.is_none() {
+        return Ok(None);
+    }
+    let pid = listen_pid
+        .as_deref()
+        .and_then(|value| value.parse::<u32>().ok())
+        .ok_or_else(|| anyhow::anyhow!("invalid systemd LISTEN_PID"))?;
+    if pid != std::process::id() {
+        anyhow::bail!("systemd listener belongs to a different process");
+    }
+    if listen_fds.as_deref() != Some("1") || listen_names.as_deref() != Some(FD_NAME) {
+        anyhow::bail!("expected exactly one named provider management listener");
+    }
+    let socket_type = socket_option(SYSTEMD_FIRST_FD, libc::SO_TYPE)?;
+    let accepting = socket_option(SYSTEMD_FIRST_FD, libc::SO_ACCEPTCONN)?;
+    if socket_type != libc::SOCK_STREAM || accepting != 1 {
+        anyhow::bail!("provider management descriptor is not a listening stream socket");
+    }
+    let flags = unsafe { libc::fcntl(SYSTEMD_FIRST_FD, libc::F_GETFD) };
+    if flags < 0
+        || unsafe { libc::fcntl(SYSTEMD_FIRST_FD, libc::F_SETFD, flags | libc::FD_CLOEXEC) } < 0
+    {
+        return Err(io::Error::last_os_error().into());
+    }
+    let owned = unsafe { OwnedFd::from_raw_fd(SYSTEMD_FIRST_FD) };
+    Ok(Some(std::os::unix::net::UnixListener::from(owned)))
+}
+
+fn socket_option(fd: std::os::fd::RawFd, option: libc::c_int) -> io::Result<libc::c_int> {
+    use std::mem::size_of;
+
+    let mut value = 0;
+    let mut length = size_of::<libc::c_int>() as libc::socklen_t;
+    let result = unsafe {
+        libc::getsockopt(fd, libc::SOL_SOCKET, option, (&raw mut value).cast(), &raw mut length)
+    };
+    if result != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if length as usize != size_of::<libc::c_int>() {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid socket option length"));
+    }
+    Ok(value)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

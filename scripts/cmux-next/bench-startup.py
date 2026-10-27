@@ -158,6 +158,20 @@ PRODUCT_CONFIGS = ("Debug", "Release")
 FINAL_MARK = "first_terminal_frame"
 AGENT_MARK = "agent_pane.handshake_end"
 SIDEBAR_MARK = "sidebar_rows_shown"
+# p08-startup-093: the daemon's own start (identify {startup_marks}), measured in the daemon from its main() and
+# recorded by the app after the first snapshot; daemon_steps_summary names the slowest step.
+DAEMON_STEPS = [
+    ("daemon.main_start", "daemon: main()"),
+    ("daemon.config_loaded", "daemon: config loaded"),
+    ("daemon.owner_prepared", "daemon: owner prepared"),
+    ("daemon.socket_bound", "daemon: session socket bound"),
+    ("daemon.mux_restored", "daemon: registry and terminals restored"),
+    ("daemon.owner_event_loop", "daemon: owner event loop"),
+    ("daemon.websocket_ready", "daemon: WebSocket step done"),
+    ("daemon.launch_snapshot_writer_started", "daemon: launch snapshot writer"),
+    ("daemon.lifecycle_ready", "daemon: lifecycle ready"),
+    ("daemon.first_identify_served", "daemon: first identify answered"),
+]
 
 # Rows in launch order; a mark a build does not emit is left out.
 MARKS = [
@@ -217,6 +231,7 @@ MARKS = [
     ("daemon.ensure_start", "server ensure spawn (cold)"),
     ("daemon.ensure_end", "daemon ready (cold)"),
     ("daemon.spawned", "daemon spawned by the first connect (cold)"),
+    *DAEMON_STEPS,
     ("daemon.endpoint_resolved", "endpoint resolved"),
     ("daemon.socket_connected", "control socket connected"),
     ("daemon.identify_end", "identify answered"),
@@ -1127,6 +1142,27 @@ def main_span_summary(runs):
     return f"  main(): {start} -> {end} ms {cells}  n {len(spans)}; {over} over {MAIN_BUDGET_MS:g} ms"
 
 
+def daemon_steps_summary(runs):
+    """p08-startup-093: the slowest step of the daemon's own start, by the p50 of each run's gap from the step the
+    daemon reached before it. None when no run carries two daemon steps (a warm run attaches to a running daemon, an
+    older daemon reports none)."""
+    gaps = {}
+    for run in runs:
+        reached = [(mark, run[mark]) for mark, _ in DAEMON_STEPS if is_number(run.get(mark))]
+        for (_, before), (mark, at) in zip(reached, reached[1:]):
+            gaps.setdefault(mark, []).append(at - before)
+    if not gaps:
+        return None
+    labels = dict(DAEMON_STEPS)
+    p50 = {mark: perf_stats.pct(values, 0.5) for mark, values in gaps.items()}
+    slowest = max(p50, key=p50.get)
+    total = [run[DAEMON_STEPS[-1][0]] - run[DAEMON_STEPS[0][0]] for run in runs
+             if is_number(run.get(DAEMON_STEPS[0][0])) and is_number(run.get(DAEMON_STEPS[-1][0]))]
+    span = f"; main() -> first identify p50 {perf_stats.pct(total, 0.5):.1f} ms" if total else ""
+    return (f"  daemon start: slowest step {labels[slowest]} ({slowest}) p50 {p50[slowest]:.1f} ms  "
+            f"n {len(gaps[slowest])}{span}")
+
+
 def value_summary(runs, temperature=None):
     """Summary lines for the value marks: the temperature of each run (against --temperature), page-in and main
     CPU spreads, and the interrupted runs by number. None when no run sent one and no temperature was asked."""
@@ -1587,6 +1623,9 @@ def main():
             span = main_span_summary(runs)
             if span:
                 print(span)
+            daemon_steps = daemon_steps_summary(runs)
+            if daemon_steps:
+                print(daemon_steps)
             for line in value_summary(runs, args.temperature):
                 print(line)
             if args.hangs:

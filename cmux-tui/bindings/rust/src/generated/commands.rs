@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 92ea0b6da7b0bd288ec4e10c0f31751140797c17e8fcdbcb3a76d518df4b8499.
+// cmux-tui mux protocol 12, IR 859372e7d0b532e8ef2fb66624f2232b92a0b10643e6825512427e3342b26fd1.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2733,6 +2733,8 @@ pub struct IdentifyRequest {
     pub machine_metadata: Option<bool>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub revisions: Option<bool>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub startup_marks: Option<bool>,
 }
 
 #[rustfmt::skip]
@@ -6009,6 +6011,10 @@ impl CmuxClient {
         }
         if request.revisions.is_some() {
             self.require_protocol_field("identify", 12)?;
+        }
+        if request.startup_marks.is_some() {
+            self.require_protocol_field("identify", 12)?;
+            self.require_capability_field("identify", "startup-marks-v1")?;
         }
         self.execute_identify(&IDENTIFY_METADATA, &request)
     }

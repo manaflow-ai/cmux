@@ -23,8 +23,9 @@ pub const PINNED_DOCK_ALONE_CAPABILITY: &str = "pinned-dock-alone-v1";
 /// `identify`'s capabilities: [`always_identified`] plus `cloud-conversations-v1`
 /// and `cloud-lease-app-only-v1` when the binary installed a cloud transport, `history-search-v1` when it
 /// installed the search index,
-/// `terminal-reaper-active-v1` while the unplaced-terminal reaper runs, and
-/// `daemon-build-v1` when the binary installed its build identity.
+/// `terminal-reaper-active-v1` while the unplaced-terminal reaper runs,
+/// `daemon-build-v1` when the binary installed its build identity, and
+/// `startup-marks-v1` when the serving daemon installed its startup timeline.
 pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     let mut capabilities = always_identified();
     if mux.cloud_conversations().is_some() {
@@ -85,6 +86,9 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     }
     if daemon_build::installed() {
         capabilities.push(DAEMON_BUILD_CAPABILITY);
+    }
+    if mux.startup_marks().is_some() {
+        capabilities.push(crate::startup_marks::CAPABILITY);
     }
     if crate::chief_brains::taken().is_some() {
         capabilities.push(chief_control::CAPABILITY);

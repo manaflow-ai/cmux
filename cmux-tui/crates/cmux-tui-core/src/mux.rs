@@ -764,7 +764,7 @@ pub struct Mux {
     terminal_exit_detaches: Arc<TerminalExitDetachTracker>,
     terminal_adoption_insert_failures: AtomicU64,
     template_completion_failures: AtomicU64,
-    server_lifecycle_ready: AtomicBool,
+    server_startup: crate::startup_marks::ServerStartup,
     shutting_down: AtomicBool,
     /// When this owner's session (and the previous owner's) was shutting
     /// down: signal exits then are host losses (`session-shutdown`).

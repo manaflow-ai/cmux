@@ -727,14 +727,7 @@ tabs = tabs_wire;
 #[derive(Deserialize)]
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 enum Command {
-    Identify {
-        #[serde(default)]
-        machine_metadata: bool,
-        /// Adds `api_revision`, `min_api_revision`, `crate_version`,
-        /// `install` and `update_command` (server/api_revision_wire.rs).
-        #[serde(default)]
-        revisions: bool,
-    },
+    Identify(cmd_server::IdentifyParams),
     BrowserHostProvider,
     SubscribeActivity,
     /// The Chief memory inspector's read-only API, for the owner's trusted

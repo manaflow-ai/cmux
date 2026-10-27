@@ -43,6 +43,18 @@ public final class DaemonLaunchTimings: Sendable {
         case spawned = "daemon.spawned"
         case identified = "daemon.identified"
         case snapshotReceived = "daemon.snapshot_received"
+        // The daemon's own start (``DaemonStartupMarks/launchMarks``), at the daemon's times, once per launch that
+        // spawned it (``DaemonConnectMarks``).
+        case daemonMainStart = "daemon.main_start"
+        case daemonConfigLoaded = "daemon.config_loaded"
+        case daemonOwnerPrepared = "daemon.owner_prepared"
+        case daemonSocketBound = "daemon.socket_bound"
+        case daemonMuxRestored = "daemon.mux_restored"
+        case daemonOwnerEventLoop = "daemon.owner_event_loop"
+        case daemonWebsocketReady = "daemon.websocket_ready"
+        case daemonLaunchSnapshotWriterStarted = "daemon.launch_snapshot_writer_started"
+        case daemonLifecycleReady = "daemon.lifecycle_ready"
+        case daemonFirstIdentifyServed = "daemon.first_identify_served"
 
         /// The ring code of the mark `name`.
         static func traceCode(of name: String) -> UInt64 {
