@@ -133,6 +133,7 @@ RUNNER_VARIABLE = re.compile(
     re.IGNORECASE,
 )
 ANY_VARS = re.compile(r"\bvars\b", re.IGNORECASE)
+RUNS_ON_END = re.compile(r"\s*\}\}\s*$")
 LIVE_VALUE_CHECK = (".github/workflows/cmux-next-guards.yml", "signing-runner-variables")
 LIVE_VALUE_RUNNER = "blacksmith-2vcpu-ubuntu-2404"
 
@@ -203,17 +204,20 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
                 f"{name}: holds a signing secret and reads a repository variable in runs-on in a form this "
                 "guard cannot check; write vars.NAME"
             )
-        for dotted, bracketed, fallback in RUNNER_VARIABLE.findall(runs_on):
+        for match in RUNNER_VARIABLE.finditer(runs_on):
+            dotted, bracketed, fallback = match.groups()
             variable = (dotted or bracketed).upper()
             if variable not in EPHEMERAL_RUNNER_VARIABLES:
                 failures.append(
                     f"{name}: holds a signing secret but picks its runner from vars.{variable}; use a literal "
                     f"ephemeral label or one of {', '.join(EPHEMERAL_RUNNER_VARIABLES)}"
                 )
-            elif fallback and not EPHEMERAL_LABEL.match(fallback):
+            # The variable and its literal close the expression (`... || vars.X || 'blacksmith-...' }}`),
+            # so nothing after them (an `&&`, another selector) can replace the label they give.
+            elif not (fallback and EPHEMERAL_LABEL.match(fallback) and RUNS_ON_END.match(runs_on, match.end())):
                 failures.append(
-                    f"{name}: holds a signing secret and falls back from vars.{variable} to {fallback!r}; "
-                    "the fallback must be an ephemeral label (blacksmith-* or ubuntu-*)"
+                    f"{name}: holds a signing secret and reads vars.{variable} other than as the expression's "
+                    "last choice `vars.NAME || '<blacksmith-* or ubuntu-* label>' }}`"
                 )
 
     text = json.dumps(job)
