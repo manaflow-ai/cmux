@@ -56,11 +56,13 @@ public struct UpdateRelaunchBlockers: Equatable, Sendable {
 /// `retryTerminatingApplication` and `dismiss` actions.
 @MainActor
 final class UpdateRelaunchGate {
-    /// How soon a waiting gate first re-reads the host's blockers, and again after they changed.
+    /// How often a waiting gate re-reads the host's blockers for an install the person asked for,
+    /// and how soon an automatic hold first re-reads them and again after they changed.
     static let recheckInterval: Duration = .seconds(2)
-    /// The longest a waiting gate goes between reads of blockers that stay the same: the interval
-    /// doubles up to this, like Chrome's `net::BackoffEntry` with its `maximum_backoff_ms`
-    /// (`net/base/backoff_entry.h`).
+    /// The longest an automatic hold goes between reads of blockers that stay the same: the
+    /// interval doubles up to this, like Chrome's `net::BackoffEntry` with its `maximum_backoff_ms`
+    /// (`net/base/backoff_entry.h`). An install the person asked for never backs off: it waits on
+    /// screen, and throttling is only for work the person cannot see.
     static let recheckCap: Duration = .seconds(16)
     /// How long an explicit install waits for busy agents before relaunching anyway.
     static let agentTimeout: Duration = .seconds(30 * 60)
@@ -179,8 +181,8 @@ final class UpdateRelaunchGate {
         guard !evaluate(request, blockers: blockers(), publish: publish) else { return }
         var interval = nextRecheck(request, after: nil)
         waitTask = Task { @MainActor [weak self, clock] in
-            // wakeup-allow: backoff the recheck doubles to recheckCap while the blockers stay the same,
-            // never sleeps past the hold's next time bound, and ends with the hold
+            // wakeup-allow: backoff an automatic hold's recheck doubles to recheckCap while the blockers
+            // stay the same, never sleeps past the hold's next time bound, and ends with the hold
             while !Task.isCancelled {
                 do {
                     // wakeup-allow: backoff one recheck of the held relaunch, its interval from nextRecheck
@@ -205,11 +207,16 @@ final class UpdateRelaunchGate {
         }
     }
 
-    /// How long a waiting `request` sleeps before it reads the blockers again: ``recheckInterval``
-    /// first and after the published blockers changed (`previous` nil), otherwise double `previous`
-    /// up to ``recheckCap``; never past the hold's next time bound, so a timeout ends on time.
+    /// How long a waiting `request` sleeps before it reads the blockers again: always
+    /// ``recheckInterval`` for an install the person asked for; for an automatic hold,
+    /// ``recheckInterval`` first and after the published blockers changed (`previous` nil),
+    /// otherwise double `previous` up to ``recheckCap``. Never past the hold's next time bound, so
+    /// a timeout ends on time.
     private func nextRecheck(_ request: Pending, after previous: Duration?) -> Duration {
-        let backedOff = previous.map { Swift.min(Swift.max($0 * 2, recheckInterval), recheckCap) } ?? recheckInterval
+        var backedOff = recheckInterval
+        if request.automatic, let previous {
+            backedOff = Swift.min(Swift.max(previous * 2, recheckInterval), recheckCap)
+        }
         guard let bound = Self.untilNextBound(
             request.published ?? .empty, automatic: request.automatic, waited: request.waited,
             daemonUnavailableFor: request.daemonUnavailableFor, agentTimeout: agentTimeout,

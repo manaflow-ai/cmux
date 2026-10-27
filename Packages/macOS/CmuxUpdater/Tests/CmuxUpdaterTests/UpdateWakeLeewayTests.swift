@@ -2,9 +2,10 @@ import Foundation
 import Testing
 @testable import CmuxUpdater
 
-/// Updater deadlines sleep with a leeway, and a held relaunch rechecks on a backoff instead of a
-/// fixed 2 s period, so an idle Mac with an update waiting is not woken on a short period
-/// (plans/cmux-next/chrome-parity/p14-energy.md, Q2).
+/// Updater deadlines sleep with a leeway, and an automatic held relaunch rechecks on a backoff
+/// instead of a fixed 2 s period, so an idle Mac with an update waiting is not woken on a short
+/// period (plans/cmux-next/chrome-parity/p14-energy.md, Q2). An install the person asked for keeps
+/// its 2 s recheck: it waits on screen.
 @MainActor
 @Suite struct UpdateWakeLeewayTests {
     @Test(arguments: [
@@ -86,15 +87,16 @@ import Testing
         #expect(condition())
     }
 
-    @Test func aHeldRelaunchBacksOffWhileItsBlockersStayTheSame() async {
+    @Test func anAutomaticHoldBacksOffWhileItsBlockersStayTheSame() async {
         let clock = TestDeadlineClock()
         let gate = UpdateRelaunchGate(clock: clock, log: NoopUpdateLog())
         var evaluations = 0
         gate.hold(
-            isAutoUpdate: false,
+            isAutoUpdate: true,
+            automatic: true,
             blockers: {
                 evaluations += 1
-                // A running command holds a user install with no time bound.
+                // A running command holds an automatic install until its 15 min wait cap.
                 return UpdateRelaunchBlockers(busyAgentCount: 0, runningCommandCount: 1)
             },
             isShown: { true },
@@ -117,13 +119,45 @@ import Testing
         gate.cancel()
     }
 
+    /// The person clicked Install and a running command holds it: the waiting state is on screen,
+    /// so the gate keeps reading the blockers every 2 s and relaunches within 2 s of them clearing.
+    @Test func aUserInstallKeepsRecheckingEveryTwoSeconds() async {
+        let clock = TestDeadlineClock()
+        let gate = UpdateRelaunchGate(clock: clock, log: NoopUpdateLog())
+        var blockers = UpdateRelaunchBlockers(busyAgentCount: 0, runningCommandCount: 1)
+        var evaluations = 0
+        var relaunched = 0
+        gate.hold(
+            isAutoUpdate: false,
+            blockers: {
+                evaluations += 1
+                return blockers
+            },
+            isShown: { true },
+            publish: { _ in },
+            relaunch: { relaunched += 1 },
+            later: { Issue.record("later must not run") }
+        )
+        for expected in 2...6 {
+            await recheck(clock) { evaluations == expected }
+        }
+        blockers = .empty
+        await recheck(clock) { relaunched == 1 }
+
+        let requests = await clock.requests
+        #expect(requests == Array(repeating: RequestedSleep(duration: .seconds(2), tolerance: .milliseconds(200)),
+                                  count: 6))
+        #expect(!gate.isWaiting)
+    }
+
     @Test func aBlockerChangeRestartsTheRecheckAtItsShortestInterval() async {
         let clock = TestDeadlineClock()
         let gate = UpdateRelaunchGate(clock: clock, log: NoopUpdateLog())
         var blockers = UpdateRelaunchBlockers(busyAgentCount: 0, runningCommandCount: 1)
         var evaluations = 0
         gate.hold(
-            isAutoUpdate: false,
+            isAutoUpdate: true,
+            automatic: true,
             blockers: {
                 evaluations += 1
                 return blockers
@@ -166,7 +200,30 @@ import Testing
                       daemonUnavailableFor: .seconds(11 * 60)) == .seconds(4 * 60))
     }
 
-    @Test func theBackoffNeverSleepsPastTheAgentTimeout() async {
+    @Test func theBackoffNeverSleepsPastTheAutomaticWaitCap() async {
+        let clock = TestDeadlineClock()
+        let gate = UpdateRelaunchGate(clock: clock, log: NoopUpdateLog())
+        gate.automaticWaitCap = .seconds(5)
+        var relaunched = 0
+        gate.hold(
+            isAutoUpdate: true,
+            automatic: true,
+            blockers: { UpdateRelaunchBlockers(busyAgentCount: 0, runningCommandCount: 1) },
+            isShown: { true },
+            publish: { _ in },
+            relaunch: { relaunched += 1 },
+            later: { Issue.record("later must not run") }
+        )
+        // 2 s, then 3 s (not 4 s): the hold ends exactly at the 5 s wait cap.
+        await recheck(clock) { true }
+        await recheck(clock) { relaunched == 1 }
+
+        let durations = await clock.requests.map(\.duration)
+        #expect(durations == [.seconds(2), .seconds(3)])
+        #expect(!gate.isWaiting)
+    }
+
+    @Test func aUserInstallRecheckNeverSleepsPastTheAgentTimeout() async {
         let clock = TestDeadlineClock()
         let gate = UpdateRelaunchGate(clock: clock, log: NoopUpdateLog(), agentTimeout: .seconds(5))
         var relaunched = 0
@@ -178,12 +235,13 @@ import Testing
             relaunch: { relaunched += 1 },
             later: { Issue.record("later must not run") }
         )
-        // 2 s, then 3 s (not 4 s): the hold ends exactly at the 5 s agent timeout.
+        // 2 s, 2 s, then 1 s: the hold ends exactly at the 5 s agent timeout.
+        await recheck(clock) { true }
         await recheck(clock) { true }
         await recheck(clock) { relaunched == 1 }
 
         let durations = await clock.requests.map(\.duration)
-        #expect(durations == [.seconds(2), .seconds(3)])
+        #expect(durations == [.seconds(2), .seconds(2), .seconds(1)])
         #expect(!gate.isWaiting)
     }
 }
