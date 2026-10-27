@@ -395,9 +395,8 @@ import Testing
         let targets = await source.targets()
         let target = try #require(targets.first)
         let outcome = await target.update(to: local, whileBusy: true)
-        // The queue's log line as the policy writes it before the fix (`String(describing:)`).
-        let line = "mini-a to \(local.hash) while busy: \(String(describing: outcome))"
-        #expect(line == "mini-a to abc123def while busy: held (\(why))")
+        #expect(outcome == .held(reason: why))
+        #expect(DaemonUpdatePolicy.logLine("mini-a", to: local.hash, whileBusy: true, outcome) == "mini-a to abc123def while busy: held (\(why))")
     }
 
     /// Review of #25388: another update holds the host's lock (`failed`, reason `updateRunning`).
