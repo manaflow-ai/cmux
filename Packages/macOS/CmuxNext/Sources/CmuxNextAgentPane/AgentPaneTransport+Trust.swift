@@ -9,7 +9,6 @@ extension AgentPaneTransport {
     func trustPicked(_ folder: String) async {
         guard !remoteWire, let socket, let ids = requestIds else { return }
         let id = ids.hostID()
-        ids.whenAnswered(id) {}
         let request: [String: Any] = [
             "jsonrpc": "2.0",
             "id": id,
@@ -19,7 +18,7 @@ extension AgentPaneTransport {
         guard let data = try? JSONSerialization.data(withJSONObject: request, options: [.withoutEscapingSlashes]) else {
             return
         }
-        let error = socket.send(String(decoding: data, as: UTF8.self))
+        let error = await submitHost(connection: current, frame: String(decoding: data, as: UTF8.self))
         if let error {
             Self.logger.error("agent pane automatic folder trust failed: \(error.rawValue, privacy: .public)")
         }

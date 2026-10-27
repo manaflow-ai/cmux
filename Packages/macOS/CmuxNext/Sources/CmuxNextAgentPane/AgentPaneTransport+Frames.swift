@@ -145,7 +145,22 @@ extension AgentPaneTransport {
     /// main-actor state, the re-encode and the send. It stops at the first frame that needs the main
     /// actor (the gesture record, the sheets, the pane's sessions), which gets only small facts.
     func drain() async {
-        while let entry = pending.first {
+        while true {
+            guard let entry = pending.first else {
+                guard let host = pendingHost.first else {
+                    draining = false
+                    return
+                }
+                guard host.connection == current, sentFirst, let socket else {
+                    pendingHost.removeFirst()
+                    host.reply.resume(returning: .staleConnection)
+                    continue
+                }
+                let error = socket.send(host.frame)
+                pendingHost.removeFirst()
+                host.reply.resume(returning: error)
+                continue
+            }
             guard !entry.frames.isEmpty else {
                 finishFirst()
                 continue
@@ -203,11 +218,17 @@ extension AgentPaneTransport {
             Self.logger.error("agent pane transport: no person key for this daemon; allows stay refused")
             return
         }
-        let frame: [String: Any] = ["jsonrpc": "2.0", "id": ids.hostID(), "method": "_acpmux/person_prove",
+        let id = ids.hostID()
+        let frame: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": "_acpmux/person_prove",
                                     "params": ["proof": proof]]
         guard let data = try? JSONSerialization.data(withJSONObject: frame), let text = String(data: data, encoding: .utf8) else { return }
-        if let error = socket.send(text) {
-            Self.logger.error("agent pane transport: person proof not sent: \(error.rawValue, privacy: .public)")
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            ids.whenAnswered(id) { continuation.resume() }
+            if let error = socket.send(text) {
+                ids.cancel(id)
+                continuation.resume()
+                Self.logger.error("agent pane transport: person proof not sent: \(error.rawValue, privacy: .public)")
+            }
         }
     }
 

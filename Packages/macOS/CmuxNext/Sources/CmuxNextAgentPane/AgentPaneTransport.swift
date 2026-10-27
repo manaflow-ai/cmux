@@ -52,6 +52,9 @@ import CmuxNextCompat
     var sentFirst = false
     /// The send line (``submit(connection:frames:reply:)``), drained in order by one task at a time.
     var pending: [PendingSend] = []
+    /// Host-owned requests (for example the trust record after a native folder picker). They share
+    /// the page send line so initialization and person proof always precede them.
+    var pendingHost: [PendingHostSend] = []
     var draining = false
     /// The user's gestures in this pane; a granting frame consumes one.
     public let gestures: AgentPaneUserGestures
@@ -282,6 +285,27 @@ import CmuxNextCompat
         draining = true
         // task-owner: the send line's one drain; it ends when the line is empty
         Task { [weak self] in await self?.drain() }
+    }
+
+    func submitHost(connection id: Int, frame: String) async -> AgentPaneTransportError? {
+        await withCheckedContinuation { continuation in
+            pendingHost.append(PendingHostSend(connection: id, frame: frame, reply: continuation))
+            guard !draining else { return }
+            draining = true
+            Task { [weak self] in await self?.drain() }
+        }
+    }
+
+    final class PendingHostSend {
+        let connection: Int
+        let frame: String
+        let reply: CheckedContinuation<AgentPaneTransportError?, Never>
+
+        init(connection: Int, frame: String, reply: CheckedContinuation<AgentPaneTransportError?, Never>) {
+            self.connection = connection
+            self.frame = frame
+            self.reply = reply
+        }
     }
 
     nonisolated enum Step: Sendable { case sent, refused(AgentPaneTransportError), stop(AgentPaneTransportError) }

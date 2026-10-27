@@ -139,8 +139,7 @@ public final class AgentPaneStartFolders {
         // The store's spelling is not always the canonical one the relay compares (a symlink).
         guard let folder = await Task.detached(operation: { AcpmuxPathPolicy.canonical(path) }).value,
               transport.gestures.consume() else { return }
-        let isNewRoot = !transport.addedRoots.contains(folder) && !transport.roots().contains(folder)
-        await transport.grantPicked(folder, carryGesture: isNewRoot)
+        await transport.grantPicked(folder)
     }
 
     /// The home folder the user picked: asked about first; the answer (on its click) makes it a
