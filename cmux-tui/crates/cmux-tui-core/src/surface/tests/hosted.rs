@@ -659,3 +659,62 @@ fn hosted_reconnect_backoff_releases_geometry_before_waiting() {
         "host reconnect backoff held the geometry transaction lock"
     );
 }
+
+/// A hosted terminal's reader (`surface-<id>-host`, an echo thread) runs
+/// its host's lifecycle once a connection ends: the lost connection's
+/// commit to the registry, the reconnect's record reads and handshake, or
+/// the exit commit. In the detector's panic mode (the Debug default) the
+/// reader panicked there (hosted_reader.rs `after_stream`), so the terminal
+/// neither reconnected nor ended, and the suite's terminal_host_recovery
+/// tests waited for it. Here the host goes away with no Exit frame and no
+/// record to reconnect to: the reader must reach its own end (the reconnect
+/// fails and the terminal is marked lost) instead of dying at the loss.
+#[cfg(unix)]
+#[test]
+fn a_hosted_terminals_lost_connection_is_handled_in_panic_mode() {
+    cmux_threads::blocking::set_mode(cmux_threads::BlockingMode::Panic);
+    let mux = Mux::new_for_test("hosted-loss-panic-mode", SurfaceOptions::default());
+    let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+    let (mut attachment, host) = crate::terminal_host_runtime::input_ack_surface_fixture();
+    let terminal_id = attachment.record.terminal_id.clone();
+    attachment.record.workspace_key = workspace.key.clone();
+    mux.seed_launching_terminal_for_test(&terminal_id, &workspace.key).unwrap();
+    let surface = Surface::spawn_hosted(
+        9_213,
+        SurfaceOptions::default(),
+        Arc::downgrade(&mux),
+        HostedSurfaceLaunch {
+            adopted: false,
+            attachment,
+            kitty_reservation: None,
+            terminate_on_error: false,
+            defer_launch_activation: false,
+            lifetime: PtyLifetime::SessionOwned,
+            terminal_public_id: None,
+            resource_identity: None,
+        },
+    )
+    .unwrap();
+    let before = cmux_threads::blocking::snapshot();
+    drop(host);
+    let pty = surface.as_pty().unwrap();
+    let ended = pty.reader_completion.wait_until(Instant::now() + Duration::from_secs(30));
+    assert!(ended, "the reader ends after the failed reconnect");
+    // The reader made no blocking call while blocking was disallowed (a
+    // violation is recorded, then panics): the lifecycle ran outside the
+    // streaming phase's restriction.
+    let violations: Vec<_> = cmux_threads::blocking::snapshot()
+        .sites
+        .into_iter()
+        .filter(|site| !site.lane_sync)
+        .filter(|site| {
+            site.file.contains("surface/hosted_reader")
+                || site.file.contains("terminal_host_runtime")
+        })
+        .filter(|site| before.site(site.file, site.line).map(|b| b.count) != Some(site.count))
+        .collect();
+    assert!(
+        violations.is_empty(),
+        "blocking calls the reader made where it disallows them: {violations:?}"
+    );
+}
