@@ -63,7 +63,9 @@ export function animateScrollBy(
 ): { remaining(): number } {
   let remaining = distance;
   let previous = 0;
-  const left = () => (toEnd ? Math.max(0, node.scrollHeight - node.clientHeight - node.scrollTop) : remaining);
+  let rounding = 0;
+  const left = () =>
+    toEnd ? Math.max(0, node.scrollHeight - node.clientHeight - node.scrollTop) : remaining + rounding;
   runScroll(
     node,
     duration,
@@ -71,11 +73,14 @@ export function animateScrollBy(
     (progress) => {
       const before = node.scrollTop;
       const fraction = previous === 1 ? 1 : (progress - previous) / (1 - previous);
-      const by = left() * fraction;
-      // WebKit floors scrollTop: a tiny negative tail must not become one extra pixel. Rounding
-      // only the final wheel delta preserves fractional layout-anchor offsets and exact end rides.
-      node.scrollTop += progress === 1 && !toEnd ? Math.round(by) : by;
-      remaining -= node.scrollTop - before;
+      const by = (toEnd ? left() : remaining) * fraction;
+      // Carry only the engine's subpixel rounding of THIS wheel. The row-id anchor owns changes
+      // to the live offset. Reusing the rounded offset as the remaining distance could overshoot
+      // by one WebKit pixel and then bounce back on the final frame.
+      const wanted = by + (toEnd ? 0 : rounding);
+      node.scrollTop += progress === 1 && !toEnd ? Math.round(wanted) : wanted;
+      remaining -= by;
+      rounding = wanted - (node.scrollTop - before);
       previous = progress;
     },
     finished,
