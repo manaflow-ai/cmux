@@ -563,13 +563,14 @@ impl Hub {
             }
         }
 
+        // MDM's off as this start begins: its one read, which every check below takes, so an off
+        // that comes and goes while it starts still holds for it (reviews 73, 75 and 77 of #23322).
+        let off = self.off_latch();
         // Every start below (pooled, cold, resumed, a fork or sub-session) runs this profile.
-        if let Err(e) = self.refuse_pinned_full_access(profile) {
+        if let Err(e) = self.refuse_pinned_full_access(&off, profile) {
             self.append(session, "mux", "full_access_refused", json!({}));
             return Err(e);
         }
-        #[cfg(test)]
-        super::full_access_bound::after_off_count(self);
         let current = self.opencode_ask_now(session, profile).await;
         let profile = current.as_ref().unwrap_or(profile);
         self.record_spawn_inputs(session, profile).await;
@@ -581,7 +582,7 @@ impl Hub {
         Self::starting(session, stops);
         // A pooled session claimed for this id (`pool/`): its host already
         // runs with the harness initialized and its session created.
-        if let Some(pooled) = self.pool_take_claimed_for(&session.id, profile) {
+        if let Some(pooled) = self.pool_take_claimed_for(&session.id, profile, &off) {
             // Reopened before it is taken, so the pooled start's Ready lands on an open session.
             if let Err(e) = self.reopen_to_start(session, stops) {
                 super::pool::end_pooled(pooled).await;
@@ -593,8 +594,7 @@ impl Hub {
                 // held past the take's check may not have reached the chat when its start is
                 // capped, and one made while the off held counts though it is unset by now.
                 Ok((_, reported))
-                    if reported_off.load(Ordering::SeqCst)
-                        || (reported && self.full_access_managed_off()) =>
+                    if reported_off.load(Ordering::SeqCst) || (reported && off.off()) =>
                 {
                     self.stop_full_access_agent(session).await;
                     return Err(super::start_mode::full_access_off());
@@ -606,7 +606,7 @@ impl Hub {
                     let budget = self.config.read().await.agent_start_timeout();
                     return match tokio::time::timeout(
                         budget,
-                        self.cap_full_access(session, &child, profile),
+                        self.cap_full_access(session, &child, profile, &off),
                     )
                     .await
                     {
@@ -630,7 +630,7 @@ impl Hub {
         // session, forever. Re-adoption and pool adoption above keep their
         // own bounds: they serve agents that may be mid-turn.
         let budget = self.config.read().await.agent_start_timeout();
-        match tokio::time::timeout(budget, self.cold_start(session, profile, stops)).await {
+        match tokio::time::timeout(budget, self.cold_start(session, profile, stops, &off)).await {
             Ok(result) => result.map(|child| self.keep_account_home(session, profile, child)),
             Err(_) => {
                 self.abandon_cold_start(session, budget).await;
@@ -674,6 +674,7 @@ impl Hub {
         session: &Arc<Session>,
         profile: &HarnessProfile,
         stops: u64,
+        off: &super::full_access_bound::OffLatch,
     ) -> Result<Arc<ChildAgent>, RpcError> {
         // Its worktree back if cleanup reclaimed it, and reopened if stopped.
         self.ready_to_start(session, stops).await?;
@@ -744,7 +745,7 @@ impl Hub {
             let mode = if super::start_mode::profile_sets_mode(profile) {
                 mode
             } else {
-                super::start_mode::resumable_mode(mode, "default", self.full_access_allowed())
+                super::start_mode::resumable_mode(mode, "default", off.allows_full_access())
             };
             if mode != saved_mode {
                 tracing::info!(session = %session.id, "resume: full access is off; {saved_mode} runs as {mode}");
@@ -905,7 +906,7 @@ impl Hub {
         if is_claude {
             // MDM may have forced full access off since `ensure_child` checked the profile: the
             // process runs nothing, not even a fork's priming turn, in full access (review 31).
-            self.refuse_started_in_full_access(session, &spawned).await?;
+            self.refuse_started_in_full_access(session, off, &spawned).await?;
             // A forked process only learns its new id from system/init on the
             // first turn. Prime it then; fresh and resumed ids are known already.
             let known = child.claude_state().await.and_then(|state| state.session_id);
@@ -956,6 +957,7 @@ impl Hub {
             // Nor is it handed out in full access by any form it now reports (`cap_full_access`).
             self.refuse_started_in_full_access(
                 session,
+                off,
                 &super::full_access_bound::FullAccessView::of_session(session),
             )
             .await?;
@@ -1030,9 +1032,9 @@ impl Hub {
             }
         }
         if saved.agent_session_id.is_some() {
-            self.replay_config(session, &child, &saved).await;
+            self.replay_config(session, &child, &saved, off).await;
         }
-        self.cap_full_access(session, &child, profile).await?;
+        self.cap_full_access(session, &child, profile, off).await?;
         self.set_status(session, SessionStatus::Ready);
         self.save_meta(session);
         let meta_now = session.meta();
@@ -1059,6 +1061,7 @@ impl Hub {
         session: &Arc<Session>,
         child: &Arc<ChildAgent>,
         saved: &SessionMeta,
+        off: &super::full_access_bound::OffLatch,
     ) {
         let Some(sid) = session.meta().agent_session_id else { return };
         // A resumed chat saved in a full-access mode does not get it back while the setting is off.
@@ -1067,7 +1070,7 @@ impl Hub {
             .as_ref()
             .and_then(|m| m.get("currentModeId"))
             .and_then(Value::as_str)
-            .filter(|mode| !super::start_mode::is_full_access(mode) || self.full_access_allowed())
+            .filter(|mode| !super::start_mode::is_full_access(mode) || off.allows_full_access())
         {
             if let Err(e) = child
                 .request(method::SESSION_SET_MODE, json!({"sessionId": sid, "modeId": mode}))
@@ -1103,7 +1106,7 @@ impl Hub {
                 continue;
             }
             if value.as_str().is_some_and(super::start_mode::is_full_access)
-                && !self.full_access_allowed()
+                && !off.allows_full_access()
             {
                 tracing::info!(session = %session.id, "replay {id}: full access is off; kept the harness's own mode");
                 continue;
@@ -1323,8 +1326,7 @@ impl Hub {
             // once it answered, so an off that landed during the handshake counts.
             let mut view =
                 super::full_access_bound::FullAccessView::of_session_new(&profile.argv, Some(&res));
-            view.reported =
-                reports.lock().unwrap_or_else(|e| e.into_inner()).of(res["sessionId"].as_str());
+            view.reported = reports.lock().unwrap_or_else(|e| e.into_inner()).of_answer(Some(&res));
             if latch.off() && super::full_access_bound::runs_full_access(&view).is_some() {
                 anyhow::bail!("{name}: its session came up in full access, which MDM forces off");
             }

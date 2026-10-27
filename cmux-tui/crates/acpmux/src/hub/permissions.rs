@@ -459,11 +459,10 @@ impl Hub {
         session: &Session,
         config_policy: PermissionPolicy,
     ) -> PermissionPolicy {
-        let policy = Self::stored_policy_for(session, config_policy);
-        if super::full_access_bound::policy_is_full_access(policy) && !self.approve_all_allowed() {
-            return PermissionPolicy::Ask;
-        }
-        policy
+        capped_policy(
+            Self::stored_policy_for(session, config_policy),
+            self.full_access_managed_off(),
+        )
     }
 
     /// `policy_for` as stored, before MDM's off caps it: for the person rule, which must not
@@ -514,12 +513,15 @@ impl Hub {
         // the async workers: its git reads look at the repositories on disk.
         // Only under approve-reads: approve-edits writes files unasked, so a command's own
         // program could be one the agent wrote.
+        // MDM's off as this ask begins: its one read, which every decision below takes, so an off
+        // that comes and goes while it is judged still holds for it (reviews 73, 75 and 77 of
+        // #23322). Read without a lock, so also under the permission lock.
+        let off = self.off_latch();
         let reads_policy = {
             let cfg = self.config.read().await;
-            self.policy_for(session, cfg.permission_policy) == PermissionPolicy::ApproveReads
+            capped_policy(Self::stored_policy_for(session, cfg.permission_policy), off.off())
+                == PermissionPolicy::ApproveReads
         };
-        #[cfg(test)]
-        super::full_access_bound::after_off_count(self);
         // Judged in the environment the harness runs it with: the daemon's, the allow-listed
         // login values, then the env its agent was started with (`ensure_child`). An agent this
         // daemon did not start (re-adopted after a restart) asks.
@@ -551,7 +553,7 @@ impl Hub {
             };
         // Read before the locks (it reads the settings file); the mode is read again under them.
         let full_access_on =
-            full_access_mode(&session.meta()).is_some() && self.full_access_allowed();
+            full_access_mode(&session.meta()).is_some() && off.allows_full_access();
         let (rx, prev, grouping, permission_id) = {
             let cfg = self.config.read().await;
             let mut state = session.permissions.lock().unwrap();
@@ -572,7 +574,8 @@ impl Hub {
                 self.remote_floor_cancel(session, reason);
                 return json!({"outcome":{"outcome":"cancelled"}});
             }
-            let policy = self.policy_for(session, cfg.permission_policy);
+            let policy =
+                capped_policy(Self::stored_policy_for(session, cfg.permission_policy), off.off());
             let options =
                 request.get("options").and_then(Value::as_array).cloned().unwrap_or_default();
             let pick = |kinds: &[&str]| -> Option<String> {
@@ -638,12 +641,12 @@ impl Hub {
                 None
             };
             let floored = web_turn && !denied && auto.is_some();
-            // Full access answers what the harness still asks, unless a rule decided it. MDM's
-            // off is read again here (memory only): a push since the read above answers nothing.
-            let full_access =
-                (full_access_on && !self.full_access_managed_off() && rule.is_none() && !denied)
-                    .then(|| full_access_allow(session, &request))
-                    .flatten();
+            // Full access answers what the harness still asks, unless a rule decided it. The ask's
+            // off is looked at again here (memory only): a push since the read above answers
+            // nothing.
+            let full_access = (full_access_on && !off.off() && rule.is_none() && !denied)
+                .then(|| full_access_allow(session, &request))
+                .flatten();
             let auto = if denied {
                 pick(&["reject_once", "reject_always"])
             } else if needs_person || web_turn {
@@ -1023,6 +1026,15 @@ impl Hub {
         // A secret card waits on the same turn (`secrets.rs`).
         self.cancel_pending_secrets(session);
     }
+}
+
+/// `policy`, capped while MDM forces full access off (`managed_off`): approve-all, the policy form
+/// of full access, runs as `ask` (`Hub::approve_all_allowed`).
+fn capped_policy(policy: PermissionPolicy, managed_off: bool) -> PermissionPolicy {
+    if managed_off && super::full_access_bound::policy_is_full_access(policy) {
+        return PermissionPolicy::Ask;
+    }
+    policy
 }
 
 /// The Full access mode chat `m` runs in now: its current mode, when the shared rule

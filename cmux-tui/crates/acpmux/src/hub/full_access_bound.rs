@@ -84,6 +84,14 @@ impl FullAccessView {
     }
 }
 
+/// A harness or report session id as the full-access bound matches it: an empty or all-whitespace
+/// id names no session (reviews 70 and 74 of #23322). Every id that enters `StartReports` passes
+/// here: a report's (`note`), and the harness session a `session/new` answer names (`of`,
+/// `of_answer`), for a probe and a pooled agent alike.
+pub(crate) fn known_id(id: Option<&str>) -> Option<&str> {
+    id.filter(|s| !s.trim().is_empty())
+}
+
 /// The sessions whose mode or a config option a harness reported in full access while nothing
 /// watched it: a probe, or a pooled agent no chat took yet (reviews 32, 41 and 46 of #23322). Any
 /// such report counts, whatever the harness reported after it or answered `session/new` with, in
@@ -121,8 +129,8 @@ impl StartReports {
         if self.all || !Self::reports_full_access(params) {
             return;
         }
-        // A blank id names no session (review 70): it counts for all, as a missing one does.
-        let Some(sid) = params["sessionId"].as_str().filter(|s| !s.trim().is_empty()) else {
+        // A blank id names no session (`known_id`): it counts for all, as a missing one does.
+        let Some(sid) = known_id(params["sessionId"].as_str()) else {
             self.all = true;
             return;
         };
@@ -138,11 +146,15 @@ impl StartReports {
     /// Whether the harness reported full access for its session `harness_session` (a subagent's
     /// are not its own, `on_update`); for any session when it is not known (none, or a blank id).
     pub(crate) fn of(&self, harness_session: Option<&str>) -> bool {
-        // A blank id names no session (review 74): any report counts for it.
-        let harness_session = harness_session.filter(|s| !s.trim().is_empty());
+        // A blank id names no session (`known_id`): any report counts for it.
         self.all
-            || harness_session
+            || known_id(harness_session)
                 .map_or(!self.sessions.is_empty(), |sid| self.sessions.iter().any(|s| s == sid))
+    }
+
+    /// `of` for the harness session the `session/new` answer `new` names (none: not known).
+    pub(crate) fn of_answer(&self, new: Option<&Value>) -> bool {
+        self.of(new.and_then(|r| r["sessionId"].as_str()))
     }
 }
 
@@ -233,7 +245,8 @@ impl Hub {
 
     /// Whether approve-all (the policy form of full access) may answer requests itself: always,
     /// unless MDM or the team policy forces `sessions.allowFullAccess` off. The person's own off
-    /// never capped a policy before #23322, and with MDM unset nothing changes.
+    /// never capped a policy before #23322, and with MDM unset nothing changes. One read: an
+    /// operation that reads the off more than once takes an `OffLatch` instead.
     pub(crate) fn approve_all_allowed(&self) -> bool {
         !self.full_access_managed_off()
     }
@@ -244,37 +257,37 @@ impl Hub {
         self.full_access_managed() == Some(false)
     }
 
-    /// Whether MDM forces full access off while `session`'s agent runs in it (`runs_full_access`).
-    pub(super) fn managed_off_runs_full_access(&self, session: &Session) -> bool {
-        self.full_access_managed_off()
-            && runs_full_access(&FullAccessView::of_session(session)).is_some()
+    /// Whether MDM forces full access off, as the operation that took `off` sees it, while
+    /// `session`'s agent runs in it (`runs_full_access`).
+    pub(super) fn managed_off_runs_full_access(&self, off: &OffLatch, session: &Session) -> bool {
+        off.off() && runs_full_access(&FullAccessView::of_session(session)).is_some()
     }
 
     /// Refuses to start an agent from a profile that pins full access in its argv while MDM
-    /// forces it off: an upper bound the person's own profile does not override. Without MDM a
-    /// pinned profile runs as it always has.
+    /// forces it off, as the start that took `off` sees it: an upper bound the person's own
+    /// profile does not override. Without MDM a pinned profile runs as it always has.
     pub(super) fn refuse_pinned_full_access(
         &self,
+        off: &OffLatch,
         profile: &HarnessProfile,
     ) -> Result<(), RpcError> {
-        if self.full_access_managed_off()
-            && runs_full_access(&FullAccessView::of_argv(&profile.argv)).is_some()
-        {
+        if off.off() && runs_full_access(&FullAccessView::of_argv(&profile.argv)).is_some() {
             return Err(super::start_mode::full_access_off());
         }
         Ok(())
     }
 
     /// A start that passed `refuse_pinned_full_access` and then awaited (a cold Claude start, which
-    /// never reaches `cap_full_access`): MDM may have forced full access off meanwhile. When the
-    /// started agent runs in it by `view`, the agent stops and the chat stays open and idle. Without
-    /// MDM's off nothing changes.
+    /// never reaches `cap_full_access`): MDM may have forced full access off meanwhile, which the
+    /// start's `off` counts. When the started agent runs in it by `view`, the agent stops and the
+    /// chat stays open and idle. Without MDM's off nothing changes.
     pub(super) async fn refuse_started_in_full_access(
         &self,
         session: &Arc<Session>,
+        off: &OffLatch,
         view: &FullAccessView,
     ) -> Result<(), RpcError> {
-        if self.full_access_managed_off() && runs_full_access(view).is_some() {
+        if off.off() && runs_full_access(view).is_some() {
             self.stop_full_access_agent(session).await;
             return Err(super::start_mode::full_access_off());
         }
@@ -303,7 +316,9 @@ impl Hub {
         Ok(Some(OffWatch { offs: latch.offs.clone(), seen: latch.seen }))
     }
 
-    /// MDM's off as a start that begins now sees it (`OffLatch`).
+    /// MDM's off as an operation that begins now sees it (`OffLatch`): its one read. A start, a
+    /// pooled start, a pooled agent's report, a mode switch and an ask each take one at their
+    /// entry and pass it down (reviews 73, 75 and 77 of #23322).
     pub(super) fn off_latch(&self) -> OffLatch {
         // The count and the state, read together (review 75): an off counted after this changes
         // the count.
@@ -340,7 +355,7 @@ thread_local! {
 }
 
 #[cfg(test)]
-pub(super) fn after_off_count(hub: &Hub) {
+fn after_off_count(hub: &Hub) {
     if let Some(f) = AFTER_OFF_COUNT.take() {
         f(hub);
     }
@@ -359,8 +374,9 @@ impl Hub {
     }
 }
 
-/// MDM's off as one start (a probe, a pooled agent) saw it: on when it was off as the start
-/// began, or began while it ran, though an unset followed (reviews 71 and 73 of #23322).
+/// MDM's off as one operation (a start, a probe, a pooled agent, a switch, an ask) saw it: on
+/// when it was off as the operation began, or began while it ran, though an unset followed
+/// (reviews 71, 73, 75 and 77 of #23322). The operation's only read of MDM's off.
 pub(super) struct OffLatch {
     offs: tokio::sync::watch::Receiver<u64>,
     seen: u64,
@@ -372,6 +388,15 @@ impl OffLatch {
     /// be read under the pool lock (review 76).
     pub(super) fn off(&self) -> bool {
         self.was_off || *self.offs.borrow() != self.seen
+    }
+
+    /// Whether a full-access mode may run for this operation: the settings file under MDM's off
+    /// as the operation saw it (`Hub::full_access_allowed`).
+    pub(super) fn allows_full_access(&self) -> bool {
+        full_access_allowed_by(
+            self.off().then_some(false),
+            super::start_mode::file_allows_full_access(),
+        )
     }
 
     /// Resolves once the start's harness reported full access (`any`; `reported` is notified on

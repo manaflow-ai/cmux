@@ -54,6 +54,8 @@ pub(crate) use reaper::run_reaper;
 #[cfg(unix)]
 use reaper::signal_harness;
 pub use reaper::tree_rss_bytes;
+#[cfg(test)]
+pub(super) use start::held_reports_full_access;
 
 /// Most a pooled start's `initialize` and harness session may take before
 /// it counts as failed (and its host is ended).
@@ -454,7 +456,11 @@ impl Hub {
         let Some(generation) = wanted.start else { return };
         let hub = self.clone();
         tokio::spawn(async move {
-            match hub.spawn_pooled(&spec).await {
+            // MDM's off as this pooled start begins: its one read, which every check of the start
+            // takes, at completion too (reviews 73, 75 and 77 of #23322). Read before any pool lock
+            // (review 76).
+            let off = hub.off_latch();
+            match hub.spawn_pooled(&spec, &off).await {
                 Ok(p) => {
                     let id = p.session_id.clone();
                     let back = if hub.pool.stopping.load(Ordering::SeqCst) {
@@ -462,14 +468,13 @@ impl Hub {
                     } else {
                         let now = lock(&hub.clock).now();
                         // MDM forces full access off (#23322): an agent that came up in it is
-                        // not kept, where nothing caps it until a chat takes it. The off is read
-                        // before the pool lock and judged under it: an off pushed meanwhile has
-                        // changed the count, and the push's drain takes the pool lock after it, so
-                        // no entry slips between. The start-mode state's lock is never taken
-                        // under the pool lock (review 76).
-                        let latch = hub.off_latch();
+                        // not kept, where nothing caps it until a chat takes it. The start's off is
+                        // judged under the pool lock: an off pushed meanwhile has changed its
+                        // count, and the push's drain takes the pool lock after it, so no entry
+                        // slips between. The start-mode state's lock is never taken under the pool
+                        // lock (review 76).
                         let mut pool = lock(&hub.pool.pool);
-                        if latch.off() && p.runs_full_access(&spec.spawn.argv) {
+                        if off.off() && p.runs_full_access(&spec.spawn.argv) {
                             pool.failed(&spec.key, generation);
                             Some(p)
                         } else {
@@ -578,20 +583,21 @@ impl Hub {
     /// A pooled agent no chat took yet reported full access (`holding_tap`): under MDM's off its
     /// entry keeps that (`reported_off`), and it ends (`pool_end_reported`).
     pub(super) fn pool_reported(&self, id: &str, reported_off: &AtomicBool) {
-        if self.full_access_managed_off() {
+        // The report's one read of MDM's off (reviews 73, 75 and 77 of #23322), before any pool
+        // lock (review 76).
+        let off = self.off_latch();
+        if off.off() {
             reported_off.store(true, Ordering::SeqCst);
         }
-        #[cfg(test)]
-        crate::hub::full_access_bound::after_off_count(self);
-        self.pool_end_reported(id);
+        self.pool_end_reported(id, &off);
     }
 
     /// A pooled agent no chat took yet reported full access (`holding_tap`). Under MDM's off it
     /// ends now, ready or claimed, where nothing caps it until a chat takes it (review 46 of
     /// #23322); one still starting is judged when it completes (`pool_want`). Its argv was
     /// judged before it started (`spawn_pooled`).
-    fn pool_end_reported(&self, id: &str) {
-        if !self.full_access_managed_off() {
+    fn pool_end_reported(&self, id: &str, off: &crate::hub::full_access_bound::OffLatch) {
+        if !off.off() {
             return;
         }
         let ready =
@@ -697,16 +703,19 @@ impl Hub {
     /// The claimed pooled session for `id`, when it asks OpenCode to ask as `spawn` does
     /// (`opencode_ask.rs`). One claimed before the chat's policy changed is ended, and the
     /// session starts cold.
-    pub(super) fn pool_take_claimed_for(&self, id: &str, spawn: &HarnessProfile) -> Option<Pooled> {
+    pub(super) fn pool_take_claimed_for(
+        &self,
+        id: &str,
+        spawn: &HarnessProfile,
+        off: &crate::hub::full_access_bound::OffLatch,
+    ) -> Option<Pooled> {
         let p = self.pool_take_claimed(id)?;
         // MDM forces full access off (#23322, review 32): an entry in full access by what it
         // reported while held (a mode its harness declares none for, an option) is not taken,
         // since `cap_full_access` may read the session before those reports reach it. Nor is one
         // that reported it while the off held, though it is unset now (review 76). The chat
         // starts cold under the bound.
-        if p.reported_off.load(Ordering::SeqCst)
-            || (self.full_access_managed_off() && p.runs_full_access(&spawn.argv))
-        {
+        if p.reported_off.load(Ordering::SeqCst) || (off.off() && p.runs_full_access(&spawn.argv)) {
             tracing::info!(session = %id, "pooled session not taken: it runs in full access, which MDM forces off");
             self.pool_discard(vec![p]);
             return None;
