@@ -57,14 +57,17 @@ function snapshot(harness: Props["harness"]): AcpmuxSnapshot["summary"] {
 function GalleryStatusCard({ harness, overlays }: Props) {
   const [open, setOpen] = useState(true);
   const [imageOpen, setImageOpen] = useState(false);
-  if (!open) return <div data-status-card-dismissed>Status card dismissed</div>;
   return (
-    <div className="acpmux-shell" style={{ padding: 24 }}>
-      <HarnessStatusCard
-        summary={snapshot(harness)}
-        rows={[row("sessionStart", 0, { sessionStart: { agent: "claude", version: details[harness].version } })]}
-        onDismiss={() => setOpen(false)}
-      />
+    <div data-status-card-fixture className="acpmux-shell" style={{ padding: 24, height: 360 }}>
+      {open ? (
+        <HarnessStatusCard
+          summary={snapshot(harness)}
+          rows={[row("sessionStart", 0, { sessionStart: { agent: "claude", version: details[harness].version } })]}
+          onDismiss={() => setOpen(false)}
+        />
+      ) : (
+        <div data-status-card-dismissed>Status card dismissed</div>
+      )}
       {overlays && (
         <>
           <button type="button" onClick={() => setImageOpen(true)}>
@@ -113,7 +116,7 @@ export default componentEntry<Props>({
   area: "Agent pane",
   height: 360,
   widths: { narrow: 420, normal: 620, wide: 760 },
-  anchors: [{ selector: ".acpmux-harness-status" }],
+  anchors: [{ selector: "[data-status-card-fixture]" }],
   covers: ["agent-session/acpmux/HarnessStatusCard.tsx#HarnessStatusCard"],
   styles: () =>
     Promise.all([import("./styles.css"), import("./conversation/conversation.css"), import("./harnessStatus.css")]),
