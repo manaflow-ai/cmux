@@ -47,11 +47,18 @@ extension CEFEngine {
         let stats = relay.stats
         var counters: [String: Double] = [
             "handler_set": stats.handlerSet ? 1 : 0, "permission": Double(stats.permission.rawValue),
-            "requests": Double(stats.requests), "cancels": Double(stats.cancels), "sheets": Double(stats.sheets),
+            "requests": Double(stats.requests), "creates": Double(stats.creates), "gets": Double(stats.gets),
+            "lists": Double(stats.lists), "cancels": Double(stats.cancels), "sheets": Double(stats.sheets),
             "answered": Double(stats.answered),
         ]
         for (refusal, count) in stats.refused { counters["refused_" + refusal] = Double(count) }
         return counters
+    }
+
+    /// The app became active: host mode's iCloud Keychain relay passes a changed listing permission to the host
+    /// (passkeys.md 3.9.2, step 3). The App calls it from its one become-active subscription; nothing without the relay.
+    public func hostAppBecameActive() {
+        CEFRuntime.shared.hostStart?.platformPasskeys?.appBecameActive()
     }
 
     /// The loaded shim when the running fork has both passkey calls (API 18), else nil.

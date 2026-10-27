@@ -23,16 +23,37 @@ import Testing
         let opened: AsyncStream<Void>
         private let open: AsyncStream<Void>.Continuation
 
-        init() { (opened, open) = AsyncStream.makeStream() }
-
         func nextSheet() async {
             for await _ in opened { return }
         }
 
+        /// The prompt stays up until ``answerPrompt()``, cancellation or not, as the system's does.
+        var holdsPrompt = false
+        private var heldPrompt: CheckedContinuation<Void, Never>?
+        /// One element per prompt held.
+        let prompted: AsyncStream<Void>
+        private let prompt: AsyncStream<Void>.Continuation
+
+        init() {
+            (opened, open) = AsyncStream.makeStream()
+            (prompted, prompt) = AsyncStream.makeStream()
+        }
+
         func requestPermission() async -> ChromiumPasskeyPermission {
             prompts += 1
+            if holdsPrompt {
+                await withCheckedContinuation { continuation in
+                    heldPrompt = continuation
+                    prompt.yield()
+                }
+            }
             permission = permissionAfterPrompt
             return permission
+        }
+
+        func answerPrompt() {
+            heldPrompt?.resume()
+            heldPrompt = nil
         }
 
         func credentials(forRelyingParty rpID: String) async -> [ChromiumPlatformCredential] { listed }
@@ -72,6 +93,28 @@ import Testing
         func wellKnown(for rpID: String) async -> Data? { document }
     }
 
+    /// A fetch that stays in flight until its task is cancelled, as a URLSession fetch does: then it has no document.
+    /// It runs on its caller's actor (nonisolated, nonsending), the relay's.
+    nonisolated final class SuspendedFetcher: ChromiumRelatedOriginFetching {
+        /// One element per fetch started.
+        let fetching: AsyncStream<Void>
+        private let fetch: AsyncStream<Void>.Continuation
+        /// Never yields or finishes: the fetch ends only by cancellation.
+        private let documents: AsyncStream<Data?>
+        private let never: AsyncStream<Data?>.Continuation
+
+        init() {
+            (fetching, fetch) = AsyncStream.makeStream()
+            (documents, never) = AsyncStream.makeStream()
+        }
+
+        func wellKnown(for rpID: String) async -> Data? {
+            fetch.yield()
+            for await document in documents { return document }
+            return nil
+        }
+    }
+
     /// The replies the relay sends, in order, as a stream a test awaits.
     final class Replies {
         let stream: AsyncStream<(Int64, String?)>
@@ -88,8 +131,9 @@ import Testing
     let system = FakeSystem()
     let replies = Replies()
 
-    func makeRelay(fetcher: FakeFetcher = FakeFetcher()) -> CEFPlatformPasskeys {
-        CEFPlatformPasskeys(system: system, publicSuffixes: { ChromiumPasskeyPolicyTests.suffixes }, fetcher: fetcher)
+    func makeRelay(fetcher: any ChromiumRelatedOriginFetching = FakeFetcher(), runsCreates: Bool = false) -> CEFPlatformPasskeys {
+        CEFPlatformPasskeys(system: system, publicSuffixes: { ChromiumPasskeyPolicyTests.suffixes }, fetcher: fetcher,
+                            runsCreates: runsCreates)
     }
 
     func send(_ relay: CEFPlatformPasskeys, _ event: ChromiumPlatformPasskeyEvent,
@@ -164,7 +208,7 @@ import Testing
     }
 
     @Test func theHostsEndClosesEverySheet() async throws {
-        let relay = makeRelay()
+        let relay = makeRelay(runsCreates: true)
         send(relay, .request(browser: 7, token: 12, operation: 0, json: ChromiumPasskeyPolicyTests.create()))
         await system.nextSheet()
         relay.hostEnded()
@@ -172,6 +216,75 @@ import Testing
         send(relay, .request(browser: 8, token: 13, operation: 1, json: ChromiumPasskeyPolicyTests.get()))
         let next = try #require(await replies.next())
         #expect(next.token == 13)
+    }
+
+    /// The system saves a created passkey before cmux can compare the client data bytes, so until a run proves them
+    /// equal a create gets NULL in its own turn: no permission prompt, no sheet.
+    @Test func aCreateIsRefusedBeforeAnyPromptOrSheet() async throws {
+        let relay = makeRelay()
+        send(relay, .request(browser: 7, token: 22, operation: 0, json: ChromiumPasskeyPolicyTests.create()))
+        #expect(relay.stats.refused == ["createUnproven": 1], "refused in the request's turn")
+        let reply = try #require(await replies.next())
+        #expect(reply.token == 22 && reply.json == nil)
+        #expect(system.prompts == 0 && system.started.isEmpty)
+        #expect(relay.stats.creates == 1 && relay.stats.requests == 1)
+    }
+
+    /// A cancel while cmux fetches the related origins list: the fetch ends with no document, and the dropped request
+    /// sends and counts nothing (no NULL reply, no relyingParty refusal).
+    @Test func aCancelDuringTheRelatedOriginFetchSendsNothing() async throws {
+        let fetcher = SuspendedFetcher()
+        let relay = makeRelay(fetcher: fetcher)
+        send(relay, .request(browser: 7, token: 30, operation: 1, json: ChromiumPasskeyPolicyTests.get(rp: "other.com")))
+        for await _ in fetcher.fetching { break }
+        send(relay, .cancel(token: 30))
+        // Its main-actor turn comes after the cancelled fetch's: the first reply would be 30's NULL.
+        send(relay, .request(browser: 8, token: 31, operation: 1, json: ChromiumPasskeyPolicyTests.get()))
+        let next = try #require(await replies.next())
+        #expect(next.token == 31)
+        #expect(relay.stats.refused == ["unknownBrowser": 1])
+        #expect(relay.stats.answered == 0 && relay.stats.cancels == 1)
+    }
+
+    /// The host ends while a request waits on the permission prompt (which ignores cancellation); the restarted host's
+    /// request reuses the token. The old ceremony continues after the prompt and must neither answer nor open a sheet.
+    @Test func anOldHostsCeremonyNeverServesTheNewHostsRequestOfTheSameToken() async throws {
+        system.holdsPrompt = true
+        let relay = makeRelay()
+        relay.hostAttached(setPlatform: { _ in 1 })
+        send(relay, .request(browser: 7, token: 40, operation: 1, json: ChromiumPasskeyPolicyTests.get(requestPermission: true)))
+        for await _ in system.prompted { break }
+        relay.hostEnded()
+        relay.hostAttached(setPlatform: { _ in 1 })
+        send(relay, .request(browser: 7, token: 40, operation: 1, json: ChromiumPasskeyPolicyTests.get()))
+        await system.nextSheet()
+        system.answerPrompt()
+        // Its main-actor turn comes after the old ceremony's: the old one would open a second sheet first.
+        send(relay, .request(browser: 8, token: 41, operation: 1, json: ChromiumPasskeyPolicyTests.get()))
+        let next = try #require(await replies.next())
+        #expect(next.token == 41)
+        #expect(system.started.count == 1)
+        #expect(system.runs.first?.cancelled == false)
+        send(relay, .cancel(token: 40))
+        #expect(system.runs.first?.cancelled == true, "the new request's sheet is still its own")
+    }
+
+    /// passkeys.md 3.9.2, step 3: a permission changed in System Settings reaches the host on the app's activation,
+    /// before any request.
+    @Test func anActivationPassesAChangedPermission() {
+        var sent: [Int32] = []
+        let relay = makeRelay()
+        relay.hostAttached(setPlatform: { sent.append($0); return 1 })
+        relay.appBecameActive()
+        #expect(sent == [0], "no change, nothing sent")
+        system.permission = .authorized
+        relay.appBecameActive()
+        #expect(sent == [0, 2])
+        #expect(relay.stats.permission == .authorized)
+        relay.hostEnded()
+        system.permission = .denied
+        relay.appBecameActive()
+        #expect(sent == [0, 2], "no host, nothing sent")
     }
 
     @Test func aRelatedOriginNeedsCmuxsOwnFetchToListIt() async throws {

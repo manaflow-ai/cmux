@@ -281,13 +281,23 @@ Open points:
   page when its SHA-256 is the signed hash, or the fork omits the extra key for embedder-relayed requests.
 - PRF and large blob inputs are not applied (the request still runs, the reply reports none); a required large blob
   or a create without ES256 is refused.
-- 3.9.2 step 3 is done per request, not on app activation: cmux reads the permission again at each WEBAUTHN
-  request and after its own prompt, as Chromium reads `GetAuthState` per request. A change in System Settings
-  therefore reaches the host with its next create or get, and conditional autofill lists iCloud passkeys from then
-  on. An activation push needs one more app-activation subscriber, which the observer-sites ratchet refuses; a
-  follow-up can add it to an app-level activation fan-out.
+- Creates are refused before any prompt or sheet (refusal `createUnproven`). The system saves a new passkey in
+  iCloud Keychain before cmux can compare its `rawClientDataJSON` with Chromium's bytes, so a mismatch (member order,
+  `crossOrigin`, escaping) would leave a passkey the site never registered, one more on each retry. Gets and lists
+  run. To lift it: on the signed fleet build, record the system's `rawClientDataJSON` of a create for Chromium's exact
+  client data (or the fork follow-up above lands), then pass `runsCreates: true` to `CEFPlatformPasskeys`.
+- 3.9.2 step 3: cmux passes a changed permission on app activation (the App's one become-active subscription,
+  `AppServices.startIdleWakeups`, reaches `CEFEngine.hostAppBecameActive` on a built engine), and again at each
+  WEBAUTHN request and after its own prompt, as Chromium reads `GetAuthState` per request.
+- A ceremony answers only while its token names it (`Ceremony.id`): a request cancelled during cmux's own fetch or
+  prompt, or one of a host that ended, sends and counts nothing, also when a restarted host reuses its token.
 - 3.9.4 (the request dialog) is still uncovered.
-- Bench: `chromium-host-bench.py --native-ui` row `passkey` on a signed build (K18), fork API 31.
+- Bench: `chromium-host-bench.py --native-ui` row `passkey` on a signed build (K18), fork API 31. It passes only when
+  a GET (counted apart from conditional LISTs, from after the page load) reaches the system sheet with no refusal
+  and ends with the system's answer or the page's abort after the sheet. It proves the relay to the sheet, not a
+  sign-in: no credential signs, so the client data byte check is not reached. **067's acceptance ("Passkey sign-in row
+  passes on 26/27") is not met yet**: it needs a create-then-get on the signed fleet build that ends with page outcome
+  `resolved`, which waits for the byte proof above (creates are refused until then).
 
 ### 3.9.6 Tests in the fork
 

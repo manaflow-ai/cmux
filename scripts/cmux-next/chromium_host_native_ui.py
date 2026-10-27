@@ -12,10 +12,12 @@ by the Chromium host and shown by cmux from their layer contexts (ChromiumHostWi
   side_panel        a click on a side panel extension's action: the panel's page over its tab (`side_panel`)
   passkey           p01-process-067 (feature `chromiumHostPasskeys`): on PASSKEY_SITE (https: WebAuthn needs a secure
                     origin), a modal navigator.credentials.get with an allow list of one iCloud Keychain id reaches cmux
-                    as a WEBAUTHN request (`debug.cef` `host_passkeys` `requests`); the page's abort then cancels it
-                    (`cancels`), or cmux answered or refused it, and the page sees the outcome. Needs a signed build with
-                    the browser passkey entitlement (`handler_set` 1; a tagged DEV build has none, K18) and fork API 31;
-                    the system sheet may show and the abort closes it.
+                    as a WEBAUTHN GET (`debug.cef` `host_passkeys` `gets`, counted from after the page load, so the
+                    load's conditional LIST is not it), passes every check of cmux to the system sheet (`sheets`, no
+                    `refused_*`), and ends with the system's answer (`answered`) or the page's abort after the sheet
+                    (`cancels`); the page sees the outcome. Needs a signed build with the browser passkey entitlement
+                    (`handler_set` 1; a tagged DEV build has none, K18) and fork API 31. It proves the relay, not a
+                    sign-in: no credential signs, so the client data byte check is not reached (passkeys.md 3.9.5).
 
 Each row passes when `debug.cef` `host_widgets` lists a shown widget of its kind with a non-empty screen frame
 within the row's deadline; it records the widget and how long it took to show. Without a widget host (`host_widgets`
@@ -108,32 +110,63 @@ def host_passkeys(rpc):
     return (rpc("debug.cef") or {}).get("host_passkeys")
 
 
-def refusals(counters):
-    return sum(value for key, value in counters.items() if key.startswith("refused_"))
+def new_refusals(before, after):
+    """The `refused_*` counters that rose from BEFORE to AFTER, by how much."""
+    return {key: value - before.get(key, 0) for key, value in after.items()
+            if key.startswith("refused_") and value > before.get(key, 0)}
+
+
+def rose(before, after, key):
+    return after.get(key, 0) > before.get(key, 0)
+
+
+def sheet_or_end(before, now):
+    """The GET showed the system sheet, or ended without one (a refusal or an answer)."""
+    return rose(before, now, "sheets") or answered_gets(before, now) > 0 or bool(new_refusals(before, now))
+
+
+def answered_gets(before, after):
+    """Answers that were not a LIST's: a LIST (conditional autofill) ends answered or refused, so answers beyond the
+    LISTs counted are the GET's."""
+    def grew(key):
+        return after.get(key, 0) - before.get(key, 0)
+    return grew("answered") - grew("lists")
+
+
+def passkey_verdict(before, asked, at_sheet, after, outcome):
+    """Whether the row passed, from the counters BEFORE the GET, AT_SHEET (when the sheet showed or the wait ended)
+    and AFTER it settled: the GET reached cmux, reached the system sheet with no refusal, and ended with the system's
+    answer or the page's abort after the sheet."""
+    sheet = rose(before, at_sheet, "sheets")
+    settled = answered_gets(before, after) > 0 or rose(at_sheet, after, "cancels")
+    return bool(asked) and sheet and not new_refusals(before, after) and settled and outcome is not None
 
 
 def passkey_row(rpc, wait, page_eval):
     """The passkey row (p01-process-067)."""
-    before = host_passkeys(rpc)
-    if before is None:
+    relay = host_passkeys(rpc)
+    if relay is None:
         return {"ok": False, "not_run": "no passkey relay: host mode is not live in this build or chromiumHostPasskeys is off"}
-    if not before.get("handler_set"):
+    if not relay.get("handler_set"):
         return {"ok": False, "not_run": "the host has no iCloud Keychain handler: an unsigned build (K18) or fork API < 31",
-                "host_passkeys": before}
+                "host_passkeys": relay}
     rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": PASSKEY_SITE}, "focus": True, "origin": "script"}, timeout=120)
     if not wait(lambda: page_eval("document.readyState === 'complete' && location.protocol === 'https:'"), 60, 0.5):
         return {"ok": False, "error": f"{PASSKEY_SITE} did not load"}
+    before = host_passkeys(rpc) or {}
     started = time.time()
     page_eval(PASSKEY_GET)
-    asked = wait(lambda: (host_passkeys(rpc) or {}).get("requests", 0) > before.get("requests", 0), SHOW_DEADLINE_S)
+    asked = wait(lambda: rose(before, host_passkeys(rpc) or {}, "gets"), SHOW_DEADLINE_S)
     request_ms = round((time.time() - started) * 1000, 1) if asked else None
+    # The sheet, or the end without one (a refusal or an answer before it): only then does the page abort.
+    wait(lambda: sheet_or_end(before, host_passkeys(rpc) or {}), SHOW_DEADLINE_S)
+    at_sheet = host_passkeys(rpc) or {}
     page_eval("window.__cmuxPasskey && window.__cmuxPasskey.abort.abort()")
     outcome = wait(lambda: page_eval("window.__cmuxPasskey && window.__cmuxPasskey.outcome"), SHOW_DEADLINE_S)
     after = host_passkeys(rpc) or {}
-    settled = (after.get("cancels", 0) > before.get("cancels", 0) or after.get("answered", 0) > before.get("answered", 0)
-               or refusals(after) > refusals(before))
-    return {"ok": bool(asked) and settled and outcome is not None, "request_ms": request_ms, "page_outcome": outcome,
-            "host_passkeys": after}
+    return {"ok": passkey_verdict(before, asked, at_sheet, after, outcome), "request_ms": request_ms, "page_outcome": outcome,
+            "refused": new_refusals(before, after), "host_passkeys": after,
+            "proves": "the relay to the system sheet, not a sign-in (passkeys.md 3.9.5)"}
 
 
 def run(rpc, wait, page_eval, url):

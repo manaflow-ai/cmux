@@ -904,11 +904,11 @@ final class AppServices {
             self?.energy.driver.update(inputs: inputs)
         }
     }
-    /// Builds ``idleWakeups`` and feeds it the app's resign and become-active notices through ``appEvents`` (the
-    /// app's one observer per notice, no timer); an app that is inactive now opens its first period. `AppDelegate`
-    /// calls it after startup, with the watchdog that counts main run-loop wakes, and hands the sampler to the input
-    /// tap's subscription (`AppControl.idleWakeups`); a second call does nothing. The same resign-active notice
-    /// takes a `hiddenWorkspaceMemory` sample (p09-observability-061).
+    /// Builds ``idleWakeups`` and feeds it the app's resign and become-active notices through ``appEvents`` (the app's one
+    /// observer per notice, no timer); an app that is inactive now opens its first period. `AppDelegate` calls it after
+    /// startup, with the watchdog that counts main run-loop wakes, and hands the sampler to the input tap's subscription
+    /// (`AppControl.idleWakeups`); a second call does nothing. The resign notice takes a `hiddenWorkspaceMemory` sample
+    /// (p09-observability-061); become-active reaches a built Chromium's host passkey relay (p01-process-067).
     func startIdleWakeups(watchdog: MainThreadWatchdog, hiddenWorkspaceMemory: HiddenWorkspaceMemory?) {
         guard idleWakeups == nil else { return }
         let sampler = IdleWakeupSampler(sources: .live(mainRunLoopWakes: { [weak watchdog] in watchdog?.mainRunLoopWakes },
@@ -919,8 +919,9 @@ final class AppServices {
                 sampler?.appResignedActive()
                 hiddenWorkspaceMemory?.appDidResignActive()
             },
-            appEvents.subscribe(NSApplication.didBecomeActiveNotification, owner: "IdleWakeupSampler") { [weak sampler] in
+            appEvents.subscribe(NSApplication.didBecomeActiveNotification, owner: "IdleWakeupSampler") { [weak sampler, weak chromium = self.cache.chromium] in
                 sampler?.appBecameActive()
+                chromium?.built?.hostAppBecameActive() // never builds the engine
             },
         ]
         if !NSApp.isActive { sampler.appResignedActive() }

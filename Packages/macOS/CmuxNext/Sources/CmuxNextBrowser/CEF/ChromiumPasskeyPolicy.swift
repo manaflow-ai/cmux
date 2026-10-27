@@ -34,6 +34,9 @@ nonisolated enum ChromiumPasskeyRefusal: String, Error, Sendable {
     case noWindow
     /// The system's client data differs from Chromium's, so the signature would not verify.
     case clientDataMismatch
+    /// A create, refused before its sheet: the system saves the passkey before cmux can compare the client data
+    /// bytes, and no run has proved them equal yet (``CEFPlatformPasskeys``).
+    case createUnproven
 }
 
 /// The trust rules of the WEBAUTHN relay (plans/cmux-next/passkeys.md 3.9.3). cmux.app has the browser

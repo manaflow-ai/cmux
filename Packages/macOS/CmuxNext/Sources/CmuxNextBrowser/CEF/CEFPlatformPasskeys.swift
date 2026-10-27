@@ -9,7 +9,13 @@ import os
 /// (device/fido/mac/icloud_keychain_sys.mm) through ``ChromiumPlatformPasskeySystem``, over the pane's window,
 /// and answers by token. Like a mojo responder (`mojo::WrapCallbackWithDefaultInvokeIfNotRun`), every request
 /// is answered once: with the result, or NULL (NotAllowedError) for a refusal; a cancelled one is dropped, and
-/// the host's exit ends every open sheet.
+/// the host's exit ends every open sheet. A ceremony answers only while it is the one its token names
+/// (`Ceremony.id`): one that a cancel or the host's end dropped sends and counts nothing, even when a later
+/// request (a restarted host's) reuses its token.
+///
+/// Creates are refused before any prompt or sheet until the fleet proves that the system's client data bytes
+/// equal Chromium's (passkeys.md 3.9.5): the system saves the passkey before cmux can compare them, so a
+/// mismatch would leave a passkey the site never registered.
 ///
 /// Secrecy (3.9.3, rule 4): the request and reply JSON hold ceremony secrets. Nothing here logs or traces them;
 /// a log line names only the operation, the token and the outcome.
@@ -20,6 +26,10 @@ final class CEFPlatformPasskeys {
         var handlerSet = false
         var permission = ChromiumPasskeyPermission.notDetermined
         var requests = 0
+        /// Requests by operation (``requests`` is their sum): a page load's conditional LIST is no sign-in.
+        var creates = 0
+        var gets = 0
+        var lists = 0
         var cancels = 0
         /// System sheets shown (a create or get that passed every check).
         var sheets = 0
@@ -36,6 +46,8 @@ final class CEFPlatformPasskeys {
     typealias Reply = @MainActor (Int64, String?) -> Void
 
     private struct Ceremony {
+        /// Which request this is: a token is unique only within one host's process.
+        let id: UInt64
         var task: Task<Void, Never>?
         var run: (any ChromiumPasskeyRun)?
 
@@ -43,6 +55,12 @@ final class CEFPlatformPasskeys {
             task?.cancel()
             run?.cancel()
         }
+    }
+
+    /// A ceremony's host token and its own id.
+    private nonisolated struct Key: Sendable {
+        let token: Int64
+        let id: UInt64
     }
 
     private(set) var stats = Stats()
@@ -53,16 +71,19 @@ final class CEFPlatformPasskeys {
     private let fetcher: any ChromiumRelatedOriginFetching
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef.passkeys")
     private var ceremonies: [Int64: Ceremony] = [:]
+    private var nextCeremony: UInt64 = 0
+    /// Creates run: tests only, until the client data bytes are proved equal (the type's comment).
+    private let runsCreates: Bool
     /// Passes the listing permission to the attached host (`cmux_shim_set_webauthn_platform`) once it took the
     /// handler; nil before and after a host.
     private var setPlatform: ((Int32) -> Int32)?
 
-
     init(system: any ChromiumPlatformPasskeySystem, publicSuffixes: @escaping @Sendable () -> PublicSuffixList,
-         fetcher: any ChromiumRelatedOriginFetching = ChromiumRelatedOriginFetcher()) {
+         fetcher: any ChromiumRelatedOriginFetching = ChromiumRelatedOriginFetcher(), runsCreates: Bool = false) {
         self.system = system
         loadSuffixes = publicSuffixes
         self.fetcher = fetcher
+        self.runsCreates = runsCreates
     }
 
     /// The app's relay: AuthenticationServices, the bundled Public Suffix List and cmux's own fetch.
@@ -81,7 +102,6 @@ final class CEFPlatformPasskeys {
         }
         self.setPlatform = setPlatform
         (stats.handlerSet, stats.permission) = (true, permission)
-
     }
 
     /// The host ended: its tokens can never be answered, so every sheet closes now (task 091's rule).
@@ -89,7 +109,14 @@ final class CEFPlatformPasskeys {
         for ceremony in ceremonies.values { ceremony.cancel() }
         ceremonies.removeAll()
         setPlatform = nil
+    }
 
+    /// The app became active (the person may come back from System Settings): a changed listing permission reaches
+    /// the host now (3.9.2, step 3), so conditional autofill lists iCloud passkeys before the next request. Chrome
+    /// reads the state again at each request (icloud_keychain.mm `GetAuthState`); each request here does too.
+    func appBecameActive() {
+        guard setPlatform != nil else { return }
+        permissionChanged(to: system.permission)
     }
 
     /// A WEBAUTHN_PLATFORM_REQUEST or _CANCEL of the attached host.
@@ -112,65 +139,79 @@ final class CEFPlatformPasskeys {
             // the running ceremony keeps its answer.
             guard ceremonies[token] == nil else { return logger.fault("chromium host passkeys: token \(token) asked twice") }
             guard let operation = ChromiumPlatformPasskeyOperation(rawValue: rawOperation) else {
-                return refuse(token, .malformed, reply: reply)
+                return refuseUnstarted(token, .malformed, reply: reply)
             }
-            ceremonies[token] = Ceremony(task: Self.start(self, token: token, browser: browser, operation: operation, json: json,
-                                                          pages: pages, reply: reply))
+            switch operation {
+            case .create: stats.creates += 1
+            case .get: stats.gets += 1
+            case .list: stats.lists += 1
+            }
+            guard operation != .create || runsCreates else { return refuseUnstarted(token, .createUnproven, reply: reply) }
+            nextCeremony += 1
+            let key = Key(token: token, id: nextCeremony)
+            ceremonies[token] = Ceremony(id: key.id, task: Self.start(self, key: key, browser: browser, operation: operation, json: json,
+                                                                      pages: pages, reply: reply))
         }
     }
 
     /// Parses the request off the main thread (a create's JSON carries the page's whole challenge and user id, sizes
     /// the page chooses), then runs its checks and ceremony on the relay; each await on the relay is its own turn.
-    private nonisolated static func start(_ relay: CEFPlatformPasskeys, token: Int64, browser: Int32,
+    private nonisolated static func start(_ relay: CEFPlatformPasskeys, key: Key, browser: Int32,
                                           operation: ChromiumPlatformPasskeyOperation, json: String, pages: @escaping Pages,
                                           reply: @escaping Reply) -> Task<Void, Never> {
         // task-owner: one per WEBAUTHN request; the relay keeps it in `ceremonies` and cancels it on the request's cancel or the host's end
         Task { [weak relay] in
             let request = ChromiumPlatformPasskeyRequest.parse(json, operation: operation)
             let clientData = request.flatMap { $0.operation == .list ? nil : ChromiumClientData($0.clientDataJSON) }
-            await relay?.run(token, browser: browser, request: request, clientData: clientData, pages: pages, reply: reply)
+            await relay?.run(key, browser: browser, request: request, clientData: clientData, pages: pages, reply: reply)
         }
     }
 
-    private func run(_ token: Int64, browser: Int32, request: ChromiumPlatformPasskeyRequest?, clientData: ChromiumClientData?,
+    /// Whether `key`'s ceremony is still the one its token names: no cancel, no host end, no reuse of the token.
+    private func isLive(_ key: Key) -> Bool {
+        ceremonies[key.token]?.id == key.id
+    }
+
+    private func run(_ key: Key, browser: Int32, request: ChromiumPlatformPasskeyRequest?, clientData: ChromiumClientData?,
                      pages: Pages, reply: Reply) async {
-        guard ceremonies[token] != nil else { return }
-        guard let request else { return refuse(token, .malformed, reply: reply) }
+        guard isLive(key) else { return }
+        guard let request else { return refuse(key, .malformed, reply: reply) }
         let suffixes = await publicSuffixes()
         let policy = ChromiumPasskeyPolicy(publicSuffixes: suffixes)
-        guard ceremonies[token] != nil else { return }
+        guard isLive(key) else { return }
+        let checked = await verdict(request, clientData: clientData, page: pages(browser)?.page, policy: policy,
+                                    relatedOrigins: ChromiumRelatedOrigins(publicSuffixes: suffixes))
+        guard isLive(key) else { return }
         let listed: String?
-        switch await verdict(request, clientData: clientData, page: pages(browser)?.page, policy: policy,
-                             relatedOrigins: ChromiumRelatedOrigins(publicSuffixes: suffixes)) {
-        case .failure(let refusal): return refuse(token, refusal, reply: reply)
+        switch checked {
+        case .failure(let refusal): return refuse(key, refusal, reply: reply)
         case .success(let origin): listed = origin
         }
-        guard ceremonies[token] != nil else { return }
         if request.requestPermission, system.permission == .notDetermined {
             permissionChanged(to: await system.requestPermission())
-            guard ceremonies[token] != nil else { return }
+            guard isLive(key) else { return }
         }
         guard request.operation != .list else {
             let credentials = system.permission == .authorized ? await system.credentials(forRelyingParty: request.rpID) : []
-            return answer(token, ChromiumPasskeyReply.json(listing: credentials, permission: system.permission), reply: reply)
+            return answer(key, ChromiumPasskeyReply.json(listing: credentials, permission: system.permission), reply: reply)
         }
         // The page again, now: the fetch or the permission prompt above may have taken it out of view or to
         // another origin.
-        guard let current = pages(browser) else { return refuse(token, .unknownBrowser, reply: reply) }
+        guard let current = pages(browser) else { return refuse(key, .unknownBrowser, reply: reply) }
         if case .failure(let refusal) = Self.recheck(policy.check(request, clientData: clientData, page: current.page), listed: listed) {
-            return refuse(token, refusal, reply: reply)
+            return refuse(key, refusal, reply: reply)
         }
-        guard let clientData, let window = current.window else { return refuse(token, .noWindow, reply: reply) }
+        guard let clientData, let window = current.window else { return refuse(key, .noWindow, reply: reply) }
         let run = system.start(ChromiumPasskeyCeremony(request: request, clientData: clientData), anchor: window)
-        ceremonies[token]?.run = run
+        ceremonies[key.token]?.run = run
         stats.sheets += 1
         let result = await run.result()
-        guard ceremonies[token] != nil else { return }
+        guard isLive(key) else { return }
         guard let json = ChromiumPasskeyReply.json(for: result, chromiumClientData: request.clientDataJSON, permission: system.permission) else {
-            return refuse(token, .clientDataMismatch, reply: reply)
+            return refuse(key, .clientDataMismatch, reply: reply)
         }
-        logger.notice("chromium host passkeys: \(String(describing: request.operation), privacy: .public) token \(token) answered")
-        answer(token, json, reply: reply)
+        logger.notice("chromium host passkeys: \(String(describing: request.operation), privacy: .public) token \(key.token) answered")
+        answer(key, json, reply: reply)
     }
 
     /// The policy's verdict on `page`, with a related origin request resolved by cmux's own fetch: the caller's
@@ -184,9 +225,16 @@ final class CEFPlatformPasskeys {
             return .success(nil)
         case .success(.needsRelatedOrigins(let callerOrigin)):
             guard let document = await fetcher.wellKnown(for: request.rpID),
-                  relatedOrigins.lists(callerOrigin, in: document) else { return .failure(.relyingParty) }
+                  await Self.lists(callerOrigin, in: document, relatedOrigins) else { return .failure(.relyingParty) }
             return .success(callerOrigin)
         }
+    }
+
+    /// Parses and matches the site's list off the main thread: up to ``ChromiumRelatedOriginFetcher/maxBytes``, a
+    /// size the site chooses.
+    @concurrent
+    private nonisolated static func lists(_ origin: String, in document: Data, _ relatedOrigins: ChromiumRelatedOrigins) async -> Bool {
+        relatedOrigins.lists(origin, in: document)
     }
 
     private func publicSuffixes() async -> PublicSuffixList {
@@ -221,17 +269,30 @@ final class CEFPlatformPasskeys {
         return (page, window)
     }
 
-    private func refuse(_ token: Int64, _ refusal: ChromiumPasskeyRefusal, reply: Reply) {
-        ceremonies.removeValue(forKey: token)?.run?.cancel()
+    /// Refuses `key`'s ceremony while it is live; a dropped one sends and counts nothing.
+    private func refuse(_ key: Key, _ refusal: ChromiumPasskeyRefusal, reply: Reply) {
+        guard let ceremony = end(key) else { return }
+        ceremony.run?.cancel()
+        refuseUnstarted(key.token, refusal, reply: reply)
+    }
+
+    /// Refuses a request in the turn it arrived, before it has a ceremony.
+    private func refuseUnstarted(_ token: Int64, _ refusal: ChromiumPasskeyRefusal, reply: Reply) {
         stats.refused[refusal.rawValue, default: 0] += 1
         logger.notice("chromium host passkeys: token \(token) refused \(refusal.rawValue, privacy: .public)")
         reply(token, nil)
     }
 
-    private func answer(_ token: Int64, _ json: String?, reply: Reply) {
-        guard ceremonies.removeValue(forKey: token) != nil else { return }
+    private func answer(_ key: Key, _ json: String?, reply: Reply) {
+        guard end(key) != nil else { return }
         stats.answered += 1
-        reply(token, json)
+        reply(key.token, json)
+    }
+
+    /// Removes `key`'s ceremony when it is still the one its token names.
+    private func end(_ key: Key) -> Ceremony? {
+        guard isLive(key) else { return nil }
+        return ceremonies.removeValue(forKey: key.token)
     }
 
     /// The listing permission changed (the person answered the prompt, or System Settings changed it): the
