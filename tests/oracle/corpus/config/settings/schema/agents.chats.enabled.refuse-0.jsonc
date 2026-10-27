@@ -1,0 +1,7 @@
+{
+  "agents": {
+    "chats": {
+      "enabled": "true"
+    }
+  }
+}

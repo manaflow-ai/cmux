@@ -29,9 +29,10 @@
 // fits them to its own message loop and adds TimerSlackMac (host_switches.h).
 //
 // App Nap: no window of the host is on screen, so macOS may nap it. The host
-// holds a user-initiated activity while cmux shows one of its pages and lets
-// App Nap apply when every page is hidden (host_page_activity.h, task
-// p14-energy-128).
+// holds a user-initiated activity while cmux shows one of its pages, latency
+// critical too while cmux is the active app, and lets App Nap apply when cmux
+// is hidden or every page is (host_page_activity.h, tasks p14-energy-128 and
+// p01-process-222). Its main thread runs user-interactive.
 
 #import <AppKit/AppKit.h>
 #import <QuartzCore/QuartzCore.h>
@@ -39,6 +40,7 @@
 #include <objc/runtime.h>
 #include <dlfcn.h>
 #include <fcntl.h>
+#include <pthread.h>
 #include <signal.h>
 #include <sys/stat.h>
 #include <time.h>
@@ -427,35 +429,108 @@ void ObserveActivation() {
 // The activity that keeps App Nap off the host (PageShowActivity's hold): as
 // Chrome's AppNapActivity (content/common/mac/app_nap_activity.mm), user
 // initiated with idle system sleep allowed, so a shown page draws at the
-// display's rate and the Mac may still sleep. Main thread.
+// display's rate and the Mac may still sleep; latency critical too while cmux
+// is the active app. A change of level begins the new activity before it ends
+// the old one, so App Nap never applies between. Main thread.
 class AppNapActivity {
  public:
   AppNapActivity() = default;
   AppNapActivity(const AppNapActivity&) = delete;
   AppNapActivity& operator=(const AppNapActivity&) = delete;
-  ~AppNapActivity() { Hold(false); }
+  ~AppNapActivity() { Hold(cmux_host::ActivityLevel::kNone); }
 
-  void Hold(bool held) {
-    if (held == (token_ != nil)) return;
+  void Hold(cmux_host::ActivityLevel level) {
+    if (level == level_) return;
     @autoreleasepool {
-      if (held) {
-        token_ = [[NSProcessInfo.processInfo beginActivityWithOptions:NSActivityUserInitiatedAllowingIdleSystemSleep
-                                                                reason:@"cmux shows a Chromium page"] retain];
-      } else {
-        [NSProcessInfo.processInfo endActivity:token_];
-        [token_ release];
-        token_ = nil;
+      id<NSObject> previous = token_;
+      token_ = nil;
+      if (level != cmux_host::ActivityLevel::kNone) {
+        NSActivityOptions options = NSActivityUserInitiatedAllowingIdleSystemSleep;
+        if (level == cmux_host::ActivityLevel::kActive) options |= NSActivityLatencyCritical;
+        NSString* reason = level == cmux_host::ActivityLevel::kActive ? @"cmux is the active app"
+                                                                       : @"cmux shows a Chromium page";
+        token_ = [[NSProcessInfo.processInfo beginActivityWithOptions:options reason:reason] retain];
       }
+      if (previous) {
+        [NSProcessInfo.processInfo endActivity:previous];
+        [previous release];
+      }
+      level_ = level;
     }
   }
 
  private:
   id<NSObject> token_ = nil;
+  cmux_host::ActivityLevel level_ = cmux_host::ActivityLevel::kNone;
+};
+
+// cmux's active and hidden state, from macOS: NSWorkspace posts every app's
+// activate, deactivate, hide and unhide, and the host keeps those of its
+// parent (cmux, which spawned it). The parent's NSRunningApplication gives the
+// state at the start; after that each notification names the change itself,
+// since the running application's own properties update later. Main thread;
+// the observers end with this object.
+class ParentAppObserver {
+ public:
+  explicit ParentAppObserver(cmux_host::PageShowActivity& activity) : activity_(activity) {
+    @autoreleasepool {
+      NSRunningApplication* parent = [NSRunningApplication runningApplicationWithProcessIdentifier:getppid()];
+      // A parent that is gone (the host now belongs to launchd) is neither active nor hidden.
+      if (parent && parent.processIdentifier != getpid() && parent.processIdentifier > 1) {
+        active_ = parent.active;
+        hidden_ = parent.hidden;
+      }
+      Observe(NSWorkspaceDidActivateApplicationNotification, &active_, true);
+      Observe(NSWorkspaceDidDeactivateApplicationNotification, &active_, false);
+      Observe(NSWorkspaceDidHideApplicationNotification, &hidden_, true);
+      Observe(NSWorkspaceDidUnhideApplicationNotification, &hidden_, false);
+      activity_.SetApp(active_, hidden_);
+    }
+  }
+  ParentAppObserver(const ParentAppObserver&) = delete;
+  ParentAppObserver& operator=(const ParentAppObserver&) = delete;
+  ~ParentAppObserver() {
+    @autoreleasepool {
+      NSNotificationCenter* center = NSWorkspace.sharedWorkspace.notificationCenter;
+      for (id<NSObject> token : tokens_) {
+        [center removeObserver:token];
+        [token release];
+      }
+    }
+  }
+
+ private:
+  // On `name` for the parent, `*field` becomes `value`.
+  void Observe(NSNotificationName name, bool* field, bool value) {
+    id<NSObject> token = [NSWorkspace.sharedWorkspace.notificationCenter
+        addObserverForName:name
+                    object:nil
+                     queue:NSOperationQueue.mainQueue
+                usingBlock:^(NSNotification* note) {
+                  NSRunningApplication* app = note.userInfo[NSWorkspaceApplicationKey];
+                  if (app.processIdentifier != getppid()) return;
+                  *field = value;
+                  activity_.SetApp(active_, hidden_);
+                }];
+    tokens_.push_back([token retain]);
+  }
+
+  cmux_host::PageShowActivity& activity_;
+  bool active_ = false;
+  bool hidden_ = false;
+  std::vector<id<NSObject>> tokens_;
 };
 
 }  // namespace
 
 int main(int argc, char* argv[]) {
+  // The host's main thread is Chromium's UI thread, which draws and takes
+  // input for the page a person looks at: user-interactive, as Chrome's
+  // display-critical threads (base/threading/platform_thread_apple.mm). cmux
+  // spawns the host with no QoS clamp (ChromiumHostLauncher.priority).
+  if (const int qos = pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0); qos != 0) {
+    fprintf(stderr, "cmux-chromium-host: main thread QoS not set: %d\n", qos);
+  }
   signal(SIGPIPE, SIG_IGN);
   std::vector<std::string> args(argv + 1, argv + argc);
   struct stat control_stat;
@@ -472,9 +547,13 @@ int main(int argc, char* argv[]) {
     ObserveActivation();
   }
   // Held from here, through Chromium's start, until the first shown page
-  // count after initialize (HostContext::Resume).
+  // count after initialize (HostContext::Resume); then while cmux is active
+  // or shows a page. Each change of level goes to the host log.
   AppNapActivity app_nap;
-  cmux_host::PageShowActivity page_activity([&app_nap](bool held) { app_nap.Hold(held); });
+  cmux_host::PageShowActivity page_activity([&app_nap](const cmux_host::ActivityState& state) {
+    app_nap.Hold(state.level);
+    fputs(cmux_host::ActivityLogLine(state).c_str(), stderr);
+  });
   // One thread so far: the framework's allocator and static initializers run
   // before any other thread exists. cmux_shim_load also binds the fork API.
   char error[512] = {0};
@@ -525,6 +604,9 @@ int main(int argc, char* argv[]) {
   // it; without it the HELLO lists no saver and kOpEnergySaver changes nothing.
   if (cmux_shim::fork_api().set_energy_saver) host.SetEnergySaver(&cmux_shim_set_energy_saver);
   host.SetPageShowActivity(&page_activity);
+  // After the framework load, which must run before any other thread exists:
+  // NSWorkspace's notifications may start one.
+  ParentAppObserver parent_app(page_activity);
   // Main thread only, like `host`. The input ring (task 041) attaches its
   // dispatch here (AttachInput) and hands each frame to AddInput; until then
   // no frame comes and cmux stamps no ordered op with an input seq.

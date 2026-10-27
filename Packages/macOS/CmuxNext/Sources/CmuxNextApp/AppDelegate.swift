@@ -313,7 +313,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WebAuthSessionHandler.install(webAuthHandler)
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURLEvent(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
-        services.windows.onContentDidAppear = { [weak services] in services?.externalOpen.flush(); services?.pageHostPool.windowDidAppear($0.window); AppProcessRoot.shared.hangReports?.memory?.workspaceDidShow() }
+        services.windows.onContentDidAppear = { [weak services] _ in services?.externalOpen.flush(); AppProcessRoot.shared.hangReports?.memory?.workspaceDidShow() }
         NSApp.servicesProvider = CmuxServicesProvider(open: services.externalOpen)
         launchOpens.release { item in  // services exist now: nothing is held while this runs
             switch item {
@@ -365,7 +365,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Every palette-exposed schema setting in the palette (R93), and the recorder's writes; neither builds the palette.
         order.startup.post(.afterFirstFrame, "Palette.settingsSource", on: .main) { [weak services, weak settings] in
             guard let services, let settings else { return }
-            services.palettes.sources.settings = SettingsPaletteSource(settings: settings, themes: services.themes.catalog) { [weak services] in
+            services.palettes.sources.settings = SettingsPaletteSource(
+                settings: settings, themes: services.themes.catalog,
+                availability: { [weak services] in services?.settingsAvailability ?? SettingsAvailability() }
+            ) { [weak services] in
                 services?.windows.active.map { SettingsPaletteSource.themeColors($0.themeScope.tokens) } ?? []
             }
             services.paletteShortcutEditor = PaletteShortcutEditor(services: services, settings: settings)
@@ -375,7 +378,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                           locationTrailScope: { [weak services] in services?.locationTrail.watchScope(settings: settings) }).post(on: order.startup)
         // The file watches and the diagnostic toasts; the launch read is applied above, and the start reloads once.
         let diagnosticPresenter = SettingsDiagnosticToastPresenter(events: services.appEvents, toasts: .shared)
-        order.startup.post(.afterFirstFrame, "Settings.start", on: .main) { [weak settings, diagnosticPresenter] in settings?.start(announcingDiagnostics: diagnosticPresenter) }
+        // A diagnostic's Show in Settings follows the same availability as the page and `openSettings`.
+        order.startup.post(.afterFirstFrame, "Settings.start", on: .main) { [weak settings, weak services, diagnosticPresenter] in
+            settings?.start(announcingDiagnostics: diagnosticPresenter,
+                            availability: { [weak services] in services?.settingsAvailability ?? SettingsAvailability() })
+        }
         AppProcessRoot.shared.hangReports?.recordUserWrites(of: settings)  // the person's own consent, from the first write on
         order.startup.post(.afterStartup, "HangReports.start", on: .main) { [weak settings, asks = services.machineAsks, startup = order.startup] in
             if let settings { AppProcessRoot.shared.hangReports?.start(settings: settings, asks: asks, firstWindow: { await startup.afterFirstFrame() }) }

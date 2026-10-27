@@ -129,11 +129,14 @@ public final class SettingsController {
     /// once. After ``adoptLaunchRead()`` it only arms the watches and reloads once off this
     /// thread, so an edit made since the launch read applies. `announcingDiagnostics`: the app
     /// also tells the person about a value it ignores (`SettingsDiagnosticToasts`) through this
-    /// presenter; tests leave it nil.
-    public func start(announcingDiagnostics presenter: (any SettingsDiagnosticPresenting)? = nil) {
+    /// presenter, sending them to its Settings row only while `availability` says the page draws
+    /// it; tests leave the presenter nil.
+    public func start(announcingDiagnostics presenter: (any SettingsDiagnosticPresenting)? = nil,
+                      availability: @escaping @MainActor () -> SettingsAvailability = { SettingsAvailability() }) {
         guard watcher == nil else { return }
         if let presenter, diagnosticToasts == nil {
-            let toasts = SettingsDiagnosticToasts(registry: applier.registry, presenter: presenter)
+            let toasts = SettingsDiagnosticToasts(registry: applier.registry, presenter: presenter,
+                                                  availability: availability)
             diagnosticToasts = toasts
             toasts.follow(self)
         }
