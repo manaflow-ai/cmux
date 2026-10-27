@@ -15,6 +15,13 @@
 //! must stay ordered share one pipe; unrelated streams do not. A stream frame
 //! longer than the connection's chunk size (BULK_FRAME_MAX) leaves in chunks,
 //! so a reply waits for at most one chunk of it.
+//!
+//! The writer thread takes every ready item, in that order, up to
+//! [`WRITE_BATCH_BYTES`] and writes them with one `writev` of their buffers
+//! (headers and payloads unconcatenated), as Mojo's
+//! `ChannelPosix::WriteOutgoingMessagesWithWritev` (mojo/core/channel_posix.cc)
+//! writes its queued messages. A chunk ends its batch, so the one-chunk bound
+//! above holds for the batched writer too.
 
 use super::BACKPRESSURE_RECHECK;
 use super::BudgetedText;
@@ -59,6 +66,12 @@ use lanes::{LaneTurns, RegularOutbound, StreamLanes};
 #[cfg(test)]
 #[path = "bounded_outbound_tests.rs"]
 mod tests;
+
+#[path = "outbound_batch.rs"]
+mod batch;
+pub(super) use batch::write_counted_batch;
+#[cfg(test)]
+pub(super) use batch::write_line_outbound_item;
 
 pub(super) struct BoundedOutbound {
     pub(super) state: Mutex<BoundedOutboundState>,
@@ -581,32 +594,6 @@ impl BoundedOutbound {
         state.closed = true;
         drop(state);
         self.changed.notify_all();
-    }
-}
-
-pub(super) fn write_line_outbound_item<W: Write + ?Sized>(
-    writer: &mut W,
-    item: OutboundItem,
-) -> std::io::Result<()> {
-    match item {
-        OutboundItem::Text(text) => {
-            writer.write_all(text.as_bytes())?;
-            writer.write_all(b"\n")
-        }
-        OutboundItem::Frame(header, text) => {
-            writer.write_all(&header.encode())?;
-            writer.write_all(text.as_bytes())
-        }
-        OutboundItem::Chunk { header, text, range } => {
-            let payload = text.as_bytes().get(range).ok_or(std::io::ErrorKind::InvalidData)?;
-            writer.write_all(&header.encode())?;
-            writer.write_all(payload)
-        }
-        OutboundItem::Flush(flushed) => {
-            writer.flush()?;
-            let _ = flushed.send(());
-            Ok(())
-        }
     }
 }
 
