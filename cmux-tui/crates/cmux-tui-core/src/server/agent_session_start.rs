@@ -226,9 +226,7 @@ pub(super) fn start(
     if !params.valid() {
         return refuse(writer, id, Refusal::BadRequest);
     }
-    // An explicit `null` is a word too, and not `owner`.
-    let vm_kind = params.vm_kind.as_ref().map(|kind| kind.as_deref().unwrap_or_default());
-    if let Err(refusal) = mux.agent_host_gate(vm_kind) {
+    if let Err(refusal) = mux.agent_host_gate(vm_word(&params.vm_kind)) {
         return refuse(writer, id, refusal);
     }
     if let Err(refusal) = startable(mux, params.surface) {
@@ -567,6 +565,12 @@ fn settle_asking_mode(link: &AcpmuxLink, session: &str) -> Result<String, Refusa
             if asks(&read()?).0 { Ok(family) } else { Err(Refusal::NotAsking) }
         }
     }
+}
+
+/// A call's `vm_kind` (decoded with `present_nullable`) as the gate reads it:
+/// absent is no word, and an explicit `null` is a word that is not `owner`.
+pub(crate) fn vm_word(vm_kind: &Option<Option<String>>) -> Option<&str> {
+    vm_kind.as_ref().map(|kind| kind.as_deref().unwrap_or_default())
 }
 
 impl Mux {

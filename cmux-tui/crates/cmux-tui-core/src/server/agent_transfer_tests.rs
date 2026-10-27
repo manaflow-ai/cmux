@@ -630,6 +630,29 @@ fn a_cloud_vm_takes_a_chat_only_on_the_callers_owner_word() {
     fake.no_frame();
 }
 
+/// A machine that shows no Cloud sign (its root may have removed them): a
+/// receive or finish whose `vm_kind` is not `owner`, an explicit `null`
+/// included, refuses; one with no word goes on.
+#[test]
+fn a_word_that_is_not_owner_refuses_on_any_host() {
+    let fake = FakeAcpmux::start("xvmnull");
+    let home = Home::new("vmnull");
+    let mux = transfer_mux(&fake, "atx-vmnull", &home, true);
+    let mut client = Client::connect(&mux, "xvmnull");
+    let cwd = home.text("work/project");
+    for kind in [json!(null), json!("team")] {
+        let frame = json!({"cmd":"agent-transfer-receive","manifest":manifest(),"cwd":cwd,
+                           "vm_kind":kind});
+        assert_code(&client.request(frame), "agent_session.host_unverified");
+    }
+    fake.no_connection();
+    ok_data(&receive(&mut client, &cwd));
+    let _ = fake.frame();
+    let finish = json!({"cmd":"agent-transfer-finish","receive_id":"rcv_1","vm_kind":null});
+    assert_code(&client.request(finish), "agent_session.host_unverified");
+    fake.no_frame();
+}
+
 #[test]
 fn finish_reads_the_host_kind_again() {
     let fake = FakeAcpmux::start("xteamfin");

@@ -80,6 +80,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use super::agent_session_attach::agent_session_link::{AcpmuxLink, LinkError};
+use super::agent_session_attach::agent_session_start::vm_word;
 use super::remote_relay::gate::COMMAND_PARAMS;
 use super::responses::send_response_with_details;
 use super::{MessageWriter, Response, SurfaceId};
@@ -329,9 +330,10 @@ impl Mux {
 struct ReceiveParams {
     manifest: Map<String, Value>,
     cwd: String,
-    /// The Cloud API's `vmKind` for the caller (only `owner` counts).
-    #[serde(default)]
-    vm_kind: Option<String>,
+    /// The Cloud API's `vmKind` for the caller (only `owner` counts; an
+    /// explicit `null` is a word, and refuses).
+    #[serde(default, deserialize_with = "crate::server::command_args::present_nullable")]
+    vm_kind: Option<Option<String>>,
 }
 
 #[derive(Deserialize)]
@@ -350,8 +352,8 @@ struct FinishParams {
     #[serde(default)]
     name: Option<String>,
     /// As the receive's.
-    #[serde(default)]
-    vm_kind: Option<String>,
+    #[serde(default, deserialize_with = "crate::server::command_args::present_nullable")]
+    vm_kind: Option<Option<String>>,
 }
 
 #[derive(Deserialize)]
@@ -681,7 +683,7 @@ fn prepare(mux: &Mux, verb: Verb) -> Result<Prepared, Failure> {
     Ok(match verb {
         Verb::Receive(ReceiveParams { manifest, cwd, vm_kind }) => {
             let host = transfers.host().ok_or(Refusal::Unavailable)?;
-            host_gate(mux, vm_kind.as_deref())?;
+            host_gate(mux, vm_word(&vm_kind))?;
             let (guard, cwd) = guard_for(&host, &cwd)?;
             // Before acpmux makes a receive, so a refused one leaves nothing
             // there (calls racing past this overshoot by at most MAX_CALLS).
@@ -713,7 +715,7 @@ fn prepare(mux: &Mux, verb: Verb) -> Result<Prepared, Failure> {
                 return Err(Refusal::BadRequest.into());
             }
             let cwd = transfers.receive_cwd(&receive_id).ok_or(Refusal::UnknownReceive)?;
-            if let Err(refusal) = host_gate(mux, vm_kind.as_deref()) {
+            if let Err(refusal) = host_gate(mux, vm_word(&vm_kind)) {
                 // A team VM stays one: the receive can never finish here.
                 if refusal == Refusal::TeamVmBlocked {
                     transfers.settle(&receive_id);

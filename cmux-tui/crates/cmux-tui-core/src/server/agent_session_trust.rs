@@ -35,7 +35,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::agent_session_start::{connect, store_host};
+use super::agent_session_start::{connect, store_host, vm_word};
 use super::{MessageWriter, Refusal, SurfaceId, ok, refuse};
 use crate::mux::Mux;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
@@ -79,9 +79,10 @@ pub(super) struct TrustParams {
     level: Option<String>,
     #[serde(default)]
     home_confirmed: bool,
-    /// The Cloud API's `vmKind` for the caller (only `owner` counts).
-    #[serde(default)]
-    vm_kind: Option<String>,
+    /// The Cloud API's `vmKind` for the caller (only `owner` counts; an
+    /// explicit `null` is a word, and refuses).
+    #[serde(default, deserialize_with = "crate::server::command_args::present_nullable")]
+    vm_kind: Option<Option<String>>,
 }
 
 impl TrustParams {
@@ -109,7 +110,7 @@ pub(super) fn trust(
     if !params.valid() {
         return refuse(writer, id, Refusal::BadRequest);
     }
-    if let Err(refusal) = mux.agent_host_gate(params.vm_kind.as_deref()) {
+    if let Err(refusal) = mux.agent_host_gate(vm_word(&params.vm_kind)) {
         return refuse(writer, id, refusal);
     }
     if !own_agent_tab(mux, params.surface) {

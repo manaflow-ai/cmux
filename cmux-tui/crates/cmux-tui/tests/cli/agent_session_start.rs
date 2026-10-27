@@ -435,6 +435,20 @@ fn agent_session_trust_on_a_cloud_vm_needs_the_callers_owner_word() {
     let surface = team.own_agent_tab();
     let reply = trust(&team, surface, json!("owner"));
     assert_eq!(reply["error_code"], "agent_session.team_vm_blocked", "{reply}");
+
+    // A machine that shows no Cloud sign (its root may have removed them):
+    // a word that is not `owner`, an explicit `null` included, refuses.
+    let plain = Daemon::start("trustplain", None);
+    let surface = plain.own_agent_tab();
+    let cwd = plain.dir.join("work");
+    for kind in [json!(null), json!("team")] {
+        let request = json!({"id": 32, "cmd": "agent-session-trust", "surface": surface,
+                             "cwd": cwd, "vm_kind": kind});
+        let reply = plain.rpc(request);
+        assert_eq!(reply["error_code"], "agent_session.host_unverified", "{kind}: {reply}");
+    }
+    let read = trust(&plain, surface, Value::Null);
+    assert_eq!(read["ok"], true, "{read}");
 }
 
 #[test]
