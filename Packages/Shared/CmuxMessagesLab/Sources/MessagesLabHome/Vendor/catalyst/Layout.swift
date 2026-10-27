@@ -551,7 +551,8 @@ enum Sizing {
             case "voiceMemo": return (CGSize(width: 196, height: 36), nil)
             case "contact": return (CGSize(width: 250, height: 56), nil)
             // File and audio rows (measured): 275 x 89.5, icon centred.
-            default: return (CGSize(width: 275, height: 89.5), nil)
+            // cmux: a file card is as wide as its text needs (HomeFileCard, #26395).
+            default: return (HomeFileCard.size(a, maxWidth: m.maxTextWidth + 2 * Fixture.bubblePadX), nil)
             }
         case let .location(lat, lon, _, _):
             // A map snapshot (macOS 26): 500 pt wide, caption inside; its

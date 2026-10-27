@@ -69,5 +69,19 @@ import UniformTypeIdentifiers
         // blue bubble was about 98,000 pixels at 2x).
         let added = try accentPixels(image) - empty
         #expect(added < 500, "the file rows added \(added) accent pixels")
+
+        // What the card draws: the system's kind of an .ips file, the name shortened in the
+        // middle with its extension kept, and a card no wider than its text needs.
+        let mine = HomeMapping.attachment(Self.mine, picture: nil, progress: nil)
+        let theirs = HomeMapping.attachment(Self.theirs, picture: nil, progress: nil)
+        #expect(HomeFileCard.isCard(mine))
+        #expect(HomeFileCard.detail(theirs) == "Analytics Report \u{00B7} 130 KB")
+        let room = HomeFileCard.maxWidth - HomeFileCard.textLeft - HomeFileCard.padRight
+        let short = HomeFileCard.truncated(mine.fileName, font: HomeFileCard.nameFont, width: room)
+        #expect(short.hasSuffix(".ips") && short.contains("\u{2026}") && short.hasPrefix("cmux DEV-"), "\(short)")
+        #expect(TextDraw.width(short, font: HomeFileCard.nameFont) <= room)
+        #expect(HomeFileCard.size(theirs, maxWidth: 600).width < HomeFileCard.maxWidth)
+        #expect(HomeFileCard.size(mine, maxWidth: 600).width == HomeFileCard.maxWidth)
+        #expect(HomeFileCard.icon(theirs, pixels: 128) != nil)
     }
 }
