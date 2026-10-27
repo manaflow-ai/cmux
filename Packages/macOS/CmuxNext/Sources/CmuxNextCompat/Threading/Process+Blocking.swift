@@ -9,6 +9,7 @@ extension Process {
     /// - Parameters:
     ///   - fileID: The calling code's `#fileID` (names the call site).
     ///   - line: The calling code's `#line`.
+    @available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
     @inlinable
     public func blockingWaitUntilExit(fileID: StaticString = #fileID, line: UInt = #line) {
         blockingCall(.processWait, fileID: fileID, line: line) { waitUntilExit() } // concurrency-allow: the checked seam; blockingCall reports a main-thread call
@@ -22,6 +23,7 @@ extension Process {
     ///   - fileID: The calling code's `#fileID` (names the call site).
     ///   - line: The calling code's `#line`.
     /// - Throws: What `run()` throws.
+    @available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
     @inlinable
     public func blockingRun(fileID: StaticString = #fileID, line: UInt = #line) throws {
         try blockingCall(.processSpawn, fileID: fileID, line: line) { try run() }

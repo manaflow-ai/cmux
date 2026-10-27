@@ -304,6 +304,8 @@ public final class WindowMaterialView: NSView {
             showArt(ready ?? (hidesArt ? nil : shown.flatMap { images.preview($0, texture: texture, dark: dark) }))
             if let shown, ready == nil {
                 let fades = artImage == nil
+                // main-hop-allow: the store's main-actor cache decodes off main (a detached task); this task only awaits it,
+                // and its one resume shows the art in this view, which the owner cancels on the next apply
                 artLoad = Task { [weak self, images] in
                     let image = await images.image(shown, texture: texture, dark: dark)
                     guard !Task.isCancelled, let self, let image else { return }

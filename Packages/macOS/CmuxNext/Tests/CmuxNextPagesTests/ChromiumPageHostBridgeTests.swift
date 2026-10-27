@@ -102,11 +102,16 @@ struct ChromiumPageHostBridgeTests {
         #expect(context.evaluateScript("ran.join(',')").toString() == "1,3,4")
     }
 
+    /// p01-process-232: the page script and every document script go in one new-document script, so a page's setup
+    /// is four host round trips before its first load however many scripts it has; the page script runs first.
     @Test func setupTurnsOnTheDomainsBeforeTheBindingAndScripts() {
-        let calls = ChromiumPageHostBridge.setupCalls(handlers: ["cmuxPagePainted"], documentScripts: ["one()"])
-        #expect(calls.map(\.0) == ["Page.enable", "Runtime.enable", "Runtime.addBinding",
-                                   "Page.addScriptToEvaluateOnNewDocument", "Page.addScriptToEvaluateOnNewDocument"])
+        let calls = ChromiumPageHostBridge.setupCalls(handlers: ["cmuxPagePainted"], documentScripts: ["one()", "two()"])
+        #expect(calls.map(\.0) == ["Page.enable", "Runtime.enable", "Runtime.addBinding", "Page.addScriptToEvaluateOnNewDocument"])
         #expect(calls[2].1["name"] as? String == ChromiumPageHostBridge.bindingName)
-        #expect(calls[4].1["source"] as? String == "one()")
+        let source = calls[3].1["source"] as? String ?? ""
+        let order = ["__cmuxPageHostInstalled", "one()", "two()"].compactMap { source.range(of: $0)?.lowerBound }
+        #expect(order.count == 3 && order == order.sorted(), "the page script, then the document scripts in order")
+        let channel = ChromiumPageHostBridge.setupCalls(handlers: [], documentScripts: [], channelEvent: "cmux-page-host-post")
+        #expect((channel[3].1["source"] as? String)?.contains(#"const channelEvent = "cmux-page-host-post";"#) == true)
     }
 }

@@ -75,7 +75,7 @@ impl Hub {
             return false;
         }
         let (hub, id) = (self.clone(), session.id.clone());
-        let scan = tokio::task::spawn_blocking(move || {
+        let scan = crate::daemon::spawn_blocking(move || {
             let mut found = false;
             let _ = hub.store.scan(&id, seq - 1, &mut |e: EventRecord| {
                 found = e.seq == seq

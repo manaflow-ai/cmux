@@ -4172,7 +4172,11 @@
         "rule": "value has too few UTF-8 bytes"
       },
       "placeholders": [],
-      "retry": "daemon-ops/workspace-run-ok/retry"
+      "retry": "daemon-ops/workspace-run-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "workspace.update": {
       "family": "workspace",

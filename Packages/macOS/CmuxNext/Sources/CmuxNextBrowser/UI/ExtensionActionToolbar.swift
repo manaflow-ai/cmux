@@ -108,14 +108,20 @@ final class ExtensionActionToolbar {
         }
     }
 
-    private var prepareTask: Task<Void, Never>?
+    /// An idle task to build the bubble is queued and has not run yet.
+    private var preparePosted = false
 
-    /// Builds the Extensions bubble's rows on a later turn, off the click's path.
+    /// Builds the Extensions bubble's rows in the main thread's idle time, off the click's path, for the tab
+    /// bound when it runs (Blink's PostIdleTask, third_party/blink/public/platform/scheduler): one queued task
+    /// covers every render before it. Held while the tab is hidden; 500 ms at the latest while it shows.
     private func schedulePrepare() {
-        prepareTask?.cancel()
-        prepareTask = Task { @MainActor [weak self] in
-            guard let self, !Task.isCancelled, let host = self.host, self.slot.window != nil else { return }
-            self.menuController.prepare(host: host)
+        guard !preparePosted else { return }
+        preparePosted = true
+        mainWork.postIdle(owner: "browser.extensions.menu.prepare", maxDelay: .milliseconds(500), node: node) { [weak self] _ in
+            guard let self else { return }
+            preparePosted = false
+            guard let host, slot.window != nil else { return }
+            menuController.prepare(host: host)
         }
     }
 

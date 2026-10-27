@@ -1,0 +1,13 @@
+﻿{
+	"sidebar": true,
+	"browser": {
+		"customSearchEngine": {
+			"suggest": "https://search.example/find?q={searchTerms}"
+		},
+	},
+	"history": {
+		"closed": {
+			"maxGroups": 0
+		}
+	},
+}

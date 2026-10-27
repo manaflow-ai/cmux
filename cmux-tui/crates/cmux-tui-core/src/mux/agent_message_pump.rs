@@ -26,9 +26,10 @@
 // Off unix nothing starts the pump (no acpmux), and nothing is handed over.
 #![cfg_attr(not(unix), allow(dead_code))]
 
+use cmux_threads::sync::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, sync_channel};
-use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::sync::{Arc, MutexGuard, Weak};
 use std::time::Duration;
 
 use cmux_threads::checked;

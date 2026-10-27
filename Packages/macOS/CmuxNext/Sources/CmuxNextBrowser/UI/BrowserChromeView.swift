@@ -86,12 +86,16 @@ public final class BrowserChromeView: NSView {
     /// Find in page: the bar's state, which the find bar view writes and renders.
     public let find: BrowserFindModel
     let findBar: FindBarView
-    private let promptBar = PromptBarView()
+    let promptBar = PromptBarView()
     private let promptDialogs = BrowserPromptDialogs()
     let pageStatus = PageStatusViews()
     lazy var pageOverlays = PageFloatingOverlays(page: contentContainer)
     /// The app's scheduler, and the tab's node (nil: node-free, as in a debug window or a test).
     let mainWork: MainWorkScheduler, node: VisibilityNode?
+    /// The node the chrome's view work waits on (R-appear, R-hide): the tab's, or with no tab node a root
+    /// that stays visible, so that work runs at once as before. The address bar and the toolbar buttons
+    /// share it.
+    let visibilityNode: VisibilityNode
     private var observation: ObservationLoop?
     /// Prompts have their own loop: a title or progress does not re-render the prompt bar, nor a prompt the chrome.
     private var promptObservation: ObservationLoop?
@@ -102,6 +106,17 @@ public final class BrowserChromeView: NSView {
     var httpsFallback = HTTPSUpgradeFallback()
     private var showsStop = false
     var isToolbarHidden = false
+    /// Counts toolbar hide and show changes; only the latest one's landing hides the row.
+    var toolbarToggles = 0
+    /// The frames a toolbar change starts from, until the layout that places the rows at rest.
+    var pendingToolbarSlide: ToolbarSlide?
+    /// The last toolbar change ran on the render server: a hidden row parks past its edge at its height.
+    var toolbarParks = false
+    /// Whether toolbar changes move on the render server (`motion.renderServer`, off by default); read
+    /// at each change. Off: the rows' frames animate on the main thread as before.
+    let rendersMotionOnServer: () -> Bool
+    /// Under the page area: the page's background fills a gap the sliding page leaves (Chrome's gutter).
+    let pageGutter = NSView()
     /// The edge the toolbar rows sit on (`browser.toolbarPosition`); the pane sets it.
     public var toolbarPosition: ToolbarPosition = .top {
         didSet { if toolbarPosition != oldValue { applyToolbarPosition() } }
@@ -159,8 +174,12 @@ public final class BrowserChromeView: NSView {
     var finishedURL: URL?
 
     /// `mainWork` is the app's one main-thread scheduler; `node` the tab's (`TabContentCache.node(for:)`).
-    public init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(), mainWork: MainWorkScheduler, node: VisibilityNode?) {
+    /// `rendersMotionOnServer`: the app's `motion.renderServer` switch (``MotionBackend``).
+    public init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(), mainWork: MainWorkScheduler,
+                node: VisibilityNode?, rendersMotionOnServer: @escaping () -> Bool = { false }) {
         (self.tab, self.mainWork, self.node) = (tab, mainWork, node)
+        self.rendersMotionOnServer = rendersMotionOnServer
+        visibilityNode = node ?? VisibilityNode(root: "browser.chrome.standalone", own: .visible)
         let find = BrowserFindModel()
         self.find = find
         findBar = FindBarView(model: find)
@@ -180,6 +199,8 @@ public final class BrowserChromeView: NSView {
         forwardButton.setAccessibilityIdentifier(BrowserChromeView.forwardIdentifier)
         reloadButton.setAccessibilityIdentifier(BrowserChromeView.reloadIdentifier)
         addressBar.setAccessibilityIdentifier(BrowserChromeView.omnibarIdentifier)
+        addressBar.visibilityNode = visibilityNode
+        toolbarButtons.visibilityNode = visibilityNode
         buildLayout()
         wireActions()
         attach(tab, replacing: nil)
@@ -224,21 +245,23 @@ public final class BrowserChromeView: NSView {
     // MARK: Layout
 
     private func buildLayout() {
-        for view in [toolbar, separator, contentContainer] { view.wantsLayer = true }
+        for view in [toolbar, separator, contentContainer, pageGutter] { view.wantsLayer = true }
         contentContainer.layer?.masksToBounds = true
+        pageGutter.isHidden = true
 
         extensionSlot.orientation = .horizontal
         extensionSlot.setAccessibilityLabel(Strings.extensions)
 
         // Frame layout from the top: toolbar, separator, accessory bar, band, page; from the
         // bottom the same rows mirrored, the page on top (`BrowserChromeLayout`, `layout()`).
+        addSubview(pageGutter)
         addSubview(contentContainer)
         addSubview(toolbar)
         addSubview(separator)
         addSubview(accessoryBar)
         installHeaderBand()
         addSubview(progressLine)
-        pageStatus.install(in: self, over: contentContainer) { [weak self] in self?.tab }
+        pageStatus.install(in: self) { [weak self] in self?.tab }
         addSubview(promptBar)
         addSubview(findBar)
         installPageBars()
@@ -255,6 +278,7 @@ public final class BrowserChromeView: NSView {
     /// The find and prompt bars float over the page at its edge by the toolbar. They size
     /// themselves with constraints, and follow the framed page area by constraints.
     private func installPageBars() {
+        for bar in [findBar, promptBar] as [NSView] { bar.translatesAutoresizingMaskIntoConstraints = false }
         toolbarEdge.top += [
             // The shared find pill sits where every pane's does.
             findBar.topAnchor.constraint(equalTo: contentContainer.topAnchor, constant: FindPillMetrics.inset),
@@ -286,6 +310,14 @@ public final class BrowserChromeView: NSView {
         rowMetrics = BrowserChromeRowMetrics(toolbarHeight: OmnibarStyle.toolbarHeight(scale: scale),
                                              progressThickness: BrowserMetrics.progressThickness)
         syncHeaderBand(animated: false)
+    }
+
+    /// The toolbar row's frame: hidden on the render server, it keeps its height past its edge, so a
+    /// hide moves the row and never resizes it.
+    private func toolbarFrame(_ rows: BrowserChromeLayout) -> CGRect {
+        guard isToolbarHidden, toolbarParks else { return rows.toolbar }
+        let height = rowMetrics.toolbarHeight
+        return CGRect(x: 0, y: toolbarPosition == .top ? -height : bounds.height, width: bounds.width, height: height)
     }
 
     /// The rows' frames for the view's size and state now.
@@ -363,8 +395,10 @@ public final class BrowserChromeView: NSView {
     private func render() {
         let state = tab.state
         if let http = httpsFallback.observe(state) {
-            // task-owner: one load, after this render (never a load inside the observed render).
-            Task { @MainActor [weak self] in self?.tab.load(http) }
+            // One load, after this render (never a load inside the observed render): the rest of the person's
+            // typed navigation (Chrome's TypedNavigationUpgradeThrottle falls back the same way).
+            // node-free: a background tab's fallback loads too
+            mainWork.post(.userBlocking, owner: "browser.chrome.httpsFallback") { [weak self] in self?.tab.load(http) }
         }
         backButton.isEnabled = state.canGoBack
         forwardButton.isEnabled = state.canGoForward
@@ -380,7 +414,7 @@ public final class BrowserChromeView: NSView {
         reportFinishedLoad(state)
         progressLine.set(progress: state.progress, visible: loading)
 
-        pageStatus.render(state)
+        pageStatus.render(tab: tab)
 
         setToolbarHidden(state.isContentFullscreen || isOmnibarHidden)
         updateOcclusion()
@@ -397,21 +431,25 @@ public final class BrowserChromeView: NSView {
     public override func layout() {
         applyToolbarLayout()
         let rows = chromeLayout, mapping = chromeFrameMapping
-        toolbar.setChromeFrame(mapping.map(rows.toolbar))
+        toolbar.setChromeFrame(mapping.map(toolbarFrame(rows)))
         separator.setChromeFrame(mapping.map(rows.separator))
         accessoryBar.setChromeFrame(mapping.map(rows.accessoryBar))
         contentContainer.setChromeFrame(mapping.map(rows.content))
+        pageGutter.setChromeFrame(contentContainer.frame)
         progressLine.setChromeFrame(mapping.map(rows.progressLine))
         accessoryView?.setChromeFrame(accessoryBar.bounds)
         if tab.contentView.superview === contentContainer { tab.contentView.setChromeFrame(contentContainer.bounds) }
-        // The page bars and status views follow the page area by constraints.
+        // The page bars follow the page area by constraints; the status views by frame, below.
+        promptBar.followRoom()
         super.layout()
         // The row places the address bar in its own layout, which runs after this one.
         // sync-layout: followLayout below reads the address bar's frame from this pass.
         toolbar.layoutSubtreeIfNeeded()
         addressBar.followLayout()
+        pageStatus.layout(over: contentContainer.frame)
         updateOcclusion()
         syncPageOverlays()
+        startToolbarSlide()
     }
 
     /// Child-window pages draw above this view; tell them where the find
@@ -424,10 +462,15 @@ public final class BrowserChromeView: NSView {
         if occluded.occlusionRects != rects { occluded.occlusionRects = rects }
     }
 
+    /// A hidden tab repaints once, when it shows (R-appear).
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        updateColors()
+        visibilityNode.deferUntilVisible(key: Self.appearanceKey) { [weak self] in self?.updateColors() }
     }
+
+    /// The ``visibilityNode`` keys of the chrome's deferred repaints.
+    static let appearanceKey = "BrowserChromeView.appearance"
+    static let shownKey = "BrowserChromeView.shown"
 
     /// Surface token in an opaque window, clear over a see-through one (windows.md);
     /// the toolbar takes `appearance.surfaces.browserChrome` over that (R55).

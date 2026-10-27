@@ -3,6 +3,7 @@ import CmuxNextBrowser
 import CmuxNextChromiumWarmup
 import CmuxNextCompat
 import CmuxNextCrashReporting
+import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -94,21 +95,48 @@ extension AppServices {
 // The cache's Chromium engine (p08-startup-024): built at its first read, a Chromium tab or page or the warm-up
 // above, never by launch wiring, and wired as it is built.
 extension AppServices {
+    /// The one Chromium Host's supervisor when Chromium tabs run in it (`cefHelperHost` with its Debug Settings
+    /// override, and `chromiumHostTabs`; Debug builds only: ``BrowserHostTunables/backend(hostEnabled:)``); nil keeps
+    /// Chromium tabs in this process, beside the `debug.chromium_host` prototype.
+    static func chromiumHostSupervisor(work: BackgroundWork, mainWork: MainWorkScheduler,
+                                       features: FeatureList) -> (any ChromiumHostSupervising)? {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        let hostSwitch = AppControl.chromiumHostSwitch(in: features, tunables: TunableStore.shared)
+        let hostTabs = hostSwitch.isEnabled && features.isEnabled(.chromiumHostTabs)
+        guard BrowserHostTunables.backend(hostEnabled: hostTabs) == .host else { return nil }
+        return ChromiumHostSupervisor(work: work, mainWork: mainWork, fencesResizes: features.isEnabled(.chromiumHostResizeFence))
+        #else
+        return nil
+        #endif
+    }
+
     /// The slot `cache` holds.
     func makeChromiumSlot() -> ChromiumEngineSlot {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // A host that ends while cmux quits reports nothing (quit ends it).
+        (chromiumRuntime.source.hostSupervisor as? ChromiumHostSupervisor)?.isQuitting = { [weak self] in self?.quit.isQuitting == true }
+        #endif
         let pumpInput = features.isEnabled(.cefPumpInputPolicy) ? CEFPumpInputSeams(mainWork: mainWork) : nil
         // The lanes whose startup fence holds a predicted start's framework read (p08-startup-045).
         let prefetchWork = features.isEnabled(.cefPrefetchBehindFence) ? work : nil
+        let mergeWork = features.isEnabled(.cefMergedEvents) ? mainWork : nil // page events per frame (p06-scheduler-219)
         // Host mode only: the host's widgets in cmux panels and panes (p01-process-066).
         chromiumRuntime.source.showsHostWidgets = features.isEnabled(.chromiumHostWidgets)
         // Host mode only: drags onto a page as Chrome's own drop (p01-process-050).
         chromiumRuntime.source.takesHostDrags = features.isEnabled(.chromiumHostDragIn)
         chromiumRuntime.source.fencesHostResizes = features.isEnabled(.chromiumHostResizeFence) // p01-process-052
+        // Host mode only: <select> popups as cmux menus (p01-process-060).
+        chromiumRuntime.source.drawsHostPopupMenus = features.isEnabled(.chromiumHostPopupMenus)
+        chromiumRuntime.source.drawsHostSuggestions = features.isEnabled(.chromiumHostSuggestions) // p01-process-061
+        chromiumRuntime.source.drawsHostChoosers = features.isEnabled(.chromiumHostChoosers) // p01-process-228
+        // Host mode only: page file choosers in cmux's picker, the files sent as paths (p01-process-064).
+        chromiumRuntime.source.hostFileDialogs = features.isEnabled(.chromiumHostFileDialogs) ? ChromiumFileDialogPanels(openPanel: openPanel) : nil
         // Restored pages start Chromium by their origin, the visible one after the first frame (p08-startup-040).
         let launchOrder = features.isEnabled(.cefLaunchOrigin) ? launchStartup : nil
         return ChromiumEngineSlot(stores: browserStores, waitDeadlines: mainWork.wakeUps, source: chromiumRuntime.source, launch: launchOrder,
                                   make: { [signInCallbacks, contextMenus, inputTap, crashKeys, launchStartup, launchOrder, pointerFrames = dragFrameInput,
-                                           chromiumFeatures = features.enabledChromiumFeatures, layerHosting = features.isEnabled(.cefLayerHosting),
+                                           chromiumFeatures = features.enabledChromiumFeatures,
+                                           disabledChromiumFeatures = features.disabledChromiumFeatures, layerHosting = features.isEnabled(.cefLayerHosting),
                                            attachedPages = features.isEnabled(.cefAttachedPages), memoryCoordinator,
                                            everyPage = Self.hostsEveryPage(features)] stores, deadlines, source in
                                       // Chromium's start as launch marks (p08-startup-044); its first page paint counts until startup_complete.
@@ -117,9 +145,10 @@ extension AppServices {
                                       return CEFEngine(source: source, stores: stores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared,
                                                        contextMenus: contextMenus, waitDeadlines: deadlines, input: inputTap, crashKeys: crashKeys,
                                                        launchMarks: launchMarks, pumpInput: pumpInput, pointerFrames: pointerFrames,
-                                                       chromiumFeatures: chromiumFeatures, prefetchWork: prefetchWork,
+                                                       chromiumFeatures: chromiumFeatures, disabledChromiumFeatures: disabledChromiumFeatures,
+                                                       prefetchWork: prefetchWork,
                                                        launch: launchOrder).usingLayerHostingByDefault(layerHosting).usingAttachedPages(attachedPages)
-                                          .hostingEveryPage(everyPage).votingMemoryPressure(of: memoryCoordinator)
+                                          .hostingEveryPage(everyPage).votingMemoryPressure(of: memoryCoordinator).mergingEvents(on: mergeWork)
                                   },
                                   engineDidCreate: AppServices.chromiumEngineHook(crashRecovery: crashRecovery, reporter: crashReporting.reporter,
                                                                                   routes: { [weak self] in self?.routeChromiumRequests($0) }),

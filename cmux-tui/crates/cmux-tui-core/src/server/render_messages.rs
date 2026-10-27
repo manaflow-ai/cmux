@@ -15,10 +15,15 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use super::{
-    BudgetedJsonWriter, MessageWriter, OutboundStream, RenderService, write_base64_json_string,
+    BudgetedJsonWriter, BudgetedText, MessageWriter, OutboundStream, RenderService,
+    write_base64_json_string,
 };
 use crate::browser::{BrowserAttachUpdate, BrowserFrameUpdate};
 use crate::{BrowserAttachState, Rgb, SurfaceId, SurfaceRenderFrame};
+
+/// SNAPSHOT and REPLAY frames: the binary forms of `snapshot` and `vt-state`.
+#[path = "snapshot_frames.rs"]
+pub(super) mod snapshot_frames;
 
 pub(super) struct VtStateMessage {
     pub(super) surface: SurfaceId,
@@ -554,20 +559,36 @@ pub(super) fn browser_frame_json(surface: SurfaceId, update: &BrowserFrameUpdate
     })
 }
 
-pub(super) fn send_browser_attach_update(
+/// A browser attach update as the texts [`send_encoded_browser_attach_update`]
+/// sends: its frame, then its state.
+pub(super) type EncodedBrowserAttachUpdate = [Option<std::io::Result<Arc<BudgetedText>>>; 2];
+
+/// A browser attach update encoded: the work an attach thread watches,
+/// not the hand-off that waits for room.
+pub(super) fn encode_browser_attach_update(
     writer: &MessageWriter,
     surface: SurfaceId,
     update: BrowserAttachUpdate,
+    stream: &OutboundStream,
+) -> EncodedBrowserAttachUpdate {
+    [
+        update.frame.map(|frame| writer.encode(&browser_frame_json(surface, &frame), stream)),
+        update
+            .state
+            .map(|state| writer.encode(&browser_state_message(surface, &state, false), stream)),
+    ]
+}
+
+/// Send an encoded browser attach update, its frame before its state: a
+/// frame event applies its bitmap and authority atomically, so it goes out
+/// before a paired state snapshot can expose the same positive token.
+pub(super) fn send_encoded_browser_attach_update(
+    writer: &MessageWriter,
+    encoded: EncodedBrowserAttachUpdate,
     outbound_stream: &OutboundStream,
 ) -> std::io::Result<()> {
-    if let Some(frame) = update.frame {
-        writer.send_stream_backpressured(&browser_frame_json(surface, &frame), outbound_stream)?;
-    }
-    if let Some(state) = update.state {
-        writer.send_stream_backpressured(
-            &browser_state_message(surface, &state, false),
-            outbound_stream,
-        )?;
+    for text in encoded.into_iter().flatten() {
+        writer.send_encoded_backpressured(text, outbound_stream)?;
     }
     Ok(())
 }

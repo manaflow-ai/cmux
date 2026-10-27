@@ -34,17 +34,22 @@ final class TabHoverCardView: NSView {
     let detailRow = HoverCardRowView()
     /// Memory (with CPU bars), or that the page hibernated.
     let memoryRow = HoverCardRowView()
-    private let rows = NSStackView()
+    /// That the hidden tab uses high energy, with `discardButton` under it (`TabHoverCard+Energy.swift`).
+    let energyRow = HoverCardRowView()
+    let discardButton = ThemedBezelButton(frame: .zero)
+    /// The tab's Discard: the controller's, for the tab the card shows.
+    var onDiscard: (() -> Void)?
+    /// The tab uses high energy (its source said so when the card was configured).
+    var highEnergy = false
+    /// The rows top to bottom; a hidden one gives up its line.
+    private var rowViews: [HoverCardRowView] { [placeRow, statusRow, detailRow, memoryRow, energyRow] }
     private let thumbnail = NSView()
     /// The tab's status in the shared indicator, trailing the title's first line.
     /// Follows its panel's visibility node: the panel orders front after the card moves into it.
     private let activity = StatusIndicatorView()
-    private var titleTrailing: NSLayoutConstraint?
-    private var titleLeading: NSLayoutConstraint?
-    private var rowsTop: NSLayoutConstraint?
     private static var indicatorSize: CGFloat { 13 }
-    private var thumbnailHeight: NSLayoutConstraint?
-    private var thumbnailTop: NSLayoutConstraint?
+    /// The frames of the content shown now; nil after a change until the next measure.
+    private var measured: TabHoverCardLayout?
     /// Group cards list at most this many member titles.
     static let maxGroupLines = 8
     /// The tab the card shows (nil for a group) and its latest sample.
@@ -55,7 +60,6 @@ final class TabHoverCardView: NSView {
 
     init() {
         super.init(frame: .zero)
-        let content = self
         titleLabel.font = Typography.bodyEmphasized
         titleLabel.maximumNumberOfLines = 2
         titleLabel.lineBreakMode = .byTruncatingTail
@@ -66,48 +70,17 @@ final class TabHoverCardView: NSView {
         thumbnail.layer?.cornerCurve = .continuous
         thumbnail.layer?.masksToBounds = true
         thumbnail.layer?.contentsGravity = .resizeAspectFill
-        rows.orientation = .vertical
-        rows.alignment = .leading
-        rows.spacing = Metrics.space2
-        for row in [placeRow, statusRow, detailRow, memoryRow] {
+        for row in rowViews {
             row.isHidden = true
-            rows.addArrangedSubview(row)
-            row.widthAnchor.constraint(equalTo: rows.widthAnchor).isActive = true
+            // A row keeps its own constraints: it starts as wide as the card's rows, never at a zero
+            // frame those constraints cannot meet.
+            row.frame = CGRect(x: Self.padding, y: 0, width: Self.cardWidth - 2 * Self.padding, height: row.fittingSize.height)
+            addSubview(row)
         }
-
-        for view in [kindIcon, titleLabel, rows, thumbnail, activity] {
-            view.translatesAutoresizingMaskIntoConstraints = false
-            content.addSubview(view)
+        for view in [kindIcon, titleLabel, thumbnail, activity] {
+            addSubview(view)
         }
-        let p = Self.padding
-        NSLayoutConstraint.activate([
-            content.widthAnchor.constraint(equalToConstant: Self.cardWidth),
-            titleLabel.topAnchor.constraint(equalTo: content.topAnchor, constant: p),
-            kindIcon.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: p),
-            kindIcon.widthAnchor.constraint(equalToConstant: Self.iconSize),
-            kindIcon.heightAnchor.constraint(equalToConstant: Self.iconSize),
-            kindIcon.centerYAnchor.constraint(equalTo: titleLabel.firstBaselineAnchor, constant: -Self.iconSize / 3),
-            rows.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: p),
-            rows.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -p),
-            activity.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -p),
-            activity.centerYAnchor.constraint(equalTo: titleLabel.firstBaselineAnchor, constant: -Self.indicatorSize / 3),
-            activity.widthAnchor.constraint(equalToConstant: Self.indicatorSize),
-            activity.heightAnchor.constraint(equalToConstant: Self.indicatorSize),
-            thumbnail.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: p),
-            thumbnail.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -p),
-            thumbnail.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -p),
-        ])
-        let leading = titleLabel.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: p)
-        let rowsTop = rows.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: Metrics.space2)
-        let top = thumbnail.topAnchor.constraint(equalTo: rows.bottomAnchor, constant: Metrics.space4)
-        let height = thumbnail.heightAnchor.constraint(equalToConstant: Self.thumbnailSize.height)
-        let trailing = titleLabel.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -p)
-        NSLayoutConstraint.activate([leading, rowsTop, top, height, trailing])
-        titleLeading = leading
-        self.rowsTop = rowsTop
-        titleTrailing = trailing
-        thumbnailTop = top
-        thumbnailHeight = height
+        setUpDiscardButton()
     }
 
     @available(*, unavailable)
@@ -121,7 +94,7 @@ final class TabHoverCardView: NSView {
             thumbnail.layer?.backgroundColor = Palette.hoverFill.cgColor
             setKindIcon(tint: Palette.textSecondary)
         }
-        for row in [placeRow, statusRow, detailRow, memoryRow] { row.applyColors() }
+        for row in rowViews { row.applyColors() }
     }
 
     func configure(_ content: TabHoverCardContent) {
@@ -144,7 +117,8 @@ final class TabHoverCardView: NSView {
             if titles.count > shown.count { lines.append(Strings.groupMore(titles.count - shown.count)) }
             titleLabel.stringValue = group.name.isEmpty ? Strings.groupTabCount(titles.count) : group.name
             set(placeRow, HoverCardRowContent(text: lines.joined(separator: "\n"), lines: lines.count), icon: nil)
-            for row in [statusRow, detailRow, memoryRow] { set(row, nil, icon: nil) }
+            setHighEnergy(false, discard: nil)
+            for row in [statusRow, detailRow, memoryRow, energyRow] { set(row, nil, icon: nil) }
             setActivity(.idle, style: nil)
             setThumbnailVisible(false)
         }
@@ -191,6 +165,8 @@ final class TabHoverCardView: NSView {
             icon: NSImage.icon(.textDescription, size: Self.iconSize))
         set(memoryRow, lines.memory.map { HoverCardRowContent(text: $0, accessory: cpuBars()) },
             icon: NSImage.icon(.serverHealth, size: Self.iconSize))
+        discardButton.isHidden = !highEnergy || item.isDormant
+        set(energyRow, discardButton.isHidden ? nil : Self.energyContent, icon: NSImage.icon(.statusWarning, size: Self.iconSize))
     }
 
     /// The memory row's bars: the tab's CPU over the last seconds, warm at a core, hot at two.
@@ -226,7 +202,6 @@ final class TabHoverCardView: NSView {
         }
         kindIcon.image = cg.map { NSImage(cgImage: $0, size: NSSize(width: size, height: size)) }
         kindIcon.isHidden = kindIcon.image == nil
-        titleLeading?.constant = Self.padding + (kindIcon.isHidden ? 0 : Self.iconSize + Metrics.space2)
         updateTitleWidth()
     }
 
@@ -241,21 +216,49 @@ final class TabHoverCardView: NSView {
         } else {
             row.isHidden = true
         }
-        rowsTop?.constant = rows.arrangedSubviews.allSatisfy(\.isHidden) ? 0 : Metrics.space2
+        invalidateCardLayout()
     }
 
     /// Shows the tab's state trailing the title, which gives up the indicator's width only while it draws.
     private func setActivity(_ state: StatusIndicatorState, style: StatusIndicatorStyle?) {
         activity.configure(state, style: style)
-        let inset = Self.padding + (activity.isHidden ? 0 : Self.indicatorSize + Metrics.space2)
-        titleTrailing?.constant = -inset
         updateTitleWidth()
     }
 
     /// The title wraps between its glyph and the indicator.
     private func updateTitleWidth() {
-        let trailing = Self.padding + (activity.isHidden ? 0 : Self.indicatorSize + Metrics.space2)
-        titleLabel.preferredMaxLayoutWidth = Self.cardWidth - (titleLeading?.constant ?? Self.padding) - trailing
+        titleLabel.preferredMaxLayoutWidth = TabHoverCardLayout.titleWidth(metrics: Self.layoutMetrics, showsKindIcon: !kindIcon.isHidden,
+                                                                          showsActivity: !activity.isHidden)
+        invalidateCardLayout()
+    }
+
+    // MARK: Frame layout
+
+    /// The panel sizes and places its window from this (`HoverCardPanel.place`).
+    override var intrinsicContentSize: NSSize { cardLayout.size }
+
+    override var fittingSize: NSSize { cardLayout.size }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let oldSize = frame.size
+        super.setFrameSize(newSize)
+        if newSize != oldSize { needsLayout = true } // invalidate: a new size (the check above) re-frames the content
+    }
+
+    /// The content at the top of the card: a morph that lays the panel out larger keeps it there.
+    override func layout() {
+        super.layout()
+        let layout = cardLayout
+        let lift = bounds.height - layout.size.height
+        // Alignment rects, as the constraints placed them: a label's frame keeps its 2 pt text padding outside.
+        func place(_ view: NSView, _ frame: CGRect) { view.setAlignmentFrame(frame.offsetBy(dx: 0, dy: lift)) }
+        place(titleLabel, layout.title)
+        place(kindIcon, layout.kindIcon)
+        place(activity, layout.activity)
+        place(thumbnail, layout.thumbnail)
+        for (row, frame) in zip(rowViews.filter { !$0.isHidden }, layout.rows) { place(row, frame) }
+        // Discard takes the last row frame, under the energy row (`cardLayout`).
+        if !discardButton.isHidden, let frame = layout.rows.last { place(discardButton, discardFrame(in: frame)) }
     }
 
     /// What the card's program status line reads ("" when hidden).
@@ -264,9 +267,9 @@ final class TabHoverCardView: NSView {
     var showsThumbnail: Bool { !thumbnail.isHidden }
 
     func setThumbnailVisible(_ visible: Bool) {
+        guard thumbnail.isHidden == visible else { return }
         thumbnail.isHidden = !visible
-        thumbnailHeight?.constant = visible ? Self.thumbnailSize.height : 0
-        thumbnailTop?.constant = visible ? Metrics.space4 : 0
+        invalidateCardLayout()
     }
 
     /// The thumbnail the card shows.
@@ -286,12 +289,40 @@ final class TabHoverCardView: NSView {
     }
 }
 
+extension TabHoverCardView {
+    static var layoutMetrics: TabHoverCardLayout.Metrics {
+        TabHoverCardLayout.Metrics(cardWidth: cardWidth, padding: padding, iconSize: iconSize, indicatorSize: indicatorSize,
+                                   gap: Metrics.space2, thumbnailGap: Metrics.space4)
+    }
+
+    /// The card's frames for what it shows now: measured once per change, applied by `layout()`.
+    var cardLayout: TabHoverCardLayout {
+        if let measured { return measured }
+        let content = TabHoverCardLayout.Content(
+            showsKindIcon: !kindIcon.isHidden, showsActivity: !activity.isHidden,
+            titleHeight: titleLabel.intrinsicContentSize.height, titleBaseline: titleLabel.firstBaselineOffsetFromTop,
+            rowHeights: rowViews.filter { !$0.isHidden }.map { $0.fittingSize.height } + (discardButton.isHidden ? [] : [discardButton.fittingSize.height]),
+            thumbnailHeight: thumbnail.isHidden ? nil : Self.thumbnailSize.height)
+        let layout = TabHoverCardLayout(content: content, metrics: Self.layoutMetrics,
+                                        rightToLeft: userInterfaceLayoutDirection == .rightToLeft)
+        measured = layout
+        return layout
+    }
+
+    /// The content changed: measure again on the next read, and lay out again.
+    private func invalidateCardLayout() {
+        measured = nil
+        invalidateIntrinsicContentSize()
+        needsLayout = true // invalidate: callers change the card's content (title, rows, glyph, indicator, thumbnail)
+    }
+}
+
 extension TabHoverCardView: HoverCardTextReporting {
     /// The card's shown lines, top to bottom (`debug.hover_cards`, tests).
     var reportedLines: [String] {
-        [titleLabel.stringValue] + rows.arrangedSubviews.compactMap { view in
-            guard !view.isHidden, let row = view as? HoverCardRowView, !row.shownText.isEmpty else { return nil }
+        [titleLabel.stringValue] + rowViews.compactMap { row in
+            guard !row.isHidden, !row.shownText.isEmpty else { return nil }
             return row.shownText
-        }
+        } + (discardButton.isHidden ? [] : [discardButton.title])
     }
 }
