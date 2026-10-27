@@ -51,7 +51,7 @@ pub fn read_at(path: &Path, owner_marker: &Path) -> Result<Option<AccessFile>> {
     let file = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(&path)?;
+        .open(path)?;
     let metadata = file.metadata()?;
     // SAFETY: getuid has no preconditions.
     ensure!(

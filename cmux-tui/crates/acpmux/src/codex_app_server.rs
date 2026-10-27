@@ -227,15 +227,15 @@ impl Translator {
     pub fn from_client(&self, msg: &Value) -> Vec<Out> {
         #[cfg(unix)]
         {
-            self.from_client_read(msg, codex_auth_file::read)
+            self.handle_client_read(msg, codex_auth_file::read)
         }
         #[cfg(not(unix))]
         {
-            self.from_client_read(msg)
+            self.handle_client_read(msg)
         }
     }
 
-    fn from_client_read(
+    fn handle_client_read(
         &self,
         msg: &Value,
         #[cfg(unix)] read: impl FnOnce() -> anyhow::Result<Option<AccessFile>>,
@@ -299,15 +299,15 @@ impl Translator {
             // is a server request, so answer it directly and preserve the
             // opaque JSON-RPC id.  Never pass credentials through the inner
             // translator or hold unrelated output while answering it.
-            if auth.enabled() {
-                if let Some(out) = auth.handle_refresh(raw, codex_auth_file::read, &self.inner) {
-                    if auth.failed.is_some() {
-                        let mut out = out;
-                        out.extend(self.settle_pending("Codex broker unavailable"));
-                        return out;
-                    }
+            if auth.enabled()
+                && let Some(out) = auth.handle_refresh(raw, codex_auth_file::read, &self.inner)
+            {
+                if auth.failed.is_some() {
+                    let mut out = out;
+                    out.extend(self.settle_pending("Codex broker unavailable"));
                     return out;
                 }
+                return out;
             }
 
             if let Some(login_id) = auth.login_id.clone() {
