@@ -3,6 +3,7 @@
 @testable import CmuxNextBrowser
 @testable import CmuxNextCompat
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Darwin
 import Foundation
 import os
@@ -156,6 +157,79 @@ import Testing
         try #require(kill(new, SIGKILL) == 0)
         rig.reports.untilEnds(2)
         #expect(rig.reports.reported.map(\.exit.reason) == [.killed])
+    }
+
+    // MARK: Restart budget (p01-process-083)
+
+    /// `lastEndRestoresPages` of each end, its host crashed (SIGSEGV) at each minute of `minutes` on `clock`.
+    private static func restores(crashingAt minutes: [Int], restoresPages: Bool = true, clock: ManualClock = ManualClock(),
+                                 quitting: Bool = false) async throws -> [Bool] {
+        let spawner = EndingSpawner()
+        let supervisor = ChromiumHostSupervisor(spawner: spawner, policy: ChromiumHostRestartPolicy(clock: clock),
+                                                restoresPages: restoresPages)
+        supervisor.isQuitting = { quitting }
+        let seen = Restores()
+        supervisor.onHostEnded = { [weak supervisor] _ in seen.values.append(supervisor?.lastEndRestoresPages ?? false) }
+        for minute in minutes {
+            clock.advance(by: .seconds(minute * 60) - clock.now.offset)
+            _ = try await supervisor.attachment()
+            spawner.end(try #require(supervisor.hostPID), ChromiumHostExit(signal: SIGSEGV, status: nil))
+        }
+        return seen.values
+    }
+
+    /// Chrome's GPU rule: 3 crashes within 5 minutes spend the budget, so the third one's pages keep their crash page.
+    @Test func threeCrashesInFourMinutesRestoreTwiceThenNot() async throws {
+        #expect(try await Self.restores(crashingAt: [0, 2, 4]) == [true, true, false])
+    }
+
+    /// Each 5 minutes forgive one crash: crashes 6 minutes apart restore every time.
+    @Test func crashesSixMinutesApartRestoreEveryTime() async throws {
+        #expect(try await Self.restores(crashingAt: [0, 6, 12]) == [true, true, true])
+    }
+
+    /// Without the feature (`chromiumHostRestoreTabs`) no end restores pages, and the budget is still counted.
+    @Test func withoutTheFeatureNoEndRestoresPages() async throws {
+        #expect(try await Self.restores(crashingAt: [0, 6], restoresPages: false) == [false, false])
+    }
+
+    /// An end while cmux quits reaches nobody and restores nothing.
+    @Test func anEndWhileQuittingRestoresNothing() async throws {
+        #expect(try await Self.restores(crashingAt: [0], quitting: true).isEmpty)
+    }
+}
+
+/// Each end's `lastEndRestoresPages`, as `onHostEnded` read it.
+@MainActor private final class Restores {
+    var values: [Bool] = []
+}
+
+/// Hands out hosts with no process behind them; the test ends each one (``end(_:_:)``) on the main thread, as the lane
+/// spawner's exit post does.
+private nonisolated final class EndingSpawner: ChromiumHostSpawning {
+    private let state = Mutex<(next: pid_t, watchers: [pid_t: @MainActor @Sendable (ChromiumHostExit) -> Void])>((next: 40_000, watchers: [:]))
+
+    func spawn() async throws(ChromiumHostAttachError) -> ChromiumHostSpawn {
+        let pid = state.withLock { state in
+            state.next += 1
+            return state.next
+        }
+        let attachment = ChromiumHostAttachment(controlFD: -1, remoteShim: URL(filePath: "/nonexistent/libcmux_cef_shim_remote.dylib"),
+                                                frameworkLocales: [])
+        return ChromiumHostSpawn(pid: pid, attachment: attachment)
+    }
+
+    func watchExit(of pid: pid_t, _ ended: @escaping @MainActor @Sendable (ChromiumHostExit) -> Void) {
+        state.withLock { $0.watchers[pid] = ended }
+    }
+
+    func reap(_ pid: pid_t) {}
+
+    func kill(_ pid: pid_t) {}
+
+    @MainActor func end(_ pid: pid_t, _ exit: ChromiumHostExit) {
+        let ended = state.withLock { $0.watchers.removeValue(forKey: pid) }
+        ended?(exit)
     }
 }
 #endif

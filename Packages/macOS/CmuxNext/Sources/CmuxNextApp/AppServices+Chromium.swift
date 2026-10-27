@@ -102,7 +102,8 @@ extension AppServices {
         #if DEBUG || CMUX_BENCH_HOOKS
         let hostSwitch = AppControl.chromiumHostSwitch(in: features, tunables: TunableStore.shared)
         guard BrowserHostTunables.backend(hostEnabled: hostSwitch.isEnabled) == .host else { return nil }
-        return ChromiumHostSupervisor(work: work, mainWork: mainWork, fencesResizes: features.isEnabled(.chromiumHostResizeFence))
+        return ChromiumHostSupervisor(work: work, mainWork: mainWork, fencesResizes: features.isEnabled(.chromiumHostResizeFence),
+                                      restoresPages: features.isEnabled(.chromiumHostRestoreTabs))
         #else
         return nil
         #endif
@@ -112,7 +113,13 @@ extension AppServices {
     func makeChromiumSlot() -> ChromiumEngineSlot {
         #if DEBUG || CMUX_BENCH_HOOKS
         // A host that ends while cmux quits reports nothing (quit ends it).
-        (chromiumRuntime.source.hostSupervisor as? ChromiumHostSupervisor)?.isQuitting = { [weak self] in self?.quit.isQuitting == true }
+        let supervisor = chromiumRuntime.source.hostSupervisor as? ChromiumHostSupervisor
+        supervisor?.isQuitting = { [weak self] in self?.quit.isQuitting == true }
+        // A crashed host's tabs come back with the history their daemon records keep (p01-process-083).
+        supervisor?.savedNavigation = { [weak self] tab, url in
+            guard let tabs = self?.cache.browserTabs else { return nil }
+            return await tabs.historyStarts.hostRestart(tab.rawValue, at: url, service: tabs)
+        }
         #endif
         let pumpInput = features.isEnabled(.cefPumpInputPolicy) ? CEFPumpInputSeams(mainWork: mainWork) : nil
         // The lanes whose startup fence holds a predicted start's framework read (p08-startup-045).
