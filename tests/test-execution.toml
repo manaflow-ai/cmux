@@ -338,6 +338,10 @@ path = "tests/test_ci_queue_janitor.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_rescue_actors.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_starved_labels.py"
 lane = "linux-guard"
 
