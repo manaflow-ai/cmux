@@ -27,10 +27,15 @@ Every series is also written as one cmux-perf-result/v1 file into `--out` throug
 (new_tab_bench_report.py); the JSON lists them under `results_v1`. The Chromium cases are the story
 new-browser-tab, the WebKit ones new-browser-tab-webkit (scripts/perf-lab/stories.d).
 
-`--host` runs Chromium in the Chromium Host (debug tunable `browserHost.helper`), where the warm start builds no spare
-window and the new tab's renderer is content's spare RenderProcessHost (p01-process-086); `--host-spare-window` adds
-the bench-only feature `chromiumHostSpareWindow` (a Labs local choice), the spare window arm: run both and write the
-cold_pane and second_pane visible p95 of each in the PR, to show whether the spare renderer alone meets 100 ms.
+`--host` runs Chromium in the Chromium Host (debug tunable `browserHost.helper`), whose warm start keeps a spare window
+as in process (p01-process-086); `--host-no-spare-window` adds the bench-only feature `chromiumHostNoSpareWindow` (a
+Labs local choice), the arm with no spare window: run both and write the cold_pane and second_pane visible p95 of each
+in the PR, to show whether the host meets 100 ms without the spare window. The host arms need a build whose runtime
+can select the host: a Debug build (BrowserHostTunables.backend is in process in every other config) with the host
+supervisor wired into its Chromium runtime. After the launch the bench reads `debug.cef` and refuses when `backend` is
+not `host` or `warmup_spare_windows` is not the arm's, so it never labels in-process numbers as host numbers. Each arm
+records into its own story, `<story>-host` and `<story>-host-no-spare-window` (bench-only, not in the lab catalog), so
+its samples never mix with the in-process series.
 
 `--sessions light,stress`: after the light rounds, builds STRESS (scripts/cmux-next/perf-stress-session.py:
 60 workspaces, the measured one 14 panes x 6 tabs, 10 others with Chromium pages, 10 printing
@@ -63,8 +68,8 @@ def parse(argv=None):
     parser.add_argument("--profile", type=int, default=0, help="after the light rounds: N profiled new tabs per engine under a Time Profiler (main-thread top frames)")
     parser.add_argument("--spare-cost", action="store_true", help="after the light rounds: the spare Chromium window's resident memory")
     parser.add_argument("--host", action="store_true", help="Chromium in the Chromium Host (debug tunable browserHost.helper)")
-    parser.add_argument("--host-spare-window", action="store_true",
-                        help="with --host: the bench-only feature chromiumHostSpareWindow, a spare window as in process")
+    parser.add_argument("--host-no-spare-window", action="store_true",
+                        help="with --host: the bench-only feature chromiumHostNoSpareWindow, no spare window")
     parser.add_argument("--budget-ms", type=float, default=10.0, help="visible p95 target (reported, not enforced)")
     parser.add_argument("--out", default="/tmp")
     parser.add_argument("--json")
@@ -372,17 +377,57 @@ def summary(rows):
 
 def host_launch(options, scratch):
     """The launch env and Labs local features of the arm: `--host` writes a debug tunables file with
-    `browserHost.helper`, `--host-spare-window` adds `chromiumHostSpareWindow` (bench-only, a local choice since the app
-    strips an inherited CMUX_ENABLE_FEATURES). Neither: the in-process engine, no change."""
-    if options.host_spare_window and not options.host:
-        raise SystemExit("--host-spare-window needs --host")
+    `browserHost.helper`, `--host-no-spare-window` adds `chromiumHostNoSpareWindow` (bench-only, a local choice since
+    the app strips an inherited CMUX_ENABLE_FEATURES). Neither: the in-process engine, no change."""
+    if options.host_no_spare_window and not options.host:
+        raise SystemExit("--host-no-spare-window needs --host")
     if not options.host:
         return {}, {}
     tunables = os.path.join(scratch, "debug-tunables.json")
     with open(tunables, "w") as handle:
         json.dump({"version": 1, "values": {"browserHost.helper": True}}, handle)
-    features = {"chromiumHostSpareWindow": True} if options.host_spare_window else {}
+    features = {"chromiumHostNoSpareWindow": True} if options.host_no_spare_window else {}
     return {"CMUX_NEXT_DEBUG_TUNABLES_FILE": tunables}, features
+
+
+def arm_story(options):
+    """The result-v1 story of the arm's Chromium cases: `--story` in process, `<story>-host` and
+    `<story>-host-no-spare-window` for the host arms, so host samples never join the in-process series."""
+    if not options.host:
+        return options.story
+    return f"{options.story}-host-no-spare-window" if options.host_no_spare_window else f"{options.story}-host"
+
+
+def warmed_cef(seconds=30):
+    """`debug.cef` once the warm-up started (it sets its placement after the first frame), else the last reply."""
+    last = {}
+
+    def started():
+        nonlocal last
+        last = rpc("debug.cef") or {}
+        return last if last.get("warmup_spare_windows") is not None else None
+
+    return wait(started, seconds) or last
+
+
+def arm_refusal(options, cef):
+    """Why the launched app does not run the arm, from its `debug.cef` reply; None when it does (or no host arm).
+    `--host` needs `backend` `host`; the warm-up's `warmup_spare_windows` must be False with `--host-no-spare-window`
+    and True without it (None: the warm-up never started, or a build that predates the field)."""
+    if not options.host:
+        return None
+    cef = cef if isinstance(cef, dict) else {}
+    backend = cef.get("backend")
+    if backend != "host":
+        return (f"--host: debug.cef reports backend {backend!r}, not 'host': this build cannot run Chromium in the "
+                "Chromium Host (a Debug build with the host supervisor wired in), and its numbers would be in process")
+    spare = cef.get("warmup_spare_windows")
+    want = not options.host_no_spare_window
+    if spare is not want:
+        flag = "--host-no-spare-window" if options.host_no_spare_window else "--host"
+        return (f"{flag}: debug.cef reports warmup_spare_windows {spare!r}, the arm needs {want!r} "
+                "(chromiumHostNoSpareWindow did not take effect, or the warm-up did not start)")
+    return None
 
 
 def cleanup():
@@ -405,6 +450,9 @@ def main():
         app = launcher.process
     SOCKET = launcher.socket
     time.sleep(2)  # test harness: first workspace
+    refusal = arm_refusal(opts, warmed_cef()) if opts.host else None
+    if refusal:
+        raise SystemExit(f"cef-tab-bench: {refusal}")
     window = window_key()
     rows, stress, spare, profiles = [], None, None, None
     for session in [s for s in opts.sessions.split(",") if s]:
@@ -420,9 +468,10 @@ def main():
     cef = rpc("debug.cef") or {}
     result = {"tag": TAG, "host": os.uname().nodename, "cpus": os.cpu_count(), "stress_session": stress, "spare_cost": spare, "profiles": profiles,
               "budget_visible_ms": opts.budget_ms, "summary": summary(rows), "runs": rows,
-              "host_arm": {"host": opts.host, "spare_window": opts.host_spare_window},
-              "cef": {k: cef.get(k) for k in ("backend", "spare_window", "start_steps", "likely", "state") if k in cef},
-              "results_v1": results.record_all(launcher, results.new_browser_tab_series(rows, CASES, opts.story))}
+              "host_arm": {"host": opts.host, "no_spare_window": opts.host_no_spare_window, "story": arm_story(opts)},
+              "cef": {k: cef.get(k) for k in ("backend", "spare_window", "warmup_spare_windows", "start_steps", "likely", "state")
+                      if k in cef},
+              "results_v1": results.record_all(launcher, results.new_browser_tab_series(rows, CASES, arm_story(opts)))}
     print("\nSUMMARY", json.dumps(result["summary"], indent=1), flush=True)
     print(f"\n| session/case | n | visible p50 | visible p95 | frame p95 | chrome p95 | page p50 | page p95 | create_window p95 | "
           f"tab_add p95 | refresh |\n|---|---|---|---|---|---|---|---|---|---|---|")

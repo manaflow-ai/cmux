@@ -59,14 +59,14 @@ extension AppServices {
         // Before the first spare: its placeholder has no renderer where the fork can (p13-webui-019).
         cache.cef.setRendererlessSpareWindows(features.isEnabled(.rendererlessSpareWindow))
         #if DEBUG || CMUX_BENCH_HOOKS
-        let hostSpareWindows = features.isEnabled(.chromiumHostSpareWindow)  // the bench's spare window arm (p01-process-086)
+        let hostNoSpareWindow = features.isEnabled(.chromiumHostNoSpareWindow)  // the bench's no spare window arm (p01-process-086)
         #else
-        let hostSpareWindows = false
+        let hostNoSpareWindow = false
         #endif
         chromiumWarmup.start(defaultIsChromium: { preference.defaultEngine == .chromium },
                              pagesPending: { [weak cache] in cache?.hasPendingPages == true },
                              pagesSpare: { pagesSpare && preference.defaultEngine == .chromium },
-                             placement: .init(backend: chromiumRuntime.source.backend, hostSpareWindows: hostSpareWindows))
+                             placement: .init(backend: chromiumRuntime.source.backend, hostNoSpareWindow: hostNoSpareWindow))
         cache.onPagesSettled = { [weak chromiumWarmup] in chromiumWarmup?.pagesSettled() }
         if pagesSpare {
             // Pages follow the default engine: switched away from Chromium, the untaken pages spare

@@ -50,12 +50,13 @@ public import Foundation
 ///   `CefInitialize` itself is not held: it builds no spare.
 /// - With the Chromium Host (``Placement/host(spareWindows:)``, p01-process-086) the start holds the
 ///   main thread only for its shim calls, so `CefInitialize` is an idle step that waits for neither
-///   the input quiet nor a long slot, and no spare window is made: the host builds each window off
-///   cmux's main thread, and content keeps its own spare RenderProcessHost, a live renderer with no
-///   document (`content/browser/renderer_host/spare_render_process_host_manager_impl.cc`,
-///   `PrepareForFutureRequests`), which is what a new tab's navigation takes. The bench-only feature
-///   `chromiumHostSpareWindow` keeps a spare window in host mode, to measure one against the spare
-///   renderer alone.
+///   the input quiet nor a long slot. The spare window step follows it as in process: content makes
+///   its spare RenderProcessHost only after a navigation took a process
+///   (`content/browser/renderer_host/spare_render_process_host_manager_impl.cc`,
+///   `PrepareForFutureRequests`), so after a warm start nothing else warms a renderer for the first tab
+///   until cmux can ask the host for `SpareRenderProcessHostManager::WarmupSpare`. The bench-only
+///   feature `chromiumHostNoSpareWindow` drops the spare window in host mode, the arm that measures
+///   the first tab without it.
 ///
 /// In a macOS 26 VM `CefInitialize` and the first window each held the main thread for about
 /// 0.8 s (os-smoke, 2026-10-18): two idle steps, none at the first tab.
@@ -100,10 +101,10 @@ public final class ChromiumWarmup {
         /// Chromium in this process: its start and each new window hold the main thread.
         public static let inProcess = Placement(startHoldsMainThread: true, keepsSpareWindows: true)
 
-        /// The Chromium Host: windows are built in the host and content's spare renderer serves the
-        /// next tab, so no spare window is kept unless `spareWindows` (the bench-only
-        /// `chromiumHostSpareWindow`).
-        public static func host(spareWindows: Bool = false) -> Placement {
+        /// The Chromium Host: its start holds the main thread only for the shim calls. It keeps the
+        /// spare windows (the first tab's warm renderer after a warm start) unless `spareWindows` is
+        /// false (the bench-only `chromiumHostNoSpareWindow`).
+        public static func host(spareWindows: Bool = true) -> Placement {
             Placement(startHoldsMainThread: false, keepsSpareWindows: spareWindows)
         }
 
@@ -111,10 +112,10 @@ public final class ChromiumWarmup {
             (self.startHoldsMainThread, self.keepsSpareWindows) = (startHoldsMainThread, keepsSpareWindows)
         }
 
-        /// The placement of `backend` (`CEFRuntimeSource.backend`); `hostSpareWindows` is
-        /// ``host(spareWindows:)``'s, read only for the Chromium Host.
-        public init(backend: BrowserBackend, hostSpareWindows: Bool) {
-            self = backend == .host ? .host(spareWindows: hostSpareWindows) : .inProcess
+        /// The placement of `backend` (`CEFRuntimeSource.backend`); `hostNoSpareWindow` (the bench-only
+        /// `chromiumHostNoSpareWindow`) is read only for the Chromium Host.
+        public init(backend: BrowserBackend, hostNoSpareWindow: Bool) {
+            self = backend == .host ? .host(spareWindows: !hostNoSpareWindow) : .inProcess
         }
     }
 
@@ -177,6 +178,9 @@ public final class ChromiumWarmup {
     private var stopped = false
     /// Where Chromium runs (``start(defaultIsChromium:pagesPending:pagesSpare:placement:)``): in process until then.
     private(set) var placement = Placement.inProcess
+    /// The placement ``start(defaultIsChromium:pagesPending:pagesSpare:placement:)`` set; nil before it
+    /// (`debug.cef` `warmup_spare_windows`, which the bench's host arms check).
+    public var startedPlacement: Placement? { started ? placement : nil }
     /// The spare windows' memory consumer: no new spare at warning or critical, none again until
     /// normal; critical closes the untaken ones.
     private var spareMemory: SpareMemoryConsumer?
@@ -413,7 +417,7 @@ public final class ChromiumWarmup {
 
     /// Chromium runs: the next missing spare window (CEFSpareWindow, the default profile's, then
     /// the pages profile's) is an idle step of its own, so neither step lands in the first tab's
-    /// or page's open. None where the placement keeps no spare window (the Chromium Host).
+    /// or page's open. None where the placement keeps no spare window (`chromiumHostNoSpareWindow`).
     private func warmStarted() {
         guard !stopped, placement.keepsSpareWindows, allowsSpare, engine.isRunning else { return }
         post(.spare)

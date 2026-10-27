@@ -30,6 +30,8 @@ enum DebugCEF {
             "footprint_mb": .number(footprintMegabytes()),
             "spare_window": .string(services.cache.cef.spareWindowState),
             "pages_spare_window": .string(services.cache.cef.pagesSpareWindowState),
+            // Whether the warm-up keeps spare windows (null before it starts); the bench's host arms check it (p01-process-086).
+            "warmup_spare_windows": services.chromiumWarmup.startedPlacement.map { .bool($0.keepsSpareWindows) } ?? .null,
             // A window a spare would have served, built because none was ready (p13-webui-016).
             "window_built_on_key_turn": .number(Double(services.cache.cef.windowsBuiltOnKeyTurn)),
             "engine_start_main_ms": .number(milliseconds(services.cache.cef.engineStartMainThreadTime)),

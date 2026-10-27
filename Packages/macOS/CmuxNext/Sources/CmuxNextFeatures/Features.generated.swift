@@ -1852,12 +1852,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// With the Chromium host, the warm start keeps a spare Chromium window as in process, instead of relying on Chromium's own spare renderer alone; the bench arm that measures whether the spare renderer meets the new tab target.
-    public static let chromiumHostSpareWindow = Feature(
+    /// With the Chromium host, the warm start keeps no spare Chromium window, so nothing warms a renderer for the first new tab; the bench arm that measures whether the host meets the new tab target without the spare window.
+    public static let chromiumHostNoSpareWindow = Feature(
         index: 106,
-        name: "chromiumHostSpareWindow",
+        name: "chromiumHostNoSpareWindow",
         owner: "PL-cef-layer",
-        description: "With the Chromium host, the warm start keeps a spare Chromium window as in process, instead of relying on Chromium's own spare renderer alone; the bench arm that measures whether the spare renderer meets the new tab target.",
+        description: "With the Chromium host, the warm start keeps no spare Chromium window, so nothing warms a renderer for the first new tab; the bench arm that measures whether the host meets the new tab target without the spare window.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,
@@ -2013,7 +2013,7 @@ nonisolated extension Feature {
         .cefHelperHost,
         .cefLayerHostingEveryPage,
         .chromiumHostIdleExit,
-        .chromiumHostSpareWindow,
+        .chromiumHostNoSpareWindow,
         .perfLabCanary,
         .perfLabKillProbe,
     ]
