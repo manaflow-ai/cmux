@@ -467,9 +467,11 @@ impl Hub {
         // A replay that did not complete may still hold such a report: under MDM's off the host
         // is not known to ask, so it ends (review 61).
         // An off pushed since adoption read the policy counts (review 68): that push may have
-        // read the log before the replay reached it.
+        // read the log before the replay reached it. With MDM unset the agent is handed out, and
+        // the next off reads the log the replay added to: an earlier read of it no longer holds
+        // (review 2 of #26057).
+        session.floor.left_host_read.store(false, Ordering::SeqCst);
         if off.off() {
-            session.floor.left_host_read.store(false, Ordering::SeqCst);
             let ended = if replayed {
                 self.end_if_runs_full_access(session, true).await
             } else {
