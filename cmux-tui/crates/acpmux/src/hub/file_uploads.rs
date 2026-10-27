@@ -402,17 +402,26 @@ fn status(session: &str, params: &Value) -> Result<Value, RpcError> {
         .get("uploadId")
         .and_then(Value::as_str)
         .ok_or_else(|| RpcError::invalid_params("uploadId is required"))?;
+    // A sender asking where an upload stands is using it, finished or not: marked used under
+    // the sweep's lock (`IN_USE`, then the upload's, the order the sweep takes them), so the
+    // sweep never deletes one it just answered for.
+    let _in_use = IN_USE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let _held = hold(upload);
     let dir = part_path(session, upload)
         .and_then(|p| p.parent().map(Path::to_path_buf))
         .ok_or_else(|| unknown(upload))?;
+    let mark = |file: &Path| {
+        touch(file).map_err(|e| {
+            RpcError::internal(format!("cannot mark upload {upload} in use: {e}"))
+                .with_data(json!({"reason": "upload.unreadable"}))
+        })
+    };
     // Unfinished: its `.part`. A finish that renamed it and stopped before removing `.meta`
     // (a crash) left the finished file, which the scan below finds.
     if let Ok((name, size)) = declared(session, upload)
         && let Ok(part) = std::fs::symlink_metadata(dir.join(".part"))
     {
-        // A sender asking where it stands is using it: the sweep keeps it (`used_at`).
-        let _ = touch(&dir.join(".part"));
+        mark(&dir.join(".part"))?;
         return Ok(json!({"uploadId": upload, "fileName": name, "size": size,
             "offset": part.len(), "finished": false}));
     }
@@ -424,6 +433,7 @@ fn status(session: &str, params: &Value) -> Result<Value, RpcError> {
             && meta.is_file()
             && is_file_name(&name)
         {
+            mark(&entry.path())?;
             return Ok(json!({"uploadId": upload, "fileName": name, "size": meta.len(),
                 "offset": meta.len(), "finished": true,
                 "path": entry.path().to_string_lossy()}));
