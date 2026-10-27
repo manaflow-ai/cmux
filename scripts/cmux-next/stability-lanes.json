@@ -1,0 +1,83 @@
+{
+  "schema": "cmux-stability-lanes/v1",
+  "$comment": "Lanes of the stability lab (plans/cmux-next/chrome-parity/p10-stability.md 3A; runner stability-lab.py). The runner fills {app}, {previous_app}, {job}, {out} and {host}, writes the step's combined stdout and stderr to the lane's stdout path, puts the run's crash reports and panic logs in {out}/crashes, and gives the run to `stability-lab.py signatures`. `stability-lab.py lanes --check` validates this file.",
+  "host_groups": {
+    "lab-mini-fast": {
+      "host_class": "dedicated",
+      "hosts": 1,
+      "pool": "lab M6 minis cmux15-24 except cmux20 (the perf cron's bench host)",
+      "order": ["skew-matrix", "restore-journey", "update-e2e"],
+      "note": "The update, skew and restore lanes run one after another on one lab mini per tip (about 30 min). They are preemptible: a foreground step on that mini stops them, and the next tick runs them again."
+    }
+  },
+  "lanes": [
+    {
+      "id": "skew-matrix",
+      "task": "p10-stability-196",
+      "tier": "fast",
+      "kind": "skew",
+      "host_class": "dedicated",
+      "host_group": "lab-mini-fast",
+      "preemptible": true,
+      "bare_metal": true,
+      "needs_build": "dev",
+      "needs_previous_build": true,
+      "minutes": 5,
+      "priority": "lowest",
+      "never_with": ["bench"],
+      "script": "scripts/cmux-next/skew-matrix.py",
+      "args": [
+        "--old", "{previous_app}/Contents/Resources/bin/cmux-tui",
+        "--new", "{app}/Contents/Resources/bin/cmux-tui"
+      ],
+      "stdout": "{out}/skew-matrix.txt",
+      "result": {"parser": "skew-matrix", "path": "{out}/skew-matrix.txt"},
+      "crash_globs": ["{out}/crashes/*.ips", "{out}/crashes/*.jsonl"],
+      "artifacts": ["{out}/skew-matrix.txt", "{out}/crashes"],
+      "pass": "exit 0: every (direction, case) row is works, re-exec or fix. The bundled CLI of this tip (N) runs against the daemon of the previous lab tip (N-1) and the reverse, so both skew directions are covered. Running from the .app bundle also covers the re-exec half that the Linux workflow cannot."
+    },
+    {
+      "id": "restore-journey",
+      "task": "p10-stability-196",
+      "tier": "fast",
+      "kind": "restore",
+      "host_class": "dedicated",
+      "host_group": "lab-mini-fast",
+      "preemptible": true,
+      "bare_metal": true,
+      "needs_build": "dev",
+      "minutes": 10,
+      "priority": "lowest",
+      "never_with": ["bench"],
+      "script": "scripts/cmux-next/restore-journey-slot.sh",
+      "args": ["{job}", "{out}", "--"],
+      "env": {"CAPTURE_HOST_SLOT_HOSTS": "{host}"},
+      "stdout": "{out}/restore-journey.txt",
+      "result": {"parser": "restore-journey", "path": "{out}/report.json"},
+      "crash_globs": ["{out}/crashes/*.ips", "{out}/crashes/*.jsonl"],
+      "artifacts": ["{out}/report.json", "{out}/journey.txt", "{out}/launch.txt", "{out}/crashes"],
+      "pass": "exit 0: every report.json row passes (n/a rows do not count) after the quit, update and crash relaunches"
+    },
+    {
+      "id": "update-e2e",
+      "task": "p10-stability-196",
+      "tier": "fast",
+      "kind": "update",
+      "host_class": "dedicated",
+      "host_group": "lab-mini-fast",
+      "preemptible": true,
+      "bare_metal": true,
+      "needs_build": "none",
+      "minutes": 15,
+      "priority": "lowest",
+      "never_with": ["bench"],
+      "script": "scripts/cmux-next/update-e2e.py",
+      "args": [],
+      "stdout": "{out}/update-e2e.txt",
+      "result": {"parser": "update-e2e", "path": "{out}/update-e2e.txt"},
+      "crash_globs": ["{out}/crashes/*.ips", "{out}/crashes/*.jsonl"],
+      "artifacts": ["{out}/update-e2e.txt", "{out}/crashes"],
+      "pass": "exit 0: no FAIL row (PENDING rows do not count). The feed's second item updates to its newest with live terminals and an agent turn. A fleet DEV build has its own bundle id and no Sparkle signature, so this lane does not update to the tip itself."
+    }
+  ]
+}

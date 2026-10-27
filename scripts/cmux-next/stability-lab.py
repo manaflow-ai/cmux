@@ -15,6 +15,20 @@ Subcommands:
         covered only when a tip that contains it (the commit itself or a later one) passed every fast
         lane of the registry. `--check` exits 1 when a commit is not covered.
 
+    lanes [--check] [--json]
+        Lists the registry's lanes (tier, host class and group, minutes). `--check` exits 1 when a lane
+        lacks a field the runner needs, names an unknown placeholder, result parser or host group, or its
+        script is missing.
+
+    signatures --lane ID --out DIR [--exit-code N] [--json-out PATH]
+        Turns one finished lane run into findings, one crash_signature.py signature each (task 196). A
+        failing check (an update-e2e FAIL row, a skew-matrix FAIL row, a failed restore-journey report row)
+        is a `lab-check` signature: exception the lane id, frame the check name with run-specific numbers,
+        hashes and paths taken out, so the same check failing on two tips is one issue. Crash, panic,
+        sanitizer and hang files that match the lane's crash_globs give their own signatures. A run that
+        never reached the product (host refused, no lease, no previous build) is `infra` and has no
+        finding. Prints cmux-stability-lane-result/v1 JSON; exit 0 passed, 1 failed, 75 infra.
+
 Inputs (the runner, task p10-stability-003, writes the state; this file reads it):
 
     stability-lanes.json   {"lanes": [{"id": "smoke-26", "tier": "fast" | "long", ...}]}
@@ -24,13 +38,14 @@ Inputs (the runner, task p10-stability-003, writes the state; this file reads it
 a list of runs (the last run counts). Only `passed` and `failed` are verdicts; every other status
 (queued, running, cancelled, infra) is reported as pending and does not pass the lane.
 
-Runs anywhere with git and python3; it reads only git and the two JSON files.
+Runs anywhere with git and python3; it reads only git, the two JSON files and a lane's output folder.
 """
 
 from __future__ import annotations
 
 import argparse
 import datetime as dt
+import glob
 import json
 import os
 import re
@@ -39,6 +54,9 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import crash_signature  # noqa: E402  (next to this script)
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_LANES = ROOT / "scripts/cmux-next/stability-lanes.json"
@@ -318,6 +336,328 @@ def cmd_coverage(args: argparse.Namespace) -> int:
     return 1 if args.check and report["summary"]["uncovered"] else 0
 
 
+# --- lanes registry -------------------------------------------------------------------------------
+
+LANE_REQUIRED = ("id", "tier", "kind", "host_class", "minutes", "priority", "never_with", "script")
+TIERS = ("fast", "long")
+HOST_CLASSES = ("dedicated", "preemptible")
+# What the runner fills in when it submits a lane step. {previous_app} is the DEV build of the lab tip
+# before this one, for lanes that set needs_previous_build.
+PLACEHOLDERS = frozenset({"app", "previous_app", "job", "out", "host"})
+_PLACEHOLDER = re.compile(r"\{([a-z_]+)\}")
+# A fast lane group runs its lanes one after another on one host; it must finish within the fast-lane
+# window of section 3A (each new tip within ~30 min).
+FAST_GROUP_MINUTES = 30
+
+
+def lane_strings(lane: dict) -> list[str]:
+    values: list[str] = []
+    for key in ("args", "artifacts", "crash_globs"):
+        values.extend(str(item) for item in lane.get(key) or [])
+    values.extend(str(value) for value in (lane.get("env") or {}).values())
+    values.extend(str(lane[key]) for key in ("stdout",) if lane.get(key))
+    if isinstance(lane.get("result"), dict) and lane["result"].get("path"):
+        values.append(str(lane["result"]["path"]))
+    return values
+
+
+def lane_problems(registry: object, repo: Path) -> list[str]:
+    """Every reason the runner could not run a lane as declared; empty when the registry is usable."""
+    problems: list[str] = []
+    lanes = lane_entries(registry)
+    groups = registry.get("host_groups") or {} if isinstance(registry, dict) else {}
+    seen: set[str] = set()
+    for lane in lanes:
+        name = lane.get("id", "?")
+        if name in seen:
+            problems.append(f"{name}: declared twice")
+        seen.add(name)
+        problems.extend(f"{name}: no {key}" for key in LANE_REQUIRED if lane.get(key) in (None, "", []))
+        if lane.get("tier") not in TIERS:
+            problems.append(f"{name}: tier {lane.get('tier')!r} is not one of {', '.join(TIERS)}")
+        if lane.get("host_class") not in HOST_CLASSES:
+            problems.append(f"{name}: host_class {lane.get('host_class')!r} is not one of {', '.join(HOST_CLASSES)}")
+        if not isinstance(lane.get("minutes"), int) or lane.get("minutes", 0) <= 0:
+            problems.append(f"{name}: minutes must be a positive integer")
+        if lane.get("priority") not in (None, "lowest"):
+            problems.append(f"{name}: priority must be lowest (lab work never competes with people)")
+        if "bench" not in (lane.get("never_with") or []):
+            problems.append(f"{name}: never_with must include bench")
+        if lane.get("script") and not (repo / lane["script"]).is_file():
+            problems.append(f"{name}: script {lane['script']} is not in the checkout")
+        for value in lane_strings(lane):
+            unknown = sorted(set(_PLACEHOLDER.findall(value)) - PLACEHOLDERS)
+            if unknown:
+                problems.append(f"{name}: unknown placeholder {', '.join(unknown)} in {value!r}")
+            if "{previous_app}" in value and not lane.get("needs_previous_build"):
+                problems.append(f"{name}: uses {{previous_app}} without needs_previous_build")
+        result = lane.get("result")
+        if result is not None:
+            if not isinstance(result, dict) or result.get("parser") not in RESULT_PARSERS:
+                problems.append(f"{name}: result parser must be one of {', '.join(sorted(RESULT_PARSERS))}")
+            elif not result.get("path"):
+                problems.append(f"{name}: result has no path")
+        group = lane.get("host_group")
+        if group is not None:
+            spec = groups.get(group) if isinstance(groups, dict) else None
+            if not isinstance(spec, dict):
+                problems.append(f"{name}: host_group {group} is not declared in host_groups")
+            elif spec.get("host_class") != lane.get("host_class"):
+                problems.append(f"{name}: host_class differs from its host_group {group}")
+    for group, spec in (groups.items() if isinstance(groups, dict) else []):
+        members = [lane for lane in lanes if lane.get("host_group") == group]
+        if sorted(spec.get("order") or []) != sorted(lane["id"] for lane in members):
+            problems.append(f"host_group {group}: order must list exactly its lanes")
+        if spec.get("hosts") != 1:
+            problems.append(f"host_group {group}: hosts must be 1 (the group's lanes share one host)")
+        fast_minutes = sum(lane.get("minutes", 0) for lane in members if lane.get("tier") == "fast")
+        if fast_minutes > FAST_GROUP_MINUTES:
+            problems.append(f"host_group {group}: fast lanes take {fast_minutes} min, over {FAST_GROUP_MINUTES}")
+    return problems
+
+
+def cmd_lanes(args: argparse.Namespace) -> int:
+    registry = load_json(Path(args.lanes), "lanes registry")
+    lanes = lane_entries(registry)
+    problems = lane_problems(registry, Path(args.repo)) if args.check else []
+    if args.json:
+        print(json.dumps({"lanes": lanes, "problems": problems}, indent=2))
+    else:
+        header = ("LANE", "TIER", "HOST", "GROUP", "MIN", "SCRIPT")
+        rows = [(lane["id"], str(lane.get("tier", "-")), str(lane.get("host_class", "-")),
+                 str(lane.get("host_group", "-")), str(lane.get("minutes", "-")), str(lane.get("script", "-")))
+                for lane in lanes]
+        widths = [max(len(cells[index]) for cells in [header, *rows]) for index in range(len(header))]
+        for cells in [header, *rows]:
+            print("  ".join(cell.ljust(width) for cell, width in zip(cells, widths)).rstrip())
+        for problem in problems:
+            print(f"problem: {problem}", file=sys.stderr)
+    return 1 if problems else 0
+
+
+# --- lane results -> signatures -------------------------------------------------------------------
+
+LANE_RESULT_SCHEMA = "cmux-stability-lane-result/v1"
+LAB_CHECK_KIND = "lab-check"
+EXIT_INFRA = 75  # EX_TEMPFAIL: the run says nothing about the product; the runner runs the lane again
+
+_RUN_PATH = re.compile(r"(?:~|/)[\w./@+-]*[\w@+-]")
+_RUN_HEX = re.compile(r"\b[0-9a-f]{7,64}\b")
+_RUN_NUMBER = re.compile(r"\d+(?:\.\d+)?")
+_TRACEBACK = re.compile(r"^Traceback \(most recent call last\):\n(?:.*\n)*?(?P<error>[A-Za-z_][\w.]*)(?::|\n|$)",
+                        re.MULTILINE)
+
+
+def check_frame(check: str) -> str:
+    """A check name as a stable frame: paths, hashes and numbers that differ per run are replaced."""
+    text = _RUN_PATH.sub("<path>", check.strip())
+    text = _RUN_HEX.sub("<hex>", text)
+    text = _RUN_NUMBER.sub("N", text)
+    return re.sub(r"\s+", " ", text)[:200]
+
+
+@dataclass
+class LaneChecks:
+    """What a lane's own report said: None when it wrote no report (the run ended before it)."""
+
+    passed: list[str] = field(default_factory=list)
+    # (check, detail, cause): cause names the bug, so checks that fail for one reason share a signature
+    failed: list[tuple[str, str, str]] = field(default_factory=list)
+    pending: list[str] = field(default_factory=list)
+
+
+def _last_json_object(text: str) -> object | None:
+    """update-e2e prints its results as one indented JSON object at the end of its output."""
+    for match in reversed(list(re.finditer(r"^\{", text, re.MULTILINE))):
+        try:
+            return json.loads(text[match.start():])
+        except json.JSONDecodeError:
+            continue
+    return None
+
+
+def parse_update_e2e(text: str) -> LaneChecks | None:
+    report = _last_json_object(text)
+    if not isinstance(report, dict) or not isinstance(report.get("results"), list):
+        return None
+    checks = LaneChecks()
+    for row in report["results"]:
+        if not isinstance(row, list) or len(row) < 2:
+            continue
+        check, state = str(row[0]), str(row[1])
+        detail = str(row[2]) if len(row) > 2 else ""
+        if state == "PASS":
+            checks.passed.append(check)
+        elif state == "FAIL":
+            checks.failed.append((check, detail, check))
+        else:
+            checks.pending.append(check)
+    return checks
+
+
+_SKEW_ROW = re.compile(r"^(?P<direction>cli=\w+ daemon=\w+)\s+(?P<case>\S+)\s+(?P<verdict>works|re-exec|fix|FAIL)"
+                       r"(?:\s+(?P<detail>.*))?$", re.MULTILINE)
+_SKEW_SUMMARY = re.compile(r"^skew-matrix: \d+ pass, \d+ FAIL$", re.MULTILINE)
+
+
+def parse_skew_matrix(text: str) -> LaneChecks | None:
+    if not _SKEW_SUMMARY.search(text):
+        return None
+    checks = LaneChecks()
+    for row in _SKEW_ROW.finditer(text):
+        detail = row["detail"] or ""
+        # A daemon that does not start fails every case of its direction: one bug, one signature.
+        check = f"{row['direction']} {row['case']}"
+        if row["verdict"] == "FAIL":
+            cause = "daemon did not start" if detail.startswith("daemon did not start") else row["case"]
+            checks.failed.append((check, detail, f"{row['direction']} {cause}"))
+        else:
+            checks.passed.append(check)
+    return checks
+
+
+def parse_restore_journey(text: str) -> LaneChecks | None:
+    try:
+        rows = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(rows, list):
+        return None
+    checks = LaneChecks()
+    for row in rows:
+        if not isinstance(row, dict) or "item" not in row:
+            continue
+        check, ok = str(row["item"]), row.get("ok")
+        if ok is True:
+            checks.passed.append(check)
+        elif ok is False:
+            checks.failed.append((check, str(row.get("detail") or ""), check))
+        else:  # "n/a": the row does not apply on this host
+            checks.pending.append(check)
+    return checks
+
+
+RESULT_PARSERS = {
+    "update-e2e": parse_update_e2e,
+    "skew-matrix": parse_skew_matrix,
+    "restore-journey": parse_restore_journey,
+}
+
+# Output of a run that never had a report but still reached the product: a finding, not infra.
+NO_REPORT_FINDINGS = (
+    (re.compile(r"the app never opened its control socket"), "app never opened its control socket"),
+    (re.compile(r"daemon did not start"), "daemon did not start"),
+)
+# A lane script that died on one of these never reached the product (feed download, ssh, lease).
+INFRA_ERRORS = frozenset({"URLError", "HTTPError", "TimeoutError", "timeout", "ConnectionError",
+                          "ConnectionResetError", "ConnectionRefusedError", "RemoteDisconnected"})
+
+
+def expand(value: str, out: Path) -> str:
+    return value.replace("{out}", str(out))
+
+
+def read_text(path: Path) -> str | None:
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+
+
+def lab_check_signature(lane: str, check: str, detail: str, source: str, cause: str = "") -> dict:
+    frames = [check_frame(cause or check)]
+    return crash_signature.Signature(
+        kind=LAB_CHECK_KIND, process="cmux", exception=lane, frames=frames,
+        hash12=crash_signature.signature_hash(LAB_CHECK_KIND, lane, frames), source=source,
+        message=detail[:crash_signature.MESSAGE_LIMIT], extra={"check": check},
+    ).to_json()
+
+
+def lane_result(lane: dict, out: Path, exit_code: int | None, ignore=None) -> dict:
+    """One finished lane run: its verdict, the lane's checks and one finding per signature."""
+    lane_id = lane["id"]
+    stdout_path = Path(expand(lane["stdout"], out)) if lane.get("stdout") else None
+    stdout = (read_text(stdout_path) if stdout_path else None) or ""
+    result = lane.get("result") or {}
+    report_path = Path(expand(result["path"], out)) if result.get("path") else None
+    report_text = read_text(report_path) if report_path else None
+    checks = RESULT_PARSERS[result["parser"]](report_text) if report_text is not None and result.get("parser") else None
+    source = os.path.relpath(report_path, out) if report_path else ""
+
+    findings: list[dict] = []
+    reason = ""
+    if checks is not None:
+        findings.extend(lab_check_signature(lane_id, check, detail, source, cause)
+                        for check, detail, cause in checks.failed)
+        if exit_code not in (None, 0) and not checks.failed:
+            findings.append(lab_check_signature(lane_id, "exit status without a failing check",
+                                                f"exit {exit_code}", source))
+    else:
+        traceback = _TRACEBACK.search(stdout)
+        known = next((label for pattern, label in NO_REPORT_FINDINGS if pattern.search(stdout)), None)
+        if traceback and traceback["error"].rsplit(".", 1)[-1] in INFRA_ERRORS:
+            reason = f"no report: {traceback['error']} (network or host)"
+        elif traceback:
+            findings.append(lab_check_signature(lane_id, f"lane script error {traceback['error']}",
+                                                stdout[traceback.start():].strip()[-300:], source))
+        elif known:
+            findings.append(lab_check_signature(lane_id, known, known, source))
+        elif exit_code == 0:
+            findings.append(lab_check_signature(lane_id, "exit 0 without a report", "", source))
+        else:
+            lines = [line.strip() for line in stdout.splitlines() if line.strip()]
+            last = next((line for line in lines if line.startswith("refused:")), lines[-1] if lines else "")
+            reason = f"no report (exit {exit_code}): {last[:200]}" if last else f"no report (exit {exit_code})"
+
+    crash_files = sorted({hit for pattern in lane.get("crash_globs") or []
+                          for hit in glob.glob(expand(pattern, out)) if os.path.isfile(hit)})
+    for path in crash_files:
+        try:
+            signatures = crash_signature.signatures_from_path(Path(path), ignore)
+        except OSError as error:
+            reason = reason or f"crash file unreadable: {path}: {error}"
+            continue
+        for signature in signatures:
+            record = signature.to_json()
+            record["source"] = os.path.relpath(path, out)
+            findings.append(record)
+
+    by_hash: dict[str, dict] = {}
+    for finding in findings:
+        finding["lane"] = lane_id
+        first = by_hash.setdefault(finding["hash12"], {**finding, "count": 0})
+        first["count"] += 1
+    unique = list(by_hash.values())
+    status = FAILED if unique else ("infra" if reason else PASSED)
+    return {
+        "schema": LANE_RESULT_SCHEMA,
+        "lane": lane_id,
+        "status": status,
+        "reason": reason,
+        "exit": exit_code,
+        "checks": None if checks is None else {
+            "passed": len(checks.passed), "failed": [check for check, _, _ in checks.failed], "pending": len(checks.pending),
+        },
+        "findings": unique,
+    }
+
+
+def cmd_signatures(args: argparse.Namespace) -> int:
+    lanes = {lane["id"]: lane for lane in lane_entries(load_json(Path(args.lanes), "lanes registry"))}
+    lane = lanes.get(args.lane)
+    if lane is None:
+        raise LabError(f"lane {args.lane} is not in the registry ({', '.join(sorted(lanes))})")
+    out = Path(args.out)
+    if not out.is_dir():
+        raise LabError(f"lane output folder not found: {out}")
+    result = lane_result(lane, out, args.exit_code)
+    if args.json_out:
+        Path(args.json_out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.json_out).write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(result, indent=2))
+    return {PASSED: 0, FAILED: 1}.get(result["status"], EXIT_INFRA)
+
+
 # --- entry ----------------------------------------------------------------------------------------
 
 
@@ -336,6 +676,21 @@ def parser() -> argparse.ArgumentParser:
     cov.add_argument("--json-out", help="also write the JSON report to this path")
     cov.add_argument("--check", action="store_true", help="exit 1 when a commit is not covered")
     cov.set_defaults(handler=cmd_coverage)
+
+    lanes = commands.add_parser("lanes", help="list the lanes registry; --check validates it")
+    lanes.add_argument("--lanes", default=str(DEFAULT_LANES), help="lanes registry JSON")
+    lanes.add_argument("--repo", default=str(ROOT), help="checkout the lane scripts are in (default: this one)")
+    lanes.add_argument("--check", action="store_true", help="exit 1 when a lane cannot run as declared")
+    lanes.add_argument("--json", action="store_true", help="print JSON instead of the table")
+    lanes.set_defaults(handler=cmd_lanes)
+
+    sig = commands.add_parser("signatures", help="one finished lane run -> verdict and signatures")
+    sig.add_argument("--lane", required=True, help="lane id in the registry")
+    sig.add_argument("--out", required=True, help="the lane's output folder ({out})")
+    sig.add_argument("--exit-code", type=int, default=None, help="the lane step's exit status")
+    sig.add_argument("--lanes", default=str(DEFAULT_LANES), help="lanes registry JSON")
+    sig.add_argument("--json-out", help="also write the result JSON to this path")
+    sig.set_defaults(handler=cmd_signatures)
     return root
 
 
