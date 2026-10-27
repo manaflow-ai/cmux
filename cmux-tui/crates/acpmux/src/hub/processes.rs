@@ -328,12 +328,14 @@ impl Hub {
         // restart reads this from the whole log.
         let _ = self.store.scan_heads(&session.id, &mut |head| {
             table.through = table.through.max(head.seq);
-            let folded = matches!(
+            if !matches!(
                 (head.dir, head.kind),
                 ("in", "background_task_update")
                     | ("mux", "process_update" | "stopped" | "exited" | "host_started")
-            );
-            let Some(e) = folded.then(|| head.record()).flatten() else { return true };
+            ) {
+                return true;
+            }
+            let Some(e) = head.record() else { return true };
             match (e.dir.as_str(), e.kind.as_str()) {
                 ("in", "background_task_update") => {
                     let params = e.msg.get("params").unwrap_or(&Value::Null);
