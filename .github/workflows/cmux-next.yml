@@ -3224,7 +3224,7 @@ jobs:
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "900"
-          MAIN_THREAD_HOLDERS: 'CmuxNextControlTests\.(MainThreadWatchdogPolicyTests|MainThreadWatchdogTests|MainTaskBoardSpanTests|ActionBudgetSpanTests|ControlLaneTests|MainFrameBudgetTests|MainActorWorkQueueTests|HangEpisode[A-Za-z]*Tests)\b'
+          MAIN_THREAD_HOLDERS: 'CmuxNextControlTests\.(MainThreadWatchdogPolicyTests|MainThreadWatchdogTests|MainThreadWatchdogTaskWakeTests|MainTaskBoardSpanTests|ActionBudgetSpanTests|ControlLaneTests|MainFrameBudgetTests|MainActorWorkQueueTests|HangEpisode[A-Za-z]*Tests|ActionBatchTests)\b'
         run: |
           set -uo pipefail
           status=0
