@@ -34,7 +34,8 @@ final class AgentTabStore {
     let gestureRouter: AgentPaneGestureRouter
     /// The main-thread scheduler the chat headers' watches apply on (``AgentChatHeaderWatch``).
     let mainWork: MainWorkScheduler
-    /// The app's scheduling every pane posts, times and observes on (on ``mainWork``).
+    /// The app's scheduling every pane posts, times and observes on (its `mainWork` is ``mainWork``): the one
+    /// deadline placer every pane's model takes, and the app's ``AppEvents`` a subagent open's watch reads.
     let mainThread: AgentPaneMainThread
     /// The page every agent tab loads: the bundled file (nil only when the bundled page is missing).
     private let source: AgentPaneSource?
@@ -230,17 +231,17 @@ final class AgentTabStore {
     var gitLink: (@MainActor (String) -> AgentPaneGitLink?)?, openFiles: (@MainActor (_ chat: String, _ folder: String, _ target: String?) -> Void)?, moveToFloatingChat: (@MainActor (String) -> Bool)?, pullRequestReader: AgentChatPullRequestReader? // the App's one gh reader (`AppServices.pullRequests`); nil: no header chip
 
     /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``); else from `AppServices.settings`.
-    /// `input` is the app's input tap (`AppServices.inputTap`; a test's own); `mainWork`, the app's scheduler (`AppServices.mainWork`);
-    /// `mainThread`, the app's deadlines and notices on it (``wired(to:)``; nil: a standalone set on `mainWork`).
+    /// `input` is the app's input tap (`AppServices.inputTap`; a test's own); `mainThread`, the app's deadlines and notices
+    /// (``wired(to:)``), whose `mainWork` is the app's scheduler; nil: a standalone set on a scheduler of its own.
     /// `chatStores`, the chats' kept places and chips (``wired(to:)`` puts them beside the launch snapshot; tests keep none).
     init(build: BuildIdentity?, registry: ActionRegistry, work: any MayBlockRunner, webUI: WebUIHost, input: InputEventTap, environment: [String: String] = ProcessInfo.processInfo.environment,
          showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil,
          openPanel: MadeAheadOpenPanel? = nil, warmup: AgentPageWarmup? = nil, chromiumChat: @escaping @MainActor () -> Bool = { true }, defaults: UserDefaults = .standard,
-         mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()), mainThread: AgentPaneMainThread? = nil,
-         chatStores: AgentPaneChatStores = .keepsNothing, daemonFeatures: [String: String] = [:]) {
+         mainThread: AgentPaneMainThread? = nil, chatStores: AgentPaneChatStores = .keepsNothing, daemonFeatures: [String: String] = [:]) {
         gestureRouter = AgentPaneGestureRouter(input: input)
-        self.mainWork = mainWork
-        self.mainThread = mainThread ?? .standalone(on: mainWork)
+        let mainThread = mainThread ?? .standalone()
+        mainWork = mainThread.mainWork
+        self.mainThread = mainThread
         self.defaults = defaults
         if let data = defaults.data(forKey: Self.adoptionsDefaultsKey),
            let saved = try? JSONDecoder().blockingDecode([String: String].self, from: data) {
@@ -294,6 +295,8 @@ final class AgentTabStore {
             for view in views.values { pageSettings.apply(to: view) }
             for view in standaloneViews.allObjects { pageSettings.apply(to: view) }
         }
+        // The switch keeps the next acpmux daemon's flag current from now on, before any page shows.
+        AgentPaneSuggestedTasks.shared.follow(on: mainWork)
     }
 
     /// True when `key` names an agent chat tab in a tree.
@@ -351,7 +354,7 @@ final class AgentTabStore {
         if kind == .local, (sessions[key] ?? record.session) == nil, daemonForTab(key)?.isLocal == false {
             let machine = daemonForTab(key).flatMap { remoteMachineName($0) } ?? ""
             let refused = AgentTabRefusedHost(refusal: AgentRemoteStartRefusal(code: AgentRemoteStartRefusal.hostMismatchCode, machine: machine))
-            let model = AgentPaneModel(host: refused, allowsTabConversion: false)
+            let model = AgentPaneModel(host: refused, allowsTabConversion: false, deadlines: mainThread.deadlines)
             // Its folder tools never act on this Mac either (cx-k21v).
             (model.remoteChat, model.neverPooled) = (true, true)
             guard let view = makeView(model) else { return nil }
@@ -392,7 +395,8 @@ final class AgentTabStore {
             seed: seed,
             // A new chat this app opened on another machine shows the same New Tab page (cx-k21v).
             newTab: local || record.host.hasPrefix(AgentTabRemoteStart.registryPrefix) ? newTabPages[key]?.page : nil,
-            allowsTabConversion: local
+            allowsTabConversion: local,
+            deadlines: mainThread.deadlines
         )
         model.pendingRevealTurn = pendingTurns.removeValue(forKey: key)
         model.pendingWake = wakeStates.removeValue(forKey: key)
@@ -423,7 +427,7 @@ final class AgentTabStore {
     /// A preloaded new tab page (NewTabPreload): loaded, rendered and
     /// connected before any tab exists; ``open(in:of:session:seed:newTab:spare:linked:adopt:idempotencyKey:)`` adopts it.
     func makeSpare(_ page: AgentPaneNewTab) -> AgentPaneView? {
-        guard let view = makeView(AgentPaneModel(host: host, newTab: page), shown: false) else { return nil }
+        guard let view = makeView(AgentPaneModel(host: host, newTab: page, deadlines: mainThread.deadlines), shown: false) else { return nil }
         standaloneViews.add(view)
         return view
     }
@@ -555,7 +559,7 @@ final class AgentTabStore {
     /// A chat outside any pane (onboarding's first task, Start Agent's panel), new or on `session`,
     /// on the same daemon and page as the tabs. The caller owns it and closes it.
     func standaloneView(seed: AgentPaneSeed, session: String? = nil) -> AgentPaneView? {
-        guard let view = makeView(AgentPaneModel(host: host, sessionId: session, seed: AgentPaneSeedSource(seed))) else { return nil }
+        guard let view = makeView(AgentPaneModel(host: host, sessionId: session, seed: AgentPaneSeedSource(seed), deadlines: mainThread.deadlines)) else { return nil }
         standaloneViews.add(view)
         return view
     }

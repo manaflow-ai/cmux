@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 @testable import CmuxNextTerminal
 import CmuxNextWakeups
@@ -143,5 +144,87 @@ import Testing
         #expect(await !Self.launch(directory).show("tab-1", on: pane.session, in: pane.content, reveal: reveal))
         #expect(pane.content.alphaValue == 0, "the pane waits for its first live frame, as before")
         #expect(pane.held == nil)
+    }
+
+    /// p07-memory-083: the decoded frames no pane took went 30 s after launch; they go once the launch settled.
+    @Test func theLaunchReadHoldsNoFrameOnceTheLaunchSettled() async throws {
+        let directory = try await Self.saved(["tab-1": Self.frame(Self.size, scale: 2), "tab-2": Self.frame(Self.size, scale: 2)])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let frames = await Self.launch(directory)
+        #expect(frames.launchFrameCount == 2)
+        frames.dropLaunchRead()
+        #expect(frames.launchFrameCount == 0, "no decoded frame stays once the launch settled")
+        #expect(frames.memoryUsage == .empty)
+        #expect(frames.prefetch(on: Self.work) == nil, "no read starts again")
+    }
+
+    /// A launch that settles while the read runs: the panes that asked before it ended still get their frames,
+    /// then the read holds none.
+    @Test func aReadStillRunningAtTheSettleShowsTheWaitingPanesThenHoldsNoFrame() async throws {
+        let reveal = LaunchReveal(deadline: .seconds(60))
+        let pane = Pane(reveal: reveal)
+        defer { pane.close() }
+        try #require(pane.session.surfaceView.surface != nil, "libghostty created no surface")
+        let directory = try await Self.saved(["tab-1": Self.frame(pane.session.surfaceView.bounds.size, scale: pane.window.backingScaleFactor),
+                                              "tab-2": Self.frame(Self.size, scale: 2)])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let probe = LaunchReadProbe(held: true)
+        let frames = TerminalLaunchFrames(directory: directory, reader: probe.reader)
+        let read = try #require(frames.prefetch(on: Self.work), "the launch read did not start")
+        #expect(await probe.waitForStart(), "the read never started")
+        #expect(!frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal))
+        frames.dropLaunchRead()
+        probe.release()
+        probe.release()  // one per saved file
+        await read.value
+        #expect(pane.held != nil, "the pane that asked before the read ended did not get its frame")
+        #expect(frames.launchFrameCount == 0, "the frames no pane took stayed after the settle")
+    }
+
+    /// A launch that settles after the read's lane ended but before the main actor handed its frames to the panes
+    /// that asked: those panes still get their frames, then the read holds none.
+    @Test func aSettleBetweenTheLaneEndAndTheHandoffStillShowsTheWaitingPanes() async throws {
+        let reveal = LaunchReveal(deadline: .seconds(60))
+        let pane = Pane(reveal: reveal)
+        defer { pane.close() }
+        try #require(pane.session.surfaceView.surface != nil, "libghostty created no surface")
+        let directory = try await Self.saved(["tab-1": Self.frame(pane.session.surfaceView.bounds.size, scale: pane.window.backingScaleFactor),
+                                              "tab-2": Self.frame(Self.size, scale: 2)])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let probe = LaunchReadProbe(held: true)
+        let frames = TerminalLaunchFrames(directory: directory, reader: probe.reader)
+        // The prefetch task's handoff waits here until the settle below, as it does behind a busy main thread.
+        let (handoff, openHandoff) = AsyncStream.makeStream(of: Void.self)
+        frames.beforeHandoff = { for await _ in handoff { return } }
+        defer { openHandoff.finish() }
+        let read = try #require(frames.prefetch(on: Self.work), "the launch read did not start")
+        let laneEnd = try #require(frames.launchReadLaneEnd)
+        #expect(await probe.waitForStart(), "the read never started")
+        #expect(!frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal))
+        probe.release()
+        probe.release()  // one per saved file
+        // The main actor suspends here, but the prefetch task's handoff waits for the settle below.
+        await laneEnd()
+        frames.dropLaunchRead()
+        #expect(pane.held != nil, "the pane that asked before the read ended did not get its frame")
+        #expect(frames.launchFrameCount == 0, "the frames no pane took stayed after the settle")
+        openHandoff.yield()
+        await read.value
+        #expect(pane.held != nil)
+    }
+
+    /// The launch read reports its decoded bytes, and the critical limit drops it at once.
+    @Test func theLaunchReadReportsItsBytesAndGoesAtCritical() async throws {
+        let directory = try await Self.saved(["tab-1": Self.frame(Self.size, scale: 2)])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let frames = await Self.launch(directory)
+        let usage = try #require(frames.memoryUsage)
+        #expect(usage.entries == 1)
+        #expect(usage.footprintBytes >= Int(Self.size.width * 2) * Int(Self.size.height * 2) * 3, "the decoded bitmap's bytes")
+        #expect(TerminalLaunchFrames.memoryTraits.retention == .lossy)
+        #expect(frames.releaseMemory(within: MemoryReleaseSlice(limit: MemoryLimit(percent: 50)) { false }) == .done)
+        #expect(frames.launchFrameCount == 1, "only critical pressure drops the launch read")
+        #expect(frames.releaseMemory(within: MemoryReleaseSlice(limit: .criticalThreshold) { false }) == .done)
+        #expect(frames.launchFrameCount == 0)
     }
 }

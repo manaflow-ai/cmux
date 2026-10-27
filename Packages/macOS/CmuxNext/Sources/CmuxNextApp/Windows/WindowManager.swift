@@ -27,7 +27,7 @@ import Observation
 final class WindowManager {
     unowned let services: AppServices
     let registry = WindowRegistryStore()
-    private(set) var controllers: [WindowController] = [] { didSet { services.background.windowsDidChange() } } // none left: background mode (cx-ghagp)
+    private(set) var controllers: [WindowController] = [] { didSet { services.background.windowsDidChange(); services.crashKeys?.noteWindows(controllers.count) } } // none left: background mode (cx-ghagp)
     /// Per-window state by window id, for every registered window.
     var states: [String: WindowState] = [:]
     private weak var lastActive: WindowController?

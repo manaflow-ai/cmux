@@ -112,7 +112,6 @@ extension AgentTabStore {
         let tabs = AgentTabStore(build: services.environment.build, registry: services.registry, work: services.work, webUI: services.webUI, input: services.inputTap, environment: services.agentPaneEnvironment ?? ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
                                  linkScheme: services.linkScheme, settings: services.settings, openPanel: services.openPanel, warmup: services.agentPageWarmup,
                                  chromiumChat: services.agentChromiumChat,
-                                 mainWork: services.mainWork,
                                  mainThread: AgentPaneMainThread(deadlines: services.mainDeadlines, appEvents: services.appEvents,
                                                                  workspaceEvents: services.workspaceEvents),
                                  chatStores: state.map { AgentPaneChatStores(directory: $0) } ?? .keepsNothing,
@@ -237,7 +236,7 @@ extension AgentTabStore {
                 guard started else { return nil }
                 return AgentTabRefusedHost(refusal: .startUnsupported(machine: machine))
             }
-            var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, endpoint: endpoint, servesTrust: daemon.supports(DaemonCapability.agentSessionTrust.rawValue),
+            var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, endpoint: endpoint, mainWork: services.mainWork, servesTrust: daemon.supports(DaemonCapability.agentSessionTrust.rawValue),
                                            servesKeyedReason: daemon.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue))
             if started {
                 // The tab may still be provisional here: each handshake reads its store surface.

@@ -1,218 +1,229 @@
 import AppKit
-import CmuxNextDaemon
+@testable import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextPages
-import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
+import Observation
 import Testing
-@testable import CmuxNextAgentPane
 
-/// The agent pane's main-thread work on the app's scheduler (p06-scheduler-330, rule 9): each owner the sweep moved
-/// lands as a task of its class, named in the scheduler's owners ledger, and an automation page (an agent's mail)
-/// waits while the person's input is pending. Before the sweep, each of these was an unattributed main-queue job
-/// (`Task { @MainActor in }`), which the ledger has no row for, and the pacer read AppKit's view tree on every
-/// delivery. The pacer's hidden hold (a hidden chat holds its stream until its tab node shows) is covered by
-/// AgentPaneHiddenHoldTests and AgentPaneHiddenPacingTests.
-@Suite(.serialized)
-@MainActor
-struct AgentPaneSchedulerSweepTests {
-    private actor NoHost: AgentPaneHostProviding {
-        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
-    }
+/// p06-scheduler-331, the sweep of CmuxNextAgentPane's second half, FreeTier and Approvals: one case per migrated
+/// owner class (plans/cmux-next/chrome-parity/p06-scheduler.md, rule 9).
+@MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct AgentPaneSchedulerSweepTests {
+    final class Count { var value = 0 }
 
-    /// A scheduler whose board keeps an owners ledger the test reads.
-    private final class Rig {
-        let board = MainTaskBoard(ledger: MainOwnerLedger(capacity: 64, folding: .manual))
-        lazy var work = MainWorkScheduler(budget: MainFrameBudget(board: board))
+    @Observable final class Switch { var on = true }
 
-        func row(_ owner: String) -> MainOwnerLedger.Owner? {
-            board.ownerSnapshot().owners.first { $0.owner == owner }
+    /// R-hop: the transport's default pacer flushes in one posted `visible` task of the transport's scheduler, never
+    /// in the call that scheduled it (an unclassed main-actor Task flushed outside the board before).
+    @Test func theNextTurnPacerFlushesInAPostedVisibleTask() {
+        let turns = Turns()
+        let work = MainWorkScheduler.testing(performTurn: { turns.queue($0) }) { _ in Link() }
+        let pacer = AgentPaneNextTurnPacer(mainWork: work)
+        let flushes = Count()
+        let ran = Ran()
+        pacer.schedule {
+            flushes.value += 1
+            ran.task = work.budget.board.running
+            return AgentPaneFlush(delivered: true, more: false)
         }
+        pacer.schedule { AgentPaneFlush(delivered: false, more: false) }  // coalesced: one flush is already posted
+        #expect(flushes.value == 0, "the pacer flushed in the call")
+        #expect(work.postedCount(.visible) == 1)
+        turns.runAll()
+        #expect(flushes.value == 1)
+        #expect(ran.task?.workClass == .visible)
+        #expect(ran.task?.owner == "agentPane.transport.nextTurnFlush")
     }
 
-    /// What a callback saw, on the main actor.
-    private final class Seen {
-        var values: [String] = []
-        var pages: [JSONValue] = []
-        var calls = 0
+    /// The transport and the shell take the model's scheduler, and the shell's deadlines (a read's wait, Stop's
+    /// escalation, the drain after exit) are `visible` deadlines on it: the page waits on each (rule 6).
+    @Test func theModelsOwnersShareItsSchedulerAndTheShellsDeadlinesAreVisible() {
+        let deadlines = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget()))
+        let model = AgentPaneModel(host: MockAgentPaneHost(), deadlines: deadlines)
+        #expect(model.transport.mainWork === deadlines.work)
+        let run = AgentPaneShell.Run(pid: 0, deadlines: deadlines)
+        #expect(run.escalation.workClass == .visible)
+        #expect(run.drain.workClass == .visible)
     }
 
-    /// Main run loop passes, where the scheduler's turns and off-main posts arrive, until `done` or 5 s.
-    private static func settle(until done: () -> Bool) async {
-        let end = ContinuousClock.now.advanced(by: .seconds(5))
-        while !done(), ContinuousClock.now < end {
-            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.005))
-            await Task.yield()
+    /// R-obs, ServiceObservation (rule 3): the suggested-tasks switch reaches the next daemon's flag while no page
+    /// shows, in one posted task of the scheduler, not on a hidden page's turn.
+    @Test func theSuggestedTasksSwitchReachesTheDaemonFlagWithNoPage() {
+        let turns = Turns()
+        let work = MainWorkScheduler.testing(performTurn: { turns.queue($0) }) { _ in Link() }
+        let tasks = AgentPaneSuggestedTasks()
+        let setting = Switch()
+        tasks.follow(on: work)
+        tasks.setting = { setting.on }
+        #expect(AgentPaneSuggestedTasks.forNextDaemon.isOn)
+        setting.on = false
+        turns.runAll()
+        #expect(!AgentPaneSuggestedTasks.forNextDaemon.isOn, "the change did not reach the daemon flag")
+        tasks.setting = { true }
+    }
+
+    /// R-timer, a race (the Deadline helper): a completion shell that runs past its limit answers `timedOut` at the
+    /// limit, and its process group is killed.
+    @Test func aCompletionShellPastItsLimitTimesOut() async throws {
+        let launcher = ChildProcessLauncher(label: "com.cmuxterm.next.child-launcher.test-complete-timeout", priority: .userBlocking)
+        let started = ContinuousClock.now
+        await #expect(throws: AgentPaneShellCompletion.Failure.timedOut) {
+            _ = try await CompletionProcess.run(path: "/bin/sh", arguments: ["/bin/sh", "-c", "sleep 30"],
+                                                environment: ["PATH": "/usr/bin:/bin"], folder: NSTemporaryDirectory(),
+                                                timeout: .milliseconds(200), launcher: launcher)
         }
+        #expect(ContinuousClock.now - started < .seconds(10), "the limit did not end the wait")
     }
 
-    // MARK: AgentPageProvider.replay (visible)
-
-    /// A new subscriber's catch-up reaches its page after `subscribe` returned, as visible tasks of the provider.
-    @Test func aSubscribersCatchUpLandsAsVisibleTasksAfterTheSubscription() async throws {
-        let rig = Rig(), seen = Seen()
-        let provider = AgentPageProvider(mainWork: rig.work) { _ in nil }
-        provider.publish(.command("before-subscribe"))
-        let subscription = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null,
-                                                        context: PageCallContext(page: PageDescriptor.agent.id)) { seen.pages.append($0) }
-        defer { subscription.cancel() }
-        #expect(seen.pages.isEmpty, "the catch-up ran inside subscribe, before the page had its subscription")
-        await Self.settle { !seen.pages.isEmpty }
-        #expect(seen.pages.count == 1)
-        let row = try #require(rig.row("AgentPageProvider.replay"), "the catch-up ran outside the scheduler: no owner row")
-        #expect(row.workClass == .visible)
-    }
-
-    // MARK: AgentPaneModel.sessionHarness (visible)
-
-    /// A harness the socket's queue reads lands as one visible task, and only for the pane's own session.
-    @Test func aSessionsHarnessLandsAsAVisibleTaskOnlyForThePanesSession() async throws {
-        let rig = Rig(), seen = Seen()
-        let model = AgentPaneModel(host: NoHost(), sessionId: "s1")
-        model.followSessionHarness(on: rig.work) { seen.values.append($0) }
-        let sessions = model.transport.sessions
-        await withCheckedContinuation { (read: CheckedContinuation<Void, Never>) in
-            DispatchQueue.global().async {
-                for id in ["other", "s1"] {
-                    sessions.observeFolder(["result": ["session": ["sessionId": id, "harness": "claude"]]], replyTo: "_acpmux/attach")
-                }
-                read.resume()
-            }
+    /// userBlocking (R-hop, PostTaskAndReplyWithResult): the remote-approvals restart runs off main, and its answer
+    /// is one userBlocking task of the pane's scheduler, the rest of the person's click.
+    @Test func theRemoteApprovalsRestartAnswersInOneUserBlockingTask() {
+        let work = MainWorkScheduler.testing { _ in Link() }
+        let approvals = AgentPaneRemoteApprovals(machineID: "sweep-machine", label: "sweep-vm", restart: { .keyNotHeld })
+        let answer = Answer()
+        approvals.restartAnswering(on: work) { failure in
+            answer.failure = failure
+            answer.task = work.budget.board.running
         }
-        await Self.settle { !seen.values.isEmpty && rig.row("AgentPaneModel.sessionHarness")?.tasks == 2 }
-        #expect(seen.values == ["s1"], "another session's harness reached the pane's tab")
-        let row = try #require(rig.row("AgentPaneModel.sessionHarness"), "the report hopped outside the scheduler")
-        #expect(row.workClass == .visible)
+        #expect(answer.task == nil, "the answer ran in the click's own turn")
+        Self.spinMainRunLoop { answer.task != nil }
+        #expect(answer.failure == .keyNotHeld)
+        #expect(answer.task?.workClass == .userBlocking, "the restart's answer ran outside one userBlocking task")
+        #expect(answer.task?.owner == "agentPane.remoteApprovals.restart")
     }
 
-    // MARK: AcpmuxMailboxSubscription (the owner's class)
-
-    /// Each page the reader reads off main lands as one task of the owner's class.
-    @Test func aMailboxPageLandsAsOneTaskOfTheOwnersClass() async throws {
-        let rig = Rig(), seen = Seen()
-        let reader = AcpmuxMailboxReader(socketPath: "/nonexistent/acpmux.sock", wake: RetryWake(owner: "AgentPaneSchedulerSweepTests"),
-                                         clock: ContinuousClock(), policy: .firstConnect) { after in
-            guard after == 0 else { try await Task.sleep(for: .seconds(60)); throw CancellationError() }
-            return AcpmuxMailboxPage(messages: [], nextCursor: 1)
-        }
-        let subscription = AcpmuxMailboxSubscription(mainWork: rig.work, workClass: .automation, owner: "test.reports")
-        let run = subscription.start(reader) { page in seen.values.append("\(page.nextCursor ?? 0)") }
-        await Self.settle { !seen.values.isEmpty }
-        subscription.stop()
-        await run.value
-        #expect(seen.values == ["1"])
-        let row = try #require(rig.row("test.reports"), "the page hopped outside the scheduler")
-        #expect(row.workClass == .automation)
-    }
-
-    /// An agent's mail (`FeedService.reports`, an automation subscription) does not apply ahead of the person's
-    /// pending input: its page waits in the scheduler's automation queue while the input is pending, and applies on
-    /// the first frame after the input drained (Chrome's input-pending check before a scheduled task).
-    @Test func anAutomationPageWaitsWhileThePersonsInputIsPending() async throws {
-        let rig = HeldRig(), seen = Seen()
-        defer { rig.stop() }
-        let reader = AcpmuxMailboxReader(socketPath: "/nonexistent/acpmux.sock", wake: RetryWake(owner: "AgentPaneSchedulerSweepTests"),
-                                         clock: ContinuousClock(), policy: .firstConnect) { after in
-            guard after == 0 else { try await Task.sleep(for: .seconds(60)); throw CancellationError() }
-            return AcpmuxMailboxPage(messages: [], nextCursor: 1)
-        }
-        let subscription = AcpmuxMailboxSubscription(mainWork: rig.work, workClass: .automation, owner: "test.held-reports")
-        let queued = rig.work.postedCount(.automation)
-
+    /// automation (R-hop): the parents a remote daemon listed reach the sidebar's links in one automation task, which
+    /// yields to the person's pending input and then runs.
+    @Test func theRemoteWiresNoteOfLinksYieldsToPendingInputThenRuns() {
+        let rig = PendingInputRig()
+        let wire = RemoteAcpmuxWire(start: { _, _ in throw CancellationError() }, mainWork: rig.work)
+        let child = "sweep-links-child-\(UUID().uuidString)"
         rig.input.pending = true
-        let run = subscription.start(reader) { page in seen.values.append("\(page.nextCursor ?? 0)") }
-        await Self.settle { rig.work.postedCount(.automation) > queued }
-        #expect(rig.work.postedCount(.automation) == queued + 1, "the page did not reach the scheduler's automation queue")
-        #expect(seen.values.isEmpty, "the agent's page applied ahead of the person's pending input")
-
-        rig.input.pending = false
-        rig.frame()
-        await Self.settle { !seen.values.isEmpty }
-        #expect(seen.values == ["1"], "the page did not apply once the input drained")
-        #expect(rig.work.postedCount(.automation) == queued)
-        subscription.stop()
-        await run.value
-        let row = try #require(rig.row("test.held-reports"), "the page hopped outside the scheduler")
-        #expect(row.workClass == .automation)
+        wire.noteLinks([["sessionId": child, "startedBy": "sweep-links-parent"]])
+        Self.spinMainRunLoop { rig.work.postedCount(.automation) > 0 }
+        #expect(rig.work.postedCount(.automation) == 1, "the note was not one automation task")
+        #expect(RemoteAgentSessionLinks.shared.parents[child] == nil, "the note ran ahead of the person's pending input")
+        for _ in 0..<2 where RemoteAgentSessionLinks.shared.parents[child] == nil { rig.frame() }
+        #expect(RemoteAgentSessionLinks.shared.parents[child] == "sweep-links-parent", "the note waited more than one yield")
+        #expect(rig.work.postedCount(.automation) == 0)
     }
 
-    // MARK: AgentPaneFramePacer (visible)
-
-    /// A pane's next-turn delivery (a capped flush left frames) is one visible task of the pacer, not a main-queue job.
-    @Test func aPanesNextTurnDeliveryIsAVisibleTask() async throws {
-        let rig = Rig(), seen = Seen()
-        let view = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
-        let pacer = AgentPaneFramePacer(view: view, mainThread: AgentPaneMainThread(deadlines: MainDeadlineScheduler(work: rig.work),
-                                                                                     appEvents: AppEvents(center: NotificationCenter()),
-                                                                                     workspaceEvents: AppEvents(center: NotificationCenter())))
-        defer { pacer.stop() }
-        // Frames the page waits on, refused once (not delivered) and capped: the rest go on the next turn.
-        pacer.schedule(urgent: true) {
-            seen.calls += 1
-            return AgentPaneFlush(delivered: false, more: seen.calls == 1)
+    /// background (R-obs, ServiceObservation): the free-tier follow starts the provider with the first inputs, and a
+    /// later sign-in change reaches it as one update from one background task.
+    @Test func theFreeTierFollowStartsOnTheFirstApplyAndUpdatesOnAChange() async {
+        let turns = Turns()
+        let work = MainWorkScheduler.testing(performTurn: { turns.queue($0) }) { _ in Link() }
+        let signedIn = Switch(), log = StepLog()
+        let follow = FreeTierAttestStarter.follow(settings: nil, signedIn: { signedIn.on }, on: work) { step in
+            await log.append(step)
         }
-        #expect(seen.calls == 1)
-        await Self.settle { rig.row("agent-pane.transport.next-turn") != nil }
-        let row = try #require(rig.row("agent-pane.transport.next-turn"), "the next-turn delivery ran outside the scheduler")
-        #expect(row.workClass == .visible)
-    }
-}
-
-/// A scheduler whose frames the test fires by hand, on a clock it moves, with pending input it sets: a fake link kept
-/// up by a frame client, so a task that yields on its turn waits for the next hand-fired frame.
-@MainActor
-private final class HeldRig {
-    let input: HeldRigInput
-    let work: MainWorkScheduler
-    private let board: MainTaskBoard
-    private let clock: HeldRigClock
-    private let keeper: FrameClient
-    private var timestamp: Double = 0
-
-    init() {
-        let input = HeldRigInput(), clock = HeldRigClock()
-        let board = MainTaskBoard(ledger: MainOwnerLedger(capacity: 64, folding: .manual))
-        self.input = input
-        self.clock = clock
-        self.board = board
-        let work = MainWorkScheduler.testing(budget: MainFrameBudget(input: input, board: board, uptimeNanos: clock.read),
-                                             makeLink: { _ in HeldRigLink() })
-        self.work = work
-        keeper = FrameClient(owner: "test.keeper", isAnimation: false, on: work.frames) { _ in true }
-        keeper.activate()
+        let first = FreeTierAttestStarter.Step.start(FreeTierAttestStarter.Inputs(enabled: true, managed: false, signedIn: true))
+        let second = FreeTierAttestStarter.Step.update(FreeTierAttestStarter.Inputs(enabled: true, managed: false, signedIn: false))
+        #expect(await log.first(1) == [first], "the first apply did not start the provider")
+        signedIn.on = false
+        #expect(work.postedCount(.background) == 1, "the change was not one background task")
+        turns.runAll()
+        #expect(await log.first(2) == [first, second], "the change did not reach the provider as one update")
+        withExtendedLifetime(follow) {}
     }
 
-    func row(_ owner: String) -> MainOwnerLedger.Owner? {
-        board.ownerSnapshot().owners.first { $0.owner == owner }
+    /// The More menu opens from a run-loop callout, never inside a scheduler task: its tracking loop runs the
+    /// scheduler's turns, and a turn run from inside a running drain would re-enter it.
+    @Test func theMoreMenuIsNotAScheduledTask() throws {
+        let work = MainWorkScheduler.testing(performTurn: { _ in }) { _ in Link() }
+        let model = AgentPaneModel(host: MockAgentPaneHost(), deadlines: MainDeadlineScheduler(work: work))
+        let file = try #require(AgentPageTestRoot.page)
+        let view = try #require(AgentPaneView(mainThread: .standalone(on: work), model: model, work: BackgroundWork(label: "test.agent-pane.more"),
+                                              source: .bundled(file), webUI: .agentPaneTestHost(), gestures: .testing()))
+        defer { view.close() }
+        let more: [String: Any] = ["text": "Done.", "forkSeq": 3, "popUp": ["left": 10, "top": 20, "right": 34, "bottom": 44]]
+        view.receiveContextMenuReport(more)
+        #expect(work.postedCount(.userBlocking) == 0, "the More menu was posted as a scheduler task")
     }
 
-    /// One display frame, a frame period after the last.
-    func frame() {
-        clock.now += 17_000_000
-        timestamp += 1
-        work.frameDidFire(timestamp: timestamp, refreshInterval: 1.0 / 60)
+    /// Main run loop passes, where off-main posts (`postFromAnyThread`) arrive, until `done` or 5 s.
+    static func spinMainRunLoop(until done: () -> Bool) {
+        let end = Date(timeIntervalSinceNow: 5)
+        while !done(), Date() < end { _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) }
     }
 
-    func stop() { keeper.deactivate() }
-}
+    @MainActor final class Ran {
+        var task: MainTaskBoard.Task?
+    }
 
-/// A person's input the test holds pending.
-@MainActor
-private final class HeldRigInput: InputPendingSource {
-    var pending = false
-    func hasPendingInput(uptime: TimeInterval) -> Bool { pending }
-}
+    /// The steps the free-tier follow handed on; waits for the first `count` of them.
+    actor StepLog {
+        private var steps: [FreeTierAttestStarter.Step] = []
+        private var waiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
-/// A clock the test moves (`CLOCK_UPTIME_RAW` nanoseconds).
-@MainActor
-private final class HeldRigClock {
-    var now: UInt64 = 1_000_000_000
-    // Strong: the scheduler's stall timer may read it after the test returned.
-    var read: () -> UInt64 { { [self] in self.now } }
-}
+        func append(_ step: FreeTierAttestStarter.Step) {
+            steps.append(step)
+            let ready = waiters.filter { $0.count <= steps.count }
+            waiters.removeAll { $0.count <= steps.count }
+            for waiter in ready { waiter.continuation.resume() }
+        }
 
-@MainActor
-private final class HeldRigLink: FrameLink {
-    var isPaused = false
-    func invalidate() {}
+        func first(_ count: Int) async -> [FreeTierAttestStarter.Step] {
+            if steps.count < count {
+                await withCheckedContinuation { waiters.append((count, $0)) }
+            }
+            return Array(steps.prefix(count))
+        }
+    }
+
+    @MainActor final class Answer {
+        var failure: AgentPaneRemoteApprovals.Failure?
+        var task: MainTaskBoard.Task?
+    }
+
+    /// A scheduler on a fake link with a clock the test moves and an input source it sets; frames fire by hand.
+    @MainActor final class PendingInputRig {
+        let input: Input
+        let clock: HandClock
+        let work: MainWorkScheduler
+        private let keeper: FrameClient
+        private var timestamp: Double = 0
+
+        init() {
+            let input = Input(), clock = HandClock()
+            self.input = input
+            self.clock = clock
+            work = MainWorkScheduler.testing(budget: MainFrameBudget(input: input, uptimeNanos: { clock.now })) { _ in Link() }
+            keeper = FrameClient(owner: "test.keeper", isAnimation: false, on: work.frames) { _ in true }
+            keeper.activate()
+        }
+
+        /// One display frame, a frame period after the last.
+        func frame() {
+            clock.now += 17_000_000
+            timestamp += 1
+            work.frameDidFire(timestamp: timestamp, refreshInterval: 1.0 / 60)
+        }
+
+        @MainActor final class HandClock {
+            var now: UInt64 = 1_000_000_000
+        }
+
+        @MainActor final class Input: InputPendingSource {
+            var pending = false
+            func hasPendingInput(uptime: TimeInterval) -> Bool { pending }
+        }
+    }
+
+    /// The scheduler's posted turns, run by hand.
+    @MainActor final class Turns {
+        private var pending: [@MainActor () -> Void] = []
+
+        func queue(_ turn: @escaping @MainActor () -> Void) { pending.append(turn) }
+
+        func runAll() {
+            while !pending.isEmpty { pending.removeFirst()() }
+        }
+    }
+
+    @MainActor final class Link: FrameLink {
+        var isPaused = false
+        func invalidate() {}
+    }
 }
