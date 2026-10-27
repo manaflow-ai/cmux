@@ -46,8 +46,12 @@ function fakeDaemon(history: Recorded[], inherited = false) {
           events: history,
           hasMore: false,
         };
-      case "_acpmux/events":
-        return { events: [], hasMore: false, more: false, lastSeq: lastSeq() };
+      case "_acpmux/events": {
+        // The records after the cursor the pane asked from: those a lag dropped.
+        const after = asked.get(method)?.afterSeq ?? 0;
+        const events = history.filter((event) => event.seq > after);
+        return { events, hasMore: false, more: false, lastSeq: lastSeq() };
+      }
       case "_acpmux/subsession/limits": {
         const params = asked.get(method) ?? {};
         // Naming no field only reads the limit.
@@ -86,7 +90,14 @@ function fakeDaemon(history: Recorded[], inherited = false) {
       socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }) });
     }
   };
-  return { open, push, asked, limitAsks, state };
+  /// Records the daemon logs but drops for this client, then the lag notice that names them.
+  const drop = (events: Recorded[]) => {
+    history.push(...events);
+    socket.onmessage?.({
+      data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/lagged", params: { dropped: events.length } }),
+    });
+  };
+  return { open, push, drop, asked, limitAsks, state };
 }
 
 /// Yields until `ready()` holds; fails after 2 s with what it waited for.
@@ -158,6 +169,28 @@ test("a step on an inherited limit steps from the limit acpmux holds now, and qu
     // Reset names no step: it is sent as is.
     await client.setRunningLimit(CHAT, null);
     expect(daemon.limitAsks.at(-1)).toEqual({ sessionId: CHAT, maxRunning: null });
+  } finally {
+    client.close();
+  }
+});
+
+test("a limit change a lag dropped reaches the summary when the pane catches up", async () => {
+  const daemon = fakeDaemon(record([["mux", "user_message", { text: "start the agents" }]]));
+  let snapshot: any;
+  const client = await AcpmuxDirectClient.connect(
+    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
+    (next: any) => (snapshot = next),
+    undefined,
+    daemon.open,
+  );
+  try {
+    await until(() => snapshot?.connection === "connected", "the attach");
+    expect(snapshot.summary.subsessionLimits.maxRunning).toBe(8);
+    // 8 → 12 while the client lagged: it reads the missed record, and keeps it.
+    daemon.drop(record([changed(12)], 2));
+    await until(() => snapshot.summary.subsessionLimits?.maxRunning === 12, "the missed limit");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(snapshot.summary.subsessionLimits.maxRunning).toBe(12);
   } finally {
     client.close();
   }

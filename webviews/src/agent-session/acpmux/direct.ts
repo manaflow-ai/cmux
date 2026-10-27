@@ -2955,12 +2955,17 @@ export class AcpmuxDirectClient {
   /// permission; events after replayAfterSeq are then reapplied on top of them.
   private rebuildKeepingLiveState(replayAfterSeq?: number): void {
     const summary = this.summary;
+    // The summary's running limit goes back with it, so the seq it was read at must too: else the
+    // rebuild's own pass leaves limitsSeq past a missed `limits` record and its reapply below is
+    // refused, keeping the old limit.
+    const limitsSeq = this.limitsSeq;
     const queue = this.queue;
     const permission = this.pendingPermission;
     const waiting = this.waitingPermissions;
     const secret = this.pendingSecret;
     this.rebuild();
     this.summary = summary;
+    this.limitsSeq = limitsSeq;
     this.queue = queue;
     this.pendingPermission = permission;
     this.waitingPermissions = waiting;
