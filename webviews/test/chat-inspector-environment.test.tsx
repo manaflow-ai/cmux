@@ -406,6 +406,7 @@ for (const canChoose of [true, false]) {
     const host = installDom();
     const opened: string[] = [];
     let choices = 0;
+    let moveOpens = 0;
     await act(async () => {
       root = createRoot(host);
       root.render(
@@ -415,6 +416,15 @@ for (const canChoose of [true, false]) {
           machineName="Studio"
           environmentLook="compact"
           environmentControls={{
+            move: canChoose
+              ? {
+                  kind: "move",
+                  run: () => undefined,
+                  refresh: () => {
+                    moveOpens++;
+                  },
+                }
+              : undefined,
             chooseFolder: canChoose
               ? () => {
                   choices++;
@@ -430,6 +440,15 @@ for (const canChoose of [true, false]) {
     expect(environment.textContent!.match(/primary-env-folder/g)).toHaveLength(1);
     expect(environment.querySelector("[data-machine]")!.textContent).toContain("primary-env-folder");
     expect(environment.children).toHaveLength(canChoose ? 3 : 2);
+    const primary = environment.querySelector<HTMLButtonElement>(
+      `[data-machine] button[title="${HOME}/Projects/primary-env-folder"]`,
+    );
+    expect(primary).not.toBeNull();
+    expect(primary!.parentElement!.closest("button")).toBeNull();
+    await act(async () => primary!.click());
+    expect(opened).toEqual([`${HOME}/Projects/primary-env-folder`]);
+    expect(moveOpens).toBe(0);
+    expect(dom!.window.document.querySelector(".acpmux-env-popover")).toBeNull();
     const choose = environment.querySelector<HTMLButtonElement>(
       `[aria-label="${translate("chatInspector.environment.chooseFolderNewChat")}"]`,
     );
@@ -441,6 +460,6 @@ for (const canChoose of [true, false]) {
       `button[title="${HOME}/Projects/secondary-env-folder"]`,
     )!;
     await act(async () => secondary.click());
-    expect(opened).toEqual([`${HOME}/Projects/secondary-env-folder`]);
+    expect(opened).toEqual([`${HOME}/Projects/primary-env-folder`, `${HOME}/Projects/secondary-env-folder`]);
   });
 }
