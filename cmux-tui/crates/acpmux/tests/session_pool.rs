@@ -794,20 +794,21 @@ async fn a_full_access_pooled_agent_claimed_through_an_mdm_off_does_not_go_back(
     assert!(!fakeb_ready(&status), "a pooled agent that ran through MDM's off went back: {status}");
 }
 
-/// MDM forces `sessions.allowFullAccess` off (#23322, review 122): a pooled agent that a chat
-/// claimed while MDM's off came and went, and that reports full access only as the chat takes
-/// it, is kept from the chat after the unset.
+/// MDM forces `sessions.allowFullAccess` off (#23322, review 122): a pooled agent whose start
+/// saw MDM's off come and go, and that reports full access only as a chat takes it, is kept from
+/// the chat after the unset: the take judges it under the entry's read (`Pooled::lived_off`).
+/// One claimed through an off never gets that far (review 69).
 #[tokio::test(flavor = "multi_thread")]
-async fn a_pooled_agent_claimed_through_an_mdm_off_that_reports_at_the_take_is_kept_from_the_chat()
+async fn a_pooled_agent_started_through_an_mdm_off_that_reports_at_the_take_is_kept_from_the_chat()
 {
     let mut fakeb = profile("b");
     fakeb["env"]["FAKE_NO_MODES"] = json!("1");
     let daemon = Daemon::with_fakeb("fablipadopt", 0, &fakeb);
     let mut rpc = daemon.rpc().await;
     let home = daemon.home.clone();
+    std::fs::write(home.join("off-blip"), "").unwrap();
     rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
     wait_pool_ready(&mut rpc, "fakeb").await;
-    blip_at_claim(&daemon);
     std::fs::write(home.join("adopt-report"), "bypassPermissions").unwrap();
     let created = rpc
         .raw(
@@ -816,7 +817,7 @@ async fn a_pooled_agent_claimed_through_an_mdm_off_that_reports_at_the_take_is_k
         )
         .await;
     let refused = created["error"]["message"].as_str().is_some_and(|m| m.contains("full-access"));
-    assert!(refused, "a chat took a pooled agent claimed through MDM's off: {created}");
+    assert!(refused, "a chat took a pooled agent started through MDM's off: {created}");
 }
 
 /// MDM forces `sessions.allowFullAccess` off (#23322, review 25): a harness whose own settings

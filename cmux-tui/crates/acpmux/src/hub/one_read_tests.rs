@@ -99,7 +99,7 @@ async fn an_ask_holds_an_off_that_came_and_went_after_its_first_read() {
     let epoch = session.permission_epoch.load(Ordering::SeqCst);
     let answered = tokio::time::timeout(
         std::time::Duration::from_secs(2),
-        hub.handle_permission_for(&session, request, epoch, None, None, None),
+        hub.handle_permission_for(&session, request, epoch, None, None, None, None),
     )
     .await;
     assert!(
@@ -158,7 +158,15 @@ async fn an_ask_holds_an_off_that_came_and_went_as_it_was_entered() {
     AT_OPERATION_ENTRY.set(Some(came_and_went));
     let answered = tokio::time::timeout(
         std::time::Duration::from_secs(2),
-        hub.handle_permission_for(&session, edit_ask(), current_epoch(&session), None, None, None),
+        hub.handle_permission_for(
+            &session,
+            edit_ask(),
+            current_epoch(&session),
+            None,
+            None,
+            None,
+            None,
+        ),
     )
     .await;
     AT_OPERATION_ENTRY.set(None);

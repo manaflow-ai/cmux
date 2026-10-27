@@ -523,13 +523,9 @@ impl Hub {
         policy
     }
 
-    /// Whether session `m` runs a laxer policy than `than`.
-    pub(super) async fn policy_laxer(&self, m: &SessionMeta, than: &SessionMeta) -> bool {
-        self.policy_laxer_under(m, than, self.mdm_snapshot()).await
-    }
-
-    /// [`Self::policy_laxer`], both ranked under one read of MDM's bound (review 86 of #23322).
-    async fn policy_laxer_under(
+    /// Whether session `m` runs a laxer policy than `than`, both ranked under one read of MDM's
+    /// bound (review 86 of #23322).
+    pub(super) async fn policy_laxer_under(
         &self,
         m: &SessionMeta,
         than: &SessionMeta,

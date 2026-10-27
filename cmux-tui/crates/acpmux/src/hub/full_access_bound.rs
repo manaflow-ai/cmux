@@ -1199,7 +1199,7 @@ mod tests {
         let _ = hub.hold_subsession(&parent.meta(), &child).await;
         hub.apply_full_access_push(None).await;
         assert!(
-            !hub.policy_laxer(&child.meta(), &parent.meta()).await,
+            !hub.policy_laxer_under(&child.meta(), &parent.meta(), hub.mdm_snapshot()).await,
             "a chat held under the off runs approve-all under an approve-edits caller after the unset"
         );
     }
