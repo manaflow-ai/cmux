@@ -30,6 +30,14 @@ label only after the picker has chosen, then for late-placement's. A job stuck
 or refused there has its failed and cancelled jobs re-run on attempt 3, which
 always takes Blacksmith.
 
+A queue rescue never moves a job onto a Blacksmith label the pickers call
+stalled (simple_pool_picker.blacksmith_stalled(), read from the janitor's
+snapshot): while the label its re-run would take (the workflow's runs-on
+fallback) is stalled, the job stays queued on its owned pool, and while that
+label has no free slot it moves only after OWNED_WAIT_FLOOR_SECONDS
+(hold_for_destination()). A re-run the picker places again (ci.yml's
+attempt 2) is not held.
+
 A run whose pull request is still open at the run's head is never
 cancelled, whatever the watch saw (rescue(), OPEN_HEAD_RULE): run
 40398277457 (cmux-next, PR #25446) attempt 1 was cancelled and re-run here,
@@ -307,6 +315,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pr_runner_pool import (  # noqa: E402
     MAX_QUEUE_ROUNDS, QUEUE_ROUND_MINUTES, RUNNER_LABEL_PREFIX, parse_queue_rounds, persistent)
 import owned_pool_sources  # noqa: E402
+import pr_runner_pool  # noqa: E402
+import simple_pool_picker  # noqa: E402
 import ui_tests_dispatch  # noqa: E402
 
 CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
@@ -1017,6 +1027,7 @@ class GitHub:
         self.repo = repo
         self.headers = _headers(token)
         self.read_headers = _headers(read_token) if read_token else self.headers
+        self._snapshot_token = read_token or token
         self.sleep: Callable[[float], None] = time.sleep
         # Each watch (the sweeper runs one per thread on this one client) has its own
         # RATE_LIMIT_WAIT_SECONDS, so one run's waits never spend another's.
@@ -1188,6 +1199,13 @@ class GitHub:
         if not isinstance(data, Mapping) or data.get("encoding") != "base64":
             return None
         return base64.b64decode(str(data.get("content") or "")).decode("utf-8")
+
+    def pool_snapshot(self, now: dt.datetime) -> Mapping[str, Any] | None:
+        """The queue janitor's newest trusted pool snapshot, or None when missing or stale (the pickers' read)."""
+        snapshot = pr_runner_pool.GitHub(self._snapshot_token, self.repo).snapshot(now=now)
+        if snapshot is None or pr_runner_pool.snapshot_problem(snapshot, now):
+            return None
+        return snapshot
 
     def has_artifact(self, run_id: int, prefix: str, pages: int = 5) -> bool:
         """Whether the run uploaded an artifact whose name starts with `prefix`."""
@@ -1432,11 +1450,13 @@ def read(call: Callable[[], Any], sleep: Callable[[float], None], log: Callable[
 def watch(api: GitHub, target: Target, *, budget_seconds: int,
           now: Callable[[], dt.datetime], sleep: Callable[[float], None],
           log: Callable[[str], None], deadline: dt.datetime | None = None,
-          floor_seconds: int | None = None) -> tuple[str, str]:
+          floor_seconds: int | None = None, seen: dict[Any, dt.datetime] | None = None) -> tuple[str, str]:
     """Watch until a stop, a rescue or `deadline`. Returns (outcome, reason).
 
     A job's budget is cut to end before `deadline`, never below
-    `floor_seconds` (job_budget()).
+    `floor_seconds` (job_budget()). `seen` (when each job was first seen
+    queued) carries over from an earlier watch of the same attempt, so a
+    held job's wait keeps counting (hold_for_destination()).
 
     One deadline covers every attempt a job watches (main()), so attempt 2
     cannot stretch the job past its timeout.
@@ -1447,7 +1467,7 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
     looks = 0
     on_persistent = False
     picker_marker: bool | None = None
-    first_seen: dict[Any, dt.datetime] = {}
+    first_seen: dict[Any, dt.datetime] = {} if seen is None else seen
     while True:
         looks += 1
         jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
@@ -1570,6 +1590,48 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
         sleep(interval)
 
 
+# How often a run held off a stalled Blacksmith label looks at the janitor's snapshot again; the janitor
+# writes one every 10 minutes (ci-queue-janitor.yml), so a closer look would read the same one.
+STALL_RECHECK_SECONDS = 5 * 60
+
+
+def hold_for_destination(client: GitHub, target: Target, outcome: str, reason: str, *, budget_seconds: int,
+                         floor_seconds: int | None, deadline: dt.datetime, now: Callable[[], dt.datetime],
+                         sleep: Callable[[float], None], log: Callable[[str], None],
+                         seen: dict[Any, dt.datetime]) -> tuple[str, str, str]:
+    """Keep a queue rescue off a Blacksmith label with no room: returns (outcome, reason, held).
+
+    The re-run of a rescued run takes its workflow's Blacksmith retry label (move_verdict()). While that
+    label is stalled the run stays queued on its owned pool, however long, until the label moves, a
+    refusal, the run's end or the watch limit; while it is busy, the job moves only after
+    OWNED_WAIT_FLOOR_SECONDS. Re-picking another owned pool is no option here: a re-run never takes an
+    owned label in the workflows this moves (cmux-next-dev-daily.yml's verify runs on its picker's label
+    only on attempt 1), and a cancel would lose the job's place in the owned queue for a Blacksmith one.
+    """
+    held = ""
+    current = budget_seconds
+    while outcome == "rescue":
+        if held and now() >= deadline:
+            # watch() reports a stuck job before its deadline check, so the hold ends here.
+            return "stop", "watch limit reached", held
+        verdict, label = move_verdict(client, target, now=now(), sleep=sleep, log=log)
+        if verdict == "free" or verdict == "busy" and current >= OWNED_WAIT_FLOOR_SECONDS:
+            break
+        if verdict == "stalled":
+            held = f"{label} is stalled (simple_pool_picker.blacksmith_stalled())"
+            log(f"held on the owned pool: {reason}, but the re-run would take {held}; "
+                f"looking again in {STALL_RECHECK_SECONDS}s")
+            sleep(STALL_RECHECK_SECONDS)
+        else:
+            held = f"{label} has no free slot"
+            log(f"held on the owned pool: {reason}, but the re-run would take {label}, which has no free slot; "
+                f"moving only after {OWNED_WAIT_FLOOR_SECONDS}s")
+        current = max(budget_seconds, OWNED_WAIT_FLOOR_SECONDS)
+        outcome, reason = watch(client, target, budget_seconds=current, now=now, sleep=sleep, log=log,
+                                deadline=deadline, floor_seconds=floor_seconds, seen=seen)
+    return outcome, reason, held
+
+
 def bot_rerun_leaves_owned(path: str, attempt: int) -> bool:
     """Whether a bot's re-run of failed jobs of `attempt` sends a leg queued on an owned label elsewhere.
 
@@ -1598,6 +1660,98 @@ def bot_rerun_leaves_owned(path: str, attempt: int) -> bool:
     if path in DISPATCH_WORKFLOW_PATHS:
         return path != E2E_WORKFLOW_PATH and following > 1
     return path in SIDE_WORKFLOW_PATHS and following > 1
+
+
+# A queue rescue never moves a job onto a Blacksmith label blacksmith_stalled() names, and moves one onto a
+# label without a free slot only after the job has waited this long: the same 10 minutes after which the
+# pickers call a Blacksmith queue stalled (simple_pool_picker.BLACKSMITH_STALL_MINUTES). Run 40466780519
+# (DEV daily, 2026-10-27): the picker put verify and tip-dmg-build on the owned pool because
+# blacksmith-6vcpu-macos-26 was stalled, and 53 s later this rescue moved both onto that label, where they
+# queued 23 minutes.
+OWNED_WAIT_FLOOR_SECONDS = simple_pool_picker.BLACKSMITH_STALL_MINUTES * 60
+# A Blacksmith macOS label named in a runs-on: where a re-run past the owned attempt goes.
+RETRY_RUNS_ON = re.compile(r"^\s*runs-on:.*$", re.M)
+BLACKSMITH_MACOS_LABEL = re.compile(r"blacksmith-[0-9]+vcpu-macos-[0-9]+")
+
+
+def retry_labels(workflow_text: str | None) -> set[str]:
+    """The Blacksmith macOS labels a workflow's runs-on lines name, which its re-runs past the owned
+    attempt take (cmux-next-dev-daily.yml's verify: `github.run_attempt == 1 && ... ||
+    'blacksmith-6vcpu-macos-26'`). A workflow that names none takes its picker's retry output, whose
+    default is the pickers' fallback (simple_pool_picker.BLACKSMITH[1])."""
+    found = {label for line in RETRY_RUNS_ON.findall(workflow_text or "")
+             for label in BLACKSMITH_MACOS_LABEL.findall(line)}
+    known = found & set(simple_pool_picker.BLACKSMITH)
+    return known or {simple_pool_picker.BLACKSMITH[1]}
+
+
+def blacksmith_states(snapshot: Mapping[str, Any], now: dt.datetime) -> dict[str, str]:
+    """Each picker Blacksmith label's state in the janitor snapshot: "stalled" (simple_pool_picker.stalled(),
+    the pickers' rule), "free" (a slot free and nothing queued) or "busy"."""
+    pools = snapshot.get("pools") if isinstance(snapshot.get("pools"), Mapping) else {}
+    age = max(0.0, pr_runner_pool.snapshot_age_minutes(snapshot, now) or 0.0)
+
+    def count(entry: Any, key: str) -> int:
+        try:
+            return max(0, int(entry.get(key, 0))) if isinstance(entry, Mapping) else 0
+        except (TypeError, ValueError):
+            return 0
+
+    states: dict[str, str] = {}
+    for label in simple_pool_picker.BLACKSMITH:
+        entry = pools.get(label) or {}
+        queued, running = count(entry, "queued"), count(entry, "running")
+        if simple_pool_picker.stalled(queued, running, count(entry, "oldest_queued_minutes"), age):
+            states[label] = "stalled"
+        elif queued == 0 and running < simple_pool_picker.CAPACITY[label]:
+            states[label] = "free"
+        else:
+            states[label] = "busy"
+    return states
+
+
+def repicks(target: Target) -> bool:
+    """Whether the rescue's re-run picks a pool again (ci.yml's attempt 2: owned machines free now first)
+    rather than taking a fixed Blacksmith retry label."""
+    return target.path == CI_WORKFLOW_PATH and not target.e2e and target.attempt + 1 <= LAST_OWNED_ATTEMPT
+
+
+def move_verdict(api: GitHub, target: Target, *, now: dt.datetime, sleep: Callable[[float], None],
+                 log: Callable[[str], None]) -> tuple[str, str]:
+    """Whether a queue rescue may move the run now: ("free" | "busy" | "stalled", the label it judged).
+
+    "free": every label the re-run may take has a free slot, so it moves at the configured budget.
+    "stalled": one of them is stalled, so it never moves there. "busy" (also an unreadable snapshot):
+    it moves once the job has waited OWNED_WAIT_FLOOR_SECONDS.
+    """
+    if repicks(target):
+        return "free", ""
+    reader = getattr(api, "pool_snapshot", None)
+    try:
+        snapshot = reader(now) if reader is not None else None
+    except Aborted:
+        raise
+    except Exception as error:  # noqa: BLE001 - an unread snapshot only means the floor applies
+        log(f"could not read the pool snapshot ({type(error).__name__}: {error}); waiting the owned floor")
+        snapshot = None
+    if not isinstance(snapshot, Mapping):
+        return "busy", ""
+    states = blacksmith_states(snapshot, now)
+    if all(state == "free" for state in states.values()):
+        return "free", ""
+    try:
+        text = read(lambda: api.workflow_file(target.path, target.head_sha), sleep, log)
+    except Aborted:
+        raise
+    except Exception as error:  # noqa: BLE001 - the pickers' fallback label then counts as the destination
+        log(f"could not read {target.path} at {target.head_sha[:12]} ({type(error).__name__}: {error})")
+        text = None
+    labels = sorted(retry_labels(text))
+    for verdict in ("stalled", "busy"):
+        hit = next((label for label in labels if states.get(label) == verdict), "")
+        if hit:
+            return verdict, hit
+    return "free", ""
 
 
 def next_attempt(target: Target) -> str:
@@ -1924,10 +2078,16 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
     rescue_deadline = capped(deadline + dt.timedelta(seconds=RESCUE_GRACE_SECONDS))
     # Every attempt gets the queue allowance: a re-run's owned jobs queue on the owned labels like attempt 1's.
     first_budget = effective_seconds + queue_extra
+    seen: dict[Any, dt.datetime] = {}
     outcome, reason = watch(client, target, budget_seconds=first_budget, now=clock, sleep=sleep,
-                            log=log, deadline=deadline, floor_seconds=effective_seconds)
+                            log=log, deadline=deadline, floor_seconds=effective_seconds, seen=seen)
+    held = ""
+    if outcome == "rescue" and not target.refusals_only:
+        outcome, reason, held = hold_for_destination(
+            client, target, outcome, reason, budget_seconds=first_budget, floor_seconds=effective_seconds,
+            deadline=deadline, now=clock, sleep=sleep, log=log, seen=seen)
     if outcome not in ("rescue", "refused"):
-        return f"stopped: {reason}"
+        return f"stopped: {reason}" + (f"; kept on the owned pool: {held}" if held else "")
     if target.refusals_only and outcome == "rescue":
         # A refusals-only cmux-next attempt deliberately stays on its owned
         # label while it waits for the hook to refuse the job. A queue alarm
@@ -1999,10 +2159,15 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
         deadline = min(clock() + dt.timedelta(seconds=target.watch_limit), started + dt.timedelta(
             seconds=JOB_TIMEOUT_SECONDS - RESCUE_GRACE_SECONDS - JOB_TIMEOUT_MARGIN_SECONDS))
         rescue_deadline = capped(deadline + dt.timedelta(seconds=RESCUE_GRACE_SECONDS))
+        seen = {}
         outcome, reason = watch(client, target, budget_seconds=effective_seconds, now=clock, sleep=sleep, log=log,
-                                deadline=deadline)
+                                deadline=deadline, seen=seen)
+        outcome, reason, held = hold_for_destination(
+            client, target, outcome, reason, budget_seconds=effective_seconds, floor_seconds=None,
+            deadline=deadline, now=clock, sleep=sleep, log=log, seen=seen)
         if outcome not in ("rescue", "refused"):
-            return f"stopped watching attempt {target.attempt}: {reason}"
+            return f"stopped watching attempt {target.attempt}: {reason}" + (
+                f"; kept on the owned pool: {held}" if held else "")
         log(f"attempt {target.attempt}: {'rescue' if outcome == 'rescue' else 'refused'}: {reason}")
 
 

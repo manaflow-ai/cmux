@@ -67,8 +67,12 @@ class FakeAPI:
 
     def __init__(self, clock, jobs, *, marker=False, head=HEAD, state="open", settles_after=10,
                  attempt_after_cancel=1, finished=lambda seconds: False, rerun_jobs=None, conclusion=None,
-                 workflow=None):
+                 workflow=None, snapshot=None):
         self.clock, self.jobs_at, self.marker = clock, jobs, marker
+        # The janitor's pool snapshot (pool_snapshot()), as a function of elapsed seconds; by default every
+        # Blacksmith label is free, so a queue rescue moves at its configured budget.
+        self.snapshot = snapshot or (lambda seconds: {"generated_at": stamp(seconds), "pools": {}})
+        self.snapshot_reads = 0
         # The workflow file at the run's head (workflow_file()); None reads as missing.
         self.workflow = workflow
         # Jobs of attempt 2 onwards, as a function of seconds since that attempt began.
@@ -109,6 +113,10 @@ class FakeAPI:
         self.calls.append(f"workflow:{path}@{ref}")
         return self.workflow
 
+    def pool_snapshot(self, now):
+        self.snapshot_reads += 1
+        return self.snapshot(self.clock.seconds)
+
     def has_artifact(self, run_id, name):
         self.calls.append(f"artifact:{name}")
         return self.marker(name) if callable(self.marker) else self.marker
@@ -124,6 +132,7 @@ class FakeAPI:
     def cancel(self, run_id):
         self.calls.append("cancel")
         self.cancelled_at, self.cancel_attempt = self.clock.seconds, self.attempt
+        self.first_cancel = getattr(self, "first_cancel", None) or self.clock.seconds
 
     def force_cancel(self, run_id):
         self.calls.append("force-cancel")
@@ -1299,6 +1308,139 @@ def side_run(*, queued_at=0, started_at=None, gate_done_at=None):
         found += [owned, job("system-keychain", labels=[BLACKSMITH], status="in_progress", runner="bs")]
         return found
     return jobs
+
+
+DEV_DAILY = ".github/workflows/cmux-next-dev-daily.yml"
+DEV_WORKFLOW = (ROOT / DEV_DAILY).read_text()
+
+
+def dev_event(**overrides):
+    return e2e_event(**{"path": DEV_DAILY, **overrides})
+
+
+def blacksmith_snapshot(*, queued=0, running=0, oldest=0, label=BLACKSMITH):
+    """A janitor snapshot with one Blacksmith label's load (simple_pool_picker reads the same fields)."""
+    return lambda seconds: {"generated_at": stamp(seconds), "pools": {
+        label: {"queued": queued, "running": running, "oldest_queued_minutes": oldest}}}
+
+
+def dev_jobs(seconds):
+    """Run 40466780519: verify and tip-dmg-build queued on the light owned pool, never taken."""
+    found = [e2e_runner()(seconds)]
+    if seconds >= 40:
+        found += [job("Verify signed cmux NEXT DEV", labels=[LIGHT], created=40),
+                  job("Build the unsigned cmux NEXT DEV tip DMG", labels=[LIGHT], created=40)]
+    return found
+
+
+class BlacksmithStall(unittest.TestCase):
+    """A queue rescue never moves a job onto a Blacksmith label the pickers call stalled (run 40466780519)."""
+
+    def test_the_dev_daily_retry_label_comes_from_its_workflow(self):
+        self.assertEqual(rescue.retry_labels(DEV_WORKFLOW), {BLACKSMITH})
+        # A workflow whose runs-on names no Blacksmith macOS label takes the pickers' fallback.
+        self.assertEqual(rescue.retry_labels("jobs:\n  a:\n    runs-on: ${{ needs.x.outputs.retry }}\n"),
+                         {rescue.simple_pool_picker.BLACKSMITH[1]})
+        self.assertEqual(rescue.retry_labels(None), {rescue.simple_pool_picker.BLACKSMITH[1]})
+
+    def test_states_use_the_pickers_stall_rule(self):
+        now = START
+        snapshot = {"generated_at": stamp(0), "pools": {
+            BLACKSMITH: {"queued": 3, "running": 10, "oldest_queued_minutes": 10},
+            "blacksmith-12vcpu-macos-26": {"queued": 1, "running": 5, "oldest_queued_minutes": 2},
+        }}
+        self.assertEqual(rescue.blacksmith_states(snapshot, now), {
+            BLACKSMITH: "stalled", "blacksmith-12vcpu-macos-26": "busy", "blacksmith-6vcpu-macos-15": "free"})
+        # The snapshot's age counts toward the wait, as in the pickers.
+        later = START + dt.timedelta(minutes=8)
+        snapshot["pools"]["blacksmith-12vcpu-macos-26"]["oldest_queued_minutes"] = 3
+        self.assertEqual(rescue.blacksmith_states(snapshot, later)["blacksmith-12vcpu-macos-26"], "stalled")
+
+    def test_a_dev_daily_run_stays_on_the_owned_pool_while_its_retry_label_is_stalled(self):
+        clock = Clock()
+        api = FakeAPI(clock, dev_jobs, marker=True, workflow=DEV_WORKFLOW,
+                      snapshot=blacksmith_snapshot(queued=40, running=0, oldest=30))
+        code, summary = run_main(api, clock, payload=dev_event())
+        self.assertEqual(code, 0)
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("rerun", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertIn(f"kept on the owned pool: {BLACKSMITH} is stalled", summary)
+        self.assertIn("watch limit reached", summary)
+        # One look at the snapshot every STALL_RECHECK_SECONDS or so, not every poll.
+        self.assertLessEqual(api.snapshot_reads,
+                             rescue.E2E_WATCH_LIMIT_SECONDS // rescue.STALL_RECHECK_SECONDS + 1)
+
+    def test_a_held_run_moves_once_its_retry_label_has_room(self):
+        clock = Clock()
+        moving = 30 * 60
+        stalled = blacksmith_snapshot(queued=40, running=0, oldest=30)
+        free = blacksmith_snapshot()
+        api = FakeAPI(clock, dev_jobs, marker=True, workflow=DEV_WORKFLOW,
+                      snapshot=lambda seconds: (stalled if seconds < moving else free)(seconds))
+        code, summary = run_main(api, clock, payload=dev_event())
+        self.assertEqual(code, 0)
+        self.assertIn("cancel", api.calls)
+        self.assertGreaterEqual(api.first_cancel, moving)
+        self.assertIn("held on the owned pool", summary)
+
+    def test_a_busy_retry_label_takes_the_job_only_after_the_owned_floor(self):
+        clock = Clock()
+        api = FakeAPI(clock, dev_jobs, marker=True, workflow=DEV_WORKFLOW,
+                      snapshot=blacksmith_snapshot(queued=2, running=10, oldest=1))
+        code, summary = run_main(api, clock, payload=dev_event())
+        self.assertEqual(code, 0)
+        self.assertIn("cancel", api.calls)
+        # The jobs were first seen queued at the first look (45 s).
+        self.assertGreaterEqual(api.first_cancel, rescue.FIRST_LOOK_SECONDS + rescue.OWNED_WAIT_FLOOR_SECONDS)
+        self.assertIn("which has no free slot", summary)
+
+    def test_a_free_retry_label_takes_the_job_at_the_configured_budget(self):
+        clock = Clock()
+        api = FakeAPI(clock, dev_jobs, marker=True, workflow=DEV_WORKFLOW)
+        code, summary = run_main(api, clock, payload=dev_event())
+        self.assertEqual(code, 0)
+        self.assertIn("cancel", api.calls)
+        self.assertLess(api.first_cancel, rescue.OWNED_WAIT_FLOOR_SECONDS)
+        self.assertNotIn("held on the owned pool", summary)
+
+    def test_an_unreadable_snapshot_waits_the_owned_floor(self):
+        clock = Clock()
+        api = FakeAPI(clock, dev_jobs, marker=True, workflow=DEV_WORKFLOW, snapshot=lambda seconds: None)
+        run_main(api, clock, payload=dev_event())
+        self.assertIn("cancel", api.calls)
+        self.assertGreaterEqual(api.first_cancel, rescue.OWNED_WAIT_FLOOR_SECONDS)
+
+    def test_a_stall_on_another_label_does_not_hold_the_run(self):
+        clock = Clock()
+        api = FakeAPI(clock, dev_jobs, marker=True, workflow=DEV_WORKFLOW,
+                      snapshot=blacksmith_snapshot(queued=40, oldest=300, label="blacksmith-12vcpu-macos-26"))
+        code, summary = run_main(api, clock, payload=dev_event())
+        self.assertIn("cancel", api.calls)
+        self.assertLess(api.first_cancel, rescue.OWNED_WAIT_FLOOR_SECONDS)
+        self.assertIn(f"workflow:{DEV_DAILY}@{HEAD}", api.calls)
+
+    def test_a_ci_attempt_1_picks_again_so_it_reads_no_snapshot(self):
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, main=True)
+        self.assertTrue(rescue.repicks(target))
+        self.assertFalse(rescue.repicks(dataclasses.replace(target, attempt=2)))
+        self.assertFalse(rescue.repicks(rescue.Target(RUN_ID, 1, HEAD, 0, e2e=True, path=DEV_DAILY)))
+
+    def test_a_refusal_is_still_rerun_while_the_retry_label_is_stalled(self):
+        # A refused job has already failed: holding it moves nothing, and its re-run is the only way it runs.
+        def jobs(seconds):
+            found = [e2e_runner()(seconds)]
+            if seconds >= 40:
+                found.append({**job("Verify signed cmux NEXT DEV", labels=[LIGHT], created=40),
+                              "status": "completed", "conclusion": "failure", "runner_name": "mini",
+                              "started_at": stamp(41), "completed_at": stamp(45),
+                              "steps": [{"name": "Set up job", "conclusion": "failure"}]})
+            return found
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True, workflow=DEV_WORKFLOW, finished=lambda seconds: seconds >= 45,
+                      conclusion="failure", snapshot=blacksmith_snapshot(queued=40, running=0, oldest=30))
+        run_main(api, clock, payload=dev_event())
+        self.assertTrue({"rerun", "rerun-failed"} & set(api.calls))
 
 
 class SideLanes(unittest.TestCase):
