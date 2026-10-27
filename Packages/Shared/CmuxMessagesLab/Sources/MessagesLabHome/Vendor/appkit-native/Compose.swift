@@ -42,7 +42,7 @@ final class FieldTextView: NSTextView {
     var onRelease: (NSEvent) -> Void = { _ in }
     /// cmux: runs the text view's own key handling (the input method call) inside the host's text input
     /// stage, which stamps it in the key's latency slot. Nil: the key handling runs alone.
-    var textInputScope: (@MainActor (NSEvent, () -> Void) -> Void)?
+    var textInputScope: (@MainActor @Sendable (NSEvent, () -> Void) -> Void)?
     override func mouseDown(with event: NSEvent) {
         pickerAnchor = nil  // cmux
         onPress(event)

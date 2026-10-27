@@ -307,7 +307,7 @@ public final class HomeNativeTranscriptView: NSView {
 
     /// Runs the message box's key handling (its input method call) so the host times it in the key's latency
     /// slot (the App's `TextInputStage`). Nil: the key handling runs alone.
-    public var composerTextInputScope: (@MainActor (NSEvent, () -> Void) -> Void)? {
+    public var composerTextInputScope: (@MainActor @Sendable (NSEvent, () -> Void) -> Void)? {
         get { transcript.composerTextInputScope }
         set { transcript.composerTextInputScope = newValue }
     }
