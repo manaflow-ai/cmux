@@ -4,8 +4,9 @@ import CmuxNextTrace
 import QuartzCore
 
 /// The remote desktop stream's frame trace points and histograms: `remote.frame_decoded` when a decoded frame
-/// reaches the presenter, `remote.present` when the display shows it (with the input sequence it echoes), and the
-/// `remote.input_to_present` and `smoothness.dropped_pct.remote_stream` samples (``RemoteStreamPresentLedger``).
+/// reaches the presenter, `remote.present` stamped with the time the display showed it (with the newest input it
+/// echoes), and the `remote.input_to_present` and `smoothness.dropped_pct.remote_stream` samples
+/// (``RemoteStreamPresentLedger``).
 ///
 /// The present time is the display's own (`MTLDrawable.presentedTime`, Chrome's `gfx::PresentationFeedback`
 /// timestamp that ends `EventLatency`), not an estimate. Present results arrive on Metal's thread; they queue, in
@@ -13,7 +14,7 @@ import QuartzCore
 nonisolated final class RemotePresentLog: Sendable {
     private nonisolated struct Present: Sendable {
         var frame: UInt32
-        var echo: UInt32
+        var echo: RemoteInputEcho
         var mediaTime: CFTimeInterval
     }
 
@@ -43,10 +44,10 @@ nonisolated final class RemotePresentLog: Sendable {
         runtime.event(.remoteFrameDecoded, arg0: UInt64(frame))
     }
 
-    /// The display finished with host frame `frame`, which echoes input `echo` (0: none). Call in present order.
+    /// The display finished with host frame `frame`, which shows the inputs in `echo`. Call in present order.
     ///
     /// - Parameter mediaTime: When the display showed it (`CACurrentMediaTime` seconds), or 0 when it never did.
-    func presentCompleted(frame: UInt32, echo: UInt32, presentedAt mediaTime: CFTimeInterval) {
+    func presentCompleted(frame: UInt32, echo: RemoteInputEcho, presentedAt mediaTime: CFTimeInterval) {
         presents.yield(Present(frame: frame, echo: echo, mediaTime: mediaTime))
     }
 }
@@ -63,18 +64,18 @@ extension RemotePresentLog {
             metrics = Metrics(runtime: inputLatency.runtime)
         }
 
-        /// Host frame `frame`, which echoes input `echo`, was shown at `mediaTime` (`CACurrentMediaTime`
-        /// seconds), or never when `mediaTime` is 0.
-        mutating func presentCompleted(frame: UInt32, echo: UInt32, presentedAt mediaTime: CFTimeInterval) {
+        /// Host frame `frame`, which shows the inputs in `echo`, was shown at `mediaTime` (`CACurrentMediaTime`
+        /// seconds), or never when `mediaTime` is 0. `remote.present` carries the display's time, not this call's.
+        mutating func presentCompleted(frame: UInt32, echo: RemoteInputEcho, presentedAt mediaTime: CFTimeInterval) {
             let shown = mediaTime > 0
             if shown {
-                inputLatency.runtime.event(.remotePresent, arg0: UInt64(frame), arg1: UInt64(echo))
-                if let inputs = ledger.newlyShownInputs(echo: echo) {
-                    let presentMicros = UInt32(truncatingIfNeeded: TraceClock.nanos(fromMediaTime: mediaTime) / 1_000)
-                    for sequence in inputs {
-                        guard let sent = inputLatency.sentMicros(sequence) else { continue }
-                        metrics.record(.remoteInputToPresent, Int64(presentMicros &- sent))
-                    }
+                let presentNanos = TraceClock.nanos(fromMediaTime: mediaTime)
+                inputLatency.runtime.event(.remotePresent, atNanos: presentNanos, arg0: UInt64(frame),
+                                           arg1: UInt64(echo.newest))
+                let presentMicros = UInt32(truncatingIfNeeded: presentNanos / 1_000)
+                for sequence in ledger.newlyShownInputs(echo: echo) {
+                    guard let sent = inputLatency.sentMicros(sequence) else { continue }
+                    metrics.record(.remoteInputToPresent, Int64(presentMicros &- sent))
                 }
             }
             if let percent = ledger.frameCompleted(frame, shown: shown) {

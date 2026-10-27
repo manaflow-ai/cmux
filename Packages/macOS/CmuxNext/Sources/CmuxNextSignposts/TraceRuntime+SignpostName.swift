@@ -61,6 +61,13 @@ extension TraceRuntime {
         record(name, .instant, flags: estimated ? .estimated : [], arg0: arg0, arg1: arg1)
     }
 
+    /// Records a point event (I) that happened at `timestampNanos` (trace-clock nanoseconds), a time another
+    /// clock reported after the fact, not now.
+    public func event(_ name: SignpostName, atNanos timestampNanos: UInt64, arg0: UInt64, arg1: UInt64 = 0) {
+        writeInstant(name: name.rawValue, categoryBit: name.traceCategory.traceBit, timestampNanos: timestampNanos,
+                     arg0: arg0, arg1: arg1)
+    }
+
     /// Records that flow `flow` leaves this point (`s`; the flow id is `arg1`).
     public func flowOut(_ name: SignpostName, flow: UInt64, arg0: UInt64 = 0) {
         record(name, .flowOut, arg0: arg0, arg1: flow)

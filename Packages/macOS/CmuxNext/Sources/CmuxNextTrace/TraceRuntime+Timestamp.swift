@@ -29,6 +29,27 @@ extension TraceRuntime {
         return true
     }
 
+    /// Writes one point event (I) whose time is known already, when the category is on: a moment another clock
+    /// reported after the fact (the display's present time from `MTLDrawable.presentedTime`), stamped with that
+    /// moment rather than with the time of the write.
+    ///
+    /// - Parameters:
+    ///   - name: The catalog id (`SignpostName.rawValue`).
+    ///   - categoryBit: The category's bit (`SignpostCategory.traceBit`).
+    ///   - timestampNanos: The event's trace-clock time (``TraceClock``).
+    ///   - flags: How to read the arguments.
+    ///   - arg0: The first number.
+    ///   - arg1: The second number.
+    /// - Returns: Whether the event was written (its category was on).
+    @discardableResult
+    public func writeInstant(name: UInt16, categoryBit: UInt8, timestampNanos: UInt64, flags: RecordFlags = [],
+                             arg0: UInt64 = 0, arg1: UInt64 = 0) -> Bool {
+        guard isEnabled(categoryBit: categoryBit) else { return false }
+        publish(name: name, categoryBit: categoryBit, phase: .instant, flags: flags, timestamp: timestampNanos,
+                arg0: arg0, arg1: arg1)
+        return true
+    }
+
     /// Publishes one catalog record stamped `timestamp` into the attached ring, or to the test's stub when no
     /// ring is attached.
     private func publish(name: UInt16, categoryBit: UInt8, phase: Phase, flags: RecordFlags, timestamp: UInt64,

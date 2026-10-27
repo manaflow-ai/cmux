@@ -7,8 +7,8 @@ import CmuxNextSignposts
 ///
 /// Chrome's model: an input's `EventLatency` ends at the presentation time of the first frame that contains its
 /// effect (cc/metrics/event_metrics.h, cc/metrics/compositor_frame_reporter.cc); the event's identity rides with the
-/// frame (ui/latency/latency_info.h). Here the frame carries ``RemoteAccessUnit/inputEcho``, the newest sequence the
-/// host had applied when it captured the picture, and this table answers when that sequence left the viewer.
+/// frame (ui/latency/latency_info.h). Here the frame carries ``RemoteAccessUnit/inputEcho``, the inputs that had
+/// changed the picture when the host captured it, and this table answers when each left the viewer.
 ///
 /// The viewer numbers its events itself (``Sequencer``), from 1 in send order, independent of the `cmux.rd/1` wire
 /// sequence. One writer (the input controller, on the main actor) and one reader (the present log) share
@@ -18,7 +18,7 @@ import CmuxNextSignposts
 ///
 /// ```swift
 /// latency.recordSent(sequencer.next())
-/// latency.sentMicros(frame.inputEcho)
+/// for sequence in frame.inputEcho { latency.sentMicros(sequence) }
 /// ```
 public nonisolated final class RemoteInputLatency: Sendable {
     /// Inputs the table remembers: an input whose slot a later one took is no longer timed.
@@ -70,7 +70,7 @@ public nonisolated final class RemoteInputLatency: Sendable {
 
 extension RemoteInputLatency {
     /// The viewer's input numbering: 1, 2, 3, ... in send order, never 0 (0 means "no input" in
-    /// ``RemoteAccessUnit/inputEcho``). The input controller numbers what it sends; a host that numbers what it
+    /// ``RemoteInputEcho``). The input controller numbers what it sends; a host that numbers what it
     /// applies the same way (the mock host's sink) echoes the same numbers.
     public nonisolated struct Sequencer: Sendable, Equatable {
         private var last: UInt32 = 0

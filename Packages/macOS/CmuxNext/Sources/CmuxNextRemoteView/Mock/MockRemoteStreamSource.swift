@@ -26,8 +26,8 @@ public nonisolated final class MockRemoteStreamSource: RemoteViewStreamSource {
         var scene = SyntheticFramePainter.Scene(counter: 0, pointer: CGPoint(x: 200, y: 200))
         var nextFrame: UInt32 = 0
         var forceKeyframe = true
-        /// The newest viewer input applied (``inputApplied(_:)``); frames echo it.
-        var appliedInput: UInt32 = 0
+        /// The viewer inputs that changed the picture (``movePointer(to:input:)``); frames echo them.
+        var inputEcho = RemoteInputEcho.noInput
         var keyframeRequests = 0
         var encoded = 0
     }
@@ -98,22 +98,19 @@ public nonisolated final class MockRemoteStreamSource: RemoteViewStreamSource {
     }
 
     /// Moves the synthetic pointer (frame pixels), reports the remote
-    /// cursor, and paints a frame.
-    public func movePointer(to point: CGPoint) {
+    /// cursor, and paints a frame. `input` is the viewer input that moved it
+    /// (``RemoteInputLatency/Sequencer`` numbering), 0 for none: it changes
+    /// the picture, so every frame captured from now on echoes it
+    /// (``RemoteAccessUnit/inputEcho``), as a real host's frames carry the
+    /// inputs they show.
+    public func movePointer(to point: CGPoint, input: UInt32 = 0) {
         let continuation = state.withLock { state in
             state.scene.pointer = point
+            state.inputEcho.inputDamaged(input)
             return state.cursors
         }
         continuation?.yield(RemoteCursorState(position: point, visible: true))
         damage()
-    }
-
-    /// Records that the host applied viewer input `sequence` (the viewer's
-    /// numbering, ``RemoteInputLatency/Sequencer``): every frame captured
-    /// after this echoes it (``RemoteAccessUnit/inputEcho``), as a real
-    /// host's frames would carry the input they show.
-    public func inputApplied(_ sequence: UInt32) {
-        state.withLock { $0.appliedInput = max($0.appliedInput, sequence) }
     }
 
     /// Paints and encodes the next frame (the counter advances).
@@ -133,19 +130,19 @@ public nonisolated final class MockRemoteStreamSource: RemoteViewStreamSource {
     }
 
     /// The next frame's scene, number, whether it must be a keyframe and the input it echoes; the counter advances.
-    fileprivate func takeNextFrame() -> (scene: SyntheticFramePainter.Scene, frame: UInt32, keyframe: Bool, echo: UInt32) {
+    fileprivate func takeNextFrame() -> (scene: SyntheticFramePainter.Scene, frame: UInt32, keyframe: Bool, echo: RemoteInputEcho) {
         state.withLock { state in
             state.scene.counter &+= 1
             defer {
                 state.nextFrame &+= 1
                 state.forceKeyframe = false
             }
-            return (state.scene, state.nextFrame, state.forceKeyframe, state.appliedInput)
+            return (state.scene, state.nextFrame, state.forceKeyframe, state.inputEcho)
         }
     }
 
     /// Streams one encoded frame (called on a VideoToolbox output thread).
-    fileprivate func emit(_ output: (data: Data, keyframe: Bool), frame: UInt32, capturedMicros: UInt64, echo: UInt32) {
+    fileprivate func emit(_ output: (data: Data, keyframe: Bool), frame: UInt32, capturedMicros: UInt64, echo: RemoteInputEcho) {
         let unit = RemoteAccessUnit(
             frame: frame, flags: output.keyframe ? .keyframe : [], tCaptureMicros: capturedMicros,
             data: output.data, codec: codec, inputEcho: echo)

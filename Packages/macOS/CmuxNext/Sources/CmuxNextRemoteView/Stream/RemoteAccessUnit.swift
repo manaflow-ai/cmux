@@ -36,14 +36,14 @@ public nonisolated struct RemoteAccessUnit: Sendable, Hashable {
     /// Annex-B H.264 or HEVC.
     public var data: Data
     public var codec: RemoteVideoCodec
-    /// The newest viewer input (``RemoteInputLatency/Sequencer`` numbering)
-    /// the host had applied when it captured this frame, or 0 when the host
-    /// does not say (`cmux.rd/1` frames carry no echo yet; the mock host
-    /// does). The presenter times `remote.input_to_present` with it.
-    public var inputEcho: UInt32
+    /// The viewer inputs that had changed the picture when the host
+    /// captured this frame (``RemoteInputEcho``), or none when the host does
+    /// not say (`cmux.rd/1` frames carry no echo yet; the mock host does).
+    /// The presenter times `remote.input_to_present` with it.
+    public var inputEcho: RemoteInputEcho
 
     public init(frame: UInt32, flags: RemoteFrameFlags, tCaptureMicros: UInt64, data: Data, codec: RemoteVideoCodec,
-                inputEcho: UInt32 = 0) {
+                inputEcho: RemoteInputEcho = .noInput) {
         self.frame = frame
         self.flags = flags
         self.tCaptureMicros = tCaptureMicros

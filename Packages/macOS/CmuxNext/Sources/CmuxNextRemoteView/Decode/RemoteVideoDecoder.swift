@@ -26,12 +26,12 @@ public nonisolated struct RemoteDecodedFrame: Sendable {
     public let tCaptureMicros: UInt64
     /// `DispatchTime.now().uptimeNanoseconds` when decode finished.
     public let decodedAtNanos: UInt64
-    /// The access unit's ``RemoteAccessUnit/inputEcho``: the newest viewer
-    /// input the picture shows, or 0.
-    public let inputEcho: UInt32
+    /// The access unit's ``RemoteAccessUnit/inputEcho``: the viewer inputs
+    /// that changed the picture.
+    public let inputEcho: RemoteInputEcho
 
     public init(pixelBuffer: CVPixelBuffer, frame: UInt32, tCaptureMicros: UInt64, decodedAtNanos: UInt64,
-                inputEcho: UInt32 = 0) {
+                inputEcho: RemoteInputEcho = .noInput) {
         pixels = RemoteFrameBuffer(pixelBuffer)
         self.frame = frame
         self.tCaptureMicros = tCaptureMicros

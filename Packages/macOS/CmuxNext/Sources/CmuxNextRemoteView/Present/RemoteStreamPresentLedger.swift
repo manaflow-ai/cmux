@@ -1,6 +1,6 @@
 /// The arithmetic of the remote stream's present metrics: which host frames the viewer showed, for
 /// `smoothness.dropped_pct.remote_stream`, and which inputs a shown frame shows for the first time, for
-/// `remote.input_to_present`. A value: ``RemotePresentLog`` owns one on the render queue.
+/// `remote.input_to_present`. A value: ``RemotePresentLog/Recorder`` owns one.
 ///
 /// Dropped frames follow Chrome's `FrameSequenceMetrics` (cc/metrics/frame_sequence_metrics.cc): a window of
 /// expected frames against the frames presented, reported only once it has ``windowFrames`` frames (Chrome's
@@ -36,15 +36,13 @@ nonisolated struct RemoteStreamPresentLedger: Sendable, Equatable {
         return closeFullWindow()
     }
 
-    /// The inputs a shown frame that echoes input `echo` shows for the first time: every sequence after the last
-    /// one shown, up to `echo`, at most ``RemoteInputLatency/capacity`` of them (older ones left the send table).
-    /// Nil when `echo` is 0 (the host does not say) or not newer than what was already shown.
-    mutating func newlyShownInputs(echo: UInt32) -> ClosedRange<UInt32>? {
-        guard echo > lastShownInput else { return nil }
-        let window = UInt32(RemoteInputLatency.capacity)
-        let lower = max(lastShownInput + 1, echo > window ? echo - window + 1 : 1)
-        lastShownInput = echo
-        return lower...echo
+    /// The inputs a shown frame that echoes `echo` shows for the first time: each input that changed the picture
+    /// after the newest one an earlier shown frame showed (an input that changed nothing is never in an echo).
+    /// Empty when the host does not say or the frame shows nothing new.
+    mutating func newlyShownInputs(echo: RemoteInputEcho) -> RemoteInputEcho {
+        let fresh = echo.inputs(after: lastShownInput)
+        lastShownInput = max(lastShownInput, echo.newest)
+        return fresh
     }
 
     private mutating func startSequence(at frame: UInt32, shown: Bool) -> Int64? {

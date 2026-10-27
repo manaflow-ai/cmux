@@ -14,7 +14,7 @@ A `remote_view` tab is the store browser record `cmux://remote-view?host=<host>&
 
 ## Trace points and histograms
 
-The input controller numbers every event it sends (`RemoteInputLatency.Sequencer`, from 1) and writes `remote.input` with that number. The Metal presenter writes `remote.frame_decoded` as each frame arrives and `remote.present` when the display shows it (`MTLDrawable.presentedTime`), with the input the frame echoes (`RemoteAccessUnit.inputEcho`, the newest input the host had applied at capture; 0 when the host does not say). A shown frame records `remote.input_to_present` for each input it shows first, and every 100 host frames record `smoothness.dropped_pct.remote_stream` (`RemoteStreamPresentLedger`). The mock host echoes; `cmux.rd/1` frames carry no echo yet.
+The input controller numbers every event it sends (`RemoteInputLatency.Sequencer`, from 1) and writes `remote.input` with that number. The Metal presenter writes `remote.frame_decoded` as each frame arrives and `remote.present` stamped with the time the display showed it (`MTLDrawable.presentedTime`), with the newest input the frame echoes (`RemoteAccessUnit.inputEcho`, a `RemoteInputEcho`: the inputs that had changed the picture when the host captured it; none when the host does not say). A shown frame records `remote.input_to_present` for each input in its echo that it shows first; an input that changed nothing gets no sample, and every 100 host frames record `smoothness.dropped_pct.remote_stream` (`RemoteStreamPresentLedger`). The mock host echoes; `cmux.rd/1` frames carry no echo yet.
 
 ## Settings the viewer reads
 
