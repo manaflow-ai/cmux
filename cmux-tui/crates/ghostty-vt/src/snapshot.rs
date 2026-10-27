@@ -133,10 +133,13 @@ pub fn snapshot_version() -> u16 {
     static VERSION: OnceLock<u16> = OnceLock::new();
     *VERSION.get_or_init(|| {
         let mut raw: sys::GhosttyTerminal = std::ptr::null_mut();
+        // SAFETY: `raw` is a writable local; a null allocator selects the default.
         if check(unsafe { sys::ghostty_terminal_new(std::ptr::null(), &mut raw, 1, 1) }).is_err() {
             return 0;
         }
         let bytes = encode_raw(raw, SnapshotPhase::Ready);
+        // SAFETY: `raw` came from ghostty_terminal_new above, nothing else owns it,
+        // and it is freed once.
         unsafe { sys::ghostty_terminal_free(raw) };
         bytes.ok().and_then(|bytes| snapshot_envelope_version(&bytes)).unwrap_or(0)
     })
@@ -174,8 +177,12 @@ unsafe extern "C" fn snapshot_sink_write(
     data: *const u8,
     len: usize,
 ) -> bool {
+    // SAFETY: `userdata` is the SnapshotSink that `encode_raw` owns for the
+    // duration of the encode, and nothing else borrows it meanwhile.
     let sink = unsafe { &mut *(userdata as *mut SnapshotSink) };
     if len > 0 {
+        // SAFETY: libghostty passes `len` readable bytes at `data` for the duration
+        // of the callback (GhosttyWriterFn).
         sink.bytes.extend_from_slice(unsafe { std::slice::from_raw_parts(data, len) });
     }
     if !sink.stop_after_ready {
@@ -198,6 +205,8 @@ fn encode_raw(raw: sys::GhosttyTerminal, phase: SnapshotPhase) -> Result<Vec<u8>
         write: Some(snapshot_sink_write),
         userdata: (&mut sink as *mut SnapshotSink).cast(),
     };
+    // SAFETY: callers pass a live terminal no one mutates during the call;
+    // `writer` calls `snapshot_sink_write` with `sink`, which outlives the call.
     let result = unsafe { sys::ghostty_snapshot_encode(raw, writer) };
     match phase {
         SnapshotPhase::Ready => {
@@ -224,6 +233,8 @@ fn encode_raw(raw: sys::GhosttyTerminal, phase: SnapshotPhase) -> Result<Vec<u8>
 /// holds no history until HISTORY pages arrive.)
 pub fn reencode_ready(complete: &[u8]) -> Result<Vec<u8>> {
     let mut decoder: sys::GhosttySnapshotDecoder = std::ptr::null_mut();
+    // SAFETY: `decoder` is a writable local; the decoder borrows `complete`
+    // without copying, and `complete` outlives it (freed below).
     check(unsafe {
         sys::ghostty_snapshot_decoder_new_buf(
             std::ptr::null(),
@@ -234,6 +245,8 @@ pub fn reencode_ready(complete: &[u8]) -> Result<Vec<u8>> {
     })?;
     let retain = true;
     let mut restored: sys::GhosttyTerminal = std::ptr::null_mut();
+    // SAFETY: `decoder` is live; RETAIN_CONTINUATION reads a bool from the live
+    // `retain`.
     let result = check(unsafe {
         sys::ghostty_snapshot_decoder_set(
             decoder,
@@ -241,8 +254,11 @@ pub fn reencode_ready(complete: &[u8]) -> Result<Vec<u8>> {
             (&retain as *const bool).cast(),
         )
     })
+    // SAFETY: `decoder` is live and `restored` a writable local.
     .and_then(|()| check(unsafe { sys::ghostty_snapshot_decoder_decode(decoder, &mut restored) }))
     .and_then(|()| encode_raw(restored, SnapshotPhase::Ready));
+    // SAFETY: both are freed once and never used again: `decoder` came from
+    // decoder_new_buf, and `restored` is null (allowed) or the decoded terminal.
     unsafe {
         sys::ghostty_snapshot_decoder_free(decoder);
         sys::ghostty_terminal_free(restored);
@@ -327,8 +343,9 @@ impl Terminal {
     pub fn history_digest(&self) -> Option<HistoryDigest> {
         let mut rows = 0u64;
         let mut digest = vec![0u8; sys::GHOSTTY_TERMINAL_HISTORY_DIGEST_LEN as usize];
-        // The out-pointers are valid for the call and `digest.len()` is the
-        // length the API requires; the caller owns the terminal (`&self`).
+        // SAFETY: `self.raw()` is this Terminal's live handle; `rows` is a
+        // writable local and `digest` is writable for `digest.len()` bytes, the
+        // length the API requires.
         let result = unsafe {
             sys::ghostty_terminal_history_digest(
                 self.raw(),

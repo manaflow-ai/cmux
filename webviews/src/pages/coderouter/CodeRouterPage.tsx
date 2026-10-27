@@ -39,7 +39,7 @@ export function CodeRouterPage({ store, strings }: { store: CodeRouterStore; str
         <p className="cr-subtitle">{t("page.subtitle")}</p>
         {snap.error && <output className="cr-error selectable">{snap.error}</output>}
       </header>
-      <div className="cr-scroll">
+      <div className="cr-scroll" data-page-scroll="page">
         <section className="cr-section">
           <h2>{t("section.thisMac")}</h2>
           <ul className="cr-list">

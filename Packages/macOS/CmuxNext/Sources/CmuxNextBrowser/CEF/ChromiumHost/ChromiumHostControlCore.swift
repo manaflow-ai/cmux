@@ -170,7 +170,8 @@ nonisolated final class ChromiumHostControlCore: Sendable {
     var stats: ChromiumHostControlChannel.Stats {
         state.withLock { state -> ChromiumHostControlChannel.Stats in
             ChromiumHostControlChannel.Stats(quotaExcess: state.quotaExcess, coalesced: state.coalesced,
-                                             pendingMessages: state.outbox.messages, pendingBytes: state.outbox.bytes)
+                                             pendingMessages: state.outbox.messages, pendingBytes: state.outbox.bytes,
+                                             awaitingReplies: state.replies.count)
         }
     }
 

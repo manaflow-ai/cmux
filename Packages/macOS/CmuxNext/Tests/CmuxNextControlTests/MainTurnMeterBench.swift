@@ -1,3 +1,4 @@
+import CmuxNextTestSupport
 import CmuxNextWakeups
 import Darwin
 import Foundation
@@ -8,7 +9,8 @@ import Testing
 /// before-waiting phase), one `sendEvent` input span and one scheduled task's span, on the real
 /// `CLOCK_UPTIME_RAW` clock. The budget is < 100 ns per turn over the clock reads
 /// (plans/cmux-next/chrome-parity/p06-scheduler.md, task 008). A measurement, not a gate: run it in
-/// a Release build on each macOS major and quote the line (perf-hot path `main-turn`).
+/// a Release build on each macOS major and quote the line (perf-hot path `main-turn`). With
+/// CMUX_PERF_RESULT_DIR it also writes each number as result-v1 (lab story swift-main-turn).
 ///
 /// ```
 /// CMUX_MAIN_TURN_BENCH=1 swift test -c release --filter MainTurnMeterBench
@@ -41,7 +43,7 @@ struct MainTurnMeterBench {
         return Double(now() - start) / Double(turns)
     }
 
-    @Test func alwaysOnCostPerTurn() {
+    @Test func alwaysOnCostPerTurn() throws {
         var clockSink: UInt64 = 0
         let clockStart = Self.now()
         for _ in 0..<Self.turns { clockSink &+= Self.now() }
@@ -57,6 +59,11 @@ struct MainTurnMeterBench {
                           ProcessInfo.processInfo.operatingSystemVersionString, Self.turns, perTurn, clockNanos,
                           perTurn - reads * clockNanos, reads, clockSink & 1)
         print(line)
+        if let results = try PerfResultWriter() {
+            try results.record("swift.main_turn.turn_ns", unit: .ns, samples: [perTurn])
+            try results.record("swift.main_turn.clock_read_ns", unit: .ns, samples: [clockNanos])
+            try results.record("swift.main_turn.over_clock_reads_ns", unit: .ns, samples: [perTurn - reads * clockNanos])
+        }
         #expect(meter.snapshot().turns == Self.turns)
         #expect(meter.snapshot().tasks == Self.turns)
     }
