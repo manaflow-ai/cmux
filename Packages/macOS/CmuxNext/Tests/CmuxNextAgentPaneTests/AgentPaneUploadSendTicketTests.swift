@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import CmuxNextPagesTestSupport
+import CmuxNextWakeups
 @testable import CmuxNextAgentPane
 
 /// The send ticket an upload holds (``AgentPaneUploadSendTicket``): a file of any size, uploaded
@@ -82,10 +83,14 @@ struct AgentPaneUploadSendTicketTests {
         var events = sent.stream.makeAsyncIterator()
         _ = await events.next()
         _ = await events.next()
-        let stopped: Bool? = await PageTestWait.value("upload revocation") { done in
-            Task { done(await upload.value) }
+        let completion = AcpmuxUploadFrameTests.Completion(), deadline = DemandTimer(owner: "test.upload.revoke")
+        let stopped = await withCheckedContinuation { continuation in
+            completion.waiting = continuation
+            deadline.schedule(after: .seconds(2)) { completion.finish(false) }
+            Task { completion.finish(await upload.value) }
             transport.gestures.clearTickets()
         }
+        deadline.cancel()
         #expect(stopped == true, "revocation waited for the chunk ACK")
         wire.reply() // A late response must neither resume twice nor authorize the prompt.
         _ = await upload.value

@@ -1,9 +1,14 @@
 import Foundation
 import CmuxNextCompat
+import CmuxNextWakeups
 import Testing
 @testable import CmuxNextAgentPane
 
 struct AcpmuxUploadFrameTests {
+    @MainActor final class Completion {
+        var waiting: CheckedContinuation<Bool, Never>?
+        func finish(_ value: Bool) { waiting?.resume(returning: value); waiting = nil }
+    }
     @Test func uploadControlDoesNotAllowDataBytesInPageParams() {
         let body: [String: Any] = [
             "method": "_acpmux/file_put_begin",
@@ -71,10 +76,17 @@ struct AcpmuxUploadFrameTests {
         var events = sent.stream.makeAsyncIterator()
         _ = await events.next()
         request.cancel()
-        wire.reply(begin: true)
         await #expect(throws: CancellationError.self) { try await request.value }
-        for _ in 0..<100 where wire.sentCount.withLock({ $0 }) < 2 { await Task.yield() }
-        #expect(wire.sentCount.withLock { $0 } == 2, "late begin ACK did not cancel its partial upload")
+        let completion = Completion(), deadline = DemandTimer(owner: "test.upload.late-begin")
+        let cleaned = await withCheckedContinuation { continuation in
+            completion.waiting = continuation
+            deadline.schedule(after: .seconds(2)) { completion.finish(false) }
+            Task { completion.finish(await events.next() != nil) }
+            wire.reply(begin: true)
+        }
+        deadline.cancel()
+        sent.continuation.finish()
+        #expect(cleaned && wire.sentCount.withLock { $0 } == 2, "late begin ACK did not cancel its partial upload")
         socket.close(code: 1000, reason: "", error: nil)
     }
 
