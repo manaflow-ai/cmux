@@ -65,6 +65,7 @@ struct AgentPaneTransportFreezeTests {
         #expect(thaw.count == 1, "the thaw took \(thaw.count) calls")
         #expect(thaw.first?.frames.contains { $0.contains(#""s":1,"#) } == true, "the frame before the close was lost")
         #expect(thaw.first?.closed?.code == 1000)
+        #expect(thaw.first?.closed?.reason == AgentPaneTransport.pageFrozenCloseReason, "the page cannot tell the freeze's close from a lost daemon")
         #expect(transport.connection == nil)
 
         // The page's one reconnect.
@@ -104,11 +105,35 @@ struct AgentPaneTransportFreezeTests {
         #expect(other.connection == 1)
     }
 
-    /// A transport on connection 1 whose socket never connects (no frame goes anywhere).
+    /// A pane that comes into sight thaws its pacer itself (``AgentPaneFramePacer/visibilityChanged()``),
+    /// with no lifecycle thaw telling the transport: a freeze's close still waiting for the send line must
+    /// not close the visible page's connection when the line empties.
+    @Test func aPacerThawWhileASendDrainsLeavesTheConnectionOpen() {
+        let pushes = Pushes()
+        let (transport, pacer) = Self.rig(pushes, hidden: false)
+        Self.attachUnstartedSocket(to: transport)
+        pacer.pageDidFreeze()
+        transport.draining = true
+        transport.closeWhileFrozen()
+        #expect(transport.closedForFreeze == nil)
+
+        pacer.visibilityChanged()
+        #expect(!pacer.pageFrozen, "the pane in sight stayed frozen")
+        transport.draining = false
+        transport.sendLineDidEmpty()
+        #expect(transport.closedForFreeze == nil, "a visible page's connection closed for a freeze that ended")
+        #expect(transport.connection == 1)
+    }
+
+    /// A transport on connection 1 whose socket never connects (no frame goes anywhere). Its wake reaches
+    /// the transport as an open socket's does, so a close reaches the pacer.
     static func attachUnstartedSocket(to transport: AgentPaneTransport) {
         transport.socket = AcpmuxPaneSocket(request: URLRequest(url: URL(string: "ws://127.0.0.1")!), limits: transport.limits,
                                             options: transport.permissionOptions, sessions: transport.sessions,
-                                            ids: AcpmuxRequestIds(), signal: {})
+                                            ids: AcpmuxRequestIds()) { [weak transport] in
+            // task-owner: one wake for the pacer, as the transport's own socket gives
+            Task { @MainActor [weak transport] in transport?.arrived(1) }
+        }
         transport.current = 1
     }
 }

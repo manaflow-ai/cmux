@@ -37,6 +37,7 @@ import { hostKind, sessionEntry, summaryActivityAt, text, type AcpmuxSessionEntr
 import { agentName } from "./agents";
 import { FORK_OP, servesOperation } from "./operations";
 import { postNative } from "./native";
+import { PAGE_FROZEN_CLOSE_REASON } from "./bridgeSocket";
 import { forgetTail, keptTail, KEPT_EVENTS, readHostTail, rememberReadAhead, rememberTail } from "./tailCache";
 import { readSummaryCheckpoint } from "./changes/turnCheckpointSource";
 import { HandoffClient } from "./handoff/client";
@@ -1430,20 +1431,18 @@ export class AcpmuxDirectClient {
           reject(new Error(translate("error.closedBeforeConnect")));
           return;
         }
+        // The host let a frozen page's idle connection go (AgentPaneTransport.closeWhileFrozen) and
+        // hands the close on at the thaw: the daemon is still there, so the same client opens again.
+        const frozen = this.hasConnected && !this.closed && event?.reason === PAGE_FROZEN_CLOSE_REASON;
+        const hold = frozen ? this.holdSnapshots(OPEN_HOLD_MS) : undefined;
         this.handoff.disconnect();
         // acpmux drops a connection's attaches with it; the next attach watches them again.
         this.offerChildren.reset(false);
         this.groupedPermissions.clear();
         this.permissions.disconnected();
         this.rejectPending();
-        this.emit("disconnected");
-        if (!this.hasConnected || this.closed) return;
-        if (this.onLost) {
-          this.wire.lifecycle("lost", { message: "asking for a fresh handshake" });
-          const onLost = this.onLost;
-          this.close();
-          onLost();
-        } else this.scheduleReconnect();
+        if (hold !== undefined) this.reopenAfterFreeze(hold);
+        else this.lost();
       };
       socket.onmessage = (message) => acpmuxPerf.timed("client.receive", () => this.receive(String(message.data)));
     });
@@ -1734,6 +1733,35 @@ export class AcpmuxDirectClient {
     // The replayed `queued` records carry each prompt's whole text; acpmux's list gives the order.
     this.queue = mergeQueue(this.queue, listed?.queue ?? kept.queue);
     return this.lastSeq;
+  }
+
+  /// The connection is gone and the daemon may be too: the pane shows it, and the host is asked for
+  /// a fresh handshake (a restarted daemon has a new port and token) or the client reconnects.
+  private lost(): void {
+    this.emit("disconnected");
+    if (!this.hasConnected || this.closed) return;
+    if (this.onLost) {
+      this.wire.lifecycle("lost", { message: "asking for a fresh handshake" });
+      const onLost = this.onLost;
+      this.close();
+      onLost();
+    } else this.scheduleReconnect();
+  }
+
+  /// A frozen page's connection closed for the freeze (`PAGE_FROZEN_CLOSE_REASON`): the same client
+  /// opens again at once and keeps its events, so the open resumes after `lastSeq` and reads what the
+  /// chat recorded meanwhile. What the pane shows stays, held by `hold`, until that read, and no
+  /// "disconnected" frame shows. An open that fails is a loss like any other.
+  private reopenAfterFreeze(hold: number): void {
+    this.wire.lifecycle("frozen close", { message: "opening again after the page's freeze" });
+    this.open().then(
+      () => this.releaseSnapshots(hold),
+      () => {
+        this.releaseSnapshots(hold);
+        // An open whose socket closed after it opened took the loss path in its own onclose.
+        if (!this.closed && this.reconnectTimer === undefined) this.lost();
+      },
+    );
   }
 
   private scheduleReconnect(): void {

@@ -339,15 +339,16 @@ import func CmuxSafeConcurrency.withOnceContinuation
         return gestures.reserve(connection: current, intent: intent)
     }
 
-    /// Closes the connection if it is the current one.
-    public func close(connection id: Int) {
+    /// Closes the connection if it is the current one. The page gets `reason` with the close.
+    public func close(connection id: Int, reason: String = "") {
         guard id == current, let socket else { return }
-        socket.close(code: 1000, reason: "", error: nil)
+        socket.close(code: 1000, reason: reason, error: nil)
         localAppToken = nil
         promptRelay?.ended(byDaemon: false)
     }
 
-    private func arrived(_ id: Int) {
+    /// Frames or the close arrived on connection `id`: the pacer arranges their flush.
+    func arrived(_ id: Int) {
         guard id == current, let socket else { return }
         pacer.schedule(urgent: socket.pageWaits) { [weak self] in self?.flush() ?? AgentPaneFlush(delivered: false, more: false) }
     }

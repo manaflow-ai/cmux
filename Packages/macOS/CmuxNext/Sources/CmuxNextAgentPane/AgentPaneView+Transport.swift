@@ -47,17 +47,16 @@ extension AgentPaneView {
     /// The chat's page runs again, in the thaw's turn (``AgentPageLifecycleTarget/thaw()``): what the
     /// transport kept goes in one call, before the page shows and the router sends its held batch. When
     /// the freeze closed the connection (``closeTransportWhileFrozen()``), that call ends with the close
-    /// and the page reconnects once, and acpmux replays the chat.
+    /// and the page opens again on the same client, resuming after its last event.
     func pageDidThaw() {
         model.transport.pageDidThaw()
         transportPacer?.pageDidThaw()
     }
 
     /// The page's owner found nothing on the frozen chat's connection waiting for it (no turn runs or
-    /// waits on the person, p13-webui-080): the connection closes until the thaw
-    /// (``AgentPaneTransport/closeWhileFrozen()``).
+    /// waits on the person, p13-webui-080): the connection closes until the thaw, if the page is still
+    /// frozen (``AgentPaneTransport/closeWhileFrozen()``).
     package func closeTransportWhileFrozen() {
-        guard transportPacer?.frozen == true else { return }
         model.transport.closeWhileFrozen()
     }
 

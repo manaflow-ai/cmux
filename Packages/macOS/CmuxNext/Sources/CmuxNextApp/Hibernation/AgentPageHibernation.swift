@@ -404,20 +404,22 @@ extension AgentPageHibernation: AgentPageLifecycleOwner {
     /// connection waiting for it closes the connection until the thaw (p13-webui-080).
     func pageDidFreeze(_ key: String) {
         hideReads[key]?.runs = false
-        guard let pane = store()?.existingView(key), closesConnectionWhileFrozen(key, pane: pane) else { return }
+        guard let pane = store()?.existingView(key) else { return }
+        closeConnectionWhileFrozen(key, pane: pane, reasons: tabReasons(key, pane: pane))
+    }
+
+    /// Tab `key`'s frozen page `pane`, whose tab gives `reasons`, lets its acpmux connection go when nothing
+    /// on it waits for the page: its thaw opens it again and reads the chat from the page's last event. A turn
+    /// that runs or waits on the person, a turn watch that is down, another machine's or a Chief home's chat,
+    /// and a page whose hide read did not say it holds no started chat (a chip pick's, which no prompt went
+    /// to) keep the connection. Asked at the freeze and whenever a frozen page's reasons change.
+    private func closeConnectionWhileFrozen(_ key: String, pane: AgentPaneView, reasons: Set<PageLifecyclePlanner.KeepReason>) {
+        guard let read = hideReads[key], read.isDone, let wake = read.wake, wake.pendingChat != true,
+              reasons.isDisjoint(with: Self.reasonsThatKeepTheConnection) else { return }
         pane.closeTransportWhileFrozen()
     }
 
-    /// Whether tab `key`'s frozen page `pane` may let its acpmux connection go: its thaw reconnects and
-    /// acpmux replays the chat. A turn that runs or waits on the person, a turn watch that is down, another
-    /// machine's or a Chief home's chat, and a page whose hide read did not say it holds no started chat
-    /// (a chip pick's, which no prompt went to) keep the connection.
-    private func closesConnectionWhileFrozen(_ key: String, pane: AgentPaneView) -> Bool {
-        guard let read = hideReads[key], read.isDone, let wake = read.wake, wake.pendingChat != true else { return false }
-        return tabReasons(key, pane: pane).isDisjoint(with: Self.reasonsThatKeepTheConnection)
-    }
-
-    /// The tab reasons that keep a frozen page's acpmux connection (``closesConnectionWhileFrozen(_:pane:)``).
+    /// The tab reasons that keep a frozen page's acpmux connection (``closeConnectionWhileFrozen(_:pane:reasons:)``).
     static let reasonsThatKeepTheConnection: Set<PageLifecyclePlanner.KeepReason> =
         [.turnRunning, .awaitingPerson, .turnsUnknown, .remoteChat, .unrestorable]
 
@@ -442,9 +444,13 @@ extension AgentPageHibernation: AgentPageLifecycleOwner {
     /// Hands the lifecycle tab `key`'s keep reasons now: one that blocks a freeze thaws a frozen page in
     /// this turn (a turn started), one that ended arms a pass (the turn ended, the hide read answered).
     /// Never the page view's own (its load): those it reports itself, and a copy here would go stale.
+    /// A page that stays frozen whose connection no longer has anything waiting for it (the person's
+    /// question went away with no turn running) lets the connection go now (p13-webui-080).
     private func refreshKeepReasons(_ key: String) {
         guard let lifecycle, let pane = store()?.existingView(key) else { return }
-        lifecycle.setKeepReasons(tabReasons(key, pane: pane), for: key)
+        let reasons = tabReasons(key, pane: pane)
+        lifecycle.setKeepReasons(reasons, for: key)
+        if lifecycle.state(of: key) == .frozen { closeConnectionWhileFrozen(key, pane: pane, reasons: reasons) }
     }
 
     /// A turn started or ended, or the turn watch went down or came back: every hidden agent page's

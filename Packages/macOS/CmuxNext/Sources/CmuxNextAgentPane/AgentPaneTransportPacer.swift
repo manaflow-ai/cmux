@@ -23,9 +23,13 @@ public nonisolated struct AgentPaneFlush: Equatable, Sendable {
     func delivered()
     /// The connection changed or closed: forget what was in flight.
     func reset()
+    /// The page lifecycle froze the page: the pacer makes no call until the thaw, whichever path thaws it
+    /// (``AgentPaneFramePacer/pageDidFreeze()``).
+    var pageFrozen: Bool { get }
 }
 
 public extension AgentPaneTransportPacer {
+    var pageFrozen: Bool { false }
     func schedule(urgent: Bool, _ flush: @escaping @MainActor @Sendable () -> AgentPaneFlush) { schedule(flush) }
     func delivered() {}
     func reset() {}

@@ -75,6 +75,7 @@ import CmuxNextWakeups
     private var urgent = false
     /// The page lifecycle froze the pane's page: frames wait for the thaw, with nothing armed.
     private(set) var frozen = false
+    public var pageFrozen: Bool { frozen }
     /// The page thawed: its next call goes even to a pane nobody sees (``pageDidThaw()``).
     private var thawCall = false
     /// The pane's ``AgentPaneVisibilityProbe``.
