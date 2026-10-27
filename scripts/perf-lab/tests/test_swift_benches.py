@@ -220,6 +220,24 @@ class RunTests(unittest.TestCase):
         self.assertIn("matches no metric", err)
         self.assertIn("run differ", err)
 
+    def test_a_metric_recorded_twice_in_the_run_is_rejected_as_ingest_would(self) -> None:
+        def lines(context):
+            return [swift_record(context, "swift.lane_item.record_ns", "ns", [1]),
+                    swift_record(context, "swift.lane_item.record_ns", "ns", [2]),
+                    swift_record(context, "swift.lane_item.per_item_ns", "ns", [3]),
+                    swift_record(context, "swift.lane_item.clock_read_ns", "ns", [4])
+                    + swift_record(context, "swift.lane_item.clock_read_ns", "ns", [5])]
+
+        code, _, err = self.run_story(lines)
+        self.assertEqual(code, 1)
+        kept = perf_result.read_dir(self.out / sb.RESULTS_DIR)
+        self.assertEqual([result.metric for result in kept], ["swift.lane_item.per_item_ns"])
+        self.assertEqual(sorted(p.name for p in (self.out / sb.REJECTED_DIR).glob("*.ndjson")),
+                         ["swift-0.ndjson", "swift-1.ndjson", "swift-3.ndjson"])
+        self.assertIn("metric swift.lane_item.record_ns is recorded twice in this run (swift-0.ndjson, swift-1.ndjson)",
+                      err)
+        self.assertIn("metric swift.lane_item.clock_read_ns is recorded twice in this run (swift-3.ndjson)", err)
+
     def test_a_failed_suite_keeps_its_results_and_exits_one(self) -> None:
         code, _, _ = self.run_story(lambda c: [swift_record(c, "swift.lane_item.record_ns", "ns", [1])], status=1)
         self.assertEqual(code, 1)

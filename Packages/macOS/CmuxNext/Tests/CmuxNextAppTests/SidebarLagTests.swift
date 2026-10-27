@@ -9,12 +9,11 @@ import Testing
 /// screen. Prints one `SIDEBAR-LAG-BENCH` line per scenario and size (sidebar-lag-DESIGN.md).
 @MainActor @Suite(.serialized)
 struct SidebarLagTests {
-    static func measure(_ scenario: SidebarLagBench.Scenario, _ count: Int) throws -> [SidebarLagBench.Frame] {
+    static func measure(_ scenario: SidebarLagBench.Scenario, _ count: Int) -> [SidebarLagBench.Frame] {
         let bench = SidebarLagBench(count: count)
         defer { bench.close() }
         let frames = bench.run(scenario)
         print(SidebarLagBench.summary(scenario, count, frames))
-        try SidebarLagBench.record(scenario, count, frames)
         return frames
     }
 
@@ -50,15 +49,21 @@ struct SidebarLagTests {
         var growth: [(scenario: SidebarLagBench.Scenario, small: Double, large: Double)] = []
         for scenario in SidebarLagBench.Scenario.allCases {
             var p95s = Double.infinity, p95l = Double.infinity
+            var smallFrames: [SidebarLagBench.Frame] = [], largeFrames: [SidebarLagBench.Frame] = []
             for _ in 0..<2 {
-                let small = try Self.measure(scenario, 150)
-                let large = try Self.measure(scenario, 500)
+                let small = Self.measure(scenario, 150)
+                let large = Self.measure(scenario, 500)
+                smallFrames += small
+                largeFrames += large
                 p95s = min(p95s, SidebarLagBench.percentile(small.map(\.cpuMs), 0.95))
                 p95l = min(p95l, SidebarLagBench.percentile(large.map(\.cpuMs), 0.95))
                 if scenario != .select {
                     #expect(small.map(\.reloads).reduce(0, +) == 0, "\(scenario) laid the whole list out again at 150 workspaces")
                 }
             }
+            // One result per metric and run: both passes' frames, in run order (ingest refuses a metric written twice).
+            try SidebarLagBench.record(scenario, 150, smallFrames)
+            try SidebarLagBench.record(scenario, 500, largeFrames)
             calibration.checkpoint()
             timed.append(("\(scenario) p95 at 150 workspaces", p95s))
             growth.append((scenario, p95s, p95l))

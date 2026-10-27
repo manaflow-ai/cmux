@@ -14,8 +14,8 @@ block, engine none, session light, no features) to `<results>/perf-result-contex
 `scripts/ci/package-test-lane.sh suite Packages/macOS/CmuxNext FILTER` with CMUX_SWIFT_SUITE_CONFIGURATION=release
 (the fleet's optimized suite build, `-c release` with DEBUG still defined for the test helpers), the bench's
 enabling variables and CMUX_PERF_RESULT_DIR, then reads back every `.ndjson` the bench wrote with perf_result.py.
-A file that is not valid result-v1, is not this run's, or names a metric the story does not list moves to
-`<out>/rejected/`; the rest stay in `<out>/swift-results/`. Exit 0: the suite passed and wrote only valid results;
+A file that is not valid result-v1, is not this run's, names a metric the story does not list, or names a metric
+another file (or line) of the run also names (ingest refuses a metric recorded twice) moves to `<out>/rejected/`; the rest stay in `<out>/swift-results/`. Exit 0: the suite passed and wrote only valid results;
 1: the suite failed or a file was rejected (the valid ones are kept); 2: refused (not a fleet step, a lab host,
 a bad story) or nothing was written.
 
@@ -259,9 +259,17 @@ class Collected:
     rejected: List[Tuple[Path, str]]
 
 
+def _reject(path: Path, rejected_dir: Path) -> None:
+    rejected_dir.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(path), str(rejected_dir / path.name))
+
+
 def collect(results: Path, rejected_dir: Path, story: SwiftStory, expected: dict) -> Collected:
-    """Keeps each result file of this run whose metrics the story lists; moves every other one to rejected_dir."""
+    """Keeps each result file of this run whose metrics the story lists and no other file repeats; moves every other
+    one to rejected_dir. A metric written twice in one run is ingest's refusal of the whole run (ingest.py
+    _store_records), so every file that names it is rejected: which copy is right is unknown."""
     kept, rejected = [], []
+    metrics: Dict[Path, List[str]] = {}
     for path in sorted(results.glob("*.ndjson")):
         try:
             found = perf_result.read_file(path)
@@ -282,11 +290,26 @@ def collect(results: Path, rejected_dir: Path, story: SwiftStory, expected: dict
             reason = "no result in the file"
         if reason is None:
             kept.append(path)
+            metrics[path] = [result.metric for result in found]
         else:
-            rejected_dir.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(path), str(rejected_dir / path.name))
+            _reject(path, rejected_dir)
             rejected.append((path, reason))
-    return Collected(kept, rejected)
+    files: Dict[str, List[Path]] = {}
+    for path in kept:
+        for metric in metrics[path]:
+            files.setdefault(metric, []).append(path)
+    repeated: Dict[Path, str] = {}
+    for metric, paths in sorted(files.items()):
+        if len(paths) > 1:
+            names = ", ".join(sorted({p.name for p in paths}))
+            for path in paths:
+                repeated.setdefault(path, f"metric {metric} is recorded twice in this run ({names}); "
+                                          "ingest refuses the run")
+    for path in kept:
+        if path in repeated:
+            _reject(path, rejected_dir)
+            rejected.append((path, repeated[path]))
+    return Collected([path for path in kept if path not in repeated], rejected)
 
 
 def fleet_refusal(environ: Mapping[str, str]) -> Optional[str]:
