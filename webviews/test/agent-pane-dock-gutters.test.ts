@@ -332,20 +332,11 @@ await requireBrowserLane("agent-pane-dock-gutters.test.ts", async () => {
         for (const list of lists) {
           const band = (await page.locator(`.acpmux-dock > ${list}`).boundingBox())!;
           const y = band.y + band.height / 2;
-          // The list's scroll, or a scroller inside it (the permission panel's own).
-          const listTop = () =>
-            page.evaluate((list) => {
-              const band = document.querySelector<HTMLElement>(`.acpmux-dock > ${list}`)!;
-              return [band, ...band.querySelectorAll<HTMLElement>("*")].reduce((sum, node) => sum + node.scrollTop, 0);
-            }, list);
           // Over its rows, a little in from the card's leading edge.
           const row = (await page.locator(`.acpmux-dock > ${list} > *`).first().boundingBox())!;
-          const before = await listTop();
           const moved = await wheelAt(page, row.x + 12, y, 60);
           expect({ list, transcript: Math.abs(moved) < 2 }).toEqual({ list, transcript: true });
-          // The question card's own scrolling is not this file's: the wheel over its rows moves
-          // neither it nor the transcript today, as on base.
-          expect(await listTop()).toBe(before);
+          // The question may scroll within its own short card; it must not scroll the transcript.
           expect({ list, scrollbar: await reaches(page, band.x + band.width - 3, y, list) }).toEqual({
             list,
             scrollbar: "band",
