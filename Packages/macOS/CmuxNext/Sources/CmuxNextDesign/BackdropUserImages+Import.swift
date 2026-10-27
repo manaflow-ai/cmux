@@ -2,6 +2,7 @@ public import Foundation
 import AVFoundation
 import ImageIO
 import CmuxNextCompat
+import CmuxNextWakeups
 import class CmuxSafeConcurrency.OnceContinuation
 import func CmuxSafeConcurrency.withOnceThrowingContinuation
 import UniformTypeIdentifiers
@@ -34,7 +35,7 @@ nonisolated extension BackdropUserImages {
         guard await Self.isUsable(source) else { throw ImportError.notMedia }
         let images = self
         // The copy runs off the main actor: a movie can be hundreds of megabytes.
-        return try await Task.detached { try images.adopt(source) }.value
+        return try await TracedTask.detached(priority: .userBlocking) { try images.adopt(source) }.value
     }
 
     /// Whether `url` holds a picture that decodes or a movie with a picture macOS can play.

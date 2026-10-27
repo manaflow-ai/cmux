@@ -10,7 +10,9 @@ public import CmuxNextTrace
 /// a main-thread item's slice is the ticket's own (``Ticket/run(priority:_:)``).
 ///
 /// Off (the `task` category is a recording category, never the black box's), a post and a run cost one relaxed
-/// load and a branch each. On, the post's site file is interned once per file: one dictionary lookup.
+/// load and a branch each. On, the post's site file is interned once per file and runtime
+/// (``CmuxNextTrace/TraceRuntime/siteFile(_:)``): one dictionary lookup. A `TaskTrace` holds only its runtime, so
+/// making one costs nothing (``TracedTask`` makes one per post).
 ///
 /// Records (plans/cmux-next/trace.md "Limits and open span requests", `task.post` and `task.run`):
 /// - `task.post` flow-out: `arg0` the post site (file id bits 0-15, line bits 16-47), `arg1` the flow id.
@@ -19,13 +21,15 @@ public import CmuxNextTrace
 ///   ``unknownWait`` when the post was not traced).
 /// - `task.run` flow-in, inside the B: `arg0` the post site, `arg1` the flow id.
 /// - `task.run` E.
+/// - A ``TracedTask``'s run can suspend and resume on other threads, so it is a `task.run` AB/AE instead, keyed by
+///   its flow id (``Ticket/beginAsyncRun(priority:)``).
 ///
 /// ```swift
 /// let ticket = trace.post(fileID: fileID, line: line, lane: .files)
 /// // on the lane thread:
 /// ticket.run(priority: TaskTrace.code(workClass)) { body() }  // main lane; a lane job calls ticket.arrive()
 /// ```
-public final class TaskTrace: Sendable {
+public struct TaskTrace: Sendable {
     /// Where a traced item runs: the `task.run` begin's lane code, a ``BlockingLane``'s `rawValue` or 3 for main.
     public enum Lane: UInt8, Sendable {
         /// ``BlockingLane/files``.
@@ -36,6 +40,8 @@ public final class TaskTrace: Sendable {
         case cpu = 2
         /// The main thread (a queued control request).
         case main = 3
+        /// Swift's cooperative pool (a ``TracedTask``).
+        case pool = 4
 
         /// The code of a ``BackgroundWork`` lane.
         public init(_ lane: BlockingLane) {
@@ -54,8 +60,6 @@ public final class TaskTrace: Sendable {
 
     /// The runtime the records go to.
     public let runtime: TraceRuntime
-    // concurrency-allow: post sites interned by file, looked up synchronously by posting threads while the task category records (lock carve-out: one dictionary read or insert, no I/O under it; the name is made outside it).
-    private let files = Mutex<[UInt: TraceRuntime.InternedName]>([:])
 
     /// Task tracing into `runtime`.
     public init(runtime: TraceRuntime) {
@@ -81,7 +85,7 @@ public final class TaskTrace: Sendable {
     /// (``PendingPost/write()``, lock-free) only once it accepted the item, so a refused item leaves no post.
     public func prepare(fileID: StaticString, line: UInt, lane: Lane) -> PendingPost {
         let traced = runtime.isEnabled(categoryBit: Self.categoryBit)
-        return PendingPost(trace: self, lane: lane, file: traced ? interned(fileID) : nil, line: line, traced: traced)
+        return PendingPost(trace: self, lane: lane, file: traced ? runtime.siteFile(fileID) : nil, line: line, traced: traced)
     }
 
     /// A post whose site is resolved and whose `task.post` record is not written yet (``prepare(fileID:line:lane:)``).
@@ -103,20 +107,6 @@ public final class TaskTrace: Sendable {
             guard let posted = runtime.write(name: SignpostName.taskPost.rawValue, categoryBit: TaskTrace.categoryBit,
                                              phase: .flowOut, file: file, line: line, arg1: flow) else { return untraced }
             return Ticket(trace: trace, lane: lane, flow: flow, postNanos: posted, file: file, line: line)
-        }
-    }
-
-    /// The one name of `fileID` in this trace, made at its first traced post; nil for a string built at run time
-    /// (a `#fileID` never is one).
-    private func interned(_ fileID: StaticString) -> TraceRuntime.InternedName? {
-        guard fileID.hasPointerRepresentation else { return nil }
-        let key = UInt(bitPattern: fileID.utf8Start)
-        if let known = files.withLock({ $0[key] }) { return known }
-        let made = TraceRuntime.InternedName(fileID, categoryBit: Self.categoryBit)
-        return files.withLock { files in
-            if let known = files[key] { return known }
-            files[key] = made
-            return made
         }
     }
 
@@ -155,6 +145,50 @@ public final class TaskTrace: Sendable {
             guard flow != 0 else { return }
             trace.runtime.write(name: SignpostName.taskRun.rawValue, categoryBit: TaskTrace.categoryBit,
                                 phase: .flowIn, file: file, line: line, arg1: flow)
+        }
+
+        /// Whether the post wrote its `task.post` flow-out.
+        public var isTraced: Bool { flow != 0 }
+
+        /// Opens the `task.run` async slice (AB) of a run that can suspend and resume on other threads (a
+        /// ``TracedTask``'s) when the `task` category is on, and writes the post's flow-in right after it on the
+        /// starting thread. Its id is the post's flow id, or a new one when the post was not traced. AB arg0: the
+        /// priority in bits 0-7, the lane in bits 8-15 and the queue wait in us in bits 16-63
+        /// (``TaskTrace/unknownAsyncWait`` when the post was not traced); AB arg1: the id.
+        ///
+        /// - Parameter priority: the priority code the run starts at (a ``WorkPriority``'s `rawValue`).
+        /// - Returns: The slice; call ``AsyncRun/end()`` when the run returns, on whatever thread it ends.
+        public func beginAsyncRun(priority: UInt8) -> AsyncRun {
+            let runtime = trace.runtime
+            guard runtime.isEnabled(categoryBit: TaskTrace.categoryBit) else { return AsyncRun(runtime: nil, id: 0) }
+            let id = isTraced ? flow : TaskTrace.flowTag | runtime.nextAsyncScope()
+            let now = runtime.nowNanos()
+            let waited = (now > postNanos ? now - postNanos : 0) / 1_000
+            let wait = isTraced ? min(waited, TaskTrace.unknownAsyncWait - 1) : TaskTrace.unknownAsyncWait
+            let arg0 = wait << 16 | UInt64(lane.rawValue) << 8 | UInt64(priority)
+            guard runtime.write(name: SignpostName.taskRun.rawValue, categoryBit: TaskTrace.categoryBit,
+                                phase: .asyncBegin, flags: .asyncID, arg0: arg0, arg1: id) else {
+                return AsyncRun(runtime: nil, id: 0)
+            }
+            arrive()
+            return AsyncRun(runtime: runtime, id: id)
+        }
+    }
+
+    /// The `task.run` AB arg0 queue wait (bits 16-63) of a run whose post was not traced.
+    public static let unknownAsyncWait: UInt64 = (1 << 48) - 1
+
+    /// An open `task.run` async slice (``Ticket/beginAsyncRun(priority:)``).
+    public struct AsyncRun: Sendable {
+        /// The runtime the AB went to; nil when none was written.
+        let runtime: TraceRuntime?
+        /// The slice's async id.
+        let id: UInt64
+
+        /// Writes the slice's AE, on any thread, when its AB was written (also after the category turned off).
+        public func end() {
+            runtime?.writeEnd(name: SignpostName.taskRun.rawValue, categoryBit: TaskTrace.categoryBit,
+                              phase: .asyncEnd, flags: .asyncID, arg1: id)
         }
     }
 }

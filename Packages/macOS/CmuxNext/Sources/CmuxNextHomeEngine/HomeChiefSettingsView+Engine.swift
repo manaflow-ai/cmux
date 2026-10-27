@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextHome
+import CmuxNextWakeups
 import Foundation
 
 /// The card's engine rows (`HomeChiefSettingsView`): reading the brain's engine, writing a pick,
@@ -17,7 +18,7 @@ extension HomeChiefSettingsView {
         return Task { [weak self] in
             // This Mac's acpmux harnesses, for a brain that runs here (a paired server's are its own).
             if let self, source.isLocal { listedHarnesses = await listHarnesses() }
-            let result = await Task.detached { () async -> Result<HomeChiefSnapshot, HomeChiefEngineError> in
+            let result = await TracedTask.detached(priority: .userVisible) { () async -> Result<HomeChiefSnapshot, HomeChiefEngineError> in
                 do { return .success(try await source.read()) } catch let error as HomeChiefEngineError { return .failure(error) } catch { return .failure(.other(String(describing: error))) }
             }.value
             // A read of the Chief shown before (another conversation) is not shown.
@@ -45,7 +46,7 @@ extension HomeChiefSettingsView {
         changeFailed = false
         // task-owner: one write off the main actor; ends when its result is shown
         return Task { [weak self] in
-            let result = await Task.detached { () async -> Result<HomeChiefSnapshot, HomeChiefEngineError> in
+            let result = await TracedTask.detached(priority: .userBlocking) { () async -> Result<HomeChiefSnapshot, HomeChiefEngineError> in
                 do { return .success(try await source.set(fields)) } catch let error as HomeChiefEngineError { return .failure(error) } catch { return .failure(.other(String(describing: error))) }
             }.value
             // A pick for the Chief shown before (another conversation, or its other host) is not shown.

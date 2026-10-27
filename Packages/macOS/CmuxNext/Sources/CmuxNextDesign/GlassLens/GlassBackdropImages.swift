@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextCompat
+import CmuxNextWakeups
 import ImageIO
 import UniformTypeIdentifiers
 
@@ -74,7 +75,7 @@ public final class GlassBackdropImages {
         let source = Bitmap(image: bitmap), size = maxPixelSize
         // main-hop-allow: the task only awaits its detached encode; its one resume stores the URL and marks each waiting feed for its next update
         Task { [weak self, weak entry] in
-            let url = await Task.detached(priority: Task.currentPriority) { Self.jpegDataURL(source.image, maxPixelSize: size) }.value
+            let url = await TracedTask.detached(priority: WorkPriority(Task.currentPriority)) { Self.jpegDataURL(source.image, maxPixelSize: size) }.value
             guard let entry else { return }
             entry.dataURL = url ?? ""
             self?.encodedBytes += entry.dataURL?.utf8.count ?? 0

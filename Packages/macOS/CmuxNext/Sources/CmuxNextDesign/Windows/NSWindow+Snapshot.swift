@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextCompat
+import CmuxNextWakeups
 import Darwin
 
 /// How ``NSWindow/snapshotImage(on:)`` captured a window.
@@ -16,7 +17,7 @@ extension NSWindow {
     /// main actor: AppKit capture stays on the main actor, the compression
     /// and the file write do not.
     public static func encodeSnapshotPNG(_ image: CGImage, to url: URL) async throws {
-        try await Task.detached(priority: .userInitiated) {
+        try await TracedTask.detached(priority: .userBlocking) {
             guard let data = image.pngData() else { throw CocoaError(.fileWriteUnknown) }
             try data.write(to: url, options: .atomic)
         }.value

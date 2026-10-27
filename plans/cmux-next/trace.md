@@ -344,6 +344,11 @@ the tables of "Release trace ring v1"; the Swift `TraceRuntime.Role` and `TraceR
   (below, "Blocking calls and lane jobs"); a control request's is written by `TaskTrace` on the main
   thread, with the lane 3 (main) in B arg0 bits 8-15 and its `MainWorkClass` `rawValue` in bits 0-7, and
   B arg1 the queue wait in us, or u64::MAX when unknown (the post was written before the recording started).
+  A `TracedTask.detached` (p09-observability-124) posts the same `task.post`, named by its caller's `#fileID`
+  and `#line`. Its run can suspend and resume on other threads, so its `task.run` is an async slice (AB/AE)
+  keyed by the flow id in arg1 of both records: AB arg0 the `WorkPriority` `rawValue` in bits 0-7, the lane 4
+  (Swift's cooperative pool) in bits 8-15 and the queue wait in us in bits 16-63 (2^48-1 when the post was not
+  traced). The flow-in follows the AB on the thread the task started on; the AE is written where it returns.
 - `control.request` (category `control`, closed for its queue part by p09-observability-042; task 115
   owns the accept-to-reply part) is an async slice (AB/AE) per control request from its enqueue on
   `MainActorWorkQueue` to the end of its run or its failure, keyed by an async id

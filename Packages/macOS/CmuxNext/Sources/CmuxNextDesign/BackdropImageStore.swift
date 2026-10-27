@@ -1,6 +1,7 @@
 public import AppKit
 import AVFoundation
 public import CmuxNextCompat
+import CmuxNextWakeups
 import CoreImage
 import ImageIO
 import UniformTypeIdentifiers
@@ -155,7 +156,7 @@ public final class BackdropImageStore {
         } else {
             let source = selection.resolvedImageURL(dark: dark), snapshot = snapshotURL(selection, texture: texture, dark: dark)
             let size = maxPixelSize
-            load = Task.detached(priority: .userInitiated) {
+            load = TracedTask.detached(priority: .userBlocking) {
                 Self.load(source, snapshot: snapshot, maxPixelSize: size, texture: texture, dark: dark)
             }
             loads[key] = load

@@ -1,4 +1,5 @@
 public import CmuxNextHome
+import CmuxNextWakeups
 public import Foundation
 
 /// Each of this Mac's Chiefs' own avatar, keyed by participant id, for the Home list and each
@@ -72,7 +73,7 @@ public nonisolated struct HomeChiefAvatars: Sendable {
     public func headerAvatar(chief: String, fallback: URL?) async -> (text: String?, picture: Data?) {
         let avatar: (text: String?, picture: Data?)
         switch await read(chief: chief) {
-        case .picture(let url)?: avatar = (nil, await Task.detached { try? Data(contentsOf: url) }.value)
+        case .picture(let url)?: avatar = (nil, await TracedTask.detached(priority: .userVisible) { try? Data(contentsOf: url) }.value)
         case .text(let text)?: avatar = (text, nil)
         case nil: avatar = (nil, nil)
         }
@@ -82,12 +83,12 @@ public nonisolated struct HomeChiefAvatars: Sendable {
     /// The header's avatar from a Chief's files alone (a cloud Chief has no registry here), else
     /// the bytes of `fallback`.
     public static func headerAvatar(files: HomeChiefFiles, fallback: URL?) async -> (text: String?, picture: Data?) {
-        await orFallback(await Task.detached { files.headerAvatar() }.value, fallback)
+        await orFallback(await TracedTask.detached(priority: .userVisible) { files.headerAvatar() }.value, fallback)
     }
 
     private static func orFallback(_ avatar: (text: String?, picture: Data?), _ fallback: URL?) async -> (text: String?, picture: Data?) {
         guard avatar.text == nil, avatar.picture == nil, let fallback else { return avatar }
-        return (nil, await Task.detached { try? Data(contentsOf: fallback) }.value)
+        return (nil, await TracedTask.detached(priority: .userVisible) { try? Data(contentsOf: fallback) }.value)
     }
 
     /// `refs`: the registry's pictures (nil: no registry, or it cannot be reached).
@@ -101,13 +102,13 @@ public nonisolated struct HomeChiefAvatars: Sendable {
                 return await show(moved)
             }
         }
-        return await Task.detached { files.tileAvatar() }.value
+        return await TracedTask.detached(priority: .userVisible) { files.tileAvatar() }.value
     }
 
     /// The cached file of the picture named `sha`, squared as the list draws it; nil when not cached.
     private func cached(_ sha: String) async -> HomeChiefAvatar? {
         let cache = cache
-        return await Task.detached { () -> HomeChiefAvatar? in
+        return await TracedTask.detached(priority: .userVisible) { () -> HomeChiefAvatar? in
             let names = (try? FileManager.default.contentsOfDirectory(atPath: cache.path)) ?? []
             guard let name = names.first(where: { ($0 as NSString).deletingPathExtension == sha }) else { return nil }
             let file = cache.appendingPathComponent(name)
@@ -118,7 +119,7 @@ public nonisolated struct HomeChiefAvatars: Sendable {
     /// Writes `picture` into the cache (once per SHA-256) and returns it as the list draws it.
     private func show(_ picture: ChiefAvatarPicture) async -> HomeChiefAvatar? {
         let cache = cache
-        return await Task.detached { () -> HomeChiefAvatar? in
+        return await TracedTask.detached(priority: .userVisible) { () -> HomeChiefAvatar? in
             let file = cache.appendingPathComponent("\(picture.sha256).\(picture.fileExtension)")
             if !FileManager.default.fileExists(atPath: file.path) {
                 try? FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
@@ -132,13 +133,13 @@ public nonisolated struct HomeChiefAvatars: Sendable {
     /// profile.json first, then profile.json forgets it. Nil (nothing moved) when there is none,
     /// it is not a picture the registry keeps, or the registry refused it.
     private func move(_ files: HomeChiefFiles, chief: String, to registry: any ChiefAvatarRegistry) async -> ChiefAvatarPicture? {
-        let found = await Task.detached { () -> ChiefAvatarPicture? in
+        let found = await TracedTask.detached(priority: .userVisible) { () -> ChiefAvatarPicture? in
             guard let file = files.legacyPictureFile(), let data = try? Data(contentsOf: file),
                   let type = registryMediaType(of: data) else { return nil }
             return ChiefAvatarPicture(mediaType: type, data: data)
         }.value
         guard let found, (try? await registry.setPicture(found, of: chief)) != nil else { return nil }
-        await Task.detached {
+        await TracedTask.detached(priority: .userVisible) {
             let folder = files.profileFile.deletingLastPathComponent()
             let backup = folder.appendingPathComponent(Self.backupFolder, isDirectory: true)
             try? FileManager.default.createDirectory(at: backup, withIntermediateDirectories: true)
@@ -160,12 +161,12 @@ public nonisolated struct HomeChiefAvatars: Sendable {
     public func setPicture(from source: URL, chief: String) async throws {
         let files = files(chief)
         guard let registry else {
-            try await Task.detached { try files.writePicture(from: source) }.value
+            try await TracedTask.detached(priority: .userBlocking) { try files.writePicture(from: source) }.value
             return
         }
-        let picture = try await Task.detached { try files.pictureData(from: source) }.value
+        let picture = try await TracedTask.detached(priority: .userBlocking) { try files.pictureData(from: source) }.value
         try await registry.setPicture(picture, of: chief)
-        await Task.detached { files.clearPicture() }.value
+        await TracedTask.detached(priority: .userBlocking) { files.clearPicture() }.value
     }
 
     /// Puts Chief `chief` back on the default: no picture in the registry and no avatar in profile.json.
@@ -173,7 +174,7 @@ public nonisolated struct HomeChiefAvatars: Sendable {
     public func clearPicture(chief: String) async throws {
         let files = files(chief)
         try await registry?.clearPicture(of: chief)
-        await Task.detached { files.clearPicture() }.value
+        await TracedTask.detached(priority: .userBlocking) { files.clearPicture() }.value
     }
 }
 

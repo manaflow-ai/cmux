@@ -1,5 +1,6 @@
 public import CmuxNextDaemon
 import CmuxNextIPC
+import CmuxNextWakeups
 public import Foundation
 
 /// The engine each of this Mac's Chiefs runs on, for the Home list's badges
@@ -55,7 +56,7 @@ public nonisolated struct HomeChiefHarnesses: Sendable {
         let records = Self.recordHarnesses(listed)
         // brainHome is main-actor isolated: the paths are made here, the files read off it.
         let homes = await Self.brainHomes(muxHome: muxHome, chiefs: chiefs)
-        let saved = await Task.detached { () -> [String: String] in
+        let saved = await TracedTask.detached(priority: .userVisible) { () -> [String: String] in
             var saved: [String: String] = [:]
             for (chief, home) in homes {
                 saved[chief] = HomeChiefFiles(muxHome: home).engineHarness()

@@ -14,6 +14,23 @@ extension TraceRuntime {
         clock.nowNanos()
     }
 
+    /// The one name of the post site file `fileID` in this runtime, in the `task` category, made at its first
+    /// call: one dictionary lookup after that. nil for a string built at run time (a `#fileID` never is one).
+    /// The table is the runtime's, so every poster on it (lanes, the control queue, detached tasks) gives a file
+    /// one entry in the ring's name table. Chrome keeps one `base::Location` per `FROM_HERE`, and Perfetto interns
+    /// its file once per sequence (`InternedSourceLocation`).
+    public func siteFile(_ fileID: StaticString) -> InternedName? {
+        guard fileID.hasPointerRepresentation else { return nil }
+        let key = UInt(bitPattern: fileID.utf8Start)
+        if let known = siteFiles.withLock({ $0[key] }) { return known }
+        let made = InternedName(fileID, categoryBit: TraceCategories.taskBit)
+        return siteFiles.withLock { files in
+            if let known = files[key] { return known }
+            files[key] = made
+            return made
+        }
+    }
+
     /// Writes one catalog record whose `arg0` names a source site, when its category is on: `file`'s id in the
     /// ring the record goes to in bits 0-15 (0 when `file` is nil or the name table is full) and `line` in bits
     /// 16-47. The id comes from the same ring as the record, also when an adoption swaps the active ring

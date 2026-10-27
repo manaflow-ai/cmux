@@ -67,6 +67,8 @@ public final class TraceRuntime: Sendable {
     let metricsAddress = Atomic<UInt64>(0)
     /// The crash-key page ``attachCrashKeys(_:)`` attached; none until its owner attaches one.
     let crashKeyPage = AttachedCrashKeyPage()
+    // concurrency-allow: ``siteFile(_:)``'s post-site files by `#fileID` address, read synchronously by posting threads while the task category records (lock carve-out: one dictionary read or insert, no I/O under it; the name is made outside it).
+    let siteFiles = Mutex<[UInt: InternedName]>([:])
 
     /// A runtime for a process of kind `role`, with every category off and no ring yet.
     ///

@@ -1,6 +1,7 @@
 public import CmuxNextDaemon
 public import CmuxNextHome
 import CmuxNextCompat
+import CmuxNextWakeups
 public import Foundation
 
 /// What the Home list showed last, beyond the conversations themselves (those are `HomeCache`'s):
@@ -107,7 +108,7 @@ public nonisolated final class HomeSidebarLaunchCache: Sendable {
         }
         guard schedule else { return }
         // task-owner: one coalesced write; ends after it (a save meanwhile replaces what it writes)
-        Task.detached(priority: .utility) { [self] in flush() }
+        TracedTask.detached(priority: .bestEffort) { [self] in flush() }
     }
 
     /// Writes the pending snapshot now (app quit, tests). The file is written outside the lock.

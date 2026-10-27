@@ -281,7 +281,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// B/E. B arg0 the lane in bits 8-15 (0 files, 1 system, 2 cpu, 3 main, 0xFF a lane made without one) and the
     /// priority in bits 0-7 (a `WorkPriority`'s, or on the main lane a `MainWorkClass`'s, `rawValue`); B arg1 the
     /// queue wait in us (on the main lane `UInt64.max` when the post was not traced). Right after the B, the flow-in
-    /// of a traced post (task 042): arg0 the post site, arg1 the flow id.
+    /// of a traced post (task 042): arg0 the post site, arg1 the flow id. A `TracedTask`'s run is AB/AE (trace.md).
     case taskRun = 51
 
     // MARK: hang (reserved: PL-telemetry)

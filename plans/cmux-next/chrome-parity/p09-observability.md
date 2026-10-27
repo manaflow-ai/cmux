@@ -524,8 +524,9 @@ The audit script prints every base count. Fixed numbers below are the base value
 - **MQ13. Unnamed Rust threads** (197 today; 1 task per <= 40 hits). `rg -n 'std::thread::spawn\(|thread::spawn\('
   --glob '!**/tests/**' --glob '!**/*tests*.rs'
   cmux-tui/crates/{cmux-tui-core,cmux-tui,cmux-holder,acpmux,cmux-app-host,cmux-browser-host}/src`
-- **MQ14. Untraced detached tasks** (204 today; 1 task per <= 30 hits).
-  `rg -n 'Task\.detached' Packages/macOS/CmuxNext/Sources`
+- **MQ14. Untraced detached tasks** (204 today; 158 after task 124's batch, CmuxNextHomeEngine and CmuxNextDesign;
+  1 task per <= 30 hits). `\b` keeps a converted `TracedTask.detached` out of the count.
+  `rg -n '\bTask\.detached' Packages/macOS/CmuxNext/Sources --glob '!**/CmuxNextWakeups/TracedTask.swift'`
 - **MQ15. ContinuousClock sites on trace, histogram or deadline paths** (369 lines name ContinuousClock,
   117 `.now`; batches of <= 15 files). `rg -n 'ContinuousClock' Packages/macOS/CmuxNext/Sources`. A hit is
   done when it uses TraceClock or SuspendingClock, or carries `// continuous-clock: <why>`.

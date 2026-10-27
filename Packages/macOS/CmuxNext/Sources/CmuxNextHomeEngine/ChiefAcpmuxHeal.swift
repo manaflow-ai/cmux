@@ -1,5 +1,6 @@
 public import CmuxNextAgentPane
 import CmuxNextCompat
+import CmuxNextWakeups
 import Foundation
 import os
 
@@ -56,7 +57,7 @@ public nonisolated struct ChiefAcpmuxHeal: Sendable {
             let host = asked.withLock { $0 }
             // task-owner: one follow-up per stale daemon (the pane heals each pid once); it ends
             // when the host exits, however long its turn runs (one exit source, no timer)
-            Task.detached {
+            TracedTask.detached(priority: .bestEffort) {
                 await Self.finishAfterTurn(
                     hostExited: {
                         guard let host else { return true }
