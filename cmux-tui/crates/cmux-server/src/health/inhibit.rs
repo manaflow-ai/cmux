@@ -83,6 +83,7 @@ impl Inhibitor {
 
     /// The holder still runs (a non-blocking check at the time of asking).
     pub fn is_held(&mut self) -> bool {
+        // wakeup-allow: bounded one non-blocking check when a health report asks; nothing here repeats it
         matches!(self.child.try_wait(), Ok(None))
     }
 }

@@ -68,6 +68,7 @@ impl Listener for AdmissionListener {
                     // peer can cause those errors repeatedly, so an immediate retry would
                     // let it turn the accept task into a CPU spin. The sleep future is
                     // cancellation-safe: dropping the listener drops this future.
+                    // wakeup-allow: backoff only after a failed accept, doubled per failure up to its cap; a good accept returns and the next accept starts over
                     tokio::time::sleep(accept_retry_delay(retry_attempt)).await;
                     retry_attempt = retry_attempt.saturating_add(1);
                 }
@@ -109,6 +110,7 @@ impl AdmissionStream {
         Self {
             inner,
             _permit: permit,
+            // wakeup-allow: deadline the connection's one header bound; the request's headers end it first
             deadline: Box::pin(tokio::time::sleep(header_timeout)),
             idle_deadline: None,
             keepalive_timeout,

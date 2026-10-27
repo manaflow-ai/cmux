@@ -62,4 +62,6 @@ pub(super) fn close_inner(inner: &Inner, why: &str) {
         let _ = pending.response.send(Err(why.to_string()));
     }
     inner.events.close(why);
+    // The reader delivers the Closed event and stops.
+    inner.reader.wake();
 }

@@ -60,6 +60,7 @@ impl Conn {
     pub fn set_deadline(&mut self, after: std::time::Duration) {
         #[cfg(unix)]
         if let Conn::Socket { reader, .. } = self {
+            // wakeup-allow: deadline the caller's one bound on a `task watch`; each event ends a read first
             let _ = reader.get_ref().set_read_timeout(Some(after));
         }
         #[cfg(not(unix))]

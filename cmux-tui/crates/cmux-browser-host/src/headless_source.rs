@@ -792,6 +792,7 @@ fn release_after_linger(
         match linger.wait(Instant::now()) {
             Next::Sleep(delay) => {
                 // Bounded wait for the deadline, then ask again.
+                // wakeup-allow: deadline the browser's linger deadline (a later session end moves it); a session that takes the browser ends it first
                 drop(
                     src.linger_wake
                         .wait_timeout(linger, delay)

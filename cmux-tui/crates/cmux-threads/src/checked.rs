@@ -179,6 +179,7 @@ pub mod sync {
         timeout: Duration,
     ) -> Result<T, RecvTimeoutError> {
         assert_blocking_allowed(BlockingKind::Recv);
+        // wakeup-allow: deadline the caller's own timed receive, passed through; the caller owns the timeout
         receiver.recv_timeout(timeout)
     }
 
@@ -244,6 +245,7 @@ pub mod sync {
         timeout: Duration,
     ) -> LockResult<(MutexGuard<'a, T>, WaitTimeoutResult)> {
         assert_blocking_allowed(BlockingKind::CondvarWait);
+        // wakeup-allow: deadline the caller's own timed wait, passed through; the caller owns the timeout
         condvar.std_condvar().wait_timeout(guard, timeout)
     }
 
@@ -251,6 +253,7 @@ pub mod sync {
     #[track_caller]
     pub fn sleep(duration: Duration) {
         assert_blocking_allowed(BlockingKind::Sleep);
+        // wakeup-allow: deadline the caller's own sleep, passed through; the caller owns the duration
         std::thread::sleep(duration);
     }
 }

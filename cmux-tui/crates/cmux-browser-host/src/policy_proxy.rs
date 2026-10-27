@@ -100,6 +100,7 @@ fn direct(target: &Target, own: SocketAddr) -> Result<TcpStream, u8> {
 fn through(egress: SocketAddr, target: &Target) -> Result<TcpStream, u8> {
     let attempt = || -> io::Result<Result<TcpStream, u8>> {
         let mut stream = TcpStream::connect_timeout(&egress, UPSTREAM_TIMEOUT)?;
+        // wakeup-allow: deadline the egress handshake's one bound; cleared once it answered
         stream.set_read_timeout(Some(UPSTREAM_TIMEOUT))?;
         stream.write_all(&[5, 1, 0])?;
         let mut choice = [0u8; 2];

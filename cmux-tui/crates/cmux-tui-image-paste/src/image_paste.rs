@@ -68,8 +68,8 @@ impl ImagePasteStore {
             let mut state = store.shared.state.lock().unwrap();
             state.recovery = recovery;
             if let Some(recovery) = &mut state.recovery {
-                let delay = recovery.scan(&HashSet::new());
-                state.next_recovery = Some(Instant::now() + delay);
+                state.next_recovery =
+                    recovery.scan(&HashSet::new()).map(|delay| Instant::now() + delay);
                 let _ = store.start_worker(&mut state);
             }
         }
@@ -94,8 +94,8 @@ impl ImagePasteStore {
                                 .map(|upload| upload.file.directory().to_owned())
                                 .collect();
                             if let Some(recovery) = &mut state.recovery {
-                                let delay = recovery.scan(&active);
-                                state.next_recovery = Some(Instant::now() + delay);
+                                state.next_recovery =
+                                    recovery.scan(&active).map(|delay| Instant::now() + delay);
                             }
                         }
                         if let Some(deadline) = state
@@ -106,6 +106,7 @@ impl ImagePasteStore {
                             .min()
                         {
                             let wait = deadline.saturating_duration_since(Instant::now());
+                            // wakeup-allow: deadline the earliest upload expiry or recovery batch, receipt expiry or open retry; untimed with none
                             state = shared.changed.wait_timeout(state, wait).unwrap().0;
                         } else {
                             state = shared.changed.wait(state).unwrap();
@@ -130,7 +131,15 @@ impl ImagePasteStore {
         anyhow::ensure!((1..=MAX_IMAGE_BYTES).contains(&size), "image-size-limit");
         let extension = extension(mime).ok_or_else(|| anyhow::anyhow!("image-type-rejected"))?;
         let mut state = self.shared.state.lock().unwrap();
-        Self::reap(&mut state, Instant::now());
+        let now = Instant::now();
+        Self::reap(&mut state, now);
+        // A paste finds leftovers of a process that died since the last scan.
+        if state.next_recovery.is_none()
+            && state.recovery.as_ref().is_some_and(|recovery| recovery.stale(now))
+        {
+            state.next_recovery = Some(now);
+            self.shared.changed.notify_one();
+        }
         anyhow::ensure!(
             !state.uploads.contains_key(&(owner.client, id.to_owned())),
             "image-duplicate-upload"

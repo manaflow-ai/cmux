@@ -129,6 +129,7 @@ async fn run(
                     backoff = Duration::from_millis(200);
                 }
                 // Bounded, cancellable retry delay (the task is aborted on reset).
+                // wakeup-allow: backoff the reconnect delay after a closed or refused session, doubled up to 5 s
                 tokio::time::sleep(backoff).await;
                 backoff = (backoff * 2).min(Duration::from_secs(5));
             }
@@ -163,8 +164,11 @@ async fn session(
         }
         _ => return SessionEnd::Reconnect { healthy: false },
     }
-    let mut ping = tokio::time::interval(PING_EVERY);
-    ping.tick().await;
+    // A ping only after PING_EVERY with no frame either way: traffic keeps
+    // the relay's and the proxy's idle timers alive by itself.
+    // wakeup-allow: deadline the silence deadline: PING_EVERY after the last frame either way; every frame moves it, so a busy session is never pinged
+    let silence = tokio::time::sleep(PING_EVERY);
+    tokio::pin!(silence);
     loop {
         tokio::select! {
             changed = ticket.changed() => {
@@ -179,13 +183,16 @@ async fn session(
                 if sink.send(Message::Binary(frame.into())).await.is_err() {
                     return SessionEnd::Reconnect { healthy: true };
                 }
+                silence.as_mut().reset(tokio::time::Instant::now() + PING_EVERY);
             }
-            _ = ping.tick() => {
+            () = &mut silence => {
                 if sink.send(Message::Ping(Vec::new().into())).await.is_err() {
                     return SessionEnd::Reconnect { healthy: true };
                 }
+                silence.as_mut().reset(tokio::time::Instant::now() + PING_EVERY);
             }
             message = stream.next() => {
+                silence.as_mut().reset(tokio::time::Instant::now() + PING_EVERY);
                 match message {
                     Some(Ok(Message::Binary(frame))) => {
                         if let Some((sender, datagram)) = relay_frame::decode(&frame) {

@@ -48,6 +48,7 @@ impl Inner {
         let sent =
             self.events.lock().unwrap_or_else(PoisonError::into_inner).send(Dispatch::Flush(done));
         if sent.is_ok() {
+            // wakeup-allow: deadline one bounded wait for the event sink's flush; the flush ends it first
             let _ = flushed.recv_timeout(wait);
         }
     }

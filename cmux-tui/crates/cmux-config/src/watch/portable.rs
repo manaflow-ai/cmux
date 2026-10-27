@@ -125,6 +125,7 @@ fn run(
             if left.is_zero() {
                 break;
             }
+            // wakeup-allow: deadline the quiet window of one event burst (QUIET, at most MAX_DELAY); untimed between bursts
             match receiver.recv_timeout(left) {
                 Ok(Message::Event) => {}
                 Ok(Message::Stop) | Err(RecvTimeoutError::Disconnected) => return,

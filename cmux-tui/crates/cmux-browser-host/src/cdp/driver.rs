@@ -441,6 +441,17 @@ impl Inner {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// Waits for a state change, at most until `deadline` (the caller's).
+    pub(super) fn wait_changed<'a>(
+        &self,
+        state: MutexGuard<'a, State>,
+        deadline: Instant,
+    ) -> MutexGuard<'a, State> {
+        let left = deadline.saturating_duration_since(Instant::now());
+        // wakeup-allow: deadline what is left of the caller's timeout; a state change (changed) ends it first
+        self.changed.wait_timeout(state, left).unwrap_or_else(PoisonError::into_inner).0
+    }
+
     fn handle_event(self: &Arc<Self>, event: CdpEvent) {
         if event.method == "Fetch.requestPaused" {
             self.request_paused(&event);
@@ -698,11 +709,7 @@ impl Inner {
             if now >= deadline {
                 return Err(DriverError::timeout(format!("Timed out waiting for {what}")));
             }
-            state = self
-                .changed
-                .wait_timeout(state, deadline - now)
-                .unwrap_or_else(PoisonError::into_inner)
-                .0;
+            state = self.wait_changed(state, deadline);
         }
     }
 
@@ -807,11 +814,7 @@ impl Inner {
                 if let Some(reason) = self.conn.closed_reason() {
                     return Err(DriverError::closed(reason));
                 }
-                state = self
-                    .changed
-                    .wait_timeout(state, deadline - now)
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .0;
+                state = self.wait_changed(state, deadline);
             }
             if let Some(error) = state.tabs.get(&target_id).and_then(|tab| tab.setup_error.clone())
             {
@@ -854,11 +857,7 @@ impl Inner {
             if now >= deadline {
                 return Err(DriverError::timeout("Timed out waiting for the tab to close"));
             }
-            state = self
-                .changed
-                .wait_timeout(state, deadline - now)
-                .unwrap_or_else(PoisonError::into_inner)
-                .0;
+            state = self.wait_changed(state, deadline);
         }
         Ok(Value::Null)
     }

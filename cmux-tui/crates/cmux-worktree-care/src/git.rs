@@ -105,6 +105,7 @@ pub(crate) fn run_within(
         kill(id);
         return Err(format!("could not wait: {error}"));
     }
+    // wakeup-allow: deadline the git command's one limit; its output ends the wait first
     match receiver.recv_timeout(limit) {
         Ok(Ok(output)) => Ok(output),
         Ok(Err(error)) => Err(format!("could not run: {error}")),

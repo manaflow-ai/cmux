@@ -19,7 +19,9 @@ use tungstenite::protocol::WebSocketConfig;
 use tungstenite::{Error as WsError, Message, WebSocket, client};
 
 mod locks;
+mod reader_wake;
 use locks::{close_inner, frame_sessions, frame_state_error, pending_calls};
+use reader_wake::{ReaderWake, ReaderWaker, reader_wake};
 /// Maximum number of pending events in each bounded CDP event queue.
 ///
 /// Downstream queue implementations use the same limit so moving an event
@@ -52,6 +54,9 @@ const MAX_ENCODED_FRAME_BYTES: usize = 16 * 1024 * 1024;
 const MAX_DECODED_FRAME_BYTES: usize = 12 * 1024 * 1024;
 const TIMESTAMPLESS_CAPTURE_INTERVAL: Duration = Duration::from_secs(1);
 const SCREENCAST_CLOCK_RECOVERY_BUDGET: Duration = Duration::from_secs(1);
+/// How long the reader waits before it offers held events again while the
+/// consumer's channel is full (it cannot signal when it has room).
+const EVENT_BACKLOG_RETRY: Duration = Duration::from_millis(20);
 
 /// Monotonic browser-frame generation shared by CDP ingress and one surface.
 ///
@@ -126,6 +131,7 @@ impl FrameEpoch {
             if remaining.is_zero() {
                 return false;
             }
+            // wakeup-allow: deadline what is left of the caller's timeout; the epoch's advance (changed) ends it first
             let (next_guard, wait) =
                 self.changed.wait_timeout(guard, remaining).unwrap_or_else(PoisonError::into_inner);
             guard = next_guard;
@@ -299,6 +305,8 @@ struct Inner {
     next_screencast_capture_request_id: AtomicU64,
     closed: AtomicBool,
     timeout: Duration,
+    /// Wakes the reader thread for a queued command or a close.
+    reader: ReaderWaker,
 }
 
 struct PendingCall {
@@ -409,7 +417,9 @@ impl EventQueue {
         Ok(())
     }
 
-    fn drain_into(&self, output: &SyncSender<CdpEvent>) -> Result<(), ()> {
+    /// Offers the queued events to `output`; `Ok(true)` when its channel is
+    /// full and some stay queued.
+    fn drain_into(&self, output: &SyncSender<CdpEvent>) -> Result<bool, ()> {
         let mut state = self.lock_state();
         while let Some(queued) = state.events.pop_front() {
             state.retained_bytes = state.retained_bytes.saturating_sub(queued.retained_bytes);
@@ -421,12 +431,12 @@ impl EventQueue {
                     state
                         .events
                         .push_front(QueuedEvent { event, retained_bytes: queued.retained_bytes });
-                    return Ok(());
+                    return Ok(true);
                 }
                 Err(TrySendError::Disconnected(_)) => return Err(()),
             }
         }
-        Ok(())
+        Ok(false)
     }
 
     fn close(&self, reason: &str) {
@@ -564,6 +574,7 @@ impl CdpClient {
         })?;
         let stream = TcpStream::connect_timeout(&addr, Duration::from_secs(5))?;
         stream.set_nodelay(true)?;
+        // wakeup-allow: deadline the WebSocket handshake's one bound; the reader sets its own timeout after it
         stream.set_read_timeout(Some(Duration::from_secs(5)))?;
         stream.set_write_timeout(Some(Duration::from_secs(5)))?;
         let mut request = web_socket_url.into_client_request()?;
@@ -573,13 +584,14 @@ impl CdpClient {
             request.headers_mut().insert(AUTHORIZATION, value);
         }
         let (ws, _) = client::client_with_config(request, stream, Some(cdp_websocket_config()))?;
-        // The reader thread owns the socket and drains queued outbound
-        // writes before each read poll. A message enqueued just after a
-        // read starts can wait for this window, but writers never contend
-        // on the socket itself.
+        // The reader thread owns the socket: it writes the queued commands
+        // and reads only after poll(2) says the socket is readable, so
+        // writers never contend on the socket and an idle one wakes nobody.
+        // wakeup-allow: bounded the rest of a partly arrived frame, only after poll(2) found the socket readable; the reader then writes queued commands
         ws.get_ref().set_read_timeout(Some(Duration::from_millis(20)))?;
         ws.get_ref().set_write_timeout(Some(Duration::from_secs(5)))?;
         let (outbound_tx, outbound_rx) = bounded_channel(CDP_OUTBOUND_QUEUE_CAPACITY);
+        let (reader, reader_wake) = reader_wake()?;
         let event_queue = Arc::new(EventQueue::new());
         let client = CdpClient {
             inner: Arc::new(Inner {
@@ -593,9 +605,10 @@ impl CdpClient {
                 next_screencast_capture_request_id: AtomicU64::new(1),
                 closed: AtomicBool::new(false),
                 timeout: Duration::from_secs(30),
+                reader,
             }),
         };
-        client.spawn_reader(ws, outbound_rx, events)?;
+        client.spawn_reader(ws, outbound_rx, reader_wake, events)?;
         Ok(client)
     }
 
@@ -603,11 +616,12 @@ impl CdpClient {
         &self,
         ws: WebSocket<TcpStream>,
         outbound: Receiver<Outbound>,
+        wake: ReaderWake,
         event_output: SyncSender<CdpEvent>,
     ) -> anyhow::Result<()> {
         let weak = Arc::downgrade(&self.inner);
         std::thread::Builder::new().name("cmux-tui-cdp-reader".into()).spawn(move || {
-            reader_loop(&weak, ws, &outbound, &event_output);
+            reader_loop(&weak, ws, &outbound, &wake, &event_output);
         })?;
         Ok(())
     }
@@ -692,6 +706,7 @@ impl CdpClient {
             return Err(e);
         }
 
+        // wakeup-allow: deadline the call's one timeout; the browser's reply ends it first
         match rx.recv_timeout(timeout) {
             Ok(Ok(value)) => Ok(value),
             Ok(Err(e)) => anyhow::bail!("{e}"),
@@ -793,6 +808,8 @@ impl CdpClient {
         }
         let (tx, rx) = channel();
         self.inner.outbound.try_send(Outbound::Flush(tx)).map_err(outbound_send_error)?;
+        self.inner.reader.wake();
+        // wakeup-allow: deadline the caller's one bound on the flush; the reader's write of the queue ends it first
         rx.recv_timeout(timeout).map_err(|_| anyhow::anyhow!("timed out flushing CDP commands"))
     }
 
@@ -1391,6 +1408,7 @@ impl CdpClient {
             outbound_bytes_sub(&self.inner, outbound_bytes(&error));
             return Err(outbound_send_error(error));
         }
+        self.inner.reader.wake();
         Ok(())
     }
 }
@@ -1461,24 +1479,49 @@ pub fn discover_browser_ws_url(ports: &[u16]) -> Option<String> {
     ports.iter().find_map(|port| fetch_json_version("127.0.0.1", *port).ok())
 }
 
+/// The reader thread: offers queued events, writes queued commands, reads
+/// while the socket has data, then sleeps in [`ReaderWake::wait`] until the
+/// socket, a writer or the client's drop wakes it. It holds no strong
+/// reference while it sleeps, so the drop reaches the wait.
 fn reader_loop(
     weak: &Weak<Inner>,
     mut ws: WebSocket<TcpStream>,
     outbound: &Receiver<Outbound>,
+    wake: &ReaderWake,
     event_output: &SyncSender<CdpEvent>,
 ) {
+    let mut readable = true;
     loop {
         let Some(inner) = weak.upgrade() else { break };
-        if inner.events.drain_into(event_output).is_err() {
-            close_inner(&inner, "CDP event receiver closed");
-            break;
-        }
+        let backlog = match inner.events.drain_into(event_output) {
+            Ok(backlog) => backlog,
+            Err(()) => {
+                close_inner(&inner, "CDP event receiver closed");
+                break;
+            }
+        };
         if inner.closed.load(Ordering::Acquire) {
             break;
         }
         if let Err(err) = drain_outbound(&inner, &mut ws, outbound) {
             close_inner(&inner, &format!("CDP socket error: {err}"));
             break;
+        }
+        if !readable {
+            drop(inner);
+            // wakeup-allow: bounded the retry only while the consumer's event channel is full; untimed otherwise
+            let retry = backlog.then_some(EVENT_BACKLOG_RETRY);
+            match wake.wait(ws.get_ref(), retry) {
+                Ok(socket) => readable = socket,
+                Err(error) => {
+                    if let Some(inner) = weak.upgrade() {
+                        close_inner(&inner, &format!("CDP socket error: {error}"));
+                        let _ = inner.events.drain_into(event_output);
+                    }
+                    break;
+                }
+            }
+            continue;
         }
         let message = ws.read();
         match message {
@@ -1500,7 +1543,8 @@ fn reader_loop(
                     std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
                 ) =>
             {
-                continue;
+                // No whole message buffered: wait for the socket or a writer.
+                readable = false;
             }
             Err(e) => {
                 close_inner(&inner, &format!("CDP socket error: {e}"));
@@ -1865,13 +1909,16 @@ fn ack_screencast_frame(
         close_inner(inner, CDP_CONNECTION_UNAVAILABLE_MESSAGE);
         return;
     }
-    if let Err(error) = inner.outbound.try_send(Outbound::Message(text)) {
-        outbound_bytes_sub(inner, outbound_bytes(&error));
-        let reason = match error {
-            TrySendError::Full(_) => "CDP outbound queue overflow",
-            TrySendError::Disconnected(_) => "CDP connection is closed",
-        };
-        close_inner(inner, reason);
+    match inner.outbound.try_send(Outbound::Message(text)) {
+        Ok(()) => inner.reader.wake(),
+        Err(error) => {
+            outbound_bytes_sub(inner, outbound_bytes(&error));
+            let reason = match error {
+                TrySendError::Full(_) => "CDP outbound queue overflow",
+                TrySendError::Disconnected(_) => "CDP connection is closed",
+            };
+            close_inner(inner, reason);
+        }
     }
 }
 
@@ -2018,6 +2065,7 @@ fn fetch_json_version(host: &str, port: u16) -> anyhow::Result<String> {
         addrs.next().ok_or_else(|| anyhow::anyhow!("no socket address for {host}:{port}"))?;
     let mut stream = TcpStream::connect_timeout(&addr, Duration::from_millis(250))?;
     stream.set_nodelay(true)?;
+    // wakeup-allow: deadline one discovery request's bound; the answer ends the read first
     stream.set_read_timeout(Some(Duration::from_millis(500)))?;
     stream.set_write_timeout(Some(Duration::from_millis(500)))?;
     write!(
@@ -2054,7 +2102,8 @@ fn read_http_response_with_limits(
         let remaining = deadline
             .checked_duration_since(Instant::now())
             .ok_or_else(|| anyhow::anyhow!("CDP discovery deadline exceeded"))?;
-        stream.set_read_timeout(Some(remaining.min(Duration::from_millis(500))))?;
+        // wakeup-allow: deadline the rest of the discovery deadline; the answer's bytes end each read first
+        stream.set_read_timeout(Some(remaining))?;
         match stream.read(&mut buf) {
             Ok(0) => break,
             Ok(n) => {
@@ -2177,6 +2226,43 @@ mod tests {
             header_rx.recv_timeout(Duration::from_secs(1)).unwrap().as_deref(),
             Some("Bearer test-secret")
         );
+        server.join().unwrap();
+    }
+
+    /// p14-energy-077m: the reader sleeps on the socket, not on a 20 ms read
+    /// timeout. A command queued while it sleeps reaches the browser at once,
+    /// and the client's drop ends the reader (the browser sees the close).
+    #[test]
+    fn an_idle_reader_wakes_for_a_command_and_ends_with_the_client() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (request_tx, request_rx) = channel();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut ws = accept(stream).unwrap();
+            loop {
+                match ws.read() {
+                    Ok(Message::Text(text)) => {
+                        let request = serde_json::from_str::<Value>(&text).unwrap();
+                        request_tx.send(request["method"].as_str().map(str::to_owned)).unwrap();
+                    }
+                    Ok(_) => {}
+                    // The client's reader closed the socket.
+                    Err(_) => return,
+                }
+            }
+        });
+        let (event_tx, _event_rx) = sync_channel(1);
+        let client =
+            CdpClient::connect(&format!("ws://{addr}/devtools/browser/fake"), event_tx).unwrap();
+        // Let the reader go idle in its wait.
+        thread::sleep(Duration::from_millis(100));
+        client.detach_from_target_detached("session-1").unwrap();
+        assert_eq!(
+            request_rx.recv_timeout(Duration::from_secs(2)).unwrap().as_deref(),
+            Some("Target.detachFromTarget")
+        );
+        drop(client);
         server.join().unwrap();
     }
 

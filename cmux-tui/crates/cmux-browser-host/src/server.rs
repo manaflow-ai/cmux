@@ -208,6 +208,7 @@ fn accept_provider(
     let mut reader = stream.try_clone()?;
     let mut writer = stream.try_clone()?;
     // A client that connects and never says hello does not keep a thread.
+    // wakeup-allow: deadline the client's one hello bound; cleared once the hello is read
     stream.set_read_timeout(Some(std::time::Duration::from_secs(5)))?;
     let Ok(info) = accept(&mut reader, &mut writer, secret, agent_bundle) else {
         return Ok(());

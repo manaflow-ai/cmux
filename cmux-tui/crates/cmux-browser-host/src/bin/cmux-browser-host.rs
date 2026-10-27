@@ -451,6 +451,7 @@ mod unix {
                 return Err(());
             }
             // A bounded connect retry while the host starts, not a synchronization.
+            // wakeup-allow: cli-only the CLI's connect retry while a host starts (connect, from main), at most 10 s
             std::thread::sleep(Duration::from_millis(50));
         }
     }

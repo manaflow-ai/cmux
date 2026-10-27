@@ -247,6 +247,7 @@ impl WeftNode {
             {
                 return Ok(started.elapsed());
             }
+            // wakeup-allow: cli-only `weft up --bench` (bin/weft.rs, its only caller) retries the echo until `--wait` passes
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
         bail!("{target} not reachable within {limit:?}")
@@ -694,6 +695,7 @@ async fn follow_netmap(shared: Arc<Shared>) {
                 failures += 1;
                 // Bounded, cancellable backoff between failed polls.
                 let delay = Duration::from_millis(250 * u64::from(failures.min(20)));
+                // wakeup-allow: backoff only after a failed netmap poll, growing to 5 s; a good poll resets it
                 tokio::time::sleep(delay).await;
             }
         }

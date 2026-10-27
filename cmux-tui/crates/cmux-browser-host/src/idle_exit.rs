@@ -44,6 +44,7 @@ impl IdleClock for SystemClock {
         state: MutexGuard<'a, IdleState>,
         timeout: Duration,
     ) -> MutexGuard<'a, IdleState> {
+        // wakeup-allow: deadline the real clock's wait for the idle stop's one deadline (IdleExit::wait below)
         changed.wait_timeout(state, timeout).unwrap_or_else(PoisonError::into_inner).0
     }
 }
@@ -146,6 +147,7 @@ impl IdleExit {
                     if idle_for >= self.delay {
                         return true;
                     }
+                    // wakeup-allow: deadline the idle stop's one deadline; untimed while anything is open, and an open ends it first
                     self.clock.wait_timeout(&self.changed, state, self.delay - idle_for)
                 }
             };

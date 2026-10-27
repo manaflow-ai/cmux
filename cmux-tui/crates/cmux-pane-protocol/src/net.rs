@@ -120,6 +120,7 @@ where
                 if starts_burst {
                     log(&error);
                 }
+                // wakeup-allow: backoff only after a failed accept (Backoff::failure); a good accept resets it
                 tokio::time::sleep(delay).await;
             }
         }

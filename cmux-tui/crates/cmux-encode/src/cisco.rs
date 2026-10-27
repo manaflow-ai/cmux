@@ -176,6 +176,7 @@ fn download(url: &str) -> Result<Vec<u8>, InstallError> {
         .ok_or_else(|| InstallError::Download(format!("{host} has no address")))?;
     let tcp = TcpStream::connect_timeout(&addr, Duration::from_secs(CONNECT_TIMEOUT_S))
         .map_err(|e| fail("connect", &e))?;
+    // wakeup-allow: deadline one bound per read of the one-time codec download; each chunk ends a read first
     tcp.set_read_timeout(Some(timeout)).map_err(|e| fail("socket", &e))?;
     tcp.set_write_timeout(Some(timeout)).map_err(|e| fail("socket", &e))?;
     let roots = rustls::RootCertStore { roots: webpki_roots::TLS_SERVER_ROOTS.to_vec() };

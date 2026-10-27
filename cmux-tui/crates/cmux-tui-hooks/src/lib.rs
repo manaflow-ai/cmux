@@ -1008,7 +1008,7 @@ impl HermesReapState {
         #[cfg(unix)]
         let child_exit =
             self.child_exit.lock().expect("Hermes exit observer mutex poisoned").take();
-        let child = self.child.lock().expect("Hermes reaper mutex poisoned").take();
+        let mut child = self.child.lock().expect("Hermes reaper mutex poisoned").take();
 
         #[cfg(unix)]
         if let Some(child_exit) = child_exit {
@@ -1023,9 +1023,8 @@ impl HermesReapState {
         // observer before reaching the timeout branch. On Windows, closing
         // the process handle after a nonblocking probe leaves termination to
         // the kernel without making the timeout caller wait.
-        if let Some(mut child) = child {
-            let _ = child.try_wait();
-        }
+        // wakeup-allow: bounded one non-blocking probe after a timeout, on the defensive path without an exit observer
+        let _ = child.as_mut().map(|child| child.try_wait());
     }
 }
 
@@ -1189,6 +1188,7 @@ fn run_hermes_command_with_timeout(
     #[cfg(not(unix))]
     let status = {
         let remaining = deadline.saturating_duration_since(Instant::now());
+        // wakeup-allow: deadline the hook's one deadline where no exit observer exists (not unix); its exit ends the wait first
         if remaining.is_zero() { None } else { child.wait_timeout(remaining)? }
     };
     #[cfg(windows)]

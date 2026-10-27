@@ -70,6 +70,7 @@ impl WriteGit<'_> {
         let stdout = thread::spawn(move || drain(stdout, max_stdout));
         let stderr = thread::spawn(move || drain(stderr, MAX_STDERR_BYTES));
         let waited = match bound {
+            // wakeup-allow: deadline the git command's one deadline; its exit ends the wait first
             Bound::Deadline(deadline) => child.wait_timeout(deadline),
             Bound::Unbounded => child.wait().map(Some),
         };

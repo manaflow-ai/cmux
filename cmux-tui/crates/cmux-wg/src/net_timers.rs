@@ -33,6 +33,7 @@ impl Driver {
         let Driver { mut tunn, mut underlay, mut scratch, .. } = self;
         tokio::spawn(async move {
             for wait in FAREWELL_WAITS {
+                // wakeup-allow: bounded four repeats of the shutdown resets over 1.6 s, then the task ends
                 tokio::time::sleep(wait).await;
                 for packet in &resets {
                     if let TunnResult::WriteToNetwork(encrypted) =

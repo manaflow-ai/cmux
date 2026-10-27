@@ -82,6 +82,7 @@ fn closed(error: impl std::fmt::Display) -> DriverError {
 
 impl HistoryLink {
     pub fn new(stream: UnixStream) -> io::Result<HistoryLink> {
+        // wakeup-allow: deadline one bound per call on the daemon's reply; the link is read only after a request
         stream.set_read_timeout(Some(REPLY_TIMEOUT))?;
         let writer = stream.try_clone()?;
         Ok(HistoryLink {

@@ -124,6 +124,7 @@ impl<'a> Fetching<'a> {
                     "fetch: {MAX_FETCHES} fetches of this session are running and none ended in time"
                 )));
             }
+            // wakeup-allow: deadline what is left of the fetch's deadline; a fetch's end (fetch_slot_free) ends it first
             slots = gate
                 .fetch_slot_free
                 .wait_timeout(slots, left)

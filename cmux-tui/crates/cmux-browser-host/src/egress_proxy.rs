@@ -138,12 +138,14 @@ impl Live {
     /// also free outside the listener).
     fn wait_for_end(&self) {
         let count = self.count.lock().unwrap_or_else(PoisonError::into_inner);
+        // wakeup-allow: bounded only while the process is out of descriptors (EMFILE/ENFILE); a connection's end wakes it first
         let _ = self.ended.wait_timeout(count, Duration::from_secs(1));
     }
 }
 
 /// One client: handshake, connector, copy.
 fn serve(mut client: TcpStream, rule: &dyn Connector, own: SocketAddr) -> io::Result<()> {
+    // wakeup-allow: deadline the client's one SOCKS handshake bound; cleared once the handshake is read
     client.set_read_timeout(Some(HANDSHAKE_TIMEOUT))?;
     client.set_nodelay(true)?;
     let mut head = [0u8; 2];

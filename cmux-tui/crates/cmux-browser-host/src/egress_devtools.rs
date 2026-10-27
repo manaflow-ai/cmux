@@ -100,6 +100,7 @@ fn probe(addr: SocketAddr) -> Option<bool> {
             return Some(false);
         }
         let left = left();
+        // wakeup-allow: deadline what is left of the probe's one budget; each chunk of the answer ends a read first
         if left.is_zero() || stream.set_read_timeout(Some(left)).is_err() {
             break;
         }

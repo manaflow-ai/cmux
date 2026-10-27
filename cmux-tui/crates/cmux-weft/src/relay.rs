@@ -192,6 +192,7 @@ async fn handle(state: Arc<Inner>, socket: WebSocket) {
     }
 
     let remaining = Duration::from_millis(ticket.expires_ms.saturating_sub(now));
+    // wakeup-allow: deadline the session's one ticket expiry; the client's close or a new ticket ends it first
     let expiry = tokio::time::sleep(remaining);
     tokio::pin!(expiry);
     let mut bucket = Bucket { tokens: BURST, at: tokio::time::Instant::now() };

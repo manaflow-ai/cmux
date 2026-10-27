@@ -12,7 +12,6 @@ use cmux_rd_core::service::{negotiate, Negotiated, SERVICE_DESKTOP};
 use cmux_rd_core::session::{Actor, SessionId, SessionTable, StartRequest};
 use cmux_rd_proto::{MAX_DATAGRAM_DEFAULT, OVERLAY_PORT};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, UdpSocket};
-use std::time::Duration;
 
 pub fn run(opts: &Opts) -> Res<()> {
     // Until the link token (lane 12) authenticates hello claims, the host trusts them, so by
@@ -209,13 +208,12 @@ fn read_control(stream: &mut TcpStream, reader: &mut FrameReader) -> Res<Control
             }
             continue;
         }
-        if now_ns() > deadline {
+        let left = deadline.saturating_sub(now_ns());
+        if left == 0 {
             return Err("no control message within 5 s".into());
         }
-        crate::fdwait::wait_readable(
-            &[std::os::fd::AsRawFd::as_raw_fd(stream)],
-            Some(200_000_000),
-        )?;
+        // Until the message or the deadline: no 200 ms re-check while the peer is silent.
+        crate::fdwait::wait_readable(&[std::os::fd::AsRawFd::as_raw_fd(stream)], Some(left))?;
         reader.fill(stream)?;
         // Close at once, before any parse or reply, when the peer speaks something else
         // (an HTTP request from a browser page must never reach the control parser).
@@ -325,8 +323,6 @@ fn serve_viewer(
     // Every exit path ends the session in the table (single writer of rd_session).
     let _ = table.stop(session, &Actor::Remote(Some(principal.clone())));
     let _ = write_control(&mut stream, &Control::Ended { reason: reason.clone() });
-    stream.set_nonblocking(false)?;
-    stream.set_read_timeout(Some(Duration::from_millis(200)))?;
     Ok(reason)
 }
 

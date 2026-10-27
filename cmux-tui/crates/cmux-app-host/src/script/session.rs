@@ -368,6 +368,7 @@ impl Session {
             strings: json!({}),
             main: prelude::main_source(),
         });
+        // wakeup-allow: deadline the runtime's one start bound; its ready message ends it first
         match ready_rx.recv_timeout(START_TIMEOUT) {
             Ok(Ok(())) => Ok(Self { shared, next_cb: AtomicU64::new(1), turn: Mutex::new(()) }),
             Ok(Err(error)) => {
@@ -407,6 +408,7 @@ impl Session {
             gesture: None,
         });
         let timeout = timeout.min(MAX_TIMEOUT);
+        // wakeup-allow: deadline the evaluation's one timeout; its result ends it first
         match rx.recv_timeout(timeout) {
             Ok((true, body)) => Ok(body.get("value").cloned().unwrap_or(Value::Null)),
             Ok((false, body)) => Err(ScriptError::from_body(&body)),

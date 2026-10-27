@@ -20,13 +20,16 @@ use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use serde::Serialize;
 use tokio::net::TcpListener;
-use tokio::sync::{Mutex, mpsc, watch};
+use tokio::sync::{Mutex, Notify, mpsc, watch};
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
 use crate::AdmissionListener;
 use crate::config::RelayConfig;
 use crate::ticket::{TicketAuthority, TicketExpectation, tickets_equal};
+
+mod expiry;
+use expiry::next_expiry;
 
 const MAX_SLOT_BYTES: usize = 256;
 const MAX_LANE_TOKEN_BYTES: usize = 256;
@@ -47,6 +50,16 @@ struct RelayInner {
     state: Mutex<RelayState>,
     next_connection_id: AtomicU64,
     active_connections: AtomicUsize,
+    /// Wakes the cleanup task: a change that may bring the next expiry
+    /// earlier, or the relay's end.
+    expiry_changed: Arc<Notify>,
+}
+
+impl Drop for RelayInner {
+    fn drop(&mut self) {
+        // The cleanup task holds only a weak reference; it sees the end now.
+        self.expiry_changed.notify_one();
+    }
 }
 
 struct UpgradedConnectionPermit {
@@ -224,6 +237,7 @@ impl Relay {
                 state: Mutex::new(RelayState::default()),
                 next_connection_id: AtomicU64::new(1),
                 active_connections: AtomicUsize::new(0),
+                expiry_changed: Arc::new(Notify::new()),
             }),
         })
     }
@@ -247,17 +261,36 @@ impl Relay {
             .layer(middleware::from_fn(Self::close_non_upgraded_keepalive))
     }
 
+    /// Ends leases and circuits at their expiry: the task sleeps until the
+    /// earliest one, and with nothing that can expire it waits untimed for a
+    /// registration, an allocation or a join (no periodic tick while idle).
     pub fn spawn_cleanup(&self) -> JoinHandle<()> {
         let weak = Arc::downgrade(&self.inner);
+        let expiry_changed = self.inner.expiry_changed.clone();
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(1));
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
-                interval.tick().await;
-                let Some(inner) = Weak::upgrade(&weak) else {
-                    return;
+                let next = {
+                    let Some(inner) = Weak::upgrade(&weak) else {
+                        return;
+                    };
+                    let relay = Self { inner };
+                    relay.cleanup_expired(Instant::now()).await;
+                    let state = relay.inner.state.lock().await;
+                    next_expiry(&state, &relay.inner.config)
                 };
-                Self { inner }.cleanup_expired(Instant::now()).await;
+                // A change after the read above left a permit in the Notify,
+                // so the wait below ends at once and the expiry is read again.
+                match next {
+                    Some(at) => {
+                        // wakeup-allow: deadline the earliest lease, join or idle expiry; untimed while nothing can expire
+                        let expiry = tokio::time::sleep_until(at.into());
+                        tokio::select! {
+                            () = expiry => {}
+                            () = expiry_changed.notified() => {}
+                        }
+                    }
+                    None => expiry_changed.notified().await,
+                }
             }
         })
     }
@@ -641,6 +674,7 @@ impl Relay {
         slot: String,
         ticket: String,
     ) -> Result<(), RelayError> {
+        let _expiry_changed = self.expiry_changed();
         validate_protocol(protocol)?;
         validate_slot(&slot)?;
         validate_ticket_size(&ticket)?;
@@ -755,6 +789,7 @@ impl Relay {
         lane: LaneToken,
         generation: u64,
     ) -> Result<CircuitId, RelayError> {
+        let _expiry_changed = self.expiry_changed();
         validate_protocol(protocol)?;
         validate_slot(&slot)?;
         validate_lane(&lane)?;
@@ -911,6 +946,7 @@ impl Relay {
     async fn join(&self, peer: Peer, request: JoinRequest) -> Result<(), RelayError> {
         let JoinRequest { protocol, slot, circuit: circuit_id, lane, generation, ticket, role } =
             request;
+        let _expiry_changed = self.expiry_changed();
         validate_protocol(protocol)?;
         validate_slot(&slot)?;
         validate_lane(&lane)?;
@@ -2296,5 +2332,48 @@ mod tests {
             receive_control(&mut daemon).await,
             RelayControl::Error { code, retryable: true, .. } if code == "control-idle-timeout"
         ));
+    }
+
+    #[tokio::test]
+    async fn cleanup_ends_a_lease_at_its_expiry_without_a_tick() {
+        let config = RelayConfig {
+            lease_duration: Duration::from_millis(100),
+            ..RelayConfig { allow_open: true, ..RelayConfig::default() }
+        };
+        let server = TestServer::start(config).await;
+        let cleanup = server.relay.spawn_cleanup();
+        // The task is waiting untimed: nothing can expire yet.
+        assert_eq!(
+            next_expiry(&*server.relay.inner.state.lock().await, server.relay.config()),
+            None
+        );
+        let mut daemon = register_open_daemon(&server, "slot-a").await;
+        let lease = server.relay.inner.state.lock().await.controls["slot-a"].deadline;
+        assert_eq!(
+            next_expiry(&*server.relay.inner.state.lock().await, server.relay.config()),
+            Some(lease)
+        );
+        // The registration woke the task, which now sleeps until the lease.
+        assert!(matches!(
+            receive_control(&mut daemon).await,
+            RelayControl::Error { code, retryable: true, .. } if code == "lease-expired"
+        ));
+        // At the lease, not at the next tick of a 1 s interval (the old cleanup).
+        let late = Instant::now().saturating_duration_since(lease);
+        assert!(Instant::now() >= lease);
+        assert!(late < Duration::from_millis(600), "the lease ended {late:?} after its expiry");
+        assert_eq!(server.relay.health().await.daemon_slots, 0);
+        cleanup.abort();
+    }
+
+    #[tokio::test]
+    async fn cleanup_task_ends_with_the_relay() {
+        let relay = Relay::new(RelayConfig { allow_open: true, ..RelayConfig::default() }).unwrap();
+        let cleanup = relay.spawn_cleanup();
+        drop(relay);
+        timeout(Duration::from_secs(2), cleanup)
+            .await
+            .expect("the cleanup task outlived the relay")
+            .unwrap();
     }
 }

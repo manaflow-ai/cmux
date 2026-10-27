@@ -1105,6 +1105,7 @@ impl TerminalStreamSupervisor {
                             ),
                         );
                         tokio::select! {
+                            // wakeup-allow: backoff the reconnect delay after a lost connection, at most TERMINAL_RECONNECT_MAX_ATTEMPTS; close ends it first
                             _ = tokio::time::sleep(terminal_reconnect_delay(&terminal_id, attempt)) => {}
                             _ = close_notify.notified() => return,
                         }

@@ -365,6 +365,7 @@ impl Driver {
             let deadline = self.stack.poll_delay();
             let stack_deadline = async {
                 match deadline {
+                    // wakeup-allow: deadline the TCP stack's next timer (a retransmit or an ACK delay); none while it has nothing due
                     Some(delay) => tokio::time::sleep(delay).await,
                     None => std::future::pending::<()>().await,
                 }

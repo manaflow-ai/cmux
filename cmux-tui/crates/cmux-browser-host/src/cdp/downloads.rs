@@ -9,7 +9,6 @@ use super::state::{Applied, State};
 use crate::protocol::{DriverError, DriverEvent, required_str, timeout_of};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
-use std::sync::PoisonError;
 use std::time::Instant;
 
 /// Finished downloads kept for `download.path`; older finished ones are
@@ -145,11 +144,7 @@ impl Inner {
             if now >= deadline {
                 return Err(DriverError::timeout("Timed out waiting for the download"));
             }
-            state = self
-                .changed
-                .wait_timeout(state, deadline - now)
-                .unwrap_or_else(PoisonError::into_inner)
-                .0;
+            state = self.wait_changed(state, deadline);
         }
     }
 }

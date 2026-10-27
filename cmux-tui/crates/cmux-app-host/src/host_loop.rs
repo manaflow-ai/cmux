@@ -31,6 +31,7 @@ pub trait Channel: std::io::Read {
 #[cfg(unix)]
 impl Channel for std::os::unix::net::UnixStream {
     fn set_read_deadline(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        // wakeup-allow: deadline the VM's next timer (run below); untimed (None) when no timer is due
         self.set_read_timeout(timeout.map(|t| t.max(Duration::from_millis(1))))
     }
 }

@@ -112,6 +112,7 @@ impl VmSession {
         }
         // The VM answers at its own deadline; the grace covers a VM stuck in
         // a callback, so a caller never waits forever.
+        // wakeup-allow: deadline the evaluation's one timeout plus a grace; the VM's answer ends it first
         match wait.recv_timeout(timeout.saturating_add(CALLBACK_BUDGET * 2)) {
             Ok(outcome) => outcome,
             Err(mpsc::RecvTimeoutError::Timeout) => EvalOutcome {
@@ -379,6 +380,7 @@ fn run(
             other => other,
         };
         let input = match wake {
+            // wakeup-allow: deadline the script's next timer or the evaluation's deadline; untimed with neither, and input ends it first
             Some(at) => match rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
                 Ok(input) => Some(input),
                 Err(mpsc::RecvTimeoutError::Timeout) => None,

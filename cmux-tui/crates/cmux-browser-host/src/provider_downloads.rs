@@ -61,6 +61,7 @@ impl ProviderDownloads {
                     "download.path: download {id} did not finish in time"
                 )));
             }
+            // wakeup-allow: deadline what is left of the call's timeout; the download's end (changed) ends it first
             finished = self
                 .changed
                 .wait_timeout(finished, deadline - now)

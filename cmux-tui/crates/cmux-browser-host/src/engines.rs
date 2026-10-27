@@ -128,6 +128,7 @@ impl HostEngines {
                     "the cmux app is not connected to the browser host",
                 ));
             };
+            // wakeup-allow: deadline what is left of the provider wait; the app's connect (provider_changed) ends it first
             slot = self
                 .provider_changed
                 .wait_timeout(slot, left)

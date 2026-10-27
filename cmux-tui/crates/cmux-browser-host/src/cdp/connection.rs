@@ -222,6 +222,7 @@ impl CdpConnection {
     }
 
     fn wait(&self, pending: Pending, timeout: Duration) -> Reply {
+        // wakeup-allow: deadline the call's one timeout; the browser's reply ends it first
         match pending.rx.recv_timeout(timeout) {
             Ok(reply) => reply,
             Err(mpsc::RecvTimeoutError::Timeout) => {

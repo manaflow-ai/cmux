@@ -325,6 +325,7 @@ impl<S: DatagramSocket> Underlay for SocketPath<S> {
                             self.pending.pop_front();
                             self.refusals = 0;
                         }
+                        // wakeup-allow: backoff only while the interface refuses sends, each gap doubled; a good send resets it
                         self.retry = Some(Box::pin(tokio::time::sleep(self.retry_after)));
                         self.retry_after = (self.retry_after * 2).min(INTERFACE_RETRY_MAX);
                     }

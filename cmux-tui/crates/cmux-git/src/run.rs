@@ -119,6 +119,7 @@ fn run(
         None => drain(stdout, max_stdout),
     });
     let stderr = thread::spawn(move || drain(stderr, MAX_STDERR_BYTES));
+    // wakeup-allow: deadline the git command's one deadline; its exit ends the wait first
     let status = match child.wait_timeout(deadline) {
         Ok(Some(status)) => status,
         Ok(None) => {

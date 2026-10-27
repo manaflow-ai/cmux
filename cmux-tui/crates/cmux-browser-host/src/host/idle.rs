@@ -89,6 +89,7 @@ impl Idle {
                 return true;
             }
             let wait = state.deadline - now;
+            // wakeup-allow: deadline the idle deadline; untimed while a request is in flight, and a request ends it first
             state = self.wake.wait_timeout(state, wait).unwrap_or_else(PoisonError::into_inner).0;
         }
     }

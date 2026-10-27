@@ -409,6 +409,7 @@ impl Driver for ProviderDriver {
         }
         // A little longer than the call's own deadline, so the app's timeout wins.
         let wait = timeout_of(params) + std::time::Duration::from_secs(5);
+        // wakeup-allow: deadline the call's one timeout plus a grace; the app's reply ends it first
         match rx.recv_timeout(wait) {
             Ok(result) => result,
             Err(_) => {
