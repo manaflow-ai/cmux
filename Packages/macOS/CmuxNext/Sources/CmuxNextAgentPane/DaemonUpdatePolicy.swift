@@ -328,7 +328,7 @@ public actor DaemonUpdatePolicy {
         // A click until now is answered by this update.
         retried.remove(target.id)
         let outcome = await target.update(to: local, whileBusy: whileBusy)
-        Self.logger.info("\(target.displayName, privacy: .public) to \(local.hash, privacy: .public)\(whileBusy ? " while busy" : "", privacy: .public): \(String(describing: outcome), privacy: .public)")
+        Self.logger.info("\(Self.logLine(target.displayName, to: local.hash, whileBusy: whileBusy, outcome), privacy: .public)")
         if outcome == .busy {
             var again = pending
             let now = elapsed()
@@ -381,8 +381,15 @@ public actor DaemonUpdatePolicy {
         return nil
     }
 
-    /// What the ledger keeps for `outcome`: every final outcome. `busy`, `needsBinary` and
-    /// `handledElsewhere` are not final: the next launch asks again.
+    /// The queue's log line for one update of `name` to `hash`: the outcome as Swift describes it,
+    /// except a hold, which reads `held (<the daemon's words>)`.
+    nonisolated static func logLine(_ name: String, to hash: String, whileBusy: Bool, _ outcome: DaemonUpdateOutcome) -> String {
+        let said = if case .held(let reason) = outcome { "held (\(reason))" } else { String(describing: outcome) }
+        return "\(name) to \(hash)\(whileBusy ? " while busy" : ""): \(said)"
+    }
+
+    /// What the ledger keeps for `outcome`: every final outcome. `busy`, `needsBinary`,
+    /// `handledElsewhere` and `held` are not final: the next launch asks again.
     nonisolated static func recorded(_ outcome: DaemonUpdateOutcome) -> String? {
         switch outcome {
         case .updated: "updated"
@@ -390,7 +397,7 @@ public actor DaemonUpdatePolicy {
         case .rolledBack: "rolledBack"
         case .unsupported: "unsupported"
         case .failed: "failed"
-        case .busy, .needsBinary, .handledElsewhere: nil
+        case .busy, .needsBinary, .handledElsewhere, .held: nil
         }
     }
 
@@ -405,7 +412,7 @@ public actor DaemonUpdatePolicy {
         case .busy: DaemonUpdateEvent(target, .retrying)
         case .needsBinary(let triple): DaemonUpdateEvent(target, .failed(reason: "no build for \(triple)", rolledBack: false), build: build)
         case .rolledBack(let reason): DaemonUpdateEvent(target, .failed(reason: reason, rolledBack: true), notify: true, build: build)
-        case .handledElsewhere: DaemonUpdateEvent(target, .cleared)
+        case .handledElsewhere, .held: DaemonUpdateEvent(target, .cleared)
         // Not a failure: no notice, the board's grouped line.
         case .unsupported(let reason): DaemonUpdateEvent(target, .cannotUpdate(reason: reason), build: build)
         case .failed(let reason): DaemonUpdateEvent(target, .failed(reason: reason, rolledBack: false), notify: true, build: build)

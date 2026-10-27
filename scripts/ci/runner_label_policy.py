@@ -171,10 +171,11 @@ def nightly_next_build_reason(label: str) -> str | None:
     nightly.yml's nightly-next app build reads it first, for every event and
     attempt. It may name an owned side or dev label (glaeda-side-<class>-... or
     glaeda-dev-<class>-...), the same trust as CI_SIDE_LANE_RUNNER, which that
-    build already takes. Anything else is held to the workflow policy. Empty is
-    fine (off).
+    build already takes, or glaeda's nightly slot (glaeda-nightly-<class>-...,
+    glaeda#1684): one runner per owned mini whose hook admits only nightly jobs.
+    Anything else is held to the workflow policy. Empty is fine (off).
     """
-    for prefix in (SIDE_LANE_PREFIX, "glaeda-dev-"):
+    for prefix in (SIDE_LANE_PREFIX, "glaeda-dev-", "glaeda-nightly-"):
         if label.startswith(prefix) and _owned_pattern().fullmatch("glaeda-" + label[len(prefix):]):
             return None
     return forbidden_reason(label)
