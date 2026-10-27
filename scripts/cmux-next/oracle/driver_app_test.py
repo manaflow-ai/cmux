@@ -336,6 +336,9 @@ class AppSessionTest(unittest.TestCase):
         self.assertEqual(driver_app.debug_key("cmd+shift+d", "k"), {"key": "d", "modifiers": ["cmd", "shift"]})
         self.assertEqual(driver_app.debug_key("opt+alt+left", "k"), {"key": "left", "modifiers": ["option"]})
         self.assertEqual(driver_app.debug_key("cmd+plus", "k"), {"key": "+", "modifiers": ["cmd"]})
+        # A shifted glyph goes as itself: DebugKey.keyPress types ":" (Shift and the ; key code); "shift+;" would
+        # keep the characters ";".
+        self.assertEqual(driver_app.debug_key(":", "k"), {"key": ":", "modifiers": []})
         for stroke in ("fn+left", "f5"):
             with self.assertRaises(driver_app.CaseError):
                 driver_app.debug_key(stroke, "k")
