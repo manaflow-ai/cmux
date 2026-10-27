@@ -1,4 +1,4 @@
-public import CoreGraphics
+public import Foundation
 
 /// The point a drag holds its item by, measured once at mouse-down so a
 /// hand-off later in the drag (tab strip -> App drag session, sidebar row ->
