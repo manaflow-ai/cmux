@@ -2,8 +2,8 @@ import Foundation
 
 /// The Chromium Host's end while Chromium runs in it (``BrowserBackend/host``, p08-startup-046).
 extension CEFRuntime {
-    /// The host ended: every page it showed shows `exit`'s crash state (the sad tab), every reply still
-    /// awaited fails with `hostGone`, and the crash log records the host once. Only the host's process
+    /// The host ended: every page it showed shows `exit`'s crash state (the sad tab), everything still
+    /// awaited from it resolves (``hostGone()``), and the crash log records the host once. Only the host's process
     /// ended: cmux keeps running, as Chrome's browser does when a child process dies
     /// (content/browser/renderer_host/render_process_host_impl.cc, `ProcessDied`).
     ///
@@ -12,17 +12,20 @@ extension CEFRuntime {
     /// next start (a new tab, or a page's Reload through ``reloadAfterHostRestart(_:)``) asks the
     /// supervisor for a host again, as Chrome's `BrowserGpuChannelHostFactory` establishes a new channel
     /// after the GPU process died. Restoring each tab's history on the new host is task 083 of
-    /// plans/cmux-next/chrome-parity/p01-process.md. No effect in process, before Chromium runs, or
-    /// while quitting (quit ends the host).
+    /// plans/cmux-next/chrome-parity/p01-process.md. No effect in process; before Chromium runs or while
+    /// quitting (quit ends the host) only the waits resolve.
     func hostEnded(_ exit: BrowserProcessExit) {
-        guard let hostStart, state == .ready, shutdownSequence == nil else { return }
+        guard let hostStart, state == .ready, shutdownSequence == nil else { return hostGone() }
         logger.error("chromium host ended reason=\(exit.reason.rawValue, privacy: .public) code=\(exit.code ?? 0) tabs=\(self.tabsByBrowser.count)")
         crashLog.append(BrowserCrashRecord(processType: "chromium-host", reason: exit.reason, code: exit.code, source: .process))
-        // Every awaited reply fails with hostGone; each proxied profile's proxy goes to the next host again.
-        hostGone()
+        // The dead wire goes first, as mojo marks its endpoint errored before it runs the pending
+        // callbacks: an answer below that asks the host again finds none (unsent), not a token
+        // that waits for its deadline.
         hostStart.hostEnded()
         shim = nil
         state = .idle
+        // While each tab still has its browser: a person's close whose answer cannot come closes its tab.
+        hostGone()
         // The pages on the host: its browsers, and the tabs whose browser it was still making.
         let tabs = Array(tabsByBrowser.values) + hosts.values.flatMap(\.tabs).filter { $0.browserID == nil && $0.isCreationPending }
         (tabsByBrowser, pendingWindows, tabBeingAdded) = ([:], [:], nil)
@@ -33,6 +36,39 @@ extension CEFRuntime {
         for tab in tabs { tab.hostEnded(exit) }
         // The spares' placeholders went with the host (their tabs forgot their browsers above).
         spareWindow.hostEnded(runtime: self)
+    }
+
+    /// The host's wire ended, whatever ended it (a crash, a kill, a quit, a clean or idle exit; task 091
+    /// of plans/cmux-next/chrome-parity/p01-process.md): in this turn, everything that waited on that host
+    /// resolves and every sheet cmux showed for it closes, as a mojo disconnect runs each pending reply
+    /// callback with its default and then the disconnect handler
+    /// (mojo/public/cpp/bindings/lib/interface_endpoint_client.cc, `NotifyError`):
+    /// - every REPLY token (async ops, `<select>` answers, page contexts) fails with
+    ///   ``CEFHostReplyError/hostGone``, and the host's widgets, `<select>` menu and file pickers close
+    ///   (``CEFHostStart/hostDisconnected()``);
+    /// - the waits answered by the host's events (evaluations, DevTools calls, site replies, extension
+    ///   omnibox suggestions) fail as their browser's close fails them: every browser was the host's;
+    /// - each pane's autofill and password suggestions close, and each of the host's pages gets the
+    ///   dismissal answer of its open questions (beforeunload, permissions, passwords, external apps);
+    /// - every profile proxy is handed to the next host again before a page of its profile opens: a
+    ///   host's verdict on a proxy says nothing about the host after it, whose Chromium context starts
+    ///   without the proxy (#24432 fails closed).
+    ///
+    /// The supervisor's ``ChromiumHostSupervising/observeHostEnds(_:)`` runs it for every end (and the
+    /// host start's own part alone for a start no runtime adopted), and ``hostEnded(_:)`` for the ends
+    /// pages show; a second call finds nothing. No effect in process.
+    func hostGone() {
+        guard let hostStart else { return }
+        hostStart.hostDisconnected()
+        devToolsCalls.failAll(where: { _ in true }, with: BrowserTabError.closed)
+        siteReplies.failAll(where: { _ in true }, with: BrowserTabError.closed)
+        latestEvaluation.take()?.done(nil)
+        evaluations.failAll(where: { _ in true }, with: BrowserTabError.closed)
+        omniboxKeywords.hostEnded()
+        for host in hosts.values { host.hostedPageView?.suggestions.hostEnded() }
+        for tab in tabsByBrowser.values { tab.dismissPrompts() }
+        profileProxyChecks.removeAll()
+        unappliedProfileProxies.formUnion(profileProxies.keys)
     }
 
     /// The host ended and no new one is attached yet (``hostEnded(_:)``): a page's Reload waits for one.
@@ -76,6 +112,7 @@ extension CEFRuntime {
         hostStart = CEFHostStart(supervisor: supervisor, showsWidgets: showsWidgets, takesDrags: takesDrags,
                                  fencesResizes: fencesResizes, drawsPopupMenus: drawsPopupMenus, fileDialogs: fileDialogs)
         hostStart?.drawsSuggestions = drawsSuggestions
+        supervisor.observeHostEnds { [weak self] in self?.hostGone() }
         guard let reporting = supervisor as? any ChromiumHostExitReporting else { return }
         reporting.onHostEnded = { [weak self] exit in self?.hostEnded(exit) }
     }
@@ -88,7 +125,6 @@ extension CEFPaneHost {
         (window, windowTab, lastActivated, popupWindow) = (.none, nil, nil, nil)
         hostView.layerHosting.windowBrowsersChanged([])
         hostedPageView?.show(contextID: 0)
-        hostedPageView?.suggestions.hostEnded()
     }
 
     /// After a new host was attached, `tab`, shown here with no browser (its own went with the old

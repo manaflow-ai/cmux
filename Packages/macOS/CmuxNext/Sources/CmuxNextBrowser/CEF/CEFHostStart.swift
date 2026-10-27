@@ -70,11 +70,7 @@ final class CEFHostStart {
         self.helloDeadline = helloDeadline
         self.clock = clock
         replies = CEFHostReplies(clock: clock)
-        // A dead host sends no WIDGET_GONE or POPUP_MENU_HIDE: its panels, panes, windows and menu go when it ends.
-        supervisor.observeHostEnds { [weak self] in
-            self?.widgetHost?.hostEnded()
-            self?.popupMenus?.hostEnded()
-        }
+        supervisor.observeHostEnds { [weak self] in self?.hostDisconnected() }
     }
 
     /// The attached host; the first caller starts the attach, later ones await it.
@@ -98,8 +94,20 @@ final class CEFHostStart {
     /// starts, as a mojo `Remote` whose peer closed is rebound to a new pipe, never reused.
     func hostEnded() {
         remote?.detach()
-        files?.hostEnded()
         (task, remote, mapsClientIDs, acksWheels, hostGone, pageResizes) = (nil, nil, false, false, true, nil)
+    }
+
+    /// The host's wire ended, whatever ended it (`CEFRuntime.hostGone`, task 091): every REPLY token not
+    /// answered yet fails with ``CEFHostReplyError/hostGone`` and what cmux showed for the host closes in
+    /// this turn. A dead host sends no WIDGET_GONE, POPUP_MENU_HIDE or chooser end, so its panels, panes,
+    /// windows, `<select>` menu and file pickers go here, as a mojo disconnect runs each pending reply
+    /// callback's default and then the disconnect handler
+    /// (mojo/public/cpp/bindings/lib/interface_endpoint_client.cc, `NotifyError`). A second call finds nothing.
+    func hostDisconnected() {
+        widgetHost?.hostEnded()
+        popupMenus?.hostEnded()
+        files?.hostEnded()
+        replies.failAll(.hostGone)
     }
 
     /// The REPLY token of the async shim call this turn just made, now expected in ``replies``;

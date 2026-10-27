@@ -2,6 +2,7 @@
 import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Darwin
+import Foundation
 import Testing
 
 /// Chromium Host REPLY frames awaited by token (`CEFHostReplies` in CEFReplyWaiters.swift, task
@@ -282,6 +283,92 @@ import Testing
         #expect(replies.count == 0)
     }
 
+    /// Task 091 (p01-process.md): when the supervisor reports the host's end, 50 waits of every kind
+    /// resolve in that turn (awaited REPLY tokens, REPLY callbacks, tokens sent and not awaited yet,
+    /// evaluations, DevTools calls and site replies), and so do the latest evaluation and a page's open
+    /// question; no continuation stays in any table. An end pages do not show (a clean exit) does it too.
+    @Test func theHostsEndResolvesFiftyMixedWaitsInItsTurn() async throws {
+        let supervisor = EndingHost()
+        // A shim of its own: this suite runs beside the ones that share HostRepliesSpy's state.
+        let runtime = CEFRuntime(shim: try CEFShimLibrary.resolving(EndingHost.nothing), storage: HostRepliesHarness.storage())
+        // Tabs and panes hold the runtime unowned and may schedule work past the test.
+        _ = Unmanaged.passRetained(runtime)
+        runtime.adoptHost(supervisor)
+        let host = CEFHostStart(supervisor: supervisor, open: { _ in
+            do throws(CEFShimLibrary.LoadError) {
+                return .success(try CEFRemoteShim.make(symbol: SpyRemoteWire.symbol(over: EndingHost.nothing), expected: SpyRemoteWire.abi))
+            } catch {
+                return .failure(.shim(error))
+            }
+        })
+        guard case .success = await host.attached() else { throw BrowserTabError.closed }
+        runtime.hostStart = host
+        let (pane, _) = HostRepliesHarness.pane(runtime, profile: .default)
+        let tab = HostRepliesHarness.tab(in: pane)
+        runtime.register(tab, browser: 1)
+
+        let awaited = (1...10).map { Self.waiting(host.replies, UInt32($0)) }
+        var called: [Result<[UInt8], CEFHostReplyError>] = []
+        let deadlines = AlignedWakeups(queue: ReplyDeadlineRig().queue)
+        for token in 11...20 {
+            host.replies.onReply(UInt32(token), label: "page context", timeout: .seconds(30), deadlines: deadlines) { called.append($0) }
+        }
+        for token in 21...30 { host.replies.expect(UInt32(token)) }
+        let evaluations = (1...7).map { token in
+            Task { try await runtime.evaluations.reply(for: Int32(token), timeout: .seconds(30)) { BrowserTabError.timedOut("evaluate") } }
+        }
+        let devTools = (1...7).map { message in
+            Task {
+                try await runtime.devToolsCalls.reply(for: CEFDevToolsKey(browser: 1, message: Int32(message)), timeout: .seconds(30)) {
+                    BrowserTabError.timedOut("DevTools")
+                }
+            }
+        }
+        let sites = (1...6).map { id in
+            Task { try await runtime.siteReplies.reply(for: Int32(id), timeout: .seconds(30)) { BrowserTabError.timedOut("site") } }
+        }
+        var latest: [CEFEvaluationResult?] = []
+        runtime.latestEvaluation = (token: 99, browser: 1, done: { latest.append($0) })
+        var answers: [BrowserPromptResponse] = []
+        tab.enqueuePrompt(.beforeUnload(isReload: false), origin: "https://example.com") { answers.append($0) }
+        await Self.afterQueuedWork()
+        #expect(host.replies.awaiting == 10 && host.replies.count == 30)
+        #expect(runtime.evaluations.count + runtime.devToolsCalls.count + runtime.siteReplies.count == 20)
+
+        supervisor.end()
+
+        // In the end's turn, before any waiting task runs again.
+        #expect(called.count == 10 && called.allSatisfy { $0 == .failure(.hostGone) }, "a callback did not run with hostGone")
+        #expect(host.replies.awaiting == 0, "an awaited token kept its continuation")
+        #expect(runtime.evaluations.count + runtime.devToolsCalls.count + runtime.siteReplies.count == 0,
+                "a wait an event answers kept its continuation")
+        #expect(latest == [nil], "the latest evaluation's answer never came")
+        #expect(answers.count == 1 && tab.pendingPrompts.isEmpty, "the page's question stayed open")
+
+        var resumed = called.count
+        for wait in awaited {
+            if await Self.awaitedFailure(of: { try await wait.value }) == .hostGone { resumed += 1 }
+        }
+        for token in 21...30 {
+            let failure = await Self.awaitedFailure {
+                try await host.replies.reply(to: UInt32(token), as: Int32.self, label: "sent", timeout: .seconds(30))
+            }
+            if failure == .hostGone { resumed += 1 }
+        }
+        for wait in evaluations {
+            if case .failure(let error as BrowserTabError) = await wait.result, error == .closed { resumed += 1 }
+        }
+        for wait in devTools {
+            if case .failure(let error as BrowserTabError) = await wait.result, error == .closed { resumed += 1 }
+        }
+        for wait in sites {
+            if case .failure(let error as BrowserTabError) = await wait.result, error == .closed { resumed += 1 }
+        }
+        #expect(resumed == 50)
+        #expect(host.replies.count == 0, "a token outlived the host")
+        #expect(deadlines.pendingCount == 0, "a callback's deadline outlived the host")
+    }
+
     /// A callback runs once, in the turn the REPLY resolves its token, and its deadline ends there.
     @Test func aCallbackRunsInTheReplysTurnAndEndsItsDeadline() {
         let rig = ReplyDeadlineRig()
@@ -332,4 +419,29 @@ import Testing
 private nonisolated struct ReplyPair: Equatable, Sendable {
     let result: Int32
     let text: String?
+}
+
+/// A supervisor whose ``end()`` reports the host's end to every observer, as the supervisor does for any
+/// end (a clean exit included), on the main thread.
+@MainActor private final class EndingHost: ChromiumHostSupervising {
+    private var observers: [@MainActor () -> Void] = []
+
+    /// Every symbol of the spy remote dylib other than its wire entry points: does nothing and returns 0.
+    nonisolated static let nothing: @Sendable (String) -> UnsafeMutableRawPointer? = { _ in
+        let nothing: @convention(c) () -> Int = { 0 }
+        return unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self)
+    }
+
+    func attachment() async throws(ChromiumHostAttachError) -> ChromiumHostAttachment {
+        ChromiumHostAttachment(controlFD: -1, remoteShim: URL(filePath: "/nonexistent/libcmux_cef_shim_remote.dylib"),
+                               frameworkLocales: ["en.lproj"])
+    }
+
+    func observeHostEnds(_ ended: @escaping @MainActor () -> Void) {
+        observers.append(ended)
+    }
+
+    func end() {
+        for observer in observers { observer() }
+    }
 }
