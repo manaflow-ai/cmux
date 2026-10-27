@@ -214,25 +214,32 @@ def _positive(value, integral=False):
     return value == value and value not in (float("inf"), float("-inf")) and value > 0
 
 
+# The exact fields this tool writes (_write), and their types: a record with any other key, a missing one or
+# another type is not one of ours, so it is never taken over and never acted on.
+FIELDS = {"schema": str, "tool": str, "kind": str, "path": str, "host": str, "created": int, "owner_pid": int,
+          "owner_start": int, "cleanup": str, "max_age_hours": int}
+OPTIONAL = {"owner_pgid": int}
+
+
 def invalid(record, path):
-    """Why RECORD is not a well-formed cleanup-registry/v1 job record of this tool for PATH, or ''."""
+    """Why RECORD is not exactly a cleanup-registry/v1 job record this tool wrote for PATH on this host, or ''."""
     if not isinstance(record, dict):
         return "not an object"
-    if record.get("schema") != SCHEMA or record.get("tool") != TOOL or record.get("kind") != "job":
-        return f"not a {SCHEMA} job record of {TOOL}"
-    if record.get("path") != path:
-        return f"names {record.get('path')!r}, not {path}"
-    if not (_positive(record.get("owner_pid"), integral=True) and _positive(record.get("owner_start"), integral=True)):
-        return "no owner_pid and owner_start (positive integers)"
-    pgid = record.get("owner_pgid", 0)
-    if not (pgid == 0 or _positive(pgid, integral=True)):
-        return "a bad owner_pgid"
-    if record.get("host") != os.uname().nodename:
-        return f"a record of host {record.get('host')!r}"
-    if not _positive(record.get("created")) or not _positive(record.get("max_age_hours")):
-        return "no created or max_age_hours"
-    if record.get("cleanup") != "trap":
-        return "cleanup is not trap"
+    keys = set(record)
+    if not set(FIELDS) <= keys or not keys <= set(FIELDS) | set(OPTIONAL):
+        return f"fields {sorted(keys)} are not this tool's"
+    for key, kind in {**FIELDS, **OPTIONAL}.items():
+        if key in record and (isinstance(record[key], bool) or not isinstance(record[key], kind)):
+            return f"{key} is not a {kind.__name__}"
+    expected = {"schema": SCHEMA, "tool": TOOL, "kind": "job", "path": path, "host": os.uname().nodename,
+                "cleanup": "trap", "max_age_hours": MAX_AGE_HOURS}
+    for key, value in expected.items():
+        if record[key] != value:
+            return f"{key} is {record[key]!r}, not {value!r}"
+    if not all(_positive(record[key], integral=True) for key in ("created", "owner_pid", "owner_start")):
+        return "created, owner_pid and owner_start must be positive"
+    if "owner_pgid" in record and not _positive(record["owner_pgid"], integral=True):
+        return "owner_pgid must be positive"
     return ""
 
 

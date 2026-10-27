@@ -307,6 +307,10 @@ class RigCleanupTests(unittest.TestCase):
 
     def test_a_malformed_record_is_neither_taken_over_nor_obeyed(self):
         os.makedirs(rig_cleanup.registry_dir(), exist_ok=True)
+        # What this tool writes is valid by its own reader.
+        rig_cleanup.register(self.rig, os.getpid(), rig_cleanup.process_start(os.getpid()), owner_pgid=os.getpgrp())
+        self.assertIsNotNone(rig_cleanup.read_record(self.rig, strict=True))
+        rig_cleanup.unregister(self.rig)
         dead = self.gone_pid()
         for bad in ({"owner_pid": dead, "owner_start": 1},
                     {"schema": "cleanup-registry/v1", "tool": "other", "kind": "job", "path": self.rig,
@@ -321,9 +325,11 @@ class RigCleanupTests(unittest.TestCase):
                 "host": os.uname().nodename, "created": 1, "owner_pid": dead, "owner_start": 5,
                 "cleanup": "trap", "max_age_hours": 12}
         self.assertEqual(rig_cleanup.invalid(good, self.app_home), "")
+        self.assertEqual(rig_cleanup.invalid(dict(good, owner_pgid=7), self.app_home), "")
         for key, value in (("owner_start", 0), ("owner_start", -1), ("owner_start", 1.5), ("owner_start", float("inf")),
                            ("owner_pid", True), ("host", "elsewhere"), ("created", 0), ("max_age_hours", 0),
-                           ("cleanup", "lru-cap"), ("owner_pgid", -2)):
+                           ("cleanup", "lru-cap"), ("owner_pgid", -2), ("owner_pgid", 0), ("created", 1.5),
+                           ("reaper", "not-an-argv"), ("reaper", ["x"]), ("extra", 1), ("max_age_hours", 24)):
             self.assertNotEqual(rig_cleanup.invalid(dict(good, **{key: value}), self.app_home), "", key)
         for key in ("host", "created", "max_age_hours", "cleanup"):
             self.assertNotEqual(rig_cleanup.invalid({k: v for k, v in good.items() if k != key}, self.app_home), "", key)
