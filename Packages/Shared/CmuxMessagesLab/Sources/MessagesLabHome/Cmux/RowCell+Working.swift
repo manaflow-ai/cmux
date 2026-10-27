@@ -19,11 +19,8 @@ extension RowCell {
     func startTypingSpinner(begin: CFTimeInterval) {
         typingSpinnerActive = true
         typingSpinner.removeAnimation(forKey: "workingSpin")
-        guard Thread.isMainThread, !MessagesLabHomeView.reducesMotion,
+        guard !MessagesLabHomeView.reducesMotion, HomeWorkingMotionGate.allowsLoops(),
               Springs.typingStillPhase == nil else { return }
-        // main-proof: guarded by Thread.isMainThread above; the vendored layer cell is nonisolated.
-        let animates = MainActor.assumeIsolated { MessagesLabHomeView.voiceMotionGate() }
-        guard animates else { return }
         // motion: allow the host's Home motion gate and Reduce Motion above govern this render-server loop.
         let spin = CABasicAnimation(keyPath: "transform.rotation.z")
         spin.fromValue = 0
@@ -37,5 +34,14 @@ extension RowCell {
     func stopTypingSpinner() {
         typingSpinnerActive = false
         typingSpinner.removeAnimation(forKey: "workingSpin")
+    }
+}
+
+/// Synchronous seam from the vendored layer renderer into the host's actor-isolated motion policy.
+private enum HomeWorkingMotionGate {
+    static func allowsLoops() -> Bool {
+        guard Thread.isMainThread else { return false }
+        // main-proof: guarded by Thread.isMainThread above; layer decoration runs on the main thread.
+        return MainActor.assumeIsolated { MessagesLabHomeView.voiceMotionGate() }
     }
 }
