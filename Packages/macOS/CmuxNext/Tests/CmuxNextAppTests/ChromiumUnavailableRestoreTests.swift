@@ -62,16 +62,23 @@ import Testing
     }
 
     /// An address typed into a "Chromium unavailable" tab is kept: the tab waits again on that address.
-    @Test func aTypedAddressIsKeptWhileChromiumStillCannotStart() throws {
+    @Test func aTypedAddressIsKeptWhileChromiumStillCannotStart() async throws {
         let cache = cache(.startFailed("CefInitialize failed"))
         let tab = restoredChromiumTab(64)
         defer { cache.release(tab.id) }
         cache.findTab = { $0 == tab.id ? tab : nil }
         let first = try #require(cache.browser(for: tab))
+        var written: [String] = []
+        cache.browserTabs.update = { _, _, update in
+            if let url = update.url { written.append(url) }
+            return true
+        }
         let typed = try #require(URL(string: "https://example.com/typed"))
         first.tab.load(typed)
         let again = try #require(cache.existingBrowser(tab.id)?.tab as? DeferredBrowserTab)
         #expect(again.state.url == typed)
+        for _ in 0..<10 where written.isEmpty { await Task.yield() }
+        #expect(written == [typed.absoluteString], "the restart the notice asks for opens the typed address")
     }
 
     /// A stand-in tab's "Chromium unavailable" page that moved to its daemon tab retries under the daemon tab's id.

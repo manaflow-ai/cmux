@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextWakeups
 import Darwin
 public import Foundation
 import os
@@ -34,7 +35,12 @@ import os
     private let giveUpAt: ContinuousClock.Instant
     private var queue = SingleInstanceHandoffQueue()
     private var launched = false
-    private var finishing: Task<Void, Never>?
+    /// The next step: the settle before exiting, or the next try.
+    private let step = DemandTimer(owner: "SingleInstanceHandoff.step")
+    /// ``deadline``: unanswered work is given up (or reopened).
+    private let giveUpTimer = DemandTimer(owner: "SingleInstanceHandoff.giveUp")
+    /// ``hardDeadline``: the process ends. Its sleep runs off the main thread, so a blocked send cannot hold it.
+    private static let hardExit = DemandTimer(owner: "SingleInstanceHandoff.hardExit")
 
     private init(lock: URL, giveUpAt: ContinuousClock.Instant) {
         self.lock = lock
@@ -49,7 +55,7 @@ import os
             logger.notice("launch: an agent launch of a second copy forwards nothing (the running copy would come forward); exiting")
             exit(0)
         }
-        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + hardDeadline) { exit(0) }
+        hardExit.schedule(after: .seconds(hardDeadline)) { exit(0) }
         // No saved windows of this copy: its restoration store would take over the running copy's.
         UserDefaults.standard.setVolatileDomain(["ApplePersistenceIgnoreState": true], forName: UserDefaults.argumentDomain)
         let app = NSApplication.shared
@@ -69,23 +75,20 @@ import os
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         launched = true
-        let giveUpAt = giveUpAt
-        Task { [weak self] in
-            try? await Task.sleep(until: giveUpAt, clock: .continuous)
-            self?.giveUp()
-        }
+        // The timer's sleep starts now, off the main thread, so a slow first batch does not move it.
+        giveUpTimer.schedule(after: ContinuousClock.now.duration(to: giveUpAt)) { @MainActor [weak self] in self?.giveUp() }
         attempt()
     }
 
     /// Sends what is pending, each event dropped once answered; then exits after the settle time, or tries again.
     private func attempt() {
-        finishing?.cancel()
+        step.cancel()
         let owner = SingleInstanceGuard.owner(at: lock)
         if let owner {
             let before = queue.pending.count
             let giveUpAt = giveUpAt
             queue.drain { [self] event in
-                guard let wait = Self.replyBudget(now: .now, giveUpAt: giveUpAt) else { return false }
+                guard let wait = Self.replyBudget(now: .now, giveUpAt: giveUpAt) else { return .notDelivered }
                 return send(event, to: owner, timeout: wait)
             }
             if queue.pending.count < before {
@@ -93,9 +96,8 @@ import os
             }
         }
         let done = queue.isDone
-        finishing = Task { [weak self] in
-            try? await Task.sleep(for: done ? Self.settle : Self.retry)
-            guard !Task.isCancelled, let self else { return }
+        step.schedule(after: done ? Self.settle : Self.retry) { @MainActor [weak self] in
+            guard let self else { return }
             if done { self.finish(owner: owner) } else if ContinuousClock.now < self.giveUpAt { self.attempt() }
         }
     }
@@ -110,20 +112,25 @@ import os
         return min(replyWait, seconds)
     }
 
-    /// Sends `event`; true when it leaves the queue (answered, or delivered but not answered in time).
-    private func send(_ event: SingleInstanceHandoffEvents.Event, to owner: pid_t, timeout: TimeInterval) -> Bool {
+    private func send(_ event: SingleInstanceHandoffEvents.Event, to owner: pid_t, timeout: TimeInterval) -> SingleInstanceHandoffQueue.Outcome {
         do {
             _ = try SingleInstanceHandoffEvents.descriptor(event, to: owner).sendEvent(options: [.waitForReply], timeout: timeout)
-            return true
+            return .answered
         } catch {
             let code = (error as NSError).code
             let delivered = SingleInstanceHandoffEvents.wasDelivered(errorCode: code)
             Self.logger.error("launch: hand-off event to pid \(owner, privacy: .public) failed (\(code, privacy: .public)); \(delivered ? "delivered, not sent again" : "not delivered, retried", privacy: .public)")
-            return delivered
+            return delivered ? .delivered : .notDelivered
         }
     }
 
     private func finish(owner: pid_t?) {
+        // Delivered but never answered, and the owner is gone now: it may not have opened them.
+        if !queue.unansweredURLs.isEmpty, SingleInstanceGuard.isFree(at: lock) {
+            Self.logger.notice("launch: the running copy exited before answering; reopening this launch")
+            Self.reopenAfterExit(bundle: Bundle.main.bundleURL, urls: queue.unansweredURLs)
+            exit(0)
+        }
         // Only a copy of this bundle: never another app that reused the pid.
         if let owner, let running = NSRunningApplication(processIdentifier: owner),
            running.bundleIdentifier == Bundle.main.bundleIdentifier {
@@ -137,8 +144,8 @@ import os
     /// LaunchServices, and that launch takes the claim as any other. Otherwise the rest is dropped, logged; the
     /// claim's descriptor is close-on-exec, so only a live copy of the app holds it, and it frees when that ends.
     private func giveUp() {
-        guard !queue.isDone else { return }
-        finishing?.cancel()
+        guard !queue.isDone || !queue.unansweredURLs.isEmpty else { return }
+        step.cancel()
         let urls = queue.unansweredURLs
         let owner = SingleInstanceGuard.owner(at: lock)
         if SingleInstanceGuard.isFree(at: lock) {
@@ -174,7 +181,20 @@ public extension SingleInstanceGuard {
 /// never repeats an open the owner already did (each open makes a tab). A bare launch is one `rapp`, replaced by
 /// the launch's URLs when any arrive before it was answered.
 nonisolated struct SingleInstanceHandoffQueue: Equatable {
+    /// What one send did.
+    enum Outcome: Equatable {
+        /// The owner's handler ran.
+        case answered
+        /// It reached the owner's queue but the reply timed out: never sent again (it may still run, and each open
+        /// makes a tab), but kept for a reopen if the owner then exits.
+        case delivered
+        /// It never reached the owner: sent again.
+        case notDelivered
+    }
+
     private(set) var pending: [SingleInstanceHandoffEvents.Event] = [.reopen]
+    /// Delivered without an answer.
+    private(set) var unanswered: [SingleInstanceHandoffEvents.Event] = []
 
     var isDone: Bool { pending.isEmpty }
 
@@ -183,14 +203,20 @@ nonisolated struct SingleInstanceHandoffQueue: Equatable {
         pending += SingleInstanceHandoffEvents.events(for: urls)
     }
 
-    /// Sends pending events in order; each answered one leaves; the first unanswered one stops the pass.
-    mutating func drain(_ send: (SingleInstanceHandoffEvents.Event) -> Bool) {
-        while let event = pending.first, send(event) { pending.removeFirst() }
+    /// Sends pending events in order; each answered or delivered one leaves; the first undelivered one stops the pass.
+    mutating func drain(_ send: (SingleInstanceHandoffEvents.Event) -> Outcome) {
+        while let event = pending.first {
+            switch send(event) {
+            case .answered: pending.removeFirst()
+            case .delivered: unanswered.append(pending.removeFirst())
+            case .notDelivered: return
+            }
+        }
     }
 
-    /// The URLs not answered yet (for a reopen through LaunchServices).
+    /// The URLs the owner has not answered (pending or delivered), for a reopen through LaunchServices.
     var unansweredURLs: [URL] {
-        pending.flatMap { event -> [URL] in
+        (unanswered + pending).flatMap { event -> [URL] in
             switch event {
             case .openDocuments(let files): files
             case .getURL(let url): [url]

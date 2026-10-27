@@ -88,20 +88,32 @@ import Testing
         queue.add([a, b])
         #expect(queue.pending == [.getURL(a), .getURL(b)], "URLs replace the bare launch's reopen")
         var sent: [SingleInstanceHandoffEvents.Event] = []
-        queue.drain { sent.append($0); return $0 == .getURL(a) }  // a answered, b not
+        queue.drain { sent.append($0); return $0 == .getURL(a) ? .answered : .notDelivered }  // a answered, b not
         #expect(sent == [.getURL(a), .getURL(b)])
         #expect(queue.pending == [.getURL(b)])
         #expect(queue.unansweredURLs == [b], "a reopen through LaunchServices carries only b")
         sent = []
-        queue.drain { sent.append($0); return true }
+        queue.drain { sent.append($0); return .answered }
         #expect(sent == [.getURL(b)], "the retry sends only b")
         #expect(queue.isDone)
+    }
+
+    /// A reply timeout is never sent again, but stays for a reopen if the owner exits before answering.
+    @Test func aTimedOutEventIsNotResentButKeptForAReopen() throws {
+        let a = try #require(URL(string: "https://a.example/")), b = try #require(URL(string: "https://b.example/"))
+        var queue = SingleInstanceHandoffQueue()
+        queue.add([a, b])
+        var sent: [SingleInstanceHandoffEvents.Event] = []
+        queue.drain { sent.append($0); return $0 == .getURL(a) ? .delivered : .answered }
+        #expect(sent == [.getURL(a), .getURL(b)])
+        #expect(queue.isDone, "nothing is sent again")
+        #expect(queue.unansweredURLs == [a])
     }
 
     @Test func aFailedFirstEventStopsThePass() {
         var queue = SingleInstanceHandoffQueue()
         var calls = 0
-        queue.drain { _ in calls += 1; return false }
+        queue.drain { _ in calls += 1; return .notDelivered }
         #expect(calls == 1)
         #expect(queue.pending == [.reopen])
         #expect(queue.unansweredURLs.isEmpty)

@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextBrowserHistory
 import Foundation
 import CmuxNextDaemon
 import os
@@ -59,8 +60,15 @@ extension TabContentCache {
         browsers.removeValue(forKey: key)?.close()
         guard let tab = tabModel(key) else { return }  // a remote machine's tab included
         if let reason = browserTabs.cefUnavailable(), reason.keepsChromiumTabsOutOfWebKit {
-            // Still no Chromium: wait again, on the address the person asked for.
+            // Still no Chromium: wait again, on the address the person asked for, and keep it in the tab's record
+            // so the restart the notice asks for opens it (never an incognito tab's: its URL stays in memory).
             _ = chromiumUnavailable(tab, url: url ?? tab.url.flatMap(URL.init(string:)), reason: reason)
+            if let url, url.absoluteString != tab.url, tab.isFrontendOwned, !browserTabs.isIncognitoTab(key),
+               !ProvisionalTab.isProvisional(surface: tab.surface) {
+                let daemon = browserTabs.daemon(for: tab), update = browserTabs.update, surface = tab.surface
+                // task-owner: one record write; the tab's next page writes over it
+                Task { _ = await update(daemon, surface, BrowserRecordUpdate(url: url.absoluteString, title: nil, favicon: .unchanged)) }
+            }
         } else if let entry = browser(for: tab), let url, url.absoluteString != tab.url {
             entry.tab.load(url)
         }
