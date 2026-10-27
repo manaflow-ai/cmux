@@ -29,6 +29,24 @@ impl Drop for Home {
     }
 }
 
+#[tokio::test]
+async fn private_input_is_cancellable_without_closing_the_writer() {
+    use std::io::Write;
+    let (reader, mut writer) = std::os::unix::net::UnixStream::pair().unwrap();
+    let input = nonblocking_input(reader.into()).unwrap();
+    let mut buffer = Vec::new();
+    assert!(
+        tokio::time::timeout(Duration::from_millis(10), request_line(&input, &mut buffer))
+            .await
+            .is_err()
+    );
+    writer.write_all(b"{\"id\":1}\n{\"id\":2}\n").unwrap();
+    assert_eq!(request_line(&input, &mut buffer).await.unwrap().as_deref(), Some("{\"id\":1}\n"));
+    assert_eq!(request_line(&input, &mut buffer).await.unwrap().as_deref(), Some("{\"id\":2}\n"));
+    writer.write_all(&vec![b'x'; 4097]).unwrap();
+    assert!(request_line(&input, &mut buffer).await.is_err());
+}
+
 #[test]
 fn broker_refuses_two_holders_and_preserves_refreshed_state() {
     let home = Home::new();

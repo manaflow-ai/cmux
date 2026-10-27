@@ -13,7 +13,7 @@ use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::fs::File;
 use std::io::{IsTerminal, Read};
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -47,10 +47,12 @@ pub async fn run(home: PathBuf, codex: PathBuf) -> Result<()> {
 }
 
 async fn serve(owner: &mut Owner, home: &Path) -> Result<()> {
-    let mut input = FramedRead::new(tokio::io::stdin(), LinesCodec::new_with_max_length(4096));
+    // Tokio stdin uses an uncancellable blocking read. A private nonblocking
+    // descriptor lets cancellation finish even if the app keeps its pipe open.
+    let input = private_input()?;
+    let mut buffered = Vec::new();
     let mut output = FramedWrite::new(tokio::io::stdout(), LinesCodec::new_with_max_length(LIMIT));
-    while let Some(line) = input.next().await {
-        let line = line.map_err(|_| anyhow!("invalid broker request"))?;
+    while let Some(line) = request_line(&input, &mut buffered).await? {
         let request: Value =
             serde_json::from_str(&line).map_err(|_| anyhow!("invalid broker request"))?;
         let id = request
@@ -74,6 +76,61 @@ async fn serve(owner: &mut Owner, home: &Path) -> Result<()> {
         output.send(reply.to_string()).await.map_err(|_| anyhow!("broker output closed"))?;
     }
     Ok(())
+}
+
+fn private_input() -> Result<tokio::io::unix::AsyncFd<OwnedFd>> {
+    // SAFETY: duplicate stdin; OwnedFd owns only the successful new descriptor.
+    let fd = unsafe { libc::fcntl(libc::STDIN_FILENO, libc::F_DUPFD_CLOEXEC, 3) };
+    ensure!(fd >= 0, "cannot open broker input");
+    let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+    nonblocking_input(fd)
+}
+
+fn nonblocking_input(fd: OwnedFd) -> Result<tokio::io::unix::AsyncFd<OwnedFd>> {
+    // SAFETY: fd is owned and live; fcntl changes only this private pipe.
+    let flags = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GETFL) };
+    ensure!(
+        flags >= 0
+            && unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) } >= 0,
+        "cannot make broker input nonblocking"
+    );
+    Ok(tokio::io::unix::AsyncFd::new(fd)?)
+}
+
+async fn request_line(
+    input: &tokio::io::unix::AsyncFd<OwnedFd>,
+    buffered: &mut Vec<u8>,
+) -> Result<Option<String>> {
+    loop {
+        if let Some(end) = buffered.iter().position(|b| *b == b'\n') {
+            let line = buffered.drain(..=end).collect::<Vec<_>>();
+            return String::from_utf8(line)
+                .map(Some)
+                .map_err(|_| anyhow!("invalid broker request"));
+        }
+        ensure!(buffered.len() <= 4096, "broker request too large");
+        let mut bytes = [0u8; 4097];
+        let mut ready = input.readable().await?;
+        match ready.try_io(|source| {
+            // SAFETY: bytes is writable for the requested bound; fd stays owned.
+            let n = unsafe {
+                libc::read(
+                    source.get_ref().as_raw_fd(),
+                    bytes.as_mut_ptr().cast(),
+                    4097 - buffered.len(),
+                )
+            };
+            if n < 0 { Err(std::io::Error::last_os_error()) } else { Ok(n as usize) }
+        }) {
+            Ok(Ok(0)) => {
+                ensure!(buffered.is_empty(), "incomplete broker request");
+                return Ok(None);
+            }
+            Ok(Ok(n)) => buffered.extend_from_slice(&bytes[..n]),
+            Ok(Err(_)) => return Err(anyhow!("broker input closed")),
+            Err(_) => continue,
+        }
+    }
 }
 
 /// A marker prevents accidentally pointing this at an existing CLI home and
