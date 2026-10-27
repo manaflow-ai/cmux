@@ -127,7 +127,11 @@ public final class ComputerUseActivityPreviewSource: ComputerUseLivePreviewSourc
         guard let reply = try? await CuaSocketClient(configuration: configuration)
             .send("activity_frame", ["blob": blob, "size": "thumb"], deadline: .seconds(5)),
               let base64 = reply["data_base64"] as? String, !base64.isEmpty, base64.utf8.count <= maximumFrameBytes,
-              Data(base64Encoded: base64) != nil else { return nil }
+              let data = Data(base64Encoded: base64) else { return nil }
+        // A window frame's black corners (no alpha in the JPEG) cleared to the window's own outline.
+        if let rounded = ComputerUseFrameCorners.clearingCorners(data) {
+            return "data:image/png;base64,\(rounded.base64EncodedString())"
+        }
         let mime = (reply["mime"] as? String).flatMap { ["image/jpeg", "image/png", "image/webp"].contains($0) ? $0 : nil }
         return "data:\(mime ?? "image/jpeg");base64,\(base64)"
     }
