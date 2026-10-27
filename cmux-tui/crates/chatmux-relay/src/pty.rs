@@ -38,7 +38,7 @@ use serde_json::{Value, json};
 
 use crate::actions::{expand_path, scrubbed_env, validate_request_path};
 use crate::control::ControlHandle;
-use crate::panic_free::RecoverPoison as _;
+use crate::panic_free::{LockRevalidated as _, RecoverPoison as _, Revalidate};
 use crate::relay_wire::RelayPtyErrorCode;
 
 pub const PTY_PROTOCOL_VERSION: u64 = 4;
@@ -437,6 +437,15 @@ struct ShellInner {
     ring_size: usize,
     alive: bool,
     viewers: Vec<ViewerSink>,
+}
+
+impl Revalidate for ShellInner {
+    const LOCK: &'static str = "ShellSession.inner";
+
+    /// `ring_size` is the byte count of `ring`.
+    fn revalidate(&mut self) {
+        self.ring_size = self.ring.iter().map(Bytes::len).sum();
+    }
 }
 
 #[derive(Clone)]
@@ -1315,7 +1324,7 @@ impl Inner {
                 let manager = Arc::clone(&self);
                 let on_session_data: DataSink = Arc::new(move |chunk: Bytes| {
                     let viewers_to_notify: Vec<Arc<dyn Fn(Bytes) + Send + Sync>> = {
-                        let mut inner = data_session.inner.lock().recover_poison();
+                        let mut inner = data_session.inner.lock_revalidated();
                         inner.ring_size += chunk.len();
                         inner.ring.push_back(chunk.clone());
                         while inner.ring_size > scrollback_limit && inner.ring.len() > 1 {
@@ -1330,7 +1339,7 @@ impl Inner {
                 });
                 let on_session_exit: ExitSink = Arc::new(move |code: i64| {
                     let viewers = {
-                        let mut inner = exit_session.inner.lock().recover_poison();
+                        let mut inner = exit_session.inner.lock_revalidated();
                         inner.alive = false;
                         std::mem::take(&mut inner.viewers)
                     };
@@ -1369,7 +1378,7 @@ impl Inner {
         let start_session = Arc::clone(&shell_session);
         let start: Box<dyn FnOnce() + Send> = Box::new(move || {
             let (banner, replay, alive) = {
-                let inner = start_session.inner.lock().recover_poison();
+                let inner = start_session.inner.lock_revalidated();
                 let banner = created.then(|| start_session.banner.clone()).flatten();
                 let replay = (!created && inner.ring_size > 0).then(|| {
                     inner.ring.iter().flat_map(|c| c.iter().copied()).collect::<Vec<u8>>()
@@ -1389,7 +1398,7 @@ impl Inner {
                 on_exit(0);
                 return;
             }
-            let mut inner = start_session.inner.lock().recover_poison();
+            let mut inner = start_session.inner.lock_revalidated();
             if !released.load(Ordering::SeqCst) && inner.alive {
                 inner.viewers.push(ViewerSink { id: viewer_id, on_data, on_exit });
             }
@@ -1408,7 +1417,7 @@ struct ShellViewerControl {
 impl ShellViewerControl {
     fn release(&self) {
         self.released.store(true, Ordering::SeqCst);
-        let mut inner = self.session.inner.lock().recover_poison();
+        let mut inner = self.session.inner.lock_revalidated();
         inner.viewers.retain(|viewer| viewer.id != self.viewer_id);
     }
 }
@@ -1469,6 +1478,17 @@ struct TerminalStreamState {
     ended: bool,
 }
 
+impl Revalidate for TerminalStreamState {
+    const LOCK: &'static str = "TerminalStream.state";
+
+    /// `backlog_bytes` counts the bytes accepted before the live sinks: all
+    /// of `backlog` until `go_live`, which zeroes it, and none after.
+    fn revalidate(&mut self) {
+        self.backlog_bytes =
+            if self.live_data.is_none() { self.backlog.iter().map(Bytes::len).sum() } else { 0 };
+    }
+}
+
 impl TerminalStream {
     fn new() -> TerminalStream {
         TerminalStream {
@@ -1504,7 +1524,7 @@ impl TerminalStream {
     fn drain(&self) {
         loop {
             let next = {
-                let mut state = self.state.lock().recover_poison();
+                let mut state = self.state.lock_revalidated();
                 if let Some(chunk) = state.backlog.pop_front() {
                     (Some(chunk), None, state.live_data.clone(), state.live_exit.clone())
                 } else if let Some(code) = state.pending_exit.take() {
@@ -1525,7 +1545,7 @@ impl TerminalStream {
 
     fn push_output(&self, chunk: Bytes) {
         let should_drain = {
-            let mut state = self.state.lock().recover_poison();
+            let mut state = self.state.lock_revalidated();
             // A raw attach cannot replay an unbounded pre-open stream.  Keep
             // the bytes already accepted, but terminate the stream explicitly
             // when the first complete chunk would exceed the cap.  Returning
@@ -1562,7 +1582,7 @@ impl TerminalStream {
 
     fn finish_exit(&self, code: i64) {
         let should_drain = {
-            let mut state = self.state.lock().recover_poison();
+            let mut state = self.state.lock_revalidated();
             if state.ended {
                 return;
             }
@@ -1581,7 +1601,7 @@ impl TerminalStream {
         on_exit: Arc<dyn Fn(i64) + Send + Sync>,
     ) {
         let should_drain = {
-            let mut state = self.state.lock().recover_poison();
+            let mut state = self.state.lock_revalidated();
             state.live_data = Some(Arc::clone(&on_data));
             state.live_exit = Some(Arc::clone(&on_exit));
             state.backlog_bytes = 0;
@@ -2010,7 +2030,7 @@ impl Inner {
                 if surfaces.len() >= MAX_ENUM_SURFACES {
                     break;
                 }
-                let alive = session.inner.lock().recover_poison().alive;
+                let alive = session.inner.lock_revalidated().alive;
                 if !alive || seen.contains(name) {
                     continue;
                 }
@@ -2156,7 +2176,7 @@ mod tests {
         let home = TestDirectory::new("cwd-home");
         let root = TestDirectory::new("cwd-root");
         let root_text = root.path.to_string_lossy().into_owned();
-        let roots = [root_text.clone()];
+        let roots = [root_text];
         let canonical = std::fs::canonicalize(&root.path).expect("canonical root");
         for (local, server) in [(Some(&[][..]), Some(&roots[..])), (Some(&roots[..]), None)] {
             let resolved = scoped_cwd(None, &home.path, local, server).expect("cwd in root");
@@ -2164,6 +2184,41 @@ mod tests {
         }
         let resolved = scoped_cwd(None, &home.path, Some(&[]), None).expect("home cwd");
         assert_eq!(resolved.path, std::fs::canonicalize(&home.path).expect("canonical home"));
+    }
+
+    #[test]
+    fn a_shell_ring_torn_by_a_panic_gets_its_size_back_from_the_ring() {
+        let inner = Mutex::new(ShellInner {
+            ring: VecDeque::from([Bytes::from_static(b"abc")]),
+            ring_size: 3,
+            alive: true,
+            viewers: Vec::new(),
+        });
+        let torn = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut guard = inner.lock_revalidated();
+            guard.ring.push_back(Bytes::from_static(b"defg"));
+            std::panic::panic_any("panic before ring_size is updated");
+        }));
+        assert!(torn.is_err());
+        assert_eq!(inner.lock_revalidated().ring_size, 7);
+        assert!(!inner.is_poisoned());
+    }
+
+    #[test]
+    fn a_raw_attach_backlog_torn_by_a_panic_keeps_counting_against_its_cap() {
+        let stream = TerminalStream::new();
+        let torn = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut state = stream.state.lock_revalidated();
+            state.backlog.push_back(Bytes::from(vec![0_u8; RAW_ATTACH_BACKLOG_CAP]));
+            std::panic::panic_any("panic before backlog_bytes is updated");
+        }));
+        assert!(torn.is_err());
+        // The repaired count is at the cap, so one more byte ends the stream
+        // instead of growing the pre-open backlog past it.
+        stream.push_output(Bytes::from_static(b"x"));
+        let state = stream.state.lock_revalidated();
+        assert_eq!(state.backlog_bytes, RAW_ATTACH_BACKLOG_CAP);
+        assert!(state.ended && stream.overflowed());
     }
 
     /// A fake PTY: emit() calls the subscribed sink synchronously, like the

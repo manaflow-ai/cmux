@@ -970,10 +970,14 @@ async fn relay_session(
                                 local_trust.as_str().to_owned()
                             };
                             let local_observe = effective_trust == Trust::Observe.as_str();
-                            let mut snapshot = auth.lock().recover_poison();
-                            snapshot.trust = effective_trust;
-                            snapshot.roots = local_roots.clone();
-                            snapshot.owner = config.owner_user_id.clone();
+                            // One whole-value write: a panic can never leave a
+                            // new trust with the old roots or owner.
+                            let snapshot = AuthSnapshot {
+                                trust: effective_trust,
+                                roots: local_roots.clone(),
+                                owner: config.owner_user_id.clone(),
+                            };
+                            *auth.lock().recover_poison() = snapshot;
                             workspace.set_local_observe(local_observe);
                         }
                         let cadence = Duration::from_millis(hello.heartbeat_interval_ms);

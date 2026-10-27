@@ -26,7 +26,7 @@ use cmux_pty::{MasterPty, PtySize};
 use sha2::{Digest, Sha256};
 
 use crate::control::{CONTROL_TIMEOUT_MS, ControlHandle, connect_control};
-use crate::panic_free::{RecoverPoison as _, filled};
+use crate::panic_free::{LockRevalidated as _, RecoverPoison as _, Revalidate, filled};
 use crate::pty::{
     CmuxTui, DataSink, EnsureDaemon, ExitSink, PtyControl, PtyDeps, PtyHandle, PtyOutput,
     ResolvedCwd, SpawnSpec, session_name_ok,
@@ -181,6 +181,15 @@ struct SourceState {
     overflowed: bool,
 }
 
+impl Revalidate for SourceState {
+    const LOCK: &'static str = "ThreadOutput.state";
+
+    /// `backlog_bytes` is the byte count of `backlog`.
+    fn revalidate(&mut self) {
+        self.backlog_bytes = self.backlog.iter().map(Bytes::len).sum();
+    }
+}
+
 struct ThreadOutput {
     state: Mutex<SourceState>,
     overflow_handler: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
@@ -234,7 +243,7 @@ impl ThreadOutput {
     fn drain(&self) {
         loop {
             let next = {
-                let mut state = self.state.lock().recover_poison();
+                let mut state = self.state.lock_revalidated();
                 if let Some(chunk) = state.backlog.pop_front() {
                     state.backlog_bytes = state.backlog_bytes.saturating_sub(chunk.len());
                     (Some(chunk), None, state.on_data.clone(), state.on_exit.clone())
@@ -261,7 +270,7 @@ impl ThreadOutput {
             return;
         }
         let (should_drain, overflowed) = {
-            let mut state = self.state.lock().recover_poison();
+            let mut state = self.state.lock_revalidated();
             if state.exited || state.overflowed {
                 return;
             }
@@ -287,7 +296,7 @@ impl ThreadOutput {
 
     fn push_exit(&self, code: i64) {
         let should_drain = {
-            let mut state = self.state.lock().recover_poison();
+            let mut state = self.state.lock_revalidated();
             if state.exited {
                 return;
             }
@@ -304,7 +313,7 @@ impl ThreadOutput {
 impl PtyOutput for ThreadOutput {
     fn subscribe(&self, on_data: DataSink, on_exit: ExitSink) {
         let should_drain = {
-            let mut state = self.state.lock().recover_poison();
+            let mut state = self.state.lock_revalidated();
             state.on_data = Some(Arc::clone(&on_data));
             state.on_exit = Some(Arc::clone(&on_exit));
             Self::start_delivery(&mut state)
@@ -1104,5 +1113,22 @@ mod tests {
             .expect("spawn child");
         wait_for_child_exit_without_reaping(child.id() as libc::pid_t).expect("observe child");
         assert_eq!(child.wait().expect("reap child").code(), Some(23));
+    }
+
+    #[test]
+    fn a_source_backlog_torn_by_a_panic_keeps_counting_against_its_cap() {
+        let output = ThreadOutput::new();
+        let torn = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut state = output.state.lock_revalidated();
+            state.backlog.push_back(Bytes::from(vec![0_u8; THREAD_OUTPUT_BACKLOG_CAP]));
+            std::panic::panic_any("panic before backlog_bytes is updated");
+        }));
+        assert!(torn.is_err());
+        // The repaired count is at the cap, so one more byte overflows the
+        // source instead of queueing past the cap.
+        output.push_data(Bytes::from_static(b"x"));
+        let state = output.state.lock_revalidated();
+        assert_eq!(state.backlog_bytes, THREAD_OUTPUT_BACKLOG_CAP);
+        assert!(state.overflowed && !output.state.is_poisoned());
     }
 }
