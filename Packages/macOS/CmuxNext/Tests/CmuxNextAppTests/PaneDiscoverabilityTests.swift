@@ -110,7 +110,7 @@ import Testing
         let registry = ActionRegistry.standard()
         let target = ActionTargetRef(kind: .pane, id: "sample-pane")
         let pins = ["splitRight", "splitDown", "openDiffViewer", "file.open"]
-        for action in pins { registry.bind(action, invoke: { _ in }) }
+        for action in pins { registry.bind(ActionID(rawValue: action), invoke: { _ in }) }
         let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { registry.makePaneCreationMenu(target: target) }, paneTarget: target)
         toolbar.update(target: "sample-terminal", kind: .terminal, pinned: pins)
         let pane = PaneContentView(stripModel: TabStripModel(tabs: [], selectedID: nil), reveal: LaunchReveal(deadline: .zero))
