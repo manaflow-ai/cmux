@@ -1,6 +1,5 @@
 public import AppKit
 public import CmuxNextDesign
-import CmuxNextWakeups
 import SwiftUI
 
 /// Hosts the Tasks pane in a tab's content area. The App creates it with a
@@ -9,14 +8,14 @@ import SwiftUI
 /// state (the App passes the user setting `tasks.layout` from cmux.json),
 /// a change switches the layout live. Resolves the
 /// pane colors (chrome tokens and the terminal's ANSI palette) in this
-/// view's theme scope and again on every theme change.
+/// view's theme scope in `updateLayer`: a theme change marks the view for
+/// display (AppKit on an appearance change, `ThemeRepaint` on a scope
+/// repaint), and AppKit does not display a hidden view, so a pane hidden
+/// during any number of theme changes resolves them once, on show.
 public final class TasksHostView: NSView, VisibilityGatedContent {
     public let model: TasksModel
     private let appearanceState: TasksAppearance
     private let gate: VisibilityGatedHostingView
-    /// The pane's place in the visibility tree: a theme change while it is hidden resolves the colors once, on show.
-    private let visibility = ViewVisibility("tasks")
-    private var visibilityNode: VisibilityNode { visibility.node }
     /// How many times the pane's colors were resolved (tests: a hidden pane resolves none until it shows).
     package private(set) var colorResolves = 0
 
@@ -60,25 +59,7 @@ public final class TasksHostView: NSView, VisibilityGatedContent {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        visibility.place(in: window)
         resolveColors()
-    }
-
-    // R-hide: hiding forwards to the node.
-    public override func viewDidHide() {
-        super.viewDidHide()
-        visibilityNode.set(.hidden)
-    }
-
-    public override func viewDidUnhide() {
-        super.viewDidUnhide()
-        visibilityNode.set(.visible)
-    }
-
-    // R-appear: the colors feed the SwiftUI pane, so a hidden pane resolves them on show.
-    public override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        visibilityNode.deferUntilVisible(key: "TasksHostView.appearance") { [weak self] in self?.resolveColors() }
     }
 
     private func resolveColors() {
