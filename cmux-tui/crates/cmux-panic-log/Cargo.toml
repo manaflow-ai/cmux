@@ -11,6 +11,7 @@ description = "The panic and hang logs of cmux's background processes: one JSON 
 workspace = true
 
 [dependencies]
+cmux-trace.workspace = true
 serde_json.workspace = true
 
 [target.'cfg(unix)'.dependencies]
