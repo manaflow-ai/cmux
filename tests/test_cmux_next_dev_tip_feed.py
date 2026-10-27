@@ -698,7 +698,7 @@ with tempfile.TemporaryDirectory() as tmp:
     check(tip_appcast.sign_file(scalar.to_bytes(32, "little") + nonce + public, str(dmg)) == (signature, public),
           "the old 96-byte Sparkle key signs the same as its seed")
     def write_archive(build, key):
-        archive = tmp / f"app-{build}-{key[:4]}.zip"
+        archive = tmp / f"app-{build}-{key[:4].replace('/', '_')}.zip"
         with zipfile.ZipFile(archive, "w") as zf:
             zf.writestr("cmux NEXT DEV.app/Contents/Info.plist", plistlib.dumps({
                 "CFBundleVersion": build, "CFBundleShortVersionString": f"1.0.0-tip.{build}", "CFBundleName": "cmux NEXT DEV",
