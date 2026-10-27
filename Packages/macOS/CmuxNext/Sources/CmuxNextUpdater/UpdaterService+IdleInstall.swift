@@ -1,4 +1,5 @@
 import CmuxUpdater
+import Foundation
 
 /// A nightly's automatic install (`installsUpdatesWhenIdle`) runs the same preflight as a click
 /// (What's New record and rollback copy) before handing the staged update to Sparkle. The app's
