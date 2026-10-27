@@ -43,7 +43,6 @@ impl Stdio {
     }
 
     /// The `std::process::Stdio` the std path of [`crate::Command`] uses.
-    #[cfg(not(target_vendor = "apple"))]
     pub(crate) fn into_std(self) -> std::process::Stdio {
         match self.0 {
             Kind::Null => std::process::Stdio::null(),

@@ -9,9 +9,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use cmux_threads::ThreadQos;
+use cmux_threads::work::Lane;
 use serde_json::{Value, json};
 
 use super::{ConnectionClass, ConnectionClassCell, ConnectionThread, ReaderClass, RestingClass};
+use crate::event_cause::{EventCause, EventCauseScope};
 use crate::panic_free::RecoverPoison;
 use crate::request_origin::{HelloRole, RequestOrigin};
 use crate::request_qos::{RequestQos, RequestQosGate};
@@ -42,21 +44,6 @@ fn desired(name: &str) -> Vec<ThreadQos> {
         .filter(|row| row.name == name)
         .map(|row| row.desired)
         .collect()
-}
-
-/// Waits (bounded) until a live thread named `name` asks for `qos`. Tests
-/// running in parallel start threads of the same names; only a classed
-/// connection's threads ask for Utility.
-fn assert_some_thread_desires(name: &str, qos: ThreadQos) {
-    let deadline = Instant::now() + WAIT;
-    loop {
-        let rows = desired(name);
-        if rows.contains(&qos) {
-            return;
-        }
-        assert!(Instant::now() < deadline, "no {name} thread asks for {qos}: {rows:?}");
-        std::thread::sleep(Duration::from_millis(5));
-    }
 }
 
 #[test]
@@ -171,7 +158,7 @@ fn a_request_class_nests_inside_the_resting_class() {
         resting.follow();
         let rested = cmux_tui_platform::qos::work_qos();
         {
-            let _request = gate(true).enter(crate::event_cause::EventCause::Frontend);
+            let _request = gate(true).enter(EventCause::Frontend);
         }
         (rested, cmux_tui_platform::qos::work_qos())
     })
@@ -293,10 +280,15 @@ fn a_signed_app_hello_reclasses_its_processs_connections() {
     mux.shutdown();
 }
 
-/// A connection's dispatcher and its clear-history worker rest at
-/// Utility once the connection is automation.
+/// An automation connection's clear-history request runs as a `Mux::work`
+/// item on the system lane at its cause's class (p02-threads 230), not on a
+/// thread of its own that rests at the connection's class: the reader enters
+/// the automation cause for the connection's lines, and that cause runs its
+/// requests at Utility (crate::request_qos). The control task that posted
+/// the item ran on a shared pool worker inside a scope of the connection's
+/// class, which leaves the worker's row at its declared class (p05-ipc-073).
 #[test]
-fn an_automation_connection_runs_its_requests_at_utility() {
+fn an_automation_connections_clear_history_runs_at_its_cause_on_the_work_pool() {
     let mux = crate::Mux::new_for_test("connection-qos-dispatch", crate::SurfaceOptions::default());
     mux.set_request_qos_for_test(true);
     let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
@@ -305,6 +297,7 @@ fn an_automation_connection_runs_its_requests_at_utility() {
     mux.control_clients.classify_connection(client);
     let class = mux.control_clients.connection_class(client);
     assert_eq!(class.get(), ConnectionClass::Automation);
+    assert_eq!(EventCause::Automation.request_qos(), Some(ThreadQos::Utility));
     let scheduler = Arc::new(
         ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()).classed(class),
     );
@@ -312,12 +305,20 @@ fn an_automation_connection_runs_its_requests_at_utility() {
         id: Some(json!(1)),
         cmd: Command::ClearHistory(ClearHistoryParams { surface: surface.id, fallback_key: None }),
     });
-    // The worker waits for the terminal lock held here, so both threads
-    // are alive while their rows are read.
+    // The item waits for the terminal lock held here, so it is running while
+    // the lane is read.
     let held = surface.with_terminal(|_| {
+        let _cause = EventCauseScope::enter(EventCause::Automation);
         assert_eq!(scheduler.dispatch(mux.clone(), client, &mut clear, 0, writer), Some(true));
-        assert_some_thread_desires("mux-control-dispatch", ThreadQos::Utility);
-        assert_some_thread_desires("mux-surface-control", ThreadQos::Utility);
+        let deadline = Instant::now() + WAIT;
+        while mux.work.stats()[Lane::System as usize].running == 0 {
+            assert!(Instant::now() < deadline, "the clear-history item never started");
+            std::thread::yield_now();
+        }
+        assert!(
+            cmux_threads::snapshot().iter().all(|row| row.name != "mux-surface-control"),
+            "a clear-history request started its own thread"
+        );
     });
     assert!(held.is_some(), "a PTY surface");
     scheduler.finish_and_wait();
@@ -370,6 +371,54 @@ fn a_connection_is_classed_when_its_hello_window_closes() {
     assert_eq!(reply["ok"], true, "{reply}");
     assert_eq!(class.get(), ConnectionClass::Automation);
     assert_eq!(desired("mux-test-qos-conn"), [ThreadQos::Utility], "the reader follows");
+
+    client.shutdown(Shutdown::Both).unwrap();
+    handler.join().unwrap();
+    mux.shutdown();
+}
+
+/// `server-threads` names the connection each connection thread works
+/// for, with the class and the facts it comes from, feature on or off: the
+/// QoS audit (scripts/cmux-next/qos-audit.py) judges the person's
+/// connection threads by it (RUN-4).
+#[test]
+fn server_threads_names_a_connection_threads_connection() {
+    let mux = crate::Mux::new_for_test("connection-qos-row", crate::SurfaceOptions::default());
+    let (server, mut client) = UnixStream::pair().unwrap();
+    client.set_read_timeout(Some(WAIT)).unwrap();
+    let handler = {
+        let mux = mux.clone();
+        cmux_threads::spawn(
+            "mux-test-qos-row",
+            crate::server::line_connection::CONNECTION_READER_QOS,
+            move || handle_connection(mux, Box::new(server)),
+        )
+        .unwrap()
+    };
+    let mut reader = BufReader::new(client.try_clone().unwrap());
+    let reply = exchange(&mut client, &mut reader, json!({"id": 1, "cmd": "ping"}));
+    assert_eq!(reply["ok"], true, "{reply}");
+    let id = *mux.control_clients.client_ids().first().expect("the connection's client");
+
+    let snapshot = serde_json::to_value(crate::server::server_stats::server_threads(&mux)).unwrap();
+    let rows = snapshot["threads"].as_array().unwrap();
+    let row = rows
+        .iter()
+        .find(|row| row["name"] == "mux-test-qos-row")
+        .unwrap_or_else(|| panic!("the reader has a row: {snapshot}"));
+    let connection = &row["connection"];
+    assert_eq!(connection["client"], id, "{row}");
+    assert_eq!(connection["class"], "automation", "{row}");
+    assert_eq!(connection["transport"], "unix", "{row}");
+    assert_eq!(connection["origin"], "agent", "{row}");
+    assert_eq!(connection["remote_device"], false, "{row}");
+    assert_eq!(connection["peer_pid"], std::process::id(), "{row}");
+    for writer in rows.iter().filter(|row| row["name"] == "mux-line-out") {
+        assert!(
+            writer["connection"].is_null(),
+            "a writer is no reader or request thread: {writer}"
+        );
+    }
 
     client.shutdown(Shutdown::Both).unwrap();
     handler.join().unwrap();

@@ -34,6 +34,32 @@ enum DebugLayers {
         return .object(fields)
     }
 
+    /// `debug.overlay`: per main window, how often the overlay host re-added its panel above a page
+    /// window per main run loop turn (event cycle) since the last `{reset: true}` (`reorders`,
+    /// `event_cycles`, `reorders_per_event`); the top level has the largest `reorders_per_event`. With
+    /// pages in the view tree (`page_surface: "views"`) nothing re-adds a page window, so it stays 0
+    /// (p01-process-223). `order_checks` counts the window notices that checked the order.
+    static func overlay(services: AppServices, params: [String: JSONValue] = [:]) -> JSONValue {
+        let layers = services.windows.controllers.compactMap { ($0.window as? ShellWindow)?.overlayLayer }
+        if params["reset"]?.boolValue == true { layers.forEach { $0.resetOverlayStats() } }
+        return .object([
+            "windows": .array(layers.map { overlay($0) }),
+            "reorders_per_event": .number(layers.map(\.reordersPerEvent).max() ?? 0),
+        ])
+    }
+
+    static func overlay(_ layer: WindowOverlayLayer) -> JSONValue {
+        .object([
+            "window_number": .number(Double(layer.window.windowNumber)),
+            "page_surface": .string(layer.pageSurface == .views ? "views" : "child_windows"),
+            "placement": .string(layer.placement.rawValue),
+            "reorders": .number(Double(layer.reordersSinceReset)),
+            "event_cycles": .number(Double(layer.eventCyclesSinceReset)),
+            "reorders_per_event": .number(layer.reordersPerEvent),
+            "order_checks": .number(Double(layer.orderCheckCount)),
+        ])
+    }
+
     /// `frame_sources: true`: what ticks with no FrameScheduler client in the
     /// app's windows and their child windows, per owner view: infinite Core
     /// Animation loops and playing video layers (``RenderStats/loopingAnimations(in:)``).
@@ -172,6 +198,8 @@ enum DebugLayers {
             "divider_catcher_updates": .number(Double(layer.catchers?.panelUpdates ?? 0)),
             "page_windows_take_mouse": .bool(layer.pageWindowsTakeMouse),
             "reorders": .number(Double(layer.reorderCount)),
+            "order_checks": .number(Double(layer.orderCheckCount)),
+            "page_surface": .string(layer.pageSurface == .views ? "views" : "child_windows"),
             // p03-rendering-052: overlays in the window's own top layer, and whether a panel was ever made.
             "overlay_top_layer_in_window": .bool(WindowOverlayHost.existingHost(for: window)?.isTopLayerInWindow == true),
             "overlay_panel_made": .bool(WindowOverlayHost.existingHost(for: window)?.madePanel != nil),
@@ -300,7 +328,7 @@ enum DebugLayers {
 
     private static func role(of child: NSWindow, layer: WindowOverlayLayer) -> String {
         if child === layer.overlayPanel { return "overlay" }
-        if WindowOverlayLayer.isContent(child) { return "content" }
+        if WindowOverlayLayer.isContent(child, of: layer.window) { return "content" }
         return "panel"
     }
 

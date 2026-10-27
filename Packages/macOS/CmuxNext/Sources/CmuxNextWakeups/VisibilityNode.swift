@@ -36,7 +36,8 @@ import Darwin
 /// `WebContents::IncrementCapturerCount(size, stay_hidden, stay_awake)`
 /// (content/public/browser/web_contents.h) keeps a hidden page rendering. While a vote holds a node,
 /// the node and its own-shown subtree render (``wantsFrames``): frame clients tick, view
-/// observations apply and the node's task queues run. A `stayHidden` vote leaves ``effective``,
+/// observations apply, the node's task queues run and its deferred view work
+/// (``deferUntilVisible(key:_:)``) runs. A `stayHidden` vote leaves ``effective``,
 /// page visibility and the hidden timer alignment as they are; any other vote makes the node
 /// ``Visibility/visible``.
 @MainActor public final class VisibilityNode {
@@ -71,7 +72,7 @@ import Darwin
 
     /// Whether this node renders: it is ``Visibility/visible``, or a capture vote holds it
     /// (``isCaptured``: a screenshot, a screencast or screen share sees it while it is hidden).
-    /// Frame clients, view observations and the node's task queues follow it.
+    /// Frame clients, view observations, the node's task queues and its deferred work follow it.
     public var wantsFrames: Bool { isVisible || isCaptured }
 
     /// How many times a propagation recomputed this node (tests prove a flip visits only what can change).
@@ -262,18 +263,22 @@ import Darwin
         return subscription
     }
 
-    /// Runs `work` now when this node is visible; otherwise once, when it next becomes visible.
-    /// A later call with the same `key` replaces pending work, so a hidden node runs each key once.
+    /// Runs `work` now when this node renders (``wantsFrames``: it is visible, or a capture vote
+    /// holds it); otherwise once, when it next renders. A later call with the same `key` replaces
+    /// pending work, so a hidden node runs each key once. The work is view work (the R-appear and
+    /// R-hide recipes), and a capture draws the views, so it runs for a capture as a view
+    /// observation applies for one.
     ///
     /// The node holds `work` until it runs: capture the node and its owner weakly.
     public func deferUntilVisible(key: some Hashable, _ work: @escaping @MainActor () -> Void) {
         hold(work, until: .visible, key: AnyHashable(key))
     }
 
-    /// Runs `work` now when this node is not hidden (visible or occluded); otherwise once, when it next is.
-    /// For layout work: an occluded node keeps its layout ready (``Visibility/occluded``), so its sizes apply
-    /// while it is covered. Keys are shared with ``deferUntilVisible(key:_:)``: a later call with the same
-    /// `key` replaces pending work.
+    /// Runs `work` now when this node is not hidden (visible or occluded) or renders (``wantsFrames``);
+    /// otherwise once, when it next is. For layout work: an occluded node keeps its layout ready
+    /// (``Visibility/occluded``), so its sizes apply while it is covered, and a capture draws the views at
+    /// their sizes. Keys are shared with ``deferUntilVisible(key:_:)``: a later call with the same `key`
+    /// replaces pending work.
     ///
     /// The node holds `work` until it runs: capture the node and its owner weakly.
     public func deferUntilShown(key: some Hashable, _ work: @escaping @MainActor () -> Void) {
@@ -281,7 +286,7 @@ import Darwin
     }
 
     private func hold(_ work: @escaping @MainActor () -> Void, until from: Visibility, key: AnyHashable) {
-        if effective >= from { work(); return }
+        if reaches(from) { work(); return }
         if let index = deferred.firstIndex(where: { $0.key == key }) {
             deferred[index] = (key: key, from: from, work: work)
         } else {
@@ -395,7 +400,9 @@ import Darwin
                 guard renderingGeneration == generation else { return }
                 subscription.onFlip(effective)
             }
+            guard renderingGeneration == generation else { return }
         }
+        runDeferredIfReached()
         guard isCaptured != notifiedCaptured else { return }
         notifiedCaptured = isCaptured
         notifyExemption()
@@ -415,13 +422,21 @@ import Darwin
             subscription.onFlip(value)
         }
         guard notifyGeneration == generation else { return }
-        if value != .hidden { runDeferred() }
+        runDeferredIfReached()
     }
 
-    /// Runs, in the order they were deferred, the bodies this node's state now reaches. A body may change the
-    /// state: each pick reads it again.
-    private func runDeferred() {
-        while let index = deferred.firstIndex(where: { effective >= $0.from }) {
+    /// Whether deferred work waiting for `from` runs now: the node renders (``wantsFrames``: visible, or a
+    /// capture vote holds it), or its state is at least `from`.
+    private func reaches(_ from: Visibility) -> Bool {
+        wantsFrames || effective >= from
+    }
+
+    /// Runs, in the order they were deferred, the bodies this node's state now reaches (a body that hides it
+    /// again leaves the rest for the next time it reaches them: each pick reads the state again). It follows
+    /// the node's state now, not whether that changed: a subscriber can defer work while the node is hidden
+    /// and show it again inside the same pass.
+    private func runDeferredIfReached() {
+        while let index = deferred.firstIndex(where: { reaches($0.from) }) {
             deferred.remove(at: index).work()
         }
     }

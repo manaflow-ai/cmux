@@ -19,7 +19,9 @@
 #include "cmux_cef_shim.h"
 #include "cmux_page_path.h"
 #include "host_energy_saver.h"
+#include "host_locks.h"
 #include "host_resize.h"
+#include "remote_shim_choosers.h"
 #include "remote_shim_mirror.h"
 #include "remote_shim_runtime.h"
 
@@ -222,10 +224,24 @@ bool SendFenceRight(uint32_t channel, uint32_t fence, uint64_t seq) {
 // or kEnergySaverHelloName; nullptr for an op every host takes.
 const char* OptionalExportName(uint16_t op) {
   if (op == cmux_host::kOpEnergySaver) return cmux_host::kEnergySaverHelloName;
+  if (op == kOpSetLockHandler) return cmux_host::kLocksHelloName;
   for (const OptionalExport& entry : kOptionalExports) {
     if (entry.op == op && op != 0) return entry.name;
   }
   return nullptr;
+}
+
+// The setter op of a chooser handler (remote_shim_choosers.h): its local export's op id.
+uint16_t ChooserHandlerOp(cmux_host::choosers::Handler handler) {
+  switch (handler) {
+    case cmux_host::choosers::kColor:
+      return kOpSetColorChooserHandler;
+    case cmux_host::choosers::kDevice:
+      return kOpSetDeviceChooserHandler;
+    case cmux_host::choosers::kDesktopMedia:
+      return kOpSetDesktopMediaHandler;
+  }
+  return 0;
 }
 
 // The dylib's state. The C ABI has no context argument, so there is one per process, as in
@@ -237,12 +253,20 @@ class Runtime {
     callbacks_ = callbacks;
     reply_ = callbacks.reply;
     reply_ctx_ = callbacks.ctx;
+    ended_ = callbacks.ended;
+    ended_ctx_ = callbacks.ctx;
   }
 
   void SetReply(void* ctx, cmux_remote_reply_fn reply) {
     CMUX_REMOTE_ASSERT_MAIN();
     reply_ = reply;
     reply_ctx_ = ctx;
+  }
+
+  void SetEnded(void* ctx, cmux_remote_ended_fn ended) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    ended_ = ended;
+    ended_ctx_ = ctx;
   }
 
   int Attach(int fd, void* in_ring, void* out_ring) {
@@ -274,6 +298,8 @@ class Runtime {
     // A host starts with the saver off and applies this once initialize returned; it waits for
     // the HELLO, which says whether the host has the saver.
     if (energy_saver_ && energy_saver_->enabled) Route(EnergySaverMessage(*energy_saver_), std::nullopt);
+    // The same for cmux's lock handler: a new host's fork starts with none.
+    if (locks_.installed()) Route(LockHandlerMessage(true), std::nullopt);
     Flush();
     return 1;
   }
@@ -399,6 +425,24 @@ class Runtime {
     return known && sent ? 1 : 0;
   }
 
+  // cmux_shim_set_lock_handler (host_locks.h): cmux's fn stays here for every host of the
+  // session, and only its on/off goes to the attached host, which applies it only when its HELLO
+  // listed kLocksHelloName (otherwise it is refused here, as an optional op the host lacks). 1 when
+  // the attached host has the lock delegate and the op went out; 0 otherwise, as the in-process
+  // shim answers on a fork without the call. Before the HELLO the op waits for it and the answer
+  // is 0.
+  int SetLockHandler(cmux_host::LockFn fn, void* context) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    const bool was_installed = locks_.installed();
+    locks_.Set(fn, context);
+    if (link_ != Link::kAttached || (!was_installed && !locks_.installed())) return 0;
+    const bool known = hello_;
+    TlvWriter args;
+    cmux_host::WriteLockHandler(locks_.installed(), &args);
+    const bool sent = Post(kOpSetLockHandler, 0, args);
+    return known && sent ? 1 : 0;
+  }
+
   void SetFenceSender(cmux_remote_fence_send_fn send) {
     CMUX_REMOTE_ASSERT_MAIN();
     fence_send_ = send;
@@ -502,6 +546,12 @@ class Runtime {
     Message message;  // token: a verdict still to ask, 0 once asked
     bool keep = true;  // false: replaced while its verdict was unasked; sent once more, then dropped
   };
+
+  static Message LockHandlerMessage(bool installed) {
+    TlvWriter args;
+    cmux_host::WriteLockHandler(installed, &args);
+    return MakeMessage(kOpSetLockHandler, 0, args.Take());
+  }
 
   static Message EnergySaverMessage(const cmux_host::EnergySaver& saver) {
     TlvWriter args;
@@ -635,6 +685,8 @@ class Runtime {
   // destroys the channel there: destroying a Channel joins that thread, done by then.
   void Disconnect() {
     if (!channel_) return;
+    // The host's open choosers went with it; their ends run before a next host can attach.
+    if (hello_) choosers::Detach();
     channel_->Close();
     closing_.emplace(generation_, std::move(channel_));
     ++generation_;
@@ -653,6 +705,8 @@ class Runtime {
     awaiting_.clear();
     host_exports_.clear();
     ReleaseFenceChannel();  // the inbox was this host's
+    // Last: cmux's lock fn frees its cursor and keys, and may call back into a detached shim.
+    locks_.HostGone();
   }
 
   void ReleaseFenceChannel() {
@@ -669,7 +723,7 @@ class Runtime {
       if (generation != generation_) return;
       if (!Apply(message)) {
         Disconnect();
-        if (callbacks_.ended) callbacks_.ended(callbacks_.ctx, CMUX_REMOTE_END_MALFORMED);
+        if (ended_) ended_(ended_ctx_, CMUX_REMOTE_END_MALFORMED);
         return;
       }
     }
@@ -679,7 +733,7 @@ class Runtime {
     CMUX_REMOTE_ASSERT_MAIN();
     if (generation == generation_) {
       Disconnect();
-      if (callbacks_.ended) callbacks_.ended(callbacks_.ctx, EndReason(end));
+      if (ended_) ended_(ended_ctx_, EndReason(end));
     }
     closing_.erase(generation);
   }
@@ -697,6 +751,13 @@ class Runtime {
         const std::string s1 = r.Str().value_or(std::string());
         const std::string s2 = r.Str().value_or(std::string());
         if (!r.ok() || !r.AtEnd()) return false;
+        // A lock push is cmux's lock fn's (host_locks.h), with no handler dropped.
+        if (kind == CMUX_SHIM_LOCK) {
+          locks_.Deliver(request, browser, static_cast<int>(a));
+          return true;
+        }
+        // The chooser handlers' pushes go to cmux's handler fn, never to its event fn (host_choosers.h).
+        if (choosers::IsHandlerEvent(kind)) return choosers::Deliver(kind, browser, request, a, b, s1);
         if (event_fn_) event_fn_(event_ctx_, kind, browser, request, a, b, s1.c_str(), s2.c_str());
         return true;
       }
@@ -740,6 +801,8 @@ class Runtime {
         host_exports_ = std::unordered_set<std::string>(exports.begin(), exports.end());
         hello_ = true;
         Flush();
+        // Behind the queue: the handlers cmux set go to this host.
+        choosers::Attach(&chooser_transport_);
         if (callbacks_.ready) callbacks_.ready(callbacks_.ctx);
         return true;
       }
@@ -748,10 +811,20 @@ class Runtime {
     }
   }
 
+  static bool SendChooserInstalled(void* context, cmux_host::choosers::Handler handler, bool installed) {
+    TlvWriter args;
+    cmux_host::choosers::WriteInstalled(installed, &args);
+    return static_cast<Runtime*>(context)->Post(ChooserHandlerOp(handler), 0, args);
+  }
+
   cmux_remote_shim_callbacks callbacks_ = {};
+  const choosers::Transport chooser_transport_{this, &SendChooserInstalled};
   // Where REPLY frames go: the configured callback, or cmux_remote_shim_set_reply's.
   cmux_remote_reply_fn reply_ = nullptr;
   void* reply_ctx_ = nullptr;
+  // Where the channel's end goes: the configured callback, or cmux_remote_shim_set_ended's.
+  cmux_remote_ended_fn ended_ = nullptr;
+  void* ended_ctx_ = nullptr;
   Link link_ = Link::kNotYet;
   std::unique_ptr<Channel> channel_;
   // Closed channels whose reader has not reported its end yet, by generation.
@@ -777,6 +850,8 @@ class Runtime {
   std::unordered_set<std::string> host_exports_;
   // The app's last Energy Saver state (cmux_shim_set_energy_saver), for the whole session.
   std::optional<cmux_host::EnergySaver> energy_saver_;
+  // cmux's lock fn (cmux_shim_set_lock_handler), for the whole session, and the attached host's locks.
+  cmux_host::LockClient locks_;
   std::unordered_map<uint16_t, void*> policies_;
   uint32_t token_ = 0;
   // The token of the latest PostForReply or answered PostPreinit (0: that call sent nothing).
@@ -895,6 +970,10 @@ void cmux_remote_shim_set_reply(void* ctx, cmux_remote_reply_fn reply) {
   R().SetReply(ctx, reply);
 }
 
+void cmux_remote_shim_set_ended(void* ctx, cmux_remote_ended_fn ended) {
+  R().SetEnded(ctx, ended);
+}
+
 int cmux_remote_shim_set_resize_fence_channel(unsigned int port) {
   return R().SetFenceChannel(port);
 }
@@ -973,6 +1052,13 @@ CMUX_SHIM_EXPORT int cmux_shim_set_schedule_delayed(cmux_shim_schedule_delayed_f
 // (ChromiumHost/src/host_energy_saver.h, p14-energy-045).
 CMUX_SHIM_EXPORT int cmux_shim_set_energy_saver(int enabled, const char* exempt_scheme) {
   return R().SetEnergySaver(enabled, exempt_scheme);
+}
+
+// The Chromium Host runs the fork's lock delegate; cmux's fn hears its CMUX_SHIM_LOCK pushes
+// (host_locks.h, task p01-process-229).
+CMUX_SHIM_EXPORT int cmux_shim_set_lock_handler(void (*fn)(void* context, int event, int browser_id, int detail),
+                                                void* context) {
+  return R().SetLockHandler(fn, context);
 }
 
 // Per-tab attribution is in-process only: a tab's renderer is the Chromium Host's child, which the

@@ -40,16 +40,16 @@ extension SidebarRegionView {
     /// The sections in the order the region shows now.
     var displayedSections: [LayoutSection] { reorderSections ?? content?.sections ?? [] }
 
-    /// A press moved (window points). True once a drag runs.
-    func dragMoved(_ subject: SidebarRegionDragSubject, from start: NSPoint, _ event: NSEvent) -> Bool {
+    /// A press moved from `start` to `windowPoint` (window points). True once a drag runs.
+    func dragMoved(_ subject: SidebarRegionDragSubject, from start: NSPoint, to windowPoint: NSPoint) -> Bool {
         guard allowsDrag else { return false }
         // A section the list draws (the sidebar document): its item drags as any list row does, in the list's one drag.
         if let list = docList {
             guard case let .item(id) = subject, let section = content?.sections.first?.id else { return false }
             if docSpentPress == id { return true } // a cancelled drag: this press starts no other
-            return list.dragTile(id, section: section.rawValue, in: self, from: start, event)
+            return list.dragTile(id, section: section.rawValue, in: self, from: start, to: windowPoint)
         }
-        let point = convert(event.locationInWindow, from: nil)
+        let point = convert(windowPoint, from: nil)
         if reorder == nil {
             let origin = convert(start, from: nil)
             guard SidebarPress.movedPastThreshold(from: origin, to: point) else { return false }

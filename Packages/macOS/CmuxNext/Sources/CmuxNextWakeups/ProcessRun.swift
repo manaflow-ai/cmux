@@ -48,6 +48,7 @@ final class ProcessRun: Sendable {
         let name = request.executable.lastPathComponent
         priority = request.priority ?? WorkPriority(Task.currentPriority)
         queue = DispatchQueue(label: "com.cmuxterm.next.process.\(name)", qos: priority.qos)
+        // timer-class-allow: off main: the kill grace runs on the process's own queue
         killDeadline = DemandTimer(owner: "process.kill.\(name)", clock: clock)
     }
 

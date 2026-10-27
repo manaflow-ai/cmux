@@ -26,13 +26,23 @@ processes the daemon started and their RSS, and the daemon's own RSS).
 --host-model holder runs every terminal on the install's one holder
 (CMUX_TUI_TERMINAL_HOST_MODEL=holder) instead of a host process each; its
 first-text comes from the same mark. Prints one CREATE line per op and
-metric, and writes JSON with every sample to --out. --max-p50-ms makes it a gate: exit 1 when any
+metric (p50/p95/p99, scripts/perf-lab/perf_stats.py), and writes JSON with every sample to
+--out FILE.json. --max-p50-ms makes it a gate: exit 1 when any
 `exec` p50 is above it (the failing-first perf test of new-terminal-100x).
 
+With --out DIR (the perf lab's story runner) the report goes to
+DIR/terminal-create-<label>.json and the raw samples to DIR as
+cmux-perf-result/v1 (perf_result.py) in story daemon-terminal-create (daemon_bench_lab.py names
+the build and host): daemon.terminal_create.<op>.<reply|exec|first_text> (ms)
+and the per-terminal cost daemon.terminal_create.per_terminal.<host_processes
+(count)|host_rss|daemon_rss (bytes)>.
+
   bench-terminal-create.py --bin target/release/cmux-tui --rounds 40
+  bench-terminal-create.py --bin ... --sha SHA --build-config release --spans --out DIR
 """
 
 import argparse
+import importlib.util
 import json
 import os
 import platform
@@ -46,6 +56,15 @@ import tempfile
 import threading
 import time
 import uuid
+
+_spec = importlib.util.spec_from_file_location(
+    "daemon_bench_lab", os.path.join(os.path.dirname(os.path.abspath(__file__)), "daemon_bench_lab.py"))
+lab = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(lab)
+
+STORY = "daemon-terminal-create"
+METRIC_PREFIX = "daemon.terminal_create"
+KIB = 1024
 
 
 class Conn:
@@ -102,11 +121,29 @@ def pane_of(conn, surface):
 
 
 def summary(samples):
+    """n, p50, p95, p99 and max (ms) of one op's samples (perf_stats.pct)."""
     if not samples:
         return {"n": 0}
-    s = sorted(samples)
-    q = lambda p: s[min(len(s) - 1, int(p * len(s)))]  # noqa: E731
-    return {"n": len(s), "p50": round(q(0.50), 3), "p95": round(q(0.95), 3), "max": round(s[-1], 3)}
+    return {"n": len(samples), **{f"p{round(q * 100)}": round(lab.pct(samples, q), 3) for q in (0.50, 0.95, 0.99)},
+            "max": round(max(samples), 3)}
+
+
+def lab_series(result):
+    """result-v1 series of a report: each op metric's raw samples (op "new-tab exec" is
+    daemon.terminal_create.new_tab.exec) and the per-terminal cost of the live terminals."""
+    series = []
+    for name, op in sorted(result["ops"].items()):
+        label, metric = name.rsplit(" ", 1)
+        series.append(lab.Series(f"{METRIC_PREFIX}.{lab.metric_part(label)}.{lab.metric_part(metric)}", "ms",
+                                 "lower", list(op["samples_ms"])))
+    cost = result.get("per_terminal")
+    if cost and cost["terminals"]:
+        n = cost["terminals"]
+        each = f"{METRIC_PREFIX}.per_terminal"
+        series += [lab.Series(f"{each}.host_processes", "count", "lower", [cost["host_processes_added"] / n]),
+                   lab.Series(f"{each}.host_rss", "bytes", "lower", [cost["host_rss_kb_added"] * KIB / n]),
+                   lab.Series(f"{each}.daemon_rss", "bytes", "lower", [cost["daemon_rss_kb_added"] * KIB / n])]
+    return series
 
 
 class Marker:
@@ -235,12 +272,12 @@ def print_marks(label, path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--bin", required=True)
+    ap.add_argument("--bin", help="the cmux-tui daemon binary (default: the --app bundle's cmux-tui)")
     ap.add_argument("--rounds", type=int, default=40)
     ap.add_argument("--warmup", type=int, default=3)
     ap.add_argument("--root-dir", default=None)
     ap.add_argument("--label", default="run")
-    ap.add_argument("--out", default=None)
+    ap.add_argument("--out", default=None, help="the report FILE.json, or a folder for result-v1 and the report")
     ap.add_argument("--live", type=int, default=20, help="terminals kept open for the per-terminal cost")
     ap.add_argument("--max-p50-ms", type=float, default=None,
                     help="gate: exit 1 when any exec p50 is above this many ms")
@@ -254,7 +291,12 @@ def main():
                     help="background writers that write and F_FULLFSYNC in a loop (a busy Mac's disk)")
     ap.add_argument("--host-model", choices=("hosts", "holder"), default="hosts",
                     help="hosts: a terminal host process per terminal; holder: the install's one holder")
+    ap.add_argument("--app", help=lab.APP_HELP)
+    ap.add_argument("--tag", help=lab.TAG_HELP)
+    lab.add_arguments(ap, STORY)
     args = ap.parse_args()
+    args.bin, out, measured = lab.prepare(ap, args, f"terminal-create-{args.label}.json")
+    report = out.report
 
     root = tempfile.mkdtemp(prefix="tc-", dir=args.root_dir)
     stop_load = threading.Event()
@@ -373,7 +415,8 @@ def main():
         for name, s in samples.items():
             sm = summary(s)
             result["ops"][name] = {"summary": sm, "samples_ms": [round(x, 3) for x in s]}
-            print(f"CREATE {args.label} op=\"{name}\" n={sm['n']} p50={sm['p50']} p95={sm['p95']} max={sm['max']}", flush=True)
+            print(f"CREATE {args.label} op=\"{name}\" n={sm['n']} p50={sm['p50']} p95={sm['p95']} p99={sm['p99']} "
+                  f"max={sm['max']}", flush=True)
             if args.max_p50_ms is not None and name.endswith(args.gate_metric) and sm["p50"] > args.max_p50_ms:
                 failed = True
 
@@ -401,6 +444,7 @@ def main():
         print(f"CREATE {args.label} per_terminal hosts={len(added)/n:.2f} "
               f"rss_kb={cost['host_rss_kb_added']/n:.0f} daemon_rss_kb={cost['daemon_rss_kb_added']/n:.0f} "
               f"terminal_processes={len(after)}", flush=True)
+        lab.validate_host(out.results, [daemon.pid, *after])
         for d in live:
             c.call("close-surface", surface=d["surface"])
         c.close()
@@ -430,16 +474,20 @@ def main():
                 pass
         if args.spans and os.path.exists(spans_path):
             print_marks(args.label, spans_path)
-            if args.out:
-                shutil.copy(spans_path, args.out + ".spans.ndjson")
+            if report:
+                shutil.copy(spans_path, lab.spans_copy(out))
         log.close()
-        if args.out:
-            shutil.copy(os.path.join(root, "daemon.log"), args.out + ".daemon.log")
+        if report:
+            shutil.copy(os.path.join(root, "daemon.log"), report + ".daemon.log")
         # No close(marker.fd): on macOS close() of a FIFO waits for the
         # reader thread's read(), which never returns; the fd ends with us.
         shutil.rmtree(root, ignore_errors=True)
-    if args.out:
-        with open(args.out, "w") as f:
+    if measured:
+        path = lab.write(out.results, args.story, lab_series(result), measured)
+        result["results"] = str(path) if path else None
+        print(f"CREATE {args.label} result-v1 {path}", flush=True)
+    if report:
+        with open(report, "w") as f:
             json.dump(result, f, indent=1)
     if failed:
         print(f"CREATE {args.label} FAIL: a {args.gate_metric.strip()} p50 is above {args.max_p50_ms} ms", flush=True)

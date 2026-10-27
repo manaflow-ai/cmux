@@ -10,7 +10,6 @@ extension BrowserChromeView: ToolbarEdgeHosting {
     func applyToolbarPosition() {
         toolbarEdge.activate(toolbarPosition)
         toolbar.position = toolbarPosition
-        syncHeaderBand(animated: false)
         needsLayout = true
     }
 }
