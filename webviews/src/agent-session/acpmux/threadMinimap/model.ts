@@ -228,7 +228,13 @@ export function jumpDuration(distance: number): number {
 const turnsByPrompt = new WeakMap<AcpmuxRow, { turn: MinimapTurn; sessionId: string; reply?: AcpmuxRow }>();
 
 type CardState = { metadata: MinimapTurnMetadata; files: ReadonlySet<string> };
-type CardContribution = { version: number; before?: CardState; state: CardState; paths?: readonly string[] };
+type CardContribution = {
+  version: number;
+  shape: string;
+  before?: CardState;
+  state: CardState;
+  paths?: readonly string[];
+};
 // Contributions join during the existing row walk. An unchanged row and prefix reuse the whole
 // state, including its sets. turnView recreates live activity wrappers: source id/version, rather
 // than the wrapper's identity, keeps those contributions stable across reply tokens. Each prompt
@@ -240,7 +246,10 @@ function cardState(prompt: AcpmuxRow, row: AcpmuxRow, before?: CardState): CardS
   let contributions = cardStates.get(prompt);
   if (!contributions) cardStates.set(prompt, (contributions = new Map()));
   const previous = contributions.get(row.id);
-  const cached = previous?.version === row.version ? previous : undefined;
+  // Live runs and an ended turn's merged edits use different version arithmetic; the same numeric
+  // revision can name both. Their drawn shape separates those contributions without reading items.
+  const shape = `${row.kind}:${row.ended ?? ""}:${row.foldRun ?? ""}:${row.settled ?? ""}`;
+  const cached = previous?.version === row.version && previous.shape === shape ? previous : undefined;
   if (cached && cached.before === before) return cached.state;
   let state = before ?? { metadata: { at: row.at, links: [] }, files: noFiles };
   let metadata = state.metadata;
@@ -276,7 +285,7 @@ function cardState(prompt: AcpmuxRow, row: AcpmuxRow, before?: CardState): CardS
       ...(failure && { failure }),
     };
   if (metadata !== state.metadata || files !== state.files) state = { metadata, files };
-  contributions.set(row.id, { version: row.version, before, state, paths });
+  contributions.set(row.id, { version: row.version, shape, before, state, paths });
   return state;
 }
 

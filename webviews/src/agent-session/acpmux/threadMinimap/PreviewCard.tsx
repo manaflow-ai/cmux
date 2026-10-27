@@ -34,7 +34,7 @@ const timeLabel = (at: number) =>
 // token stays available to hover and assistive technology instead of taking over the whole card.
 const previewText = (value: string) =>
   value.split(/(\S{40,})/).map((token, index) =>
-    token.length >= 40 && /[/.\\]|^[a-f\d]+$/i.test(token) ? (
+    index % 2 === 1 && /[/.\\]|^[a-f\d]+$/i.test(token) ? (
       <span key={index} title={token}>
         <span aria-hidden="true">{middleEllipsis(token)}</span>
         <span className="acpmux-minimap__full-token">{token}</span>

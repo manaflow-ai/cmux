@@ -134,3 +134,46 @@ test("production turnView wrappers keep metadata without re-reading earlier tool
     shaped = next;
   }
 });
+
+test("a completed merged edit card cannot reuse a live run with the same derived revision", () => {
+  const user = row({ id: "user", kind: "user", at: 1, text: "Edit two files" });
+  const edit = (id: string, version: number, path: string) =>
+    row({
+      id,
+      version,
+      kind: "activity",
+      at: 2,
+      items: [
+        {
+          kind: "tool",
+          text: "Edit",
+          tool: { id, title: "Edit", kind: "edit", status: "completed", diffs: [{ path, newText: "next" }] },
+        },
+      ],
+    });
+  const reply = row({
+    id: "reply",
+    kind: "assistant",
+    at: 3,
+    text: "The files are ready. ".repeat(20),
+    streaming: true,
+  });
+  const source = [user, edit("A", 3, "a.ts"), edit("B", 5, "b.ts"), reply];
+  const live = turnView(source, new Set(), { working: true, liveRuns: true });
+  const previous = minimapTurns(live, "collision");
+  const ended = turnView(
+    [
+      ...source.slice(0, -1),
+      { ...reply, streaming: false },
+      row({ id: "end", kind: "turnSummary", at: 4, status: "completed" }),
+    ],
+    new Set(),
+    { liveRuns: true },
+  );
+  const liveA = live.find((item) => item.id === "A")!;
+  const endedA = ended.find((item) => item.id === "A")!;
+  expect(liveA.version).toBe(17);
+  expect(endedA.version).toBe(liveA.version);
+  expect(endedA.ended).toBe(true);
+  expect(minimapTurns(ended, "collision", previous).turns[0]!.metadata?.fileCount).toBe(2);
+});

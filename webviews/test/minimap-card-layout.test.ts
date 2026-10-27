@@ -51,7 +51,7 @@ await requireBrowserLane("minimap-card-layout.test.ts", async () => {
           row(
             `reply-${index}`,
             "assistant",
-            "**Ready to ship** `0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef`\n\n- Canary first\n- Then the fleet\n\nSee https://github.com/manaflow-ai/cmux/pull/25794",
+            "**Ready to ship** `0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef`\n\n- Canary first, then the complete staged rollout across every workspace.\n- Then the fleet\n\nSee https://github.com/manaflow-ai/cmux/pull/25794",
           ),
           row(`summary-${index}`, "turnSummary", undefined, {
             status: "failed",
@@ -71,6 +71,9 @@ await requireBrowserLane("minimap-card-layout.test.ts", async () => {
       expect(await token.locator("[aria-hidden]").textContent()).toBe("0123456789abcdef0…f0123456789abcdef");
       expect(await token.locator(".acpmux-minimap__full-token").textContent()).toBe("0123456789abcdef".repeat(4));
       expect(await card.locator(".acpmux-minimap__item").count()).toBeGreaterThan(0);
+      expect(await card.locator(".acpmux-minimap__item").first().textContent()).toBe(
+        "Canary first, then the complete staged rollout across every workspace.",
+      );
       expect(await card.locator(".acpmux-minimap__failure").textContent()).toContain("reconnect and try again");
       expect(await card.locator("[data-meta=pr]").getAttribute("href")).toBe(
         "https://github.com/manaflow-ai/cmux/pull/25794",
