@@ -17,6 +17,9 @@ export interface DebugSettingsSnapshot {
   error?: string;
 }
 
+/** The page name its saved state carries (pageState.ts). */
+export const DEBUG_SETTINGS_PAGE = "debug-settings";
+
 export interface DebugSettingsStoreOptions {
   /** The pasteboard write the page can do itself; falls back to the host op when it rejects. */
   writeClipboard?: (text: string) => Promise<void>;

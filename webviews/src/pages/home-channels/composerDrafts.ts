@@ -1,6 +1,7 @@
 // Tells the app host while any composer holds text or files the person has not sent: the host's
-// `draft` keep reason (`cmux.page.keepAlive`, PageKeepReasons). Nothing stores a composer's text,
-// so the docked Channels view is never let go while it is hidden with one (HomeDockView,
+// `draft` keep reason (`cmux.page.keepAlive`, PageKeepReasons). The page state saves only the text,
+// within a size limit (composerTexts.ts), and never staged files, so the docked Channels view is
+// never let go while it is hidden with one (HomeDockView,
 // feature `memoryDiscardSidebarSections`), as Chrome never discards a tab with form input
 // (components/performance_manager/policies/page_discarding_helper.cc, kFormInteractions).
 import { createContext, useContext, useEffect } from "react";

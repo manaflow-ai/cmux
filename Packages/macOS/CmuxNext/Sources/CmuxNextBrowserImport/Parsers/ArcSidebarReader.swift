@@ -38,8 +38,8 @@ public struct ArcSidebarReader {
         for space in objects(container["spaces"]) where Self.profileDirectory(space["profile"]) == profileDirectory {
             let title = (space["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "Space"
             let ids = space["containerIDs"] as? [Any] ?? []
-            for (index, value) in ids.enumerated() where (value as? String) == "pinned" && index + 1 < ids.count {
-                guard let pinned = ids[index + 1] as? String else { continue }
+            for (index, value) in ids.enumerated() where (value as? String) == "pinned" {
+                guard let pinned = ids[checked: index + 1] as? String else { continue }
                 walk(pinned, items: items, path: [title], depth: 0, expanded: &expanded, into: &read)
             }
         }
@@ -93,13 +93,13 @@ public struct ArcSidebarReader {
     private func pairs(_ value: Any?) -> [(String, String)] {
         let list = value as? [Any] ?? []
         var result: [(String, String)] = []
-        var index = 0
-        while index + 1 < list.count { // wakeup-allow: bounded by the array length
-            if let profile = Self.profileDirectory(list[index]), let id = list[index + 1] as? String {
+        var rest = ArraySlice(list)
+        while let first = rest.first { // wakeup-allow: bounded each pass drops one or two elements
+            if let profile = Self.profileDirectory(first), let id = rest.dropFirst().first as? String {
                 result.append((profile, id))
-                index += 2
+                rest = rest.dropFirst(2)
             } else {
-                index += 1
+                rest = rest.dropFirst()
             }
         }
         return result

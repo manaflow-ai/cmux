@@ -135,6 +135,40 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: tree.path))
     }
 
+    /// The kept update read on a launch lane before the channel is known (p08-startup-077) decides
+    /// as the launch check that reads the disk itself: the same tree for a kept update newer than
+    /// the bundled web, and for a bundle with newer web no tree, then the bundled web served and
+    /// the kept update forgotten.
+    @Test func theLaunchReadOfTheKeptUpdateMatchesTheLaunchCheck() async throws {
+        let root = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (archive, pointer) = try await Self.makeArchive(in: root)
+        let store = WebUpdateStore(base: root.appending(path: "store", directoryHint: .isDirectory))
+        let tree = try await store.install(archive: archive, pointer: pointer)
+        try store.write(WebUpdateState(active: pointer, floor: pointer.committedAt))
+        let older = WebUpdater.App(abi: 2, webBuiltAt: pointer.committedAt - 1)
+        let kept = WebUpdater.readKept(store: store, app: older)
+        #expect(kept.tree == tree)
+        #expect(kept.state.active == pointer)
+        let (fromRead, readState) = await WebUpdater.launchCheck(kept, store: store, channel: .everyMerge)
+        let (fromDisk, diskState) = await WebUpdater.launchCheck(store: store, app: older, channel: .everyMerge)
+        #expect(fromRead == tree)
+        #expect(fromRead == fromDisk)
+        #expect(readState == diskState)
+
+        // A bundle whose web is newer than the kept update: the read finds no tree to serve.
+        let newer = WebUpdater.App(abi: 2, webBuiltAt: pointer.committedAt + 1)
+        let stale = WebUpdater.readKept(store: store, app: newer)
+        #expect(stale.tree == nil)
+        #expect(stale.state.active == pointer)
+        let (served, state) = await WebUpdater.launchCheck(stale, store: store, channel: .everyMerge)
+        #expect(served == nil)
+        #expect(state.active == nil)
+        #expect(store.readState().active == nil)
+        #expect(store.readState().floor == pointer.committedAt)
+        #expect(!FileManager.default.fileExists(atPath: tree.path))
+    }
+
     /// NIGHTLY updates by Sparkle delta, which rewrites only the files whose bytes changed:
     /// `web-abi.json` keeps the time of the first install across every later nightly, while each
     /// nightly rewrites `Info.plist` (its build number and commit). The bundled web's build time

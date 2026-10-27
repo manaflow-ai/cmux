@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextSettings
 @testable import CmuxNextPages
+import CmuxNextTestSupport
 import Foundation
 import Testing
 import WebKit
@@ -11,7 +12,8 @@ import WebKit
 /// Ready: the claimed document shows settings rows with enabled controls (a row enables its controls
 /// only after the owner's values arrive through the claim's routes) and no read-only banner. The page records the moment on
 /// its own clock (`Date.now()`, wall-clock milliseconds), so the coarse host poll
-/// that reads it adds nothing to the number.
+/// that reads it adds nothing to the number. With CMUX_PERF_RESULT_DIR every claim is result-v1 (lab story
+/// swift-page-claim-ready).
 @MainActor
 @Suite(.serialized, .timeLimit(.minutes(10)),
        .enabled(if: ProcessInfo.processInfo.environment["CMUX_PAGE_CLAIM_BENCH"] != nil))
@@ -41,6 +43,7 @@ struct PageHostPoolClaimReadyBenchmark {
         for _ in 0..<max(runs, 1) {
             if let sample = try await Self.oneClaim(claims: &claims) { samples.append(sample) }
         }
+        if !samples.isEmpty { try PerfResultWriter()?.record("swift.page_claim.claim_to_ready", unit: .ms, samples: samples) }
         samples.sort()
         let median = samples.isEmpty ? .nan : samples[samples.count / 2]
         print("PAGE_CLAIM_BENCH runs=\(samples.count) median_ms=\(median) samples_ms=\(samples.map { Int($0.rounded()) }) claims=\(claims)")

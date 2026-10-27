@@ -15,7 +15,7 @@ final class SleepyOverlayWindows: SleepyOverlayPresenting {
 
     /// - Parameters:
     ///   - events: the app's notices (`AppServices.appEvents`): a screen change rebuilds the windows in its turn.
-    ///   - workingAgents: the count of this Mac's agents running a turn, read once a second.
+    ///   - workingAgents: the count of this Mac's agents running a turn, read again when an observed fact it read changes.
     ///   - lockMac: the scene's Lock Mac button.
     init(events: AppEvents, workingAgents: @escaping @MainActor () -> Int, lockMac: @escaping @MainActor () -> Void) {
         self.events = events
