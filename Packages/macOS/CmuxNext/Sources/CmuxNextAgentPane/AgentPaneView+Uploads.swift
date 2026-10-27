@@ -55,11 +55,15 @@ import Foundation
               let model, record.sessionId == model.sessionId, record.connection == model.transport.connection else {
             return AgentPaneReply.failure(code: "upload_unknown", message: "Unknown upload token")
         }
-        if op == "cmux.agent.uploads.cancel", let task = active[token] {
+        let hadActiveTask = active[token] != nil && record.state == "uploading"
+        if op == "cmux.agent.uploads.cancel", let task = active[token], record.state == "uploading" {
             task.cancel()
             _ = await task.value
-        } else if op == "cmux.agent.uploads.cancel", let id = record.uploadId, let model {
-            guard await model.transport.cancelUpload(connection: record.connection, sessionId: record.sessionId, uploadId: id) else {
+        }
+        if op == "cmux.agent.uploads.cancel", let updated = records[token], updated.state != "uploading",
+           (!hadActiveTask || updated.state == "finished"),
+           let id = updated.uploadId, let model {
+            guard await model.transport.cancelUpload(connection: updated.connection, sessionId: updated.sessionId, uploadId: id) else {
                 return AgentPaneReply.failure(code: "upload_cancel_failed", message: "The upload cleanup was not acknowledged")
             }
         }
@@ -168,6 +172,7 @@ extension AgentPaneView {
                     if let failure {
                         eventError = ["code": failure.code, "message": failure.message]
                         for (key, value) in failure.details { eventError?[key] = value }
+                        if cleanupFailed { eventError?["cleanupError"] = "upload_cancel_failed" }
                     } else if cleanupFailed {
                         eventError = ["code": "upload_cancel_failed", "message": "The upload cleanup was not acknowledged"]
                     } else if !cancelled {
@@ -175,6 +180,11 @@ extension AgentPaneView {
                     }
                     coordinator.terminal(token, state: cancelled ? "cancelled" : "failed", error: eventError)
                     if cleanupFailed {
+                        if let failure {
+                            details["cleanupError"] = "upload_cancel_failed"
+                            return NativeUploadResult(AgentPaneReply.failure(code: failure.code, message: failure.message,
+                                                                             details: details, retryable: nil, origin: "daemon"))
+                        }
                         return NativeUploadResult(AgentPaneReply.failure(code: "upload_cancel_failed", message: "The upload cleanup was not acknowledged"))
                     }
                     if let failure {
