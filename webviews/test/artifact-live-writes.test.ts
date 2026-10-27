@@ -161,3 +161,17 @@ test("a fence uses event revisions across a bounded-tail rebuild and producer re
   expect(source.read(next.sorted()).artifact.code).toContain("Keeps streaming");
   source.dispose();
 });
+
+test("handoff ranks each file write by its content event, not a later unrelated row update", () => {
+  const source = new ArtifactLiveSource({ kind: "html", lang: "html", path, code: "<p>First</p>" }, []);
+  const rows = new OrderedRows();
+  put(rows, row("old-group", 1, [write("<p>Old</p>", "completed", path, "old")]), 1);
+  put(rows, row("new-group", 1, [write("<p>Newest</p>", "completed", path, "new")]), 2);
+  const outputOnly = write("<p>Old</p>", "completed", path, "old");
+  outputOnly.tool!.output = "extra output after the next write";
+  put(rows, row("old-group", 2, [outputOnly, write("unrelated", "completed", "/else/file.html", "other")]), 3);
+  expect(source.read(rows.sorted()).artifact.code).toBe("<p>Newest</p>");
+  put(rows, row("old-group", 3, [write("<p>Actually rewritten</p>", "completed", path, "old")]), 4);
+  expect(source.read(rows.sorted()).artifact.code).toBe("<p>Actually rewritten</p>");
+  source.dispose();
+});
