@@ -1,13 +1,11 @@
 // l10n-allow-file: gallery fixtures (sample messages and replies), not shipped UI.
 // Another agent's message to this chat as one line at the left among the tool rows (the sender's
-// mark, its name as a chip) over a glass card with the message, cut to eight lines when longer (›
-// opens it whole), and a Claude Code task notification as one quiet line
+// mark, its name as a chip) over a compact one-line preview (› opens the full Markdown), and a Claude Code task notification as one quiet line
 // (IncomingMessageCard.tsx, incomingMessage.ts). A message from a chat here also has Reply at the line's end, which
 // answers in place in the sender's chat and thread.
-// In cmux's Minimal Mode (`sidebar.minimal`) a closed message is one line (Leo 2026-10-24: "one line
-// is kind of enough sometimes for the ... preview of the message"): the minimal-* variants. A, the
-// chip, the first line and a chevron, ships; B (a fade and "+N lines") and C (the name inline, no
-// chip) are drawn here only, over the shipped line.
+// Both display modes now start with that one-line preview (Leo 2026-10-24: "one line is kind of
+// enough sometimes for the ... preview of the message"). The minimal-* variants retain alternate
+// gallery-only treatments over the shipped line.
 import { avatarsChanged, UPLOADED_AVATAR } from "../../../gallery/fixtures/agentAvatar";
 import { agentPaneEntry, type ChipHostFixture } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
@@ -264,7 +262,7 @@ export default agentPaneEntry({
       ]),
     },
     long: {
-      note: "A long message's card shows its first eight lines, the last fading out; › or a click on the card opens it whole.",
+      note: "A long message starts as one line; › opens its whole Markdown in place.",
       snapshot: chat([
         user("Land the grid lane and report back", 9),
         assistant("Started grid-lane; it will report here.", 8.5),
@@ -290,7 +288,7 @@ export default agentPaneEntry({
         user(report, 6, { incoming: message("grid-lane", report, undefined, "child-3"), untyped: true }),
       ]),
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-received__body[data-cut]"));
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-received__preview"));
         await ctx.click({ selector: ".cv-received__toggle" });
         await ctx.waitFor(() => ctx.document.querySelector('.cv-received__toggle[aria-expanded="true"]'));
       },
@@ -422,7 +420,7 @@ export default agentPaneEntry({
       snapshot: minimalChat,
     },
     "minimal-open": {
-      note: "Minimal Mode: the long report's line opened, its whole card under it as in normal mode; the line closes it again.",
+      note: "Minimal Mode: the long report's one-line preview opens to full Markdown under it; the line closes it again.",
       display: MINIMAL,
       snapshot: minimalChat,
       play: async (ctx) => {
@@ -444,7 +442,7 @@ export default agentPaneEntry({
       play: inlineName,
     },
     "minimal-off": {
-      note: "The same chat with Minimal Mode off: unchanged, each message's line over its card.",
+      note: "The same chat with Minimal Mode off: received messages still begin as one-line previews and open in place.",
       snapshot: minimalChat,
     },
     notice: {

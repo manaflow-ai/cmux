@@ -37,10 +37,12 @@ await requireBrowserLane("pr-dock-inline-layout.test.ts", () => {
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
           const chips = page.locator(".acpmux-pr-dock__chip");
           await chips.first().waitFor();
-          // Real boxes, including the last row of the card immediately above the dock.
+          // Real boxes, including the received line immediately above the dock.
           const geometry = await page.evaluate(() => {
             const box = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
-            const card = box(".cv-received__show");
+            // Received messages are one-line strips until explicitly opened; the PR chips must
+            // clear that strip as well as the disclosure row.
+            const receivedLine = box(".cv-received__line");
             const row = box(".acpmux-pr-dock__compact");
             const dock = box(".acpmux-pr-dock");
             const overlaps = (a: DOMRect, b: DOMRect) =>
@@ -48,7 +50,7 @@ await requireBrowserLane("pr-dock-inline-layout.test.ts", () => {
             return [...document.querySelectorAll(".acpmux-pr-dock__chip")].map((chip) => {
               const rect = chip.getBoundingClientRect();
               return {
-                card: overlaps(rect, card),
+                card: overlaps(rect, receivedLine),
                 disclosure: overlaps(rect, row),
                 contained: rect.top >= dock.top && rect.bottom <= dock.bottom,
               };

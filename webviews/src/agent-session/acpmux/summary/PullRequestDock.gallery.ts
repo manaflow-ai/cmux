@@ -19,7 +19,7 @@ const merge = (number: number) =>
   });
 const inspector = { "pane.tabState": { inspector: true } };
 
-// Synthetic received card: the last visible row is Show more, immediately above the dock.
+// Synthetic received card: its one-line preview is immediately above the dock.
 const report = Array.from({ length: 12 }, (_, i) => `Step ${i + 1}: check the uploader retry behavior.`).join("\n\n");
 const inline = (layout: string, note: string): AgentPaneVariant => ({
   note,
@@ -33,7 +33,7 @@ const inline = (layout: string, note: string): AgentPaneVariant => ({
     }),
   ]),
   play: async (ctx) => {
-    await ctx.waitFor(() => ctx.document.querySelector(".cv-received__show"));
+    await ctx.waitFor(() => ctx.document.querySelector(".cv-received__preview"));
     if (ctx.document.querySelector("aside.acpmux-chat-inspector"))
       await ctx.click({ selector: ".acpmux-chat-inspector-toggle" });
     await ctx.click({ selector: ".acpmux-pr-dock__disclosure" });
