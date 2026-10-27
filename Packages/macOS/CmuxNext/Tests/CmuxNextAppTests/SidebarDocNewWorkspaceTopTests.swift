@@ -76,6 +76,18 @@ import Testing
         #expect(order == (newRowsFirst ? ["ws-3", "ws-2", "ws-new", "ws-1"] : ["ws-1", "ws-2", "ws-new", "ws-3"]))
     }
 
+    /// `afterCurrent` with Cmd-N from Home (no current workspace): the daemon puts the new one first below Home,
+    /// so its row lists there from the press, not last (and then first); the next Cmd-N lists right after it.
+    @Test func aNewRowWithNoCurrentWorkspaceListsFirstUnderAfterCurrent() throws {
+        let store = Self.store(fresh: ["ws-a", "ws-b"])
+        let a = try #require(store.workspaces.first { $0.resourceID?.rawValue == "ws-a" }).id
+        let doc = SidebarDocSections()
+        doc.placesNewRowsFirst = { false }
+        doc.unplacedAnchor = { $0.resourceID?.rawValue == "ws-a" ? .first : $0.resourceID?.rawValue == "ws-b" ? .after(a) : nil }
+        #expect(Self.order(doc.sections(Self.projection(), session: Self.session, workspaces: store.workspaces))
+            == ["ws-home", "ws-a", "ws-b", "ws-1", "ws-2", "ws-3"])
+    }
+
     @Test func aLiveWorkspaceTheDocumentDoesNotPlaceYetListsFirstBelowHome() {
         let store = Self.store(fresh: ["ws-new"])
         let sections = SidebarDocSections().sections(Self.projection(), session: Self.session, workspaces: store.workspaces)

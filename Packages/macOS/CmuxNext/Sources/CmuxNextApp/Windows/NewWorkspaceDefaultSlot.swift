@@ -144,7 +144,11 @@ enum NewWorkspacePlacements {
         case nil: break
         default: return nil
         }
-        guard let byDefault, let current = byDefault.current, current != home else { return nil }
+        guard let byDefault else { return nil }
+        guard let current = byDefault.current, current != home else {
+            // No current workspace, or Home: the daemon puts the new one first (`top`'s slot), as the app would.
+            return byDefault.placement == .beforeCurrent || byDefault.placement == .afterCurrent ? .first : nil
+        }
         switch byDefault.placement {
         case .beforeCurrent: return .before(current)
         case .afterCurrent: return .after(current)
@@ -170,16 +174,17 @@ enum NewWorkspacePlacements {
 
         /// The neighbour each new workspace lists beside until the sidebar document places it
         /// (`SidebarDocSections.unplacedAnchor`), where the daemon's create puts it. Dropped once the
-        /// document places the workspace or it is gone (`unplacedAnchor(of:machines:)`).
+        /// document places the workspace (`unplacedAnchor(of:machines:)`); a create still on its way keeps its own.
         var anchors: [String: SidebarDocSections.UnplacedAnchor] = [:]
         /// `top` / `bottom` group anchors, armed into `anchors` once the create sends the rule (`sending`).
         var groupAnchors: [String: SidebarDocSections.UnplacedAnchor] = [:]
 
-        /// The neighbour `workspace` lists beside while the document does not place it; prunes the ones placed or gone.
+        /// The neighbour `workspace` lists beside while the document does not place it; prunes the ones placed. A workspace
+        /// not listed yet keeps its anchor: its create may still be on the way (a terminal, command or agent workspace).
         func unplacedAnchor(of workspace: WorkspaceModel, machines: MachineRegistry) -> SidebarDocSections.UnplacedAnchor? {
             guard !anchors.isEmpty else { return nil }
             if anchors.count > 16 {
-                anchors = anchors.filter { id, _ in machines.workspace(id: id) != nil && SidebarDocWiring.item(workspace: id, machines) == nil }
+                anchors = anchors.filter { id, _ in SidebarDocWiring.item(workspace: id, machines) == nil }
             }
             return anchors[workspace.id]
         }

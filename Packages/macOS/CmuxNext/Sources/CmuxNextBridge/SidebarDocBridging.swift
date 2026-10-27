@@ -102,12 +102,15 @@ public final class SidebarDocSections {
         case afterInGroup(String)
         /// Last in its group when it is in one (`bottom` from inside a group), else first or last as unanchored.
         case lastInGroupOf(String)
+        /// First among the machine's rows, below a leading Home row: `beforeCurrent` / `afterCurrent` when the
+        /// window shows no workspace (Home, Chats, a pinned page) or shows Home, where the daemon puts it too.
+        case first
 
         /// Whether it applies only inside a group.
         public var isGroupAnchor: Bool {
             switch self {
             case .afterInGroup, .lastInGroupOf: true
-            case .before, .after: false
+            case .before, .after, .first: false
             }
         }
     }
@@ -181,12 +184,18 @@ public final class SidebarDocSections {
         // In creation order, so a new workspace beside another new one finds it listed. One whose neighbour is
         // not listed yet (itself unplaced: the document has not placed it either) waits for the unplaced rows.
         var waiting: [(WorkspaceModel, UnplacedAnchor)] = []
+        var leading: [WorkspaceModel] = []
+        let first = placesNewRowsFirst()
         let unanchored = unplaced.filter { workspace in
             guard let anchor = unplacedAnchor(workspace) else { return true }
+            // First as the unanchored ones go under `top`; else listed first below, once the machine's rows are.
+            if anchor == .first {
+                if !first { leading.append(workspace) }
+                return first
+            }
             if !Self.insert(workspace, beside: anchor, into: &sections, within: machineSections) { waiting.append((workspace, anchor)) }
             return false
         }
-        let first = placesNewRowsFirst()
         var own = machineSections
         if !unanchored.isEmpty {
             if first {
@@ -200,6 +209,12 @@ public final class SidebarDocSections {
             }
         }
         flush()
+        if !leading.isEmpty {
+            // Newest first, each above the one before it.
+            let before = sections.count
+            Self.insertFirst(Array(leading.reversed()), into: &sections, machineSections: own)
+            own += sections.count - before
+        }
         // The trailing loose run of unplaced rows is the machine's own too (band groups sit before it).
         var trailing = !first && !unanchored.isEmpty ? sections.count - 1 : nil
         for (workspace, anchor) in waiting {
@@ -230,6 +245,9 @@ public final class SidebarDocSections {
         let id: String
         switch anchor {
         case .before(let anchor), .after(let anchor), .afterInGroup(let anchor), .lastInGroupOf(let anchor): id = anchor
+        case .first:
+            insertFirst([workspace], into: &sections, machineSections: within)
+            return true
         }
         for (index, section) in sections.enumerated().prefix(within) where index >= start {
             guard let at = section.workspaces.firstIndex(where: { $0.id == id }) else { continue }
@@ -243,6 +261,7 @@ public final class SidebarDocSections {
             case .lastInGroupOf:
                 guard section.group != nil else { return false }
                 workspaces.append(workspace)
+            case .first: return true // listed above
             }
             sections[index] = CmuxNextDaemon.SidebarSection(group: section.group, workspaces: workspaces)
             return true
