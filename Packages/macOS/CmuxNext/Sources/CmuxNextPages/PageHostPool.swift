@@ -67,6 +67,9 @@ public final class PageHostPool {
     /// does for its pages: the app arms the `web-dev.json` watch there (``WebUIHost/devOverride``), so
     /// a launch whose first pages are spares still reads it. Nil: nothing to arm.
     package var willServe: (@MainActor () -> Void)?
+    /// Takes a claimed host when it shows with web files it has not loaded, as for a page
+    /// ``WebUIHost`` opens (``WebUIHost/bundleSafePoint``).
+    package weak var bundleSafePoint: (any WebBundleSafePoint)?
 
     final class WeakHost {
         weak var view: PageWebView?
@@ -132,6 +135,7 @@ public final class PageHostPool {
         host.countsTouches = true
         host.shouldFocusOnAttach = focus
         host.popupHoverFrameInput = hoverFrameInput
+        host.bundleSafePoint = bundleSafePoint
         if let scriptFrames, !host.deliversOnFrames { host.deliverOnFrames(scriptFrames) }
         host.engineDecision = decision
         _ = host.retarget(descriptor: descriptor, routes: routes, route: route,

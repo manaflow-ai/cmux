@@ -142,8 +142,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// it keeps its document, and reloads once it shows and the safe point found that a reload keeps
     /// what it holds (``setEngineVisible(_:)``, ``WebBundleSafePoint``).
     package internal(set) var bundleStale = false
-    /// The registry that lists the page; its safe point takes the page when it shows stale.
-    let pageRegistry: PageRegistry
+    /// Takes the page when it shows with web files it has not loaded (``bundleStale``): its host sets
+    /// it (``WebUIHost/open(_:)``, a ``PageHostPool`` claim). Nil: the page keeps its document until a
+    /// swap reloads it.
+    weak var bundleSafePoint: (any WebBundleSafePoint)?
     /// How many appearance changes reached this page (tests: a hidden page gets none).
     package private(set) var appearanceCalls = 0
     public var additionalZoom: Double = 1 {
@@ -302,7 +304,6 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
          trace: any PageTraceSink = TraceRuntime.shared, chatOpen: ChatOpenStages? = nil) {
         let constructionStart = openRequested ?? ProcessInfo.processInfo.systemUptime
         self.trace = trace
-        pageRegistry = registry
         self.chatOpen = chatOpen
         self.descriptor = descriptor
         chromiumHost = chromium

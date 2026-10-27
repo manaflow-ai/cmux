@@ -79,12 +79,9 @@ public final class WebUIHost {
     /// once they allow it (feature `webUpdateReloadOnShow`, ``webBundleDidChange()``, ``bundleSafePoint``).
     /// Off: every page reloads at the change.
     package var bundleReloadsOnShow = false
-    /// Takes the registry's pages that show with web files they have not loaded (the app's web
-    /// updates): it asks each before it reloads it (``WebBundleSafePoint``).
-    package var bundleSafePoint: (any WebBundleSafePoint)? {
-        get { registry.bundleSafePoint }
-        set { registry.bundleSafePoint = newValue }
-    }
+    /// Takes each page this host opens when it shows with web files it has not loaded (the app's web
+    /// updates): it asks the page before it reloads it (``WebBundleSafePoint``). Set before the first open.
+    package weak var bundleSafePoint: (any WebBundleSafePoint)?
     #if DEBUG || CMUX_BENCH_HOOKS
     /// Yields when a page's oracle reading may have changed (the `webviews` facet's wait, p15-oracle-215): a page
     /// ``observeOracleState(of:)`` hooked posted ``PageRouter/oracleStateChangedOp`` or its document loaded.
@@ -153,6 +150,7 @@ public final class WebUIHost {
         // The view joined processGroups (PageWebView(request:...) passes them on these terms).
         view.crash.sharesWebKitProcess = request.options.sharesWebKitProcess && view.engineDecision.engine == .webKit
         view.popupHoverFrameInput = hoverFrameInput
+        view.bundleSafePoint = bundleSafePoint
         if let scriptFrames { view.deliverOnFrames(scriptFrames) }
         opened.add(view)
         #if DEBUG || CMUX_BENCH_HOOKS

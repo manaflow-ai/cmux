@@ -87,7 +87,7 @@ extension PageWebView {
         let showsStale = visible && bundleStale && !isParkedSpare
         if showsStale, crash.needsReload { bundleStale = false }
         crash.engineVisibilityChanged(visible, page: self)
-        if showsStale, bundleStale { pageRegistry.bundleSafePoint?.staleShown(self) }
+        if showsStale, bundleStale { bundleSafePoint?.staleShown(self) }
         #if DEBUG || CMUX_BENCH_HOOKS
         noteCensusVisibility(visible)
         #endif

@@ -442,6 +442,7 @@ final class AppServices {
         pool.scriptFrames = pageScriptFrame
         // A spare is a page as webUI.open makes one: the first arms the web-dev.json watch.
         pool.willServe = { [weak self] in self?.webUI.devOverride.start() }
+        pool.bundleSafePoint = WebUpdates.shared
         return pool
     }()
     /// The one owner of cmux pages (p13-webui.md 3.A): every page view opens and closes through it.
