@@ -415,8 +415,10 @@ final class FilePageService: InternalPageProvider {
         // answers. Past the timeout the page closes, which fails the pending call. A document no
         // other tab shows then leaves the quit hook; edits that did not save are dropped with it
         // (a close without saving removes the draft). A discarded tab keeps them for its next page.
+        // The call goes through the page's router (main-actor isolated, so Sendable); the page view is not
+        // Sendable and only the main-actor teardown holds it.
         let clock = clock, timeout = Self.flushTimeout, provider = tab.provider, op = kind.op("flush"), documents = documents,
-            holder = holder(key)
+            holder = holder(key), router = page.router
         // Each closure is assigned on its own: in a `?:` the literals get no @Sendable from the
         // annotation, so they would be non-Sendable values converted afterwards.
         let finish: @MainActor @Sendable () -> Void
@@ -430,7 +432,7 @@ final class FilePageService: InternalPageProvider {
         // the page then fails a call still pending. The teardown is a reply with no tab: the tab closed or was
         // discarded, and its page goes whether or not anything shows. It leaves `flushing` when it ran.
         flushing[id] = replies.reply(for: nil) {
-            _ = await Deadline(timeout, clock: clock).value("files.flush") { try? await page.router.callPage(op, params: .object([:])) }
+            _ = await Deadline(timeout, clock: clock).value("files.flush") { try? await router.callPage(op, params: .object([:])) }
         } apply: { [weak self] _ in
             page.close()
             provider?.close()

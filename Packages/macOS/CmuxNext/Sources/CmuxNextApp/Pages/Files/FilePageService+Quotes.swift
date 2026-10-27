@@ -22,14 +22,20 @@ extension FilePageService {
         for id in ["home.sendSelectionToChief", "home.sendSelectionTo"] as [ActionID] {
             guard let title = registry.title(for: id) else { continue }
             rows.append(.init(title: title) { [weak self, weak page] in
-                // The selection read, then the action as a reply on the tab's queue.
-                _ = self?.replies.reply(for: key) { [weak page] in await page?.selectedText() } apply: { text in
-                    guard let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-                    _ = registry.perform(id, invocation: ActionInvocation(arguments: ["text": .string(text)], origin: .user))
-                }
+                if let page { self?.performOnSelection(id, of: key, page: page, registry: registry) }
             })
         }
         ViewerSelectionMenu(rows: rows, then: then).install(on: page)
+    }
+
+    /// Reads the page's selected text, then runs action `id` on it as a reply on tab `key`'s queue.
+    private func performOnSelection(_ id: ActionID, of key: String, page: PageWebView, registry: ActionRegistry) {
+        // The read is the page's own (main-actor) call, so the operation runs isolated to the main actor:
+        // the page view is not Sendable and never leaves it.
+        replies.reply(for: key) { @MainActor [weak page] in await page?.selectedText() } apply: { text in
+            guard let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            _ = registry.perform(id, invocation: ActionInvocation(arguments: ["text": .string(text)], origin: .user))
+        }
     }
 
     /// Reads the page's selection, asks for a comment when `askComment`, and sends the quote.
@@ -38,9 +44,11 @@ extension FilePageService {
         let op = kind.op("selection")
         let viewer: ChatQuote.Kind = kind == .markdown ? .markdown : .code
         // The page's call (the router fails it when the page closes), then the quote and its prompt as a
-        // reply on the tab's queue.
-        replies.reply(for: key) { [weak page] in
-            try? await page?.router.callPage(op, params: .object([:]))
+        // reply on the tab's queue. The call goes through the page's router (main-actor isolated, so
+        // Sendable); the page view itself is not Sendable and stays with the main-actor reply.
+        let router = page.router
+        replies.reply(for: key) { [router] in
+            try? await router.callPage(op, params: .object([:]))
         } apply: { [weak self, weak page] reply in
             guard let page, let reply, let quote = ChatQuote(selection: reply, source: file.path, kind: viewer) else { return }
             let deliver = { [weak self, weak page] (quote: ChatQuote) in
