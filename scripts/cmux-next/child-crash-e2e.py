@@ -14,9 +14,17 @@ Cases (each `--only` name, its engine):
   gpucrash_url  chromium  chrome://gpucrash typed into the omnibar: as gpu.
   network       chromium  SIGKILL the network service utility (--utility-sub-type=network.mojom.NetworkService):
                           Chromium starts a new one and a navigation of the tab loads over it.
-  host          chromium  with cefHelperHost on: SIGKILL the Chromium browser host that serves the tab (the one
+  host          chromium  with cefHelperHost on (F2): SIGKILL the Chromium browser host that serves the tab (the one
                           parent of the tab's renderers, a process of the app's tree that is not the app); a host
-                          starts again and the same tab answers. No such host: NOT-MEASURABLE.
+                          starts again and the same tab answers. While tabs still run in cmux (until the host
+                          supervisor lands), the host app's own page instead (`debug.chromium_host`, the prototype of
+                          cef-helper-app-DESIGN.md): SIGKILL the host, a new host loads the saved page; then
+                          chrome://inducebrowsercrashforrealz in it ends the host by Chromium's own browser-process
+                          crash, the second end within ChromiumHostRestartPolicy's 60 s keeps it ended with no page
+                          shown, and opening the page again starts a new host with it. The Chromium tab in cmux
+                          answers through both. A build without the host (Release, a Debug build without CEF, the
+                          feature decided off by policy or the environment): NOT-MEASURABLE with the reason; check
+                          mode turns the local override `browserHost.helper` on for the run and back after.
   browser_check chromium  chrome://inducebrowsercrashforrealz, run only on proof that Chromium's browser process is
                           not the app (cefHelperHost on and the tab's renderers all under one host). Without that
                           proof (in process until F2, or no renderer to read) a browser CHECK would end cmux, so the
@@ -52,7 +60,9 @@ Two modes:
   died is a FAIL line and a ratio under 1.
 
   Check (the capture slot: `capture-host launch` runs the app with its debug socket): `--socket PATH [--app-pid PID]`
-  drives the running app once, never launches or quits it, writes no result, and exits 1 on any failure.
+  drives the running app once, never launches or quits it, writes no result, and exits 1 on any failure. A case it
+  could not measure is no failure: the last line names it with the reason (`--only host` on a build without the host
+  exits 0 with `not measured: host (...)`).
 
   child-crash-e2e.py --app "cmux DEV <tag>.app" --tag TAG --out DIR [--engine chromium|webkit|all]
       [--host-arms off,on] [--runs 3] [--only ...] [--build-config bench] [--session light]
@@ -83,6 +93,11 @@ HOST_FEATURE = "cefHelperHost"
 HOST_TOGGLE = "browserHost.helper"
 TUNABLES_FILE = "CMUX_NEXT_DEBUG_TUNABLES_FILE"
 HOST_SETTLE_SECONDS = 15
+# Chromium's browser-process crash (content/browser/renderer_host/debug_urls.cc HandleDebugURL), handled only for a
+# navigation from the address bar. The host page loads a URL through CEF's LoadURL, which navigates with
+# PAGE_TRANSITION_TYPED | PAGE_TRANSITION_FROM_ADDRESS_BAR (cef/libcef/browser/frame_host_impl.cc); the case's
+# "the crash URL ends the host" check fails if that ever changes.
+HOST_CRASH_URL = "chrome://inducebrowsercrashforrealz"
 NETWORK_SERVICE = "network.mojom.NetworkService"
 WEBCONTENT = "com.apple.WebKit.WebContent"
 PAGE_TITLE = "crash-e2e"
@@ -379,6 +394,7 @@ class Driver:
         self.host_on, self.strict = host_on, strict
         self.kill_row = None  # the probe row count when the case's crash was sent (None: not sent, or no probe)
         self.failures, self.checks = [], 0
+        self.not_measured = {}  # case -> why it could not be measured (check mode's last line names them)
         self.layout = None  # {"terminal_pane", "terminal_tab", "browser_pane", "tab"} of the engine under test
         self.navigations = 0
         self.baseline_renderers = set()  # renderers that ran before the tab opened: never the tab's
@@ -524,6 +540,8 @@ class Driver:
             self.check(f"{name}: survived", outcome == SURVIVED, detail or f"recover {recover} ms, {len(keys)} keys")
         else:
             print(f"{outcome.upper()} {name}: {detail}", flush=True)
+            if outcome == NOT_MEASURABLE:
+                self.not_measured[name] = detail
         return result
 
     def sad_tab_reloads(self, name, tab, killed_at):
@@ -633,7 +651,8 @@ class Driver:
         def host_run():
             host = tab_host()
             if host is None:
-                return NOT_MEASURABLE, "no Chromium host runs the tab's renderers (in process, or none runs)", None
+                # Tabs still run in cmux: the host app's own page is the host to crash.
+                return self.host_page_run(tab)
             at = self.kill("host", host)
             if at is None:
                 return NOT_MEASURABLE, f"host pid {host} not proved the app's", None
@@ -662,18 +681,91 @@ class Driver:
             results.append(self.window(name, "chromium", runs[name]))
         return results
 
+    def host_page_run(self, tab):
+        """The host case on the Chromium Host app's own page (`debug.chromium_host`, cef-helper-app-DESIGN.md): the
+        kill, then Chromium's browser-process crash URL, then the page opened again. (outcome, detail, recover_ms:
+        the kill to the new host showing the saved page)."""
+        host_state = lambda: self.call("debug.chromium_host")
+        probe = host_state()
+        if missing_method(probe):
+            return NOT_MEASURABLE, "this build has no debug.chromium_host (Debug and bench builds only)", None
+        if probe.get("error") and "phase" not in probe:
+            return NOT_MEASURABLE, f"debug.chromium_host does not answer: {probe['error']}", None
+        if not probe.get("enabled"):
+            return NOT_MEASURABLE, f"{HOST_FEATURE} is off in this app (no Chromium host app runs)", None
+        pane = {"pane": self.layout["browser_pane"]} if self.layout else {}
+
+        def shown(previous=None, restarts=0):
+            """The host state once a host other than `previous` shows our page (after `restarts` restarts)."""
+            state = host_state()
+            fresh = state.get("pid") and state.get("pid") != previous
+            ok = fresh and state.get("restarts", 0) >= restarts and state.get("shown_context_id") and state.get("title") == PAGE_TITLE
+            return state if ok else None
+
+        try:
+            opened = self.call("debug.chromium_host", {"op": "open", "url": self.url, **pane})
+            if opened.get("error"):  # a host report always has `error`, empty unless the start failed
+                return NOT_MEASURABLE, f"the Chromium host app does not start: {opened['error']}", None
+            first = wait(shown, 90)
+            if not first:
+                state = host_state()
+                if str(state.get("phase", "")).startswith("ended") and not state.get("restarts"):
+                    return NOT_MEASURABLE, f"the Chromium host app does not start: {state.get('phase')}", None
+                return DIED, f"the host app never showed the page: {state}", None
+            host = int(first["pid"])
+            self.check("host: the page's browser process is the host app, not cmux",
+                       host != self.app_pid and first.get("app_pid") == self.app_pid, first)
+            at = self.kill("host", host)
+            if at is None:
+                return NOT_MEASURABLE, f"host pid {host} not proved the app's", None
+            restarted = wait(lambda: shown(previous=host, restarts=1), 90)
+            if not restarted:
+                return DIED, f"no new host loaded the saved page after the kill: {host_state()}", None
+            recover = round((time.monotonic() - at) * 1000, 1)
+            if tab:
+                self.check("host: the Chromium tab in cmux answers after the host kill", self.answers(tab))
+
+            # Chromium's own browser-process crash. The restarted host ran under 60 s, so this second end keeps it
+            # ended (ChromiumHostRestartPolicy); a slower run restarts once on the saved crash URL and ends again.
+            second, known_exits = int(restarted["pid"]), len(restarted.get("exits") or [])
+            self.call("debug.chromium_host", {"op": "open", "url": HOST_CRASH_URL, **pane})
+            print(f"host: navigated host {second} to {HOST_CRASH_URL}", flush=True)
+            ended = wait(lambda: (lambda s: s if str(s.get("phase", "")).startswith("ended") else None)(host_state()), 90)
+            state = ended or host_state()
+            crashes = (state.get("exits") or [])[known_exits:]
+            if not ended or alive(second):
+                return DIED, f"{HOST_CRASH_URL} did not end the host: {state}", None
+            if not crashes or crashes[0] == f"signal {int(signal.SIGKILL)}":
+                return DIED, f"the host did not end by its own crash: exits {crashes}", None
+            if state.get("shown_context_id"):
+                return DIED, f"the crashed host's page is still shown: {state}", None
+            if tab:
+                self.check("host: the Chromium tab in cmux answers after the host crash", self.answers(tab))
+
+            last = int(state.get("pid") or second)
+            reopened = self.call("debug.chromium_host", {"op": "open", "url": self.url, **pane})
+            back = not reopened.get("error") and wait(lambda: shown(previous=last), 90)
+            if not back:
+                return DIED, f"opening the page again starts no host with it: {reopened or host_state()}", None
+            return SURVIVED, "", recover
+        finally:
+            self.call("debug.chromium_host", {"op": "close"})
+
     def chromium_plan(self, only):
         """The Chromium cases this app runs, in order: the host case only with cefHelperHost on (the off arm has no
         host to kill)."""
         if "host" in only and not self.host_on:
             print(f"NOT-MEASURABLE host: {HOST_FEATURE} is off in this app", flush=True)
+            self.not_measured["host"] = f"{HOST_FEATURE} is off in this app"
         return [c for c, e in CASES.items() if e == "chromium" and c in only and (c != "host" or self.host_on)]
 
     def unopened(self, engine, names):
         """The cases of a tab that did not open: NOT-MEASURABLE, so they count against the run's survival (the
         browser CHECK stays EXPECTED-FAIL without its proof, as it would with the tab)."""
-        return [CaseResult(n, engine, EXPECTED_FAIL if n == "browser_check" and not self.host_on else NOT_MEASURABLE,
-                           f"the {engine} tab did not open") for n in names]
+        results = [CaseResult(n, engine, EXPECTED_FAIL if n == "browser_check" and not self.host_on else NOT_MEASURABLE,
+                              f"the {engine} tab did not open") for n in names]
+        self.not_measured.update((r.name, r.detail) for r in results if r.outcome == NOT_MEASURABLE)
+        return results
 
     def webkit_case(self, tab):
         def run():
@@ -795,14 +887,59 @@ def check_mode(opts):
     server, url = serve()
     print(f"app pid {pid}, page {url}", flush=True)
     engines, only = selected(opts)
-    driver = Driver(rpc, pid, url, socket_path=opts.socket, strict=True,
-                    host_on=host_state(features) == "on")
-    results = driver.run_cases(engines, only)
-    server.shutdown()
-    write_report(opts.out, {"mode": "check", "runs": [[r.report() for r in results]]})
+    host_on, host_off_reason, restore = host_for_check(rpc, features, "host" in only and "chromium" in engines)
+    driver = Driver(rpc, pid, url, socket_path=opts.socket, strict=True, host_on=host_on)
+    if host_off_reason:
+        driver.not_measured["host"] = host_off_reason
+        print(f"NOT-MEASURABLE host: {host_off_reason}", flush=True)
+        only = only - {"host"}
+    try:
+        results = driver.run_cases(engines, only)
+    finally:
+        restore()
+        server.shutdown()
+    write_report(opts.out, {"mode": "check", "runs": [[r.report() for r in results]],
+                            "not_measured": driver.not_measured})
     if driver.failures:
         sys.exit(f"FAIL {len(driver.failures)}: {', '.join(driver.failures)}")
-    print("PASS every child process crash is contained")
+    print(check_verdict(driver.not_measured))
+
+
+def check_verdict(not_measured):
+    """Check mode's last line once nothing failed: it names each case it could not measure and why."""
+    if not not_measured:
+        return "PASS every child process crash is contained"
+    skipped = "; ".join(f"{name} ({why})" for name, why in sorted(not_measured.items()))
+    return f"PASS every child process crash that ran is contained; not measured: {skipped}"
+
+
+def host_for_check(rpc, features, wanted):
+    """Check mode's host switch for the host case: (host_on, why not, restore). Off in the app, the local override
+    `browserHost.helper` turns it on for the run (Debug Settings' toggle, through `debug.tunables`) and `restore()`
+    puts the toggle back. The host's own report (`debug.chromium_host` enabled) says whether the toggle took: policy
+    or the environment decides the feature above it."""
+    nothing = lambda: None
+    if host_state(features) == "on" or not wanted:
+        return host_state(features) == "on", None, nothing
+    toggle = rpc("debug.tunables", {"action": "get", "key": HOST_TOGGLE}, timeout=10) or {}
+    if missing_method(toggle) or toggle.get("error") or "value" not in toggle:
+        detail = "" if missing_method(toggle) else f": {toggle.get('error')}"
+        return False, f"{HOST_FEATURE} is off and this build has no {HOST_TOGGLE} toggle (Release){detail}", nothing
+    before = toggle["value"] if toggle.get("changed") else None  # None: the toggle was unset
+
+    def restore():
+        rpc("debug.tunables", {"action": "set", "key": HOST_TOGGLE, "value": before}, timeout=10)
+
+    rpc("debug.tunables", {"action": "set", "key": HOST_TOGGLE, "value": True}, timeout=10)
+    report = wait(lambda: (lambda r: r if r.get("enabled") is True or missing_method(r) else None)(
+        rpc("debug.chromium_host", None, timeout=10) or {}), 5) or {}
+    if report.get("enabled") is not True:
+        restore()
+        why = ("this build has no debug.chromium_host" if missing_method(report)
+               else f"{HOST_TOGGLE} does not turn {HOST_FEATURE} on here (policy or the environment decided it)")
+        return False, why, nothing
+    print(f"host: {HOST_TOGGLE} on for this run (was {'unset' if before is None else before})", flush=True)
+    return True, None, restore
 
 
 def host_state(snapshot):

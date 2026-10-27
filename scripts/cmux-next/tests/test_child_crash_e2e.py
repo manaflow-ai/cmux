@@ -12,13 +12,17 @@
    target row crash-survival.<engine>.
 3. The browser CHECK URL is typed only on proof that a host, not the app, runs the tab's renderers; without it (in
    process, or no renderer to read) the case is EXPECTED-FAIL. The host case kills the host that runs the tab's
-   renderers and needs the same tab back under a new host. A case whose debug method the build lacks is
-   NOT-MEASURABLE.
+   renderers and needs the same tab back under a new host. While tabs run in cmux it crashes the host app's own page
+   (`debug.chromium_host`, p10-stability-146): SIGKILL, a new host shows the saved page; the browser-process crash URL
+   ends it by its own signal and it stays ended with no page shown; opening the page again starts a new host. A case
+   whose debug method the build lacks is NOT-MEASURABLE, with the reason.
 4. A case that "survived" is DIED when the app no longer runs, or when typing was on and the terminal drew no key
    after the kill (keys before it do not count).
 5. The network case kills the network service by exact pid and proves a navigation over the new one.
 6. The command line takes exactly one of --socket (check a running app) and --app (launch and measure); check mode
    keeps the capture slot's cases (renderer, gpu, webkit, agent) unless --only names others.
+7. Check mode turns the host on for `--only host` through the local override browserHost.helper and puts the toggle
+   back; a build that cannot run the host is named, with the reason, on a passing last line.
 
 Runs on any host (Linux included): no app, no socket, no signal sent (os.kill is replaced).
 
@@ -236,6 +240,48 @@ class FakeApp:
         return reply(params or {}) if callable(reply) else reply
 
 
+class FakeHost:
+    """`debug.chromium_host` of a Debug app with the host on (ChromiumHostPrototype's report): `open` starts a host
+    (pid 520, then 530, ...) that shows the page; a SIGKILL restarts it with the page (first end); the crash URL ends
+    it by SIGTRAP and, inside the 60 s window, keeps it ended with no page shown."""
+
+    def __init__(self, crash_url_ends=True):
+        self.crash_url_ends = crash_url_ends
+        self.next_pid, self.ops, self.opened, self.ended_pids = 520, [], [], set()
+        self.state = {"phase": "none", "pid": 0, "restarts": 0, "exits": [], "shown_context_id": 0, "title": "",
+                      "error": "", "enabled": True, "app_pid": os.getpid()}
+
+    def start(self, title):
+        self.state.update(phase="running", pid=self.next_pid, shown_context_id=self.next_pid, title=title)
+        self.next_pid += 10
+
+    def end(self, exit_text):
+        self.ended_pids.add(self.state["pid"])
+        self.state["exits"] = self.state["exits"] + [exit_text]
+
+    def killed(self, pid, sig):
+        assert pid == self.state["pid"] and sig == crash.signal.SIGKILL, (pid, sig)
+        self.end(f"signal {int(sig)}")
+        self.state["restarts"] += 1
+        self.start(self.state["title"])
+
+    def __call__(self, params):
+        op = params.get("op")
+        self.ops.append(op or "report")
+        if op == "open":
+            url = params["url"]
+            self.opened.append(url)
+            if url == crash.HOST_CRASH_URL:
+                if self.crash_url_ends:
+                    self.end("signal 5")
+                    self.state.update(phase="ended: ended twice within 60 seconds: signal 5", shown_context_id=0)
+            elif self.state["phase"] != "running":
+                self.start(crash.PAGE_TITLE)
+        elif op == "close" and self.state["phase"] == "running":
+            self.state.update(phase="idle", shown_context_id=0)
+        return dict(self.state)
+
+
 class Cases(unittest.TestCase):
     def driver(self, app):
         """A Driver whose app is this test process (PS with APP renamed to its pid); `drv.tables(ps)` swaps the
@@ -326,6 +372,56 @@ class Cases(unittest.TestCase):
         with mock.patch.object(crash.os, "kill") as kill:
             self.assertEqual(drv.chromium_cases("tab_1", {"host"}), [])
             kill.assert_not_called()
+
+    def host_page_driver(self, host):
+        """A Driver whose tabs run in cmux (no renderer under a host) and whose app answers `host`."""
+        app = FakeApp({"debug.chromium_host": host, "browser.page.eval": {"value": "alive"}})
+        drv = self.driver(app)
+        drv.host_on = True
+        drv.tables("\n".join(line for line in PS.splitlines() if "renderer-client-id=9" not in line))
+        return app, drv
+
+    def test_host_page_case_crashes_the_host_app_twice_and_cmux_stays_up(self):
+        host = FakeHost()
+        app, drv = self.host_page_driver(host)
+        with mock.patch.object(crash.os, "kill", side_effect=host.killed) as killed, \
+                mock.patch.object(crash, "alive", side_effect=lambda pid: pid not in host.ended_pids), \
+                mock.patch.object(crash.time, "sleep"):
+            [res] = drv.chromium_cases("tab_1", {"host"})
+        self.assertEqual(res.outcome, crash.SURVIVED, res.detail)
+        self.assertIsNotNone(res.recover_ms)
+        killed.assert_called_once_with(520, crash.signal.SIGKILL)  # the proved host, never the app
+        self.assertEqual(host.opened, ["http://127.0.0.1:1/", crash.HOST_CRASH_URL, "http://127.0.0.1:1/"])
+        self.assertEqual(host.ops[-1], "close")  # the host page never outlives the case
+        self.assertEqual(drv.failures, [])
+        self.assertEqual(drv.not_measured, {})
+
+    def test_host_page_case_dies_when_the_crash_url_does_not_end_the_host(self):
+        host = FakeHost(crash_url_ends=False)
+        _, drv = self.host_page_driver(host)
+        with mock.patch.object(crash.os, "kill", side_effect=host.killed), \
+                mock.patch.object(crash, "alive", side_effect=lambda pid: pid not in host.ended_pids), \
+                mock.patch.object(crash, "wait", side_effect=lambda check, seconds, step=0.25: check()):
+            [res] = drv.chromium_cases("tab_1", {"host"})
+        self.assertEqual(res.outcome, crash.DIED)
+        self.assertIn("did not end the host", res.detail)
+
+    def test_host_page_case_says_why_a_build_without_the_host_is_not_measured(self):
+        builds = {
+            "debug.chromium_host": {"error": {"code": "method_not_found"}},  # Release
+            "cefHelperHost is off": {"phase": "none", "enabled": False, "error": ""},
+            "Chromium host app": lambda p: ({"error": "this build has no Chromium host app (Debug and bench builds "
+                                                      "with CEF only)"} if p.get("op") == "open"
+                                            else {"phase": "none", "enabled": True}),
+        }
+        for reason, host in builds.items():
+            _, drv = self.host_page_driver(host)
+            with mock.patch.object(crash.os, "kill") as kill, mock.patch.object(crash, "alive", return_value=True):
+                [res] = drv.chromium_cases("tab_1", {"host"})
+                kill.assert_not_called()
+            self.assertEqual(res.outcome, crash.NOT_MEASURABLE)
+            self.assertIn(reason, res.detail)
+            self.assertEqual(drv.not_measured, {"host": res.detail})
 
     def test_network_case_kills_the_service_and_navigates_over_the_new_one(self):
         nav = {}
@@ -440,6 +536,64 @@ class CommandLine(unittest.TestCase):
         self.assertTrue(crash.missing_method({"error": {"code": "method_not_found"}}))
         self.assertFalse(crash.missing_method({"error": "socket closed"}))
         self.assertFalse(crash.missing_method(None))
+
+
+class CheckHost(unittest.TestCase):
+    """p10-stability-146: check mode turns the host on through its local override for `--only host`, puts the toggle
+    back, and a build that cannot run the host is named, with the reason, on the passing last line."""
+
+    @staticmethod
+    def app(toggle, takes=True):
+        """An app's socket: `toggle` is debug.tunables get's reply; the host follows the toggle when it `takes`."""
+        sets = []
+
+        def tunables(params):
+            if params["action"] == "set":
+                sets.append(params["value"])
+            return toggle
+        app = FakeApp({"debug.tunables": tunables,
+                       "debug.chromium_host": lambda p: {"phase": "none", "enabled": takes and bool(sets) and sets[-1] is True}})
+        return app, sets
+
+    def test_an_off_host_is_turned_on_for_the_run_and_the_toggle_put_back(self):
+        app, sets = self.app({"key": "browserHost.helper", "value": False, "default": False, "changed": False})
+        on, why, restore = crash.host_for_check(app, CheckHost.snapshot("off"), True)
+        self.assertEqual((on, why, sets), (True, None, [True]))
+        restore()
+        self.assertEqual(sets, [True, None])  # unset again, not pinned off
+
+    def test_an_explicit_toggle_value_comes_back(self):
+        app, sets = self.app({"key": "browserHost.helper", "value": False, "default": False, "changed": True})
+        crash.host_for_check(app, CheckHost.snapshot("off"), True)[2]()
+        self.assertEqual(sets, [True, False])
+
+    def test_a_host_already_on_or_not_wanted_touches_nothing(self):
+        app, sets = self.app({})
+        self.assertEqual(crash.host_for_check(app, CheckHost.snapshot("on"), True)[:2], (True, None))
+        self.assertEqual(crash.host_for_check(app, CheckHost.snapshot("off"), False)[:2], (False, None))
+        self.assertEqual(app.calls, [])
+
+    def test_a_release_build_or_a_decided_feature_is_named(self):
+        release = FakeApp({})
+        on, why, _ = crash.host_for_check(release, CheckHost.snapshot("off"), True)
+        self.assertFalse(on)
+        self.assertIn("no browserHost.helper toggle", why)
+        app, sets = self.app({"key": "browserHost.helper", "value": False, "changed": False}, takes=False)
+        with mock.patch.object(crash.time, "sleep"), mock.patch.object(crash.time, "monotonic", side_effect=range(0, 1000, 10)):
+            on, why, _ = crash.host_for_check(app, CheckHost.snapshot("off"), True)
+        self.assertFalse(on)
+        self.assertIn("policy or the environment", why)
+        self.assertEqual(sets, [True, None])  # put back at once
+
+    def test_the_last_line_names_what_was_not_measured(self):
+        self.assertEqual(crash.check_verdict({}), "PASS every child process crash is contained")
+        line = crash.check_verdict({"host": "this build has no debug.chromium_host (Debug and bench builds only)"})
+        self.assertIn("not measured: host (this build has no debug.chromium_host", line)
+        self.assertTrue(line.startswith("PASS"))
+
+    @staticmethod
+    def snapshot(state):
+        return {"cefHelperHost": {"state": state, "source": "default"}}, "hash", None
 
 
 class HostArms(unittest.TestCase):
