@@ -4753,7 +4753,7 @@
       "type" : "number"
     },
     "updates.installOnQuit" : {
-      "default" : true,
+      "default" : false,
       "description" : "A downloaded update installs as cmux quits. Terminals keep running.",
       "title" : "Install Updates When Quitting",
       "type" : "boolean"

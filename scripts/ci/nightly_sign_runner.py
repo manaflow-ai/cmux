@@ -13,10 +13,17 @@ first candidate whose queue is moving: vars.MACOS_RUNNER_26 when it names a
 Blacksmith macOS label, then 6 vCPU, then 12 vCPU. A label is not moving when
 the snapshot saw a job wait on it for simple_pool_picker.BLACKSMITH_STALL_MINUTES or more.
 With no fresh snapshot (or an unreadable one) the variable keeps its say, as
-before. It never prints an empty label and never fails the job:
+before. It never prints an empty label and never fails the job.
+
+It also prints `alternate`, the other Blacksmith macOS 26 size (a moving one
+first). GitHub never re-routes a queued job, and the pick is made once: a label
+that stalls after it holds the job until the run is cancelled. A re-run of
+failed jobs keeps this job's outputs, so the signing jobs read `alternate` on
+attempt 2 and later, and the re-run (the owned-pool rescue's or a person's)
+moves off the label that stalled instead of queueing on it again:
 
     SNAPSHOT_TOKEN=<actions: read> CANDIDATE=<vars.MACOS_RUNNER_26> nightly_sign_runner.py
-    -> `runner=<label>` in $GITHUB_OUTPUT, and why in the step summary
+    -> `runner=<label>` and `alternate=<label>` in $GITHUB_OUTPUT, and why in the step summary
 """
 
 from __future__ import annotations
@@ -71,6 +78,13 @@ def pick(variable: str, snapshot: Mapping[str, Any] | None, now: dt.datetime) ->
     return moving[0], why
 
 
+def alternate(variable: str, label: str, snapshot: Mapping[str, Any] | None, now: dt.datetime) -> str:
+    """The Blacksmith macOS 26 label a re-run takes: never `label`, a moving one before a stalled one."""
+    others = [other for other in candidates(variable) if other != label]
+    stuck = stalled(snapshot, others, now) or set()
+    return next((other for other in others if other not in stuck), others[0])
+
+
 def main(env: Mapping[str, str] = os.environ, read: Callable[[str, str], Any] | None = None,
          now: dt.datetime | None = None) -> int:
     now = now or dt.datetime.now(dt.timezone.utc)
@@ -88,10 +102,11 @@ def main(env: Mapping[str, str] = os.environ, read: Callable[[str, str], Any] | 
         except Exception as error:  # noqa: BLE001 - never fail the job; the variable keeps its say
             print(f"::warning title=nightly sign runner::could not read the pool snapshot ({str(error)[:200]})")
     label, why = pick(variable, snapshot, now)
-    print(f"nightly sign runner: {why}")
+    other = alternate(variable, label, snapshot, now)
+    print(f"nightly sign runner: {why}; a re-run takes `{other}`")
     if env.get("GITHUB_OUTPUT"):
         with open(env["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
-            handle.write(f"runner={label}\n")
+            handle.write(f"runner={label}\nalternate={other}\n")
     if env.get("GITHUB_STEP_SUMMARY"):
         with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
             handle.write(f"\nNightly sign runner: {why}\n")

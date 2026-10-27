@@ -17,6 +17,8 @@ pub enum Step {
     Peer,
     PeerBack,
     Identity,
+    /// The machine lists this machine's cmux app key (`host_approvals.rs`).
+    Approvals,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]

@@ -94878,6 +94878,33 @@
         "uk": {"stringUnit": {"state": "needs_review", "value": "Зареєструвати машину як хост агентів"}},
         "vi": {"stringUnit": {"state": "needs_review", "value": "Đăng ký máy làm máy chủ tác tử"}}
       }
+    },
+    "action.cloudApplyMachineConfig": {
+      "comment": "Cloud machine action: apply the machine's .cmux/machine.toml (env, secret names, setup commands).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Apply Machine Config"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシン構成を適用"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Maschinenkonfiguration anwenden"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Appliquer la configuration de la machine"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Aplicar la configuración de la máquina"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تطبيق إعداد الجهاز"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "머신 구성 적용"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "应用机器配置"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "套用機器設定"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Primijeni konfiguraciju mašine"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Anvend maskinkonfiguration"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Applica configurazione della macchina"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "អនុវត្តការកំណត់ម៉ាស៊ីន"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Bruk maskinkonfigurasjon"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Zastosuj konfigurację maszyny"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Aplicar configuração da máquina"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Применить конфигурацию машины"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ใช้การกำหนดค่าเครื่อง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Makine yapılandırmasını uygula"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Застосувати конфігурацію машини"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Áp dụng cấu hình máy"}}
+      }
     }
   },
   "version": "1.0"

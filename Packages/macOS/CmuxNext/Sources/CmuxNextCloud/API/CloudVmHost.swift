@@ -6,8 +6,9 @@ public import Foundation
 ///
 /// Read and set over the Cloud API's exec, one short command each: the machine's own
 /// `cmux-tui acp --json host vm-host [on|off]`, run as the machine's work user (or root on an
-/// image from before the work user), which answers `{vmHost, cmuxVm, configured}`.
-public enum CloudVmHost {
+/// image from before the work user), which answers `{vmHost, cmuxVm, configured}`. A value the
+/// caller builds (``CloudVmHostStore`` holds one), with the exec budget it runs under.
+public struct CloudVmHost: Sendable {
     /// What the machine said.
     public struct State: Equatable, Sendable {
         /// On now.
@@ -22,10 +23,14 @@ public enum CloudVmHost {
     }
 
     /// The exec's budget: well under the exec API's 25 s.
-    public static let timeoutMs = 15_000
+    public let timeoutMs: Int
+
+    public init(timeoutMs: Int = 15_000) {
+        self.timeoutMs = timeoutMs
+    }
 
     /// The command that reads the setting (`on` nil) or sets it.
-    public static func command(on: Bool?) -> String {
+    public func command(on: Bool?) -> String {
         let state = on.map { $0 ? " on" : " off" } ?? ""
         return [
             "set -eu",
@@ -40,7 +45,7 @@ public enum CloudVmHost {
     }
 
     /// The state in a successful exec's output (acpmux prints one JSON object, pretty), or nil.
-    public static func parse(_ ran: CloudExecResult) -> State? {
+    public func parse(_ ran: CloudExecResult) -> State? {
         guard ran.exitCode == 0, let start = ran.stdout.firstIndex(of: "{"),
               let object = try? JSONSerialization.jsonObject(with: Data(ran.stdout[start...].utf8)) as? [String: Any],
               let on = object["vmHost"] as? Bool else { return nil }
@@ -49,7 +54,7 @@ public enum CloudVmHost {
 
     /// Why a failed exec failed, in the machine's words, bounded: acpmux's `--json` error
     /// envelope's message (`{"error": {"message": …}}`, pretty), else the first line.
-    public static func failure(_ ran: CloudExecResult) -> String {
+    public func failure(_ ran: CloudExecResult) -> String {
         let text = ran.stderr.isEmpty ? ran.stdout : ran.stderr
         if let start = text.firstIndex(of: "{"),
            let object = try? JSONSerialization.jsonObject(with: Data(text[start...].utf8)) as? [String: Any],

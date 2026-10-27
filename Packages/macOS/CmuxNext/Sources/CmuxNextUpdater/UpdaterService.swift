@@ -187,10 +187,12 @@ public final class UpdaterService {
     /// runs just before the quit (false: the user came into the app, so no quit), the second when
     /// the app did not quit, the third when the first said no. Nil (tests, hosts without it) lets
     /// Sparkle relaunch.
-    @ObservationIgnored public var relaunchBehind: ((_ willQuit: @escaping @MainActor () -> Bool, _ declined: @escaping @MainActor () -> Void,
+    @ObservationIgnored public var relaunchBehind: ((_ willQuit: @escaping @MainActor () async -> Bool, _ declined: @escaping @MainActor () -> Void,
                                                      _ inFront: @escaping @MainActor () -> Void) -> Void)?
     /// Reads the executable's live session and input state before Sparkle relaunches.
     @ObservationIgnored public var relaunchBlockers: () -> UpdateRelaunchBlockers = { .daemonUnavailable }
+    /// Holds an automatic install while a modal, sheet, menu or composition is up (``UpdateRelaunchMoment``).
+    @ObservationIgnored let relaunchMomentHold: UpdateRelaunchMomentHold
     /// How long input must be quiet before a nightly installs by itself (`updates.idleInstallQuietSeconds`).
     @ObservationIgnored public internal(set) var idleInstallQuiet: Duration = UpdateRelaunchBlockers.quietInputPeriod
     /// The install in flight started by itself (the idle policy): a failure opens nothing.
@@ -254,6 +256,7 @@ public final class UpdaterService {
                                   sources: Self.whatsNewSources(identity: identity), lastUpdates: lastUpdates)
         let log = UpdateLogBuffer()
         self.log = log
+        relaunchMomentHold = UpdateRelaunchMomentHold(clock: clock, log: { [log] in log.append($0) })
         releasePush = ReleasePushListener(runningBuild: identity.build, clock: clock, log: { [log] in log.append($0) })
         // The managed policy is re-read by the driver on every start and check,
         // so it is not a reason to skip building it.

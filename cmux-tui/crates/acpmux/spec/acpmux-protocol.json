@@ -872,6 +872,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/mac_approver_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/mac_approvers",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/new_chat_picks_set",
       "params": true,
       "result": true

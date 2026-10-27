@@ -98,9 +98,12 @@ public struct CloudMachineBootstrap: Equatable, Sendable {
     /// `as_u CMD`: CMD as the work user `$u`, from either account.
     static let userHelper = #"as_u() { if [ "$(id -un)" = "$u" ]; then "$@"; else root runuser -u "$u" -- "$@"; fi; }"#
 
+    /// No folder on the way may be a symlink: root's chown and chmod would follow it out of the home folder.
+    static let noSymlinks = #"for p in "$h/.cmux" "$d"; do [ -L "$p" ] && { echo "$p is a symlink" >&2; exit 1; }; done"#
+
     public static let prepareCommand = [
-        "set -eu", rootHelper, "d=\(directory)",
-        #"root mkdir -p "$d" && root chown \#(user):\#(user) "$d" && root chmod 700 "$d""#,
+        "set -eu", rootHelper, "d=\(directory)", "u=\(user)", #"h=$(getent passwd "$u" | cut -d: -f6)"#, noSymlinks,
+        #"root mkdir -p "$d" && root chown -h \#(user):\#(user) "$d" && root chmod 700 "$d""#,
     ].joined(separator: "; ")
 
     /// The file API may write as root, so the files go to the work user first, and a start that
@@ -109,13 +112,28 @@ public struct CloudMachineBootstrap: Equatable, Sendable {
     /// work user with its home, in a transient systemd unit (it outlives the exec); without
     /// systemd, or when `systemd-run` fails, under `setsid`.
     public static let startCommand = [
-        "set -eu", rootHelper, userHelper, "d=\(directory)", "u=\(user)", #"h=$(getent passwd "$u" | cut -d: -f6)"#,
-        #"root chown -R "$u:$u" "$d" 2>/dev/null || true"#,
+        "set -eu", rootHelper, userHelper, "d=\(directory)", "u=\(user)", #"h=$(getent passwd "$u" | cut -d: -f6)"#, noSymlinks,
+        // Exclusive against a machine-config apply (it holds this shared for its whole run): from here until
+        // `starting` is out, so an apply either sees this start or this start waits for it (15 s, then a
+        // clear refusal). Opened read-only and only once it exists and is no link: root never creates or
+        // writes through a link the work user planted.
+        #"[ -e "$d/start.lock" ] || as_u touch "$d/start.lock"; { [ -f "$d/start.lock" ] && [ ! -L "$d/start.lock" ]; } || { echo "$d/start.lock is not a regular file" >&2; exit 1; }; exec 7<"$d/start.lock""#,
+        #"flock -w 15 7 || { echo "a machine config apply is running on this machine: start the bootstrap again when it ends" >&2; exit 1; }"#,
+        #"root chown -hR "$u:$u" "$d" 2>/dev/null || true"#,
         #"for f in script env run; do [ "$(stat -c %U "$d/$f")" = "$u" ] || { echo "$d/$f is not $u's: the start needs root or passwordless sudo" >&2; exit 1; }; done"#,
-        #"if ! as_u flock -n "$d/lock" true; then echo running; exit 0; fi"#,
+        // The runner's own lock, held from the `running` check until `starting` is out (opened read-only, a
+        // regular file of the work user's, like start.lock): a runner an earlier start launched that only now
+        // gets to run finds it taken and exits, so it never runs the script between this start's `done`
+        // check and its `starting`. Let go before the launch, so this start's runner can take it.
+        #"[ -e "$d/lock" ] || as_u touch "$d/lock"; { [ -f "$d/lock" ] && [ ! -L "$d/lock" ]; } || { echo "$d/lock is not a regular file" >&2; exit 1; }; exec 6<"$d/lock""#,
+        #"flock -n 6 || { echo running; exit 0; }"#,
         #"sum=$(sha256sum "$d/script" | cut -d' ' -f1)"#,
         #"if grep -q "\"state\":\"done\".*\"script_sha256\":\"$sum\"" "$d/status.json" 2>/dev/null; then echo skipped; exit 0; fi"#,
-        #"if command -v systemd-run >/dev/null 2>&1 && { root systemctl reset-failed \#(unit) 2>/dev/null || true; root systemd-run --quiet --collect --unit=\#(unit) --uid="$u" --gid="$u" --setenv=HOME="$h" --working-directory="$h" "$d/run"; }; then :; else as_u env HOME="$h" setsid nohup "$d/run" >/dev/null 2>&1 </dev/null & fi"#,
+        // Only when a runner is launched: a machine-config applier waits on `starting` (a retry of a failed
+        // script too). The runner takes `alive` once it runs, which the applier waits on too.
+        #"printf '{"state":"starting","exit_code":null,"script_sha256":"%s","at":%s}\n' "$sum" "$(date +%s)" | as_u tee "$d/status.json" >/dev/null"#,
+        "exec 6<&-",
+        #"if command -v systemd-run >/dev/null 2>&1 && { root systemctl reset-failed \#(unit) 2>/dev/null || true; root systemd-run --quiet --collect --unit=\#(unit) --uid="$u" --gid="$u" --setenv=HOME="$h" --working-directory="$h" "$d/run"; }; then :; else as_u env HOME="$h" setsid nohup "$d/run" >/dev/null 2>&1 </dev/null 7<&- & fi"#,
         "echo started",
     ].joined(separator: "; ")
 
@@ -130,6 +148,14 @@ public struct CloudMachineBootstrap: Equatable, Sendable {
         exec 9>"$d/lock"
         flock -n 9 || exit 0
         sum=$(sha256sum "$d/script" | cut -d' ' -f1)
+        # A runner launched by an earlier start may have run this script to its end while this one waited
+        # to be scheduled: a script that is done is not run again.
+        if grep -q "\"state\":\"done\".*\"script_sha256\":\"$sum\"" "$d/status.json" 2>/dev/null; then exit 0; fi
+        # Held for the runner's whole life, taken blocking: a machine-config apply probes it (shared,
+        # non-blocking, released at once) to wait while this runner runs; the kernel drops it at the end.
+        [ -f "$d/alive" ] && [ ! -L "$d/alive" ] || rm -f "$d/alive"
+        exec 8>"$d/alive"
+        flock 8
         status() {
           printf '{"state":"%s","exit_code":%s,"script_sha256":"%s","at":%s}\n' "$1" "$2" "$sum" "$(date +%s)" >"$d/status.json.tmp" &&
             mv -f "$d/status.json.tmp" "$d/status.json"
@@ -138,7 +164,8 @@ public struct CloudMachineBootstrap: Equatable, Sendable {
         [ -f "$d/env" ] && . "$d/env"
         cd "$HOME" 2>/dev/null || cd /
         printf '== cmux bootstrap %s at %s\n' "$sum" "$(date -u +%FT%TZ)" >>"$d/bootstrap.log"
-        "$d/script" >>"$d/bootstrap.log" 2>&1 </dev/null
+        # Not its locks: a daemon the script leaves running must not keep them held after this runner ends.
+        "$d/script" >>"$d/bootstrap.log" 2>&1 </dev/null 8>&- 9>&-
         code=$?
         if [ "$code" -eq 0 ]; then status done 0; else status failed "$code"; fi
         exit "$code"

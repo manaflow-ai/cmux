@@ -946,6 +946,11 @@ pub struct Config {
     /// user's own login. The binary names no route.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub coderouter_claude_route: Option<String>,
+    /// `sendRelay`: `{"argv": [...]}`, the command `acpmux send` hands a message to when its
+    /// target names no session here and no peer lists it (`cli/send_relay.rs`). Unset (the
+    /// default): such a send is refused as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub send_relay: Option<crate::cli::send_relay::SendRelay>,
     /// Where this config was loaded from. A config built in code (tests,
     /// `--memory` runs) has no path and is never written to disk.
     #[serde(skip)]

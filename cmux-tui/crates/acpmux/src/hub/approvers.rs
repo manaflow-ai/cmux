@@ -56,37 +56,7 @@ impl ApproverSet {
             .get("approvers")
             .and_then(Value::as_array)
             .ok_or_else(|| RpcError::invalid_params("approvers must be a list"))?;
-        if list.len() > MAX_APPROVERS {
-            return Err(RpcError::invalid_params(format!("at most {MAX_APPROVERS} approvers")));
-        }
-        let mut approvers = Vec::with_capacity(list.len());
-        for entry in list {
-            let id = entry.get("id").and_then(Value::as_str).filter(|i| valid_id(i)).ok_or_else(
-                || RpcError::invalid_params("approver id must be 1 to 128 of [A-Za-z0-9_.:-]"),
-            )?;
-            let public_key = entry
-                .get("publicKey")
-                .and_then(Value::as_str)
-                .and_then(unhex)
-                .filter(|k| k.len() == 65 && k[0] == 4)
-                .ok_or_else(|| {
-                    RpcError::invalid_params(
-                        "publicKey must be a 65-byte uncompressed P-256 point as hex",
-                    )
-                })?;
-            let name: String = entry
-                .get("name")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .chars()
-                .filter(|c| !c.is_control())
-                .take(64)
-                .collect();
-            if approvers.iter().any(|a: &Approver| a.id == id) {
-                return Err(RpcError::invalid_params(format!("approver {id} is listed twice")));
-            }
-            approvers.push(Approver { id: id.to_owned(), public_key, name });
-        }
+        let approvers = parse_approvers(list)?;
         let count = approvers.len();
         *self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
             (mac.to_owned(), approvers);
@@ -180,6 +150,45 @@ impl ApproverSet {
             .is_ok()
             && commit()
     }
+}
+
+/// The approvers of a list `[{id, publicKey, name}]`, checked whole: at most
+/// [`MAX_APPROVERS`], each id once, each key a 65-byte uncompressed P-256 point as hex.
+/// The enrolled Macs' file is read with it too (`mac_approvers.rs`).
+pub fn parse_approvers(list: &[Value]) -> Result<Vec<Approver>, RpcError> {
+    if list.len() > MAX_APPROVERS {
+        return Err(RpcError::invalid_params(format!("at most {MAX_APPROVERS} approvers")));
+    }
+    let mut approvers = Vec::with_capacity(list.len());
+    for entry in list {
+        let id =
+            entry.get("id").and_then(Value::as_str).filter(|i| valid_id(i)).ok_or_else(|| {
+                RpcError::invalid_params("approver id must be 1 to 128 of [A-Za-z0-9_.:-]")
+            })?;
+        let public_key = entry
+            .get("publicKey")
+            .and_then(Value::as_str)
+            .and_then(unhex)
+            .filter(|k| k.len() == 65 && k[0] == 4)
+            .ok_or_else(|| {
+                RpcError::invalid_params(
+                    "publicKey must be a 65-byte uncompressed P-256 point as hex",
+                )
+            })?;
+        let name: String = entry
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .chars()
+            .filter(|c| !c.is_control())
+            .take(64)
+            .collect();
+        if approvers.iter().any(|a: &Approver| a.id == id) {
+            return Err(RpcError::invalid_params(format!("approver {id} is listed twice")));
+        }
+        approvers.push(Approver { id: id.to_owned(), public_key, name });
+    }
+    Ok(approvers)
 }
 
 /// What an approver signs.
@@ -290,16 +299,16 @@ pub fn fingerprint(key: &[u8]) -> String {
     hex(&sha2::Sha256::digest(key)[..8])
 }
 
-fn valid_id(s: &str) -> bool {
+pub fn valid_id(s: &str) -> bool {
     (1..=128).contains(&s.len())
         && s.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-'))
 }
 
-fn hex(bytes: &[u8]) -> String {
+pub fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-fn unhex(s: &str) -> Option<Vec<u8>> {
+pub(super) fn unhex(s: &str) -> Option<Vec<u8>> {
     if !s.len().is_multiple_of(2)
         || !s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
     {

@@ -19,20 +19,49 @@ extension UpdateDriver {
     func stageInBackground(_ reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         stagedInstall = { reply(.install) }
         stagedCancel = { reply(.skip) }
+        stagedGeneration &+= 1
         if installsWhenStaged {
             log.append("background install: staged, installing for the user's click")
             installStaged()
             return
         }
         if installsWhenIdle {
-            if actionDelegate?.updaterPrepareAutomaticInstall() ?? true {
-                log.append("background install: staged, waiting for a safe idle relaunch")
-                installStaged(automatic: true)
+            let generation = stagedGeneration
+            if actionDelegate?.updaterDefersAutomaticInstall(until: { [weak self] in
+                self?.installDeferredAutomatically(generation)
+            }) == true {
+                log.append("background install: staged; the host holds the automatic install until nothing would be cut off")
+                showStagedForUser()
                 return
             }
-            log.append("background install: the host declined the automatic install")
+            if installAutomatically() { return }
         }
         log.append("background install: staged, waiting for the user")
+        showStagedForUser()
+    }
+
+    /// Runs the host's preflight, then installs the staged update with nobody clicking. False when
+    /// the host declined (the update waits for a click).
+    private func installAutomatically() -> Bool {
+        guard actionDelegate?.updaterPrepareAutomaticInstall() ?? true else {
+            log.append("background install: the host declined the automatic install")
+            return false
+        }
+        log.append("background install: staged, waiting for a safe idle relaunch")
+        installStaged(automatic: true)
+        return true
+    }
+
+    /// The host's hold on the automatic install of staged update `generation` ended. No-op once
+    /// that update is gone (a click installed it, it was cancelled, or a newer one is staged).
+    func installDeferredAutomatically(_ generation: UInt64) {
+        guard generation == stagedGeneration, stagedInstall != nil, installsWhenIdle else { return }
+        log.append("background install: the host's hold ended; installing automatically")
+        if !installAutomatically() { showStagedForUser() }
+    }
+
+    /// "Restart to Complete Update": the staged update waits, and a click installs it at once.
+    private func showStagedForUser() {
         setState(.installing(.init(
             isAutoUpdate: true,
             retryTerminatingApplication: { [weak self] in _ = self?.installStaged() },
@@ -45,6 +74,7 @@ extension UpdateDriver {
     /// while its install still waits.
     var stagedItem: SUAppcastItem? {
         if stagedInstall != nil { return backgroundItem }
+        if heldAutomaticRelaunch != nil { return automaticInstallItem }
         guard case .installing(let installing) = model.state else { return nil }
         if installing.relaunchBlockers != nil { return heldRelaunchItem }
         guard installing.isAutoUpdate else { return nil }
@@ -72,6 +102,8 @@ extension UpdateDriver {
     func installStaged(automatic: Bool = false) -> Bool {
         guard let install = stagedInstall else { return false }
         log.append("background install: installing staged update (automatic=\(automatic))")
+        if !automatic { endAutomaticInstallHold() }
+        automaticInstallItem = automatic ? backgroundItem : nil
         let item = backgroundItem, cancel = stagedCancel
         stagedInstall = nil
         stagedCancel = nil
@@ -131,6 +163,7 @@ extension UpdateDriver {
     @discardableResult
     func cancelStaged() -> Bool {
         guard let cancel = stagedCancel else { return false }
+        endAutomaticInstallHold()
         log.append("background install: cancelling the staged update's installer")
         stagedInstall = nil
         stagedCancel = nil

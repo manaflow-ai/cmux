@@ -34,7 +34,15 @@ extension UpdaterService {
         // The relaunch hooks (the record, keep sessions) run only once the helper runs, and only
         // if the user did not come into the app meanwhile; then Sparkle relaunches it, activating.
         relaunchBehind({ [weak self] in
-            guard let self, self.staysBehindNow else { return false }
+            // The quit ends every sheet (QuitCoordinator): it waits while a modal, sheet, menu or
+            // composition is up (``UpdateRelaunchMomentHold``), the helper waiting with it.
+            guard let self else { return false }
+            guard await self.relaunchMomentHold.waitUntilClear() else {
+                // A click, a cancel or the session's end took the install over: nothing installs here.
+                self.controller?.dropQuitInstall()
+                return false
+            }
+            guard self.staysBehindNow else { return false }
             self.updaterWillRelaunchApplication()
             return true
         }, { [weak self] in self?.quitForInstallDeclined() }, { [weak self] in

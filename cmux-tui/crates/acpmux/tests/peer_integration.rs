@@ -1303,6 +1303,159 @@ async fn a_peer_decides_a_relayed_allow_with_its_own_decision_proof() {
     assert_eq!(decided["msg"]["answeredBy"], by, "{decided}");
 }
 
+/// What an enrolled Mac signs (`hub/mac_approvers.rs`), written out here so
+/// the test states the wire contract: ECDSA P-256 / SHA-256, raw r || s as
+/// hex, over the domain and each part after a NUL.
+#[allow(clippy::too_many_arguments)]
+fn mac_signature(
+    key: &ring::signature::EcdsaKeyPair,
+    instance: &str,
+    mac: &str,
+    session: &str,
+    permission: &str,
+    tool_call: &str,
+    option: &str,
+    nonce: &str,
+    expires: u64,
+) -> String {
+    let expires = expires.to_string();
+    let mut message = b"acpmux-mac-approver-decision-v1".to_vec();
+    for part in [instance, mac, session, permission, tool_call, option, nonce, expires.as_str(), ""]
+    {
+        message.push(0);
+        message.extend_from_slice(part.as_bytes());
+    }
+    let sig = key.sign(&ring::rand::SystemRandom::new(), &message).unwrap();
+    sig.as_ref().iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Peer-route approvals: the Mac's app signs a one-time Allow for a prompt of
+/// a peer (B) that it reaches through its own daemon (A), and only the signed
+/// answer crosses the link. B counts it against the Mac key enrolled in its
+/// `mac-approvers.json`, once, for that prompt and tool call; an unsigned
+/// Allow is refused, a deny from any client counts, and a Mac removed from
+/// the file (with the reload `host approvals rm` sends) allows nothing more.
+/// The session's policy and mode stay as they were.
+#[tokio::test]
+async fn a_peer_counts_an_enrolled_macs_signed_one_time_allow_until_it_is_unenrolled() {
+    use ring::signature::{ECDSA_P256_SHA256_FIXED_SIGNING, EcdsaKeyPair, KeyPair};
+    let rng = ring::rand::SystemRandom::new();
+    let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, &rng).unwrap();
+    let mac =
+        EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, pkcs8.as_ref(), &rng).unwrap();
+    let public: String = mac.public_key().as_ref().iter().map(|b| format!("{b:02x}")).collect();
+    let home = std::env::temp_dir().join(format!("api-mac-file-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    std::fs::create_dir_all(&home).unwrap();
+    let file = home.join(acpmux::hub::mac_approvers::FILE);
+    let write = |macs: Value| {
+        acpmux::config::write_atomic(&file, json!({"macs": macs}).to_string().as_bytes()).unwrap()
+    };
+    write(json!([{"id": "mac-1", "publicKey": public, "name": "Leo's Mac"}]));
+
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    b.person.macs.open(file.clone());
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "macs").await;
+    let mut cb = plain(b.clone()).await;
+    let s = cb
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "mac"}}}),
+        )
+        .await
+        .unwrap();
+    let remote_id = s["sessionId"].as_str().unwrap().to_owned();
+    let before = cb.call(method::MUX_INFO, json!({"sessionId": remote_id})).await.unwrap();
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut app = client(a.clone()).await;
+    let mut relay = plain(a.clone()).await;
+    app.call(method::MUX_ATTACH, json!({"sessionId": remote_id, "limit": 0})).await.unwrap();
+    let ask = async |app: &mut C, text: &str, after: Option<&str>| {
+        app.next += 1;
+        let line = Message::request(
+            app.next,
+            method::SESSION_PROMPT,
+            json!({"sessionId": remote_id, "prompt": [{"type": "text", "text": text}]}),
+        );
+        app.tx.send(line.to_line()).await.unwrap();
+        app.wait(method::MUX_PERMISSION_PENDING, |p| {
+            p["sessionId"] == remote_id && after.is_none_or(|a| p["permissionId"] != a)
+        })
+        .await
+    };
+    let pending = ask(&mut app, "ask: rm", None).await;
+    let perm = pending["permissionId"].as_str().unwrap().to_owned();
+    let nonce = pending["decisionNonce"].as_str().unwrap().to_owned();
+    let instance = pending["personInstance"].as_str().unwrap().to_owned();
+    let tool_call = pending["request"]["toolCall"]["toolCallId"].as_str().unwrap().to_owned();
+    let exp =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() + 120;
+    let respond = |perm: &str, nonce: &str, sig: &str| {
+        json!({"sessionId": remote_id, "permissionId": perm, "optionId": "yes",
+               "_meta": {"acpmux": {"decisionNonce": nonce,
+                   "approverDecision": {"approver": "mac-1", "expiresAt": exp, "signature": sig}}}})
+    };
+
+    // The person on A, unsigned: refused on B (A holds no key of B's).
+    let unsigned = json!({"sessionId": remote_id, "permissionId": perm, "optionId": "yes"});
+    let e = app.call(method::MUX_PERMISSION_RESPOND, unsigned).await.unwrap_err();
+    assert!(e.contains("approve this on the Mac app"), "{e}");
+    // Signed for another tool call: refused.
+    let other =
+        mac_signature(&mac, &instance, "mac-1", &remote_id, &perm, "t9", "yes", &nonce, exp);
+    let e = app.call(method::MUX_PERMISSION_RESPOND, respond(&perm, &nonce, &other)).await;
+    assert!(e.unwrap_err().contains("approve this on the Mac app"));
+    // The Mac's signature for this prompt and tool call: the allow counts.
+    let good =
+        mac_signature(&mac, &instance, "mac-1", &remote_id, &perm, &tool_call, "yes", &nonce, exp);
+    app.call(method::MUX_PERMISSION_RESPOND, respond(&perm, &nonce, &good)).await.unwrap();
+    let decided = app
+        .wait(method::MUX_EVENT, |p| {
+            p["kind"] == "permission_decision" && p["sessionId"] == remote_id
+        })
+        .await;
+    assert_eq!(decided["msg"]["outcome"]["optionId"], "yes", "{decided}");
+
+    // Replayed on the next prompt: refused (its nonce and permission are spent).
+    let next = ask(&mut app, "ask: again", Some(&perm)).await;
+    let perm2 = next["permissionId"].as_str().unwrap().to_owned();
+    let nonce2 = next["decisionNonce"].as_str().unwrap().to_owned();
+    let e = app.call(method::MUX_PERMISSION_RESPOND, respond(&perm2, &nonce, &good)).await;
+    assert!(e.unwrap_err().contains("approve this on the Mac app"));
+
+    // Unenrolled (`host approvals rm`: the file, then the reload): a fresh,
+    // valid signature counts nothing; a deny from a client that is no person does.
+    write(json!([]));
+    b.person.macs.view(&json!({"reload": true}));
+    let fresh = mac_signature(
+        &mac, &instance, "mac-1", &remote_id, &perm2, &tool_call, "yes", &nonce2, exp,
+    );
+    let e = app.call(method::MUX_PERMISSION_RESPOND, respond(&perm2, &nonce2, &fresh)).await;
+    assert!(e.unwrap_err().contains("approve this on the Mac app"));
+    relay
+        .call(
+            method::MUX_PERMISSION_RESPOND,
+            json!({"sessionId": remote_id, "permissionId": perm2, "optionId": "no"}),
+        )
+        .await
+        .unwrap();
+    let decided = app
+        .wait(method::MUX_EVENT, |p| {
+            p["kind"] == "permission_decision"
+                && p["sessionId"] == remote_id
+                && p["msg"]["permissionId"] == perm2
+        })
+        .await;
+    assert_eq!(decided["msg"]["outcome"]["optionId"], "no", "{decided}");
+    let after = cb.call(method::MUX_INFO, json!({"sessionId": remote_id})).await.unwrap();
+    assert_eq!(after["policy"], before["policy"], "{after}");
+    assert_eq!(after["modes"], before["modes"], "{after}");
+    let _ = std::fs::remove_dir_all(&home);
+}
+
 /// cx-0q7o slice 2b: every answer for a peer's prompt goes to the peer,
 /// which is the only one that decides its prompts: a client that is not the
 /// person here may deny (as on the peer itself). A forwarded answer carries a

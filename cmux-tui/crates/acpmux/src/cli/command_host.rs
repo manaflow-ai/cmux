@@ -158,6 +158,13 @@ pub enum PeerCmd {
         #[arg(long)]
         reverse: bool,
     },
+    /// The Macs whose cmux app may allow this machine's prompts in a chat it
+    /// reaches through its own daemon (`acpmux host enroll` from the Mac adds
+    /// it), and this machine's own app key. `rm` stops a Mac's Allows at once.
+    Approvals {
+        #[command(subcommand)]
+        cmd: Option<ApprovalsCmd>,
+    },
     /// Check a machine (a peer name or an ssh host) step by step; --fix
     /// repairs what fails. Without --fix nothing changes.
     Doctor {
@@ -179,6 +186,29 @@ pub enum PeerCmd {
         #[arg(long)]
         probe: bool,
     },
+}
+
+#[derive(Subcommand)]
+pub enum ApprovalsCmd {
+    /// Let a Mac's cmux app allow this machine's prompts.
+    Add {
+        /// The Mac's approver id (its app gives it; `host approvals` on the Mac shows it).
+        #[arg(long)]
+        id: String,
+        /// Its public key: a 65-byte uncompressed P-256 point as hex.
+        #[arg(long)]
+        key: String,
+        /// A name to show.
+        #[arg(long)]
+        name: Option<String>,
+    },
+    /// Stop a Mac's Allows here, at once.
+    Rm { id: String },
+    /// From this Mac: let its cmux app allow the prompts of PEER (a peer name
+    /// or ssh host), over ssh. The approvals step of `host enroll`, alone.
+    Enroll { peer: String },
+    /// From this Mac: stop its cmux app's Allows on PEER, at once.
+    Unenroll { peer: String },
 }
 
 #[derive(Subcommand)]
