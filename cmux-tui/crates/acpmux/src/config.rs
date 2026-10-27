@@ -1161,22 +1161,21 @@ impl Config {
             Err(error) => return Err(error.into()),
         };
         cfg.join_profiles(profiles::load(sources));
-        let route = coderouter_claude_route(cfg.coderouter_claude_route.as_deref());
-        cfg.join_discovered(discover_harnesses(route.as_deref()));
-        if cfg.default_harness.is_none() {
-            cfg.auto_default = true;
-            // A terminal harness (an installed `muse`, say) runs no ACP
-            // session, so it never becomes the default.
-            cfg.default_harness = cfg
-                .harnesses
-                .iter()
-                .find(|(_, profile)| profile.kind != HarnessKind::Terminal)
-                .map(|(name, _)| name.clone());
+        // A capture fixture (`harness_fixture.rs`) stands in for PATH,
+        // `~/.acpx` and the ACP Registry: nothing of this host's joins.
+        if let Some(fixture) = crate::harness_fixture::active() {
+            cfg.join_fixture(fixture);
+        } else {
+            let route = coderouter_claude_route(cfg.coderouter_claude_route.as_deref());
+            cfg.join_discovered(discover_harnesses(route.as_deref()));
+            cfg.pick_auto_default();
         }
         // Installed ACP Registry agents (the cached copy; no network, nothing
         // started), after the default so a registry agent never becomes it
         // while a built-in harness exists.
-        if let Some(registry) = crate::registry::load_cached(&home()) {
+        if crate::harness_fixture::active().is_none()
+            && let Some(registry) = crate::registry::load_cached(&home())
+        {
             let found = crate::registry::discovered(
                 &registry,
                 crate::registry::platform(),
@@ -1190,6 +1189,26 @@ impl Config {
         cfg.profile_sources = sources.clone();
         cfg.path = Some(path);
         Ok(cfg)
+    }
+
+    /// Without a configured default, the first harness that runs an ACP
+    /// session (a terminal harness, an installed `muse` say, never does).
+    fn pick_auto_default(&mut self) {
+        if self.default_harness.is_none() {
+            self.auto_default = true;
+            self.default_harness = self
+                .harnesses
+                .iter()
+                .find(|(_, profile)| profile.kind != HarnessKind::Terminal)
+                .map(|(name, _)| name.clone());
+        }
+    }
+
+    /// A capture fixture's harnesses join as discovered ones would
+    /// (`harness_fixture.rs`); configured entries still win.
+    pub fn join_fixture(&mut self, fixture: &crate::harness_fixture::Fixture) {
+        self.join_discovered(fixture.harnesses.clone());
+        self.pick_auto_default();
     }
 
     /// Adds the profiles from profile files and cmux.json. They win over
