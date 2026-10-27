@@ -198,7 +198,11 @@ impl Hub {
         if meta.status != SessionStatus::Closed {
             return Err("open");
         }
-        if meta.updated_at > cutoff {
+        // Its age is its log's: a chat whose `session.json` was saved again (a stop that changed
+        // nothing, before #25863; a draft) is as old as its last record. Never older than its
+        // `updatedAt` says when the store keeps no log on disk.
+        let written = self.store.log_written_at(&session.id).unwrap_or(meta.updated_at);
+        if written.min(meta.updated_at) > cutoff {
             return Err("recent");
         }
         // A chat whose agent is being started holds this lock: it counts as running.

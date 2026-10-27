@@ -119,3 +119,40 @@ async fn a_closed_chat_stopped_again_keeps_its_age() {
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A chat dated today in its `session.json` (stopped again before #25863) is as old as its log.
+#[tokio::test]
+async fn a_closed_chat_is_as_old_as_its_log() {
+    let root = std::env::temp_dir().join(format!("acpmux-retention-{}", uuid::Uuid::now_v7()));
+    let mut cfg = Config::default();
+    cfg.store.mode = StoreMode::Local;
+    let store = crate::store::open(&cfg.store, &root).unwrap();
+    let now = now_ms();
+    for id in ["log-old", "log-new"] {
+        let meta = json!({
+            "schema": crate::store::META_SCHEMA, "id": id, "name": id, "harness": "claude",
+            "cwd": "/tmp", "status": "closed", "createdAt": 1, "updatedAt": now,
+        });
+        store.save(&serde_json::from_value(meta).unwrap()).unwrap();
+        let record = crate::store::EventRecord {
+            seq: 1,
+            at: 2,
+            dir: "in".into(),
+            kind: "claude.assistant".into(),
+            msg: json!({"text": "x".repeat(5000)}),
+            host_seq: None,
+        };
+        store.append(id, &record).unwrap();
+        store.close_log(id);
+    }
+    drop(store);
+    let month = std::time::SystemTime::now() - std::time::Duration::from_secs(30 * 86_400);
+    let segment = root.join("sessions/log-old/events/000001.ndjson");
+    std::fs::File::options().append(true).open(&segment).unwrap().set_modified(month).unwrap();
+    let hub = Hub::new(cfg.clone(), crate::store::open(&cfg.store, &root).unwrap());
+    let pass = hub.retention_pass(RetentionRequest::default()).await.unwrap();
+    assert_eq!((&pass["chats"], &pass["skipped"]["recent"]), (&json!(1), &json!(1)), "{pass}");
+    assert_eq!(pass["largest"][0]["sessionId"], "log-old", "{pass}");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
