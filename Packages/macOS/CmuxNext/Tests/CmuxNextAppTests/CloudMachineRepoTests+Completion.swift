@@ -1,6 +1,7 @@
 @testable import CmuxNextApp
 @testable import CmuxNextCloud
 import Foundation
+import Observation
 import Testing
 
 /// The bootstrap's end for GUI callers (`CloudMachineBootstrap.Completion`): the New Cloud Workspace
@@ -196,6 +197,28 @@ extension CloudMachineRepoTests {
         await creation.completionTask?.value
         #expect(fake.readCount == 1)
         #expect(creation.bootstrapCompletion == nil)
+    }
+
+    nonisolated final class Fired: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = false
+        var on: Bool { lock.withLock { value } }
+        func fire() { lock.withLock { value = true } }
+    }
+
+    @MainActor @Test func aCallerWaitingOnTheCompletionWakesWhenTheCreationEnds() async {
+        let creations = CloudCreations(), fake = GatedMachine(), fired = Fired()
+        let creation = repoCreation(creations)
+        await CloudCreationFlow.startBootstrap(creation, on: fake.machine)
+        await fake.untilRead()
+        // The wizard's wait: the completion, or the creation's end, whichever comes first.
+        withObservationTracking { _ = creation.bootstrapCompletion != nil || creation.isTornDown } onChange: { fired.fire() }
+        creations.end(creation)
+        #expect(fired.on, "the end is observable: a caller waiting on the completion stops")
+        #expect(creation.isTornDown && creation.bootstrapCompletion == nil)
+        fake.answer(Self.answer(Self.status("done", "0", repo: Self.repoStatus("cloned"))))
+        await creation.completionTask?.value
+        #expect(creation.bootstrapCompletion == nil, "a torn-down creation publishes no completion")
     }
 
     @MainActor @Test func aStartThatReturnsAfterTheTearDownStartsNoWait() {
