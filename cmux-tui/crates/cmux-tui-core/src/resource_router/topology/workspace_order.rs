@@ -45,7 +45,8 @@ pub(super) fn list_workspaces(
             crate::user_settings::NewWorkspacePlacement::current(),
         ),
         (Some(true), None) => {
-            let order = mux.personal_state_read(crate::state::sidebar_doc_legacy::workspace_order)?;
+            let order =
+                mux.personal_state_read(crate::state::sidebar_doc_legacy::workspace_order)?;
             let rank = order
                 .iter()
                 .enumerate()
