@@ -122,10 +122,10 @@ Usage (a fleet GUI host, never Lawrence's Mac):
                                its cause (a source off CLOCK_UPTIME_RAW), 2 when DIR has nothing to check
                                (DIR/clock-check.json)
   trace.py check-qos DIR       exit 1 when a key press's hop or a userInitiated task.run in DIR ran on a thread below
-                               userInitiated, or a daemon request's sender waited on a lower-QoS handler (an
-                               inversion); 2 when no thread's QoS is known (the rings' thread tables give it;
-                               DIR/qos-check.json). Not a CI gate
-  trace.py --self-test        check the parsers (hand-written export shapes, not yet a real xctrace export),
+                               userInitiated, or a daemon request's sender blocked (a waiting task.blocking_call) on
+                               a lower-QoS handler (an inversion); 2 when no thread's QoS is known (the rings' thread
+                               tables give it; a lane's pooled worker has none; DIR/qos-check.json). Not a CI gate
+  trace.py --self-test         check the parsers (hand-written export shapes, not yet a real xctrace export),
                                the merge, the clock alignment, the stage bounds, the stop path, the export,
                                the signals, the one SIGINT to xctrace, the uint32 track ids, the
                                signpost clock of a host that slept, the input latency slices, the ring v1 reader
@@ -3461,13 +3461,18 @@ WORK_PRIORITY_QOS = {"idle": 0x09, "bestEffort": 0x11, "userVisible": 0x19, "use
 MAIN_CLASS_PRIORITY = {"input": "userBlocking", "frame": "userBlocking", "userBlocking": "userBlocking",
                        "visible": "userVisible", "automation": "bestEffort", "background": "bestEffort",
                        "idle": "bestEffort"}
+# A checked blocking call (trace.md, `task.blocking_call`): begin arg0 bits 0-7 the BlockingKind.traceCode. The kinds
+# that wait for another thread or process to answer, the only ones a request's sender can wait on its handler with.
+TASK_BLOCKING_CALL_NAME = "task.blocking_call"
+BLOCKING_WAIT_KINDS = {2: "socket-read", 4: "sync-wait", 5: "ipc-reply", 8: "lock-wait", 19: "xpc-reply"}
 QOS_VIOLATIONS_KEPT = 100
 
 
 def ring_thread_qos(rings):
     """(pid, tid) to {qos, name} of every ring thread whose QoS is known (the thread tables of the app's ring and of
     every cmux-trace ring). A thread with QoS unspecified is left out (unknown). The QoS is the thread's at its
-    registration."""
+    registration (TraceRing.ThreadIdentity.current), so it holds only for a thread that keeps one QoS; qos_report
+    drops the pooled workers (pooled_threads)."""
     table = {}
     for ring in rings:
         pid = ring["info"]["pid"]
@@ -3490,13 +3495,24 @@ def task_run_site(arg0):
 
 
 def ring_task_records(rings):
-    """Task 042's records in the rings, shaped as read_flow_records' records: each `task.post` flow-out, and each
+    """Task 042's records in the rings, shaped as read_flow_records' records: each `task.post` flow-out, each
     `task.run` as one `B` record at its begin with its lane and priority (task_run_site), its queue wait in us (None
-    when unknown) and the flow id of the flow-in inside it (0 when its post was not traced)."""
+    when unknown) and the flow id of the flow-in inside it (0 when its post was not traced), and each
+    `task.blocking_call` as one `B` record with its kind (the traceCode) and its end (`end_us`, None while open)."""
     records = []
     for ring in rings:
-        pid, open_runs = ring["info"]["pid"], collections.defaultdict(list)
+        pid, open_runs, open_calls = ring["info"]["pid"], collections.defaultdict(list), collections.defaultdict(list)
         for record in ring["records"]:
+            if record["name"] == TASK_BLOCKING_CALL_NAME and record["phase"] in ("B", "E"):
+                if record["phase"] == "B":
+                    call = {"hop": TASK_BLOCKING_CALL_NAME, "ph": "B", "flow": 0, "terminal": "", "pid": pid,
+                            "tid": ring_record_tid(ring, record), "at_us": record["t_ns"] / 1000.0,
+                            "kind": record["arg0"] & 0xFF, "end_us": None}
+                    open_calls[record["thread"]].append(call)
+                    records.append(call)
+                elif open_calls[record["thread"]]:
+                    open_calls[record["thread"]].pop()["end_us"] = record["t_ns"] / 1000.0
+                continue
             name, phase, thread = record["name"], record["phase"], record["thread"]
             row = {"hop": name, "ph": phase, "flow": record["arg1"], "terminal": "", "pid": pid,
                    "tid": ring_record_tid(ring, record), "at_us": record["t_ns"] / 1000.0}
@@ -3523,9 +3539,20 @@ def qos_thread(table, row):
     return {"pid": row.get("pid"), "tid": row.get("tid"), "thread": thread["name"], "qos": thread["qos"]}
 
 
+def pooled_threads(records):
+    """(pid, tid) of the threads that ran a lane item (a `task.run` off the main lane): LaneScheduler runs each item
+    on a GCD worker of a slot queue at the item's own QoS (`async(qos:flags: .enforceQoS)`, raised by an override
+    while it runs), as Chrome's ThreadPool workers take each task's priority (base/task/thread_pool/
+    worker_thread.cc). Such a worker's QoS at registration says nothing about any later record of it."""
+    return {(r.get("pid"), r.get("tid")) for r in records
+            if r["hop"] == TASK_RUN_NAME and r.get("lane") != TASK_LANES[TASK_MAIN_LANE]}
+
+
 def off_priority_hops(flows, records, table):
     """Work the person waits for on a thread below userInitiated: every hop of a key press, and every task.run whose
-    priority (without one: its poster's thread QoS) is userInitiated or above. Returns (violations, counts)."""
+    priority (without one: its poster's thread QoS) is userInitiated or above. `table` holds only threads that keep
+    one QoS (qos_report), so a lane item on a pooled worker is unknown, never judged by another item's QoS.
+    Returns (violations, counts)."""
     violations = []
     counts = {"checked_hops": 0, "checked_tasks": 0, "unknown_qos": 0}
     for entry in flows:
@@ -3558,44 +3585,60 @@ def off_priority_hops(flows, records, table):
     return violations, counts
 
 
+def request_handlers(rows, sender):
+    """The records the request's other side wrote before its reply came back: for a request to another process,
+    that process's flow records up to the sender process's first flow-in after them (the reply); inside one
+    process, the flow records of the other threads."""
+    pid = sender.get("pid")
+    if not any(r.get("pid") != pid for r in rows):
+        return [r for r in rows if r.get("tid") != sender.get("tid")]
+    first = next(r for r in rows if r.get("pid") != pid)
+    reply = next((r for r in rows if r["ph"] == "f" and r.get("pid") == pid and r["at_us"] >= first["at_us"]), None)
+    return [r for r in rows if r.get("pid") != pid and (reply is None or r["at_us"] <= reply["at_us"])]
+
+
 def inversion_waits(records, table):
-    """Daemon requests (task 103) whose sender waits on work of a lower QoS: the sender (the request's first flow-out)
-    has a higher QoS than the handler (the first flow-in in another process, or on another thread for a request
-    inside one process). Chrome guards the same wait with priority-inheriting locks
-    (base/synchronization/lock_impl_posix.cc). Returns (violations, requests checked, requests with a QoS unknown)."""
-    by_flow = collections.defaultdict(list)
+    """Daemon requests (task 103) whose sender blocks on work of a lower QoS. A request is async (the app's send
+    returns, its reply resolves on the reader thread), so a sender at a higher QoS than its handler is no inversion
+    by itself: it is one only while the sender's thread is inside a waiting `task.blocking_call`
+    (BLOCKING_WAIT_KINDS) that spans the handler's receive, and a handler thread (request_handlers) runs below the
+    sender's QoS. Chrome guards the same wait with priority-inheriting locks (base/synchronization/
+    lock_impl_posix.cc). Returns (violations, requests checked, requests with a QoS unknown)."""
+    blocked = collections.defaultdict(list)
     for record in records:
-        if record["hop"] == REQUEST_FLOW_NAME and record.get("ph") in ("s", "f") and record.get("flow"):
-            by_flow[record["flow"]].append(record)
+        if record["hop"] == TASK_BLOCKING_CALL_NAME and record.get("kind") in BLOCKING_WAIT_KINDS:
+            blocked[(record.get("pid"), record.get("tid"))].append(record)
     violations, checked, unknown = [], 0, 0
-    for flow, rows in sorted(by_flow.items()):
-        rows.sort(key=lambda r: r["at_us"])
+    for flow, rows in sorted(request_flows(records).items()):
         sender = next((r for r in rows if r["ph"] == "s"), None)
-        if sender is None:
+        handlers = request_handlers(rows, sender) if sender else []
+        if not handlers:
             continue
-        crosses = any(r.get("pid") != sender.get("pid") for r in rows)
-        handler = next((r for r in rows if r["ph"] == "f" and (
-            r.get("pid") != sender.get("pid") if crosses else r.get("tid") != sender.get("tid"))), None)
-        if handler is None:
-            continue
-        waiter, worker = qos_thread(table, sender), qos_thread(table, handler)
-        if waiter is None or worker is None:
+        waiter = qos_thread(table, sender)
+        workers = [w for w in (qos_thread(table, r) for r in handlers) if w is not None]
+        if waiter is None or not workers:
             unknown += 1
             continue
         checked += 1
-        if worker["qos"] < waiter["qos"]:
-            reply = next((r for r in rows if r["ph"] == "f" and r is not handler and r.get("pid") == sender.get("pid")
-                          and r["at_us"] >= handler["at_us"]), None)
+        received = handlers[0]["at_us"]
+        wait = next((c for c in blocked[(sender.get("pid"), sender.get("tid"))]
+                     if c["at_us"] <= received and (c["end_us"] is None or c["end_us"] >= received)), None)
+        worker = min(workers, key=lambda w: w["qos"])
+        if wait is not None and worker["qos"] < waiter["qos"]:
             violations.append({"kind": "inversion", "source": REQUEST_FLOW_NAME, "flow": f"0x{flow:x}", **waiter,
                                "at_us": round(sender["at_us"], 3), "waits_on": worker,
-                               "wait_ms": round((reply["at_us"] - sender["at_us"]) / 1000, 3) if reply else None})
+                               "wait_kind": BLOCKING_WAIT_KINDS[wait["kind"]],
+                               "wait_ms": None if wait["end_us"] is None else round(
+                                   (wait["end_us"] - wait["at_us"]) / 1000, 3)})
     return violations, checked, unknown
 
 
 def qos_report(flows, records, table):
     """The summary's QoS fields from the key presses, the daemon requests' and tasks' records and the thread table:
     `qos_violations` (the first QOS_VIOLATIONS_KEPT: off-priority hops, then inversions) and `qos_check` (the counts
-    and what was checked)."""
+    and what was checked). A thread that ran a lane item (pooled_threads) has no one QoS: its records are unknown."""
+    pooled = pooled_threads(records)
+    table = {key: thread for key, thread in table.items() if key not in pooled}
     off_priority, counts = off_priority_hops(flows, records, table)
     inversions, checked_requests, unknown_requests = inversion_waits(records, table)
     violations = off_priority + inversions
@@ -3603,7 +3646,8 @@ def qos_report(flows, records, table):
             "qos_check": {"violations": len(violations), "off_priority": len(off_priority),
                           "inversions": len(inversions), "checked_hops": counts["checked_hops"],
                           "checked_tasks": counts["checked_tasks"], "checked_requests": checked_requests,
-                          "unknown_qos": counts["unknown_qos"] + unknown_requests, "threads_with_qos": len(table)}}
+                          "unknown_qos": counts["unknown_qos"] + unknown_requests, "threads_with_qos": len(table),
+                          "pooled_threads": len(pooled)}}
 
 
 def recording_qos_report(rings, key_flows, request_records):
@@ -3618,7 +3662,8 @@ def qos_violation_text(violation):
     where = lambda t: f"{t['thread'] or 'tid ' + str(t['tid'])} (pid {t['pid']}, {label(t['qos'])})"
     if violation["kind"] == "inversion":
         waited = f" for {violation['wait_ms']} ms" if violation.get("wait_ms") is not None else ""
-        return (f"inversion {violation['source']} {violation['flow']}: {where(violation)} waits{waited} on "
+        return (f"inversion {violation['source']} {violation['flow']}: {where(violation)} blocks "
+                f"({violation.get('wait_kind')}){waited} on "
                 f"{where(violation['waits_on'])}")
     task = (f", priority {violation.get('work_priority') or label(violation['priority'])}, lane {violation.get('lane')}"
             if violation["source"] == "task" else "")
@@ -6275,9 +6320,12 @@ def qos_fixture_ring(pid, threads, records):
 
 def check_qos_violations():
     """A press with every hop on userInitiated or above threads gives 0; one planted key hop on a utility thread gives
-    1 off-priority hop; a userInteractive sender whose daemon handler runs at background gives 1 inversion; of the
-    rings' task runs (task 042's layout), only the userBlocking one on a background thread is off-priority; a run
-    without a known priority takes its poster's thread QoS; a QoS unspecified is unknown, never a violation."""
+    1 off-priority hop, and none when that thread is a lane's pooled worker (its registration QoS is another item's).
+    Daemon requests in the designed shape (an async send from the app's userInteractive main thread, received on a
+    Default mux-conn thread and answered from a userInitiated request thread) give 0 inversions; a sender blocked in a
+    sync-wait on a background handler gives 1, and a non-waiting blocking call (file-io) none. Task runs (task 042's
+    layout): a pooled worker registered at utility that runs userBlocking items is unknown, never off-priority; a
+    main-lane run is checked, one without a known priority by its poster's thread QoS; a QoS unspecified is unknown."""
     app_pid, daemon_pid, host_pid = 10, 20, 30
     e, r = complete_press((10 << 32) | 1, 10_000.0)
     flows = assemble_flows(e, r)
@@ -6288,49 +6336,72 @@ def check_qos_violations():
     # Planted off-priority hop: the host reads the PTY on its own thread, which runs at utility.
     r = [dict(row, tid=8) if row["hop"] == "host.pty.read" else row for row in r]
     flows = assemble_flows(e, r)
-    report = qos_report(flows, r, {**table, (host_pid, 8): {"qos": 0x11, "name": "pty-read"}})
+    utility = {**table, (host_pid, 8): {"qos": 0x11, "name": "pty-read"}}
+    report = qos_report(flows, r, utility)
     assert report["qos_check"]["off_priority"] == 1 and report["qos_check"]["inversions"] == 0, report
     found = report["qos_violations"][0]
     assert (found["source"], found["hop"], found["pid"], found["thread"]) == ("key", "host.pty.read", host_pid,
                                                                              "pty-read"), found
-    # Planted inversion: the app's main thread (userInteractive) sends a daemon request that a background thread
-    # handles; the reply comes back 3 ms later. A request handled at the same QoS is not one.
-    requests = [request_record(5, "s", 1000, app_pid), request_record(5, "f", 1100, daemon_pid),
-                request_record(5, "s", 3900, daemon_pid), request_record(5, "f", 4000, app_pid),
-                request_record(6, "s", 5000, app_pid), dict(request_record(6, "f", 5100, daemon_pid), tid=2)]
-    waits = {(app_pid, 1): {"qos": 0x21, "name": "main"}, (daemon_pid, 1): {"qos": 0x09, "name": "cmux-bg"},
-             (daemon_pid, 2): {"qos": 0x21, "name": "cmux-req"}}
-    report = qos_report([], requests, waits)
-    assert report["qos_check"]["inversions"] == 1 and report["qos_check"]["off_priority"] == 0, report
+    # The same thread as a lane's pooled worker: its QoS at registration is not the hop's.
+    lane_item = {"hop": TASK_RUN_NAME, "ph": "B", "flow": 0, "pid": host_pid, "tid": 8, "at_us": 9_000.0,
+                 "lane": "files", "work_priority": "bestEffort", "priority": 0x11, "queue_wait_us": 1}
+    report = qos_report(flows, r + [lane_item], utility)
+    checked = report["qos_check"]
+    assert (checked["violations"], checked["pooled_threads"], checked["unknown_qos"]) == (0, 1, 2), report
+
+    def blocking(at, end, kind, tid=1):
+        return {"hop": TASK_BLOCKING_CALL_NAME, "ph": "B", "flow": 0, "terminal": "", "pid": app_pid, "tid": tid,
+                "at_us": at, "kind": kind, "end_us": end}
+
+    on = lambda record, tid: dict(record, tid=tid)
+    designed = [request_record(5, "s", 1000, app_pid), on(request_record(5, "f", 1100, daemon_pid), 3),
+                on(request_record(5, "s", 1300, daemon_pid), 4), on(request_record(5, "f", 1400, app_pid), 5)]
+    waits = {(app_pid, 1): {"qos": 0x21, "name": "main"}, (app_pid, 5): {"qos": 0x19, "name": "transport"},
+             (daemon_pid, 2): {"qos": 0x09, "name": "cmux-bg"}, (daemon_pid, 3): {"qos": 0x15, "name": "mux-conn"},
+             (daemon_pid, 4): {"qos": 0x19, "name": "cmux-req"}}
+    report = qos_report([], designed, waits)
+    assert report["qos_check"]["inversions"] == 0 and report["qos_check"]["checked_requests"] == 1, report
+    # Planted inversion: the main thread sends request 6 and blocks in a sync-wait (kind 4) for its reply, which a
+    # background thread handles. Request 7's sender only reads a file (kind 1) meanwhile: no wait on the handler.
+    planted = [request_record(6, "s", 2000, app_pid), blocking(2000.5, 5000.5, 4),
+               on(request_record(6, "f", 2100, daemon_pid), 2), on(request_record(6, "s", 4900, daemon_pid), 2),
+               on(request_record(6, "f", 5000, app_pid), 5),
+               request_record(7, "s", 6000, app_pid), blocking(6000.5, 6500.5, 1),
+               on(request_record(7, "f", 6100, daemon_pid), 2), on(request_record(7, "s", 6200, daemon_pid), 2),
+               on(request_record(7, "f", 6300, app_pid), 5)]
+    report = qos_report([], designed + planted, waits)
+    checked = report["qos_check"]
+    assert (checked["inversions"], checked["off_priority"], checked["checked_requests"]) == (1, 0, 3), report
     inversion = report["qos_violations"][0]
-    assert (inversion["flow"], inversion["waits_on"]["thread"], inversion["wait_ms"]) == ("0x5", "cmux-bg", 3.0), \
-        inversion
-    assert "waits for 3.0 ms on cmux-bg" in qos_violation_text(inversion), qos_violation_text(inversion)
-    # Tasks as TaskTrace and LaneScheduler write them: B arg0 = lane << 8 | priority rawValue, arg1 the wait.
+    assert (inversion["flow"], inversion["waits_on"]["thread"], inversion["wait_kind"], inversion["wait_ms"]) == \
+        ("0x6", "cmux-bg", "sync-wait", 3.0), inversion
+    assert "blocks (sync-wait) for 3.0 ms on cmux-bg" in qos_violation_text(inversion), qos_violation_text(inversion)
+    # Tasks as TaskTrace and LaneScheduler write them: B arg0 = lane << 8 | priority rawValue, arg1 the wait. Workers
+    # 103 and 104 are a lane's GCD workers, registered during a bestEffort and a userVisible item.
     first, second = (1 << 63) | 1, (1 << 63) | 2
-    ring = qos_fixture_ring(app_pid, [(101, 0x21, "main"), (103, 0x09, "lane.files"), (104, 0x19, "lane.cpu")], [
+    ring = qos_fixture_ring(app_pid, [(101, 0x21, "main"), (103, 0x11, ""), (104, 0x19, "")], [
         (0, 10, TASK_POST_NAME, "s", 0, first),
         (1, 20, TASK_RUN_NAME, "B", 0 << 8 | 3, 500), (1, 20, TASK_RUN_NAME, "f", 0, first),
+        (1, 21, TASK_BLOCKING_CALL_NAME, "B", 1 | 40 << 8, 7), (1, 25, TASK_BLOCKING_CALL_NAME, "E", 0, 0),
         (1, 30, TASK_RUN_NAME, "E", 0, 0),
         (1, 40, TASK_RUN_NAME, "B", 0 << 8 | 0, TASK_UNKNOWN_WAIT), (1, 45, TASK_RUN_NAME, "E", 0, 0),
         (2, 50, TASK_RUN_NAME, "B", 2 << 8 | 2, 7), (2, 55, TASK_RUN_NAME, "E", 0, 0),
         (0, 60, TASK_RUN_NAME, "B", TASK_MAIN_LANE << 8 | 4, 9), (0, 65, TASK_RUN_NAME, "E", 0, 0),
         (0, 70, TASK_POST_NAME, "s", 0, second),
-        (2, 80, TASK_RUN_NAME, "B", 0xFF << 8 | 9, 3), (2, 80, TASK_RUN_NAME, "f", 0, second),
-        (2, 85, TASK_RUN_NAME, "E", 0, 0),
-        (1, 90, TASK_RUN_NAME, "B", 0 << 8 | 9, 3), (1, 95, TASK_RUN_NAME, "E", 0, 0)])
+        (0, 80, TASK_RUN_NAME, "B", TASK_MAIN_LANE << 8 | 9, 3), (0, 80, TASK_RUN_NAME, "f", 0, second),
+        (0, 85, TASK_RUN_NAME, "E", 0, 0),
+        (2, 90, TASK_RUN_NAME, "B", 0xFF << 8 | 9, 3), (2, 95, TASK_RUN_NAME, "E", 0, 0)])
     tasks = ring_task_records([ring])
     runs = [t for t in tasks if t["hop"] == TASK_RUN_NAME]
     assert [(t["flow"], t["lane"], t["work_priority"], t["queue_wait_us"]) for t in runs] == [
         (first, "files", "userBlocking", 500), (0, "files", "idle", None), (0, "cpu", "userVisible", 7),
-        (0, "main", "automation", 9), (second, "none", None, 3), (0, "files", None, 3)], runs
+        (0, "main", "automation", 9), (second, "main", None, 3), (0, "none", None, 3)], runs
+    calls = [t for t in tasks if t["hop"] == TASK_BLOCKING_CALL_NAME]
+    assert [(c["tid"], c["kind"], c["at_us"], c["end_us"]) for c in calls] == [(103, 1, 21.0, 25.0)], calls
     report = qos_report([], tasks, ring_thread_qos([ring]))
     checked = report["qos_check"]
-    assert (checked["off_priority"], checked["checked_tasks"], checked["unknown_qos"]) == (1, 5, 1), report
-    task = report["qos_violations"][0]
-    assert (task["flow"], task["lane"], task["thread"], task["queue_wait_us"]) == (f"0x{first:x}", "files",
-                                                                                  "lane.files", 500), task
-    assert "priority userBlocking, lane files" in qos_violation_text(task), qos_violation_text(task)
+    assert (checked["violations"], checked["checked_tasks"], checked["unknown_qos"], checked["pooled_threads"]) == \
+        (0, 2, 4, 2), report
     # Unspecified QoS (0) is unknown: no violation, counted as unknown.
     unspecified = qos_fixture_ring(app_pid, [(101, 0, "main")], [])
     assert ring_thread_qos([unspecified]) == {}
@@ -6339,47 +6410,55 @@ def check_qos_violations():
 
 
 def check_qos_command():
-    """`check-qos DIR` reads DIR's rings as build() does: 2 with nothing to check, 0 when every request's handler
-    runs at its sender's QoS and every task at its priority, exit 1 with one planted inversion and one planted
-    off-priority task run (one each); build() writes the same fields into summary.json and SUMMARY.txt."""
-    first, second = (1 << 63) | 1, (1 << 63) | 2
-    app_threads = ((101, 0x21, "main", 0), (103, 0x09, "lane.files", 0), (104, 0x19, "lane.cpu", 0))
-    daemon_threads = ((201, 0x21, "cmux-req", 0), (202, 0x09, "cmux-bg", 0))
-    request, post, run = 1, 2, 3  # the app ring's name ids; the daemon ring's request is 1
-    app_good = [(0, 2_000_000, request, "s", 0, 0, 1), (0, 2_300_000, request, "f", 0, 0, 1),
-                (0, 3_000_000, post, "s", 0, 0, first), (2, 3_400_000, run, "B", 0, 2 << 8 | 3, 400),
-                (2, 3_400_001, run, "f", 0, 0, first), (2, 3_500_000, run, "E", 0, 0, 0)]
-    app_planted = [(0, 4_000_000, request, "s", 0, 0, 2), (0, 4_300_000, request, "f", 0, 0, 2),
-                   (0, 5_000_000, post, "s", 0, 0, second), (1, 5_500_000, run, "B", 0, 0 << 8 | 3, 500),
-                   (1, 5_500_001, run, "f", 0, 0, second), (1, 5_600_000, run, "E", 0, 0, 0)]
-    daemon_good = [(0, 2_100_000, 1, "f", 0, 0, 1), (0, 2_200_000, 1, "s", 0, 0, 1)]
-    daemon_planted = [(1, 4_100_000, 1, "f", 0, 0, 2), (1, 4_200_000, 1, "s", 0, 0, 2)]
+    """`check-qos DIR` reads DIR's rings as build() does: 2 with nothing to check; 0 for a key press on threads at
+    userInitiated or above, a request in the designed shape (async send from main, Default mux-conn, userInitiated
+    request thread), a main-lane task and a lane item on a pooled worker registered at utility; exit 1 with one
+    planted off-priority hop (the host's PTY read on a utility thread) and one planted inversion (main blocked in a
+    sync-wait on a background handler); build() writes the same fields into summary.json and SUMMARY.txt."""
+    names = FLOW_RING_NAMES + (REQUEST_FLOW_NAME, TASK_POST_NAME, TASK_RUN_NAME, TASK_BLOCKING_CALL_NAME)
+    request, post, run, call = (len(FLOW_RING_NAMES) + i for i in range(1, 5))
+    first = (1 << 63) | 1
+    app_threads = ((100, 0x21, "main", 0), (101, 0x21, "renderer", 0), (102, 0x19, "io", 0), (103, 0x11, "", 0))
+    daemon_threads = ((200, 0x19, "cmux-frames", 0), (201, 0x19, "cmux-host", 0), (202, 0x19, "cmux-attach", 0),
+                      (203, 0x15, "mux-conn", 0), (204, 0x19, "cmux-req", 0), (205, 0x09, "cmux-bg", 0))
+    host = lambda read_qos: ((300, 0x19, "host", 0), (301, read_qos, "pty-read", 0))
+    press = flow_press_records((FLOW_APP_PID << 32) | 1, 1_000_000, legacy=(), skip=("key.echo.host_client_write",))
+    app_good = [(0, 2_000_000, request, "s", 0, 0, 1), (2, 2_300_000, request, "f", 0, 0, 1),
+                (0, 3_000_000, post, "s", 0, 0, first), (0, 3_100_000, run, "B", 0, TASK_MAIN_LANE << 8 | 0, 100),
+                (0, 3_100_001, run, "f", 0, 0, first), (0, 3_200_000, run, "E", 0, 0, 0),
+                (3, 3_400_000, run, "B", 0, 0 << 8 | 3, TASK_UNKNOWN_WAIT), (3, 3_500_000, run, "E", 0, 0, 0)]
+    daemon_good = [(3, 2_100_000, request, "f", 0, 0, 1), (4, 2_200_000, request, "s", 0, 0, 1)]
+    app_planted = [(0, 4_000_000, request, "s", 0, 0, 2), (0, 4_000_100, call, "B", 0, 4 | 120 << 8, 7),
+                   (2, 4_300_000, request, "f", 0, 0, 2), (0, 4_300_100, call, "E", 0, 0, 0)]
+    daemon_planted = [(5, 4_100_000, request, "f", 0, 0, 2), (5, 4_200_000, request, "s", 0, 0, 2)]
 
-    def write(out, app_records, daemon_records):
+    def write(out, read_qos, app_records, daemon_records):
         os.makedirs(os.path.join(out, RELEASE_DIR), exist_ok=True)
-        for name, (data, _) in (
-                (f"app-10{RING_SUFFIX}", ring_fixture(pid=10, role=1, names=(REQUEST_FLOW_NAME, TASK_POST_NAME,
-                                                                              TASK_RUN_NAME),
-                                                      threads=app_threads, records=app_records)),
-                (f"daemon-20{RING_SUFFIX}", ring_fixture(pid=20, role=2, names=(REQUEST_FLOW_NAME,),
-                                                         threads=daemon_threads, records=daemon_records))):
-            with open(os.path.join(out, RELEASE_DIR, name), "wb") as f:
+        rings = ((FLOW_APP_PID, 1, app_threads, app_records), (FLOW_DAEMON_PID, 2, daemon_threads, daemon_records),
+                 (FLOW_HOST_PID, 4, host(read_qos), []))
+        for pid, role, threads, records in rings:
+            rows = sorted(press.get(pid, []) + records, key=lambda row: row[1])
+            data, _ = ring_fixture(pid=pid, role=role, names=names, threads=threads, records=rows, chunk_count=16,
+                                   start_ns=1)
+            with open(os.path.join(out, RELEASE_DIR, f"{RING_ROLES[role]}-{pid}{RING_SUFFIX}"), "wb") as f:
                 f.write(data)
     with tempfile.TemporaryDirectory() as out:
         assert check_qos(out)[0] == 2
-        write(out, app_good, daemon_good)
+        write(out, 0x19, app_good, daemon_good)
         code, report = check_qos(out)
         checked = report["qos_check"]
-        assert code == 0 and (checked["checked_requests"], checked["checked_tasks"]) == (1, 1), report
-        write(out, app_good + app_planted, daemon_good + daemon_planted)
+        assert code == 0 and checked["checked_hops"] and (checked["checked_requests"], checked["checked_tasks"],
+                                                          checked["pooled_threads"]) == (1, 1, 1), report
+        write(out, 0x11, app_good + app_planted, daemon_good + daemon_planted)
         command = subprocess.run([sys.executable, os.path.abspath(__file__), "check-qos", out],
                                  capture_output=True, text=True, timeout=60)
         assert command.returncode == 1 and "1 off-priority hop(s), 1 inversion(s)" in command.stdout, \
             (command.returncode, command.stdout, command.stderr[-600:])
         saved = read_json(os.path.join(out, "qos-check.json"))
         assert [v["kind"] for v in saved["qos_violations"]] == ["off_priority", "inversion"], saved
-        assert (saved["qos_violations"][0]["queue_wait_us"], saved["qos_violations"][1]["waits_on"]["thread"]) == \
-            (500, "cmux-bg"), saved
+        off, inversion = saved["qos_violations"]
+        assert (off["hop"], off["thread"], inversion["waits_on"]["thread"], inversion["wait_kind"]) == \
+            ("key.echo.host_pty_read.taken", "pty-read", "cmux-bg", "sync-wait"), saved
         summary = build_fixture(out)
         assert summary["qos_check"]["violations"] == 2 and len(summary["qos_violations"]) == 2, summary.get("qos_check")
         assert "QoS: 1 off-priority hop(s), 1 inversion(s)" in open(os.path.join(out, "SUMMARY.txt")).read()
@@ -7168,8 +7247,8 @@ def main():
                                                "earlier than its cause")
     clock.add_argument("dir")
     qos = sub.add_parser("check-qos", help="exit 1 when DIR has work the person waits for on a thread below "
-                                           "userInitiated, or a daemon request whose handler has a lower QoS than "
-                                           "its sender")
+                                           "userInitiated, or a daemon request whose sender blocks on a handler "
+                                           "of a lower QoS")
     qos.add_argument("dir")
     opts = parser.parse_args()
     if opts.self_test:
