@@ -133,6 +133,7 @@ final class PageWKWebView: WKWebView {
     override func keyUp(with event: NSEvent) { noteUserEvent(event); super.keyUp(with: event) }
     override func mouseDown(with event: NSEvent) { noteUserEvent(event); menuAutoFill.noteContextClick(event); super.mouseDown(with: event) }
     override func mouseUp(with event: NSEvent) { noteUserEvent(event); super.mouseUp(with: event) }
+    // input-coalesce: native (WebKit's WebPageProxy coalesces mouse moves and drags itself and the page aligns them to its frame; noteUserEvent only stamps the time)
     override func mouseDragged(with event: NSEvent) { noteUserEvent(event); super.mouseDragged(with: event) }
     override func rightMouseDown(with event: NSEvent) { noteUserEvent(event); menuAutoFill.noteContextClick(event); super.rightMouseDown(with: event) }
 

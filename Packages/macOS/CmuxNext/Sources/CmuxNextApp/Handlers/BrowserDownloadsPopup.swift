@@ -458,7 +458,7 @@ final class BrowserDownloadRowEventView: NSView, NSDraggingSource {
         dragged = false
     }
 
-    override func mouseDragged(with event: NSEvent) {
+    override func mouseDragged(with event: NSEvent) { // input-coalesce: native (a slop test, then AppKit's dragging session tracks)
         guard !dragged, let down = downEvent else { return }
         let start = down.locationInWindow, now = event.locationInWindow
         guard hypot(now.x - start.x, now.y - start.y) >= 3, let file = fileProvider() else { return }

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextInput
 import CmuxNextWakeups
 import QuartzCore
 
@@ -83,6 +84,12 @@ final class SidebarUpdateCardView: NSView {
     /// whole card opens the popup even when no enter reached it (a still pointer the card
     /// appeared under, an enter that a child window covering the card at that moment took).
     private var moveTracking: NSTrackingArea?
+    /// The card's moves (feature `pointerFrameHover`, from its window's ``HoverFrameInputHosting``): a frame
+    /// interval's first move asks the hover owner at once, the rest once at its frame, as Chromium
+    /// delivers rAF-aligned moves (main_thread_event_queue.cc). Without frames, every move asks.
+    private(set) lazy var moves = PointerFrameHover(owner: "SidebarUpdateCardView.moves", view: self) { [weak self] _ in
+        self?.pointerMoved()
+    }
     /// The mouse went down on the card's body (not one of its controls).
     private var clickStartedOnCard = false
     /// The popup's delayed close after the pointer left the card or the popup
@@ -294,13 +301,25 @@ final class SidebarUpdateCardView: NSView {
     /// Not passed up the responder chain: the sidebar has nothing to do with it.
     override func mouseMoved(with event: NSEvent) {
         guard !isHovered || !notesAreShown else { return }
+        moves.moved(event)
+    }
+
+    /// A move asks the hover owner again (at once on a frame interval's first move, else at the frame).
+    private func pointerMoved() {
+        guard !isHovered || !notesAreShown else { return }
         pointerHover?.refresh()
         if isHovered, !notesAreShown, !notesDismissedWhileHovered { showNotes() }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        moves.frames = (window as? HoverFrameInputHosting)?.hoverFrameInput
     }
 
     // MARK: Click
 
     override func mouseDown(with event: NSEvent) {
+        moves.flush() // the frame's pending move lands before the press
         // Control-click is a right click: AppKit's default opens the card's context menu.
         if event.modifierFlags.contains(.control) {
             super.mouseDown(with: event)

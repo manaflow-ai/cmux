@@ -284,10 +284,14 @@ final class SidebarNowPlayingScrubber: NSView {
     let fill = CALayer()
     /// The position a drag shows until the source reports again, or until ``seekWait`` passes
     /// with no report (a source that ignored the seek): then it runs on from where it plays.
-    private var dragged: TimeInterval?
+    var dragged: TimeInterval?
     private let seekWait = DemandTimer(owner: "sidebar.now-playing.seek")
     /// Bumped by each press and release, so a wait that fires as a new drag starts leaves that drag.
     private var seekCount = 0
+    /// The windows' frame-aligned pointer input (feature `pointerFrameDrags`, ``SidebarView/scrubFrameInput``).
+    var pointerFrames: FrameInputCoalescers?
+    /// This drag's consumer of its window's coalescer, from mouse-down to mouse-up.
+    var frameDrag: PointerFrameConsumer?
     static let seekWaitDelay: Duration = .seconds(2)
     /// Pins Reduce Motion for this scrubber only (tests), instead of the
     /// process-wide `Motion.reduceMotionOverride`, which leaks into every
@@ -338,7 +342,7 @@ final class SidebarNowPlayingScrubber: NSView {
     }
 
     /// Draws the played part for now and, when motion is allowed and it plays, lets it run to the end.
-    private func update() {
+    func update() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
@@ -384,28 +388,18 @@ final class SidebarNowPlayingScrubber: NSView {
         return [position, duration].compactMap { formatter.string(from: $0) }.joined(separator: " / ")
     }
 
-    private func seconds(at event: NSEvent) -> TimeInterval? {
-        guard let duration = nowPlaying?.duration, duration > 0, bounds.width > 0 else { return nil }
-        let x = convert(event.locationInWindow, from: nil).x
-        return duration * min(max(0, x / bounds.width), 1)
-    }
-
     override func mouseDown(with event: NSEvent) {
-        guard let seconds = seconds(at: event) else { return }
+        guard let seconds = seconds(at: event.locationInWindow) else { return }
         seekWait.cancel()
         seekCount &+= 1
         dragged = seconds
         update()
-    }
-
-    override func mouseDragged(with event: NSEvent) {
-        guard dragged != nil, let seconds = seconds(at: event) else { return }
-        dragged = seconds
-        update()
+        beginFrameDrag()
     }
 
     override func mouseUp(with event: NSEvent) {
-        guard dragged != nil, let seconds = seconds(at: event) ?? dragged else { return }
+        endFrameDrag()
+        guard dragged != nil, let seconds = seconds(at: event.locationInWindow) ?? dragged else { return }
         // A seek close to where it plays changes nothing the source reports: run on from there.
         let expected = nowPlaying?.position(at: Date())
         dragged = expected.map { abs($0 - seconds) < 1.5 } == true ? nil : seconds

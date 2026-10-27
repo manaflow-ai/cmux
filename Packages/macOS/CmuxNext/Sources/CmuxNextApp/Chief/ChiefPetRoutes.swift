@@ -15,7 +15,8 @@ struct ChiefPetRoutes {
 
     func makePet() -> ChiefPetController {
         // The notices' card shows over cmux only; over another app the pet's badge counts what waits.
-        ChiefPetController(makePanel: { ChiefPetPanel() }, actions: ChiefPetActions(
+        // The pet's drag moves it at most twice a frame (`pointerFrameDrags`).
+        ChiefPetController(makePanel: { [frames = services?.dragFrameInput] in ChiefPetPanel(pointerFrames: frames) }, actions: ChiefPetActions(
             registry: services?.registry, open: { open($0) }, send: { await send(to: $0, $1) }, openSettings: { openSettings() }),
             appIsActive: { NSApp.isActive })
     }

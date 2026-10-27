@@ -1,18 +1,27 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextInput
+import CmuxNextWakeups
 
 /// The content of ``BrowserSectionOverlay``: dims the page outside the
 /// dragged rect, outlines it, and shows how to use it until a drag starts.
 final class BrowserSectionOverlayView: NSView {
     /// Called once: the selection on mouse-up, or nil on Esc or a click.
     var onFinish: ((BrowserSectionSelection?) -> Void)?
-    private var selection: BrowserSectionSelection
+    private(set) var selection: BrowserSectionSelection
+    /// The windows' frame-aligned pointer input (feature `pointerFrameDrags`): the rect follows a frame
+    /// interval's first drag event at once and the rest once at its frame, at the latest point, as
+    /// Chromium delivers rAF-aligned moves (main_thread_event_queue.cc). Nil: every drag event moves it.
+    private let pointerFrames: FrameInputCoalescers?
+    /// This drag's consumer of the panel's coalescer, from mouse-down to mouse-up.
+    private var frameDrag: PointerFrameConsumer?
     private let hint = NSTextField(labelWithString: String(
         localized: "browser.screenshotSection.hint", defaultValue: "Drag to capture a section. Press Esc to cancel.",
         bundle: .module))
 
-    init(size: CGSize) {
+    init(size: CGSize, pointerFrames: FrameInputCoalescers? = nil) {
         selection = BrowserSectionSelection(bounds: CGRect(origin: .zero, size: size))
+        self.pointerFrames = pointerFrames
         super.init(frame: CGRect(origin: .zero, size: size))
         autoresizingMask = [.width, .height]
         hint.font = .systemFont(ofSize: TypeScale.body, weight: TypeScale.emphasis)
@@ -43,17 +52,29 @@ final class BrowserSectionOverlayView: NSView {
         selection.begin(at: convert(event.locationInWindow, from: nil))
         hint.isHidden = true
         needsDisplay = true
+        frameDrag?.cancel()
+        frameDrag = window.flatMap { pointerFrames?.coalescer(for: $0) }?.consumer(owner: "BrowserSectionOverlay") { [weak self] input in
+            self?.drag(to: CGPoint(x: input.latest.location.x, y: input.latest.location.y))
+        }
     }
 
-    // local-monitor-allow: one rect update and needsDisplay, which AppKit draws once in the next frame; a drag is unbuffered until mouseUp (p06-scheduler.md section E)
     override func mouseDragged(with event: NSEvent) {
-        selection.drag(to: convert(event.locationInWindow, from: nil))
-        needsDisplay = true
+        if let frameDrag, frameDrag.post(event) { return }
+        drag(to: event.locationInWindow)
     }
 
     override func mouseUp(with event: NSEvent) {
-        selection.drag(to: convert(event.locationInWindow, from: nil))
+        // The frame's pending point lands before the release (Chromium's ShouldFlushQueue).
+        frameDrag?.flush()
+        frameDrag = nil
+        drag(to: event.locationInWindow)
         finish(selection.rect == nil ? nil : selection)
+    }
+
+    /// The rect's moving corner goes to `windowPoint`; AppKit draws it in the next frame.
+    private func drag(to windowPoint: CGPoint) {
+        selection.drag(to: convert(windowPoint, from: nil))
+        needsDisplay = true
     }
 
     override func cancelOperation(_ sender: Any?) {
@@ -78,6 +99,9 @@ final class BrowserSectionOverlayView: NSView {
     }
 
     private func finish(_ selection: BrowserSectionSelection?) {
+        // Esc or the panel losing key mid-drag: nothing pending may move the rect after the answer.
+        frameDrag?.cancel()
+        frameDrag = nil
         let onFinish = self.onFinish
         self.onFinish = nil
         onFinish?(selection)

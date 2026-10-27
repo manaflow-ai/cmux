@@ -74,8 +74,8 @@ final class SidebarBridge {
                                          newRows: PendingWorkspaceRows.shared.newRows)
         // Only the rows the clip shows get views until startup completes (p08-startup-064); the counts go to `debug.startup` and the bench.
         container.sidebarView.followLaunch(services.launchStartup) { [values = services.launchValues] in values.recordSidebarLaunchRows(built: $0.built, visible: $0.visible) }
-        // The resize edge moves the width once per frame (feature `pointerFrameDrags`).
-        container.resizeFrameInput = services.dragFrameInput
+        container.resizeFrameInput = services.dragFrameInput // the resize edge, once per frame (`pointerFrameDrags`)
+        container.sidebarView.scrubFrameInput = services.dragFrameInput // the Now Playing scrubber, the same
         model.onIntent = { [weak self] intent in self?.handle(intent) }
         // Loose rows come before every group unless the home session places
         // groups among them (`personal-mixed-order-v1`); refreshed on show.

@@ -434,7 +434,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // and feed) and the floating chat's per-display frames. Wiring stays in the App.
         .target(
             name: "CmuxNextFloating",
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups"],
+            // CmuxNextInput: the pet's drag posts to its panel's frame-aligned pointer input (p04-input-089).
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],
@@ -449,7 +450,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextFloatingTests",
-            dependencies: ["CmuxNextFloating"],
+            // WakeupsTestSupport: ChiefPetDragFramesTests' fake-link coalescer.
+            dependencies: ["CmuxNextFloating", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
         // Archive and Unarchive of sidebar items (plans/cmux-next/archiving-DESIGN.md): the actions
