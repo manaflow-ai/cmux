@@ -445,3 +445,25 @@ test("Cloud recovery reserves its prompt before login and retries once with that
   expect(cloudCredentialRecovery(false, "vm", "chat-1", "claude", call, isCurrent, getClient)).toBeUndefined();
   expect(cloudCredentialRecovery(true, "vm", "chat-1", "opencode", call, isCurrent, getClient)).toBeUndefined();
 });
+
+test("Cloud recovery maps named harness profiles to the provider sent to native", async () => {
+  const providers: unknown[] = [];
+  const call = async (_method: string, params: Record<string, unknown>) => {
+    providers.push(params.provider);
+    return { transferred: false };
+  };
+  const client = {
+    selectedSession: "chat-1",
+    resendPrompt: async (_row: string, input: string) => ({ input, attachments: [] }),
+    send: async () => undefined,
+  };
+  for (const id of ["claude", "claude-sr2", "Claude_work", "providers/claude-personal", "codex", "codex-work", "Codex_personal", "providers/codex-team"]) {
+    const recover = cloudCredentialRecovery(true, "vm", "chat-1", id, call, () => true, () => client);
+    expect(recover).toBeDefined();
+    await recover!("row-1", "retry");
+  }
+  expect(providers).toEqual(["claude", "claude", "claude", "claude", "codex", "codex", "codex", "codex"]);
+  for (const id of [undefined, "", "opencode", "claudelike", "my-claude", "codex/"]) {
+    expect(cloudCredentialRecovery(true, "vm", "chat-1", id, call, () => true, () => client)).toBeUndefined();
+  }
+});

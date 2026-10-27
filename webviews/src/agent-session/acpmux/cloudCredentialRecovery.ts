@@ -1,3 +1,4 @@
+import { agentKey } from "../shared/agentKey";
 import type { AcpmuxDirectClient } from "./direct";
 
 type RecoveryClient = Pick<AcpmuxDirectClient, "selectedSession" | "resendPrompt" | "send">;
@@ -7,11 +8,12 @@ export function cloudCredentialRecovery(
   connected: boolean,
   machineID: string | undefined,
   sessionId: string | undefined,
-  provider: string | undefined,
+  harness: string | undefined,
   call: (method: string, params: Record<string, unknown>) => Promise<unknown>,
   isCurrent: (sessionId: string) => boolean,
   currentClient: () => RecoveryClient | undefined,
 ): ((rowId: string, prompt: string) => Promise<void>) | undefined {
+  const provider = agentKey(harness?.split("/").pop());
   if (!connected || !machineID || !sessionId || (provider !== "claude" && provider !== "codex")) return undefined;
   let pending = false;
   return async (rowId, prompt) => {
