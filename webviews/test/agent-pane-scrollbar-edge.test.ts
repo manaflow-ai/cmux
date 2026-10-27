@@ -12,7 +12,7 @@ await requireBrowserLane("agent-pane-scrollbar-edge.test.ts", async () => {
   let browser: Browser;
   let pane: Awaited<ReturnType<typeof papercutPane>>;
   beforeAll(async () => {
-    browser = await chromium.launch({ headless: true });
+    browser = await chromium.launch({ headless: true, ignoreDefaultArgs: ["--hide-scrollbars"] });
     pane = await papercutPane(() => browser, { turns: 40, running: false });
   });
   afterAll(async () => {
