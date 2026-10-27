@@ -111,8 +111,9 @@ impl Hub {
 
     /// Admits a request that is not the person's own ([`owner`] false: a Web
     /// client, a paired machine's `client` credential, or a peer forwarding for
-    /// either) against the VM boundary, before anything else runs. It resolves
-    /// the session the request names once, and pins the request to that
+    /// either) against the VM boundary, before anything else runs and again
+    /// once the guard's awaits are done. It resolves the session the request
+    /// names, refuses a key that names several, and pins the request to that
     /// session's exact id (`sessionId`), so a rename or a new session that
     /// shadows the name while the request waits cannot move it onto another
     /// session. If that session is at the VM boundary, the request is refused
@@ -129,13 +130,19 @@ impl Hub {
         m: &str,
         params: &mut Value,
     ) -> Result<(), RpcError> {
-        if owner(auth, control, params) {
+        // `session/new`'s name is the new chat's, never a session it acts on.
+        if owner(auth, control, params) || m == crate::rpc::method::SESSION_NEW {
             return Ok(());
         }
-        let Some(session) =
-            crate::server::session_key(params).ok().and_then(|key| self.resolve(key).ok())
-        else {
-            return Ok(());
+        let Ok(key) = crate::server::session_key(params) else { return Ok(()) };
+        let session = match self.resolve(key) {
+            Ok(session) => session,
+            // A key that names no session here names none at the boundary: one would have to
+            // take that name first, which only its owner or its own agent does.
+            Err(e) if e.code == RpcError::not_found("").code => return Ok(()),
+            // A key that names several (an ambiguous prefix, a shared name): refused, so a
+            // rename while the request waits cannot make it name a boundary session.
+            Err(e) => return Err(e),
         };
         if !crate::no_panic::JsonExt::set(params, "sessionId", Value::String(session.id.clone())) {
             return Err(RpcError::invalid_params("params must be an object"));

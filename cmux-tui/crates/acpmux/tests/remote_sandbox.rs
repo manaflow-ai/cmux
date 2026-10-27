@@ -460,7 +460,8 @@ async fn a_paired_machine_or_web_client_only_reads_a_session_at_the_vm_boundary(
 
 /// A request that is not the owner's is pinned to the session its name named when it was
 /// admitted (`Hub::refuse_at_vm_boundary`): a rename that makes the name a boundary session's
-/// while it waits never moves it there. And it never shuts down a daemon that runs one.
+/// while it waits never moves it there, and a key that names several sessions is refused. A
+/// new chat may take any name. And it never shuts down a daemon that runs one.
 #[cfg(target_os = "linux")]
 #[tokio::test]
 async fn a_non_owner_request_keeps_its_session_and_never_stops_the_boundary() {
@@ -490,9 +491,23 @@ async fn a_non_owner_request_keeps_its_session_and_never_stops_the_boundary() {
         let r = local.call("_acpmux/rename", json!({"sessionId": id, "newName": to})).await;
         assert!(r.get("error").is_none(), "{r}");
     }
+    // Now "plain" (the boundary session) and "plain-old" share the prefix "pla": a key that
+    // names several is refused, so no rename can make it the boundary session's alone.
+    let mut ambiguous = json!({"session": "pla", "modelId": "other"});
+    let refused = hub.refuse_at_vm_boundary(
+        ConnAuth::Device,
+        Control::Peer,
+        "session/set_model",
+        &mut ambiguous,
+    );
+    // A new chat's name is its own: one whose name the boundary session's resolves to still
+    // starts ("pla" names the boundary session too, with "plain-old").
     let mut device = Client::authed(&hub, Origin::Peer, ConnAuth::Device);
+    let named = device.call("session/new", new("pla", false)).await;
     let shutdown = device.call("_acpmux/shutdown", json!({"endAgents": true})).await;
     let _ = std::fs::remove_dir_all(&d);
+    assert!(refused.is_err(), "an ambiguous key was admitted: {ambiguous}");
+    assert!(named["result"]["sessionId"].is_string(), "{named}");
     assert!(admitted.is_ok(), "{admitted:?}");
     assert_eq!(params["sessionId"], json!(plain), "not pinned: {params}");
     assert!(boundary != plain);

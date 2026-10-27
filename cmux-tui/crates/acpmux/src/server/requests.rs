@@ -144,6 +144,11 @@ pub(super) async fn handle_notification(
                 tracing::debug!(conn = %conn.id, "cancel refused: {e}");
                 return;
             }
+            // Again after the guard's awaits (`hub/vm_boundary.rs`).
+            if let Err(e) = hub.refuse_at_vm_boundary(conn.auth, control, m, &mut params) {
+                tracing::debug!(conn = %conn.id, "cancel refused: {e}");
+                return;
+            }
             if let Ok(key) = session_key(&params) {
                 if let Ok(s) = hub.resolve(key) {
                     if let Err(e) = hub.cancel(&s).await {
@@ -587,6 +592,8 @@ pub(super) async fn handle_request(
             &params,
         )
         .await?;
+    // Again after the guard's awaits: a session that took the name meanwhile (`hub/vm_boundary.rs`).
+    hub.refuse_at_vm_boundary(conn.auth, control, m, &mut params)?;
     let resolved = super::session_key(&params).ok().and_then(|key| hub.resolve(key).ok());
     super::trust_gate::check(hub, conn.origin, m, &params, resolved.as_ref()).await?; // the folder-trust gate
     let key = super::session_key(&params).ok().map(str::to_owned);
