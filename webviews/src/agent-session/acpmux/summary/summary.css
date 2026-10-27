@@ -120,45 +120,116 @@
 .acpmux-chat-gallery-image img{display:block;width:100%;height:100%;object-fit:contain}
 .acpmux-chat-gallery-image:focus-visible{outline:2px solid var(--agent-accent-soft);outline-offset:2px}
 .acpmux-chat-gallery-title{display:block;padding:8px;border:var(--cmux-hairline, .5px) solid var(--agent-border);border-radius:8px;color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
-/* The chat's pull requests above the composer (summary/PullRequestDock.tsx). The default count is
-   a quiet text row that sends the user to Session Info's Changes; the gallery keeps the full and
-   one-line bar treatments for comparison. */
-.acpmux-pr-dock{display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 6px;font-size:var(--text-control);line-height:18px;letter-spacing:var(--text-control--letter-spacing)}
-.acpmux-quick .acpmux-pr-dock{padding:6px 8px 0}
-.acpmux-pr-dock[data-mode="compact"]{padding-bottom:4px}
-.acpmux-pr-dock__compact{display:flex;align-items:center}
-.acpmux-pr-dock__list{display:contents}
-/* Inline expansion grows the measured composer stack, reserving transcript room for every chip. */
-.acpmux-pr-dock[data-mode="compact"] .acpmux-pr-dock__list{display:flex;flex-wrap:wrap;gap:4px;max-width:100%;order:-1;outline:none}
-/* Gallery alternatives: all three arrangements keep chips in the dock's flow. */
-html[data-pr-dock-layout="below"] .acpmux-pr-dock[data-mode="compact"] .acpmux-pr-dock__list{order:0}
-html[data-pr-dock-layout="beside"] .acpmux-pr-dock[data-mode="compact"]{flex-direction:row;flex-wrap:wrap;align-items:center}
-html[data-pr-dock-layout="beside"] .acpmux-pr-dock[data-mode="compact"] .acpmux-pr-dock__list{order:0;flex:1;min-width:0}
-.acpmux-pr-dock__list[hidden]{display:none}
-.acpmux-pr-dock__count{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 4px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit}
-.acpmux-pr-dock__count>svg{color:var(--agent-muted)}
-.acpmux-pr-dock__count:hover{color:var(--agent-text);background:var(--acpmux-composer-hover)}
-.acpmux-pr-dock__count:hover>svg{color:var(--agent-text)}
-.acpmux-pr-dock__count:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
-.acpmux-pr-dock[data-mode="collapsed"]{flex-direction:row;flex-wrap:nowrap;align-items:center;overflow-x:auto;scrollbar-width:none}
-.acpmux-pr-dock[data-mode="collapsed"]::-webkit-scrollbar{display:none}
-.acpmux-pr-dock[data-mode="collapsed"] .acpmux-pr-dock__chip{flex:0 0 auto}
-.acpmux-pr-dock__chip{display:flex;align-items:center;max-width:100%;height:26px;padding-right:2px;box-sizing:border-box;border-radius:8px;background:var(--acpmux-composer-tray)}
-.acpmux-pr-dock__bar{flex:0 1 auto;min-width:0;display:flex;align-items:center;gap:6px;height:100%;padding:0 6px 0 9px;box-sizing:border-box;border-radius:8px;color:var(--agent-text);text-decoration:none}
-.acpmux-pr-dock__bar>svg{flex:none;color:var(--agent-muted)}
-.acpmux-pr-dock__bar:hover{background:var(--acpmux-composer-hover)}
-.acpmux-pr-dock__bar:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
-.acpmux-pr-dock__number,.acpmux-pr-dock__repo{flex:none;color:var(--agent-muted)}
-.acpmux-pr-dock__repo{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.acpmux-pr-dock__title{flex:0 1000 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.acpmux-pr-dock__state{flex:none;font-size:var(--text-detail);font-weight:500;color:var(--agent-muted);letter-spacing:var(--text-detail--letter-spacing)}
-.acpmux-pr-dock__bar[data-state="open"] .acpmux-pr-dock__state,.acpmux-pr-dock__bar[data-state="open"]>svg{color:var(--agent-status-success)}
-.acpmux-pr-dock__bar[data-state="merged"] .acpmux-pr-dock__state,.acpmux-pr-dock__bar[data-state="merged"]>svg{color:var(--agent-status-merged)}
-.acpmux-pr-dock__bar[data-state="closed"] .acpmux-pr-dock__state,.acpmux-pr-dock__bar[data-state="closed"]>svg{color:var(--agent-status-failure)}
-.acpmux-pr-dock__dismiss{flex:none}
-.acpmux-pr-dock__more{align-self:flex-start;height:24px;padding:0 8px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
-.acpmux-pr-dock__more:hover{background:var(--acpmux-composer-hover);color:var(--agent-text)}
-.acpmux-pr-dock__more:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
+html[data-pr-dock="tight"] .acpmux-pr-dock{gap:4px}
+/* Links share the message's existing line; the popover is portaled out of transcript flow. */
+.acpmux-pr-dock {
+  position: relative;
+  display: inline-flex;
+  flex: 1 1 220px;
+  min-width: 80px;
+  max-width: 320px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  height: var(--cv-meta-row, 24px);
+  margin-inline-start: auto;
+  font-size: var(--text-detail);
+  line-height: 18px;
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-pr-dock__bar {
+  display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 0 4px;
+  height: 100%;
+  border-radius: 5px;
+  color: var(--agent-muted);
+  text-decoration: none;
+  background: none;
+  white-space: nowrap;
+}
+.acpmux-pr-dock__bar:hover,
+.acpmux-pr-dock__more:hover {
+  color: var(--agent-text);
+  background: none;
+}
+.acpmux-pr-dock__number {
+  flex: none;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.acpmux-pr-dock__repo {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-pr-dock__more {
+  flex: none;
+  border: 0;
+  border-radius: 5px;
+  padding: 0 4px;
+  height: 100%;
+  background: none;
+  color: var(--agent-muted);
+  font: inherit;
+  cursor: pointer;
+}
+.acpmux-pr-dock__bar:focus-visible,
+.acpmux-pr-dock__more:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 1px;
+}
+.acpmux-pr-dock__measure {
+  position: absolute;
+  display: flex;
+  gap: 8px;
+  visibility: hidden;
+  pointer-events: none;
+  white-space: nowrap;
+  inset: 0 auto auto 0;
+  width: max-content;
+}
+.acpmux-pr-dock__measure > span {
+  padding-inline: 4px;
+}
+.acpmux-pr-dock__popover {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  max-width: min(320px, calc(100vw - 24px));
+  transition: none;
+  animation: none;
+}
+.acpmux-pr-dock__popover .acpmux-pr-dock__bar {
+  height: 24px;
+  flex: none;
+  font-size: var(--text-detail);
+}
+.cv-inline-tail{display:inline-flex;align-items:baseline;gap:8px;max-width:100%;vertical-align:baseline}
+.cv-inline-tail>span:first-child{min-width:0;overflow-wrap:anywhere}
+.cv-inline-tail>.acpmux-pr-dock{flex:0 1 220px;width:220px;max-width:45vw;height:1lh;vertical-align:baseline}
+.cv-codeblock__header:has(.acpmux-pr-dock)>span:not(.cv-codeblock__actions){min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cv-codeblock__actions:has(>.acpmux-pr-dock){min-width:0;flex:1;justify-content:flex-end}
+.cv-block-tail{display:flex;align-items:flex-end;gap:8px;min-width:0}
+.cv-block-tail>div:first-child{flex:1;min-width:0}
+.cv-block-tail>.acpmux-pr-dock{flex:0 1 220px;max-width:45%;height:1lh}
+.cv-received__line:has(>.acpmux-pr-dock)>.cv-received__name{flex:0 1 auto;min-width:0}
+/* Keep the links visible while the existing action buttons retain their hover behavior. */
+.acpmux-turnSummary .cv-turn-actions:has(> .acpmux-pr-dock) {
+  opacity: 1;
+}
+.acpmux-turnSummary:not([data-turn-revealed]):not(:hover):not(:focus-within)
+  .cv-turn-actions:not(.cv-turn-actions--failed):not(.cv-turn-actions--resumable):has(
+    > .acpmux-pr-dock
+  )
+  > :not(.acpmux-pr-dock) {
+  opacity: 0;
+}
 /* The recap card above the composer (RecapCard.tsx): when the last turn ended on a question, the answer's last paragraph muted and clamped to three lines, the question, then Yes (accent) and Not now (quiet), × at the top right. On the composer's column and tray, as the pull request bars are. */
 .acpmux-recap{padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 6px;font-size:var(--text-control);line-height:var(--text-control--line-height);letter-spacing:var(--text-control--letter-spacing)}
 .acpmux-quick .acpmux-recap{padding:6px 8px 0}
