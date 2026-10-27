@@ -258,6 +258,10 @@ path = "tests/test_ci_nightly_off_blacksmith.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_nightly_no_hosted_mac.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_no_shallow_dev_fetch.py"
 lane = "linux-guard"
 
