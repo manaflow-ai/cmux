@@ -167,7 +167,7 @@ impl Hub {
         // MDM forces full access off (#23322): a write that moves the chat into full access (the
         // harness's own update, in any form) ends its agent. The hub's background task does it
         // under the session's spawn lock (`idle.rs`, `end_every_managed_full_access`).
-        if self.managed_off_runs_full_access(session) {
+        if self.managed_off_runs_full_access(&self.off_latch(), session) {
             self.idle_wake.notify_one();
         }
         // The remote floor: a Web turn does not go on in a mode that does

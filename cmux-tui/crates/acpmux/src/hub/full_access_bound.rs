@@ -94,6 +94,14 @@ impl FullAccessView {
     }
 }
 
+/// A harness or report session id as the full-access bound matches it: an empty or all-whitespace
+/// id names no session (reviews 70 and 74 of #23322). Every id that enters `StartReports` passes
+/// here: a report's (`note`), and the harness session a `session/new` answer names (`of`,
+/// `of_answer`), for a probe and a pooled agent alike.
+pub(crate) fn known_id(id: Option<&str>) -> Option<&str> {
+    id.filter(|s| !s.trim().is_empty())
+}
+
 /// The sessions whose mode or a config option a harness reported in full access while nothing
 /// watched it: a probe, or a pooled agent no chat took yet (reviews 32, 41 and 46 of #23322). Any
 /// such report counts, whatever the harness reported after it or answered `session/new` with, in
@@ -131,8 +139,8 @@ impl StartReports {
         if self.all || !Self::reports_full_access(params) {
             return;
         }
-        // A blank id names no session (review 70): it counts for all, as a missing one does.
-        let Some(sid) = params["sessionId"].as_str().filter(|s| !s.trim().is_empty()) else {
+        // A blank id names no session (`known_id`): it counts for all, as a missing one does.
+        let Some(sid) = known_id(params["sessionId"].as_str()) else {
             self.all = true;
             return;
         };
@@ -148,11 +156,15 @@ impl StartReports {
     /// Whether the harness reported full access for its session `harness_session` (a subagent's
     /// are not its own, `on_update`); for any session when it is not known (none, or a blank id).
     pub(crate) fn of(&self, harness_session: Option<&str>) -> bool {
-        // A blank id names no session (review 74): any report counts for it.
-        let harness_session = harness_session.filter(|s| !s.trim().is_empty());
+        // A blank id names no session (`known_id`): any report counts for it.
         self.all
-            || harness_session
+            || known_id(harness_session)
                 .map_or(!self.sessions.is_empty(), |sid| self.sessions.iter().any(|s| s == sid))
+    }
+
+    /// `of` for the harness session the `session/new` answer `new` names (none: not known).
+    pub(crate) fn of_answer(&self, new: Option<&Value>) -> bool {
+        self.of(new.and_then(|r| r["sessionId"].as_str()))
     }
 }
 
@@ -314,7 +326,8 @@ impl Hub {
 
     /// Whether approve-all (the policy form of full access) may answer requests itself: always,
     /// unless MDM or the team policy forces `sessions.allowFullAccess` off. The person's own off
-    /// never capped a policy before #23322, and with MDM unset nothing changes.
+    /// never capped a policy before #23322, and with MDM unset nothing changes. One read: an
+    /// operation that reads the off more than once takes an `OffLatch` instead.
     pub(crate) fn approve_all_allowed(&self) -> bool {
         !self.full_access_managed_off()
     }
@@ -325,40 +338,41 @@ impl Hub {
         self.full_access_managed() == Some(false)
     }
 
-    /// Whether MDM forces full access off while `session`'s agent runs in it (`runs_full_access`)
-    /// or its end is pending (`full_access_end_pending`): `child_for` then hands it out only
-    /// through `ensure_child`, which ends it first (review 2 of #26034).
-    pub(super) fn managed_off_runs_full_access(&self, session: &Session) -> bool {
-        self.full_access_managed_off()
+    /// Whether MDM forces full access off, as the operation that took `off` sees it, while
+    /// `session`'s agent runs in it (`runs_full_access`) or its end is pending
+    /// (`full_access_end_pending`): `child_for` then hands it out only through `ensure_child`,
+    /// which ends it first (review 2 of #26034).
+    pub(super) fn managed_off_runs_full_access(&self, off: &OffLatch, session: &Session) -> bool {
+        off.off()
             && (session.floor.full_access_end_pending.load(Ordering::SeqCst)
                 || runs_full_access(&FullAccessView::of_session(session)).is_some())
     }
 
     /// Refuses to start an agent from a profile that pins full access in its argv while MDM
-    /// forces it off: an upper bound the person's own profile does not override. Without MDM a
-    /// pinned profile runs as it always has.
+    /// forces it off, as the start that took `off` sees it: an upper bound the person's own
+    /// profile does not override. Without MDM a pinned profile runs as it always has.
     pub(super) fn refuse_pinned_full_access(
         &self,
+        off: &OffLatch,
         profile: &HarnessProfile,
     ) -> Result<(), RpcError> {
-        if self.full_access_managed_off()
-            && runs_full_access(&FullAccessView::of_argv(&profile.argv)).is_some()
-        {
+        if off.off() && runs_full_access(&FullAccessView::of_argv(&profile.argv)).is_some() {
             return Err(super::start_mode::full_access_off());
         }
         Ok(())
     }
 
     /// A start that passed `refuse_pinned_full_access` and then awaited (a cold Claude start, which
-    /// never reaches `cap_full_access`): MDM may have forced full access off meanwhile. When the
-    /// started agent runs in it by `view`, the agent stops and the chat stays open and idle. Without
-    /// MDM's off nothing changes.
+    /// never reaches `cap_full_access`): MDM may have forced full access off meanwhile, which the
+    /// start's `off` counts. When the started agent runs in it by `view`, the agent stops and the
+    /// chat stays open and idle. Without MDM's off nothing changes.
     pub(super) async fn refuse_started_in_full_access(
         &self,
         session: &Arc<Session>,
+        off: &OffLatch,
         view: &FullAccessView,
     ) -> Result<(), RpcError> {
-        if self.full_access_managed_off() && runs_full_access(view).is_some() {
+        if off.off() && runs_full_access(view).is_some() {
             self.stop_full_access_agent(session).await;
             return Err(super::start_mode::full_access_off());
         }
@@ -387,7 +401,9 @@ impl Hub {
         Ok(Some(OffWatch { offs: latch.offs.clone(), seen: latch.seen }))
     }
 
-    /// MDM's off as a start that begins now sees it (`OffLatch`).
+    /// MDM's off as an operation that begins now sees it (`OffLatch`): its one read. A start, a
+    /// pooled start, a pooled agent's report, a mode switch and an ask each take one at their
+    /// entry and pass it down (reviews 73, 75 and 77 of #23322).
     pub(super) fn off_latch(&self) -> OffLatch {
         // The count and the state, read together (review 75): an off counted after this changes
         // the count.
@@ -500,7 +516,7 @@ impl Hub {
     fn reported_by_left_host(&self, session: &Session) -> Option<FullAccessView> {
         use crate::rpc::method;
         let own = session.meta().agent_session_id;
-        let own = own.as_deref().filter(|s| !s.trim().is_empty());
+        let own = known_id(own.as_deref());
         let mut modes: Option<Value> = None;
         let mut mode: Option<String> = None;
         let mut options: Option<Value> = None;
@@ -556,7 +572,8 @@ impl Hub {
             let its_own = || {
                 e.msg.pointer("/params/_meta/acpmux/subagent").is_none()
                     || own.is_some_and(|own| {
-                        e.msg.pointer("/params/sessionId").and_then(Value::as_str) == Some(own)
+                        known_id(e.msg.pointer("/params/sessionId").and_then(Value::as_str))
+                            == Some(own)
                     })
             };
             let text = |v: Option<&Value>| v.and_then(Value::as_str).map(str::to_owned);
@@ -829,8 +846,66 @@ fn after_off_count(hub: &Hub) {
     }
 }
 
-/// MDM's off as one start (a probe, a pooled agent) saw it: on when it was off as the start
-/// began, or began while it ran, though an unset followed (reviews 71 and 73 of #23322).
+#[cfg(test)]
+thread_local! {
+    /// Test seam (review 123): runs as a start (`ensure_child`) or an ask (`handle_permission_for`)
+    /// is entered, before it waits on anything.
+    pub(super) static AT_OPERATION_ENTRY: std::cell::Cell<Option<fn(&Hub)>> = const { std::cell::Cell::new(None) };
+}
+
+/// Runs the `AT_OPERATION_ENTRY` seam, once.
+#[cfg(test)]
+pub(super) fn operation_entry(hub: &Hub) {
+    if let Some(f) = AT_OPERATION_ENTRY.take() {
+        f(hub);
+    }
+}
+
+/// Test seam (debug builds): the pooled starts begun (`pool_want`), for `Hub::claim_blip_seam`.
+#[cfg(debug_assertions)]
+pub(super) static POOL_STARTS: std::sync::LazyLock<tokio::sync::watch::Sender<u64>> =
+    std::sync::LazyLock::new(|| tokio::sync::watch::channel(0).0);
+
+impl Hub {
+    /// Test seam (debug builds) at a pool claim, right after its read of MDM's off: when the file
+    /// `ACPMUX_TEST_OFF_BLIP_FILE` names exists, the off comes and goes once; a file that says
+    /// "then-start" then waits (at most 10 s) for a pooled start to begin, so the start reads the
+    /// off after the claim did and the claim waits on it (reviews 121, 122 and 124 of #23322).
+    #[cfg(debug_assertions)]
+    pub(super) async fn claim_blip_seam(&self) {
+        let Some(file) = std::env::var_os("ACPMUX_TEST_OFF_BLIP_FILE") else { return };
+        let Ok(what) = std::fs::read_to_string(&file) else { return };
+        let mut starts = POOL_STARTS.subscribe();
+        let seen = *starts.borrow_and_update();
+        if std::fs::remove_file(file).is_err() {
+            return;
+        }
+        self.update_start_mode_state(None, |s| s.full_access_managed = Some(false));
+        self.update_start_mode_state(None, |s| s.full_access_managed = None);
+        if what.trim() == "then-start" {
+            let begun = starts.wait_for(|n| *n > seen);
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(10), begun).await;
+        }
+    }
+
+    /// Test seam (debug builds): when the file `ACPMUX_TEST_OFF_BLIP_FILE` names exists, MDM's off
+    /// comes and goes once, at the next pooled start, after it read the off (reviews 73, 75 and 77
+    /// of #23322). A pool claim has its own (`claim_blip_seam`).
+    #[cfg(debug_assertions)]
+    pub(super) fn off_blip_seam(&self) {
+        let Some(file) = std::env::var_os("ACPMUX_TEST_OFF_BLIP_FILE") else { return };
+        if std::fs::remove_file(file).is_ok() {
+            self.update_start_mode_state(None, |s| s.full_access_managed = Some(false));
+            self.update_start_mode_state(None, |s| s.full_access_managed = None);
+        }
+    }
+}
+
+/// MDM's off as one operation (a start, a probe, a pooled agent, a switch, an ask) saw it: on
+/// when it was off as the operation began, or began while it ran, though an unset followed
+/// (reviews 71, 73, 75 and 77 of #23322). The operation's only read of MDM's off. A pooled
+/// entry keeps its start's (`Pooled::started`), so an off it lived through counts at its take.
+#[derive(Clone)]
 pub(super) struct OffLatch {
     offs: tokio::sync::watch::Receiver<u64>,
     seen: u64,
@@ -848,6 +923,24 @@ impl OffLatch {
     /// lock of the start-mode state either.
     pub(super) fn began(&self) -> bool {
         *self.offs.borrow() != self.seen
+    }
+
+    /// The earlier of two reads (`self` and `other`, of one daemon): on whenever either is. The
+    /// off count only grows, so the read with the lower count saw every off the later one saw. A
+    /// pooled entry's start and claim reads join the chat's that takes it (review 122 of #23322).
+    pub(super) fn merge(&self, other: &OffLatch) -> OffLatch {
+        let seen = self.seen.min(other.seen);
+        let was_off = (self.seen == seen && self.was_off) || (other.seen == seen && other.was_off);
+        OffLatch { offs: self.offs.clone(), seen, was_off }
+    }
+
+    /// Whether a full-access mode may run for this operation: the settings file under MDM's off
+    /// as the operation saw it (`Hub::full_access_allowed`).
+    pub(super) fn allows_full_access(&self) -> bool {
+        full_access_allowed_by(
+            self.off().then_some(false),
+            super::start_mode::file_allows_full_access(),
+        )
     }
 
     /// Resolves once the start's harness reported full access (`any`; `reported` is notified on
@@ -1206,6 +1299,30 @@ mod tests {
         two_chats_on(&[], true).await
     }
 
+    /// Reviews 70 and 74 of #23322 (`known_id`): the read-back of a host a restart left
+    /// (`reported_by_left_host`) takes a blank agent session id, the chat's or a report's, for no
+    /// session, so a subagent's report of full access under one is not the chat's own. Under the
+    /// chat's own id it is.
+    #[tokio::test]
+    async fn a_left_hosts_read_back_takes_a_blank_session_id_for_no_session() {
+        let (hub, chat, _) = two_chats_on(&[], false).await;
+        hub.append(&chat, "mux", "host_started", json!({}));
+        let own_reports = |sid: &str| {
+            chat.meta.lock().unwrap().agent_session_id = Some(sid.to_owned());
+            let update = json!({"sessionUpdate": "current_mode_update",
+                                "currentModeId": "bypassPermissions"});
+            let meta = json!({"acpmux": {"subagent": {"id": "fake-subagent"}}});
+            let params = json!({"sessionId": sid, "update": update, "_meta": meta});
+            hub.append(&chat, "in", "current_mode_update", json!({"params": params}));
+            let view = hub.reported_by_left_host(&chat).expect("the log reads back");
+            view.mode.as_deref() == Some("bypassPermissions")
+        };
+        for blank in ["", " ", "\t\n"] {
+            assert!(!own_reports(blank), "{blank:?} named the chat's own session");
+        }
+        assert!(own_reports("fake-own"), "the chat's own report did not count");
+    }
+
     /// `two_chats`, the agent run with `env` (`FAKE_CLAUDE_STEER=1`: it steers as Claude Code),
     /// and `fails_over` or not.
     async fn two_chats_on(
@@ -1250,6 +1367,23 @@ mod tests {
         let r = hub.receiver_check(&parent, &child).await;
         assert!(r.is_err(), "an approve-all parent messaged an approve-edits child under the off");
         assert_eq!(hub.effective_policy(&parent.meta()).await, PermissionPolicy::Ask);
+    }
+
+    /// A new chat held to its caller while MDM forces full access off is held to the policy its
+    /// caller is set to run, not to approve-all capped as ask: once the off is unset it is still
+    /// no laxer than its caller (`hold_subsession`, `hold_to_starter`).
+    #[tokio::test]
+    async fn a_chat_held_to_its_caller_under_an_mdm_off_is_no_laxer_once_it_is_unset() {
+        let (hub, parent, child) = two_chats_on(&[], false).await;
+        hub.set_policy(&parent, PermissionPolicy::ApproveEdits).await;
+        hub.set_policy(&child, PermissionPolicy::ApproveAll).await;
+        hub.apply_full_access_push(Some(false)).await;
+        let _ = hub.hold_subsession(&parent.meta(), &child).await;
+        hub.apply_full_access_push(None).await;
+        assert!(
+            !hub.policy_laxer_under(&child.meta(), &parent.meta(), hub.mdm_snapshot()).await,
+            "a chat held under the off runs approve-all under an approve-edits caller after the unset"
+        );
     }
 
     /// Review 33 of #23322: a family message checked under the old bound (an approve-all
@@ -1582,3 +1716,7 @@ mod tests {
         assert_eq!(end, "auto_resume_skipped", "a family turn was continued after the off push");
     }
 }
+
+#[cfg(test)]
+#[path = "one_read_tests.rs"]
+mod one_read_tests;
