@@ -162,6 +162,32 @@ import Testing
         }
         #expect(reply.withLock { $0 } == 42)
     }
+
+    /// A drain that reaches an item whose deadline passed before its timer task had a turn
+    /// (the task pool was busy) fails it with its timeout instead of running it: the caller was
+    /// told `timeout`, so the work must not happen after all (an `action.batch` transaction ran
+    /// after its request answered, and a keyed retry replayed a success).
+    @MainActor @Test func aDrainNeverRunsAnItemPastItsDeadline() {
+        let queue = MainActorWorkQueue(frameSource: ManualFrameSource())
+        let ran = Shared(false)
+        let failed = Shared<ControlError?>(nil)
+        let timeout = ControlError.timeout("action.batch", after: .milliseconds(200))
+        let item = MainActorWorkItem(connection: .inProcess, method: "action.batch", deadline: .now - .milliseconds(1),
+                                     engineStartMark: MainThreadEngineStart.shared.total, timeout: timeout,
+                                     enqueuedAt: .now - .milliseconds(201),
+                                     body: { ran.withLock { $0 = true } }, fail: { error in failed.withLock { $0 = error } })
+        #expect(item.isPastDeadline)
+        #expect(!queue.runUnlessExpired(item))
+        #expect(!ran.withLock { $0 })
+        #expect(failed.withLock { $0 }?.code == "timeout")
+        #expect(queue.stats.expired == 1)
+        // An item still inside its deadline runs.
+        let onTime = MainActorWorkItem(connection: .inProcess, method: "action.batch", deadline: .now + .seconds(30),
+                                       timeout: timeout, enqueuedAt: .now,
+                                       body: { ran.withLock { $0 = true } }, fail: { _ in })
+        #expect(queue.runUnlessExpired(onTime))
+        #expect(ran.withLock { $0 })
+    }
 }
 
 /// State the test shares with queued work. `MainActorWorkQueue.run` takes
