@@ -2,17 +2,20 @@
 """Guard against unannounced default changes (Leo 2026-10-13).
 
 A default is what someone gets without configuring anything: an action's
-default keys, a setting's default value, a Ghostty keybind cmux writes (an
-unbind takes a chord from Ghostty), a feature flag compiled on or off. Changing
-one changes what everyone gets, so it needs a call.
+default keys, a setting's default value, a Debug Tunable's `default:`, a
+Ghostty keybind cmux writes (an unbind takes a chord from Ghostty), a feature
+flag compiled on or off. Changing one changes what everyone gets, so it needs
+a call.
 
 schemas/defaults/<app>.json is the golden snapshot of every default, made from
 the sources of truth with no hand list:
 - cmux NEXT: plans/cmux-next/action-surfaces.json (each action's default
   shortcut, chord and aliases, exported from the catalog by Swift) and
   schemas/settings/settings-schema.json (each setting's default), both kept
-  current by the generated-files check; the Ghostty `keybind = ...` lines and
-  the `static let ...Enabled = true|false` flags in the app's Swift sources.
+  current by the generated-files check; the Ghostty `keybind = ...` lines, the
+  `static let ...Enabled = true|false` flags and each
+  `Tunable<T>.choice|toggle|number|color|spring("key", ..., default: ...)` in
+  the app's Swift sources.
 
   python3 scripts/ci/defaults_guard.py snapshot           # regenerate it
   python3 scripts/ci/defaults_guard.py check-fresh        # it matches the sources
@@ -102,6 +105,9 @@ MODIFIER_ORDER = ("ctrl", "opt", "shift", "cmd")
 KEYBIND_RE = re.compile(r'"keybind\s*=\s*([^"=]+?)\s*=\s*([^"]*)"')
 YIELDS_RE = re.compile(r"static\s+let\s+(yieldsTo\w+)\s*:\s*Set<ActionID>\s*=\s*\[(.*?)\]", re.S)
 FLAG_RE = re.compile(r"\bstatic\s+(?:let|var)\s+(\w*Enabled)\s*(?::\s*Bool\s*)?=\s*(true|false)\b")
+# A Debug Tunable with a constant default. The call parser below handles commas and
+# parentheses in nested arguments and string literals; interpolated keys are skipped.
+TUNABLE_RE = re.compile(r'\bTunable<[\w.?]+>\s*\.(choice|toggle|number|color|spring)\(\s*"([^"\\]+)"')
 # An independent review's verdict on the exact head, on a comment's or review's first line:
 # "Review (subagent, correctness first): SHIP at <full head sha>". Same grammar as
 # scripts/ci/risk_tier.py RECEIPT (and next_autoland, merge_audit).
@@ -293,6 +299,10 @@ def defaults(tree: Tree) -> dict[str, object]:
                 found[f"ghostty.{trigger.strip()}"] = action.strip()
     for name, block in YIELDS_RE.findall(tree.read(KEY_BINDING_DEFAULTS) or ""):
         found[f"steps-aside.{name}"] = sorted(re.findall(r'"([^"]+)"', block))
+    sources = sorted({name for name, _ in tree.grep(r"Tunable<", SWIFT_SOURCES)})
+    for text in tree.read_bytes(sources).values():
+        for key, value in tunables(text.decode("utf-8")):
+            found[f"tunable.{key}"] = value
     for name, line in tree.grep(r"static +(let|var) +[A-Za-z0-9_]*Enabled *(: *Bool *)?= *(true|false)", SWIFT_SOURCES):
         for flag, value in FLAG_RE.findall(line):
             # The file's path under the sources keeps two `isEnabled` flags apart; a second one in
@@ -303,6 +313,113 @@ def defaults(tree: Tree) -> dict[str, object]:
                 key, n = f"{base}#{n}", n + 1
             found[key] = value == "true"
     return dict(sorted(found.items()))
+
+
+def call_arguments(text: str, start: int) -> list[str]:
+    """Return top-level arguments in a Swift call whose arguments start at ``start``."""
+    args, depth, current, i = [], 0, [], start
+    while i < len(text):
+        char = text[i]
+        if char == '"':
+            end = i + 1
+            while end < len(text) and text[end] not in '"\n':
+                end += 2 if text[end] == "\\" else 1
+            current.append(text[i:end + 1])
+            i = end + 1
+            continue
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            if depth == 0:
+                break
+            depth -= 1
+        elif char == "," and depth == 0:
+            args.append("".join(current))
+            current = []
+            i += 1
+            continue
+        current.append(char)
+        i += 1
+    return [argument.strip() for argument in [*args, "".join(current)]]
+
+
+def strip_swift_comments(text: str) -> str:
+    """Replace Swift comments with spaces while preserving literals and newlines.
+
+    The defaults guard reads source as data, so it must not treat an example in a comment as a
+    live Tunable. Keeping string bytes and line breaks intact also means a quoted default retains
+    its exact contents when it is reported.
+    """
+    output, i, block_depth = [], 0, 0
+    while i < len(text):
+        if block_depth:
+            if text.startswith("/*", i):
+                block_depth += 1
+                output.extend("  ")
+                i += 2
+            elif text.startswith("*/", i):
+                block_depth -= 1
+                output.extend("  ")
+                i += 2
+            else:
+                output.append("\n" if text[i] == "\n" else " ")
+                i += 1
+            continue
+        if text.startswith("//", i):
+            output.extend("  ")
+            i += 2
+            while i < len(text) and text[i] != "\n":
+                output.append(" ")
+                i += 1
+            continue
+        if text.startswith("/*", i):
+            block_depth = 1
+            output.extend("  ")
+            i += 2
+            continue
+        if text[i] == '"':
+            end = i + 1
+            while end < len(text):
+                if text[end] == "\\":
+                    end += 2
+                elif text[end] == '"':
+                    end += 1
+                    break
+                else:
+                    end += 1
+            output.append(text[i:end])
+            i = end
+            continue
+        output.append(text[i])
+        i += 1
+    return "".join(output)
+
+
+def tunables(text: str) -> list[tuple[str, object]]:
+    """Return (key, default) for Tunables with a literal default value."""
+    text = strip_swift_comments(text)
+    found = []
+    for match in TUNABLE_RE.finditer(text):
+        kind, key = match.groups()
+        value = next((argument.partition(":")[2].strip()
+                      for argument in call_arguments(text, match.end())
+                      if re.match(r"^default\s*:", argument)), None)
+        if value is None:
+            continue
+        if kind == "toggle" and value in ("true", "false"):
+            found.append((key, value == "true"))
+            continue
+        if value.startswith('"') and value.endswith('"'):
+            try:
+                found.append((key, json.loads(value)))
+                continue
+            except json.JSONDecodeError:
+                pass
+        try:
+            found.append((key, float(value) if kind == "number" else value.removeprefix(".")))
+        except ValueError:
+            found.append((key, value))
+    return found
 
 
 def render_snapshot(values: Mapping[str, object]) -> str:

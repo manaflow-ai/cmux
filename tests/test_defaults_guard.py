@@ -152,6 +152,33 @@ class DefaultsGuardTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("DEFAULTS flag.CmuxNextApp/PaneSplitCommand.optimisticSplitEnabled: false -> true", result.stdout)
 
+    def test_tunable_default_changes_are_snapshotted_and_reported(self):
+        path = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/DevSurface.swift"
+        source = '''public struct DevSurface {
+    // Tunable<Bool>.toggle("commented.out", .status, "Commented", help: "no", default: true)
+    /* Tunable<Bool>.toggle("also.commented", .status, "Commented", help: "no", default: true) */
+    public static let enabled = Tunable<Bool>.toggle(
+        "dev.surface", .status, "Developer surface", help: "opt-in",
+        // Keep the default argument visible despite this comment.
+        default: false)
+    public static let label = Tunable<String>.choice(
+        "dev.label", .status, "Developer label", help: "opt-in",
+        default: "two  spaces")
+}
+'''
+        self.repo.write(path, source)
+        self.base = self.repo.commit("tunable base")
+        head = self.head(extra={path: source.replace("default: false", "default: true")})
+        result = self.check(head)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("DEFAULTS tunable.dev.surface: false -> true", result.stdout)
+        self.assertNotIn("commented.out", result.stdout)
+        self.assertNotIn("also.commented", result.stdout)
+        snapshot = self.repo.guard("snapshot").stdout + self.repo.root.joinpath(
+            "schemas/defaults/cmux-next.json").read_text()
+        self.assertIn("tunable.dev.label", snapshot)
+        self.assertIn('"two  spaces"', snapshot)
+
     def test_two_flags_with_one_name_are_judged_apart(self):
         two = "enum A {\n    static let isEnabled = false\n}\nenum B {\n    static let isEnabled = true\n}\n"
         self.repo.write("Packages/macOS/CmuxNext/Sources/CmuxNextApp/Trace.swift", two)
