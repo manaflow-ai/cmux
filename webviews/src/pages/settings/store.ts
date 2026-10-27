@@ -570,6 +570,13 @@ export class SettingsStore {
     return reply.ok ? null : reply.error.message;
   }
 
+  /** The Update button of a machine in Settings > Updates' row of other machines; answers the
+   * host's refusal, else null (the row's push then shows it updating). */
+  async channelsUpdateMachine(id: string): Promise<string | null> {
+    const reply = await this.request("cmux.settings.channels.update_machine", { id });
+    return reply.ok ? null : reply.error.message;
+  }
+
   /** Settings > Agents' state; null when the host has no Agents part. */
   async agentsState(): Promise<AgentsState | null> {
     const reply = await this.request("cmux.settings.agents.state", {});

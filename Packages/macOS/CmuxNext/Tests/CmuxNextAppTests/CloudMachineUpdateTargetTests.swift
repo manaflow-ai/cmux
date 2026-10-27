@@ -317,6 +317,9 @@ nonisolated final class FakeCloudMachine: @unchecked Sendable {
 
     func disconnect() { lock.withLock { daemon = nil } }
 
+    /// The machine gets the Cloud API's exec (or this app a pinned build): updates through it answer `answers`.
+    func allowLegacy(_ answers: [CloudMoveCLI.Answer]) { lock.withLock { legacyAnswers = answers } }
+
     /// The machine was reinstalled by hand: it now serves everything this app uses.
     func repair(build: String) { lock.withLock { daemon = CloudMachineUpdateTarget.Daemon(build: build, level: .current) } }
 
