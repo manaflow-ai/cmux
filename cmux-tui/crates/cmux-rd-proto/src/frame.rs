@@ -26,7 +26,7 @@ pub struct FrameBody {
 impl FrameBody {
     /// Serializes the body.
     pub fn encode(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(FRAME_PREFIX_LEN + self.access_unit.len());
+        let mut out = Vec::with_capacity(FRAME_PREFIX_LEN.saturating_add(self.access_unit.len()));
         let len = u32::try_from(self.access_unit.len()).unwrap_or(u32::MAX);
         out.extend_from_slice(&len.to_le_bytes());
         out.extend_from_slice(&self.t_capture_us.to_le_bytes());

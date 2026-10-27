@@ -141,6 +141,20 @@ fn a_429_holds_every_fetch_until_its_retry_after() {
     assert!(refresh.on_daily_deadline(day + Duration::from_secs(90)));
 }
 
+/// A `retry-after` of `u64::MAX` seconds: `Instant + Duration` overflowed
+/// and panicked. The hold is capped at one refresh period.
+#[test]
+fn a_huge_retry_after_holds_one_refresh_period() {
+    let headers = [("retry-after".to_owned(), u64::MAX.to_string())];
+    let read = read_answer(429, &headers, b"{}");
+    let t0 = Instant::now();
+    let mut refresh = KeysetRefresh::at_bind(bound(), t0, Duration::ZERO);
+    refresh.apply(read, t0);
+    assert_eq!(refresh.next_wakeup(), t0 + REFRESH_PERIOD);
+    assert!(!refresh.on_unknown_kid("new-k1", t0 + REFRESH_PERIOD - Duration::from_secs(1)));
+    assert!(refresh.on_unknown_kid("new-k1", t0 + REFRESH_PERIOD));
+}
+
 /// RED: an error keeps the held keyset; a 200 replaces it.
 #[test]
 fn an_error_keeps_the_held_keyset_and_a_200_replaces_it() {

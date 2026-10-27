@@ -157,7 +157,9 @@ pub fn daily_jitter(host: &str) -> Duration {
     let digest = sha2::Sha256::digest(host.as_bytes());
     let mut first = [0u8; 8];
     first.copy_from_slice(&digest[..8]);
-    Duration::from_secs(u64::from_be_bytes(first) % REFRESH_PERIOD.as_secs())
+    Duration::from_secs(
+        u64::from_be_bytes(first).checked_rem(REFRESH_PERIOD.as_secs()).unwrap_or_default(),
+    )
 }
 
 /// The held keyset and the fetch schedule of one Cloud host.
@@ -178,7 +180,7 @@ impl KeysetRefresh {
     pub fn at_bind(bind_keyset: Keyset, now: Instant, jitter: Duration) -> Self {
         Self {
             held: bind_keyset,
-            next_daily: now + jitter.min(REFRESH_PERIOD),
+            next_daily: now.checked_add(jitter.min(REFRESH_PERIOD)).unwrap_or(now),
             hold_until: None,
             last_unknown_kid_fetch: None,
         }
@@ -208,7 +210,10 @@ impl KeysetRefresh {
             return false;
         }
         while self.next_daily <= now {
-            self.next_daily += REFRESH_PERIOD;
+            let Some(next) = self.next_daily.checked_add(REFRESH_PERIOD) else {
+                break;
+            };
+            self.next_daily = next;
         }
         true
     }
@@ -231,7 +236,8 @@ impl KeysetRefresh {
     }
 
     /// Apply the answer of a fetch made at `now`. Only an accepted keyset
-    /// replaces the held one; a 429 holds every fetch for its `retry-after`.
+    /// replaces the held one; a 429 holds every fetch for its `retry-after`,
+    /// at most one [`REFRESH_PERIOD`] (the server's value is unbounded).
     pub fn apply(&mut self, read: Result<Keyset, KeysetRefused>, now: Instant) {
         match read {
             Ok(keyset) => {
@@ -239,7 +245,7 @@ impl KeysetRefresh {
                 self.hold_until = None;
             }
             Err(KeysetRefused::RateLimited { retry_after }) => {
-                self.hold_until = Some(now + retry_after);
+                self.hold_until = now.checked_add(retry_after.min(REFRESH_PERIOD));
             }
             Err(_) => {}
         }

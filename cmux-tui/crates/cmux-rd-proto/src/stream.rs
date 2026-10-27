@@ -22,12 +22,13 @@ pub fn encode_stream_frame(kind: u8, payload: &[u8], out: &mut Vec<u8>) -> Resul
     if !matches!(kind, STREAM_CONTROL | STREAM_DATAGRAM | STREAM_BULK) {
         return Err(DecodeError::Invalid("stream frame type"));
     }
-    if payload.len() > MAX_STREAM_FRAME {
-        return Err(DecodeError::Invalid("stream frame length"));
-    }
-    out.reserve(STREAM_PREFIX_LEN + payload.len());
+    let len = u32::try_from(payload.len())
+        .ok()
+        .filter(|_| payload.len() <= MAX_STREAM_FRAME)
+        .ok_or(DecodeError::Invalid("stream frame length"))?;
+    out.reserve(STREAM_PREFIX_LEN.saturating_add(payload.len()));
     out.push(kind);
-    out.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+    out.extend_from_slice(&len.to_le_bytes());
     out.extend_from_slice(payload);
     Ok(())
 }
@@ -94,6 +95,6 @@ impl StreamDeframer {
 
     /// Bytes held for a partial frame.
     pub fn buffered(&self) -> usize {
-        self.buf.len() - self.read
+        self.buf.len().saturating_sub(self.read)
     }
 }

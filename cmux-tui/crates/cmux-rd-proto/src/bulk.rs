@@ -23,7 +23,7 @@ pub struct BulkFrame {
 
 impl BulkFrame {
     pub fn encode(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(BULK_PREFIX_LEN + self.bytes.len());
+        let mut out = Vec::with_capacity(BULK_PREFIX_LEN.saturating_add(self.bytes.len()));
         out.extend_from_slice(&self.transfer.to_le_bytes());
         out.extend_from_slice(&self.offset.to_le_bytes());
         out.extend_from_slice(&self.bytes);

@@ -110,7 +110,7 @@ impl Router {
             roots,
             origin,
             aud: ROUTER_AUDIENCE.to_owned(),
-            exp: iat + PAGE_TOKEN_TTL.as_secs(),
+            exp: iat.saturating_add(PAGE_TOKEN_TTL.as_secs()),
             iat,
         };
         Ok(self.key.sign(&claims))
@@ -166,7 +166,7 @@ impl Router {
                     roots: page_claims.roots.clone(),
                     origin: page_claims.origin.clone(),
                     aud: live.app_id.clone(),
-                    exp: iat + DATA_TOKEN_TTL.as_secs(),
+                    exp: iat.saturating_add(DATA_TOKEN_TTL.as_secs()),
                     iat,
                 };
                 let exp = claims.exp;
@@ -212,7 +212,7 @@ impl Router {
         if old.aud == ROUTER_AUDIENCE {
             let page = page_of(&state, &old)?;
             fresh.scopes = page.scopes.clone();
-            fresh.exp = now + PAGE_TOKEN_TTL.as_secs();
+            fresh.exp = now.saturating_add(PAGE_TOKEN_TTL.as_secs());
             return Ok(TokenRefreshResult { exp: fresh.exp, token: self.key.sign(&fresh) });
         }
         if old.page.is_some() {
@@ -231,7 +231,7 @@ impl Router {
             }
             fresh.scopes.retain(|scope| page.scopes.contains(scope));
         }
-        fresh.exp = now + DATA_TOKEN_TTL.as_secs();
+        fresh.exp = now.saturating_add(DATA_TOKEN_TTL.as_secs());
         Ok(TokenRefreshResult { exp: fresh.exp, token: self.sign_data(&state, fresh)? })
     }
 }

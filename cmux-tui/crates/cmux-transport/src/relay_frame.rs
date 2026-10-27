@@ -73,7 +73,8 @@ impl RelayFrame {
         if self.kind == FrameKind::Datagrams {
             split_batch(&self.payload)?;
         }
-        let mut bytes = Vec::with_capacity(RELAY_FRAME_HEADER_LEN + self.payload.len());
+        let mut bytes =
+            Vec::with_capacity(RELAY_FRAME_HEADER_LEN.saturating_add(self.payload.len()));
         bytes.push(RELAY_FRAME_VERSION);
         bytes.push(self.kind as u8);
         bytes.extend_from_slice(&self.peer.0);

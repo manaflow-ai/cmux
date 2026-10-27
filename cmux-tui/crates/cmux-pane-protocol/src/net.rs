@@ -25,10 +25,16 @@ pub fn tune(stream: &TcpStream) -> std::io::Result<()> {
     Ok(())
 }
 
+/// `size_of::<c_int>()` as a socket option length.
+#[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+const C_INT_LEN: libc::socklen_t = 4;
+#[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+const _: () = assert!(size_of::<libc::c_int>() == C_INT_LEN as usize);
+
 #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
 fn set_notsent_lowat(stream: &TcpStream, bytes: u32) {
     use std::os::fd::AsRawFd;
-    let value = bytes as libc::c_int;
+    let value = libc::c_int::try_from(bytes).unwrap_or(libc::c_int::MAX);
     // SAFETY: the fd is a live TCP socket owned by `stream` for the whole
     // call, and `value` outlives it with the size passed.
     unsafe {
@@ -37,7 +43,7 @@ fn set_notsent_lowat(stream: &TcpStream, bytes: u32) {
             libc::IPPROTO_TCP,
             TCP_NOTSENT_LOWAT,
             (&value as *const libc::c_int).cast(),
-            size_of::<libc::c_int>() as libc::socklen_t,
+            C_INT_LEN,
         );
     }
 }
@@ -50,7 +56,7 @@ fn set_notsent_lowat(_stream: &TcpStream, _bytes: u32) {}
 pub fn notsent_lowat(stream: &TcpStream) -> std::io::Result<u32> {
     use std::os::fd::AsRawFd;
     let mut value: libc::c_int = 0;
-    let mut length = size_of::<libc::c_int>() as libc::socklen_t;
+    let mut length = C_INT_LEN;
     // SAFETY: `value` and `length` are valid for writes of the sizes given.
     let result = unsafe {
         libc::getsockopt(
@@ -90,7 +96,7 @@ impl Backoff {
         let starts_burst = !self.failing;
         self.failing = true;
         let delay = self.next;
-        self.next = (self.next * 2).min(Self::MAX);
+        self.next = self.next.saturating_mul(2).min(Self::MAX);
         (delay, starts_burst)
     }
 

@@ -92,7 +92,7 @@ pub fn header(message: &Message) -> Result<[u8; 4], FrameError> {
 
 /// The header and body of `message` as one buffer.
 pub fn encode(message: &Message) -> Result<Vec<u8>, FrameError> {
-    let mut out = Vec::with_capacity(4 + message.len());
+    let mut out = Vec::with_capacity(message.len().saturating_add(4));
     out.extend_from_slice(&header(message)?);
     match message {
         Message::Text(text) => out.extend_from_slice(text.as_bytes()),
@@ -176,7 +176,7 @@ impl DataFrame {
     pub const HEADER: usize = 8;
 
     pub fn encode(&self) -> Bytes {
-        let mut out = Vec::with_capacity(Self::HEADER + self.payload.len());
+        let mut out = Vec::with_capacity(Self::HEADER.saturating_add(self.payload.len()));
         out.extend_from_slice(&self.stream.to_be_bytes());
         out.extend_from_slice(&self.credit.to_be_bytes());
         out.extend_from_slice(&self.payload);

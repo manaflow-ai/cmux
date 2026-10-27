@@ -223,7 +223,7 @@ impl Kind {
             return ring as usize;
         }
         let base = self.descriptors();
-        base + (base > 0 && ring) as usize
+        if base > 0 && ring { base.saturating_add(1) } else { base }
     }
 }
 
@@ -257,7 +257,7 @@ pub const FLAG_FLOW: u16 = 4;
 /// The payload of a [`Kind::Write`] with [`FLAG_FLOW`]: `bytes`, then
 /// `flow`. `bytes` may be at most [`MAX_PAYLOAD`] - 8 long.
 pub fn write_flow_payload(bytes: &[u8], flow: u64) -> Vec<u8> {
-    Out(Vec::with_capacity(bytes.len() + 8)).bytes(bytes).u64(flow).0
+    Out(Vec::with_capacity(bytes.len().saturating_add(8))).bytes(bytes).u64(flow).0
 }
 
 /// A [`Kind::Write`] payload split into its input and its flow: the flow
@@ -335,12 +335,12 @@ pub fn encode_flagged(kind: Kind, flags: u16, chan: u32, payload: &[u8]) -> Vec<
 /// of each part (a DATA frame straight from the two halves of a ring).
 pub fn encode_parts(kind: Kind, flags: u16, chan: u32, parts: &[&[u8]]) -> Vec<u8> {
     let len: usize = parts.iter().map(|part| part.len()).sum();
-    let mut out = Vec::with_capacity(HEADER + len);
+    let mut out = Vec::with_capacity(HEADER.saturating_add(len));
     out.extend_from_slice(&MAGIC);
     out.extend_from_slice(&(kind as u16).to_le_bytes());
     out.extend_from_slice(&flags.to_le_bytes());
     out.extend_from_slice(&chan.to_le_bytes());
-    out.extend_from_slice(&(len as u32).to_le_bytes());
+    out.extend_from_slice(&wire_len(len).to_le_bytes());
     for part in parts {
         out.extend_from_slice(part);
     }
@@ -362,13 +362,7 @@ pub fn tune_socket(fd: RawFd) {
     for option in [libc::SO_SNDBUF, libc::SO_RCVBUF] {
         // SAFETY: setsockopt reads one c_int from a live local.
         unsafe {
-            libc::setsockopt(
-                fd,
-                libc::SOL_SOCKET,
-                option,
-                (&raw const size).cast(),
-                size_of::<libc::c_int>() as libc::socklen_t,
-            )
+            libc::setsockopt(fd, libc::SOL_SOCKET, option, (&raw const size).cast(), C_INT_LEN)
         };
     }
     #[cfg(target_vendor = "apple")]
@@ -381,10 +375,22 @@ pub fn tune_socket(fd: RawFd) {
                 libc::SOL_SOCKET,
                 libc::SO_NOSIGPIPE,
                 (&raw const on).cast(),
-                size_of::<libc::c_int>() as libc::socklen_t,
+                C_INT_LEN,
             )
         };
     }
+}
+
+/// `size_of::<c_int>()` as the `setsockopt` length.
+const C_INT_LEN: libc::socklen_t = 4;
+const _: () = assert!(size_of::<libc::c_int>() == C_INT_LEN as usize);
+
+/// A length as the wire's `u32`. A length past `u32::MAX` is past every
+/// reader's limit ([`MAX_PAYLOAD`] for a frame, the payload's own length for
+/// a string), so it saturates and the peer refuses it instead of reading a
+/// wrapped length.
+fn wire_len(len: usize) -> u32 {
+    u32::try_from(len).unwrap_or(u32::MAX)
 }
 
 /// Bytes one `recvmsg` may read into a [`Reader`].
@@ -440,11 +446,12 @@ impl Reader {
         if len > MAX_PAYLOAD {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "holder frame too large"));
         }
-        if pending.len() < HEADER + len {
+        let end = HEADER.saturating_add(len);
+        let Some(payload) = pending.get(HEADER..end) else {
             return Ok(None);
-        }
-        let payload = pending[HEADER..HEADER + len].to_vec();
-        self.start += HEADER + len;
+        };
+        let payload = payload.to_vec();
+        self.start = self.start.saturating_add(end);
         if self.start == self.buf.len() {
             // Everything was taken: the next fill needs no compaction.
             self.buf.clear();
@@ -489,7 +496,7 @@ impl Out {
     }
     /// `u32 len` + bytes.
     pub fn string(self, v: &[u8]) -> Self {
-        self.u32(v.len() as u32).bytes(v)
+        self.u32(wire_len(v.len())).bytes(v)
     }
 }
 

@@ -264,9 +264,9 @@ impl Peer {
                             self.send(&Envelope::Ok { id, value: json!({ "sub": sub }) }).await;
                             let peer = self.clone();
                             let task = tokio::spawn(async move {
-                                let mut seq = 0;
+                                let mut seq: u64 = 0;
                                 while let Some(EventItem { data, gap }) = events.recv().await {
-                                    seq += 1;
+                                    seq = seq.saturating_add(1);
                                     if !peer.send(&Envelope::Ev { sub, seq, data, gap }).await {
                                         return;
                                     }

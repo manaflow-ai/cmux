@@ -7,6 +7,9 @@ pub const MAX_TEXT_BYTES: usize = 256;
 /// input packet of the smallest session datagram (1136 bytes of payload minus
 /// the 5-byte packet prefix and the 4-byte event header).
 pub const MAX_SERVICE_BYTES: usize = 1127;
+// Both lengths go out as `u16`.
+const _: () = assert!(MAX_TEXT_BYTES <= u16::MAX as usize);
+const _: () = assert!(MAX_SERVICE_BYTES <= u16::MAX as usize);
 
 /// [`InputEvent::Service`] flag bits on the wire.
 pub mod service_flags {
@@ -74,8 +77,8 @@ impl InputEvent {
             Self::Pointer { .. } => 9,
             Self::Button { .. } => 3,
             Self::Scroll { .. } => 10,
-            Self::Text(text) => 3 + truncate_utf8(text, MAX_TEXT_BYTES).len(),
-            Self::Service { bytes, .. } => 4 + bytes.len().min(MAX_SERVICE_BYTES),
+            Self::Text(text) => truncate_utf8(text, MAX_TEXT_BYTES).len().saturating_add(3),
+            Self::Service { bytes, .. } => bytes.len().min(MAX_SERVICE_BYTES).saturating_add(4),
         }
     }
 
@@ -105,14 +108,18 @@ impl InputEvent {
             Self::Text(text) => {
                 out.push(TAG_TEXT);
                 let bytes = truncate_utf8(text, MAX_TEXT_BYTES);
-                out.extend_from_slice(&(bytes.len() as u16).to_le_bytes());
+                out.extend_from_slice(
+                    &u16::try_from(bytes.len()).unwrap_or(u16::MAX).to_le_bytes(),
+                );
                 out.extend_from_slice(bytes);
             }
             Self::Service { must_deliver, bytes } => {
                 out.push(TAG_SERVICE);
                 out.push(if *must_deliver { service_flags::MUST_DELIVER } else { 0 });
                 let bytes = bytes.get(..MAX_SERVICE_BYTES).unwrap_or(bytes);
-                out.extend_from_slice(&(bytes.len() as u16).to_le_bytes());
+                out.extend_from_slice(
+                    &u16::try_from(bytes.len()).unwrap_or(u16::MAX).to_le_bytes(),
+                );
                 out.extend_from_slice(bytes);
             }
         }

@@ -67,11 +67,18 @@ pub fn verify_fd(fd: std::os::fd::RawFd) -> Result<(), CallerRefused> {
     Ok(())
 }
 
+/// `size_of::<ucred>()` as the `getsockopt` length.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn ucred_len() -> io::Result<libc::socklen_t> {
+    libc::socklen_t::try_from(size_of::<libc::ucred>())
+        .map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))
+}
+
 #[cfg(any(target_os = "linux", target_os = "android"))]
 pub(crate) fn peer_uid(fd: std::os::fd::RawFd) -> io::Result<u32> {
     // SAFETY: ucred is plain data and all-zero is a valid value.
     let mut credentials = unsafe { std::mem::zeroed::<libc::ucred>() };
-    let mut length = size_of::<libc::ucred>() as libc::socklen_t;
+    let mut length = ucred_len()?;
     // SAFETY: both out-pointers are valid for writes of the lengths passed.
     let result = unsafe {
         libc::getsockopt(
@@ -106,7 +113,7 @@ pub(crate) fn peer_uid(fd: std::os::fd::RawFd) -> io::Result<u32> {
 pub(crate) fn peer_pid(fd: std::os::fd::RawFd) -> io::Result<Option<u32>> {
     // SAFETY: ucred is plain data and all-zero is a valid value.
     let mut credentials = unsafe { std::mem::zeroed::<libc::ucred>() };
-    let mut length = size_of::<libc::ucred>() as libc::socklen_t;
+    let mut length = ucred_len()?;
     // SAFETY: both out-pointers are valid for writes of the lengths passed.
     let result = unsafe {
         libc::getsockopt(
@@ -127,7 +134,8 @@ pub(crate) fn peer_pid(fd: std::os::fd::RawFd) -> io::Result<Option<u32>> {
 #[cfg(target_vendor = "apple")]
 pub(crate) fn peer_pid(fd: std::os::fd::RawFd) -> io::Result<Option<u32>> {
     let mut pid: libc::pid_t = 0;
-    let mut length = size_of::<libc::pid_t>() as libc::socklen_t;
+    let mut length = libc::socklen_t::try_from(size_of::<libc::pid_t>())
+        .map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
     // SAFETY: both out-pointers are valid for writes of the lengths passed.
     let result = unsafe {
         libc::getsockopt(

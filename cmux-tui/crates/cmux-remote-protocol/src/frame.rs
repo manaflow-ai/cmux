@@ -121,10 +121,9 @@ impl SessionId {
             return Err("session ID contains a non-hexadecimal character".into());
         }
         let mut bytes = [0_u8; 16];
-        for (index, byte) in bytes.iter_mut().enumerate() {
-            // ASCII was checked above, so every two-byte range is a str.
-            *byte = value
-                .get(index * 2..index * 2 + 2)
+        for (byte, pair) in bytes.iter_mut().zip(value.as_bytes().chunks_exact(2)) {
+            *byte = std::str::from_utf8(pair)
+                .ok()
                 .and_then(|encoded| u8::from_str_radix(encoded, 16).ok())
                 .ok_or_else(|| "session ID contains a non-hexadecimal character".to_string())?;
         }
@@ -133,7 +132,7 @@ impl SessionId {
 
     pub fn to_hex(self) -> String {
         const HEX: &[u8; 16] = b"0123456789abcdef";
-        let mut output = String::with_capacity(self.0.len() * 2);
+        let mut output = String::with_capacity(self.0.len().saturating_mul(2));
         for byte in self.0 {
             for nibble in [byte >> 4, byte & 0x0f] {
                 output.push(char::from(HEX.get(usize::from(nibble)).copied().unwrap_or(b'0')));
@@ -220,16 +219,17 @@ pub struct WireFrame {
 
 impl WireFrame {
     pub fn encode(&self) -> Result<Vec<u8>, FrameDecodeError> {
-        if self.payload.len() > MAX_FRAME_PAYLOAD {
-            return Err(FrameDecodeError::PayloadTooLarge(self.payload.len()));
-        }
+        let payload_len = u32::try_from(self.payload.len())
+            .ok()
+            .filter(|_| self.payload.len() <= MAX_FRAME_PAYLOAD)
+            .ok_or(FrameDecodeError::PayloadTooLarge(self.payload.len()))?;
         if self.flags.contains(FrameFlags::ACK_ONLY) && !self.payload.is_empty() {
             return Err(FrameDecodeError::AckHasPayload);
         }
         validate_session_close(self.lane, self.flags, self.stream, self.payload.len())?;
         validate_heartbeat(self.lane, self.flags, self.stream, self.payload.len())?;
 
-        let mut encoded = Vec::with_capacity(HEADER_BYTES + self.payload.len());
+        let mut encoded = Vec::with_capacity(HEADER_BYTES.saturating_add(self.payload.len()));
         encoded.extend_from_slice(&MAGIC);
         encoded.push(REMOTE_PROTOCOL_VERSION);
         encoded.push(self.lane as u8);
@@ -239,7 +239,7 @@ impl WireFrame {
         encoded.extend_from_slice(&self.sequence.to_be_bytes());
         encoded.extend_from_slice(&self.acknowledgement.to_be_bytes());
         encoded.extend_from_slice(&self.stream.to_be_bytes());
-        encoded.extend_from_slice(&(self.payload.len() as u32).to_be_bytes());
+        encoded.extend_from_slice(&payload_len.to_be_bytes());
         encoded.extend_from_slice(&self.payload);
         Ok(encoded)
     }

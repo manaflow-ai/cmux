@@ -295,11 +295,11 @@ unsafe extern "C" {
 pub(crate) fn executable_path(token: &[u32; 8]) -> Option<std::path::PathBuf> {
     let mut token = *token;
     let mut path = [0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+    let size = u32::try_from(path.len()).ok()?;
     // SAFETY: both pointers are valid; the call writes at most `path.len()`
     // bytes and returns the count written (`<= 0` on failure).
-    let written = unsafe {
-        proc_pidpath_audittoken(&raw mut token, path.as_mut_ptr().cast(), path.len() as u32)
-    };
+    let written =
+        unsafe { proc_pidpath_audittoken(&raw mut token, path.as_mut_ptr().cast(), size) };
     let written = usize::try_from(written).ok().filter(|written| *written > 0)?;
     let path = std::str::from_utf8(&path[..written]).ok()?;
     Some(std::path::PathBuf::from(path))
@@ -307,7 +307,8 @@ pub(crate) fn executable_path(token: &[u32; 8]) -> Option<std::path::PathBuf> {
 
 pub(crate) fn peer_audit_token(fd: RawFd) -> Result<[u32; 8], String> {
     let mut token = [0u32; 8];
-    let mut length = size_of_val(&token) as libc::socklen_t;
+    let mut length = libc::socklen_t::try_from(size_of_val(&token))
+        .map_err(|_| "LOCAL_PEERTOKEN: token size".to_owned())?;
     // SAFETY: the out-buffer is valid for `length` bytes.
     let result = unsafe {
         libc::getsockopt(fd, SOL_LOCAL, LOCAL_PEERTOKEN, token.as_mut_ptr().cast(), &raw mut length)

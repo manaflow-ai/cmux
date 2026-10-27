@@ -41,10 +41,11 @@ pub(crate) fn encode_snapshot_for_version(
     output.extend_from_slice(&snapshot.pid.unwrap_or(0).to_le_bytes());
     put_blob(&mut output, &snapshot.replay)?;
     put_optional_string(&mut output, snapshot.cwd.as_deref())?;
-    if snapshot.command.len() > MAX_ARGV {
-        anyhow::bail!("terminal-host snapshot command count is too large");
-    }
-    output.extend_from_slice(&(snapshot.command.len() as u16).to_le_bytes());
+    let command_count = u16::try_from(snapshot.command.len())
+        .ok()
+        .filter(|_| snapshot.command.len() <= MAX_ARGV)
+        .ok_or_else(|| anyhow::anyhow!("terminal-host snapshot command count is too large"))?;
+    output.extend_from_slice(&command_count.to_le_bytes());
     for argument in &snapshot.command {
         put_string(&mut output, argument)?;
     }
@@ -71,7 +72,7 @@ pub(crate) fn encode_snapshot_for_version(
         super::program_status_codec::put_program_status(&mut tail, program_status)?;
         // Records a program can fill must never cost the attach: past the
         // frame budget the daemon gets none.
-        if output.len() + tail.len() > MAX_FRAME_PAYLOAD {
+        if output.len().saturating_add(tail.len()) > MAX_FRAME_PAYLOAD {
             tail.clear();
             super::program_status_codec::put_program_status(
                 &mut tail,
@@ -260,7 +261,9 @@ pub(crate) fn encode_kitty_image_aliases(
     aliases: &[KittyImageAlias],
 ) -> anyhow::Result<()> {
     validate_kitty_image_aliases(aliases)?;
-    output.extend_from_slice(&(aliases.len() as u16).to_le_bytes());
+    let count = u16::try_from(aliases.len())
+        .map_err(|_| anyhow::anyhow!("terminal-host Kitty image alias count is too large"))?;
+    output.extend_from_slice(&count.to_le_bytes());
     for alias in aliases {
         output.extend_from_slice(&alias.image_id.to_le_bytes());
         output.extend_from_slice(&alias.image_number.to_le_bytes());
@@ -382,12 +385,16 @@ pub(crate) fn encode_resize(
     }
     let replay_len = u32::try_from(replay.len())
         .map_err(|_| anyhow::anyhow!("terminal-host resize replay exceeds u32"))?;
+    const FIXED_LEN: usize = 8
+        + KITTY_IMAGE_ALIAS_COUNT_LEN
+        + CELL_PIXEL_SIZE_ENCODED_LEN
+        + KITTY_REPLAY_STATE_ENCODED_LEN;
     let mut output = Vec::with_capacity(
-        8 + replay.len()
-            + KITTY_IMAGE_ALIAS_COUNT_LEN
-            + kitty_image_aliases.len() * KITTY_IMAGE_ALIAS_ENCODED_LEN
-            + CELL_PIXEL_SIZE_ENCODED_LEN
-            + KITTY_REPLAY_STATE_ENCODED_LEN,
+        kitty_image_aliases
+            .len()
+            .saturating_mul(KITTY_IMAGE_ALIAS_ENCODED_LEN)
+            .saturating_add(replay.len())
+            .saturating_add(FIXED_LEN),
     );
     output.extend_from_slice(&cols.to_le_bytes());
     output.extend_from_slice(&rows.to_le_bytes());
@@ -613,10 +620,11 @@ impl<'a> PayloadDecoder<'a> {
 }
 
 pub(crate) fn put_bytes(output: &mut Vec<u8>, bytes: &[u8]) -> anyhow::Result<()> {
-    if bytes.len() > MAX_STRING {
-        anyhow::bail!("terminal-host payload field is too large");
-    }
-    output.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+    let len = u32::try_from(bytes.len())
+        .ok()
+        .filter(|_| bytes.len() <= MAX_STRING)
+        .ok_or_else(|| anyhow::anyhow!("terminal-host payload field is too large"))?;
+    output.extend_from_slice(&len.to_le_bytes());
     output.extend_from_slice(bytes);
     Ok(())
 }
@@ -626,10 +634,11 @@ pub(crate) fn put_string(output: &mut Vec<u8>, value: &str) -> anyhow::Result<()
 }
 
 pub(crate) fn put_blob(output: &mut Vec<u8>, value: &[u8]) -> anyhow::Result<()> {
-    if value.len() > MAX_BLOB {
-        anyhow::bail!("terminal-host payload blob is too large");
-    }
-    output.extend_from_slice(&(value.len() as u32).to_le_bytes());
+    let len = u32::try_from(value.len())
+        .ok()
+        .filter(|_| value.len() <= MAX_BLOB)
+        .ok_or_else(|| anyhow::anyhow!("terminal-host payload blob is too large"))?;
+    output.extend_from_slice(&len.to_le_bytes());
     output.extend_from_slice(value);
     Ok(())
 }
@@ -717,11 +726,15 @@ impl HostLaunch {
                 .to_le_bytes(),
         );
         put_optional_string(&mut output, self.cwd.as_deref())?;
-        output.extend_from_slice(&(self.command.len() as u16).to_le_bytes());
+        let command_count = u16::try_from(self.command.len())
+            .map_err(|_| anyhow::anyhow!("terminal-host command count is out of range"))?;
+        output.extend_from_slice(&command_count.to_le_bytes());
         for argument in &self.command {
             put_string(&mut output, argument)?;
         }
-        output.extend_from_slice(&(self.extra_env.len() as u16).to_le_bytes());
+        let env_count = u16::try_from(self.extra_env.len())
+            .map_err(|_| anyhow::anyhow!("terminal-host environment count is out of range"))?;
+        output.extend_from_slice(&env_count.to_le_bytes());
         for (key, value) in &self.extra_env {
             put_string(&mut output, key)?;
             put_string(&mut output, value)?;
@@ -819,11 +832,13 @@ pub(crate) fn encode_default_colors(output: &mut Vec<u8>, colors: DefaultColors)
     if let Some(blink) = colors.cursor_blink {
         output.push(blink as u8);
     }
-    let palette_count = colors.palette.iter().filter(|color| color.is_some()).count() as u16;
-    output.extend_from_slice(&palette_count.to_le_bytes());
-    for (index, color) in colors.palette.iter().enumerate() {
+    // The palette has 256 entries: each index is a `u8`, the count a `u16`.
+    let entries = (0..=u8::MAX).zip(&colors.palette);
+    let palette_count = entries.clone().filter(|(_, color)| color.is_some()).count();
+    output.extend_from_slice(&u16::try_from(palette_count).unwrap_or(u16::MAX).to_le_bytes());
+    for (index, color) in entries {
         if let Some(color) = color {
-            output.extend_from_slice(&[index as u8, color.r, color.g, color.b]);
+            output.extend_from_slice(&[index, color.r, color.g, color.b]);
         }
     }
 }

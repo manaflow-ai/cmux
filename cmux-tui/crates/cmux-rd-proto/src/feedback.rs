@@ -7,6 +7,10 @@ pub const MAX_ARRIVALS: usize = 128;
 pub const MAX_NACK_FRAMES: usize = 4;
 /// Most shard indexes per NACKed frame.
 pub const MAX_NACK_INDEXES: usize = 32;
+// The counts go out as `u16` (arrivals) and `u8` (nacks, indexes).
+const _: () = assert!(MAX_ARRIVALS <= u16::MAX as usize);
+const _: () = assert!(MAX_NACK_FRAMES <= u8::MAX as usize);
+const _: () = assert!(MAX_NACK_INDEXES <= u8::MAX as usize);
 
 /// Arrival of one datagram at the viewer, by transport sequence number.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,17 +49,17 @@ impl Feedback {
         out.extend_from_slice(&self.decode_us.to_le_bytes());
         out.push(u8::from(self.need_recovery));
         let arrivals = self.arrivals.get(..MAX_ARRIVALS).unwrap_or(&self.arrivals);
-        out.extend_from_slice(&(arrivals.len() as u16).to_le_bytes());
+        out.extend_from_slice(&u16::try_from(arrivals.len()).unwrap_or(u16::MAX).to_le_bytes());
         for a in arrivals {
             out.extend_from_slice(&a.transport_seq.to_le_bytes());
             out.extend_from_slice(&a.arrival_us.to_le_bytes());
         }
         let nacks = self.nacks.get(..MAX_NACK_FRAMES).unwrap_or(&self.nacks);
-        out.push(nacks.len() as u8);
+        out.push(u8::try_from(nacks.len()).unwrap_or(u8::MAX));
         for nack in nacks {
             out.extend_from_slice(&nack.frame.to_le_bytes());
             let idx = nack.indexes.get(..MAX_NACK_INDEXES).unwrap_or(&nack.indexes);
-            out.push(idx.len() as u8);
+            out.push(u8::try_from(idx.len()).unwrap_or(u8::MAX));
             for i in idx {
                 out.extend_from_slice(&i.to_le_bytes());
             }

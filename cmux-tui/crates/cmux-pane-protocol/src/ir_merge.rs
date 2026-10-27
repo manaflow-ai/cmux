@@ -297,7 +297,7 @@ pub fn strip_derived(ir: &Value) -> Value {
 /// segments below its longest declared namespace.
 fn short_name(name: &str, namespaces: &BTreeMap<String, Value>) -> Option<String> {
     let namespace = namespaces.keys().filter(|ns| within(name, ns)).max_by_key(|ns| ns.len())?;
-    let rest = name.get(namespace.len() + 1..).unwrap_or_default();
+    let rest = name.get(namespace.len().saturating_add(1)..).unwrap_or_default();
     (rest.split('.').count() < 2 || rest.is_empty())
         .then(|| format!("op {name} must be <namespace>.<family>.<verb> below {namespace}"))
 }

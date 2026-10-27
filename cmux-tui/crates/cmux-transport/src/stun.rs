@@ -129,9 +129,10 @@ pub fn binding_success(transaction: TransactionId, reflexive: SocketAddr) -> Vec
     let mut value = vec![0, family];
     value.extend_from_slice(&port.to_be_bytes());
     value.extend_from_slice(&address);
-    let mut bytes = Vec::with_capacity(STUN_HEADER_LEN + 4 + value.len());
+    let attribute_len = value.len().saturating_add(4);
+    let mut bytes = Vec::with_capacity(STUN_HEADER_LEN.saturating_add(attribute_len));
     bytes.extend_from_slice(&BINDING_SUCCESS.to_be_bytes());
-    bytes.extend_from_slice(&u16::try_from(4 + value.len()).unwrap_or(u16::MAX).to_be_bytes());
+    bytes.extend_from_slice(&u16::try_from(attribute_len).unwrap_or(u16::MAX).to_be_bytes());
     bytes.extend_from_slice(&cookie);
     bytes.extend_from_slice(&transaction);
     bytes.extend_from_slice(&ATTR_XOR_MAPPED_ADDRESS.to_be_bytes());

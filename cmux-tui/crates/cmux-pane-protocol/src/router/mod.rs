@@ -474,7 +474,7 @@ impl Router {
             roots: canonical_roots(&request.roots)?,
             origin,
             aud: request.aud,
-            exp: iat + request.ttl.as_secs(),
+            exp: iat.saturating_add(request.ttl.as_secs()),
             iat,
         };
         self.sign_data(&state, claims)
