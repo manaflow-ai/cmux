@@ -1,7 +1,5 @@
 import CCmuxMotionFFI
-public import CoreGraphics
 public import Foundation
-public import CmuxNextDesignTokens
 
 /// Tween tokens: Chrome's tab strip motion (design-tokens.json
 /// `motion.tweens`, 200 ms 1-(1-t)^2). A tweened value goes from where it is
@@ -49,11 +47,6 @@ nonisolated extension MotionPolicy {
     public func duration(_ token: MotionTween) -> TimeInterval {
         cmux_motion_tween_seconds(token.rawValue, ffi)
     }
-}
-
-extension MotionGate {
-    /// Seconds of tween `token` in this gate's category; 0 applies at once.
-    public func duration(_ token: MotionTween) -> TimeInterval { policy.duration(token) }
 }
 
 /// One scalar on a tween (cmux-motion `TweenValue`, stepped through the app
