@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "7eb274630f633e9ac0d047904d92944dbb00b4f9dcb8b2c809d8a6871ce0a777";
+inline constexpr std::string_view kProtocolIrSha256 = "18d0774199b6d6b647ef32fac66965b1a62a8278783444a949f045c242048431";
 
 enum class AccessRequestKind;
 struct AccessRequestPending;
@@ -225,6 +225,8 @@ struct SavedTabGroupRecord;
 struct Screen;
 struct SendExpectAgent;
 struct ServerStatsConnections;
+struct ServerStatsHangRecord;
+struct ServerStatsHangs;
 struct ServerStatsHistogram;
 struct ServerStatsIpc;
 struct ServerStatsIpcKind;
@@ -832,6 +834,7 @@ struct ScreenClosedEvent;
 struct ScreenRenamedEvent;
 struct ScriptLogEvent;
 struct ScrollChangedEvent;
+struct ServerDiagnosticSiteEvent;
 struct SettingsChangedEvent;
 struct SizeStateEvent;
 struct StatusEvent;
@@ -905,6 +908,7 @@ enum class ChiefChangedEventChange;
 enum class ClientAttachedEventTransport;
 enum class GraphicsStatusEventKind;
 enum class KeybindingsChangedEventOrigin;
+enum class ServerDiagnosticSiteEventFamily;
 enum class SettingsChangedEventOrigin;
 enum class StreamEndEventReason;
 struct CloudAttachmentUploadResultStoredPoster;
@@ -6357,6 +6361,24 @@ struct ServerBlockingResult {
     friend bool operator==(const ServerBlockingResult&, const ServerBlockingResult&) = default;
 };
 
+enum class ServerDiagnosticSiteEventFamily {
+    blocking,
+    inversion,
+    hang,
+};
+
+struct ServerDiagnosticSiteEvent {
+    std::optional<EventCause> cause{};
+    std::optional<std::string> crate{};
+    ServerDiagnosticSiteEventFamily family{};
+    std::optional<std::string> file_hash{};
+    std::string kind{};
+    std::optional<bool> lane_sync{};
+    std::optional<std::uint32_t> line{};
+    std::optional<std::string> method{};
+    friend bool operator==(const ServerDiagnosticSiteEvent&, const ServerDiagnosticSiteEvent&) = default;
+};
+
 struct ServerStatsConnections {
     std::uint64_t accepted{};
     std::uint64_t active{};
@@ -6364,6 +6386,19 @@ struct ServerStatsConnections {
     std::uint64_t peak{};
     std::uint64_t refused{};
     friend bool operator==(const ServerStatsConnections&, const ServerStatsConnections&) = default;
+};
+
+struct ServerStatsHangRecord {
+    std::uint64_t duration_ms{};
+    std::uint64_t sequence{};
+    std::string span{};
+    friend bool operator==(const ServerStatsHangRecord&, const ServerStatsHangRecord&) = default;
+};
+
+struct ServerStatsHangs {
+    std::uint64_t over_250ms{};
+    std::vector<ServerStatsHangRecord> records{};
+    friend bool operator==(const ServerStatsHangs&, const ServerStatsHangs&) = default;
 };
 
 struct ServerStatsHistogram {
@@ -6641,6 +6676,7 @@ struct ServerStatsWritePath {
 struct ServerStatsResult {
     ServerStatsConnections connections{};
     std::optional<ServerStatsHistogram> dispatch_queue_us{};
+    std::optional<ServerStatsHangs> hangs{};
     std::optional<ServerStatsIpc> ipc{};
     std::optional<std::vector<ServerStatsMethodLatency>> ipc_methods{};
     std::optional<ServerStatsJournalWriter> journal_writer{};
@@ -9037,6 +9073,18 @@ template <>
 struct Codec<ServerStatsConnections> {
     static Result<Json> encode(const ServerStatsConnections& value);
     static Result<ServerStatsConnections> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsHangRecord> {
+    static Result<Json> encode(const ServerStatsHangRecord& value);
+    static Result<ServerStatsHangRecord> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsHangs> {
+    static Result<Json> encode(const ServerStatsHangs& value);
+    static Result<ServerStatsHangs> decode(const Json& value);
 };
 
 template <>
@@ -12682,6 +12730,12 @@ struct Codec<ScrollChangedEvent> {
 };
 
 template <>
+struct Codec<ServerDiagnosticSiteEvent> {
+    static Result<Json> encode(const ServerDiagnosticSiteEvent& value);
+    static Result<ServerDiagnosticSiteEvent> decode(const Json& value);
+};
+
+template <>
 struct Codec<SettingsChangedEvent> {
     static Result<Json> encode(const SettingsChangedEvent& value);
     static Result<SettingsChangedEvent> decode(const Json& value);
@@ -13117,6 +13171,12 @@ template <>
 struct Codec<KeybindingsChangedEventOrigin> {
     static Result<Json> encode(const KeybindingsChangedEventOrigin& value);
     static Result<KeybindingsChangedEventOrigin> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerDiagnosticSiteEventFamily> {
+    static Result<Json> encode(const ServerDiagnosticSiteEventFamily& value);
+    static Result<ServerDiagnosticSiteEventFamily> decode(const Json& value);
 };
 
 template <>

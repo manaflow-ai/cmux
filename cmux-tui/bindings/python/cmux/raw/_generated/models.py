@@ -4808,20 +4808,20 @@ class ForgetSessionRequest:
 
 
 @dataclass(frozen=True)
-class Fs.deleteRequest:
+class FsDeleteRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/fs.delete/request'
     paths: List[str]
     permanent: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
-class Fs.deleteResult:
+class FsDeleteResult:
     __cmux_schema_path__: ClassVar[str] = 'commands/fs.delete/result'
     pass
 
 
 @dataclass(frozen=True)
-class Fs.listRequest:
+class FsListRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/fs.list/request'
     cursor: Union[str, None, MissingType] = field(default=MISSING)
     filter: Union[FsFilter, MissingType] = field(default=MISSING)
@@ -4832,14 +4832,14 @@ class Fs.listRequest:
 
 
 @dataclass(frozen=True)
-class Fs.mkdirRequest:
+class FsMkdirRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/fs.mkdir/request'
     name: str
     path: str
 
 
 @dataclass(frozen=True)
-class Fs.readRequest:
+class FsReadRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/fs.read/request'
     max_bytes: int
     path: str
@@ -4847,20 +4847,20 @@ class Fs.readRequest:
 
 
 @dataclass(frozen=True)
-class Fs.renameRequest:
+class FsRenameRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/fs.rename/request'
     name: str
     path: str
 
 
 @dataclass(frozen=True)
-class Fs.statRequest:
+class FsStatRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/fs.stat/request'
     path: str
 
 
 @dataclass(frozen=True)
-class Fs.writeRequest:
+class FsWriteRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/fs.write/request'
     mode: str
     path: str
@@ -7331,6 +7331,21 @@ class ScrollChangedEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class ServerDiagnosticSiteEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/server-diagnostic-site/payload'
+    event: Literal['server-diagnostic-site']
+    family: Literal['blocking', 'inversion', 'hang']
+    kind: str
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
+    crate: Union[str, MissingType] = field(default=MISSING)
+    file_hash: Union[str, MissingType] = field(default=MISSING)
+    lane_sync: Union[bool, MissingType] = field(default=MISSING)
+    line: Union[int, MissingType] = field(default=MISSING)
+    method: Union[str, MissingType] = field(default=MISSING)
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class SettingsChangedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/settings-changed/payload'
     event: Literal['settings-changed']
@@ -7665,7 +7680,7 @@ PaneRef = Any
 TabRef = Any
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentInventoryChangedEvent, AgentInventoryWatchEndedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ChiefChangedEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationLiveEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudConversationTypingEvent, CloudHostReplicaNeededEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationInboxChangedEvent, ConversationLiveEvent, ConversationRunChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, LoopbackClosedEvent, LoopbackCreditEvent, LoopbackDataEvent, LoopbackEofEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, ParticipantAvatarChangedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScriptLogEvent, ScrollChangedEvent, SettingsChangedEvent, SizeStateEvent, StatusEvent, StreamEndEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentInventoryChangedEvent, AgentInventoryWatchEndedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ChiefChangedEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationLiveEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudConversationTypingEvent, CloudHostReplicaNeededEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationInboxChangedEvent, ConversationLiveEvent, ConversationRunChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, LoopbackClosedEvent, LoopbackCreditEvent, LoopbackDataEvent, LoopbackEofEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, ParticipantAvatarChangedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScriptLogEvent, ScrollChangedEvent, ServerDiagnosticSiteEvent, SettingsChangedEvent, SizeStateEvent, StatusEvent, StreamEndEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -8213,14 +8228,14 @@ __all__ = [
     'FocusDirectionRequest',
     'FocusPaneRequest',
     'ForgetSessionRequest',
-    'Fs.deleteRequest',
-    'Fs.deleteResult',
-    'Fs.listRequest',
-    'Fs.mkdirRequest',
-    'Fs.readRequest',
-    'Fs.renameRequest',
-    'Fs.statRequest',
-    'Fs.writeRequest',
+    'FsDeleteRequest',
+    'FsDeleteResult',
+    'FsListRequest',
+    'FsMkdirRequest',
+    'FsReadRequest',
+    'FsRenameRequest',
+    'FsStatRequest',
+    'FsWriteRequest',
     'GetBlobRequest',
     'GetBrowserProviderRequest',
     'GetCellPixelsRequest',
@@ -8493,6 +8508,7 @@ __all__ = [
     'ScreenRenamedEvent',
     'ScriptLogEvent',
     'ScrollChangedEvent',
+    'ServerDiagnosticSiteEvent',
     'SettingsChangedEvent',
     'SizeStateEvent',
     'StatusEvent',

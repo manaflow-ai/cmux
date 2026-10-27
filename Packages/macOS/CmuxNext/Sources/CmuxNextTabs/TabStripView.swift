@@ -27,6 +27,8 @@ public final class TabStripView: NSView {
     let inputTap: InputEventTap  // the app's one; the strip's modes subscribe only while they last
     /// The strip's own hover moves (`pointerFrameHover`, `TabStripView+Pointer`): two strips never merge theirs.
     private(set) lazy var hoverMoves = PointerFrameHover(owner: "TabStripView.hover", view: self) { [weak self] point in self?.hoverMoved(toWindowPoint: point) }
+    /// A running tab or group drag's moves (`pointerFrameDrags`, `TabStripView+Drag`): once per frame; the lift and the tear-off act on their own event.
+    private(set) lazy var dragMoves = PointerFrameDrag(owner: "TabStripView.drag", view: self) { [weak self] point in self?.dragMoved(toWindowPoint: point) }
 
     public weak var previewProvider: (any TabPreviewProvider)? {
         didSet { hoverCard.previewProvider = previewProvider }
@@ -76,7 +78,6 @@ public final class TabStripView: NSView {
     let newTabButton = NewTabButtonView()
     let hoverCard = TabHoverCardController()
     let groupEditor = TabGroupEditorController()
-    var trackingArea: NSTrackingArea?
 
     // MARK: Layout and animation state
 
@@ -231,6 +232,7 @@ public final class TabStripView: NSView {
         setAccessibilityRole(.tabGroup)
         setAccessibilityLabel(Strings.axStrip)
         setAccessibilityIdentifier("cmux.tabs.strip")
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self))
     }
 
     @available(*, unavailable)
@@ -451,12 +453,10 @@ public final class TabStripView: NSView {
         }
     }
 
+    // The closing-mode watch's rect area lives on the content view and covers the strip's bounds plus Chrome's exit pads.
+    // tracking-area: the strip's own area is added once (init); this only moves the closing-mode watch's rect area.
     public override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        if let trackingArea { removeTrackingArea(trackingArea) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
-        addTrackingArea(area)
-        trackingArea = area
         closingWatch.updateTracking()
     }
 

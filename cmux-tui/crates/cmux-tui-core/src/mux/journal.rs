@@ -1,6 +1,7 @@
 //! Session and shared journal plumbing: event publication, terminal output and resize journaling, readers, waits, producer manifests and journal ingress.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl Mux {
     pub(crate) fn publish_resource_event(&self) {
@@ -13,7 +14,7 @@ impl Mux {
 
     pub(crate) fn publish_journal_event(&self) {
         self.journal_kernel.notify_commit();
-        let mut epoch = self.journal_event_epoch.lock().unwrap();
+        let mut epoch = self.journal_event_epoch.lock().recover_poison();
         *epoch = epoch.wrapping_add(1);
         self.journal_event_changed.notify_all();
     }
@@ -348,7 +349,7 @@ impl Mux {
     }
 
     pub(crate) fn journal_event_epoch(&self) -> u64 {
-        *self.journal_event_epoch.lock().unwrap()
+        *self.journal_event_epoch.lock().recover_poison()
     }
 
     #[cfg(test)]
@@ -368,10 +369,10 @@ impl Mux {
         epoch: u64,
         interrupt: &crate::stream_interrupt::StreamInterrupt,
     ) -> u64 {
-        let mut current = self.journal_event_epoch.lock().unwrap();
+        let mut current = self.journal_event_epoch.lock().recover_poison();
         while *current == epoch && !interrupt.is_fired() {
-            current =
-                cmux_threads::checked::sync::wait(&self.journal_event_changed, current).unwrap();
+            current = cmux_threads::checked::sync::wait(&self.journal_event_changed, current)
+                .recover_poison();
         }
         *current
     }
@@ -413,7 +414,7 @@ impl Mux {
         &self,
         revision: u64,
     ) -> anyhow::Result<crate::workspace_registry::ResourceEventPage> {
-        self.workspace_registry.lock().unwrap().resource_events_after(revision)
+        self.workspace_registry.lock().recover_poison().resource_events_after(revision)
     }
 
     /// A read-only reader for a `session.events` stream's resource pages and
@@ -424,7 +425,7 @@ impl Mux {
         &self,
     ) -> anyhow::Result<Option<(crate::workspace_registry::SessionJournalReader, String)>> {
         let (database_path, generation) = {
-            let registry = self.workspace_registry.lock().unwrap();
+            let registry = self.workspace_registry.lock().recover_poison();
             (registry.session_journal_database_path(), registry.generation().to_owned())
         };
         database_path
@@ -437,7 +438,7 @@ impl Mux {
     /// The journal head without decoding any record or sealed segment.
     #[track_caller]
     pub(crate) fn session_journal_head(&self) -> anyhow::Result<u64> {
-        self.workspace_registry.lock().unwrap().session_journal_head()
+        self.workspace_registry.lock().recover_poison().session_journal_head()
     }
 
     #[track_caller]
@@ -446,7 +447,7 @@ impl Mux {
         sequence: u64,
         limit: usize,
     ) -> anyhow::Result<crate::workspace_registry::SessionJournalPage> {
-        self.workspace_registry.lock().unwrap().session_journal_after(sequence, limit)
+        self.workspace_registry.lock().recover_poison().session_journal_after(sequence, limit)
     }
 
     /// Records in `(sequence, through]` other than `terminal.output`, at
@@ -461,14 +462,15 @@ impl Mux {
     ) -> anyhow::Result<(Vec<crate::workspace_registry::SessionJournalRecord>, u64)> {
         self.workspace_registry
             .lock()
-            .unwrap()
+            .recover_poison()
             .session_journal_without_output_after(sequence, through, limit)
     }
 
     pub(crate) fn session_journal_reader(
         &self,
     ) -> anyhow::Result<Option<crate::workspace_registry::SessionJournalReader>> {
-        let database_path = self.workspace_registry.lock().unwrap().session_journal_database_path();
+        let database_path =
+            self.workspace_registry.lock().recover_poison().session_journal_database_path();
         database_path
             .as_deref()
             .map(crate::workspace_registry::SessionJournalReader::open)
@@ -504,14 +506,14 @@ impl Mux {
     pub(crate) fn journal_producer_manifests(
         &self,
     ) -> anyhow::Result<Vec<crate::JournalProducerManifest>> {
-        self.workspace_registry.lock().unwrap().journal_producer_manifests()
+        self.workspace_registry.lock().recover_poison().journal_producer_manifests()
     }
 
     #[track_caller]
     pub(crate) fn userland_journal_producer_manifests(
         &self,
     ) -> anyhow::Result<Vec<crate::JournalProducerManifest>> {
-        self.workspace_registry.lock().unwrap().userland_journal_producer_manifests()
+        self.workspace_registry.lock().recover_poison().userland_journal_producer_manifests()
     }
 
     #[track_caller]
@@ -522,7 +524,7 @@ impl Mux {
         idempotency_key: &str,
     ) -> anyhow::Result<crate::JournalAppendCommit> {
         let prepared = crate::journal_kernel::JournalKernel::prepare_producer(manifest)?;
-        let commit = self.workspace_registry.lock().unwrap().put_journal_producer(
+        let commit = self.workspace_registry.lock().recover_poison().put_journal_producer(
             manifest,
             origin,
             idempotency_key,
@@ -550,7 +552,7 @@ impl Mux {
                 // may name a superseded manifest after a producer upgrade,
                 // while a new ingress must still pass current validation.
                 let replay = {
-                    let registry = self.workspace_registry.lock().unwrap();
+                    let registry = self.workspace_registry.lock().recover_poison();
                     registry.replay_journal_ingress(ingress, origin, idempotency_key)?
                 };
                 if let Some(commit) = replay {
@@ -567,7 +569,7 @@ impl Mux {
                 idempotency_key.into(),
             )?
         } else {
-            let commit = self.workspace_registry.lock().unwrap().append_journal_ingress(
+            let commit = self.workspace_registry.lock().recover_poison().append_journal_ingress(
                 ingress,
                 &validated,
                 origin,
@@ -604,14 +606,14 @@ impl Mux {
                 if let Err(_bookkeeping_error) = self
                     .workspace_registry
                     .lock()
-                    .unwrap()
+                    .recover_poison()
                     .clear_agent_hook_pending(&ingress.producer_id, origin, idempotency_key)
                 {
                     self.report_internal_diagnostic("terminal-gone agent hook cleanup deferred");
                 }
             } else {
                 if let Err(_bookkeeping_error) =
-                    self.workspace_registry.lock().unwrap().enqueue_agent_hook_pending(
+                    self.workspace_registry.lock().recover_poison().enqueue_agent_hook_pending(
                         &ingress.producer_id,
                         origin,
                         idempotency_key,

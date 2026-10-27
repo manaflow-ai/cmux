@@ -132,7 +132,7 @@
   "daemon-events": {
    "id": 194,
    "description": "Clients, daemon lifetime, settings, pairing and machine state.",
-   "next_ordinal": 12
+   "next_ordinal": 13
   },
   "agent-events": {
    "id": 195,
@@ -6612,6 +6612,14 @@
      },
      "presence": "optional",
      "nullable": false
+    },
+    "hangs": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHangs"
+     },
+     "presence": "optional",
+     "nullable": false
     }
    },
    "additional_properties": false,
@@ -6626,7 +6634,8 @@
     "request_latency_us and dispatch_queue_us are present only when the request names requests in include; dispatch_queue_us is microseconds from a request's parse to its handler's start.",
     "lock_classes is present only when the request names it in include.",
     "ipc is present only when the request names it in include.",
-    "ipc_methods is present only when the request names it in include; its rows are ordered by id, the rows without one last."
+    "ipc_methods is present only when the request names it in include; its rows are ordered by id, the rows without one last.",
+    "hangs is present only when the request names it in include."
    ]
   },
   "ServerStatsLockClasses": {
@@ -10461,7 +10470,7 @@
      },
      "presence": "required",
      "nullable": false,
-     "description": "Canonical public machine id (`machine_…`) of the daemon that answered."
+     "description": "Canonical public machine id (`machine_\u2026`) of the daemon that answered."
     }
    },
    "additional_properties": false,
@@ -10479,7 +10488,7 @@
      },
      "presence": "required",
      "nullable": false,
-     "description": "Canonical public machine id (`machine_…`) of the daemon that answered."
+     "description": "Canonical public machine id (`machine_\u2026`) of the daemon that answered."
     },
     "watch_id": {
      "type": {
@@ -10894,6 +10903,70 @@
     "image_id is that image's build id (Mach-O LC_UUID as dwarfdump --uuid prints it, or the ELF NT_GNU_BUILD_ID in lowercase hex), or null when it has none.",
     "offset is the frame address minus the image load address (the address itself when image is null), for offline symbolication.",
     "symbol is the nearest exported symbol, mangled, or null for a local function."
+   ]
+  },
+  "ServerStatsHangs": {
+   "kind": "object",
+   "fields": {
+    "over_250ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "records": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ServerStatsHangRecord"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "over_250ms counts watched scopes busy 250 ms or more since daemon start, each once; it is never reset.",
+    "records keeps the newest 64, oldest first."
+   ]
+  },
+  "ServerStatsHangRecord": {
+   "kind": "object",
+   "fields": {
+    "sequence": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "span": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "duration_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "sequence is the hang's ordinal since daemon start, 1 for the first.",
+    "span is <scope>:<method>, catalog names only.",
+    "duration_ms is the final duration once the scope ended, else how long it had run when it was seen."
    ]
   },
   "AgentSessionAnsweredBy": {
@@ -21447,7 +21520,7 @@
    "stream": null,
    "constraints": [
     "Owner-only diagnostics; never journaled and safe to poll.",
-    "include names optional result sections (resource_projection, write_path, request_path_io, slow_requests, requests, ipc, lock_classes, ipc_methods); unknown names are ignored."
+    "include names optional result sections (resource_projection, write_path, request_path_io, slow_requests, requests, ipc, lock_classes, ipc_methods, hangs); unknown names are ignored."
    ],
    "method_id": 266,
    "priority": "background",
@@ -39707,6 +39780,108 @@
     "additional_properties": false
    },
    "event_id": 49673,
+   "priority": "background"
+  },
+  "server-diagnostic-site": {
+   "since": 12,
+   "capability": "diagnostic-sites-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "server-diagnostic-site"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "family": {
+      "type": {
+       "kind": "enum",
+       "values": [
+        "blocking",
+        "inversion",
+        "hang"
+       ]
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "blocking: a blocking call where blocking is disallowed (or a work item's wait for other work); inversion: a wait on work of lower QoS; hang: a request method that ran past the 250 ms watchdog threshold, or a holder-link frame or a journal commit past its hang tier."
+     },
+     "kind": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "The blocking kind (cmux_threads BlockingKind names: fs, sleep, recv, priority-inversion, ...), or for a hang its scope: request, holder-link or journal-writer."
+     },
+     "crate": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "description": "Blocking and inversion: the crate of the call site without its version, or other. Never a path."
+     },
+     "file_hash": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "description": "Blocking and inversion: 16 hex digits, FNV-1a of the file's path from the crate folder on. Never a path."
+     },
+     "line": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "description": "Blocking and inversion: the call site's line."
+     },
+     "lane_sync": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "description": "Blocking: a work item's wait for other work."
+     },
+     "method": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "description": "Hang: what ran: the request's command or v2 operation name (a colon written as a dot), the holder frame kind (data, exit, ...) or commit-batch."
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
+     }
+    },
+    "additional_properties": false
+   },
+   "event_id": 49676,
    "priority": "background"
   },
   "url-open": {
