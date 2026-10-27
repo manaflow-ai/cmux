@@ -42,7 +42,12 @@ pub async fn serve(
         return Ok(());
     }
     let listen_node = node.clone();
-    let listener = tokio::task::spawn_blocking(move || listen_node.listen_tcp(443)).await??;
+    let opening = tokio::task::spawn_blocking(move || listen_node.listen_tcp(443));
+    let listener = tokio::select! {
+        biased;
+        _ = stopped(&mut stop) => return Ok(()),
+        result = tokio::time::timeout(HANDSHAKE_BOUND, opening) => result???,
+    };
     let mut listener = tokio::io::unix::AsyncFd::new(listener)?;
     let slots = Arc::new(Semaphore::new(MAX_CONNECTIONS));
     let mut connections = JoinSet::new();
@@ -65,7 +70,6 @@ pub async fn serve(
                 let Ok(slot) = slots.clone().try_acquire_owned() else { continue };
                 let (node, hub, fqdn, mut stop) = (node.clone(), hub.clone(), fqdn.clone(), closing.clone());
                 connections.spawn(async move {
-                    let _slot = slot;
                     let prepare = tokio::task::spawn_blocking(move || -> Result<_> {
                         let status = node.status()?;
                         ensure!(status.dns_name().as_deref() == Some(&fqdn), "tailnet name changed");
@@ -73,13 +77,15 @@ pub async fn serve(
                         // Tailscale caches and renews this pair. Obtain it per admitted
                         // connection, so no timer or stale certificate survives a rename.
                         let pem = Zeroizing::new(node.certificate_pair(&fqdn)?);
-                        Ok((tls_config(&fqdn, &pem)?, fqdn))
+                        // Keep capacity reserved even if the async timeout drops
+                        // this task's handle before its bounded LocalAPI call ends.
+                        Ok((tls_config(&fqdn, &pem)?, fqdn, slot))
                     });
                     let prepared = tokio::select! {
                         _ = stopped(&mut stop) => return,
                         result = tokio::time::timeout(HANDSHAKE_BOUND, prepare) => result,
                     };
-                    let Ok(Ok(Ok((tls, fqdn)))) = prepared else { return };
+                    let Ok(Ok(Ok((tls, fqdn, _slot)))) = prepared else { return };
                     if stream.set_nonblocking(true).is_err() { return }
                     let Ok(stream) = tokio::net::UnixStream::from_std(stream) else { return };
                     let _ = connection(hub, stream, tls, &fqdn, stop).await;
