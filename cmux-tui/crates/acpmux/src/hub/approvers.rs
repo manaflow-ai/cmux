@@ -155,7 +155,7 @@ impl ApproverSet {
 /// The approvers of a list `[{id, publicKey, name}]`, checked whole: at most
 /// [`MAX_APPROVERS`], each id once, each key a 65-byte uncompressed P-256 point as hex.
 /// The enrolled Macs' file is read with it too (`mac_approvers.rs`).
-pub(super) fn parse_approvers(list: &[Value]) -> Result<Vec<Approver>, RpcError> {
+pub fn parse_approvers(list: &[Value]) -> Result<Vec<Approver>, RpcError> {
     if list.len() > MAX_APPROVERS {
         return Err(RpcError::invalid_params(format!("at most {MAX_APPROVERS} approvers")));
     }
@@ -299,12 +299,12 @@ pub fn fingerprint(key: &[u8]) -> String {
     hex(&sha2::Sha256::digest(key)[..8])
 }
 
-pub(super) fn valid_id(s: &str) -> bool {
+pub fn valid_id(s: &str) -> bool {
     (1..=128).contains(&s.len())
         && s.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-'))
 }
 
-pub(super) fn hex(bytes: &[u8]) -> String {
+pub fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 

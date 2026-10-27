@@ -742,6 +742,12 @@ def handle_prompt(rid, params):
              "options": [{"value": value, "name": value}]}]})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "subagent-mode: X": subagent child-2 starts and reports mode X; the session's own mode stays.
+    if text.startswith("subagent-mode:"):
+        update(sid, {"sessionUpdate": "subagent_spawned", "subagentSessionId": "child-2", "name": "Child", "task": "Child", "capabilities": {}})
+        update("child-2", {"sessionUpdate": "current_mode_update", "currentModeId": text[14:].strip()})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "set-mode: X": the harness changes its own mode, as a real one may.
     if text.startswith("set-mode:"):
         update(sid, {"sessionUpdate": "current_mode_update", "currentModeId": text[9:].strip()})

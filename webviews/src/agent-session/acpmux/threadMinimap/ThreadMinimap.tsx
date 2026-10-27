@@ -845,6 +845,7 @@ export function ThreadMinimap({
           prompt={cardTurn.prompt}
           reply={cardTurn.reply}
           metadata={cardTurn.metadata}
+          onSizeChange={() => setCardHeight(card.current?.offsetHeight ?? 0)}
           bookmark={marks.can(cardTurn) ? { marked: cardMarked, toggle: () => marks.toggle(cardTurn) } : undefined}
           onPointerLeave={(event) => {
             // Back onto the rail keeps it (its row takes over); anywhere else it goes.

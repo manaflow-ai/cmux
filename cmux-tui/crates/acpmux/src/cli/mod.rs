@@ -19,6 +19,7 @@ pub mod harness_login;
 pub mod harness_registry;
 pub mod harness_run;
 pub mod harness_secret;
+pub mod host_approvals;
 pub mod host_budget;
 pub mod host_candidates;
 pub mod host_enroll;
