@@ -54,7 +54,8 @@ public nonisolated struct ComputerUsePreviewChat: Equatable, Sendable {
 /// Which agent chat shows a Computer Use session's live preview card. The helper stamps the
 /// session's agent from its MCP proxy's process (computer-use.md section 3); until the session
 /// host attributes it (step d: `acp_session`, `harness_session_id`, `workspace_id`), nothing names
-/// the chat, so the route falls back to the chat that is working, then the focused chat.
+/// the chat, so the route guesses the one working chat of the session's agent family. A guess that
+/// is not sure shows no card: a card in a chat that does not own the session is worse than none.
 nonisolated enum ComputerUsePreviewRoute {
     /// The chat for `session`, and whether an id named it (`exact`) rather than a guess.
     struct Pick: Equatable, Sendable {
@@ -62,28 +63,33 @@ nonisolated enum ComputerUsePreviewRoute {
         var exact: Bool
     }
 
-    /// In order: the chat of the session's `acp_session`; the chat of its harness session id; in
-    /// its workspace, the one working chat (or the only chat); the one working chat of the same
-    /// harness family; the focused chat. Nil when none fits.
-    static func pick(for session: ComputerUsePreviewSession, chats: [ComputerUsePreviewChat], focused: String?) -> Pick? {
+    /// In order: the chat of the session's `acp_session`; the chat of its harness session id. A
+    /// session that has either id and no open chat it names shows nowhere. Else a guess, only in its
+    /// workspace when it names one: the one working chat of its agent family (in its workspace, the
+    /// only chat of that family also fits). A session of no known family goes only to the one chat
+    /// that works at all. Nil when none fits, or when several chats could be its.
+    static func pick(for session: ComputerUsePreviewSession, chats: [ComputerUsePreviewChat]) -> Pick? {
         if let acp = session.acpSession, let chat = chats.first(where: { $0.session == acp }) {
             return Pick(key: chat.key, exact: true)
         }
         if let harness = session.harnessSessionID, let chat = chats.first(where: { $0.agentSession == harness }) {
             return Pick(key: chat.key, exact: true)
         }
-        let family = Self.family(session.agentKind)
-        let fits = chats.filter { $0.session != nil && Self.compatible(family, Self.family($0.harness)) }
-        if let workspace = session.workspaceID {
-            let here = fits.filter { $0.workspaceID == workspace }
-            let working = here.filter(\.working)
-            if working.count == 1, let only = working.first { return Pick(key: only.key, exact: false) }
-            if here.count == 1, let only = here.first { return Pick(key: only.key, exact: false) }
+        // Its own chat is not open here: no other chat owns it.
+        guard session.acpSession == nil, session.harnessSessionID == nil else { return nil }
+        let open = chats.filter { $0.session != nil }
+        let here = session.workspaceID.map { workspace in open.filter { $0.workspaceID == workspace } } ?? open
+        guard let family = Self.family(session.agentKind) else {
+            let working = open.filter(\.working)
+            guard working.count == 1, let only = working.first, here.contains(only) else { return nil }
+            return Pick(key: only.key, exact: false)
         }
+        let fits = here.filter { Self.family($0.harness).map { $0 == family } ?? true }
         let working = fits.filter(\.working)
         if working.count == 1, let only = working.first { return Pick(key: only.key, exact: false) }
-        // No chat works, or several do: nothing better than the focused chat is known.
-        if let focused, chats.contains(where: { $0.key == focused }) { return Pick(key: focused, exact: false) }
+        if session.workspaceID != nil, fits.count == 1, let only = fits.first {
+            return Pick(key: only.key, exact: false)
+        }
         return nil
     }
 
@@ -96,10 +102,5 @@ nonisolated enum ComputerUsePreviewRoute {
         if kind.hasPrefix("codex") { return "codex" }
         if kind.hasPrefix("opencode") { return "opencode" }
         return nil
-    }
-
-    private static func compatible(_ lhs: String?, _ rhs: String?) -> Bool {
-        guard let lhs, let rhs else { return true }
-        return lhs == rhs
     }
 }

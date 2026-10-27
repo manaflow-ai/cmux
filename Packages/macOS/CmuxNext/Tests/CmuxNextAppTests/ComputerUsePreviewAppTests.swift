@@ -22,9 +22,9 @@ struct ComputerUsePreviewAppTests {
     static func board(_ session: ComputerUsePreviewSession) -> ComputerUsePreviewBoard {
         var board = ComputerUsePreviewBoard()
         board.apply(sessions: [session])
-        board.route(chats: [ComputerUsePreviewBoardTests.chat("a", working: true)], focused: "a")
-        board.apply(newestFrame: "b1", session: "s")
-        board.loaded(.init(id: "b1", url: frame), session: "s")
+        board.route(chats: [ComputerUsePreviewBoardTests.chat("a", working: true)])
+        board.apply(newestFrame: "b1", at: ComputerUsePreviewBoardTests.at(1), session: "s")
+        board.loaded(.init(id: "b1", at: ComputerUsePreviewBoardTests.at(1), url: frame), session: "s")
         return board
     }
 
@@ -97,7 +97,7 @@ struct ComputerUsePreviewAppTests {
         let preview = ComputerUseLivePreview(host: host, makeSource: { FakeSource() }, resolver: resolver)
         preview.set(enabled: true)
         preview.apply(.sessions([Self.session()]))
-        preview.apply(.newestFrame(session: "s", frame: "b1"))
+        preview.apply(.newestFrame(session: "s", frame: "b1", at: ComputerUsePreviewBoardTests.at(1)))
         let running = try #require(await host.next { $0?.app == "Calculator" && $0?.done == false })
         #expect(running?.icon == nil)
         preview.apply(.sessions([Self.session(live: false)]))
@@ -112,25 +112,68 @@ struct ComputerUsePreviewAppTests {
         let preview = ComputerUseLivePreview(host: host, makeSource: { FakeSource() }, resolver: FakeResolver(apps: [:]))
         preview.set(enabled: true)
         preview.apply(.sessions([Self.session()]))
-        preview.apply(.newestFrame(session: "s", frame: "b1"))
+        preview.apply(.newestFrame(session: "s", frame: "b1", at: ComputerUsePreviewBoardTests.at(1)))
         let card = try #require(await host.next { $0 != nil })
         #expect(card?.app == "")
     }
+
+    // MARK: The live preview reads the chats only when routing can change
+
+    @Test(.timeLimit(.minutes(1)))
+    func frameNoticesReadNoChats() async throws {
+        let host = FakeHost()
+        let preview = ComputerUseLivePreview(host: host, makeSource: { FakeSource() }, resolver: FakeResolver(apps: [:]))
+        preview.set(enabled: true)
+        preview.apply(.sessions([Self.session()]))
+        let reads = host.chatReads
+        for (index, frame) in ["b1", "b2", "b3"].enumerated() {
+            preview.apply(.newestFrame(session: "s", frame: frame, at: ComputerUsePreviewBoardTests.at(Double(index))))
+            _ = try #require(await host.next { $0 != nil })
+        }
+        #expect(host.chatReads == reads, "a frame notice and its load push to the routed chat only")
+        #expect(host.shownChats == ["a"])
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func aTabThatSwitchesChatLosesTheOldChatsCardAtOnce() async throws {
+        let host = FakeHost()
+        let preview = ComputerUseLivePreview(host: host, makeSource: { FakeSource() }, resolver: FakeResolver(apps: [:]))
+        preview.set(enabled: true)
+        preview.apply(.sessions([Self.session()]))
+        preview.apply(.newestFrame(session: "s", frame: "b1", at: ComputerUsePreviewBoardTests.at(1)))
+        _ = try #require(await host.next { $0 != nil })
+        // `chat.select` in tab a: it now shows an idle chat, and the helper sends nothing new.
+        host.chats = [ComputerUsePreviewBoardTests.chat("a", session: "acp-other"), ComputerUsePreviewBoardTests.chat("b")]
+        host.chatsChanged()
+        #expect(try #require(await host.next { $0 == nil }) == nil)
+    }
 }
 
-/// One chat, `a`, working; each card shown goes to `next`.
+/// Chat `a` working, chat `b` idle; each card shown goes to `next`.
 @MainActor
 private final class FakeHost: ComputerUseLivePreviewHost {
     private var shown: [ComputerUsePreviewCard?] = []
+    /// How many times the live preview read the chats.
+    private(set) var chatReads = 0
+    /// The chats a card was shown in.
+    private(set) var shownChats: Set<String> = []
     private var waiter: (match: (ComputerUsePreviewCard?) -> Bool, continuation: CheckedContinuation<ComputerUsePreviewCard??, Never>)?
 
-    func computerUsePreviewChats() -> [ComputerUsePreviewChat] { [ComputerUsePreviewBoardTests.chat("a", working: true)] }
-    func computerUsePreviewFocusedChat() -> String? { "a" }
+    /// The chats the host has; a test changes them and calls `chatsChanged`.
+    var chats = [ComputerUsePreviewBoardTests.chat("a", working: true), ComputerUsePreviewBoardTests.chat("b")]
+    private(set) var chatsChanged: @MainActor () -> Void = {}
+
+    func computerUsePreviewChats() -> [ComputerUsePreviewChat] {
+        chatReads += 1
+        return chats
+    }
+    func computerUsePreviewFollowChats(_ changed: @escaping @MainActor () -> Void) { chatsChanged = changed }
     func computerUsePreviewOpenActivity(session: String) {}
 
     func computerUsePreviewShow(_ card: ComputerUsePreviewCard?, in chat: String,
                                 respond: @escaping @MainActor (String, ComputerUsePreviewClick) -> Void) {
         shown.append(card)
+        shownChats.insert(chat)
         if let waiter, waiter.match(card) {
             self.waiter = nil
             waiter.continuation.resume(returning: .some(card))

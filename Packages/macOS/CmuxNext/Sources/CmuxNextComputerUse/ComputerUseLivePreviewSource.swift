@@ -50,8 +50,9 @@ public nonisolated struct ComputerUsePreviewSession: Equatable, Sendable {
 public nonisolated enum ComputerUseLivePreviewUpdate: Sendable {
     /// Every session the driver knows now (replaces the last list).
     case sessions([ComputerUsePreviewSession])
-    /// The newest frame of `session`, by an id the source loads (``ComputerUseLivePreviewSource/frame(_:)``).
-    case newestFrame(session: String, frame: String)
+    /// The newest frame of `session`, by an id the source loads (``ComputerUseLivePreviewSource/frame(_:)``),
+    /// and when it was captured.
+    case newestFrame(session: String, frame: String, at: Date)
 }
 
 /// Where the live preview cards' data comes from: the sessions, each one's newest frame, and its
@@ -92,7 +93,7 @@ public final class ComputerUseActivityPreviewSource: ComputerUseLivePreviewSourc
             case .sessions(_, let sessions):
                 sink(.sessions(sessions.map(Self.session)))
             case .events(let session, let events):
-                if let frame = Self.newestFrame(events) { sink(.newestFrame(session: session, frame: frame)) }
+                if let frame = Self.newestFrame(events) { sink(.newestFrame(session: session, frame: frame.id, at: frame.at)) }
             case .connection:
                 break
             }
@@ -108,9 +109,12 @@ public final class ComputerUseActivityPreviewSource: ComputerUseLivePreviewSourc
         return await Self.thumbnail(configuration, blob: frame)
     }
 
-    /// The newest frame of a batch of events that still has its pixels (after, else before).
-    nonisolated static func newestFrame(_ events: [AgentActivityEvent]) -> String? {
-        events.last { $0.displayFrame.map { !$0.expired } ?? false }?.displayFrame?.blob
+    /// The newest frame of a batch of events that still has its pixels (after, else before), and
+    /// its event's time (the helper captures an event's frames with the event).
+    nonisolated static func newestFrame(_ events: [AgentActivityEvent]) -> (id: String, at: Date)? {
+        guard let event = events.last(where: { $0.displayFrame.map { !$0.expired } ?? false }),
+              let frame = event.displayFrame else { return nil }
+        return (frame.blob, event.time)
     }
 
     nonisolated static func session(_ value: AgentActivitySession) -> ComputerUsePreviewSession {

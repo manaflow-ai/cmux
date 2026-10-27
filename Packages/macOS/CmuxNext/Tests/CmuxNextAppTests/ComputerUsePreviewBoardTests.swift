@@ -23,6 +23,9 @@ struct ComputerUsePreviewBoardTests {
                                harness: harness, working: working, turnEnded: turnEnded)
     }
 
+    /// A frame's capture time, `seconds` after 1970.
+    static func at(_ seconds: Double) -> Date { Date(timeIntervalSince1970: seconds) }
+
     /// A legacy helper event, with its after frame.
     static func event(_ seq: UInt64, frame blob: String?, expired: Bool = false) -> AgentActivityEvent {
         AgentActivityEvent(seq: seq, time: Date(timeIntervalSince1970: Double(seq)), kind: .act, tool: "click",
@@ -33,9 +36,9 @@ struct ComputerUsePreviewBoardTests {
     static func running() -> ComputerUsePreviewBoard {
         var board = ComputerUsePreviewBoard()
         board.apply(sessions: [session("s")])
-        board.route(chats: [chat("a", working: true), chat("b")], focused: "b")
-        board.apply(newestFrame: "b1", session: "s")
-        board.loaded(.init(id: "b1", url: "data:image/jpeg;base64,AA=="), session: "s")
+        board.route(chats: [chat("a", working: true), chat("b")])
+        board.apply(newestFrame: "b1", at: Self.at(1), session: "s")
+        board.loaded(.init(id: "b1", at: Self.at(1), url: "data:image/jpeg;base64,AA=="), session: "s")
         return board
     }
 
@@ -43,34 +46,63 @@ struct ComputerUsePreviewBoardTests {
 
     @Test func anAcpSessionIdNamesTheChat() {
         let chats = [Self.chat("a", working: true), Self.chat("b", session: "acp-9")]
-        let pick = ComputerUsePreviewRoute.pick(for: Self.session("s", acp: "acp-9"), chats: chats, focused: "a")
+        let pick = ComputerUsePreviewRoute.pick(for: Self.session("s", acp: "acp-9"), chats: chats)
         #expect(pick == .init(key: "b", exact: true))
     }
 
     @Test func aHarnessSessionIdNamesTheChat() {
         let chats = [Self.chat("a", working: true), Self.chat("b", agent: "claude-1")]
-        let pick = ComputerUsePreviewRoute.pick(for: Self.session("s", harness: "claude-1"), chats: chats, focused: "a")
+        let pick = ComputerUsePreviewRoute.pick(for: Self.session("s", harness: "claude-1"), chats: chats)
         #expect(pick == .init(key: "b", exact: true))
     }
 
     @Test func theWorkingChatOfTheWorkspaceWins() {
         let chats = [Self.chat("a", workspace: "w1", working: true), Self.chat("b", workspace: "w2", working: true),
                      Self.chat("c", workspace: "w2")]
-        let pick = ComputerUsePreviewRoute.pick(for: Self.session("s", workspace: "w2"), chats: chats, focused: "a")
+        let pick = ComputerUsePreviewRoute.pick(for: Self.session("s", workspace: "w2"), chats: chats)
         #expect(pick == .init(key: "b", exact: false))
     }
 
     @Test func withNoIdsTheOneWorkingChatOfTheSameFamilyWins() {
         let chats = [Self.chat("codex", harness: "codex", working: true), Self.chat("claude", working: true), Self.chat("idle")]
-        let pick = ComputerUsePreviewRoute.pick(for: Self.session("s", kind: "claude"), chats: chats, focused: "idle")
+        let pick = ComputerUsePreviewRoute.pick(for: Self.session("s", kind: "claude"), chats: chats)
         #expect(pick == .init(key: "claude", exact: false))
     }
 
-    @Test func severalWorkingChatsFallBackToTheFocusedChat() {
+    @Test func severalWorkingChatsShowNoCard() {
         let chats = [Self.chat("a", working: true), Self.chat("b", working: true), Self.chat("c")]
-        #expect(ComputerUsePreviewRoute.pick(for: Self.session("s"), chats: chats, focused: "c") == .init(key: "c", exact: false))
-        #expect(ComputerUsePreviewRoute.pick(for: Self.session("s"), chats: chats, focused: nil) == nil)
-        #expect(ComputerUsePreviewRoute.pick(for: Self.session("s"), chats: [], focused: "c") == nil)
+        #expect(ComputerUsePreviewRoute.pick(for: Self.session("s"), chats: chats) == nil)
+        #expect(ComputerUsePreviewRoute.pick(for: Self.session("s"), chats: []) == nil)
+    }
+
+    @Test func anIdThatNamesNoOpenChatShowsNoCard() {
+        let chats = [Self.chat("a", working: true)]
+        #expect(ComputerUsePreviewRoute.pick(for: Self.session("s", acp: "acp-gone"), chats: chats) == nil)
+        #expect(ComputerUsePreviewRoute.pick(for: Self.session("s", harness: "h-gone"), chats: chats) == nil)
+    }
+
+    @Test func noFittingChatShowsNoCard() {
+        let idle = [Self.chat("a"), Self.chat("b")]
+        #expect(ComputerUsePreviewRoute.pick(for: Self.session("s"), chats: idle) == nil)
+    }
+
+    @Test func aSessionThatNamesItsWorkspaceShowsOnlyThere() {
+        let chats = [Self.chat("a", workspace: "w2", working: true)]
+        #expect(ComputerUsePreviewRoute.pick(for: Self.session("s", workspace: "w1"), chats: chats) == nil)
+    }
+
+    @Test func anUnknownAgentGoesOnlyToTheOneChatThatWorks() {
+        let unknown = Self.session("s", kind: "unknown")
+        let one = [Self.chat("a", working: true), Self.chat("b", harness: "codex")]
+        #expect(ComputerUsePreviewRoute.pick(for: unknown, chats: one) == .init(key: "a", exact: false))
+        let two = [Self.chat("a", working: true), Self.chat("b", harness: "codex", working: true)]
+        #expect(ComputerUsePreviewRoute.pick(for: unknown, chats: two) == nil)
+        // Its workspace does not narrow two working chats to one, nor give it the workspace's idle chat.
+        let inW1 = Self.session("s", kind: "unknown", workspace: "w1")
+        let both = [Self.chat("a", workspace: "w1", working: true), Self.chat("b", workspace: "w2", working: true)]
+        #expect(ComputerUsePreviewRoute.pick(for: inW1, chats: both) == nil)
+        let idleHere = [Self.chat("a", workspace: "w1"), Self.chat("b", workspace: "w2", working: true)]
+        #expect(ComputerUsePreviewRoute.pick(for: inW1, chats: idleHere) == nil)
     }
 
     @Test func agentKindsMapToFamilies() {
@@ -84,22 +116,52 @@ struct ComputerUsePreviewBoardTests {
     @Test func aGuessedChatStaysButAnIdMovesIt() {
         var board = Self.running()
         // Another chat starts working: the card does not jump there.
-        board.route(chats: [Self.chat("a"), Self.chat("b", working: true)], focused: "b")
+        board.route(chats: [Self.chat("a"), Self.chat("b", working: true)])
         #expect(board.card(for: "a") != nil)
         #expect(board.card(for: "b") == nil)
         // The helper later names the chat: the card moves to it.
         var named = Self.session("s", acp: "acp-b")
         named.lastActionAt = Date(timeIntervalSince1970: 101)
         board.apply(sessions: [named])
-        board.route(chats: [Self.chat("a"), Self.chat("b")], focused: "a")
+        board.route(chats: [Self.chat("a"), Self.chat("b")])
         #expect(board.card(for: "a") == nil)
         #expect(board.card(for: "b")?.session == "s")
     }
 
     @Test func aRunningSessionWhoseChatClosedMovesToAnotherChat() {
         var board = Self.running()
-        board.route(chats: [Self.chat("b")], focused: "b")
+        board.route(chats: [Self.chat("b", working: true)])
         #expect(board.card(for: "b")?.session == "s")
+    }
+
+    @Test func aTabThatSwitchesChatDropsTheOldChatsCard() {
+        var board = ComputerUsePreviewBoard()
+        board.apply(sessions: [Self.session("s", acp: "acp-A")])
+        board.route(chats: [Self.chat("t", session: "acp-A")])
+        board.apply(newestFrame: "b1", at: Self.at(1), session: "s")
+        board.loaded(.init(id: "b1", at: Self.at(1), url: "data:image/jpeg;base64,AA=="), session: "s")
+        #expect(board.card(for: "t")?.session == "s")
+        // `chat.select`: tab t now shows chat B, under the same key.
+        board.route(chats: [Self.chat("t", session: "acp-B", working: true)])
+        #expect(board.card(for: "t") == nil, "chat A's session does not show in chat B")
+        #expect(board.nextLoad() == nil)
+        // Back to chat A: its card comes back.
+        board.route(chats: [Self.chat("t", session: "acp-A")])
+        #expect(board.card(for: "t")?.session == "s")
+    }
+
+    @Test func aGuessedRouteIsDroppedWhenItsTabSwitchesChat() {
+        var board = Self.running()
+        board.route(chats: [Self.chat("a", session: "acp-other"), Self.chat("b")])
+        #expect(board.card(for: "a") == nil)
+        #expect(board.card(for: "b") == nil)
+    }
+
+    @Test func anEndedSessionWhoseTabSwitchedChatShowsNowhere() {
+        var board = Self.running()
+        board.apply(sessions: [Self.session("s", live: false)])
+        board.route(chats: [Self.chat("a", session: "acp-other", working: true)])
+        #expect(board.card(for: "a") == nil)
     }
 
     // MARK: Card states
@@ -107,11 +169,11 @@ struct ComputerUsePreviewBoardTests {
     @Test func aRunningSessionShowsItsNewestFrameOnceLoaded() {
         var board = ComputerUsePreviewBoard()
         #expect(board.apply(sessions: [Self.session("s")]) == ["s"])
-        board.route(chats: [Self.chat("a", working: true)], focused: nil)
+        board.route(chats: [Self.chat("a", working: true)])
         #expect(board.card(for: "a") == nil, "no card before a frame")
-        board.apply(newestFrame: "b3", session: "s")
-        #expect(board.nextLoad()?.frame == "b3")
-        board.loaded(.init(id: "b3", url: "data:image/jpeg;base64,AA=="), session: "s")
+        board.apply(newestFrame: "b3", at: Self.at(3), session: "s")
+        #expect(board.nextLoad()?.frame.id == "b3")
+        board.loaded(.init(id: "b3", at: Self.at(3), url: "data:image/jpeg;base64,AA=="), session: "s")
         #expect(board.nextLoad() == nil)
         let apps = [ComputerUsePreviewApp.Key(bundleID: "com.apple.calculator", pid: nil):
             ComputerUsePreviewApp(name: "Calculator", icon: "data:image/png;base64,AA==")]
@@ -132,22 +194,22 @@ struct ComputerUsePreviewBoardTests {
 
     @Test func aCardTurnsDoneWhenItsChatsTurnEndsAndRunsAgainWithTheNextAct() {
         var board = Self.running()
-        board.route(chats: [Self.chat("a", turnEnded: true), Self.chat("b")], focused: "b")
+        board.route(chats: [Self.chat("a", turnEnded: true), Self.chat("b")])
         #expect(board.card(for: "a")?.done == true, "the turn that used the app is over")
         #expect(board.followed.isEmpty)
         // The next turn acts again: the card runs again in the same chat.
         #expect(board.apply(sessions: [Self.session("s", at: 101, acts: 2)]) == ["s"])
-        board.route(chats: [Self.chat("a", working: true), Self.chat("b")], focused: "b")
+        board.route(chats: [Self.chat("a", working: true), Self.chat("b")])
         #expect(board.card(for: "a")?.done == false)
     }
 
     @Test func anIdleChatThatNeverWorkedDoesNotEndTheCard() {
         var board = ComputerUsePreviewBoard()
-        board.apply(sessions: [Self.session("s")])
-        // An agent outside any chat's turn lands in the focused chat, which is idle.
-        board.route(chats: [Self.chat("a", turnEnded: true)], focused: "a")
-        board.apply(newestFrame: "b1", session: "s")
-        board.loaded(.init(id: "b1", url: "data:image/jpeg;base64,AA=="), session: "s")
+        // An id routes the session to an idle chat: an agent outside the chat's turns.
+        board.apply(sessions: [Self.session("s", acp: "acp-a")])
+        board.route(chats: [Self.chat("a", turnEnded: true)])
+        board.apply(newestFrame: "b1", at: Self.at(1), session: "s")
+        board.loaded(.init(id: "b1", at: Self.at(1), url: "data:image/jpeg;base64,AA=="), session: "s")
         #expect(board.card(for: "a")?.done == false)
     }
 
@@ -190,13 +252,13 @@ struct ComputerUsePreviewBoardTests {
         #expect(board.card(for: "a") == nil)
         #expect(board.followed.isEmpty)
         // New frames of the closed session load nothing.
-        board.apply(newestFrame: "b2", session: "s")
+        board.apply(newestFrame: "b2", at: Self.at(2), session: "s")
         #expect(board.nextLoad() == nil)
         // A newer session in the same chat shows its own card.
         board.apply(sessions: [Self.session("s"), Self.session("t", at: 200)])
-        board.route(chats: [Self.chat("a", working: true)], focused: "a")
-        board.apply(newestFrame: "t1", session: "t")
-        board.loaded(.init(id: "t1", url: "data:image/png;base64,AA=="), session: "t")
+        board.route(chats: [Self.chat("a", working: true)])
+        board.apply(newestFrame: "t1", at: Self.at(1), session: "t")
+        board.loaded(.init(id: "t1", at: Self.at(1), url: "data:image/png;base64,AA=="), session: "t")
         #expect(board.card(for: "a")?.session == "t")
     }
 
@@ -210,22 +272,67 @@ struct ComputerUsePreviewBoardTests {
         #expect(board.apply(sessions: [Self.session("s")]) == ["s"])
     }
 
-    @Test func aRunningSessionWinsOverANewerEndedOne() {
+    @Test func aCardIsLiveWhileAnyOfItsChatsSessionsIs() {
         var board = Self.running()
         board.apply(sessions: [Self.session("s", at: 100), Self.session("t", at: 300)])
-        board.route(chats: [Self.chat("a", working: true)], focused: "a")
-        board.apply(newestFrame: "t1", session: "t")
-        board.loaded(.init(id: "t1", url: "data:image/png;base64,AA=="), session: "t")
+        board.route(chats: [Self.chat("a", working: true)])
+        board.apply(newestFrame: "t5", at: Self.at(5), session: "t")
+        board.loaded(.init(id: "t5", at: Self.at(5), url: "data:image/png;base64,AA=="), session: "t")
         board.apply(sessions: [Self.session("s", at: 100), Self.session("t", live: false, at: 300)])
-        #expect(board.card(for: "a")?.session == "s")
+        let card = board.card(for: "a")
+        #expect(card?.session == "t", "the newest frame shows, though its session ended")
+        #expect(card?.done == false, "s still runs")
+        board.apply(sessions: [Self.session("s", live: false, at: 100), Self.session("t", live: false, at: 300)])
+        #expect(board.card(for: "a")?.done == true)
     }
 
-    @Test func theNewestSessionsFrameLoadsFirst() {
+    @Test func sessionsOfOneChatFeedOneCardInCaptureOrder() {
+        // One agent turn made two sessions at once: one launched the app and observed, the other clicked.
+        var board = ComputerUsePreviewBoard()
+        board.apply(sessions: [Self.session("click", at: 100), Self.session("launch", at: 101)])
+        board.route(chats: [Self.chat("a", working: true)])
+        /// Names `frame` of `session`, loads what the board asks for next, and gives chat a's card.
+        func step(_ frame: String, of session: String, at seconds: Double) -> ComputerUsePreviewCard? {
+            board.apply(newestFrame: frame, at: Self.at(seconds), session: session)
+            if let next = board.nextLoad() {
+                board.loaded(.init(id: next.frame.id, at: next.frame.at, url: "data:image/png;base64,\(next.frame.id)"),
+                             session: next.session)
+            }
+            return board.card(for: "a")
+        }
+        #expect(step("l1", of: "launch", at: 6.5)?.frame == "data:image/png;base64,l1")
+        #expect(step("c1", of: "click", at: 13.7)?.frame == "data:image/png;base64,c1")
+        #expect(step("c8", of: "click", at: 28.3)?.frame == "data:image/png;base64,c8")
+        let last = step("l2", of: "launch", at: 38.5)
+        #expect(last?.frame == "data:image/png;base64,l2")
+        #expect(last?.session == "launch")
+        // A frame captured before the shown one, named late, neither loads nor shows.
+        #expect(step("c9", of: "click", at: 30)?.frame == "data:image/png;base64,l2")
+        #expect(board.nextLoad() == nil)
+        // Live while either session is; done once both ended.
+        board.apply(sessions: [Self.session("click", at: 100), Self.session("launch", live: false, at: 101)])
+        #expect(board.card(for: "a")?.done == false)
+        board.apply(sessions: [Self.session("click", live: false, at: 100), Self.session("launch", live: false, at: 101)])
+        #expect(board.card(for: "a")?.done == true)
+    }
+
+    @Test func closeHidesTheChatsCardForAllItsSessions() {
+        var board = Self.running()
+        board.apply(sessions: [Self.session("s"), Self.session("t", at: 200)])
+        board.route(chats: [Self.chat("a", working: true)])
+        board.apply(newestFrame: "t2", at: Self.at(2), session: "t")
+        board.loaded(.init(id: "t2", at: Self.at(2), url: "data:image/png;base64,AA=="), session: "t")
+        board.dismiss(session: "t")
+        #expect(board.card(for: "a") == nil)
+        #expect(board.followed.isEmpty)
+    }
+
+    @Test func theNewestFrameLoadsFirst() {
         var board = ComputerUsePreviewBoard()
         board.apply(sessions: [Self.session("old", at: 100), Self.session("new", at: 200)])
-        board.route(chats: [Self.chat("a", working: true)], focused: "a")
-        board.apply(newestFrame: "o1", session: "old")
-        board.apply(newestFrame: "n1", session: "new")
+        board.route(chats: [Self.chat("a", working: true)])
+        board.apply(newestFrame: "o1", at: Self.at(1), session: "old")
+        board.apply(newestFrame: "n1", at: Self.at(2), session: "new")
         #expect(board.nextLoad()?.session == "new")
     }
 
@@ -246,8 +353,8 @@ struct ComputerUsePreviewBoardTests {
 
     @Test func aFrameThatFailsIsNotAskedForAgainAndTheCardKeepsItsFrame() {
         var board = Self.running()
-        board.apply(newestFrame: "b2", session: "s")
-        #expect(board.nextLoad()?.frame == "b2")
+        board.apply(newestFrame: "b2", at: Self.at(2), session: "s")
+        #expect(board.nextLoad()?.frame.id == "b2")
         board.failed("b2", session: "s")
         #expect(board.nextLoad() == nil)
         #expect(board.card(for: "a")?.frame == "data:image/jpeg;base64,AA==")
@@ -258,7 +365,8 @@ struct ComputerUsePreviewBoardTests {
     @Test func theLegacySourceNamesTheNewestFrameWithPixels() {
         let events = [Self.event(1, frame: "b1"), Self.event(2, frame: nil), Self.event(3, frame: "b3"),
                       Self.event(4, frame: "b4", expired: true)]
-        #expect(ComputerUseActivityPreviewSource.newestFrame(events) == "b3")
+        #expect(ComputerUseActivityPreviewSource.newestFrame(events)?.id == "b3")
+        #expect(ComputerUseActivityPreviewSource.newestFrame(events)?.at == Self.at(3), "captured with its event")
         #expect(ComputerUseActivityPreviewSource.newestFrame([Self.event(1, frame: nil)]) == nil)
     }
 

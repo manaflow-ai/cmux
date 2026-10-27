@@ -31,21 +31,31 @@ public nonisolated enum ComputerUsePreviewClick: String, Sendable {
     case close
 }
 
-/// The live preview cards' state (B6), with no I/O: which Computer Use sessions have a card, the
+/// The live preview cards' state (B6), with no I/O: which Computer Use sessions feed a card, the
 /// chat each shows in, the frame each wants and the one it has, and which the person closed.
 /// ``ComputerUseLivePreview`` feeds it a ``ComputerUseLivePreviewSource``'s pushes, loads the
 /// frames it asks for and pushes each chat's card to its page.
 ///
-/// - A session gets a card only when it is first seen live: a session that ended before the app
-///   saw it never shows.
-/// - Running, the card shows the newest frame; ended (or gone from the source's list), or once its
-///   chat's turn is over, it keeps its last frame and turns done. A new act runs it again.
-/// - Closed, the session's card stays hidden; a newer session in the same chat shows its own.
+/// - A card is a chat's, not a session's: one agent turn can make several sessions at once (one
+///   launches the app, another clicks), and every session routed to the chat feeds its one card.
+/// - A session feeds a card only when it is first seen live: one that ended before the app saw it
+///   never shows.
+/// - The card shows the newest frame by capture time across its sessions. It runs while any of
+///   them runs; once all have ended (or gone from the source's list) or the chat's turn is over, it
+///   keeps its last frame and turns done. A new act runs it again.
+/// - Closed, the card's sessions stay hidden; a newer session in the same chat shows again.
 /// - Off (`computerUse.livePreview`), nothing shows and nothing is kept.
 nonisolated struct ComputerUsePreviewBoard: Sendable {
-    /// A loaded frame: its id and its `data:` URL.
+    /// A frame the source named: its id and when it was captured.
+    struct FrameRef: Equatable, Sendable {
+        var id: String
+        var at: Date
+    }
+
+    /// A loaded frame: its id, when it was captured, and its `data:` URL.
     struct Frame: Equatable, Sendable {
         var id: String
+        var at: Date
         var url: String
     }
 
@@ -53,10 +63,13 @@ nonisolated struct ComputerUsePreviewBoard: Sendable {
         var session: ComputerUsePreviewSession
         /// The chat tab the card shows in; nil until a route found one.
         var chat: String?
+        /// The acpmux session tab `chat` showed when the route was made: the route holds only while
+        /// the tab still shows it (`chat.select` switches a tab to another chat under the same key).
+        var chatSession: String?
         /// An id named the chat (``ComputerUsePreviewRoute/Pick/exact``).
         var exact = false
         /// The newest frame the source named.
-        var wanted: String?
+        var wanted: FrameRef?
         /// The frame the card shows.
         var frame: Frame?
         /// The person closed the card.
@@ -114,30 +127,32 @@ nonisolated struct ComputerUsePreviewBoard: Sendable {
         return read.filter { entries[$0] != nil }
     }
 
-    /// The source named `frame` the newest frame of `session`.
-    mutating func apply(newestFrame frame: String, session: String) {
-        entries[session]?.wanted = frame
+    /// The source named `frame`, captured at `at`, the newest frame of `session`.
+    mutating func apply(newestFrame frame: String, at: Date, session: String) {
+        entries[session]?.wanted = FrameRef(id: frame, at: at)
     }
 
-    /// Gives each live session without a chat (or whose chat closed) its chat; an id that names a
-    /// chat moves a guessed one there. An ended session whose chat closed shows nowhere. Each card
-    /// turns done or running again with its chat's turn.
-    mutating func route(chats: [ComputerUsePreviewChat], focused: String?) {
+    /// Gives each live session without a chat its chat; an id that names a chat moves a guessed one
+    /// there. A route holds only while its tab shows the chat it was made for: a tab that closed, or
+    /// switched to another acpmux session, drops it, and the session is routed again at once (an
+    /// ended one then shows nowhere). Each card turns done or running again with its chat's turn.
+    mutating func route(chats: [ComputerUsePreviewChat]) {
         var byKey: [String: ComputerUsePreviewChat] = [:]
         for chat in chats { byKey[chat.key] = chat }
         for id in entries.keys {
             guard var entry = entries[id] else { continue }
-            let stale = entry.chat.map { byKey[$0] == nil } ?? true
-            if entry.ended {
-                if stale { entry.chat = nil }
-            } else if stale || !entry.exact,
-                      let pick = ComputerUsePreviewRoute.pick(for: entry.session, chats: chats, focused: focused),
-                      stale || (pick.exact && pick.key != entry.chat) {
-                if entry.chat != pick.key { entry.sawTurn = false }
-                entry.chat = pick.key
-                entry.exact = pick.exact
-            } else if stale {
+            if let key = entry.chat, byKey[key].map({ $0.session != entry.chatSession }) ?? true {
                 entry.chat = nil
+                entry.chatSession = nil
+                entry.exact = false
+            }
+            if !entry.ended, entry.chat == nil || !entry.exact,
+               let pick = ComputerUsePreviewRoute.pick(for: entry.session, chats: chats),
+               entry.chat == nil || (pick.exact && pick.key != entry.chat) {
+                entry.chat = pick.key
+                entry.chatSession = byKey[pick.key]?.session
+                entry.exact = pick.exact
+                entry.sawTurn = false
             }
             let chat = entry.chat.flatMap { byKey[$0] }
             if chat?.working == true { entry.sawTurn = true }
@@ -159,39 +174,55 @@ nonisolated struct ComputerUsePreviewBoard: Sendable {
     /// Frame `frame` of `session` could not load (gone, or the source failed): it is not asked
     /// for again, and the card keeps the frame it has.
     mutating func failed(_ frame: String, session: String) {
-        guard var entry = entries[session], entry.wanted == frame else { return }
-        entry.wanted = entry.frame?.id
+        guard var entry = entries[session], entry.wanted?.id == frame else { return }
+        entry.wanted = entry.frame.map { FrameRef(id: $0.id, at: $0.at) }
         entries[session] = entry
     }
 
-    /// The person closed the card of `session`.
-    mutating func dismiss(session: String) {
-        entries[session]?.dismissed = true
+    /// The person closed the card that shows `session`: every session that feeds it stays hidden.
+    /// Returns those sessions.
+    @discardableResult
+    mutating func dismiss(session: String) -> Set<String> {
+        guard let entry = entries[session] else { return [] }
+        let feeding = entry.chat.map { chat in entries.values.filter { $0.chat == chat && !$0.dismissed }.map(\.session.id) } ?? []
+        let closed = Set(feeding).union([session])
+        for id in closed { entries[id]?.dismissed = true }
+        return closed
     }
 
-    /// The card chat `chat` shows: its newest running session's, else its newest ended one's;
-    /// only once a frame has loaded. `apps` holds the apps looked up so far (``appKeys``).
+    /// The card chat `chat` shows, fed by every session routed there: the newest frame by capture
+    /// time, with that frame's session and app; done only once all of them are. Only once a frame
+    /// has loaded. `apps` holds the apps looked up so far (``appKeys``).
     func card(for chat: String, apps: [ComputerUsePreviewApp.Key: ComputerUsePreviewApp] = [:]) -> ComputerUsePreviewCard? {
         guard enabled else { return nil }
-        let shown = entries.values.filter { $0.chat == chat && !$0.dismissed && $0.frame != nil }
-        guard let entry = shown.max(by: { Self.older($0, than: $1) }), let frame = entry.frame else { return nil }
+        let feeding = entries.values.filter { $0.chat == chat && !$0.dismissed }
+        guard let entry = feeding.max(by: { Self.earlier($0.frame, than: $1.frame, $0.session.id, $1.session.id) }),
+              let frame = entry.frame else { return nil }
         let session = entry.session
+        let done = feeding.allSatisfy(\.done)
         let app = session.appKey.flatMap { apps[$0] }
         let name = [session.app, app?.name, session.windowTitle].lazy.compactMap { $0?.trimmingCharacters(in: .whitespaces) }
             .first { !$0.isEmpty }
-        return ComputerUsePreviewCard(session: session.id, app: name ?? "", done: entry.done, frame: frame.url,
-                                      icon: entry.done ? app?.icon : nil)
+        return ComputerUsePreviewCard(session: session.id, app: name ?? "", done: done, frame: frame.url,
+                                      icon: done ? app?.icon : nil)
     }
 
-    /// The next frame to load: of the newest session whose card can show and whose wanted frame
-    /// is not the one it has. One load at a time, so the newest always wins.
-    func nextLoad() -> (session: String, frame: String)? {
-        let waiting = entries.values.filter { entry in
-            guard enabled, !entry.dismissed, entry.chat != nil, let wanted = entry.wanted else { return false }
-            return wanted != entry.frame?.id
+    /// The next frame to load: the newest by capture time that a card can show, so newer than the
+    /// frame its chat's card has (a session's older frame named late never loads). One load at a
+    /// time, so the newest always wins.
+    func nextLoad() -> (session: String, frame: FrameRef)? {
+        guard enabled else { return nil }
+        var shown: [String: Date] = [:]
+        for entry in entries.values where !entry.dismissed {
+            guard let chat = entry.chat, let frame = entry.frame else { continue }
+            shown[chat] = max(shown[chat] ?? .distantPast, frame.at)
         }
-        guard let entry = waiting.max(by: { Self.older($0, than: $1) }), let wanted = entry.wanted else { return nil }
-        return (entry.session.id, wanted)
+        let waiting = entries.values.compactMap { entry -> (session: String, frame: FrameRef)? in
+            guard !entry.dismissed, let chat = entry.chat, let wanted = entry.wanted, wanted.id != entry.frame?.id,
+                  shown[chat].map({ wanted.at > $0 }) ?? true else { return nil }
+            return (entry.session.id, wanted)
+        }
+        return waiting.max { ($0.frame.at, $0.session) < ($1.frame.at, $1.session) }
     }
 
     /// The sessions whose frames the board follows: live and not closed.
@@ -202,6 +233,13 @@ nonisolated struct ComputerUsePreviewBoard: Sendable {
     /// The apps the kept sessions use, to look up for their names and icons.
     var appKeys: Set<ComputerUsePreviewApp.Key> {
         Set(entries.values.compactMap(\.session.appKey))
+    }
+
+    /// No frame before any, then by capture time, then by session id.
+    private static func earlier(_ lhs: Frame?, than rhs: Frame?, _ lhsSession: String, _ rhsSession: String) -> Bool {
+        guard let rhs else { return false }
+        guard let lhs else { return true }
+        return (lhs.at, lhsSession) < (rhs.at, rhsSession)
     }
 
     /// Running before ended, then by last action, then by id.
