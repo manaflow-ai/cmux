@@ -69,6 +69,7 @@ actor CodexBrokerSession {
                 for try await line in output.bytes.lines {
                     await self?.consume(Data((line + "\n").utf8))
                 }
+                await self?.terminatePending()
             } catch {
                 await self?.terminatePending()
             }
@@ -161,7 +162,8 @@ actor CodexBrokerSession {
     private func didExit() {
         exited = true
         stopped = true
-        terminatePending()
+        // The reader drains final replies before failing remaining requests at
+        // EOF; process exit can race the last timeout reply in the pipe.
         let waiting = exitWaiters
         exitWaiters.removeAll()
         for continuation in waiting { continuation.resume() }

@@ -91,7 +91,9 @@ for line in sys.stdin:
         for key, value in pending.items(): reply(value, 'survived')
         pending.clear()
         reply(id)
-    elif method == 'timeout': reply(id, error='codex_auth_timeout')
+    elif method == 'timeout':
+        reply(id, error='codex_auth_timeout')
+        sys.exit(0)
     elif method == 'account': reply(id, error='codex_auth_account_changed')
     elif method == 'environment':
         reply(id, json.dumps({k: os.environ[k] for k in ('TMPDIR', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'UNRELATED_SECRET') if k in os.environ}))
