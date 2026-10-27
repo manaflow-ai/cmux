@@ -41,6 +41,42 @@ import WebKit
         #expect(try await report(view)["device"] == false, "a closed \(kind.name) still kept the page")
     }
 
+    /// Stand-ins for the Web Locks and IndexedDB interfaces (a blank page has no origin to store under).
+    private static let fakeStorage = """
+        window.LockManager = class { async request(...args) { return args[args.length - 1]({ name: args[0] }); } };
+        window.IDBDatabase = class extends EventTarget { close() {} };
+        window.IDBFactory = class { open() { const request = new EventTarget();
+          setTimeout(() => { request.result = new IDBDatabase(); request.dispatchEvent(new Event('success')); }); return request; } };
+        return true;
+        """
+
+    /// Chrome never freezes a page holding a Web Lock or an IndexedDB lock (freezing_policy.cc): the
+    /// recorder counts a granted lock until its callback's promise settles, and a connection until it closes.
+    @Test func aHeldWebLockAndAnOpenDatabaseCountUntilReleased() async throws {
+        let view = WKWebView(frame: .zero)
+        _ = try await view.callAsyncJavaScript(Self.fakeStorage, contentWorld: .page)
+        _ = try await view.evaluateJavaScript(BrowserPageBusy.recorderScript + ";true")
+        #expect(try await report(view)["lock"] == false)
+        #expect(try await report(view)["idb"] == false)
+        _ = try await view.callAsyncJavaScript("""
+            new LockManager().request('a', () => new Promise((done) => { window.release = done; }));
+            await new Promise((done) => setTimeout(done));
+            return true;
+            """, contentWorld: .page)
+        #expect(try await report(view)["lock"] == true, "a held Web Lock did not count")
+        _ = try await view.callAsyncJavaScript("window.release(); await new Promise((done) => setTimeout(done)); return true;", contentWorld: .page)
+        #expect(try await report(view)["lock"] == false, "a released Web Lock still counted")
+        _ = try await view.callAsyncJavaScript("""
+            const request = new IDBFactory().open('db');
+            await new Promise((done) => request.addEventListener('success', done));
+            window.db = request.result;
+            return true;
+            """, contentWorld: .page)
+        #expect(try await report(view)["idb"] == true, "an open IndexedDB connection did not count")
+        _ = try await view.callAsyncJavaScript("window.db.close(); return true;", contentWorld: .page)
+        #expect(try await report(view)["idb"] == false, "a closed IndexedDB connection still counted")
+    }
+
     /// The person clicks into a child frame that has no recorder (Chromium's cross-origin frames).
     @Test func aChildFrameThePersonUsedThatCannotBeReadKeepsThePage() async throws {
         let page = try await Page(recorderInChildFrames: false)
