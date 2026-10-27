@@ -1070,6 +1070,10 @@ path = "tests/test_r2_cache_prune.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_git_mirror_bundle.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_prune_pr_media.py"
 lane = "linux-guard"
 
