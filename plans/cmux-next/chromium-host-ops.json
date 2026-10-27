@@ -5377,13 +5377,14 @@
       "task": "p01-process-015"
     },
     {
-      "site": "CmuxNextBrowser/CEF/CEFPageSchemes.swift: CEFPageSchemes.add(_:to:), from CEFRuntime.initialize, added != 1",
+      "site": "CmuxNextBrowser/CEF/CEFPageSchemes.swift: CEFPageSchemes.add(_:through:refused:), from CEFRuntime.initialize",
       "exports": [
         "cmux_shim_page_scheme_add_first_party",
-        "cmux_shim_page_scheme_add_first_party_dynamic"
+        "cmux_shim_page_scheme_add_first_party_dynamic",
+        "cmux_shim_page_scheme_set_group"
       ],
       "needs": "reply",
-      "change": "The immediate return is the client's check; the host's refusal arrives as the reply off main and is logged there.",
+      "change": "Each call is in the token form (sendAsync, whenSettled): a refusal reaches the caller in the call in process and in the turn of the host's REPLY in host mode; the client's own check refusing it sends nothing (unsent), a refusal too.",
       "task": "p01-process-070"
     },
     {

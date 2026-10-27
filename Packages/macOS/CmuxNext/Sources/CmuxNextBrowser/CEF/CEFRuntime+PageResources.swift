@@ -15,8 +15,11 @@ extension CEFRuntime {
         }
     }
 
+    /// In host mode `cmux_shim_page_resource_respond` is a post to the Chromium Host, its body in a sealed
+    /// shared memory region past 64 KiB (task 020) and at most ``CEFPageResponse/hostBodyLimit``.
     private func respond(token: Int32, with response: CEFPageResponse) {
         guard let shim else { return }
-        _ = shim.pageResourceRespond(token, Int32(response.status), response.mimeType, response.body)
+        let answer = hostStart == nil ? response : response.fittingHostWire
+        _ = shim.pageResourceRespond(token, Int32(answer.status), answer.mimeType, answer.body)
     }
 }
