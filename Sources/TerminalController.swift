@@ -8296,6 +8296,20 @@ class TerminalController {
         }
     }
 
+    private nonisolated func v2BrowserPendingJavaScriptDialogIDs(_ browserPanel: BrowserPanel) -> Set<String> {
+        v2MainSync { Set(browserPanel.pendingJavaScriptDialogs.map(\.dialogID)) }
+    }
+
+    /// The JavaScript dialog a page opened after `earlier` were already pending.
+    private nonisolated func v2BrowserJavaScriptDialogOpened(
+        by browserPanel: BrowserPanel,
+        since earlier: Set<String>
+    ) -> MobileBrowserDialogEvent? {
+        v2MainSync {
+            browserPanel.pendingJavaScriptDialogs.first { !earlier.contains($0.dialogID) }
+        }
+    }
+
     private nonisolated func v2BrowserSelectorAction(
         params: [String: Any],
         actionName: String,
@@ -8315,23 +8329,49 @@ class TerminalController {
             let script = scriptBuilder(v2JSONLiteral(selector))
             let retryAttempts = max(1, v2Int(params, "retry_attempts") ?? 3)
             let selectorCondition = "document.querySelector(\(v2JSONLiteral(selector))) !== null"
+            // A JavaScript dialog the action opens blocks the page's script
+            // thread, so the action's script cannot return while it is up and
+            // the evaluation times out (#25107). The dialog is the page's answer
+            // to the action, not a failure, and is left for `browser.dialog.*`.
+            let dialogsBeforeAction = v2BrowserPendingJavaScriptDialogIDs(browserPanel)
+            func actionPayload(attempt: Int) -> [String: Any] {
+                var payload: [String: Any] = [
+                    "workspace_id": ctx.workspaceId.uuidString,
+                    "surface_id": surfaceId.uuidString,
+                    "action": actionName,
+                    "attempts": attempt
+                ]
+                payload["workspace_ref"] = v2Ref(kind: .workspace, uuid: ctx.workspaceId)
+                payload["surface_ref"] = v2Ref(kind: .surface, uuid: surfaceId)
+                return payload
+            }
 
             for attempt in 1...retryAttempts {
                 switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script, timeout: javaScriptTimeout, useEval: false) {
                 case .failure(let message):
+                    if let dialog = v2BrowserJavaScriptDialogOpened(
+                        by: browserPanel,
+                        since: dialogsBeforeAction
+                    ) {
+                        var payload = actionPayload(attempt: attempt)
+                        var dialogPayload: [String: Any] = [
+                            "kind": dialog.kind.rawValue,
+                            "dialog_id": dialog.dialogID
+                        ]
+                        if let message = dialog.message {
+                            dialogPayload["message"] = message
+                        }
+                        payload["dialog"] = dialogPayload
+                        // A post-action snapshot would wait on the same blocked
+                        // script thread, so the dialog stands in for it.
+                        return .ok(payload)
+                    }
                     return .err(code: "js_error", message: message, data: ["action": actionName, "selector": selector])
                 case .success(let value):
                     if let dict = value as? [String: Any],
                        let ok = dict["ok"] as? Bool,
                        ok {
-                        var payload: [String: Any] = [
-                            "workspace_id": ctx.workspaceId.uuidString,
-                            "surface_id": surfaceId.uuidString,
-                            "action": actionName,
-                            "attempts": attempt
-                        ]
-                        payload["workspace_ref"] = v2Ref(kind: .workspace, uuid: ctx.workspaceId)
-                        payload["surface_ref"] = v2Ref(kind: .surface, uuid: surfaceId)
+                        var payload = actionPayload(attempt: attempt)
                         if let resultValue = dict["value"] {
                             payload["value"] = v2NormalizeJSValue(resultValue)
                         }
