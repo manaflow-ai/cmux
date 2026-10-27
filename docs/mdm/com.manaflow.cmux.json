@@ -248,6 +248,14 @@
       "title" : "Deepest Nesting",
       "type" : "number"
     },
+    "agents.subsessions.maxRunning" : {
+      "default" : 16,
+      "description" : "The most sub-sessions one session runs at the same time. More wait their turn and start as running ones finish. Running ones are never stopped when you lower it.",
+      "maximum" : 1000,
+      "minimum" : 1,
+      "title" : "Running Sub-sessions per Session",
+      "type" : "number"
+    },
     "agents.trust.autoTrust" : {
       "default" : false,
       "description" : "Agents start in folders under your project roots, and in repositories owned by your organizations, without asking. Other folders ask first.",
