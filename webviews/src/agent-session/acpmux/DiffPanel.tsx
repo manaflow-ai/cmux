@@ -397,14 +397,18 @@ export function DiffPanel({
   const viewedScope = useMemo<ViewedScope | null>(() => {
     const changeRoot = load.state === "loaded" ? load.changeSet.root : undefined;
     if (!changeRoot || scope === "lastTurn") return null;
-    const sourceKey = scope === "branch" ? `branch:${load.state === "loaded" ? load.changeSet.base ?? "HEAD" : "HEAD"}` : scope;
+    const sourceKey =
+      scope === "branch" ? `branch:${load.state === "loaded" ? (load.changeSet.base ?? "HEAD") : "HEAD"}` : scope;
     return { repoRoot: changeRoot, source: sourceKey };
   }, [load, scope]);
   const viewedScopeKey = useMemo(
     () =>
       viewedScope
         ? `${viewedScope.repoRoot}\n${viewedScope.source}`
-        : `turn:${files.map((file) => file.path).sort().join("|")}`,
+        : `turn:${files
+            .map((file) => file.path)
+            .sort()
+            .join("|")}`,
     [viewedScope, files],
   );
   const viewed = useMemo(() => {
@@ -425,7 +429,10 @@ export function DiffPanel({
     let live = true;
     const local = new Map(readLocalViewed(viewedScopeKey).map((entry) => [entry.path, entry] as const));
     setViewedEntries(local);
-    if (!viewedScope) return () => { live = false; };
+    if (!viewedScope)
+      return () => {
+        live = false;
+      };
     void loadViewedFiles(viewedScope).then(
       (entries) => {
         if (!live) return;
@@ -436,7 +443,9 @@ export function DiffPanel({
       },
       () => undefined,
     );
-    return () => { live = false; };
+    return () => {
+      live = false;
+    };
   }, [viewedScope, viewedScopeKey]);
   useEffect(() => {
     if (initialLayout) return;
@@ -445,7 +454,9 @@ export function DiffPanel({
       if (!live || layoutTouched.current || !prefs.layout) return;
       setLayout(prefs.layout);
     });
-    return () => { live = false; };
+    return () => {
+      live = false;
+    };
   }, [initialLayout]);
   useEffect(() => {
     const node = panel.current;
@@ -672,7 +683,23 @@ export function DiffPanel({
         setCollapsed(flip);
       },
     }),
-    [viewed, files, viewedScope, viewedScopeKey, writes, openFile, canStage, unstages, stageFile, canStageHunk, hunkUnstages, stageHunk, source, scope, wholeFile],
+    [
+      viewed,
+      files,
+      viewedScope,
+      viewedScopeKey,
+      writes,
+      openFile,
+      canStage,
+      unstages,
+      stageFile,
+      canStageHunk,
+      hunkUnstages,
+      stageHunk,
+      source,
+      scope,
+      wholeFile,
+    ],
   );
   const allCollapsed = files.length > 0 && files.every((file) => collapsed.has(file.path));
   const press = (tool: Tool) => {
