@@ -327,9 +327,9 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
         });
         let by_device = devices.iter().any(|d| {
             d.name.eq_ignore_ascii_case(&host)
-                || d.reach.as_ref().is_some_and(|r| {
-                    r.address.eq_ignore_ascii_case(&host) || r.ips.iter().any(|ip| *ip == host)
-                })
+                || d.reach
+                    .as_ref()
+                    .is_some_and(|r| r.address.eq_ignore_ascii_case(&host) || r.ips.contains(&host))
         });
         by_peer
             || by_device
