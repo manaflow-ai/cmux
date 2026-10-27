@@ -25,6 +25,7 @@ import Foundation
     deinit {
         guard let fanOut else { return }
         let name = self.name, id = self.id
+        // main-hop-allow: a deinit may run off main; inline on main, the hop only removes this subscriber from its fan-out
         MainDelivery().run { fanOut.remove(name, id: id) }
     }
 }
