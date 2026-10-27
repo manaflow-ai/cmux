@@ -1,3 +1,4 @@
+import CmuxNextTrace
 public import Foundation
 import MachO
 
@@ -82,13 +83,25 @@ public nonisolated struct ImageClassifier: Sendable {
     /// process (nil when none matches, for example after an update), `name` MetricKit's
     /// `binaryName`.
     public func frame(metricKitName name: String?, uuid: String?, offset: UInt64?, loaded: LoadedImage?) -> HangReportFrame {
+        frame(name: name, uuid: uuid, offset: offset, loaded: loaded, ownNames: nil)
+    }
+
+    /// The frame of another cmux process's stack (a Rust hang line), whose image is not loaded here: as a MetricKit
+    /// frame, and a bare name of one of cmux's Rust binaries (``RustProcessImages/cmux``, the list the line's Sentry
+    /// event marks in-app with) is ours too.
+    public func frame(foreign: HangReportCollector.ForeignFrame, loaded: LoadedImage?) -> HangReportFrame {
+        frame(name: foreign.image, uuid: foreign.uuid, offset: foreign.offset, loaded: loaded, ownNames: .cmux)
+    }
+
+    private func frame(name: String?, uuid: String?, offset: UInt64?, loaded: LoadedImage?,
+                       ownNames: RustProcessImages?) -> HangReportFrame {
         guard let uuid, Self.isUUID(uuid), let offset, offset <= Self.maxOffset else { return .other }
         if let loaded { return frame(image: loaded, offset: offset) }
         guard let name, !name.isEmpty else { return .other }
         // A name that is a path is judged as a path; a bare name is ours by prefix or Apple's
         // when that framework or library exists in an Apple folder.
         let who: Owner = name.contains("/") ? owner(path: name)
-            : Self.ownNamePrefixes.contains { name.hasPrefix($0) } ? .ours
+            : Self.ownNamePrefixes.contains { name.hasPrefix($0) } || ownNames?.contains(name) == true ? .ours
             : systemImageExists(name) ? .apple : .other
         guard who != .other, let sent = sendableName(name) else { return .other }
         return HangReportFrame(image: sent, uuid: uuid.uppercased(), offset: offset)
@@ -165,7 +178,8 @@ public nonisolated struct ImageClassifier: Sendable {
         if ["/System/Library/Frameworks/\(name).framework", "/System/Library/PrivateFrameworks/\(name).framework"]
             .contains(where: { manager.fileExists(atPath: $0) }) { return true }
         return ["/usr/lib/\(name)", "/usr/lib/system/\(name)"].contains {
-            _dyld_shared_cache_contains_path($0) || manager.fileExists(atPath: $0)
+            // SAFETY: the path is passed as a NUL-terminated temporary copy that lives for the call; dyld only reads it.
+            unsafe _dyld_shared_cache_contains_path($0) || manager.fileExists(atPath: $0)
         }
     }
 
@@ -175,7 +189,8 @@ public nonisolated struct ImageClassifier: Sendable {
         let full = NSFullUserName().split { !$0.isLetter && !$0.isNumber }.map(String.init)
         // gethostname, not ProcessInfo.hostName: the latter may wait on a DNS lookup.
         var buffer = [CChar](repeating: 0, count: 256)
-        let raw = gethostname(&buffer, buffer.count) == 0
+        // SAFETY: gethostname writes at most buffer.count bytes into `buffer`, a local array live for the call.
+        let raw = unsafe gethostname(&buffer, buffer.count) == 0
             ? String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self) : ""
         let host = raw.split(separator: ".").map(String.init).filter { $0 != "local" }
         return [NSUserName(), NSHomeDirectory()] + full + host

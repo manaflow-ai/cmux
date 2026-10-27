@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextLayout
+import CmuxNextWakeups
 import Testing
 
 /// Terminals resize at the start of a Cmd-D / Cmd-W, not after the spring (Lawrence 2026-10-23): when a split
@@ -35,7 +36,7 @@ import Testing
     @Test func aSplitTellsEachResizedPaneItsFinalSizeOnceAtTheStart() async throws {
         let provider = Panes()
         let model = LayoutModel(screens: PaneMotionBench.grid(2, 1), activeScreenID: "s", focusedPane: PaneID("p0-0"))
-        let root = LayoutRootView(model: model, contentProvider: provider)
+        let root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         root.context.reduceMotionOverride = false
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1600, height: 1000), styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = root
@@ -64,7 +65,7 @@ import Testing
     /// frames run (PL-burst finding).
     @Test func reduceMotionTurnedOnMidSpringLandsInTheNextFrame() throws {
         let model = LayoutModel(screens: PaneMotionBench.grid(2, 1), activeScreenID: "s", focusedPane: PaneID("p0-0"))
-        let root = LayoutRootView(model: model, contentProvider: Panes())
+        let root = LayoutRootView(model: model, contentProvider: Panes(), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         root.context.reduceMotionOverride = false
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1600, height: 1000), styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = root

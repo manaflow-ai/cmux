@@ -55,14 +55,25 @@ public nonisolated struct SurfaceDrawInputs: Equatable, Sendable {
     }
 
     public var draws: Bool { pause == nil }
+
+    /// Its window is in this launch's sense off screen (miniaturized, another Space, covered, the app
+    /// hidden or the displays asleep), whatever else pauses the surface: what
+    /// ``WindowDrawPolicy/offScreenGPUReleaseDelay`` counts from.
+    public var windowOffScreen: Bool { inWindow && !windowVisible && !drawWhenOccluded }
+
+    /// In a window that is on screen: only this ends the release that
+    /// ``WindowDrawPolicy/offScreenGPUReleaseDelay`` starts.
+    public var windowOnScreen: Bool { inWindow && !windowOffScreen }
 }
 
 /// The one window-occlusion rule for every native drawing surface (Ghostty
 /// terminals today) and for the blank-pane invariant.
 ///
 /// Content in a window draws while AppKit reports the window at least partly
-/// on screen (`occlusionState` contains `.visible`); nothing here guesses
-/// visibility, and key or active state plays no part. While the window is
+/// on screen (`occlusionState` contains `.visible`, not miniaturized): the
+/// rule of ``WindowVisibilitySource/appKitState(of:)``, read live, the same
+/// rule that feeds the window's node; nothing here guesses visibility, and
+/// key or active state plays no part. While the window is
 /// occluded, surfaces stop drawing (energy saving) and keep their state; when
 /// it is visible again each surface draws its current content at once
 /// (Ghostty's renderer draws on its `.visible` message).
@@ -100,12 +111,20 @@ public struct WindowDrawPolicy {
         isAutomationLaunch(environment) && environment[shippingDrawKey] != "1"
     }
 
+    /// How long a window stays off screen before the surfaces it shows let their GPU memory go
+    /// (p07-memory-097); the first draw after it comes back makes them resident again. A hidden
+    /// renderer frees its tiles at once in Chrome (`LayerTreeHostImpl::SetVisible(false)`,
+    /// cc/trees/layer_tree_host_impl.cc); a window waits as long as a hidden page waits for its
+    /// freeze (`browser.freezeHiddenTabs`), so a Space switch or Mission Control reallocates nothing.
+    nonisolated public static let offScreenGPUReleaseDelay: Duration = .seconds(30)
+
     /// Whether occluded windows draw in this launch (tests set it).
     public internal(set) static var drawsWhenOccluded = drawsOccludedWindows(ProcessInfo.processInfo.environment)
 
-    /// AppKit's answer: `occlusionState` contains `.visible`. Tests replace
-    /// it to drive occlude and un-occlude transitions without a screen.
-    static var onScreen: (NSWindow) -> Bool = { $0.occlusionState.contains(.visible) }
+    /// AppKit's live answer (``WindowVisibilitySource/appKitState(of:)``).
+    /// Tests replace it to drive occlude and un-occlude transitions without a
+    /// screen.
+    static var onScreen: (NSWindow) -> Bool = { WindowVisibilitySource.appKitState(of: $0).isVisible }
 
     /// Whether `window` is at least partly on screen now.
     public static func isOnScreen(_ window: NSWindow) -> Bool { onScreen(window) }

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CoreText
 
 /// One emoji drawn whole inside its square. The view measures the glyph's
@@ -15,8 +16,13 @@ final class SidebarEmojiGlyphView: NSView {
     var fill: CGFloat = 0.86 { didSet { if fill != oldValue { needsDisplay = true } } }
 
     private struct Key: Hashable { let text: String; let size: CGFloat; let pixelScale: CGFloat }
+    // memory: fixed at most `inkCacheLimit` entries of one CGRect each (`ink` empties it when full), about 40 KB.
     /// Ink rect of an emoji at a point size and pixel scale, relative to its baseline origin.
     private static var inkCache: [Key: CGRect] = [:]
+    /// The most ink rects `inkCache` keeps: a sidebar's emojis at the few sizes `fit` probes.
+    static let inkCacheLimit = 512
+    /// How many ink rects `inkCache` keeps now (tests).
+    static var inkCacheCount: Int { inkCache.count }
 
     override func draw(_ dirtyRect: NSRect) {
         guard !text.isEmpty, let context = NSGraphicsContext.current?.cgContext else { return }
@@ -62,18 +68,16 @@ final class SidebarEmojiGlyphView: NSView {
         let key = Key(text: text, size: size, pixelScale: pixelScale)
         if let cached = inkCache[key] { return cached }
         let side = Int(ceil(size * 3 * pixelScale)), origin = size
-        guard side > 0,
-              let context = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
-                                      space: CGColorSpaceCreateDeviceRGB(),
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-        context.scaleBy(x: pixelScale, y: pixelScale)
-        context.textPosition = CGPoint(x: origin, y: origin)
-        CTLineDraw(line(text, size: size), context)
-        guard let data = context.data else { return nil }
-        let bytes = data.bindMemory(to: UInt8.self, capacity: side * side * 4)
+        let drawn = line(text, size: size)
+        guard let pixels = DrawnPixels(width: side, height: side, bytesPerPixel: 4, space: CGColorSpaceCreateDeviceRGB(),
+                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue, draw: { context in
+            context.scaleBy(x: pixelScale, y: pixelScale)
+            context.textPosition = CGPoint(x: origin, y: origin)
+            CTLineDraw(drawn, context)
+        }) else { return nil }
         var minX = side, minY = side, maxX = -1, maxY = -1
         for row in 0..<side {
-            for column in 0..<side where bytes[(row * side + column) * 4 + 3] > 38 {
+            for column in 0..<side where pixels[column, row, 3] > 38 {
                 minX = min(minX, column); maxX = max(maxX, column)
                 minY = min(minY, row); maxY = max(maxY, row)
             }
@@ -84,6 +88,7 @@ final class SidebarEmojiGlyphView: NSView {
                            y: CGFloat(side - 1 - maxY) / pixelScale - origin,
                            width: CGFloat(maxX - minX + 1) / pixelScale,
                            height: CGFloat(maxY - minY + 1) / pixelScale)
+        if inkCache.count >= inkCacheLimit { inkCache.removeAll() }
         inkCache[key] = found
         return found
     }

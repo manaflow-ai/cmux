@@ -96,7 +96,7 @@ import Testing
     @Test func messagesLabsScriptOnTheVendoredCode() {
         let env = ProcessInfo.processInfo.environment
         HomeMarkdownPolicy.installSprings()  // springs.json from the package (Springs.bundle, MessagesLab cdee8d9)
-        Fixtures.root = URL(fileURLWithPath: env["MESSAGESLAB_FIXTURES"]!)
+        Fixtures.setRoot(URL(fileURLWithPath: env["MESSAGESLAB_FIXTURES"]!))
         DiffHarness.runOffscreen(outDir: env["MESSAGESLAB_HARNESS_OUT"]!, arguments: ["--no-pixels"])
     }
 }

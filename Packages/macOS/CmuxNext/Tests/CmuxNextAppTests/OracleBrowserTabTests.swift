@@ -37,7 +37,7 @@ import Testing
         #expect(cef.engine == "cef")
 
         #expect(cef.url == "https://example.com/b")
-        #expect(cef.titleHash == OracleTabsFacet.Tab.hash("Example B"))
+        #expect(cef.titleHash == OracleValue.sha256("Example B"))
         #expect(cef.loadState == .finished)
         #expect(cef.canGoBack)
         #expect(cef.zoom == 1.25)
@@ -61,7 +61,7 @@ import Testing
         let tab = OracleTabsFacet.Tab.browser(id: "tab_2", pinned: false, page: nil, record: record, hibernated: false)
         #expect(tab.engine == "cef")
         #expect(tab.url == "https://example.com/")
-        #expect(tab.titleHash == OracleTabsFacet.Tab.hash("Saved"))
+        #expect(tab.titleHash == OracleValue.sha256("Saved"))
         #expect(tab.zoom == 1.5)
         #expect(tab.loadState == .unloaded)
         #expect(!tab.hibernated)
@@ -83,7 +83,7 @@ import Testing
         #expect(tab.hibernated)
         #expect(tab.engine == "cef")
         #expect(tab.url == "https://example.com/b")
-        #expect(tab.titleHash == OracleTabsFacet.Tab.hash("Example B"))
+        #expect(tab.titleHash == OracleValue.sha256("Example B"))
         #expect(tab.zoom == 1.25)
         #expect(tab.muted)
         // The same tab with its dormant flag not yet read still says hibernated: the stand-in is the page.
@@ -104,9 +104,9 @@ import Testing
 
     @Test func titlesAreHashesOnly() {
         // sha256("abc"), the FIPS 180-2 test vector.
-        #expect(OracleTabsFacet.Tab.hash("abc") == "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+        #expect(OracleValue.sha256("abc") == "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
         let page = OracleTabsFacet.Tab.page(id: "local-page:settings:1", page: "settings", title: "Settings")
-        #expect(page.titleHash == OracleTabsFacet.Tab.hash("Settings"))
+        #expect(page.titleHash == OracleValue.sha256("Settings"))
         #expect(OracleTabsFacet.Tab.browser(id: "tab_4", pinned: false, page: nil, record: .init(), hibernated: false).titleHash == nil)
     }
 
@@ -178,7 +178,7 @@ extension OracleBrowserTabTests {
         #expect(daemon.loadState == .unloaded)
         #expect(daemon.engine == "cef")
         #expect(daemon.url == "https://example.com/d")
-        #expect(daemon.titleHash == OracleTabsFacet.Tab.hash("Daemon"))
+        #expect(daemon.titleHash == OracleValue.sha256("Daemon"))
         let local = pane.tabs[1]
         #expect(!local.pinned)
         #expect(!local.hibernated)

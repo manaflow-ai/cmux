@@ -1,4 +1,5 @@
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 
 /// The single owner of the local feed handoff (plans/cmux-next/feed.md
@@ -59,11 +60,13 @@ final class FeedHandoffDriver {
     /// already posted is adopted a second time.
     private let since: @MainActor (_ install: String) -> UInt64
     private let now: @MainActor () -> Date
+    /// Starts each pass and each cloud read at a stated priority (nobody waits on them: best effort).
+    private let work: BackgroundWork
     /// The running pass, and whether an event asked for another one meanwhile.
-    private var pass: Task<Void, Never>?
+    private var pass: Task<Void, any Error>?
     private var again = false
     /// Cloud requests in flight; each removes itself when it settles.
-    private var running: [UUID: Task<Void, Never>] = [:]
+    private var running: [UUID: Task<Void, any Error>] = [:]
     /// Local ids the user read while they were handing off (`feed.moving`).
     private var readAfterMove: Set<String> = []
     /// Local ids this run moved (an ack refusal may arrive after the move).
@@ -81,7 +84,8 @@ final class FeedHandoffDriver {
     init(enabled: Bool = FeedHandoffDriver.isEnabledByDefault, daemon: Daemon, owner: @escaping Owner,
          isSignedIn: @escaping @MainActor () -> Bool, installID: @escaping @MainActor () -> String?,
          policy: @escaping @MainActor () -> FeedHandoffPolicy, since: @escaping @MainActor (String) -> UInt64 = { _ in 0 },
-         now: @escaping @MainActor () -> Date = Date.init) {
+         now: @escaping @MainActor () -> Date = Date.init, work: BackgroundWork) {
+        self.work = work
         self.enabled = enabled
         self.daemon = daemon
         self.owner = owner
@@ -115,15 +119,19 @@ final class FeedHandoffDriver {
             again = true
             return
         }
-        // task-owner: FeedHandoffDriver.pass: one handoff pass; it clears itself and starts the follow-up pass an event asked for.
-        pass = Task { [weak self] in
+        // task-owner: FeedHandoffDriver.pass: one handoff pass at best effort (nobody waits on it); it clears itself and
+        // starts the follow-up pass an event asked for.
+        pass = work.task(.bestEffort) { [weak self] in
             await self?.handOffAll()
-            guard let self else { return }
-            pass = nil
-            if again {
-                again = false
-                run()
-            }
+            await self?.passEnded()
+        }
+    }
+
+    private func passEnded() {
+        pass = nil
+        if again {
+            again = false
+            run()
         }
     }
 
@@ -239,15 +247,20 @@ final class FeedHandoffDriver {
         let ids = local.map { Self.cloudID(install: install, local: $0) }
         for start in stride(from: 0, to: ids.count, by: 256) {
             let chunk = Array(ids[start..<min(start + 256, ids.count)])
-            let body: [String: Any] = ["op": "feed.read", "params": ["items": chunk],
-                                       "idempotency_key": UUID().uuidString, "origin": "user"]
+            let key = UUID().uuidString
             let id = UUID()
-            // task-owner: FeedHandoffDriver.running: one feed.read; a failure only leaves the cloud copy unread (U5: nothing queues).
-            running[id] = Task { [weak self, owner] in
-                do { _ = try await owner("v1/ops", body) } catch { self?.note("read failed: \(Self.describe(error))") }
-                self?.running[id] = nil
-            }
+            // task-owner: FeedHandoffDriver.running: one feed.read at best effort; a failure only leaves the cloud copy
+            // unread (U5: nothing queues). The owner call is main-actor, so its body stays on main (markRead). The task
+            // takes only Sendable values (the ids, the key).
+            running[id] = work.task(.bestEffort) { [weak self] in await self?.markRead(chunk, key: key, task: id) }
         }
+    }
+
+    /// One feed.read of `items` in the cloud; then task `id` is done.
+    private func markRead(_ items: [String], key: String, task id: UUID) async {
+        let body: [String: Any] = ["op": "feed.read", "params": ["items": items], "idempotency_key": key, "origin": "user"]
+        do { _ = try await owner("v1/ops", body) } catch { note("read failed: \(Self.describe(error))") }
+        running[id] = nil
     }
 
     private func note(_ line: String) {

@@ -10,6 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from generated_server_families import GeneratedFamiliesError, generated_commands  # noqa: E402
 from handler_commands import HandlerCommandError, handler_commands  # noqa: E402
 
 
@@ -208,6 +209,14 @@ def module_command_names() -> dict[str, str]:
     return names
 
 
+# The refusal of a connection that is not a local Unix one: by client id, or
+# (the hello gate, server/client_hello.rs) by the connection's own transport.
+NON_UNIX_REFUSAL = (
+    r"if\s+!\s*mux\.control_clients\.is_unix\("
+    r"|_\s+if\s+!\s*matches!\(\s*self\.transport\s*,\s*ClientTransport::Unix\s*\)"
+)
+
+
 def module_command_profiles() -> dict[str, str]:
     """The listed authority of each module command. local-admin must be the
     code's: the non-Unix refusal in the module's enum handler and in the
@@ -224,13 +233,10 @@ def module_command_profiles() -> dict[str, str]:
         literals = spec.get("literals", {})
         if authority == "local-admin":
             handlers = {literal["handler"] for literal in literals.values()}
-            if "enum" in spec:
+            if "enum_handler" in spec:
                 handlers.add(spec["enum_handler"])
             for handler in sorted(handlers):
-                if not re.search(
-                    r"if\s+!\s*mux\.control_clients\.is_unix\(",
-                    rust_function_body(source, handler),
-                ):
+                if not re.search(NON_UNIX_REFUSAL, rust_function_body(source, handler)):
                     fail(f"server/{module}.rs {handler} does not refuse non-Unix connections")
         for name, owner in names.items():
             if owner == module:
@@ -239,9 +245,20 @@ def module_command_profiles() -> dict[str, str]:
 
 
 def command_names() -> set[str]:
+    """The Command enum's variants: the hand-written ones in server.rs and
+    the ones cmux-ipc build.rs generates (generated_server_families.py), plus
+    the commands server modules decode."""
     source = (TUI / "crates/cmux-tui-core/src/server.rs").read_text()
     variants = rust_enum_variants(source, "Command")
     names = {camel_to_kebab(variant) for variant in variants}
+    try:
+        generated = generated_commands(TUI, load_sdk_catalog())
+    except GeneratedFamiliesError as error:
+        fail(str(error))
+    written = sorted(names & generated)
+    if written:
+        fail(f"generated family commands also written by hand: {', '.join(written)}")
+    names |= generated
     modules = module_command_names()
     overlap = sorted(names & set(modules))
     if overlap:
@@ -685,14 +702,12 @@ CONTROL_EVENT_MODULES = ("server/url_open.rs", "server/clipboard_read.rs", "serv
 
 # server/ modules (and their child directories) whose events are not in the
 # raw SDK catalog yet: they speak their own wire families (agent session
-# attach, loopback forwarding, scripts, terminal snapshot digests). The
-# inventory does not read them until the spec covers those events (cx-chun).
+# attach, terminal snapshot digests). The inventory does not read them
+# until the spec covers those events (cx-chun).
 SERVER_MODULES_OUTSIDE_RAW_SDK = frozenset(
     {
         "agent_session_attach",
         "agent_session_stream",  # Existing attach events moved here; same wire family.
-        "loopback_forward",
-        "scripts",
         "terminal_snapshot",
     }
 )

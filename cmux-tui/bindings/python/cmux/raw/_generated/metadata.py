@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '2b7eb48372c3df8cc72e67889a80d49f239b8b46a4d55c94efb165fb7882cb97'
+IR_SHA256 = '5739101a2a1f12a08327e6d4e67314a7c13e6f450f88de4362e39eec5338716c'
 
 
 @dataclass(frozen=True)
@@ -38,6 +38,57 @@ class EventMetadata:
 
 
 COMMANDS = {
+    'access-request': CommandMetadata(
+        'access-request',
+        'local-admin',
+        12,
+        'access-request-v1',
+        ('local-admin',),
+        None,
+        {
+            'kind': CommandFieldMetadata(None, None),
+            'name': CommandFieldMetadata(None, None),
+            'path': CommandFieldMetadata(None, None),
+            'reason': CommandFieldMetadata(None, None),
+            'session': CommandFieldMetadata(None, None),
+        },
+    ),
+    'access-request-answer': CommandMetadata(
+        'access-request-answer',
+        'local-admin',
+        12,
+        'access-request-v1',
+        ('local-admin',),
+        None,
+        {
+            'outcome': CommandFieldMetadata(None, None),
+            'path': CommandFieldMetadata(None, None),
+            'reason': CommandFieldMetadata(None, None),
+            'request_id': CommandFieldMetadata(None, None),
+            'value': CommandFieldMetadata(None, None),
+        },
+    ),
+    'access-request-list': CommandMetadata(
+        'access-request-list',
+        'local-admin',
+        12,
+        'access-request-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
+    'access-request-status': CommandMetadata(
+        'access-request-status',
+        'local-admin',
+        12,
+        'access-request-v1',
+        ('local-admin',),
+        None,
+        {
+            'request_id': CommandFieldMetadata(None, None),
+        },
+    ),
     'ack-tab-notifications': CommandMetadata(
         'ack-tab-notifications',
         'control',
@@ -153,6 +204,42 @@ COMMANDS = {
             'expected_machine_id': CommandFieldMetadata(None, None),
             'expected_session_id': CommandFieldMetadata(None, None),
             'idempotency_key': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-inventory': CommandMetadata(
+        'agent-inventory',
+        'local-admin',
+        12,
+        'agent-inventory-v1',
+        ('local-admin',),
+        None,
+        {
+            'expected_machine_id': CommandFieldMetadata(None, 'agent-inventory-owner-v1'),
+        },
+    ),
+    'agent-inventory-refresh': CommandMetadata(
+        'agent-inventory-refresh',
+        'local-admin',
+        12,
+        'agent-inventory-refresh-v1',
+        ('local-admin',),
+        None,
+        {
+            'expected_machine_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-inventory-watch': CommandMetadata(
+        'agent-inventory-watch',
+        'local-admin',
+        12,
+        'agent-inventory-watch-v1',
+        ('local-admin',),
+        None,
+        {
+            'admission_receipt': CommandFieldMetadata(None, 'agent-inventory-watch-admission-v1'),
+            'enabled': CommandFieldMetadata(None, None),
+            'expected_machine_id': CommandFieldMetadata(None, None),
+            'expected_watch_id': CommandFieldMetadata(None, 'agent-inventory-watch-fence-v1'),
         },
     ),
     'agent-session-attach': CommandMetadata(
@@ -302,6 +389,142 @@ COMMANDS = {
             'home_confirmed': CommandFieldMetadata(None, None),
             'level': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-transfer-abort': CommandMetadata(
+        'agent-transfer-abort',
+        'local-admin',
+        12,
+        'agent-transfer-v1',
+        ('local-admin',),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
+            'transfer_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-transfer-begin': CommandMetadata(
+        'agent-transfer-begin',
+        'local-admin',
+        12,
+        'agent-transfer-v1',
+        ('local-admin',),
+        None,
+        {
+            'ask_first': CommandFieldMetadata(None, None),
+            'interrupt': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-transfer-commit': CommandMetadata(
+        'agent-transfer-commit',
+        'local-admin',
+        12,
+        'agent-transfer-v1',
+        ('local-admin',),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
+            'to': CommandFieldMetadata(None, None),
+            'transfer_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-transfer-finish': CommandMetadata(
+        'agent-transfer-finish',
+        'local-admin',
+        12,
+        'agent-transfer-v1',
+        ('local-admin',),
+        None,
+        {
+            'name': CommandFieldMetadata(None, None),
+            'receive_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-transfer-read': CommandMetadata(
+        'agent-transfer-read',
+        'local-admin',
+        12,
+        'agent-transfer-v1',
+        ('local-admin',),
+        None,
+        {
+            'limit': CommandFieldMetadata(None, None),
+            'offset': CommandFieldMetadata(None, None),
+            'path': CommandFieldMetadata(None, None),
+            'transfer_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-transfer-receive': CommandMetadata(
+        'agent-transfer-receive',
+        'local-admin',
+        12,
+        'agent-transfer-v1',
+        ('local-admin',),
+        None,
+        {
+            'cwd': CommandFieldMetadata(None, None),
+            'manifest': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-transfer-receive-abort': CommandMetadata(
+        'agent-transfer-receive-abort',
+        'local-admin',
+        12,
+        'agent-transfer-v1',
+        ('local-admin',),
+        None,
+        {
+            'receive_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-transfer-source': CommandMetadata(
+        'agent-transfer-source',
+        'local-admin',
+        12,
+        'agent-transfer-v1',
+        ('local-admin',),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-transfer-write': CommandMetadata(
+        'agent-transfer-write',
+        'local-admin',
+        12,
+        'agent-transfer-v1',
+        ('local-admin',),
+        None,
+        {
+            'data': CommandFieldMetadata(None, None),
+            'offset': CommandFieldMetadata(None, None),
+            'path': CommandFieldMetadata(None, None),
+            'receive_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-update-apply': CommandMetadata(
+        'agent-update-apply',
+        'local-admin',
+        12,
+        'agent-update-v1',
+        ('local-admin',),
+        None,
+        {
+            'continue_threads': CommandFieldMetadata(None, None),
+            'expected_machine_id': CommandFieldMetadata(None, 'agent-update-owner-v1'),
+            'ids': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-update-plan': CommandMetadata(
+        'agent-update-plan',
+        'local-admin',
+        12,
+        'agent-update-v1',
+        ('local-admin',),
+        None,
+        {
+            'expected_machine_id': CommandFieldMetadata(None, 'agent-update-owner-v1'),
         },
     ),
     'apply-layout': CommandMetadata(
@@ -510,6 +733,7 @@ COMMANDS = {
             'snapshot_images': CommandFieldMetadata(None, 'terminal-snapshot-images-v1'),
             'snapshot_local_history': CommandFieldMetadata(None, 'terminal-snapshot-local-history-v1'),
             'snapshot_version': CommandFieldMetadata(None, 'terminal-snapshot-v1'),
+            'stream': CommandFieldMetadata(12, 'attach-streams-v1'),
             'surface': CommandFieldMetadata(None, None),
             'viewer_backlog_bytes': CommandFieldMetadata(None, 'terminal-snapshot-v1'),
         },
@@ -685,6 +909,38 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
         },
     ),
+    'browser-runtime-start': CommandMetadata(
+        'browser-runtime-start',
+        'local-admin',
+        12,
+        'browser-runtime-v1',
+        ('local-admin',),
+        None,
+        {
+            'url': CommandFieldMetadata(None, None),
+        },
+    ),
+    'browser-runtime-status': CommandMetadata(
+        'browser-runtime-status',
+        'local-admin',
+        12,
+        'browser-runtime-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
+    'browser-runtime-stop': CommandMetadata(
+        'browser-runtime-stop',
+        'local-admin',
+        12,
+        'browser-runtime-v1',
+        ('local-admin',),
+        None,
+        {
+            'runtime': CommandFieldMetadata(None, None),
+        },
+    ),
     'browser-wheel': CommandMetadata(
         'browser-wheel',
         'frontend',
@@ -724,6 +980,17 @@ COMMANDS = {
         None,
         {
             'target': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cancel-stream': CommandMetadata(
+        'cancel-stream',
+        'frontend',
+        12,
+        'attach-streams-v1',
+        ('frontend',),
+        None,
+        {
+            'stream': CommandFieldMetadata(None, None),
         },
     ),
     'chief-inspect': CommandMetadata(
@@ -769,6 +1036,21 @@ COMMANDS = {
         None,
         {
             'client_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'client-hello': CommandMetadata(
+        'client-hello',
+        'local-admin',
+        12,
+        'origin-claim-v1',
+        ('local-admin',),
+        None,
+        {
+            'features': CommandFieldMetadata(None, None),
+            'install_id': CommandFieldMetadata(None, None),
+            'page': CommandFieldMetadata(None, None),
+            'proof': CommandFieldMetadata(None, None),
+            'role': CommandFieldMetadata(None, None),
         },
     ),
     'close-pane': CommandMetadata(
@@ -1752,6 +2034,16 @@ COMMANDS = {
             'name': CommandFieldMetadata(None, None),
         },
     ),
+    'debug-daemon-locks': CommandMetadata(
+        'debug-daemon-locks',
+        'local-admin',
+        12,
+        None,
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
     'delete-bookmark': CommandMetadata(
         'delete-bookmark',
         'control',
@@ -1854,6 +2146,7 @@ COMMANDS = {
         None,
         {
             'lease': CommandFieldMetadata(None, None),
+            'stream': CommandFieldMetadata(12, 'attach-streams-v1'),
             'surface': CommandFieldMetadata(None, None),
             'view': CommandFieldMetadata(12, 'shared-sizing-v1'),
         },
@@ -1973,6 +2266,98 @@ COMMANDS = {
         {
             'force': CommandFieldMetadata(None, None),
             'session_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'fs.delete': CommandMetadata(
+        'fs.delete',
+        'control',
+        12,
+        'fs-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'paths': CommandFieldMetadata(None, None),
+            'permanent': CommandFieldMetadata(None, None),
+        },
+    ),
+    'fs.list': CommandMetadata(
+        'fs.list',
+        'control',
+        12,
+        'fs-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'cursor': CommandFieldMetadata(None, None),
+            'filter': CommandFieldMetadata(None, None),
+            'limit': CommandFieldMetadata(None, None),
+            'listing': CommandFieldMetadata(None, None),
+            'path': CommandFieldMetadata(None, None),
+            'sort': CommandFieldMetadata(None, None),
+        },
+    ),
+    'fs.mkdir': CommandMetadata(
+        'fs.mkdir',
+        'control',
+        12,
+        'fs-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'name': CommandFieldMetadata(None, None),
+            'path': CommandFieldMetadata(None, None),
+        },
+    ),
+    'fs.read': CommandMetadata(
+        'fs.read',
+        'control',
+        12,
+        'fs-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'max_bytes': CommandFieldMetadata(None, None),
+            'offset': CommandFieldMetadata(None, None),
+            'path': CommandFieldMetadata(None, None),
+        },
+    ),
+    'fs.rename': CommandMetadata(
+        'fs.rename',
+        'control',
+        12,
+        'fs-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'name': CommandFieldMetadata(None, None),
+            'path': CommandFieldMetadata(None, None),
+        },
+    ),
+    'fs.stat': CommandMetadata(
+        'fs.stat',
+        'control',
+        12,
+        'fs-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'path': CommandFieldMetadata(None, None),
+        },
+    ),
+    'fs.write': CommandMetadata(
+        'fs.write',
+        'control',
+        12,
+        'fs-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'bytes_base64': CommandFieldMetadata(None, None),
+            'expected': CommandFieldMetadata(None, None),
+            'mode': CommandFieldMetadata(None, None),
+            'path': CommandFieldMetadata(None, None),
+            'permissions': CommandFieldMetadata(None, None),
+            'text': CommandFieldMetadata(None, None),
         },
     ),
     'get-blob': CommandMetadata(
@@ -2265,6 +2650,89 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+        },
+    ),
+    'loopback-close': CommandMetadata(
+        'loopback-close',
+        'local-admin',
+        12,
+        'loopback-forward-v1',
+        ('local-admin',),
+        None,
+        {
+            'stream': CommandFieldMetadata(None, None),
+        },
+    ),
+    'loopback-credit': CommandMetadata(
+        'loopback-credit',
+        'local-admin',
+        12,
+        'loopback-forward-v1',
+        ('local-admin',),
+        None,
+        {
+            'bytes': CommandFieldMetadata(None, None),
+            'stream': CommandFieldMetadata(None, None),
+        },
+    ),
+    'loopback-data': CommandMetadata(
+        'loopback-data',
+        'local-admin',
+        12,
+        'loopback-forward-v1',
+        ('local-admin',),
+        None,
+        {
+            'data': CommandFieldMetadata(None, None),
+            'stream': CommandFieldMetadata(None, None),
+        },
+    ),
+    'loopback-open': CommandMetadata(
+        'loopback-open',
+        'local-admin',
+        12,
+        'loopback-forward-v1',
+        ('local-admin',),
+        None,
+        {
+            'host': CommandFieldMetadata(None, None),
+            'port': CommandFieldMetadata(None, None),
+            'stream': CommandFieldMetadata(None, None),
+            'window': CommandFieldMetadata(None, None),
+        },
+    ),
+    'loopback-shutdown': CommandMetadata(
+        'loopback-shutdown',
+        'local-admin',
+        12,
+        'loopback-forward-v1',
+        ('local-admin',),
+        None,
+        {
+            'stream': CommandFieldMetadata(None, None),
+        },
+    ),
+    'loopback-status': CommandMetadata(
+        'loopback-status',
+        'local-admin',
+        12,
+        'loopback-forward-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
+    'machine-catalog-publish': CommandMetadata(
+        'machine-catalog-publish',
+        'local-admin',
+        12,
+        'machine-catalog-publish-v1',
+        ('local-admin',),
+        None,
+        {
+            'expected_machine_id': CommandFieldMetadata(None, None),
+            'machines': CommandFieldMetadata(None, None),
+            'sequence': CommandFieldMetadata(None, None),
         },
     ),
     'machine-listening-tcp': CommandMetadata(
@@ -3044,6 +3512,7 @@ COMMANDS = {
         None,
         {
             'lease': CommandFieldMetadata(None, None),
+            'stream': CommandFieldMetadata(12, 'attach-streams-v1'),
             'surface': CommandFieldMetadata(None, None),
             'view': CommandFieldMetadata(12, 'shared-sizing-v1'),
         },
@@ -3237,6 +3706,7 @@ COMMANDS = {
             'identity': CommandFieldMetadata(12, 'shared-sizing-v1'),
             'lease': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'stream': CommandFieldMetadata(12, 'attach-streams-v1'),
             'surface': CommandFieldMetadata(None, None),
             'view': CommandFieldMetadata(12, 'shared-sizing-v1'),
         },
@@ -3315,6 +3785,54 @@ COMMANDS = {
         None,
         {
             'group': CommandFieldMetadata(None, None),
+        },
+    ),
+    'script-repl-close': CommandMetadata(
+        'script-repl-close',
+        'local-admin',
+        12,
+        None,
+        ('local-admin',),
+        None,
+        {
+            'session': CommandFieldMetadata(None, None),
+        },
+    ),
+    'script-repl-eval': CommandMetadata(
+        'script-repl-eval',
+        'local-admin',
+        12,
+        None,
+        ('local-admin',),
+        None,
+        {
+            'args': CommandFieldMetadata(None, None),
+            'code': CommandFieldMetadata(None, None),
+            'session': CommandFieldMetadata(None, None),
+            'timeout_ms': CommandFieldMetadata(None, None),
+        },
+    ),
+    'script-repl-open': CommandMetadata(
+        'script-repl-open',
+        'local-admin',
+        12,
+        None,
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
+    'script-run': CommandMetadata(
+        'script-run',
+        'local-admin',
+        12,
+        None,
+        ('local-admin',),
+        None,
+        {
+            'args': CommandFieldMetadata(None, None),
+            'code': CommandFieldMetadata(None, None),
+            'timeout_ms': CommandFieldMetadata(None, None),
         },
     ),
     'scroll-surface': CommandMetadata(
@@ -3397,6 +3915,16 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
         },
     ),
+    'server-blocking': CommandMetadata(
+        'server-blocking',
+        'local-admin',
+        12,
+        'server-threads-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
     'server-stats': CommandMetadata(
         'server-stats',
         'local-admin',
@@ -3406,6 +3934,16 @@ COMMANDS = {
         None,
         {
             'include': CommandFieldMetadata(None, None),
+        },
+    ),
+    'server-threads': CommandMetadata(
+        'server-threads',
+        'local-admin',
+        12,
+        'server-threads-v1',
+        ('local-admin',),
+        None,
+        {
         },
     ),
     'set-cell-pixels': CommandMetadata(
@@ -3798,6 +4336,7 @@ COMMANDS = {
             'have': CommandFieldMetadata(None, None),
             'reason': CommandFieldMetadata(None, None),
             'request_id': CommandFieldMetadata(None, None),
+            'stream': CommandFieldMetadata(12, 'attach-streams-v1'),
             'surface': CommandFieldMetadata(None, None),
         },
     ),
@@ -4349,6 +4888,10 @@ EVENTS = {
     'history-changed': EventMetadata('history-changed', 12, 'history-v1', ('subscribe',), 'emitted'),
     'keybindings-changed': EventMetadata('keybindings-changed', 12, 'keybindings-v1', ('subscribe',), 'emitted'),
     'layout-changed': EventMetadata('layout-changed', 6, None, ('subscribe',), 'emitted'),
+    'loopback-closed': EventMetadata('loopback-closed', 12, 'loopback-forward-v1', ('control',), 'emitted'),
+    'loopback-credit': EventMetadata('loopback-credit', 12, 'loopback-forward-v1', ('control',), 'emitted'),
+    'loopback-data': EventMetadata('loopback-data', 12, 'loopback-forward-v1', ('control',), 'emitted'),
+    'loopback-eof': EventMetadata('loopback-eof', 12, 'loopback-forward-v1', ('control',), 'emitted'),
     'machine-usage-changed': EventMetadata('machine-usage-changed', 12, 'machine-usage-v1', ('subscribe',), 'emitted'),
     'notification': EventMetadata('notification', 6, None, ('subscribe', 'attach-byte', 'attach-browser'), 'emitted'),
     'output': EventMetadata('output', 5, None, ('attach-byte',), 'emitted'),
@@ -4367,10 +4910,13 @@ EVENTS = {
     'screen-changed': EventMetadata('screen-changed', 12, 'screen-metadata-v1', ('subscribe-deltas',), 'emitted'),
     'screen-closed': EventMetadata('screen-closed', 7, None, ('subscribe-deltas',), 'emitted'),
     'screen-renamed': EventMetadata('screen-renamed', 7, None, ('subscribe-deltas',), 'emitted'),
+    'script-log': EventMetadata('script-log', 12, None, ('control',), 'emitted'),
     'scroll-changed': EventMetadata('scroll-changed', 6, None, ('subscribe', 'attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
+    'server-diagnostic-site': EventMetadata('server-diagnostic-site', 12, 'diagnostic-sites-v1', ('subscribe',), 'emitted'),
     'settings-changed': EventMetadata('settings-changed', 12, 'settings-v1', ('subscribe',), 'emitted'),
     'size-state': EventMetadata('size-state', 12, 'shared-sizing-v1', ('subscribe', 'attach-byte', 'attach-render'), 'emitted'),
     'status': EventMetadata('status', 5, None, ('subscribe',), 'emitted'),
+    'stream-end': EventMetadata('stream-end', 12, 'attach-streams-v1', ('attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
     'surface-exited': EventMetadata('surface-exited', 5, None, ('subscribe',), 'emitted'),
     'surface-output': EventMetadata('surface-output', 5, None, ('subscribe',), 'emitted'),
     'surface-resize-failed': EventMetadata('surface-resize-failed', 7, None, ('subscribe',), 'emitted'),

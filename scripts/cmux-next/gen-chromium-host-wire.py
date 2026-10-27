@@ -49,15 +49,26 @@ Inputs (paths relative to --root, the repository by default):
            preinit  queued in the client and applied in order before CefInitialize. A non-void one
                     returns the client's own check and names `reply_event` wire:REPLY: the host's
                     verdict, sent by token when it applies the op
-         `pending_keys` are mirror keys a post changes, `*` for a param the post does not name:
-         the client marks them pending under the op's token until the host's ack. `local` and
+         `pending_keys` are mirror keys a post (or an async op) changes, `*` for a param the op
+         does not name: the client marks them pending under the op's token until the host's ack
+         (an async op's: its REPLY), and the host pushes them again after it runs the op and
+         before that ack or REPLY (RefreshMirror), so the value cmux reads once the mark clears is
+         the host's after the op. `local` and
          `policy` need a `reason`. `channel` "input" sends the op on the input ring.
          `optional_exports` are fork API symbols CEFShimLibrary binds with r.optional that the
          header does not declare yet (with a `fork_api`); they take op ids after the header's, and
          the host calls them through ctx.OptionalExport. `optional_events` are event kinds
          CEFShimEvent.swift decodes that cmux_shim_event_kind_t does not list yet.
-         `host_mode_rewrites` are Swift sites the remote shim cannot keep as they are;
-         --check-return-use and --check-pre-attach accept a listed site's calls of its exports.
+         `host_mode_rewrites` are Swift sites the remote shim cannot keep as they are, and the
+         sites that stay as written (needs `kept`, `change` says why: in-process-only code, a
+         local the remote answers the same way); --check-return-use and --check-pre-attach accept
+         a listed site's calls of its exports. --swift-sites drops a site that is done: one listed
+         with needs after_attach, host_exit or kept (a finished pending_tab site becomes kept), an
+         async call (or a preinit whose verdict is a wire:REPLY) in the token form, inside a closure
+         handed to CEFRuntime's sendAsync, siteCall
+         or profileWrite (CEFRuntime+HostReplies.swift), which await the answer the same way in
+         both backends, and a mint_returns id call in the mint form (its id keys a `.reply(for:`
+         wait for its reply_event).
 
 Outputs (written by a run without a check flag; --check fails when one is stale):
 
@@ -103,10 +114,16 @@ argument named `reply` or `token` never collides with a generated local:
     TlvWriter: as the client's, plus I32Array(const int*, size_t)
     HostContext: int Browser(int32_t client_id)  void* PageView(uint64_t token)  Ack(uint32_t)
       void* OptionalExport(uint16_t op) (the host shim's symbol, or NULL)
-      Reply(uint32_t token, const TlvWriter&)  BindMinted(uint16_t op, int32_t minted, int64_t result)
+      Reply(uint32_t token, const TlvWriter&)
+      BindMinted(uint16_t op, int32_t minted, int64_t result, int32_t client_browser)
+        (client_browser: the export's first *browser_id argument as cmux sent it, 0 without one;
+        devtools_call's result is keyed by its browser, host_client_ids.h)
       BindMintedOnEvent(uint16_t op, int32_t minted, int event_kind, int32_t request, int64_t started)
         (the event of that kind and request reports Chromium's id; started 0: it never comes)
       PushMirror(uint16_t op, const TlvWriter& key, const TlvWriter& value)
+      RefreshMirror(uint16_t op, const TlvWriter& key, uint32_t wildcards): pushes mirror `op` again
+        now, before the op's ACK: the key itself when `key` names every parameter, else each key it
+        has pushed that matches (bit i of wildcards: param i is `*` and absent from key)
     void Wipe(std::vector<std::string>&)
   scripts/cmux-next/tests/gen-chromium-host-wire.test.sh declares this interface and compiles both
   .inc files against it (c++ -fsyntax-only -Wshadow -Werror).
@@ -119,7 +136,9 @@ Commands:
   ... --check-ops                           only the ops JSON, against the header and CEFShimLibrary
   ... --list-missing                        the live queue: export, class, missing side
   ... --swift-sites [--by-file]             Swift call sites that change in host mode: async,
-                                            mint, view, local, and post-like results read
+                                            mint, view, local, and post-like results read; an
+                                            async site that reads its wire:REPLY answer in the
+                                            call's turn, outside host_mode_rewrites, adds sync-reply
   ... --check-return-use                    exit 1 when a Swift caller binds, guards, compares or
                                             returns the result of a post, view, preinit or policy,
                                             outside host_mode_rewrites
@@ -127,9 +146,20 @@ Commands:
                                             (STARTUP_ROOTS and the functions they pass the shim to)
                                             that no host_mode_rewrites entry (after_attach) lists
   ... --check-view-parity [--list-unmapped] every method of the vendored remote_cocoa mojoms
-                                            (plans/cmux-next/remote_cocoa_mojom/) maps to an op,
-                                            an event, a wire message or a not-needed reason in
-                                            plans/cmux-next/chromium-host-view-parity.json
+      [--list-pending]                      (plans/cmux-next/remote_cocoa_mojom/) maps to one of:
+                                            op (a header or optional export), event (a header or
+                                            optional event kind), wire (a Kind of chromium_host_wire.h)
+                                            or not_needed (the reason) in
+                                            plans/cmux-next/chromium-host-view-parity.json. A pending
+                                            row (the design task that builds its carrier, with a note
+                                            naming it) is not a mapping: it stays unmapped, so the
+                                            check fails and --list-unmapped lists it until the row
+                                            names the carrier; --list-pending prints those rows and
+                                            their tasks. Each mojom is listed with its Chromium path,
+                                            version and commit (the version
+                                            scripts/cmux-next/cef-manifest.json pins) and sha256;
+                                            prints the method and [Sync] counts it parsed from the
+                                            files, by interface and target
   ... --dump-header                         the parsed header as JSON (counts, exports, events)
 
 No CI job runs this (p01-process section 4, rule 4); scripts/cmux-next/tests/
@@ -155,14 +185,19 @@ CEFS = APP + "/CmuxNextBrowser/CEF"
 HOST = "Packages/macOS/CmuxNext/ChromiumHost"
 SHIMH = CEFS + "/Shim/cmux_cef_shim.h"
 SHIM_LIBRARY = CEFS + "/CEFShimLibrary.swift"
+# CEFShimLibrary's initializer, which binds every export (p10-stability-067 moved it out of SHIM_LIBRARY).
+SHIM_LIBRARY_BIND = CEFS + "/CEFShimLibrary+Bind.swift"
 OPS = "plans/cmux-next/chromium-host-ops.json"
 PARITY = "plans/cmux-next/chromium-host-view-parity.json"
 MOJOM_DIR = "plans/cmux-next/remote_cocoa_mojom"
+DESIGN_RESULT = "plans/cmux-next/chrome-parity/design-result.json"
+CEF_MANIFEST = "scripts/cmux-next/cef-manifest.json"  # "chromium": the fork's Chromium version
 HOST_INC = HOST + "/src/generated/host_dispatch.inc"
 CLIENT_INC = HOST + "/client/generated/remote_shim.inc"
 SWIFT_OUT = CEFS + "/ChromiumHost/Generated/ChromiumHostOps.swift"
 HOST_SRC = HOST + "/src"
 CLIENT_SRC = HOST + "/client"
+HOST_WIRE = HOST_SRC + "/chromium_host_wire.h"  # the page view's input and push frames (enum Kind)
 
 CLASSES = ("post", "mirror", "async", "mint", "policy", "view", "local", "preinit")
 GENERATED_CLIENT = {"post", "mirror", "async", "mint", "policy", "view", "preinit"}
@@ -179,12 +214,25 @@ OPTIONAL_EXPORT_FIELDS = EXPORT_FIELDS | {"fork_api"}  # fork_api: the fork API 
 DOCUMENTED_FIELDS = EXPORT_FIELDS | set(TOP_LISTS)  # what `fields` in the ops JSON explains
 EVENT_FIELDS = {"kind", "value", "refreshes", "reason"}
 REWRITE_FIELDS = {"site", "exports", "needs", "change", "task"}
-REWRITE_NEEDS = ("after_attach", "reply", "pending_tab", "host_exit")
+REWRITE_NEEDS = ("after_attach", "reply", "pending_tab", "host_exit", "kept")
+# A listed site with one of these needs is done as the entry says; a `reply` site is done only in the
+# token form (TOKEN_FORM_CALLS). A `pending_tab` site still needs its work: once done, its entry
+# becomes `kept`, with a change that names the task that did it.
+SETTLED_NEEDS = ("after_attach", "host_exit", "kept")
+# CEFRuntime functions that send an async op and await its answer the same way in both backends
+# (CEFRuntime+HostReplies.swift, task p01-process-021): an async call in a closure handed to one is in
+# the token form, and --swift-sites no longer lists it. So is a preinit call whose verdict is a
+# wire:REPLY (task p01-process-070: the remote shim returns its own check and the host's verdict comes
+# as that REPLY). A mint call there is no reply's call (sendAsync returns nothing sent for it), so it
+# stays listed.
+TOKEN_FORM_CALLS = ("sendAsync", "siteCall", "profileWrite")
+TOKEN_FORM_CLASSES = ("async",)
+TOKEN_FORM_VERDICT_CLASSES = ("preinit",)  # with reply_event wire:REPLY
 MINT_RETURNS = ("id", "sent")  # the minted id at once, or 1 when sent (the id arrives in reply_event)
 REPLY_WIRE = "wire:REPLY"  # the control channel's REPLY frame answers the call
 ARG_PREFIX = "arg_"  # every C argument in generated code; generator locals never start with it
 # Functions that run before CefInitialize returns; --check-pre-attach follows the CEFShimLibrary they pass on.
-STARTUP_ROOTS = (("CmuxNextBrowser/CEF/CEFRuntime.swift", "CEFRuntime", "loadLibrary"),
+STARTUP_ROOTS = (("CmuxNextBrowser/CEF/CEFLibraryLoader.swift", "CEFLibraryLoader", "load"),
                  ("CmuxNextBrowser/CEF/CEFRuntime.swift", "CEFRuntime", "initialize"))
 CHANNELS = ("control", "input")
 MAX_RECORDS = 1 << 16
@@ -916,8 +964,8 @@ def class_problems(op: Op) -> list[str]:
             out.append("a mirror key is ints and strings only; its only out-parameters are int*")
     elif op.mirror_key or op.refresh_events:
         out.append("mirror_key and refresh_events are for mirror exports")
-    if op.pending_keys and cls not in ("post", "view", "preinit", "mint"):
-        out.append("pending_keys are for posts")
+    if op.pending_keys and cls not in ("post", "view", "preinit", "mint", "async"):
+        out.append("pending_keys are for ops the host acks or answers")
     if cls == "async":
         if op.reply_event is None:
             out.append(f"an async export names its answer: reply_event is an event kind or {REPLY_WIRE}")
@@ -1289,6 +1337,32 @@ def host_call(e: Export, call_args: list[str], lines: list[str], result: str | N
         lines.append(f"      if (optional_fn != nullptr) optional_fn({args});")
 
 
+def host_refresh(op: Op, model: Model, lines: list[str]) -> None:
+    """Pushes the op's pending keys again, read after the op ran, before its ACK or REPLY. cmux's mark
+    clears at that ACK, so what it reads next is the host's value after the op, never the one from
+    before it; a navigation's commit pushes again later (LOAD_START, ADDRESS)."""
+    own = {a.name: a for a in key_args(op.export)}
+    for pattern in op.pending_keys:
+        target = model.mirror_ops[pattern.base]
+        var = f"refresh_{pattern.ident}"
+        lines.append(f"      TlvWriter {var};")
+        wildcards = 0
+        for index, param in enumerate(pattern.params):
+            if param == "*":
+                wildcards |= 1 << index
+                continue
+            a = own[param]
+            if a.kind in WIRE_NUMBER:
+                lines.append(f"      {var}.{WIRE_NUMBER[a.kind]}({a.var});")
+            elif a.kind == "s":
+                lines.append(f"      {var}.Str({a.var} ? {a.var}->c_str() : nullptr);")
+            else:
+                raise Failure(f"{op.export.name}: pending key {pattern.text!r}: a {a.ctype} parameter "
+                              "cannot name a mirror key")
+        lines.append(f"      ctx.RefreshMirror({op_const(target.export)}, {var}, {wildcards:#x}u);  "
+                     f"// {pattern.text}")
+
+
 def host_case(op: Op, model: Model) -> list[str]:
     e, cls = op.export, op.cls
     lines = [f"    case {op_const(e)}: {{"]
@@ -1302,15 +1376,15 @@ def host_case(op: Op, model: Model) -> list[str]:
             continue
         call_args.append(host_decode(a, model.header.structs, lines))
     lines.append("      if (!r.ok() || !r.AtEnd()) return false;")
+    answer = "      ctx.Ack(wire_token);"
     if cls == "policy":
         lines.append(f"      InstallPolicy{pascal(e.short)}(ctx, policy_installed"
                      f"{''.join(', ' + p for p in call_args)});")
-        lines.append("      ctx.Ack(wire_token);")
     elif cls == "async" or (cls == "preinit" and op.reply_event == REPLY_WIRE):
         host_call(e, call_args, lines, "call_result" if e.ret_kind else None)
         lines.append("      TlvWriter reply_w;")
         host_value(e, "reply_w", lines, "call_result")
-        lines.append("      ctx.Reply(wire_token, reply_w);")
+        answer = "      ctx.Reply(wire_token, reply_w);"
     elif cls == "mint":
         host_call(e, call_args, lines, "call_result")
         if op.mint_returns == "sent":
@@ -1318,13 +1392,14 @@ def host_case(op: Op, model: Model) -> list[str]:
             lines.append(f"      ctx.BindMintedOnEvent({op_const(e)}, minted_id, {kind} /* {op.reply_event} */, "
                          f"{request_arg(e).var}, call_result);")
         else:
-            lines.append(f"      ctx.BindMinted({op_const(e)}, minted_id, call_result);")
-        lines.append("      ctx.Ack(wire_token);")
+            browser = next((a.var for a in e.wire if is_browser_arg(a)), "0")
+            lines.append(f"      ctx.BindMinted({op_const(e)}, minted_id, call_result, {browser});")
     else:
         host_call(e, call_args, lines, "call_result" if e.ret_kind else None)
         if e.ret_kind:
             lines.append("      (void)call_result;")
-        lines.append("      ctx.Ack(wire_token);")
+    host_refresh(op, model, lines)
+    lines.append(answer)
     lines += [f"      Wipe({a.var}_s);" for a in e.wire if a.kind == "R" and record_has_bytes(a, model.header.structs)]
     lines += ["      return true;", "    }"]
     return lines
@@ -1458,6 +1533,37 @@ def swift_types(export: Export, cls: str) -> tuple[list[str], list[str]]:
     return args, reply
 
 
+# Frame fields each wire kind takes in client_encode; a list (L, R) takes a variable number.
+FRAME_FIELDS = {"i": 1, "u": 1, "l": 1, "d": 1, "s": 1, "b": 1, "v": 1, "A": 1, "B": 1, "C": 0, "F": 0, "I": 0}
+
+
+def swift_pending_keys(op: Op, model: Model) -> list[str]:
+    """`PendingKey(.mirror, [field index or nil])` per pending key: the frame field client_encode puts
+    each named parameter in (a mint or policy op's first field is the minted id or the flag)."""
+    position: dict[str, int] = {}
+    index: int | None = 1 if op.cls in ("mint", "policy") else 0
+    for a in op.export.wire:
+        if index is None:
+            break
+        position[a.name] = index
+        count = FRAME_FIELDS.get(a.kind)
+        index = None if count is None else index + count
+    keys = []
+    for pattern in op.pending_keys:
+        fields = []
+        for param in pattern.params:
+            if param == "*":
+                fields.append("nil")
+            elif param in position:
+                fields.append(str(position[param]))
+            else:
+                raise Failure(f"{op.export.name}: pending key {pattern.text!r}: {param!r} follows a list "
+                              "argument, so no fixed frame field holds it")
+        mirror = swift_name(model.mirror_ops[pattern.base].export.short).strip("`")
+        keys.append(f"PendingKey(.{mirror}, [{', '.join(fields)}])")
+    return keys
+
+
 def render_swift(model: Model) -> str:
     h = model.header
     names = [swift_name(e.short) for e in model.exports]
@@ -1544,15 +1650,31 @@ def render_swift(model: Model) -> str:
             "        }",
             "    }",
             "",
+            "    /// A mirror key the op changes (`pending_keys`): cmux marks it pending under the op's token",
+            "    /// until the host's ACK. `fields` holds, per key parameter, the index of the op frame's field",
+            "    /// that names it, or nil for `*` (any value).",
+            "    nonisolated struct PendingKey: Equatable, Sendable {",
+            "        let mirror: ChromiumHostOp",
+            "        let fields: [Int?]",
+            "",
+            "        init(_ mirror: ChromiumHostOp, _ fields: [Int?]) {",
+            "            self.mirror = mirror",
+            "            self.fields = fields",
+            "        }",
+            "    }",
+            "",
             "    private nonisolated struct Row: Sendable {",
             "        let wireClass: Class",
             "        let arguments: [WireType]",
             "        let reply: [WireType]",
+            "        let pending: [PendingKey]",
             "",
-            "        init(_ wireClass: Class, _ arguments: [WireType], _ reply: [WireType]) {",
+            "        init(_ wireClass: Class, _ arguments: [WireType], _ reply: [WireType],",
+            "             _ pending: [PendingKey] = []) {",
             "            self.wireClass = wireClass",
             "            self.arguments = arguments",
             "            self.reply = reply",
+            "            self.pending = pending",
             "        }",
             "    }",
             "",
@@ -1560,7 +1682,14 @@ def render_swift(model: Model) -> str:
     for e in model.exports:
         op = model.ops[e.name]
         args, reply = swift_types(e, op.cls)
-        out.append(f"        Row(.{op.cls}, [{', '.join(args)}], [{', '.join(reply)}]),")
+        row = f"        Row(.{op.cls}, [{', '.join(args)}], [{', '.join(reply)}]"
+        pending = swift_pending_keys(op, model)
+        if pending:
+            out.append(f"{row},")
+            out += [f"            [{', '.join(pending)}]),"] if len(", ".join(pending)) < 90 else \
+                ["            ["] + [f"                {key}," for key in pending] + ["            ]),"]
+        else:
+            out.append(f"{row}),")
     out += ["    ]",
             "",
             "    private var row: Row { Self.rows[Int(rawValue) - 1] }",
@@ -1569,6 +1698,8 @@ def render_swift(model: Model) -> str:
             "    var argumentTypes: [WireType] { row.arguments }",
             "    /// An async op's REPLY or a mirror's value: the result, then the out-parameters.",
             "    var replyTypes: [WireType] { row.reply }",
+            "    /// The mirror keys the op changes (`pending_keys`); empty for most ops.",
+            "    var pendingKeys: [PendingKey] { row.pending }",
             "",
             "    /// Decodes a REPLY or MIRROR value; `next` reads one value of a type from the frame.",
             "    func decodeReply(reading next: (WireType) throws(WireError) -> Value) throws(WireError) -> [Value] {",
@@ -1725,12 +1856,18 @@ def missing_sides(model: Model | None, header: Header, per_export: dict[str, str
     return rows
 
 
+def shim_library_text(root: Path) -> str:
+    """CEFShimLibrary's declaration and, when it has one, its binding initializer's file."""
+    return "\n".join(path.read_text(encoding="utf-8") for path in (root / SHIM_LIBRARY, root / SHIM_LIBRARY_BIND)
+                     if path.exists())
+
+
 def shim_library_problems(model: Model, root: Path) -> list[str]:
     """CEFShimLibrary binds header exports with r(...) and optional exports with r.optional(...)."""
     path = root / SHIM_LIBRARY
     if not path.exists():
         return []
-    code = re.sub(r"//[^\n]*", "", path.read_text(encoding="utf-8"))
+    code = re.sub(r"//[^\n]*", "", shim_library_text(root))
     bound = re.findall(r'\br(\.optional)?\(\s*"(cmux_shim_\w+)"\s*\)', code)
     in_header = {e.name for e in model.header.exports}
     optional = {e.name for e in model.exports if e.optional}
@@ -1761,14 +1898,22 @@ class Site:
     owner: str = ""  # the innermost type declaration around the call ("" at file scope)
     function: str = ""  # the innermost func, init or computed var around the call
     offset: int = 0  # in the file's text
+    token_form: bool = False  # in a closure handed to one of TOKEN_FORM_CALLS
+    mint_form: bool = False  # a mint_returns id call whose id keys the wait for its reply_event (in_mint_form)
 
 
 def shim_properties(root: Path) -> dict[str, str]:
     path = root / SHIM_LIBRARY
     if not path.exists():
         raise Failure(f"{SHIM_LIBRARY} is missing: it maps Swift names to exports")
-    text = path.read_text(encoding="utf-8")
-    return dict(re.findall(r'\b(\w+)\s*=\s*(?:try\s+)?r(?:\.optional)?\(\s*"(cmux_shim_\w+)"\s*\)', text))
+    text = shim_library_text(root)
+    # An export bound to its C type as `let cName: <type> = try unsafe r("export")`, which the property `name`
+    # wraps in Swift types (CEFShimLibrary+Bind.swift).
+    c_binding = re.compile(r'\blet\s+c([A-Z]\w*)\s*:[^\n]*?=\s*(?:try\s+)?(?:unsafe\s+)?r(?:\.optional)?\(\s*"(cmux_shim_\w+)"\s*\)')
+    names = {local[0].lower() + local[1:]: export for local, export in c_binding.findall(text)}
+    names.update(re.findall(r'\b(\w+)\s*=\s*(?:[^\n"=]*==[^\n"]*\?\s+)?(?:try\s+)?(?:unsafe\s+)?r(?:\.optional)?\(\s*"(cmux_shim_\w+)"\s*\)',
+                            c_binding.sub("", text)))
+    return names
 
 
 # The head of a brace block that is a statement, not a closure (the text before `{` on its line).
@@ -1862,16 +2007,19 @@ def result_used(text: str, start: int, end: int) -> bool:
         if text[end:close].strip():
             return False  # one statement among several
         head_start = text.rfind("\n", 0, brace) + 1
-        head = text[head_start:brace]
+        # The head of this brace only: `if v >= 5 { return call {` heads the closure with `return call`.
+        head = re.split(r"[{};]", text[head_start:brace])[-1]
+        before = text[:brace].rstrip()
+        # A closure stored or passed returns the result, also inside a statement's head
+        # (`switch text.withCString({ shim.x($0) })`); only the block after a head drops it.
+        if not before or re.search(r"[=(\[,:]$", before):
+            return True
         if CONTROL_HEAD.search(head):
             return False
         if FUNC_HEAD.match(head):
             return "->" in head  # a single-expression body returns its value
         if GETTER_HEAD.match(head):
             return True
-        before = text[:brace].rstrip()
-        if not before or re.search(r"[=(\[,:]$", before):
-            return True  # a closure stored or passed: it returns the result
         start, end = expression_start(text, len(before)), close + 1
     return True
 
@@ -1949,21 +2097,162 @@ def context_at(scopes: list[Scope], index: int) -> tuple[str, str]:
     return owner, function
 
 
+# A parameter that is a closure taking the CEFShimLibrary first (`_ body: (CEFShimLibrary, Int32) -> Int32`).
+SHIM_CLOSURE_PARAM = re.compile(r":\s*(?:@\w+\s+)*\(\s*(?:_\s+\w+\s*:\s*)?CEFShimLibrary\s*[,)]")
+# A closure's first parameter when it names one (`{ library, browser in`, `{ (library: CEFShimLibrary) in`).
+CLOSURE_PARAM_NAME = re.compile(r"\s*(?:\[[^\]]*\]\s*)?\(?\s*([A-Za-z_]\w*)\b[^{}]*?\bin\b")
+
+
+def shim_closure_takers(files: list[tuple[str, str, list[Scope]]]) -> set[str]:
+    """Functions that hand the CEFShimLibrary to a closure argument (`call { $0.extReload($1, id) }`)."""
+    return {scope.name for _, _, scopes in files for scope in scopes
+            if scope.kind == "func" and SHIM_CLOSURE_PARAM.search(scope.head)}
+
+
+def shim_closure_receivers(masked: str, takers: set[str]) -> list[tuple[int, str]]:
+    """(open brace, receiver name) of every closure passed to a shim closure taker: `$0`, or the
+    closure's first parameter when it names one."""
+    if not takers:
+        return []
+    found = []
+    names = "|".join(re.escape(t) for t in sorted(takers))
+    for m in re.finditer(rf"(?<![\w.])(?:{names})\s*([({{])", masked):
+        if re.search(r"\bfunc\s+$", masked[:m.start()]):
+            continue  # the declaration
+        brace = m.end() - 1
+        if m.group(1) == "(":
+            inner = masked[m.end():].lstrip()
+            if inner.startswith("{"):
+                brace = len(masked) - len(inner)  # the closure is the first argument
+            else:
+                close = matching_close(masked, m.end() - 1, "(", ")")
+                after = masked[close + 1:].lstrip()
+                if not after.startswith("{"):
+                    continue
+                brace = len(masked) - len(after)  # a trailing closure
+        named = CLOSURE_PARAM_NAME.match(masked, brace + 1)
+        receiver = named.group(1) if named and named.group(1) != "_" else "$0"
+        found.append((brace, receiver))
+    return found
+
+
 def swift_sites(root: Path) -> list[Site]:
+    """Every call of a CEFShimLibrary function: through `shim`, or through the closure parameter of
+    a function that passes the library to its closure argument."""
     props = shim_properties(root)
     sites: list[Site] = []
-    for rel, masked, scopes in swift_files(root):
-        for m in re.finditer(r"\bshim[?!]?\.([A-Za-z_]\w*)\s*\(", masked):
-            export = props.get(m.group(1))
+    files = swift_files(root)
+    takers = shim_closure_takers(files)
+    for rel, masked, scopes in files:
+        calls = {(m.start(), m.end(), m.group(1))
+                 for m in re.finditer(r"\bshim[?!]?\.([A-Za-z_]\w*)\s*\(", masked)}
+        for brace, receiver in shim_closure_receivers(masked, takers):
+            if receiver == "shim":
+                continue  # the pattern above finds it
+            close = matching_close(masked, brace, "{", "}")
+            pattern = re.compile(rf"(?<![\w$]){re.escape(receiver)}[?!]?\.([A-Za-z_]\w*)\s*\(")
+            calls |= {(m.start(), m.end(), m.group(1)) for m in pattern.finditer(masked, brace, close)}
+        for begin, end, prop in sorted(calls):
+            export = props.get(prop)
             if export is None:
                 continue
-            open_index = m.end() - 1
-            close = matching_close(masked, open_index, "(", ")")
-            start = expression_start(masked, m.start())
-            owner, function = context_at(scopes, m.start())
-            sites.append(Site(rel, masked.count("\n", 0, m.start()) + 1, export, m.group(1),
-                              result_used(masked, start, close + 1), owner, function, m.start()))
+            close = matching_close(masked, end - 1, "(", ")")
+            start = expression_start(masked, begin)
+            owner, function = context_at(scopes, begin)
+            sites.append(Site(rel, masked.count("\n", 0, begin) + 1, export, prop,
+                              result_used(masked, start, close + 1), owner, function, begin,
+                              in_token_form(masked, scopes, begin), in_mint_form(masked, scopes, start)))
     return sites
+
+
+def closure_callee(masked: str, brace: int) -> str:
+    """The function a closure that opens at `brace` is handed to: `f(...) {`, `f {` or `f(x, label: {`;
+    "" when the brace opens no argument closure."""
+    left = masked[:brace].rstrip()
+    if left.endswith(")"):  # a trailing closure after the call's parentheses
+        left = masked[:matching_open(masked, len(left) - 1, "(", ")")].rstrip()
+    elif left.endswith(("(", ",", ":")):  # an argument: the call is the unclosed `(` before it
+        depth = 0
+        for i in range(brace - 1, -1, -1):
+            if masked[i] in ")]}":
+                depth += 1
+            elif masked[i] in "([{":
+                if depth == 0:
+                    if masked[i] != "(":
+                        return ""
+                    left = masked[:i].rstrip()
+                    break
+                depth -= 1
+        else:
+            return ""
+    m = re.search(r"\b([A-Za-z_]\w*)$", left)
+    return m.group(1) if m else ""
+
+
+def in_token_form(masked: str, scopes: list[Scope], index: int) -> bool:
+    """Whether the call at `index` is inside a closure handed to one of TOKEN_FORM_CALLS, within the
+    innermost function around it."""
+    floor = max((s.open for s in scopes if s.kind == "func" and s.open < index < s.close), default=-1)
+    brace = enclosing_brace(masked, index)
+    while brace > floor:
+        if closure_callee(masked, brace) in TOKEN_FORM_CALLS:
+            return True
+        brace = enclosing_brace(masked, brace)
+    return False
+
+
+MINT_BINDING = re.compile(r"\b(?:let|var)\s+([A-Za-z_]\w*)\s*(?::[^=\n]+)?=\s*$")
+REPLY_WAIT = re.compile(r"\.reply\(\s*for\s*:")
+
+
+def in_mint_form(masked: str, scopes: list[Scope], start: int) -> bool:
+    """Whether the call whose expression starts at `start` is in the mint form: its result is bound to a
+    local (`let message = shim.devToolsCall(...)`) that keys, directly or through locals made from it, a
+    `.reply(for:` wait later in the same function. The minted id is the key in both backends: the host
+    answers it in the export's reply_event, a refusal included, so nothing reads an answer in the call."""
+    line_start = masked.rfind("\n", 0, start) + 1
+    bound = MINT_BINDING.search(masked, line_start, start)
+    body = min((s for s in scopes if s.kind == "func" and s.open < start < s.close),
+               key=lambda s: s.close - s.open, default=None)
+    if bound is None or body is None:
+        return False
+    rest = masked[start:body.close]
+    names = {bound.group(1)}
+    for m in re.finditer(r"\b(?:let|var)\s+([A-Za-z_]\w*)\s*(?::[^=\n]+)?=([^\n]*)", rest):
+        if any(re.search(rf"\b{re.escape(n)}\b", m.group(2)) for n in names):
+            names.add(m.group(1))
+    for m in REPLY_WAIT.finditer(rest):
+        key = first_argument(rest, m.end(), matching_close(rest, rest.index("(", m.start()), "(", ")"))
+        if any(re.search(rf"\b{re.escape(n)}\b", key) for n in names):
+            return True
+    return False
+
+
+def first_argument(text: str, begin: int, close: int) -> str:
+    """text[begin:close] up to its first comma outside nested brackets."""
+    depth = 0
+    for i in range(begin, close):
+        if text[i] in "([{":
+            depth += 1
+        elif text[i] in ")]}":
+            depth -= 1
+        elif text[i] == "," and depth == 0:
+            return text[begin:i]
+    return text[begin:close]
+
+
+def site_settled(model: Model, site: Site, op: Op) -> bool:
+    """Whether a call site already meets host mode, so --swift-sites no longer lists it: an async call, or
+    a preinit answered by a wire:REPLY verdict, in the token form, a mint_returns id call in the mint
+    form, or a site a host_mode_rewrites entry settles (SETTLED_NEEDS)."""
+    if site.token_form and op.cls in TOKEN_FORM_CLASSES:
+        return True
+    if site.token_form and op.cls in TOKEN_FORM_VERDICT_CLASSES and op.reply_event == REPLY_WIRE:
+        return True
+    if site.mint_form and op.cls == "mint" and op.mint_returns == "id" and op.reply_event:
+        return True
+    rewrite = rewrite_for(model, site)
+    return rewrite is not None and rewrite.needs in SETTLED_NEEDS
 
 
 def swift_files(root: Path) -> list[tuple[str, str, list[Scope]]]:
@@ -1971,7 +2260,7 @@ def swift_files(root: Path) -> list[tuple[str, str, list[Scope]]]:
     out = []
     for path in sorted((root / APP).rglob("*.swift")):
         rel = path.relative_to(root).as_posix()
-        if rel == SHIM_LIBRARY or "/Generated/" in rel:
+        if rel in (SHIM_LIBRARY, SHIM_LIBRARY_BIND) or "/Generated/" in rel:
             continue
         source = path.read_text(encoding="utf-8", errors="replace")
         if "shim" not in source and "CEFShimLibrary" not in source:
@@ -1979,6 +2268,37 @@ def swift_files(root: Path) -> list[tuple[str, str, list[Scope]]]:
         masked = mask_swift_source(source)
         out.append((rel, masked, swift_scopes(masked)))
     return out
+
+
+def rewrite_site_problems(model: Model, root: Path) -> list[str]:
+    """Every host_mode_rewrites function exists in its file and uses one of the entry's exports by
+    its CEFShimLibrary name (a call, or an optional function read): an entry that names no site
+    accepts nothing and only reads like a rule."""
+    if not (root / SHIM_LIBRARY).is_file():
+        return []  # a tree without the sources
+    names: dict[str, set[str]] = {}
+    for prop, export in shim_properties(root).items():
+        names.setdefault(export, set()).add(prop)
+    files = {rel: (masked, scopes) for rel, masked, scopes in swift_files(root)}
+    problems = []
+    for rewrite in model.rewrites:
+        path = f"{APP}/{rewrite.path}"
+        if not (root / path).is_file():
+            continue  # load_ops reports it
+        masked, scopes = files.get(path) or (mask_swift_source((root / path).read_text(encoding="utf-8")), [])
+        if not scopes:
+            scopes = swift_scopes(masked)
+        props = sorted(p for export in rewrite.exports for p in names.get(export, ()))
+        uses = re.compile(rf"\.(?:{'|'.join(map(re.escape, props))})\b") if props else None
+        for owner, function in rewrite.functions:
+            bodies = [s for s in scopes if s.kind == "func" and s.name == function
+                      and owner in ("", context_at(scopes, s.open)[0])]
+            label = f"host_mode_rewrites {rewrite.site!r}: {owner + '.' if owner else ''}{function}"
+            if not bodies:
+                problems.append(f"{label} is no function of {path}")
+            elif uses is None or not any(uses.search(masked, s.open, s.close) for s in bodies):
+                problems.append(f"{label} uses none of {', '.join(rewrite.exports)}: name the function that calls them")
+    return problems
 
 
 def rewrite_for(model: Model, site: Site, needs: tuple[str, ...] | None = None) -> Rewrite | None:
@@ -2033,7 +2353,14 @@ def startup_bodies(root: Path) -> tuple[dict[str, list[tuple[int, int]]], list[s
 # View parity
 
 
-def mojom_methods(text: str) -> list[tuple[str, str]]:
+@dataclass(frozen=True)
+class MojomMethod:
+    interface: str
+    name: str
+    sync: bool  # [Sync]: the caller waits for the reply
+
+
+def mojom_methods(text: str) -> list[MojomMethod]:
     code = re.sub(r"//[^\n]*", "", re.sub(r"/\*.*?\*/", "", text, flags=re.S))
     out = []
     for m in re.finditer(r"\binterface\s+(\w+)\s*\{", code):
@@ -2049,64 +2376,194 @@ def mojom_methods(text: str) -> list[tuple[str, str]]:
             else:
                 cur.append(ch)
         for statement in statements:
-            s = re.sub(r"^\s*(\[[^\]]*\]\s*)*", "", statement)
+            attributes = re.match(r"\s*((?:\[[^\]]*\]\s*)*)", statement)
+            s = statement[attributes.end():]
             if re.match(r"(enum|struct|const|union)\b", s):
                 continue
             mm = re.match(r"(\w+)\s*@?\d*\s*\(", s)
             if mm:
-                out.append((m.group(1), mm.group(1)))
+                sync = re.search(r"[\[,]\s*Sync\s*[\],=]", attributes.group(1)) is not None
+                out.append(MojomMethod(m.group(1), mm.group(1), sync))
     return out
 
 
-def view_parity(root: Path, header: Header) -> tuple[list[str], list[str]]:
-    """(problems, unmapped methods)."""
-    parity_path, mojom_dir = root / PARITY, root / MOJOM_DIR
+PARITY_TARGETS = ("op", "event", "wire", "not_needed", "pending")
+PARITY_ROW_FIELDS = {"mojom", "interface", "method", "note", *PARITY_TARGETS}
+TASK_ID = re.compile(r"p\d{2}-[a-z][a-z0-9-]*-\d{3}[a-z]?")
+
+
+class ParityCarriers:
+    """What a parity row may name: exports and event kinds of the header and the ops JSON's
+    optional lists, the Kinds of chromium_host_wire.h, and the design's task ids (for pending)."""
+
+    def __init__(self, root: Path, header: Header) -> None:
+        self.exports = {e.name for e in header.exports}
+        self.events = {k for k, _ in header.events}
+        ops = root / OPS
+        if ops.exists():
+            data = json.loads(ops.read_text(encoding="utf-8"))
+            self.exports |= {e.get("name") for e in data.get("optional_exports", [])}
+            self.events |= {e.get("kind") for e in data.get("optional_events", [])}
+        self.wire: set[str] | None = None
+        wire = root / HOST_WIRE
+        if wire.exists():
+            code = blank_out(wire.read_text(encoding="utf-8"))
+            m = re.search(r"\benum\s+Kind\b[^{;]*\{", code)
+            body = code[m.end():matching_close(code, m.end() - 1, "{", "}")] if m else ""
+            self.wire = set(re.findall(r"\b(k\w+)\s*=", body))
+        self.tasks: set[str] | None = None
+        design = root / DESIGN_RESULT
+        if design.exists():
+            programs = json.loads(design.read_text(encoding="utf-8")).get("programs", {})
+            self.tasks = {t["id"] for p in programs.values() for t in p.get("tasks", []) if "id" in t}
+
+    def row_problem(self, row: dict, label: str) -> str | None:
+        unknown = sorted(set(row) - PARITY_ROW_FIELDS)
+        if unknown:
+            return f"{label}: unknown field(s) {', '.join(unknown)}"
+        targets = [t for t in PARITY_TARGETS if t in row]
+        if len(targets) != 1:
+            return f"{label}: needs exactly one of {', '.join(PARITY_TARGETS)}"
+        target, value = targets[0], row[targets[0]]
+        if not isinstance(value, str) or not value.strip():
+            return f"{label}: {target} must be a non-empty string"
+        if target == "op" and value not in self.exports:
+            return f"{label}: op {value!r} is neither a header export nor an optional export"
+        if target == "event" and value not in self.events:
+            return f"{label}: event {value!r} is neither a header event kind nor an optional event"
+        if target == "wire" and self.wire is None:
+            return f"{label}: wire {value!r}, but {HOST_WIRE} is missing"
+        if target == "wire" and value not in self.wire:
+            return f"{label}: wire {value!r} is not a Kind of {HOST_WIRE}"
+        if target == "pending":
+            if not TASK_ID.fullmatch(value):
+                return f"{label}: pending {value!r} is not a task id (pNN-program-NNN)"
+            if self.tasks is not None and value not in self.tasks:
+                return f"{label}: pending task {value} is not in {DESIGN_RESULT}"
+            if not str(row.get("note", "")).strip():
+                return f"{label}: a pending row needs a note naming the carrier its task builds"
+        return None
+
+
+MOJOM_FIELDS = {"file", "source", "chromium", "commit", "sha256", "role"}
+HEX40, HEX64 = re.compile(r"[0-9a-f]{40}"), re.compile(r"[0-9a-f]{64}")
+
+
+@dataclass
+class ViewParity:
+    problems: list[str] = field(default_factory=list)
+    unmapped: list[str] = field(default_factory=list)
+    pending: list[str] = field(default_factory=list)  # "label\ttask"
+    counts: list[str] = field(default_factory=list)  # parsed from the vendored texts, never constants
+
+
+def mojom_provenance(root: Path, mojoms: list) -> tuple[list[str], str | None]:
+    """(problems, "version (commit)") for the parity JSON's mojoms list: every file names its Chromium
+    path, version, commit and sha256, all at one revision, the one cef-manifest.json pins."""
     problems: list[str] = []
+    revisions = set()
+    for entry in mojoms:
+        name = entry.get("file", "?")
+        unknown = sorted(set(entry) - MOJOM_FIELDS)
+        if unknown:
+            problems.append(f"{name}: unknown mojoms field(s) {', '.join(unknown)}")
+        source = str(entry.get("source", ""))
+        if source.rsplit("/", 1)[-1] != name:
+            problems.append(f"{name}: source {source!r} is not the Chromium path of this file")
+        if not HEX40.fullmatch(str(entry.get("commit", ""))):
+            problems.append(f"{name}: commit must be the 40-hex Chromium commit it was copied at")
+        if not HEX64.fullmatch(str(entry.get("sha256", ""))):
+            problems.append(f"{name}: sha256 must be the file's 64-hex sha256")
+        if not str(entry.get("chromium", "")).strip():
+            problems.append(f"{name}: chromium must be the Chromium version it was copied at")
+        revisions.add((str(entry.get("chromium", "")), str(entry.get("commit", ""))))
+    if len(revisions) > 1:
+        problems.append("the mojoms come from more than one Chromium revision: "
+                        + ", ".join(f"{v} ({c[:12]})" for v, c in sorted(revisions)))
+    if len(revisions) != 1:
+        return problems, None
+    version, commit = next(iter(revisions))
+    manifest = root / CEF_MANIFEST
+    if manifest.exists():
+        pinned = json.loads(manifest.read_text(encoding="utf-8")).get("chromium")
+        if pinned != version:
+            problems.append(f"the mojoms are Chromium {version} but {CEF_MANIFEST} pins {pinned}: vendor them "
+                            f"again at the pinned revision and re-check their rows")
+    return problems, f"{version} ({commit[:12]})"
+
+
+def view_parity(root: Path, header: Header) -> ViewParity:
+    out = ViewParity()
+    parity_path, mojom_dir = root / PARITY, root / MOJOM_DIR
     if not parity_path.exists():
-        problems.append(f"{PARITY} is missing (task p01-process-055)")
+        out.problems.append(f"{PARITY} is missing (task p01-process-055)")
     if not mojom_dir.is_dir():
-        problems.append(f"{MOJOM_DIR}/ is missing: vendor the remote_cocoa mojoms (task p01-process-059)")
-    if problems:
-        return problems, []
+        out.problems.append(f"{MOJOM_DIR}/ is missing: vendor the remote_cocoa mojoms (task p01-process-059)")
+    if out.problems:
+        return out
     data = json.loads(parity_path.read_text(encoding="utf-8"))
-    listed = {m["file"]: m for m in data.get("mojoms", [])}
+    listed = {m.get("file"): m for m in data.get("mojoms", [])}
+    provenance_problems, revision = mojom_provenance(root, data.get("mojoms", []))
+    out.problems += provenance_problems
     on_disk = sorted(p.name for p in mojom_dir.glob("*.mojom"))
     for name in on_disk:
         if name not in listed:
-            problems.append(f"{MOJOM_DIR}/{name} is not listed in {PARITY}")
-    methods: dict[tuple[str, str, str], bool] = {}
-    for name, entry in listed.items():
+            out.problems.append(f"{MOJOM_DIR}/{name} is not listed in {PARITY}")
+    methods: dict[tuple[str, str, str], str | None] = {}  # -> the target that maps it
+    sync: set[tuple[str, str, str]] = set()
+    for name in sorted({str(n) for n in listed} | set(on_disk)):
         path = mojom_dir / name
         if not path.exists():
-            problems.append(f"{PARITY} lists {name}, which is not in {MOJOM_DIR}/")
+            out.problems.append(f"{PARITY} lists {name}, which is not in {MOJOM_DIR}/")
             continue
         raw = path.read_bytes()
-        sha = entry.get("sha256")
-        if sha and sha != hashlib.sha256(raw).hexdigest():
-            problems.append(f"{name} changed since it was mapped (sha256 differs): re-check its rows")
-        for interface, method in mojom_methods(raw.decode("utf-8")):
-            methods[(name, interface, method)] = False
-    exports = {e.name for e in header.exports}
-    events = {k for k, _ in header.events}
+        if name in listed and listed[name].get("sha256") != hashlib.sha256(raw).hexdigest():
+            out.problems.append(f"{name} changed since it was mapped (sha256 differs): re-check its rows")
+        for m in mojom_methods(raw.decode("utf-8")):
+            methods[(name, m.interface, m.name)] = None
+            if m.sync:
+                sync.add((name, m.interface, m.name))
+    carriers = ParityCarriers(root, header)
+    seen: set[tuple[str, str, str]] = set()
+    pending: dict[tuple[str, str, str], str] = {}
     for row in data.get("methods", []):
         key = (row.get("mojom"), row.get("interface"), row.get("method"))
         label = f"{key[0]} {key[1]}.{key[2]}"
         if key not in methods:
-            problems.append(f"{label}: mapped, but the mojom has no such method (stale row)")
+            out.problems.append(f"{label}: mapped, but the mojom has no such method (stale row)")
             continue
-        if methods[key]:
-            problems.append(f"{label}: mapped twice")
-        targets = [t for t in ("op", "event", "wire", "not_needed") if row.get(t)]
-        if len(targets) != 1:
-            problems.append(f"{label}: needs exactly one of op, event, wire, not_needed")
-        elif targets[0] == "op" and row["op"] not in exports:
-            problems.append(f"{label}: op {row['op']!r} is not a header export")
-        elif targets[0] == "event" and row["event"] not in events:
-            problems.append(f"{label}: event {row['event']!r} is not a header event kind")
-        methods[key] = True
-    unmapped = [f"{m} {i}.{n}" for (m, i, n), done in sorted(methods.items()) if not done]
-    problems += [f"{u}: unmapped" for u in unmapped]
-    return problems, unmapped
+        if key in seen:
+            out.problems.append(f"{label}: mapped twice")
+        seen.add(key)
+        problem = carriers.row_problem(row, label)
+        if problem:
+            out.problems.append(problem)
+        elif "pending" in row:
+            pending[key] = row["pending"]
+            continue  # no carrier yet: the method stays unmapped
+        methods[key] = next((t for t in PARITY_TARGETS if t in row), "?")
+    unmapped = [key for key, target in sorted(methods.items()) if not target]
+    out.unmapped = [f"{m} {i}.{n}" for m, i, n in unmapped]
+    for key in unmapped:
+        label = f"{key[0]} {key[1]}.{key[2]}"
+        task = pending.get(key)
+        out.problems.append(f"{label}: unmapped, pending on {task}" if task else f"{label}: unmapped")
+    out.pending = [f"{m} {i}.{n}\t{task}" for (m, i, n), task in sorted(pending.items())]
+
+    def tally(keys: list[tuple[str, str, str]]) -> str:
+        targets = [methods[k] for k in keys]
+        mapped = ", ".join(f"{t} {targets.count(t)}" for t in PARITY_TARGETS if t in targets)
+        waiting = sum(k in pending for k in keys)
+        return (f"{len(keys)} methods, {sum(k in sync for k in keys)} [Sync]; "
+                f"{len(keys) - targets.count(None)} mapped" + (f" ({mapped})" if mapped else "")
+                + (f", {waiting} pending" if waiting else ""))
+
+    keys = sorted(methods)
+    out.counts.append(f"view parity: {len(on_disk)} vendored mojoms at Chromium {revision or '?'}: {tally(keys)}")
+    for mojom, interface in sorted({(k[0], k[1]) for k in keys}):
+        out.counts.append(f"  {mojom} {interface}: "
+                          + tally([k for k in keys if k[0] == mojom and k[1] == interface]))
+    return out
 
 
 # ---------------------------------------------------------------------------------------------
@@ -2129,6 +2586,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--check-pre-attach", action="store_true")
     parser.add_argument("--check-view-parity", action="store_true")
     parser.add_argument("--list-unmapped", action="store_true")
+    parser.add_argument("--list-pending", action="store_true")
     parser.add_argument("--dump-header", action="store_true")
     args = parser.parse_args(argv)
     root = args.root.resolve()
@@ -2142,13 +2600,17 @@ def main(argv: list[str]) -> int:
                        "events": [{"kind": k, "value": v} for k, v in header.events]}, sys.stdout, indent=1)
             print()
             return 0
-        if args.check_view_parity or args.list_unmapped:
-            problems, unmapped = view_parity(root, header)
+        if args.check_view_parity or args.list_unmapped or args.list_pending:
+            parity = view_parity(root, header)
             if args.list_unmapped:
-                print("\n".join(unmapped))
-            for p in problems:
+                print("\n".join(parity.unmapped))
+            if args.list_pending:
+                print("\n".join(parity.pending))
+            if args.check_view_parity and parity.counts:
+                print("\n".join(parity.counts))
+            for p in parity.problems:
                 print(f"view parity: {p}", file=sys.stderr)
-            return 1 if problems and args.check_view_parity else 0
+            return 1 if parity.problems and args.check_view_parity else 0
         model, problems, per_export = load_ops(header, root)
         if args.swift_sites or args.check_return_use or args.check_pre_attach:
             if model is None:
@@ -2158,7 +2620,7 @@ def main(argv: list[str]) -> int:
             return report_sites(model, root, args)
         if args.list_missing or args.check or args.check_ops:
             if model is not None:
-                problems += shim_library_problems(model, root)
+                problems += shim_library_problems(model, root) + rewrite_site_problems(model, root)
             if args.list_missing:
                 for row in missing_sides(model, header, per_export, root):
                     print("\t".join(row))
@@ -2199,11 +2661,16 @@ def main(argv: list[str]) -> int:
         return 1
 
 
-def site_reasons(op: Op, site: Site) -> list[str]:
-    """Why a call site changes in host mode: its class, and result-read when it reads a stand-in result."""
+def site_reasons(model: Model, op: Op, site: Site) -> list[str]:
+    """Why a call site changes in host mode: its class; result-read when it reads a stand-in result;
+    sync-reply when it reads, in the call's turn, an answer that comes later in the op's wire:REPLY
+    (the result or the out-parameters) and no host_mode_rewrites entry (needs reply) moves it to the
+    token API (CEFHostReplies, task 018)."""
     reasons = [op.cls] if op.cls in SITE_CLASSES else []
     if site.used and op.cls in POST_LIKE:
         reasons.append("result-read")
+    if site.used and op.cls == "async" and op.reply_event == REPLY_WIRE and rewrite_for(model, site, ("reply",)) is None:
+        reasons.append("sync-reply")
     return reasons
 
 
@@ -2211,9 +2678,9 @@ def report_sites(model: Model, root: Path, args: argparse.Namespace) -> int:
     rows = []
     for site in swift_sites(root):
         op = model.ops.get(site.export)
-        if op is None:
+        if op is None or site_settled(model, site, op):
             continue
-        reasons = site_reasons(op, site)
+        reasons = site_reasons(model, op, site)
         if reasons:
             rows.append((site, op.cls, reasons))
     if args.check_return_use:

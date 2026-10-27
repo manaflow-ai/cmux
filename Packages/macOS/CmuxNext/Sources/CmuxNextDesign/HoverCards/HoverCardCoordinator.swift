@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextWakeups
+public import CmuxNextWakeups
 import CmuxNextCompat
 public import CmuxNextDesignTokens
 public import CmuxNextInput
@@ -43,6 +43,10 @@ public final class HoverCardCoordinator {
     /// Pointer moves while a card shows: the card ignores the mouse, so over it no source
     /// sees the pointer leave it; this tap observer sees it at once (no wait for a deadline).
     var cardMoves: InputSubscription?
+    /// Those moves on the card parent's frames (`pointerFrameHover`); nil: each move reaches the card now.
+    var cardMoveFrames: PointerFrameConsumer?
+    /// Card moves checked (debug and tests: at most 2 per frame interval with the parent's frames).
+    var cardMoveChecks = 0
     /// The app's input tap (the App's composition root passes it; a strip's default coordinator,
     /// replaced before it shows a card, and tests that drive the machine directly have none).
     let inputTap: InputEventTap?
@@ -51,7 +55,13 @@ public final class HoverCardCoordinator {
     var movesParent: (window: NSWindow, accepted: Bool)?
     /// The last pointer move was on the card.
     var pointerWasOnCard = false
-    private var observers: [MainActorObservation] = []
+    var observers: [MainActorObservation] = []
+    /// The app's notice fan-outs (``init(clock:input:changes:appEvents:workspaceEvents:)``) and the subscriptions on them.
+    let appEvents: AppEvents?
+    let workspaceEvents: AppEvents?
+    var appWatches: [EventSubscription] = []
+    /// `sidebar.hoverCards.enabled` or calm mode changes (``AppearanceSignals/Signal/hoverCards``).
+    var hoverCardsWatch: AppearanceSignals.Subscription?
     /// The last window-server answer to "which window is on top here", for its point and the time it was
     /// asked: valid for one display frame (``topWindowLifetime``), so a burst of relayouts under a still
     /// pointer asks once, and a window of another app or a non-key panel brought forward shows by the
@@ -113,34 +123,21 @@ public final class HoverCardCoordinator {
 
     /// A coordinator whose dismissals listen on `input`, the app's one tap, and that tells `changes` when
     /// the shown card changes.
-    public init(clock: any Clock<Duration> = ContinuousClock(), input: InputEventTap? = nil, changes: OverlayChangeFeed? = nil) {
+    ///
+    /// - Parameters:
+    ///   - clock: The clock the hover delays run on (tests pass a manual one).
+    ///   - input: The app's input tap, which the dismissals listen on.
+    ///   - changes: Told when the shown card changes.
+    ///   - appEvents: The app's one fan-out of `NotificationCenter.default` notices: the app going inactive ends
+    ///     the card. Nil (a strip's default coordinator, replaced before it shows a card; tests): no subscription.
+    ///   - workspaceEvents: The app's one fan-out of the workspace center's notices: a Space change ends the card.
+    public init(clock: any Clock<Duration> = ContinuousClock(), input: InputEventTap? = nil, changes: OverlayChangeFeed? = nil,
+                appEvents: AppEvents? = nil, workspaceEvents: AppEvents? = nil) {
+        // timer-class-allow: the person's dwell, grace and aim deadlines run on the injected clock the hover suites step; a MainDeadline wakes on uptime only
         timer = DemandTimer(owner: "HoverCards.delay", clock: clock)
         inputTap = input
         self.changes = changes
-    }
-
-    /// App and window notifications, installed with the first source (a
-    /// coordinator that never gets one, such as a strip's default before
-    /// the App injects the shared one, costs nothing).
-    private func installObserversIfNeeded() {
-        guard observers.isEmpty else { return }
-        let center = NotificationCenter.default
-        observers.append(MainActorObservation(DesignSettings.hoverCardsDidChange, center: center) { [weak self] in
-            self?.hoverCardsSettingChanged()
-        })
-        observers.append(MainActorObservation(NSApplication.didResignActiveNotification, center: center) { [weak self] in
-            if !WindowPlacement.noActivate { self?.dismiss(.appDeactivated) }
-        })
-        observers.append(MainActorObservation(NSWorkspace.activeSpaceDidChangeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] in
-            self?.dismiss(.windowResignedKey)
-        })
-        for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification, NSWindow.didEndLiveResizeNotification,
-                     NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification] {
-            let ended = name != NSWindow.didMoveNotification && name != NSWindow.didResizeNotification
-            observers.append(MainActorObservation(name, center: center, read: { ($0.object as? NSWindow)?.windowNumber }) { [weak self] number in
-                self?.windowGeometryChanged(number, liveResizeEnded: ended)
-            })
-        }
+        (self.appEvents, self.workspaceEvents) = (appEvents, workspaceEvents)
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
@@ -255,7 +252,7 @@ public final class HoverCardCoordinator {
     /// Hover cards were turned off: a pending or shown card goes now, a
     /// pinned one (Show Resource Usage) too, since the user just asked for no
     /// cards. Turned on: the next pointer move starts one.
-    private func hoverCardsSettingChanged() {
+    func hoverCardsSettingChanged() {
         guard !hoverCardsEnabled(), machine.activeTarget != nil else { return }
         dismiss(.action)
     }
@@ -285,7 +282,7 @@ public final class HoverCardCoordinator {
     public func contentChanged(_ id: HoverTargetID) {
         guard machine.shownTarget?.id == id, let body = owners[id]?.source?.hoverCardBody(for: id) else { return }
         body.applyTheme()
-        panel?.refit()
+        panel?.refit(interactive: body.interactive)
     }
 
     /// The card shows `id` now.
@@ -323,7 +320,7 @@ public final class HoverCardCoordinator {
     private func run(_ effect: HoverCardEffect) {
         switch effect {
         case .schedule(let token, let delay):
-            timer.schedule(after: delay) { @MainActor [weak self] in
+            timer.scheduleOnMain(after: delay) { [weak self] in
                 guard let self else { return }
                 send(.pointerOnCard(pointerIsOnCard()))
                 send(.deadline(token: token))
@@ -343,7 +340,7 @@ public final class HoverCardCoordinator {
             let panel = panel ?? HoverCardPanel()
             self.panel = panel
             panel.present(body: body.view, anchor: anchor, placement: body.placement, parent: parent,
-                          themeAnchor: body.themeAnchor, sliding: sliding, applyTheme: body.applyTheme)
+                          themeAnchor: body.themeAnchor, sliding: sliding, interactive: body.interactive, applyTheme: body.applyTheme)
             // A hover card whose row's escape slot already holds the pointer (it rested in the
             // sidebar's margin beside the row) goes at once: the slot never shows its row's card.
             if case .shown(let shown) = machine.phase, shown.id == target.id, escapeTarget(at: currentPointer()) == target.id {
@@ -372,7 +369,7 @@ public final class HoverCardCoordinator {
 
     // MARK: Geometry
 
-    private func windowGeometryChanged(_ number: Int?, liveResizeEnded: Bool) {
+    func windowGeometryChanged(_ number: Int?, liveResizeEnded: Bool) {
         guard let number, number != panel?.windowNumber,
               let window = sources.values.lazy.compactMap({ $0.source?.hoverCardWindow }).first(where: { $0.windowNumber == number })
         else { return }
@@ -430,19 +427,6 @@ public final class HoverCardCoordinator {
         Int(duration.components.seconds) * 1_000 + Int(duration.components.attoseconds / 1_000_000_000_000_000)
     }
 
-    /// The single-card invariant, checked live in debug builds
-    /// (`debug.desync`): at most one card window exists and shows, and it
-    /// shows what the machine says.
-    public func singleCardViolations() -> [String] {
-        var bad: [String] = []
-        if HoverCardPanel.liveInstances > 1 { bad.append("\(HoverCardPanel.liveInstances) hover card windows exist") }
-        let showing = panel?.isShowingCard == true
-        if showing, machine.shownTarget == nil, owned == nil { bad.append("a card shows while the machine has none") }
-        if owned != nil, machine.shownTarget != nil { bad.append("an owner's card and \(machine.shownTarget?.id.rawValue ?? "-") share the window") }
-        if !showing, let shown = machine.shownTarget, panel?.isVisible != true { bad.append("the machine shows \(shown.id) but no card is on screen") }
-        return bad
-    }
-
     /// State for `debug.hover_cards`.
     public var report: [String: String] {
         [
@@ -454,7 +438,7 @@ public final class HoverCardCoordinator {
             "pending_target": { if case .pending(let target, _) = machine.phase { target.id.rawValue } else { "-" } }(),
             "shown_target": machine.shownTarget?.id.rawValue ?? "-",
             "quiet": "\(machine.quiet)",
-            "card_windows": "\(HoverCardPanel.liveInstances)",
+            "card_windows": "\(HoverCardPanel.liveInstances.load(ordering: .relaxed))",
             "card_showing": "\(panel?.isShowingCard == true)",
             "card_frame": panel.map { NSStringFromRect($0.cardFrame) } ?? "-",
             "anchor_frame": panel.map { NSStringFromRect($0.anchorFrame) } ?? "-",

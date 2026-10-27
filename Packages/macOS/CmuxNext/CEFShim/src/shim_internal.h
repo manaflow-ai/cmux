@@ -17,8 +17,25 @@
 #include "include/cef_resource_request_handler.h"
 #include "include/cef_unresponsive_process_callback.h"
 #include "cmux_cef_shim.h"  // Sources/CmuxNextBrowser/CEF/Shim
+#include "embedder_focus_policy.h"
+#include "embedder_ui_args.h"
+#include "find_ids.h"
+#include "popup_menu_args.h"
+#include "suggestion_rows.h"
 
 namespace cmux_shim {
+
+// One underline of an IME composition as the fork reads it: its
+// cmux_ime_span_t (include/cef_cmux.h, Chrome's ExtractUnderlines): [start,
+// end) in the composition text in UTF-16 units, thick 1 for the selected
+// clause, colors 0xAARRGGBB (0: the page's text color).
+struct ForkImeSpan {
+  int start;
+  int end;
+  int thick;
+  uint32_t underline_color;
+  uint32_t background_color;
+};
 
 // Fork C API resolved with dlsym (include/cef_cmux.h in the artifact).
 struct ForkApi {
@@ -51,6 +68,7 @@ struct ForkApi {
   int (*ext_set_pinned)(int, const char*, int) = nullptr;
   int (*ext_open_options)(int, const char*) = nullptr;
   int (*ext_load_unpacked)(int, const char*) = nullptr;
+  int (*ext_load_command_line_async)(const char*, const char*, void (*)(void*, int), void*) = nullptr;  // p13-webui-055
   char* (*ext_commands)(int) = nullptr;
   int (*ext_command_run)(int, const char*, const char*) = nullptr;
   int (*tab_move_to_window)(int, int, int) = nullptr;
@@ -67,6 +85,16 @@ struct ForkApi {
   int (*tab_set_transparent_background)(int, int) = nullptr;
   uint32_t (*browser_set_layer_hosting)(int, int) = nullptr;
   int (*browser_set_resize_sync)(int, int) = nullptr;
+  // API version 32: the resize fence in display frames.
+  int (*browser_set_resize_fence)(int, uint32_t, uint32_t) = nullptr;
+  // API version 34: a hosted page's visibility from the app.
+  int (*browser_set_embedder_visibility)(int, int) = nullptr;
+  // API version 36: a tab's Chromium views in an embedder NSView.
+  int (*browser_attach_view)(int, void*) = nullptr;
+  // API version 37: a tab's visibility and capture from the app.
+  int (*tab_set_visibility)(int, int, int) = nullptr;
+  // API version 39: a string to a cmux-page document's receiver (the page push channel).
+  int (*tab_page_push)(int, const char*, size_t) = nullptr;
   void (*set_new_tab_page_url)(const char*) = nullptr;
   void (*set_install_prompt_handler)(void (*)(void*, int, int, const char*), void*) = nullptr;
   int (*install_prompt_reply)(int, int) = nullptr;
@@ -117,10 +145,42 @@ struct ForkApi {
   void (*set_drag_source_handler)(void (*)(void*, int, const void*), void*) = nullptr;
   int (*browser_drag_source_ended)(int, double, double, double, double, int) = nullptr;
   int (*browser_drag_target_enter_source)(int, int, int, int, int) = nullptr;
-  // API version 31: IME of a detached page and its composition bounds
-  // (shim_helper_host.mm; cmux_shim_ime_span is laid out as the fork's
-  // cmux_ime_span_t). Used only when `version` >= kDetachedImeForkApi.
-  int (*browser_ime_set_composition)(int, const char*, const cmux_shim_ime_span*, int, int, int, int, int) = nullptr;
+  // API version 31: the app's own UI for choosers, screen share and locks,
+  // a detached page's display, page state per entry (shim_helper_host.mm).
+  // The handler structs are embedder_ui_args.h's copies.
+  int (*set_color_chooser_handler)(const ForkColorChooserHandler*) = nullptr;
+  int (*color_chooser_choose)(int64_t, uint32_t) = nullptr;
+  int (*color_chooser_end)(int64_t) = nullptr;
+  int (*set_device_chooser_handler)(const ForkDeviceChooserHandler*) = nullptr;
+  int (*device_chooser_answer)(int64_t, int, const int*, int) = nullptr;
+  int (*set_desktop_media_handler)(const ForkDesktopMediaHandler*) = nullptr;
+  int (*desktop_media_answer)(int64_t, int, int64_t, int) = nullptr;
+  int (*set_lock_handler)(const ForkLockHandler*) = nullptr;
+  int (*browser_pointer_lock_answer)(int, int) = nullptr;
+  int (*browser_keyboard_lock_answer)(int, int) = nullptr;
+  int (*browser_exit_pointer_lock)(int, int) = nullptr;
+  int (*browser_exit_keyboard_lock)(int) = nullptr;
+  int (*browser_send_locked_mouse_move)(int, double, double, int) = nullptr;
+  int (*browser_set_page_display)(int, uint32_t, double, double) = nullptr;
+  int (*browser_set_page_visibility)(int, int) = nullptr;  // shim_browser.mm
+  char* (*tab_entry_page_state)(int, int) = nullptr;
+  int (*tab_page_state_watch)(int, void (*)(void*, int, int), void*) = nullptr;
+  int (*tab_restore_entries)(int, const ForkRestoreEntry*, int, int) = nullptr;
+  // API version 31 (task 172): the renderer's answer to each DragTarget*
+  // enter and over of a detached page (shim_helper_host.mm).
+  int (*browser_drag_target_watch)(int, void (*)(void*, int, int, int), void*) = nullptr;
+  // API version 31 (task 171): <select> popups as data (shim_browser.mm,
+  // popup_menu_args.h).
+  int (*browser_set_popup_menu_handler)(int, ForkPopupMenuShowFn, ForkPopupMenuHideFn, void*) = nullptr;
+  int (*browser_popup_menu_reply)(int, int64_t, int) = nullptr;
+  // API version 31 (task 172): autofill, password and <datalist> suggestions
+  // as data, drawn by the app (shim_password_core.mm; suggestion_rows.h).
+  int (*browser_set_suggestion_handler)(int, const ForkSuggestionHandler*) = nullptr;
+  int (*browser_suggestion_action)(int, int64_t, int, int) = nullptr;
+  // API version 31 (task p01-process-170): IME of a detached page and its
+  // composition bounds (shim_helper_host.mm). Used only when `version` >=
+  // kDetachedImeForkApi.
+  int (*browser_ime_set_composition)(int, const char*, const ForkImeSpan*, int, int, int, int, int) = nullptr;
   int (*browser_ime_commit_text)(int, const char*, int, int) = nullptr;
   int (*browser_ime_finish_composing)(int) = nullptr;
   int (*browser_ime_cancel)(int) = nullptr;
@@ -128,25 +188,75 @@ struct ForkApi {
   // No API number yet (p13-webui-017; the fork train numbers it): its
   // presence says the fork honors CMUX_EXTRA_INFO_NO_RENDERER.
   int (*tab_renderer_state)(int) = nullptr;
+  // No API number yet (p14-energy-046; the fork bundle p14-energy-136 numbers
+  // it): delayed pump work as absolute run times with Chromium's leeway.
+  void (*set_on_schedule_delayed)(void (*)(void*, int64_t, int64_t, int), void*) = nullptr;
+  // p14-energy-029 (numbered by the fork bundle p14-energy-136): Energy Saver
+  // with cmux's input and own-page exemption.
+  void (*set_energy_saver)(bool, const char*) = nullptr;
+  // No API number yet (p14-energy-124; numbered by p14-energy-136): the pid
+  // of the renderer hosting a tab's main frame, 0 while none.
+  int (*browser_renderer_pid)(int) = nullptr;
+  // No API number yet (p07-memory-051; the fork train p07-memory-074 numbers
+  // it): cmux's voter in Chromium's MultiSourceMemoryPressureMonitor.
+  int (*memory_pressure_vote)(int) = nullptr;
 };
 
 // The fork API that has the detached-page IME calls (task p01-process-170).
 inline constexpr int kDetachedImeForkApi = 31;
 
+}  // namespace cmux_shim
+
+// The detached page's IME ops (shim_helper_host.mm): optional exports of the
+// shim that cmux_cef_shim.h does not declare (plans/cmux-next/chromium-host-ops.json
+// optional_exports; the Chromium Host resolves them by name and names them in
+// its hello). Text is UTF-16LE, clauses are task p04-input-064's kIme layout
+// (per clause i32 start, i32 end, u32 color 0xAARRGGBB, u32 thick, little
+// endian), offsets UTF-16 units, -1, -1 no replacement range. Each does nothing
+// for a fork below API 31, a page that is not detached or a malformed buffer.
+extern "C" {
+CMUX_SHIM_EXPORT void cmux_shim_browser_ime_set_composition(int browser_id, const uint8_t* text, int text_length,
+                                                            const uint8_t* clauses, int clauses_length,
+                                                            int selection_start, int selection_end,
+                                                            int replace_start, int replace_end);
+CMUX_SHIM_EXPORT void cmux_shim_browser_ime_commit_text(int browser_id, const uint8_t* text, int text_length,
+                                                        int replace_start, int replace_end);
+CMUX_SHIM_EXPORT void cmux_shim_browser_ime_finish_composing(int browser_id);
+CMUX_SHIM_EXPORT void cmux_shim_browser_ime_cancel_composition(int browser_id);
+}  // extern "C"
+
+namespace cmux_shim {
+
 struct Host {
   void* ctx = nullptr;
   cmux_shim_schedule_fn schedule = nullptr;
+  cmux_shim_schedule_delayed_fn schedule_delayed = nullptr;
   cmux_shim_event_fn event = nullptr;
   cmux_shim_key_fn key = nullptr;
   cmux_shim_key_fn devtools_key = nullptr;
   cmux_shim_key_fn unhandled_key = nullptr;
   cmux_shim_window_request_fn window_request = nullptr;
   cmux_shim_focus_request_fn focus_request = nullptr;
+  // Decides Chromium's focus requests when focus_request is null (the
+  // Chromium Host's mode, task p01-process-032).
+  EmbedderFocusPolicy embedder_focus;
+  // The caller's find id of each browser's last cmux_shim_find, which its
+  // FIND_RESULT events carry (UI thread).
+  FindIds find_ids;
 };
 
 ForkApi& fork_api();
 void InstallForkObserver();
 Host& host();
+
+// True when CEF's request to focus `browser_id` must be cancelled
+// (CefFocusHandler::OnSetFocus returns it). In process cmux's focus_request
+// decides; with none installed (host mode) only a browser cmux marked
+// embedder-active may take focus (shim_browser.mm).
+bool RefusesFocus(int browser_id, int source);
+// cmux marked `browser_id` embedder-active or not (shim_helper_host.mm),
+// recorded before the fork is told, which focuses the page inside the call.
+void NoteEmbedderActive(int browser_id, bool active);
 
 // True once quit began to stop Chromium (cmux_shim_close_all): no browser is
 // made after, as CEF aborts creating one once its shutdown began.
@@ -160,6 +270,13 @@ void Emit(int kind,
           int64_t b = 0,
           const std::string& s1 = std::string(),
           const std::string& s2 = std::string());
+
+// A browser Chromium made gets the <select> popup handler while the host
+// takes popups (cmux_shim_set_popup_menus; shim_browser.mm, UI thread).
+void ApplyPopupMenus(int browser_id);
+// The live DevTools browsers' identifiers (shim_devtools.mm, UI thread): they
+// are not in browsers(), and their <select> popups go to the host too.
+std::vector<int> DevToolsBrowserIds();
 
 // The file chooser handler (shim_file_dialog.mm); CancelFileDialogs cancels
 // the pending choosers of a browser that closed or crashed (UI thread).
@@ -180,6 +297,14 @@ int NextInternalDevToolsId(int browser_id);
 bool ForwardDevToolsMessage(int browser_id, const void* message, size_t message_size);
 // The browser closed: drop its watch, raw-send mark and id counter.
 void ForgetDevToolsProtocol(int browser_id);
+
+// Chromium Host only (p01-process-030; shim_client.mm): the host's key frame
+// applier sends `event` to `browser_id` with this, on the UI thread, in place
+// of CefBrowserHost::SendKeyEvent. `seq` is the kKey frame's input seq
+// (Header::seq). If the page leaves a Command or Control key-down unhandled,
+// OnKeyEvent reports KEY_UNHANDLED with that seq (request, b bit 1) and cmux
+// runs the action it held or re-dispatches the key to its menus.
+void SendHostKeyEvent(int browser_id, uint32_t seq, const CefKeyEvent& event);
 
 // Profile preference watches (shim_prefs.mm, UI thread).
 void ForgetPreferenceWatches(const std::string& key);
@@ -284,6 +409,9 @@ void InstallExtensionUIHandlers();
 // so Chromium's bubble does not show (shim_password_core.mm).
 void InstallPasswordPromptHandler();
 void RemovePasswordPromptHandler();
+// A new browser's suggestions go to the app as SUGGESTIONS events while it
+// asked for them (cmux_shim_set_suggestion_events; shim_password_core.mm).
+void InstallSuggestionHandler(int browser_id);
 // The visible entry's virtual URL when it is chrome://newtab (the New Tab
 // page, which loads another URL), else `url`.
 std::string DisplayAddress(CefRefPtr<CefBrowser> browser, const std::string& url);

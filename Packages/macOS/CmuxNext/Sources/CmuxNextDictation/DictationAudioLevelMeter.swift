@@ -11,12 +11,10 @@ import os
 /// stream is bounded, and meter updates must never push a final out of it.
 ///
 /// Lock carve-out: the tap is a synchronous real-time audio callback, so it
-/// cannot hop to an actor. The lock guards one `Float` with a constant-time
+/// cannot hop to an actor. The lock holds one `Float` with a constant-time
 /// critical section.
-public final class DictationAudioLevelMeter: @unchecked Sendable {
-    private let lock = OSAllocatedUnfairLock()
-    // Guarded by `lock`.
-    private var storedLevel: Float = 0
+public final class DictationAudioLevelMeter: Sendable {
+    private let storedLevel = OSAllocatedUnfairLock<Float>(initialState: 0) // lock-allow: realtime audio tap, os_unfair_lock donates
 
     /// Quietest level shown, in dBFS. Anything below reads as silence.
     private static let floorDecibels: Float = -55
@@ -36,29 +34,29 @@ public final class DictationAudioLevelMeter: @unchecked Sendable {
 
     /// Normalized input level in `0...1`, where `0` is silence.
     public var level: Float {
-        lock.lock()
-        defer { lock.unlock() }
-        return storedLevel
+        storedLevel.withLock { $0 }
     }
 
     /// Folds one tap buffer into the meter.
     public func record(_ buffer: AVAudioPCMBuffer) {
         recording?.record(buffer)
-        guard let channels = buffer.floatChannelData, buffer.frameLength > 0 else { return }
-        let samples = UnsafeBufferPointer(start: channels[0], count: Int(buffer.frameLength))
-        update(rms: Self.rootMeanSquare(samples))
+        // SAFETY: a float buffer's floatChannelData holds one pointer per channel, each to frameLength valid
+        // samples owned by `buffer`, which outlives this call; the meter reads the first channel and keeps no pointer.
+        guard let channels = unsafe buffer.floatChannelData, buffer.frameLength > 0 else { return }
+        let samples = unsafe UnsafeBufferPointer(start: channels[0], count: Int(buffer.frameLength))
+        update(rms: unsafe Self.rootMeanSquare(samples))
     }
 
     /// Sets the level from a precomputed RMS amplitude (`0...1`). Fixture
     /// engines use this to animate the meter without a microphone.
     public func update(rms: Float) {
         let next = Self.normalizedLevel(rms: rms)
-        lock.lock()
-        // Fast attack, slower release, so the meter reads as speech rather
-        // than flicker.
-        storedLevel = next > storedLevel ? next : storedLevel * 0.6 + next * 0.4
-        let level = storedLevel
-        lock.unlock()
+        let level = storedLevel.withLock { stored in
+            // Fast attack, slower release, so the meter reads as speech rather
+            // than flicker.
+            stored = next > stored ? next : stored * 0.6 + next * 0.4
+            return stored
+        }
         continuation.yield(level)
     }
 
@@ -67,7 +65,7 @@ public final class DictationAudioLevelMeter: @unchecked Sendable {
         continuation.finish()
     }
 
-    static func rootMeanSquare(_ samples: UnsafeBufferPointer<Float>) -> Float {
+    static func rootMeanSquare(_ samples: some Collection<Float>) -> Float {
         guard !samples.isEmpty else { return 0 }
         var sum: Float = 0
         for sample in samples {

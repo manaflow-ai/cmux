@@ -91,14 +91,14 @@ public final class LinkRouter {
             return
         }
         if recordsInstead("system:" + url.absoluteString) { return }
-        // Never the blocking open: a click handler may hold a renderer lock.
-        NSWorkspace.shared.open(url, configuration: NSWorkspace.OpenConfiguration())
+        // Never on the caller's thread: a click handler may hold a renderer lock.
+        NSWorkspace.shared.openInBackground(url)
     }
 
     /// Opens `file` (or a web link) with the app at `app`.
     public func open(_ url: URL, withApplicationAt app: URL) {
         if recordsInstead("app:\(app.deletingPathExtension().lastPathComponent):\(url.isFileURL ? url.path : url.absoluteString)") { return }
-        NSWorkspace.shared.open([url], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration())
+        NSWorkspace.shared.openInBackground([url], withApplicationAt: app)
     }
 
     /// Opens a file or folder in its default app (a folder in Finder).

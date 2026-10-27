@@ -3,6 +3,7 @@ import AVFoundation
 import CmuxNextAgentPermissions
 import CmuxNextCompat
 import CmuxNextOnboarding
+import CmuxNextWakeups
 import CoreServices
 import Foundation
 
@@ -18,14 +19,19 @@ import Foundation
 @MainActor
 final class SystemPermissionProbe: PermissionProbe {
     private let setup: ComputerUseSetup
-    private let notifications: NotificationCenter
-    private let distributed: NotificationCenter
+    /// The app's fan-out of app notices (the app becoming active).
+    private let appEvents: AppEvents
+    /// Where the grants' observation flushes.
+    private let mainWork: MainWorkScheduler
 
-    init(setup: ComputerUseSetup, notifications: NotificationCenter = .default,
-         distributed: NotificationCenter = DistributedNotificationCenter.default()) {
+    /// - Parameters:
+    ///   - setup: Computer Use Setup: the helper's grants, and the app's fan-out of distributed notices.
+    ///   - appEvents: The app's fan-out of app notices.
+    ///   - mainWork: The app's main-thread scheduler.
+    init(setup: ComputerUseSetup, appEvents: AppEvents, mainWork: MainWorkScheduler) {
         self.setup = setup
-        self.notifications = notifications
-        self.distributed = distributed
+        self.appEvents = appEvents
+        self.mainWork = mainWork
     }
 
     func status(_ kind: PermissionKind, target: String?) async -> PermissionStatus {
@@ -49,24 +55,29 @@ final class SystemPermissionProbe: PermissionProbe {
 
     func changes() -> AsyncStream<Void> {
         let (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
-        let active = notifications.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
-            continuation.yield()
-        }
-        let trust = distributed.addObserver(forName: ComputerUseSetup.accessibilityTrustChanged, object: nil, queue: .main) { _ in
-            continuation.yield()
-        }
+        let subscriptions = [
+            appEvents.subscribe(NSApplication.didBecomeActiveNotification, owner: "SystemPermissionProbe.active") {
+                continuation.yield()
+            },
+            setup.distributedEvents.subscribe(ComputerUseSetup.accessibilityTrustChanged, owner: "SystemPermissionProbe.trust") {
+                continuation.yield()
+            },
+        ]
         let setup = setup
-        // task-owner: follows Computer Use Setup's grants while the stream lives; onTermination cancels it.
-        let grants = Task { @MainActor in
-            for await _ in ObservationStream({ ObservationTrigger(setup.permissions) }) { continuation.yield() }
+        // A service observation while the stream lives: the request store re-reads on each element, shown or
+        // not. `visible`: the permission card shows the grants.
+        let grants = ServiceObservation(.visible, owner: "SystemPermissionProbe.grants", on: mainWork) {
+            ObservationTrigger(setup.permissions)
+        } apply: { _ in
+            continuation.yield()
         }
-        nonisolated(unsafe) let observers: [any NSObjectProtocol] = [active, trust] // crash-allow: an immutable array of opaque observer tokens, read only by onTermination (runs once); removeObserver is thread-safe
-        let notifications = notifications
-        let distributed = distributed
+        let mainWork = mainWork
         continuation.onTermination = { _ in
-            grants.cancel()
-            notifications.removeObserver(observers[0])
-            distributed.removeObserver(observers[1])
+            // The stream's end, on any thread: the subscriptions and the observation stop in one background task.
+            mainWork.postFromAnyThread(.background, owner: "SystemPermissionProbe.end") {
+                for subscription in subscriptions { subscription.cancel() }
+                grants.cancel()
+            }
         }
         return stream
     }
@@ -85,7 +96,8 @@ final class SystemPermissionProbe: PermissionProbe {
     @concurrent nonisolated static func fullDiskAccess() async -> PermissionStatus {
         let path = FileManager.default.homeDirectoryForCurrentUser
             .appending(path: "Library/Application Support/com.apple.TCC/TCC.db").path
-        let fd = open(path, O_RDONLY)
+        // SAFETY: open reads the NUL-terminated copy of the path Swift makes for the call.
+        let fd = unsafe open(path, O_RDONLY)
         if fd >= 0 {
             close(fd)
             return .granted

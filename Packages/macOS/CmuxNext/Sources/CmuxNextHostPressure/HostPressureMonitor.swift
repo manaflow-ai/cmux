@@ -1,6 +1,6 @@
+import CmuxNextCompat
 import Dispatch
 public import Foundation
-import os
 
 /// Where a verdict comes from: acpmux's `host_pressure` when the daemon
 /// reports one (the one implementation of the budget), else this Mac's own
@@ -103,7 +103,7 @@ public actor HostPressureMonitor {
     /// Which run is live: start() and stop() each begin a new one. A source
     /// hop or a main-actor delivery from an earlier run sees a newer number
     /// and does nothing (read from the main actor too, hence the lock).
-    private let run = OSAllocatedUnfairLock(initialState: 0)
+    private nonisolated let run = Mutex(0)
     /// Off in tests, which drive `read()` themselves; the pressure subscription runs either way.
     private let ticks: Bool
 
@@ -222,10 +222,9 @@ public actor HostPressureMonitor {
 
     private func apply(_ verdict: HostBudgetVerdict) {
         guard let level = tracker.feed(verdict), let onChange else { return }
-        let run = run
         let generation = self.generation
         // Dropped when stop() ended this run while it waited for the main actor.
-        deliver {
+        deliver { [self] in
             guard run.withLock({ $0 }) == generation else { return }
             onChange(level, verdict)
         }

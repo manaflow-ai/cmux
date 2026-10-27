@@ -1,0 +1,24 @@
+﻿{
+  "app": {
+    // url: https://localhost/x
+"hideDockIconWithoutWindows": 1
+  },
+  "sidebar": {
+    /* block */ "workspaceRow": {
+      /* {"k": 1} */ "mixed": {
+        "working": true
+      }
+    }
+  },
+  // "quoted"
+"appearance": {
+    /* {"k": 1} */ "colorTransition": {
+      "bezierX1": 0.42
+    }
+  },
+  "oracleUnknown": {
+    "nested": {
+      "key": [true]
+    }
+  }
+}

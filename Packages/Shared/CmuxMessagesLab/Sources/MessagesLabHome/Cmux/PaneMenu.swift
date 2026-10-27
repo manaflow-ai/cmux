@@ -250,6 +250,7 @@ final class EmojiBubbleButton: NSView {
 
 /// The context menu's target highlight: a bubble-shaped layer over the row, white (incoming)
 /// or a multiply tint (outgoing), faded in when the menu opens and out when it closes.
+@MainActor
 final class MenuHighlight: NSObject, NSMenuDelegate {
     /// The highlight (tests read where it is drawn).
     let layer: CALayer
@@ -294,9 +295,9 @@ final class MenuHighlight: NSObject, NSMenuDelegate {
         super.init()
         layer.opacity = 0
     }
-    private var keys: Any?
+    /// Esc while the menu is open (`menuWillOpen` to `menuDidClose`); removed when released.
+    private var keys: ScopedEventMonitor?
     private var closing = false
-    deinit { if let k = keys { NSEvent.removeMonitor(k) } }
     /// MessagesLab ced183d: the highlight starts with the press, when AppKit asks for the menu,
     /// and is committed at once, before AppKit's synchronous menu layout (30-75 ms per open), so
     /// the render server runs its fade during that work as Messages shows it.
@@ -323,8 +324,7 @@ final class MenuHighlight: NSObject, NSMenuDelegate {
         if let shape = layer as? CAShapeLayer, let path = shape.path {
             let box = path.boundingBoxOfPath
             let to = anchor.convert(box, from: space)
-            var t = CGAffineTransform(translationX: to.minX - box.minX, y: to.minY - box.minY)
-            shape.path = path.copy(using: &t)
+            shape.path = path.copy(applying: CGAffineTransform(translationX: to.minX - box.minX, y: to.minY - box.minY))
         } else {
             layer.frame = anchor.convert(layer.frame, from: space)
         }
@@ -335,25 +335,34 @@ final class MenuHighlight: NSObject, NSMenuDelegate {
     func discard() {
         CATransaction.begin(); CATransaction.setDisableActions(true); layer.removeFromSuperlayer(); CATransaction.commit()
     }
-    func menuWillOpen(_ menu: NSMenu) {
+    // NSMenuDelegate's requirements are nonisolated; AppKit calls a menu's delegate on the main thread.
+    nonisolated func menuWillOpen(_ menu: NSMenu) {
+        // main-proof: AppKit sends NSMenuDelegate callbacks on the main thread, where menus track.
+        MainActor.assumeIsolated { opened(menu) }
+    }
+    nonisolated func menuDidClose(_ menu: NSMenu) {
+        // main-proof: AppKit sends NSMenuDelegate callbacks on the main thread, where menus track.
+        MainActor.assumeIsolated { closed() }
+    }
+    private func opened(_ menu: NSMenu) {
         openedAt = CACurrentMediaTime()
         start()
         // Esc (MessagesLab e17858e): the highlight's fade starts and commits before AppKit tears
         // the menu down on main (the teardown held the commit 30-40 ms: a late, jumping fade);
         // cancelTracking() animates the menu's own dismissal, as Messages' Esc does.
-        keys = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self, weak menu] e in
+        keys = ScopedEventMonitor(matching: .keyDown) { [weak self, weak menu] e in
             guard e.keyCode == 53, let menu else { return e }
             self?.close()
             menu.cancelTracking()
             return nil
         }
     }
-    func menuDidClose(_ menu: NSMenu) {
-        if let k = keys { NSEvent.removeMonitor(k); keys = nil }
+    private func closed() {
+        keys = nil
         // MessagesLab 7518134: AppKit sends the chosen item's action after this; a tapback fades the
         // highlight with its badge (fadeForChoice), so the plain fade waits for the next main
         // run-loop pass (no timer; an action AppKit sends later finds the fade running, as before).
-        RunLoop.main.perform(inModes: [.common]) { self.close() }
+        MainRunLoopPass.perform(inModes: [.common]) { self.close() }
     }
     /// MessagesLab 7518134: Messages fades the highlight with the tapback, CA's default curve over
     /// 0.228 s, beginning 0.120 s after the tapback's origin (tapback-menu-heart-take1).

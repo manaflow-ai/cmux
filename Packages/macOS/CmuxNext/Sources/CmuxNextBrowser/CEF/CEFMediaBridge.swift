@@ -18,7 +18,6 @@ import os
 final class CEFMediaBridge {
     /// Weak: the tab owns this bridge; after it is gone every entry point returns.
     private weak var tab: CEFTab?
-    private var observation: ObservationLoop?
     /// The committed document the binding was last added for.
     private var boundDocument: (url: URL?, phase: BrowserLoadPhase)?
 
@@ -37,7 +36,7 @@ final class CEFMediaBridge {
         }
         let calls: [(String, [String: Any])] = [("Page.enable", [:])] + scripts + Self.bindings
         run(calls, browser)
-        observation = ObservationLoop { [weak self] in self?.documentChanged() }
+        documentChanged()
     }
 
     /// The media world's bindings: the media report and the protected-media refusal.
@@ -47,8 +46,9 @@ final class CEFMediaBridge {
         }
     }
 
-    /// A document committed or finished: its world exists now.
-    private func documentChanged() {
+    /// After attach, each shim event of the tab (`CEFAgentRelay.documentStateChanged`): a document
+    /// that committed or finished has its world now.
+    func documentChanged() {
         guard let tab else { return }
         let state = tab.state
         guard state.phase == .committed || state.phase == .finished, let browser = tab.browserID else { return }

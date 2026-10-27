@@ -1,0 +1,10 @@
+{
+	"diff": {
+		"showBackgrounds": true
+	},
+	"oracleUnknown": {
+		"nested": {
+			"key": [true]
+		}
+	}
+}

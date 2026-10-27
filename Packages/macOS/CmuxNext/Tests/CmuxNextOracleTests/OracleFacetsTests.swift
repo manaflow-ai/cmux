@@ -104,6 +104,38 @@ struct OracleFacetsTests {
         #expect(await backgroundReads.facets.isEmpty)
     }
 
+    /// A split facet's main-actor part runs in the `beginCapture` turn with the main-actor facets, its slow part
+    /// only in `finish`; its main-actor failure fails `beginCapture`; with no change signal it cannot be waited on.
+    @Test func aSplitFacetReadsItsModelInTheMainActorCallAndTheRestAfter() async throws {
+        let reads = Reads()
+        let backgroundReads = BackgroundReads()
+        let split = OracleFacetSource(.terminals, .split { () throws(OracleFacetError) -> OracleFacetRead in
+            reads.facets.append(.terminals)
+            let count = reads.facets.count
+            return { () async throws(OracleFacetError) -> OracleValue in
+                await backgroundReads.record(.terminals)
+                return OracleValue(count)
+            }
+        })
+        let facets = OracleFacets([main(.focus, "focused", reads: reads), split])
+        #expect(!facets.signalsChanges(.terminals))
+        let capture = try facets.beginCapture([.focus, .terminals])
+        #expect(reads.facets == [.focus, .terminals])
+        #expect(capture.completed == nil)
+        #expect(await backgroundReads.facets.isEmpty)
+        // A model change after the turn is not in the snapshot.
+        reads.facets.append(.layout)
+        #expect(try await capture.finish() == ["focus": "focused", "terminals": 2])
+        #expect(await backgroundReads.facets == [.terminals])
+
+        let failing = OracleFacets([OracleFacetSource(.terminals, .split { () throws(OracleFacetError) -> OracleFacetRead in
+            throw OracleFacetError("no mirror")
+        })])
+        #expect(throws: OracleSnapshotError(facet: .terminals, error: OracleFacetError("no mirror"))) {
+            try failing.beginCapture([.terminals])
+        }
+    }
+
     @Test func theCatalogListsEveryFacetAndTheFirstProviderAnswers() throws {
         let reads = Reads()
         let facets = OracleFacets([main(.windows, "first", reads: reads), main(.windows, "second", reads: reads)])

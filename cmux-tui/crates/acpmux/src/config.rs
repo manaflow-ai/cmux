@@ -87,6 +87,7 @@ pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
 fn validate_private_state_ancestors(dir: &Path) -> Result<()> {
     use std::os::unix::fs::MetadataExt;
 
+    // SAFETY: getuid has no preconditions and cannot fail.
     let uid = unsafe { libc::getuid() };
     let check = |path: &Path, metadata: &std::fs::Metadata| -> Result<()> {
         anyhow::ensure!(
@@ -242,18 +243,27 @@ fn refuse_writable_extended_acl(file: &std::fs::File, path: &Path) -> Result<()>
         fn acl_free(object: *mut core::ffi::c_void) -> libc::c_int;
     }
 
+    // SAFETY: `file` keeps the descriptor open across the call; the result is
+    // null or an ACL that this function frees on every path.
     let acl = unsafe { acl_get_fd_np(file.as_raw_fd(), ACL_TYPE_EXTENDED) };
     if acl.is_null() {
         let error = std::io::Error::last_os_error();
         return if error.raw_os_error() == Some(libc::ENOENT) { Ok(()) } else { Err(error.into()) };
     }
     let mut len = 0;
+    // SAFETY: `acl` is the live ACL from above and `len` a writable local; the
+    // returned text is freed below, after it is copied.
     let text = unsafe { acl_to_text(acl, &mut len) };
     if text.is_null() {
+        // SAFETY: `acl` came from acl_get_fd_np and is freed once on this path.
         unsafe { acl_free(acl) };
         return Err(std::io::Error::last_os_error().into());
     }
+    // SAFETY: acl_to_text returned a non-null NUL-terminated string that stays
+    // allocated until the free below; `rendered` owns its copy.
     let rendered = unsafe { CStr::from_ptr(text) }.to_string_lossy().to_ascii_lowercase();
+    // SAFETY: each pointer came from acl_to_text or acl_get_fd_np and is freed
+    // exactly once; nothing reads either afterwards.
     unsafe {
         acl_free(text.cast());
         acl_free(acl);
@@ -1181,14 +1191,22 @@ impl Config {
     }
 
     /// Write back to the file this config came from. No-op for in-code configs.
+    /// The daemon queues the bytes instead (`Hub::save_config`, `hub/config_writer.rs`).
     pub fn save(&self) -> Result<()> {
-        let Some(path) = &self.path else {
+        let Some((path, bytes)) = self.disk_bytes()? else {
             tracing::debug!("config has no file; not saved");
             return Ok(());
         };
         if let Some(parent) = path.parent() {
             private_state_dir(parent)?;
         }
+        write_atomic(&path, &bytes)
+    }
+
+    /// The file this config came from and the bytes `save` writes there; None for an in-code
+    /// config. No disk access.
+    pub fn disk_bytes(&self) -> Result<Option<(PathBuf, Vec<u8>)>> {
+        let Some(path) = &self.path else { return Ok(None) };
         let mut on_disk = self.clone();
         on_disk
             .harnesses
@@ -1214,7 +1232,7 @@ impl Config {
                 on_disk.defaults.remove("claude");
             }
         }
-        write_atomic(path, serde_json::to_string_pretty(&on_disk)?.as_bytes())
+        Ok(Some((path.clone(), serde_json::to_string_pretty(&on_disk)?.into_bytes())))
     }
 
     pub fn profile(&self, name: &str) -> Option<&HarnessProfile> {

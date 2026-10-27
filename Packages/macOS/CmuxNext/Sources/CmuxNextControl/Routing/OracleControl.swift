@@ -31,7 +31,9 @@ public struct OracleControl: Sendable {
     public var methods: [ControlMethod] {
         [
             // Params: `facets` (facet names; all when absent), `list` (the catalog: every facet, its
-            // task, and whether this build provides it). The result is `{<facet>: <value>}`
+            // task, and whether this build provides it), `paths` (`{root: [String], home: [String]}`, the
+            // prefixes normalize.py gets as `--root` and `--home`: a hashed path field rewrites them to
+            // `$ROOT` and `$HOME` before the hash). The result is `{<facet>: <value>}`
             // (schemas/oracle/README.md, "Source methods"). The main-actor facets are read in this
             // one turn; the background facets after it, off the main actor.
             .mainActor(Self.snapshot) { [facets] call in
@@ -42,9 +44,10 @@ public struct OracleControl: Sendable {
                 } catch {
                     throw ControlError.invalidParams(error.message, data: ["param": "facets"])
                 }
+                let paths = try Self.paths(call.params["paths"])
                 let capture: OracleCapture
                 do throws(OracleSnapshotError) {
-                    capture = try facets.beginCapture(requested)
+                    capture = try facets.rewriting(paths).beginCapture(requested)
                 } catch {
                     throw Self.failure(error)
                 }
@@ -70,6 +73,28 @@ public struct OracleControl: Sendable {
             names.append(name)
         }
         return names
+    }
+
+    /// The `paths` param (`{root: [String], home: [String]}`, either list optional): no prefix when absent.
+    static func paths(_ param: JSONValue?) throws(ControlError) -> OraclePaths {
+        guard let param, !param.isNull else { return .unchanged }
+        func prefixes(_ key: String) throws(OracleRequestError) -> [String] {
+            guard let list = param[key], !list.isNull else { return [] }
+            guard let items = list.arrayValue else { throw OracleRequestError.badPaths("\(key) must be a list of paths") }
+            var values: [String] = []
+            for item in items {
+                guard let value = item.stringValue else { throw OracleRequestError.badPaths("\(key) must be a list of paths") }
+                values.append(value)
+            }
+            return values
+        }
+        do throws(OracleRequestError) {
+            guard case .object(let members) = param else { throw OracleRequestError.badPaths("must be an object with root and home") }
+            if let extra = members.keys.first(where: { $0 != "root" && $0 != "home" }) { throw OracleRequestError.badPaths("unknown key \(extra)") }
+            return try OraclePaths(root: prefixes("root"), home: prefixes("home"))
+        } catch {
+            throw ControlError.invalidParams(error.message, data: ["param": "paths"])
+        }
     }
 
     private static func failure(_ error: OracleSnapshotError) -> ControlError {

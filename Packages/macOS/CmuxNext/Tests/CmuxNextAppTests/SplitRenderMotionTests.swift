@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextLayout
+import CmuxNextWakeups
 import QuartzCore
 import Testing
 
@@ -46,7 +47,7 @@ struct SplitRenderMotionTests {
         }
     }
 
-    /// One pane `a` in a 1200 x 800 window; ``split()`` is Cmd-D on it.
+    /// One pane `a` (or `layout`) in a 1200 x 800 window; ``split()`` is Cmd-D on `a`.
     final class Split {
         let panes = Panes()
         let model: LayoutModel
@@ -57,10 +58,10 @@ struct SplitRenderMotionTests {
         private var observation: LayoutOverlaySyncObservation?
         private var landing: CheckedContinuation<Bool, Never>?
 
-        init(renderServer: Bool, reduceMotion: Bool = false) {
-            model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(.leaf("a")))], activeScreenID: "s",
+        init(renderServer: Bool, reduceMotion: Bool = false, layout: ScreenLayout = .splits(.leaf("a"))) {
+            model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: layout)], activeScreenID: "s",
                                 focusedPane: "a")
-            root = LayoutRootView(model: model, contentProvider: panes, rendersMotionOnServer: { renderServer })
+            root = LayoutRootView(model: model, contentProvider: panes, rendersMotionOnServer: { renderServer }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             root.context.reduceMotionOverride = reduceMotion
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -80,8 +81,12 @@ struct SplitRenderMotionTests {
         func host(_ pane: PaneID) throws -> PaneHostView { try #require(root.context.hosts[pane]) }
 
         /// The daemon's tree after Cmd-D on `pane` (a new pane `added` on its right), in the key's turn.
-        func split(_ tree: SplitNode) {
-            model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(tree))])
+        func split(_ tree: SplitNode) { split(.splits(tree)) }
+
+        /// The daemon's `layout` after a split, with the focus on `focus` when given, in one turn.
+        func split(_ layout: ScreenLayout, focus: PaneID? = nil) {
+            model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: layout)])
+            if let focus { model.focus(focus, notify: false, source: .keyboard) }
             root.syncWithModel()
         }
 
