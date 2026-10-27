@@ -3682,6 +3682,12 @@ function AcpmuxPane() {
   // Updated by the client before React renders, so a late Trust save cannot replay into a new
   // route during that interval. The catalog generation changes only when the client changes.
   const trustRouteSnapshot = useRef(snapshot);
+  // The snapshot's owner is captured when the client publishes that snapshot. During a selection
+  // hold the direct client may already point at B while the pane still paints A; never label that
+  // rendered A with B's generation or let its Trust action target B.
+  const trustRenderedOwner = useRef<
+    { client?: AcpmuxDirectClient; generation?: number; sessionId?: string } | undefined
+  >(undefined);
   const trustAuthority = useCallback(() => {
     const current = trustRouteSnapshot.current;
     return JSON.stringify([
@@ -3693,7 +3699,16 @@ function AcpmuxPane() {
       current.summary?.host,
     ]);
   }, []);
-  const trustVisit = useCallback(() => directClient.current?.trustGeneration, []);
+  const trustVisit = useCallback(() => {
+    const client = directClient.current;
+    const rendered = trustRenderedOwner.current;
+    return JSON.stringify([
+      rendered && rendered.client === client ? rendered.generation : undefined,
+      rendered?.sessionId ?? snapshotRef.current?.sessionId,
+      client?.trustGeneration,
+      client?.selectedSession,
+    ]);
+  }, []);
   // Another chat ends the replay: coming back to this one opens it live.
   if (replaying && snapshot.sessionId !== replaying) setReplaying(undefined);
   // A /btw failure belongs to its chat: another chat drops it.
@@ -4033,12 +4048,12 @@ function AcpmuxPane() {
   );
   const trustRoute = trustAsk.refused;
   trustRefused.current = trustRoute;
-  const routeClient = directClient.current;
+  const routeClient = trustRenderedOwner.current?.client;
   trustRouteOwner.current = routeClient
     ? {
         client: routeClient,
-        generation: routeClient.trustGeneration,
-        sessionId: routeClient.shownSession()?.sessionId ?? snapshot.sessionId,
+        generation: trustRenderedOwner.current?.generation ?? routeClient.trustGeneration,
+        sessionId: trustRenderedOwner.current?.sessionId ?? snapshot.sessionId,
       }
     : undefined;
   useEffect(() => {
@@ -5601,6 +5616,12 @@ function AcpmuxPane() {
         rowsRef.current = next.rows;
         snapshotRef.current = next;
         trustRouteSnapshot.current = next;
+        const owner = directClient.current;
+        trustRenderedOwner.current = {
+          client: owner,
+          generation: owner?.trustGeneration,
+          sessionId: next.sessionId,
+        };
         saveSnapshot(next);
         setSnapshot(next);
       },
@@ -5891,6 +5912,11 @@ function AcpmuxPane() {
             rowsRef.current = next.rows;
             snapshotRef.current = next;
             trustRouteSnapshot.current = next;
+            trustRenderedOwner.current = {
+              client,
+              generation: client.trustGeneration,
+              sessionId: next.sessionId,
+            };
             // What each harness reports feeds the next switch's first frame (harnessProfiles.ts).
             const summary = next.summary;
             const started = summary?.model !== undefined && startedSessions.delete(summary.sessionId);
@@ -6030,15 +6056,20 @@ function AcpmuxPane() {
           // A New Tab send may create/select its session inside ensureSession. Route a refusal by
           // the client's current selection generation rather than a render-time hook closure:
           // ensureSession can select before React has rendered the new chat.
-          const routeForSend = (error: unknown, again?: () => void): boolean => {
-            const clientNow = directClient.current;
-            if (clientNow !== client || !isTrustRefusal(error)) return false;
+          let sendOwner = {
+            client,
+            generation: client.trustGeneration,
+            sessionId: client.shownSession()?.sessionId ?? sessionIdRef.current,
+          };
+          const routeForSend = (error: unknown, again?: () => void, owner = sendOwner): boolean => {
+            if (directClient.current !== owner.client || !isTrustRefusal(error)) return false;
             const pending = pendingTrustRefusal.current;
             const pendingError = pending?.error as { reason?: unknown; cwd?: unknown } | undefined;
             if (
               pending &&
-              pending.client === client &&
-              pending.generation === client.trustGeneration &&
+              pending.client === owner.client &&
+              pending.generation === owner.generation &&
+              pending.sessionId === owner.sessionId &&
               pendingError?.reason === (error as { reason?: unknown }).reason &&
               pendingError?.cwd === (error as { cwd?: unknown }).cwd
             ) {
@@ -6047,18 +6078,18 @@ function AcpmuxPane() {
               pending.again = again;
               return true;
             }
-            const owner = trustRouteOwner.current;
+            const rendered = trustRouteOwner.current;
             if (
-              owner &&
-              owner.client === client &&
-              owner.generation === client.trustGeneration &&
-              (owner.sessionId === undefined || owner.sessionId === client.shownSession()?.sessionId)
+              rendered &&
+              rendered.client === owner.client &&
+              rendered.generation === owner.generation &&
+              rendered.sessionId === owner.sessionId
             )
               return trustRefused.current?.(error, again) ?? false;
             pendingTrustRefusal.current = {
-              client,
-              generation: client.trustGeneration,
-              sessionId: client.shownSession()?.sessionId ?? sessionIdRef.current,
+              client: owner.client,
+              generation: owner.generation,
+              sessionId: owner.sessionId,
               error,
               again,
             };
@@ -6114,7 +6145,19 @@ function AcpmuxPane() {
             if (isStartRefusal(error)) client.notice(failedSendText(error, false));
             return refused(error, Boolean(accepted));
           });
+          // ensureSession may intentionally create/select the New Tab's first chat. Transfer the
+          // send owner only after that successful handoff; a later navigation must not rewrite it.
+          sendOwner = {
+            client,
+            generation: client.trustGeneration,
+            sessionId: sessionId ?? client.shownSession()?.sessionId,
+          };
           await persistSession(sessionId);
+          sendOwner = {
+            client,
+            generation: client.trustGeneration,
+            sessionId: client.selectedSession,
+          };
           const turn = client
             .send(text, attachments, kept?.promptId, accepted, kept?.ticket, steer)
             .catch((error: unknown) => refused(error, Boolean(accepted)));
