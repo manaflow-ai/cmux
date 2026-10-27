@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 
+use anyhow::Context as _;
+
 use crate::config::{MachineConfig, MachineCreationSourceConfig, MachineTargetConfig};
 use crate::machine::{
     MachineCapabilities, MachineConnectionPhase, MachineConnectionTarget, MachineCreationSource,
@@ -128,8 +130,9 @@ impl MachineRuntime {
         key
     }
 
-    pub fn initial_key(&self) -> MachineKey {
-        self.entries[0].descriptor.key
+    pub fn initial_key(&self) -> anyhow::Result<MachineKey> {
+        let first = self.entries.first().map(|entry| entry.descriptor.key);
+        first.context(crate::localization::catalog().sidebar.initial_machine_connection_failed)
     }
 
     #[cfg(test)]
@@ -930,7 +933,7 @@ mod tests {
         let first = runtime.connect_machine("dev@mini.local").unwrap();
         let second = runtime.connect_machine("dev@mini.local").unwrap();
         assert_eq!(first, second);
-        assert_eq!(runtime.snapshot(runtime.initial_key()).machines.len(), 2);
+        assert_eq!(runtime.snapshot(runtime.initial_key().unwrap()).machines.len(), 2);
     }
 
     #[test]
@@ -952,11 +955,11 @@ mod tests {
             target: MachineTargetConfig::Unix { socket: PathBuf::from("/tmp/mini.sock") },
         };
         let mut runtime = MachineRuntime::new(PathBuf::from("/tmp/current.sock"), vec![machine]);
-        let key = runtime.snapshot(runtime.initial_key()).machines[1].key;
+        let key = runtime.snapshot(runtime.initial_key().unwrap()).machines[1].key;
 
         assert_eq!(runtime.rename_machine(key, "  Build box  ").unwrap(), "Build box");
         assert_eq!(runtime.name(key), Some("Build box"));
-        assert!(runtime.ui_state(runtime.initial_key()).is_client_machine_renamable(key));
+        assert!(runtime.ui_state(runtime.initial_key().unwrap()).is_client_machine_renamable(key));
     }
 
     #[test]
@@ -1007,7 +1010,7 @@ mod tests {
         let runtime =
             MachineRuntime::new(PathBuf::from("/tmp/current.sock"), vec![machine.clone(), machine]);
 
-        assert_eq!(runtime.snapshot(runtime.initial_key()).machines.len(), 2);
+        assert_eq!(runtime.snapshot(runtime.initial_key().unwrap()).machines.len(), 2);
     }
 
     #[test]
@@ -1021,7 +1024,7 @@ mod tests {
                 subtitle: "container prototype".into(),
             }],
         );
-        let active = runtime.initial_key();
+        let active = runtime.initial_key().unwrap();
 
         let ui = runtime.ui_state(active);
         assert!(ui.snapshot.capabilities.create);
@@ -1061,6 +1064,7 @@ mod tests {
     #[test]
     fn disabled_external_catalog_rejects_ephemeral_targets() {
         let mut runtime = MachineRuntime::external(Vec::new(), false);
+        assert!(runtime.initial_key().is_err(), "an empty external catalog has no machine");
         let error = runtime.connect_machine("mini.local").unwrap_err().to_string();
         assert!(error.contains("cannot connect external machines"), "{error}");
     }
