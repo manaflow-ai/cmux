@@ -94,16 +94,16 @@ extension SidebarBridge {
         sectionsObservation = Task { [weak self] in
             // Also observed: the apps client (installs, hides), the unread count, Home's unread conversations, the built-ins' shortcuts (tooltips) and
             // the workspaces tiles and top rows name. The selected item comes from the one selection.
-            for await (layout, unread, homeUnread, shortcuts, workspaces, picture) in ObservationStream({
-                () -> (SidebarLayoutDocument, Int, Int, [ActionID: String], [LayoutItemRef: SidebarItemInfo], URL?) in
+            for await (layout, unread, homeUnread, shortcuts, workspaces, picture, previewFeatures) in ObservationStream({
+                () -> (SidebarLayoutDocument, Int, Int, [ActionID: String], [LayoutItemRef: SidebarItemInfo], URL?, Bool) in
                 _ = (apps.apps, ChiefSidebar.shared.status)
                 return (service.document, NotificationCenterService.unreadCount(store), home.unreadConversations.count,
-                        Self.builtInShortcuts(registry), SidebarWorkspaceItems.workspaceInfos(service.document, refs: refs), chiefPicture())
+                        Self.builtInShortcuts(registry), SidebarWorkspaceItems.workspaceInfos(service.document, refs: refs), chiefPicture(), settings?.snapshot.previewFeatures == true)
             }) {
                 // The window closed: the bridge is gone, stop observing.
                 guard self != nil else { return }
                 // `model.layout` is written with the rows it projects (SidebarBridge.show).
-                let visibleLayout = SidebarRows.visibleLayout(layout, showAppStore: settings?.snapshot.previewFeatures == true)
+                let visibleLayout = SidebarRows.visibleLayout(layout, showAppStore: previewFeatures)
                 let infos = Self.itemInfo(for: visibleLayout, registered: { registry.action(for: $0) != nil },
                                           unread: unread, homeUnread: homeUnread,
                                           app: { SidebarAppItemInfo.info($0, client: apps) }, shortcut: { shortcuts[$0] },

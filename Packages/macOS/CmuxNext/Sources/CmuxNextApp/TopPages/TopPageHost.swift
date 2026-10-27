@@ -21,6 +21,8 @@ final class TopPageHost {
     func view(for route: TopPageRoute, in window: WindowController) -> NSView? {
         if let view = views[route] { return view }
         guard let services else { return nil }
+        if case .page(let id) = route, (id == .appStore || id == .changelog),
+           services.settings?.snapshot.previewFeatures != true { return nil }
         let view: NSView
         switch route {
         case .home:

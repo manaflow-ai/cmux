@@ -2,6 +2,7 @@ import CmuxNextActions
 import CmuxNextApps
 import CmuxNextDaemon
 import CmuxNextPalette
+import CmuxNextSettings
 
 /// App Store actions (plans/cmux-next/app-platform.md section 3). Opening
 /// the window from automation never installs anything; installs are the
@@ -10,7 +11,7 @@ enum AppStoreHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
         let preview: @MainActor () -> String? = { [weak services] in
-            services?.settings?.snapshot.previewFeatures == true ? nil : "The App Store is a preview feature: turn on labs.previewFeatures in cmux.json."
+            services?.settings?.snapshot.previewFeatures == true ? nil : SettingsText.text("settings.labs.previewFeatures", "Show Preview Features")
         }
         // The App Store is an internal page (a tab of the active window).
         services.pages.register(services.apps)
