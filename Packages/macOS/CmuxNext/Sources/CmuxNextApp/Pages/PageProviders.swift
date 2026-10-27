@@ -13,7 +13,7 @@ import Foundation
 /// ask), and `cmux.app.clipboard.write` writes the pasteboard, only on the person's own gesture.
 @MainActor
 final class AppPageNativeProvider: PageProvider {
-    private unowned let services: AppServices
+    private let services: AppServices
     private let page: PageDescriptor
     /// Runs a confirmed namespace op on the provider that owns its namespace.
     var forward: (@MainActor (_ op: String, _ params: CmuxNextSettings.JSONValue, _ context: PageCallContext) async throws -> CmuxNextSettings.JSONValue)?
@@ -117,8 +117,8 @@ final class AppPageNativeProvider: PageProvider {
 /// channel then closes its daemon connection when idle (``PageRelayIdleClose``).
 @MainActor
 final class DaemonPageRelay: PageProvider {
-    /// The process root's local daemon service (AppServices.machines.local), as `services` was before.
-    private unowned let daemon: any PageRelayDaemon
+    /// The local daemon service (AppServices.machines.local).
+    private let daemon: any PageRelayDaemon
     /// The page host's channels, shared by every page of the host.
     let channels: PageRelayChannels
     private let work: BackgroundWork

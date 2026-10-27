@@ -15,7 +15,7 @@ import Observation
 final class HiddenHistoryStore {
     static let subject = "history.hidden"
 
-    private unowned let services: AppServices
+    private let services: AppServices
     private(set) var document = HiddenHistory()
     private var revision: UInt64?
     private var loaded = false

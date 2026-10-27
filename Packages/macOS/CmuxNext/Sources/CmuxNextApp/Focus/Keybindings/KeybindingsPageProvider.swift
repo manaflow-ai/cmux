@@ -16,7 +16,7 @@ import func CmuxSafeConcurrency.withOnceContinuation
 /// through the home daemon (`KeybindingPageWrites`).
 @MainActor
 final class KeybindingsPageProvider: PageProvider {
-    private unowned let services: AppServices
+    private let services: AppServices
     /// The page's window: only its key-downs are recorded.
     var pageWindow: () -> NSWindow? = { nil }
     private var recorder: KeyRecorder?

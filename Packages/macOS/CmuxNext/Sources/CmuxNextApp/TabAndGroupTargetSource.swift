@@ -11,7 +11,7 @@ import CmuxNextLayout
 /// Rename Tab Group…, Rename Group…) start from the target's own name.
 /// A right-clicked workspace's Move to Group lists SidebarEdits.joinableGroups.
 final class TabAndGroupTargetSource: PaletteTargetSource {
-    private unowned let services: AppServices
+    private let services: AppServices
     private let next: any PaletteTargetSource
 
     init(services: AppServices, next: any PaletteTargetSource) {

@@ -21,7 +21,7 @@ import CmuxNextWebUpdates
 /// that type's line budget is frozen).
 @MainActor
 struct PageFactory {
-    unowned let services: AppServices
+    let services: AppServices
 
     /// The React History page when Debug Settings `history.surface` is `web`, else nil (the
     /// Swift page). The tunable goes when the React page becomes the default (react-pages.md H3).

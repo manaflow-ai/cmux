@@ -95,7 +95,7 @@ enum PaletteSourcesBridge {
     }
 
     final class WorkspaceSource: PaletteWorkspaceSource {
-        private unowned let services: AppServices
+        private let services: AppServices
         init(services: AppServices) { self.services = services }
 
         var workspaces: [PaletteWorkspace] {
@@ -150,7 +150,7 @@ enum PaletteSourcesBridge {
     }
 
     final class TabSource: PaletteTabSource {
-        private unowned let services: AppServices
+        private let services: AppServices
         init(services: AppServices) { self.services = services }
 
         var tabs: [PaletteTab] {

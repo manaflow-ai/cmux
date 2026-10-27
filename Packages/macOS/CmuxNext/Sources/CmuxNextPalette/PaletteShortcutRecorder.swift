@@ -10,7 +10,7 @@ public import CmuxNextActions
         get { core.editor }
         set { core.editor = newValue }
     }
-    private unowned let model: PaletteModel
+    private let model: PaletteModel
     private let core: ShortcutRecorder
 
     init(registry: ActionRegistry, model: PaletteModel) {

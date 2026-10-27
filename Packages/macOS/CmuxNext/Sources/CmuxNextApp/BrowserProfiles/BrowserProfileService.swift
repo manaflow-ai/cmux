@@ -24,7 +24,7 @@ final class BrowserProfileService {
     private(set) var book = BrowserProfileBook()
     /// False until the file was read (a launch reads it off the main thread).
     private(set) var isLoaded = false
-    @ObservationIgnored unowned let services: AppServices
+    @ObservationIgnored let services: AppServices
     /// Nil until `load` (tests and a service that never loaded write nothing).
     @ObservationIgnored private(set) var file: BrowserProfileBookFile?
     /// The onboarding import's saved data (nil: no import migration).

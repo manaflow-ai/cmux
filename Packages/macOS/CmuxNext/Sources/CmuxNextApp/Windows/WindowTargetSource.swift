@@ -7,7 +7,7 @@ import CmuxNextPalette
 /// workspace it shows, the active window last so another window is the
 /// first choice.
 final class WindowTargetSource: PaletteTargetSource {
-    private unowned let services: AppServices
+    private let services: AppServices
 
     init(services: AppServices) {
         self.services = services

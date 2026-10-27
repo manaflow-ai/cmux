@@ -18,7 +18,7 @@ import CmuxNextFocus
 /// the steps are read back from it at connect. Only the Back/Forward cursor
 /// is this app's own view state.
 final class LocationTrailService {
-    unowned let services: AppServices
+    let services: AppServices
     private(set) var trail = LocationTrail()
     private var loaded = false
     private var loading = false

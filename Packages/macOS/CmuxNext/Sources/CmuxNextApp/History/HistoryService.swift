@@ -10,7 +10,7 @@ import Foundation
 /// `history.list`. Owns the per-profile visit logs; never a second copy of
 /// a fact another owner keeps.
 final class HistoryService {
-    unowned let services: AppServices
+    let services: AppServices
     /// `<Application Support>/<bundle id>`, set at launch; nil keeps page
     /// history in memory only (tests).
     var supportDirectory: URL?

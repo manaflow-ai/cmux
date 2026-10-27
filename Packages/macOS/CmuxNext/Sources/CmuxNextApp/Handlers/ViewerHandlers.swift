@@ -18,7 +18,7 @@ enum ViewerHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
         let viewers = services.viewers
-        viewers.diffPages.chooser = PickerDiffFolderChooser(viewers: viewers)
+        viewers.diffPages.chooser = PickerDiffFolderChooser(picker: viewers.picker)
         registry.bind("openDiffViewer", run: { invocation in
             guard let pane = context.paneController(invocation) else { return }
             // `path`: that folder's repository; else the pane's folder.

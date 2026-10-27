@@ -18,7 +18,7 @@ import Foundation
 /// Store's and the app pages' tabs. Nothing here runs app code.
 @MainActor
 final class AppsService {
-    unowned let services: AppServices
+    let services: AppServices
     let transport: DaemonAppsTransport
     let client: AppsClient
     /// The control router once the socket starts (the CodeRouter page's ops run on it).
@@ -172,7 +172,7 @@ final class AppsService {
             return tab
         }
         guard let app = client.app(appID), app.isActive, AppPanePage.opens(app) else { return nil }
-        let provider = appPages[appID] ?? AppPanePage(appID: appID, apps: self)
+        let provider = appPages[appID] ?? AppPanePage(appID: appID, client: client)
         if appPages[appID] == nil {
             appPages[appID] = provider
             services.pages.register(provider)

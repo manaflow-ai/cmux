@@ -21,7 +21,7 @@ import Foundation
 /// `WorkspaceContentController`).
 @MainActor
 final class SettingsWindowService: InternalPageProvider {
-    unowned let services: AppServices
+    let services: AppServices
 
     init(services: AppServices) {
         self.services = services

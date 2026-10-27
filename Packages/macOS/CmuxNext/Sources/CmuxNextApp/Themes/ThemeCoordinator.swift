@@ -26,7 +26,7 @@ final class ThemeCoordinator {
     let terminalThemes: TerminalThemeStore
     /// Every Ghostty theme, for pickers and validation.
     let catalog: ThemeCatalog
-    unowned let services: AppServices
+    let services: AppServices
     /// A theme shown live while a picker highlights it, not saved.
     private(set) var preview: ThemePreview?
     /// Room and workspace themes just set here and not yet echoed by the
@@ -365,7 +365,7 @@ struct ThemePreview: Equatable {
 @MainActor
 final class TerminalThemeBinding: ThemeResponsive {
     weak var coordinator: ThemeCoordinator?
-    private unowned let scope: ThemeScope
+    private let scope: ThemeScope
     private weak var session: TerminalSession?
 
     // cx-qxxu: released with its terminal, which Cmd-T's New Tab page can withdraw while its

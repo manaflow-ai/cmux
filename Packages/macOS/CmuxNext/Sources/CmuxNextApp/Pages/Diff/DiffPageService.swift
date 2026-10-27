@@ -49,8 +49,7 @@ final class DiffPageService: InternalPageProvider {
         var viewState: JSONValue?
     }
 
-    // crash-allow: AppServices owns this service for the app's whole life (ViewerService's lazy page services), so it outlives it.
-    private unowned let services: AppServices
+    private let services: AppServices
     /// Made on the first tab (tests pass their own).
     private lazy var runtime = DiffPageRuntime(git: services.agentGit.local)
     private lazy var recentsStore = DiffRecents(url: DiffRecents.standardURL(launch: services.environment.launch))

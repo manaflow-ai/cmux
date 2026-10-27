@@ -48,8 +48,7 @@ final class FilePageService: InternalPageProvider {
     }
 
     let kind: FilePageKind
-    // crash-allow: AppServices owns this service for the app's whole life (ViewerService's lazy page services), so it outlives it.
-    unowned let services: AppServices
+    let services: AppServices
     let clock: any Clock<Duration>
     private let images: any RemoteImageFetching
     var tabs: [String: Tab] = [:]

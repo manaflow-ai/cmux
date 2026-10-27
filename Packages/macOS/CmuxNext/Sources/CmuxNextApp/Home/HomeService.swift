@@ -60,7 +60,7 @@ final class HomeService {
         },
         mint: { connection in try await ConversationClient(connection).agentToken(for: HomeService.mux.id) })
     @ObservationIgnored private(set) var sessions: [String: HomeConversationSession] = [:]
-    @ObservationIgnored unowned let services: AppServices
+    @ObservationIgnored let services: AppServices
     /// The transcript and list caches' memory consumer (`memoryHomeLabCaches`, p07-memory-081); Home views track it.
     @ObservationIgnored private(set) lazy var labCaches: MessagesLabMemoryConsumer? = AppMemoryConsumers(services: services).makeHomeLabCaches()
     @ObservationIgnored private var availability: ServiceObservation<DaemonConnection?>?

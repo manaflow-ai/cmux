@@ -9,7 +9,7 @@ import os
 /// keeps one `AgentSessionFold` per machine and reads only the records
 /// after its cursor when a history list asks (`refresh`), so nothing polls.
 final class AgentHistory {
-    private unowned let services: AppServices
+    private let services: AppServices
     private var folds: [String: AgentSessionFold] = [:]
     private var generations: [String: String] = [:]
     private var refreshing: Task<Void, Never>?

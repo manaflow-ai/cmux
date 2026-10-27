@@ -22,7 +22,7 @@ import CmuxNextRemoteBrowser
 /// 5.1). The page is a browser tab whose record URL is `cmux://history`, so
 /// it survives relaunch like any tab.
 final class HistoryPageService: HistoryPageSource {
-    private unowned let services: AppServices
+    private let services: AppServices
     /// The Stashed page's stashes (stash-v1), History's sibling page.
     private(set) lazy var stash = StashService(host: stashHost)
     private(set) lazy var stashHost = StashAppHost(services)

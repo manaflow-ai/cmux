@@ -6,7 +6,7 @@ import CmuxNextBrowser
 /// `browser.extension*` registry actions, targeted at the tab, so the
 /// menu, palette, shortcuts and CLI share one handler per action.
 final class ExtensionMenuRouter: ExtensionMenuHandling {
-    private unowned let services: AppServices
+    private let services: AppServices
     private let tabKey: String
 
     init(services: AppServices, tabKey: String) {

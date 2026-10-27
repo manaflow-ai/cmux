@@ -9,7 +9,7 @@ import UniformTypeIdentifiers
 /// Opens `cmux://bookmarks` and keeps open manager pages current.
 @MainActor
 final class BookmarkPageService {
-    private unowned let services: AppServices
+    private let services: AppServices
     /// Live manager pages (weak), reloaded when their profile changes.
     private var pages: [WeakPage] = []
 
@@ -80,7 +80,7 @@ final class BookmarkPageService {
 /// One manager page's source: the tab's browser profile.
 @MainActor
 final class BookmarkManagerSourceAdapter: BookmarkManagerSource {
-    private unowned let services: AppServices
+    private let services: AppServices
     let tabKey: String
 
     init(services: AppServices, tabKey: String) {

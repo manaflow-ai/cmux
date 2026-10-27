@@ -14,7 +14,7 @@ import CmuxNextWakeups
 /// change goes through the owner's existing path (Close Tab, Reopen, the
 /// closed-items log).
 final class AppTabSearchSource: TabSearchSource {
-    private unowned let services: AppServices
+    private let services: AppServices
 
     private struct Revision: Equatable {
         var tabs: UInt64

@@ -5,7 +5,7 @@ import CmuxNextSidebar
 /// Palette target lists for sidebar section actions: every section and
 /// item of the layout. Other kinds fall through to `next`.
 final class SidebarSectionTargetSource: PaletteTargetSource {
-    private unowned let services: AppServices
+    private let services: AppServices
     private let next: any PaletteTargetSource
 
     init(services: AppServices, next: any PaletteTargetSource) {

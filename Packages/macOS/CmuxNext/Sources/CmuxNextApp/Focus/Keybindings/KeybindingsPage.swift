@@ -23,7 +23,7 @@ extension InternalPageID {
 /// (`KeybindingsPageProvider`). One tab per window (`services.pages`).
 @MainActor
 final class KeybindingsPageService: InternalPageProvider {
-    private unowned let services: AppServices
+    private let services: AppServices
 
     init(services: AppServices) {
         self.services = services

@@ -29,7 +29,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// The workspace theme: only this content area, under the window's
     /// room theme.
     let themeScope = ThemeScope(level: .workspace)
-    unowned let services: AppServices
+    let services: AppServices
     let state: WindowState  // strong: a task holding this content past its window reads a live state; no cycle
     private(set) var handles = LayoutHandleMap()
     private(set) var panes: [LayoutPaneID: PaneController] = [:]

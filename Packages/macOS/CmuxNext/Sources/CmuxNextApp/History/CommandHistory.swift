@@ -15,7 +15,7 @@ import os
 /// and deletes rows in the daemon when the user removes or clears them.
 /// Turning recording off offers to delete what was already recorded.
 final class CommandHistory {
-    private unowned let services: AppServices
+    private let services: AppServices
     private var mirrors: [String: TerminalCommandMirror] = [:]
     private var refreshing: Task<Void, Never>?
     private var observation: ServiceObservation<SyncState>?

@@ -24,7 +24,7 @@ import Foundation
 /// the main actor; daemon requests are async with a 1 s deadline.
 @MainActor
 final class AppResourceSource: ResourceSampleSource {
-    private unowned let services: AppServices
+    private let services: AppServices
 
     init(services: AppServices) {
         self.services = services

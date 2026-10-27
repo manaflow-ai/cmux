@@ -12,8 +12,7 @@ import typealias CmuxNextDaemon.SurfaceID
 /// rendered in a browser tab only on the person's own open (`userChose`); an agent's or a
 /// script's open shows its source in the editor (``FileOpenKind``, the one rule).
 final class FilePageOpener: FileOpening {
-    // crash-allow: AppServices owns ViewerService, which owns this opener, for the app's whole life.
-    private unowned let services: AppServices
+    private let services: AppServices
 
     init(services: AppServices) {
         self.services = services

@@ -14,7 +14,7 @@ import Foundation
 /// with `CMUX_NEXT_AGENT_ACTIVITY_MOCK=1`.
 @MainActor
 final class AgentActivityPageService {
-    private unowned let services: AppServices
+    private let services: AppServices
     /// A jump waiting for its workspace's first pane (`open(_:in:)`); the next jump cancels it.
     private var paneWait: ServiceObservation<AgentChatJump.PaneWait>?
     /// Counts jumps, so a workspace that mounts after a newer jump opens nothing.

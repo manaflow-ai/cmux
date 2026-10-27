@@ -25,7 +25,7 @@ import Observation
 /// on every selection or focus change (geometry 500 ms after it settles)
 /// and flushed on quit (WindowRecordSaver).
 final class WindowManager {
-    unowned let services: AppServices
+    let services: AppServices
     let registry = WindowRegistryStore()
     private(set) var controllers: [WindowController] = [] { didSet { services.background.windowsDidChange() } } // none left: background mode (cx-ghagp)
     /// Per-window state by window id, for every registered window.

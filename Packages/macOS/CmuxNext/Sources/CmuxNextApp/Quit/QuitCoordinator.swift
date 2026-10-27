@@ -34,7 +34,7 @@ final class QuitCoordinator {
     /// The browser tabs that held Secure Input as this quit began, before any dialog took the keyboard: they leave
     /// no launch picture (`TabContentCache.secureInputPages`).
     private var secureInputPages: Set<String> = []
-    private unowned let services: AppServices
+    private let services: AppServices
     /// The quit hook's participants (`AppServices.quitUnsaved`; tests replace it).
     var unsaved: QuitUnsavedRegistry
     /// The app's main-thread watchdog (AppDelegate): a quit that is ending

@@ -20,7 +20,7 @@ import Observation
 /// - Title: the live terminal's title is saved on the tab when it changes.
 @MainActor
 final class RemoteTerminalService {
-    unowned let services: AppServices
+    let services: AppServices
     /// `term_` ids of terminals by `<session>#<terminal>`, learned from a
     /// move, a new terminal, or `set-terminal-keep`.
     private var resources: [String: ResourceID] = [:]

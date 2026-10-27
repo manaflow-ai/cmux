@@ -4,7 +4,7 @@ import CmuxNextWakeups
 
 /// `browser.page.*` (CmuxNextControl/Browser) for the app's browser tabs.
 nonisolated struct AppBrowserPageEngine: BrowserPageEngine {
-    unowned let services: AppServices
+    let services: AppServices
     /// The app's main-thread scheduler: the agent cursor is posted on it.
     private let mainWork: MainWorkScheduler
 

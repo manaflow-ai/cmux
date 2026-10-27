@@ -49,7 +49,7 @@ nonisolated func isDisconnect(_ error: any Error) -> Bool {
 /// The home daemon (`services.machines.local`).
 @MainActor
 final class DaemonSidebarLayoutRemote: SidebarLayoutRemote {
-    private unowned let services: AppServices
+    private let services: AppServices
 
     init(services: AppServices) {
         self.services = services

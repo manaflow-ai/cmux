@@ -53,183 +53,22 @@
    "path": "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/appkit-native/NativeScroll.swift",
    "class": "swift.unowned",
    "count": 1,
-   "reason": "owned child, nested lifetime: the scroll view owns its physics, which end with it",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+   "reason": "lifetime: UIScrollView.physics (lazy) is the one strong reference to its ScrollPhysics (the scroll observers read it through the view), so the physics end before their scroll view",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-091 2026-10-27"
   },
   {
    "path": "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/appkit-native/TranscriptAccess.swift",
    "class": "swift.unowned",
    "count": 1,
-   "reason": "owned child, nested lifetime: the chat controller owns its transcript selection, which ends with it",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Accounts/AccountsService.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process)",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentActivity/AgentActivityPageService.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process)",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Apps/AppPanePage.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "owner AppsService is a child of the explicit process root AppServices (held for the life of the process)",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Apps/AppsService.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process)",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Bookmarks/BookmarkPageService.swift",
-   "class": "swift.unowned",
-   "count": 2,
-   "reason": "lifetime: AppProcessRoot.adopt holds AppServices until the process exits; BookmarkPageService is AppServices.bookmarkPages and each BookmarkManagerSourceAdapter belongs to a bookmark page tab in AppServices.cache, so both end with it",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-090 2026-10-26"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Bookmarks/BookmarkService.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "lifetime: AppProcessRoot.adopt holds AppServices until the process exits; BookmarkService is AppServices.bookmarks (its Chromium sync holds it weakly), so it ends with it",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-090 2026-10-26"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/BrowserProfiles/BrowserProfileService.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process)",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/BrowserProfiles/BrowserProfileTargetSource.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process)",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppBrowserPageEngine.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process)",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/ControlSnapshotPublisher.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process)",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Drag/TabDragSession.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process)",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/ExtensionMenuRouter.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "lifetime: AppProcessRoot.adopt holds AppServices until the process exits; a router is made per tab by AppServices.cache.makeExtensionMenuHandler and lives in that tab inside AppServices.cache",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-090 2026-10-26"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Feed/FeedPageService.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process)",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+   "reason": "lifetime: ChatController.selection (lazy) is the one strong reference to its TranscriptSelection (the row callbacks capture the controller weakly), so the selection ends before its controller",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-091 2026-10-27"
   },
   {
    "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/FocusEffectApplier.swift",
    "class": "swift.unowned",
    "count": 1,
-   "reason": "owned child, nested lifetime: the window controller owns its focus applier, which ends with it",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/KeyRouter.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "sibling under the explicit process root AppServices: it holds both the registry and this key router for the life of the process",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/Keybindings/KeybindingsPage.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process)",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/Keybindings/KeybindingsPageProvider.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process)",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/AgentHistory.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "lifetime: AppProcessRoot.adopt holds AppServices until the process exits; AgentHistory is AppServices.history.agents, so it ends with it",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-090 2026-10-26"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/CommandHistory.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "lifetime: AppProcessRoot.adopt holds AppServices until the process exits; CommandHistory is AppServices.history.commands, so it ends with it",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-090 2026-10-26"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/HiddenHistoryStore.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "lifetime: AppProcessRoot.adopt holds AppServices until the process exits; HiddenHistoryStore is AppServices.history.hidden (AgentHistory shares it), so it ends with it",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-090 2026-10-26"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/HistoryPageService.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "lifetime: AppProcessRoot.adopt holds AppServices until the process exits; HistoryPageService is AppServices.historyPage, so it ends with it",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-090 2026-10-26"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/HistoryService.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "lifetime: AppProcessRoot.adopt holds AppServices until the process exits; HistoryService is AppServices.history, so it ends with it",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-090 2026-10-26"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/LocationTrailService.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "lifetime: AppProcessRoot.adopt holds AppServices until the process exits; LocationTrailService is AppServices.locationTrail, so it ends with it",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-090 2026-10-26"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeService.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process)",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+   "reason": "lifetime: WindowController.focusApplier (lazy) is the one strong reference to its FocusEffectApplier (FocusCoordinator.applier is weak, its event subscriptions capture it weakly), so the applier ends before its window controller",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-091 2026-10-27"
   },
   {
    "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Onboarding/AppOnboardingServices.swift",
@@ -239,90 +78,6 @@
    "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-090 2026-10-26"
   },
   {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Onboarding/ExternalOpenController.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "lifetime: AppProcessRoot.adopt holds AppServices until the process exits; ExternalOpenController is AppServices.externalOpen, so it ends with it",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-090 2026-10-26"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Onboarding/OnboardingService.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "lifetime: AppProcessRoot.adopt holds AppServices until the process exits; OnboardingService is AppServices.onboarding, so it ends with it",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-090 2026-10-26"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/Diff/DiffPageService.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "lifetime: AppProcessRoot.adopt holds AppServices until the process exits; DiffPageService is AppServices.viewers.diffPages, so it ends with it",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-090 2026-10-26"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/Files/FilePageOpener.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "lifetime: AppProcessRoot.adopt holds AppServices until the process exits; FilePageOpener is AppServices.viewers.fileOpener, so it ends with it",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-090 2026-10-26"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/Files/FilePageService.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "lifetime: AppProcessRoot.adopt holds AppServices until the process exits; each FilePageService is AppServices.viewers.markdownPages or .editorPages, so it ends with it",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-090 2026-10-26"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/PageFactory.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "lifetime: AppProcessRoot.adopt holds AppServices until the process exits; PageFactory is a value made for one page build and dropped when that call returns (the closures it hands to pages capture services weakly), so it ends with it",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-090 2026-10-26"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/PageProviders.swift",
-   "class": "swift.unowned",
-   "count": 2,
-   "reason": "lifetime: AppProcessRoot.adopt holds AppServices until the process exits; AppPageNativeProvider and DaemonPageRelay are held by a page tab inside AppServices.cache, so they end with it",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-090 2026-10-26"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaletteShortcutEditor.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "lifetime: AppProcessRoot.adopt holds AppServices until the process exits; AppDelegate sets the editor as AppServices.paletteShortcutEditor (the recorder holds it weakly), so it ends with it",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-090 2026-10-26"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaletteSourcesBridge.swift",
-   "class": "swift.unowned",
-   "count": 2,
-   "reason": "lifetime: AppProcessRoot.adopt holds AppServices until the process exits; WorkspaceSource and TabSource live in the palette sources of AppServices.palettes, or for one New Tab page call, so they end with it",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-090 2026-10-26"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneController.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "lifetime: AppProcessRoot.adopt holds AppServices until the process exits; a PaneController lives in a WorkspaceContentController.panes under AppServices.windows, so it ends with it",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-090 2026-10-26"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Quit/QuitCoordinator.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process)",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Remote/RemoteTerminalService.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process)",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
-  },
-  {
    "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Screens/ScreenBarController.swift",
    "class": "swift.unowned",
    "count": 1,
@@ -330,116 +85,11 @@
    "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-090 2026-10-26"
   },
   {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Screens/ScreenTargetSource.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "lifetime: AppProcessRoot.adopt holds AppServices until the process exits; ScreenTargetSource is made by PaletteSourcesBridge.targetSource for the palette or one room menu build, so it ends with it",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-090 2026-10-26"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Settings/DebugSettingsService.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process)",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Settings/SettingsWindowService.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process)",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/SidebarBridge.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "lifetime: AppProcessRoot.adopt holds AppServices until the process exits; a SidebarBridge belongs to one WindowController under AppServices.windows, so it ends with it",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-090 2026-10-26"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/SidebarSections/SidebarLayoutRemote.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process)",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/SidebarSections/SidebarSectionTargetSource.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process)",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/TabAndGroupTargetSource.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "lifetime: AppProcessRoot.adopt holds AppServices until the process exits; TabAndGroupTargetSource is made by PaletteSourcesBridge.targetSource for the palette or one room menu build, so it ends with it",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-090 2026-10-26"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/TabSearch/AppTabSearchSource.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process)",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Tasks/TasksPageService.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process)",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Themes/ThemeCoordinator.swift",
-   "class": "swift.unowned",
-   "count": 2,
-   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process); and the terminal theme binding's scope: sibling under TerminalEntry, which holds the scope (let) and the binding",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Usage/AppResourceSource.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process)",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Viewers/DiffPageService+Viewers.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "owner ViewerService is a child of the explicit process root AppServices (held for the life of the process)",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Viewers/ViewerService.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process)",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
-  },
-  {
    "path": "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/DividerMouseCatchers.swift",
    "class": "swift.unowned",
    "count": 1,
-   "reason": "owned child, nested lifetime: the shell window owns its overlay layer and divider catchers, which end with it",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/WindowController.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "lifetime: AppProcessRoot.adopt holds AppServices until the process exits; every WindowController lives in AppServices.windows.controllers, so it ends with it",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-090 2026-10-26"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/WindowManager.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "lifetime: AppProcessRoot.adopt holds AppServices until the process exits; WindowManager is AppServices.windows, so it ends with it",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-090 2026-10-26"
+   "reason": "lifetime: WindowOverlayLayer.catchers is the one strong reference to its DividerMouseCatchers (hover pass-through captures them weakly), and the layer is its shell window's, so the catchers end before the window",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-091 2026-10-27"
   },
   {
    "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/WindowOverlayLayer.swift",
@@ -456,88 +106,67 @@
    "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-090 2026-10-26"
   },
   {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/WindowTargetSource.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "lifetime: AppProcessRoot.adopt holds AppServices until the process exits; WindowTargetSource is made by PaletteSourcesBridge.targetSource for the palette or one room menu build, so it ends with it",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-090 2026-10-26"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/WorkspaceContentController.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "lifetime: AppProcessRoot.adopt holds AppServices until the process exits; every WorkspaceContentController lives under a WindowController in AppServices.windows. Its window state is held strongly",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-090 2026-10-26"
-  },
-  {
    "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFExtensionBackend.swift",
    "class": "swift.unowned",
    "count": 1,
-   "reason": "owner is the process singleton CEFRuntime.shared (static let, private init): never freed while the process runs",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+   "reason": "lifetime: the app's runtime is CEFRuntime.shared (static let, private init), never freed while the process runs; each backend is made by CEFExtensionStores for one profile's store, held under the runtime, and a runtime a test makes outlives its tabs in that test",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-091 2026-10-27"
   },
   {
    "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFExtensionPrompts.swift",
    "class": "swift.unowned",
    "count": 1,
-   "reason": "owner is the process singleton CEFRuntime.shared (static let, private init): never freed while the process runs",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+   "reason": "lifetime: the app's runtime is CEFRuntime.shared (static let, private init), never freed while the process runs; the prompts are its CEFRuntime.extensionPrompts, and a runtime a test makes outlives its tabs in that test",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-091 2026-10-27"
   },
   {
    "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFExtensionStores.swift",
    "class": "swift.unowned",
    "count": 1,
-   "reason": "owner is the process singleton CEFRuntime.shared (static let, private init): never freed while the process runs",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+   "reason": "lifetime: the app's runtime is CEFRuntime.shared (static let, private init), never freed while the process runs; the stores are its CEFRuntime.extensionStores, and a runtime a test makes outlives its tabs in that test",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-091 2026-10-27"
   },
   {
    "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFOrphanTabs.swift",
    "class": "swift.unowned",
    "count": 1,
-   "reason": "owner is the process singleton CEFRuntime.shared (static let, private init): never freed while the process runs",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+   "reason": "lifetime: the app's runtime is CEFRuntime.shared (static let, private init), never freed while the process runs; the orphan list is its CEFRuntime.orphans, and a runtime a test makes outlives its tabs in that test",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-091 2026-10-27"
   },
   {
    "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFPaneHost.swift",
    "class": "swift.unowned",
    "count": 1,
-   "reason": "owner is the process singleton CEFRuntime.shared (static let, private init): never freed while the process runs",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+   "reason": "lifetime: the app's runtime is CEFRuntime.shared (static let, private init), never freed while the process runs; each pane host is made by its runtime and kept in CEFRuntime.hosts, and a runtime a test makes outlives its tabs in that test",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-091 2026-10-27"
   },
   {
    "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFTab.swift",
    "class": "swift.unowned",
    "count": 1,
-   "reason": "owner is the process singleton CEFRuntime.shared (static let, private init): never freed while the process runs",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
-  },
-  {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/PaletteShortcutRecorder.swift",
-   "class": "swift.unowned",
-   "count": 1,
-   "reason": "sibling under PaletteController, a child of the explicit process root AppServices: it holds both the model and this recorder",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+   "reason": "lifetime: the app's runtime is CEFRuntime.shared (static let, private init), never freed while the process runs; each tab is made by a pane host of that runtime, and a runtime a test makes outlives its tabs in that test",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-091 2026-10-27"
   },
   {
    "path": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarDragAutoscroll.swift",
    "class": "swift.unowned",
    "count": 1,
-   "reason": "owned child, nested lifetime: the list view owns its drag autoscroll, which ends with it (SidebarChildLifetimeTests)",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+   "reason": "lifetime: SidebarListView.autoscroll (lazy) is the one strong reference to its SidebarDragAutoscroll (its frame client captures it weakly), so the autoscroll ends before its list (SidebarChildLifetimeTests)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-091 2026-10-27"
   },
   {
    "path": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarSpacePaging.swift",
    "class": "swift.unowned",
    "count": 1,
-   "reason": "owned child, nested lifetime: the sidebar view owns its space paging, which ends with it (SidebarChildLifetimeTests)",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+   "reason": "lifetime: SidebarView.spacePaging (lazy) is the one strong reference to its SidebarSpacePaging (scroll callbacks and animation completions capture it weakly), so the paging ends before its sidebar (SidebarChildLifetimeTests)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-091 2026-10-27"
   },
   {
    "path": "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalCopyMode.swift",
    "class": "swift.unowned",
    "count": 1,
-   "reason": "owned child, nested lifetime: the surface view owns its copy mode, which ends with it (TerminalCopyModeLifetimeTests)",
-   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
+   "reason": "lifetime: TerminalSurfaceView.copyMode (lazy) is the one strong reference to its TerminalCopyMode, so copy mode ends before its surface view (TerminalCopyModeLifetimeTests)",
+   "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead; lifetime reason: p10-stability-091 2026-10-27"
   },
   {
    "path": "Packages/Shared/CmuxHomeRender/Sources/CmuxHomeRender/Support/CrashGuard.swift",

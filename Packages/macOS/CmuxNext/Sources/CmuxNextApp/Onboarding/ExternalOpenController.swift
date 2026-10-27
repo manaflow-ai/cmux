@@ -10,7 +10,7 @@ import CmuxNextOnboarding
 /// launch by a link) wait and run when the first window shows its workspace.
 @MainActor
 final class ExternalOpenController {
-    unowned let services: AppServices
+    let services: AppServices
     let router: ExternalOpenRouter
     private(set) var pending: [ExternalOpenRoute] = []
 

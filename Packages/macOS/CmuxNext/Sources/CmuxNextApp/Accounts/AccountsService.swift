@@ -15,7 +15,7 @@ import CmuxNextWakeups
 /// act through this one model (plans/cmux-next/coderouter.md).
 @MainActor
 final class AccountsService: AccountsServices {
-    unowned let services: AppServices
+    let services: AppServices
     private(set) lazy var model = AccountsModel(services: self)
     let keys: any ProviderKeyStoring
     /// The per-user salt behind every `acct_…` handle (Keychain, read once off the main actor).

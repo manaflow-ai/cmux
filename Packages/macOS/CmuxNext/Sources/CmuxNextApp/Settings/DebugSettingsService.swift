@@ -56,7 +56,7 @@ enum TunableCatalog {
 /// file is read.
 @MainActor
 final class DebugSettingsService: InternalPageProvider {
-    unowned let services: AppServices
+    let services: AppServices
     private var controller: DebugSettingsWindowController?
     private var sharedModel: DebugSettingsModel?
     /// The React page of the window and of each tab (by key), closed through the host that opened

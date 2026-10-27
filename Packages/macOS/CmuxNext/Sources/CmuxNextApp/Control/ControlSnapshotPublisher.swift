@@ -29,7 +29,7 @@ import os
 @MainActor
 final class ControlSnapshotPublisher {
     private let router: ControlRouter
-    private unowned let services: AppServices
+    private let services: AppServices
     private var isStopped = false
     /// Where the key-window and app-activation notices come from (key windows are not observable).
     private let appEvents: AppEvents

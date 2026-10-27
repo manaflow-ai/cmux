@@ -18,7 +18,7 @@ extension InternalPageID {
 /// The layout follows the user setting `tasks.layout` live.
 @MainActor
 final class TasksPageService: InternalPageProvider {
-    private unowned let services: AppServices
+    private let services: AppServices
     private var sharedModel: TasksModel?
     /// A user run's scope and New Task focus made before the model exists: the model takes them
     /// when the tab first shows (``makeModel()``).

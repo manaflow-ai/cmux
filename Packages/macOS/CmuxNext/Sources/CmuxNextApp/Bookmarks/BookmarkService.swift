@@ -23,7 +23,7 @@ final class BookmarkService {
     var trees: [String: BookmarkTree] = [:]
     /// Bumped on every change, so views that read many profiles can observe one value.
     private(set) var generation = 0
-    @ObservationIgnored unowned let services: AppServices
+    @ObservationIgnored let services: AppServices
     @ObservationIgnored var file: BookmarkFileStore?
     @ObservationIgnored var directory: URL?
     @ObservationIgnored var importStore: ImportedDataStore?

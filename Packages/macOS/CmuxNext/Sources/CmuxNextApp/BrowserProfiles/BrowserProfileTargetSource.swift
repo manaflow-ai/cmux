@@ -6,7 +6,7 @@ import CmuxNextPalette
 /// Browser Profile…, Move Tab to Browser Profile…): every profile in
 /// order, each with its icon or first letter. Other kinds fall through.
 final class BrowserProfileTargetSource: PaletteTargetSource {
-    private unowned let services: AppServices
+    private let services: AppServices
     private let next: any PaletteTargetSource
 
     init(services: AppServices, next: any PaletteTargetSource) {

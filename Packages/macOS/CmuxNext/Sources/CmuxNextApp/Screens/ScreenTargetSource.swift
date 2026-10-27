@@ -6,7 +6,7 @@ import CmuxNextLayout
 /// groups (Add Screen to Group…) and every workspace (Move Screen to
 /// Workspace…). Other kinds fall through to `next`.
 final class ScreenTargetSource: PaletteTargetSource {
-    private unowned let services: AppServices
+    private let services: AppServices
     private let next: any PaletteTargetSource
 
     init(services: AppServices, next: any PaletteTargetSource) {

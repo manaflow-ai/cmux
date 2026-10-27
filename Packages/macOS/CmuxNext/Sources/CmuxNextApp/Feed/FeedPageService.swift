@@ -16,7 +16,7 @@ extension InternalPageID {
 /// menu-bar feed panel.
 @MainActor
 final class FeedPageService: InternalPageProvider {
-    private unowned let services: AppServices
+    private let services: AppServices
     /// Sends report replies off the main thread.
     private let replies: AcpmuxReplySender
     /// Each tab's view while it has one, for its keep reasons.

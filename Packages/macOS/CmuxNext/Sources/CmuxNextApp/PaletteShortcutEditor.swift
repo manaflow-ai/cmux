@@ -11,7 +11,7 @@ import os
 /// reloads the file, so the optimistic registry change never outlives it.
 @MainActor
 final class PaletteShortcutEditor: PaletteShortcutEditing {
-    private unowned let services: AppServices
+    private let services: AppServices
     private let settings: SettingsController
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "shortcuts")
 

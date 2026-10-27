@@ -43,7 +43,7 @@ import CmuxNextLaunch
 /// dispatcher in Chromium's pre-key hook (`CEFTab.keyRouter`); a decided key
 /// runs nothing there, so nothing runs twice.
 final class KeyRouter: BrowserKeyRouting {
-    unowned let registry: ActionRegistry
+    let registry: ActionRegistry
     /// The app's services; setting them subscribes the chord's cancel to the app's resign-active notice.
     weak var services: AppServices? {
         didSet {

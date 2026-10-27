@@ -4,12 +4,14 @@ import os
 #endif
 
 /// The process root (plans/cmux-next/crash-elimination.md, P1b): the app's one
-/// `AppServices`, held here for the life of the process. Many service objects
-/// keep an `unowned` back-reference to `AppServices`; they are safe because their
-/// owner is never freed while the process runs, and this holder is what makes
-/// that true by choice (crash-allowlist.json entries: "owner is the explicit
-/// process root AppServices"). The launch adopts the services right after making
-/// them. Tests that build their own services do not adopt them.
+/// `AppServices`, held here for the life of the process, as Chrome keeps its
+/// process-lifetime objects in `base::NoDestructor` (base/no_destructor.h). The
+/// objects under it (its services, windows, panes and page providers) hold it
+/// strongly: the root is never freed, so that reference adds no lifetime, and no
+/// read of it can find it gone (p10-stability-091; an `unowned` one traps then).
+/// The launch adopts the services right after making them. Tests that build
+/// their own services do not adopt them; those services then stay for the rest
+/// of the test process, as bound actions (`AppActionContext`) already kept them.
 @MainActor
 final class AppProcessRoot {
     static let shared = AppProcessRoot()
