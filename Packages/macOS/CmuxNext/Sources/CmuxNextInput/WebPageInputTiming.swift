@@ -18,9 +18,9 @@ public import WebKit
 /// (`durationThreshold`, third_party/blink/renderer/core/timing/performance_observer.cc), so the fast inputs this
 /// stage measures would never be reported.
 ///
-/// The script posts numbers only: the document's time origin, its clock now, and per input the event type, the
-/// event's `timeStamp` and the paint time, all in page milliseconds. ``WebPageClock`` maps them to
-/// `CLOCK_UPTIME_RAW`, and ``InputLatencyTracker/pagePresented(_:eventNanos:at:)`` closes the slot whose event time
+/// The script posts numbers only: the document's time origin and per input the event type, the event's `timeStamp`
+/// and the paint time, all in page milliseconds. ``WebPageClock`` maps them to `CLOCK_UPTIME_RAW` through the wall
+/// clock, so the report's delivery (IPC, a busy app main thread) does not shift them, and ``InputLatencyTracker/pagePresented(_:eventNanos:at:)`` closes the slot whose event time
 /// is nearest, with source ``CmuxNextInputCore/InputPresentationSource/pageEstimated``. A report no slot takes is
 /// counted in ``unmatchedEvents`` and dropped; a body that is not the script's is counted in ``malformedReports``.
 ///
@@ -62,12 +62,14 @@ public final class WebPageInputTiming {
     public static let channel = "cmuxInputTiming"
     /// The content world the script and its handler live in.
     public static let worldName = "cmux-input-timing"
-    /// How far a report's event time may be from its slot's `generated` stage. The page clock is coarsened to 1 ms
-    /// and its offset to uptime is known to within one message's delivery, so a report is a few ms off at most.
+    /// How far a report's event time may be from its slot's `generated` stage. The page clock and its time origin are
+    /// coarsened to 1 ms each and ``WebPageClock`` cancels the delivery delay, so a report is a few ms off at most,
+    /// however busy the app's main thread was when it arrived.
     public static let matchToleranceNanos: UInt64 = 50_000_000
 
     private weak var tracker: InputLatencyTracker?
     private let now: @Sendable () -> UInt64
+    private let wallMillis: @Sendable () -> Double
 
     /// Reported inputs that closed a slot with the page's paint time.
     public private(set) var matchedEvents: UInt64 = 0
@@ -79,13 +81,16 @@ public final class WebPageInputTiming {
     /// - Parameters:
     ///   - tracker: The app's tracker, held weakly.
     ///   - now: `CLOCK_UPTIME_RAW` nanoseconds now, when a report arrives.
-    public init(tracker: InputLatencyTracker, now: @escaping @Sendable () -> UInt64 = InputLatencyTracker.uptimeNanos) {
+    ///   - wallMillis: The wall clock now, in milliseconds since 1970, read right after `now`.
+    public init(tracker: InputLatencyTracker, now: @escaping @Sendable () -> UInt64 = InputLatencyTracker.uptimeNanos,
+                wallMillis: @escaping @Sendable () -> Double = WebPageClock.wallMillisNow) {
         self.tracker = tracker
         self.now = now
+        self.wallMillis = wallMillis
     }
 
-    /// Adds the script and its handler to one tab's controller. The controller keeps the handler, which keeps its
-    /// page's clock and this object.
+    /// Adds the script and its handler to one tab's controller. The controller keeps the handler, which keeps this
+    /// object.
     public func install(into controller: WKUserContentController) {
         let world = WKContentWorld.world(name: Self.worldName)
         controller.addUserScript(WKUserScript(source: Self.script, injectionTime: .atDocumentStart,
@@ -93,18 +98,18 @@ public final class WebPageInputTiming {
         controller.add(WebPageInputTimingReceiver(timing: self), contentWorld: world, name: Self.channel)
     }
 
-    /// Applies one report the script posted, read with the page's clock.
+    /// Applies one report the script posted.
     ///
-    /// - Parameters:
-    ///   - body: The message body.
-    ///   - clock: The posting page's clock; a new document resets it.
-    public func receive(_ body: Any, clock: inout WebPageClock) {
+    /// - Parameter body: The message body.
+    public func receive(_ body: Any) {
         let received = now()
-        guard let report = Report(body) else {
+        let wall = wallMillis()
+        guard let report = Report(body),
+              let clock = WebPageClock(originMillis: report.origin, wallMillis: wall, uptimeNanos: received)
+        else {
             malformedReports &+= 1
             return
         }
-        clock.observe(origin: report.origin, pageNowMillis: report.pageNow, receivedAt: received)
         for event in report.events {
             guard let eventNanos = clock.uptime(event.eventMillis), let painted = clock.uptime(event.paintedMillis),
                   let tracker, tracker.pagePresented(event.type, eventNanos: eventNanos, at: min(painted, received))
@@ -130,7 +135,7 @@ public final class WebPageInputTiming {
             const painted = performance.now();
             const batch = message.data, events = [];
             for (let i = 0; i < batch.length; i += 2) events.push(batch[i], batch[i + 1], painted);
-            handler.postMessage({ o: performance.timeOrigin, n: performance.now(), e: events });
+            handler.postMessage({ o: performance.timeOrigin, e: events });
           };
           const frame = () => {
             afterPaint.port2.postMessage(queued);
@@ -154,13 +159,13 @@ public final class WebPageInputTiming {
             let paintedMillis: Double
         }
 
+        /// The document's `performance.timeOrigin`, as the page read it when it posted.
         let origin: Double
-        let pageNow: Double
         let events: [Event]
 
         init?(_ body: Any) {
             guard let fields = body as? [String: Any], let origin = Self.number(fields["o"]),
-                  let pageNow = Self.number(fields["n"]), let flat = fields["e"] as? [Any], flat.count % 3 == 0
+                  let flat = fields["e"] as? [Any], flat.count % 3 == 0
             else { return nil }
             var events: [Event] = []
             events.reserveCapacity(flat.count / 3)
@@ -171,7 +176,7 @@ public final class WebPageInputTiming {
                 else { return nil }
                 events.append(Event(type: type, eventMillis: eventMillis, paintedMillis: paintedMillis))
             }
-            (self.origin, self.pageNow, self.events) = (origin, pageNow, events)
+            (self.origin, self.events) = (origin, events)
         }
 
         private static func number(_ value: Any?) -> Double? {
@@ -181,42 +186,41 @@ public final class WebPageInputTiming {
     }
 }
 
-/// A page's clock (`performance.now()`, milliseconds since its document's time origin) mapped to `CLOCK_UPTIME_RAW`.
+/// A page's clock (`performance.now()`, milliseconds since its document's time origin) mapped to `CLOCK_UPTIME_RAW`
+/// for one report, through the wall clock.
 ///
-/// Each report carries the page's time when it posted; the report arrives later, so `received - posted` is the
-/// offset plus that delivery's latency. The smallest such value seen is the best estimate (a one-way clock
-/// sync, as NTP keeps its minimum-delay sample). A report from a new document (another time origin) starts over.
+/// WebKit computes `performance.timeOrigin` when it is read: the wall clock now less the monotonic time since the
+/// origin (`Performance::timeOrigin`, Source/WebCore/page/Performance.cpp). So the app's wall clock at the report's
+/// arrival less that origin is the page's clock at the arrival, and the delivery delay cancels: the wall clock and
+/// uptime both moved by it. What is left is the 1 ms coarsening of each value and any wall clock change between the
+/// post and the arrival. No state carries over from one report to the next, so no early, slow delivery skews later
+/// reports.
 nonisolated public struct WebPageClock: Sendable, Equatable {
-    /// The document's time origin the offset belongs to.
-    public private(set) var origin: Double?
     /// Uptime nanoseconds at the page's time 0.
-    public private(set) var offsetNanos: Int64?
+    public let offsetNanos: Int64
 
-    public init() {}
-
-    /// Takes one report's post time.
-    ///
     /// - Parameters:
-    ///   - origin: The document's `performance.timeOrigin`.
-    ///   - pageNowMillis: The page's `performance.now()` when it posted.
-    ///   - received: `CLOCK_UPTIME_RAW` nanoseconds when the report arrived.
-    public mutating func observe(origin: Double, pageNowMillis: Double, receivedAt received: UInt64) {
-        guard let pageNow = Self.nanos(pageNowMillis), received <= UInt64(Int64.max) else { return }
-        let offset = Int64(received) - pageNow
-        if self.origin != origin || offsetNanos == nil {
-            self.origin = origin
-            offsetNanos = offset
-        } else if let offsetNanos, offset < offsetNanos {
-            self.offsetNanos = offset
-        }
+    ///   - originMillis: The document's `performance.timeOrigin`, as the page read it when it posted.
+    ///   - wallMillis: The app's wall clock (milliseconds since 1970) when the report arrived.
+    ///   - uptimeNanos: `CLOCK_UPTIME_RAW` nanoseconds when the report arrived, read with `wallMillis`.
+    /// - Returns: nil when the values give no uptime that fits.
+    public init?(originMillis: Double, wallMillis: Double, uptimeNanos: UInt64) {
+        let elapsed = ((wallMillis - originMillis) * 1_000_000).rounded()
+        guard elapsed.isFinite, abs(elapsed) < 9.0e18, uptimeNanos <= UInt64(Int64.max) else { return nil }
+        let (offset, overflow) = Int64(uptimeNanos).subtractingReportingOverflow(Int64(elapsed))
+        guard !overflow else { return nil }
+        offsetNanos = offset
     }
 
-    /// The uptime of page time `millis`, or nil before any report or when it maps before boot.
+    /// The uptime of page time `millis`, or nil when it maps before boot.
     public func uptime(_ millis: Double) -> UInt64? {
-        guard let offsetNanos, let nanos = Self.nanos(millis) else { return nil }
+        guard let nanos = Self.nanos(millis) else { return nil }
         let (sum, overflow) = nanos.addingReportingOverflow(offsetNanos)
         return !overflow && sum > 0 ? UInt64(sum) : nil
     }
+
+    /// The wall clock now, in milliseconds since 1970: the clock WebKit reads `timeOrigin` from.
+    public static func wallMillisNow() -> Double { Date().timeIntervalSince1970 * 1000 }
 
     private static func nanos(_ millis: Double) -> Int64? {
         let nanos = (millis * 1_000_000).rounded()
@@ -224,16 +228,15 @@ nonisolated public struct WebPageClock: Sendable, Equatable {
     }
 }
 
-/// One tab's handler: its main frame's reports, read with its own clock.
+/// One tab's handler: its main frame's reports.
 final class WebPageInputTimingReceiver: NSObject, WKScriptMessageHandler {
     private let timing: WebPageInputTiming
-    private var clock = WebPageClock()
 
     init(timing: WebPageInputTiming) { self.timing = timing }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.frameInfo.isMainFrame else { return }
-        timing.receive(message.body, clock: &clock)
+        timing.receive(message.body)
     }
 }
 
