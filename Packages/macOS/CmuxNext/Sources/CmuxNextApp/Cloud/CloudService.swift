@@ -24,6 +24,7 @@ final class CloudService {
     @ObservationIgnored let paths: CloudPaths
     /// One app-lifetime owner of confirmed, per-account Codex delivery.
     let codexBroker: CloudCodexBrokerAdapter
+    @ObservationIgnored private let work: BackgroundWork
     @ObservationIgnored private(set) var hub: CloudTunnelHub?
     /// This Mac's Cloud install principal (cx-wb5.64): install tokens for the
     /// credential relay; registered at sign-in, revoked at sign-out.
@@ -35,7 +36,8 @@ final class CloudService {
     @ObservationIgnored private let machines: MachineRegistry
     /// The plan gate for a create, from the last machine list's limits.
     var createGate: CloudMachineCreateFlow.Gate { CloudMachineCreateFlow.gate(machines.cloudLimits) }
-    @ObservationIgnored private let binary: URL?
+    /// The app's `cmux-tui` (the hub's, the moves' and `cloud enroll-machine`'s `wg dial`).
+    @ObservationIgnored let binary: URL?
     /// This Mac's `cmux link` across the session (cx-rtipa S3).
     @ObservationIgnored private let link: CloudLinkLifecycle
     @ObservationIgnored private var lastRefresh: ContinuousClock.Instant?
@@ -99,6 +101,7 @@ final class CloudService {
     init(machines: MachineRegistry, isDebugBuild: Bool, mainWork: MainWorkScheduler, work: BackgroundWork) {
         self.machines = machines
         self.mainWork = mainWork
+        self.work = work
         configuration = CloudConfiguration.current(isDebugBuild: isDebugBuild)
         auth = CloudAuth(configuration: configuration)
         paths = CloudPaths.standard(bundleID: configuration.bundleID)
@@ -398,6 +401,7 @@ final class CloudService {
             hasLoadedMachines = true
             loadedAccount = account
             listLoadedAt = .now
+            await startHubForSSHRoutes()
         } catch {
             guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return }
             lastError = CloudStrings.errorText(error)
@@ -621,6 +625,19 @@ final class CloudService {
         try await api.setIdlePause(machineID, minutes: minutes)
         machines.session(machineID)?.machine.idlePauseMinutes = minutes
         logger.info("set idle pause \(machineID, privacy: .public) to \(minutes) min")
+    }
+
+    /// Starts the WireGuard hub once signed in when `cloud enroll-machine` wrote ssh routes that
+    /// dial through it (``CloudPaths/sshRoutesMarker``); without the hub those routes fail.
+    /// Called after each machine list refresh (sign-in, Cloud re-enabled, the periodic list), so a hub
+    /// that failed to start (offline at launch) or to restart gets another try; a running hub
+    /// answers at once. Never while Cloud is unavailable (a team policy, a local backend).
+    func startHubForSSHRoutes() async {
+        guard unavailableReason == nil, auth.isSignedIn else { return }
+        guard let hub, (try? await work.run(.userVisible, mayBlock: .files) { [paths] in paths.hasSSHRoutes() }) == true else { return }
+        // Cloud may have been turned off while the check waited: then no hub starts.
+        guard unavailableReason == nil, auth.isSignedIn else { return }
+        do { _ = try await hub.linkedSocketPath() } catch { logger.error("wireguard hub for ssh routes: \(String(describing: error), privacy: .public)") }
     }
 
     func renameMachine(_ machineID: String, to name: String) async throws {
