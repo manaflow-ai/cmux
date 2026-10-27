@@ -178,9 +178,11 @@ export async function mintRunAttachTicket(input: {
   return cloudDb().transaction(async (tx) => {
     await lockRun(tx, input.runId);
     await lockAttempt(tx, input.runId, input.attemptId);
-    const run = (await tx.select({ id: runs.id, provider: runs.provider }).from(runs).where(and(eq(runs.id, input.runId), eq(runs.userId, input.userId))).limit(1))[0];
+    const run = (await tx.select({ id: runs.id, provider: runs.provider, environment: runs.environment }).from(runs).where(and(eq(runs.id, input.runId), eq(runs.userId, input.userId))).limit(1))[0];
     const attempt = (await tx.select().from(runAttempts).where(and(eq(runAttempts.id, input.attemptId), eq(runAttempts.runId, input.runId))).limit(1))[0];
     if (!run || !attempt) throw new RunNotFoundError("run not found");
+    // A sandboxed Run is never attachable: its retained handle only waits for the reaper's destroy.
+    if (run.environment === "sandboxed") throw new RunAttachTargetUnavailableError("a sandboxed run has no attachable terminal");
     if (!attempt.terminalRetainUntil || attempt.terminalRetainUntil.getTime() <= nowAt.getTime()) {
       throw new RunAttachTicketExpiredError("the terminal attach window has expired");
     }
@@ -221,8 +223,9 @@ export async function consumeRunAttachTicket(input: {
   return cloudDb().transaction(async (tx) => {
     await lockRun(tx, input.runId);
     await lockAttempt(tx, input.runId, input.attemptId);
-    const run = (await tx.select({ id: runs.id, provider: runs.provider }).from(runs).where(and(eq(runs.id, input.runId), eq(runs.userId, input.userId))).limit(1))[0];
+    const run = (await tx.select({ id: runs.id, provider: runs.provider, environment: runs.environment }).from(runs).where(and(eq(runs.id, input.runId), eq(runs.userId, input.userId))).limit(1))[0];
     const attempt = (await tx.select().from(runAttempts).where(and(eq(runAttempts.id, input.attemptId), eq(runAttempts.runId, input.runId))).limit(1))[0];
+    if (run?.environment === "sandboxed") throw new RunAttachTargetUnavailableError("a sandboxed run has no attachable terminal");
     // Deliberately collapse ownership and token mismatches into not-found so a
     // caller cannot probe another tenant's retained VM handles.
     if (!run || !attempt || attempt.attachTicketHash !== hash) throw new RunAttachTicketNotFoundError("attach ticket not found");
@@ -1059,6 +1062,22 @@ export async function cloudVmRowLive(providerVmId: string): Promise<boolean> {
   const rows = await cloudDb().select({ id: cloudVms.id }).from(cloudVms).where(and(
     eq(cloudVms.providerVmId, providerVmId),
     ne(cloudVms.status, "destroyed"),
+  )).limit(1);
+  return rows.length > 0;
+}
+
+/**
+ * Whether this provider VM is the sandbox VM the launcher created for this attempt: a row with
+ * the attempt's own create key, its server-set marker and the Run's user. A provider VM id that
+ * only came from a worker's event matches no such row, so the reaper never destroys it unscoped.
+ */
+export async function sandboxVmOwnedByAttempt(input: { readonly providerVmId: string; readonly runId: string; readonly attemptId: string; readonly userId: string }): Promise<boolean> {
+  const key = sandboxVmIdempotencyKey(input.runId, input.attemptId);
+  const rows = await cloudDb().select({ id: cloudVms.id }).from(cloudVms).where(and(
+    eq(cloudVms.providerVmId, input.providerVmId),
+    eq(cloudVms.userId, input.userId),
+    eq(cloudVms.idempotencyKey, key),
+    sql`${cloudVms.providerMetadata}->>${SANDBOX_VM_MARKER_KEY} = ${key}`,
   )).limit(1);
   return rows.length > 0;
 }
