@@ -327,7 +327,7 @@ class Workflow(unittest.TestCase):
     def setUp(self):
         text = (ROOT / ".github/workflows/nightly.yml").read_text()
         self.job = text[text.index("\n  build-nightly-app:\n"):text.index("\n  resolve-nightly-cmux-tui-client:\n")]
-        self.lookup = self.job[self.job.index("id: nightly-product\n"):self.job.index("      - name: Compute Xcode compilation cache key")]
+        self.lookup = self.job[self.job.index("id: nightly-product\n"):].split("      - name:", 1)[0]
 
     def steps(self) -> list[str]:
         return re.split(r"\n(?=      - name: )", self.job)
@@ -345,7 +345,9 @@ class Workflow(unittest.TestCase):
         self.assertIn("github.event_name == 'push'", condition)
         self.assertIn("github.ref == 'refs/heads/nightly-next'", condition)
         allowed = set(fingerprint.NIGHTLY_PRODUCT_FLAGS) | {"fast_build", "build_only", "should_publish"}
-        skipped = [step for step in self.steps() if "steps.nightly-product.outputs.hit != 'true'" in step]
+        # Cache publication cannot change the app; its store selector is not a build input.
+        skipped = [step for step in self.steps() if "steps.nightly-product.outputs.hit != 'true'" in step
+                   and "uses: ./.github/actions/cache-save" not in step]
         self.assertGreaterEqual(len(skipped), 15)
         for step in skipped:
             for output in re.findall(r"needs\.decide\.outputs\.([a-z_]+)", step):
