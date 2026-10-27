@@ -719,7 +719,9 @@ final class AppServices {
         // First: the black-box ring is attached to TraceRuntime.shared, so every trace point records from here
         // on; the ring file opens on `.files`, never on main.
         traceBlackBox = environment.marksRun ? TraceBlackBoxFileSteps.startApp(bundleID: environment.launch.bundleID, work: work) : nil
-        (self.wireStats, self.inputTap) = (wireStats, inputTap)
+        // Its crash-key page names the main thread's running task from here on (p09-observability-078).
+        if let page = traceBlackBox?.blackBox.crashKeys { mainWork.budget.board.attachCrashKeys(page); crashKeys?.page.attach(page) }
+        (self.wireStats, self.inputTap) = (wireStats, inputTap); inputTap.crashKeys = crashKeys  // its last input time names the page
         hoverCards = HoverCardCoordinator(input: inputTap, changes: overlayChanges, appEvents: appEvents, workspaceEvents: workspaceEvents)
         _ = CmuxDialogCenter.shared.observe { [overlayChanges] _ in overlayChanges.signal() } // an app dialog's host has no window
         (self.launchImages, self.relaunchWake, self.launchImageHold) = (launchImages, relaunchWake, launchImageHold)
@@ -730,11 +732,12 @@ final class AppServices {
         updater = UpdaterService(work: work)
         chromiumRuntime = ChromiumRuntimeService.make(work: work)
         mobile = MobileHostService(displayName: { await MacName().displayName() }, work: work)
+        let runTiming = SignpostActionRunTiming(monitor: actionBudget, crashKeys: crashKeys, crashKeyPage: traceBlackBox?.blackBox.crashKeys)
         #if DEBUG || CMUX_BENCH_HOOKS
-        registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget, crashKeys: crashKeys),
+        registry = ActionRegistry.standard(runTiming: runTiming,
                                            turnObserver: oracleTurns, mainWork: mainWork)
         #else
-        registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget, crashKeys: crashKeys),
+        registry = ActionRegistry.standard(runTiming: runTiming,
                                            mainWork: mainWork)
         #endif
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
@@ -763,6 +766,7 @@ final class AppServices {
         }
         _ = cache  // built here, as before
         pages.createTabs = cache.createTabs  // a page tab's close ends its create.tab wait
+        pages.findWindow = { [weak self] key in self.flatMap { $0.pages.window(showing: key, among: $0.windows.controllers) } }  // a page tab whose window closed
         pages.showsStandIns = self.features.isEnabled(.pageStandIn)
         pages.sharesChromiumWindows = self.features.isEnabled(.pageTabsShareChromiumWindow)
         DebugTimings.markLaunch("services.cache")
