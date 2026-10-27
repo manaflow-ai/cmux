@@ -59,7 +59,7 @@ struct CLIExplicitSurfaceRoutingTests {
             let result = Self.runProcess(
                 executablePath: try Self.bundledCLIPath(),
                 arguments: arguments,
-                environment: cliEnvironment(socketPath: Self.makeSocketPath("notify-invalid-\(index)")),
+                environment: Self.cliEnvironment(socketPath: Self.makeSocketPath("notify-invalid-\(index)")),
                 timeout: Self.processTimeout
             )
             #expect(!result.timedOut, Comment(rawValue: result.stderr))
@@ -86,7 +86,7 @@ struct CLIExplicitSurfaceRoutingTests {
             let result = Self.runProcess(
                 executablePath: try Self.bundledCLIPath(),
                 arguments: testCase.arguments,
-                environment: cliEnvironment(
+                environment: Self.cliEnvironment(
                     socketPath: Self.makeSocketPath("browser-profile-invalid-\(testCase.name)")
                 ),
                 timeout: Self.processTimeout
@@ -127,7 +127,7 @@ struct CLIExplicitSurfaceRoutingTests {
 
     @Test func notifyAcceptsDesktopValueOption() throws {
         // `--desktop true|false` (#14688) must pass argument validation and reach the socket.
-        let execution = try runMockCommand(
+        let execution = try Self.runMockCommand(
             arguments: ["notify", "--title", "Build", "--desktop", "false"],
             socketName: "notify-desktop-valid"
         ) { line in
@@ -144,7 +144,7 @@ struct CLIExplicitSurfaceRoutingTests {
         try FileManager.default.createDirectory(at: temporaryHome, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: temporaryHome) }
 
-        let execution = try runMockCommand(
+        let execution = try Self.runMockCommand(
             arguments: ["vm", "tree"],
             socketName: "vm-tree-link-error",
             environmentOverrides: [
@@ -187,7 +187,7 @@ struct CLIExplicitSurfaceRoutingTests {
             ["send-key-panel", "--panel", Self.targetSurfaceRef, "ctrl+c", "enter"],
         ]
         for (index, arguments) in cases.enumerated() {
-            let execution = try runMockCommand(arguments: arguments, socketName: "key-arity-\(index)") { line in
+            let execution = try Self.runMockCommand(arguments: arguments, socketName: "key-arity-\(index)") { line in
                 Self.malformedRequestResponse(raw: line)
             }
             let requests = try execution.state.requestObjects()
@@ -234,7 +234,7 @@ struct CLIExplicitSurfaceRoutingTests {
         let result = Self.runProcess(
             executablePath: try Self.bundledCLIPath(),
             arguments: ["read-screen", "--surface", "5", "--lines", "1"],
-            environment: cliEnvironment(socketPath: socketPath),
+            environment: Self.cliEnvironment(socketPath: socketPath),
             timeout: Self.processTimeout
         )
 
@@ -387,7 +387,7 @@ struct CLIExplicitSurfaceRoutingTests {
         try FileManager.default.createDirectory(at: temporaryHome, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: temporaryHome) }
 
-        let execution = try runMockCommand(
+        let execution = try Self.runMockCommand(
             arguments: arguments,
             socketName: "refused",
             environmentOverrides: [
@@ -459,7 +459,7 @@ struct CLIExplicitSurfaceRoutingTests {
                 "--surface", "surface:99999",
                 "--workspace", Self.reproWorkspaceRef,
             ],
-            environment: cliEnvironment(socketPath: socketPath),
+            environment: Self.cliEnvironment(socketPath: socketPath),
             timeout: Self.processTimeout
         )
 
@@ -488,7 +488,7 @@ struct CLIExplicitSurfaceRoutingTests {
             unlink(socketPath)
         }
 
-        var environment = cliEnvironment(socketPath: socketPath)
+        var environment = Self.cliEnvironment(socketPath: socketPath)
         environment.removeValue(forKey: "CMUX_WORKSPACE_ID")
         environment.removeValue(forKey: "CMUX_SURFACE_ID")
 
@@ -537,7 +537,7 @@ struct CLIExplicitSurfaceRoutingTests {
             unlink(socketPath)
         }
 
-        var environment = cliEnvironment(socketPath: socketPath)
+        var environment = Self.cliEnvironment(socketPath: socketPath)
         environment.removeValue(forKey: "CMUX_WORKSPACE_ID")
         environment.removeValue(forKey: "CMUX_SURFACE_ID")
 
@@ -629,7 +629,7 @@ struct CLIExplicitSurfaceRoutingTests {
                 "--surface", Self.missingSurfaceUUID,
                 "--command", "echo nope",
             ],
-            environment: cliEnvironment(socketPath: socketPath),
+            environment: Self.cliEnvironment(socketPath: socketPath),
             timeout: Self.processTimeout
         )
 
@@ -696,7 +696,7 @@ struct CLIExplicitSurfaceRoutingTests {
         let result = Self.runProcess(
             executablePath: try Self.bundledCLIPath(),
             arguments: arguments,
-            environment: cliEnvironment(socketPath: socketPath),
+            environment: Self.cliEnvironment(socketPath: socketPath),
             timeout: Self.processTimeout
         )
 
@@ -746,7 +746,7 @@ struct CLIExplicitSurfaceRoutingTests {
             state: state,
             handler: handler
         )
-        var environment = cliEnvironment(socketPath: socketPath)
+        var environment = Self.cliEnvironment(socketPath: socketPath)
         environment.merge(environmentOverrides) { _, replacement in replacement }
         let result = Self.runProcess(
             executablePath: try Self.bundledCLIPath(),
@@ -799,7 +799,7 @@ struct CLIExplicitSurfaceRoutingTests {
         let result = Self.runProcess(
             executablePath: try Self.bundledCLIPath(),
             arguments: arguments,
-            environment: cliEnvironment(socketPath: socketPath),
+            environment: Self.cliEnvironment(socketPath: socketPath),
             timeout: Self.processTimeout
         )
 
@@ -809,7 +809,7 @@ struct CLIExplicitSurfaceRoutingTests {
         return (result, try state.requestObjects())
     }
 
-    private func cliEnvironment(socketPath: String) -> [String: String] {
+    private static func cliEnvironment(socketPath: String) -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_WORKSPACE_ID"] = Self.callerWorkspaceId
