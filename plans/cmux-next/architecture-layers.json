@@ -141,6 +141,7 @@
     "CMUXAuthCore": {"layer": "core", "package": "Packages/Shared/CMUXAuthCore", "note": "pure auth values"},
     "CMUXMobileCore": {"layer": "core", "package": "Packages/Shared/CMUXMobileCore", "note": "shared mobile values and protocol; CmuxTheme sits on it"},
     "CmuxAgentQuestion": {"layer": "core", "package": "Packages/Shared/CmuxAgentQuestion", "note": "harness-neutral question model"},
+    "CmuxAgentBrands": {"layer": "core", "package": "Packages/Shared/CmuxAgentBrands", "note": "brand model: ids, specs, resolver, generated catalog; builds on Linux"},
     "CmuxInstallAuthCore": {"layer": "core", "package": "Packages/Shared/CmuxInstallAuthCore", "note": "install auth crypto values"},
     "CmuxFeedPushCore": {"layer": "core", "package": "Packages/Shared/CmuxFeedPushCore", "note": "feed push crypto values"},
     "CmuxTheme": {"layer": "core", "package": "Packages/Shared/CmuxTheme", "note": "theme values; core CmuxNextDesignTokens depends on it"},
@@ -176,7 +177,7 @@
     "CmuxMobileShellModel": {"layer": "domain", "package": "Packages/iOS/CmuxMobileShellModel", "note": "iOS shell state"},
     "CmuxMobileRPC": {"layer": "domain", "package": "Packages/iOS/CmuxMobileRPC", "note": "decodes RPC into CmuxMobileShellModel (test-only link)"},
 
-    "CmuxAgentBrands": {"layer": "ui", "package": "Packages/Shared/CmuxAgentBrands", "note": "AppKit and SwiftUI brand images"},
+    "CmuxAgentBrandsUI": {"layer": "ui", "package": "Packages/Shared/CmuxAgentBrands", "note": "Core Graphics, AppKit and SwiftUI brand marks; re-exports CmuxAgentBrands"},
     "CmuxScreenKitUI": {"layer": "ui", "package": "Packages/Shared/CmuxScreenKit", "note": "SwiftUI screen views"},
     "CmuxMobileSupport": {"layer": "ui", "package": "Packages/iOS/CmuxMobileSupport", "note": "SwiftUI and UIKit iOS support"},
     "MessagesLabHome": {"layer": "ui", "package": "Packages/Shared/CmuxMessagesLab", "note": "vendored AppKit Home transcript"},

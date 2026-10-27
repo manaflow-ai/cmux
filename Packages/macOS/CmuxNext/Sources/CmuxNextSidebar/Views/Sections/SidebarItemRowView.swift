@@ -1,5 +1,5 @@
 import AppKit
-import CmuxAgentBrands
+import CmuxAgentBrandsUI
 import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextWakeups

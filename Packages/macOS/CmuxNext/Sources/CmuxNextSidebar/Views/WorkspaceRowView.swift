@@ -1,6 +1,6 @@
 import AppKit
 import Observation
-import CmuxAgentBrands
+import CmuxAgentBrandsUI
 import CmuxNextDesign
 import CmuxNextIcons
 import QuartzCore

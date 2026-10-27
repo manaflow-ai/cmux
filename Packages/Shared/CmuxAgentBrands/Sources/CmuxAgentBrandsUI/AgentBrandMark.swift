@@ -1,3 +1,4 @@
+import CmuxAgentBrands
 import SwiftUI
 
 /// An agent's brand mark, or the generic agent glyph when it has none.

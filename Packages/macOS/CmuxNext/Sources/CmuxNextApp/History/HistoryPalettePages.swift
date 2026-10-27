@@ -1,4 +1,4 @@
-import CmuxAgentBrands
+import CmuxAgentBrandsUI
 import CmuxNextHistory
 import CmuxNextPalette
 import Foundation

@@ -1,7 +1,7 @@
 #if os(iOS)
 import CmuxAgentQuestion
 import CmuxMobileArtifacts
-import CmuxAgentBrands
+import CmuxAgentBrandsUI
 import CmuxMobileDesign
 import CmuxMobileDiff
 import CmuxMobileMarkdown

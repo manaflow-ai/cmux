@@ -1,5 +1,5 @@
 import AppKit
-import CmuxAgentBrands
+import CmuxAgentBrandsUI
 
 /// Agent brand marks drawn in the tab's tint (the mono style), cached per brand, tint, and scale: a memory
 /// consumer (`tab-agent-marks`, ``TabImageMemo``) the app registers through ``TabIconMemoryConsumers``.

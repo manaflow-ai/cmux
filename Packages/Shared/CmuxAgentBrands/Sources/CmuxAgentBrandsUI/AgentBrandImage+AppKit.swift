@@ -1,5 +1,6 @@
 #if canImport(AppKit)
 import AppKit
+import CmuxAgentBrands
 
 public extension AgentBrandCatalog {
     /// A template image of a brand's mark (the mono style) for AppKit views that tint

@@ -1,4 +1,4 @@
-import CmuxAgentBrands
+import CmuxAgentBrandsUI
 import CmuxNextIcons
 import SwiftUI
 import CmuxNextDesign
