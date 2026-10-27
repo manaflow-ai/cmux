@@ -1029,6 +1029,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_r2_cache_prune.py
 
+      - name: Validate the git mirror bundle publisher
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_git_mirror_bundle.py
+
       - name: Validate the R2 binaries pruner
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_cmux_binaries_prune.py
