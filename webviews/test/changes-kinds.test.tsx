@@ -342,3 +342,41 @@ test("a view opened on a relative tool path keeps that generated file open once 
     await act(async () => root.unmount());
   }
 });
+
+test("opening the view by a relative path on an already folded generated file unfolds it", async () => {
+  const files = turn(["/repo/src/a.ts", "/repo/bun.lock"]);
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  const folded = () =>
+    [...container.querySelectorAll<HTMLElement>(".acpmux-diff-file")]
+      .filter((block) => block.dataset.collapsed !== undefined)
+      .map((block) => block.dataset.path);
+  try {
+    await act(async () => root.render(<DiffPanel files={files} root="/repo" onClose={() => {}} />));
+    await settle();
+    expect(folded()).toEqual(["/repo/bun.lock"]);
+    // A tool call wrote it as `bun.lock`, relative to the chat's folder.
+    await act(async () =>
+      root.render(<DiffPanel files={files} root="/repo" initialPath="bun.lock" onClose={() => {}} />),
+    );
+    await settle();
+    expect(folded()).toEqual([]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("a file under /private/tmp is read from a chat folder under /tmp", async () => {
+  const view = await render(
+    turn(["/private/tmp/repo/tests/helpers.py", "/private/tmp/repo/src/a.ts", "/private/tmp/repo/generated/out.ts"]),
+    "/tmp/repo",
+  );
+  try {
+    expect(view.kinds()).toEqual(["", "Tests", "Generated"]);
+    // A test changed beside the code: nothing is missing.
+    expect(view.noTests()).toBeUndefined();
+    expect(view.folded()).toEqual(["/private/tmp/repo/generated/out.ts"]);
+  } finally {
+    await view.unmount();
+  }
+});

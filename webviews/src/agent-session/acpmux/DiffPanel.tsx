@@ -69,19 +69,27 @@ function resolved(path: string): string | undefined {
   return (path.startsWith("/") ? "/" : "") + parts.join("/");
 }
 
+/// `path` with macOS's /private spelling of /tmp, /var and /etc read as the short one: acpmux's
+/// canonical path names the real one (/private/tmp/repo) where the chat's folder may not (/tmp/repo).
+function unaliased(path: string): string {
+  return path.replace(/^\/private(?=\/(?:tmp|var|etc)(?:\/|$))/, "");
+}
+
 /// The path a file's kind (fileKinds.ts) is read from, so a folder above the project never names it
 /// (a repository under `~/tests/` is not all tests): a git scope's from the repository's top; a
 /// turn's from the chat's folder `root`, as its display path drops the folder its files share (one
 /// file under `tests/` shows as `helpers.py`). A turn's path is matched under either spelling
-/// acpmux recorded (its canonical path: /tmp is /private/tmp). A turn's file outside that folder,
-/// or with no folder known, is read by its name alone.
+/// acpmux recorded, and /private/tmp is /tmp on either side (`unaliased`). A turn's file outside
+/// that folder, or with no folder known, is read by its name alone.
 export function kindPath(scope: ChangeScope, file: TurnFile, root: string | undefined): string {
   if (scope !== "lastTurn") return file.displayPath;
-  const top = root && resolved(root);
+  const real = root && resolved(root);
+  const top = real && unaliased(real);
   for (const spelling of [file.canonical, file.path]) {
     if (!spelling) continue;
     // A relative path is the agent's, under its folder.
-    const path = spelling.startsWith("/") ? resolved(spelling) : resolved(top ? `${top}/${spelling}` : spelling);
+    const full = spelling.startsWith("/") ? resolved(spelling) : resolved(top ? `${top}/${spelling}` : spelling);
+    const path = full && unaliased(full);
     if (!path) continue;
     if (!path.startsWith("/")) return path;
     if (top && path.startsWith(top === "/" ? "/" : `${top}/`)) return path.slice(top === "/" ? 1 : top.length + 1);
@@ -89,13 +97,12 @@ export function kindPath(scope: ChangeScope, file: TurnFile, root: string | unde
   return file.path.slice(file.path.lastIndexOf("/") + 1);
 }
 
-/// `path` as an absolute path: a relative one is the agent's, under the chat's folder `root`. The
-/// /private spelling of /tmp, /var and /etc reads as the short one, as acpmux's canonical path may
-/// name either.
+/// `path` as an absolute path: a relative one is the agent's, under the chat's folder `root`, and
+/// /private/tmp reads as /tmp (`unaliased`).
 function absolute(path: string, root: string | undefined): string | undefined {
   const top = root && resolved(root);
   const full = path.startsWith("/") ? resolved(path) : top ? resolved(`${top}/${path}`) : undefined;
-  return full?.replace(/^\/private(?=\/(?:tmp|var|etc)(?:\/|$))/, "");
+  return full && unaliased(full);
 }
 
 /// The listed file `path` names, by its path or canonical path, as written or resolved from the
@@ -338,22 +345,25 @@ export function DiffPanel({
   const onPainted = useStableCallback(() => {
     if (revealing.current) reveal(listedPath(files, revealing.current, root));
   });
+  // The file the view opens on shows, even one folded as generated, under the path the list
+  // names it by (a relative tool path opens a checkpoint's absolute one).
+  const openInitial = useStableCallback((path: string) => {
+    const listed = listedPath(files, path, root);
+    setCollapsed((current) => {
+      if (!current.has(listed)) return current;
+      const next = new Set(current);
+      next.delete(listed);
+      return next;
+    });
+    reveal(listed);
+  });
   // Focus moves into the view, so keys reach it and a screen reader announces it.
   useEffect(() => {
     back.current?.focus();
     // Another file opened in the open view: later paints keep it in view, not the first one.
     revealing.current = initialPath;
-    if (initialPath) {
-      // The file the view opens on shows, even one folded as generated.
-      setCollapsed((current) => {
-        if (!current.has(initialPath)) return current;
-        const next = new Set(current);
-        next.delete(initialPath);
-        return next;
-      });
-      reveal(initialPath);
-    }
-  }, [initialPath]);
+    if (initialPath) openInitial(initialPath);
+  }, [initialPath, openInitial]);
   // Escape closes the view while focus is in it (or nowhere), not while typing in the composer
   // or the file filter.
   const panel = useRef<HTMLElement>(null);
