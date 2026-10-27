@@ -76,6 +76,9 @@ import Testing
         unowned let slices: Slices
         private(set) var mountedIn: [Int] = []
         private(set) var wentLive = 0
+        /// Runs inside `mountLaunchStrips`, where the app's window installs its content (`contentDidAppear`, which
+        /// runs the app's waiting opens), before it returns its panes.
+        var onMount: (@MainActor () -> Void)?
 
         init(panes: [Pane], slices: Slices) {
             self.panes = panes
@@ -84,6 +87,7 @@ import Testing
 
         func mountLaunchStrips() -> [any LaunchWindowPane] {
             mountedIn.append(slices.ran.count - 1)
+            onMount?()
             return panes
         }
 

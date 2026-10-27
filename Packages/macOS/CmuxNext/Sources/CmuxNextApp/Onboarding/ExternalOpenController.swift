@@ -15,7 +15,11 @@ import CmuxNextOnboarding
 final class ExternalOpenController {
     unowned let services: AppServices
     let router: ExternalOpenRouter
-    private(set) var pending: [ExternalOpenRoute] = []
+    /// What waits for a window, or for the launch window's pane (p08-startup-096).
+    private(set) lazy var queue = ExternalOpenQueue<ExternalOpenRoute>(
+        launchPicture: { [weak self] in self?.services.windows.launchPicture },
+        hasTarget: { [weak self] in self?.services.windows.active?.focusedPane != nil },
+        run: { [weak self] in self?.run($0) ?? .waits() })
 
     init(services: AppServices) {
         self.services = services
@@ -75,21 +79,24 @@ final class ExternalOpenController {
     }
 
     func perform(_ route: ExternalOpenRoute) {
+        queue.open(route)
+    }
+
+    /// Runs `route` in the active window now (``ExternalOpenQueue``'s `run`): where it landed, or `.waits` with no
+    /// window or pane to open in yet.
+    private func run(_ route: ExternalOpenRoute) -> ExternalOpenLanding {
         let windows = services.windows
-        // The launch window shows its picture and the pane the open lands in is not built yet: the open waits for
-        // that pane, never building the window in this turn (p08-startup-096).
-        if holdsForLaunchPicture() { return pending.append(route) }
         guard let controller = windows.active else {
-            pending.append(route)
-            if windows.restored, windows.controllers.isEmpty { windows.reopenOrCreateWindow() }
-            return
+            guard windows.restored, windows.controllers.isEmpty else { return .waits() }
+            return .waits(then: { [weak windows] in windows?.reopenOrCreateWindow() })  // its content runs the queue
         }
         // The user opened it from another app: a window on a top page (Home)
         // shows a workspace so the tab shows, as a shown internal page does.
         // Without this the open waited until the user left Home.
         controller.leaveTopPage()
         if controller.focusedPane == nil, !controller.showOpenableWorkspace() { createWorkspaceForPending(in: controller) }
-        guard let pane = controller.focusedPane else { return pending.append(route) }
+        guard let pane = controller.focusedPane else { return .waits() }
+        let landing: ExternalOpenLanding
         if case .deepLink(let url) = route {
             // The user clicked it in another app: their run, which brings
             // cmux forward. Agent links are addresses published in public
@@ -101,17 +108,36 @@ final class ExternalOpenController {
             } == true
             var arguments: [String: ActionValue] = ["url": .string(url.absoluteString)]
             if isAgent { arguments["background"] = .bool(true) }
+            let shown = ShownPlace(windows)
             services.registry.perform("link.open", invocation: ActionInvocation(arguments: arguments))
+            // A link that kept the shown workspace lands in its focused pane; one that moved it shows none of the
+            // launch picture's content.
+            landing = ExternalOpenLanding(link: windows.active?.focusedPane, keptPlace: ShownPlace(windows) == shown)
             // `background` also means no app activation: bringing cmux to the
             // front here would put the previously focused agent input back
             // under the next keystroke from the opening app.
-            if isAgent { return }
+            if isAgent { return landing }
         } else {
             deliver(route, to: pane)
-            launchOpens?.opened(in: pane)  // the picture over the pane shows what it showed before the open
+            landing = .pane(pane)
             windows.bringToFront(controller)
         }
         if !services.environment.noActivate { NSApp.activate() }
+        return landing
+    }
+
+    /// What the active window shows: a link that changes it moves the window away from its launch picture.
+    private struct ShownPlace: Equatable {
+        let window: ObjectIdentifier?
+        let workspace: String?
+        let page: TopPageRoute?
+
+        init(_ windows: WindowManager) {
+            let active = windows.active
+            window = active.map { ObjectIdentifier($0) }
+            workspace = active?.state.workspaceID
+            page = active?.state.page
+        }
     }
 
     /// A workspace being created to hold what opens while a window lists
@@ -135,34 +161,14 @@ final class ExternalOpenController {
     }
 
     /// A window installed its content, the launch window's picture shows (`launch_picture_shown`), or the pane the
-    /// launch picture held an open for is built: run what waited for one.
+    /// launch picture held an open for is shown: run what waited for one.
     func flush() {
-        guard !pending.isEmpty, !holdsForLaunchPicture(), services.windows.active?.focusedPane != nil else { return }
-        let routes = pending
-        pending = []
-        routes.forEach(perform)
-    }
-
-    /// Whether what opens now waits for the launch window's focused pane (`LaunchPictureOpens.holds`): the queue
-    /// runs again once that pane shows, in the build's raised slice.
-    private func holdsForLaunchPicture() -> Bool {
-        launchOpens?.holds { [weak self] in self?.flush() } == true
+        queue.flush()
     }
 
     /// The launch window's build behind its picture started (`LaunchSnapshotWindow`): an open held for it raises it.
     func launchBuildStarted(_ build: LaunchWindowBuild) {
-        launchOpens?.buildStarted(build)
-    }
-
-    private var launchPictureOpens: LaunchPictureOpens?
-
-    /// The hold of the launch picture the window manager shows (`WindowManager.launchPicture`); nil with none.
-    private var launchOpens: LaunchPictureOpens? {
-        guard let phase = services.windows.launchPicture else { return nil }
-        if let opens = launchPictureOpens, opens.phase === phase { return opens }
-        let opens = LaunchPictureOpens(phase: phase)
-        launchPictureOpens = opens
-        return opens
+        queue.launchBuildStarted(build)
     }
 
     private func deliver(_ route: ExternalOpenRoute, to pane: PaneController) {

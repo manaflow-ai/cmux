@@ -66,6 +66,8 @@ public final class LaunchWindowBuild {
     private let urgent: Post
     private var done: (@MainActor () -> Void)?
     private var stripsMounted = false
+    /// ``LaunchBuiltWindow/mountLaunchStrips()`` returned and each pane has its part: an open may land in one now.
+    private var panesMounted = false
     private var shown: Set<Int> = []
     private var isRaised = false
     private var panes: [any LaunchWindowPane] = []
@@ -78,9 +80,10 @@ public final class LaunchWindowBuild {
     /// Every slice ran (or the window went first).
     public private(set) var isDone = false
 
-    /// Whether something opened from another app may go to the window now (p08-startup-096): the focused pane, where
-    /// it lands, is shown (or the window shows no pane), or the build is over.
-    public var isOpenReady: Bool { isDone || (stripsMounted && (panes.isEmpty || shown.contains(0))) }
+    /// Whether something opened from another app may go to the window now (p08-startup-096): the panes are mounted
+    /// with their parts and the focused pane, where it lands, is shown (or the window shows no pane), or the build is
+    /// over. Never inside the strips' slice: the window installs its content there, which runs the app's waiting opens.
+    public var isOpenReady: Bool { isDone || (panesMounted && (panes.isEmpty || shown.contains(0))) }
 
     /// - Parameters:
     ///   - window: The window, its controller built in the picture's window.
@@ -140,6 +143,7 @@ public final class LaunchWindowBuild {
         parts = panes.map { pane in
             regions.add { [weak pane] picture in pane?.launchArea(in: picture) ?? .zero }
         }
+        panesMounted = true
         for index in panes.indices {
             post(index == 0 ? Self.focusedPane : Self.visiblePane) { [self] in show(index) }
         }
