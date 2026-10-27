@@ -48,7 +48,14 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// Oldest and newest host protocol this build speaks.
 pub const PROTOCOL_MIN: u16 = 1;
-pub const PROTOCOL_MAX: u16 = 1;
+pub const PROTOCOL_MAX: u16 = 2;
+/// The protocol from which a `line` may ask for a receipt (`WRITTEN_METHOD`).
+pub const RECEIPT_VERSION: u16 = 2;
+/// The receipt for a `line` (protocol 2): a `tap` entry (`dir = out`) carrying this
+/// notification, `{receipt, written}`, once its lines are written to the harness (`written:
+/// true`) or can never be (its stdin closed: `false`). An entry, not a frame of its own, so it
+/// is retained until acknowledged, replayed to the next controller, and known to every build.
+pub const WRITTEN_METHOD: &str = "_acpmux/host_written";
 /// Discovery record schema this build writes and reads.
 pub const RECORD_VERSION: u32 = 1;
 /// Largest frame either side accepts.
@@ -74,8 +81,13 @@ pub enum ControllerFrame {
     Resume { after: u64 },
     /// One ACP message for the harness. The host translates it when the
     /// harness speaks Claude stream-json, writes it, and echoes the written
-    /// lines as `tap` entries.
-    Line { msg: Value },
+    /// lines as `tap` entries. `receipt` (protocol 2): the host logs its
+    /// receipt (`WRITTEN_METHOD`) once every line of it is written to the harness.
+    Line {
+        msg: Value,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        receipt: Option<u64>,
+    },
     /// Entries up to `h` are in the controller's log; the host may drop them.
     Ack { h: u64 },
     /// End the harness process group: SIGTERM, then SIGKILL after `grace_ms`.

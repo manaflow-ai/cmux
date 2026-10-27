@@ -102,6 +102,10 @@ final class AgentPageChats {
         case .notSignedIn?, .http(401, _, _, _, _)?: "not_signed_in"
         // A rate limit, or no backend configured: nothing was stored or sent.
         case .http(429, _, _, _, _)?, .noBackend?: "unavailable_now"
+        // A Run API with no sandboxed Runs yet asks for a repository source and recipe. It refuses the
+        // body before storing anything, so Sandboxed isn't enabled here, and the tab may send again.
+        case .http(400, "run_source_required"?, _, _, _)?, .http(400, "run_recipe_required"?, _, _, _)?:
+            "run_sandbox_unavailable"
         case let other?: other.code
         case nil: "unavailable"
         }

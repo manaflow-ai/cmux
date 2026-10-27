@@ -358,7 +358,8 @@ impl Hub {
         }
         // A family prompt that waited is checked again: the receiver may ask
         // less than its sender now (`subsession_guard.rs`).
-        if let Err(e) = self.family_dispatch_check(session, run.provenance.as_ref()).await {
+        let bound = self.mdm_snapshot();
+        if let Err(e) = self.family_dispatch_check(session, run.provenance.as_ref(), bound).await {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
             return Err(e);
@@ -475,7 +476,7 @@ impl Hub {
             return Err(e);
         }
         // Held until the prompt is written: an MDM off push waits for it (`family_gate`).
-        let family_gate = match self.family_gate(session, run.provenance.as_ref()).await {
+        let mut family_gate = match self.family_gate(session, run.provenance.as_ref()).await {
             Ok(gate) => gate,
             Err(e) => {
                 self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
@@ -563,6 +564,10 @@ impl Hub {
         // Tests only: a pause right before the write (`full_access_bound::WriteSeam`).
         #[cfg(test)]
         self.pause_at_family_write().await;
+        let fence = family_gate.take().map(|hold| self.hold_until_written(session, hold));
+        // A fence no writer took (an error before it was handed on) is cut: nothing waits on it
+        // (review 86 of #23322); a written one stays written.
+        let _unsent = crate::agent::CutOnDrop(fence.as_ref());
         // Start title generation after the first prompt is written to the harness, while its
         // session-info title can still win before the cheap completion is spent.
         let mut result = super::steer_end::agent_prompt_hook(
@@ -571,8 +576,8 @@ impl Hub {
             json!({"sessionId": agent_sid, "prompt": wire}),
             &turn_id,
             false,
+            fence.as_ref(),
             || {
-                drop(family_gate);
                 self.watch_stalled_turn(session, None);
                 self.title_after_prompt(session)
             },
@@ -621,7 +626,6 @@ impl Hub {
                 self.save_meta(session);
                 let control = session.turn().map_or(control, |t| t.control);
                 let fallback = self.child_for_since(session, stops).await;
-                let mut family_gate = None;
                 let refusal = match &fallback {
                     Ok(_) => match self
                         .check_dispatch(
@@ -638,8 +642,8 @@ impl Hub {
                         // A family message is checked again, and held until it is resent: an
                         // off push may have come since its first write (`family_gate`).
                         Ok(()) => match self.family_gate(session, run.provenance.as_ref()).await {
-                            Ok(gate) => {
-                                family_gate = gate;
+                            Ok(hold) => {
+                                family_gate = hold;
                                 None
                             }
                             Err(e) => Some(e),
@@ -676,6 +680,11 @@ impl Hub {
                             let wire = agent_blocks(self, session, &blocks).await?;
                             let stopped = session.cancels.load(Ordering::SeqCst) != cancels
                                 || session.stops.load(Ordering::SeqCst) != stops;
+                            let fence = family_gate
+                                .take()
+                                .map(|hold| self.hold_until_written(session, hold));
+                            // Not handed on (a Stop meanwhile): cut, so nothing waits on it.
+                            let _unsent = crate::agent::CutOnDrop(fence.as_ref());
                             // Like the first prompt: Stop's and a stalled turn's forced end
                             // (`cancel.rs`, `stalled_turn.rs`) end it too.
                             result = if stopped {
@@ -687,10 +696,8 @@ impl Hub {
                                     json!({"sessionId": sid2, "prompt": wire}),
                                     &turn_id,
                                     false,
-                                    || {
-                                        drop(family_gate);
-                                        self.watch_stalled_turn(session, None)
-                                    },
+                                    fence.as_ref(),
+                                    || self.watch_stalled_turn(session, None),
                                 )
                                 .await
                             };
@@ -1071,9 +1078,13 @@ impl Hub {
         mut params: Value,
         granted: bool,
     ) -> Result<Value, RpcError> {
+        // MDM's off as this switch begins: its one read, which every check below takes, so an off
+        // that comes and goes while it waits on the agent still holds for it (reviews 73, 75 and
+        // 77 of #23322).
+        let off = self.off_latch();
         // Every switch into a mode that skips approvals, from any client (the app, the CLI, a
         // script), passes here: refused while `sessions.allowFullAccess` is off.
-        if super::start_mode::requests_full_access(m, &params) && !self.full_access_allowed() {
+        if super::start_mode::requests_full_access(m, &params) && !off.allows_full_access() {
             return Err(super::start_mode::full_access_off());
         }
         // Nor does a switch out of the mode a narrower policy needs (`policy_mode.rs`).
@@ -1081,7 +1092,7 @@ impl Hub {
         let child = self.child_for(session).await?;
         // Again once the agent is there (its start can take seconds): MDM may have forced full
         // access off since. A push after this ends the agent at the next prompt (`child_for`).
-        if super::start_mode::requests_full_access(m, &params) && !self.full_access_allowed() {
+        if super::start_mode::requests_full_access(m, &params) && !off.allows_full_access() {
             return Err(super::start_mode::full_access_off());
         }
         let sid = session
@@ -1101,6 +1112,9 @@ impl Hub {
             && params.get("configId").and_then(Value::as_str) == Some("mode"))
         .then(|| params.get("value").and_then(Value::as_str).map(str::to_owned))
         .flatten();
+        let asked_option = (m == method::SESSION_SET_CONFIG_OPTION)
+            .then(|| super::full_access_bound::asked_option(&params))
+            .flatten();
         let res = match child.request(m, params).await {
             Ok(v) => v,
             Err(mut e) => {
@@ -1137,6 +1151,25 @@ impl Hub {
                 if let Some(opts) = res.get("configOptions") {
                     writes.push(ModeWrite::ConfigOptions(opts.clone()));
                 }
+                // A bare answer (no options, or null ones) took the value asked: the full-access
+                // bound reads it (reviews 60 and 61 of #23322). An answer with its options says
+                // what each holds now. Kept in answer order: the harness's own option reports never
+                // clear it, as one sent before this answer may be applied after it (review 1 of
+                // #26058).
+                {
+                    let mut kept =
+                        session.floor.asked_options.lock().unwrap_or_else(|e| e.into_inner());
+                    match res.get("configOptions").and_then(Value::as_array) {
+                        Some(reported) => {
+                            kept.retain(|o| !reported.iter().any(|r| r.get("id") == o.get("id")))
+                        }
+                        None => {
+                            if let Some(asked) = asked_option {
+                                super::full_access_bound::merge_asked_option(&mut kept, asked);
+                            }
+                        }
+                    }
+                }
                 // Claude Code answers a `mode` option with the mode it now runs.
                 if asked_option_mode.is_some()
                     && let Some(mode) = res.get("currentModeId").cloned()
@@ -1167,7 +1200,7 @@ impl Hub {
         // above). The mode is written before this reads the off, and the push writes the off
         // before its teardown reads modes (`end_every_managed_full_access`): either way the
         // agent ends.
-        if self.managed_off_runs_full_access(session) {
+        if self.managed_off_runs_full_access(&off, session) {
             let _spawning = session.spawn_lock.lock().await;
             self.end_if_runs_full_access(session, true).await;
             return Err(super::start_mode::full_access_off());
@@ -1335,15 +1368,6 @@ impl Hub {
         self.append(session, "mux", "renamed", json!({"from": old, "to": name}));
         self.save_meta(session);
         Ok(())
-    }
-
-    /// Sets `session`'s own policy; its mode follows (`follow_policy`), so a policy acpmux sets
-    /// itself (an aside's, a handoff target's) holds as one a client sets does.
-    pub async fn set_policy(self: &Arc<Self>, session: &Arc<Session>, policy: PermissionPolicy) {
-        self.permission_policy_changed(session, |m| m.permission_policy = Some(policy.to_string()));
-        self.append(session, "mux", "policy", json!({"policy": policy.to_string()}));
-        self.save_meta(session);
-        self.follow_policy(session).await;
     }
 
     /// Stop the child. The log stays. `purge` also deletes the log.

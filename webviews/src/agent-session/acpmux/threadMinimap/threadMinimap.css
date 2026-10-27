@@ -292,8 +292,8 @@
   overflow: hidden;
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  white-space: normal;
+  -webkit-line-clamp: 3;
+  white-space: pre-line;
   overflow-wrap: anywhere;
 }
 .acpmux-minimap__bookmark {
@@ -329,6 +329,11 @@
   overflow: hidden;
   margin-top: 4px;
   color: var(--agent-muted);
+}
+.acpmux-minimap__card[data-prompt] .acpmux-minimap__reply {
+  height: auto;
+  max-height: calc(var(--acpmux-minimap-reply-lines, 1) * var(--acpmux-minimap-reply-line-height, 20px));
+  min-height: var(--acpmux-minimap-reply-line-height, 20px);
 }
 .acpmux-minimap__metadata {
   display: flex;

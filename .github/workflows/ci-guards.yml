@@ -983,6 +983,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_rust_cache_keeps_runner_bin.py
 
+      - name: Validate every job that can start acpmux gives it a home of the job's own
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_acpmux_job_home.py
+
       - name: Validate signing secrets are read only in protected environments
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_signing_secrets_need_release_environment.py
@@ -1457,6 +1461,7 @@ jobs:
           bash ./tests/test_nightly_universal_build.sh
           python3 tests/test_nightly_trusted_routing.py
           python3 tests/test_nightly_build_state.py
+          python3 tests/test_ensure_setup_node.py
 
       # .github/nightly-step-coverage.json: every step only the nightly runs
       # names its pull-request dry run here or elsewhere, or a reviewed reason.
@@ -1605,6 +1610,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_build_runner.py
 
+      - name: Validate the warm nightly-next builder's git fetches are bounded and retried
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_git_fetch_retry.py
+
       - name: Validate test compilation cache seeding
         if: ${{ !cancelled() && matrix.group == 'quality-sharding' }}
         run: |
@@ -1650,6 +1659,18 @@ jobs:
       - name: Validate Computer Use helper notarization behavior
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: ./tests/test_notarize_computer_use_helper.sh
+
+      - name: Validate the release signer scripts
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: |
+          python3 tests/test_release_signer_scripts.py
+          python3 tests/test_release_signer_nightly.py
+          python3 tests/test_dev_app_linux.py
+          python3 tests/test_nightly_signer_jobs.py
+
+      - name: Validate the release app signer
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_release_signer_sign_app.py
 
       - name: Validate release asset guard
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}

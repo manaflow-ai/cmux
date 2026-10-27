@@ -23,6 +23,7 @@ public import Foundation
 /// values only for the `--repo` the person names, else the global ones. A machine can ask for any
 /// global name, which is what global means.
 public struct CloudMachineSecrets: Equatable, Sendable {
+    public init() {}
     public static let service = "cmux-cloud-secret"
     public static let receiverPath = CloudMachineConfig.directory + "/receive-secrets"
     /// The receiver's ticket, in the work user's 0700 folder beside it.

@@ -48,6 +48,17 @@ struct AcpmuxRefusedRestartTests {
         }
     }
 
+    /// An update handoff can finish without a person's action; missing/stopped daemons cannot.
+    @Test func onlyAnUpdateHandoffIsAReconnectingHandshake() async throws {
+        for cause in [AgentPaneHostError.daemonRestarting, .acpmuxNotFound, .daemonStopped, .chiefStopped] {
+            let model = AgentPaneModel(host: RefusingHost(cause))
+            let reply = await model.respond(to: .reconnect)
+            let error = try #require(reply["error"] as? [String: Any])
+            let details = error["details"] as? [String: Any]
+            #expect((details?["reconnecting"] as? Bool == true) == (cause == .daemonRestarting))
+        }
+    }
+
     /// Without a refusal that offered it, or without the person's click, the page cannot stop a daemon.
     @Test func restartAcpmuxNeedsAnOfferAndAGesture() async {
         let model = AgentPaneModel(host: NoHost())
