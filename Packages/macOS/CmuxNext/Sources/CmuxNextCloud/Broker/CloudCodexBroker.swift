@@ -1,5 +1,3 @@
-public import CmuxNextCloud
-public import CmuxNextDaemon
 public import Foundation
 
 /// The account scope that owns one local Codex refresh-token holder. The scope is
@@ -164,15 +162,23 @@ nonisolated public struct CloudCodexBrokerTarget: Sendable {
             try await api.makeDirectory(machineID, path: path)
         }, readFile: { path in
             do { return try await api.readFile(machineID, path: path).data }
-            catch { return nil }
+            catch let error as CloudAPIError {
+                guard case .http(let status, let code, _, _, _) = error,
+                      status == 404, code == "vm_file_not_found" else { throw error }
+                return nil
+            }
         }, writeFile: { path, data, mode in
             try await api.writeFile(machineID, path: path, data: data, mode: mode)
         }, commitFiles: { stageAccess, finalAccess, stageMode, finalMode in
-            let script = "set -eu; test -f \(stageAccess); test -f \(stageMode); test $(stat -c %U \(stageAccess)) = cmux; test $(stat -c %U \(stageMode)) = cmux; install -o cmux -g cmux -m 600 \(stageAccess) \(finalAccess).tmp; install -o cmux -g cmux -m 600 \(stageMode) \(finalMode).tmp; mv -f \(finalAccess).tmp \(finalAccess); mv -f \(finalMode).tmp \(finalMode)"
+            let script = "set -eu; for p in \(stageAccess) \(stageMode); do test -f $p; test ! -L $p; test $(stat -c %a $p) = 600; case $(stat -c %u $p) in 0|$(id -u cmux)) ;; *) exit 83 ;; esac; chown cmux:cmux $p; done; mv -f \(stageMode) \(finalMode); mv -f \(stageAccess) \(finalAccess)"
             let result = try await api.exec(machineID, command: script, timeoutMs: 8_000)
             guard result.exitCode == 0 else { throw CloudCodexBrokerError.remoteDeliveryFailed }
         }, removeFile: { path in
-            try await api.removeFile(machineID, path: path)
+            do { try await api.removeFile(machineID, path: path) }
+            catch let error as CloudAPIError {
+                guard case .http(let status, let code, _, _, _) = error,
+                      status == 404, code == "vm_file_not_found" else { throw error }
+            }
         }, isLive: {
             (try await api.machine(machineID)).status.isLive
         })
@@ -199,6 +205,7 @@ public actor CloudCodexBroker {
     private var loadedPreviousMode: Set<String> = []
     private var targets: [String: CloudCodexBrokerTarget] = [:]
     private var targetGenerations: [String: Int] = [:]
+    private var pendingRevocations: Set<String> = []
     private var targetLocks: Set<String> = []
     private var targetWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
     private var refreshTask: Task<Void, Never>?
@@ -237,10 +244,12 @@ public actor CloudCodexBroker {
     /// delivers access-only JSON to this VM. The VM never receives a refresh seed.
     public func waitForLoginAndTransfer(target: CloudCodexBrokerTarget, confirmed: Bool,
                                         timeout: Duration = .seconds(300)) async throws -> CloudCodexAccessGrant {
+        let generation = targetGenerations[target.machineID, default: 0]
         try await validate(target: target, confirmed: confirmed)
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: timeout)
         while clock.now < deadline {
+            guard targetGenerations[target.machineID, default: 0] == generation else { throw CloudCodexBrokerError.cancelled }
             do {
                 return try await transfer(target: target, confirmed: confirmed, forceRefresh: true)
             } catch CloudCodexBrokerError.notAuthenticated {
@@ -259,15 +268,18 @@ public actor CloudCodexBroker {
     /// the local holder to refresh and writes only the new access token.
     public func transfer(target: CloudCodexBrokerTarget, confirmed: Bool,
                          forceRefresh: Bool = false) async throws -> CloudCodexAccessGrant {
+        let generation = targetGenerations[target.machineID, default: 0]
         try await validate(target: target, confirmed: confirmed)
+        try await ensureScope()
+        guard targetGenerations[target.machineID, default: 0] == generation else { throw CloudCodexBrokerError.cancelled }
         targets[target.machineID] = target
-        targetGenerations[target.machineID, default: 0] += 1
+        targetGenerations[target.machineID] = generation
         if !forceRefresh, let cached, cached.expiresAt > Date().addingTimeInterval(120) {
-            try await deliver(cached, target: target)
+            try await deliver(cached, target: target, expectedGeneration: generation)
             return cached
         }
         let grant = try await refreshAccess(schedule: true)
-        try await deliver(grant, target: target)
+        try await deliver(grant, target: target, expectedGeneration: generation)
         return grant
     }
 
@@ -300,29 +312,32 @@ public actor CloudCodexBroker {
     /// refresh holder is signed out only when the caller explicitly requests it.
     public func revoke(target: CloudCodexBrokerTarget, signOut: Bool = false) async throws {
         try await validate(target: target, confirmed: true, requireLive: false)
-        targets.removeValue(forKey: target.machineID)
+        let registered = targets.removeValue(forKey: target.machineID) != nil || pendingRevocations.contains(target.machineID)
         targetGenerations[target.machineID, default: 0] += 1
+        guard registered else { return }
+        pendingRevocations.insert(target.machineID)
         await lockTarget(target.machineID)
         defer { unlockTarget(target.machineID) }
         // Stop renewal without waking a paused VM. Its last access token remains
         // usable until provider expiry; file removal requires an online VM.
         guard (try? await target.isLive()) == true else {
-            loadedPreviousMode.remove(target.machineID)
-            previousModeByMachine.removeValue(forKey: target.machineID)
             if targets.isEmpty {
                 cached = nil
                 refreshTask?.cancel()
                 refreshTask = nil
                 if signOut { _ = try? await request(method: "logout") }
             }
-            return
+            throw CloudCodexBrokerError.targetOffline
         }
-        try? await target.removeFile(Self.accessPath)
-        try? await target.removeFile(Self.modePath)
-        if let previous = previousModeByMachine.removeValue(forKey: target.machineID) ?? nil {
+        try await target.removeFile(Self.accessPath)
+        try await target.removeFile(Self.modePath)
+        try await ensureScope()
+        if let previous = previousModeByMachine[target.machineID] ?? nil {
             try await target.writeFile(Self.modePath, previous, 0o600)
         }
+        previousModeByMachine.removeValue(forKey: target.machineID)
         loadedPreviousMode.remove(target.machineID)
+        pendingRevocations.remove(target.machineID)
         if targets.isEmpty {
             cached = nil
             refreshTask?.cancel()
@@ -362,23 +377,32 @@ public actor CloudCodexBroker {
                 return result
             }
         } catch is CancellationError {
+            await invalidate(session)
             throw CloudCodexBrokerError.cancelled
         } catch CodexBrokerSession.Error.notAuthenticated {
             throw CloudCodexBrokerError.notAuthenticated
         } catch CodexBrokerSession.Error.invalidReply {
+            await invalidate(session)
             throw CloudCodexBrokerError.invalidReply
         } catch CodexBrokerSession.Error.accountChanged {
             throw CloudCodexBrokerError.accountChanged
         } catch {
+            await invalidate(session)
             throw CloudCodexBrokerError.brokerUnavailable
         }
     }
 
-    private func deliver(_ grant: CloudCodexAccessGrant, target: CloudCodexBrokerTarget) async throws {
+    private func invalidate(_ failed: CodexBrokerSession) async {
+        if session === failed { session = nil }
+        await failed.shutdown()
+    }
+
+    private func deliver(_ grant: CloudCodexAccessGrant, target: CloudCodexBrokerTarget, expectedGeneration: Int? = nil) async throws {
         await lockTarget(target.machineID)
         defer { unlockTarget(target.machineID) }
         guard targets[target.machineID] != nil else { throw CloudCodexBrokerError.cancelled }
-        let generation = targetGenerations[target.machineID, default: 0]
+        let generation = expectedGeneration ?? targetGenerations[target.machineID, default: 0]
+        guard targetGenerations[target.machineID, default: 0] == generation else { throw CloudCodexBrokerError.cancelled }
         let object: [String: Any] = [
             "schema": 1,
             "bridge": "codex-external-access-v1",
@@ -393,6 +417,7 @@ public actor CloudCodexBroker {
         let stageAccess = "/home/cmux/.config/cmux/codex-broker/.access-\(suffix).json"
         let stageMode = "/home/cmux/.config/cmux/agent-auth/.codex-\(suffix)"
         do {
+            try await validate(target: target, confirmed: true)
             try await ensureScope()
             guard targets[target.machineID] != nil, targetGenerations[target.machineID] == generation,
                   try await target.isLive() else { throw CloudCodexBrokerError.targetOffline }
@@ -414,6 +439,8 @@ public actor CloudCodexBroker {
             try await ensureScope()
             guard targets[target.machineID] != nil, targetGenerations[target.machineID] == generation else { throw CloudCodexBrokerError.cancelled }
             try await target.commitFiles(stageAccess, Self.accessPath, stageMode, Self.modePath)
+            try? await target.removeFile(stageAccess)
+            try? await target.removeFile(stageMode)
             guard targets[target.machineID] != nil, targetGenerations[target.machineID] == generation else { throw CloudCodexBrokerError.cancelled }
         } catch let error as CloudCodexBrokerError {
             try? await target.removeFile(stageAccess)
@@ -446,7 +473,9 @@ public actor CloudCodexBroker {
         guard await currentScope() == scope else { throw CloudCodexBrokerError.scopeChanged }
     }
 
-    private func targetList() -> [CloudCodexBrokerTarget] { Array(targets.values) }
+    func registeredMachineIDs() -> Set<String> { Set(targets.keys) }
+
+    private func targetList() -> [CloudCodexBrokerTarget] { targets.values.sorted { $0.machineID < $1.machineID } }
 
     private func scheduleRefresh(grant: CloudCodexAccessGrant) {
         refreshTask?.cancel()
@@ -461,8 +490,8 @@ public actor CloudCodexBroker {
                 let targets = await self.targetList()
                 for target in targets {
                     do { try await self.deliver(refreshed, target: target) }
-                    catch CloudCodexBrokerError.targetOffline { continue }
-                    catch CloudCodexBrokerError.remoteDeliveryFailed { continue }
+                    catch CloudCodexBrokerError.scopeChanged { throw CloudCodexBrokerError.scopeChanged }
+                    catch { continue }
                 }
                 await self.rescheduleRefresh(after: refreshed)
             } catch { /* cancellation, logout, or a stopped VM ends renewal */ }
@@ -503,147 +532,3 @@ public actor CloudCodexBrokerRegistry {
     }
 }
 
-nonisolated private struct BrokerRequest: Encodable, Sendable {
-    let id: Int
-    let method: String
-    let force: Bool?
-    let previousAccountId: String?
-}
-
-nonisolated private struct BrokerResult: Decodable, Sendable {
-    let accessToken: String?
-    let chatgptAccountID: String?
-    let expiresAt: Double?
-    let verificationURL: String?
-    let userCode: String?
-
-    enum CodingKeys: String, CodingKey {
-        case accessToken
-        case chatgptAccountID = "chatgptAccountId"
-        case expiresAt
-        case verificationURL = "verificationUrl"
-        case userCode
-    }
-}
-
-nonisolated private struct BrokerReply: Decodable, Sendable {
-    let id: Int
-    let result: BrokerResult?
-    let error: String?
-}
-
-private actor CodexBrokerSession {
-    enum Error: Swift.Error { case invalidReply, accountChanged, notAuthenticated, timedOut }
-
-    private let process: Process
-    private let input: FileHandle
-    private let output: FileHandle
-    private var buffer = Data()
-    private var nextID = 0
-    private var pending: [Int: CheckedContinuation<BrokerResult, Swift.Error>] = [:]
-
-    init(executable: URL, executablePrefix: [String], codexExecutable: URL, home: URL) throws {
-        try FileManager.checked.createDirectory(at: home, withIntermediateDirectories: true)
-        let inputPipe = Pipe()
-        let outputPipe = Pipe()
-        let process = Process()
-        process.executableURL = executable
-        process.arguments = executablePrefix + ["codex-auth-broker", "--home", home.path, "--codex", codexExecutable.path]
-        var environment = ["PATH": ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin", "HOME": ProcessInfo.processInfo.environment["HOME"] ?? FileManager.default.homeDirectoryForCurrentUser.path]
-        if let user = ProcessInfo.processInfo.environment["USER"] { environment["USER"] = user }
-        process.environment = environment
-        process.standardInput = inputPipe
-        process.standardOutput = outputPipe
-        process.standardError = FileHandle.nullDevice
-        try process.run()
-        self.process = process
-        self.input = inputPipe.fileHandleForWriting
-        self.output = outputPipe.fileHandleForReading
-        // task-owner: this reader is bounded by the private broker process and
-        // terminates on EOF; pending continuations are failed by terminationHandler.
-        Task { [weak self, output = outputPipe.fileHandleForReading] in
-            do {
-                for try await line in output.bytes.lines {
-                    await self?.consume(Data((line + "\n").utf8))
-                }
-            } catch {
-                await self?.terminatePending()
-            }
-        }
-        process.terminationHandler = { [weak self] _ in
-            // task-owner: termination handler reports EOF to the stored reader task.
-            Task { await self?.terminatePending() }
-        }
-    }
-
-    deinit {
-        try? input.close()
-        try? output.close()
-        if process.isRunning { process.terminate() }
-    }
-
-    func request(method: String, force: Bool? = nil, previousAccountID: String? = nil) async throws -> BrokerResult {
-        nextID += 1
-        let id = nextID
-        let object = BrokerRequest(id: id, method: method, force: force, previousAccountId: previousAccountID)
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        guard let data = try? encoder.encode(object) else { throw Error.invalidReply }
-        var line = data
-        line.append(0x0A)
-        return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                pending[id] = continuation
-                do {
-                    try input.write(contentsOf: line)
-                } catch {
-                    pending.removeValue(forKey: id)
-                    continuation.resume(throwing: error)
-                }
-            }
-        } onCancel: {
-            // task-owner: cancellation is sent to the session actor and does not outlive its private child.
-            Task.detached(priority: .utility) { await self.cancelPending() }
-        }
-    }
-
-    private func consume(_ data: Data) {
-        buffer.append(data)
-        guard buffer.count <= 64 * 1024 else {
-            terminatePending()
-            if process.isRunning { process.terminate() }
-            buffer.removeAll(keepingCapacity: false)
-            return
-        }
-        while let newline = buffer.firstIndex(of: 0x0A) {
-            let line = buffer.prefix(upTo: newline)
-            buffer.removeSubrange(...newline)
-            guard let reply = try? JSONDecoder().decode(BrokerReply.self, from: line),
-                  let continuation = pending.removeValue(forKey: reply.id) else { continue }
-            if let error = reply.error {
-                if error == "codex_auth_account_changed" { continuation.resume(throwing: Error.accountChanged) }
-                else if error == "codex_auth_unavailable" { continuation.resume(throwing: Error.notAuthenticated) }
-                else { continuation.resume(throwing: Error.invalidReply) }
-            } else if let result = reply.result {
-                continuation.resume(returning: result)
-            } else {
-                continuation.resume(throwing: Error.invalidReply)
-            }
-        }
-    }
-
-    private func terminatePending() {
-        guard !pending.isEmpty else { return }
-        let waiting = pending.values
-        pending.removeAll()
-        for continuation in waiting { continuation.resume(throwing: Error.invalidReply) }
-    }
-
-    private func cancelPending() {
-        guard !pending.isEmpty else { return }
-        let waiting = pending.values
-        pending.removeAll()
-        for continuation in waiting { continuation.resume(throwing: CancellationError()) }
-        if process.isRunning { process.terminate() }
-    }
-}
