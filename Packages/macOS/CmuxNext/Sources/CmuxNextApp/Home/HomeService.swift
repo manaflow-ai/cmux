@@ -31,6 +31,8 @@ final class HomeService {
     #endif
     /// While a Chief turn waits for the compactor (ChiefSettleWatch).
     var settleNotice: String?
+    /// Where the Chief's first-launch welcome went (HomeService+ChiefWelcome); nil until the owner's first connection reads it.
+    var chiefWelcome: ChiefWelcome.Record?
     @ObservationIgnored var settleWatch: ChiefSettleWatch?
     /// While the person's last message to this Mac's Chief has had no reply for two minutes
     /// (ChiefReplyWatchdog).
@@ -208,6 +210,7 @@ final class HomeService {
             if case .cloudConversations = event { self?.handle(event) }
         }
         installChiefMigration()
+        installChiefWelcome()
         primeHomeList()
         pinMigration.attach([homeInbox, homeCloudInbox])
         settleWatch = ChiefSettleWatch(home: chief.home) { [weak self] text in

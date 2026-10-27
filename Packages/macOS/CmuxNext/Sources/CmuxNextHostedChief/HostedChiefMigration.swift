@@ -303,6 +303,9 @@ public final class HostedChiefMigration {
             before = first.seq
             if first.seq <= 1 { break }
         }
+        // The Chief's first-launch welcome (ChiefWelcome) is no history to copy.
+        messages.removeAll { $0.clientMsgID == ChiefWelcome.clientMsgID }
+        guard !messages.isEmpty else { return .none("no_local_history") }
         return .messages(messages, localID: local.id)
     }
 

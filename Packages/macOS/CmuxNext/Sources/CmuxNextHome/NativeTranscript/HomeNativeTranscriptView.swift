@@ -120,6 +120,12 @@ public final class HomeNativeTranscriptView: NSView {
     /// first-run panel waits, so a Chief conversation with history never
     /// flashes it before its messages arrive (stability rule).
     public var holdsFirstRun = false { didSet { if holdsFirstRun != oldValue { updateFirstRun() } } }
+    /// Whether a conversation holds only the Chief's first-launch welcome (#26053, `ChiefWelcome`): its
+    /// first-run panel still shows, above the welcome and without the hero the welcome stands in for.
+    public var isOnlyWelcome: (ConversationSummary) -> Bool = { _ in false } { didSet { updateFirstRun() } }
+    var showsWelcome: Bool { transcript.conversationSummary.map(isOnlyWelcome) == true }
+    /// Space between the first-run panel and the welcome under it.
+    static let welcomeGap: CGFloat = 12
     /// Automation (DEBUG socket): the transcript sits this far from this view's origin, with no size change
     /// (a pane on a fraction of a point; MessagesLab b6760b6's typing snap). Zero in the product.
     public var debugTranscriptOffset = CGPoint.zero { didSet { needsLayout = true } }
@@ -420,7 +426,9 @@ public final class HomeNativeTranscriptView: NSView {
         // change (`onFieldTopChange` asks for this pass), and the first-run
         // panel fits what it shows above it, under the header.
         let top = transcript.headerHeight
-        let panel = CGRect(x: 0, y: top, width: bounds.width, height: max(0, transcript.fieldTop - top))
+        var bottom = transcript.fieldTop
+        if showsWelcome, let rowsTop = transcript.rowsTop { bottom = min(bottom, rowsTop - Self.welcomeGap) }
+        let panel = CGRect(x: 0, y: top, width: bounds.width, height: max(0, bottom - top))
         if firstRun.frame != panel { firstRun.frame = panel }
         layoutNotice()
     }
@@ -469,9 +477,13 @@ public final class HomeNativeTranscriptView: NSView {
         layoutNotice()
     }
 
-    /// The first-run panel shows only in an empty Chief conversation.
+    /// The first-run panel shows only in an empty Chief conversation, or one with only the welcome.
     private func updateFirstRun() {
-        firstRun.isHidden = holdsFirstRun || !(transcript.isEmpty && transcript.conversationSummary?.kind(me: me) == .chief)
+        let welcome = showsWelcome
+        firstRun.isHidden = holdsFirstRun || !((transcript.isEmpty || welcome) && transcript.conversationSummary?.kind(me: me) == .chief)
+        applyHero()
+        // The welcome's row moves the panel's bottom (`layout`).
+        if welcome { needsLayout = true }
     }
 
     /// The typing hold gives back what it holds while the views are still in the old window.
