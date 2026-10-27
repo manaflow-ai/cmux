@@ -80,6 +80,20 @@ bool OnlyAttach(uint16_t op) {
   return any;
 }
 
+// The chooser handler whose setter op `op` is (host_choosers.h); nullopt for any other op.
+std::optional<choosers::Handler> ChooserHandlerOf(uint16_t op) {
+  switch (op) {
+    case kOpSetColorChooserHandler:
+      return choosers::kColor;
+    case kOpSetDeviceChooserHandler:
+      return choosers::kDevice;
+    case kOpSetDesktopMediaHandler:
+      return choosers::kDesktopMedia;
+    default:
+      return std::nullopt;
+  }
+}
+
 uint64_t BindKey(int event_kind, int request) {
   return (static_cast<uint64_t>(static_cast<uint32_t>(event_kind)) << 32) | static_cast<uint32_t>(request);
 }
@@ -164,6 +178,7 @@ void HostContext::Resume() {
   if (state_ != State::kInitializing) return;
   state_ = State::kRunning;
   InstallHostPolicies();
+  ApplyChooserHandlers();
   if (set_wheel_ack_handler_ && !set_wheel_ack_handler_(&HostContext::OnWheelAck, this)) {
     // The HELLO said acks come: the swipe waits for them, so a refusal is the fork's bug, logged.
     fprintf(stderr, "cmux-chromium-host: the fork refused the wheel ack handler\n");
@@ -189,6 +204,10 @@ void HostContext::Handle(control::Message& message) {
     return;
   }
   if (message.op == control::kOpHello) return Bad("a second hello");
+  if (const std::optional<choosers::Handler> handler = ChooserHandlerOf(message.op); handler && state_ != State::kEnded) {
+    if (!HandleChooserHandler(*handler, message)) Bad("a malformed chooser handler op");
+    return;
+  }
   switch (state_) {
     case State::kEnded:
       return;
@@ -551,6 +570,79 @@ void HostContext::OnWheelAck(void* ctx, int browser_id, const void* ack) {
   host->ForwardEvent(kEventWheelAck, browser_id, event->request, event->a, event->b, "", "");
 }
 
+bool HostContext::HandleChooserHandler(choosers::Handler handler, const control::Message& message) {
+  const std::optional<bool> installed = choosers::ReadInstalled(message.fields);
+  if (!installed) return false;
+  chooser_wanted_[handler] = *installed;
+  // Before initialize the shim has no fork to install in: Resume applies it.
+  if (state_ == State::kRunning) ApplyChooserHandlers();
+  return true;
+}
+
+void HostContext::ApplyChooserHandlers() {
+  for (int i = 0; i < choosers::kHandlerCount; ++i) {
+    const auto handler = static_cast<choosers::Handler>(i);
+    const bool wanted = chooser_wanted_[handler];
+    if (wanted == chooser_installed_[handler]) continue;
+    void* context = wanted ? this : nullptr;
+    int result = 0;
+    switch (handler) {
+      case choosers::kColor:
+        result = cmux_shim_set_color_chooser_handler(wanted ? &HostContext::OnColorChooser : nullptr, context);
+        break;
+      case choosers::kDevice:
+        result = cmux_shim_set_device_chooser_handler(wanted ? &HostContext::OnDeviceChooser : nullptr, context);
+        break;
+      case choosers::kDesktopMedia:
+        result = cmux_shim_set_desktop_media_handler(wanted ? &HostContext::OnDesktopMedia : nullptr, context);
+        break;
+    }
+    if (wanted && !result) {
+      // A fork below API 31: Chromium keeps its own chooser, which the host never shows.
+      fprintf(stderr, "cmux-chromium-host: the fork refused chooser handler %d\n", i);
+      continue;
+    }
+    // A removal the fork refused still leaves no handler of the host's: its old requests ended.
+    chooser_installed_[handler] = wanted;
+  }
+}
+
+void HostContext::OnColorChooser(void* ctx, int event, int browser_id, int64_t token, unsigned int color,
+                                 const void* data) {
+  static_cast<HostContext*>(ctx)->ForwardChooserEvent(choosers::kColor, event, browser_id, token, color, data);
+}
+
+void HostContext::OnDeviceChooser(void* ctx, int event, int browser_id, int64_t token, const void* data) {
+  static_cast<HostContext*>(ctx)->ForwardChooserEvent(choosers::kDevice, event, browser_id, token, 0, data);
+}
+
+void HostContext::OnDesktopMedia(void* ctx, int event, int browser_id, int64_t token, const void* data) {
+  static_cast<HostContext*>(ctx)->ForwardChooserEvent(choosers::kDesktopMedia, event, browser_id, token, 0, data);
+}
+
+void HostContext::ForwardChooserEvent(choosers::Handler handler, int event, int browser_id, int64_t token, int64_t b,
+                                      const void* data) {
+  if (state_ == State::kEnded) return;
+  std::string payload;
+  if (event == choosers::OpenEventOf(handler)) {
+    bool encoded = false;
+    switch (handler) {
+      case choosers::kColor:
+        encoded = choosers::EncodeColorChooser(data, &payload);
+        break;
+      case choosers::kDevice:
+        encoded = choosers::EncodeDeviceChooser(data, &payload);
+        break;
+      case choosers::kDesktopMedia:
+        encoded = choosers::EncodeDesktopMedia(data, &payload);
+        break;
+    }
+    // Within the bounds an encoding cannot fail; one that did would leave the page waiting.
+    if (!encoded) return Bad("a chooser payload over its bounds");
+  }
+  ForwardEvent(choosers::EventKindOf(handler), browser_id, event, token, b, nullptr, nullptr, &payload);
+}
+
 void HostContext::Dispatch(const control::Message& message) {
   if (message.op == kOpShutdown) {
     // CefShutdown runs once the loop has ended (browser_host_main.mm), never inside a task.
@@ -605,7 +697,9 @@ void HostContext::Dispatch(const control::Message& message) {
   std::vector<HeldEvent> events;
   events.swap(held_events_);
   replaying_held_events_ = true;
-  for (const HeldEvent& e : events) ForwardEvent(e.kind, e.browser_id, e.request, e.a, e.b, e.s1.c_str(), e.s2.c_str());
+  for (const HeldEvent& e : events) {
+    ForwardEvent(e.kind, e.browser_id, e.request, e.a, e.b, e.s1.c_str(), e.s2.c_str(), e.payload ? &*e.payload : nullptr);
+  }
   replaying_held_events_ = false;
   std::vector<control::Message> replies;
   replies.swap(held_replies_);
@@ -660,10 +754,11 @@ void HostContext::OnShimEvent(void* ctx, int kind, int browser_id, int request, 
 }
 
 void HostContext::ForwardEvent(int kind, int browser_id, int request, int64_t a, int64_t b, const char* s1,
-                               const char* s2) {
+                               const char* s2, const std::string* payload) {
   if (state_ == State::kEnded) return;
   if (dispatching_) {
-    held_events_.push_back(HeldEvent{kind, browser_id, request, a, b, s1 ? s1 : "", s2 ? s2 : ""});
+    held_events_.push_back(HeldEvent{kind, browser_id, request, a, b, s1 ? s1 : "", s2 ? s2 : "",
+                                     payload ? std::optional<std::string>(*payload) : std::nullopt});
     return;
   }
   int32_t client = ClientOf(browser_id);
@@ -694,7 +789,11 @@ void HostContext::ForwardEvent(int kind, int browser_id, int request, int64_t a,
   Refresh(mirror_event);
   FollowPageWindows(client, window_before, kind == CMUX_SHIM_TAB_EVENT ? a : 0);
   TlvWriter event;
-  EncodeEvent(event, kind, client, out_request, a, b, s1, s2);
+  if (payload) {
+    choosers::EncodePayloadEvent(event, kind, client, out_request, a, b, *payload);
+  } else {
+    EncodeEvent(event, kind, client, out_request, a, b, s1, s2);
+  }
   Post(MessageOf(kOpEvent, false, 0, event.Take()));
   if (created && replaying_held_events_) {
     created_during_replay_.push_back(client);  // Dispatch runs them after its op's ack
