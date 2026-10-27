@@ -42,9 +42,6 @@ ALLOWED: dict[str, str] = {
         "each pass; a candidate for a concurrency group",
     "merge-group-fail-fast.yml: Locate and watch the merge-group CI run":
         "per merge group: finds and watches its CI run (lawrencecchen's #16224 cuts it)",
-    "nightly-next-tick.yml: Coalesce tick requests without cancelling work":
-        "only a hand dispatch with --ref feat-cmux-next runs this copy (schedule, workflow_run and the "
-        "tick's own dispatches run main's, which has no coalescer): at most 48 passes, 15 s apart",
     'cmux-next-base-autofix.yml: Wait for the GhosttyKit release':
         'per feat-cmux-next push touching its paths, only while the ghostty gitlink has no published GhosttyKit release: one release read every 120 s, at most 45 passes, one run at a time; a candidate for workflow_run on build-ghosttykit.yml',
     "cmux-next.yml: Decide the fleet build's REF capture":

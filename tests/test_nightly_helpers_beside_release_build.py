@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import re
 import os
 import subprocess
 import sys
@@ -288,9 +289,9 @@ class NightlyInputsTests(unittest.TestCase):
         builder.chmod(0o755)
         for relative in nightly_inputs.WEB_OUTPUTS:
             path = self.root / relative
-            if relative.endswith(".js"):
+            if relative.endswith((".js", ".html")):
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text("ranker\n")
+                path.write_text(f"{relative}\n")
             else:
                 path.mkdir(parents=True)
                 (path / "index.html").write_text(f"{relative}\n")
@@ -306,6 +307,18 @@ class NightlyInputsTests(unittest.TestCase):
         nightly_inputs.install_web(self.handoff)
         installed = (self.root / "scripts/cmux-next/installed.txt").read_text()
         self.assertEqual(installed.count("\n"), len(nightly_inputs.WEB_OUTPUTS))
+
+    def test_the_hand_off_carries_every_path_build_web_bundles_from_requires(self):
+        script = (ROOT / "scripts/cmux-next/build-web-bundles.sh").read_text()
+        names = dict(re.findall(r'^([A-Z]+)="([^"$]+)"$', script, re.M))
+        loop = re.search(r'^  for path in (.+); do\n    \[ -e "\$FROM_ROOT/\$path" \]', script, re.M)
+        self.assertIsNotNone(loop, "build-web-bundles.sh --from's required-path loop moved")
+        required = set()
+        for word in loop.group(1).split():
+            match = re.fullmatch(r'"\$([A-Z]+)(/[^"]*)?"', word)
+            self.assertIsNotNone(match, word)
+            required.add(names[match.group(1)] + (match.group(2) or ""))
+        self.assertEqual(required, set(nightly_inputs.WEB_OUTPUTS))
 
     def test_web_bundles_of_another_source_key_are_not_used(self):
         nightly_inputs.pack_web(self.handoff, "key-b")

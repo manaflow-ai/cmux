@@ -97,7 +97,9 @@ class NightlyOffBlacksmithTests(unittest.TestCase):
         text = (WORKFLOWS / "nightly.yml").read_text(encoding="utf-8")
         job = text[text.index("\n  build-nightly-app:"):]
         runs_on = re.search(r"^    runs-on: (.+)$", job, re.MULTILINE).group(1)
-        self.assertIn("vars.CI_SIDE_LANE_RUNNER", runs_on)
+        # nightly-next: an idle owned Mac, else the moving Blacksmith label (pick-nightly-build-runner).
+        self.assertIn("needs.pick-nightly-build-runner.outputs.owned", runs_on)
+        self.assertIn("needs.pick-nightly-build-runner.outputs.blacksmith", runs_on)
         self.assertIn("vars.MACOS_RUNNER_26", runs_on)
         self.assertIn("blacksmith-6vcpu-macos-26", runs_on)
 

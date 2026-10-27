@@ -75,12 +75,20 @@ nonisolated enum CloudLegacyMachineUpdate {
     /// (the provider's timeout, a dropped request) is followed by the next; with none left, or a
     /// start that did not answer, the answer is `machine_update_unresolved`, so the policy asks
     /// again and the machine then reports its build.
-    static func run(pin: Pin, script: String, nonce: String = newNonce(), directory: String = directory,
+    ///
+    ///
+    /// `expected`: the 40-hex commit `link machine update --if-older` judged older (the automatic
+    /// update). The guest script checks it under the machine's upgrade lock and the in-place
+    /// updater's lock (both held for its whole run), before it changes anything
+    /// (`<run-dir>/expect-build`): a binary updated since (another app or the fleet, maybe to a
+    /// newer build), or one that names no commit, is left as it is, `SKIP changed`, so the answer is
+    /// `machine_update_busy`, the policy asks again and `--if-older` reads the new build.
+    static func run(pin: Pin, script: String, expected: String? = nil, nonce: String = newNonce(), directory: String = directory,
                     waitSeconds: Int = waitSeconds, waits: Int = waits, exec: Exec) async -> CloudMoveCLI.Answer {
         // A start that did not answer, or that the provider ended (exit 124), may have started the
         // run: the waits read what it left. Only a start that ended on its own and said otherwise
         // started nothing, so one wait is enough to read the run that never began.
-        let started = try? await exec(startCommand(pin: pin, script: script, nonce: nonce, directory: directory), 60_000)
+        let started = try? await exec(startCommand(pin: pin, script: script, nonce: nonce, directory: directory, expected: expected), 60_000)
         if let started, lastLine(started) == "NOROOT" { return answer(started, pin: pin) }
         let refused = started.map { lastLine($0) != "started" && $0.exitCode != 124 } ?? false
         let wait = waitCommand(nonce: nonce, directory: directory, seconds: waitSeconds)
@@ -97,10 +105,15 @@ nonisolated enum CloudLegacyMachineUpdate {
     /// guest script starts as root in a transient systemd unit (without systemd, under `setsid` in
     /// its own session), detached from the exec. `unit` (the unit's name) or `pid` (the setsid
     /// run's) tells the waits what to wait on. Says `started`, or `NOROOT` from an account that
-    /// cannot become root (nothing changed).
-    static func startCommand(pin: Pin, script: String, nonce: String, directory: String = directory) -> String {
+    /// cannot become root (nothing changed). `expected` (a 40-hex commit; anything else is left
+    /// out) goes to `<run-dir>/expect-build`, which the guest script checks under its lock.
+    static func startCommand(pin: Pin, script: String, nonce: String, directory: String = directory,
+                             expected: String? = nil) -> String {
         let args = "\(pin.sha256) \(pin.commit) \"$r\""
-        return [
+        // It reaches a shell: only a 40-hex commit.
+        let expected = expected?.lowercased()
+        let expectBuild = expected.flatMap { isHex($0, count: 40) ? [writeFile($0 + "\n", to: "$r/expect-build")] : nil } ?? []
+        let lines: [String] = [
             "set -eu",
             rootHelper,
             "root true 2>/dev/null || { echo NOROOT; exit 0; }",
@@ -109,6 +122,7 @@ nonisolated enum CloudLegacyMachineUpdate {
             #"root find "$d" -maxdepth 1 -name 'app-*' -mtime +7 -exec rm -rf {} + 2>/dev/null || true"#,
             writeFile(installCommand(pin), to: "$r/install.cmd"),
             writeFile(script, to: "$r/upgrade.sh"),
+        ] + expectBuild + [
             "if command -v systemd-run >/dev/null 2>&1 && root systemd-run --quiet --collect --unit=\(unit(nonce)) /bin/sh \"$r/upgrade.sh\" \(args) >/dev/null 2>&1; then",
             #"  echo \#(unit(nonce)) | root tee "$r/unit" >/dev/null"#,
             "else",
@@ -119,7 +133,8 @@ nonisolated enum CloudLegacyMachineUpdate {
             #"  printf '%s\n' "$pid" | root tee "$r/pid" >/dev/null"#,
             "fi",
             "echo started",
-        ].joined(separator: "\n")
+        ]
+        return lines.joined(separator: "\n")
     }
 
     /// A wait exec: until the run's process ends, at most `seconds`, then its result line on stdout
@@ -148,7 +163,7 @@ nonisolated enum CloudLegacyMachineUpdate {
         let check = { (file: String) in "printf '%s  %s\\n' \(pin.sha256) \"\(file)\" | sha256sum -c >/dev/null 2>&1" }
         return [
             "set -eu",
-            "if id -u cmux >/dev/null 2>&1 && command -v setpriv >/dev/null 2>&1 && setpriv --reuid=cmux --regid=cmux --init-groups test -w /home/cmux 2>/dev/null && setpriv --reuid=cmux --regid=cmux --init-groups sudo -n true >/dev/null 2>&1; then u=cmux; h=/home/cmux; else u=root; h=/root; fi",
+            layout,
             #"bin="$h/.cmux/bin/cmux-tui"; tmp="$bin.app-update""#,
             "if [ -x \"$bin\" ] && \(check("$bin")); then :; else",
             "  curl -fsSL --retry 3 -o \"$tmp\" '\(pin.url)' && \(check("$tmp")) || { rm -f \"$tmp\"; echo 'the pinned build did not download or match its pin' >&2; exit 1; }",
@@ -206,6 +221,10 @@ nonisolated enum CloudLegacyMachineUpdate {
     static func newNonce() -> String {
         String(UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased().prefix(16))
     }
+
+    /// The daemon's user `u` and home `h` (`cmuxTuiLayoutSelector` in
+    /// web/services/vms/drivers/cmuxTuiDaemon.ts).
+    private static let layout = "if id -u cmux >/dev/null 2>&1 && command -v setpriv >/dev/null 2>&1 && setpriv --reuid=cmux --regid=cmux --init-groups test -w /home/cmux 2>/dev/null && setpriv --reuid=cmux --regid=cmux --init-groups sudo -n true >/dev/null 2>&1; then u=cmux; h=/home/cmux; else u=root; h=/root; fi"
 
     /// `root CMD`: CMD as root, from the machine's user (passwordless sudo) or root.
     private static let rootHelper = #"root() { if [ "$(id -u)" = 0 ]; then "$@"; else sudo -n "$@"; fi; }"#

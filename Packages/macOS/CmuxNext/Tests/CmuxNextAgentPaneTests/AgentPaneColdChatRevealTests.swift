@@ -77,6 +77,39 @@ struct AgentPaneColdChatRevealTests {
         #expect(view.model.hasPainted, "the pane still waits on a paint it gave up on")
     }
 
+    /// Leo 2026-10-22: "the initial load is kinda slow it like flickers the initial thing/paints
+    /// and renders it... and then it just goes to black screen for a while". A page that answered
+    /// the handshake is not the stuck page this give-up is for: it is waiting on its own chat and
+    /// reports its first paint by `CHAT_DRAW_HOLD_MS` either way. Revealing it at the silent bound
+    /// showed that black screen, so it keeps its loading state past that bound.
+    ///
+    /// `aHandshakedPageStillShowsAsItIsAtItsOwnBound` is the canary for this one: both drive the
+    /// same timer, so a host where no check ran at all fails there rather than passing here.
+    @Test func aHandshakedPageKeepsItsLoadingStatePastTheSilentBound() async throws {
+        let (view, window) = try Self.pane()
+        defer { window.close() }
+        view.model.hasHandshake = true
+        let tick = Duration.milliseconds(120)
+        view.loadingView.paintCheckInterval = tick
+        // Past the silent bound with a check to spare, short of the handshaked page's own bound.
+        try await Task.sleep(for: tick * 3)
+        #expect(view.loadingView.superview != nil,
+                "the pane revealed a page that was still inside its own first-paint budget")
+        #expect(!view.model.hasPainted)
+    }
+
+    /// The longer bound is still a bound: a page that answers the handshake and then hangs shows
+    /// as it is too, rather than holding a spinner for good.
+    @Test func aHandshakedPageStillShowsAsItIsAtItsOwnBound() async throws {
+        let (view, window) = try Self.pane()
+        defer { window.close() }
+        view.model.hasHandshake = true
+        view.loadingView.paintCheckInterval = .milliseconds(60)
+        try await Self.settle { view.loadingView.superview == nil }
+        #expect(view.loadingView.superview == nil, "a handshaked page that never painted waited for good")
+        #expect(view.model.hasPainted)
+    }
+
     /// A pane out of sight (a New Tab spare parked outside the window's content) keeps its
     /// loading state: its clock runs only while it is seen.
     @Test func aPaneOutOfSightKeepsItsLoadingState() async throws {
