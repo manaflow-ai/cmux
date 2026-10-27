@@ -25,10 +25,12 @@ Q12_ROOTS=(
 
 # Prints path:line for each raw thread start in non-test code of one file.
 # Test code: a `*_tests.rs` file, and everything from a `#[cfg(test)]` that
-# opens a module (the next line declares `mod`) to the end of the file, the
-# repository's layout for inline test modules.
+# opens an inline module (`mod name {`) to the end of the file, the
+# repository's layout for inline test modules. An out-of-line declaration
+# (`#[cfg(test)] mod name;`) is only that line; the scan goes on after it.
 raw_sites_in() {
   awk -v file="$1" '
+    pending && /^[[:space:]]*(pub(\([a-z]+\))?[[:space:]]+)?mod[[:space:]]+[A-Za-z0-9_]+[[:space:]]*;/ { pending = 0; next }
     pending && /^[[:space:]]*(pub(\([a-z]+\))?[[:space:]]+)?mod[[:space:]]/ { exit }
     pending && !/^[[:space:]]*#\[/ { pending = 0 }
     /^[[:space:]]*#\[cfg\(test\)\][[:space:]]*$/ { pending = 1; next }
@@ -84,6 +86,8 @@ RUST
   fi
   cat >"$src/holder/raw.rs" <<'RUST'
 #[cfg(test)]
+mod raw_tests;
+#[cfg(test)]
 fn helper() {}
 
 fn start() {
@@ -94,7 +98,7 @@ RUST
     echo "self-test: a raw site was not reported" >&2
     return 1
   fi
-  if [[ "$out" != "cmux-tui/crates/cmux-holder/src/holder/raw.rs:5: "* ]]; then
+  if [[ "$out" != "cmux-tui/crates/cmux-holder/src/holder/raw.rs:7: "* ]]; then
     echo "self-test: wrong report: $out" >&2
     return 1
   fi
