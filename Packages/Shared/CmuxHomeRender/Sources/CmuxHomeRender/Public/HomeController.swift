@@ -257,7 +257,7 @@ public final class HomeController {
         return builder.rows(items, RowContext(me: me, now: currentDate(), metrics: metrics,
                                               readByOthers: Self.readByOthers(summary, me: me),
                                               othersTyping: !typing.subtracting([me]).isEmpty,
-                                              names: names, showsNames: summary?.kind(me: me) == .group))
+                                              names: names, showsNames: summary?.showsSenderNames(me: me) == true))
     }
 
     static func readByOthers(_ summary: ConversationSummary?, me: ParticipantID) -> Seq? {
