@@ -22,6 +22,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 
+use cmux_important_file::{Mode, write_important};
 use cmux_tasks_core::event::EventKind;
 use cmux_tasks_core::{Commit, Ctx, Envelope, Reject, State, reduce};
 use serde::{Deserialize, Serialize};
@@ -243,7 +244,7 @@ fn load_or_create_meta(dir: &Path, team: &str, key_prefix: &str) -> Result<Meta,
                 genesis: GENESIS,
             };
             let bytes = serde_json::to_vec_pretty(&meta).map_err(io::Error::other)?;
-            snapshot::write_atomic(&path, &bytes)?;
+            write_important(&path, &bytes, Mode::Default).map_err(io::Error::from)?;
             Ok(meta)
         }
         Err(e) => Err(e.into()),

@@ -15,6 +15,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use cmux_important_file::{Mode, Options, write_important_with};
+
 use crate::config::{
     BOUND_INSTANCE_FILE, CLONE_STARTED_FILE, DBUS_MACHINE_ID_FILE, DRIVER_FILE_NAME, ETC_DIR,
     MACHINE_ID_FILE, Paths, RANDOM_SEED_FILE, RUN_DIR, SSH_DIR,
@@ -71,29 +73,11 @@ pub fn reseed(instance_id: &str) -> io::Result<()> {
     Ok(())
 }
 
-/// Writes `contents` to `path` through a same-directory temp file and a
-/// rename, with `mode`.
-pub fn write_atomic(path: &Path, contents: &[u8], mode: u32) -> io::Result<()> {
-    let dir = path.parent().ok_or_else(|| io::Error::other("no parent"))?;
-    fs::create_dir_all(dir)?;
-    let name = path.file_name().ok_or_else(|| io::Error::other("no file name"))?.to_string_lossy();
-    let tmp = dir.join(format!(".{name}.cmux-host-{}", std::process::id()));
-    let _ = fs::remove_file(&tmp);
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(mode)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(&tmp)?;
-    file.write_all(contents)?;
-    file.set_permissions(fs::Permissions::from_mode(mode))?;
-    file.sync_all()?;
-    fs::rename(&tmp, path)
-}
-
 pub fn write_bound(paths: &Paths, instance_id: &str) -> io::Result<()> {
     fs::create_dir_all(paths.at(ETC_DIR))?;
-    write_atomic(&paths.at(BOUND_INSTANCE_FILE), format!("{instance_id}\n").as_bytes(), 0o644)
+    let bound = format!("{instance_id}\n");
+    let options = Options::new(Mode::Exact(0o644)).create_parent();
+    Ok(write_important_with(&paths.at(BOUND_INSTANCE_FILE), bound.as_bytes(), &options)?)
 }
 
 /// Creates `/run/cmux/clone-started` (empty). The directory belongs to the
@@ -212,8 +196,10 @@ pub fn rekey(paths: &Paths, instance_id: &str) -> io::Result<()> {
     if seed_dir.is_dir() {
         step(
             "random-seed",
-            random_bytes::<512>()
-                .and_then(|seed| write_atomic(&paths.at(RANDOM_SEED_FILE), &seed, 0o600)),
+            random_bytes::<512>().and_then(|seed| {
+                let options = Options::new(Mode::Exact(0o600)).create_parent();
+                Ok(write_important_with(&paths.at(RANDOM_SEED_FILE), &seed, &options)?)
+            }),
         );
     }
     eprintln!("cmux-host: rekey for instance {instance_id}");
@@ -226,7 +212,9 @@ pub fn rekey(paths: &Paths, instance_id: &str) -> io::Result<()> {
 
 fn rekey_machine_id(paths: &Paths) -> io::Result<()> {
     let machine_id = hex(&random_bytes::<16>()?);
-    write_atomic(&paths.at(MACHINE_ID_FILE), format!("{machine_id}\n").as_bytes(), 0o444)?;
+    let contents = format!("{machine_id}\n");
+    let options = Options::new(Mode::Exact(0o444)).create_parent();
+    write_important_with(&paths.at(MACHINE_ID_FILE), contents.as_bytes(), &options)?;
     relink(&paths.at(DBUS_MACHINE_ID_FILE), Path::new(MACHINE_ID_FILE))?;
     eprintln!("cmux-host: new machine-id={machine_id}");
     Ok(())

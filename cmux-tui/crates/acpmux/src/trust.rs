@@ -467,7 +467,7 @@ pub fn set(paths: &Paths, cwd: &str, level: &str) -> Result<Value, Failure> {
             .map_err(|e| Failure::Record(format!("trust record: {e}")))?;
     }
     let bytes = serde_json::to_vec_pretty(&record).map_err(|e| Failure::Record(e.to_string()))?;
-    crate::config::write_atomic(&paths.record, &bytes)
+    crate::config::write_owner_only(&paths.record, &bytes)
         .map_err(|e| Failure::Record(format!("trust record: {e}")))?;
     Ok(json!({"cwd": cwd, "level": level.as_str()}))
 }

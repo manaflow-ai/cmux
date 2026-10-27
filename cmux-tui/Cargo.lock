@@ -16,6 +16,7 @@ dependencies = [
  "cmux-codex-acp",
  "cmux-features",
  "cmux-git",
+ "cmux-important-file",
  "cmux-link",
  "cmux-local-auth",
  "cmux-lock-rank",
@@ -838,6 +839,7 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-blocking",
+ "cmux-important-file",
  "cmux-panic-log",
  "cmux-pty",
  "cmux-server-core",
@@ -1098,6 +1100,7 @@ name = "cmux-config"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-important-file",
  "core-foundation 0.10.1",
  "core-foundation-sys",
  "jsonschema",
@@ -1237,6 +1240,7 @@ name = "cmux-host"
 version = "0.1.0"
 dependencies = [
  "cmux-blocking",
+ "cmux-important-file",
  "cmux-panic-log",
  "cmux-server",
  "cmux-server-core",
@@ -1250,6 +1254,14 @@ dependencies = [
  "tar",
  "tempfile",
  "tokio",
+]
+
+[[package]]
+name = "cmux-important-file"
+version = "0.1.0"
+dependencies = [
+ "cmux-threads",
+ "tempfile",
 ]
 
 [[package]]
@@ -1564,6 +1576,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-blocking",
+ "cmux-important-file",
  "cmux-panic-log",
  "cmux-server-core",
  "cmux-threads",
@@ -1614,6 +1627,7 @@ dependencies = [
 name = "cmux-tasks"
 version = "0.1.0"
 dependencies = [
+ "cmux-important-file",
  "cmux-tasks-core",
  "fs4",
  "getrandom 0.3.4",
@@ -1714,6 +1728,7 @@ dependencies = [
  "cmux-features",
  "cmux-holder",
  "cmux-host",
+ "cmux-important-file",
  "cmux-ipc",
  "cmux-link",
  "cmux-lock-rank",
@@ -1813,6 +1828,7 @@ dependencies = [
  "cmux-git",
  "cmux-history",
  "cmux-holder",
+ "cmux-important-file",
  "cmux-ipc",
  "cmux-kitty-media",
  "cmux-layout-reducer",
@@ -1870,6 +1886,7 @@ name = "cmux-tui-hooks"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cmux-important-file",
  "cmux-process",
  "cmux-threads",
  "cmux-tui-platform",

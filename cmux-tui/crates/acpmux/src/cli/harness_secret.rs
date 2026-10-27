@@ -267,7 +267,7 @@ pub fn write_reference(path: &Path, id: &str, key: &str) -> Result<bool, String>
         Ok(_) => return Err(format!("could not place {key} under [env] safely")),
         Err(e) => return Err(format!("the edited file would not parse: {e}")),
     }
-    crate::config::write_atomic(path, edited.as_bytes()).map_err(|e| e.to_string())?;
+    crate::config::write_owner_only(path, edited.as_bytes()).map_err(|e| e.to_string())?;
     Ok(true)
 }
 

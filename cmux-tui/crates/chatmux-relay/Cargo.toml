@@ -23,6 +23,7 @@ cmux-stability = ["cmux-blocking/cmux-stability"]
 
 [dependencies]
 cmux-blocking.workspace = true
+cmux-important-file.workspace = true
 cmux-panic-log.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true

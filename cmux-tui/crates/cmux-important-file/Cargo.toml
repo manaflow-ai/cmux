@@ -1,0 +1,17 @@
+[package]
+name = "cmux-important-file"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "write_important: the one atomic, durable state-file write of the cmux daemons (Chrome's ImportantFileWriter): temp file, fsync, rename, directory fsync, typed full-disk error"
+
+[lints]
+workspace = true
+
+[dependencies]
+cmux-threads.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

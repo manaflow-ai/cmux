@@ -66,7 +66,7 @@ impl Hub {
         let saved = Saved { last_seen: p.link().last_seen, sessions };
         let write = || -> anyhow::Result<()> {
             crate::config::private_state_dir(&dir)?;
-            crate::config::write_atomic(&path, &serde_json::to_vec(&saved)?)
+            crate::config::write_owner_only(&path, &serde_json::to_vec(&saved)?)
         };
         if let Err(e) = write() {
             tracing::warn!(peer = %peer, "saving the peer's last-known sessions failed: {e}");

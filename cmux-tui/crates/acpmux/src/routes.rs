@@ -22,6 +22,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
 
+use cmux_important_file::{Mode, Options, write_important_with};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -572,10 +573,8 @@ fn write_file(path: &Path, file: &RouteFile) -> Result<(), RouteError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| RouteError::Failed(e.to_string()))?;
     }
-    let tmp = path.with_extension("toml.tmp");
-    std::fs::write(&tmp, text).map_err(|e| RouteError::Failed(e.to_string()))?;
-    crate::router_socket::owner_only(&tmp);
-    std::fs::rename(&tmp, path).map_err(|e| RouteError::Failed(e.to_string()))
+    crate::config::write_owner_only(path, text.as_bytes())
+        .map_err(|e| RouteError::Failed(e.to_string()))
 }
 
 /// Write a new route (`replace`: over an existing one).
@@ -684,13 +683,9 @@ pub fn update_bindings(
     let mut b = bindings(home);
     change(&mut b);
     let path = bindings_path(home);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| RouteError::Failed(e.to_string()))?;
-    }
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, serde_json::to_vec_pretty(&b).unwrap_or_default())
-        .map_err(|e| RouteError::Failed(e.to_string()))?;
-    std::fs::rename(&tmp, &path).map_err(|e| RouteError::Failed(e.to_string()))?;
+    let bytes = serde_json::to_vec_pretty(&b).unwrap_or_default();
+    let options = Options::new(Mode::Default).create_parent();
+    write_important_with(&path, &bytes, &options).map_err(|e| RouteError::Failed(e.to_string()))?;
     Ok(b)
 }
 

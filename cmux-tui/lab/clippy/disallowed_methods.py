@@ -33,11 +33,14 @@ LINT = "clippy::disallowed_methods"
 # The sanctioned callers of the blocking std calls: (row, path prefix); the
 # first prefix that matches names the row. cmux-blocking depends on
 # cmux-threads and cmux-panic-log, so those layers call std directly.
+# cmux-important-file checks the same policy at its caller
+# (`write_important`, Chrome's ScopedBlockingCall in ImportantFileWriter).
 WRAPPERS = (
     ("cmux-blocking", "crates/cmux-blocking/"),
     ("cmux-threads (checked)", "crates/cmux-threads/src/checked.rs"),
     ("cmux-threads", "crates/cmux-threads/"),
     ("cmux-panic-log", "crates/cmux-panic-log/"),
+    ("cmux-important-file", "crates/cmux-important-file/"),
 )
 METHOD = re.compile(r"use of a disallowed method `([^`]+)`")
 

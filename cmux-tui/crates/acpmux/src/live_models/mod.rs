@@ -255,7 +255,7 @@ impl Cache {
         (current == file.key && !file.models.is_empty()).then_some(file.models)
     }
 
-    /// Keeps `models` for `harness` (write to a temporary file, then rename).
+    /// Keeps `models` for `harness`, atomically and durably.
     pub fn store(
         &self,
         harness: &str,
@@ -264,10 +264,8 @@ impl Cache {
     ) -> std::io::Result<()> {
         std::fs::create_dir_all(&self.dir)?;
         let path = self.path(harness);
-        let tmp = path.with_extension("json.tmp");
         let body = serde_json::to_vec(&CacheFile { key: key.clone(), models })?;
-        std::fs::write(&tmp, body)?;
-        std::fs::rename(&tmp, &path)
+        Ok(cmux_important_file::write_important(&path, &body, cmux_important_file::Mode::Default)?)
     }
 }
 

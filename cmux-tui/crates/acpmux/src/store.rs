@@ -4,7 +4,7 @@
 //! `events/NNNNNN.ndjson` segments. `Memory` keeps the same data in RAM.
 //! Both expose the same API so the hub does not care which is active.
 
-use crate::config::{StoreConfig, StoreMode, write_atomic};
+use crate::config::{StoreConfig, StoreMode, write_owner_only};
 use crate::no_panic::LockExt;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -1001,7 +1001,7 @@ impl Store for LocalStore {
     fn save(&self, meta: &SessionMeta) -> Result<()> {
         let dir = self.dir(&meta.id);
         crate::config::private_state_dir(&dir)?;
-        write_atomic(&dir.join("session.json"), serde_json::to_string_pretty(meta)?.as_bytes())
+        write_owner_only(&dir.join("session.json"), serde_json::to_string_pretty(meta)?.as_bytes())
     }
 
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {

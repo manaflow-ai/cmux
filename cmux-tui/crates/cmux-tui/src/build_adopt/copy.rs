@@ -167,12 +167,8 @@ pub(super) fn rewrite_root(path: &Path, from: &str, to: &str) -> std::io::Result
     }
     out.push_str(rest);
     if changed {
-        let tmp = path.with_extension(format!("adopt-{}", super::random_hex(4)));
-        std::fs::write(&tmp, out)?;
-        if let Ok(meta) = std::fs::metadata(path) {
-            std::fs::set_permissions(&tmp, meta.permissions())?;
-        }
-        std::fs::rename(&tmp, path)?;
+        let keep = cmux_important_file::Mode::Keep;
+        cmux_important_file::write_important(path, out.as_bytes(), keep)?;
     }
     Ok(changed)
 }

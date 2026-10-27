@@ -3,6 +3,7 @@
 //! then rename), so a reader never sees half a file.
 
 use super::HandError;
+use cmux_important_file::{Mode, Options, WriteError, write_important_with};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
@@ -67,41 +68,23 @@ fn check_expect(path: &Path, current: Option<&str>, expect: Option<&str>) -> Res
     }
 }
 
+/// Replaces `path` with `text` atomically and durably; the new file is never
+/// wider than the one it replaces, not even for a moment.
 pub fn atomic_write(path: &Path, text: &str) -> Result<(), HandError> {
-    use std::io::Write;
     if text.len() as u64 > MAX_FILE_BYTES {
         return Err(HandError::new(
             "fs.too_large",
             format!("{} bytes (max {MAX_FILE_BYTES})", text.len()),
         ));
     }
-    let dir = path.parent().ok_or_else(|| HandError::new("fs.bad_path", "no parent folder"))?;
-    std::fs::create_dir_all(dir).map_err(|e| HandError::io(dir, e))?;
-    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let tmp = dir.join(format!(".{name}.hand-{}.tmp", uuid::Uuid::now_v7().simple()));
-    let perms = std::fs::metadata(path).ok().map(|m| m.permissions());
-    let result = (|| -> std::io::Result<()> {
-        let mut o = std::fs::OpenOptions::new();
-        o.write(true).create_new(true);
-        // Never wider than the file it replaces, not even for a moment.
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-            o.mode(perms.as_ref().map_or(0o644, |p| p.mode() & 0o7777));
+    let options = Options::new(Mode::Keep).create_parent();
+    write_important_with(path, text.as_bytes(), &options).map_err(|e| match e {
+        WriteError::Io { step, source, .. } => {
+            HandError::io(path, std::io::Error::new(source.kind(), format!("{step}: {source}")))
         }
-        let mut f = o.open(&tmp)?;
-        f.write_all(text.as_bytes())?;
-        f.sync_all()?;
-        if let Some(p) = perms {
-            std::fs::set_permissions(&tmp, p)?;
-        }
-        std::fs::rename(&tmp, path)
-    })();
-    if let Err(e) = result {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(HandError::io(path, e));
-    }
-    Ok(())
+        WriteError::DiskFull { .. } => HandError::new("fs.disk_full", e.to_string()),
+        WriteError::Refused { .. } => HandError::new("fs.io", e.to_string()),
+    })
 }
 
 pub fn read(

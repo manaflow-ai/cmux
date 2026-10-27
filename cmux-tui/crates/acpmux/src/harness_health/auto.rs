@@ -127,9 +127,7 @@ impl HealthService {
             ids.remove(id);
         }
         let body = serde_json::to_vec_pretty(&ids).map_err(|e| e.to_string())?;
-        let tmp = path.with_extension("json.tmp");
-        std::fs::write(&tmp, body)
-            .and_then(|()| std::fs::rename(&tmp, &path))
+        cmux_important_file::write_important(&path, &body, cmux_important_file::Mode::Default)
             .map_err(|e| format!("auto-update not saved: {e}"))?;
         if on {
             self.ran.lock().unwrap_or_else(PoisonError::into_inner).remove(id);

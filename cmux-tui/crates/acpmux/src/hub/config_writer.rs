@@ -6,7 +6,7 @@
 //! permission answer, `_acpmux/harnesses`) waited 20-50 ms behind it.
 //!
 //! The caller now makes the file's bytes under its lock (`Config::disk_bytes`) and queues them;
-//! the thread writes the newest bytes of each file with `write_atomic`, so a burst of picks is
+//! the thread writes the newest bytes of each file with `write_owner_only`, so a burst of picks is
 //! one write and the file never goes back to an older state. `flush` waits for what is queued:
 //! before the daemon reads `config.json` back (`reload_catalog`) and at shutdown.
 
@@ -114,7 +114,7 @@ fn write(path: &std::path::Path, bytes: &[u8]) {
     let result = path
         .parent()
         .map_or(Ok(()), crate::config::private_state_dir)
-        .and_then(|()| crate::config::write_atomic(path, bytes));
+        .and_then(|()| crate::config::write_owner_only(path, bytes));
     if let Err(e) = result {
         tracing::warn!(file = %path.display(), "not saved: {e:#}");
     }

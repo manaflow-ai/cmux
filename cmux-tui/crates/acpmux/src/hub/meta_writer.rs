@@ -1,6 +1,6 @@
 //! Session records (`session.json`) reach the disk on one background thread, never on the
 //! request or agent path (plans/cmux-next/perf-lead.md D1: "don't have disk stuff on the hot
-//! path"). A save made each record durable in place: `write_atomic` syncs the file
+//! path"). A save made each record durable in place: `write_owner_only` syncs the file
 //! (F_FULLFSYNC on macOS), renames it and syncs its folder, 20-50 ms on every
 //! `_acpmux/draft_set`, rename, tag, status change and permission answer, on a tokio worker
 //! (and for a permission answer under the session's permissions lock).

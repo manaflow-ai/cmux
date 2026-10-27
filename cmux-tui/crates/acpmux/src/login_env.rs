@@ -989,7 +989,7 @@ fn save_cache(fingerprint: &str, login: &[(String, String)], login_path: Option<
         saved_at: Some(now_secs()),
     };
     let Ok(bytes) = serde_json::to_vec_pretty(&cache) else { return };
-    if let Err(e) = crate::config::write_atomic(&cache_path(), &bytes) {
+    if let Err(e) = crate::config::write_owner_only(&cache_path(), &bytes) {
         tracing::warn!("login env cache: {e:#}");
     }
 }

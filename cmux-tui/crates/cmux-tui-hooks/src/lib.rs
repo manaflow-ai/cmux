@@ -9,7 +9,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
-use std::io::{self, Read, Write};
+use std::io::{self, Read};
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
@@ -18,6 +18,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
+use cmux_important_file::{Mode, Options, write_important_with};
 #[cfg(not(unix))]
 use cmux_process::Command;
 use cmux_process::{Child, Stdio};
@@ -2824,44 +2825,13 @@ pub fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-/// Replaces `path` through a synced temporary file and rename, with an optional Unix mode.
+/// Replaces `path` atomically and durably (`cmux_important_file`), with an
+/// optional exact Unix mode; missing folders are created.
 pub fn atomic_write(path: &Path, bytes: &[u8], mode: Option<u32>) -> anyhow::Result<()> {
     ensure_replaceable_target(path)?;
-    let parent = path.parent().context("installation path has no parent")?;
-    fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
-    let mut random = [0_u8; 8];
-    getrandom::fill(&mut random).context("allocate atomic file identity")?;
-    let suffix = random.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
-    let name = path.file_name().and_then(|name| name.to_str()).context("invalid file name")?;
-    let temporary = parent.join(format!(".{name}.cmux-tui-{suffix}"));
-    let result = (|| -> anyhow::Result<()> {
-        let mut options = OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        if let Some(mode) = mode {
-            use std::os::unix::fs::OpenOptionsExt as _;
-            options.mode(mode);
-        }
-        let mut file =
-            options.open(&temporary).with_context(|| format!("create {}", temporary.display()))?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
-        drop(file);
-        #[cfg(unix)]
-        if let Some(mode) = mode {
-            use std::os::unix::fs::PermissionsExt as _;
-            fs::set_permissions(&temporary, fs::Permissions::from_mode(mode))?;
-        }
-        fs::rename(&temporary, path).with_context(|| format!("replace {}", path.display()))?;
-        fs::File::open(parent)
-            .and_then(|directory| directory.sync_all())
-            .with_context(|| format!("sync {}", parent.display()))?;
-        Ok(())
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&temporary);
-    }
-    result
+    let mode = mode.map_or(Mode::Default, Mode::Exact);
+    write_important_with(path, bytes, &Options::new(mode).create_parent())?;
+    Ok(())
 }
 
 #[cfg(test)]

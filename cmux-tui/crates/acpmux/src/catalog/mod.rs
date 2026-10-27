@@ -17,10 +17,11 @@
 pub mod fetch;
 pub mod schema;
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
+use cmux_important_file::{Mode, Options, write_important_with};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::sync::broadcast;
@@ -107,25 +108,6 @@ fn bundled() -> Catalog {
             providers: Default::default(),
         }
     })
-}
-
-/// Writes `bytes` to `path` through a temporary file in the same folder, so a reader sees the old or the new file.
-fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    use std::io::Write;
-    let dir = path.parent().ok_or_else(|| std::io::Error::other("no parent folder"))?;
-    std::fs::create_dir_all(dir)?;
-    let tmp = dir.join(format!(".{STORE_FILE}.{}.tmp", std::process::id()));
-    let result = (|| {
-        let mut file = std::fs::File::create(&tmp)?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
-        std::fs::rename(&tmp, path)?;
-        std::fs::File::open(dir)?.sync_all()
-    })();
-    if result.is_err() {
-        let _ = std::fs::remove_file(&tmp);
-    }
-    result
 }
 
 impl Default for CatalogService {
@@ -246,7 +228,8 @@ impl CatalogService {
             let copy = StoredCopy { etag, fetched_at_ms: fetched_at, catalog: raw };
             match serde_json::to_vec(&copy) {
                 Ok(bytes) => {
-                    if let Err(e) = write_atomically(&dir.join(STORE_FILE), &bytes) {
+                    let options = Options::new(Mode::Default).create_parent();
+                    if let Err(e) = write_important_with(&dir.join(STORE_FILE), &bytes, &options) {
                         tracing::warn!("the model catalog could not be stored: {e}");
                     }
                 }

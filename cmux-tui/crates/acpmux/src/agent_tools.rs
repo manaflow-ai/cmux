@@ -882,7 +882,7 @@ pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     let dir = path.parent().ok_or_else(|| anyhow::anyhow!("no parent folder"))?;
     crate::owner_only::create_dir_all(dir)?;
     crate::owner_only::restrict(dir)?;
-    crate::config::write_atomic(path, bytes)
+    crate::config::write_owner_only(path, bytes)
 }
 
 #[cfg(unix)]

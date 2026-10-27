@@ -143,7 +143,7 @@ impl Runs {
             if let Some(dir) = path.parent() {
                 std::fs::create_dir_all(dir)?;
             }
-            crate::config::write_atomic(&path, &bytes)?;
+            crate::config::write_owner_only(&path, &bytes)?;
         }
         self.wake();
         Ok(())

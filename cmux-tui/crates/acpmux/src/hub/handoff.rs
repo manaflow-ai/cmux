@@ -306,7 +306,7 @@ impl Handoffs {
                 #[cfg(windows)]
                 crate::owner_only::create_dir_all(dir)?;
                 let bytes = serde_json::to_vec_pretty(record)?;
-                crate::config::write_atomic(
+                crate::config::write_owner_only(
                     &dir.join(format!("{}.json", record.handoff_id)),
                     &bytes,
                 )

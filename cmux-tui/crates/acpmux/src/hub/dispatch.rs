@@ -2,6 +2,8 @@ use super::*;
 use std::collections::BTreeMap;
 use std::sync::Mutex as StdMutex;
 
+use cmux_important_file::{Mode, Options, write_important_with};
+
 #[derive(Default)]
 pub(crate) struct Briefs {
     rows: StdMutex<BTreeMap<String, Value>>,
@@ -58,13 +60,9 @@ impl Briefs {
 
     fn save(&self, rows: &BTreeMap<String, Value>) {
         let Some(path) = &self.path else { return };
-        if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
         if let Ok(bytes) = serde_json::to_vec(rows) {
-            let tmp = path.with_extension("json.tmp");
-            if let Err(error) = std::fs::write(&tmp, bytes).and_then(|_| std::fs::rename(tmp, path))
-            {
+            let options = Options::new(Mode::Default).create_parent();
+            if let Err(error) = write_important_with(path, &bytes, &options) {
                 eprintln!("acpmux: brief persistence warning: {error}");
             }
         }

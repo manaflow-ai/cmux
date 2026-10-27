@@ -15,6 +15,7 @@ name = "cmux-tasks"
 path = "src/bin/cmux-tasks.rs"
 
 [dependencies]
+cmux-important-file.workspace = true
 cmux-tasks-core = { path = "../cmux-tasks-core" }
 serde.workspace = true
 serde_json.workspace = true

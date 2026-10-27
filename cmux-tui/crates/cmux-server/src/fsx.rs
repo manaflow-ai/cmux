@@ -2,11 +2,12 @@
 //! symlink swap behind every `current` flip, read-only package trees and
 //! their removal.
 
-use std::fs::{self, File, OpenOptions};
-use std::io::{self, Write};
+use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use cmux_important_file::{Mode, write_important};
 use cmux_server_core::HostPath;
 
 use crate::error::{IoContext, Result};
@@ -24,19 +25,6 @@ pub fn temp_sibling(path: &Path, tag: &str) -> PathBuf {
     let _ = getrandom::fill(&mut nonce);
     let nonce: String = nonce.iter().map(|b| format!("{b:02x}")).collect();
     path.with_file_name(format!(".{name}.{tag}.{}.{nonce}", std::process::id()))
-}
-
-fn open_new(path: &Path, mode: u32) -> io::Result<File> {
-    let mut options = OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(mode);
-    }
-    #[cfg(not(unix))]
-    let _ = mode;
-    options.open(path)
 }
 
 /// Sets the permission bits of `path` (Unix only; a no-op elsewhere).
@@ -67,27 +55,12 @@ pub fn mode_of(meta: &fs::Metadata) -> u32 {
     }
 }
 
-/// Writes `bytes` to `path` atomically: a new temporary file created with
-/// `mode` (so a secret is never readable by others, not even briefly),
-/// fsync, rename over `path`, fsync of the directory.
+/// Writes `bytes` to `path` atomically and durably (`cmux_important_file`),
+/// with `mode` from creation on, so a secret is never readable by others,
+/// not even briefly.
 pub fn atomic_write(path: &Path, bytes: &[u8], mode: u32) -> Result<()> {
-    let tmp = temp_sibling(path, "tmp");
-    let result = (|| -> io::Result<()> {
-        let mut file = open_new(&tmp, mode)?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
-        drop(file);
-        set_mode(&tmp, mode)?;
-        fs::rename(&tmp, path)?;
-        if let Some(dir) = path.parent() {
-            sys::fsync_dir(dir)?;
-        }
-        Ok(())
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&tmp);
-    }
-    result.ctx(path.display())
+    write_important(path, bytes, Mode::Exact(mode))
+        .map_err(|e| crate::error::Error::internal(e.to_string()))
 }
 
 /// Like [`atomic_write`], but only when the content differs. Returns

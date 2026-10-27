@@ -424,8 +424,9 @@ impl HealthService {
 
 fn save(path: &Path, rows: &[HarnessHealth]) {
     let Ok(body) = serde_json::to_vec_pretty(rows) else { return };
-    let tmp = path.with_extension("json.tmp");
-    if let Err(e) = std::fs::write(&tmp, body).and_then(|()| std::fs::rename(&tmp, path)) {
+    if let Err(e) =
+        cmux_important_file::write_important(path, &body, cmux_important_file::Mode::Default)
+    {
         tracing::info!(error = %e, "harness health not saved");
     }
 }

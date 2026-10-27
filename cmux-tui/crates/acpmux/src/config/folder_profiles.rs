@@ -874,7 +874,7 @@ fn write_record(path: &Path, record: &EnableRecord) -> Result<(), String> {
     }
     let value = json!({"version": 1, "enabled": record.enabled});
     let bytes = serde_json::to_vec_pretty(&value).map_err(|e| e.to_string())?;
-    super::write_atomic(path, &bytes).map_err(|e| format!("enable record: {e}"))
+    super::write_owner_only(path, &bytes).map_err(|e| format!("enable record: {e}"))
 }
 
 fn enabled_in(gate: &FolderGate, folder: &str, id: &str, sha: &str) -> bool {

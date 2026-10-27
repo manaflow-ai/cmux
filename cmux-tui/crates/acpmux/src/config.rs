@@ -1,6 +1,7 @@
 //! Configuration: `$ACPMUX_HOME/config.json`, agent registry, store mode.
 
 use anyhow::{Context, Result};
+use cmux_important_file::{Mode, Options, write_important_with};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::io::Read;
@@ -1190,7 +1191,7 @@ impl Config {
         if let Some(parent) = path.parent() {
             private_state_dir(parent)?;
         }
-        write_atomic(&path, &bytes)
+        write_owner_only(&path, &bytes)
     }
 
     /// The file this config came from and the bytes `save` writes there; None for an in-code
@@ -1250,52 +1251,15 @@ fn is_default_kind(k: &HarnessKind) -> bool {
     *k == HarnessKind::Acp
 }
 
-pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
-    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let tmp = path.with_extension(format!("tmp-{}-{n}", std::process::id()));
-    // Owner-only from creation: these files hold tokens and session data.
-    #[cfg(unix)]
-    {
-        use std::io::Write;
-        use std::os::unix::fs::OpenOptionsExt;
-        let mut f = std::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW)
-            .open(&tmp)
-            .with_context(|| format!("write {}", tmp.display()))?;
-        f.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
-        // On disk before the rename: a power loss never leaves an empty
-        // session.json (its session id and ACP session id) behind.
-        f.sync_all().with_context(|| format!("sync {}", tmp.display()))?;
-    }
-    // Windows: created with an owner-only access list (`owner_only.rs`).
+/// Writes an acpmux state file owner-only from creation (these files hold
+/// tokens and session data): `0o600` on Unix, an owner-only access list on
+/// Windows (`owner_only.rs`). Atomic and durable (`cmux_important_file`).
+pub fn write_owner_only(path: &Path, bytes: &[u8]) -> Result<()> {
     #[cfg(windows)]
-    {
-        use std::io::Write;
-        // A file a crashed process left under a reused pid is stale.
-        let mut f = match crate::owner_only::create_new(&tmp) {
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                std::fs::remove_file(&tmp).with_context(|| format!("remove {}", tmp.display()))?;
-                crate::owner_only::create_new(&tmp)
-            }
-            other => other,
-        }
-        .with_context(|| format!("write {}", tmp.display()))?;
-        f.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
-        f.sync_all().with_context(|| format!("sync {}", tmp.display()))?;
-    }
-    std::fs::rename(&tmp, path).with_context(|| format!("rename to {}", path.display()))?;
-    // The rename itself is durable once its directory is synced.
-    #[cfg(unix)]
-    if let Some(dir) = path.parent()
-        && let Ok(dir) = std::fs::File::open(dir)
-    {
-        let _ = dir.sync_all();
-    }
+    let options = Options::new(Mode::Default).open_temp(&crate::owner_only::create_new);
+    #[cfg(not(windows))]
+    let options = Options::new(Mode::Exact(0o600));
+    write_important_with(path, bytes, &options)?;
     Ok(())
 }
 

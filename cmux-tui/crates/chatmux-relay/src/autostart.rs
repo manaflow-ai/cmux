@@ -1,12 +1,12 @@
 //! Per-user autostart integration for the relay.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+use cmux_important_file::{Mode, Options, write_important_with};
 #[cfg(any(target_os = "macos", test))]
 use cmux_server_core::units::LaunchdJob;
 use std::{
     fs,
-    io::Write,
     path::{Path, PathBuf},
     process::Command as ProcessCommand,
-    time::{SystemTime, UNIX_EPOCH},
 };
 #[cfg(any(target_os = "macos", target_os = "windows", test))]
 const LABEL: &str = "com.chatmux.relay";
@@ -54,34 +54,11 @@ fn systemd_quote(v: &str) -> String {
     // so systemd does not treat path components as specifiers.
     format!("\"{}\"", v.replace('%', "%%").replace('\\', "\\\\").replace('"', "\\\""))
 }
-fn atomic_write(p: &Path, b: &str) -> Result<(), String> {
-    let d = p.parent().ok_or("autostart path has no parent")?;
-    fs::create_dir_all(d).map_err(|e| e.to_string())?;
-    let n = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?.as_nanos();
-    for i in 0..16 {
-        let t = d.join(format!(".autostart-{}-{}", std::process::id(), n + i));
-        match fs::OpenOptions::new().write(true).create_new(true).open(&t) {
-            Ok(mut f) => {
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::PermissionsExt;
-                    fs::set_permissions(&t, fs::Permissions::from_mode(0o600))
-                        .map_err(|e| e.to_string())?;
-                }
-                f.write_all(b.as_bytes()).map_err(|e| e.to_string())?;
-                f.sync_all().map_err(|e| e.to_string())?;
-                drop(f);
-                let r = fs::rename(&t, p).map_err(|e| e.to_string());
-                if r.is_err() {
-                    let _ = fs::remove_file(&t);
-                }
-                return r;
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(e.to_string()),
-        }
-    }
-    Err("could not create a unique temporary autostart file".into())
+/// The unit file, owner-only, atomic and durable (`cmux_important_file`).
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn write_unit(p: &Path, text: &str) -> Result<(), String> {
+    let options = Options::new(Mode::Exact(0o600)).create_parent();
+    write_important_with(p, text.as_bytes(), &options).map_err(|e| e.to_string())
 }
 fn run(p: &str, a: &[&str]) -> Result<(), String> {
     let s = ProcessCommand::new(p)
@@ -108,7 +85,7 @@ fn install_impl(e: &Path, config: &Path) -> Result<String, String> {
     let p = home()?.join("Library/LaunchAgents").join(format!("{LABEL}.plist"));
     let x = e.to_str().ok_or("executable path is not valid UTF-8")?;
     let c = config.to_str().ok_or("config path is not valid UTF-8")?;
-    atomic_write(&p, &launchd_plist(x, c))?;
+    write_unit(&p, &launchd_plist(x, c))?;
     let d = format!("gui/{}", unsafe { libc::getuid() });
     let s = p.to_str().ok_or("autostart path is not valid UTF-8")?;
     let _ = run("launchctl", &["bootout", &d, s]);
@@ -120,7 +97,7 @@ fn install_impl(e: &Path, config: &Path) -> Result<String, String> {
     let p = home()?.join(".config/systemd/user/chatmux-relay.service");
     let x = e.to_str().ok_or("executable path is not valid UTF-8")?;
     let c = config.to_str().ok_or("config path is not valid UTF-8")?;
-    atomic_write(
+    write_unit(
         &p,
         &format!(
             "[Unit]\nDescription=chatmux relay\n[Service]\nExecStart={} --no-onboard --config {}\nRestart=on-failure\nRestartSec=5\n[Install]\nWantedBy=default.target\n",

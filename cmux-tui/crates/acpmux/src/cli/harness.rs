@@ -460,7 +460,7 @@ pub fn add(req: &AddRequest, sources: &ProfileSources) -> Result<Added> {
     }
     #[cfg(windows)]
     crate::owner_only::create_dir_all(&dir)?;
-    crate::config::write_atomic(&path, text.as_bytes())?;
+    crate::config::write_owner_only(&path, text.as_bytes())?;
     let diagnostics =
         match profiles::parse_profile_toml(&text, &path, Some(&id), ProfileSource::UserFile) {
             Ok((_, _, _, warnings)) => warnings,

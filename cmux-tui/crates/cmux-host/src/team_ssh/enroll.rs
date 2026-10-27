@@ -27,7 +27,7 @@ use cmux_server_core::install_key::{InstallKey, SystemRandom};
 use crate::cloud::wire::Env;
 use crate::config::{BAKE_INSTANCE_FILE, BOUND_INSTANCE_FILE, Paths};
 
-use super::store::write_atomic;
+use cmux_important_file::{Mode, write_important};
 
 /// This clone's team install key: `{instance_id, pkcs8}` (base64url), 0600.
 pub const TEAM_KEY_FILE: &str = "/var/lib/cmux/team-install-key.json";
@@ -94,7 +94,7 @@ fn write_json(paths: &Paths, file: &str, value: &impl Serialize) -> Result<(), S
         private_dir(dir)?;
     }
     let text = serde_json::to_vec(value).map_err(|e| e.to_string())?;
-    write_atomic(&path, &text, 0o600).map_err(|e| format!("{file}: {e}"))
+    write_important(&path, &text, Mode::Exact(0o600)).map_err(|e| format!("{file}: {e}"))
 }
 
 /// The instance id this clone is bound to; refused while parked or unbound.
@@ -191,7 +191,7 @@ pub fn record_team_kind(paths: &Paths) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     }
-    write_atomic(&path, b"team\n", 0o644).map_err(|e| format!("vm-kind: {e}"))
+    write_important(&path, b"team\n", Mode::Exact(0o644)).map_err(|e| format!("vm-kind: {e}"))
 }
 
 /// The binding for this clone, if any (a binding of another clone is ignored).

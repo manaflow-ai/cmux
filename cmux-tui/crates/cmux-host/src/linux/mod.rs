@@ -17,6 +17,8 @@ use std::path::PathBuf;
 use std::process::Child;
 use std::time::Instant;
 
+use cmux_important_file::{Mode, Options, write_important_with};
+
 use crate::agent::{Exit, Platform, Wake};
 use crate::announce::{arping_args, is_announce_target, is_global_address};
 use crate::config::{
@@ -215,11 +217,9 @@ impl LinuxPlatform {
         let paths = self.cfg.paths.clone();
         let entry = remote_entry(&paths);
         let layout = self.layout()?.clone();
-        let _ = identity::write_atomic(
-            &paths.at(LAYOUT_MARKER_FILE),
-            format!("{}\n", layout.kind.as_str()).as_bytes(),
-            0o644,
-        );
+        let marker = format!("{}\n", layout.kind.as_str());
+        let options = Options::new(Mode::Exact(0o644)).create_parent();
+        let _ = write_important_with(&paths.at(LAYOUT_MARKER_FILE), marker.as_bytes(), &options);
         let version =
             ghostty_version(fs::read_to_string(paths.at(GHOSTTY_VERSION_FILE)).ok().as_deref());
         let spec = daemon_spec(&layout, &version, &entry, &paths.at(TEMPLATE_BOUND_FILE));
@@ -238,7 +238,9 @@ impl LinuxPlatform {
         }
         self.daemon = Some(Daemon { pid, pidfd, child: Some(child), started: Instant::now() });
         let written = ensure_agent_dir(&paths).and_then(|()| {
-            identity::write_atomic(&paths.at(DAEMON_PID_FILE), format!("{pid}\n").as_bytes(), 0o600)
+            let options = Options::new(Mode::Exact(0o600)).create_parent();
+            let contents = format!("{pid}\n");
+            Ok(write_important_with(&paths.at(DAEMON_PID_FILE), contents.as_bytes(), &options)?)
         });
         if let Err(e) = written {
             eprintln!("cmux-host: pid file: {e}");
@@ -640,7 +642,8 @@ impl Platform for LinuxPlatform {
     fn write_status(&mut self, status: &Status) -> io::Result<()> {
         let path = self.cfg.paths.at(STATUS_FILE);
         ensure_agent_dir(&self.cfg.paths)?;
-        identity::write_atomic(&path, status.to_json().as_bytes(), 0o644)
+        let options = Options::new(Mode::Exact(0o644)).create_parent();
+        Ok(write_important_with(&path, status.to_json().as_bytes(), &options)?)
     }
 }
 

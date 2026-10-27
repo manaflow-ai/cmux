@@ -29,8 +29,8 @@ use serde::{Deserialize, Serialize};
 
 use super::SESSIONS_DIR;
 use super::cert::SessionCert;
-use super::store::write_atomic;
 use crate::config::Paths;
+use cmux_important_file::{Mode, write_important};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionRecord {
@@ -136,7 +136,8 @@ pub fn save(paths: &Paths, record: &SessionRecord) -> io::Result<()> {
         fs::set_permissions(&dir, fs::Permissions::from_mode(0o700))?;
     }
     let json = serde_json::to_vec(record).map_err(io::Error::other)?;
-    write_atomic(&record_path(paths, record.pid, record.start_time), &json, 0o600)
+    let path = record_path(paths, record.pid, record.start_time);
+    Ok(write_important(&path, &json, Mode::Exact(0o600))?)
 }
 
 /// Removes the record of `pid` started at `start_time` (close_session);

@@ -36,9 +36,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io;
 
+use cmux_important_file::{Mode, write_important};
 use serde::{Deserialize, Serialize};
 
-use super::store::{self, write_atomic};
+use super::store;
 use super::trust::valid_user;
 use super::{ACCOUNTS_FILE, PRINCIPALS_DIR};
 use crate::config::Paths;
@@ -376,7 +377,7 @@ pub fn reconcile(
         });
         let path = dir.join(&w.user);
         if fs::read_to_string(&path).ok().as_deref() != Some(body.as_str()) {
-            match write_atomic(&path, body.as_bytes(), 0o644) {
+            match write_important(&path, body.as_bytes(), Mode::Exact(0o644)) {
                 Ok(()) => out.written.push(w.user.clone()),
                 Err(e) => out.errors.push(format!("principals {}: {e}", w.user)),
             }
@@ -391,9 +392,9 @@ pub fn reconcile(
         retire_left(user, *uid, host, &mut out);
     }
     if (managed.team.clone(), managed.users.clone()) != before {
-        let saved = serde_json::to_vec(&managed)
-            .map_err(io::Error::other)
-            .and_then(|json| write_atomic(&paths.at(ACCOUNTS_FILE), &json, 0o600));
+        let saved = serde_json::to_vec(&managed).map_err(io::Error::other).and_then(|json| {
+            Ok(write_important(&paths.at(ACCOUNTS_FILE), &json, Mode::Exact(0o600))?)
+        });
         if let Err(e) = saved {
             out.errors.push(format!("accounts state: {e}"));
         }

@@ -156,7 +156,7 @@ impl Outbox {
         };
         let written = serde_json::to_vec_pretty(&*deliveries)
             .map_err(anyhow::Error::from)
-            .and_then(|bytes| crate::config::write_atomic(&path, &bytes));
+            .and_then(|bytes| crate::config::write_owner_only(&path, &bytes));
         if let Err(e) = written {
             tracing::warn!("outbox: could not save {}: {e:#}", path.display());
         }

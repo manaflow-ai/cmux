@@ -24,6 +24,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use cmux_important_file::{Mode, write_important};
 use serde_json::{Map, Value};
 
 // The reading half, shared with the acpmux daemon so one feature resolves the
@@ -241,8 +242,11 @@ pub(crate) fn store(root: &Path, data: &[u8], signature: &[u8], key: &str) -> Re
     let (data_path, signature_path) = cache_paths(root);
     // The signature first: a crash between the two leaves a pair that fails
     // verification, never an old signature that vouches for nothing new.
-    write_atomic(&signature_path, signature)?;
-    write_atomic(&data_path, data)
+    let owner_only = |path: &Path, bytes: &[u8]| {
+        write_important(path, bytes, Mode::Exact(0o600)).map_err(|error| error.to_string())
+    };
+    owner_only(&signature_path, signature)?;
+    owner_only(&data_path, data)
 }
 
 /// [`daemon_features`], installed where core reads a feature process-wide:
@@ -263,24 +267,6 @@ pub(crate) fn daemon_features() -> cmux_features::Snapshot {
     let kind = crate::app_identity::AppIdentity::detect(env, exe.as_deref())
         .map(|identity| identity.build().kind());
     cmux_features::sources::daemon_snapshot(kind)
-}
-
-fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    use std::io::Write;
-    let mut temp_name = path.file_name().unwrap_or_default().to_os_string();
-    temp_name.push(".tmp");
-    let temp = path.with_file_name(temp_name);
-    let mut options = std::fs::OpenOptions::new();
-    options.create(true).write(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
-    }
-    let mut file =
-        options.open(&temp).map_err(|error| format!("write {}: {error}", temp.display()))?;
-    file.write_all(bytes).map_err(|error| format!("write {}: {error}", temp.display()))?;
-    std::fs::rename(&temp, path).map_err(|error| format!("write {}: {error}", path.display()))
 }
 
 #[cfg(test)]

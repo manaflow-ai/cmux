@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use crate::cache::{read_cache, write_cache};
 use crate::domains::Domains;
-use crate::fsio::{publish, read_source, resolve_symlinks, write_atomic};
+use crate::fsio::{publish, read_source, resolve_symlinks, write_state};
 use crate::location::team_policy_path;
 use crate::managed::{ManagedReader, TeamPolicyLayer};
 use crate::refusal::Refusal;
@@ -147,7 +147,7 @@ impl ConfigStore {
         }
         let mut text = crate::render::pretty(&self.state.team().to_device_policy(), "");
         text.push('\n');
-        let _ = write_atomic(&path, text.as_bytes());
+        let _ = write_state(&path, text.as_bytes());
     }
 
     /// Best effort: the cache is a launch convenience; the daemon's

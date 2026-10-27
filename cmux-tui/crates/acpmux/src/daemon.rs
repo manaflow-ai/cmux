@@ -379,7 +379,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     hub.start_harness_checks();
     // Uploads past their age cap (`hub/file_uploads.rs`).
     hub.start_upload_sweep();
-    crate::config::write_atomic(
+    crate::config::write_owner_only(
         &home().join("daemon.pid"),
         std::process::id().to_string().as_bytes(),
     )?;

@@ -179,20 +179,15 @@ pub(crate) fn random_hex(bytes: usize) -> String {
     buf.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// Writes `value` to `path` whole (a temp file renamed over it).
+/// Writes `value` to `path` whole, atomically and durably.
 pub(crate) fn write_record(path: &Path, value: &serde_json::Value) -> std::io::Result<()> {
-    let tmp = path.with_extension(format!("json.tmp-{}", random_hex(4)));
-    std::fs::write(&tmp, serde_json::to_vec_pretty(value).unwrap_or_default())?;
     // A file it replaces keeps its mode (an acpmux config.json is 0600); a new one is 0600.
     let mode = std::fs::metadata(path).map_or(0o600, |m| {
         use std::os::unix::fs::PermissionsExt;
-        m.permissions().mode()
+        m.permissions().mode() & 0o7777
     });
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(mode & 0o7777))?;
-    }
-    std::fs::rename(&tmp, path)
+    let bytes = serde_json::to_vec_pretty(value).unwrap_or_default();
+    Ok(cmux_important_file::write_important(path, &bytes, cmux_important_file::Mode::Exact(mode))?)
 }
 
 /// This binary, for the stops an adoption runs.

@@ -612,7 +612,7 @@ pub fn save(home: &Path, body: &[u8]) -> Result<bool, String> {
     }
     #[cfg(windows)]
     crate::owner_only::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    crate::config::write_atomic(&path, body).map_err(|e| e.to_string())?;
+    crate::config::write_owner_only(&path, body).map_err(|e| e.to_string())?;
     Ok(true)
 }
 

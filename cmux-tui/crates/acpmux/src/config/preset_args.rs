@@ -253,7 +253,7 @@ pub fn write_system_prompt(presets: &Path, name: &str, text: &str) -> io::Result
     let dir = preset_dir(presets, name);
     crate::owner_only::create_dir_all(&dir)?;
     crate::owner_only::restrict(&dir)?;
-    crate::config::write_atomic(&dir.join(SYSTEM_PROMPT_FILE), text.as_bytes())
+    crate::config::write_owner_only(&dir.join(SYSTEM_PROMPT_FILE), text.as_bytes())
         .map_err(io::Error::other)?;
     Ok(crate::sha256::sha256_hex(text.as_bytes()))
 }

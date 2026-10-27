@@ -1,32 +1,18 @@
 //! Snapshots: the full state at a sequence, so recovery replays only the
 //! log after it. A snapshot is a cache; the log alone can rebuild the state.
 
-use std::fs::{self, OpenOptions};
-use std::io::{self, Write};
+use std::fs;
+use std::io;
 use std::path::Path;
 
+use cmux_important_file::{Mode, write_important};
 use cmux_tasks_core::State;
 
 const KEEP: usize = 2;
 
-/// Write `bytes` to `path` atomically: tmp file, fsync, rename, fsync dir.
-pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let tmp = path.with_extension("tmp");
-    {
-        let mut file = OpenOptions::new().create(true).truncate(true).write(true).open(&tmp)?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
-    }
-    fs::rename(&tmp, path)?;
-    if let Some(parent) = path.parent() {
-        super::sync_dir(parent)?;
-    }
-    Ok(())
-}
-
 pub fn write(dir: &Path, state: &State) -> io::Result<()> {
     let bytes = serde_json::to_vec(state).map_err(io::Error::other)?;
-    write_atomic(&dir.join(format!("{:020}.json", state.seq)), &bytes)?;
+    write_important(&dir.join(format!("{:020}.json", state.seq)), &bytes, Mode::Default)?;
     let mut names: Vec<_> = fs::read_dir(dir)?
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter(|p| p.extension().is_some_and(|x| x == "json"))

@@ -119,12 +119,12 @@ impl Saved {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(failed)?;
         }
-        let temporary = path.with_extension(format!("json.{}.tmp", std::process::id()));
-        std::fs::write(&temporary, format!("{}\n", self.to_json()))
-            .and_then(|()| std::fs::rename(&temporary, &path))
-            .map_err(|error| {
-                let _ = std::fs::remove_file(&temporary);
-                failed(error)
-            })
+        let text = format!("{}\n", self.to_json());
+        cmux_important_file::write_important(
+            &path,
+            text.as_bytes(),
+            cmux_important_file::Mode::Default,
+        )
+        .map_err(failed)
     }
 }

@@ -25,6 +25,7 @@ cmux-stability = ["cmux-blocking/cmux-stability"]
 
 [dependencies]
 cmux-blocking.workspace = true
+cmux-important-file.workspace = true
 cmux-lock-rank.workspace = true
 # The daemon's memory registry and kernel pressure source (memory.rs).
 cmux-memory.workspace = true

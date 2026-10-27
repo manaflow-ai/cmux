@@ -25,7 +25,7 @@
 //!   epoch, so a pick from the old count never wins again.
 //!
 //! Kept in `start-mode.json` beside config.json (owner-only, written through
-//! `config::write_atomic`), so a forced value holds across a daemon restart
+//! `config::write_owner_only`), so a forced value holds across a daemon restart
 //! before the app pushes again. A daemon with no config file keeps it in
 //! memory. Lock order: the config lock, then the state's mutex.
 

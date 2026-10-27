@@ -118,7 +118,7 @@ pub fn add(
     }
     #[cfg(windows)]
     crate::owner_only::create_dir_all(&dir)?;
-    crate::config::write_atomic(&path, text.as_bytes())?;
+    crate::config::write_owner_only(&path, text.as_bytes())?;
     Ok((harness, path))
 }
 

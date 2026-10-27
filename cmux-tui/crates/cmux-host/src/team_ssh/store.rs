@@ -2,8 +2,10 @@
 //! behind `principals`.
 
 use std::fs;
-use std::io::{self, Write};
+use std::io;
 use std::path::Path;
+
+use cmux_important_file::{Mode, Options, write_important, write_important_with};
 
 use super::trust::{self, Snapshot, TrustState, Verified};
 use super::{APPLY_LOCK_FILE, CA_FILE, KRL_FILE, PRINCIPALS_DIR, TRUST_FILE};
@@ -12,51 +14,6 @@ use crate::config::Paths;
 /// Checks a written temp KRL before it replaces the live one (production:
 /// `ssh-keygen -Q -l -f <tmp>`, so sshd never gets a KRL it cannot parse).
 pub type KrlCheck<'a> = &'a dyn Fn(&Path) -> Result<(), String>;
-
-/// Writes `bytes` to `path` through a temp file in the same directory,
-/// fsync and rename, so sshd sees the old or the new file, never a part.
-pub fn write_atomic(path: &Path, bytes: &[u8], mode: u32) -> io::Result<()> {
-    write_atomic_checked(path, bytes, mode, &|_| Ok(()))
-}
-
-fn write_atomic_checked(
-    path: &Path,
-    bytes: &[u8],
-    mode: u32,
-    check: KrlCheck<'_>,
-) -> io::Result<()> {
-    let dir = path.parent().ok_or_else(|| io::Error::other("path has no parent"))?;
-    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.subsec_nanos());
-    let tmp = dir.join(format!(".{name}.tmp-{}-{nanos}", std::process::id()));
-    let result = (|| {
-        let mut options = fs::OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            // A new file only (never through a planted file or symlink), created with its final mode.
-            options.mode(mode).custom_flags(libc::O_NOFOLLOW);
-        }
-        let mut file = options.open(&tmp)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            file.set_permissions(fs::Permissions::from_mode(mode))?;
-        }
-        file.write_all(bytes)?;
-        file.sync_all()?;
-        check(&tmp).map_err(io::Error::other)?;
-        fs::rename(&tmp, path)?;
-        fs::File::open(dir)?.sync_all()
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&tmp);
-    }
-    result
-}
 
 /// The production [`KrlCheck`]: `/usr/bin/ssh-keygen -Q -l -f <krl>` must
 /// parse the KRL, as sshd will.
@@ -151,17 +108,20 @@ pub fn apply(
     let _lock = lock(paths).map_err(|e| io("apply lock", e))?;
     let previous = current(paths);
     trust::decide(previous.as_ref(), &next)?;
-    write_atomic_checked(&paths.at(KRL_FILE), &next.krl, 0o644, check_krl)
-        .map_err(|e| io("krl", e))?;
+    // sshd sees the old KRL or a new one that ssh-keygen has parsed.
+    let krl = Options::new(Mode::Exact(0o644)).check(check_krl);
+    write_important_with(&paths.at(KRL_FILE), &next.krl, &krl).map_err(|e| io("krl", e.into()))?;
     let mut ca = next.ca_keys.join("\n");
     if !ca.is_empty() {
         ca.push('\n');
     }
-    write_atomic(&paths.at(CA_FILE), ca.as_bytes(), 0o644).map_err(|e| io("ca keys", e))?;
+    write_important(&paths.at(CA_FILE), ca.as_bytes(), Mode::Exact(0o644))
+        .map_err(|e| io("ca keys", e.into()))?;
     let state =
         TrustState { krl_version: next.krl_version, generation: next.generation, synced_at: now };
     let json = serde_json::to_vec(&state).map_err(|e| e.to_string())?;
-    write_atomic(&paths.at(TRUST_FILE), &json, 0o644).map_err(|e| io("trust state", e))?;
+    write_important(&paths.at(TRUST_FILE), &json, Mode::Exact(0o644))
+        .map_err(|e| io("trust state", e.into()))?;
     let krl_changed = previous.is_none_or(|p| p.krl_version != state.krl_version);
     Ok(Applied { previous, state, krl_changed })
 }

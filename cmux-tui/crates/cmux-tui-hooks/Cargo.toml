@@ -12,6 +12,7 @@ workspace = true
 
 [dependencies]
 anyhow.workspace = true
+cmux-important-file.workspace = true
 cmux-process.workspace = true
 cmux-threads.workspace = true
 getrandom = { workspace = true, features = ["std"] }

@@ -221,7 +221,7 @@ impl Pairing {
         {
             let bytes = serde_json::to_vec_pretty(&inner.store)
                 .map_err(|e| RpcError::internal(e.to_string()))?;
-            if let Err(e) = crate::config::write_atomic(&path, &bytes) {
+            if let Err(e) = crate::config::write_owner_only(&path, &bytes) {
                 inner.store = before;
                 return Err(RpcError::internal(format!("could not save pairing.json: {e:#}")));
             }

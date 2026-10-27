@@ -51,10 +51,9 @@ impl Host {
         let list: Vec<&Value> = guests.iter().map(|(_, v)| v).collect();
         let result = config::ensure_dir().and_then(|dir| {
             let path = dir.join(ACTIVE_FILE);
-            let tmp = dir.join(format!(".{ACTIVE_FILE}.{}", std::process::id()));
-            std::fs::write(&tmp, serde_json::to_vec(&list)?)?;
-            cmux_tui_core::platform::restrict_file(&tmp)?;
-            std::fs::rename(&tmp, &path)?;
+            let bytes = serde_json::to_vec(&list)?;
+            let owner_only = cmux_important_file::Mode::Exact(0o600);
+            cmux_important_file::write_important(&path, &bytes, owner_only)?;
             Ok(())
         });
         if let Err(e) = result {

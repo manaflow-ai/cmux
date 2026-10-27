@@ -129,11 +129,8 @@ fn target_has_other_identity(default_root: &Path, target_root: &Path) -> anyhow:
 
 fn copy_private(from: &Path, to: &Path) -> anyhow::Result<()> {
     let bytes = fs::read(from).with_context(|| format!("read {}", from.display()))?;
-    let staged = to.with_extension("import");
-    fs::write(&staged, bytes)?;
-    crate::platform::restrict_file(&staged)?;
-    fs::File::open(&staged)?.sync_all()?;
-    fs::rename(&staged, to)?;
+    let owner_only = cmux_important_file::Mode::Exact(0o600);
+    cmux_important_file::write_important(to, &bytes, owner_only)?;
     Ok(())
 }
 

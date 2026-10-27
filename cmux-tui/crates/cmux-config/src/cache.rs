@@ -7,7 +7,7 @@ use std::path::Path;
 
 use serde_json::{Value, json};
 
-use crate::fsio::write_atomic;
+use crate::fsio::write_state;
 use crate::location::cache_path;
 use crate::store::State;
 
@@ -31,7 +31,7 @@ pub fn cache_document(state: &State) -> Value {
 pub fn write_cache(state_dir: &Path, state: &State) -> io::Result<()> {
     let mut text = crate::render::pretty(&cache_document(state), "");
     text.push('\n');
-    write_atomic(&cache_path(state_dir), text.as_bytes())
+    write_state(&cache_path(state_dir), text.as_bytes())
 }
 
 /// The cached revision and effective document, if a readable cache exists.

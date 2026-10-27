@@ -31,6 +31,7 @@ cmux-stability = ["cmux-blocking/cmux-stability"]
 
 [dependencies]
 cmux-blocking.workspace = true
+cmux-important-file.workspace = true
 cmux-lock-rank.workspace = true
 # Memory pressure and the consumer registry (`src/memory.rs`); a leaf crate, no tokio.
 cmux-memory.workspace = true

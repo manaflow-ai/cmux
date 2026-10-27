@@ -354,7 +354,7 @@ pub fn add(
             .map_err(|e| AdminError::Invalid(format!("{e:#}")))?;
         if let Some(name) = &p.display_name {
             let text = std::fs::read_to_string(&path).map_err(failed)?;
-            crate::config::write_atomic(&path, with_name(&text, name).as_bytes())
+            crate::config::write_owner_only(&path, with_name(&text, name).as_bytes())
                 .map_err(failed)?;
         }
         let text = std::fs::read_to_string(&path).map_err(failed)?;
@@ -397,7 +397,7 @@ pub fn add(
             harness::add(&req, sources).map_err(|e| AdminError::Invalid(format!("{e:#}")))?;
         if let Some(name) = &p.display_name {
             let text = std::fs::read_to_string(&added.path).map_err(failed)?;
-            crate::config::write_atomic(&added.path, with_name(&text, name).as_bytes())
+            crate::config::write_owner_only(&added.path, with_name(&text, name).as_bytes())
                 .map_err(failed)?;
         }
         let text = std::fs::read_to_string(&added.path).map_err(failed)?;
@@ -428,7 +428,7 @@ pub fn add(
         )));
     }
     ensure_dir(&dir)?;
-    crate::config::write_atomic(&path, text.as_bytes()).map_err(failed)?;
+    crate::config::write_owner_only(&path, text.as_bytes()).map_err(failed)?;
     Ok(Added { diagnostics: diagnostics_text(&text, &path, &id), id, path, secret: None })
 }
 
@@ -482,7 +482,7 @@ fn add_endpoint(kind: byo_endpoint::Kind, p: &AddParams, dir: &Path) -> Result<A
         )));
     }
     ensure_dir(dir)?;
-    crate::config::write_atomic(&path, text.as_bytes()).map_err(failed)?;
+    crate::config::write_owner_only(&path, text.as_bytes()).map_err(failed)?;
     Ok(Added {
         diagnostics: diagnostics_text(&text, &path, &id),
         secret: Some(SecretSlot { key: kind.secret_key().to_owned(), keychain_item: item }),

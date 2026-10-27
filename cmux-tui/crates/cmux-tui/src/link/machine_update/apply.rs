@@ -28,6 +28,7 @@ use std::os::unix::io::AsRawFd as _;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use cmux_important_file::{Mode, write_important};
 use serde_json::json;
 use sha2::{Digest as _, Sha256};
 
@@ -92,9 +93,10 @@ pub(crate) fn run(args: &[String]) -> i32 {
     let outcome = json!({"state": state, "detail": detail});
     eprintln!("cmux machine update: {outcome}");
     // The outcome goes only next to this user's own binary.
-    let written = own_install(&args.install)
-        .map_err(std::io::Error::other)
-        .and_then(|()| write_atomically(&args.result, outcome.to_string().as_bytes()));
+    let written = own_install(&args.install).map_err(std::io::Error::other).and_then(|()| {
+        let outcome = outcome.to_string();
+        Ok(write_important(&args.result, outcome.as_bytes(), Mode::Default)?)
+    });
     if written.is_err() || state != "updated" { 1 } else { 0 }
 }
 
@@ -346,10 +348,4 @@ pub(crate) fn file_sha256(path: &Path) -> std::io::Result<String> {
     let mut digest = Sha256::new();
     std::io::copy(&mut file, &mut digest)?;
     Ok(digest.finalize().iter().map(|byte| format!("{byte:02x}")).collect())
-}
-
-fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let temporary = path.with_extension("json.part");
-    std::fs::write(&temporary, bytes)?;
-    std::fs::rename(&temporary, path)
 }
