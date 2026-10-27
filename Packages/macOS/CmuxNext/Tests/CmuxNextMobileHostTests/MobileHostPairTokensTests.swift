@@ -98,6 +98,11 @@ import Testing
             .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
         #expect(items["k"] == hash)
         #expect(items["e"] == "1800000000")
+        #expect(MobileHostPairInvite.expiry(Date(timeIntervalSince1970: 1_800_000_000.9)) == "1800000000")
+        #expect(MobileHostPairInvite.expiry(Date(timeIntervalSince1970: -0.25)) == "0")
+        #expect(MobileHostPairInvite.expiry(Date(timeIntervalSince1970: .infinity)) == "0")
+        #expect(MobileHostPairInvite.expiry(Date(timeIntervalSince1970: .nan)) == "0")
+        #expect(MobileHostPairInvite.expiry(Date(timeIntervalSince1970: 1e13)) == "999999999999")
     }
 
     @Test func hostdForwardsTheTokenWithTheRequest() throws {

@@ -110,8 +110,16 @@ public struct MobileHostPairInvite: Sendable, Equatable {
             URLQueryItem(name: "mac", value: macDeviceID), URLQueryItem(name: "team", value: teamID),
             URLQueryItem(name: "name", value: String(macName.prefix(64))), URLQueryItem(name: "t", value: token),
             URLQueryItem(name: "k", value: macKeyHash),
-            URLQueryItem(name: "e", value: String(format: "%.0f", expiresAt.timeIntervalSince1970.rounded(.down))),
+            URLQueryItem(name: "e", value: Self.expiry(expiresAt)),
         ]
         return components.string ?? ""
+    }
+
+    /// `e`: whole Unix seconds, 1 to 12 digits as the phone requires. A time it cannot write
+    /// (before 1970, not finite) is written 0, which the phone reads as expired.
+    public static func expiry(_ date: Date) -> String {
+        let seconds = date.timeIntervalSince1970.rounded(.down)
+        guard seconds.isFinite, seconds >= 0 else { return "0" }
+        return String(format: "%.0f", Swift.min(seconds, 999_999_999_999))
     }
 }
