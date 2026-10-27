@@ -248,10 +248,12 @@ fn read_legacy(path: &Path, id: String) -> Option<ChatEntry> {
 /// `20261008_120000` (local time, read as UTC) to milliseconds.
 fn id_time_ms(id: &str) -> Option<i64> {
     let bytes = id.as_bytes();
-    if bytes.len() != 15 || bytes[8] != b'_' {
-        return None;
-    }
-    if !bytes.iter().enumerate().all(|(at, byte)| at == 8 || byte.is_ascii_digit()) {
+    let shape = bytes.len() == 15
+        && bytes.iter().enumerate().all(|(at, byte)| match at {
+            8 => *byte == b'_',
+            _ => byte.is_ascii_digit(),
+        });
+    if !shape {
         return None;
     }
     let iso = format!(
@@ -270,4 +272,24 @@ pub(super) fn classify(parts: &[&str]) -> PathRole {
     let store = matches!(parts, [name]
         if *name == DB || *name == "sessions.db-wal" || name.ends_with(".jsonl"));
     role(false, store)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn id_time_needs_the_exact_shape() {
+        assert_eq!(id_time_ms("19700101_000001"), Some(1_000));
+        for id in [
+            "",
+            "19700101-000001",
+            "19700101_00000",
+            "1970010_1000001",
+            "19700101_00000é",
+            "1970010é_00000",
+        ] {
+            assert_eq!(id_time_ms(id), None, "{id:?}");
+        }
+    }
 }

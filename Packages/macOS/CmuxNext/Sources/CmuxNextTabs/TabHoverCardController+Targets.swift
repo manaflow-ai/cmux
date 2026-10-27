@@ -9,7 +9,7 @@ extension TabHoverCardController {
     func target(at point: CGPoint) -> (id: TabID, width: CGFloat, anchor: CGRect)? {
         // Hidden strips (inactive screens share the frame) and clipped
         // parts never take a card.
-        guard let strip, strip.visibleRect.contains(point), !strip.isHiddenOrHasHiddenAncestor, !isStripDragging(strip),
+        guard let strip, strip.visibleRect.contains(point), strip.isShownInWindow, !isStripDragging(strip),
               !strip.groupEditor.isVisible, strip.inlineRename.field == nil, let window = strip.window else { return nil }
         if let group = strip.chipGroup(at: point), let chip = strip.groups.chips[group] {
             // `sidebar.hoverCards.groups.tabGroups` off: a chip opens no card.

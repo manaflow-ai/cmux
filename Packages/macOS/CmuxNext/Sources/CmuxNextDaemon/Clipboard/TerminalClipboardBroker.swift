@@ -137,7 +137,9 @@ public final class TerminalClipboardBroker {
         let terminals = desired
         inFlight = terminals
         let subscribe = environment.subscribe
-        subscribing = Task { [weak self] in
+        // task-owner: one subscribe at a time (`subscribing`); a new connection cancels it. Off main: the task
+        // awaits the subscribe, and its one step on main records the acknowledged set (recipe R-hop).
+        subscribing = Task { @concurrent [weak self] in
             let ok: Bool
             do {
                 try await subscribe(terminals)
@@ -145,7 +147,7 @@ public final class TerminalClipboardBroker {
             } catch {
                 ok = false
             }
-            self?.subscribed(terminals, ok: ok, connection: connection)
+            await self?.subscribed(terminals, ok: ok, connection: connection)
         }
     }
 
@@ -239,7 +241,9 @@ public final class TerminalClipboardBroker {
         let previous = lastReply
         let reply = environment.reply
         let logger = logger
-        lastReply = Task {
+        // task-owner: the reply chain (`lastReply`); each reply waits for the one before it. Off main: the chain
+        // only waits and sends; it touches no main-actor state.
+        lastReply = Task { @concurrent in
             await previous?.value
             do {
                 try await reply(id, text)
