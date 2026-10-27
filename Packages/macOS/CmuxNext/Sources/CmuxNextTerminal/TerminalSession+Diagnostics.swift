@@ -116,17 +116,7 @@ extension TerminalSession {
             // SAFETY: as above.
             renderCounters: unsafe surface.surface.map { surface in
                 // SAFETY: the view's live surface (TerminalSurfaceView.surface).
-                let counters = unsafe ghostty_surface_render_counters(surface)
-                return TerminalRenderCounters(frames: counters.frames, cellRebuilds: counters.cell_rebuilds,
-                                              blendFrames: counters.blend_frames, frameUpdates: counters.frame_updates,
-                                              fullPalette: counters.full_palette, fullConfig: counters.full_config,
-                                              fullFont: counters.full_font, fullOther: counters.full_other,
-                                              fullSwap: counters.full_swap, fullResize: counters.full_resize,
-                                              hostDisplayPasses: counters.host_display_passes,
-                                              hostPresentCalls: counters.host_present_calls,
-                                              hostMainDraws: counters.host_main_draws,
-                                              hostFreshPresents: counters.host_fresh_presents,
-                                              hostLatePresents: counters.host_late_presents)
+                TerminalRenderCounters(unsafe ghostty_surface_render_counters(surface))
             },
             windowFraction: surface.window.flatMap { window in
                 let frame = window.frame
@@ -161,20 +151,41 @@ public struct TerminalRenderCounters: Sendable, Equatable {
     public var fullResize: UInt64
     /// Host-sized display passes of a new size (ghostty-integration-DESIGN.md G1): frames the main
     /// thread drew itself (the first frame), frames the renderer thread drew at the new size with
-    /// reflowed text and the pass presented in its own commit, and passes that kept the last frame
-    /// because the new one was not ready within 4 ms (it lands at the next pass).
+    /// reflowed text and the present put in its own commit, and presents that kept the last frame
+    /// because the new one was not drawn yet (it lands when drawn; since p03-rendering-084 nothing waits).
     public var hostDisplayPasses: UInt64 = 0
     /// `ghostty_surface_present_host_frame` calls (``TerminalHostFramePresenter``, before each commit).
     public var hostPresentCalls: UInt64 = 0
     public var hostMainDraws: UInt64 = 0
     public var hostFreshPresents: UInt64 = 0
     public var hostLatePresents: UInt64 = 0
+    /// Presents whose frame was older than one the renderer had committed to show: nothing changed
+    /// (Ghostty's frame sequence, p03-rendering-084; 0 with a pin before it).
+    public var hostSupersededPresents: UInt64 = 0
 
     /// Every counter by its `debug.surfaces` name.
     public var byName: [String: UInt64] {
         ["frames": frames, "cell_rebuilds": cellRebuilds, "blend_frames": blendFrames, "frame_updates": frameUpdates,
          "full_palette": fullPalette, "full_config": fullConfig, "full_font": fullFont, "full_other": fullOther,
          "full_swap": fullSwap, "full_resize": fullResize, "host_display_passes": hostDisplayPasses, "host_present_calls": hostPresentCalls, "host_main_draws": hostMainDraws,
-         "host_fresh_presents": hostFreshPresents, "host_late_presents": hostLatePresents]
+         "host_fresh_presents": hostFreshPresents, "host_late_presents": hostLatePresents,
+         "host_superseded_presents": hostSupersededPresents]
+    }
+}
+
+extension TerminalRenderCounters {
+    /// `ghostty_surface_render_counters`' values.
+    init(_ counters: ghostty_surface_render_counters_s) {
+        self.init(frames: counters.frames, cellRebuilds: counters.cell_rebuilds,
+                  blendFrames: counters.blend_frames, frameUpdates: counters.frame_updates,
+                  fullPalette: counters.full_palette, fullConfig: counters.full_config,
+                  fullFont: counters.full_font, fullOther: counters.full_other,
+                  fullSwap: counters.full_swap, fullResize: counters.full_resize,
+                  hostDisplayPasses: counters.host_display_passes, hostPresentCalls: counters.host_present_calls,
+                  hostMainDraws: counters.host_main_draws, hostFreshPresents: counters.host_fresh_presents,
+                  hostLatePresents: counters.host_late_presents)
+        #if GHOSTTY_PRESENT_NEVER_WAITS
+        hostSupersededPresents = counters.host_superseded_presents
+        #endif
     }
 }

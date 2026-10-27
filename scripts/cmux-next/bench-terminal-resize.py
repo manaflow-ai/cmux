@@ -26,7 +26,8 @@ missed = an interval over 1.5 refresh periods), main-thread time in Ghostty's di
 (`debug.terminal_display`: before G1 each pass drew on main with the previous size's cells and waited
 for the GPU), and the render counters of every resized terminal (`debug.surfaces`): frames drawn by
 the main thread, fresh frames presented in the commit of their size, late passes (GhosttyNextKit with
-G1; absent before), full rebuilds. After the drag every terminal's drawn, fitted and owner grids must
+G1; absent before), presents refused because the renderer already showed a newer frame
+(`host_superseded_presents`, p03-rendering-084, with `terminalPreCommitPresent` on), full rebuilds. After the drag every terminal's drawn, fitted and owner grids must
 agree. Prints one JSON summary per layout and writes OUT/terminal-resize.json. Exit 0 (a bench, not a
 gate; the summary says what to compare) unless a --story run could not write its cmux-perf-result/v1
 series (resize_bench_report.py): `--story terminal-resize` takes the light layouts (idle-cursor, light,
@@ -132,7 +133,7 @@ def counter_delta(before, after):
     a pane that appears, closes or moves between the two reads must not pair with another's counters).
     `unpaired` counts the terminals present in only one of the two reads."""
     keys = ("frames", "frame_updates", "full_resize", "full_swap", "host_display_passes", "host_present_calls", "host_main_draws", "host_fresh_presents",
-            "host_late_presents")
+            "host_late_presents", "host_superseded_presents")
     total = {k: 0 for k in keys}
     by_id = {b["id"]: b for b in before}
     paired = [(by_id[a["id"]], a) for a in after if a["id"] in by_id]

@@ -227,11 +227,17 @@ let daemonSwiftSettings: [SwiftSetting] = [
 ///   723c4ab93): `GhosttyGPUResidency`, so `terminalGPURelease` and the larger warm set.
 /// - GHOSTTY_ENERGY_SAVER: `ghostty_app_set_energy_saver` (ghostty-next cp/p14-energy-114, not in
 ///   723c4ab93): `GhosttyRuntime.followEnergySaver(on:)` sends the saver's edges to libghostty.
+/// - GHOSTTY_PRESENT_NEVER_WAITS: `ghostty_surface_present_host_frame` never waits and orders its frame
+///   against the renderer's by one sequence, and `ghostty_surface_render_counters_s` ends with
+///   `host_superseded_presents` (ghostty-next cp/p03-rendering-084, not in 723c4ab93):
+///   `TerminalHostFramePresenter` calls it ahead of each commit with a resized terminal.
 let ghosttyNextKitHasGPUResident = false
 let ghosttyNextKitHasEnergySaver = false
+let ghosttyNextKitHasPresentNeverWaits = false
 let ghosttyNextKitCapabilities: [SwiftSetting] =
     (ghosttyNextKitHasGPUResident ? [.define("GHOSTTY_GPU_RESIDENT")] : [])
     + (ghosttyNextKitHasEnergySaver ? [.define("GHOSTTY_ENERGY_SAVER")] : [])
+    + (ghosttyNextKitHasPresentNeverWaits ? [.define("GHOSTTY_PRESENT_NEVER_WAITS")] : [])
 
 /// The app's ONE Rust static library, CCmuxAppFFI (cmux-tui/crates/cmux-app-ffi):
 /// the remote desktop core C ABI (module CCmuxRdFFI), the sidebar layout
