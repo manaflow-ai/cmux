@@ -144,6 +144,22 @@ struct AgentPaneUploadSendTicketTests {
         #expect(!gestures.redeem(ticket, connection: 1, pick: prompt(), sessionId: "s-1"))
     }
 
+    /// Each upload has its own stall clock: another upload's progress, or a new upload, never keeps
+    /// a stalled one's hold alive.
+    @Test func oneStalledUploadEndsTheHoldEvenBesideAnActiveOne() throws {
+        let clock = Clock()
+        let (gestures, ticket, ended) = try reserved(clock)
+        #expect(gestures.holdForUpload(ticket, upload: "stalled", connection: 1, sessionId: "s-1", promptId: "p-1"))
+        #expect(gestures.holdForUpload(ticket, upload: "active", connection: 1, sessionId: "s-1", promptId: "p-1"))
+        clock.now += 40
+        #expect(gestures.uploadProgressed("active"))
+        #expect(gestures.holdForUpload(ticket, upload: "fresh", connection: 1, sessionId: "s-1", promptId: "p-1"))
+        clock.now += AgentPaneUserGestures.uploadStallLimit - 40 + 1
+        #expect(!gestures.uploadProgressed("active"), "the active upload kept a stalled one's hold alive")
+        #expect(ended.uploads == ["stalled", "active", "fresh"])
+        #expect(!gestures.redeem(ticket, connection: 1, pick: prompt(), sessionId: "s-1"))
+    }
+
     /// Finish and cancel release the hold, and the ticket's clock runs again from where it stopped.
     @Test func finishOrCancelReleasesTheHoldAndTheClockRunsAgain() throws {
         let clock = Clock()

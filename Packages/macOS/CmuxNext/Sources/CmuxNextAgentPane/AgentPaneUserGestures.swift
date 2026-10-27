@@ -90,16 +90,17 @@ import CmuxNextCompat
         var connection: Int
         var intent: AgentPaneGestureIntent
         var at: TimeInterval
-        /// The uploads of this send in progress (``holdForUpload(_:upload:connection:sessionId:promptId:)``).
-        var uploads: Set<String> = []
-        /// While `uploads` is not empty: when the ticket's clock stopped, and the uploads' last progress.
+        /// The uploads of this send in progress (``holdForUpload(_:upload:connection:sessionId:promptId:)``),
+        /// each with its own last progress.
+        var uploads: [String: TimeInterval] = [:]
+        /// While `uploads` is not empty: when the ticket's clock stopped.
         var stoppedAt: TimeInterval?
-        var progressAt: TimeInterval = 0
 
-        /// Within its lifetime, not counting the time its uploads held it, and none of them stalled.
+        /// Within its lifetime, not counting the time its uploads held it, and not one of them stalled.
         func isFresh(_ now: TimeInterval) -> Bool {
             guard let stoppedAt else { return now - at <= intent.lifetime }
-            return stoppedAt - at <= intent.lifetime && now - progressAt <= AgentPaneUserGestures.uploadStallLimit
+            return stoppedAt - at <= intent.lifetime
+                && uploads.values.allSatisfy { now - $0 <= AgentPaneUserGestures.uploadStallLimit }
         }
     }
 
@@ -115,7 +116,7 @@ import CmuxNextCompat
         var ended = Set<String>()
         tickets = tickets.filter { entry in
             guard drop(entry.key, entry.value) else { return true }
-            ended.formUnion(entry.value.uploads)
+            ended.formUnion(entry.value.uploads.keys)
             return false
         }
         if !ended.isEmpty { onUploadHoldsEnded?(ended) }
@@ -149,7 +150,10 @@ import CmuxNextCompat
     }
 
     /// Spends `ticket`; true when it was this connection's, still fresh, for exactly `pick`, for
-    /// `sessionId` when it is bound to a chat, and no upload holds it any more.
+    /// `sessionId` when it is bound to a chat, and no upload holds it any more. A prompt ticket bound
+    /// to no chat is a prompt held for the trust answer or behind a harness switch, whose chat may
+    /// not exist yet when it is held; it never held an upload (``holdForUpload``), so no file goes
+    /// with it to another chat (and a chat's uploads resolve only in that chat).
     public func redeem(_ ticket: String, connection: Int, pick: AgentPaneGesturePick?, sessionId: String? = nil) -> Bool {
         if let seed = redeemSeed(ticket, pick: pick) { return seed }
         guard let held = tickets[ticket] else { return false }
@@ -176,10 +180,9 @@ import CmuxNextCompat
         dropTickets { !$1.isFresh(at) }
         guard var held = tickets[ticket], held.connection == connection, held.intent.method == "session/prompt",
               held.intent.sessionId == sessionId, held.intent.params == ["promptId": .string(promptId)],
-              !tickets.values.contains(where: { $0.uploads.contains(upload) }) else { return false }
+              !holdsTicket(upload: upload) else { return false }
         if held.uploads.isEmpty { held.stoppedAt = at }
-        held.uploads.insert(upload)
-        held.progressAt = at
+        held.uploads[upload] = at
         tickets[ticket] = held
         return true
     }
@@ -189,8 +192,8 @@ import CmuxNextCompat
     public func uploadProgressed(_ upload: String) -> Bool {
         let at = now()
         dropTickets { !$1.isFresh(at) }
-        guard let key = tickets.first(where: { $0.value.uploads.contains(upload) })?.key else { return false }
-        tickets[key]?.progressAt = at
+        guard let key = tickets.first(where: { $0.value.uploads[upload] != nil })?.key else { return false }
+        tickets[key]?.uploads[upload] = at
         return true
     }
 
@@ -200,8 +203,8 @@ import CmuxNextCompat
     public func releaseUpload(_ upload: String) -> Bool {
         let at = now()
         dropTickets { !$1.isFresh(at) }
-        guard let key = tickets.first(where: { $0.value.uploads.contains(upload) })?.key, var held = tickets[key] else { return false }
-        held.uploads.remove(upload)
+        guard let key = tickets.first(where: { $0.value.uploads[upload] != nil })?.key, var held = tickets[key] else { return false }
+        held.uploads.removeValue(forKey: upload)
         if held.uploads.isEmpty, let stopped = held.stoppedAt {
             held.at += at - stopped
             held.stoppedAt = nil
@@ -211,7 +214,7 @@ import CmuxNextCompat
     }
 
     /// Whether `upload` holds a send ticket.
-    public func holdsTicket(upload: String) -> Bool { tickets.values.contains { $0.uploads.contains(upload) } }
+    public func holdsTicket(upload: String) -> Bool { tickets.values.contains { $0.uploads[upload] != nil } }
 
     // MARK: A seeded prompt's ticket (cx-k21v gap 4)
 
