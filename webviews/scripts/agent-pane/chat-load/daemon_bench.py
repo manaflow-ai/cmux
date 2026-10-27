@@ -12,8 +12,13 @@ usage: daemon_bench.py ACPMUX_BIN FIXTURE_JSON OUT_JSON [--repeat 3] [--listen 1
 
 With --keep-pidfile the daemon keeps running after the stage (the browser stage reuses it) and
 its pid goes to FILE.
+
+With PERF_RESULT_DIR set it also writes every run's numbers as result-v1 through
+scripts/perf-lab/bench_results.py (perf_result.py): story webviews-chat-load-daemon, metrics
+web.chat_load.daemon.* (perf_series).
 """
 import argparse
+import importlib.util
 import json
 import os
 import socket
@@ -144,6 +149,51 @@ def scroll_to_first(rpc, sid, first_seq):
             "unique": len(set(seqs)) == len(seqs)}
 
 
+PERF_STORY = "webviews-chat-load-daemon"
+BENCH_RESULTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..",
+                             "scripts", "perf-lab", "bench_results.py")
+# measured() field -> (result-v1 metric suffix, unit, factor back to the unit): read_mb is 1e6 bytes,
+# peak_extra_mb is VmHWM KiB / 1024.
+MEASURED_SERIES = {"wall_ms": ("wall", "ms", 1), "cpu_ms": ("cpu", "ms", 1),
+                   "read_mb": ("read", "bytes", 1e6), "peak_extra_mb": ("peak_extra", "bytes", 2 ** 20)}
+
+
+def perf_series(runs_by_turns, result):
+    """The stage's result-v1 series: each open run (`runs_by_turns[turns]`, measured() rows) and the
+    scroll to the first message under web.chat_load.daemon.t<turns>, and the daemon's final RSS."""
+    series = []
+
+    def add(metric, unit, samples):
+        if samples:
+            series.append({"metric": metric, "unit": unit, "better": "lower", "samples": samples})
+
+    for row in result["sessions"]:
+        prefix = f"web.chat_load.daemon.t{row['turns']}"
+        for key, (name, unit, factor) in MEASURED_SERIES.items():
+            add(f"{prefix}.open.{name}", unit, [run[key] * factor for run in runs_by_turns[row["turns"]]])
+        add(f"{prefix}.open.bytes", "bytes", [row["open_bytes"]])
+        scroll = row.get("scroll_to_first")
+        if scroll and scroll.get("pages"):
+            for key, (name, unit, factor) in MEASURED_SERIES.items():
+                add(f"{prefix}.scroll.{name}", unit, [scroll[key] * factor])
+            add(f"{prefix}.scroll.bytes", "bytes", [scroll["bytes"]])
+            add(f"{prefix}.scroll.pages", "count", [scroll["pages"]])
+    if "rss_mb" in result:
+        add("web.chat_load.daemon.rss", "bytes", [result["rss_mb"] * 2 ** 20])
+    return series
+
+
+def record_perf_results(series, environ=os.environ):
+    """Writes `series` as result-v1 when PERF_RESULT_DIR is set; returns the file's path or None."""
+    if not environ.get("PERF_RESULT_DIR", "").strip() or not series:
+        return None
+    spec = importlib.util.spec_from_file_location("chat_load_bench_results", BENCH_RESULTS)
+    bench_results = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = bench_results
+    spec.loader.exec_module(bench_results)
+    return bench_results.record({"story": PERF_STORY, "engine": "none", "results": series}, environ)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("binary")
@@ -185,6 +235,7 @@ def main():
     rpc = Rpc(sock)
     rpc.call("session/list", {})
     result = {"stage": "daemon", "binary": a.binary, "host": socket.gethostname(), "sessions": []}
+    runs_by_turns = {}
     try:
         for s in fixture["sessions"]:
             sid = s["id"]
@@ -193,6 +244,7 @@ def main():
             for i in range(a.repeat):
                 info, m = measured(pid, lambda: open_chat(rpc, sid))
                 runs.append(m)
+            runs_by_turns[s["turns"]] = runs
             row = {"turns": s["turns"], "records": s["records"], "log_mb": round(s["bytes"] / 1e6, 1),
                    "first_open": runs[0], "open": {k: statistics.median(r[k] for r in runs) for k in runs[0]},
                    "open_calls": info["calls"], "open_bytes": info["bytes"], "open_records": info["records"]}
@@ -204,6 +256,7 @@ def main():
             result["sessions"].append(row)
             print(json.dumps(row), flush=True)
         result["rss_mb"] = round(status(pid)["VmRSS"] / 1024, 1)
+        record_perf_results(perf_series(runs_by_turns, result))
     finally:
         json.dump(result, open(a.out, "w"), indent=1)
         if a.keep_pidfile:

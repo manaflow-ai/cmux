@@ -182,7 +182,9 @@ mod unix {
             Err(error) if error.raw_os_error() == Some(libc::ENOENT) => {
                 if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty())
                 {
-                    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(parent)?;
+                    let mut builder = std::fs::DirBuilder::new();
+                    builder.recursive(true).mode(0o700);
+                    cmux_threads::checked::fs::create_dir_with(&builder, parent)?;
                 }
                 let created = create_directory_at(libc::AT_FDCWD, path.as_os_str())?;
                 let directory = open_directory_at(libc::AT_FDCWD, path.as_os_str())?;
@@ -401,9 +403,10 @@ mod unix {
         if gid != primary {
             return Some(format!("its group {gid} is not your primary group {primary}"));
         }
-        let (Ok(passwd), Ok(groups)) =
-            (std::fs::read_to_string("/etc/passwd"), std::fs::read_to_string("/etc/group"))
-        else {
+        let (Ok(passwd), Ok(groups)) = (
+            cmux_blocking::fs::read_to_string("/etc/passwd"),
+            cmux_blocking::fs::read_to_string("/etc/group"),
+        ) else {
             return Some("/etc/passwd or /etc/group cannot be read".to_owned());
         };
         let passwd = match local_entries(&passwd, "/etc/passwd") {

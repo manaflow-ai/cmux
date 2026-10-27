@@ -22,10 +22,11 @@ import { HomeChannelsPage } from "./HomeChannelsPage";
 import table from "./generated/strings.json";
 import { MockHomeProvider } from "./mockProvider";
 import { HomeChannelsStore, PendingCarry } from "./store";
-import { ComposerDrafts, HOME_CHANNELS_PAGE } from "./composerDrafts";
+import { ComposerTexts, HOME_CHANNELS_PAGE } from "./composerTexts";
 import { DaemonGate, type DaemonSource, type HostCredential } from "./DaemonGate";
 import { DaemonHomeClient } from "./daemonHome";
 import { ComposerEdit, hostEdit } from "./composerEdit";
+import { ComposerDrafts, ComposerDraftsContext } from "./composerDrafts";
 import { QUOTE_COMMAND, quoteSelection } from "./quoteSelection";
 import "../shared/pageBase.css";
 import "../../ui/ui.css";
@@ -39,9 +40,9 @@ export function mountHomeChannelsPage(
   client: PageClient | null = defaultClient(),
 ): HomeChannelsStore {
   const state = openPageState(client, HOME_CHANNELS_PAGE);
-  const drafts = ComposerDrafts.restored(restoredPageInputs(client, HOME_CHANNELS_PAGE));
-  const store = new HomeChannelsStore(client, undefined, null, drafts);
-  state.keep(() => drafts.pageInputs());
+  const texts = ComposerTexts.restored(restoredPageInputs(client, HOME_CHANNELS_PAGE));
+  const store = new HomeChannelsStore(client, undefined, null, texts);
+  state.keep(() => texts.pageInputs());
   const strings = createStrings(table);
   document.title = strings.t("page.title");
   createRoot(root).render(
@@ -69,10 +70,12 @@ export function mountDaemonHomeChannelsPage(
   const state = openPageState(client, HOME_CHANNELS_PAGE);
   // One per mount: each reconnect makes a new store, and unsent messages and drafts carry over to it.
   const carry = new PendingCarry();
-  const drafts = ComposerDrafts.restored(restoredPageInputs(client, HOME_CHANNELS_PAGE));
-  state.keep(() => drafts.pageInputs());
+  const texts = ComposerTexts.restored(restoredPageInputs(client, HOME_CHANNELS_PAGE));
+  state.keep(() => texts.pageInputs());
   // In the app, the composers' Cut, Copy and Paste run as the page view's own edits.
   const edit = client ? hostEdit(client) : undefined;
+  // In the app, a composer's unsent input keeps the hidden page (the host's `draft` keep reason).
+  const drafts = client ? new ComposerDrafts(client) : undefined;
   // The app's menu on selected message text: Quote in Reply.
   void client
     ?.subscribe<PageCommand>(PAGE_COMMAND, (data) => {
@@ -82,13 +85,15 @@ export function mountDaemonHomeChannelsPage(
   createRoot(root).render(
     <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
       <ComposerEdit.Provider value={edit}>
-        <DaemonGate source={source} strings={strings}>
-          {(daemon, _pages, owner) => (
-            <div className="hc-daemon">
-              <DaemonHome daemon={daemon} owner={owner} host={client} strings={strings} carry={carry} drafts={drafts} />
-            </div>
-          )}
-        </DaemonGate>
+        <ComposerDraftsContext.Provider value={drafts}>
+          <DaemonGate source={source} strings={strings}>
+            {(daemon, _pages, owner) => (
+              <div className="hc-daemon">
+                <DaemonHome daemon={daemon} owner={owner} host={client} strings={strings} carry={carry} texts={texts} />
+              </div>
+            )}
+          </DaemonGate>
+        </ComposerDraftsContext.Provider>
       </ComposerEdit.Provider>
     </UiProvider>,
   );
@@ -101,7 +106,7 @@ function DaemonHome({
   host,
   strings,
   carry,
-  drafts,
+  texts,
 }: {
   daemon: DaemonSocket;
   /** This build's Chief home's owner, when it serves the local conversations. */
@@ -110,9 +115,10 @@ function DaemonHome({
   host: PageClient | null;
   strings: Strings;
   carry: PendingCarry;
-  drafts: ComposerDrafts;
+  /** The composers' unsent text, kept across a reconnect and a discard (page state). */
+  texts: ComposerTexts;
 }) {
-  const [store] = useState(() => new HomeChannelsStore(new DaemonHomeClient(daemon, owner), carry, host, drafts));
+  const [store] = useState(() => new HomeChannelsStore(new DaemonHomeClient(daemon, owner), carry, host, texts));
   // Web links: homeLinks.ts sends them to workspace.open_url, but the daemon takes that operation
   // from a page only with the person's confirmation (page-router gesture list), which this
   // WebSocket cannot present yet. Until the host relays the click with a confirmation

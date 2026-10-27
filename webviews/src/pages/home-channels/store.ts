@@ -8,7 +8,7 @@ import { subscribePageStreams } from "../shared/pageStreams";
 import { AttachmentService } from "./attachmentService";
 import { AvatarService } from "./avatars";
 import { DraftBook, type HomeDraft } from "./drafts";
-import { ComposerDrafts } from "./composerDrafts";
+import { ComposerTexts } from "./composerTexts";
 import { hashLink, mergeMessages, parseConversationLink, threadOf } from "./model";
 import { conversationHash, hashConversation, setHash } from "./panes";
 import { LiveBook } from "./live";
@@ -157,7 +157,7 @@ export class HomeChannelsStore {
     /** The page's host bridge (the app), or null in a browser: the page serves it hostSelection.ts. */
     readonly host: PageClient | null = null,
     /** Each conversation's unsent composer text; one per mount, like `carry`. */
-    readonly composerDrafts: ComposerDrafts = new ComposerDrafts(),
+    readonly composerTexts: ComposerTexts = new ComposerTexts(),
   ) {
     this.attachments = client ? new AttachmentService(client) : undefined;
     this.avatars = client ? new AvatarService(client) : undefined;
