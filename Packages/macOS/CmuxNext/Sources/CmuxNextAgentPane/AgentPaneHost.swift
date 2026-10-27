@@ -218,6 +218,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     }
 
     private let launchWarm = AcpmuxLaunchWarm()
+    /// Whether this host has accepted or attempted automatic restoration requests.
     public var hasWarmedSessions: Bool { get async { await launchWarm.hasRequests } }
 
     /// Ends only sessions this host attempted to restore; shared daemon processes remain running.
