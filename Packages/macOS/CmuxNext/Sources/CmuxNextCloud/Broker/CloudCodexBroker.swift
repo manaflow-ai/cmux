@@ -32,6 +32,7 @@ public actor CloudCodexBroker {
     private var refreshInFlight: Task<CloudCodexAccessGrant, any Error>?
     private var quitWaiters: [UUID: CheckedContinuation<Void, any Error>] = [:]
     private var quitTimers: [UUID: Task<Void, Never>] = [:]
+    private var quitWork: [UUID: Task<Void, Never>] = [:]
 
     public init(scope: CloudCodexBrokerScope,
                 currentScope: @escaping @Sendable () async -> CloudCodexBrokerScope?,
@@ -422,14 +423,17 @@ public actor CloudCodexBroker {
             quitWaiters[id] = continuation
             // A timed-out transport may finish later. Its broker stays retained,
             // preventing replacement until that cleanup has actually completed.
-            let work = Task {
+            quitWork[id] = Task {
                 do { try await revoke(target: target); finishQuitCleanup(id, .success(())) }
                 catch { finishQuitCleanup(id, .failure(error)) }
+                quitWork.removeValue(forKey: id)
             }
             quitTimers[id] = Task {
                 // wakeup-allow: one bounded quit-cleanup deadline per target.
                 do { try await Task.sleep(for: .seconds(3)) } catch { return }
-                if finishQuitCleanup(id, .failure(CloudCodexBrokerError.remoteDeliveryFailed)) { work.cancel() }
+                // Bound the caller's wait, not the remote mutation: cancellation
+                // could release its lock before the server finishes erasing.
+                finishQuitCleanup(id, .failure(CloudCodexBrokerError.remoteDeliveryFailed))
             }
         }
     }
