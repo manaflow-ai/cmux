@@ -1,12 +1,11 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDaemon
-import CmuxNextDaemonService
+public import CmuxNextDaemonService
 import CmuxNextRemote
-import CmuxNextServer
-import CmuxNextSettings
-import Foundation
-import Observation
+public import CmuxNextSettings
+public import Foundation
+public import Observation
 
 /// Settings > Accounts > This Mac on Your Tailnet (Labs, `labs.previewFeatures`): the local
 /// daemon's own tailnet node (`tailnet-v1`). It follows `tailnet.state` on the app's own control
@@ -14,17 +13,20 @@ import Observation
 /// the stream and the card shows "unavailable". Pair mints a single-use
 /// `client` ticket (#23297) for this Mac's tailnet address.
 @MainActor @Observable
-final class TailnetNodeService {
-    let model: TailnetNodeModel
+public final class TailnetNodeService {
+    /// The state shown by the Settings card.
+    public let model: TailnetNodeModel
     @ObservationIgnored private let daemon: DaemonService
     @ObservationIgnored private let follower: TailnetStateFollower
-    @ObservationIgnored private let qr = PairingQRCode()
+    @ObservationIgnored private let qr: (String) -> String?
 
     /// Where the access choice will be kept once the node reads it (nothing writes it yet).
     static let accessKey = "tailnet.access"
 
-    init(daemon: DaemonService, defaults: UserDefaults = .standard) {
+    /// Composes the daemon-backed card with the app's defaults and QR renderer.
+    public init(daemon: DaemonService, defaults: UserDefaults, qr: @escaping (String) -> String?) {
         self.daemon = daemon
+        self.qr = qr
         let cli = (try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment))
             .map { HostCLI(binary: $0, environment: SSHService.environment) }
         model = TailnetNodeModel(services: TailnetNodeServices(
@@ -53,18 +55,18 @@ final class TailnetNodeService {
 
     /// The card in the Settings host lists, null while Labs is off. Reading it while enabled starts
     /// following the node (once per daemon connection; the follow ends with the connection).
-    func pageJSON(enabled: Bool) -> CmuxNextSettings.JSONValue {
+    public func pageJSON(enabled: Bool) -> CmuxNextSettings.JSONValue {
         guard enabled else {
             stopFollowing()
             return .null
         }
         startFollowing()
-        return TailnetNodePage.json(model: model, qr: { [qr] in qr.pngDataURL(for: $0) })
+        return TailnetNodePage.json(model: model, qr: qr)
     }
 
     /// Labs turned off: the `tailnet.state` read ends (its stream is cancelled on the daemon), and
     /// the next enable reads again.
-    func stopFollowing() { follower.stop() }
+    public func stopFollowing() { follower.stop() }
 
     private func startFollowing() {
         guard let connection = daemon.connection else {

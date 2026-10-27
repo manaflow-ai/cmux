@@ -1,6 +1,5 @@
-import CmuxNextPages
-import CmuxNextServer
-import CmuxNextSettings
+public import CmuxNextPages
+public import CmuxNextSettings
 import Foundation
 
 /// The Settings page's side of This Mac on Your Tailnet: `tailnet` in the host lists (every text
@@ -41,19 +40,22 @@ enum TailnetNodePage {
 
 /// `cmux.settings.tailnet.*`: sign_in (also Reopen), cancel, sign_out, pair, close_pair, copy_address.
 @MainActor
-final class TailnetNodePageRoute: PageProvider {
-    nonisolated static let prefix = "cmux.settings.tailnet."
+public final class TailnetNodePageRoute: PageProvider {
+    /// Namespace handled exclusively by the bundled Settings page.
+    public nonisolated static let prefix = "cmux.settings.tailnet."
     private let service: TailnetNodeService
     private let enabled: @MainActor () -> Bool
     private let copy: (String) -> Void
 
-    init(service: TailnetNodeService, enabled: @escaping @MainActor () -> Bool, copy: @escaping (String) -> Void) {
+    /// Injects the Labs gate and the app's pasteboard writer.
+    public init(service: TailnetNodeService, enabled: @escaping @MainActor () -> Bool, copy: @escaping (String) -> Void) {
         self.service = service
         self.enabled = enabled
         self.copy = copy
     }
 
-    func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
+    /// Performs a Tailnet operation only for a Settings-page user gesture.
+    public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         guard op.hasPrefix(Self.prefix) else { throw PageError.unknownOp(op) }
         guard enabled() else { throw PageError.unavailable("This Mac on Your Tailnet is a Labs preview") }
         guard context.page == PageDescriptor.settings.id, context.userGesture else {
