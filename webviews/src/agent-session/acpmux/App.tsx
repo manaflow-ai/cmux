@@ -5911,6 +5911,7 @@ function AcpmuxPane() {
         const mockConfig: AcpmuxHostConfig = host.newSession
           ? { ...mockHost, sessionId: undefined, newSession: true }
           : mockHost;
+        let connectingClient: AcpmuxDirectClient | undefined;
         const client = await AcpmuxDirectClient.connect(
           mock ? mockConfig : (host as AcpmuxHostConfig),
           (next) => {
@@ -5918,11 +5919,12 @@ function AcpmuxPane() {
             rowsRef.current = next.rows;
             snapshotRef.current = next;
             trustRouteSnapshot.current = next;
-            trustRenderedOwner.current = {
-              client,
-              generation: client.trustGeneration,
-              sessionId: next.sessionId,
-            };
+            if (connectingClient)
+              trustRenderedOwner.current = {
+                client: connectingClient,
+                generation: connectingClient.trustGeneration,
+                sessionId: next.sessionId,
+              };
             // What each harness reports feeds the next switch's first frame (harnessProfiles.ts).
             const summary = next.summary;
             const started = summary?.model !== undefined && startedSessions.delete(summary.sessionId);
@@ -5975,7 +5977,16 @@ function AcpmuxPane() {
           client.close();
           return;
         }
+        connectingClient = client;
         directClient.current = client;
+        // connect() may have delivered its first snapshot before returning. Associate that
+        // already-renderable snapshot only after the client binding exists (avoids a TDZ read).
+        if (snapshotRef.current)
+          trustRenderedOwner.current = {
+            client,
+            generation: client.trustGeneration,
+            sessionId: snapshotRef.current.sessionId,
+          };
         setClientEpoch((epoch) => epoch + 1);
         // The minimap's prompt bookmarks live in acpmux's session (threadMinimap/bookmarks.ts).
         setBookmarkTransport({
@@ -6068,7 +6079,13 @@ function AcpmuxPane() {
             sessionId: client.shownSession()?.sessionId ?? sessionIdRef.current,
           };
           const routeForSend = (error: unknown, again?: () => void, owner = sendOwner): boolean => {
-            if (directClient.current !== owner.client || !isTrustRefusal(error)) return false;
+            if (
+              directClient.current !== owner.client ||
+              owner.generation !== owner.client.trustGeneration ||
+              owner.sessionId !== owner.client.selectedSession ||
+              !isTrustRefusal(error)
+            )
+              return false;
             const pending = pendingTrustRefusal.current;
             const pendingError = pending?.error as { reason?: unknown; cwd?: unknown } | undefined;
             if (
@@ -6159,11 +6176,10 @@ function AcpmuxPane() {
             sessionId: sessionId ?? client.shownSession()?.sessionId,
           };
           await persistSession(sessionId);
-          sendOwner = {
-            client,
-            generation: client.trustGeneration,
-            sessionId: client.selectedSession,
-          };
+          if (client.trustGeneration !== sendOwner.generation || client.selectedSession !== sendOwner.sessionId) {
+            if (!accepted) restorePrompt(text, attachments);
+            throw new Error("agent_session.changed_during_send");
+          }
           const turn = client
             .send(text, attachments, kept?.promptId, accepted, kept?.ticket, steer)
             .catch((error: unknown) => refused(error, Boolean(accepted)));
