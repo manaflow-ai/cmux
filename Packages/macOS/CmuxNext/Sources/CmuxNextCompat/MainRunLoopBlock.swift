@@ -95,6 +95,7 @@ public nonisolated struct MainRunLoopBlock: Sendable {
         // the run loop's queue (Chrome's `PendingTask::queue_time`, set at `PostTask`).
         let queuedNanos = attribution?.by.queuedNanos()
         let main = CFRunLoopGetMain()
+        // main-hop-allow: the run-loop block primitive; each caller names the AppKit order that needs it
         CFRunLoopPerformBlock(main, mode.rawValue) {
             // main-proof: a block queued on CFRunLoopGetMain() runs only on the main thread.
             MainActor.assumeIsolated {

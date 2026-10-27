@@ -115,12 +115,11 @@ public actor DaemonConnection {
         wake = configuration.retryWake ?? RetryWake(owner: "DaemonConnection.reconnect")
         healthy = DemandTimer(owner: "DaemonConnection.healthy", clock: clock)
         handoffGate = QuietHandoffGate(observe: configuration.handoffWaits)
-        // concurrency-allow: holds only events no consumer took yet (DaemonEventRoute); the store drains them at once into the bounded EventInbox
-        // memory: bounded-by DaemonEventRoute.highWater (8 MiB of event lines): past it, while a consumer takes them, the reader stops reading the socket
-        let (events, continuation) = AsyncThrowingStream.makeStream(of: DaemonEventEnvelope.self, bufferingPolicy: .unbounded)
-        let route = DaemonEventRoute(continuation)
+        // The events no consumer took yet wait in the route's bounded EventInbox backlog; past
+        // DaemonEventRoute.highWater bytes of them, while a stream consumer takes them, the reader stops reading the socket.
+        let route = DaemonEventRoute()
         self.route = route
-        self.events = DaemonEventStream(base: events, route: route)
+        self.events = DaemonEventStream(route: route)
     }
 
     /// Connects to a fixed socket (tests, dev tools).
@@ -244,20 +243,20 @@ public actor DaemonConnection {
         route.emit(DaemonEventEnvelope(sequence: envelope.sequence, event: envelope.event, sourceID: eventSourceID, cause: envelope.cause))
     }
 
-    /// Takes this connection's events instead of `events`, in order, until they end: the ones
-    /// `events` already holds, then each later one on the thread that produced it (the reader for
-    /// every daemon event; the actor for `connected` and `disconnected`). The echo of a person's
-    /// action reaches `deliver` with no cooperative-pool job after the socket read (p02-threads-133).
-    /// One consumer per connection; returns when the connection finishes, throwing what ended it.
+    /// Takes this connection's events instead of `events`, in order, until they end: the ones the
+    /// route's bounded backlog holds (on the calling task), then each later one on the thread that
+    /// produced it (the reader for every daemon event; the actor for `connected` and `disconnected`).
+    /// The echo of a person's action reaches `deliver` with no cooperative-pool job after the socket
+    /// read (p02-threads-133). One consumer per connection; returns when the connection finishes,
+    /// throwing what ended it, or when the calling task is cancelled.
     ///
     /// - Parameter deliver: Takes one event; runs under ``DaemonEventRoute``'s lock, so it must not
     ///   block or call back into the connection.
     nonisolated func consumeEvents(_ deliver: @escaping DaemonEventRoute.Sink) async throws {
+        route.takeStream()
         route.attach(deliver)
         defer { route.detach() }
-        for try await envelope in events {
-            route.deliverQueued(envelope)
-        }
+        try await route.ended()
     }
 
     /// The admitted control session, or nil when not connected.

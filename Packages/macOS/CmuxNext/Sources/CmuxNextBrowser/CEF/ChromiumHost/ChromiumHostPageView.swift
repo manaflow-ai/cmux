@@ -116,8 +116,10 @@ public final class ChromiumHostPageView: NSView {
     private(set) var shownCursor: NSCursor?
     /// Where cmux's views lie over the page (its ``CEFHostView``'s occlusion rects): no page cursor there.
     var cursorHoles: [CGRect] = [] {
-        didSet { if cursorHoles != oldValue, shownCursor != nil { window?.invalidateCursorRects(for: self) } }
+        didSet { if cursorHoles != oldValue { placeCursorAreas() } }
     }
+    /// The page cursor's `.cursorUpdate` areas: the visible page less ``coveredRects`` (ChromiumHostPageView+Cursor.swift).
+    var cursorAreas: [NSTrackingArea] = []
     /// The shown page's accessibility (host mode; ChromiumHostPageView+Accessibility.swift).
     var remoteAccessibility = ChromiumHostRemoteAccessibility()
     /// Sends a page's accessibility request to the host and calls back with the page's token, nil
@@ -260,11 +262,12 @@ public final class ChromiumHostPageView: NSView {
         guard overlay == nil || inputTarget == .view else { return false }
         crashOverlay?.removeFromSuperview()
         crashOverlay = overlay
-        if shownCursor != nil { window?.invalidateCursorRects(for: self) }
-        guard let overlay else { return true }
-        overlay.frame = bounds
-        overlay.autoresizingMask = [.width, .height]
-        addSubview(overlay, positioned: .above, relativeTo: standIn ?? surface)
+        if let overlay {
+            overlay.frame = bounds
+            overlay.autoresizingMask = [.width, .height]
+            addSubview(overlay, positioned: .above, relativeTo: standIn ?? surface)
+        }
+        placeCursorAreas()
         return true
     }
 
@@ -378,8 +381,8 @@ public final class ChromiumHostPageView: NSView {
 extension ChromiumHostPageView {
     // MARK: Mouse
 
-    public override func updateTrackingAreas() {
-        super.updateTrackingAreas()
+    /// The page's pointer area (``updateTrackingAreas()``, ChromiumHostPageView+Cursor.swift).
+    func updatePointerArea() {
         if let tracking { removeTrackingArea(tracking) }
         tracking = nil
         guard inputTarget == .view else { return }

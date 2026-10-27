@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import QuartzCore
 
@@ -99,8 +100,8 @@ final class SidebarRegionView: NSView {
     var emptySpaceTarget: SidebarContextTarget = .background
     var reorderSections: [LayoutSection]?
     private var width: CGFloat = 0
-    private var animatesFrames = false
-    /// Frames go to their place on the drag's additive spring (`springShow`); a new view is placed at once.
+    /// Frames go to their place on the drag's additive spring (`springShow`, an animated `relayout`); a new view is
+    /// placed at once.
     private var springsFrames = false
     /// Card backgrounds by section: a card keeps its layer (and its spring) when sections are added, removed or reordered.
     private var cardLayers: [LayoutSectionID: CALayer] = [:]
@@ -179,7 +180,8 @@ final class SidebarRegionView: NSView {
     /// The layout of `content` at `width` (a list block's height and hit test).
     static func layout(of content: Content, width: CGFloat) -> SidebarRegionLayout { layout(content, width: width) }
 
-    /// Lays out the shown order again; animated, every row springs to its frame.
+    /// Lays out the shown order again; animated, every row, card and line springs to its frame on the render
+    /// server (`SidebarDragSpring`): each model frame is set once, in this turn, and nothing is written per frame.
     func relayout(animated: Bool) {
         guard let content else { return }
         let shown = displayed(content)
@@ -187,14 +189,14 @@ final class SidebarRegionView: NSView {
         layoutResult = Self.layout(shown, width: width)
         if layoutResult.height != height { onHeightChange?() }
         guard animated else { return apply(shown) }
-        Motion.sidebar.animate(.move, in: self, {
-            self.animatesFrames = true
-            self.apply(shown)
-            self.animatesFrames = false
-        }, completion: { [weak self] in
-            // The rows ended their move under a possibly still pointer (cx-3wu5).
-            PointerHover.refresh(in: self?.window)
-        })
+        CATransaction.begin()
+        // Runs once every spring added in this transaction has ended: the rows ended their move under a possibly
+        // still pointer (cx-3wu5).
+        CATransaction.setMainCompletion { [weak self] in PointerHover.refresh(in: self?.window) }
+        springsFrames = true
+        apply(shown)
+        springsFrames = false
+        CATransaction.commit()
     }
 
     private func displayed(_ content: Content) -> Content {
@@ -211,7 +213,7 @@ final class SidebarRegionView: NSView {
 
     private func place(_ view: NSView, _ frame: CGRect, new: Bool = false) {
         if springsFrames, !new { return SidebarDragSpring.move(view, to: frame) }
-        if animatesFrames, !new { view.animator().frame = frame } else if springsFrames { Motion.withoutAnimation { view.frame = frame } } else { view.frame = frame }
+        if springsFrames { Motion.withoutAnimation { view.frame = frame } } else { view.frame = frame }
     }
 
     private func apply(_ content: Content) {
