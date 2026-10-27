@@ -163,6 +163,20 @@ class NoGitHubHostedMacos(unittest.TestCase):
         self.assertIn("!startsWith(vars.NIGHTLY_NEXT_TRAIN_RUNNER, 'macos-') && vars.NIGHTLY_NEXT_TRAIN_RUNNER || "
                       "'blacksmith-6vcpu-macos-26'", runs_on.group(1))
 
+    def test_no_runner_variable_may_hold_a_hosted_mac(self):
+        # vars.MACOS_RUNNER_15 and friends reach runs-on in many workflows; the
+        # repository-variable check and health report refuse a hosted value.
+        sys.path.insert(0, str(SCRIPTS / "ci"))
+        import runner_label_policy as policy
+
+        for label in ("macos-15", "macos-26", "macos-latest", "macos-15-intel", "macos-15-xlarge", "MACOS-15"):
+            with self.subTest(label=label):
+                self.assertIsNotNone(policy.forbidden_reason(label))
+                self.assertTrue(policy.drifted_runner_variables({"MACOS_RUNNER_15": label}))
+        for label in ("blacksmith-6vcpu-macos-15", "blacksmith-12vcpu-macos-26", ""):
+            with self.subTest(label=label):
+                self.assertIsNone(policy.forbidden_reason(label))
+
     def test_every_exemption_is_live_and_has_a_reason(self):
         lines = set()
         for hit in workflow_hits(ROOT) + script_hits(ROOT):
