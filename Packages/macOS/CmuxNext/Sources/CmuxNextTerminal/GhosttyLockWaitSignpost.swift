@@ -10,13 +10,14 @@ import GhosttyNextKit
 /// `ghostty_surface_set_lock_wait_callback` reports each wait of 50 us or more on the thread that waited, after it
 /// released the lock. The report is compiled only with `GHOSTTY_LOCK_WAIT` (`ghosttyNextKitHasLockWait` in
 /// Package.swift: the pin bump that brings the export turns it on) in Debug and bench builds; elsewhere
-/// ``install(on:)`` does nothing.
-nonisolated struct GhosttyLockWaitSignpost {
+/// ``install(on:bridge:)`` does nothing.
+nonisolated struct GhosttyLockWaitSignpost: Sendable {
     /// Where the events go.
     let signposter: Signposter
 
-    /// - Parameter signposter: Where the events go (a ghostty-category handle; the app's is ``Signposter/ghostty``).
-    init(signposter: Signposter = .ghostty) {
+    /// - Parameter signposter: Where the events go (a ghostty-category handle). ``SurfaceBridge`` makes one per
+    ///   surface, so a report builds no handle.
+    init(signposter: Signposter = Signposter(category: .ghostty)) {
         self.signposter = signposter
     }
 
@@ -26,18 +27,25 @@ nonisolated struct GhosttyLockWaitSignpost {
         signposter.ghosttyLockWait(nanos: nanos)
     }
 
-    /// Reports `surface`'s waits from now on. Call once, right after `ghostty_surface_new`, before the surface gets
-    /// input.
-    static func install(on surface: ghostty_surface_t) {
+    /// Reports the waits of the surface whose userdata is `bridge` from now on. Call once, right after
+    /// `ghostty_surface_new`, before the surface gets input.
+    ///
+    /// - Parameters:
+    ///   - surface: The view's new surface.
+    ///   - bridge: The surface's bridge (`TerminalSurfaceView.bridge`), which outlives the surface.
+    static func install(on surface: ghostty_surface_t, bridge: Unmanaged<SurfaceBridge>) {
         #if GHOSTTY_LOCK_WAIT && (DEBUG || CMUX_BENCH_HOOKS)
-        // SAFETY: the caller's new surface; the callback has ghostty.h's `ghostty_surface_lock_wait_cb` signature
-        // and reads no userdata.
-        _ = unsafe ghostty_surface_set_lock_wait_callback(surface, ghosttyLockWait, nil)
+        // SAFETY: the caller's new surface; the callback has ghostty.h's `ghostty_surface_lock_wait_cb` signature,
+        // and its userdata is the view's bridge, which stays alive until after ghostty_surface_free returns
+        // (SurfaceBridge.from).
+        _ = unsafe ghostty_surface_set_lock_wait_callback(surface, ghosttyLockWait, bridge.toOpaque())
         #endif
     }
 }
 
 /// `ghostty_surface_lock_wait_cb`: any thread that waited (the main thread for input), after the lock is released.
 nonisolated func ghosttyLockWait(_ userdata: UnsafeMutableRawPointer?, _ nanos: UInt64) {
-    Signposter.ghostty.ghosttyLockWait(nanos: nanos)
+    // SAFETY: the view's bridge, registered as this callback's userdata (install(on:bridge:)).
+    guard let bridge = unsafe SurfaceBridge.from(userdata) else { return }
+    bridge.lockWait.record(nanos: nanos)
 }

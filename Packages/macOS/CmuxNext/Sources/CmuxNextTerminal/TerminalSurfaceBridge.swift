@@ -10,7 +10,8 @@ import GhosttyNextKit
 /// still be inside `io_write_cb`.
 ///
 /// Checked Sendable: Ghostty's IO thread reads only the immutable `input` and
-/// `linkFilter`; everything mutable is main-actor isolated.
+/// `linkFilter`, and an input lock wait report only the immutable `lockWait`;
+/// everything mutable is main-actor isolated.
 nonisolated final class SurfaceBridge: Sendable {
     let input: TerminalInputSink
     /// What the surface's callbacks reach: its view in the app, a test's recorder. Main-actor only.
@@ -32,6 +33,9 @@ nonisolated final class SurfaceBridge: Sendable {
     let linkFilter = TerminalLinkFilter()
     /// What the Ghostty trace hook marks for this surface's frames (``GhosttyTraceHook``).
     let frames: GhosttyTraceHook.Surface
+    /// Where the surface's input waits for Ghostty's terminal lock go (``GhosttyLockWaitSignpost``): one handle
+    /// for the surface's life, so a report builds nothing.
+    let lockWait = GhosttyLockWaitSignpost()
 
     init(input: TerminalInputSink, echoStage: TerminalEchoStage? = nil) {
         self.input = input

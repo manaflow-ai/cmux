@@ -2506,7 +2506,10 @@ GhosttyNextKit.
   - `ghostty_surface_set_lock_wait_callback(surface, cb, userdata)`: one-shot; reports each input wait of
     50 us or more in ns, on the thread that waited, after it released the lock.
 - cmux side: `GhosttyLockWaitSignpost` (CmuxNextTerminal) records `ghostty.lock_wait` (catalog id 87,
-  ring instant, arg0 the wait in ns) in Debug and bench builds. It is compiled only with
+  ring instant, arg0 the wait in ns) in Debug and bench builds. The callback's userdata is the
+  surface's `SurfaceBridge`, which holds one `GhosttyLockWaitSignpost` for the surface's life, and
+  `Signposter.ghosttyLockWait(nanos:)` formats the wait as an OSLogMessage integer: a report inside a
+  key handler builds no handle and no `String`. It is compiled only with
   `GHOSTTY_LOCK_WAIT` (`ghosttyNextKitHasLockWait` in Packages/macOS/CmuxNext/Package.swift, false now):
   the pin bump that brings the export turns it on. The gitlink and the GhosttyNextKit pin do not move in
   the task commit; the bump is a separate commit.
