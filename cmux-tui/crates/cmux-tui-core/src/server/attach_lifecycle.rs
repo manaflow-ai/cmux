@@ -7,7 +7,7 @@
 use super::MessageWriter;
 use super::OutboundStream;
 use crate::panic_free::JsonFields;
-use cmux_threads::checked::ipc_reply;
+use crate::server::request_hang_watch::ipc_reply;
 use cmux_threads::checked::sync as waits;
 
 use super::INITIAL_BROWSER_RESIZE_TIMEOUT;
