@@ -1,0 +1,9 @@
+{
+  "sidebar": {
+    "workspaceRow": {
+      "terminal": {
+        "branch": true
+      }
+    }
+  }
+}

@@ -297,6 +297,7 @@ extension NewTerminalTrace {
     /// The timeout is the command's own deadline, not a poll.
     public func waitForPrompt(timeout: Duration) async -> Bool {
         let deadline = Task { [self] in
+            // timer-class-allow: debug trace: the bench command's own bound on its wait, off main; it only resumes the waiter
             guard (try? await ContinuousClock().sleep(for: timeout)) != nil else { return }
             expire()
         }

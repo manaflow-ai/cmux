@@ -145,18 +145,22 @@ extension TerminalAttachment {
     }
 
     /// What the reader thread does with one view's items, on its own connection or on a stream: names an
-    /// unplaced target's surface, keeps snapshot order, passes size states in generation order, and ends
-    /// the view's channel. Holds no reference to the attachment, so a transport that outlives it keeps
-    /// nothing alive.
+    /// unplaced target's surface, keeps snapshot order and routes live output (``TerminalEchoRouter``), passes
+    /// size states in generation order, and ends the view's channel. Holds no reference to the attachment, so
+    /// a transport that outlives it keeps nothing alive.
     final class Delivery: Sendable {
         let queue: TerminalEventQueue
+        /// Snapshot order, and whether live output goes straight to the view's lane. A stream never sets a
+        /// lane (``TerminalAttachment/setOutputSink(_:)``), so on a stream it never parks the shared reader.
+        let router: TerminalEchoRouter
         let control: ControlBox
         let resolvedSurface: SurfaceBox
         let decoder: WireDecoder
-        private let sequencer = Mutex(TerminalSnapshotSequencer())
 
-        init(queue: TerminalEventQueue, control: ControlBox, resolvedSurface: SurfaceBox, decoder: WireDecoder) {
+        init(queue: TerminalEventQueue, router: TerminalEchoRouter, control: ControlBox, resolvedSurface: SurfaceBox,
+             decoder: WireDecoder) {
             self.queue = queue
+            self.router = router
             self.control = control
             self.resolvedSurface = resolvedSurface
             self.decoder = decoder
@@ -170,20 +174,11 @@ extension TerminalAttachment {
                 resolvedSurface.value.withLock { $0 = named }
                 surface = named
             }
-            guard let decoded = TerminalAttachment.decodeAttachLine(name: name, line: line, surface: surface, decoder: decoder),
-                  let event = sequencer.withLock({ $0.admit(decoded) })
+            guard let decoded = TerminalAttachment.decodeAttachLine(name: name, line: line, surface: surface, decoder: decoder)
             else { return }
-            if case .sizeState(let state, let selfParticipant) = event {
+            router.receive(decoded) { state, selfParticipant in
                 // Pushed under the same lock that orders generations (see admitSizeState).
                 admitSizeState(state, selfParticipant: selfParticipant)
-                return
-            }
-            if case .closed = event {
-                queue.finish(event)
-            } else {
-                if case .output = event { TypingLatencyProbe.shared.outputDecoded(flow: decoded.flow) }
-                queue.push(event)
-                if let flow = decoded.flow { queue.pushWithoutWaiting(.inputEcho(flow: flow)) } // rides behind its chunk
             }
         }
 
@@ -196,10 +191,10 @@ extension TerminalAttachment {
                 deliver(name: name, line: line)
                 if queue.bufferedOutputBytes > queue.highWater {
                     owner.cancel()
-                    queue.finish(.closed(.overflow))
+                    router.finish(.closed(.overflow))
                 }
             case .end(let line):
-                queue.finish(.closed(Self.endReason(line, decoder: decoder)))
+                router.finish(.closed(Self.endReason(line, decoder: decoder)))
             case .lost(.closedByClient):
                 // The app closed the control connection, not this view: it reattaches on the next one.
                 close(.lost("control connection closed"))
@@ -211,9 +206,9 @@ extension TerminalAttachment {
         /// The view's connection or stream ended.
         func close(_ reason: TransportCloseReason) {
             switch reason {
-            case .closedByClient: queue.finish(.closed(.detachedByClient))
-            case .daemonShutdown: queue.finish(.closed(.connectionLost("daemon shut down")))
-            case .lost(let detail): queue.finish(.closed(.connectionLost(detail)))
+            case .closedByClient: router.finish(.closed(.detachedByClient))
+            case .daemonShutdown: router.finish(.closed(.connectionLost("daemon shut down")))
+            case .lost(let detail): router.finish(.closed(.connectionLost(detail)))
             }
         }
 

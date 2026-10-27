@@ -486,6 +486,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `cause` on each `subscribe` event line (cmux-tui/spec/events.md, "Event cause"): what set
     /// the event off, so the app schedules a person's changes first (``DaemonEvent/cause(wire:recorded:)``).
     case eventCause = "event-cause-v1"
+    /// `server-diagnostic-site` events on `subscribe`: the daemon's first-seen blocking, inversion and
+    /// slow-request sites, for the app's hang reports (``DaemonConnectionConfiguration/reportsDiagnosticSites``).
+    case diagnosticSites = "diagnostic-sites-v1"
     /// `energy.set` and `energy.status`: the app's Energy Saver override (`EnergySetRequest.capability`;
     /// cmux-tui-core server/energy_op.rs).
     case energy = "energy-v1"
@@ -541,7 +544,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .terminalSnapshotImages, .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
              .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation,
              .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .eventCause, .energy,
-             .energyRule:
+             .energyRule, .diagnosticSites:
             return .optional
         }
     }
@@ -586,11 +589,12 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// (`TerminalAttachment.attach(device:)`), as does a connection that streams terminals with a
     /// `sizingDevice` (`DaemonConnectionConfiguration`); other connections only read it from `identify`.
     /// `placementShift` only with the sidebar document (`handshakeCapabilities`).
+    /// `diagnosticSites` only on a connection that reports them (`reportsDiagnosticSites`).
     public static let advertised: [String] = (required + optional + unservedByBundledDaemon).filter {
         !notAdvertised.contains($0)
     }
     private static let notAdvertised: Set<String> = Set(names([.terminalFrontendShellIntegration, .placementShift,
-                                                               .sharedSizing]))
+                                                               .sharedSizing, .diagnosticSites]))
 
     /// What a connection echoes in `set-client-info`.
     ///

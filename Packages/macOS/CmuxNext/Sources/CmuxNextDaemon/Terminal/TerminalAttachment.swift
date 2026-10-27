@@ -7,9 +7,11 @@ import os
 /// One attached terminal view: on a connection of its own, or as a client-minted stream on the app's control
 /// connection when that connection streams terminals (TerminalAttachment+Stream.swift, p05-ipc-095). Streams
 /// are the default (feature `terminalStreams`, p05-ipc-094); for one release `CMUX_DISABLE_FEATURES=terminalStreams`
-/// keeps a connection per view, then that path goes (app-daemon-connection-DESIGN.md section 6). Output
-/// flows through a bounded `TerminalEventQueue`; after the attach every command here is fire-and-forget, so a
-/// consumer that stops draining can never deadlock against a blocked reader.
+/// keeps a connection per view, then that path goes (app-daemon-connection-DESIGN.md section 6). Events flow
+/// through a bounded `TerminalEventQueue`; on a connection of its own, live output goes from the reader thread
+/// straight to the view's lane once one is set (``setOutputSink(_:)``, ``TerminalEchoRouter``). After the attach
+/// every command here is fire-and-forget, so a consumer that stops draining can never deadlock against a
+/// blocked reader.
 public actor TerminalAttachment: TerminalByteChannel {
     public struct Target: Sendable, Hashable {
         public var surface: SurfaceID
@@ -137,7 +139,8 @@ public actor TerminalAttachment: TerminalByteChannel {
         self.transport = transport
         self.stream = stream
         let queue = TerminalEventQueue(recorder: transport.recorder)
-        delivery = Delivery(queue: queue, control: ControlBox(), resolvedSurface: SurfaceBox(surface), decoder: transport.decoder)
+        delivery = Delivery(queue: queue, router: TerminalEchoRouter(queue: queue), control: ControlBox(),
+                            resolvedSurface: SurfaceBox(surface), decoder: transport.decoder)
         events = AsyncStream(unfolding: { await queue.next() }, onCancel: { queue.cancel() })
     }
 
@@ -228,6 +231,22 @@ public actor TerminalAttachment: TerminalByteChannel {
     public func resize(cols: Int, rows: Int, pixelWidth: Int, pixelHeight: Int) async {
         sendResize(CellSize(cols: cols, rows: rows))
     }
+
+    // MARK: Live output
+
+    /// Any thread: live output goes from the reader thread straight to `sink` (the view's output lane), in
+    /// order with the events still on ``events``: a sink takes output only once the consumer resumed the
+    /// ``TerminalChannelEvent/outputResume(_:)`` marker behind every event queued before it. Nil: output stays
+    /// on ``events``. A view on a stream keeps its output on ``events``: the lane's capacity and the router's
+    /// hold limit park the reader, and a stream shares its reader with the control connection, which it must
+    /// never block (TerminalAttachment+Stream.swift).
+    public nonisolated func setOutputSink(_ sink: TerminalEchoSink?) {
+        guard stream == nil else { return }
+        delivery.router.setSink(sink)
+    }
+
+    /// Whether the next output chunk goes straight to the sink (tests, diagnostics).
+    public nonisolated var routesOutputToSink: Bool { delivery.router.routesToLane }
 
     // MARK: Geometry and lifetime
 
@@ -332,6 +351,8 @@ public actor TerminalAttachment: TerminalByteChannel {
             return .some(control.lease)
         }
         guard case .some(let lease) = lease else { return }
+        // Output stays on the stream from here, and a reader waiting for the lane reads on to its end.
+        delivery.router.close()
         if let stream { return cancelStream(stream) }
         if let lease { fireAndForget(DetachAttachedViewRequest(surface: surface, lease: lease)) }
         transport.close()

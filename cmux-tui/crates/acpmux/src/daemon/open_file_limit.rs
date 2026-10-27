@@ -17,6 +17,7 @@ const OPEN_MAX: u64 = 10_240;
 /// `kern.maxfilesperproc`) and logs the old and new values. Never lowers it.
 pub(super) fn raise() {
     let mut lim = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    // SAFETY: `lim` is a live, writable rlimit; getrlimit writes only it.
     if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut lim) } != 0 {
         tracing::warn!("open-file limit: getrlimit: {}", std::io::Error::last_os_error());
         return;
@@ -47,6 +48,7 @@ pub(super) fn raise() {
 
 fn set_soft(soft: u64, hard: libc::rlim_t) -> std::io::Result<()> {
     let lim = libc::rlimit { rlim_cur: soft as libc::rlim_t, rlim_max: hard };
+    // SAFETY: `lim` is a live rlimit that setrlimit only reads.
     if unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &lim) } == 0 {
         Ok(())
     } else {
@@ -70,6 +72,8 @@ fn target(soft: u64, hard: u64, cap: Option<u64>) -> u64 {
 fn per_process_cap() -> Option<u64> {
     let mut value: libc::c_int = 0;
     let mut len = std::mem::size_of::<libc::c_int>();
+    // SAFETY: the name is a NUL-terminated literal and `value`/`len` describe
+    // one writable c_int; the null new-value pointer with length 0 sets nothing.
     let rc = unsafe {
         libc::sysctlbyname(
             c"kern.maxfilesperproc".as_ptr(),
