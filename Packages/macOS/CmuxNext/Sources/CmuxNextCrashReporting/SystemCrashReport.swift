@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 /// The parts of a macOS crash report (`.ips`, bug type 309) that a Sentry
 /// event needs: process, exception, the crashed thread's frames and the
@@ -137,13 +138,17 @@ public nonisolated struct SystemCrashReport: Sendable, Equatable {
         /// `/var/folders` runs from `/private/var/folders`); unchanged when the root does not exist. Reads the
         /// file system: the forwarder's queue only.
         func resolvingHostExeRoot() -> HelperRoots {
-            guard let root = hostExeRoot, !root.isEmpty,
-                  // SAFETY: realpath reads the NUL-terminated copy of `root` made for the call and returns a
-                  // malloc'd string or nil; it is copied, then freed below.
-                  let resolved = unsafe realpath(root, nil) else { return self }
-            defer { unsafe free(resolved) }
+            guard let root = hostExeRoot, !root.isEmpty else { return self }
+            let resolved = blockingCall(.fileIO) { () -> String? in
+                // SAFETY: realpath reads the NUL-terminated copy of `root` made for the call and returns a
+                // malloc'd string or nil; it is copied, then freed here.
+                guard let path = unsafe realpath(root, nil) else { return nil }
+                defer { unsafe free(path) }
+                return unsafe String(cString: path)
+            }
+            guard let resolved else { return self }
             var copy = self
-            copy.hostExeRoot = unsafe String(cString: resolved)
+            copy.hostExeRoot = resolved
             return copy
         }
     }
