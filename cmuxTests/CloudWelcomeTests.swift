@@ -303,6 +303,36 @@ struct CloudWelcomeTests {
         }
     }
 
+    @Test("signed out, Upgrade signs the app in before pricing opens")
+    @MainActor
+    func upgradeSignsInBeforePricing() async {
+        var events: [String] = []
+        await CloudWelcomeWindowController.upgrade(
+            isAuthenticated: false,
+            signIn: { events.append("signIn"); return true },
+            presentPricing: { events.append("pricing") }
+        )
+        #expect(events == ["signIn", "pricing"])
+
+        // A cancelled or failed sign-in opens no pricing page.
+        events = []
+        await CloudWelcomeWindowController.upgrade(
+            isAuthenticated: false,
+            signIn: { events.append("signIn"); return false },
+            presentPricing: { events.append("pricing") }
+        )
+        #expect(events == ["signIn"])
+
+        // Signed in goes straight to pricing.
+        events = []
+        await CloudWelcomeWindowController.upgrade(
+            isAuthenticated: true,
+            signIn: { events.append("signIn"); return true },
+            presentPricing: { events.append("pricing") }
+        )
+        #expect(events == ["pricing"])
+    }
+
     @Test("the one prominent button is the next step for this account")
     func nextStepFollowsSignInAndPlan() {
         // Signed out reads like Free: Upgrade to Pro.
