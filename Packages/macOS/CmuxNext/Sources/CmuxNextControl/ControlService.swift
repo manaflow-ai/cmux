@@ -1,6 +1,9 @@
 public import CmuxNextActions
+public import CmuxNextCompat
 import CmuxNextDaemon
 public import CmuxNextSettings
+public import CmuxNextTrace
+public import CmuxNextWakeups
 public import Foundation
 
 /// The App's one-call entry point for the control socket.
@@ -20,11 +23,17 @@ public import Foundation
 /// `automation.socketControlMode`, else `automation` (any process of this
 /// user; see ``defaultAccessMode``). The retired password mode fails closed
 /// to `off`; plaintext socket passwords are never read from settings or env.
+///
+/// Hang watch: with `hangs` (the app passes `TraceRuntime.shared.hangWatch`, which its hang monitor reads),
+/// the accept queue and each connection's queue are hang-watched lanes, one scope per job
+/// (``ControlSocketServer``); nil, the default, watches nothing.
 @MainActor
 public final class ControlService {
     public let server: ControlSocketServer
     public let router: ControlRouter
     public let bridge: RegistryControlBridge
+    /// The router's idempotency cache in the app's memory coordinator (`control-idempotency`).
+    private var memoryRegistration: AsyncMemoryConsumerRegistration?
 
     init(server: ControlSocketServer, router: ControlRouter, bridge: RegistryControlBridge) {
         self.server = server
@@ -43,10 +52,13 @@ public final class ControlService {
         bundle: Bundle = .main,
         accessMode explicitMode: ControlAccessMode? = nil,
         frameSource: any ControlFrameSource = MainQueueFrameSource(),
-        watchdog: MainThreadWatchdog? = nil
+        watchdog: MainThreadWatchdog? = nil,
+        mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
+        hangs: (any HangWatchScoping)? = nil
     ) throws -> ControlService {
         let service = try prepare(registry: registry, settings: settings, launch: launch, environment: environment, bundle: bundle,
-                                  accessMode: explicitMode, frameSource: frameSource, watchdog: watchdog)
+                                  accessMode: explicitMode, frameSource: frameSource, watchdog: watchdog, mainWork: mainWork,
+                                  hangs: hangs)
         try service.server.start()
         return service
     }
@@ -62,7 +74,9 @@ public final class ControlService {
         bundle: Bundle = .main,
         accessMode explicitMode: ControlAccessMode? = nil,
         frameSource: any ControlFrameSource = MainQueueFrameSource(),
-        watchdog: MainThreadWatchdog? = nil
+        watchdog: MainThreadWatchdog? = nil,
+        mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
+        hangs: (any HangWatchScoping)? = nil
     ) throws -> ControlService {
         let configuredMode = settings?.snapshot.root.value(at: ["automation", "socketControlMode"])?.stringValue
         let mode = resolveAccessMode(explicit: explicitMode, environment: environment, configured: configuredMode)
@@ -86,7 +100,9 @@ public final class ControlService {
                                                              compatibilityLink: launch.compatibilityLink),
             identity: identity,
             frameSource: frameSource,
-            watchdog: watchdog
+            watchdog: watchdog,
+            mainWork: mainWork,
+            hangs: hangs
         )
     }
 
@@ -98,15 +114,18 @@ public final class ControlService {
         configuration: ControlSocketServer.Configuration,
         identity: ControlIdentity,
         frameSource: any ControlFrameSource = MainQueueFrameSource(),
-        watchdog: MainThreadWatchdog? = nil
+        watchdog: MainThreadWatchdog? = nil,
+        mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
+        hangs: (any HangWatchScoping)? = nil
     ) throws -> ControlService {
         let service = try prepare(registry: registry, settingsStore: settingsStore, settingsWriter: settingsWriter,
-                                  configuration: configuration, identity: identity, frameSource: frameSource, watchdog: watchdog)
+                                  configuration: configuration, identity: identity, frameSource: frameSource, watchdog: watchdog,
+                                  mainWork: mainWork, hangs: hangs)
         try service.server.start()
         return service
     }
 
-    /// ``prepare(registry:settings:launch:environment:bundle:accessMode:frameSource:watchdog:)`` with an
+    /// ``prepare(registry:settings:launch:environment:bundle:accessMode:frameSource:watchdog:mainWork:hangs:)`` with an
     /// explicit configuration (tests, demos).
     public static func prepare(
         registry: ActionRegistry,
@@ -115,16 +134,35 @@ public final class ControlService {
         configuration: ControlSocketServer.Configuration,
         identity: ControlIdentity,
         frameSource: any ControlFrameSource = MainQueueFrameSource(),
-        watchdog: MainThreadWatchdog? = nil
+        watchdog: MainThreadWatchdog? = nil,
+        mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
+        hangs: (any HangWatchScoping)? = nil
     ) throws -> ControlService {
         guard configuration.accessMode != .off else { throw ControlSocketServer.StartError.disabled }
-        let bridge = RegistryControlBridge(registry: registry)
+        let bridge = RegistryControlBridge(registry: registry, work: mainWork)
         let router = ControlRouter(identity: identity, executor: bridge, settings: settingsStore, settingsWriter: settingsWriter,
                                    frameSource: frameSource)
         router.attach(watchdog: watchdog)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // Every thread's requested QoS against its declared row (threading-model.md).
+        router.register([ThreadsControl().method])
+        #endif
         bridge.attach(to: router)
-        let server = ControlSocketServer(configuration: configuration, router: router)
+        let server = ControlSocketServer(configuration: configuration, router: router, hangs: hangs)
         return ControlService(server: server, router: router, bridge: bridge)
+    }
+
+    /// Registers the router's idempotency cache with the app's memory coordinator
+    /// (`control-idempotency`); the service keeps the registration, so the coordinator calls the cache
+    /// while the service lives. A second call replaces the first.
+    ///
+    /// - Parameters:
+    ///   - registry: The memory coordinator (AppServices+Memory.swift).
+    ///   - hop: How the coordinator's calls leave the main actor (tests pass their own).
+    public func registerMemoryConsumer(with registry: any MemoryConsumerRegistry, hop: AsyncMemoryConsumerHop = .task) {
+        memoryRegistration = AsyncMemoryConsumerRegistration(
+            name: "control-idempotency", traits: ControlIdempotencyCache.memoryTraits, consumer: router.idempotency,
+            registry: registry, hop: hop)
     }
 
     /// Starts accepting, once every method group is registered: on `listener` when the app bound it

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import os
 
@@ -321,7 +322,7 @@ public struct AgentSessionAttachError: Error, Sendable, Equatable {
 
 /// The current push handler, read on the transport's reader thread.
 private final class HandlerBox: Sendable {
-    private let lock = OSAllocatedUnfairLock<AgentSessionAttachClient.EventHandler?>(initialState: nil)
+    private let lock = Mutex<AgentSessionAttachClient.EventHandler?>(nil)
     var current: AgentSessionAttachClient.EventHandler? { lock.withLock { $0 } }
     func set(_ handler: AgentSessionAttachClient.EventHandler?) { lock.withLock { $0 = handler } }
 }

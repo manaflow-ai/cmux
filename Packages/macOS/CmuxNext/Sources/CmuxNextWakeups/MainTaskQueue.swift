@@ -7,7 +7,7 @@
 /// Work posted here runs in its class on the ``MainWorkScheduler`` (in class order, within the
 /// class budget, yielding to a person's input) while the queue may run. Whether it may run depends
 /// on the node:
-/// - Visible: every task runs, in post order.
+/// - Visible, or held by a capture vote (``VisibilityNode/wantsFrames``): every task runs, in post order.
 /// - Hidden or occluded: `visible` and `automation` tasks are held until the node shows; nothing a
 ///   person cannot see is drawn or applied for them. `background` tasks run at the scheduler's
 ///   aligned hidden wakes (``MainWorkScheduler/hiddenWake``; 1 s, Blink's `WakeUpBudgetPool`
@@ -159,9 +159,9 @@ public final class MainTaskQueue {
 
     // MARK: Node changes
 
-    /// The node flipped, froze or unfroze (``VisibilityNode`` calls it).
+    /// The node flipped, a capture vote came or went, or the node froze or unfroze (``VisibilityNode`` calls it).
     func nodeDidChange() {
-        if node.isVisible { released = 0 }
+        if node.wantsFrames { released = 0 }
         schedule()
     }
 
@@ -169,7 +169,7 @@ public final class MainTaskQueue {
 
     private var mayRunNow: Bool {
         guard isEnabled, !node.isFrozen else { return false }
-        return node.isVisible || released > 0
+        return node.wantsFrames || released > 0
     }
 
     private func append(_ item: Item) {
@@ -181,7 +181,7 @@ public final class MainTaskQueue {
     /// background tasks that may not.
     private func schedule() {
         guard pendingCount > 0, isEnabled, !node.isFrozen else { return }
-        if node.isVisible {
+        if node.wantsFrames {
             postPumps(upTo: pendingCount)
         } else if workClass == .background {
             if released > 0 { postPumps(upTo: released) } else { requestHiddenWake() }
@@ -205,7 +205,7 @@ public final class MainTaskQueue {
     private func pump() {
         pumps -= 1
         guard pendingCount > 0, mayRunNow else { return work.budget.noteRanNothing() }
-        if !node.isVisible { released -= 1 }
+        if !node.wantsFrames { released -= 1 }
         let item = pending[head]
         pending[head] = Item(work: nil, key: nil, post: item.post)
         head += 1
@@ -214,7 +214,7 @@ public final class MainTaskQueue {
         work.budget.notePost(item.post.starting(in: MainTaskPost.NodeState(node.effective)))
         runsByNodeState[node.effective.rawValue] += 1
         item.work?()
-        if !node.isVisible, released == 0 { schedule() }
+        if !node.wantsFrames, released == 0 { schedule() }
     }
 
     private func requestHiddenWake() {
@@ -227,7 +227,7 @@ public final class MainTaskQueue {
     /// posted after it wait for the next wake.
     private func hiddenWakeFired() {
         wakeRequested = false
-        guard !node.isVisible else { return }
+        guard !node.wantsFrames else { return }
         released = pendingCount
         schedule()
     }

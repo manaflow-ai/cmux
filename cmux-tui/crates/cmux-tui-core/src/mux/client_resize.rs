@@ -1,6 +1,8 @@
 //! Client surface resizes: client size resolution and records, control client resizes with reservations and completions, rollback, and size client removal.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
+use cmux_threads::work::{Lane, Priority, Shutdown};
 
 impl Mux {
     pub(super) fn resolve_client_size(
@@ -8,7 +10,7 @@ impl Mux {
         requested: Option<(u16, u16)>,
         default: (u16, u16),
     ) -> (u16, u16) {
-        let mut sizing = self.client_sizing.lock().unwrap();
+        let mut sizing = self.client_sizing.lock().recover_poison();
         if let Some((cols, rows)) = requested {
             let size = clamp_terminal_size(cols, rows);
             sizing.record_explicit_size(size);
@@ -25,7 +27,7 @@ impl Mux {
     /// unsized surface creation.
     pub fn record_client_size(&self, cols: u16, rows: u16) -> (u16, u16) {
         let size = clamp_terminal_size(cols, rows);
-        self.client_sizing.lock().unwrap().record_explicit_size(size);
+        self.client_sizing.lock().recover_poison().record_explicit_size(size);
         size
     }
 
@@ -54,7 +56,7 @@ impl Mux {
         let terminal_runtime = self.surface(id).and_then(|surface| surface.terminal_runtime_id());
         // Serialize the report and its application. Otherwise an older
         // effective size can reach the PTY after a newer shared minimum.
-        let mut sizing = self.client_sizing.lock().unwrap();
+        let mut sizing = self.client_sizing.lock().recover_poison();
         let attached_clients = self.control_clients.attached_client_ids_for_surface(id);
         let result = self.resize_surface_for_client_locked(
             &mut sizing,
@@ -107,7 +109,7 @@ impl Mux {
         // Keep registration, report insertion, and reducer insertion in one
         // critical section. Disconnect and final stream detach remove their
         // leases through this same sizing lock after dropping the registry lock.
-        let mut sizing = self.client_sizing.lock().unwrap();
+        let mut sizing = self.client_sizing.lock().recover_poison();
         let attached = self.control_clients.record_size(client, id, requested.0, requested.1)?;
         let result = self.resize_surface_for_prepared_control_client_locked(
             &mut sizing,
@@ -142,7 +144,7 @@ impl Mux {
     ) -> anyhow::Result<ControlClientResize> {
         let requested = clamp_terminal_size(requested.0, requested.1);
         let terminal_runtime = self.surface(id).and_then(|surface| surface.terminal_runtime_id());
-        let mut sizing = self.client_sizing.lock().unwrap();
+        let mut sizing = self.client_sizing.lock().recover_poison();
         let result = self.resize_surface_for_prepared_control_client_locked(
             &mut sizing,
             PreparedControlClientResize {
@@ -371,7 +373,7 @@ impl Mux {
         if !self.control_clients.contains(client) {
             return;
         }
-        let mut sizing = self.client_sizing.lock().unwrap();
+        let mut sizing = self.client_sizing.lock().recover_poison();
         let current_size =
             sizing.surfaces.get(&id).and_then(|viewers| viewers.get(&client).copied());
         let current_report_order = sizing.report_order.get(&(id, client)).copied();
@@ -465,32 +467,50 @@ impl Mux {
             hook();
         }
 
-        let restoration_failed = match restore {
-            SurfaceResizeRestore::Complete(restored) => !restored,
-            SurfaceResizeRestore::Pending(completion) => {
-                match completion.recv_timeout(Duration::from_secs(10)) {
-                    Ok(Ok(())) => false,
-                    Ok(Err(_)) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => true,
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                        // The rolled-back registry remains authoritative while
-                        // the compensating browser reservation stays queued.
-                        // Do not reinstall the failed attach's claim before the
-                        // browser worker reaches a terminal outcome, and do not
-                        // retain the connection or another blocking waiter.
-                        return;
+        let completion = match restore {
+            SurfaceResizeRestore::Complete(true) => return,
+            SurfaceResizeRestore::Complete(false) => {
+                self.reconcile_failed_surface_size_rollback(
+                    id,
+                    client,
+                    current_size,
+                    current_report_order,
+                    rollback_token,
+                );
+                return;
+            }
+            SurfaceResizeRestore::Pending(completion) => completion,
+        };
+        // The browser's outcome is awaited on a work lane, never on the
+        // request thread that rolled the attach back. A refused item (the mux
+        // is shutting down) leaves the rolled-back registry as a timeout does.
+        let _ = self.post_mux_work(
+            Priority::UserVisible,
+            Lane::System,
+            Shutdown::SkipOnShutdown,
+            move |mux| match cmux_threads::checked::sync::recv_timeout(
+                &completion,
+                Duration::from_secs(10),
+            ) {
+                Ok(Ok(())) => {}
+                Ok(Err(_)) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    if let Some(mux) = mux.upgrade() {
+                        mux.reconcile_failed_surface_size_rollback(
+                            id,
+                            client,
+                            current_size,
+                            current_report_order,
+                            rollback_token,
+                        );
                     }
                 }
-            }
-        };
-        if restoration_failed {
-            self.reconcile_failed_surface_size_rollback(
-                id,
-                client,
-                current_size,
-                current_report_order,
-                rollback_token,
-            );
-        }
+                // The rolled-back registry remains authoritative while the
+                // compensating browser reservation stays queued: the failed
+                // attach's claim is not reinstalled before the browser worker
+                // reaches a terminal outcome.
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            },
+        );
     }
 
     pub(super) fn reconcile_failed_surface_size_rollback(
@@ -505,7 +525,7 @@ impl Mux {
         if !self.control_clients.contains(client) {
             return;
         }
-        let mut sizing = self.client_sizing.lock().unwrap();
+        let mut sizing = self.client_sizing.lock().recover_poison();
         let attached_clients = self.control_clients.attached_client_ids_for_surface(id);
         if sizing.rollback_token(id, Some(&attached_clients)) != rollback_token {
             return;
@@ -579,7 +599,7 @@ impl Mux {
     pub fn remove_surface_size_client(&self, id: SurfaceId, client: u64) {
         // Removal participates in the same ordering as size reports.
         let terminal_runtime = self.surface(id).and_then(|surface| surface.terminal_runtime_id());
-        let mut sizing = self.client_sizing.lock().unwrap();
+        let mut sizing = self.client_sizing.lock().recover_poison();
         let attached_clients = self.control_clients.attached_client_ids_for_surface(id);
         // Final-stream cleanup runs after the registry removes this
         // attachment. Reconstruct the preceding attachment set so an
@@ -641,7 +661,7 @@ impl Mux {
         client: u64,
         attached_surfaces: impl IntoIterator<Item = SurfaceId>,
     ) {
-        let mut sizing = self.client_sizing.lock().unwrap();
+        let mut sizing = self.client_sizing.lock().recover_poison();
         sizing.detached_views.retain(|(viewer, _)| *viewer != client);
         let attached_clients = self.control_clients.attached_client_ids_by_surface();
         // The registry snapshot no longer contains this client. Reconstruct
@@ -748,7 +768,7 @@ impl Mux {
     pub fn client_surface_size(&self, id: SurfaceId, client: u64) -> Option<(u16, u16)> {
         self.client_sizing
             .lock()
-            .unwrap()
+            .recover_poison()
             .surfaces
             .get(&id)
             .and_then(|viewers| viewers.get(&client).copied())

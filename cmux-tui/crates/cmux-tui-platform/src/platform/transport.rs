@@ -26,6 +26,14 @@ pub trait Stream: Read + Write + Send + Sync {
     fn peer_uid(&self) -> Option<u32> {
         None
     }
+    /// The connected socket itself, for a reader that takes descriptors
+    /// with its bytes (`recvmsg`, cmux-ipc `fds`). `None` for a stream that
+    /// is not read straight from one socket (one that replays a prefix, a
+    /// test double): those are read with `Read`.
+    #[cfg(unix)]
+    fn socket_fd(&self) -> Option<std::os::fd::RawFd> {
+        None
+    }
 }
 
 pub struct Listener {
@@ -129,6 +137,10 @@ mod imp {
 
         fn peer_uid(&self) -> Option<u32> {
             crate::platform::unix_peer_uid(self).ok()
+        }
+
+        fn socket_fd(&self) -> Option<std::os::fd::RawFd> {
+            Some(std::os::fd::AsRawFd::as_raw_fd(self))
         }
     }
 }

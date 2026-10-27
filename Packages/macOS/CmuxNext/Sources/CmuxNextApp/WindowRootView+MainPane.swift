@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextHibernation
 import Observation
 
 /// The window's content host as the curved main pane (cx-rkgu): a rounded
@@ -33,6 +34,20 @@ final class MainPaneCardView: NSView {
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         onFrameChange?()
+    }
+
+    /// Takes workspaces hidden past a grace out of the card (feature `hiddenWorkspaceDetachAfterGrace`,
+    /// p03-rendering-096); nil hides only: a hidden workspace stays here, withdrawn hidden, until its
+    /// controller tears it down.
+    var hiddenDetach: HiddenWorkspaceDetach? {
+        didSet { hiddenDetach?.host = self }
+    }
+
+    /// A workspace view here hid or showed (`WorkspaceContentView.isHidden`): a hide starts its grace, a show
+    /// ends it, whether a switch (`WindowRootView.show`) or the side-by-side view (`arrangeOnScreen`) set it.
+    func workspaceDidChangeHidden(_ view: NSView) {
+        guard let hiddenDetach else { return }
+        if view.isHidden { hiddenDetach.didHide(view) } else { hiddenDetach.willShow(view) }
     }
 
     /// Places the workspaces a window shows side by side in these bounds (`WindowController.arrangeOnScreen`, Debug
@@ -93,7 +108,7 @@ final class MainPaneCardView: NSView {
         CATransaction.setDisableActions(true)
         layer.masksToBounds = clips
         CATransaction.commit()
-        if let window { NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window) }
+        window?.updateBrowserPageGeometry()
         return true
     }
 
@@ -119,6 +134,18 @@ final class MainPaneCardView: NSView {
             changed = true
         }
         return applyClip() || changed
+    }
+}
+
+extension MainPaneCardView: HiddenWorkspaceDetachHost {
+    func holdsHidden(_ workspace: AnyObject) -> Bool {
+        guard let view = workspace as? NSView else { return false }
+        return view.superview === self && view.isHidden
+    }
+
+    func detach(_ workspace: AnyObject) {
+        guard let view = workspace as? NSView, view.superview === self, view.isHidden else { return }
+        view.removeFromSuperview()
     }
 }
 
@@ -162,7 +189,7 @@ extension WindowRootView {
             }
         }
         applySidebarRail()
-        needsLayout = true
+        needsLayout = true // invalidate: the callers moved the gutter, the right panel or the titlebar inset.
         updateMainPaneShade()
     }
 
@@ -183,9 +210,7 @@ extension WindowRootView {
     /// told to re-read their clip.
     func updateMainPaneShade() {
         let radius = mainPaneCornerRadius
-        if contentHost.setCornerRadius(radius), let window {
-            NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
-        }
+        if contentHost.setCornerRadius(radius) { window?.updateBrowserPageGeometry() }
         let alpha = Metrics.mainPaneChromeShade(isDark: themeTokens.isDark)
         mainPaneShade.update(card: contentHost.frame, radius: radius, alpha: alpha)
     }

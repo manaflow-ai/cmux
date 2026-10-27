@@ -85,7 +85,7 @@ import Testing
         #expect(plan.discards == ["pinned"], "a pinned page stayed though pinned tabs hibernate")
     }
 
-    // MARK: Freeze, pace and Low Power Mode
+    // MARK: Freeze, pace and Energy Saver
 
     @Test func aHiddenPageFreezesOnceNoLongerRecentlyVisible() {
         let before = planner.plan([page("p", hiddenFor: 9.5), fresh], conditions: .init())
@@ -94,8 +94,8 @@ import Testing
         let after = planner.plan([page("p", hiddenFor: 10), fresh], conditions: .init())
         #expect(after.state(of: "p") == .frozen)
         #expect(after.decisions["p"]?.nextDeadline == 290)
-        let lowPower = planner.plan([page("p", hiddenFor: 3), fresh], conditions: .init(lowPowerMode: true))
-        #expect(lowPower.state(of: "p") == .frozen, "Low Power Mode kept a page warm as long as without it")
+        let saver = planner.plan([page("p", hiddenFor: 3), fresh], conditions: .init(energySaver: true))
+        #expect(saver.state(of: "p") == .frozen, "Energy Saver kept a page warm as long as without it")
     }
 
     @Test func discardsGoLongestHiddenFirstAtThePace() {
@@ -330,7 +330,7 @@ import Testing
         }
         if random.oneIn(5) { setting.freezeSeconds = nil }
         setting.includesPinnedTabs = random.oneIn(3)
-        let conditions = PageLifecyclePlanner.Conditions(setting: setting, pressure: random.pick(pressures), lowPowerMode: random.oneIn(4))
+        let conditions = PageLifecyclePlanner.Conditions(setting: setting, pressure: random.pick(pressures), energySaver: random.oneIn(4))
         let count = 1 + Int(random.next() % 10)
         let pages = (0..<count).map { number in
             let offset = Double(random.next() % 200) / 2

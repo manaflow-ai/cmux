@@ -2,17 +2,15 @@
 
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::sync::Arc;
 
+use super::routes::RouteLine;
 use super::{MessageWriter, Response, apps, origin_gate, responses::send_response};
-use crate::mux::Mux;
 use crate::resource::{MachinePublicId, SessionPublicId};
 use crate::workspace_registry::agent_cli_intents::AgentCLIIntent;
 
 pub(super) const CAPABILITY: &str = "agent-cli-intents-v1";
 
-/// The wire names of [`Command`], matched before admission so other
-/// commands pass through untouched.
+/// The wire names of [`Command`]: the names of this module's route.
 pub(in crate::server) const COMMANDS: [&str; 4] = [
     "agent-cli-intents-record",
     "agent-cli-intents-list",
@@ -57,24 +55,19 @@ pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
     &[crate::server::routes::Route {
         names: &[crate::server::routes::RouteName::OneOf(&COMMANDS)],
         stage: crate::server::FrameStage::AgentCliIntents,
-        entry: |line| try_handle(line.mux, line.client, line.message, line.writer),
+        entry: handle,
     }];
 
-pub(super) fn try_handle(
-    mux: &Arc<Mux>,
-    client: u64,
-    message: &str,
-    writer: &MessageWriter,
-) -> Option<bool> {
-    if !message.contains("agent-cli-intents-") {
-        return None;
-    }
+/// Answers a line whose `cmd` is one of [`COMMANDS`] (the route found it by
+/// name). The line's one decode is its `Value`, which gives every reply the
+/// `id` as written, a refused one too, and then the typed [`Command`].
+/// `None` only for a line with no `Value` (a number past `f64`, a lone
+/// surrogate); the `Command` parse answers it.
+fn handle(line: &RouteLine<'_>) -> Option<bool> {
+    let RouteLine { mux, client, message, writer, .. } = *line;
     let Ok(Value::Object(mut fields)) = crate::line_parses::parse::<Value>(message) else {
         return None;
     };
-    if !fields.get("cmd").and_then(Value::as_str).is_some_and(|cmd| COMMANDS.contains(&cmd)) {
-        return None;
-    }
     let id = fields.remove("id");
     if !mux.control_clients.is_unix(client)
         || mux.is_remote_client(client)

@@ -8,7 +8,6 @@ final class FindPillButton: NSButton {
     private var hovering = false {
         didSet { if hovering != oldValue { applyColors() } }
     }
-    private var tracking: NSTrackingArea?
 
     init(image: NSImage?, title: String = "", toggle: Bool = false, target: AnyObject?, action: Selector) {
         super.init(frame: .zero)
@@ -28,6 +27,7 @@ final class FindPillButton: NSButton {
             widthAnchor.constraint(greaterThanOrEqualToConstant: FindPillMetrics.buttonSize),
         ])
         setContentHuggingPriority(.required, for: .horizontal)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
     }
 
     @available(*, unavailable)
@@ -41,18 +41,10 @@ final class FindPillButton: NSButton {
         didSet { applyColors() }
     }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
-                                  owner: self, userInfo: nil)
-        addTrackingArea(area)
-        tracking = area
-    }
-
     override func mouseEntered(with event: NSEvent) { hovering = true }
     override func mouseExited(with event: NSEvent) { hovering = false }
 
+    // visibility-walk-allow: a tint, a layer fill, an alpha and (titled buttons) one short title's color; the pill lives only while its find is open, so a deferral costs more
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()

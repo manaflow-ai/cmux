@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -51,6 +52,7 @@ extension TabDragSession {
         case .tab(let id):
             // A session-local tab (an internal page) is not a daemon tab
             // and cannot move: it springs back.
+            // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051) per drop, no observation
             guard let (tab, _) = services.locateTab(id) else { return settle(false) }
             executeTab(outcome, tab: tab, dropWindow: dropWindow, drag: drag, transaction: transaction, settle: settle)
         case .group(let id, _):
@@ -93,8 +95,9 @@ extension TabDragSession {
             // Made unplaced, then put at the gap by the sidebar's own path
             // (personal order, or move-workspace-to-group at the slot).
             let slot = gapSlot(drag)
-            Task { [services] in
-                let key = await TabMoves.toNewWorkspace(tab, services: services, transaction: transaction)
+            landNewWorkspace("TabDrag.tabToNewWorkspace", { [services] in
+                await TabMoves.toNewWorkspace(tab, services: services, transaction: transaction)
+            }) { [self] key in
                 drag.landedWorkspaceID = key?.rawValue
                 if let key, let state = dropWindow?.state { claimAndPlace(key, in: state, at: slot, select: !drag.filesAway) }
                 settle(key != nil)
@@ -113,8 +116,9 @@ extension TabDragSession {
             }
         case .tearOff(let point):
             let frame = tearOffFrame(drag, at: point, size: drag.source.windowSize)
-            Task { [services] in
-                let key = await TabMoves.toNewWorkspace(tab, services: services, transaction: transaction)
+            landNewWorkspace("TabDrag.tabTearOff", { [services] in
+                await TabMoves.toNewWorkspace(tab, services: services, transaction: transaction)
+            }) { [self] key in
                 drag.landedWorkspaceID = key?.rawValue
                 if let key { focusTornOff(openTornOff(workspace: key, frame: frame, drag: drag), drag: drag) }
                 settle(key != nil)
@@ -149,8 +153,9 @@ extension TabDragSession {
             settle(false)
         case .newWorkspace:
             let slot = gapSlot(drag)
-            Task { [services] in
-                let key = await TabGroupMoves.toNewWorkspace(group, workspaceGroup: nil, index: nil, services: services, transaction: transaction)
+            landNewWorkspace("TabDrag.groupToNewWorkspace", { [services] in
+                await TabGroupMoves.toNewWorkspace(group, workspaceGroup: nil, index: nil, services: services, transaction: transaction)
+            }) { [self] key in
                 drag.landedWorkspaceID = key?.rawValue
                 if let key, let state = dropWindow?.state { claimAndPlace(key, in: state, at: slot, select: !drag.filesAway) }
                 settle(key != nil)
@@ -162,8 +167,9 @@ extension TabDragSession {
             TabGroupMoves.move(group, to: pane, index: pane.tabs.count, services: services, transaction: transaction, completion: settle)
         case .tearOff(let point):
             let frame = tearOffFrame(drag, at: point, size: drag.source.windowSize)
-            Task { [services] in
-                let key = await TabGroupMoves.toNewWorkspace(group, workspaceGroup: nil, index: nil, services: services, transaction: transaction)
+            landNewWorkspace("TabDrag.groupTearOff", { [services] in
+                await TabGroupMoves.toNewWorkspace(group, workspaceGroup: nil, index: nil, services: services, transaction: transaction)
+            }) { [self] key in
                 drag.landedWorkspaceID = key?.rawValue
                 if let key { focusTornOff(openTornOff(workspace: key, frame: frame, drag: drag), drag: drag) }
                 settle(key != nil)
@@ -171,6 +177,18 @@ extension TabDragSession {
         case .moveWindow, .moveWorkspaceToNewWindow, .moveWorkspace, .cancel:
             settle(false)
         }
+    }
+
+    /// A drop that makes a workspace (a sidebar gap, a tear-off): `move` runs off the main thread (recipe R-hop) and
+    /// `landed` ends the drop on main as one task of the drag's completion class, userBlocking: the rest of the
+    /// person's drag (Chrome kUserBlocking, content/browser/scheduler/browser_task_queues.h).
+    func landNewWorkspace(_ owner: String, _ move: @escaping @Sendable () async -> WorkspaceKey?,
+                          landed: @escaping @MainActor (WorkspaceKey?) -> Void) {
+        let end = DropEnd(landed)
+        services.registry.trackWork(owner: owner, on: services.mainWork, move, then: { result in
+            end.land(try? result.get())
+            return nil
+        })
     }
 
     /// Opens the torn-off workspace in a new window under the pointer. The
@@ -215,7 +233,7 @@ extension TabDragSession {
         if let landed = drag.landedWorkspaceID, let source = drag.source.pane,
            services.machines.daemon(forWorkspace: landed) !== services.machines.daemon(forPane: source.pane) { return }
         let landing = drag.landedWorkspaceID.flatMap { services.windows.registry.value.owner(of: $0) }
-            .flatMap(services.windows.controller(for:)) ?? dropWindow
+            .flatMap(services.windows.controllerBuildingIfWaiting(for:)) ?? dropWindow
         let facts = DropRevealPolicy.Facts(outcome: outcome, landed: true, userInitiated: true, filesAway: drag.filesAway,
                                            crossesWindows: landing !== drag.source.window, appActive: NSApp.isActive,
                                            noActivate: WindowPlacement.noActivate,
@@ -264,4 +282,15 @@ extension TabDragSession {
               let pane = content.daemon.store.pane(handle) else { return nil }
         return (pane, content.handles.columns[column.id])
     }
+}
+
+/// A drop's main-thread end in a main-actor object, which the move's off-main work can carry (its closure is not Sendable).
+private final class DropEnd {
+    private let landed: @MainActor (WorkspaceKey?) -> Void
+
+    init(_ landed: @escaping @MainActor (WorkspaceKey?) -> Void) {
+        self.landed = landed
+    }
+
+    func land(_ key: WorkspaceKey?) { landed(key) }
 }

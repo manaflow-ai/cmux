@@ -25,8 +25,9 @@ enum WebInspectorTarget {
         return false
     }
 
-    /// The WebKit web view, for Web Inspector: the plain one, or a WebKit tab's.
-    var webKitView: WKWebView? {
+    /// The WebKit engine, for Web Inspector: the plain web view, or a WebKit tab's; nil for a
+    /// Chromium tab, whose DevTools the tab itself hosts (``BrowserDevToolsHosting``).
+    var webKitEngine: WKWebView? {
         switch self {
         case .browser(let tab): (tab as? WebKitTab)?.webView
         case .webView(let webView): webView

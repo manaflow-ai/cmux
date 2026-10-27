@@ -23,7 +23,7 @@ extension PaneOverlayView {
         if fromAlpha != toAlpha, toAlpha > 0 {
             // Its opacity is the host's times the screen's.
             let rest = CGFloat(layer.opacity)
-            moves.append(RenderSpring.Move(layer, "opacity", from: rest * fromAlpha / toAlpha, to: rest))
+            moves.append(RenderSpring.Move(layer, .opacity, from: rest * fromAlpha / toAlpha, to: rest))
         }
         moves += rideMask(from: from, velocity: velocity)
         guard from.size != bounds.size else { return moves }
@@ -76,10 +76,10 @@ extension PaneOverlayView {
         let start = position(from), rest = position(to)
         let rate = RenderLayerAxes(x: 1, y: 1).velocity(velocity, anchor: anchor)
         return [
-            RenderSpring.Move(layer, "position.x", from: start.x, to: rest.x, velocity: rate.position.x),
-            RenderSpring.Move(layer, "position.y", from: start.y, to: rest.y, velocity: rate.position.y),
-            RenderSpring.Move(layer, "bounds.size.width", from: from.size.width, to: to.size.width, velocity: rate.size.width),
-            RenderSpring.Move(layer, "bounds.size.height", from: from.size.height, to: to.size.height, velocity: rate.size.height),
+            RenderSpring.Move(layer, .positionX, from: start.x, to: rest.x, velocity: rate.position.x),
+            RenderSpring.Move(layer, .positionY, from: start.y, to: rest.y, velocity: rate.position.y),
+            RenderSpring.Move(layer, .boundsWidth, from: from.size.width, to: to.size.width, velocity: rate.size.width),
+            RenderSpring.Move(layer, .boundsHeight, from: from.size.height, to: to.size.height, velocity: rate.size.height),
         ]
     }
 }

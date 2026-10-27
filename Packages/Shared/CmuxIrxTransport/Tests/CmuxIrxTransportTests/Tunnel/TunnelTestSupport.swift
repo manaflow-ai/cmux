@@ -18,14 +18,18 @@ final class TunnelTestTCPServer: @unchecked Sendable {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else { throw POSIXError(.EIO) }
         var one: Int32 = 1
-        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, socklen_t(MemoryLayout<Int32>.size))
+        // SAFETY: setsockopt reads the Int32 size passed from the local `one`.
+        unsafe setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, socklen_t(MemoryLayout<Int32>.size))
         var address = sockaddr_in()
         address.sin_family = sa_family_t(AF_INET)
-        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        // SAFETY: inet_addr reads the NUL-terminated copy of the literal made for this call.
+        address.sin_addr.s_addr = unsafe inet_addr("127.0.0.1")
         address.sin_port = 0
         let bound = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            // SAFETY: a sockaddr_in begins with the sockaddr header; bind reads the
+            // sockaddr_in size passed from the local `address`, live for this call.
+            unsafe $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                unsafe bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
             }
         }
         guard bound == 0, listen(fd, 16) == 0 else {
@@ -34,7 +38,9 @@ final class TunnelTestTCPServer: @unchecked Sendable {
         }
         var length = socklen_t(MemoryLayout<sockaddr_in>.size)
         _ = withUnsafeMutablePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(fd, $0, &length) }
+            // SAFETY: getsockname writes at most `length` bytes, sizeof(sockaddr_in), into
+            // the local `address`, live for this call.
+            unsafe $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { unsafe getsockname(fd, $0, &length) }
         }
         port = Int(UInt16(bigEndian: address.sin_port))
         listenFD = fd
@@ -44,7 +50,8 @@ final class TunnelTestTCPServer: @unchecked Sendable {
 
     private func acceptLoop() {
         while true {
-            let client = accept(listenFD, nil, nil)
+            // SAFETY: with no address buffer, accept writes no peer address.
+            let client = unsafe accept(listenFD, nil, nil)
             guard client >= 0 else { return }
             Thread { Self.echo(client) }.start()
         }
@@ -53,17 +60,20 @@ final class TunnelTestTCPServer: @unchecked Sendable {
     private static func echo(_ fd: Int32) {
         var buffer = [UInt8](repeating: 0, count: 16 * 1024)
         while true {
-            let count = read(fd, &buffer, buffer.count)
+            // SAFETY: read writes at most buffer.count bytes into the array, live for this call.
+            let count = unsafe read(fd, &buffer, buffer.count)
             if count <= 0 { break }
             var offset = 0
             while offset < count {
-                let written = buffer[offset..<count].withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }
+                // SAFETY: write reads the slice's count bytes from its view, live for this call.
+                let written = buffer[offset..<count].withUnsafeBytes { unsafe write(fd, $0.baseAddress, $0.count) }
                 if written <= 0 { close(fd); return }
                 offset += written
             }
         }
         let trailer = Array("<eof>".utf8)
-        _ = trailer.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }
+        // SAFETY: write reads trailer.count bytes from the array, live for this call.
+        _ = unsafe write(fd, trailer, trailer.count)
         close(fd)
     }
 

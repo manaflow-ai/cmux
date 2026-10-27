@@ -1,7 +1,7 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 import CmuxNextTerminalFind
-import CmuxNextWakeups
+public import CmuxNextWakeups
 import Observation
 
 /// Container the App embeds. Holds the current surface view (swapped on
@@ -39,7 +39,11 @@ public final class TerminalHostView: NSView {
     /// without `tab-restart-v1`, a tab that cannot restart).
     public var onRestart: (@MainActor () -> Void)? {
         get { restartAction }
-        set { restartAction = newValue; syncRestartButton(); needsLayout = true }
+        set {
+            let offered = offersRestart // each tab switch sets it again (`TerminalTabContent.make`)
+            restartAction = newValue; syncRestartButton()
+            if offersRestart != offered { needsLayout = true }
+        }
     }
 
     /// The first cell's top-left in this view's coordinates (top-left
@@ -68,7 +72,7 @@ public final class TerminalHostView: NSView {
                 bottomAccessory.translatesAutoresizingMaskIntoConstraints = true // framed in layout()
                 addSubview(bottomAccessory, positioned: .above, relativeTo: scroller)
             }
-            needsLayout = true
+            needsLayout = true // invalidate: another accessory (the guard above) takes its room
         }
     }
 
@@ -84,8 +88,20 @@ public final class TerminalHostView: NSView {
         return CGRect(x: bounds.minX, y: bounds.minY + accessory, width: bounds.width, height: max(0, bounds.height - accessory))
     }
 
-    private var configObserver: (any NSObjectProtocol)?
-    private var transparencyObserver: (any NSObjectProtocol)?
+    /// The runtime's config revision (``GhosttyRuntime/configRevision``).
+    private let configRevision: GhosttyConfigRevision
+    /// Follows ``configRevision`` while the terminal's node is visible (``followConfig(_:on:)``).
+    private var configWatch: VisibleObservation<UInt64>?
+    /// Layouts a config change asked for, the first apply included (tests).
+    package private(set) var configLayouts = 0
+    /// Display option changes (``followAppearance(_:node:)``).
+    private var transparencyWatch: AppearanceSignals.Subscription?
+    /// Where they come from: the app's ``AppearanceSignals`` (its composition root's, once a pane shows the terminal).
+    private var appearanceSignals = DesignSettings.shared.signals
+    /// The terminal's tab in the visibility tree, held while it follows it.
+    private var visibilityNode: VisibilityNode?
+    /// How many appearance changes reached this terminal (tests: a hidden terminal gets none).
+    package private(set) var appearanceCalls = 0
     /// Held here: scopes keep their responders weakly.
     private let aroundListener = TerminalHostThemeListener()
 
@@ -102,9 +118,15 @@ public final class TerminalHostView: NSView {
     /// The current surface's scrollbar (``followScrollbar(of:)``).
     private(set) var scrollbarWatch: FrameObservation<TerminalScrollbar?>?
 
-    init(mainWork: MainWorkScheduler, node: VisibilityNode? = nil) {
+    /// - Parameters:
+    ///   - mainWork: The app's main-thread scheduler.
+    ///   - node: The terminal's tab node; nil when the host has no tab.
+    ///   - configRevision: The runtime's config revision (``GhosttyRuntime/configRevision``).
+    init(mainWork: MainWorkScheduler, node: VisibilityNode? = nil,
+         configRevision: GhosttyConfigRevision = GhosttyRuntime.shared.configRevision) {
         self.mainWork = mainWork
         self.node = node
+        self.configRevision = configRevision
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         wantsLayer = true
         // A surface frame of another size (the host-sized drawable before its
@@ -115,19 +137,28 @@ public final class TerminalHostView: NSView {
         // frame of a drag solves no constraints here.
         addSubview(banner)
         addSubview(scroller, positioned: .below, relativeTo: banner)
-        scroller.onStyleChange = { [weak self] in self?.needsLayout = true }
+        scroller.onStyleChange = { [weak self] in self?.needsLayout = true } // invalidate: a new style, another width
         scroller.onScrollToRow = { [weak self] row in _ = self?.current?.performBindingAction("scroll_to_row:\(row)") }
         scroller.onWheel = { [weak self] event in self?.current?.scrollWheel(with: event) }
-        // A config reload can change window-padding-x.
-        configObserver = NotificationCenter.default.addObserver(forName: GhosttyRuntime.configDidChange, object: nil, queue: .main) { [weak self] _ in
-            // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
-            MainActor.assumeIsolated { self?.needsLayout = true }
-        }
-        // Reduce Transparency turns the window opaque or see-through without a theme change.
-        transparencyObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
-            MainActor.assumeIsolated { self?.paintBackground() }
+        observeAppearance()
+    }
+
+    /// Follows `signals` by `node`'s visibility (p06-scheduler.md B): a hidden terminal repaints once
+    /// when it shows, not on each change. The pane that shows the terminal calls it
+    /// (`TabContent.followAppearance`).
+    public func followAppearance(_ signals: AppearanceSignals, node: VisibilityNode?) {
+        guard signals !== appearanceSignals || node !== visibilityNode else { return }
+        appearanceSignals = signals
+        visibilityNode = node
+        observeAppearance()
+    }
+
+    /// Reduce Transparency turns the window opaque or see-through without a theme change.
+    private func observeAppearance() {
+        transparencyWatch = appearanceSignals.subscribe([.displayOptions], viewNode: visibilityNode, owner: "TerminalHostView") { [weak self] in
+            guard let self else { return }
+            appearanceCalls += 1
+            paintBackground()
         }
     }
 
@@ -155,7 +186,7 @@ public final class TerminalHostView: NSView {
         let bar = TerminalFindBarView(find: find, mainWork: mainWork, node: node)
         bar.translatesAutoresizingMaskIntoConstraints = true // framed in layout()
         addSubview(bar, positioned: .above, relativeTo: banner)
-        needsLayout = true
+        needsLayout = true // invalidate: a new find bar (the guard above) to frame
     }
 
     /// The link status label over the terminal (hidden while connected).
@@ -180,7 +211,7 @@ public final class TerminalHostView: NSView {
             retryButton = button
         }
         retryButton?.show(status)
-        needsLayout = true
+        needsLayout = true // invalidate: a status event (one per change) changes the banner and its buttons
     }
 
     /// Builds the restart button once the shell has ended and the App gave an action.
@@ -213,30 +244,21 @@ public final class TerminalHostView: NSView {
             sizedForChip = chip
         }
         sizedForChip?.show(sizedFor)
-        needsLayout = true
+        needsLayout = true // invalidate: another chip text (the guard above)
     }
 
     func showHostLoss(_ loss: TerminalHostLoss?, cause: TerminalHostLossCause?) {
         hostLoss = loss
         hostLossCause = cause
         banner.show(shownStatus, hostLoss: loss, cause: cause, stall: shellStall)
-        needsLayout = true
+        needsLayout = true // invalidate: the banner's new text (the caller's change check)
     }
 
     /// A shell the daemon cannot reach is labeled even while the view's link is up.
     func showShellStall(_ stall: TerminalShellStall?) {
         shellStall = stall
         banner.show(shownStatus, hostLoss: hostLoss, cause: hostLossCause, stall: stall)
-        needsLayout = true
-    }
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            if let configObserver { NotificationCenter.default.removeObserver(configObserver) }
-            if let transparencyObserver { NSWorkspace.shared.notificationCenter.removeObserver(transparencyObserver) }
-        }
+        needsLayout = true // invalidate: the banner's new text (the caller's change check)
     }
 
     @available(*, unavailable)
@@ -381,10 +403,26 @@ public final class TerminalHostView: NSView {
         return current
     }
 
-    public override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        paintBackground()
+    /// Lays the host out again after each config change (it can change window-padding-x), only
+    /// while `node`, the terminal's tab node, is visible: a reload does no work for a hidden
+    /// terminal, and showing it reads the revision once and lays out if it moved.
+    ///
+    /// - Parameters:
+    ///   - node: The terminal's tab node (`TabContentCache.node(for:)`).
+    ///   - work: The app's main-thread scheduler.
+    public func followConfig(_ node: VisibilityNode, on work: MainWorkScheduler) {
+        configWatch?.cancel()
+        configWatch = VisibleObservation(node, owner: "TerminalHost.config", on: work) { [configRevision] in
+            configRevision.value
+        } apply: { [weak self] _ in
+            guard let self else { return }
+            configLayouts += 1
+            needsLayout = true // invalidate: a new config revision (the observation applies on a change only)
+        }
     }
+
+    /// Tracking callbacks of the config observation (tests prove a hidden host has none).
+    package var configTrackingCallbacks: Int { configWatch?.trackingCallbacks ?? 0 }
 
     /// The host roots its terminal's scope, so the panes' repaint stops here: it listens to the
     /// scope it sits in, whose colors decide whether its own theme shows (`paintBackground`).
@@ -394,44 +432,4 @@ public final class TerminalHostView: NSView {
         superview?.themeScope.addResponder(aroundListener)
         paintBackground()
     }
-
-    /// An opaque window paints the terminal's theme background, like
-    /// `GhosttyRuntime.backgroundColor`. Where the window is see-through
-    /// (translucent, glass, or over art) the window root paints the one
-    /// sheet and the host stays clear, as the panes around it do, unless the
-    /// terminal's theme differs from theirs: its background then lies over
-    /// the glass at the window's tint (`WindowBackdrop.tintOpacity`). The user's terminal
-    /// background (`appearance.surfaces.terminal`) replaces all of these;
-    /// the surfaces then draw a transparent default background.
-    fileprivate func paintBackground() {
-        let (scope, tokens) = (themeScope, themeTokens)
-        // The window root's backdrop (`WindowRootView.backdrop`): the scope's art and its own tint.
-        let backdrop = WindowBackdrop(tokens, reduceTransparency: ReduceTransparency.shared.isEnabled,
-                                      selection: scope.backdropSelection, tintOpacity: scope.backdropTintOpacity)
-        GhosttyRuntime.setSeeThrough(superview != nil && !backdrop.panesPaintBackground, host: self)
-        let fill = performWithTheme { Palette.surfaceOverride(.terminal) }
-        if let fill {
-            layer?.backgroundColor = fill.cgColor
-            return
-        }
-        guard !backdrop.panesPaintBackground else {
-            guard let rgb = theme?.colors?.background else {
-                layer?.backgroundColor = GhosttyRuntime.shared.backgroundColor.cgColor
-                return
-            }
-            layer?.backgroundColor = CGColor(srgbRed: CGFloat(rgb.r) / 255, green: CGFloat(rgb.g) / 255, blue: CGFloat(rgb.b) / 255, alpha: 1)
-            return
-        }
-        let around = superview?.themeTokens.surfaceBackground.withAlpha(1)
-        let own = tokens.surfaceBackground.withAlpha(1)
-        layer?.backgroundColor = theme == nil || own == around ? nil : own.withAlpha(backdrop.tintOpacity).cgColor
-    }
-}
-
-/// Repaints a host when the scope around it changes its colors or its art.
-@MainActor
-private final class TerminalHostThemeListener: ThemeResponsive {
-    weak var host: TerminalHostView?
-
-    func themeDidChange() { host?.paintBackground() }
 }

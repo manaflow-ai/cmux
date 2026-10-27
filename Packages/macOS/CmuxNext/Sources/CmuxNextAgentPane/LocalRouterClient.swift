@@ -49,7 +49,9 @@ public nonisolated struct LocalRouterClient: Sendable {
         let folder = shortFolder(uid: uid)
         if (path as NSString).deletingLastPathComponent == folder {
             var info = stat()
-            guard lstat(folder, &info) == 0, info.st_mode & S_IFMT == S_IFDIR, info.st_uid == uid, info.st_mode & 0o077 == 0 else {
+            // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat
+            // into `info`, a local.
+            guard unsafe lstat(folder, &info) == 0, info.st_mode & S_IFMT == S_IFDIR, info.st_uid == uid, info.st_mode & 0o077 == 0 else {
                 throw Failure.untrustedSocketFolder(folder)
             }
         }
@@ -117,7 +119,7 @@ public nonisolated struct LocalRouterClient: Sendable {
             try await AcpmuxStatusClient.start(connection)
             try await AcpmuxStatusClient.send(line + Data([0x0A]), on: connection)
             var buffer = Data()
-            while true {  // wakeup-allow: each pass awaits socket data; EOF, error or the deadline ends it
+            while true {  // wakeup-allow: bounded each pass awaits socket data; EOF, an error or the call's deadline ends it
                 guard let chunk = try await AcpmuxStatusClient.receive(on: connection) else { throw Failure.closed }
                 buffer += chunk
                 if let newline = buffer.firstIndex(of: 0x0A) {

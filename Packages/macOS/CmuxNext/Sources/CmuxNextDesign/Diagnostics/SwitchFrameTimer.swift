@@ -81,7 +81,10 @@ public final class SwitchFrameTimer {
     public init(owner: String, signpost: SignpostName? = nil, trace: TraceRuntime = .shared, frames: FrameScheduler = .app) {
         self.signpost = signpost
         signposter = signpost.map { Signposter(category: $0.traceCategory, trace: trace) }
+        // Only a recording (a debug socket method) places commits on the vsync grid; the trace interval needs no frames.
+        #if DEBUG || CMUX_BENCH_HOOKS
         client = FrameClient(owner: owner, isAnimation: false, on: frames) { [weak self] tick in self?.frame(tick) ?? false }
+        #endif
     }
 
     /// Runs at each `start()`, for an owner's own per-recording state.
@@ -114,6 +117,10 @@ public final class SwitchFrameTimer {
 
     /// Whether `key` began and has not shown yet.
     public func isWaiting(_ key: AnyHashable) -> Bool { started[key] != nil }
+
+    /// Whether `key`'s trace interval began and has neither shown nor ended, recording or not: a later
+    /// caller of the same intent keeps it instead of superseding it.
+    public func awaitsShow(_ key: AnyHashable) -> Bool { open[key].map { !$0.shown } ?? false }
 
     /// Whether a switch was shown and its Core Animation commit has not run yet.
     public var awaitsCommit: Bool { pending.contains { $0.commit == nil } }
@@ -209,6 +216,7 @@ public final class SwitchFrameTimer {
         for index in pending.indices where pending[index].commit == nil && pending[index].applied <= time.0 { pending[index].commit = time }
     }
 
+    #if DEBUG || CMUX_BENCH_HOOKS
     private func frame(_ tick: FrameTick) -> Bool {
         // `tick.timestamp` is a vsync (not on a stalled tick): each instant maps to the first vsync at or after it.
         guard let refresh = tick.refreshInterval else { return true }
@@ -238,4 +246,5 @@ public final class SwitchFrameTimer {
         }
         return !pending.isEmpty
     }
+    #endif
 }

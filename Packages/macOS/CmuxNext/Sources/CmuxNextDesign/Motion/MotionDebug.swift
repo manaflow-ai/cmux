@@ -20,19 +20,19 @@ public import CmuxNextDesignTokens
 /// by the app's wiring) returns the port's motion parity corpus (`MotionParityCorpus`), the
 /// document cmux-motion's `motion_trajectories` example prints; scripts/cmux-next/motion-parity.py
 /// compares the two. `trace_start`, `trace_read` and `trace_stop` sample
-/// animated geometry on every display frame instead (DEBUG builds, ``MotionFrameTrace``).
+/// animated geometry on every display frame instead (DEBUG and bench builds, ``MotionFrameTrace``).
 /// Takes and returns `JSONSerialization` object graphs.
 public struct MotionDebug {
     public init() {}
     /// Samplers other modules add for `trace_*` (the layout's pane hosts), after the caller's.
     @MainActor public static var registeredSamplers: [@MainActor (NSView) -> [String: [Any]]?] = []
-    /// `samplers` read the animated geometry of the views they know (DEBUG builds: ``MotionFrameTrace``).
+    /// `samplers` read the animated geometry of the views they know (DEBUG and bench builds: ``MotionFrameTrace``).
     /// `commitProbe` (the handler's own) times each Core Animation commit from `start` to `stop`
     /// (`work` `ca.commit`).
     public static func handle(_ params: [String: Any], windows: [NSWindow], samplers: [@MainActor (NSView) -> [String: [Any]]?] = [],
                               commitProbe: MotionCommitProbe? = nil) -> [String: Any] {
         let action = params["action"] as? String ?? "read"
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if action.hasPrefix("trace_") {
             return MotionFrameTrace.shared.handle(String(action.dropFirst("trace_".count)), params, windows: windows, samplers: samplers + registeredSamplers)
         }

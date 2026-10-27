@@ -17,13 +17,15 @@ thread_local! {
     static PARSES: Cell<Option<u32>> = const { Cell::new(None) };
 }
 
-/// Decodes `line` as JSON, counted in this thread's scope.
+/// Decodes `line` as JSON, counted in this thread's scope and in the open
+/// `server-stats` `ipc` request scope (`crate::diagnostics::JsonParseScope`).
 pub(crate) fn parse<'a, T: Deserialize<'a>>(line: &'a str) -> serde_json::Result<T> {
     PARSES.with(|parses| {
         if let Some(count) = parses.get() {
             parses.set(Some(count.saturating_add(1)));
         }
     });
+    crate::diagnostics::note_json_parse();
     serde_json::from_str(line)
 }
 

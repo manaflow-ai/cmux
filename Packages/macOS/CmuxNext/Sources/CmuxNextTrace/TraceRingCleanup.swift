@@ -12,6 +12,9 @@ import Darwin
 /// a session that ran for days and then crashed must not read as days old at the next launch. That cleanup
 /// creates `<ring>.dead` (``deadMarkSuffix``) with its own wall clock as the mtime.
 ///
+/// A process's crash-key page (`<role>-<pid>.crashkeys`, ``CrashKeyPage``) goes with its black box, and a page
+/// whose black box is gone goes once its process is dead.
+///
 /// A process is live when `kill(pid, 0)` finds it and its kernel start time is the one in the ring's header
 /// (`process_start_unix_us`), so a reused pid does not keep an old ring. Chrome cleans its metrics directory the
 /// same way, by age and a size cap (`base::GlobalHistogramAllocator`'s upload directory,
@@ -33,6 +36,8 @@ public struct TraceRingCleanup: Sendable {
     static let buildingSuffix = ".tmp"
     /// The suffix of the marker whose mtime is when a cleanup first found a black box's process dead.
     static let deadMarkSuffix = ".dead"
+    /// The file name suffix of a crash-key page (``CrashKeyPage/fileName(role:pid:)``).
+    static let crashKeysSuffix = ".crashkeys"
 
     /// The folder of the ring files.
     public let directory: String
@@ -90,6 +95,13 @@ public struct TraceRingCleanup: Sendable {
         for marker in names where marker.hasSuffix(Self.blackBoxSuffix + Self.deadMarkSuffix) {
             if !present.contains(String(marker.dropLast(Self.deadMarkSuffix.count))) { _ = remove(marker) }
         }
+        // A page whose black box never existed (its adoption failed) or was deleted by hand.
+        for page in names where page.hasSuffix(Self.crashKeysSuffix) {
+            let stem = page.dropLast(Self.crashKeysSuffix.count)
+            guard !present.contains(String(stem) + Self.blackBoxSuffix), let dash = stem.lastIndex(of: "-"),
+                  let pid = Int32(stem[stem.index(after: dash)...]), !isAlive(pid, 0) else { continue }
+            if remove(page) { report.deleted.append(page) }
+        }
         // The cap: the longest-dead rings go first.
         dead.sort { ($0.deadSinceUnixNanos, $0.startUnixNanos, $0.name) < ($1.deadSinceUnixNanos, $1.startUnixNanos, $1.name) }
         var bytes = dead.reduce(0) { $0 + $1.bytes }
@@ -109,23 +121,26 @@ public struct TraceRingCleanup: Sendable {
     /// until a later cleanup marks it.
     private func deadSince(_ name: String, now: UInt64) -> UInt64 {
         let marker = directory + "/" + name + Self.deadMarkSuffix
-        var info = stat()
-        if lstat(marker, &info) == 0, info.st_mode & S_IFMT == S_IFREG {
-            return UInt64(max(0, info.st_mtimespec.tv_sec)) * 1_000_000_000 + UInt64(max(0, info.st_mtimespec.tv_nsec))
+        return blockingCall(.fileIO) {
+            var info = stat()
+            if lstat(marker, &info) == 0, info.st_mode & S_IFMT == S_IFREG {
+                return UInt64(max(0, info.st_mtimespec.tv_sec)) * 1_000_000_000 + UInt64(max(0, info.st_mtimespec.tv_nsec))
+            }
+            let descriptor = open(marker, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0o600)
+            guard descriptor >= 0 else { return now }
+            defer { close(descriptor) }
+            let stamp = timespec(tv_sec: Int(now / 1_000_000_000), tv_nsec: Int(now % 1_000_000_000))
+            var times = [stamp, stamp]
+            _ = futimens(descriptor, &times)
+            return now
         }
-        let descriptor = open(marker, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0o600)
-        guard descriptor >= 0 else { return now }
-        defer { close(descriptor) }
-        let stamp = timespec(tv_sec: Int(now / 1_000_000_000), tv_nsec: Int(now % 1_000_000_000))
-        var times = [stamp, stamp]
-        _ = futimens(descriptor, &times)
-        return now
     }
 
-    /// Deletes black box `name` and its dead marker; true when the ring went.
+    /// Deletes black box `name`, its dead marker and its process's crash-key page; true when the ring went.
     private func delete(_ name: String) -> Bool {
         guard remove(name) else { return false }
         _ = remove(name + Self.deadMarkSuffix)
+        _ = remove(String(name.dropLast(Self.blackBoxSuffix.count)) + Self.crashKeysSuffix)
         return true
     }
 
@@ -145,14 +160,16 @@ public struct TraceRingCleanup: Sendable {
     }
 
     private func fileNames() -> [String] {
-        guard let stream = opendir(directory) else { return [] }
-        defer { closedir(stream) }
-        var names: [String] = []
-        while let entry = readdir(stream) {
-            let name = Self.name(of: entry)
-            if name != ".", name != ".." { names.append(name) }
+        return blockingCall(.fileIO) {
+            guard let stream = opendir(directory) else { return [] }
+            defer { closedir(stream) }
+            var names: [String] = []
+            while let entry = readdir(stream) {
+                let name = Self.name(of: entry)
+                if name != ".", name != ".." { names.append(name) }
+            }
+            return names
         }
-        return names
     }
 
     /// The name of one `readdir` record, read from the record's own bytes: a record is `d_reclen` bytes long,
@@ -170,27 +187,29 @@ public struct TraceRingCleanup: Sendable {
     /// and its start from the file system.
     private func read(_ name: String) -> Ring? {
         let path = directory + "/" + name
-        let descriptor = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
-        guard descriptor >= 0 else { return nil }
-        defer { close(descriptor) }
-        var info = stat()
-        guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG else { return nil }
-        let modified = UInt64(max(0, info.st_mtimespec.tv_sec)) * 1_000_000_000 + UInt64(max(0, info.st_mtimespec.tv_nsec))
-        var header = [UInt8](repeating: 0, count: TraceRing.headerBytes)
-        let read = header.withUnsafeMutableBytes { pread(descriptor, $0.baseAddress, $0.count, 0) }
-        func word(_ offset: Int) -> UInt64 {
-            (0 ..< 8).reduce(UInt64(0)) { $0 | UInt64(header[offset + $1]) << (8 * UInt64($1)) }
+        return blockingCall(.fileIO) {
+            let descriptor = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+            guard descriptor >= 0 else { return nil }
+            defer { close(descriptor) }
+            var info = stat()
+            guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG else { return nil }
+            let modified = UInt64(max(0, info.st_mtimespec.tv_sec)) * 1_000_000_000 + UInt64(max(0, info.st_mtimespec.tv_nsec))
+            var header = [UInt8](repeating: 0, count: TraceRing.headerBytes)
+            let read = header.withUnsafeMutableBytes { pread(descriptor, $0.baseAddress, $0.count, 0) }
+            func word(_ offset: Int) -> UInt64 {
+                (0 ..< 8).reduce(UInt64(0)) { $0 | UInt64(header[offset + $1]) << (8 * UInt64($1)) }
+            }
+            if read == TraceRing.headerBytes, word(0) == TraceRing.magic {
+                let pid = Int32(bitPattern: UInt32(truncatingIfNeeded: word(16)))
+                return Ring(name: name, pid: pid, startMicros: word(40), startUnixNanos: word(32), bytes: Int(info.st_size))
+            }
+            guard let pid = Self.namePID(name) else { return nil }
+            return Ring(name: name, pid: pid, startMicros: 0, startUnixNanos: modified, bytes: Int(info.st_size))
         }
-        if read == TraceRing.headerBytes, word(0) == TraceRing.magic {
-            let pid = Int32(bitPattern: UInt32(truncatingIfNeeded: word(16)))
-            return Ring(name: name, pid: pid, startMicros: word(40), startUnixNanos: word(32), bytes: Int(info.st_size))
-        }
-        guard let pid = Self.namePID(name) else { return nil }
-        return Ring(name: name, pid: pid, startMicros: 0, startUnixNanos: modified, bytes: Int(info.st_size))
     }
 
     private func remove(_ name: String) -> Bool {
-        unlink(directory + "/" + name) == 0
+        blockingCall(.fileIO) { unlink(directory + "/" + name) == 0 }
     }
 
     /// The pid of `<role>-<pid>.blackbox.cmxtrace`.

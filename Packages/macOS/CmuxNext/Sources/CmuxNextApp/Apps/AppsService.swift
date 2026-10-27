@@ -7,6 +7,7 @@ import CmuxNextHibernation
 import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 /// App platform in the App (plans/cmux-next/app-platform.md section 13):
@@ -37,8 +38,8 @@ final class AppsService {
     private var shownPlaces: [String: (version: Int, fragment: String?)] = [:]
     /// The place each discarded App Store tab showed, for the page its next show makes.
     private var discardedRoutes: [String: String] = [:]
-    /// The route of the show running now, for the page it makes (``makeView(for:in:)``).
-    private var pendingRoute: String?
+    /// The route each show asked for, for the page of the tab it opened or selected (``makeView(for:in:)``).
+    private let storeOpens = PageOpenRequests<String>()
     private var machineCatalog: MachineCatalogPublisher?
     /// Makes an App Store tab's page on a route (default: ``PageFactory/appsWebPage(route:)``;
     /// tests pass their own engine).
@@ -47,10 +48,11 @@ final class AppsService {
     init(services: AppServices, makeStorePage: ((String) -> PageWebView?)? = nil) {
         self.services = services
         self.makeStorePage = makeStorePage
-        transport = DaemonAppsTransport(daemon: services.daemon, inventoryRoutes: { [weak machines = services.machines] in
+        transport = DaemonAppsTransport(daemon: services.daemon, mainWork: services.mainWork, inventoryRoutes: { [weak machines = services.machines] in
             machines?.agentInventoryWatchRoutes() ?? []
         })
-        client = AppsClient(transport: transport)
+        client = AppsClient(transport: transport, bundleImages: AppBundleImageCache())
+        AppMemoryConsumers(services: services).registerAppBundleImages(client.bundleImages)
     }
 
     /// Turning apps off (DisabledFeatures) makes the supervisor unreachable
@@ -65,8 +67,13 @@ final class AppsService {
 
     func start() {
         client.start()
-        // task-owner: one off-main load of the bundled package directories and the scope table at launch
-        Task { [client] in client.useBundledDirectories(await AppPlatformResources.bundledDirectories()) }
+        let client = client, mainWork = services.mainWork
+        // task-owner: one off-main load of the bundled package directories and the scope table at launch. R-hop: read
+        // off main; the client takes them in one visible task (app icons draw from them).
+        services.work.task(.userVisible) {
+            let directories = await AppPlatformResources.bundledDirectories()
+            mainWork.postFromAnyThread(.visible, owner: "AppsService.bundledDirectories") { client.useBundledDirectories(directories) }
+        }
     }
 
     /// Serves app-side operations, admitted machine inventory reads and the
@@ -100,17 +107,20 @@ final class AppsService {
     /// one (a closed window comes back, or a new one opens), as Settings
     /// does: S22, the App Store never opens a window of its own.
     func showStore(appID: String? = nil, tab: AppStoreTab? = nil, focus: Bool = true) {
-        pendingRoute = Self.storeRoute(appID: appID, tab: tab)
-        let key = focus ? TopPages.show(.page(.appStore), services: services)
-            : services.pages.show(.appStore, in: services.windows.active, focus: false)?.key
+        let route = Self.storeRoute(appID: appID, tab: tab)
+        let key: String?
+        if focus {
+            key = storeOpens.during(route) { TopPages.show(.page(.appStore), services: services) }
+        } else {
+            key = storeOpens.open(route) { services.pages.show(.appStore, in: services.windows.active, focus: false) }?.key
+        }
         if let key {
-            // An open page moves to the route; a page this show made already opened on it.
-            webStorePages[key]?.open(route: Self.storeRoute(appID: appID, tab: tab))
-            pendingRoute = nil
+            // An open page moves to the route; a page this show made already opened on it, and a
+            // tab with no page yet opens on it at its first show.
+            webStorePages[key]?.open(route: route)
             waitingStore = nil
             return
         }
-        pendingRoute = nil
         waitingStore = (appID, tab, focus)
         if case let windows = services.windows, windows.restored, windows.controllers.isEmpty { windows.reopenOrCreateWindow() }
     }
@@ -183,11 +193,11 @@ extension AppsService: InternalPageProvider {
     var symbol: String { "bag" }
     var icon: IconName? { .store }
 
-    /// The React App Store page; it opens on the route of the show that made it. Missing page
-    /// resources (a build without the web bundles) show an empty view, never a second store.
+    /// The React App Store page; it opens on the route of the show that opened or selected its tab.
+    /// Missing page resources (a build without the web bundles) show an empty view, never a second store.
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let discarded = discardedRoutes.removeValue(forKey: key)
-        let route = pendingRoute ?? discarded ?? Self.storeRoute(appID: nil, tab: nil)
+        let route = storeOpens.take(for: key) ?? storeOpens.running ?? discarded ?? Self.storeRoute(appID: nil, tab: nil)
         guard let page = makeStorePage?(route) ?? PageFactory(services: services).appsWebPage(route: route) else { return NSView() }
         webStorePages[key] = page
         return page
@@ -196,6 +206,7 @@ extension AppsService: InternalPageProvider {
     func tabClosed(_ key: String) {
         shownPlaces[key] = nil
         discardedRoutes[key] = nil
+        storeOpens.forget(key)
         webStorePages.removeValue(forKey: key)?.close()
     }
 
