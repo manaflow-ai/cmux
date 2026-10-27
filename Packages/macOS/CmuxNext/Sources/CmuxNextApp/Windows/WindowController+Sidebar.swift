@@ -13,6 +13,11 @@ extension WindowController {
         root.onToolbarBandPresenceChange = { [weak self] in
             for pane in self?.content?.panes.values.map({ $0 }) ?? [] { pane.view.stripView.updateWindowControlsAvoidance() }
         }
+        // A render-server slide lays the window out once: the strips' tabs spring from the inset they showed with.
+        root.topRowStripsSlide = { [weak self] in
+            let strips = self?.content?.panes.values.map { $0.view.stripView.windowControlsSlide() } ?? []
+            return { strips.flatMap { $0() } }
+        }
         // A band reveal springs the tab rows it moved from where they showed.
         root.collapsedBand.stripLayers = { [weak self] in
             (self?.content?.panes.values.map({ $0 }) ?? []).flatMap { $0.view.stripView.windowControlsLayers }
