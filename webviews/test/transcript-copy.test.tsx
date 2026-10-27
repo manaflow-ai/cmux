@@ -146,7 +146,7 @@ afterAll(() => {
   dom.window.close();
 });
 
-test("keyboard transcript selection copies source and reports copy success or failure", async () => {
+test("keyboard transcript selection copies source without a floating button", async () => {
   const restore = fakeViewport({ width: 760, height: 600 });
   const root = createRoot(dom.window.document.getElementById("root")!);
   const copied: string[] = [];
@@ -192,23 +192,7 @@ test("keyboard transcript selection copies source and reports copy success or fa
     await flush();
     expect(copied).toEqual([expectedCopy, expectedCopy]);
 
-    const copyButton = row("selection-3").querySelector<HTMLButtonElement>(".acpmux-row__copy")!;
-    await act(async () => copyButton.click());
-    await flush();
-    expect(copyButton.getAttribute("aria-label")).toBe("Copied");
-    expect(copied.at(-1)).toBe(expectedCopy);
-
-    Object.defineProperty(globalThis.navigator, "clipboard", {
-      configurable: true,
-      value: { writeText: async () => Promise.reject(new Error("denied")) },
-    });
-    Object.defineProperty(dom.window.document, "execCommand", {
-      configurable: true,
-      value: () => false,
-    });
-    await act(async () => copyButton.click());
-    await flush();
-    expect(copyButton.getAttribute("aria-label")).toBe("Copy");
+    expect(row("selection-3").querySelector(".acpmux-row__copy")).toBeNull();
   } finally {
     await act(async () => root.unmount());
     if (clipboard) Object.defineProperty(globalThis.navigator, "clipboard", clipboard);
@@ -221,7 +205,7 @@ test("keyboard transcript selection copies source and reports copy success or fa
 
 // Leo (2026-10-21): "why is there a copy button for the prompt i sent on teh top left?" then "top
 // left??? just remove it". A prompt drawn as the person's bubble keeps only the Copy in the row under
-// its bubble; a tool row keeps its floating Copy and an answer still has none of its own.
+// its bubble. Tool rows have no floating action over their duration or disclosure.
 test("transcript rows have no floating Copy; message actions own their copy", async () => {
   // Another agent's message is a user row drawn as a line, not the person's bubble: it keeps its Copy.
   const incoming: AcpmuxRow = {
