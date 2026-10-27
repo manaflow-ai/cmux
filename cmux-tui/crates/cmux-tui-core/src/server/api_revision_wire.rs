@@ -8,7 +8,9 @@
 //! translates: each request line is upgraded before it is parsed, and every
 //! control message (responses and events) is downgraded after the other
 //! outbound projections. When the client is newer, it translates for itself
-//! and this daemon does nothing.
+//! and this daemon does nothing. Binary frames exist only at this daemon's
+//! revision (capabilities.rs, `still_allowed`), so a framed request is never
+//! upgraded and an older client is served only JSON lines, downgraded.
 //!
 //! Message kinds: `request:<cmd>`, `response:<cmd>` (matched to its request
 //! by `id`), `event:<name>`. Rules live in `cmux-tui/spec/api-compat.json`;
@@ -205,6 +207,16 @@ impl NegotiatedRevision {
 }
 
 impl MessageWriter {
+    /// One request at this daemon's API revision. A line from an older client
+    /// is upgraded; a framed request's body is taken as it came, unparsed:
+    /// frames are granted only at this revision.
+    pub(super) fn upgrade_request<'a>(&self, message: &'a str) -> Cow<'a, str> {
+        if self.frame_call().is_some() {
+            return Cow::Borrowed(message);
+        }
+        self.api_revision.upgrade_request(message)
+    }
+
     /// The last outbound projection: the client's API revision.
     pub(super) fn project_api_revision(
         &self,

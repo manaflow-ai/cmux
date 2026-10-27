@@ -1,7 +1,9 @@
 import CmuxNextAgentActivity
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
+import Observation
 import Testing
 @testable import CmuxNextChiefViews
 
@@ -133,7 +135,7 @@ struct ChiefViewsPageTests {
         let defaults = try #require(UserDefaults(suiteName: "ChiefViewsPageTests.\(UUID().uuidString)"))
         let seen = Recorder()
         let provider = ChiefViewsPageProvider(host: .init(
-            agents: { [] },
+            agents: { [] }, mainWork: Self.work,
             fetch: { _ in Data(#"{"minis":[]}"#.utf8) },
             defaults: defaults, environment: [:], now: { Date() },
             openAgent: { kind, id in seen.opened.append("\(kind.rawValue):\(id)") },
@@ -174,7 +176,7 @@ struct ChiefViewsPageTests {
         let counter = Counter()
         let clock = Recorder()
         let provider = ChiefViewsPageProvider(host: .init(
-            agents: { [] },
+            agents: { [] }, mainWork: Self.work,
             fetch: { _ in await counter.bump(); return Data(#"{"items":[]}"#.utf8) },
             defaults: defaults, environment: [:], now: { clock.now },
             openAgent: { _, _ in }, openURL: { _ in }))
@@ -186,6 +188,65 @@ struct ChiefViewsPageTests {
         #expect(await counter.value == 4)
         #expect(reply["repo"] == "manaflow-ai/cmux")
         #expect(reply["base"] == "feat-cmux-next")
+    }
+
+    /// p06 sweep (group 333): `agents_changed` follows the rows with a ServiceObservation on the app's
+    /// scheduler, not a main-inherited observation task: the rows read when the stream starts are no event,
+    /// a change is one event with the new rows, and a cancelled subscription sends nothing more.
+    @Test(.timeLimit(.minutes(1))) func agentsChangedFollowsTheRowsOnTheScheduler() async throws {
+        let rows = Rows()
+        let provider = ChiefViewsPageProvider(host: .init(
+            agents: { rows.agents }, mainWork: Self.work,
+            fetch: { _ in Data() }, defaults: .standard, environment: [:], now: { Date() },
+            openAgent: { _, _ in }, openURL: { _ in }))
+        let events = Events()
+        let subscription = try await provider.subscribe(ChiefViewsPageProvider.agentsChanged, filter: .null, context: Self.page) {
+            events.received($0)
+        }
+        #expect(events.all.isEmpty, "the first rows are the agents read, not an event")
+
+        let lane = AgentActivityLane(id: "s1", name: "n", title: "T", peer: nil, parent: nil, state: .working,
+                                     since: Date(timeIntervalSince1970: 2), error: nil)
+        rows.agents = [ChiefViewsAgent(lane: lane)]
+        await events.next()
+        #expect(events.all == [ChiefViewsPageProvider.reply(rows.agents)])
+
+        // A second subscription that stays open sees the next change: by its event, the scheduler ran every
+        // flush that change posted, so the cancelled one had its chance to send.
+        let witness = Events()
+        let open = try await provider.subscribe(ChiefViewsPageProvider.agentsChanged, filter: .null, context: Self.page) {
+            witness.received($0)
+        }
+        subscription.cancel()
+        rows.agents = []
+        await witness.next()
+        #expect(witness.all == [ChiefViewsPageProvider.reply([])])
+        #expect(events.all.count == 1, "a cancelled stream sends nothing")
+        open.cancel()
+    }
+
+    private static let work = MainWorkScheduler(budget: MainFrameBudget())
+
+    /// The rows the provider's host reads, observed. Fileprivate, not private: the
+    /// `@Observable` macro adds its conformance in an extension at file scope.
+    @MainActor @Observable fileprivate final class Rows {
+        var agents: [ChiefViewsAgent] = []
+    }
+
+    /// The events a subscription sent, with one wait for the next.
+    @MainActor private final class Events {
+        private(set) var all: [JSONValue] = []
+        private var waiter: CheckedContinuation<Void, Never>?
+
+        func received(_ event: JSONValue) {
+            all.append(event)
+            waiter?.resume()
+            waiter = nil
+        }
+
+        func next() async {
+            await withCheckedContinuation { waiter = $0 }
+        }
     }
 
     /// What the provider's host was asked to do, read back on the main actor.

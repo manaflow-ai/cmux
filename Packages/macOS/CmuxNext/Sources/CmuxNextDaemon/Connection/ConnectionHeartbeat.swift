@@ -142,13 +142,20 @@ public final class ConnectionHeartbeat: Sendable {
     /// Whether a request on the connection waits for its reply (its count left or reached 0). While
     /// hidden it asks on `interval`, so a request to a wedged daemon is found as when shown.
     func requestsWaiting(_ waiting: Bool) {
+        requestsWaiting { waiting }
+    }
+
+    /// `requestsWaiting(_:)` reading `waiting` under the heartbeat's lock, so that edges told out of
+    /// order (two threads' requests) still leave the latest answer.
+    func requestsWaiting(_ waiting: () -> Bool) {
         let now = elapsed()
         let run = state.withLock { state -> UInt64? in
             let before = state.cadence
-            state.busy = waiting
+            let busy = waiting()
+            state.busy = busy
             guard state.probe != nil, state.cadence != before else { return nil }
             // The request's own reply proves the daemon alive: the silence counts from its send.
-            if waiting { state.heard = max(state.heard, now) }
+            if busy { state.heard = max(state.heard, now) }
             return state.run
         }
         if let run { schedule(.onSilence, run: run) }

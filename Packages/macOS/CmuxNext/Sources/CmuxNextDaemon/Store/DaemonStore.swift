@@ -19,7 +19,7 @@ public enum DaemonConnectionState: Sendable, Equatable {
 /// batches at most once per frame (`run(connection:scheduler:)`).
 @Observable @MainActor
 public final class DaemonStore: StateResourceQueries {
-    public internal(set) var workspaces: [WorkspaceModel] = []
+    public internal(set) var workspaces: [WorkspaceModel] = [] { didSet { crashKeys?.noteWorkspaces(workspaces.count) } }
     public internal(set) var groups: [WorkspaceGroupModel] = []
     /// Tabs the unread count read, one by one (tests: an observer of the badge reads no tab).
     @ObservationIgnored public internal(set) var unreadTabReads = 0
@@ -38,13 +38,13 @@ public final class DaemonStore: StateResourceQueries {
     /// Sidebar flattening, recomputed only when order, membership, or groups change.
     public internal(set) var sidebarSections: [SidebarSection] = []
     public internal(set) var connectionState: DaemonConnectionState = .connecting {
-        didSet { waiters.settle(.connection, in: self) }
+        didSet { waiters.settle(.connection, in: self); crashKeys?.noteDaemon(connectionState) }
     }
     /// Counts connection changes (connected, disconnected, shut down), so a
     /// reader can tell facts seen on an earlier connection from this one
     /// even when it missed the states in between.
     @ObservationIgnored public internal(set) var connectionEpoch = 0
-    /// Names ``connectionEpoch`` in a crash record (``CrashKeySlots/Key/daemonEpoch``); nil names none.
+    /// Names ``connectionEpoch`` in a crash record, the connection and workspace count in the crash-key page; nil: none.
     @ObservationIgnored let crashKeys: CrashKeySlots?
     /// The identity of the last daemon that completed a handshake. Kept
     /// through a disconnect; replaced on every (re)connect, whose daemon may
@@ -180,6 +180,10 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored var snapshotWorkspacesWalkedOnMain = 0
     /// Set while `run(connection:scheduler:)` drives the store.
     @ObservationIgnored var driver: StoreDriver?
+    /// Runs the drain's tail (``DrainTail``, p06-scheduler-223): the app's ``MainWorkScheduler`` while
+    /// feature `drainCauseSplit` is on. nil: each frame drain applies its whole batch. A connection
+    /// reads it when it starts.
+    @ObservationIgnored public var drainTailScheduler: (any DrainTailScheduler)?
     @ObservationIgnored var isResyncing = false
     /// Who made each change, and what the store publishes later with (``StoreCauses``).
     @ObservationIgnored let causes: StoreCauses

@@ -93,8 +93,9 @@ pub(super) fn handle_connection_frame_at(
         return pending_handoff::reject_message_during_pending_handoff(message, writer);
     }
     // An older client's line, upgraded to this daemon's API revision before
-    // any parse (server/api_revision_wire.rs); borrowed unchanged otherwise.
-    let upgraded = writer.api_revision.upgrade_request(message);
+    // any parse (server/api_revision_wire.rs); borrowed unchanged otherwise,
+    // and always for a frame (frames exist only at this revision).
+    let upgraded = writer.upgrade_request(message);
     let line = LineFrame {
         mux,
         client,
