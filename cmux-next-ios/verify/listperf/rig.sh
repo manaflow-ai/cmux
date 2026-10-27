@@ -19,7 +19,8 @@
 #                              TRACE=<template> records LABEL.trace with xctrace (can hang over SSH).
 #
 # Environment: HOST (default aws-m4pro-6 (it has the iOS 26.5 simulator), reached with Tailscale SSH as ec2-user), DIR (default smooth-lists),
-# SIM_NAME (default cmux-listperf-1), WAIT (seconds, default 240).
+# SIM_NAME (default cmux-listperf-1), WAIT (seconds, default 240), FAMILY (build: TARGETED_DEVICE_FAMILY, e.g. 1,2 for an
+# iPad simulator) and PRODUCTS (build/run/shot: derived data folder, default build/demo; give an iPad build its own).
 set -euo pipefail
 HOST=${HOST:-aws-m4pro-6}
 DIR=${DIR:-smooth-lists}
@@ -60,7 +61,7 @@ case "${1:-}" in
     ;;
   build)
     remote "$remote_env cd $DIR/cmux-next-ios && xcodebuild -project CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Demo \
-      -destination 'generic/platform=iOS Simulator' -derivedDataPath build/demo -jobs 6 ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+      -destination 'generic/platform=iOS Simulator' -derivedDataPath ${PRODUCTS:-build/demo} -jobs 6 ${FAMILY:+TARGETED_DEVICE_FAMILY=$FAMILY} ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
       CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= CMUX_MOBILE_TAG=.listperf 'CMUX_MOBILE_DISPLAY_NAME=mobile listperf' \
       'SWIFT_ACTIVE_COMPILATION_CONDITIONS=\$(inherited) DEBUG CMUX_MOBILE_DEMO' build > build-demo.log 2>&1; rc=\$?; \
       grep -E 'error:|BUILD (SUCCEEDED|FAILED)' build-demo.log | sort -u | head -30; exit \$rc"
@@ -90,7 +91,7 @@ case "${1:-}" in
           --output $DIR/$label.trace >$DIR/$label.xctrace.log 2>&1 || true"
     fi
     remote "$remote_env udid=\$(xcrun simctl list devices | grep '$SIM_NAME (' | head -1 | grep -oE '[0-9A-F-]{36}'); \
-      app=\$(ls -d $DIR/cmux-next-ios/build/demo/Build/Products/Demo-iphonesimulator/*.app | head -1); \
+      app=\$(ls -d $DIR/cmux-next-ios/${PRODUCTS:-build/demo}/Build/Products/Demo-iphonesimulator/*.app | head -1); \
       bid=\$(plutil -extract CFBundleIdentifier raw \$app/Info.plist); \
       xcrun simctl terminate \$udid \$bid 2>/dev/null; xcrun simctl install \$udid \$app; \
       caches=\$(xcrun simctl get_app_container \$udid \$bid data)/Library/Caches; rm -f \$caches/framelog.jsonl; \
@@ -112,7 +113,7 @@ case "${1:-}" in
     for kv in "$@"; do envs+=" SIMCTL_CHILD_CMUX_MOBILE_$kv"; done
     out="$mobile/verify/evidence/listperf"; mkdir -p "$out"
     remote "$remote_env udid=\$(xcrun simctl list devices | grep '$SIM_NAME (' | head -1 | grep -oE '[0-9A-F-]{36}'); \
-      app=\$(ls -d $DIR/cmux-next-ios/build/demo/Build/Products/Demo-iphonesimulator/*.app | head -1); \
+      app=\$(ls -d $DIR/cmux-next-ios/${PRODUCTS:-build/demo}/Build/Products/Demo-iphonesimulator/*.app | head -1); \
       bid=\$(plutil -extract CFBundleIdentifier raw \$app/Info.plist); \
       xcrun simctl terminate \$udid \$bid 2>/dev/null; xcrun simctl install \$udid \$app; \
       $envs xcrun simctl launch --terminate-running-process \$udid \$bid -cmuxMobile.setupComplete YES -cmux-mobile-no-restore >/dev/null; \
