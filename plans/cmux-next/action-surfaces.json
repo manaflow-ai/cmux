@@ -21702,6 +21702,174 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "notification set-workspace-sound",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "notifications.setWorkspaceSound",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.notifications",
+        "order" : 108,
+        "title" : "Notifications",
+        "title_key" : "category.notifications",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Notification Sound for Workspace",
+      "title_key" : "action.notifications.setWorkspaceSound",
+      "title_table" : "Localizable"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "notification set-group-sound",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceGroup"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "notifications.setGroupSound",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.notifications",
+        "order" : 108,
+        "title" : "Notifications",
+        "title_key" : "category.notifications",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Notification Sound for Group",
+      "title_key" : "action.notifications.setGroupSound",
+      "title_table" : "Localizable"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "notification set-agent-sound",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "notifications.setAgentSound",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.notifications",
+        "order" : 108,
+        "title" : "Notifications",
+        "title_key" : "category.notifications",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Notification Sound for Agent…",
+      "title_key" : "action.notifications.setAgentSound",
+      "title_table" : "Localizable"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "notification set-event-sound",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "notifications.setEventSound",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.notifications",
+        "order" : 108,
+        "title" : "Notifications",
+        "title_key" : "category.notifications",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Notification Sound for Event…",
+      "title_key" : "action.notifications.setEventSound",
+      "title_table" : "Localizable"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "notification preview-sound",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "notifications.previewSound",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.notifications",
+        "order" : 108,
+        "title" : "Notifications",
+        "title_key" : "category.notifications",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Preview Notification Sound",
+      "title_key" : "action.notifications.previewSound",
+      "title_table" : "Localizable"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "notification import-sound",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "notifications.importSound",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.notifications",
+        "order" : 108,
+        "title" : "Notifications",
+        "title_key" : "category.notifications",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Import Notification Sound…",
+      "title_key" : "action.notifications.importSound",
+      "title_table" : "Localizable"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "agent zoom-in",
       "context_menu" : "offered",
       "context_menus" : [
@@ -45125,9 +45293,124 @@
               }
             },
             {
+              "choices" : {
+                "argument" : "sound",
+                "more_opens_palette" : true,
+                "values" : [
+                  {
+                    "title" : "Inherit",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "inherit"
+                  },
+                  {
+                    "title" : "No Sound",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "none"
+                  },
+                  {
+                    "title" : "macOS Default",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "default"
+                  },
+                  {
+                    "title" : "Basso",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Basso"
+                  },
+                  {
+                    "title" : "Blow",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Blow"
+                  },
+                  {
+                    "title" : "Bottle",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Bottle"
+                  },
+                  {
+                    "title" : "Frog",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Frog"
+                  },
+                  {
+                    "title" : "Funk",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Funk"
+                  },
+                  {
+                    "title" : "Glass",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Glass"
+                  },
+                  {
+                    "title" : "Hero",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Hero"
+                  },
+                  {
+                    "title" : "Morse",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Morse"
+                  },
+                  {
+                    "title" : "Ping",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Ping"
+                  },
+                  {
+                    "title" : "Pop",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Pop"
+                  },
+                  {
+                    "title" : "Purr",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Purr"
+                  },
+                  {
+                    "title" : "Sosumi",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Sosumi"
+                  },
+                  {
+                    "title" : "Submarine",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Submarine"
+                  },
+                  {
+                    "title" : "Tink",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Tink"
+                  },
+                  {
+                    "title" : "Choose Sound File…",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "choose"
+                  }
+                ]
+              },
               "enabled_when" : "can_perform",
-              "id" : "workspaceGroup.markUnread",
-              "kind" : "action",
+              "id" : "notifications.setGroupSound",
+              "kind" : "choices",
+              "label" : "Notification Sound",
               "order" : 7,
               "visible_when" : {
                 "debug_only" : false,
@@ -45139,7 +45422,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspaceGroup.clearNotifications",
+              "id" : "workspaceGroup.markUnread",
               "kind" : "action",
               "order" : 8,
               "visible_when" : {
@@ -45152,7 +45435,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspaceGroup.collapseAll",
+              "id" : "workspaceGroup.clearNotifications",
               "kind" : "action",
               "order" : 9,
               "visible_when" : {
@@ -45165,9 +45448,22 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspaceGroup.expandAll",
+              "id" : "workspaceGroup.collapseAll",
               "kind" : "action",
               "order" : 10,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "workspaceGroup.expandAll",
+              "kind" : "action",
+              "order" : 11,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -45181,7 +45477,7 @@
               "id" : "workspaceGroup.collapseOthers",
               "kind" : "action",
               "label" : "Collapse Others",
-              "order" : 11,
+              "order" : 12,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -45194,7 +45490,7 @@
               "enabled_when" : "can_perform",
               "id" : "workspaceGroup.editConfig",
               "kind" : "action",
-              "order" : 12,
+              "order" : 13,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -45207,7 +45503,7 @@
               "enabled_when" : "can_perform",
               "id" : "workspaceGroup.duplicate",
               "kind" : "action",
-              "order" : 13,
+              "order" : 14,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -45220,7 +45516,7 @@
               "enabled_when" : "can_perform",
               "id" : "workspaceGroup.copyID",
               "kind" : "action",
-              "order" : 14,
+              "order" : 15,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -45231,13 +45527,13 @@
             },
             {
               "kind" : "separator",
-              "order" : 15
+              "order" : 16
             },
             {
               "enabled_when" : "can_perform",
               "id" : "workspaceGroup.stash",
               "kind" : "action",
-              "order" : 16,
+              "order" : 17,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -46202,9 +46498,124 @@
                   }
                 },
                 {
+                  "choices" : {
+                    "argument" : "sound",
+                    "more_opens_palette" : true,
+                    "values" : [
+                      {
+                        "title" : "Inherit",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "inherit"
+                      },
+                      {
+                        "title" : "No Sound",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "none"
+                      },
+                      {
+                        "title" : "macOS Default",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "default"
+                      },
+                      {
+                        "title" : "Basso",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Basso"
+                      },
+                      {
+                        "title" : "Blow",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Blow"
+                      },
+                      {
+                        "title" : "Bottle",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Bottle"
+                      },
+                      {
+                        "title" : "Frog",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Frog"
+                      },
+                      {
+                        "title" : "Funk",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Funk"
+                      },
+                      {
+                        "title" : "Glass",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Glass"
+                      },
+                      {
+                        "title" : "Hero",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Hero"
+                      },
+                      {
+                        "title" : "Morse",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Morse"
+                      },
+                      {
+                        "title" : "Ping",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Ping"
+                      },
+                      {
+                        "title" : "Pop",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Pop"
+                      },
+                      {
+                        "title" : "Purr",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Purr"
+                      },
+                      {
+                        "title" : "Sosumi",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Sosumi"
+                      },
+                      {
+                        "title" : "Submarine",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Submarine"
+                      },
+                      {
+                        "title" : "Tink",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Tink"
+                      },
+                      {
+                        "title" : "Choose Sound File…",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "choose"
+                      }
+                    ]
+                  },
                   "enabled_when" : "can_perform",
-                  "id" : "palette.addWorkspaceChecklistItem",
-                  "kind" : "action",
+                  "id" : "notifications.setWorkspaceSound",
+                  "kind" : "choices",
+                  "label" : "Notification Sound",
                   "order" : 12,
                   "visible_when" : {
                     "debug_only" : false,
@@ -46215,14 +46626,40 @@
                   }
                 },
                 {
+                  "enabled_when" : "can_perform",
+                  "id" : "notifications.previewSound",
+                  "kind" : "action",
+                  "order" : 13,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "palette.addWorkspaceChecklistItem",
+                  "kind" : "action",
+                  "order" : 14,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
                   "kind" : "separator",
-                  "order" : 13
+                  "order" : 15
                 },
                 {
                   "enabled_when" : "can_perform",
                   "id" : "browserProfile.setWorkspaceDefault",
                   "kind" : "action",
-                  "order" : 14,
+                  "order" : 16,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -46235,7 +46672,7 @@
                   "enabled_when" : "can_perform",
                   "id" : "browserProfile.clearWorkspaceDefault",
                   "kind" : "action",
-                  "order" : 15,
+                  "order" : 17,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -46246,13 +46683,13 @@
                 },
                 {
                   "kind" : "separator",
-                  "order" : 16
+                  "order" : 18
                 },
                 {
                   "enabled_when" : "can_perform",
                   "id" : "reconnectWorkspace",
                   "kind" : "action",
-                  "order" : 17,
+                  "order" : 19,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -46265,7 +46702,7 @@
                   "enabled_when" : "can_perform",
                   "id" : "disconnectWorkspace",
                   "kind" : "action",
-                  "order" : 18,
+                  "order" : 20,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
