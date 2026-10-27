@@ -1,8 +1,10 @@
 //! Rings sized from the memory budget, and the pages of cold ones given
 //! back (p07-memory-094).
 //!
-//! Each terminal's ring is `DaemonBudget::holder_ring_bytes` (512 KiB on an
-//! 8 GB Mac, 1 MiB from 16 GB). A terminal that printed nothing for
+//! Each terminal's ring is `DaemonBudget::holder_ring_bytes` (1 MiB from
+//! 16 GB), but never less than [`MIN_RING_BYTES`] (768 KiB, so on an 8 GB
+//! Mac too): all a holder may hold that the daemon has not received. A
+//! terminal that printed nothing for
 //! `DaemonBudget::cold_scrollback_after` is cold: its ring drops the bytes
 //! no reader needs any more and gives their pages to the kernel
 //! ([`crate::ring::Ring::release_before`]), as Chrome purges an unlocked
@@ -22,7 +24,16 @@ use std::time::{Duration, Instant};
 
 use cmux_memory::DaemonBudget;
 
-use super::{Holder, Link, Terminal};
+use super::{Holder, Link, RING_BYTES, Terminal, UNSENT_HIGH_WATER};
+use crate::wire;
+
+/// The output a holder may hold that the daemon has not received: it sends
+/// up to the credit window past the daemon's ACK (a sent frame may still
+/// wait in the holder's link queue when it dies) and reads up to the unsent
+/// limit past that. A smaller ring would drop some of it, and the holder
+/// that adopts the ring after a crash would answer the daemon with a GAP.
+pub(super) const MIN_RING_BYTES: usize = wire::CREDIT_WINDOW as usize + UNSENT_HIGH_WATER;
+const _: () = assert!(MIN_RING_BYTES <= RING_BYTES);
 
 /// The holder's ring sizes and when a terminal's ring counts as cold.
 pub(super) struct RingBudget {
@@ -35,12 +46,26 @@ pub(super) struct RingBudget {
 impl RingBudget {
     /// The budget of this Mac's installed RAM (read once, at the start).
     pub(super) fn for_host() -> Self {
-        let budget = DaemonBudget::for_host();
-        Self { ring_bytes: budget.holder_ring_bytes, cold_after: budget.cold_scrollback_after }
+        Self::from_budget(DaemonBudget::for_host())
+    }
+
+    /// `budget`'s ring size, at least [`MIN_RING_BYTES`].
+    fn from_budget(budget: DaemonBudget) -> Self {
+        Self {
+            ring_bytes: budget.holder_ring_bytes.clamp(MIN_RING_BYTES, RING_BYTES),
+            cold_after: budget.cold_scrollback_after,
+        }
     }
 }
 
 impl Holder {
+    /// Size new rings as the budget of a Mac with `installed_bytes` of RAM
+    /// would (default: this Mac's). Keeps the cold time.
+    pub fn set_ring_budget_memory(&mut self, installed_bytes: u64) {
+        let sized = RingBudget::from_budget(DaemonBudget::for_memory(installed_bytes));
+        self.ring_budget.ring_bytes = sized.ring_bytes;
+    }
+
     /// Count a terminal's ring cold after `after` with no output (default
     /// `DaemonBudget::cold_scrollback_after`).
     pub fn set_ring_cold_after(&mut self, after: Duration) {
@@ -123,3 +148,26 @@ fn relieve_heap() {
 
 #[cfg(not(any(target_vendor = "apple", all(target_os = "linux", target_env = "gnu"))))]
 fn relieve_heap() {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const GIB: u64 = 1 << 30;
+
+    #[test]
+    fn a_ring_holds_all_a_holder_may_hold_unreceived_on_every_mac() {
+        for gb in [4, 8, 12, 16, 32, 64, 128] {
+            let ring = RingBudget::from_budget(DaemonBudget::for_memory(gb * GIB)).ring_bytes;
+            assert!(ring >= MIN_RING_BYTES, "{gb} GB: a {ring} byte ring drops unreceived output");
+            assert!(ring <= RING_BYTES, "{gb} GB: a {ring} byte ring is past the largest");
+        }
+        let small = RingBudget::from_budget(DaemonBudget::for_memory(8 * GIB));
+        assert_eq!(
+            small.ring_bytes, MIN_RING_BYTES,
+            "8 GB raises the budget's ring to the minimum"
+        );
+        let large = RingBudget::from_budget(DaemonBudget::for_memory(16 * GIB));
+        assert_eq!(large.ring_bytes, RING_BYTES);
+    }
+}

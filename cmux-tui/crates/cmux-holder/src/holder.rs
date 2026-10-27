@@ -35,8 +35,9 @@ use cold_rings::RingBudget;
 use input_flow::InputFlow;
 pub use trace::{ProcessTrace, TraceControl};
 
-/// The largest ring a holder makes (the budget's `holder_ring_bytes` on
-/// this Mac, `holder/cold_rings.rs`); a daemon makes a fresh segment this size.
+/// The largest ring a holder makes (it makes the budget's
+/// `holder_ring_bytes` of this Mac, at least `cold_rings::MIN_RING_BYTES`);
+/// a daemon makes a fresh segment this size.
 pub const RING_BYTES: usize = cmux_memory::budget::HOLDER_RING_BYTES_MAX;
 /// Output queued on the link before the holder stops making DATA frames
 /// (the rest waits in the rings).

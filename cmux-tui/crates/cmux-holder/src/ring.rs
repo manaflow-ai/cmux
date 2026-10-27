@@ -200,8 +200,12 @@ impl Ring {
             oldest,
             end,
             segment: Some(segment),
-            // A dead holder may have released pages of this segment.
-            reusable_until: Some(end + capacity as u64),
+            // Only a released segment keeps less than its size allows
+            // ([`Self::release_before`]; writes give `oldest` back to the
+            // size once they took every released page). A fresh one
+            // (`Self::new`) released nothing: no write pays for a reuse.
+            reusable_until: (layout == LAYOUT && oldest > kept_by_size)
+                .then_some(end + capacity as u64),
         };
         // This build publishes `oldest` from here on, whatever the layout
         // says (a layout 1 segment's `oldest` word read 0 until then).
@@ -906,6 +910,35 @@ mod tests {
         // New output wraps over the released pages and reads back whole.
         adopted.push(&pattern(200 * 1024, CAPACITY));
         assert_eq!(adopted.read(0, 2 * CAPACITY), (200 * 1024, pattern(200 * 1024, CAPACITY)));
+    }
+
+    /// A write takes pages back ([`reuse_pages`], a syscall per write) only
+    /// where a release gave some away: never in a fresh ring, nor in an
+    /// adopted segment that released nothing, and in a released one until
+    /// the writes took every released page.
+    #[test]
+    fn only_a_released_ring_takes_pages_back_on_a_write() {
+        const CAPACITY: usize = 64 * 1024;
+        let mut fresh = Ring::new(0, CAPACITY);
+        assert_eq!(fresh.reusable_until, None, "a fresh segment released nothing");
+        let segment = fresh.segment().expect("a shared ring").try_clone().unwrap();
+        fresh.push(&pattern(0, CAPACITY + 1000));
+        assert_eq!(fresh.reusable_until, None);
+        drop(fresh);
+        let mut adopted = Ring::adopt(segment).unwrap();
+        assert_eq!(adopted.reusable_until, None, "a dead writer's full ring released nothing");
+        let segment = adopted.segment().expect("a shared ring").try_clone().unwrap();
+        adopted.push(&pattern(CAPACITY as u64 + 1000, 2000));
+        let end = adopted.end();
+        assert!(adopted.release_before(end - 100) > 0);
+        assert_eq!(adopted.reusable_until, Some(end + CAPACITY as u64));
+        drop(adopted);
+        // The dead writer released pages: its successor takes them back.
+        let mut released = Ring::adopt(segment).unwrap();
+        assert_eq!(released.reusable_until, Some(end + CAPACITY as u64));
+        released.push(&pattern(end, CAPACITY));
+        assert_eq!(released.reusable_until, None, "one turn of the ring took every page back");
+        assert_eq!(released.read(0, CAPACITY), (end, pattern(end, CAPACITY)));
     }
 
     /// Everything confirmed: every data page but the header's goes, and the

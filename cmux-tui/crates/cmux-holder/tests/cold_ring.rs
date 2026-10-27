@@ -117,12 +117,23 @@ fn a_cold_ring_gives_back_its_pages_and_a_holder_crash_loses_no_byte() {
     // daemon starts from, so no reader needs the ring before it.
     client.snapshot(1, received, b"\x1b[H\x1b[2Jscreen").unwrap();
     holder_turn(&mut client, 2);
-    std::thread::sleep(Duration::from_millis(3 * COLD_MS));
-    holder_turn(&mut client, 3);
-    let cold = footprint(first.id());
-    let freed = warm.saturating_sub(cold);
+    // Nothing wakes the holder from here on: only its own cold-ring
+    // deadline can release the ring, as for a cold terminal in use.
     let want = (ring_bytes as u64).saturating_sub(124 * 1024);
-    assert!(freed >= want, "cold ring freed {freed} bytes (warm {warm}, cold {cold}), want {want}");
+    let deadline = Instant::now() + Duration::from_millis(30 * COLD_MS);
+    loop {
+        let cold = footprint(first.id());
+        let freed = warm.saturating_sub(cold);
+        if freed >= want {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "an idle holder's cold ring freed {freed} bytes (warm {warm}, cold {cold}), want {want}"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    holder_turn(&mut client, 3);
 
     // The shell prints after the release, the daemon goes away, and the
     // holder dies with that output unsent: the next holder continues the
