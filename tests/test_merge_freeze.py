@@ -200,5 +200,59 @@ class FreezeTests(unittest.TestCase):
         self.assertEqual(status, 2)
 
 
+class PagedReadTests(unittest.TestCase):
+    """Lists are read one explicit page at a time: the autoland host's quota wrapper refuses
+    `gh api --paginate` while its budget is charged, and that refusal held a reviewed PR."""
+
+    def read(self, total):
+        calls = []
+
+        def fake_gh(*args):
+            calls.append(args)
+            self.assertNotIn("--paginate", args)
+            page = int(args[-1].rsplit("page=", 1)[1])
+            start = (page - 1) * freeze.PAGE_SIZE
+            return json.dumps([{"n": n} for n in range(start, min(total, start + freeze.PAGE_SIZE))])
+
+        saved, freeze.gh = freeze.gh, fake_gh
+        try:
+            return freeze.gh_items("repos/x/y/pulls/1/files"), calls
+        finally:
+            freeze.gh = saved
+
+    def test_every_page_is_its_own_call_until_a_short_page(self):
+        items, calls = self.read(150)
+        self.assertEqual([item["n"] for item in items], list(range(150)))
+        self.assertEqual([call[-1] for call in calls], ["repos/x/y/pulls/1/files?per_page=100&page=1",
+                                                       "repos/x/y/pulls/1/files?per_page=100&page=2"])
+
+    def test_a_full_last_page_reads_one_empty_page_after_it(self):
+        items, calls = self.read(100)
+        self.assertEqual(len(items), 100)
+        self.assertEqual(len(calls), 2)
+
+    def test_a_query_endpoint_keeps_its_query(self):
+        calls = []
+
+        def fake_gh(*args):
+            calls.append(args[-1])
+            return "[]"
+
+        saved, freeze.gh = freeze.gh, fake_gh
+        try:
+            freeze.gh_items("repos/x/y/issues?state=open&labels=merge-freeze")
+        finally:
+            freeze.gh = saved
+        self.assertEqual(calls, ["repos/x/y/issues?state=open&labels=merge-freeze&per_page=100&page=1"])
+
+    def test_a_page_that_is_not_a_list_is_unreadable(self):
+        saved, freeze.gh = freeze.gh, lambda *args: json.dumps({"message": "refused"})
+        try:
+            with self.assertRaises(ValueError):
+                freeze.gh_items("repos/x/y/pulls/1/files")
+        finally:
+            freeze.gh = saved
+
+
 if __name__ == "__main__":
     unittest.main()
