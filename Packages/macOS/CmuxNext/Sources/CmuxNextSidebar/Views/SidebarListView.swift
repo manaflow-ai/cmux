@@ -160,8 +160,17 @@ final class SidebarListView: NSView {
     let tabRowDrag = SidebarTabRowDrag()
     /// Hover time before an external tab drag over a row selects it.
     var springLoadDelay: Duration = .milliseconds(500)
-    /// Clock for the spring-load delay; tests inject a manual clock.
-    var springLoadClock: any Clock<Duration> = ContinuousClock()
+    /// The app's one deadline placer (the container injects `AppServices.mainDeadlines`). The spring-load hover is a
+    /// deadline on it; a list with none (a space page, a list made alone) takes no external drag and springs nothing.
+    var deadlines: MainDeadlineScheduler? {
+        didSet {
+            springLoad?.cancel()
+            springLoad = deadlines.map { MainDeadline(owner: "Sidebar.springLoad", workClass: .userBlocking, scheduler: $0) }
+        }
+    }
+    /// The spring-load hover of an external tab drag on one row (`updateSpringLoad`): the person holds the tab there
+    /// and waits for it, so it is the rest of their action (userBlocking), on a flexible wake, never aligned as hidden.
+    private(set) var springLoad: MainDeadline?
     /// The group header that holds keyboard focus (arrow keys stop on
     /// headers; focus is not selection). Nil when a workspace has it.
     var focusedGroup: GroupID?

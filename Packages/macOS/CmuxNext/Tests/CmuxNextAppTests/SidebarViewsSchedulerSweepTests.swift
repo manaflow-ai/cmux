@@ -11,6 +11,8 @@ import Testing
 /// - Visible: a shown sidebar's minute redraws in its wake and arms the next one.
 /// - Service: the container's presentation and width observation applies as one posted task on the scheduler,
 ///   off the change's turn, with no window (a model side effect runs while hidden, rule 3).
+/// - Person: a person's width change applies in the input-response pass, before the commit (rule 2). The spring-load
+///   hover of an external tab drag is a userBlocking deadline, cancelled when the tab leaves the row (R-timer, rule 6).
 /// - Person and window input state: the list ends a held gesture on the app's resign-active through the injected
 ///   AppEvents and on its window's resign-key through WindowEvents, with no NotificationCenter observer of its own.
 /// - The key-window repaint is one WindowEvents observer per window and notice, however many views follow it.
@@ -74,6 +76,23 @@ import Testing
         #expect(container.window == nil)
     }
 
+    /// Rule 2: the person's own width change (a drag of the handle, a toggle) applies in the input-response pass, before
+    /// the commit of their input, not in the posted visible task a program change waits for.
+    @Test func aPersonsWidthChangeAppliesInTheInputResponsePassBeforeAnyFrame() {
+        _ = NSApplication.shared
+        let rig = MainDeadlineRig()
+        let model = SidebarModel()
+        let container = SidebarContainerView(model: model, deadlines: rig.deadlines, appEvents: AppEvents(center: NotificationCenter()))
+        rig.frame()
+        let before = container.panelWidth.constant
+
+        rig.work.causes.withCause(.person) { model.width = before + 20 }
+        #expect(container.panelWidth.constant == before, "the width applied inside the change's will-set")
+        #expect(rig.work.causes.flushPersonCaused() >= 1, "the person's width change did not reach the input-response pass")
+        #expect(container.panelWidth.constant == model.width, "the person's width waited for a frame or a posted task")
+        #expect(model.width == before + 20)
+    }
+
     // MARK: Person input state: the list's gesture ends on focus loss (R-notif)
 
     /// A list in a window whose notices post on `windowCenter` (the window's WindowEvents is made on it first).
@@ -126,6 +145,45 @@ import Testing
 
         center.post(name: NSWindow.didResignKeyNotification, object: window)
         #expect(!list.holdsPointerGesture, "the press outlived its window's key with the button up")
+    }
+
+    // MARK: Person: the spring-load hover of an external tab drag (R-timer)
+
+    @Test func theSpringLoadIsAUserBlockingDeadlineThatLeavingTheRowCancels() throws {
+        let rig = MainDeadlineRig()
+        let (list, window) = Self.list(events: AppEvents(center: NotificationCenter()))
+        defer { window.close() }
+        list.deadlines = rig.deadlines
+        let spring = try #require(list.springLoad, "the injected deadlines made no spring-load deadline")
+        #expect(spring.workClass == .userBlocking, "the hover a person waits on is not the rest of their action")
+        let y = try SidebarPointerGestureTests.point(list, .workspace(WorkspaceID("y")))
+        let hit = list.externalDragMoved(windowPoint: list.convert(y, to: nil), sourceMachine: nil)
+        try #require(hit?.0 == .intoWorkspace(WorkspaceID("y")), "no workspace drop on y: \(String(describing: hit))")
+        #expect(spring.isScheduled && rig.hasArmedWake, "holding the tab on a row armed no spring-load")
+
+        list.externalDragExited()
+        #expect(!spring.isScheduled, "the spring-load stayed armed after the tab left the row")
+        rig.fireAndRun()
+        #expect(!list.model.selection.contains(WorkspaceID("y")), "a cancelled spring-load selected the row")
+    }
+
+    @Test func theSpringLoadSelectsTheHeldRowAtItsDeadlineAndNotBefore() throws {
+        let rig = MainDeadlineRig()
+        let (list, window) = Self.list(events: AppEvents(center: NotificationCenter()))
+        defer { window.close() }
+        list.deadlines = rig.deadlines
+        let y = try SidebarPointerGestureTests.point(list, .workspace(WorkspaceID("y")))
+        let hit = list.externalDragMoved(windowPoint: list.convert(y, to: nil), sourceMachine: nil)
+        try #require(hit?.0 == .intoWorkspace(WorkspaceID("y")), "no workspace drop on y: \(String(describing: hit))")
+
+        rig.advance(by: .milliseconds(100))
+        rig.fireAtNow()
+        #expect(!list.model.selection.contains(WorkspaceID("y")), "the spring-load selected the row before its delay")
+        rig.fireAndRun()
+        #expect(rig.elapsed >= 0.5, "the spring-load fired \(rig.elapsed) s in")
+        #expect(list.model.selection.contains(WorkspaceID("y")), "the held row was not selected at its deadline")
+        #expect(list.springLoad?.isScheduled == false)
+        _ = list.externalDragEnded()
     }
 
     // MARK: The key-window repaint (R-notif)
