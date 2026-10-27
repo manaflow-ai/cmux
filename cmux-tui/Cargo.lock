@@ -16,6 +16,7 @@ dependencies = [
  "cmux-codex-acp",
  "cmux-features",
  "cmux-git",
+ "cmux-hang-watch",
  "cmux-link",
  "cmux-local-auth",
  "cmux-lock-rank",
@@ -1216,6 +1217,7 @@ name = "cmux-holder"
 version = "0.1.0"
 dependencies = [
  "cmux-flow-trace",
+ "cmux-hang-watch",
  "cmux-ipc",
  "cmux-memory",
  "cmux-process",
@@ -1684,6 +1686,7 @@ version = "0.1.0"
 dependencies = [
  "crossbeam-channel",
  "libc",
+ "tokio",
 ]
 
 [[package]]
@@ -1714,6 +1717,7 @@ dependencies = [
  "cmux-build-identity",
  "cmux-config",
  "cmux-features",
+ "cmux-hang-watch",
  "cmux-holder",
  "cmux-host",
  "cmux-ipc",
@@ -1813,6 +1817,7 @@ dependencies = [
  "cmux-feed-core",
  "cmux-flow-trace",
  "cmux-git",
+ "cmux-hang-watch",
  "cmux-history",
  "cmux-holder",
  "cmux-ipc",

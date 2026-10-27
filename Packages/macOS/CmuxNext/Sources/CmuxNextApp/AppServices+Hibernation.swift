@@ -7,6 +7,7 @@ import CmuxNextFeatures
 package import CmuxNextHibernation
 import CmuxNextInput
 import CmuxNextMemory
+import CmuxNextPages
 import CmuxNextResources
 import CmuxNextSettings
 package import CmuxNextTabs
@@ -26,6 +27,7 @@ extension AppServices {
         let audible = features.isEnabled(.recentlyAudibleProtection) ? AudibleHistory(mainWork: mainWork) : nil
         let hibernation = BrowserHibernation(cache: cache, memory: memoryCoordinator, deadlines: mainDeadlines, energy: mainWork.energy, audible: audible, followsTabVisibility: features.isEnabled(.chromiumTabVisibility))
         cache.hibernation = hibernation
+        cache.webKit.hidesHiddenTabs = features.isEnabled(.webkitHiddenTabs) // WebKit tabs follow their hides too (p14-energy-059)
         hibernation.isPinned = { [weak self] key in self?.locateTab(key)?.0.pinned ?? false }
         hibernation.isDownloading = { [weak self] key in self?.cache.pageRequests.downloads.isDownloading(tab: key) ?? false }
         hibernation.measureMemory = { [weak self] in await self?.resources.sample(.everything).browserPageMemory ?? [:] }
@@ -128,6 +130,13 @@ extension AppServices {
             idleTimeout: held && features.isEnabled(.memoryDiscardParkedIdleTimeout) ? budget.parkedIdleTimeout : nil,
             deadline: MainDeadline(owner: "ParkedWorkspaceBudget", workClass: .background, scheduler: mainDeadlines),
             memory: memoryCoordinator)
+    }
+
+    /// The page host's shared WebKit processes (p07-memory-087): at most `SubsystemBudget.webProcessPagesPerGroup`
+    /// pages per process; every page of a sharing group joins with `webKitPageProcessGroups`, else only the agent pages.
+    func makeWebProcessGroups() -> WebProcessGroups {
+        WebProcessGroups(pagesPerProcess: SubsystemBudget.forThisMac(gpuResidentAvailable: false).webProcessPagesPerGroup,
+                         groupsEverySharingPage: features.isEnabled(.webKitPageProcessGroups))
     }
 
     /// The one list of hidden frames with `memoryHiddenFrameLRU` (p03-rendering-099): every evicted terminal's last

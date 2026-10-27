@@ -1,0 +1,11 @@
+{
+    "ui": {
+        "calm": true
+    },
+    "macScreen": {
+        "systemShortcuts": true
+    },
+    "appearance": {
+        "machineColors": []
+    }
+}

@@ -43,7 +43,7 @@ import Testing
         let tab = Self.tab()
         let media = BrowserMediaState(title: "Clip", isPlaying: true, isVideo: true, isPictureInPicture: true)
         let source = BrowserTabsNowPlaying()
-        source.follow(sessions: { [NowPlayingSession(tab: tab.id, media: media)] }, tab: { _ in tab })
+        source.follow(sessions: { [NowPlayingSession(tab: tab.id, media: media)] }, tab: { _ in tab }, deadlines: nil)
         let shown = try #require(source.nowPlaying, "the source shows no tab")
         #expect(shown.canPictureInPicture && shown.isPictureInPicture)
         #expect(!shown.labels.pictureInPicture.isEmpty && !shown.labels.exitPictureInPicture.isEmpty)

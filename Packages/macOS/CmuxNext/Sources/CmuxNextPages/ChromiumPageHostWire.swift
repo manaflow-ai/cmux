@@ -22,22 +22,48 @@ nonisolated struct ChromiumPageHostWire {
         }
     }
 
-    /// The page script's payload: `{name, seq?, body}`.
+    /// One message of the page script: `{name, seq?, doc?, body}`.
     struct Message {
         var name: String
         /// Set for the replying handler.
         var seq: Int?
+        /// The sending document's token. Every document numbers its calls from 1, so a reply
+        /// (``resolveExpression(seq:reply:document:)``, ``replyPush(seq:doc:reply:)``) names the
+        /// document it answers.
+        var doc: String?
         var body: Any
 
         init?(payload: String) {
-            guard let object = ChromiumPageHostWire.object(payload), let name = object["name"] as? String,
-                  let body = object["body"] else { return nil }
+            guard let object = ChromiumPageHostWire.object(payload) else { return nil }
+            self.init(object: object)
+        }
+
+        init?(object: [String: Any]) {
+            guard let name = object["name"] as? String, let body = object["body"] else { return nil }
             let seq = object["seq"] as? Int
             if let seq, seq <= 0 { return nil }
             self.name = name
             self.seq = seq
+            doc = object["doc"] as? String
             self.body = body
         }
+    }
+
+    /// The messages of one post: one message, or a JSON array of them (the posts of one task,
+    /// ``ChromiumPageHostBridge/pageScript(handlers:channelEvent:)``). Nil when it is neither, or
+    /// when any element is not a message: the post is refused whole.
+    static func messages(payload: String) -> [Message]? {
+        guard let data = payload.data(using: .utf8),
+              let value = try? JSONSerialization.blockingJSONObject(with: data) else { return nil }
+        if let object = value as? [String: Any] { return Message(object: object).map { [$0] } }
+        guard let list = value as? [Any], !list.isEmpty else { return nil }
+        var messages: [Message] = []
+        messages.reserveCapacity(list.count)
+        for element in list {
+            guard let object = element as? [String: Any], let message = Message(object: object) else { return nil }
+            messages.append(message)
+        }
+        return messages
     }
 
     /// The `Runtime.evaluate` result of `[location.href, window === window.top]`.
@@ -92,21 +118,30 @@ nonisolated struct ChromiumPageHostWire {
     }
 
     /// The reply call: the reply as JSON (`null` for none); a reply that is not JSON becomes the
-    /// host's failure envelope, so the page's promise still settles.
-    static func resolveExpression(seq: Int, reply: Any?) -> String {
-        let value: String
-        if let reply, !(reply is NSNull) {
-            // `JSONSerialization` raises an Objective-C exception (it does not throw) for a value
-            // that is not JSON, such as a `Date`: check first, wrapped in an array so a bare string
-            // or number counts too.
-            let invalid = #"{"ok":false,"error":{"code":"native.invalid_reply","userMessage":"Invalid reply"}}"#
-            value = JSONSerialization.isValidJSONObject([reply])
-                ? (try? JSONSerialization.data(withJSONObject: reply, options: [.fragmentsAllowed]))
-                    .flatMap { String(data: $0, encoding: .utf8) } ?? invalid
-                : invalid
-        } else {
-            value = "null"
-        }
-        return "globalThis.\(ChromiumPageHostBridge.resolveName)?.(\(seq), \(value));"
+    /// host's failure envelope, so the page's promise still settles. With `document`, only the
+    /// document of that token takes it (a reply evaluated in the main frame after it navigated).
+    static func resolveExpression(seq: Int, reply: Any?, document: String? = nil) -> String {
+        guard let document else { return "globalThis.\(ChromiumPageHostBridge.resolveName)?.(\(seq), \(replyJSON(reply)));" }
+        return "globalThis.\(ChromiumPageHostBridge.resolveName)?.(\(seq), \(replyJSON(reply)), \(jsonString(document)));"
+    }
+
+    /// The reply as a page push (``ChromiumPageHostBridge/pushReceiverScript``):
+    /// `{"r":seq,"d":doc,"v":reply}`, with the reply's JSON as ``resolveExpression(seq:reply:document:)``
+    /// writes it. `doc` is the token of the document that sent the call; any other document's
+    /// receiver ignores the reply.
+    static func replyPush(seq: Int, doc: String, reply: Any?) -> String {
+        #"{"r":\#(seq),"d":\#(jsonString(doc)),"v":\#(replyJSON(reply))}"#
+    }
+
+    /// `reply` as JSON: `null` for none, the host's failure envelope for a value that is not JSON.
+    private static func replyJSON(_ reply: Any?) -> String {
+        guard let reply, !(reply is NSNull) else { return "null" }
+        // `JSONSerialization` raises an Objective-C exception (it does not throw) for a value
+        // that is not JSON, such as a `Date`: check first, wrapped in an array so a bare string
+        // or number counts too.
+        let invalid = #"{"ok":false,"error":{"code":"native.invalid_reply","userMessage":"Invalid reply"}}"#
+        guard JSONSerialization.isValidJSONObject([reply]) else { return invalid }
+        return (try? JSONSerialization.data(withJSONObject: reply, options: [.fragmentsAllowed]))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? invalid
     }
 }

@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// What a raw DevTools send did (`cmux_shim_devtools_send`).
 public nonisolated enum CEFDevToolsRawSend: Hashable, Sendable {
@@ -160,15 +160,32 @@ public final class CEFAgentRelay {
     /// A page posted on one of cmux's channels (fork API 29): the same reports the DevTools
     /// bindings carry before it, to the same bridges.
     func pageMessage(_ message: CEFPageMessage) {
-        // A cmux page runs no browser-tab script (`CEFDocumentScripts.cmuxPageGuard`): a post on
-        // one of their channels is not cmux's.
-        guard !servesCmuxPage || message.channel.servesCmuxPages else { return }
+        // A cmux page runs no browser-tab script (`CEFDocumentScripts.cmuxPageGuard`), and a web
+        // page no page host relay (`CEFDocumentScripts.cmuxPageOnlyGuard`): a post on a channel
+        // the tab's kind does not run is not cmux's.
+        guard servesCmuxPage ? message.channel.servesCmuxPages : message.channel.servesBrowserTabs else { return }
         switch message.channel {
         case .media: media?.report(message.payload)
         case .protectedMedia: media?.refused(message.payload)
         case .verification: verification?.report(message.payload)
         case .firstPaint: firstPaint?.painted()
+        case .pageHost:
+            guard let post = CEFDocumentScripts.pageHostPost(message.payload) else { return }
+            onPageHostPost?(post.text, post.sender)
         }
+    }
+
+    /// Takes a cmux page's page host posts (``CEFPageMessage/Channel/pageHost``, its main frame
+    /// only), in the order the tab's events deliver them: the page's text and the URL of the
+    /// document that sent it (the relay's stamp, ``CEFDocumentScripts/pageHostPost(_:)``); nil drops them.
+    public var onPageHostPost: ((_ text: String, _ sender: URL) -> Void)?
+
+    /// The DOM event a cmux page fires to post to its page host on the page channel
+    /// (``CEFDocumentScripts/pageHostEvent``); nil when the runtime installs no page channels
+    /// (before fork API 29), so the page calls its DevTools binding.
+    public var pageHostEvent: String? {
+        guard let tab, tab.runtime.forkFeatures.rendererPaths else { return nil }
+        return CEFDocumentScripts.pageHostEvent
     }
 
     func browserAttached() {

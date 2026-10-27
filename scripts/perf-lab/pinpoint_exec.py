@@ -12,7 +12,8 @@ picks a host and never sends a request to the controller: the scheduler alone pl
 T0 > bisect > verify > T1 order, borrowing a waterfall host only far from its next T0) and orders builds (batch tips,
 then tiers, then Pinpoint). One tick:
 
-1. starts a bisect for each new monitored alert group (state new or triaged, no bisect job yet), pinned to the
+1. starts a bisect for each new monitored alert group (state new or triaged, no bisect job yet; a field crash
+   signature's group, stability.py's, has no commit range and is never bisected), pinned to the
    group's largest regression (alerts.group_alerts): its story, metric, build config and host class, over the
    commits between the range ends that the group's issue links (alerts.waterfall_sha). Magnitude = the alert's
    delta (median_after - median_before, in the metric's unit); pinpoint.py turns it into IQRs (3.6). A
@@ -24,6 +25,11 @@ then tiers, then Pinpoint). One tick:
 2. for each running bisect: stops it when its group is no longer bisecting (catapult cancels a Pinpoint job whose
    alert was triaged away), else reads the answers to its outstanding actions, steps the core until it waits and
    persists the job state:
+   - a Build or Run of a Change whose commit lacks a capability the story needs (`lacks`, capabilities.py, task
+     211) is answered at once: the Change is not-measurable, nothing is built or run for it, and the result names
+     each limit (`range limited by capability X since <sha>`). A story job whose build itself said it lacks a need
+     (run_story.py exit 6, or the controller's not_measurable) skips its Change the same way, with no failed
+     attempt, and its needs (ControllerJob.missing, else the artifact's summary.json) join the limits.
    - Build(change): the build ledger (builds.py, task 009) answers it. Until it does, the Build is published as
      `PinpointWork(build_only=True)`, so the scheduler requests (sha, config) once. Only a `failed` ledger record
      makes the commit unbuildable; a build with no record stays outstanding and is reported after BUILD_WAIT,
@@ -92,6 +98,7 @@ alerts = _load_sibling("perf_lab_alerts", "alerts.py")
 sheriff = _load_sibling("perf_lab_sheriff", "sheriff.py")
 harness_alerts = _load_sibling("perf_lab_harness_alerts", "harness_alerts.py")
 scheduler = _load_sibling("perf_lab_scheduler", "scheduler.py")
+capabilities = _load_sibling("perf_lab_capabilities", "capabilities.py")
 
 CHECKPOINT_SCHEMA = "cmux-perf-pinpoint-exec/v2"
 JOB_KIND = "bisect"
@@ -103,6 +110,8 @@ UNKNOWN_RUN_SECONDS = 6 * 3600  # a story job of unknown length borrows only a w
 START_STATES = ("new", "triaged")
 # run_story.py exit codes (task 008): 0 every repeat wrote results, 1 a repeat failed; anything else measured nothing.
 MEASURED_EXITS = (0, 1)
+# run_story.py EXIT_NOT_MEASURABLE (task 211): the launched build said it lacks a need of the story.
+NOT_MEASURABLE_EXITS = (6,)
 
 # Action states: PENDING (a story job without its row yet), QUEUED (published to the scheduler),
 # SUBMITTED (the controller has it), DONE (its answer is in the journal).
@@ -136,7 +145,8 @@ class StoryRequest:
 @dataclass(frozen=True)
 class ControllerJob:
     """finished: the job ended; exit_code: the entry's exit status (None for a job that never ran).
-    not_measurable: the build lacks a capability the story needs (task 211's debug.capabilities check).
+    not_measurable: the build lacks a capability the story needs (task 211's debug.capabilities check; an exit in
+    NOT_MEASURABLE_EXITS says the same), and missing names those needs when the controller knows them.
     host: the lab host it runs on. artifact: the job's result folder (`*.ndjson`) on labd's disk, once fetched."""
 
     finished: bool
@@ -144,6 +154,7 @@ class ControllerJob:
     not_measurable: bool = False
     host: str | None = None
     artifact: Path | None = None
+    missing: tuple[str, ...] = ()
 
 
 class Controller(Protocol):
@@ -230,6 +241,16 @@ class Checkpoint:
         return cls(int(document["job_id"]), list(document["events"]), list(document["actions"]), document.get("host"))
 
 
+def summary_missing(artifact: Path | None) -> list[str]:
+    """The needs a not-measurable story job's summary.json names (run_story.py refusal `missing`); [] without one."""
+    try:
+        refusal = json.loads((Path(artifact) / "summary.json").read_text(encoding="utf-8")).get("refusal") or {}
+        lacked = refusal.get("missing") if refusal.get("kind") == "not-measurable" else None
+    except (TypeError, OSError, ValueError, AttributeError):
+        return []
+    return [need for need in lacked if isinstance(need, str)] if isinstance(lacked, list) else []
+
+
 def record(state, event: Mapping) -> None:
     """Applies one journaled result (a build answer or an attempt) to the job state."""
     try:
@@ -237,6 +258,8 @@ def record(state, event: Mapping) -> None:
             state.record_build(change_of(event["change"]), bool(event["ok"]))
         elif event["t"] == "attempt":
             state.record_attempt(attempt_of(event["attempt"]))
+        elif event["t"] == "unmeasurable":
+            state.record_unmeasurable(change_of(event["change"]))
         else:
             raise ExecError(f"journal event kind {event['t']!r} is not a result")
     except pinpoint.PinpointError as error:
@@ -288,12 +311,16 @@ class Executor:
     first_parent(good, bad): the first-parent commits after good up to bad, oldest first (None: unknown now).
     commit_positions: ingest.CommitPositions for the story jobs' commits (labd's GitCommitPositions).
     repeat_seconds(story): one repeat's wall time, or None (UNKNOWN_RUN_SECONDS per job).
+    lacks(story, sha): the story's needs that commit lacks (capabilities.StoryNeeds, task 211); a Change that lacks
+    one is not-measurable before anything is built or run for it.
     One store.Store connection, owned by the opening thread; every write is the store's BEGIN IMMEDIATE."""
 
     def __init__(self, db_path: Path | str, state_dir: Path | str, *, controller: Controller, ledger: Ledger,
                  first_parent: FirstParent, commit_positions: Callable[[str], object],
                  repeat_seconds: Callable[[str], float | None] = lambda story: None,
+                 lacks: Callable[[str, str], Sequence[str]] = lambda story, sha: (),
                  clock: Callable[[], datetime] = store.utc_now) -> None:
+        self._lacks_needs = lacks
         self._controller = controller
         self._ledger = ledger
         self._first_parent = first_parent
@@ -354,12 +381,14 @@ class Executor:
     # --- starting bisects ---
 
     def start_bisects(self, report: TickReport | None = None) -> list[int]:
-        """One bisect per new monitored alert group that has none; groups that cannot start yet are reported."""
+        """One bisect per new monitored alert group that has none; groups that cannot start yet are reported. A field
+        crash signature's group is not a lab regression: there is nothing to bisect."""
         report = report or TickReport()
         marks = ",".join("?" * len(START_STATES))
         groups = self._db.execute(
             f"""SELECT g.* FROM alert_groups g WHERE g.state IN ({marks}) AND NOT EXISTS
-                (SELECT 1 FROM jobs j WHERE j.kind = ? AND j.alert_group_id = g.id) ORDER BY g.id""",
+                (SELECT 1 FROM jobs j WHERE j.kind = ? AND j.alert_group_id = g.id) AND NOT EXISTS
+                (SELECT 1 FROM field_signatures f WHERE f.group_id = g.id) ORDER BY g.id""",
             (*START_STATES, JOB_KIND)).fetchall()
         for group in groups:
             try:
@@ -375,6 +404,9 @@ class Executor:
 
     def _ledger_get(self, sha: str, config: str):
         return _seam(f"build ledger {sha[:12]} ({config})", self._ledger.get, sha, config)
+
+    def _lacks(self, story: str, sha: str) -> tuple[str, ...]:
+        return tuple(_seam(f"capabilities of {sha[:12]} for {story}", self._lacks_needs, story, sha))
 
     def _start(self, group: sqlite3.Row) -> int | str:
         """The new bisect's job id, or why the group cannot start yet."""
@@ -513,20 +545,28 @@ class Executor:
                 seen = len(checkpoint.events)
                 for action in actions:
                     if not isinstance(action, pinpoint.Done):
-                        self._add_action(checkpoint, action, config)
+                        self._add_action(checkpoint, action, config, job.story)
                 for event in checkpoint.events[seen:]:
                     record(state, event)
                 self._save(checkpoint)
         if state.result is not None:
-            self._finish(row, state.result)
+            self._finish(row, state.result, job, checkpoint)
             report.finished.append(row["id"])
             return None
         self._prepare(row, job, checkpoint)
         return checkpoint
 
-    def _add_action(self, checkpoint: Checkpoint, action, config: str) -> None:
-        """A new action; a Build the ledger already answers is recorded at once, so the next step sees it."""
+    def _add_action(self, checkpoint: Checkpoint, action, config: str, story: str) -> None:
+        """A new action; a Build the ledger already answers, or a Change that lacks a capability the story needs,
+        is recorded at once, so the next step sees it and nothing is built or run for it."""
         seq = len(checkpoint.actions)
+        lacked = self._lacks(story, action.change.sha)
+        if lacked:
+            change = change_doc(action.change)
+            checkpoint.actions.append({"seq": seq, "type": "build" if isinstance(action, pinpoint.Build) else "run",
+                                       "change": change, "status": DONE, "tries": 0, "missing": list(lacked)})
+            checkpoint.events.append({"t": "unmeasurable", "change": change, "missing": list(lacked)})
+            return
         if isinstance(action, pinpoint.Build):
             entry = {"seq": seq, "type": "build", "change": change_doc(action.change), "status": QUEUED,
                      "tries": 0, "queued_at": self._now()}
@@ -582,9 +622,13 @@ class Executor:
             return
         change = change_of(entry["change"])
         indexes = range(entry["start"], entry["start"] + entry["count"])
-        if status.not_measurable:
-            attempts = [pinpoint.Attempt(change, i, measurable=False) for i in indexes]
-        elif status.exit_code not in MEASURED_EXITS:
+        if status.not_measurable or status.exit_code in NOT_MEASURABLE_EXITS:
+            lacked = list(status.missing) or summary_missing(status.artifact)
+            self._set_row_state(entry["row_id"], "done")
+            entry.update(status=DONE, missing=lacked)
+            checkpoint.events.append({"t": "unmeasurable", "change": entry["change"], "missing": lacked})
+            return
+        if status.exit_code not in MEASURED_EXITS:
             self._failed_try(checkpoint, entry, f"exited {status.exit_code}", report)
             return
         elif status.artifact is None:
@@ -734,17 +778,41 @@ class Executor:
         self._write(write)
         report.cancelled.append(row["id"])
 
-    def _finish(self, row: sqlite3.Row, result) -> None:
+    def _range_limits(self, job, checkpoint: Checkpoint) -> list[str]:
+        """`range limited by capability X since <sha>` for each need a Change of the job lacked (task 211). A commit
+        lacks a need when git says so, or when it is not after a commit whose build said it lacks it (once a commit
+        has a capability, every later one does)."""
+        shas = [commit.sha for commit in job.range()]
+        position = {sha: i for i, sha in enumerate(shas)}
+        last_lacking: dict[str, int] = {}
+        for event in checkpoint.events:
+            if event["t"] == "unmeasurable" and event["change"]["sha"] in position:
+                for need in event.get("missing", ()):
+                    last_lacking[need] = max(last_lacking.get(need, -1), position[event["change"]["sha"]])
+        if not last_lacking:
+            return []
+
+        def lacks(sha: str) -> tuple[str, ...]:
+            built = {need for need, last in last_lacking.items() if position[sha] <= last}
+            return tuple(built | set(self._lacks(job.story, sha)))
+
+        return capabilities.range_limits(shas, last_lacking, lacks)
+
+    def _finish(self, row: sqlite3.Row, result, job, checkpoint: Checkpoint) -> None:
         """Stores the result; a group still bisecting moves to culprit (unverified) or back to triaged."""
         culprit = max(result.culprits, default=None,
                       key=lambda c: abs((c.comparison.mean_change or 0.0) - (c.comparison.mean_parent or 0.0)))
+        limits = self._range_limits(job, checkpoint)
+        document = json.loads(result.to_json())
+        document["range_limits"] = limits
+        limited = "".join(f"; {line}" for line in limits)
 
         def write() -> None:
             current = self._db.execute("SELECT state FROM jobs WHERE id = ?", (row["id"],)).fetchone()
             if current["state"] != "running":
                 return
             self._db.execute("UPDATE jobs SET state = 'done', result_json = ?, updated_at = ? WHERE id = ?",
-                             (result.to_json(), self._now(), row["id"]))
+                             (json.dumps(document, sort_keys=True), self._now(), row["id"]))
             group = self._db.execute("SELECT state FROM alert_groups WHERE id = ?", (row["alert_group_id"],)).fetchone()
             if group["state"] != "bisecting":
                 return  # a sheriff moved it after this tick read it; the job's result stays for the record
@@ -753,13 +821,13 @@ class Executor:
                 reason = (f"bisect job {row['id']}: culprit {culprit.change.sha[:12]} "
                           f"({len(culprit.commits)} commit{'s' if len(culprit.commits) != 1 else ''}, "
                           f"{culprit.comparison.verdict} p={culprit.comparison.p_value:.4g})"
-                          + (f", {others} more" if others else "") + "; unverified until verify.py")
+                          + (f", {others} more" if others else "") + "; unverified until verify.py" + limited)
                 self._sheriff.apply_state(row["alert_group_id"], "culprit", reason=reason,
                                           culprit_sha=culprit.change.sha)
             else:
                 skipped = f", {len(result.skipped)} commits skipped" if result.skipped else ""
                 self._sheriff.apply_state(row["alert_group_id"], "triaged",
-                                          reason=f"bisect job {row['id']}: {result.outcome}, no culprit{skipped}")
+                                          reason=f"bisect job {row['id']}: {result.outcome}, no culprit{skipped}{limited}")
 
         try:
             self._write(write)
