@@ -2997,6 +2997,49 @@ async fn a_mode_a_reattached_host_replays_is_judged_before_its_agent_is_reached_
     );
 }
 
+/// Review 1 of #26057: a link that broke while MDM was unset (an entry could not be logged;
+/// `ACPMUX_TEST_UNLOGGED_ONCE`) is reattached by the next request, and the host replays a
+/// full-access mode it kept. An earlier off had read this agent's log back and found it asking;
+/// that read no longer holds once the host replays. When MDM then turns full access off, the push
+/// judges the replay and the agent ends with it, also while the inbound loop has not applied the
+/// replayed update yet (`ACPMUX_TEST_UPDATE_DELAY_MS`).
+#[tokio::test]
+async fn a_host_reattached_while_mdm_is_unset_is_judged_by_its_replay_at_the_next_off() {
+    let env = [
+        ("ACPMUX_TEST_UNLOGGED_ONCE", "\"currentModeId\":\"full-access\""),
+        ("ACPMUX_TEST_UPDATE_DELAY_MS", "2000"),
+    ];
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let (daemon, mut rpc) = proven_daemon("mdmrelinkunset", fake, &env).await;
+    let session = new_session(&daemon).await;
+    rpc.call("session/set_mode", json!({"sessionId": session, "modeId": "normal"})).await;
+    // An off reads the agent's log back and finds it asking; MDM is unset again.
+    let unset = json!({"enabled": true, "discovery": false, "roots": [], "managedRoots": []});
+    for push in [mdm_off_push(), unset] {
+        let pushed = rpc.call("_acpmux/chat_settings", push).await;
+        assert_eq!(pushed["applied"], true, "{pushed}");
+    }
+    let later = json!({"sessionId": session,
+                       "prompt": [{"type": "text", "text": "set-mode-after: 300 full-access"}]});
+    rpc.call("session/prompt", later).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    // The harness moves into full access; that entry is not logged and the link breaks.
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+    // The next request reattaches the host, which replays the entry. Its turn's updates wait in the
+    // inbound loop behind the replayed one, so the push does not wait for that turn.
+    let mut asks = daemon.rpc().await;
+    let ask = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
+    asks.send("session/prompt", ask).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    let ended = daemon.events(&session).iter().any(|e| e["kind"] == "full_access_ended");
+    assert!(
+        ended && gone_within(harness_pid, Duration::from_secs(10)),
+        "the off push trusted a log read the reattached host's replay had outdated"
+    );
+}
+
 /// Review 68 of #23322: an off pushed while the next daemon adopts a left host, after that
 /// adoption read MDM's policy (unset) and before the host replayed (the debug seam
 /// `ACPMUX_TEST_ADOPT_HOLD_MS`), still judges what the replay says: the host had moved itself
