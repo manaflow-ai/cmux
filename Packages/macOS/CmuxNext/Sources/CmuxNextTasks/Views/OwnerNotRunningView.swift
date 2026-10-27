@@ -9,7 +9,8 @@ import CmuxNextDesign
 struct OwnerNotRunningView: View {
     @Environment(\.tasksColors) private var colors
 
-    static let command = "cmux task serve"
+    /// The shell command that starts the owner: shown and copied, never sent to a daemon.
+    static var command: String { "cmux task serve" }
 
     var body: some View {
         VStack(spacing: 10) {

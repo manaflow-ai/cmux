@@ -121,7 +121,7 @@ open class PopupRowView: NSView {
         setAccessibilityRole(interactive ? .button : .staticText)
         setAccessibilityLabel([title, subtitle].compactMap(\.self).filter { !$0.isEmpty }.joined(separator: ", "))
         if interactive {
-            addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self))
+            addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeForHover, .inVisibleRect], owner: self))
         }
     }
 
@@ -183,6 +183,7 @@ open class PopupRowView: NSView {
         }
     }
 
+    // visibility-walk-allow: one invalidation; AppKit draws only views on screen, so a hidden row pays nothing
     open override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true // invalidate: the appearance changed; the colors resolve again.
@@ -198,6 +199,8 @@ open class PopupRowView: NSView {
         if let hoverMoves { hoverMoves.crossed(event) } else if isEnabled { onHover?() }
     }
 
+    // local-monitor-allow: with feature pointerFrameHover the moves go to the popup's PointerFrameHover, on its
+    // window's FrameInputCoalescer (recipe R-input); off, each move hovers at once
     open override func mouseMoved(with event: NSEvent) {
         if let hoverMoves { hoverMoves.moved(event) } else { pointerMoved() }
     }
