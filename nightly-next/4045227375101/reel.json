@@ -1,0 +1,235 @@
+{
+  "version": 1,
+  "build": "4045227375101",
+  "notes": "notes/4045227375101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 25893,
+      "title": "acpmux: Linux sandbox E1b2b: the user-notify supervisor loop",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25905,
+      "title": "fix(cmux-config): parse the settings schema's sound_rules kind so the daemon starts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25875,
+      "title": "ci: rust-cache keeps self-hosted runners' ~/.cargo/bin (cache-bin: false + guard)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24100,
+      "title": "cmux NEXT: Inter, bundled, is the UI font everywhere, with its calculated tracking",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25903,
+      "title": "ci(cmux-next): the REF capture names a Swift driver by its module, not its target",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25853,
+      "title": "ci(cmux-next): a feed's compile counts a Blacksmith label stalled 15 min as full",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25886,
+      "title": "ci(nightly-next): record the nightly app only from a clean fresh VM, and never while reuse is off",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25777,
+      "title": "cmux NEXT: updates.status and cmux version report the app's own automatic-download setting, not Sparkle's",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25870,
+      "title": "Agent chat: one continuous jump to the streaming bottom",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/25870/after-d2adda46-ride.mp4",
+      "source": "manual",
+      "note": "2 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 25758,
+      "title": "ci(cmux-tui): the cmux_next_ daemon tests run on Blacksmith Linux 32 vCPU",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25848,
+      "title": "ci(cmux-tui): cap the tree hand-off at two re-runs, none after a quota-only failure",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25879,
+      "title": "ci(nightly): move seven run blocks into scripts so nightly.yml keeps room under GitHub's size limit",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25866,
+      "title": "ci(cmux-next): the DEV REF capture retries a rate-limited lookup and compiles instead of reusing",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25883,
+      "title": "acpmux pool: sort_by_key for the newest-first hint order (clippy unnecessary_sort_by red on base)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25872,
+      "title": "cmux NEXT: show normal file attachment chips",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25884,
+      "title": "test(cmux-next): hybrid-ref capture bound reads an expression timeout's shortest branch",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25587,
+      "title": "acpmux: Linux sandbox E1b2a: write-open emulation for the user-notify supervisor",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25877,
+      "title": "acpmux: pin cmux-codex-acp to ffa7aa8 (#9 and #10); read-only keeps rules-allowed commands in the sandbox",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25744,
+      "title": "cmux next: compile the DEV Release app on every landing, on the owned Mac nearest its cache",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25849,
+      "title": "ci(nightly): repeated steps become YAML anchors so nightly.yml stays under GitHub's 512,000-byte limit",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25845,
+      "title": "ci(nightly-next): the build reads a fleet runner first; no hosted Mac in the nightly path",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25863,
+      "title": "acpmux: stopping a closed chat again leaves it as old as it was",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25871,
+      "title": "fix(agent-chat): keep shell dollar expansions as literal text",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25819,
+      "title": "ci(nightly-next): poke the release push after the appcast upload",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24061,
+      "title": "cmux NEXT: Subagent Limit… on a chat, and a Running Sub-sessions setting",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25867,
+      "title": "ci(cmux-next): cmux-next/linux-compile, the PR's Linux Release compile verdict on its head",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25874,
+      "title": "cmux-next-ios-sim.sh: pinned, checksum-verified xcodegen per step (no host xcodegen needed)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25416,
+      "title": "cmux NEXT: follow focused chat titles in automatic workspace names",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25824,
+      "title": "ci(nightly-next): publish the cmux NIGHTLY-identity feed from Blacksmith Linux",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25868,
+      "title": "ci(nightly): cover the owned verify pick's steps in nightly-step-coverage.json",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25660,
+      "title": "acpmux: Linux sandbox G1c, the hub's Linux spawn path (switched off), and the keeper's SIOCGSKNS fix",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25731,
+      "title": "ci(nightly-next): reuse the compiled nightly app when its inputs did not change",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25846,
+      "title": "ci(routing): a refused runner read logs its body and rate-limit headers; one retry on Retry-After",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25855,
+      "title": "ci(cmux-tui): attest publishes with the release App token, falling back to github.token",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25825,
+      "title": "Mobile Pairing follows the live iPhone host; Connect Phone… in the machine chip and Settings",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24233,
+      "title": "acpmux: a paired device's Deny (and the person's proved Allow) counts under approve-reads; no Allow drawn that cannot count",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25530,
+      "title": "CEF bridges: hold the runtime their Task uses, instead of re-reading an unowned one",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
