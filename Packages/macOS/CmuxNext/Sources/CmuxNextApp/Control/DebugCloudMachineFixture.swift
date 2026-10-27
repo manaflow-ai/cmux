@@ -15,8 +15,9 @@ import CmuxNextSidebar
 ///   does while a Cloud machine's workspace is active (``seed(_:)``); `false` brings the live rows
 ///   and context back. The machine is a sidebar row and nothing else: no session, no sign-in, no
 ///   network call, no Cloud state.
-/// - `menu: true`: a right-click on that header (`debug.mouse`), so its menu opens as the
-///   person's does (`SidebarContextMenus.machineMenu`).
+/// - `menu: true`: the window first takes its screen's visible frame (a folder of 20 rows is taller
+///   than the default window, and a capture is cut to the window), then a right-click on that header
+///   (`debug.mouse`), so its menu opens as the person's does (`SidebarContextMenus.machineMenu`).
 /// - `folder: "Tools"`: with that menu open, types the folder's title (the menu's type-select) and
 ///   the right arrow, so the folder opens. The keys go to the app's event queue, which the open
 ///   menu reads; `debug.key`'s sequence needs an event source a capture slot does not give.
@@ -58,6 +59,10 @@ enum DebugCloudMachineFixture {
             "machine": .string(name),
             "cloudWorkspace": .bool(services.registry.context.contains(.cloudWorkspace)),
         ]
+        if params["menu"]?.boolValue == true, let window = controller.window, let screen = window.screen {
+            window.setFrame(screen.visibleFrame, display: true)
+            sidebar.container.layoutSubtreeIfNeeded()
+        }
         guard let frame = sidebar.container.machineHeaderFrameInWindow(machine), let window = controller.window else {
             answer["header"] = .null
             return .object(answer)
