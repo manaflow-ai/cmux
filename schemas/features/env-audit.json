@@ -605,6 +605,14 @@
         {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Quit/QuitAgents.swift:16", "kind": "use", "cond": "", "release": true}
       ]
     },
+    "CMUX_NEXT_ARM_CENSUS": {
+      "class": "benchOnly",
+      "auto": true,
+      "sites": [
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextWakeups/ArmCensus.swift:28", "kind": "constant", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false},
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextWakeups/ArmCensus.swift:141", "kind": "via environmentKey", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false}
+      ]
+    },
     "CMUX_NEXT_BENCH_CEF_SWITCHES": {
       "class": "benchOnly",
       "auto": true,

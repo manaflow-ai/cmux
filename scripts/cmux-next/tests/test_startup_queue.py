@@ -473,6 +473,37 @@ class ArmsTests(unittest.TestCase):
         self.assertEqual([(h["owner"], h["runs"], h["p50_first_fire_ms"]) for h in doc["hits"]],
                          [("LaunchSettle", 2, 1150.0), ("FolderWatch", 1, None)])
 
+    def test_the_census_reply_is_read_as_the_app_sends_it(self):
+        # debug.startup.arms (task 085): one record per armed object, `count` arms before its first fire, the first
+        # fire also after completion, and the census summary.
+        arms = [{"kind": "timer", "owner": "ChromiumWarmup", "site": "CmuxNextChromiumWarmup/ChromiumWarmup.swift:88",
+                 "armed_ms": 412.3, "count": 3, "first_fire_ms": 3420.1},
+                {"kind": "main_deadline", "owner": "Sidebar.hover", "site": "CmuxNextSidebar/Hover.swift:12",
+                 "armed_ms": 650, "count": 1, "first_fire_ms": None},
+                {"kind": "watcher", "owner": "FolderChanges", "site": "CmuxNextDesign/BackdropCatalogStore.swift:67",
+                 "armed_ms": 701.5, "count": 1, "first_fire_ms": None},
+                {"kind": "timer", "owner": "Late.timer", "site": "Late.swift:4", "armed_ms": 950, "count": 1,
+                 "first_fire_ms": 960}]
+        state = {"armed": True, "closed": True, "dropped": 0, "capacity": 4096}
+        hits, warnings, used = sq.arms_hits(sq.capture_runs([census_run(arms=arms, arm_census=state)]),
+                                            "startup_complete")
+        self.assertEqual((used, warnings), (1, []))
+        self.assertEqual([(h["kind"], h["owner"], h["p50_first_fire_ms"], h["fired"], h["p50_arms_before_fire"])
+                          for h in hits],
+                         [("timer", "ChromiumWarmup", 3420.1, 1, 3), ("main_deadline", "Sidebar.hover", None, 0, 1),
+                          ("watcher", "FolderChanges", None, 0, 1)])
+        self.assertIn("3 arms before it", hits[0]["summary"])
+
+    def test_a_census_that_did_not_record_is_left_out(self):
+        runs = sq.capture_runs([census_run(arms=[], arm_census={"armed": False, "closed": False, "dropped": 0}),
+                                census_run(arms=[], arm_census={"armed": True, "closed": True, "dropped": 12}),
+                                census_run(arms=[])])
+        _, warnings, used = sq.arms_hits(runs, "startup_complete")
+        self.assertEqual(used, 2, "a full census still counts; a result with no summary is kept")
+        self.assertIn("run 1: the arm census was not armed", warnings[0])
+        self.assertIn("run 2: the census did not keep 12 arms past its capacity", warnings[1])
+        self.assertEqual(len(warnings), 2)
+
 
 class FleetGuardTests(unittest.TestCase):
     def test_a_mac_without_a_fleet_step_is_refused_before_anything_starts(self):
@@ -621,6 +652,17 @@ class CollectTests(unittest.TestCase):
         self.assertEqual({env.get("CMUX_NEXT_GLOBAL_JOB_CENSUS") for _, _, env in bench.launched}, {"1"},
                          "the priming launch and the measured one")
         self.assertEqual({env.get("CMUX_NEXT_NO_ACTIVATE") for _, _, env in bench.launched}, {"0"})
+
+    def test_the_arms_mode_arms_its_census_and_merges_its_method(self):
+        census = {"arms": [], "arm_census": {"armed": True, "closed": True, "dropped": 0, "capacity": 4096}}
+        replies = {"debug.startup": {"ok": False, "error": {"code": "method_not_found"}},
+                   "debug.startup.arms": {"ok": True, "result": census}}
+        bench = FakeBench(lambda method: replies[method], daemon=False)
+        runs = sq.collect(bench, "/x/cmux DEV t1.app", 1, "warm", "startup_complete", 5, sq.method_of("arms"),
+                          extra_method=sq.MODE_METHOD["arms"], extra_env=sq.MODE_ENV["arms"])
+        self.assertEqual(runs[0]["result"], census)
+        self.assertEqual({env.get("CMUX_NEXT_ARM_CENSUS") for _, _, env in bench.launched}, {"1"},
+                         "the priming launch and the measured one")
 
     def test_a_missing_mark_names_until_mark(self):
         bench = FakeBench(lambda method: {"result": {}})

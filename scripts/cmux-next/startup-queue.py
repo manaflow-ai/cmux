@@ -25,8 +25,11 @@ Mac and reads what the launch recorded. Each hit names its queue and the task te
               BackgroundWork.task is listed: it starts at once, outside the launch fence. The census is Swift's global-enqueue hook: GCD blocks (`DispatchQueue.global()`) are not in it. A run
               whose census was not armed or whose hook did not install is left out with a warning; a task the
               census counted and did not keep is a warning.
-  arms        Q13, template 086. From `debug.startup`: each timer, watcher and observer armed before
-              --until-mark, with its median arm and first-fire times.
+  arms        Q13, template 086. From `debug.startup` and `debug.startup.arms` (task 085; a live run arms the census
+              with CMUX_NEXT_ARM_CENSUS=1): each timer (DemandTimer), main deadline (MainDeadline) and folder watch
+              (FolderChanges) armed before --until-mark, by kind, owner and creating site, with its median arm and
+              first-fire times and how often it was armed before its first fire. A run whose census was not armed is
+              left out with a warning; arms past the census's capacity are a warning.
 
 Usage:
   startup-queue.py gaps warm.json --min-ms 5 [--json out.json]
@@ -55,14 +58,17 @@ Input contract. All times are ms since process start (the launch-mark clock, Lau
     "global_jobs": [{"caller", "priority": name or number or null, "lane": name or null, "via": name or null,
                      "enqueued_ms", "run_ms"}],
     "global_job_census": {"armed", "hook", "dropped_tasks", "untracked_tasks", "pending_tasks", ...},
-    "arms": [{"kind", "owner", "site", "armed_ms", "first_fire_ms": ms or null}]}.
+    "arms": [{"kind", "owner", "site", "armed_ms", "count"?, "first_fire_ms": ms or null}],
+    "arm_census": {"armed", "closed", "dropped", "capacity"}}.
     Each census mode needs its arrays in a run (mainjobs: main_jobs and main_turns; globaljobs: global_jobs;
     arms: arms). A run without them is left out; no run with them exits 2. Task 082's census answers its two keys
     on its own method, `debug.startup.global_jobs` (one record per task, at its first enqueue on the pool; no `lane`,
     because lane items do not reach the pool; `via` `background_work_task` for a task BackgroundWork.task started,
     which is still a hit; `run_ms` null: the hook sees the enqueue, not the run); a live globaljobs run
-    merges that reply into debug.startup's (which it may lack). global_jobs' priority is null or 0 when
-    the job has none (082); 21 / default / medium (what a Task.detached or a DispatchQueue.global()
+    merges that reply into debug.startup's (which it may lack). Task 085's census answers `arms` and `arm_census` on
+    `debug.startup.arms` (one record per armed object: its first arm, `count` arms before its first fire, the first
+    fire whenever it came, also after completion) and a live arms run merges it the same way. global_jobs' priority
+    is null or 0 when the job has none (082); 21 / default / medium (what a Task.detached or a DispatchQueue.global()
     with no priority runs at) is counted as `default`.
   `launch.interrupted` (a mark, or the result's `interrupted`) means interrupted when present and not false or
   null; a mark at 0 ms counts.
@@ -117,8 +123,8 @@ INTERRUPTED = "launch.interrupted"
 LIVE_ENV = {"CMUX_NEXT_NO_ACTIVATE": "0"}
 # What a census mode adds to a live run: the environment that arms its recorder and the method that answers it (task
 # 082's global-job census is off unless armed, so the startup benches measure a launch without it).
-MODE_ENV = {"globaljobs": {"CMUX_NEXT_GLOBAL_JOB_CENSUS": "1"}}
-MODE_METHOD = {"globaljobs": "debug.startup.global_jobs"}
+MODE_ENV = {"globaljobs": {"CMUX_NEXT_GLOBAL_JOB_CENSUS": "1"}, "arms": {"CMUX_NEXT_ARM_CENSUS": "1"}}
+MODE_METHOD = {"globaljobs": "debug.startup.global_jobs", "arms": "debug.startup.arms"}
 # Initializer frames (the frame under swift_once names its owner; a C++ or ObjC static initializer).
 STATIC_INIT = ("one-time initialization function for", "static initializer for", "_GLOBAL__sub_I",
                "__cxx_global_var_init", "globalinit_")
@@ -623,8 +629,26 @@ def globaljobs_hits(runs, until_mark):
     return hits, warnings, len(kept)
 
 
+def arm_census_state(runs):
+    """The runs whose arm census recorded (task 085's `arm_census`), and why others were left out. A result with no
+    summary (a saved file from before it) is kept; one that says not armed recorded nothing. Arms past the census's
+    capacity are a warning."""
+    kept, warnings = [], []
+    for index, run in enumerate(runs):
+        state = run["result"].get("arm_census")
+        if isinstance(state, dict) and state.get("armed") is False:
+            warnings.append(f"run {index + 1}: the arm census was not armed (CMUX_NEXT_ARM_CENSUS=1), left out")
+            continue
+        if isinstance(state, dict) and number(state.get("dropped")):
+            warnings.append(f"run {index + 1}: the census did not keep {state['dropped']:g} arms past its capacity")
+        kept.append(run)
+    return kept, warnings
+
+
 def arms_hits(runs, until_mark):
-    kept, warnings = census_runs(runs, (until_mark,), CENSUS_FIELDS["arms"])
+    armed_runs, refused = arm_census_state(runs)
+    kept, warnings = census_runs(armed_runs, (until_mark,), CENSUS_FIELDS["arms"])
+    warnings = refused + warnings
     arms = {}
     for index, run in enumerate(kept):
         complete = cutoff(run["marks"], until_mark)
@@ -633,8 +657,9 @@ def arms_hits(runs, until_mark):
             if armed is None or armed >= complete:
                 continue
             key = (str(arm.get("kind", "?")), str(arm.get("owner", "?")), str(arm.get("site", "?")))
-            entry = arms.setdefault(key, {"armed": [], "fires": [], "runs": set()})
+            entry = arms.setdefault(key, {"armed": [], "fires": [], "counts": [], "runs": set()})
             entry["armed"].append(armed)
+            entry["counts"].append(number(arm.get("count")) or 1)
             entry["runs"].add(index)
             fire = number(arm.get("first_fire_ms"))
             if fire is not None:
@@ -643,10 +668,13 @@ def arms_hits(runs, until_mark):
     for (kind, owner, site), entry in arms.items():
         armed = statistics.median(entry["armed"])
         fire = round(statistics.median(entry["fires"]), 1) if entry["fires"] else None
+        rearms = statistics.median(entry["counts"])
         hits.append({"kind": kind, "owner": owner, "site": site, "runs": len(entry["runs"]),
                      "count": len(entry["armed"]), "p50_armed_ms": round(armed, 1), "p50_first_fire_ms": fire,
+                     "fired": len(entry["fires"]), "p50_arms_before_fire": rearms,
                      "summary": f"{kind} {owner} at {site}: armed p50 {armed:.0f} ms, first fire "
-                                f"{'never' if fire is None else f'p50 {fire:.0f} ms'}, {len(entry['runs'])}/{len(kept)} runs"})
+                                f"{'never' if fire is None else f'p50 {fire:.0f} ms'} ({len(entry['fires'])} of "
+                                f"{len(entry['armed'])}), {rearms:g} arms before it, {len(entry['runs'])}/{len(kept)} runs"})
     hits.sort(key=lambda hit: (-hit["runs"], hit["p50_armed_ms"]))
     return hits, warnings, len(kept)
 

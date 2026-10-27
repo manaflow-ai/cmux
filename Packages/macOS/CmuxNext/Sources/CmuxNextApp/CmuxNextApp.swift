@@ -39,6 +39,10 @@ public struct CmuxNextApp {
         // CMUX_NEXT_GLOBAL_JOB_CENSUS=1 (startup-queue.py globaljobs): every task that starts on the cooperative pool
         // until startup completes (p08-startup-082), its hook in before the launch starts tasks.
         let globalJobs = GlobalJobCensus.armed(environment: ProcessInfo.processInfo.environment, processStartNanos: DebugTimings.processStartUptimeNanos)
+        // CMUX_NEXT_ARM_CENSUS=1 (startup-queue.py arms): each timer, deadline and folder watch armed until startup
+        // completes, with its first fire (p08-startup-085).
+        let armCensus = WakeupLedger.shared.armCensus
+        armCensus.start(environment: ProcessInfo.processInfo.environment, processStartNanos: DebugTimings.processStartUptimeNanos)
         #endif
         // Before any socket or pipe exists (ChildSignalDefaults); the open-file limit before CefInitialize
         // (OpenFileLimit: launchd's 256 stopped the app at 80-100 Chromium tabs).
@@ -169,6 +173,7 @@ public struct CmuxNextApp {
         DaemonLauncher.captureLoginEnvironment(after: order.startup) // at once only with nothing remembered (p08-startup-034)
         #if DEBUG || CMUX_BENCH_HOOKS
         globalJobs?.freeze(after: order.startup)
+        armCensus.close(after: order.startup)
         #endif
         LaunchThreadCensus.post(on: order.startup) { LaunchMarkSink.shared.writeValue(name: $0, value: $1) } // Debug/bench: threads at the first frame (p08-startup-068)
         if let pictures = environment.windowPictures { order.startup.whenComplete { _ in pictures.dropFront() } } // decoded pictures are large

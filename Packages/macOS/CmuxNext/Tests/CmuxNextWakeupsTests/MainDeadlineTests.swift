@@ -366,6 +366,34 @@ import Testing
         #expect(ran == (0..<5).map { "shared \($0)" })
         #expect(harness.rig.fires == 1)
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    // MARK: Arm census
+
+    /// A deadline armed while its ledger's arm census records (startup-queue.py arms, p08-startup-085) leaves one
+    /// record: its owner, the line that made it, the arms before its wake, and the wake.
+    @Test func aDeadlineArmedDuringTheLaunchIsInTheArmCensus() throws {
+        let harness = DeadlineHarness()
+        let census = harness.rig.ledger.armCensus
+        census.start(processStartNanos: 0)
+        let deadline = harness.deadline("census")
+        deadline.schedule(after: .milliseconds(20)) {}
+        deadline.schedule(after: .milliseconds(30)) {}
+        let untouched = harness.deadline("census.cancelled")
+        untouched.schedule(after: .seconds(5)) {}
+        untouched.cancel()
+        #expect(census.snapshot().arms.map(\.firstFireNanos).allSatisfy { $0 == nil })
+
+        harness.rig.fire()
+        let arms = census.snapshot().arms
+        #expect(arms.map(\.owner) == ["census", "census.cancelled"])
+        #expect(arms.map(\.kind) == [.mainDeadline, .mainDeadline])
+        #expect(arms.first?.site.description.contains("MainDeadlineTests.swift:") == true, "the harness line that made it")
+        #expect(arms.first?.count == 2)
+        #expect(arms.first?.firstFireNanos != nil, "the wake is the first fire, before the posted action runs")
+        #expect(arms.last?.firstFireNanos == nil)
+    }
+    #endif
 }
 
 private let ms: UInt64 = 1_000_000
