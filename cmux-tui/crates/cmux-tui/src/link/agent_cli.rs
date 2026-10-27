@@ -49,8 +49,10 @@
 //! the machine (Move to Cloud). A Cloud VM's daemon takes a chat only on
 //! `owner`, never on its own record: the pump sends it as `vm_kind` on the
 //! receive and the finish to a daemon with `agent-transfer-vm-kind-v1`. An
-//! older daemon would trust its own record, so the pump refuses any other
-//! kind there (`agent_session.host_unverified`) before the chat freezes.
+//! older Cloud daemon (one that serves `fs-v1`, which only a Cloud host does,
+//! or one that does not answer `identify`) would trust its own record, so the
+//! pump refuses any other kind there, or none, before the chat freezes
+//! (`agent_session.host_unverified`). An older Mac or SSH host needs no kind.
 //!
 //! Output: one JSON line on stdout, `{"ok":true,"session_id":...,
 //! "transfer_id":...,"bytes":N,"resolved":bool}` (exit 0), or
@@ -375,16 +377,19 @@ fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
 
 /// The `vm_kind` the target is sent (module docs): `--vm-kind` for a daemon
 /// with `agent-transfer-vm-kind-v1`; none for an older one, which trusts its
-/// own record, so it is refused unless the Cloud API said `owner`.
+/// own record, so an older Cloud one is refused unless the Cloud API said
+/// `owner`.
 fn target_vm_kind(args: &Args) -> Result<Option<String>, Failed> {
-    let Some(kind) = &args.vm_kind else { return Ok(None) };
-    let capability = cmux_tui_core::server::agent_transfer::AGENT_TRANSFER_VM_KIND_CAPABILITY;
+    use cmux_tui_core::server::agent_transfer::AGENT_TRANSFER_VM_KIND_CAPABILITY;
     let identity = super::machine_gate::identify(&args.to);
     let served = identity.as_ref().and_then(super::machine_gate::served);
-    if served.is_some_and(|served| served.contains(&capability)) {
-        return Ok(Some(kind.clone()));
+    let serves = |capability: &str| served.as_ref().is_some_and(|s| s.contains(&capability));
+    if serves(AGENT_TRANSFER_VM_KIND_CAPABILITY) {
+        return Ok(args.vm_kind.clone());
     }
-    if kind == "owner" {
+    // No identify answer cannot show that the target is not a Cloud VM.
+    let cloud = identity.is_none() || serves(cmux_tui_core::fs_ops::FS_CAPABILITY);
+    if !cloud || args.vm_kind.as_deref() == Some("owner") {
         return Ok(None);
     }
     let error = "the Cloud API did not say this machine is yours, and its cmux-tui cannot check";
