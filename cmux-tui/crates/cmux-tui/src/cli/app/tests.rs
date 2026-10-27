@@ -64,6 +64,24 @@ fn an_action_cwd_is_made_absolute_except_home_and_empty() {
     assert_eq!(sent(&["--cwd"]), json!(true));
 }
 
+/// A remote, cloud or agent action's `--cwd` is a folder on the machine it runs
+/// on, so it is sent as typed, never resolved against the caller's directory.
+#[test]
+fn a_remote_or_cloud_action_cwd_is_sent_as_typed() {
+    let sent = |action: &str, name: ActionName| {
+        let (_, params) = call(run_action(action, &args(&["--cwd", "."]), name).unwrap());
+        params["args"]["cwd"].clone()
+    };
+    for action in ["open-remote", "remote open-terminal-here", "cloud start-session", "agent new-chat"] {
+        assert_eq!(sent(action, ActionName::Cli), json!("."), "{action}");
+    }
+    for action in ["remote.openRemote", "cloudStartSession", "palette.newAgentChat", "agent.openSessionWorkspace"] {
+        assert_eq!(sent(action, ActionName::Any), json!("."), "{action}");
+    }
+    let cwd = std::env::current_dir().unwrap();
+    assert_eq!(sent("tab new", ActionName::Cli), json!(cwd.to_string_lossy()));
+}
+
 /// `cmux cloud new-machine --bootstrap-script FILE` uploads a file of the
 /// caller's working directory, so the app gets it absolute; `--persistent`
 /// alone is a true flag and `--size` keeps its value.
