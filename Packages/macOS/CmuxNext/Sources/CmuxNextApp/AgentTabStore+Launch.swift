@@ -124,7 +124,8 @@ extension AgentTabStore {
                 guard !Task.isCancelled else { return }
                 for retry in 0..<3 {
                     if await self?.resumeChatsAtLaunch() == true { return }
-                    guard !Task.isCancelled, retry < 2 else { return }
+                    guard !Task.isCancelled else { return }
+                    guard retry < 2 else { break }
                     // wakeup-allow: bounded launch recovery backoff for a daemon handoff; this
                     // task is off the main thread and cancellation stops the retry before quit.
                     try? await Task.sleep(for: .seconds(1 << retry))
