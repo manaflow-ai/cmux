@@ -167,8 +167,14 @@ extension AgentTabStore {
             return services.linkOpener.open(from: source) { target, placed in
                 guard target.daemon.isLocal else { return false }
                 return tabs.openTab(in: target, session: session, select: placed == nil) { [weak services, weak tabs] key in
-                    if let placed { if let surface = services?.locateTab(key)?.0.surface { placed(surface) }; return }
-                    _ = tabs?.actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: key), origin: .user))
+                    // task-owner: one creation reply; ends after tree arrival, cancellation or the mirror deadline
+                    Task { [weak services, weak tabs] in
+                        guard let tabs else { return }
+                        await TabMirror.performWhenReached(key, in: tabs.locate) {
+                            if let placed { if let surface = services?.locateTab(key)?.0.surface { placed(surface) }; return }
+                            _ = tabs.actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: key), origin: .user))
+                        }
+                    }
                 }
             }
         }
