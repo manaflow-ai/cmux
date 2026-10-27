@@ -242,14 +242,14 @@ impl Store {
     /// from it leaves the ticket open.
     pub fn redeem(
         &mut self,
-        secret: &str,
+        ticket: (&str, &str),
         name: &str,
         token: &str,
         device_id: &str,
         now_ms: u64,
-        identity: &str,
         check: impl FnOnce(Role) -> Result<(), RpcError>,
     ) -> Result<Redeemed, RpcError> {
+        let (secret, identity) = ticket;
         crate::session_name::validate(name).map_err(|e| {
             RpcError::invalid_params(format!("the machine name: {e}"))
                 .with_data(json!({"reason": "bad_name"}))
