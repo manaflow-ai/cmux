@@ -23,6 +23,8 @@ final class QuitCoordinator {
     private(set) var failureAlert: QuitFailureAlert?
     /// A quit is in progress (deciding, asking or completing).
     private(set) var isQuitting = false
+    /// Runs once when the next quit is refused (an update's relaunch behind waits on that quit).
+    var onQuitRefused: (() -> Void)?
     /// The last dialog brought the app forward (`debug.quit`).
     private(set) var lastAskActivated = false
     private unowned let services: AppServices
@@ -93,6 +95,7 @@ final class QuitCoordinator {
             guard await resolveUnsaved(origin) else {
                 isQuitting = false
                 sender.reply(toApplicationShouldTerminate: false)
+                quitRefused()
                 return
             }
             let facts = QuitPolicy.needsFacts(origin) && !askedUnsaved ? await QuitFactsReader.read(services) : .none
@@ -105,6 +108,13 @@ final class QuitCoordinator {
             }
         }
         return .terminateLater
+    }
+
+    /// The quit was refused: whatever waited on it learns so, once.
+    private func quitRefused() {
+        let refused = onQuitRefused
+        onQuitRefused = nil
+        refused?()
     }
 
     /// The unsaved step for `origin` (`QuitUnsavedStep.resolve`).
@@ -137,6 +147,7 @@ final class QuitCoordinator {
             case .cancel:
                 self.isQuitting = false
                 sender.reply(toApplicationShouldTerminate: false)
+                self.quitRefused()
             case .quit(let choice, let remember):
                 Task { @MainActor [services] in
                     await self.complete(choice, remember: remember, sender)
@@ -160,6 +171,7 @@ final class QuitCoordinator {
         // Awaited (bounded) so `quitting` is on disk before the quit can end
         // the process; the write itself runs off the main thread.
         await services.crashRecovery.quitBegan()
+        await services.cloud.prepareForTermination()
         await QuitCompletion.run(choice, remember: remember, QuitSteps(
             remember: { behavior in
                 guard let settings = services.settings,

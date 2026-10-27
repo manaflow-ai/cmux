@@ -23,6 +23,15 @@ import Observation
 /// Launch Claude/Codex Teams run `AgentTeamsLaunch`. Computer Use
 /// focus/stop are typed-unavailable.
 enum AgentHandlers {
+    /// Inspect Element (#24707) is a Debug/Labs surface: every right-click menu that places it
+    /// (the tab bar's + among them) leaves it out until Debug Settings' UI pointer inspector
+    /// (`AgentPaneTunables.pointerInspector`, off by default) is on.
+    static func gatePointerInspectorMenuRows(in registry: ActionRegistry) {
+        ActionTargetVisibility.hide("agentPane.togglePointerInspector", in: registry) { _ in
+            !AgentPaneTunables.pointerInspector.value
+        }
+    }
+
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("agentPaneZoomIn", run: { invocation in try setAgentPaneZoom(by: AgentPaneZoomSetting.step, context: context, invocation: invocation) })
         registry.bind("agentPaneZoomOut", run: { invocation in try setAgentPaneZoom(by: -AgentPaneZoomSetting.step, context: context, invocation: invocation) })
@@ -114,9 +123,7 @@ enum AgentHandlers {
                 context.services.uiInspector.inspectFromContextMenu()
             }
         })
-        ActionTargetVisibility.hide("agentPane.togglePointerInspector", in: registry) { _ in
-            !AgentPaneTunables.pointerInspector.value
-        }
+        gatePointerInspectorMenuRows(in: registry)
         registry.bind(.fileOpen, run: { try openFile($0, context: context) })
         // The composer's mic (CmuxNextAgentPane). Held from the keyboard, it
         // is push-to-talk. Outside an agent chat it stops a session still

@@ -186,7 +186,8 @@ final class WindowManager {
         if controllers.isEmpty, !LaunchSnapshotWindow(manager: self).show() {
             let id = UUID().uuidString.lowercased()
             launchWindowID = id
-            makeController(for: WindowRegistry.Window(id: id))
+            makeController(for: WindowRegistry.Window(id: id, frame: services.daemon.launchSnapshotWindows?.lastFrame?.rect,
+                                                      display: services.daemon.launchSnapshotWindows?.lastDisplay))
         }
         let store = services.daemon.store
         loadObservation = Task { [weak self] in
@@ -229,6 +230,7 @@ final class WindowManager {
                                             restoredAtMs: UInt64(max(0, Date().timeIntervalSince1970 * 1000)))
         }
         let adopted = adoptLaunchWindow(restoredRegistry, records: document.windows)
+        if adopted == nil { placeLaunchWindow(document) }
         // The closed launch window stood for the saved window it would have become.
         if closedLaunchWindowID != nil, let front = adoptableFront(restoredRegistry) { closedDuringRestore.insert(front) }
         for record in document.windows where states[record.id] == nil { states[record.id] = WindowState(record: record) }
@@ -292,6 +294,14 @@ final class WindowManager {
             launch.window?.setFrame(WindowPlacementFallback.visible(frame, display: restored.window(front)?.display), display: true)
         }
         return launch
+    }
+
+    /// No saved window can show now (their workspaces ended, or the last window closed): the
+    /// launch window opens where the front window last was (#25568).
+    private func placeLaunchWindow(_ document: WindowStateDocument) {
+        guard services.environment.testWindow == nil, let launch = launchWindowID.flatMap(controller(for:)),
+              let frame = document.lastFrame?.rect else { return }
+        launch.window?.setFrame(WindowPlacementFallback.visible(frame, display: document.lastDisplay), display: true)
     }
 
     /// A window the person closed before the restore finished stays closed, even the last one: no

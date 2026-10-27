@@ -2,7 +2,8 @@
 # build-web-bundles.sh --from DIR installs bundles that were built elsewhere for the same
 # source key (cmux-next.yml's Linux web-bundles job caches them by that key) and stamps them,
 # so a Mac job that restores them skips the build. A tree missing a bundle is refused and the
-# checkout is left alone. The committed inspector page is never replaced.
+# checkout is left alone. The committed inspector page is never replaced, and a prebuilt tree whose
+# generated inspector page differs from it is refused, as an in-tree build refuses it.
 #
 # The bundles are build output, not committed (41b907dce7b), so the test runs a copy of the
 # script in a scratch repository with a synthetic prebuilt tree. It never touches this
@@ -32,21 +33,49 @@ mkdir -p "$REPO/$(dirname "$PALETTE")"
 mkdir -p "$REPO/$INSPECTOR"
 printf '<!doctype html><title>committed inspector</title>\n' > "$REPO/$INSPECTOR/index.html"
 
-# A prebuilt tree for this source key, as the Linux web-bundles job caches it.
-for path in "$PANE" "$PAGES" "$ACTIVITY" "$APP" "$INSPECTOR"; do
+# A commit keeps a GENERATED.md note in the pane, pages and activity directories, and the app
+# bundles it; an --out-root build writes none, so --from must keep the checkout's.
+for path in "$PANE" "$PAGES" "$ACTIVITY"; do
+  mkdir -p "$REPO/$path"
+  printf 'generated: %s\n' "$path" > "$REPO/$path/GENERATED.md"
+  printf 'stale build output\n' > "$REPO/$path/stale.js"
+done
+git -C "$REPO" add -f "$PANE/GENERATED.md" "$PAGES/GENERATED.md" "$ACTIVITY/GENERATED.md"
+
+# A prebuilt tree for this source key, as the Linux web-bundles job caches it. Its inspector
+# page is the one it generated, which matches the committed page while that is current.
+for path in "$PANE" "$PAGES" "$ACTIVITY" "$APP"; do
   mkdir -p "$WORK/out/$path"
   printf '<!doctype html><title>%s</title>\n' "$path" > "$WORK/out/$path/index.html"
 done
+mkdir -p "$WORK/out/$INSPECTOR"
+cp "$REPO/$INSPECTOR/index.html" "$WORK/out/$INSPECTOR/index.html"
 mkdir -p "$WORK/out/$(dirname "$PALETTE")"
 printf 'export const rank = () => 0;\n' > "$WORK/out/$PALETTE"
 
 "$SCRIPT" --from "$WORK/out" > "$WORK/log" 2>&1 || { cat "$WORK/log"; echo "FAIL: --from must install a complete prebuilt tree"; exit 1; }
 "$SCRIPT" --verify > /dev/null 2>&1 || { echo "FAIL: after --from the bundles must be current without a build"; exit 1; }
 for path in "$PANE" "$PAGES" "$ACTIVITY" "$APP"; do
-  diff -r "$WORK/out/$path" "$REPO/$path" > /dev/null || { echo "FAIL: --from did not install $path as built"; exit 1; }
+  diff -r -x GENERATED.md "$WORK/out/$path" "$REPO/$path" > /dev/null || { echo "FAIL: --from did not install $path as built"; exit 1; }
 done
 grep -q "committed inspector" "$REPO/$INSPECTOR/index.html" || { echo "FAIL: --from must leave the committed inspector page alone"; exit 1; }
 cmp -s "$WORK/out/$PALETTE" "$REPO/$PALETTE" || { echo "FAIL: --from did not install $PALETTE as built"; exit 1; }
+for path in "$PANE" "$PAGES" "$ACTIVITY"; do
+  grep -qx "generated: $path" "$REPO/$path/GENERATED.md" || { echo "FAIL: --from must keep the committed $path/GENERATED.md"; exit 1; }
+  [ ! -e "$REPO/$path/stale.js" ] || { echo "FAIL: --from must drop build output the prebuilt tree does not hold ($path/stale.js)"; exit 1; }
+done
+
+# A committed inspector page that differs from the one generated for this source key is stale:
+# an in-tree build refuses it (build-optchat-inspector-web.sh --check), and so must --from.
+cp -R "$WORK/out" "$WORK/stale"
+printf '<!doctype html><title>regenerated inspector</title>\n' > "$WORK/stale/$INSPECTOR/index.html"
+rm -f "$REPO/.web-bundles.key"
+if "$SCRIPT" --from "$WORK/stale" > "$WORK/log" 2>&1; then
+  echo "FAIL: --from must refuse a tree whose inspector page differs from the committed one"; exit 1
+fi
+grep -q "generated file is stale" "$WORK/log" || { cat "$WORK/log"; echo "FAIL: a stale inspector page must be named"; exit 1; }
+[ ! -f "$REPO/.web-bundles.key" ] || { echo "FAIL: a stale inspector page must not stamp the bundles current"; exit 1; }
+grep -q "committed inspector" "$REPO/$INSPECTOR/index.html" || { echo "FAIL: a refused --from must leave the committed inspector page alone"; exit 1; }
 
 rm -rf "$WORK/out/$PAGES"
 rm -f "$REPO/.web-bundles.key"
@@ -56,4 +85,22 @@ fi
 [ -f "$REPO/$PAGES/index.html" ] || { echo "FAIL: a refused --from must leave the checkout's bundles alone"; exit 1; }
 [ ! -f "$REPO/.web-bundles.key" ] || { echo "FAIL: a refused --from must not stamp the bundles current"; exit 1; }
 
-echo "PASS: build-web-bundles.sh --from installs and stamps a prebuilt tree, and refuses an incomplete one"
+# A copy that fails after the checkout's build output was cleared must still leave the
+# committed notes in place, so the fallback build ships them. The failure is a directory in
+# the prebuilt tree where the checkout tracks a file: cp cannot replace a file with a
+# directory, for root too (unlike an unreadable file).
+cp -R "$WORK/out" "$WORK/conflict"
+mkdir -p "$WORK/conflict/$PAGES/conflict"
+printf 'x\n' > "$WORK/conflict/$PAGES/conflict/inner.js"
+printf 'tracked file\n' > "$REPO/$PAGES/conflict"
+git -C "$REPO" add -f "$PAGES/conflict"
+rm -f "$REPO/.web-bundles.key"
+if "$SCRIPT" --from "$WORK/conflict" > "$WORK/log" 2>&1; then
+  echo "FAIL: --from must fail when the prebuilt tree cannot be copied"; exit 1
+fi
+for path in "$PANE" "$PAGES" "$ACTIVITY"; do
+  grep -qx "generated: $path" "$REPO/$path/GENERATED.md" || { echo "FAIL: a failed copy must keep the committed $path/GENERATED.md"; exit 1; }
+done
+[ ! -f "$REPO/.web-bundles.key" ] || { echo "FAIL: a failed copy must not stamp the bundles current"; exit 1; }
+
+echo "PASS: build-web-bundles.sh --from installs and stamps a prebuilt tree, and refuses an incomplete one or a stale inspector page, and keeps committed files"

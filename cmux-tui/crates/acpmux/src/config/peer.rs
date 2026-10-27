@@ -14,4 +14,11 @@ pub struct PeerConfig {
     /// or `wss://` peer; an `ssh://` peer reads it over ssh at each connect.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub peer_token: Option<String>,
+    /// `vmBoundary`: this caller lets the peer run its remote chains' Claude
+    /// Code without the platform sandbox, the VM being the boundary
+    /// (`hub/vm_boundary.rs`). Never set by `peer_add`: a fleet tool writes it
+    /// for a VM its registry says is a dedicated agent VM, and a Cloud link's
+    /// lease carries it when the Cloud API said the caller owns that VM.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub vm_boundary: bool,
 }
