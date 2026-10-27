@@ -17,6 +17,7 @@ import { BookmarkIcon } from "./BookmarkIcon";
 import type { MinimapTurnMetadata, ReplyBlock } from "./model";
 import { useSenderIdentity } from "../subagents/subsessions";
 import { SenderIdentityLabel } from "../SenderIdentityLabel";
+import { PromptMarksSession } from "./promptMarks";
 
 const middleEllipsis = (value: string, max = 36) => {
   if (value.length <= max) return value;
@@ -308,7 +309,7 @@ export const PreviewCard = React.forwardRef<
 });
 
 function PreviewSender({ sender }: { sender: NonNullable<MinimapTurnMetadata["sender"]> }) {
-  const identity = useSenderIdentity(sender);
+  const identity = useSenderIdentity(sender, React.useContext(PromptMarksSession));
   return (
     <>
       <SenderIdentityLabel identity={identity} />

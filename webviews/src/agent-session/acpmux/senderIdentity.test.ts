@@ -4,6 +4,11 @@ import { sessionEntry, sessionTitle } from "./sessionList";
 import { incomingPrompt } from "./conversation/incomingMessage";
 import { resolveSenderIdentity } from "./senderIdentity";
 import { SubsessionStore } from "./subagents/subsessions";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { SubsessionContext } from "./subagents/subsessions";
+import { PromptMarksSession } from "./threadMinimap/promptMarks";
+import { PreviewCard } from "./threadMinimap/PreviewCard";
 
 test("a peer's session name is the headline, not the peer machine", () => {
   const remote = sessionEntry({
@@ -71,4 +76,31 @@ test("a peer session leaving the list cannot leave its harness or machine on ano
     known: true,
   });
   expect(store.find("review")).toBe("local");
+});
+
+test("the minimap reads the same current-session relationship as the transcript", () => {
+  const store = new SubsessionStore();
+  store.set([sessionEntry({ sessionId: "child", name: "syntax-check", spawnedBy: "parent", harness: "claude" })]);
+  const render = (viewer: string) =>
+    renderToStaticMarkup(
+      createElement(
+        SubsessionContext.Provider,
+        { value: { store, open: () => {} } },
+        createElement(
+          PromptMarksSession.Provider,
+          { value: viewer },
+          createElement(PreviewCard, {
+            id: "card",
+            x: 0,
+            y: 0,
+            prompt: "Review ready.",
+            reply: [],
+            metadata: { at: 1, links: [], sender: { name: "syntax-check", sessionId: "child" } },
+            onPointerLeave: () => {},
+          }),
+        ),
+      ),
+    );
+  expect(render("parent")).toContain("Sub-session · syntax-check");
+  expect(render("another-session")).toContain("syntax-check · Other session");
 });
