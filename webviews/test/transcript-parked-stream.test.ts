@@ -48,7 +48,7 @@ await requireBrowserLane("transcript-parked-stream.test.ts", async () => {
             let source = readFileSync(process.env.CMUX_PARKED_SOURCE ?? id, "utf8");
             const inserts = [
               [
-                "const top = scrollAnchorBase(live, scrolledTo.current.top, readerLeft || userScrollIntent(node).isHeld());",
+                "readerLeft || (!clamped && userScrollIntent(node).isHeld()),\n      );",
                 'globalThis.__geometry?.("anchor-base", {live, stored: scrolledTo.current.top, top, readerLeft});',
               ],
               [
@@ -247,12 +247,6 @@ await requireBrowserLane("transcript-parked-stream.test.ts", async () => {
           const w = window as unknown as Probe;
           return [...w.__samples].reverse().find((s) => s.following !== undefined)?.following === true;
         });
-        // Returning to bottom restores follow intent immediately, but automatic token placement
-        // still yields until the shared input hold ends (including a released scrollbar drag).
-        await page.waitForFunction(async (modulePath) => {
-          const { userScrollIntent } = await import(modulePath);
-          return !userScrollIntent(document.querySelector(".acpmux-scroll")).isHeld();
-        }, "/src/agent-session/acpmux/conversation/userScroll.ts");
         const resumed = await page.evaluate(async () => {
           const w = window as unknown as Probe;
           const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;

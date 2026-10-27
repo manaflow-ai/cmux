@@ -20,6 +20,20 @@ function createIntent() {
   let generation = 0;
   let pressed = false;
   const listeners = new Set<Listener>();
+  const quietListeners = new Set<() => void>();
+  let quietTimer: ReturnType<typeof setTimeout> | undefined;
+  const scheduleQuiet = () => {
+    clearTimeout(quietTimer);
+    quietTimer = undefined;
+    if (pressed || quietListeners.size === 0 || at === -Infinity) return;
+    quietTimer = setTimeout(
+      () => {
+        quietTimer = undefined;
+        for (const listener of quietListeners) listener();
+      },
+      Math.max(0, USER_SCROLL_INTENT_MS - (performance.now() - at)),
+    );
+  };
   return {
     isHeld: () => pressed || performance.now() - at < USER_SCROLL_INTENT_MS,
     // An explicit request may start during the hold, but its continuations expire on later input.
@@ -30,10 +44,12 @@ function createIntent() {
     mark(event?: Event) {
       at = performance.now();
       generation += 1;
+      scheduleQuiet();
       for (const listener of listeners) listener(event);
     },
     press(value: boolean) {
       pressed = value;
+      scheduleQuiet();
     },
     subscribe(listener: Listener) {
       listeners.add(listener);
@@ -41,10 +57,23 @@ function createIntent() {
         listeners.delete(listener);
       };
     },
+    subscribeQuiet(listener: () => void) {
+      quietListeners.add(listener);
+      scheduleQuiet();
+      return () => {
+        quietListeners.delete(listener);
+        if (quietListeners.size === 0) {
+          clearTimeout(quietTimer);
+          quietTimer = undefined;
+        }
+      };
+    },
     reset() {
       this.mark();
       at = -Infinity;
       pressed = false;
+      clearTimeout(quietTimer);
+      quietTimer = undefined;
     },
   };
 }
@@ -59,7 +88,7 @@ export function userScrollIntent(node: HTMLElement) {
   return state;
 }
 
-/// Capture input before row handlers can commit layout. A timestamp needs no expiry timer.
+/// Capture input before row handlers can commit layout. Quiet subscribers share one expiry timer.
 /// Pointer/touch holds outlast one second while dragging; release starts the quiet interval.
 export function attachUserScrollIntent(node: HTMLElement): () => void {
   const intent = userScrollIntent(node);

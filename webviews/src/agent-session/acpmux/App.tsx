@@ -2131,6 +2131,8 @@ export function VirtualTranscript({
   // ref so those events cannot turn a pinned transcript into a one-frame jump when the composer
   // stack changes height.
   const followingRef = useRef(true);
+  const followDeferred = useRef(false);
+  const [, resumeDeferredFollow] = useReducer((count: number) => count + 1, 0);
   const follow = (next: boolean) => {
     followingRef.current = next;
     onFollowingChange?.(next);
@@ -3092,6 +3094,7 @@ export function VirtualTranscript({
       // scroll anchor from the old session before the placement pass chooses the new session's
       // openAt position or latest row.
       previousSession.current = sessionId;
+      followDeferred.current = false;
       anchorCorrection.current = undefined;
       wheelGlide.current?.stop();
       didOpenAtLatest.current = false;
@@ -3163,7 +3166,11 @@ export function VirtualTranscript({
       // bottom offset would immediately snap the reader back. Once the event is acknowledged,
       // layout-only corrections use the stored offset because WebKit may already include a resize
       // adjustment in `live`.
-      const top = scrollAnchorBase(live, scrolledTo.current.top, readerLeft || userScrollIntent(node).isHeld());
+      const top = scrollAnchorBase(
+        live,
+        scrolledTo.current.top,
+        readerLeft || (!clamped && userScrollIntent(node).isHeld()),
+      );
       // Following is reader intent, not proximity. A token must not recapture a parked reader
       // just because the last recorded offset remains inside the bottom deadband.
       const atLatest = followingRef.current;
@@ -3182,9 +3189,8 @@ export function VirtualTranscript({
         // The shared animation reads the moving end every frame on its original clock.
         // Retargeting a native smooth-scroll here restarted its easing at every measurement.
         if (jumping) jumpTarget.current = latest;
-        const settled = jumping
-          ? clamped
-          : (!userScrollIntent(node).isHeld() && settleFollowBottom(node, latest)) || clamped;
+        followDeferred.current = !jumping && userScrollIntent(node).isHeld();
+        const settled = jumping ? clamped : (!followDeferred.current && settleFollowBottom(node, latest)) || clamped;
         if (settled) followTrace.set(latest);
       } else if (top > 0 || rows[0]?.id !== oldRows[0]?.id) {
         // Keep the row at the top of the viewport where it is as rows above it change height.
@@ -3804,6 +3810,11 @@ export function VirtualTranscript({
       return Boolean(movingUp);
     };
     const unsubscribeIntent = intent.subscribe(cancelProgrammatic);
+    const unsubscribeQuiet = intent.subscribeQuiet(() => {
+      if (!followDeferred.current) return;
+      followDeferred.current = false;
+      if (followingRef.current) resumeDeferredFollow();
+    });
     // attachUserScrollIntent captures the scroller and scrollbar inputs, then invokes this reader
     // through the shared subscription before layout or streaming can commit.
     // A click on a disclosure line holds it where it is (foldAnchor.ts), before the row's own handler
@@ -3876,6 +3887,7 @@ export function VirtualTranscript({
       wheelGlide.current = undefined;
       stopJump();
       unsubscribeIntent();
+      unsubscribeQuiet();
       detachIntent();
       if (findFrame.current !== undefined) cancelAnimationFrame(findFrame.current);
       findFrame.current = undefined;

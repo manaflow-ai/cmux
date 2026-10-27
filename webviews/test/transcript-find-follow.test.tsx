@@ -167,3 +167,41 @@ for (const mode of ["find", "count"] as const) {
     }
   });
 }
+
+test("held input does not apply a browser clamp twice when rows above shrink", async () => {
+  const rows = turnView(turns, new Set());
+  const tall = rows.map((item) =>
+    item.id === "t0-answer" ? { ...item, text: "A tall paragraph.\n\n".repeat(30) } : item,
+  );
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const render = (shown: AcpmuxRow[]) =>
+    root.render(<VirtualTranscript rows={shown} onToggleActivity={noop} expanded={new Set()} />);
+  try {
+    await act(async () => render(tall));
+    const node = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
+    const height = () => parseFloat(node.querySelector<HTMLElement>(".acpmux-spacer")!.style.height);
+    const oldHeight = height();
+    await act(async () => {
+      node.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: -100 }));
+      node.scrollTop -= 100;
+      node.dispatchEvent(new dom.window.Event("scroll", { bubbles: true }));
+    });
+    const parked = node.scrollTop;
+    // Model the browser clamping the live offset in the DOM commit before React's layout pass.
+    Object.defineProperty(node, "scrollHeight", { configurable: true, get: height });
+    Object.defineProperty(node, "scrollTop", {
+      configurable: true,
+      get() {
+        return Math.min(offsets.get(node) ?? 0, height() - VIEWPORT);
+      },
+      set(top: number) {
+        offsets.set(node, Math.min(top, height() - VIEWPORT));
+      },
+    });
+    await act(async () => render(rows));
+    expect(oldHeight - height()).toBeGreaterThan(100);
+    expect(node.scrollTop).toBeCloseTo(parked - (oldHeight - height()), 4);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
