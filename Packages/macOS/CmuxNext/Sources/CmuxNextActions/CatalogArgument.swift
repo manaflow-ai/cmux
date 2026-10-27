@@ -197,6 +197,12 @@ nonisolated enum CatalogArgument {
                        kind: .string, isRequired: false)
     }
 
+    /// `cloud new-machine --repo OWNER/NAME[@REF]`: the GitHub repository the machine clones.
+    static var repoString: ActionArgument {
+        ActionArgument(name: "repo", title: String(localized: "argument.repo", defaultValue: "Repository", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
     /// The bootstrap script file on this Mac (the CLI makes a relative path absolute).
     static var bootstrapScriptString: ActionArgument {
         ActionArgument(name: "bootstrapScript", title: String(localized: "argument.bootstrapScript", defaultValue: "Bootstrap Script", bundle: .module),
