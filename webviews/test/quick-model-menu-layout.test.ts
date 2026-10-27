@@ -198,9 +198,9 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
       await page.waitForFunction(
         () => document.querySelector('.acpmux-quick-rail-tab[aria-pressed="true"]')?.textContent === "Claude Code (sr)",
       );
-      await page.locator(".acpmux-quick-search input").fill("Opus");
+      await page.locator(".acpmux-quick-search input").fill("Sonnet");
       await page.keyboard.press("Enter");
-      expect(await page.locator("[data-selection]").getAttribute("data-selection")).toBe("claude/Opus 5.5");
+      expect(await page.locator("[data-selection]").getAttribute("data-selection")).toBe("claude/Sonnet 5.5");
     } finally {
       await page.close();
     }
