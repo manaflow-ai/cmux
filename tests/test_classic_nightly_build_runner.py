@@ -121,6 +121,10 @@ class FirstAndAlternate(unittest.TestCase):
         # A size names the same label.
         self.assertEqual(picker.blacksmith_route(None, now, "6vcpu")[0], picker.SMALL)
         self.assertEqual(picker.blacksmith_route(snapshot(small=52), now, "6vcpu")[0], picker.LARGE)
+        self.assertEqual(picker.blacksmith_route(snapshot(), now, "12vcpu")[0], picker.LARGE)
+        # Only an exact size counts: a fragment of a label changes nothing.
+        for fragment in ("6vcpu-macos", "macos", "6vcpu-macos-26", "vcpu"):
+            self.assertEqual(picker.candidates(fragment), picker.CANDIDATES, fragment)
         # A label that is not a candidate changes nothing.
         self.assertEqual(picker.blacksmith_route(None, now, "glaeda-std-xcode-26.6")[0], picker.LARGE)
 

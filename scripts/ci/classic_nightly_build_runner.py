@@ -44,6 +44,7 @@ import simple_pool_picker as picker  # noqa: E402
 
 LARGE, SMALL = "blacksmith-12vcpu-macos-26", "blacksmith-6vcpu-macos-26"
 CANDIDATES = (LARGE, SMALL)
+SIZES = {"12vcpu": LARGE, "6vcpu": SMALL}
 # The pinned mini's previous nightly usually ends inside this; past it a cold Blacksmith build
 # (about 60 min) starts sooner than the wait the 2026-10-27 runs saw.
 WAIT_SECONDS = 5 * 60
@@ -94,7 +95,7 @@ def candidates(first: str = "") -> tuple[str, ...]:
 
     A size lets a nightly step name the label without naming Blacksmith outside a runs-on
     (tests/test_ci_nightly_off_blacksmith.py)."""
-    first = next((label for label in CANDIDATES if first and f"-{first}-" in label), first)
+    first = SIZES.get(first, first)
     return (first, *(label for label in CANDIDATES if label != first)) if first in CANDIDATES else CANDIDATES
 
 
