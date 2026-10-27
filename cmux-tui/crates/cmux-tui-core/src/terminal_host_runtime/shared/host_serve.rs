@@ -661,6 +661,7 @@ impl ClientFrames {
                     && let Ok(delay) = delay.parse::<u64>()
                     && delay > 0
                 {
+                    // wakeup-allow: fixture integration failure-injection seam, only with CMUX_TUI_TEST_TERMINATE_ACK_DELAY_MS set; bounded at 5 s
                     thread::sleep(Duration::from_millis(delay.min(5_000)));
                 }
                 if ctx.launch_owner_claimed {
