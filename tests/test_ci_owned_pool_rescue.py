@@ -3309,6 +3309,15 @@ class NightlySigningStall(unittest.TestCase):
                 api.cancel(RUN_ID, before_send=stop)
         self.assertNotIn("send:POST", order)
 
+    def test_every_retry_inside_request_keeps_the_guard(self):
+        import inspect
+        import re as re_module
+        source = inspect.getsource(rescue.GitHub.request)
+        retries = re_module.findall(r"return self\.request\(method, path,.*?refreshed=[^,)]+[^\n]*", source, re_module.S)
+        self.assertGreaterEqual(len(retries), 4)
+        for call in retries:
+            self.assertIn("before_send=before_send", call)
+
     def test_a_signing_job_first_seen_at_the_last_look_is_not_stalled_yet(self):
         clock = Clock()
         clock.seconds = 60 + rescue.SIGN_STALL_SECONDS + 30

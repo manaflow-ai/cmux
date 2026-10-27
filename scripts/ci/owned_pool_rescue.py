@@ -1502,12 +1502,12 @@ class GitHub:
             if error.code in (403, 429):
                 # The installation lacks this read's permission, or its budget is spent: this one
                 # read goes on GITHUB_TOKEN (which waits through a rate limit).
-                return self.request(method, path, own_token=True, refreshed=refreshed)
+                return self.request(method, path, own_token=True, refreshed=refreshed, before_send=before_send)
             with self._lock:
                 self.read_headers = self.headers
                 self._budget = (-1e9, None, None)  # another token's pool: read it afresh
                 self._pool += 1
-            return self.request(method, path, refreshed=refreshed)
+            return self.request(method, path, refreshed=refreshed, before_send=before_send)
         return json.loads(body) if body else None
 
     remaining = ""  # the token's requests left this hour, from the last response
