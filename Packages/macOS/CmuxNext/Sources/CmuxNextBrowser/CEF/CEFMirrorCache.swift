@@ -133,6 +133,7 @@ final class CEFMirrorCache {
         case .omniboxKeywords: return shim.omniboxKeywords(id).map(CEFMirrorValue.string)
         case .popupWindowBounds: return .bounds(shim.popupWindowBounds(id))
         case .devToolsInspectedBounds: return .bounds(shim.devToolsInspectedBounds(id))
+        case .rendererClientIDs: return .ints(shim.rendererClientIDs(id, CEFMirrorValue.idCapacity))
         }
     }
 }
@@ -156,7 +157,13 @@ nonisolated enum CEFMirrorValue: Equatable, Sendable {
     case int(Int32)
     case string(String)
     case bounds(Bounds)
+    /// An int buffer's ids (`tab.renderer_client_ids`), at most ``idCapacity``, as the host pushes them.
+    case ints([Int32])
 
     /// An out-parameter read's return value and outputs.
     typealias Bounds = CEFShimBounds
+
+    /// How many ids an int buffer value keeps: the host's `kMirrorOutCapacity`
+    /// (gen-chromium-host-wire.py's MIRROR_OUT_CAPACITY).
+    static let idCapacity: Int32 = 64
 }

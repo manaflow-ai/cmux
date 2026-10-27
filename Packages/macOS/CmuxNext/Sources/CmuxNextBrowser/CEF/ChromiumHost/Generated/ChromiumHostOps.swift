@@ -58,7 +58,7 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
     /// The SHA-256 of the cmux_cef_shim.h this table was generated from (`CEFShimABI`).
     static let abiIdentity = "423f0fc54a39bbdefe004c29cbb6e2bcbaa8a3d3623bb8a584a0ee4ad82fb8e9"
     /// This generation's op ids, classes and wire types; both HELLOs carry it.
-    static let wireIdentity = "7304fab0f0017e94749bd638e1928fef65ebbfe55fa0e3e51c448532b08d02c6"
+    static let wireIdentity = "7be51ff6e6ef19796d003a1aa3672b3c68841c43ec30a093a7d1c65e8843df04"
     /// Ops of fork API symbols the header does not declare yet (`r.optional` in CEFShimLibrary).
     static let optionalOps: Set<ChromiumHostOp> = [
         .addDocumentScript, .addPageChannel, .tabEvaluate, .tabSetFrozen, .tabSendClick, .tabSetColorScheme,
@@ -357,7 +357,7 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
         Row(.async, [.int32, .int32], [.int32]),
         Row(.post, [.int32, .string, .int32, .int32], [.int32]),
         Row(.local, [], []),
-        Row(.async, [.int32, .int32], [.int32, .int32Array]),
+        Row(.mirror, [.int32, .int32], [.int32, .int32Array]),
         Row(.local, [], []),
         Row(.local, [], []),
         Row(.post, [.string, .int32], [.int32]),
@@ -497,6 +497,11 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
         Refresh(-1, -1, .passwordReplaceAvailable),  // attach
         Refresh(-1, -1, .passkeysAvailable),  // attach
         Refresh(-1, -1, .passwordCoreAvailable),  // attach
+        Refresh(2, -1, .rendererClientIDs),  // CMUX_SHIM_AFTER_CREATED
+        Refresh(4, -1, .rendererClientIDs),  // CMUX_SHIM_ADDRESS
+        Refresh(9, -1, .rendererClientIDs),  // CMUX_SHIM_LOAD_END
+        Refresh(23, -1, .rendererClientIDs),  // CMUX_SHIM_RENDER_TERMINATED
+        Refresh(3, -1, .rendererClientIDs),  // CMUX_SHIM_BEFORE_CLOSE
         Refresh(-1, -1, .extLoadLaterSupported),  // attach
     ]
 
@@ -519,7 +524,7 @@ nonisolated enum ChromiumHostEventKind: Int32, CaseIterable, Sendable {
     case permissionDismissed = 42, passwordPrompt = 43, beforeUnloadDialog = 44, beforeUnloadDismissed = 45
     case pageResource = 46, pageDragEnter = 47, fileDialog = 48, cursor = 54, dragOperation = 55, tooltip = 57
     case popupMenu = 58, popupMenuHide = 59, suggestions = 60, pageMessage = 49, evaluateResult = 50
-    case createFailed = 51, widgetContext = 52, widgetGone = 53, wheelAck = 56
+    case createFailed = 51, widgetContext = 52, widgetGone = 53, wheelAck = 56, helperExit = 61
 
     /// The mirrors this event refreshes; the host pushes them before the event. `request` is the
     /// event's request (CMUX_SHIM_TAB_EVENT's sub-kind).

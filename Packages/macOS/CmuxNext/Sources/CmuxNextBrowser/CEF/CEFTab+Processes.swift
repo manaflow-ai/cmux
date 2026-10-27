@@ -1,8 +1,29 @@
 public import CmuxNextWakeups
 public import Foundation
 
+extension CEFRuntime {
+    /// The process whose children are the Chromium helpers that render this runtime's tabs: the app in process,
+    /// the attached Chromium Host in host mode (task p01-process-225), nil in host mode while no host is attached.
+    /// ``ChromiumHelperProcess/list(parent:)`` lists them; the tabs' renderer client ids match their
+    /// `--renderer-client-id` in either mode.
+    var helperParentPID: pid_t? {
+        guard let hostStart else { return getpid() }
+        return hostStart.hostPID
+    }
+}
+
+extension ChromiumEngineSlot {
+    /// Whose children the Chromium helpers are (``CEFRuntime/helperParentPID``): the app's, or the Chromium Host's in
+    /// host mode, nil while no host is attached. The app's before the engine is built: no helper runs then.
+    public var helperParent: pid_t? {
+        guard built != nil else { return getpid() }
+        return CEFRuntime.shared.helperParentPID
+    }
+}
+
 extension CEFTab: BrowserProcessReporting {
-    /// Renderer client ids hosting this tab's frames (main frame, out-of-process iframes; one per site).
+    /// Renderer client ids hosting this tab's frames (main frame, out-of-process iframes; one per site). In host
+    /// mode they are the host's mirror (`tab.renderer_client_ids`), which it pushes at each event that changes them.
     public var contentProcesses: BrowserContentProcesses {
         guard let browserID, let shim = runtime.shim else { return .none }
         let ids = shim.rendererClientIDs(browserID, 32)

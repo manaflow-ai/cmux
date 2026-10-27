@@ -77,6 +77,8 @@
 //   kOpReply   reply flag, token, the op's result and out-parameters
 //   kOpTextInputState  a watched browser's text input state, at most once per
 //              display frame (host_text_input.h)
+//   kOpEvent   CMUX_SHIM_HELPER_EXIT: one of the host's helpers ended
+//              (host_helper_exits.h, task p01-process-225)
 //   kOpEvent   CMUX_SHIM_WHEEL_ACK: the fork's ack of one of a page's wheels,
 //              with that wheel's input seq (host_wheel_ack.h); the HELLO lists
 //              kWheelAcksHelloName when the fork has the handler
@@ -101,6 +103,7 @@
 #include "chromium_host_tlv.h"
 #include "chromium_host_wire.h"
 #include "host_energy_saver.h"
+#include "host_helper_exits.h"
 #include "host_mirror.h"
 #include "host_page_activity.h"
 #include "host_resize.h"
@@ -246,6 +249,11 @@ class HostContext {
   // the fork's first ack of that browser after the acks of the wheels sent
   // before it answers it.
   void WheelSent(int chromium_id, uint32_t seq, bool momentum) { wheel_acks_.Sent(chromium_id, seq, momentum); }
+  // One of the host's helpers ended (HelperExitWatcher, handed to the main
+  // thread): CMUX_SHIM_HELPER_EXIT goes to cmux like a shim event, so it
+  // waits behind an op being dispatched as every event does (task
+  // p01-process-225).
+  void HelperExited(const HelperExit& ended);
   static int OnWindowRequest(void* ctx, int kind, int disposition, int source_browser_id, int has_bounds, int x,
                              int y, int width, int height, int user_gesture, const char* url,
                              const char* profile_path);

@@ -1,7 +1,8 @@
 import Foundation
 
 /// Renderer and helper process failures: the tab-level record from CEF and
-/// the process-level record from `CEFChildProcessMonitor`. Each abnormal end is one
+/// the process-level record from `CEFChildProcessMonitor` in process, or from the Chromium Host's
+/// HELPER_EXIT in host mode (its helpers are the host's children; task p01-process-225). Each abnormal end is one
 /// `cef.helper_exit` sample (``CEFHelperExitMetric``), the same in both roles: a page renderer
 /// from Chromium's termination status once per process, every other helper from the monitor.
 extension CEFRuntime {
@@ -30,6 +31,7 @@ extension CEFRuntime {
         monitor.start()
     }
 
+    /// A helper ended: one of the app's (``startChildMonitor()``) or, in host mode, one of the host's (HELPER_EXIT).
     func childExited(_ exit: CEFChildProcessMonitor.Exit) {
         guard countsHelperExits, let reason = exit.abnormalReason else { return }
         let type = exit.isExtension ? "extension" : exit.processType

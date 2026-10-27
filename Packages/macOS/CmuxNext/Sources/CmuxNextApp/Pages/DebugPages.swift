@@ -49,17 +49,21 @@ extension AppControl {
             // hidden pages (p13-webui-001; keys in WebUICensus). `reset: true` zeroes the counters after
             // the read. The page walk runs in the automation work class, the helpers' argv off the main actor.
             .mainActor("debug.webui") { [weak services] call in
-                guard let census = AppControl.webUICensus(services, reset: call.params["reset"]?.boolValue == true) else { return .value(.null) }
-                return .followUp { await census.report { AppControl.webUIHelpers() } }
+                guard let services, let census = AppControl.webUICensus(services, reset: call.params["reset"]?.boolValue == true) else { return .value(.null) }
+                let parent = services.cache.chromium.helperParent
+                return .followUp { await census.report { AppControl.webUIHelpers(of: parent) } }
             },
         ])
         #endif
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// The app's Chromium helpers as `debug.webui` rows (reads each new child's argv: off the main actor).
-    nonisolated static func webUIHelpers() -> [WebUICensus.Helper] {
-        ChromiumHelperProcess.list().map { WebUICensus.Helper(pid: $0.pid, kind: $0.kind.name, rendererClientID: $0.kind.rendererClientID) }
+    /// The children of `parent` (the app, or the Chromium Host: `ChromiumEngineSlot.helperParent`) as `debug.webui`
+    /// rows. Reads each new child's argv: off the main actor.
+    nonisolated static func webUIHelpers(of parent: pid_t?) -> [WebUICensus.Helper] {
+        (parent.map { ChromiumHelperProcess.list(parent: $0) } ?? []).map {
+            WebUICensus.Helper(pid: $0.pid, kind: $0.kind.name, rendererClientID: $0.kind.rendererClientID)
+        }
     }
 
     /// `debug.webui`'s main-actor half: every page, spare and Chromium browser tab now; `reset`

@@ -140,6 +140,10 @@ and shows no window, with feature chromiumHostFileDialogs on.
 and Escape through cmux's find pill on a Chromium page in the host (`debug.cef` backend `host`), the pill's match
 count and active match (the oracle's overlays.findBar) and the page scrolled to the active match.
 
+--helper-kill runs instead the helper-kill rows (chromium_host_helper_kill.py, p01-process-225): on a Chromium page in
+the host, the tab's renderer pids are the host's children, and a SIGKILL to the host's network service, GPU process
+and the tab's renderer each makes one `debug.crashes` record with its pid, type and signal (the host's HELPER_EXIT).
+
 A Debug or bench build (reload.sh --config bench: debug.chromium_host, its measure call and the tunables file
 answer there for a development bundle, p12-perf-process-221), never Release: the numbers compare the two paths,
 they are not shipping latencies. `build` in the report is the bundle's config.
@@ -164,6 +168,7 @@ import browser_engine_bench_report as results  # noqa: E402
 import chromium_host_baseline  # noqa: E402
 import chromium_host_display  # noqa: E402
 import chromium_host_find  # noqa: E402
+import chromium_host_helper_kill  # noqa: E402
 import chromium_host_native_ui  # noqa: E402
 import chromium_host_native_ui_dialogs  # noqa: E402
 
@@ -184,6 +189,8 @@ def parse(argv=None):
                         help="only the native UI rows (chromium_host_native_ui.py): all, or the comma-separated ROWS "
                              f"({', '.join(chromium_host_native_ui.ROWS + chromium_host_native_ui_dialogs.ROWS)})")
     parser.add_argument("--find", action="store_true", help="only the find rows (chromium_host_find.py)")
+    parser.add_argument("--helper-kill", action="store_true",
+                        help="only the helper-kill rows (chromium_host_helper_kill.py): GPU, renderer, utility")
     parser.add_argument("--baseline", action="store_true", help="task p01-process-005: stall 9a, 10-tab idle wakes, census, rows")
     parser.add_argument("--idle-settle-seconds", type=float, default=35.0, help="wait before the 10-tab idle sample")
     parser.add_argument("--tag", help="the lab runner's tag of --app (checked against the bundle's name)")
@@ -193,8 +200,8 @@ def parse(argv=None):
     parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
                         help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
     args = parser.parse_args(argv)
-    if args.native_ui is not None and args.find:
-        parser.error("--native-ui and --find each run instead of the modes: pick one")
+    if sum((args.native_ui is not None, args.find, args.helper_kill)) > 1:
+        parser.error("--native-ui, --find and --helper-kill each run instead of the modes: pick one")
     if args.native_ui is not None:
         try:
             args.native_ui = chromium_host_native_ui.rows_named(
@@ -566,6 +573,20 @@ def chromium_host_pid():
     return None
 
 
+def process_rows():
+    """Every process as (pid, ppid, command) (`ps`), or [] when ps does not answer."""
+    try:
+        listing = subprocess.run(["/bin/ps", "-axo", "pid=,ppid=,command="], capture_output=True, text=True, timeout=10).stdout
+    except subprocess.TimeoutExpired:
+        return []
+    rows = []
+    for line in listing.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) == 3 and parts[0].isdigit() and parts[1].isdigit():
+            rows.append((int(parts[0]), int(parts[1]), parts[2]))
+    return rows
+
+
 def defaults_snapshot(domain):
     """cmux's defaults domain as {key: value repr} (`defaults export`), or None."""
     import plistlib
@@ -703,7 +724,7 @@ def main():
         RESULT["cef"] = {"fork_api": (cef.get("windows") or {}).get("fork_api"), "unavailable": cef.get("unavailable"),
                          "fallback": cef.get("fallback")}
         DEFAULTS["launch"] = defaults_snapshot(app_bundle_id())
-        modes = [] if opts.native_ui or opts.find else opts.modes.split(",")
+        modes = [] if opts.native_ui or opts.find or opts.helper_kill else opts.modes.split(",")
         if opts.native_ui:
             RESULT["modes"]["native_ui"], ok = chromium_host_native_ui.run(
                 rpc, wait, lambda script: page_eval(rpc, script, None), url,
@@ -718,6 +739,9 @@ def main():
                 ok = ok and dialogs_ok
         if opts.find:
             RESULT["modes"]["find"], ok = chromium_host_find.run(rpc, wait, lambda script: page_eval(rpc, script, None), url)
+        if opts.helper_kill:
+            RESULT["modes"]["helper_kill"], ok = chromium_host_helper_kill.run(
+                rpc, wait, process_rows, chromium_host_pid, os.kill, url)
         inproc_tab = None
         if "inproc" in modes:
             inproc_tab = run_inproc(rpc, url)

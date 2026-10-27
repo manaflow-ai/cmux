@@ -13,8 +13,14 @@ import os
 /// the app's children registers `NOTE_EXEC | NOTE_EXIT | NOTE_EXITSTATUS`
 /// on each new one, and the exit event carries the wait status before
 /// Chromium reaps the child.
+///
+/// In process only. In host mode the helpers are the Chromium Host's
+/// children: the host watches them the same way (HOST/src/host_helper_exits.h)
+/// and sends each end as HELPER_EXIT, which decodes to the same ``Exit``
+/// (``CEFShimEvent/helperExit(_:)``, task p01-process-225).
 nonisolated final class CEFChildProcessMonitor: @unchecked Sendable {
-    struct Exit: Sendable, Equatable {
+    /// One helper's end; also what the Chromium Host's HELPER_EXIT carries (``CEFShimEvent/helperExit(_:)``).
+    nonisolated struct Exit: Sendable, Equatable {
         var pid: Int32
         var processType: String
         var subType: String?
@@ -107,6 +113,17 @@ nonisolated final class CEFChildProcessMonitor: @unchecked Sendable {
             guard unsafe kevent(kq, &event, 1, nil, 0, nil) == 0 else { continue }
             children[pid] = CEFHelperIdentity.read(pid: pid)
         }
+    }
+}
+
+extension CEFChildProcessMonitor.Exit {
+    /// HELPER_EXIT's fields (`cmux_host::kEventHelperExit`): request the pid, a the wait status, bit 1 of
+    /// b an extension renderer (`kHelperExitExtension`), s1 the `--type`, s2 the `--utility-sub-type` (""
+    /// for none). Nil without a pid or a type: the host sends only helpers.
+    nonisolated init?(helperExitPID pid: Int32, status: Int64, flags: Int64, type: String, subType: String) {
+        guard pid > 0, !type.isEmpty else { return nil }
+        self.init(pid: pid, processType: type, subType: subType.isEmpty ? nil : subType, isExtension: flags & 1 != 0,
+                  status: Int32(truncatingIfNeeded: status))
     }
 }
 

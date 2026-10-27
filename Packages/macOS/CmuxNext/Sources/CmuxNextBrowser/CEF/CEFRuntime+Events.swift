@@ -110,6 +110,7 @@ extension CEFRuntime {
             popupMenuOpened(browser: browser, token: token, popup: popup)
         case .popupMenuHidden(let browser, let token):
             hostStart?.popupMenus?.hide(browser: browser, token: token)
+        case .helperExit(let exit): childExited(exit) // a helper of the Chromium Host (CEFRuntime+Crashes)
         case .pageDragEnter(let browser, let pathsJSON):
             if let tab = tabsByBrowser[browser], let entered = tab.pageFilesDragged { entered(CEFTab.dragPaths(pathsJSON)) }
         case .fileDialog(let browser, let dialogID, let mode, let acceptTypes, let defaultPath):

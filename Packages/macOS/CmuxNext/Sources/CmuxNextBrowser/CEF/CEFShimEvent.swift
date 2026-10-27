@@ -129,6 +129,9 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case popupMenu(browser: Int32, token: Int64, popup: ChromiumHostPopupMenu?)
     /// Chromium closed that popup before cmux answered (POPUP_MENU_HIDE): its menu closes with no answer.
     case popupMenuHidden(browser: Int32, token: Int64)
+    /// One of the Chromium Host's helpers ended (HELPER_EXIT; host mode, task p01-process-225): the host
+    /// watches its children as ``CEFChildProcessMonitor`` watches the app's in process.
+    case helperExit(CEFChildProcessMonitor.Exit)
     case unknown(kind: Int32)
 
     init(kind: Int32, browser: Int32, request: Int32, a: Int64, b: Int64, s1: String, s2: String) {
@@ -206,6 +209,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 58: self = .popupMenu(browser: browser, token: a, popup: ChromiumHostPopupMenu(json: s1))
         case 59: self = .popupMenuHidden(browser: browser, token: a)
         case 60: self = ChromiumHostSuggestionEvent(request: request, a: a, b: b, s1: s1).map { Self.pageView(browser: browser, .suggestions($0)) } ?? .unknown(kind: kind)
+        case 61: self = CEFChildProcessMonitor.Exit(helperExitPID: request, status: a, flags: b, type: s1, subType: s2).map(Self.helperExit) ?? .unknown(kind: kind)
         default: self = .unknown(kind: kind)
         }
     }
@@ -230,7 +234,7 @@ extension CEFShimEvent {
             b
         case .widgetContext(let context):
             context.owner
-        case .contextInitialized, .omniboxSuggestions, .preferenceChanged, .bookmarks, .download, .evaluateResult, .unknown:
+        case .contextInitialized, .omniboxSuggestions, .preferenceChanged, .bookmarks, .download, .evaluateResult, .helperExit, .unknown:
             nil
         }
     }

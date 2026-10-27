@@ -659,6 +659,11 @@ void HostContext::OnShimEvent(void* ctx, int kind, int browser_id, int request, 
   static_cast<HostContext*>(ctx)->ForwardEvent(kind, browser_id, request, a, b, s1, s2);
 }
 
+void HostContext::HelperExited(const HelperExit& ended) {
+  ForwardEvent(kEventHelperExit, 0, ended.pid, ended.status, ended.identity.extension ? kHelperExitExtension : 0,
+               ended.identity.type.c_str(), ended.identity.sub_type.c_str());
+}
+
 void HostContext::ForwardEvent(int kind, int browser_id, int request, int64_t a, int64_t b, const char* s1,
                                const char* s2) {
   if (state_ == State::kEnded) return;

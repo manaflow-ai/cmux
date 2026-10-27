@@ -552,6 +552,11 @@ int main(int argc, char* argv[]) {
       [&host_main](cmux_host::control::End) { host_main.Quit(); });
   // Chromium's ack of each wheel goes to cmux's swipe navigation (WHEEL_ACK, task p01-process-234).
   host.SetWheelAckHandler(fork_input.set_wheel_ack_handler);
+  // Each helper's end goes to cmux's debug.crashes (HELPER_EXIT, task p01-process-225). Declared after
+  // `host`, so the watch stops before `host` goes; started once initialize returned.
+  cmux_host::HelperExitWatcher helper_exits([&host](const cmux_host::HelperExit& ended) {
+    PostToMain([&host, ended] { host.HelperExited(ended); });
+  });
   host.Attach();
 
   // Preinit ops apply as they arrive; INITIALIZE (or the channel's end) stops
@@ -588,9 +593,10 @@ int main(int argc, char* argv[]) {
     }
     host_main.set_running();
     input_tasks.Start();
-    PostToMain([&host, &ordered, &check] {
+    PostToMain([&host, &ordered, &check, &helper_exits] {
       host.Resume();
       check(ordered.OpenInput());  // the messages that waited for initialize ran first
+      helper_exits.Start();  // after the INITIALIZE ack: no HELPER_EXIT reaches cmux before it
     });
     CefRunMessageLoop();
     channel->Close();
