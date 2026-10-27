@@ -1,6 +1,8 @@
 // l10n-allow-file: synthetic gallery fixture and test labels, not shipped UI.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
+import { mkdirSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { chromium, type Browser } from "playwright";
 import { createServer, type ViteDevServer } from "vite";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
@@ -8,9 +10,11 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("pr-dock-inline-layout.test.ts", () => {
   setDefaultTimeout(120_000);
+  const captures = process.env.CMUX_PR_DOCK_CAPTURE ?? path.resolve(import.meta.dir, "../artifacts/pr-dock");
   let browser: Browser;
   let vite: ViteDevServer;
   beforeAll(async () => {
+    mkdirSync(captures, { recursive: true });
     browser = await chromium.launch({ headless: true });
     vite = await createServer({
       configFile: path.resolve(import.meta.dir, "../vite.config.gallery-dev.ts"),
@@ -23,6 +27,7 @@ await requireBrowserLane("pr-dock-inline-layout.test.ts", () => {
   afterAll(async () => {
     await browser?.close();
     await vite?.close();
+    execFileSync("tar", ["-czf", `${captures}.tgz`, "-C", captures, "."]);
   });
 
   for (const width of [760, 320])
@@ -36,12 +41,11 @@ await requireBrowserLane("pr-dock-inline-layout.test.ts", () => {
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
         const dock = page.locator(".acpmux-pr-dock");
         await dock.waitFor();
-        if (process.env.CMUX_PR_DOCK_CAPTURE)
-          await page.screenshot({
-            type: "jpeg",
-            quality: 75,
-            path: `${process.env.CMUX_PR_DOCK_CAPTURE}/closed-${width}.jpg`,
-          });
+        await page.screenshot({
+          type: "jpeg",
+          quality: 75,
+          path: `${captures}/closed-${width}.jpg`,
+        });
         expect(await dock.evaluate((node) => !!node.closest(".cv-turn-actions"))).toBe(true);
         expect(await dock.locator(".acpmux-pr-dock__bar").count()).toBeGreaterThan(0);
         expect(await dock.locator(".acpmux-pr-dock__bar").count()).toBeLessThanOrEqual(2);
@@ -61,12 +65,11 @@ await requireBrowserLane("pr-dock-inline-layout.test.ts", () => {
         expect(await page.locator(".acpmux-pr-dock__popover .acpmux-pr-dock__bar").count()).toBe(
           4 - (await dock.locator(".acpmux-pr-dock__bar").count()),
         );
-        if (process.env.CMUX_PR_DOCK_CAPTURE)
-          await page.screenshot({
-            type: "jpeg",
-            quality: 75,
-            path: `${process.env.CMUX_PR_DOCK_CAPTURE}/open-${width}.jpg`,
-          });
+        await page.screenshot({
+          type: "jpeg",
+          quality: 75,
+          path: `${captures}/open-${width}.jpg`,
+        });
         await page.keyboard.press("Escape");
         expect(await more.getAttribute("aria-expanded")).toBe("false");
         await page.waitForFunction(() => document.activeElement?.matches(".acpmux-pr-dock__more"));
@@ -95,12 +98,11 @@ await requireBrowserLane("pr-dock-inline-layout.test.ts", () => {
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
           await page.locator(".acpmux-pr-dock").waitFor();
           expect(await page.locator(".acpmux-pr-dock").count()).toBe(1);
-          if (process.env.CMUX_PR_DOCK_CAPTURE)
-            await page.screenshot({
-              type: "jpeg",
-              quality: 75,
-              path: `${process.env.CMUX_PR_DOCK_CAPTURE}/${variant}-${width}.jpg`,
-            });
+          await page.screenshot({
+            type: "jpeg",
+            quality: 75,
+            path: `${captures}/${variant}-${width}.jpg`,
+          });
           const boxes = await page.locator(".acpmux-pr-dock").evaluate((node) => {
             const row = node.closest(".acpmux-row")!.getBoundingClientRect();
             return [...node.querySelectorAll("a,button")].map((child) => {
