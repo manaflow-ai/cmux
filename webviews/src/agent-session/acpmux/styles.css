@@ -225,7 +225,7 @@
 .acpmux-queued-clamp{display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.acpmux-queued-text[data-open] .acpmux-queued-clamp{white-space:pre-wrap;overflow-wrap:anywhere}
 /* The actions show on the row's hover and while focus is in it (a key on the row, Tab to a button), and stay while the ⋯ menu is open. A pointer that cannot hover sees them always. The 22px actions center on the text's first 18px line and take no more height than it. */
 .acpmux-queued-actions{grid-column:2;display:flex;align-items:center;gap:2px;margin:-2px 0;opacity:0}
-.acpmux-queued:is(:hover,:focus-within) .acpmux-queued-actions,.acpmux-queued:has([aria-expanded=true]) .acpmux-queued-actions{opacity:1}
+.acpmux-queued:is(:hover,:focus-within) .acpmux-queued-actions,.acpmux-queued:is(:has([data-popup-open]),:focus-within) .acpmux-queued-actions,.acpmux-queued:has([aria-expanded=true]) .acpmux-queued-actions{opacity:1}
 @media (hover:none){.acpmux-queued-actions{opacity:1}}
 .acpmux-queued-action{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:0;border-radius:6px;background:none;color:var(--acpmux-composer-dim)}
 .acpmux-queued-action:hover{background:var(--agent-control-hover);color:var(--agent-text)}

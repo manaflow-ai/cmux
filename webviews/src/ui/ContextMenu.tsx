@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "./cx";
 import { nativeMenu, pickedId, type NativeMenuRow } from "./nativeMenu";
@@ -104,8 +104,11 @@ export function ContextMenu({
   targets,
 }: ContextMenuProps) {
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
+  const [nativeOpen, setNativeOpen] = useState(false);
   const [active, setActive] = useState(0);
   const returnFocus = useRef<HTMLElement | null>(null);
+  const popupTarget = useRef<HTMLElement | null>(null);
+  const nativeRequest = useRef(0);
   const menu = useRef<HTMLDivElement | null>(null);
   const host = usePopupHost();
   const [shown, setShown] = useState<HTMLDivElement | null>(null);
@@ -116,6 +119,11 @@ export function ContextMenu({
     },
     [host],
   );
+  useEffect(() => () => {
+    nativeRequest.current += 1;
+    popupTarget.current?.removeAttribute("data-popup-open");
+    popupTarget.current = null;
+  }, []);
   // No room above or below the pointer in the page: past the window's edge, as a Mac context menu
   // (popupHost.ts). The backdrop stays, so a click on the page still closes it.
   useEscapingPopup(
@@ -146,7 +154,11 @@ export function ContextMenu({
   }, [place]);
   const enabled = items.filter((item) => !item.disabled);
   const close = (restoreFocus = false) => {
+    nativeRequest.current += 1;
     setPoint(null);
+    setNativeOpen(false);
+    popupTarget.current?.removeAttribute("data-popup-open");
+    popupTarget.current = null;
     const target = returnFocus.current;
     returnFocus.current = null;
     if (restoreFocus && target?.isConnected) target.focus({ preventScroll: true });
@@ -218,13 +230,23 @@ export function ContextMenu({
         if (ignore && event.target instanceof Element && event.target.closest(ignore)) return;
         event.preventDefault();
         onOpen?.();
+        popupTarget.current?.removeAttribute("data-popup-open");
+        popupTarget.current = null;
+        setPoint(null);
+        const requestId = nativeRequest.current + 1;
+        nativeRequest.current = requestId;
+        setNativeOpen(true);
         setActive(0);
         const target = event.target instanceof Element ? event.target : null;
-        returnFocus.current = target?.closest<HTMLElement>(RETURN_FOCUS) ?? null;
+        const opener = target?.closest<HTMLElement>(RETURN_FOCUS) ?? null;
+        popupTarget.current = opener;
+        opener?.setAttribute("data-popup-open", "");
+        returnFocus.current = opener;
         const at = { x: event.clientX, y: event.clientY };
         const native = nativeMenu();
         const rows = native && nativeRows(items);
         if (!native || !rows) {
+          setNativeOpen(false);
           setPoint(at);
           return;
         }
@@ -232,10 +254,12 @@ export function ContextMenu({
         const shown = items;
         native({ items: rows, point: at }).then(
           (reply) => {
+            if (nativeRequest.current !== requestId) return;
             // An older legacy bridge can acknowledge an unknown method with a successful null
             // value. That is not a native-menu dismissal (`{ picked: null }`); fall back to the
             // page menu so a right-click never disappears without an actionable surface.
             if (!reply || typeof reply !== "object" || !("picked" in reply)) {
+              setNativeOpen(false);
               setPoint(at);
               return;
             }
@@ -244,11 +268,16 @@ export function ContextMenu({
             else close(true);
           },
           // A host without the native menu (an older app): the page draws it.
-          () => setPoint(at),
+          () => {
+            if (nativeRequest.current !== requestId) return;
+            setNativeOpen(false);
+            setPoint(at);
+          },
         );
       }}
     >
       {children}
+      <span aria-hidden="true" hidden data-popup-open={point || nativeOpen ? "" : undefined} />
       {point
         ? createPortal(
             // Placement is inline, not only in ui.css: a host that does not load ui.css (the agent

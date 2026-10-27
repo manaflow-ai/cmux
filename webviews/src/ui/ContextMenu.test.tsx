@@ -24,6 +24,7 @@ function installDom(): HTMLElement {
     "HTMLElement",
     "Element",
     "MouseEvent",
+    "getComputedStyle",
     "IS_REACT_ACT_ENVIRONMENT",
   ])
     saved.set(key, scope[key]);
@@ -35,6 +36,7 @@ function installDom(): HTMLElement {
     HTMLElement: dom.window.HTMLElement,
     Element: dom.window.Element,
     MouseEvent: dom.window.MouseEvent,
+    getComputedStyle: dom.window.getComputedStyle,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   return dom.window.document.getElementById("root")!;
@@ -101,7 +103,23 @@ test("a right-click opens the app's native menu with the rows, and its pick runs
     },
   ]);
   expect(document.querySelector(".ui-context-menu")).toBeNull();
+  expect(target.hasAttribute("data-popup-open")).toBe(false);
   expect(ran).toEqual(["close"]);
+});
+
+test("a native context menu marks its opener until dismissal", async () => {
+  let resolveNative: ((reply: unknown) => void) | undefined;
+  installNativeMenu(() => new Promise((resolve) => {
+    resolveNative = resolve;
+  }));
+  const target = render(items([]));
+  await rightClick(target);
+  expect(target.getAttribute("data-popup-open")).toBe("");
+  resolveNative?.({ picked: null });
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(target.hasAttribute("data-popup-open")).toBe(false);
 });
 
 test("a dismissed native menu runs nothing and draws nothing", async () => {
@@ -114,8 +132,50 @@ test("a dismissed native menu runs nothing and draws nothing", async () => {
 
 test("a host that refuses the native menu leaves the page's own", async () => {
   installNativeMenu(() => Promise.reject(new Error("unknown op")));
-  await rightClick(render(items([])));
+  const target = render(items([]));
+  await rightClick(target);
+  expect(target.getAttribute("data-popup-open")).toBe("");
   expect(document.querySelector(".ui-context-menu")).not.toBeNull();
+});
+
+test("a keyboard context-menu request marks the focused opener", async () => {
+  const target = render(items([]));
+  await act(async () => {
+    target.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true, cancelable: true }));
+    await Promise.resolve();
+  });
+  expect(target.getAttribute("data-popup-open")).toBe("");
+  expect(document.querySelector(".ui-context-menu")).not.toBeNull();
+});
+
+test("a newer context-menu request supersedes an older native reply", async () => {
+  const resolveNative: Array<(reply: unknown) => void> = [];
+  installNativeMenu(() => new Promise((resolve) => {
+    resolveNative.push(resolve);
+  }));
+  const target = render(items([]));
+  await rightClick(target);
+  await rightClick(target);
+  resolveNative[0]?.(null);
+  await Promise.resolve();
+  expect(document.querySelector(".ui-context-menu")).toBeNull();
+  resolveNative[1]?.({ picked: null });
+  await Promise.resolve();
+  expect(target.hasAttribute("data-popup-open")).toBe(false);
+});
+
+test("unmount clears an opener marker and ignores a stale native reply", async () => {
+  let resolveNative: ((reply: unknown) => void) | undefined;
+  installNativeMenu(() => new Promise((resolve) => {
+    resolveNative = resolve;
+  }));
+  const target = render(items([]));
+  await rightClick(target);
+  expect(target.getAttribute("data-popup-open")).toBe("");
+  act(() => root?.unmount());
+  expect(target.hasAttribute("data-popup-open")).toBe(false);
+  resolveNative?.({ picked: null });
+  await Promise.resolve();
 });
 
 test("an older host that answers without a native pick leaves the page's own", async () => {
@@ -127,8 +187,12 @@ test("an older host that answers without a native pick leaves the page's own", a
 });
 
 test("without a host the page draws its menu", async () => {
-  await rightClick(render(items([])));
+  const target = render(items([]));
+  await rightClick(target);
+  expect(target.getAttribute("data-popup-open")).toBe("");
   expect(document.querySelector(".ui-context-menu")).not.toBeNull();
+  act(() => document.querySelector<HTMLElement>(".ui-context-menu-backdrop")?.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true })));
+  expect(target.hasAttribute("data-popup-open")).toBe(false);
 });
 
 test("toggle state reaches the native menu and the page's accessible checkbox", async () => {
