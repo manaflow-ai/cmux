@@ -121,6 +121,15 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_timing_readout.py
 
+      # No polling loops in scripts or workflows: waits go through one
+      # glaeda-gh wait (or a single gh run watch --interval 300). A loop that
+      # must stay needs an allowlist entry with its reason.
+      - name: Refuse polling loops in scripts and workflows
+        if: ${{ matrix.group == 'ci' }}
+        run: |
+          python3 scripts/ci/polling_scan/test_polling_scan.py
+          python3 scripts/ci/polling_scan/polling_scan.py --root . --allowlist scripts/ci/polling_scan/allowlist.json
+
       - name: Validate the repository variable check
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_check_repo_variables.py
