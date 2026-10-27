@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Darwin
 import Foundation
 import os
@@ -23,6 +24,8 @@ nonisolated final class CEFChildProcessMonitor: @unchecked Sendable {
         var status: Int32
         /// A renderer's `--renderer-client-id` (its render process host id); nil for every other helper.
         var rendererClientID: Int32?
+        /// The browsers a renderer hosted frames for other than their main frame (``CEFSubframeRenderers``).
+        var subframeBrowsers: Set<Int32> = []
     }
 
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.cef-children", qos: .userInitiated)
@@ -32,6 +35,8 @@ nonisolated final class CEFChildProcessMonitor: @unchecked Sendable {
     private var source: (any DispatchSourceRead)?
     /// Children being watched: pid -> helper identity (nil until exec).
     private var children: [Int32: CEFHelperIdentity?] = [:]
+    /// The renderers' frames other than a browser's main frame (``subframe(_:browser:client:attached:)``).
+    private var subframes = CEFSubframeRenderers()
 
     init(onExit: @escaping @Sendable (Exit) -> Void) {
         self.onExit = onExit
@@ -84,12 +89,39 @@ nonisolated final class CEFChildProcessMonitor: @unchecked Sendable {
             if event.fflags & UInt32(NOTE_EXIT) != 0 {
                 let identity = children.removeValue(forKey: pid) ?? nil
                 guard let identity else { continue }
+                let subframeBrowsers = identity.rendererClientID.map { subframes.ended(client: $0) } ?? []
                 onExit(Exit(pid: pid, processType: identity.processType, subType: identity.subType,
                             isExtension: identity.isExtension, status: Int32(truncatingIfNeeded: event.data),
-                            rendererClientID: identity.rendererClientID))
+                            rendererClientID: identity.rendererClientID, subframeBrowsers: subframeBrowsers))
             }
         }
         if needsRescan { rescan() }
+    }
+
+    /// Frame `frame` of `browser`, not its main frame, attached to or detached from renderer `client`
+    /// (SUBFRAME_RENDERER, in Chromium's order): that renderer's abnormal end names `browser` in
+    /// ``Exit/subframeBrowsers``. A detach is read against the renderer's process on the monitor's queue,
+    /// where its exit event lands: one that is ending or ended lost the frame to its death.
+    func subframe(_ frame: String, browser: Int32, client: Int32, attached: Bool) {
+        queue.async { [self] in
+            if attached { return subframes.attached(frame, client: client, browser: browser) }
+            let pid = children.first { $0.value?.rendererClientID == client }?.key
+            subframes.detached(frame, client: client, browser: browser, rendererExiting: pid.map(Self.isExiting) ?? false)
+        }
+    }
+
+    /// Whether child `pid` is ending or ended: gone (reaped before its exit event drained), a zombie,
+    /// or in exit (`P_WEXIT`, set before its ports close, which is how Chromium hears of the death).
+    static func isExiting(_ pid: pid_t) -> Bool {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        // SAFETY: sysctl reads the mib.count names of `mib` and writes at most `size` bytes (one kinfo_proc) into `info`
+        // and the size it wrote into `size`; all three are locals live for the call.
+        guard unsafe blockingSysctl(&mib, u_int(mib.count), &info, &size, nil, 0) == 0 else { return false }
+        // An empty answer: no process has the pid any more.
+        guard size > 0 else { return true }
+        return info.kp_proc.p_stat == SZOMB || info.kp_proc.p_flag & P_WEXIT != 0
     }
 
     private func rescan() {

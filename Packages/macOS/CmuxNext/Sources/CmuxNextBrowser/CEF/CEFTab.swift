@@ -79,7 +79,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
         didSet {
             let phaseChanged = machine.state.phase != oldValue.state.phase
             if phaseChanged { pageWaiters.notePhase(machine.state.phase) }
-            if phaseChanged || machine.state.processExit != oldValue.state.processExit, runtime.hostStart == nil { renderersMayHaveChanged() }
+            if phaseChanged || machine.state.processExit != oldValue.state.processExit, runtime.hostStart == nil { onRenderersMayChange?() }
         }
     }
     /// Runs when the renderers that serve this page may have changed: its load phase changed (a navigation
@@ -87,8 +87,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
     /// p14-energy-124). In process only: with the Chromium Host on, those shim calls are replies over the
     /// wire, and attribution there is p14-energy-124a.
     @ObservationIgnored var onRenderersMayChange: (() -> Void)?
-    /// The subframe crash hook and the renderers of this page's frames as last read (`CEFTab+Processes`).
-    @ObservationIgnored var subframeCrashes = SubframeCrashWatch()
+    /// Runs each time a frame of this page outside its main frame's renderer crashes (`BrowserSubframeCrashReporting`).
+    @ObservationIgnored public var onSubframeCrash: (@MainActor () -> Void)?
     /// The page plays unmuted media (`BrowserAudibleReporting`): `state.media?.isAudible`, kept
     /// apart so its observers wake on the flip only, not on each load tick or title.
     public internal(set) var isAudible = false

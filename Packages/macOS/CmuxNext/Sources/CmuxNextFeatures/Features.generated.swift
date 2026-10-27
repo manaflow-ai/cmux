@@ -818,12 +818,12 @@ nonisolated extension Feature {
         replaces: ["memory.discard.conversations"]
     )
 
-    /// A hidden Chromium tab whose out-of-process iframe crashed is hibernated at once, as Chrome discards such a page, so it reloads whole when shown and its renderer memory goes; a shown tab keeps its crashed frame.
+    /// A Chromium tab whose out-of-process iframe crashed hibernates while hidden or when next hidden, as Chrome discards such a page, so it reloads whole when shown; tabs kept from automatic hibernation (pinned, playing, typed into) stay.
     public static let memoryDiscardCrashedSubframes = Feature(
         index: 47,
         name: "memoryDiscardCrashedSubframes",
         owner: "PL-memory",
-        description: "A hidden Chromium tab whose out-of-process iframe crashed is hibernated at once, as Chrome discards such a page, so it reloads whole when shown and its renderer memory goes; a shown tab keeps its crashed frame.",
+        description: "A Chromium tab whose out-of-process iframe crashed hibernates while hidden or when next hidden, as Chrome discards such a page, so it reloads whole when shown; tabs kept from automatic hibernation (pinned, playing, typed into) stay.",
         kind: .labs,
         process: .app,
         chromiumFeature: nil,

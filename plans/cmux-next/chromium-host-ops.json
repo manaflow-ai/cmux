@@ -4806,6 +4806,12 @@
       "value": 60,
       "refreshes": [],
       "reason": "A field's suggestions as data (fork API 31's suggestion handler, tasks 172 and 061): SHOW, SELECT, HIDE and ANNOUNCE for the page view's suggestion list (ChromiumHostSuggestionList), as Chrome's AutofillPopupController drives its view."
+    },
+    {
+      "kind": "CMUX_SHIM_SUBFRAME_RENDERER",
+      "value": 61,
+      "refreshes": [],
+      "reason": "A frame other than the main one gained (a = 1) or lost (a = 0) its renderer, request = its renderer client id, s1 = its frame identifier (CefFrameHandler, task p07-memory-106): the app's child monitor names the pages a renderer's crash leaves a sad frame in. The host's renderers are not the app's children, so in host mode the app reads none of them."
     }
   ],
   "optional_exports": [

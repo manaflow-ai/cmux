@@ -102,6 +102,7 @@ extension BrowserHibernation {
     /// reports its crashed subframes (``subframeDidCrash(_:)``).
     func pageDidMount(_ key: String, _ page: any BrowserTab) {
         followVisibility(key, page)
+        crashedSubframes[key] = nil
         if discardsCrashedSubframes, let page = page as? any BrowserSubframeCrashReporting {
             page.onSubframeCrash = { [weak self] in self?.subframeDidCrash(key) }
         }
@@ -110,14 +111,30 @@ extension BrowserHibernation {
         audible.watch(key, speaker) { [weak speaker] in speaker?.isAudible == true }
     }
 
-    /// A frame of page `key` crashed in another renderer (``BrowserSubframeCrashReporting``): a hidden page is
-    /// discarded with reason external, as by Hibernate Tab, so it shows again reloaded whole and its renderers'
-    /// memory goes; a shown page keeps its sad frame. Chrome's DiscardPageWithCrashedSubframePolicy
-    /// (chrome/browser/performance_manager/policies/discard_page_with_crashed_subframe_policy.cc).
+    /// A frame of page `key` crashed in another renderer (``BrowserSubframeCrashReporting``): its document holds a
+    /// sad frame until it reloads or navigates. Hidden now or at its next hide, the page is discarded
+    /// (``discardCrashedSubframe(_:)``), so it shows again reloaded whole and its renderers' memory goes; a shown
+    /// page keeps its sad frame. Chrome's DiscardPageWithCrashedSubframePolicy
+    /// (chrome/browser/performance_manager/policies/discard_page_with_crashed_subframe_policy.cc) checks at the
+    /// crash and at each visibility change (OnIsVisibleChanged).
     func subframeDidCrash(_ key: String) {
-        guard discardsCrashedSubframes, setting.isEnabled, let cache, cache.lifecycle.phase(key) == .mountedHidden else { return }
-        cache.trace(key, "discard (\(DiscardReason.external.rawValue), crashed subframe)")
-        _ = hibernateNow(key)
+        guard discardsCrashedSubframes, let tab = cache?.browsers[key]?.tab else { return }
+        crashedSubframes[key] = tab.state.documentGeneration
+        discardCrashedSubframe(key)
+    }
+
+    /// Hidden page `key` holds a crashed frame in its current document: it is discarded for
+    /// ``DiscardReason/crashedSubframe``, a discard cmux starts, so the probe, the lead rule, `beforeunload` and the
+    /// person's choices (`browser.hibernation` off, a pin, Never Hibernate This Site) still keep it.
+    func discardCrashedSubframe(_ key: String) {
+        guard let crashed = crashedSubframes[key], let cache, let tab = cache.browsers[key]?.tab else { return }
+        guard tab.state.documentGeneration == crashed else {
+            crashedSubframes[key] = nil
+            return
+        }
+        guard setting.isEnabled, cache.lifecycle.phase(key) == .mountedHidden, !probing.contains(key) else { return }
+        cache.trace(key, "discard (\(DiscardReason.crashedSubframe.rawValue))")
+        prepare(key, for: .crashedSubframe)
     }
 
     /// A page's sound ended: a hidden page is planned again, so its minute's end joins the deadline.

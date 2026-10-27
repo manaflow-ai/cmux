@@ -93,6 +93,8 @@ final class BrowserHibernation {
     /// A hidden Chromium page whose out-of-process frame crashed is discarded (``subframeDidCrash(_:)``, feature
     /// `memoryDiscardCrashedSubframes`, set by the App before pages mount); off, it keeps its sad frame.
     var discardsCrashedSubframes = false
+    /// Pages with a crashed frame: the document generation it crashed in (a new document has none).
+    var crashedSubframes: [String: UInt64] = [:]
     var frozenGrowth = FrozenGrowthRule()
     let growthDeadline: MainDeadline
     /// Tab `key`'s opener group (its openers and the tabs they opened), itself included; injected by the App.
@@ -362,6 +364,7 @@ final class BrowserHibernation {
         hiddenAt[key] = now()
         watchActivity(key, tab)
         replan()
+        discardCrashedSubframe(key)
     }
 
     func tabDidShow(_ key: String) {
@@ -434,6 +437,7 @@ final class BrowserHibernation {
         snapshots.remove(key)
         wakeLog.forget(key)
         activity.forget(key)
+        crashedSubframes[key] = nil
     }
 
     // MARK: Neighbors
@@ -725,7 +729,7 @@ final class BrowserHibernation {
 
     /// Probes the page, captures its history and snapshot, then hibernates it if it is still hidden
     /// with the same generation. `.external` is the person's Hibernate Tab, which asks the page nothing.
-    private func prepare(_ key: String, for reason: DiscardReason) {
+    func prepare(_ key: String, for reason: DiscardReason) {
         let user = reason == .external
         guard let cache, let entry = cache.browsers[key], let source = entry.tab as? any BrowserHibernationSource,
               let generation = cache.lifecycle.record(key)?.generation, probing.insert(key).inserted else { return }
@@ -748,7 +752,7 @@ final class BrowserHibernation {
                 let doubted = probe.answered ? self?.probeHistory.record(probe, for: key) ?? false : self?.probeHistory.doubted(key) ?? true
                 // A timeout or pressure discard reads the pressure of the answer's turn.
                 exemption = self.flatMap { probe.keepReason($0.candidate(key, entry: entry, hiddenFor: 0), setting: $0.setting,
-                                                            for: reason == .frozenWithGrowingMemory ? reason : HibernationPlanner.discardReason(at: $0.pressure),
+                                                            for: reason == .proactive || reason == .urgent ? HibernationPlanner.discardReason(at: $0.pressure) : reason,
                                                             doubted: doubted) }
                 mayAsk = probe.unloadHandler
             }

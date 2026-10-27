@@ -46,33 +46,12 @@ extension CEFTab: BrowserProcessReporting, BrowserSubframeCrashReporting {
         runtime.recordRendererExit(exit, tab: self)
     }
 
-    /// A frame of this page crashed in a renderer other than its main frame's (``BrowserSubframeCrashReporting``);
-    /// while it is set, the page reads which renderers host its frames at each load phase.
-    public var onSubframeCrash: (@MainActor () -> Void)? {
-        get { subframeCrashes.hook }
-        set {
-            subframeCrashes.hook = newValue
-            noteFrameRenderers()
-        }
-    }
-
-    /// The renderers that serve this page may have changed (a load phase, the page's own renderer's end).
-    func renderersMayHaveChanged() {
-        onRenderersMayChange?()
-        noteFrameRenderers()
-    }
-
-    /// Renderer `client` (process `pid`) ended abnormally (``CEFRuntime/childExited(_:)``). When it hosted a
-    /// frame of this page but not its main frame (whose end is ``rendererTerminated(_:)``, the sad tab), a
-    /// subframe crashed: ``onSubframeCrash`` runs. Chrome finds the same from the frame nodes of the dead
-    /// process (chrome/browser/performance_manager/policies/discard_page_with_crashed_subframe_policy.cc).
-    /// Chromium drops a dead renderer's frames when it hears of the death, which can come before the child
-    /// monitor's exit event, so the frames read before count too.
-    func rendererEnded(client: Int32, pid: pid_t) {
-        guard let hook = subframeCrashes.hook else { return }
-        let hosted = subframeCrashes.frameRenderers.contains(client)
-        noteFrameRenderers()
-        guard hosted || subframeCrashes.frameRenderers.contains(client), let main = rendererPID,
+    /// Renderer `pid`, which hosted a frame of this page (``CEFChildProcessMonitor/Exit/subframeBrowsers``), ended
+    /// abnormally. When it is not the page's main frame renderer (whose end is ``rendererTerminated(_:)``, the sad tab),
+    /// a subframe crashed: ``onSubframeCrash`` runs. Chrome reads the same from the frame nodes of the dead process
+    /// (chrome/browser/performance_manager/policies/discard_page_with_crashed_subframe_policy.cc).
+    func subframeRendererEnded(pid: pid_t) {
+        guard let hook = onSubframeCrash, let main = rendererPID,
               Self.isSubframeCrash(main: main, ended: pid, pageExited: state.processExit != nil, closed: isClosed) else { return }
         hook()
     }
@@ -81,13 +60,6 @@ extension CEFTab: BrowserProcessReporting, BrowserSubframeCrashReporting {
     /// own renderer, `main`, is another process, and Chromium did not report the page's own end.
     nonisolated static func isSubframeCrash(main: pid_t, ended: pid_t, pageExited: Bool, closed: Bool) -> Bool {
         !closed && !pageExited && main > 0 && main != ended
-    }
-
-    /// Reads which renderers host this page's frames while ``onSubframeCrash`` is set; in process only (with
-    /// the Chromium Host on, the shim call is a reply over the wire).
-    func noteFrameRenderers() {
-        let reads = subframeCrashes.hook != nil && runtime.hostStart == nil && !isClosed
-        subframeCrashes.frameRenderers = if reads, case .chromiumRendererClients(let ids) = contentProcesses { Set(ids) } else { [] }
     }
 
     /// The Chromium Host ended with this page's browser in it (`CEFRuntime.hostEnded`): the sad tab
@@ -141,12 +113,4 @@ extension CEFTab: BrowserProcessReporting, BrowserSubframeCrashReporting {
         if case .chromiumRendererClients(let ids) = contentProcesses { ids } else { [] }
     }
     #endif
-}
-
-extension CEFTab {
-    /// A page's subframe crash hook (``onSubframeCrash``) and the renderer client ids of its frames as last read.
-    struct SubframeCrashWatch {
-        var hook: (@MainActor () -> Void)?
-        var frameRenderers: Set<Int32> = []
-    }
 }
