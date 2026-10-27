@@ -2481,6 +2481,7 @@ use resource_connection::{
 };
 
 mod connection_frame;
+mod request_flow;
 mod request_head;
 mod request_spans;
 mod request_wait;

@@ -189,6 +189,9 @@ pub(super) struct MessageWriter {
     /// The connection's caller class for `debug-daemon-locks`, read by its
     /// reader and dispatcher with no lock (server/origin_gate.rs sets it).
     pub(super) lock_caller: Arc<crate::diagnostics::LockCallerCell>,
+    /// Where the flows of the connection's requests start: its peer's pid,
+    /// read at accept (server/request_flow.rs).
+    pub(super) request_flows: super::request_flow::RequestFlowSeed,
 }
 
 impl MessageWriter {
@@ -212,7 +215,13 @@ impl MessageWriter {
             api_revision: Arc::default(),
             reply: None,
             lock_caller: Arc::default(),
+            request_flows: super::request_flow::RequestFlowSeed::default(),
         }
+    }
+
+    /// This writer, deriving its requests' flows from `seed`.
+    pub(super) fn with_request_flows(self, seed: super::request_flow::RequestFlowSeed) -> Self {
+        Self { request_flows: seed, ..self }
     }
 
     /// This connection's writer, answering the framed request `call`: like

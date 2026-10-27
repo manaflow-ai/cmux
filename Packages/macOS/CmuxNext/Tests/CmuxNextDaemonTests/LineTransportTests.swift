@@ -7,7 +7,7 @@ import Testing
 
 /// The app's `daemon.request` slices (p09-observability task 025): every request that waits for a reply writes
 /// one async begin and one flow-out at its send, and one end with the same name and id when its reply, error or
-/// timeout resolves it.
+/// timeout resolves it. Its reply's arrival writes a flow-in on the same flow (task 103).
 @Suite(.serialized, .timeLimit(.minutes(1))) struct LineTransportTests {
     typealias FakeDaemon = ReplyEventOrderTests.FakeDaemon
 
@@ -43,12 +43,15 @@ import Testing
     }
 
     /// Begins and ends pair by name and async id, each end after its begin, and each begin has one flow-out that
-    /// names its slice in `arg0`.
-    private func expectMatchedPairs(_ records: [TraceRuntime.StubRecord], count: Int) {
+    /// names its slice in `arg0`. The `received` requests whose reply came each have one flow-in on their flow,
+    /// after the flow-out and before the end, naming the same slice.
+    private func expectMatchedPairs(_ records: [TraceRuntime.StubRecord], count: Int, received: Int) {
         let begins = records.filter { $0.phase == .asyncBegin }
         let ends = records.filter { $0.phase == .asyncEnd }
         let flows = records.filter { $0.phase == .flowOut }
-        #expect(begins.count == count && ends.count == count && flows.count == count && records.count == 3 * count)
+        let replies = records.filter { $0.phase == .flowIn }
+        #expect(begins.count == count && ends.count == count && flows.count == count && replies.count == received)
+        #expect(records.count == 3 * count + received)
         #expect(Set(begins.map(\.arg1)).count == count, "two requests share an async id")
         #expect(records.allSatisfy { $0.name == records[0].name })
         #expect((begins + ends).allSatisfy { $0.flags == .asyncID })
@@ -56,6 +59,13 @@ import Testing
         for begin in begins {
             let end = ends.first { $0.arg1 == begin.arg1 }
             #expect(end.map { $0.tNanos >= begin.tNanos } == true, "a begin has no later end")
+        }
+        for reply in replies {
+            let sent = flows.first { $0.arg1 == reply.arg1 }
+            #expect(sent?.arg0 == reply.arg0, "a reply's flow-in is not on its request's flow and slice")
+            #expect(sent.map { reply.tNanos >= $0.tNanos } == true, "a reply came before its request")
+            let end = ends.first { $0.arg1 == reply.arg0 }
+            #expect(end.map { $0.tNanos >= reply.tNanos } == true, "a slice ended before its reply's flow-in")
         }
     }
 
@@ -80,7 +90,7 @@ import Testing
         }
 
         let all = records.all
-        expectMatchedPairs(all, count: 3)
+        expectMatchedPairs(all, count: 3, received: 2)
         let begins = all.filter { $0.phase == .asyncBegin }
         #expect(begins.map(\.arg0) == [0, UInt64(DaemonCommandName.resourceBase), 0x8007])
         #expect(begins.map { $0.arg1 & LineTransport.requestIDMask } == [answeredID, refusedID, refusedID + 1])
@@ -98,7 +108,7 @@ import Testing
         daemon.write([#"{"id":\#(first),"ok":true,"data":{}}"#, #"{"id":\#(second),"ok":false,"error":"no"}"#])
         _ = await results.value
 
-        expectMatchedPairs(records.all, count: 2)
+        expectMatchedPairs(records.all, count: 2, received: 2)
         #expect(records.all.filter { $0.phase == .asyncEnd }.map(\.arg0) == [0, 1])
     }
 
@@ -115,7 +125,7 @@ import Testing
         daemon.write([#"{"id":\#(second),"ok":true,"data":{}}"#, #"{"id":\#(first),"ok":true,"data":{}}"#])
         _ = await results.value
 
-        expectMatchedPairs(records.all, count: 2)
+        expectMatchedPairs(records.all, count: 2, received: 2)
         let ends = records.all.filter { $0.phase == .asyncEnd }
         #expect(ends.map { $0.arg1 & LineTransport.requestIDMask } == [second, first], "the fast reply waited for the slow one")
     }
@@ -130,7 +140,7 @@ import Testing
         transport.close()
         await #expect(throws: DaemonError.self) { try await pending.value }
 
-        expectMatchedPairs(records.all, count: 1)
+        expectMatchedPairs(records.all, count: 1, received: 0)
         #expect(records.all.last?.arg0 == 1)
     }
 
@@ -158,9 +168,10 @@ import Testing
         daemon.write([#"{"id":\#(id),"ok":true,"data":{}}"#])
         _ = try await answered.value
 
-        expectMatchedPairs(records.all, count: 1)
+        expectMatchedPairs(records.all, count: 1, received: 1)
         let flow = records.all.first { $0.phase == .flowOut }
         #expect(flow?.arg1 == LineTransport.requestFlow(seed: LineTransport.requestFlowSeed(pid: getpid()), requestID: id))
+        #expect(records.all.first { $0.phase == .flowIn }?.arg1 == flow?.arg1, "the reply is not on the request's flow")
         #expect(LineTransport.requestFlow(seed: LineTransport.requestFlowSeed(pid: 1234), requestID: 1) == 0xA3E9_5B7B_0AA2_937A,
                 "FNV-1a 64 over the pid's 4 bytes then the request id's 8, little-endian")
     }
@@ -190,7 +201,33 @@ import Testing
         runtime.setCategoryMask(0)
         daemon.write([#"{"id":\#(id),"ok":true,"data":{}}"#])
         _ = try await answered.value
-        expectMatchedPairs(records.all, count: 1)
+        expectMatchedPairs(records.all, count: 1, received: 0)
+    }
+
+    /// Three requests, one sent without waiting, are three flows, each a flow-out at the send then a flow-in at
+    /// the reply (task 103); the one with no slice names none (`arg0` 0).
+    @Test func threeRequestsAreThreeFlowChains() async throws {
+        let records = Records()
+        let daemon = try FakeDaemon()
+        let transport = try connect(daemon, records.runtime(on: true))
+        defer { transport.close() }
+
+        try transport.sendNoReply(cmd: "send-input") { Self.line($0, "send-input") }
+        let first = try daemon.readRequestID()
+        let answered = Task { await transport.pipeline(Self.pipelined(["identify", "ping"]), timeout: nil) }
+        let ids = try [first, daemon.readRequestID(), daemon.readRequestID()]
+        daemon.write(ids.map { #"{"id":\#($0),"ok":true,"data":{}}"# })
+        _ = await answered.value
+
+        let seed = LineTransport.requestFlowSeed(pid: getpid())
+        let flowRecords = records.all.filter { $0.phase == .flowOut || $0.phase == .flowIn }
+        let chains = Dictionary(grouping: flowRecords, by: \.arg1)
+        #expect(Set(chains.keys) == Set(ids.map { LineTransport.requestFlow(seed: seed, requestID: $0) }), "\(chains)")
+        for chain in chains.values {
+            #expect(chain.map(\.phase) == [.flowOut, .flowIn], "a request is not sent then answered once: \(chain)")
+        }
+        let unsliced = chains[LineTransport.requestFlow(seed: seed, requestID: first)] ?? []
+        #expect(!unsliced.isEmpty && unsliced.allSatisfy { $0.arg0 == 0 }, "\(unsliced)")
     }
 
     /// Each link kind reads and writes at its role's class, read back from the kernel on the reader thread: the

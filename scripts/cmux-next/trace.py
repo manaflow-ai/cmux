@@ -3347,13 +3347,19 @@ def clock_order_violations(flows, request_records):
 def request_flow_summary(request_records):
     """How many daemon requests link across processes. A request is a flow id with a flow-out; it is linked when
     another process has a flow-in on it (the daemon received it), and a round trip when two processes have both
-    (the reply came back). `request_flow_linked` is the linked percentage, None without request records (a
-    recording from before task 103 has none to link, which is not 0%)."""
-    requests = linked = round_trips = 0
+    (the reply came back). A flow that one process recorded, starting with its flow-in, is a request whose sender
+    recorded nothing (a client that does not trace, or one whose recording started later): the daemon's receive
+    and reply of it count as `unrecorded_senders`, not as unlinked requests.
+    `request_flow_linked` is the linked percentage, None without request records (a recording from before task 103
+    has none to link, which is not 0%)."""
+    requests = linked = round_trips = unrecorded = 0
     unlinked = []
     for flow, rows in request_flows(request_records).items():
         outs = {r.get("pid") for r in rows if r["ph"] == "s"}
         ins = {r.get("pid") for r in rows if r["ph"] == "f"}
+        if len(outs | ins) == 1 and rows[0]["ph"] == "f":
+            unrecorded += 1
+            continue
         if not outs:
             continue
         requests += 1
@@ -3364,7 +3370,7 @@ def request_flow_summary(request_records):
             unlinked.append(f"0x{flow:x}")
     return {"request_flow_linked": round(100.0 * linked / requests, 1) if requests else None,
             "request_flows": {"requests": requests, "linked": linked, "round_trips": round_trips,
-                              "unlinked": unlinked[:10]}}
+                              "unrecorded_senders": unrecorded, "unlinked": unlinked[:10]}}
 
 
 def clock_report(flows, request_records):
@@ -5966,6 +5972,11 @@ def check_clock_order_and_percentiles():
     linked = request_flow_summary(requests)
     assert linked["request_flow_linked"] == 66.7 and linked["request_flows"]["round_trips"] == 1, linked
     assert linked["request_flows"]["unlinked"] == ["0x2"], linked
+    # A sender that recorded nothing (a CLI that does not trace): the daemon's receive and reply alone are no
+    # unlinked request.
+    cli = [request_record(4, "f", 400, daemon_pid), request_record(4, "s", 410, daemon_pid)]
+    alone = request_flow_summary(requests[:5] + cli)
+    assert alone["request_flow_linked"] == 50.0 and alone["request_flows"]["unrecorded_senders"] == 1, alone
     assert request_flow_summary([])["request_flow_linked"] is None
 
 

@@ -18,6 +18,11 @@
 //! commands) moves its latency to an [`AsyncReply`]: the async slice
 //! `daemon.request.async`, which the worker's reply ends.
 //!
+//! A request from a client whose pid the daemon knows also carries its flow
+//! ([`RequestSpan::flowing`], server/request_flow.rs): a `daemon.request`
+//! flow-in as the span opens and a flow-out at the reply, before the reply is
+//! queued where the span sends it and just after where a route sent it.
+//!
 //! The writer thread's socket write is not stamped: a reply's time in the
 //! outbound queue is outside the latency.
 //!
@@ -32,7 +37,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use cmux_ipc::{MethodId, MethodTables};
-use cmux_trace::{trace_async_begin, trace_async_end, trace_instant, trace_scope};
+use cmux_trace::{
+    trace_async_begin, trace_async_end, trace_flow_in, trace_flow_out, trace_instant, trace_scope,
+};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -235,6 +242,8 @@ pub(super) struct RequestSpan<'a> {
     /// This thread's lock wait total at the handler's start.
     lock_wait_from: u64,
     reply: Reply,
+    /// The request's flow (server/request_flow.rs); 0 for none.
+    flow: u64,
     /// The op this thread's lock acquisitions count under until the span
     /// ends (`debug-daemon-locks`).
     _lock_op: LockOpScope,
@@ -282,9 +291,20 @@ impl<'a> RequestSpan<'a> {
             dispatched,
             lock_wait_from: cmux_threads::thread_lock_wait_nanos(),
             reply: Reply::Pending,
+            flow: 0,
             _lock_op: lock_op,
             _scope: scope,
         }
+    }
+
+    /// This span carries the request's `flow` (0: none): its flow-in now, its
+    /// flow-out at the reply.
+    pub(super) fn flowing(mut self, flow: u64) -> Self {
+        self.flow = flow;
+        if flow != 0 {
+            trace_flow_in!(daemon, "daemon.request", flow);
+        }
+        self
     }
 
     /// The span of a resource request that arrives now (tests).
@@ -303,6 +323,8 @@ impl<'a> RequestSpan<'a> {
     /// the latency sample then.
     pub(super) fn reply(&mut self, send: impl FnOnce() -> bool) -> bool {
         trace_instant!(daemon, "daemon.request.handled");
+        // Before the send: the client may read the reply before `send` returns.
+        self.flow_out();
         let sent = send();
         self.answered(sent)
     }
@@ -315,9 +337,18 @@ impl<'a> RequestSpan<'a> {
         if matches!(self.reply, Reply::Async) {
             return keep_open;
         }
+        self.flow_out();
         trace_instant!(daemon, "daemon.request.reply.queued", keep_open);
         self.record();
         keep_open
+    }
+
+    /// The reply's flow-out, once.
+    fn flow_out(&mut self) {
+        let flow = std::mem::take(&mut self.flow);
+        if flow != 0 {
+            trace_flow_out!(daemon, "daemon.request", flow);
+        }
     }
 
     /// Hands the latency to a worker that answers later: an async slice
@@ -334,6 +365,7 @@ impl<'a> RequestSpan<'a> {
             lock_waited: Duration::ZERO,
             counting: Some(ThreadLockWait::since(self.lock_wait_from)),
             id,
+            flow: std::mem::take(&mut self.flow),
             recorded: false,
             lock_scope: LockScope::current(),
         }
@@ -388,6 +420,8 @@ pub(super) struct AsyncReply {
     /// [`WorkerReply::start`].
     counting: Option<ThreadLockWait>,
     id: u64,
+    /// The request's flow, whose flow-out is the worker's reply; 0 for none.
+    flow: u64,
     recorded: bool,
     /// The caller class and op of the request (`debug-daemon-locks`).
     lock_scope: LockScope,
@@ -468,6 +502,9 @@ impl AsyncReply {
     /// Sends the worker's reply with `send`.
     pub(super) fn reply(mut self, send: impl FnOnce() -> bool) -> bool {
         trace_instant!(daemon, "daemon.request.async.handled", self.id);
+        if self.flow != 0 {
+            trace_flow_out!(daemon, "daemon.request", self.flow, self.id);
+        }
         let sent = send();
         trace_instant!(daemon, "daemon.request.async.reply.queued", self.id, sent);
         self.record();

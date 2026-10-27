@@ -62,16 +62,18 @@ extension LineTransport {
             recorder?.lineRead(.ignored)
             return
         }
-        let routed: (UInt64, PendingRequest)? = state.withLock { state in
+        let routed: (id: UInt64, barrier: UInt64, entry: PendingRequest)? = state.withLock { state in
             guard let id = envelope.id ?? state.pending.oldestID(), let entry = state.pending.remove(id: id) else { return nil }
             removeDeadline(&state, id: id)
-            return (state.eventCount, entry)
+            return (id: id, barrier: state.eventCount, entry: entry)
         }
-        guard let (barrier, entry) = routed else {
+        guard let (id, barrier, entry) = routed else {
             recorder?.lineRead(.droppedReply)
             return
         }
         let waiter = entry.waiter
+        // Before the reply resolves its slot, which ends the request's slice.
+        receiveRequestFlow(id: id, waiter: waiter)
         if let sent = entry.sent { recorder?.replied(sent) }
         recorder?.lineRead(waiter.replyKind(ok: envelope.ok == true))
         if envelope.ok == true {

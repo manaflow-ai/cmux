@@ -13,6 +13,12 @@ import CmuxNextTrace
 /// pair, even across a reconnect. The begin's `arg0` is the ``DaemonCommandName`` id; the end's `arg0` the
 /// ``RequestOutcome``. A flow-out at the send carries the request's flow (``requestFlow(seed:requestID:)``), with
 /// the async id in its `arg0`.
+///
+/// Every request on a socket connection is one flow chain (task 103), with no flow id on the wire: this flow-out
+/// at the send (a request sent without waiting has one too), the daemon's flow-in and flow-out, which it derives
+/// from this process's pid and the same request id (cmux-tui-core/src/server/request_flow.rs), and the flow-in
+/// where the reader takes the reply. Chrome's Mojo bindings write the same pair at each message's send and
+/// dispatch (mojo/public/cpp/bindings/lib/interface_endpoint_client.cc, `TRACE_EVENT_FLAG_FLOW_OUT` / `FLOW_IN`).
 extension LineTransport {
     /// How a traced request ended: its `daemon.request` end record's `arg0`.
     enum RequestOutcome: UInt64 {
@@ -76,9 +82,36 @@ extension LineTransport {
     /// Writes the AB and the flow-out of request `id` and hands `slot` the slice to end when it resolves; nothing
     /// when the daemon category is off. Call it before the line is written, so no reply can resolve the slot first.
     func beginRequestSpan(_ name: DaemonCommandName, id: UInt64, slot: ReplySlot) {
-        let asyncID = traceConnection | (id & Self.requestIDMask)
+        let asyncID = requestAsyncID(id)
         guard trace.asyncBegin(.daemonRequest, id: asyncID, arg0: UInt64(truncatingIfNeeded: name.id)) else { return }
-        trace.flowOut(.daemonRequest, flow: Self.requestFlow(seed: traceFlowSeed, requestID: id), arg0: asyncID)
+        if let seed = traceFlowSeed {
+            trace.flowOut(.daemonRequest, flow: Self.requestFlow(seed: seed, requestID: id), arg0: asyncID)
+        }
         slot.arm(RequestSpan(trace: trace, asyncID: asyncID))
+    }
+
+    /// The async id of request `id`'s slice.
+    func requestAsyncID(_ id: UInt64) -> UInt64 {
+        traceConnection | (id & Self.requestIDMask)
+    }
+
+    /// The flow-out of request `id`, sent without a slice (``sendNoReply(cmd:onError:_:)``): `arg0` is 0. Call it
+    /// before the line is written.
+    func sendRequestFlow(id: UInt64) {
+        guard let seed = traceFlowSeed, Self.recordsRequests(trace) else { return }
+        trace.flowOut(.daemonRequest, flow: Self.requestFlow(seed: seed, requestID: id))
+    }
+
+    /// The flow-in of the reply to request `id`, on the reader thread as it takes the reply for `waiter`; `arg0`
+    /// names the request's slice when the reply is awaited.
+    func receiveRequestFlow(id: UInt64, waiter: Waiter) {
+        guard let seed = traceFlowSeed, Self.recordsRequests(trace) else { return }
+        let slice: UInt64 = if case .reply = waiter { requestAsyncID(id) } else { 0 }
+        trace.flowIn(.daemonRequest, flow: Self.requestFlow(seed: seed, requestID: id), arg0: slice)
+    }
+
+    /// Whether `trace` records `daemon.request`: one relaxed load, so an untraced request computes no flow.
+    private static func recordsRequests(_ trace: TraceRuntime) -> Bool {
+        trace.isEnabled(categoryBit: SignpostName.daemonRequest.traceCategory.traceBit)
     }
 }

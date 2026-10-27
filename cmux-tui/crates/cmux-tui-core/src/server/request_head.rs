@@ -67,6 +67,11 @@ impl<'a> RequestHead<'a> {
         self.params
     }
 
+    /// The line's `id`, as written.
+    pub(super) fn id(&self) -> Option<&Value> {
+        self.id.as_ref()
+    }
+
     /// The line's `cmd`, when it is a string.
     pub(super) fn cmd(&self) -> Option<&str> {
         self.cmd.as_deref()

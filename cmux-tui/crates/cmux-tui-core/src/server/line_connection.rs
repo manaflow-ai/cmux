@@ -193,11 +193,13 @@ pub(super) fn serve_connection(
     if write_half.set_write_timeout(Some(STREAM_WRITE_TIMEOUT)).is_err() {
         return ConnectionEnd::Dropped;
     }
+    let peer_key = stream.peer_process_key();
     let outbound = Arc::new(BoundedOutbound::with_chunk_bytes(mux.bulk_frame_max()));
     let writer = MessageWriter::new_with_render_service(
         QueuedSink { outbound: outbound.clone(), control: Some(SinkControl::Unix(control)) },
         render_service,
-    );
+    )
+    .with_request_flows(request_flow::RequestFlowSeed::of_peer_key(peer_key.as_deref()));
     let writer_outbound = outbound;
     let writer_close = writer.clone();
     let writer_ipc = mux.ipc_stats().clone();
@@ -226,7 +228,6 @@ pub(super) fn serve_connection(
         writer.close();
         return ConnectionEnd::Dropped;
     };
-    let peer_key = stream.peer_process_key();
     let peer_token = stream.peer_token();
     let peer_uid = stream.peer_uid();
     let client = mux.control_clients.register(transport, writer.clone());

@@ -149,10 +149,12 @@ pub(super) fn dispatch_line(line: &LineFrame<'_>) -> bool {
         return keep_open;
     }
     let stats = mux.request_stats();
+    // Each span opened for this line carries its flow (server/request_flow.rs).
+    let flow = writer.request_flows.flow(head.id());
+    let open = || head.open(stats, RequestArrival::parsed_now(arrived)).flowing(flow);
     // A line whose `cmd` names no `Command` belongs to a feature route: its
     // span covers the route. A `Command` line opens its span at its handler.
-    let mut routed =
-        (!head.is_command()).then(|| head.open(stats, RequestArrival::parsed_now(arrived)));
+    let mut routed = (!head.is_command()).then(open);
     if let Some(route) = head.cmd().and_then(routes::find) {
         line.stage(route.stage);
         let route_line = routes::RouteLine { mux, client, message, writer, head: &head };
@@ -167,8 +169,7 @@ pub(super) fn dispatch_line(line: &LineFrame<'_>) -> bool {
     let request = match crate::line_parses::parse::<Request>(message) {
         Ok(request) => request,
         Err(error) => {
-            let mut span =
-                routed.unwrap_or_else(|| head.open(stats, RequestArrival::parsed_now(arrived)));
+            let mut span = routed.unwrap_or_else(open);
             return span.reply(|| send_bad_request(writer, message, &error));
         }
     };
@@ -208,10 +209,11 @@ pub(super) fn dispatch_line(line: &LineFrame<'_>) -> bool {
 fn resource_line(line: &LineFrame<'_>, head: &RequestHead<'_>) -> Option<bool> {
     let LineFrame { mux, client, message, writer, arrived, .. } = *line;
     let stats = mux.request_stats();
+    let flow = writer.request_flows.flow(head.id());
     let mut page_span = None;
     if let Some(route) = head.operation().and_then(routes::find_operation) {
         line.stage(route.stage);
-        let mut span = head.open(stats, RequestArrival::parsed_now(arrived));
+        let mut span = head.open(stats, RequestArrival::parsed_now(arrived)).flowing(flow);
         let route_line = routes::RouteLine { mux, client, message, writer, head };
         if let Some(keep_open) = (route.entry)(&route_line) {
             return Some(span.answered(keep_open));
@@ -244,8 +246,9 @@ fn resource_line(line: &LineFrame<'_>, head: &RequestHead<'_>) -> Option<bool> {
             RequestMethod::of_resource(envelope.operation),
             request_id_hash(Some(&envelope.id)),
             arrival,
-        ),
-        (None, Err(_)) => head.open(stats, arrival),
+        )
+        .flowing(flow),
+        (None, Err(_)) => head.open(stats, arrival).flowing(flow),
     };
     // Debug timing marks of a resource create, from the arrival of its
     // line to its reply (`CMUX_TUI_DEBUG_SPANS`; cx-b4sjc).
@@ -297,7 +300,8 @@ pub(super) fn handle_request_with_cancellation(
         cmux_panic_log::crash_keys::Key::ActionId,
         cmux_panic_log::crash_keys::stable_key(cmd.wire_name()),
     );
-    let mut span = RequestSpan::open(mux.request_stats(), &cmd, id.as_ref(), arrival);
+    let mut span = RequestSpan::open(mux.request_stats(), &cmd, id.as_ref(), arrival)
+        .flowing(writer.request_flows.flow(id.as_ref()));
     if let Command::UrlOpen(terminal_io_wire::UrlOpenParams { terminal_id, url }) = cmd {
         return url_open::start(mux, client, id, terminal_id, url, span.start_async(), writer);
     }

@@ -77,8 +77,9 @@ final class LineTransport: Sendable {
     /// Time since the connection opened, on the clock ``deadlineTimer`` sleeps on.
     private let elapsed: @Sendable () -> Duration
     /// Where each request's `daemon.request` slice goes (LineTransport+RequestTrace.swift), the top bits of its
-    /// async id (``traceConnectionBits(scope:)``) and its flow's seed (``requestFlowSeed(pid:)``).
-    let trace: TraceRuntime, traceConnection: UInt64, traceFlowSeed: UInt64
+    /// async id (``traceConnectionBits(scope:)``) and its flow's seed (``requestFlowSeed(pid:)``): nil on a bridged
+    /// connection, whose socket peer is the bridge child, so the daemon cannot derive this process's flows.
+    let trace: TraceRuntime, traceConnection: UInt64, traceFlowSeed: UInt64?
 
     /// - Parameter opened: An opened bridge (``open(path:bridge:role:stats:hangs:writerTarget:trace:)``); nil connects to `path`.
     /// - Parameter stats: Where the connection counts (``DaemonEndpoint/wireStats``); nil for none.
@@ -91,7 +92,7 @@ final class LineTransport: Sendable {
         self.role = role
         self.trace = trace
         traceConnection = Self.traceConnectionBits(scope: trace.nextAsyncScope())
-        traceFlowSeed = Self.requestFlowSeed(pid: getpid())
+        traceFlowSeed = opened == nil ? Self.requestFlowSeed(pid: getpid()) : nil
         deadlineTimer = DemandTimer(owner: "LineTransport.deadline", clock: clock)
         elapsed = Self.elapsedReader(clock)
         let recorder = stats?.recorder()
@@ -216,7 +217,12 @@ final class LineTransport: Sendable {
     /// dropped; `onError` sees an `ok:false` answer. Writes reach the socket
     /// in call order.
     func sendNoReply(cmd: String, onError: (@Sendable (DaemonError) -> Void)? = nil, _ body: (UInt64) throws -> Data) throws {
-        if case .failure(let error) = submit(.discard(cmd: cmd, onError: onError), body) { throw error }
+        let sent = submit(.discard(cmd: cmd, onError: onError)) { id in
+            let line = try body(id)
+            sendRequestFlow(id: id)
+            return line
+        }
+        if case .failure(let error) = sent { throw error }
     }
 
     /// Writes one line that has no `id` and gets no reply (`loopback-data`
