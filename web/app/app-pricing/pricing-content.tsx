@@ -263,7 +263,7 @@ export function AppPricingContent({
         name={pricing.pro.name}
         surface="app_pricing"
         monthlyOnly={isGo}
-        initialInterval={firstParam(params.interval) === "month" ? "month" : "year"}
+        initialInterval={firstParam(params.interval) === "year" ? "year" : "month"}
         labels={proAnnualLabelSet}
         checkoutHrefs={proCheckoutHrefs}
         location="app_pricing"
@@ -296,7 +296,7 @@ export function AppPricingContent({
         pricing={MAX_PRICING_USD}
         surface="app_pricing"
         monthlyOnly={false}
-        initialInterval={firstParam(params.interval) === "month" ? "month" : "year"}
+        initialInterval={firstParam(params.interval) === "year" ? "year" : "month"}
         labels={proAnnualLabelSet}
         checkoutHrefs={maxCheckoutHrefs}
         location="app_pricing"
