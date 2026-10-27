@@ -99,6 +99,11 @@ extension AgentPaneTransport {
             setAcpmuxMeta(["decisionNonce": nonce, field: proof])
         }
 
+        /// Whether the frame's `_meta.acpmux` has `key`.
+        func hasAcpmuxMeta(_ key: String) -> Bool {
+            frame.withLock { ((($0["params"] as? [String: Any])?["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?[key] != nil }
+        }
+
         /// Sets `key` of the frame's `_meta.acpmux`.
         func setAcpmuxMeta(_ key: String, _ value: some Sendable) { setAcpmuxMeta([key: value]) }
 
@@ -397,6 +402,12 @@ extension AgentPaneTransport {
         if !facts.isFirst, facts.needsGesture, facts.method == "_acpmux/permission_group_respond" {
             await signPeerGroupAllow(box)
             guard id == current, self.socket === socket else { return .stop(.staleConnection) }
+        }
+        // Whether this answer carries this Mac's signed allow: its reply is read by its own id
+        // (`AcpmuxDecisionContexts.sent`), so an unsigned one's refusal never offers to enroll.
+        if !facts.isFirst, let pageID = facts.pageID,
+           facts.method == "_acpmux/permission_respond" || facts.method == "_acpmux/permission_group_respond" {
+            decisions.sent(pageID: pageID, proved: box.hasAcpmuxMeta("approverDecision") || box.hasAcpmuxMeta("approverDecisions"))
         }
         // A Trust answer on another machine for the folder the person chose there by Use Home
         // Folder (a root of this pane): that machine's daemon trusts its home folder only with

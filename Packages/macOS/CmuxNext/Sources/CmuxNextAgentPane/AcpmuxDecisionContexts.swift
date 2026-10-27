@@ -44,6 +44,11 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
         /// How the daemon answered the pane's permission answers since the pane last looked, in
         /// order (at most ``limit``).
         var answers: [Answer] = []
+        /// The page's permission answers in flight to a peer, by page request id: whether each
+        /// went out with this Mac's signed allow (``sent(pageID:proved:)``). Oldest first, at most
+        /// ``limit``.
+        var proved: [String: Bool] = [:]
+        var provedOrder: [String] = []
         var groups: [String: Group] = [:]
         var groupOrder: [String] = []
     }
@@ -55,20 +60,26 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
     /// Reads one inbound frame, as the page gets it.
     func observe(_ object: [String: Any], replyTo method: String?) {
         if method == "_acpmux/permission_respond" || method == "_acpmux/permission_group_respond" {
-            var answer: Answer?
-            if let error = object["error"] as? [String: Any] {
-                let data = error["data"] as? [String: Any]
-                if data?["reason"] as? String == "permission.person_required", let peer = data?["peer"] as? String, !peer.isEmpty {
-                    answer = .refused(peer: peer)
+            // This reply's own request: whether it carried this Mac's signed allow. Any reply
+            // ends it, an error of any kind too.
+            let pageID = object["id"].flatMap(AcpmuxPaneMethods.rawID)
+            state.withLock { state in
+                let proved = pageID.flatMap { state.proved.removeValue(forKey: $0) } ?? false
+                var answer: Answer?
+                if let error = object["error"] as? [String: Any] {
+                    let data = error["data"] as? [String: Any]
+                    // Only a signed allow's refusal says the peer has not enrolled this Mac; an
+                    // unsigned one's (no key, a prompt that changed) says nothing of the kind.
+                    if proved, data?["reason"] as? String == "permission.person_required",
+                       let peer = data?["peer"] as? String, !peer.isEmpty {
+                        answer = .refused(peer: peer)
+                    }
+                } else if object["result"] != nil {
+                    answer = .counted
                 }
-            } else if object["result"] != nil {
-                answer = .counted
-            }
-            if let answer {
-                state.withLock { state in
-                    state.answers.append(answer)
-                    if state.answers.count > Self.limit { state.answers.removeFirst() }
-                }
+                guard let answer else { return }
+                state.answers.append(answer)
+                if state.answers.count > Self.limit { state.answers.removeFirst() }
             }
             return
         }
@@ -208,6 +219,19 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
     public var localInstance: String? { state.withLock { $0.localInstance } }
 
     /// How the daemon answered the pane's permission answers since the last call, in order.
+    /// The page's permission answer `pageID` goes out to the daemon, with this Mac's signed allow
+    /// (`proved`) or without: only a signed one's refusal is read as "not enrolled there".
+    func sent(pageID: String, proved: Bool) {
+        state.withLock { state in
+            // Answered ones leave the order here, so it stays as long as what is in flight.
+            state.provedOrder.removeAll { state.proved[$0] == nil }
+            if state.proved.updateValue(proved, forKey: pageID) == nil { state.provedOrder.append(pageID) }
+            while state.provedOrder.count > Self.limit {
+                state.proved[state.provedOrder.removeFirst()] = nil
+            }
+        }
+    }
+
     func takeAnswers() -> [Answer] {
         state.withLock { state in
             defer { state.answers = [] }

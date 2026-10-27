@@ -100,9 +100,6 @@ import CmuxNextCompat
     /// (peer-route approvals, ``AcpmuxMacApprover``): it has not enrolled this Mac, or the allow
     /// was not a one-time allow. nil: a later answer counted, and what was said no longer holds.
     public var onPeerApprovalsOff: (@MainActor (AgentPanePeerApprovals?) -> Void)?
-    /// Peer allows sent unsigned (not a one-time allow) whose refusal is still to come: that
-    /// refusal is not for want of enrolling this Mac.
-    var unsignedPeerAllows = 0
     /// The pane's own roots (``AcpmuxPathPolicy/Scope/roots``), asked at each frame.
     public var roots: @MainActor () -> [String] = { [] }
     /// Folders that are roots only when the user picks one by a gesture (the new tab page's scan).
@@ -231,7 +228,6 @@ import CmuxNextCompat
         startCredit.clear()
         pickCredit.clear()
         decisions.reset()
-        unsignedPeerAllows = 0
         sentFirst = false
         promptRelay = AgentPanePromptRelay(connection, journal: promptJournal)
         let ids = AcpmuxRequestIds(promptAccepted: promptRelay?.forget)
@@ -367,7 +363,6 @@ import CmuxNextCompat
         // answer that counted ends what the pane said.
         for answer in decisions.takeAnswers() where !remoteWire {
             switch answer {
-            case .refused where unsignedPeerAllows > 0: unsignedPeerAllows -= 1
             case .refused(let peer): onPeerApprovalsOff?(.notEnrolled(peer: peer))
             case .counted: onPeerApprovalsOff?(nil)
             }

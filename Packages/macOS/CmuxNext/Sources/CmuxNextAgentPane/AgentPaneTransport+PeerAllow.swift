@@ -18,7 +18,6 @@ extension AgentPaneTransport {
             return
         }
         guard context.allowOnce.contains(option), Self.param("annotations", box) == nil else {
-            unsignedPeerAllows += 1
             onPeerApprovalsOff?(.onceOnly)
             return
         }
@@ -56,7 +55,6 @@ extension AgentPaneTransport {
         guard members.count == group.pending.count,
               members.allSatisfy({ $0.2.instance != decisions.localInstance }) else { return }
         guard decision == "allow_once", members.allSatisfy({ !$0.1.isEmpty && $0.2.allowOnce.contains($0.1) }) else {
-            unsignedPeerAllows += 1
             onPeerApprovalsOff?(.onceOnly)
             return
         }

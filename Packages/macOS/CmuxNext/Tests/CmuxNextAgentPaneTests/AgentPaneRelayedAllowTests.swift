@@ -446,6 +446,84 @@ struct AgentPaneRelayedAllowTests {
         #expect(!remoteOff)
     }
 
+    /// The relay id of the newest `method` frame the stand-in got.
+    static func relayID(_ server: AcpmuxStandInServer, _ method: String, after count: Int) async throws -> Int {
+        #expect(await server.wait { ($0.first?.frames.filter { $0.contains(method) }.count ?? 0) > count })
+        let sent = try #require(server.peers.first?.frames.last { $0.contains(method) })
+        return try #require((try JSONSerialization.jsonObject(with: Data(sent.utf8)) as? [String: Any])?["id"] as? Int)
+    }
+
+    static func refusal(_ id: Int, peer: String) -> String {
+        #"{"jsonrpc":"2.0","id":\#(id),"error":{"code":-32000,"message":"approve this on the Mac app","data":{"reason":"permission.person_required","peer":"\#(peer)"}}}"#
+    }
+
+    /// An Allow that went out without this Mac's signature (here: a click with no ticket for that
+    /// pick; also a key that could not sign, or a prompt that changed while it signed) is refused
+    /// by the peer, but enrolling this Mac there would not help: the pane offers no Enroll.
+    @Test func anUnsignedAllowsRefusalOffersNoEnroll() async throws {
+        let server = AcpmuxStandInServer()
+        try await server.start()
+        defer { server.stop() }
+        let inbox = PageInbox()
+        let transport = AgentPaneTransport()
+        var peerOff: [AgentPanePeerApprovals?] = []
+        transport.onPeerApprovalsOff = { peerOff.append($0) }
+        let id = try await Self.peerChat(server, inbox, transport)
+        server.setAnswers(false)
+
+        transport.gestures.record(click: true)
+        #expect(await transport.send(connection: id, frames: [Self.allow(ticket: nil)]) == nil)
+        let relayID = try await Self.relayID(server, "permission_respond", after: 0)
+        let sent = try #require(server.peers.first?.frames.last { $0.contains("permission_respond") })
+        #expect(!sent.contains("approverDecision"), "a pick without its ticket was signed: \(sent)")
+        server.push(Self.refusal(relayID, peer: "far"), to: 0)
+        _ = await inbox.frame(containing: "person_required")
+        #expect(peerOff.isEmpty, "an unsigned allow's refusal offered to enroll: \(peerOff)")
+    }
+
+    /// Each reply is read against its own request: an unsigned answer that failed some other way
+    /// leaves nothing behind, so a later signed Allow's refusal still offers to enroll this Mac,
+    /// and replies that come back out of order name the right peer.
+    @Test func eachRefusalIsReadAgainstItsOwnRequest() async throws {
+        let server = AcpmuxStandInServer()
+        try await server.start()
+        defer { server.stop() }
+        let inbox = PageInbox()
+        let transport = AgentPaneTransport()
+        var peerOff: [AgentPanePeerApprovals?] = []
+        transport.onPeerApprovalsOff = { peerOff.append($0) }
+        let id = try await Self.peerChat(server, inbox, transport)
+        server.setAnswers(false)
+
+        // An always-allow (unsigned: "only a one-time Allow works"), refused for another reason.
+        transport.gestures.record(click: true)
+        let always = try #require(transport.reserveGesture(try #require(Self.intent(option: "always"))))
+        let alwaysFrame = Self.allow(ticket: always).replacingOccurrences(of: #""optionId":"yes""#, with: #""optionId":"always""#)
+        #expect(await transport.send(connection: id, frames: [alwaysFrame]) == nil)
+        let first = try await Self.relayID(server, "permission_respond", after: 0)
+        server.push(#"{"jsonrpc":"2.0","id":\#(first),"error":{"code":-32602,"message":"no such option"}}"#, to: 0)
+        _ = await inbox.frame(containing: "no such option")
+        #expect(peerOff == [.onceOnly])
+
+        // A signed one-time Allow, refused for want of enrolling this Mac.
+        transport.gestures.record(click: true)
+        let yes = try #require(transport.reserveGesture(try #require(Self.intent(option: "yes"))))
+        let signed = Self.allow(ticket: yes).replacingOccurrences(of: #""id":7"#, with: #""id":8"#)
+        #expect(await transport.send(connection: id, frames: [signed]) == nil)
+        let second = try await Self.relayID(server, "permission_respond", after: 1)
+        // An unsigned Allow (no ticket) to the same prompt, in flight beside it.
+        transport.gestures.record(click: true)
+        let unsigned = Self.allow(ticket: nil).replacingOccurrences(of: #""id":7"#, with: #""id":9"#)
+        #expect(await transport.send(connection: id, frames: [unsigned]) == nil)
+        let third = try await Self.relayID(server, "permission_respond", after: 2)
+        // Out of order: the unsigned one's refusal comes first, naming another peer.
+        server.push(Self.refusal(third, peer: "near"), to: 0)
+        _ = await inbox.frame(containing: #""id":9"#)
+        server.push(Self.refusal(second, peer: "far"), to: 0)
+        _ = await inbox.frame(containing: #""id":8"#)
+        #expect(peerOff == [.onceOnly, .notEnrolled(peer: "far")])
+    }
+
     /// The card's Allow for a batch of a peer's tool prompts (`_acpmux/permission_group_respond`),
     /// after the person's click: one signed one-time allow per pending member of the group the
     /// page read (two here), over that member's prompt, tool call, nonce and the option the group's
