@@ -37,6 +37,7 @@ final class PageWKWebView: WKWebView {
         // A choice in this view's context menu is the person's input (``menuWillSendAction(_:)``).
         // queue: .main runs the block inline for AppKit's post on main, before the action is
         // sent; a selector into this main-actor view trapped on a post off main.
+        // raw-observer-allow: the check needs the notice's sender menu before AppKit sends the action; an AppEvents call carries no sender
         menuActionObserver = NotificationCenter.default.addObserver(
             forName: NSMenu.willSendActionNotification, object: nil, queue: .main
         ) { [weak self] note in
@@ -134,6 +135,7 @@ final class PageWKWebView: WKWebView {
     override func mouseDown(with event: NSEvent) { noteUserEvent(event); menuAutoFill.noteContextClick(event); super.mouseDown(with: event) }
     override func mouseUp(with event: NSEvent) { noteUserEvent(event); super.mouseUp(with: event) }
     // input-coalesce: native (WebKit's WebPageProxy coalesces mouse moves and drags itself and the page aligns them to its frame; noteUserEvent only stamps the time)
+    // local-monitor-allow: the gesture time and the host's touch note (noteUserEvent), then the event goes to WebKit in its order and count; a drag is unbuffered until mouseUp
     override func mouseDragged(with event: NSEvent) { noteUserEvent(event); super.mouseDragged(with: event) }
     override func rightMouseDown(with event: NSEvent) { noteUserEvent(event); menuAutoFill.noteContextClick(event); super.rightMouseDown(with: event) }
 
