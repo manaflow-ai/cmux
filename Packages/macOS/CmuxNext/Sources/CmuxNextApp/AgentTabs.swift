@@ -11,7 +11,7 @@ import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextSignposts
 import CmuxNextTabs
-import CmuxNextWakeups
+import CmuxNextWakeupsDisplay
 import Observation
 
 /// The pane views of agent chat tabs (the React acpmux pane, CmuxNextAgentPane).

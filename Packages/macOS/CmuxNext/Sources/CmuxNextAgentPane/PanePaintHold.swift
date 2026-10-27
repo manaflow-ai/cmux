@@ -1,5 +1,5 @@
 public import AppKit
-public import CmuxNextWakeups
+public import CmuxNextWakeupsDisplay
 
 /// Content that draws nothing until its document paints (an agent page is
 /// transparent until then). A pane switching to it keeps what it showed

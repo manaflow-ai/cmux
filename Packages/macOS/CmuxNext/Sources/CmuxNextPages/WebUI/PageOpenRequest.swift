@@ -1,5 +1,5 @@
 public import CmuxNextDesign
-public import CmuxNextWakeups
+public import CmuxNextWakeupsDisplay
 public import Foundation
 import WebKit
 

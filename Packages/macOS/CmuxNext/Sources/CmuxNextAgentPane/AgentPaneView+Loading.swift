@@ -1,6 +1,6 @@
 public import AppKit
 import CmuxNextDesign
-public import CmuxNextWakeups
+public import CmuxNextWakeupsDisplay
 import os
 
 private let loadingLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.webview")

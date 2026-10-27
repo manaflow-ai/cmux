@@ -3,7 +3,7 @@ import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextSettings
-import CmuxNextWakeups
+import CmuxNextWakeupsDisplay
 import Foundation
 
 /// `debug.chat_open_trace` (DEBUG builds): where the time goes between opening an agent chat and

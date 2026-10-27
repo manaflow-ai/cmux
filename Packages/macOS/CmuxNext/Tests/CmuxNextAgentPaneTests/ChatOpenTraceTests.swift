@@ -1,7 +1,7 @@
 #if DEBUG
 import AppKit
 import CmuxNextTrace
-@testable import CmuxNextWakeups
+@testable import CmuxNextWakeupsDisplay
 import Testing
 
 /// `debug.chat_open_trace` (``ChatOpenTrace``): what it reports as the open's first content and its

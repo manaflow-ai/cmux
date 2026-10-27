@@ -8,7 +8,7 @@ import os
 import CmuxNextErrorJournal
 public import WebKit
 import CmuxNextTrace
-public import CmuxNextWakeups
+public import CmuxNextWakeupsDisplay
 
 /// A view that is a cmux page. The key dispatcher reads it to know the focused surface is a page
 /// (`surfaceKind == page`); a page view adds no key handling of its own.

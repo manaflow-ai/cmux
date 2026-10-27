@@ -5,6 +5,7 @@
     "CCmuxAppFFI": {"layer": "core"},
     "CmuxNextCompat": {"layer": "core"},
     "CmuxNextWakeups": {"layer": "core"},
+    "CmuxNextWakeupsDisplay": {"layer": "core", "note": "CmuxNextWakeups' AppKit files (p15-oracle task 125): macOS only, directly above Wakeups, which it re-exports"},
     "CmuxNextWakeupsTestSupport": {"layer": "core"},
     "CmuxNextInputCoreTestSupport": {"layer": "core", "note": "FakeInputTap, the one test InputObserving; test targets only"},
     "CmuxNextActions": {"layer": "core"},

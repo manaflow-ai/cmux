@@ -153,7 +153,7 @@
       "class": "benchOnly",
       "auto": true,
       "sites": [
-        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextWakeups/ChatOpenTrace.swift:100", "kind": "use", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false}
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextWakeupsDisplay/ChatOpenTrace.swift:104", "kind": "use", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false}
       ]
     },
     "CMUX_CHIEF_HOME": {

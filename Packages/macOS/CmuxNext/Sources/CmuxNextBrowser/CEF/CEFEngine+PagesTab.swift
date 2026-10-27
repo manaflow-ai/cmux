@@ -1,6 +1,6 @@
 import AppKit
 import CmuxNextDesign
-public import CmuxNextWakeups
+public import CmuxNextWakeupsDisplay
 import Foundation
 
 /// Why ``CEFEngine/makePagesTab(_:)`` made no page tab.

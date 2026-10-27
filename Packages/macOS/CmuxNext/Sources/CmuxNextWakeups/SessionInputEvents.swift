@@ -2,7 +2,7 @@ public import CoreGraphics
 public import Foundation
 
 /// What ``SessionInputPending`` reads from the window server and AppKit: the seam its tests replace
-/// (``WindowServerInputEvents`` in the app).
+/// (`WindowServerInputEvents` in CmuxNextWakeupsDisplay, in the app).
 @MainActor
 public protocol SessionInputEvents: AnyObject {
     /// Seconds since the window server generated the last input event of any type in this login

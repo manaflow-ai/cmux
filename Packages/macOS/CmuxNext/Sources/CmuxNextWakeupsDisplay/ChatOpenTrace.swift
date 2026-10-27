@@ -1,6 +1,7 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import AppKit
 import CmuxNextTrace
+import CmuxNextWakeups
 #endif
 public import CmuxNextSignposts
 import class CmuxSafeConcurrency.OnceContinuation

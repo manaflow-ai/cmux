@@ -1,6 +1,6 @@
 import AppKit
 import CmuxNextSignposts
-import CmuxNextWakeups
+import CmuxNextWakeupsDisplay
 import Foundation
 import WebKit
 

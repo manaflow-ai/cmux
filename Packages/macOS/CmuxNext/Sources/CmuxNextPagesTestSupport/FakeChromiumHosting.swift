@@ -1,7 +1,7 @@
 public import CmuxNextDesign
 public import CmuxNextPages
 public import CmuxNextSettings
-public import CmuxNextWakeups
+public import CmuxNextWakeupsDisplay
 import class CmuxSafeConcurrency.OnceContinuation
 import func CmuxSafeConcurrency.withOnceThrowingContinuation
 

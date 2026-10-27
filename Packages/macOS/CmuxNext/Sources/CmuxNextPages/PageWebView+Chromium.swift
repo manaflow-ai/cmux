@@ -2,7 +2,7 @@ public import AppKit
 import CmuxNextDesign
 import CmuxNextErrorJournal
 import CmuxNextSettings
-import CmuxNextWakeups
+import CmuxNextWakeupsDisplay
 import Foundation
 
 // Chromium mode (`browser.defaultEngine` is `chromium`, ``PageEnginePolicy``): the page shows in a

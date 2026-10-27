@@ -2,7 +2,7 @@ import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextSignposts
-import CmuxNextWakeups
+import CmuxNextWakeupsDisplay
 import Foundation
 
 /// Opening agent chat tabs on the workspace store with zero wait, and letting their view state

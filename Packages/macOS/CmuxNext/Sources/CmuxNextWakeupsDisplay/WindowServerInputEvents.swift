@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextInputCore
+public import CmuxNextWakeups
 
 /// The production ``SessionInputEvents``: `CGEventSource`'s combined session state, `NSApp`, the
 /// key window's screen, the window under the pointer, and one subscription to the app's input tap

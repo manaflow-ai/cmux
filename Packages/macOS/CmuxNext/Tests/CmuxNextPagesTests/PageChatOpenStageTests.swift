@@ -3,7 +3,7 @@ import CmuxNextCompat
 import CmuxNextPagesTestSupport
 @testable import CmuxNextSignposts
 @testable import CmuxNextTrace
-import CmuxNextWakeups
+import CmuxNextWakeupsDisplay
 import Testing
 import WebKit
 

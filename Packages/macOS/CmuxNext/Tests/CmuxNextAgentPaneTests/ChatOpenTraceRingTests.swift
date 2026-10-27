@@ -3,7 +3,7 @@ import AppKit
 import CmuxNextCompat
 @testable import CmuxNextSignposts
 @testable import CmuxNextTrace
-import CmuxNextWakeups
+import CmuxNextWakeupsDisplay
 import Testing
 
 /// A chat open's stages in every build (p09-observability task 044): each is one `create.tab` instant of the chat

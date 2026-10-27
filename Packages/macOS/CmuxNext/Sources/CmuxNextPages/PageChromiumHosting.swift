@@ -2,7 +2,7 @@ public import AppKit
 import CmuxNextCompat
 public import CmuxNextDesign
 public import CmuxNextSettings
-public import CmuxNextWakeups
+public import CmuxNextWakeupsDisplay
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError
 import func CmuxSafeConcurrency.withOnceContinuation

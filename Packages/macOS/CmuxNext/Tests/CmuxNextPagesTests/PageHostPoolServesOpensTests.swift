@@ -1,7 +1,7 @@
 import CmuxNextDesign
 @testable import CmuxNextPages
 import CmuxNextSettings
-import CmuxNextWakeups
+import CmuxNextWakeupsDisplay
 import Testing
 
 /// Whether the page host pool's WebKit spare could serve any open (``PageHostPool/servesOpens(hosting:)``,

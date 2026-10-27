@@ -1,5 +1,4 @@
 #if DEBUG || CMUX_BENCH_HOOKS
-public import CmuxNextInputCore
 public import CmuxNextWakeups
 import Darwin
 import Foundation
@@ -13,7 +12,7 @@ import Foundation
 ///
 /// ```swift
 /// let hops = InputTurnHops()
-/// router.register([DebugInput(sources: sources, recorders: [hops.start(input: inputTap)]).method])
+/// router.register([DebugInput(sources: sources, recorders: [hops.start(events: WindowServerInputEvents(input: inputTap))]).method])
 /// ```
 @MainActor
 public final class InputTurnHops {
@@ -28,12 +27,12 @@ public final class InputTurnHops {
 
     /// Starts timing the main run loop's callouts (once; on the main thread, whose stack the
     /// sampler reads) and returns the recorder for `debug.input`. The input turn is the pending
-    /// input the window server reports for the app of `input` (``SessionInputPending``);
-    /// p04-input-021's pending-input state replaces it with one atomic load and adds the
-    /// dispatching turns.
-    public func start(input: any InputObserving) -> MainJobGateDiagnostics {
+    /// input `events` report (``SessionInputPending``; the app passes `WindowServerInputEvents` over
+    /// its input tap, from CmuxNextWakeupsDisplay); p04-input-021's pending-input state replaces it
+    /// with one atomic load and adds the dispatching turns.
+    public func start(events: any SessionInputEvents) -> MainJobGateDiagnostics {
         guard calloutTimer == nil else { return recorder }
-        let pending = SessionInputPending(events: WindowServerInputEvents(input: input))
+        let pending = SessionInputPending(events: events)
         let mainStack = ThreadStackSampler(thread: mach_thread_self(), maxFrames: Self.sampledFrames)
         calloutTimer = InputTurnCalloutTimer(diagnostics: recorder, sampler: CalloutStackSampler { mainStack.sample() }) {
             MainJobGateDiagnostics.InputTurn(pending: pending.pendingKinds(uptime: ProcessInfo.processInfo.systemUptime), dispatching: false)

@@ -751,7 +751,7 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
 - Size M. Depends: 001.
 
 #### p04-input-012 Tap migration: Wakeups, ChromiumWarmup, NewTabSparePool, AppControl
-- Files: `S/CmuxNextWakeups/WindowServerInputEvents.swift`, `S/CmuxNextWakeups/SessionInputEvents.swift`,
+- Files: `S/CmuxNextWakeupsDisplay/WindowServerInputEvents.swift`, `S/CmuxNextWakeups/SessionInputEvents.swift`,
   `S/CmuxNextChromiumWarmup/ChromiumWarmup.swift`, `S/CmuxNextApp/NewTab/NewTabSparePool.swift`,
   `S/CmuxNextApp/Control/AppControl.swift`.
 - Change: Wakeups (core) and ChromiumWarmup (service) take an InputObserving injected by init (no import of

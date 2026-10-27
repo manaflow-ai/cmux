@@ -1,6 +1,6 @@
 import AppKit
 import CmuxNextPages
-import CmuxNextWakeups
+import CmuxNextWakeupsDisplay
 
 /// The agent page host's pieces that need no view state of their own: making the page and the
 /// events a new page subscriber gets. Kept off ``AgentPaneView``, whose type is at its size limit.

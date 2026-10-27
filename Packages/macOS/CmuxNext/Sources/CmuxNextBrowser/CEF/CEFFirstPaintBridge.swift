@@ -1,6 +1,6 @@
 import CmuxNextCompat
 import Foundation
-import CmuxNextWakeups
+import CmuxNextWakeupsDisplay
 
 /// When a Chromium document first paints content, through the DevTools
 /// protocol's page lifecycle events (`CEFAgentRelay.deliver` hands every raw

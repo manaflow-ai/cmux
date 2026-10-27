@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextInputCore
 import CmuxNextInputCoreTestSupport
-import CmuxNextWakeups
+import CmuxNextWakeupsDisplay
 import Testing
 
 /// The production pending-input seam hears AppKit's dispatched events through the app's input tap

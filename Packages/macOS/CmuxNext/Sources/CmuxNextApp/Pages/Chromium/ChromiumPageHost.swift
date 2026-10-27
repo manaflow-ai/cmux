@@ -3,7 +3,7 @@ import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
-import CmuxNextWakeups
+import CmuxNextWakeupsDisplay
 import Foundation
 
 /// The app's ``PageChromiumHosting``: cmux's own React pages in CEF tabs, so `browser.defaultEngine`

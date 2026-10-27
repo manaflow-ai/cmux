@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import Foundation
-import CmuxNextWakeups
+import CmuxNextWakeupsDisplay
 
 /// One Chromium `Browser` (tabbed window) per cmux pane and profile
 /// (browser.md, Decision 1). The first CEF tab shown in the pane creates the

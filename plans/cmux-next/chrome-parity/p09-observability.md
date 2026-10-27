@@ -1314,7 +1314,7 @@ Paths are relative to the repo root. `S/` = `Packages/macOS/CmuxNext/Sources/`, 
 - Test phase: fleet: Release compile check.
 
 ### 044 Release marks from ChatOpenTrace, MotionFrameTrace, BurstTrace
-- Files: S/CmuxNextWakeups/ChatOpenTrace.swift, S/CmuxNextDesign/Motion/MotionFrameTrace.swift, S/CmuxNextControl/Diagnostics/BurstTrace.swift.
+- Files: S/CmuxNextWakeupsDisplay/ChatOpenTrace.swift, S/CmuxNextDesign/Motion/MotionFrameTrace.swift, S/CmuxNextControl/Diagnostics/BurstTrace.swift.
 - Change: As 043.
 - Acceptance: MQ4 = 0.
 - Test phase: Release compile check; audit.

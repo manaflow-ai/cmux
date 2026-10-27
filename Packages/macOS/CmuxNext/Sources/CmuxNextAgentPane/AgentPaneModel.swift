@@ -1,7 +1,7 @@
 public import AppKit
 import CmuxNextCompat
 public import CmuxNextSettings
-public import CmuxNextWakeups
+public import CmuxNextWakeupsDisplay
 public import Foundation
 public import Observation
 

@@ -1,6 +1,6 @@
 public import CmuxNextInputCore
 import CmuxNextSignposts
-public import CmuxNextWakeups
+public import CmuxNextWakeupsDisplay
 
 /// The launch's order owners, made once in the app's `main()` and passed by init (p08-startup-012,
 /// plans/cmux-next/chrome-parity/p08-startup.md section 3B): the main-thread scheduler with its
