@@ -244,9 +244,9 @@ public final class ChiefSources {
 
     private func apply(_ found: Lookup, userID: String, http: ChiefCloudHTTP) {
         // A failed look (no network, a failed read) never takes down a Cloud Chief that works: only an
-        // answer does (the list without it: archived or deleted; or its brain turned off).
-        if case let .ready(current) = cloudState, case let .unavailable(_, nil, chiefs, _) = found,
-           chiefs?.contains(where: { $0.id == current.id }) ?? true {
+        // answer does (the list without it: archived or deleted; its brain turned off; no brains here).
+        if case let .ready(current) = cloudState, case let .unavailable(_, nil, chiefs, brains) = found,
+           brains != false, chiefs?.contains(where: { $0.id == current.id }) ?? true {
             if let chiefs { cloudChiefs = chiefs }
             return
         }

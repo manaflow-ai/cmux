@@ -1268,6 +1268,8 @@ export class DaemonHomeClient implements PageClient {
         // The daemon ended the stream ("resubscribe to continue"): start it again, and refetch
         // what the lost events changed (the inbox and every open window).
         this.streamStarted.delete(socket);
+        // The events of this page's own pins and marks may be lost: the inbox is read again anyway.
+        this.ownInboxOps.clear();
         // Lost cloud events too: the cloud inbox is listed again with the inbox.
         if (fromCloud) this.cloud.reset();
         void this.startSocketStream(socket).catch(() => deliver((batch) => (batch.connection = "offline")));
