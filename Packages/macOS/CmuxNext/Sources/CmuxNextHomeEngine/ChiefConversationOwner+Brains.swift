@@ -33,6 +33,7 @@ extension ChiefConversationOwner {
         }
         if let harness = process["MUX_HARNESS"], !harness.isEmpty { app["harness"] = harness }
         // Once this app exits, an idle brain stops (optchat-chief owner_app.rs).
+        app["owner_app_pid"] = String(ProcessInfo.processInfo.processIdentifier)
         let value: [String: Any] = ["executable": host.executable.path, "home": home.muxHome.path, "app": app]
         guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]) else { return nil }
         return String(decoding: data, as: UTF8.self)

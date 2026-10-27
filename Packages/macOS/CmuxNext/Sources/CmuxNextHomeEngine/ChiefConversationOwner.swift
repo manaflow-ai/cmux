@@ -76,6 +76,7 @@ public final class ChiefConversationOwner {
         environment["CMUX_TUI_CHIEF_BRAINS"] = brainsValue(home: home, process: process, bundle: bundle)
         // This app: the owner stops soon after it exits, once no client (the Chief's host at work)
         // and no brain needs it (cmux-tui headless/chief_owner_exit.rs).
+        environment["CMUX_TUI_OWNER_APP_PID"] = String(ProcessInfo.processInfo.processIdentifier)
         return environment
     }
 
@@ -146,6 +147,7 @@ public final class ChiefConversationOwner {
             await AcpmuxEnvironment.adoptBuildHomes()
             // A running owner and brain host an earlier app started serve this app from now on: they
             // stop idle only after this app exits (cmux-tui headless/chief_owner_exit.rs).
+            _ = try? await work.run(.userVisible, mayBlock: .files) { home.recordOwnerApp() }
             let adoption = await ChiefAdoption.runOffMain(home: home, by: build, logger: logger)
             weakSelf?.adoption = adoption
             let connected = await DaemonStartup.shared.connect(wake: wake) {

@@ -393,5 +393,26 @@ work.
   `leftoverDaemonIdleExit` is on (`cmux-tui/crates/acpmux/src/daemon_lifecycle.rs`). An agent that
   works keeps it, so Keep Sessions Running still keeps agents. The browser host exits when the app's
   provider leaves and no session uses it (`cmux-browser-host/src/idle_exit.rs`). Kept by design: the
-  cmux-tui daemon with its terminals and screen-detection plugin, and the Chief's host with its own
-  acpmux (`home.md` section 4). P0 journey: `scripts/journeys/quit-leaves-no-helpers/`.
+  cmux-tui daemon with its terminals and screen-detection plugin. P0 journey:
+  `scripts/journeys/quit-leaves-no-helpers/`.
+- The Chief stops with the app too when it is idle (branch `cp/quit-chief-idle`, 2026-10-27: QA on
+  v2.2.1 found 7-8 processes, about 300 MB, 12 s after Cmd-Q: the Chief's `optchat-chief host`, its
+  acpmux daemon and router, its `cmux-chief-*` conversation owner and that owner's screen-detection
+  plugin). The rule is the app's acpmux rule. The app names itself to the brain host
+  (`OPTCHAT_OWNER_APP_PID`) and to the Chief owner (`CMUX_TUI_OWNER_APP_PID`), and writes its pid to
+  `<Chief home>/state/owner-app.pid` before it ensures the owner (`ChiefHome.recordOwnerApp`). Each
+  helper blocks one thread in the kernel for the app's exit (kqueue `NOTE_EXIT`; no polling). After
+  the exit it follows a newer app named in that file, else:
+  - the brain host stops at the first input or timer that finds it idle: no turn, no queued
+    prompt, no steer, no cut or adopted turn, no unanswered permission, no subagent or child session
+    at work, no pending `sleep` wake (optchat-chief `brain/owner_exit.rs`). It ends the acpmux
+    it started, as at a stop signal. Live work keeps it, so Keep Sessions Running keeps the Chief
+    working, and it stops when that work ends;
+  - the Chief owner stops 2 s after its last client leaves (the brain host is a client while it
+    runs), with no live terminal and no live brain of another Chief (cmux-tui
+    `headless/chief_owner_exit.rs`). Its screen-detection plugin ends with it. The other Chiefs'
+    brains get the same pid and rule (`chief_brains.rs`).
+  Not behind `leftoverDaemonIdleExit`. A host or owner that no app named (`cmux chief`, the
+  always-on brain) is unchanged. Still kept: the app's cmux-tui daemon, its terminals and its
+  screen-detection plugin. That plugin is bound to its daemon: it does not stop when the daemon has
+  no terminal left.

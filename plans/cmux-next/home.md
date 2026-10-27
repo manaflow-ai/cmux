@@ -160,7 +160,10 @@ first). The brain host retries an `agent_rate` reply once after the gap and drop
   ships, the mux uses the Rust `cmux` CLI (`origin: "script"`). The `mux cmux` relay from `feat-mux` is
   not ported (it ran arbitrary CLI argv with the terminal's rights).
 - Lifecycle: the app starts the brain host detached when Home first opens (one instance per
-  `$MUX_HOME`, pid lock), like the acpmux daemon; it outlives the app. Interim: the spec places the
+  `$MUX_HOME`, pid lock), like the acpmux daemon. It outlives the app only while it works (a turn,
+  a queued prompt, a pending permission, a subagent or child at work): once the app has exited and the
+  host is idle, it stops with the acpmux it started, and the Chief's conversation owner follows
+  (cp/quit-chief-idle, quit-persistence.md section 8). The next app starts both again. Interim: the spec places the
   brain host inside the `cmux` binary; this TypeScript host moves there when acpmux does.
 
 ## 5. DMs and @mux (designed now, built with ConversationDO)

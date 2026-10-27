@@ -92,8 +92,7 @@ pub(crate) fn watch(
 /// The owning app exited: the grace starts (from now when no client is
 /// connected, else when the last one leaves).
 pub(crate) fn owner_exited(watch: &OrphanWatch) {
-    // Red: the app's exit changes nothing, the owner stays (the old behavior).
-    let _ = watch;
+    watch.arm();
 }
 
 /// `<Chief home>/state/owner-app.pid`, which each app writes before it

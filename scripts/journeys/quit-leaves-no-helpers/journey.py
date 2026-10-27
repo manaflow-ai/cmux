@@ -16,15 +16,16 @@ The processes of the app are found as scripts/cmux-next/tag_teardown.py finds th
 terminal host `--owner`, holder socket, one level of children), never by name.
 
 Documented survivors of a quit that keeps sessions (plans/cmux-next/quit-persistence.md):
-  - the cmux-tui daemon (`cmux-tui --headless`) and its terminal hosts, holders and their shells: the
-    terminals the person chose to keep; they reattach at the next launch. With it, its
-    `cmux-agent-screen-detection` plugin, which reads those terminals' screens and ends with the daemon;
-  - the Chief (`optchat-chief host`, its own acpmux and router, its `cmux-chief-*` cmux-tui daemon):
-    the brain host outlives the app by design (HomeBrainHost.swift, plans/cmux-next/home.md section 4);
-  - the acpmux daemon and its agent hosts only while an agent works (a turn, a queued prompt, a pending
-    permission, a background process an agent started): `keep sessions` keeps agents working. The
-    journey starts no turn, so acpmux must be gone.
-Anything else (an idle acpmux, a Chromium or app host, a helper under Resources/bin) is a leak.
+  - the app's cmux-tui daemon (`cmux-tui --headless --session cmux-app-...`) and its terminal hosts,
+    holders and their shells: the terminals the person chose to keep; they reattach at the next launch.
+    With it, its `cmux-agent-screen-detection` plugin, which reads those terminals' screens and ends
+    with the daemon;
+  - the acpmux daemon and its agent hosts, and the Chief (`optchat-chief host`, its acpmux and router,
+    its `cmux-chief-*` conversation owner), only while they work (a turn, a queued prompt, a pending
+    permission, a subagent or a background process an agent started): `keep sessions` keeps agents
+    and the Chief working. Idle, each exits a few seconds after the app (cp/lag-quit-helpers,
+    cp/quit-chief-idle). The journey starts no turn, so all of them must be gone.
+Anything else (an idle acpmux or Chief, a Chromium or app host, a helper under Resources/bin) is a leak.
 
 Writes DIR/result.json; exit 0 pass, 1 fail, 2 the journey could not run.
 """
@@ -89,6 +90,10 @@ def classify(teardown, pid, rows):
     parent_exe = exe_of(ppid)
     grandparent_exe = exe_of(rows[ppid].get("ppid")) if ppid in rows else ""
     if rel is not None and exe == "cmux-tui" and "--headless" in words:
+        if any(w.startswith("cmux-chief-") for w in words) or "cmux-chief-" in command:
+            # The Chief's conversation owner: it holds no terminal of the person's and stops after
+            # the app when nothing needs it (cmux-tui headless/chief_owner_exit.rs).
+            return "the Chief's conversation owner with nothing live", False
         return "cmux-tui daemon (kept terminals)", True
     if rel is None:
         # A terminal host, holder or a shell under one (tag_teardown matched it by --owner, socket or parent).
@@ -96,15 +101,17 @@ def classify(teardown, pid, rows):
             return "terminal host or holder (kept terminals)", True
         return "terminal shell or its child (kept terminals)", True
     if exe == "cmux-agent-screen-detection" and parent_exe == "cmux-tui":
+        if "cmux-chief-" in rows[ppid]["command"]:
+            return "screen-detection plugin of the Chief's conversation owner", False
         # The kept daemon's agent plugin: it reads the kept terminals' screens and ends with its daemon.
         return "screen-detection plugin of a kept cmux-tui daemon", True
     if exe == "optchat-chief":
-        # HomeBrainHost.swift, plans/cmux-next/home.md section 4: the Chief's brain host outlives the app.
-        return "Chief brain host (outlives the app by design)", True
+        # An idle Chief stops after its app (optchat-chief owner_app.rs); the journey starts no turn.
+        return "Chief brain host with no live work", False
     if exe == "acpmux" and parent_exe == "optchat-chief":
-        return "the Chief's own acpmux (its host's child)", True
+        return "the Chief's own acpmux with no live work", False
     if exe == "acpmux" and "router" in words and parent_exe == "acpmux" and grandparent_exe == "optchat-chief":
-        return "the Chief's acpmux router", True
+        return "the Chief's acpmux router with no live work", False
     if exe == "acpmux" and "daemon" in words:
         return "the app's acpmux daemon with no live agent", False
     return f"{exe} (helper)", False

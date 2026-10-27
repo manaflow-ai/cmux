@@ -203,7 +203,7 @@ public struct DaemonLauncher: Sendable {
     /// (`CMUX_TUI_OWNER_APP_PID`), after whose exit an owner nothing needs stops.
     static func chiefEnvironment(_ base: [String: String]) -> [String: String] {
         let kept = ["HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "SHELL", "CMUX_TUI_CHIEF_TOOLS_SOCKET",
-                    "CMUX_TUI_CHIEF_BRAINS"]
+                    "CMUX_TUI_CHIEF_BRAINS", "CMUX_TUI_OWNER_APP_PID"]
         return base.filter { kept.contains($0.key) }
     }
 

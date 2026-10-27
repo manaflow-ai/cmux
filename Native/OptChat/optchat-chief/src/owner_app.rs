@@ -53,9 +53,8 @@ fn exists(pid: i32) -> bool {
 /// The app to follow after `gone` exited: the pid in `file` when it names
 /// another process that still runs.
 pub fn next_owner(gone: i32, file: &Path, alive: &dyn Fn(i32) -> bool) -> Option<i32> {
-    // Red: no newer app is followed.
-    let _ = (gone, file, alive);
-    None
+    let text = std::fs::read_to_string(file).ok()?;
+    parse_pid(&text).filter(|pid| *pid != gone && alive(*pid))
 }
 
 /// Watches `pid`, then each newer app [`next_owner`] names, on one thread

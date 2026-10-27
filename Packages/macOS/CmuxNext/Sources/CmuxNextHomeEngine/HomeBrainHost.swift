@@ -141,6 +141,7 @@ public nonisolated struct HomeBrainHost: Sendable {
         if usesAppAcpmux { variables["OPTCHAT_ACPMUX_SUPERVISED"] = "1" }
         // This app: once it exits, an idle host stops with the acpmux it started (optchat-chief
         // owner_app.rs); live work keeps it. A host this app reuses follows `ChiefHome.ownerAppFile`.
+        variables[Self.ownerAppPidKey] = String(ProcessInfo.processInfo.processIdentifier)
         // No CMUX_MCP_COMMAND: acpmux gives every agent chat, the Chief's
         // turns included, its own `cmux mcp serve` (one server per turn).
         for key in ["USER", "TMPDIR", "MUX_HARNESS"] {

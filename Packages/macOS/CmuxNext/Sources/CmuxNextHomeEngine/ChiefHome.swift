@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// The home of one build's Chief (plans/cmux-next/home-state-ownership.md):
@@ -87,8 +88,9 @@ public nonisolated struct ChiefHome: Sendable, Equatable {
     /// (`BackgroundWork.run(_:mayBlock: .files)`), never on the main actor or the pool. A failed write
     /// only means a helper an earlier app started stops idle when that app exits; this app starts it again.
     public func recordOwnerApp(pid: pid_t = ProcessInfo.processInfo.processIdentifier) {
-        // Red: nothing is written.
-        _ = pid
+        let file = ownerAppFile
+        try? FileManager.checked.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? Data("\(pid)\n".utf8).blockingWrite(to: file, options: .atomic)
     }
 
     /// While a turn waits for the compactor: how far it is (optchat-chief settle_status.rs).

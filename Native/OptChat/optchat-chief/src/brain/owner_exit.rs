@@ -29,7 +29,11 @@ pub(super) const LINK_WAIT: Duration = Duration::from_secs(30);
 impl Brain {
     /// The app exited (`Input::OwnerAppExited`).
     pub(super) fn owner_app_exited(&mut self) {
-        // Red: the app's exit changes nothing, the host stays (the old behavior).
+        if self.owner_gone_at.is_none() {
+            (self.log)("the app quit: the Chief stops once it is idle");
+            self.owner_gone_at = Some(Instant::now());
+        }
+        self.stop_if_owner_gone();
     }
 
     /// What keeps this host after its app exited, None when nothing does.
