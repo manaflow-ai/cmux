@@ -66,7 +66,21 @@ def phone_titles(sim):
 
 
 def shows(sim, name):
-    return any(name in t for t in phone_titles(sim))
+    """Whether Home lists `name`; None while the tree has no rows (a read in the middle of a redraw)."""
+    titles = phone_titles(sim)
+    if not titles:
+        return None
+    return any(name in t for t in titles)
+
+
+def gone(sim, name, hold=4.0):
+    """`name` left Home and stays out for `hold` seconds, with other rows listed meanwhile."""
+    end = time.time() + hold
+    while time.time() < end:
+        if shows(sim, name) is not False:
+            return False
+        time.sleep(0.4)
+    return True
 
 
 def wait_for(pred, timeout):
@@ -112,10 +126,27 @@ def main():  # noqa: C901 - one live scenario
     try:
         mac.launch()
         log(f"Mac app up (pid {mac.pid}), host {'running' if mac.wait_hostd(120) else 'NOT running'}")
+        # Chiefs an earlier run left on this rig's Chief home go first (the CLI's own delete).
+        def records(value):
+            if isinstance(value, dict):
+                if "id" in value and "display_name" in value:
+                    yield value
+                for v in value.values():
+                    yield from records(v)
+            elif isinstance(value, list):
+                for v in value:
+                    yield from records(v)
+        for old in list(records(mac.cmux("chief", "list", json_out=True))):
+            if str(old.get("display_name", "")).startswith(("Doomed ", "Gone While Away", "Kept ")):
+                mac.cmux("chief", "delete", old["id"], check=False)
+        run_id = time.strftime("%H%M")
+        names = {"Doomed Chief": f"Doomed {run_id}", "Gone While Away": f"Gone While Away {run_id}",
+                 "Kept Chief": f"Kept {run_id}"}
         made = {}
-        for name in ("Doomed Chief", "Gone While Away", "Kept Chief"):
+        for role, name in names.items():
             value = mac.cmux("chief", "new", "--name", name, json_out=True) or {}
-            made[name] = (value.get("value") or value).get("id")
+            made[role] = (value.get("value") or value).get("id")
+        result["names"] = names
         log(f"made Chiefs: {made}")
         result["chiefs"] = made
 
@@ -129,27 +160,34 @@ def main():  # noqa: C901 - one live scenario
         if any(st["status"] != "pass" for st in steps):
             raise RuntimeError(f"setup failed: {steps}")
 
+        # The Mac shows its Home (its list is what the phone mirrors) for its stills and recording.
+        result["mac_home_shown"] = debug(mac, "action.run", {"action": "home.show", "origin": "script"}).get("ok")
         path = os.path.join(out, "phone.mp4")
         rec = subprocess.Popen(["xcrun", "simctl", "io", udid, "recordVideo", "--codec", "h264", "--force", path],
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         time.sleep(1.5)
         j.tab("Home")
-        ok, secs = wait_for(lambda: shows(sim, "Doomed Chief") and shows(sim, "Gone While Away"), 90)
+        ok, secs = wait_for(lambda: shows(sim, names["Doomed Chief"]) and shows(sim, names["Gone While Away"]), 90)
         c["phone_lists_both_before"] = ok
         log(f"phone rows before: {phone_titles(sim)}")
         result["shots"]["phone-before"] = sim.shot("01-phone-before")
         result["shots"]["mac-before"] = mac_shot(mac, os.path.join(shots, "01-mac-before.png"))
 
-        # 1. Online: the Mac's own Delete Chief action, the phone untouched.
+        # 1. Online: the Mac's own Delete Chief action, the phone untouched. The Mac window is
+        # recorded too (debug.window_record: its own composited frames, at most 12 s).
+        mac_rec = os.path.join(out, "mac-frames")
+        result["mac_record"] = debug(mac, "debug.window_record", {"dir": mac_rec, "seconds": 10})
+        time.sleep(1.5)
         t0 = time.time()
-        run = debug(mac, "action.run", {"action": "home.deleteChief", "args": {"chief": made["Doomed Chief"]},
-                                        "confirm": True, "origin": "user"})
+        run = debug(mac, "action.run", {"action": "home.deleteChief", "origin": "script",
+                                        "args": {"chief": made["Doomed Chief"], "confirm": True}})
         log(f"Mac Delete Chief (online): {json.dumps(run)[:400]}")
-        c["mac_delete_online_ok"] = "error" not in run
-        ok, _ = wait_for(lambda: not shows(sim, "Doomed Chief"), 30)
+        c["mac_delete_online_ok"] = run.get("ok") is True
+        ok, _ = wait_for(lambda: shows(sim, names["Doomed Chief"]) is False, 30)
         result["timings"]["online_row_gone_s"] = round(time.time() - t0, 1) if ok else None
+        ok = ok and gone(sim, names["Doomed Chief"])
         c["online_row_left_phone"] = ok
-        c["kept_chief_still_listed"] = shows(sim, "Kept Chief")
+        c["kept_chief_still_listed"] = shows(sim, names["Kept Chief"]) is True
         log(f"phone rows after online delete: {phone_titles(sim)}")
         result["shots"]["phone-after-online"] = sim.shot("02-phone-after-online-delete")
         result["shots"]["mac-after-online"] = mac_shot(mac, os.path.join(shots, "02-mac-after-online-delete.png"))
@@ -157,21 +195,21 @@ def main():  # noqa: C901 - one live scenario
         # 2. Offline: the phone app is not running while the Mac deletes.
         subprocess.run(["xcrun", "simctl", "terminate", udid, journey.BUNDLE], capture_output=True)
         time.sleep(2)
-        run = debug(mac, "action.run", {"action": "home.deleteChief", "args": {"chief": made["Gone While Away"]},
-                                        "confirm": True, "origin": "user"})
+        run = debug(mac, "action.run", {"action": "home.deleteChief", "origin": "script",
+                                        "args": {"chief": made["Gone While Away"], "confirm": True}})
         log(f"Mac Delete Chief (phone offline): {json.dumps(run)[:400]}")
-        c["mac_delete_offline_ok"] = "error" not in run
+        c["mac_delete_offline_ok"] = run.get("ok") is True
         result["shots"]["mac-after-offline"] = mac_shot(mac, os.path.join(shots, "03-mac-after-offline-delete.png"))
         sim.launch(journey.BUNDLE)
         time.sleep(3)
         j.tab("Home")
-        ok, _ = wait_for(lambda: shows(sim, "Kept Chief"), 90)
+        ok, _ = wait_for(lambda: shows(sim, names["Kept Chief"]), 90)
         c["phone_reconnected"] = ok
         # Watch a while: the row must never come back.
         seen = False
         deadline = time.time() + 15
         while time.time() < deadline:
-            seen = seen or shows(sim, "Gone While Away") or shows(sim, "Doomed Chief")
+            seen = seen or bool(shows(sim, names["Gone While Away"])) or bool(shows(sim, names["Doomed Chief"]))
             time.sleep(0.5)
         c["offline_row_never_shown"] = not seen
         log(f"phone rows after reopening: {phone_titles(sim)}")
