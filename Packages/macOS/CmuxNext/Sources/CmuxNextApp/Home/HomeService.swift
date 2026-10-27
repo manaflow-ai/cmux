@@ -223,7 +223,7 @@ final class HomeService {
         installChiefMigration()
         primeHomeList()
         pinMigration.attach([homeInbox, homeCloudInbox])
-        settleWatch = ChiefSettleWatch(home: chief.home) { [weak self] text in
+        settleWatch = ChiefSettleWatch(home: chief.home, mainWork: services.mainWork) { [weak self] text in
             if self?.settleNotice != text { self?.settleNotice = text }
         }
         watchReplies()

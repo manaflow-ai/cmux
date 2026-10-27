@@ -10,8 +10,18 @@ description = "The panic and hang logs of cmux's background processes: one JSON 
 [lints]
 workspace = true
 
+[features]
+default = ["tokio"]
+# `Supervisor::supervise_task*`; FFI crates without a runtime turn it off.
+tokio = ["dep:tokio", "dep:tokio-util"]
+
 [dependencies]
 serde_json.workspace = true
+tokio = { workspace = true, optional = true }
+tokio-util = { workspace = true, optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

@@ -233,7 +233,7 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
     private mutating func gridAnnounced(_ link: Link, size: CellSize) -> [Effect] {
         guard liveLink == link else { return [] }
         announcedSize = size
-        if let mine = echoesDue.firstIndex(of: size) { echoesDue.removeFirst(mine + 1); return [] }
+        if let mine = echoesDue.firstIndex(of: size) { echoesDue.removeSubrange(...mine); return [] }
         guard claimed, size != reportedSize else { return [] }
         claimed = false; echoesDue = []
         return []
