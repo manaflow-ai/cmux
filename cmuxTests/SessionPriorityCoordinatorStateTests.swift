@@ -315,7 +315,7 @@ struct SessionPriorityCoordinatorStateTests {
         let seen = state.screenShowsManualMarker(panelId: pane, markerCount: 1)
         _ = decide(&state, .leave(.manual(.userCommandOnScreen)))
 
-        state.clearStickyManual(panelIds: [pane])
+        state.clearStickyManual(panelIds: [pane], nowMs: 0)
 
         // The `/effort` result the user just dismissed is still on screen; once it scrolled
         // away, the next `/effort` is a new manual change.
@@ -370,7 +370,7 @@ struct SessionPriorityCoordinatorStateTests {
         state.follow(panelId: pane, sessionId: "s1")
         #expect(state.showsUndismissedManualMarker(panelId: pane, markerCount: 1))
 
-        state.clearStickyManual(panelIds: [pane])
+        state.clearStickyManual(panelIds: [pane], nowMs: 0)
         #expect(!state.showsUndismissedManualMarker(panelId: pane, markerCount: 1))
         #expect(!state.showsUndismissedManualMarker(panelId: pane, markerCount: 0))
         // Still dismissed after the look: the screen read, not the gate, lowers the count.
