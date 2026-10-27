@@ -79,12 +79,17 @@ impl Mux {
             previous_incarnation: plan.old_incarnation.clone(),
         };
         let mux = Arc::clone(self);
-        let name = format!("terminal-restart-{}", plan.terminal_id);
-        let spawned = std::thread::Builder::new().name(name).spawn(move || {
-            mux.run_terminal_respawn(plan);
+        // The launch waits for the new host's handshake: a request wait
+        // (`server/request_wait.rs`), not a thread per restart. Refused at
+        // shutdown, `PendingRespawn` abandons the attempt.
+        let mut pending = PendingRespawn { plan: Some(plan), owner: self.work_owner() };
+        let posted = self.post_request_wait(move || {
+            if let Some(plan) = pending.plan.take() {
+                mux.run_terminal_respawn(plan);
+            }
         });
-        if let Err(error) = spawned {
-            eprintln!("cmux-tui: no thread to restart terminal {}: {error}", accepted.terminal);
+        if posted.is_err() {
+            eprintln!("cmux-tui: no restart of terminal {}: shutting down", accepted.terminal);
         }
         Ok(accepted)
     }

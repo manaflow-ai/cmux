@@ -398,12 +398,16 @@ fn cmux_daemon_and_cmux_tui_server_are_the_lifecycle() {
 #[test]
 fn cmux_server_runs_with_default_termination_signals() {
     extern "C" fn only_flag(_: libc::c_int) {}
+    // SAFETY: sigaction with a null new action only writes the current disposition into `current`,
+    // a zeroed plain-data struct that outlives the call.
     let disposition = |signal| unsafe {
         let mut current = std::mem::zeroed::<libc::sigaction>();
         assert_eq!(libc::sigaction(signal, std::ptr::null(), &mut current), 0);
         current.sa_sigaction
     };
     for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
+        // SAFETY: `only_flag` is an `extern "C" fn(c_int)` that does nothing, a valid handler for
+        // the whole test process.
         unsafe { libc::signal(signal, only_flag as *const () as libc::sighandler_t) };
         assert_ne!(disposition(signal), libc::SIG_DFL);
     }

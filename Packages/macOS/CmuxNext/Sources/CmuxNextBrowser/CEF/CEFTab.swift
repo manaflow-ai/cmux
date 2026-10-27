@@ -6,13 +6,12 @@ public import Foundation
 public import Observation
 import CmuxNextWakeups
 
-/// A Chromium tab (CEF fork, Chrome style). In process its page is a child window that
-/// tracks `contentView` (`.childWindow` presentation); in host mode it is the pane's
-/// `ChromiumHostPageView` inside `contentView` (`.inView`). The Chromium browser
-/// is created the first time the tab is shown, so hidden background tabs
+/// A Chromium tab (CEF fork, Chrome style). In process its page is a child window that tracks `contentView`
+/// (`.childWindow` presentation); in host mode it is the pane's `ChromiumHostPageView` inside `contentView`
+/// (`.inView`). The Chromium browser is created the first time the tab is shown, so hidden background tabs
 /// cost nothing until selected.
 @Observable
-public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCovering, BrowserExtensionActionHosting, BrowserDevToolsHosting, BrowserHangAnswering {
+public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCovering, BrowserExtensionActionHosting, BrowserDevToolsHosting, BrowserHangAnswering, BrowserCrashPageHosting {
     public let id: BrowserTabID
     public let engineKind: BrowserEngineKind = .cef
     public let profileID: BrowserProfileID
@@ -82,11 +81,14 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
             if phaseChanged || machine.state.processExit != oldValue.state.processExit, runtime.hostStart == nil { onRenderersMayChange?() }
         }
     }
-    /// Runs when the renderers that serve this page may have changed: its load phase changed (a navigation
-    /// can move it to another renderer) or its renderer ended (``publishRenderers(as:into:while:)``,
-    /// p14-energy-124). In process only: with the Chromium Host on, those shim calls are replies over the
-    /// wire, and attribution there is p14-energy-124a.
+    /// Runs when the renderers that serve this page may have changed: its load phase changed (a navigation can
+    /// move it to another renderer) or its renderer ended (``publishRenderers(as:into:while:)``, p14-energy-124).
+    /// In process only: with the Chromium Host on, those shim calls are wire replies (p14-energy-124a).
     @ObservationIgnored var onRenderersMayChange: (() -> Void)?
+    /// Runs each time a frame of this page outside its main frame's renderer crashes (`BrowserSubframeCrashReporting`).
+    @ObservationIgnored public var onSubframeCrash: (@MainActor () -> Void)?
+    /// Shows the crash page in the turn this page's process or its host ended (``BrowserCrashPageHosting``).
+    @ObservationIgnored weak var crashPagePresenter: (any BrowserCrashPagePresenter)?
     /// The page plays unmuted media (`BrowserAudibleReporting`): `state.media?.isAudible`, kept
     /// apart so its observers wake on the flip only, not on each load tick or title.
     public internal(set) var isAudible = false
@@ -160,11 +162,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
     /// calls with it as the person's gesture); nil ignores it.
     @ObservationIgnored public var pageUserInput: (@MainActor (TimeInterval) -> Void)?
 
-    /// The file URLs of a PAGE_DRAG_ENTER event's JSON array of absolute paths.
-    nonisolated static func dragPaths(_ json: String) -> [URL] {
-        guard let paths = try? JSONSerialization.blockingJSONObject(with: Data(json.utf8)) as? [String] else { return [] }
-        return paths.filter { $0.hasPrefix("/") }.map { URL(fileURLWithPath: $0) }
-    }
     /// URL of the last main-frame load that committed (Chromium's current
     /// entry). Renderer debug URLs (chrome://crash) never commit.
     @ObservationIgnored var committedURL: URL?
@@ -359,6 +356,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
             runtime.shim?.loadURL(browserID, url.absoluteString)
         } else {
             pendingURL = url
+            hostRestoreNavigated()
         }
     }
 
@@ -378,7 +376,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
         (reloadWhenShown, isDiscardedInPlace) = (false, false)
         if runtime.awaitsHostRestart { return runtime.reloadAfterHostRestart(self) }
         guard let browserID else {
-            if let url = pendingURL ?? state.url { load(url) }
+            // A page its host restore brings back loads with its saved navigation (``hostRestoreShown()``).
+            if !hasHostRestore, let url = pendingURL ?? state.url { load(url) }
             return
         }
         switch reloadPlan {
@@ -471,8 +470,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
         faviconTask?.cancel()
         dismissPrompts()
         pageWaiters.pageEnded()
-        if let browserID {
-            runtime.shim?.close(browserID)
+        // With no wire (the host ended), no BEFORE_CLOSE comes for the browser: the tab leaves its pane now.
+        if let browserID, let shim = runtime.shim {
+            shim.close(browserID)
         } else {
             host.removed(self)
         }

@@ -45,8 +45,8 @@ import func CmuxSafeConcurrency.withOnceThrowingContinuation
 /// tests build their own.
 ///
 /// ```swift
-/// let data = try await work.run(.userVisible, mayBlock: .files) { try Data(contentsOf: url) }
-/// work.post(.bestEffort, mayBlock: .files, shutdown: .blockShutdown) { try? data.write(to: url, options: .atomic) }
+/// let data = try await work.run(.userVisible, mayBlock: .files) { permit in try Data(blockingContentsOf: url, permit) }
+/// work.post(.bestEffort, mayBlock: .files, shutdown: .blockShutdown) { permit in try? data.blockingWrite(to: url, permit, options: .atomic) }
 /// let addresses = try await work.run(.userBlocking, mayBlock: .system) { resolve(host) }
 /// let saves = work.sequence("journal")  // in order, one at a time, on any files slot
 /// saves.post(.bestEffort, shutdown: .blockShutdown) { try? journal.append(entry) }
