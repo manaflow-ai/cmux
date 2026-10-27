@@ -14,9 +14,10 @@ name: cmux NEXT tip Swift suite dispatcher
 #   - a tip with a swift-test verdict (pass or fail) is not run again; a run
 #     with no verdict (runner lost, setup failed, cancelled) is retried on the
 #     next tick, at most three runs per tip;
-#   - a new tip runs only when the diff since the last green tip suite reaches
-#     swift-test, by cmux-next's own router (scripts/ci/cmux_next_route.py on
-#     the tip), or when there is no green run or it is not an ancestor.
+#   - a new tip runs only when the diff since the last green tip suite (else
+#     the newest red one) reaches swift-test, by cmux-next's own router
+#     (scripts/ci/cmux_next_route.py on the tip), or when there is no such run
+#     or it is not an ancestor. Every verdict comes from the swift-test job.
 # Each tick is one short job; nothing waits or loops. Scheduled workflows run
 # only from the default branch, hence this file on main.
 on:
@@ -57,7 +58,7 @@ jobs:
             core.notice(`${p.action}: ${p.reason} (tip ${p.tip})`);
             core.setOutput('action', p.action);
             core.setOutput('tip', p.tip);
-            core.setOutput('green', p.green);
+            core.setOutput('base', p.base);
 
       # Only the router's inputs: its scripts, the package manifests, the target
       # graph and the test sources it looks suites up in. Blobs come on demand.
@@ -75,17 +76,17 @@ jobs:
             scripts/cmux-next
             Packages
 
-      - name: Does the change since the last green reach swift-test?
+      - name: Does the change since the last tested base reach swift-test?
         id: route
         if: steps.plan.outputs.action == 'route'
         env:
           TIP: ${{ steps.plan.outputs.tip }}
-          GREEN: ${{ steps.plan.outputs.green }}
+          BASE: ${{ steps.plan.outputs.base }}
         run: |
           set -euo pipefail
-          [[ "$TIP" =~ ^[0-9a-f]{40}$ && "$GREEN" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::bad tip or green sha"; exit 1; }
-          git -C tip fetch --no-tags --filter=blob:none --depth=1 origin "$GREEN"
-          git -C tip diff --no-renames --name-only "$GREEN" "$TIP" > "$RUNNER_TEMP/changed.txt"
+          [[ "$TIP" =~ ^[0-9a-f]{40}$ && "$BASE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::bad tip or base sha"; exit 1; }
+          git -C tip fetch --no-tags --filter=blob:none --depth=1 origin "$BASE"
+          git -C tip diff --no-renames --name-only "$BASE" "$TIP" > "$RUNNER_TEMP/changed.txt"
           swift=false
           if [ -s "$RUNNER_TEMP/changed.txt" ]; then
             # The router as a pull request with this diff would see it: swift=true when the
@@ -94,7 +95,7 @@ jobs:
               --changed-files "$RUNNER_TEMP/changed.txt" --summary "$GITHUB_STEP_SUMMARY" > "$RUNNER_TEMP/route.txt"
             swift="$(sed -n 's/^swift=//p' "$RUNNER_TEMP/route.txt")"
           fi
-          echo "Since the last green ${GREEN:0:11}: $(wc -l < "$RUNNER_TEMP/changed.txt" | tr -d ' ') files changed; swift test reached: $swift" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "Since ${BASE:0:11}: $(wc -l < "$RUNNER_TEMP/changed.txt" | tr -d ' ') files changed; swift test reached: $swift" | tee -a "$GITHUB_STEP_SUMMARY"
           echo "swift=$swift" >> "$GITHUB_OUTPUT"
 
       - name: Dispatch the tip's Swift suite

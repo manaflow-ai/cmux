@@ -10,8 +10,9 @@
 //   - the tip already has a swift-test verdict (pass or fail): skip;
 //   - the tip has runs but no verdict (the runner was lost, "Set up runner" failed, the run was
 //     cancelled, no test step ran): retry, at most MAX_ATTEMPTS runs per tip in all;
-//   - a new tip: find the last green (the newest tip suite run whose swift-test passed). None, or
-//     not an ancestor of the tip: dispatch. Else "route": the workflow diffs green..tip and asks
+//   - a new tip: find the last green (the newest tip suite run whose swift-test passed; with none
+//     within MAX_JOB_READS job reads, the newest red). None, or not an ancestor of the tip:
+//     dispatch. Else "route": the workflow diffs green..tip and asks
 //     cmux-next's own router (scripts/ci/cmux_next_route.py on the tip) whether that diff reaches
 //     swift-test, and dispatches only then.
 // A verdict is read from the swift-test job, never from the run's overall conclusion.
@@ -26,17 +27,18 @@ const VERDICT_STEP = /^(Build package and tests|Run |Test |Script tests)/;
 const MIN_GAP_MS = 25 * 60 * 1000;
 const MAX_ATTEMPTS = 3;
 // Job listings per tick, so a long red streak cannot spend the token's budget.
-const MAX_JOB_READS = 4;
+const MAX_JOB_READS = 10;
 
 function isTipSuite(run) {
   return (run.display_title || '') === TITLE + run.head_sha;
 }
 
-// 'pass', 'fail', or null (no verdict). `reads` counts job listings.
+// 'pass', 'fail', null (no verdict), or undefined (not read: the tick's budget is spent).
+// `reads` counts job listings.
 async function verdict({ github, owner, repo, run, reads }) {
   if (run.status !== 'completed') return null;
-  if (run.conclusion === 'success') return 'pass';
-  if (reads.count >= MAX_JOB_READS) return null;
+  // Even a successful run is read: a run whose swift-test job was skipped tested nothing.
+  if (reads.count >= MAX_JOB_READS) return undefined;
   reads.count += 1;
   const { data } = await github.rest.actions.listJobsForWorkflowRun({
     owner, repo, run_id: run.id, filter: 'latest', per_page: 100,
@@ -58,7 +60,7 @@ async function plan({ github, context, now = Date.now() }) {
   });
   const runs = (data.workflow_runs || []).filter(isTipSuite)
     .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
-  const out = (action, reason, green = '') => ({ action, reason, tip, green });
+  const out = (action, reason, base = '') => ({ action, reason, tip, base });
 
   const going = runs.find((r) => r.status !== 'completed');
   if (going) return out('skip', `run ${going.id} on ${going.head_sha} is in flight`);
@@ -78,18 +80,26 @@ async function plan({ github, context, now = Date.now() }) {
     return out('dispatch', `retry: ${onTip.length} run(s) on the tip gave no swift-test verdict`);
   }
 
+  // The base to diff from: the last green, else (a red streak, or one longer than the read
+  // budget) the newest run with a red verdict, so a red base is not re-run on a change that
+  // does not reach swift-test. No run with a verdict at all: dispatch.
   let green = '';
+  let red = '';
   for (const run of runs) {
-    if (reads.count >= MAX_JOB_READS && run.conclusion !== 'success') break;
-    if ((await verdict({ github, owner, repo, run, reads })) === 'pass') { green = run.head_sha; break; }
+    const v = await verdict({ github, owner, repo, run, reads });
+    if (v === undefined) break;
+    if (v === 'pass') { green = run.head_sha; break; }
+    if (v === 'fail' && !red) red = run.head_sha;
   }
-  if (!green) return out('dispatch', 'no green tip suite run found');
+  const base = green || red;
+  if (!base) return out('dispatch', 'no tip suite run with a swift-test verdict found');
   const { data: cmp } = await github.rest.repos.compareCommitsWithBasehead({
-    owner, repo, basehead: `${green}...${tip}`, per_page: 1,
+    owner, repo, basehead: `${base}...${tip}`, per_page: 1,
   });
-  if (cmp.status === 'identical') return out('skip', 'the tip is the last green commit', green);
-  if (cmp.status !== 'ahead') return out('dispatch', `the last green ${green} is not an ancestor of the tip`, green);
-  return out('route', `diff the last green ${green} with the tip`, green);
+  const what = green ? 'the last green' : 'the last red';
+  if (cmp.status === 'identical') return out('skip', `the tip is ${what} commit`, base);
+  if (cmp.status !== 'ahead') return out('dispatch', `${what} ${base} is not an ancestor of the tip`, base);
+  return out('route', `diff ${what} ${base} with the tip`, base);
 }
 
 async function dispatch({ github, context }) {

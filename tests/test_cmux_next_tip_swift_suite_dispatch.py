@@ -5,7 +5,8 @@ A feat-cmux-next push skips the CmuxNext Swift suite, so a base red there stayed
 day (2026-10-21). Every 30 minutes the dispatcher may ask cmux-next.yml for one tip_swift_suite run:
 never while one is in flight or started in the last 25 minutes, never again on a tip with a
 swift-test verdict, a retry (three runs per tip at most) when a run gave none, and on a new tip only
-when the diff since the last green reaches swift-test (the router step) or there is no usable green.
+when the diff since the last green (else the newest red) reaches swift-test (the router step), or
+there is no usable base. Every verdict is read from the swift-test job.
 
 Runs scripts/ci/tip_swift_suite_plan.js under node with a stubbed GitHub API.
 """
@@ -94,8 +95,12 @@ def run(runs, jobs=None, compare="ahead"):
     from datetime import datetime, timezone
     for r in runs:
         r["created_at"] = datetime.fromtimestamp(r.pop("created_at_ms") / 1000, timezone.utc).isoformat().replace("+00:00", "Z")
+    jobs = dict(jobs or {})
+    for r in runs:  # a successful run's swift test passed unless the case says otherwise
+        if r["conclusion"] == "success":
+            jobs.setdefault(r["id"], swift_job("success"))
     fixture = {"tip": TIP, "now": NOW, "runs": runs, "compare": compare,
-               "jobs": {str(k): v for k, v in (jobs or {}).items()}}
+               "jobs": {str(k): v for k, v in jobs.items()}}
     with tempfile.TemporaryDirectory() as tmp:
         (Path(tmp) / "fixture.json").write_text(json.dumps(fixture))
         (Path(tmp) / "run.js").write_text(HARNESS)
@@ -135,7 +140,7 @@ check(p["action"] == "route", f"a run created 26 minutes ago must not hold back 
 
 # Change filter: a new tip with a green ancestor goes to the router with that green.
 p, calls = run([tip_run(GREEN, conclusion="success")])
-check(p == {"action": "route", "reason": p.get("reason"), "tip": TIP, "green": GREEN},
+check(p == {"action": "route", "reason": p.get("reason"), "tip": TIP, "base": GREEN},
       f"a new tip with a green ancestor must be routed from that green, got {p}")
 check(["compare", f"{GREEN}...{TIP}"] in calls, "the ancestry check is one compare from the green to the tip")
 check(not dispatched(calls), "the plan must not dispatch before the router says swift test is reached")
@@ -147,7 +152,26 @@ red, green_job = tip_run("b" * 40, age_min=40), tip_run("c" * 40, age_min=50)
 p, calls = run([red, green_job, tip_run(GREEN, conclusion="success", age_min=70)],
                jobs={red["id"]: swift_job("failure", "Run package tests (changed suites first, then selected targets)"),
                      green_job["id"]: swift_job("success")})
-check(p["green"] == "c" * 40, f"the green must come from the swift-test job, not the run, got {p}")
+check(p["base"] == "c" * 40, f"the green must come from the swift-test job, not the run, got {p}")
+# A successful run whose swift test was skipped tested nothing: not a verdict, not a green.
+r = tip_run(TIP, conclusion="success")
+p, calls = run([r], jobs={r["id"]: swift_job("skipped")})
+check(p["action"] == "dispatch", f"a run whose swift test was skipped must be retried, got {p}")
+r = tip_run(GREEN, conclusion="success")
+p, calls = run([r], jobs={r["id"]: swift_job("skipped")})
+check(p["action"] == "dispatch", f"a run whose swift test was skipped is no green, got {p}")
+# No green: route from the newest red, so a red base is not re-run on a change swift test never sees.
+reds = [tip_run(c * 40, age_min=40 + 30 * i) for i, c in enumerate("bcd")]
+p, calls = run(reds, jobs={x["id"]: swift_job("failure", "Run package tests (changed suites first, then selected targets)") for x in reds})
+check(p["action"] == "route" and p["base"] == "b" * 40, f"with no green the newest red is the base, got {p}")
+# A no-verdict streak longer than the read budget, with a red inside it: route from that red, never
+# a blind dispatch because the budget ran out.
+streak = [tip_run(f"{i:x}".rjust(40, "1"), age_min=40 + 30 * i) for i in range(14)]
+jobs = {x["id"]: swift_job("failure", "Set up runner") for x in streak}
+jobs[streak[2]["id"]] = swift_job("failure", "Build package and tests")
+p, calls = run(streak, jobs=jobs)
+check(p["action"] == "route" and p["base"] == streak[2]["head_sha"], f"a red within the budget is the base, got {p}")
+check(len([c for c in calls if c[0] == "jobs"]) <= 10, "a tick reads at most ten job lists")
 # A DEV daily on the tip is not a tip suite run.
 p, calls = run([tip_run(TIP, conclusion="success", title=f"cmux NEXT DEV daily · {TIP}")])
 check(p["action"] == "dispatch", f"a DEV daily run must not stand in for the Swift suite, got {p}")
@@ -178,7 +202,7 @@ check(p["action"] == "dispatch", f"a second no-verdict run must be retried once 
 runs = [tip_run(TIP, age_min=40 * (i + 1)) for i in range(3)]
 p, calls = run(runs, jobs={x["id"]: swift_job("failure", "Set up runner") for x in runs})
 check(p["action"] == "skip" and not dispatched(calls), f"a tip with three no-verdict runs must not loop, got {p}")
-check(len([c for c in calls if c[0] == "jobs"]) <= 4, "a tick reads at most four job lists")
+
 
 if failures:
     print("FAIL: cmux NEXT tip Swift suite dispatcher\n  " + "\n  ".join(failures))
