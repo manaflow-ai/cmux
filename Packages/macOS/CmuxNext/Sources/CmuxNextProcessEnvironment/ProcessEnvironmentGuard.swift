@@ -30,16 +30,19 @@ public final class ProcessEnvironmentGuard: Sendable {
     ///   - performsWrites: false runs no write body, so a test can drive the
     ///     real launch order without changing its own environment.
     ///   - onViolation: called on every write after ``freeze()``, after the
-    ///     one-time fault log. The default stops debug builds and sends
-    ///     release builds' first violation of the launch as a non-fatal
-    ///     report with the writer's stack (`Invariant.dumpWithoutCrashing`).
+    ///     one-time fault log. The default is ``reportViolation(_:)``.
     public init(performsWrites: Bool = true,
-                onViolation: @escaping @Sendable (String) -> Void = { message in
-                    assertionFailure(message)
-                    Invariant.dumpWithoutCrashing("environment-write-after-freeze")
-                }) {
+                onViolation: @escaping @Sendable (String) -> Void = { ProcessEnvironmentGuard.reportViolation($0) }) {
         self.performsWrites = performsWrites
         self.onViolation = onViolation
+    }
+
+    /// The default violation handler: stops debug builds and sends release
+    /// builds' first violation of the launch as a non-fatal report with the
+    /// writer's stack (`Invariant.dumpWithoutCrashing`).
+    public static func reportViolation(_ message: String) {
+        assertionFailure(message)
+        Invariant.dumpWithoutCrashing("environment-write-after-freeze")
     }
 
     /// True after ``freeze()``: no environment write may follow.
