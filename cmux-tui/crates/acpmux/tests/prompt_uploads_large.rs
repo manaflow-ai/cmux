@@ -1,6 +1,7 @@
 //! A 2 GB file of no known type reaches a busy chat (Leo, 2026-10-26: "I ALREADY SAID WE NEED
-//! ARBITARRILY LARGE FILES OF ANY TYPE"): streamed in chunks (`_acpmux/file_put_begin`/`_chunk`/
-//! `_finish`, no size cap), named in a prompt that is accepted in under a second, and handed to
+//! ARBITARRILY LARGE FILES OF ANY TYPE"): streamed as the app streams it, raw bytes in binary
+//! frames of 1 MiB on its own WebSocket, 4 in flight (`server/upload_frames.rs`, no size cap),
+//! checked by SHA-256 at the finish, named in a prompt that is accepted in under a second, and handed to
 //! the agent as its path, its bytes intact. Neither side ever holds the file: the test streams it
 //! and checks the process's peak memory. Its own test binary, so the peak is this test's.
 #![cfg(target_os = "linux")]
@@ -10,11 +11,13 @@ mod daemon_env;
 // This process runs stand-in agents (the fake agents under tests/).
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
+#[path = "support/app_ws.rs"]
+mod app_ws;
+
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::{Message, method};
 use acpmux::server::{Origin, serve_connection_with};
-use base64::Engine;
 use serde_json::{Value, json};
 use sha2::Digest;
 use std::io::Read;
@@ -23,8 +26,10 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-/// `hub/file_uploads.rs` `CHUNK_BYTES`.
-const CHUNK: usize = 512 << 10;
+/// One data frame's bytes.
+const CHUNK: usize = 1 << 20;
+/// Frames in flight (`upload_frames::WINDOW`).
+const WINDOW: usize = 4;
 /// 2 GB, past the 1 GiB the uploads were capped at.
 const SIZE: u64 = 2_000_000_000;
 
@@ -108,26 +113,32 @@ async fn a_two_gigabyte_file_of_any_type_reaches_a_busy_chat_by_path() {
         )
         .await;
     let session = made["result"]["sessionId"].as_str().unwrap().to_owned();
+    let l = app_ws::listen(&hub).await;
+    let mut app = app_ws::AppWs::open(&l, true).await;
     let started = Instant::now();
     let begin = json!({"sessionId": session, "fileName": "data.bin", "size": SIZE});
-    let begun = c.call(method::MUX_FILE_PUT_BEGIN, begin).await;
+    let begun = app.call(method::MUX_FILE_PUT_BEGIN, begin).await;
     let upload = begun["result"]["uploadId"].as_str().unwrap_or_else(|| panic!("{begun}"));
     let upload = upload.to_owned();
     let (mut sent, mut hash, mut buf) = (0u64, sha2::Sha256::new(), vec![0u8; CHUNK]);
-    while sent < SIZE {
-        let n = CHUNK.min((SIZE - sent) as usize);
-        fill(sent, &mut buf[..n]);
-        hash.update(&buf[..n]);
-        let data = base64::engine::general_purpose::STANDARD.encode(&buf[..n]);
-        let p = json!({"sessionId": session, "uploadId": upload, "offset": sent, "data": data});
-        let put = c.call(method::MUX_FILE_PUT_CHUNK, p).await;
+    let mut flight = std::collections::VecDeque::new();
+    while sent < SIZE || !flight.is_empty() {
+        if sent < SIZE && flight.len() < WINDOW {
+            let n = CHUNK.min((SIZE - sent) as usize);
+            fill(sent, &mut buf[..n]);
+            hash.update(&buf[..n]);
+            flight.push_back(app.frame(&session, &upload, sent, &buf[..n]).await);
+            sent += n as u64;
+            continue;
+        }
+        let id = flight.pop_front().unwrap();
+        let put = app.answer(id).await;
         assert!(put.get("error").is_none(), "at {sent}: {put}");
-        sent += n as u64;
     }
     let sha: String = hash.finalize().iter().map(|b| format!("{b:02x}")).collect();
-    let finish =
-        json!({"sessionId": session, "uploadId": upload, "fileName": "data.bin", "size": SIZE});
-    let done = c.call(method::MUX_FILE_PUT_FINISH, finish).await;
+    let finish = json!({"sessionId": session, "uploadId": upload, "fileName": "data.bin",
+        "size": SIZE, "sha256": sha});
+    let done = app.call(method::MUX_FILE_PUT_FINISH, finish).await;
     assert!(done.get("error").is_none(), "{done}");
     let uploaded = started.elapsed();
 
