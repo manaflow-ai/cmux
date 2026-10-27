@@ -29,7 +29,8 @@
      "all": [
        {"quit_leftovers": {"allow": [
          {"match": "(^|/)cmux-tui __terminal-host ", "why": "holds a terminal's PTY and shell: the default quit keeps sessions"},
-         {"match": "/Contents/Resources/bin/cmux-tui --headless --session cmux-app-", "why": "the app session's daemon, the owner of those terminal hosts (their --owner)"}
+         {"match": "/Contents/Resources/bin/cmux-tui --headless --session cmux-app-", "why": "the app session's daemon, the owner of those terminal hosts (their --owner)"},
+         {"match": "/Contents/Resources/bin/cmux-agent-screen-detection", "why": "the app session daemon's journal plugin: it exits with that daemon (CMUX_PLUGIN_HOST_PID) and is no client that keeps it (cp/quit-chief-idle)"}
        ]}}
      ]},
 
