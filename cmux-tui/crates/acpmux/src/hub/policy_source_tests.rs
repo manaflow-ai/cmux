@@ -42,7 +42,10 @@ fn record(seq: u64, kind: &str, msg: Value) -> EventRecord {
 }
 
 fn hub_at(dir: &std::path::Path) -> Arc<Hub> {
-    let mut cfg = crate::config::Config::default();
+    hub_with(dir, crate::config::Config::default())
+}
+
+fn hub_with(dir: &std::path::Path, mut cfg: crate::config::Config) -> Arc<Hub> {
     cfg.store.mode = crate::config::StoreMode::Local;
     let store = crate::store::open(&cfg.store, dir).unwrap();
     Hub::new(cfg, store)
@@ -283,16 +286,24 @@ async fn a_second_run_changes_nothing() {
 
 /// A machine whose daemon could have given vmHost's approve-all (`could_have_had_vm_host`): a
 /// chat with no link back may have inherited it (an agent in a handoff target started it with no
-/// parent), so every approve-all with no source asks. A Mac never gave it.
+/// parent), so every approve-all with no source asks. Its config names `vmHost`, or there is no
+/// config.json (deleted, it may have named it). A Mac never gave it.
 #[tokio::test]
 async fn every_approve_all_with_no_source_asks_on_a_machine_that_could_have_had_vm_host() {
-    for configured in [true, false] {
+    let missing = std::path::Path::new("/nonexistent/acpmux-ps/config.json");
+    for (why, mut cfg) in [
+        ("vmHost true", crate::config::Config::default()),
+        ("vmHost false", crate::config::Config::default()),
+        ("no config.json", crate::config::Config::load_from(missing).unwrap()),
+    ] {
+        cfg.vm_host = cfg.vm_host.or(match why {
+            "vmHost true" => Some(true),
+            "vmHost false" => Some(false),
+            _ => None,
+        });
         let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
         legacy_store(dir.path());
-        let mut cfg = crate::config::Config::default();
-        cfg.store.mode = crate::config::StoreMode::Local;
-        cfg.vm_host = Some(configured);
-        let hub = Hub::new(cfg.clone(), crate::store::open(&cfg.store, dir.path()).unwrap());
+        let hub = hub_with(dir.path(), cfg);
         let local = if cfg!(target_os = "macos") {
             PermissionPolicy::ApproveAll
         } else {
@@ -301,24 +312,27 @@ async fn every_approve_all_with_no_source_asks_on_a_machine_that_could_have_had_
         assert_eq!(
             policies(&hub, [LOCAL, FORK_OF_LOCAL, VM_HOST_ERA]),
             [(LOCAL, local), (FORK_OF_LOCAL, local), (VM_HOST_ERA, PermissionPolicy::Ask)],
-            "vmHost {configured}"
+            "{why}"
         );
     }
 }
 
-/// A host started for a chat whose old host was to end: that one no longer runs, and the new one
-/// is adopted after a restart as any other.
-#[tokio::test]
-async fn a_fresh_host_turns_a_cleared_host_chat_cleared() {
-    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
-    legacy_store(dir.path());
-    let hub = hub_at(dir.path());
-    let s = hub.resolve(VM_HOST_ERA).unwrap();
+/// Any start of a `clearedHost` chat's agent (here one with no agent host, as a pooled start
+/// is not `start_hosted` either) ends the old host first and leaves the chat `cleared`: a later
+/// restart adopts the host it started.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn any_start_turns_a_cleared_host_chat_cleared_first() {
+    use crate::config::{Config, StoreMode};
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let cfg = json!({"harnesses": {"f": {"argv": ["python3", fake]}}, "defaultHarness": "f"});
+    let mut cfg: Config = serde_json::from_value(cfg).unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let req = super::NewRequest { cwd: Some(std::env::temp_dir()), ..Default::default() };
+    let s = hub.new_session(req).await.unwrap();
     s.meta.lock().unwrap().policy_source = Some(CLEARED_HOST.into());
-    hub.fresh_host_after_clear(&s);
+    hub.child_for(&s).await.unwrap();
     assert_eq!(s.meta().policy_source.as_deref(), Some(CLEARED));
-    hub.store.flush().unwrap();
-    let saved = saved(dir.path());
-    let era = saved.iter().find(|m| m.id == VM_HOST_ERA).unwrap();
-    assert_eq!(era.policy_source.as_deref(), Some(CLEARED));
+    let _ = hub.kill(&s, true).await;
 }

@@ -456,9 +456,8 @@ pub enum HarnessKind {
     Acp,
     /// Claude Code's own `-p --input-format stream-json` protocol.
     ClaudeStdio,
-    /// A CLI or TUI without ACP (`protocol = "terminal"` in a profile file):
-    /// listed, but run in a terminal tab (`cmux harness run`), never as an
-    /// acpmux session.
+    /// A CLI or TUI without ACP (`protocol = "terminal"` in a profile file): listed, but run in a
+    /// terminal tab (`cmux harness run`), never as an acpmux session.
     Terminal,
 }
 
@@ -926,15 +925,13 @@ pub struct Config {
     /// `_acpmux/vm_host {on: false}` writes `false`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vm_host: Option<bool>,
-    /// `pool`: hidden pre-created sessions that make a harness switch
-    /// instant (`hub/pool/`).
+    /// `pool`: hidden pre-created sessions that make a harness switch instant (`hub/pool/`).
     #[serde(default, skip_serializing_if = "PoolConfig::is_default")]
     pub pool: PoolConfig,
     /// `btw`: side sessions (`hub/btw.rs`): the model they start on, per harness.
     #[serde(default, skip_serializing_if = "BtwConfig::is_default")]
     pub btw: BtwConfig,
-    /// `titles`: short titles for chats their harness never titles
-    /// (`hub/titles.rs`).
+    /// `titles`: short titles for chats their harness never titles (`hub/titles.rs`).
     #[serde(default, skip_serializing_if = "TitlesConfig::is_default")]
     pub titles: TitlesConfig,
     /// `coderouterClaudeRoute`: the CodeRouter CLI subcommand that runs
@@ -954,9 +951,8 @@ pub struct Config {
     /// `--memory` runs) has no path and is never written to disk.
     #[serde(skip)]
     pub path: Option<PathBuf>,
-    /// Profiles that came from PATH discovery, not the file. `save` leaves
-    /// them out so the file keeps only what the user wrote and discovery
-    /// stays live.
+    /// Profiles that came from PATH discovery, not the file. `save` leaves them out so the file
+    /// keeps only what the user wrote and discovery stays live.
     #[serde(skip)]
     pub discovered: std::collections::BTreeSet<String>,
     /// `(profile, fallback)` set by discovery, stripped on save.
@@ -965,6 +961,9 @@ pub struct Config {
     /// `defaultHarness` was filled in at load, not written by the user.
     #[serde(skip)]
     pub auto_default: bool,
+    /// No config.json was there at load (`hub/policy_source.rs`: absence proves nothing).
+    #[serde(skip)]
+    pub file_missing: bool,
     /// The `defaults.claude.prefer` list discovery filled in, not the user.
     /// `save` drops it only while it is still unchanged.
     #[serde(skip)]
@@ -973,8 +972,7 @@ pub struct Config {
     /// not being served. Kept apart so a save does not drop the address.
     #[serde(skip)]
     pub web_unbound: bool,
-    /// Loopback page dev server origins from `--allow-dev-origin` (this run
-    /// only, never saved).
+    /// Loopback page dev server origins from `--allow-dev-origin` (this run only, never saved).
     #[serde(skip)]
     pub dev_origins: Vec<String>,
     /// The listener's token for this run when `--token` gave one: the
@@ -1157,7 +1155,9 @@ impl Config {
                 serde_json::from_str::<Config>(&text)
                     .with_context(|| format!("parse {}", path.display()))?
             }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Config::default(),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                Config { file_missing: true, ..Config::default() }
+            }
             Err(error) => return Err(error.into()),
         };
         cfg.join_profiles(profiles::load(sources));

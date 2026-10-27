@@ -20,8 +20,8 @@
 //! So the rule ([`settle_grant`]): an approve-all with no `policySource` asks
 //! (`policySource: cleared`) when it could be vmHost's:
 //! - every one, on a machine whose daemon could have given it ([`Hub::could_have_had_vm_host`]:
-//!   not a Mac, and its config names `vmHost` or cmux created it as a VM): there a chat with no
-//!   link back can still have inherited it;
+//!   not a Mac, and its config.json names `vmHost`, is missing (it may have named it), or cmux
+//!   created it as a VM): there a chat with no link back can still have inherited it;
 //! - every one a chat imported from another machine carries (`transfer.rs` `import_into`, and
 //!   the guarded receive in `transfer_guard.rs`), and a `vmHost` one too: that machine's VM was
 //!   its sandbox, this one is not;
@@ -38,11 +38,12 @@
 //!
 //! A cleared chat whose agent host survived the restart ([`CLEARED_HOST`]) may run in a mode
 //! that never asks, or hold requests the old grant would answer: that host is ended before this
-//! daemon reaches it, and is never adopted ([`Hub::end_cleared_host`], from `hosts.rs`
-//! `adopt_one`). The chat goes idle; its next start asks, in its policy's mode
-//! (`hold_policy_mode`, and OpenCode's ask config at spawn). A host that does not end is not
-//! adopted and the chat is refused until it does (`reach_or_start`). Once it ended, the chat is
-//! [`CLEARED`]; a daemon that died before that ends it at its next start.
+//! daemon reaches it, and is never adopted ([`Hub::end_cleared_host`], at adoption
+//! ([`Hub::ends_before_adoption`]) and before any start ([`Hub::refuse_cleared_host`])). The chat goes idle; its next
+//! start asks, in its policy's mode (`hold_policy_mode`, and OpenCode's ask config at spawn). A
+//! host whose end is not proven (it did not end, or the host records cannot be read) is not
+//! adopted, and the chat is refused until it is. Once it ended, the chat is [`CLEARED`]; a daemon
+//! that died before that ends it at its next start.
 
 use super::*;
 use std::collections::{HashMap, HashSet};
@@ -158,10 +159,12 @@ impl Hub {
     }
 
     /// Whether this machine's daemon could have given vmHost's approve-all (module docs): never
-    /// on a Mac; elsewhere when its config names `vmHost` (a `false` may have followed a `true`)
-    /// or cmux created it as a VM (on by default there). A config this cannot read could.
+    /// on a Mac; elsewhere when its config names `vmHost` (a `false` may have followed a `true`),
+    /// or there is no config.json (one may have named it), or cmux created it as a VM (on by
+    /// default there). A config this cannot read could.
     fn could_have_had_vm_host(&self) -> bool {
-        let configured = self.config.try_read().map_or(true, |c| c.vm_host.is_some());
+        let configured =
+            self.config.try_read().map_or(true, |c| c.vm_host.is_some() || c.file_missing);
         !cfg!(target_os = "macos") && (configured || self.cmux_vm())
     }
 
@@ -190,9 +193,9 @@ impl Hub {
         }
     }
 
-    /// A [`CLEARED_HOST`] chat's agent host is ended, never adopted (module docs). Called where a
-    /// host would be adopted, under the chat's spawn lock (`hosts.rs`). Returns whether the chat
-    /// was one: its host has then ended, or is marked unadoptable.
+    /// A [`CLEARED_HOST`] chat's agent host is ended, never adopted (module docs). Called before a
+    /// host is adopted and before an agent starts, under the chat's spawn lock. Returns whether the
+    /// chat was one: its host has then ended, or is marked unadoptable.
     pub(super) async fn end_cleared_host(&self, session: &Arc<Session>) -> bool {
         if session.meta().policy_source.as_deref() != Some(CLEARED_HOST) {
             return false;
@@ -210,16 +213,29 @@ impl Hub {
         true
     }
 
-    /// A host this daemon starts for `session` (`hosts.rs` `start_hosted`): a [`CLEARED_HOST`]
-    /// chat's old host no longer runs (a start reaches a live host instead, `reach_or_start`), so
-    /// this one, started under the chat's policy, is adopted after a restart as any other.
-    pub(super) fn fresh_host_after_clear(&self, session: &Session) {
-        let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-        if meta.policy_source.as_deref() == Some(CLEARED_HOST) {
-            meta.policy_source = Some(CLEARED.to_owned());
-            drop(meta);
-            self.save_meta(session);
+    /// Whether adoption skips `session`'s host (`hosts.rs` `adopt_agent_hosts`): a
+    /// [`CLEARED_HOST`] chat's, which is ended, or one MDM's off ends (`end_if_runs_full_access`).
+    /// A chat a prompt reaches first is never adopted with it either ([`Hub::refuse_cleared_host`]
+    /// runs before `readopt`).
+    pub(super) async fn ends_before_adoption(&self, session: &Arc<Session>, off: bool) -> bool {
+        use super::full_access_bound::FullAccessEnd;
+        self.end_cleared_host(session).await
+            || self.end_if_runs_full_access(session, off).await != FullAccessEnd::NotInFullAccess
+    }
+
+    /// Before any agent start, cold or pooled (`reach_or_start`): a [`CLEARED_HOST`] chat's old
+    /// host is ended first ([`Hub::end_cleared_host`]), and the chat is refused while its end is
+    /// not proven (host records that cannot be read prove nothing). No start runs beside it, and
+    /// none leaves the chat `clearedHost`, so a later restart adopts the host it starts.
+    pub(super) async fn refuse_cleared_host(&self, session: &Arc<Session>) -> Result<(), RpcError> {
+        if !self.end_cleared_host(session).await
+            || session.meta().policy_source.as_deref() != Some(CLEARED_HOST)
+        {
+            return Ok(());
         }
+        Err(RpcError::internal(
+            "this chat's agent host ran under an approve-all that is now cleared and is not proven ended; the chat starts again once it is",
+        ))
     }
 }
 

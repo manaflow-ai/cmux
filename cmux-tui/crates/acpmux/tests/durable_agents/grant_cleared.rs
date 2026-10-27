@@ -13,6 +13,18 @@ fn release(gate: &Path) {
     }
 }
 
+/// Rewrites `session`'s saved meta (its daemon stopped) to what an older daemon saved for a
+/// handoff target (local, tagged) it gave approve-all: no `policySource`. Returns its path.
+fn saved_as_legacy_grant(daemon: &Daemon, session: &str) -> PathBuf {
+    let path = daemon.home.join("sessions").join(session).join("session.json");
+    let mut meta: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    meta["permissionPolicy"] = json!("approve-all");
+    meta["tags"] = json!({"handoffKey": {"value": "k1"}});
+    meta.as_object_mut().unwrap().remove("policySource");
+    std::fs::write(&path, meta.to_string()).unwrap();
+    path
+}
+
 /// A handoff target (local, tagged) that an older daemon gave approve-all, whose agent is about
 /// to ask for a permission across the restart.
 #[tokio::test]
@@ -31,13 +43,7 @@ async fn a_cleared_grants_live_agent_is_ended_not_adopted_and_its_chat_asks() {
     drop(client);
     assert!(alive(harness_pid), "SIGTERM ended the agent");
 
-    // What an older daemon saved: the chat's own approve-all, with no `policySource`.
-    let path = daemon.home.join("sessions").join(&session).join("session.json");
-    let mut meta: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-    meta["permissionPolicy"] = json!("approve-all");
-    meta["tags"] = json!({"handoffKey": {"value": "k1"}});
-    meta.as_object_mut().unwrap().remove("policySource");
-    std::fs::write(&path, meta.to_string()).unwrap();
+    let path = saved_as_legacy_grant(&daemon, &session);
 
     daemon.start();
     let first = daemon.wait_event(&session, "grant_cleared or host_adopted", |e| {
@@ -71,4 +77,45 @@ async fn a_cleared_grants_live_agent_is_ended_not_adopted_and_its_chat_asks() {
     drop(rpc);
     daemon.start();
     daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+}
+
+/// The same chat when the host records cannot be read at the restart (the debug seam
+/// `ACPMUX_TEST_HOST_RECORDS_FAIL_FILE`): nothing proves its old host ended, so a prompt is
+/// refused rather than start an agent beside it. Once the records read again, the old host is
+/// ended and the next start asks.
+#[tokio::test]
+async fn a_cleared_chat_is_refused_while_its_old_host_is_not_proven_ended() {
+    let flag = std::env::temp_dir().join(format!("amd-grantrec-{}", std::process::id()));
+    let flag_env = flag.to_string_lossy().into_owned();
+    let env = [("ACPMUX_TEST_HOST_RECORDS_FAIL_FILE", flag_env.as_str())];
+    let mut daemon = Daemon::with_env("grantrec", "ask", &env);
+    let session = new_session(&daemon).await;
+    let gate = daemon.home.join("gate");
+    make_fifo(&gate);
+    let mut client = daemon.rpc().await;
+    let ask =
+        |text: &str| json!({"sessionId": session, "prompt": [{"type": "text", "text": text}]});
+    client.send("session/prompt", ask(&format!("gate-ask: {}", gate.display()))).await;
+    daemon.wait_event(&session, "before-gate chunk", |e| chunk(e, "before-gate"));
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    daemon.sigterm();
+    drop(client);
+    saved_as_legacy_grant(&daemon, &session);
+    std::fs::write(&flag, "").unwrap();
+
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    let reply = rpc.reply("session/prompt", ask("hi")).await;
+    let started =
+        |d: &Daemon| d.events(&session).iter().filter(|e| e["kind"] == "host_started").count();
+    assert_eq!(started(&daemon), 1, "an agent started beside the old host: {reply}");
+    assert!(reply.get("error").is_some(), "{reply}");
+    assert!(alive(harness_pid), "the seam did not keep the records unread");
+
+    std::fs::remove_file(&flag).unwrap();
+    rpc.send("session/prompt", ask("ask: again")).await;
+    daemon.wait_event(&session, "a permission_request", |e| e["kind"] == "permission_request");
+    assert!(gone_within(harness_pid, Duration::from_secs(10)), "the old agent still runs");
+    let events = daemon.events(&session);
+    assert!(!events.iter().any(|e| e["kind"] == "permission_auto"), "{events:#?}");
 }
