@@ -111,7 +111,11 @@ Landed 16a6e86a783..f1e15ab50ab (Lawrence 2026-10-26, "warm it up while the pers
 - The pane (`webviews/.../newChatPrewarm.ts`) hints on the first typed character of a
   sessionless chat or the New Tab page. It releases after 3 s empty, on a harness or folder
   change, and on pagehide.
-- Bench: `scripts/measure/acpmux-overhead.sh --arg=bench=prewarm`. Enter-to-first-output numbers
-  are pending: the M4 Pro measure mini (cmux7s) was offline.
+- Bench: `scripts/measure/acpmux-overhead.sh --arg=bench=prewarm` (step dfa8f76a94c17cd46da31210,
+  cmux-austin-mini-0, Apple M4, macOS 27.0.1, n=6, stand-in model). Enter to first output p50,
+  cold -> prewarmed: claude 263.7 -> 105.5 ms, codex 256.8 -> 92.0 ms, opencode 1028.9 -> 343.4 ms;
+  pool hits 6/6 each. Typing in 5 folders without sending leaves 1 warm agent per harness
+  (claude 212.8 MB, codex 266.8 MB, opencode 220.6 MB). With `before=` the step was killed at
+  about 20 minutes twice (steps 741faa1f55b79c53e3f0fb01, 86de6fc13bfbbde592007912).
 - Base debt seen: `_acpmux/typing` is in Swift `knownParams` but not in
   `cmux-agent-pane-policy/policy.json`.

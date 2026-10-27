@@ -115,6 +115,7 @@ pub use new_request::{
 pub use paging::{EventFilter, EventPage, MAX_PAGE_BYTES, page_bytes};
 pub use spawn::expand_env_value;
 pub mod approvers;
+pub mod mac_approvers;
 mod own_host;
 mod peer_cache;
 mod peer_lease;
@@ -463,6 +464,8 @@ pub struct Hub {
     pub(crate) chats_waiters: StdMutex<Vec<crate::chats::ChatsWaiter>>,
     /// The forced start mode and the setting's change count (`start_mode_state.rs`).
     pub(super) start_mode_state: start_mode_state::StartModeCell,
+    /// Held by each `sessions.allowFullAccess` push through its teardown (`apply_full_access_push`).
+    pub(super) full_access_pushes: tokio::sync::Mutex<()>,
     /// Held (read) by a family message from its last check to its write, and an answer from
     /// its check to its delivery; an MDM off push takes it (write) once the off is stored
     /// (`full_access_bound.rs` `family_gate`).
@@ -612,6 +615,7 @@ impl Hub {
             chats: std::sync::OnceLock::new(),
             chats_waiters: StdMutex::new(Vec::new()),
             start_mode_state,
+            full_access_pushes: tokio::sync::Mutex::new(()),
             family_gate: tokio::sync::RwLock::new(()),
             #[cfg(test)]
             family_write_seam: Default::default(),
