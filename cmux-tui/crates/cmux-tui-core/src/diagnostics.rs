@@ -28,8 +28,8 @@ mod ipc;
 pub(crate) use ipc::note_json_parse;
 pub use ipc::{
     CountedWrite, IpcKindSnapshot, IpcParseSnapshot, IpcParsesSnapshot, IpcSnapshot, IpcStats,
-    IpcStreamsSnapshot, IpcTransport, IpcWritesSnapshot, JsonParseScope, OpenStream,
-    WRITE_STALL_THRESHOLD,
+    IpcStreamsSnapshot, IpcTransport, IpcWritesSnapshot, JsonParseHandoff, JsonParseScope,
+    OpenStream, WRITE_STALL_THRESHOLD,
 };
 mod owner_panic_log;
 #[cfg(debug_assertions)]
@@ -38,6 +38,7 @@ pub use owner_panic_log::{owner_hang_log_path, owner_log_dir, owner_panic_log_pa
 mod diagnostic_sites;
 pub use diagnostic_sites::{DiagnosticSite, DiagnosticSites, MAX_DIAGNOSTIC_SITES};
 mod slow_requests;
+pub use cmux_tui_util::hang_watch::{HangRecord, HangsSnapshot};
 pub use slow_requests::{SlowRequest, SlowRequestFrame, SlowRequestsSnapshot};
 mod method_latency;
 pub use method_latency::{MethodLatencySnapshot, MethodLatencyStats, MethodName, MethodSample};
@@ -814,6 +815,11 @@ pub struct ServerStatsSnapshot {
     /// when the request names `ipc_methods` in `include`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ipc_methods: Option<Vec<MethodLatencySnapshot>>,
+    /// Watched scopes of every kind (requests, journal commits, holder-link
+    /// frames, echo items) busy past 250 ms: the count since daemon start
+    /// and the newest records; present only when the request names `hangs`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hangs: Option<HangsSnapshot>,
 }
 
 pub const SERVER_STATS_SCHEMA: u32 = 1;

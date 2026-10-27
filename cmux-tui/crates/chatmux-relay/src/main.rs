@@ -576,7 +576,12 @@ fn print_status(config_path: &Path) -> ! {
 /// blocking call on a worker hands the worker's queue to another thread. The
 /// body runs as a task on a worker; the main thread only waits for it.
 fn main() -> std::process::ExitCode {
-    let runtime = match cmux_blocking::runtime::multi_thread().build() {
+    let runtime = match cmux_blocking::runtime::multi_thread(
+        "chatmux-relay",
+        cmux_threads::ThreadQos::UserInitiated,
+    )
+    .build()
+    {
         Ok(runtime) => runtime,
         Err(error) => {
             eprintln!("could not start the relay runtime: {error}");
