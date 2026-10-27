@@ -40,6 +40,8 @@ git_q -C "$src" add -A
 git_q -C "$src" commit -m one
 git_q -C "$src" update-index --add --cacheinfo 160000,"$(git -C "$src" rev-parse HEAD)",ghostty
 git_q -C "$src" commit -m gitlink
+# origin is the fixture itself: nightly-next is read from it (absent until set).
+git -C "$src" remote add origin "$src"
 key() { (cd "$src" && python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$1" 2>/dev/null); }
 
 cdn="$TMP/cdn"
@@ -301,9 +303,58 @@ request --tree-ready "$publisher"
 [[ "$status" == 0 ]] && ! dispatched "$greenx" \
   || fail "a commit already on nightly-next must not be requested again (exit $status):" "$out" "$(cat "$TMP/gh.log")"
 git_q -C "$src" checkout -q --detach "$greenx"
+branch "$greenx"
 request --sha "$greenx" --release-compile-green
 [[ "$status" == 0 ]] && ! dispatched "$greenx" && grep -q "already on nightly-next" <<<"$out" \
   || fail "--release-compile-green must not re-request a promoted commit (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+# A Release compile that finishes after nightly-next moved past its commit
+# (2026-10-27: requests dispatched at 04:41Z for a 00:30Z landing) asks for
+# nothing, and one that finishes after a newer commit with its tree landed
+# asks for that newer commit, never its own old one.
+git_q -C "$src" update-ref refs/heads/nightly-next "$publisher"
+branch "$publisher"
+request --sha "$greenx" --release-compile-green
+[[ "$status" == 0 ]] && [[ ! -s "$TMP/gh.log" ]] \
+  || fail "a late compile of a commit nightly-next contains must request nothing (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+# nightly-next at a commit this history does not have (a shallow checkout
+# whose fetch did not reach it): the compiled commit cannot be proven ahead of
+# it, so it is not requested. The remote here has only that nightly-next.
+far="$TMP/far"
+git_q init "$far"; git_q -C "$far" commit --allow-empty -m "far ahead"
+git_q -C "$far" branch -M nightly-next
+git -C "$src" remote set-url origin "$far"
+request --sha "$greenx" --release-compile-green
+[[ "$status" == 0 ]] && [[ ! -s "$TMP/gh.log" ]] \
+  || fail "a compiled commit not provably ahead of nightly-next must not be requested (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+# nightly-next cannot be read at all (origin unreachable): nothing is requested.
+git -C "$src" remote set-url origin "$TMP/no-such-remote"
+request --sha "$greenx" --release-compile-green
+[[ "$status" == 0 ]] && [[ ! -s "$TMP/gh.log" ]] \
+  || fail "a compile whose nightly-next lookup failed must request nothing (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+git -C "$src" remote set-url origin "$src"
+git_q -C "$src" update-ref refs/heads/nightly-next "$head^"
+request --sha "$greenx" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$publisher" && ! dispatched "$greenx" \
+  || fail "a late compile must request the newest commit with its tree, not its own (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+# A merge brings nightly-next in beside the compiled commit: the history lists
+# the compiled commit (first parent), but nightly-next is not its ancestor, so
+# it is not requested (main's promote job would refuse it as diverged). The
+# merge changes the tree, so no other candidate has the published one.
+git_q -C "$src" checkout -q -b side-next "$head^"
+echo side > "$src/SideNext.swift"; git_q -C "$src" add -A; git_q -C "$src" commit -m "nightly-next on a side line"
+side_next=$(git -C "$src" rev-parse HEAD)
+git_q -C "$src" checkout -q -b merged "$greenx"
+git_q -C "$src" merge --no-ff -m "merge the side line" "$side_next"
+echo four > "$src/cmux-tui/a"; git_q -C "$src" add -A; git_q -C "$src" commit --amend -m "merge the side line, with a tui change"
+merged=$(git -C "$src" rev-parse HEAD)
+git -C "$src" merge-base --is-ancestor "$side_next" "$greenx" && fail "fixture: the side line must not be under the compiled commit"
+git_q -C "$src" update-ref refs/heads/nightly-next "$side_next"
+branch "$merged"
+git_q -C "$src" checkout -q --detach "$greenx"
+request --sha "$greenx" --release-compile-green
+[[ "$status" == 0 ]] && [[ ! -s "$TMP/gh.log" ]] \
+  || fail "a compiled commit nightly-next is not an ancestor of must not be requested (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+branch "$publisher"
 git_q -C "$src" update-ref -d refs/heads/nightly-next
 git_q -C "$src" checkout -q --detach "$head"
 

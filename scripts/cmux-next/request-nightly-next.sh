@@ -16,8 +16,13 @@
 # Both finish asynchronously, so each side asks when its half completes:
 #
 #   --sha <sha> --release-compile-green
-#       cmux-next.yml, after the Release compile of <sha> passed. Requests <sha>
-#       if its tree is published; otherwise the artifacts side asks later.
+#       cmux-next.yml, after the Release compile of <sha> passed. If its tree is
+#       published, searches like --tree-ready: it requests the newest
+#       feat-cmux-next commit with that tree, never <sha> itself once a newer
+#       one has it, and nothing once nightly-next contains them. A compile that
+#       finished hours late used to request its own old commit (04:41Z for a
+#       00:30Z landing on 2026-10-27), which main's promote job then refused.
+#       Otherwise the artifacts side asks later.
 #   --tree-ready <sha>
 #       cmux-tui-artifacts.yml and nightly-next-tick, once the tree of <sha> is
 #       published. Requests the newest feat-cmux-next push whose tree key is the
@@ -46,7 +51,7 @@ while [[ $# -gt 0 ]]; do
     --tree-ready) sha="${2:-}"; mode=tree-ready; shift 2 ;;
     --repo) repo="${2:-}"; shift 2 ;;
     --release-compile-green) mode=release-compile-green; shift ;;
-    -h|--help) sed -n '2,33p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,41p' "$0"; exit 0 ;;
     *) echo "error: unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -121,10 +126,11 @@ strings_fresh() { # <sha>
 # (empty otherwise). It bounds the --tree-ready search from below, and a commit
 # it already contains is never requested again: main's promote job keeps one
 # waiting request, so a stale request would evict a newer one.
-promoted=""
-if line="$(git ls-remote origin refs/heads/nightly-next 2>/dev/null)" \
-   && [[ "${line%%[[:space:]]*}" =~ ^[0-9a-f]{40}$ ]]; then
-  promoted="${line%%[[:space:]]*}"
+promoted="" promoted_unknown=""
+if line="$(git ls-remote origin refs/heads/nightly-next 2>/dev/null)"; then
+  [[ ! "${line%%[[:space:]]*}" =~ ^[0-9a-f]{40}$ ]] || promoted="${line%%[[:space:]]*}"
+else
+  promoted_unknown=1
 fi
 already_promoted() { # <sha>
   # Equality needs no history: cmux-next.yml checks out one commit.
@@ -186,14 +192,7 @@ if curl -fsSL --proto '=https' --connect-timeout 20 --max-time 60 -o "$tree_meta
   fi
 fi
 
-if [[ "$mode" == release-compile-green ]]; then
-  rc=0
-  request "$sha" || rc=$?
-  [[ "$rc" != 2 ]] || exit 1
-  exit 0
-fi
-
-# 2. --tree-ready: the newest feat-cmux-next commit, by first-parent history,
+# 2. Both modes: the newest feat-cmux-next commit, by first-parent history,
 # that descends from nightly-next and has this tree key, whatever its Release
 # compile says (above). Candidates come from git, not from cmux-next.yml push
 # runs: a push that started no run (a bot or GITHUB_TOKEN push such as a base
@@ -222,11 +221,33 @@ lower="$sha"
 if [[ -n "$promoted" ]] && git cat-file -e "$promoted^{commit}" 2>/dev/null; then
   lower="$promoted"
 fi
+# <sha> itself is the last candidate. After a Release compile it is requested
+# only when it provably descends from nightly-next: a compile that finished
+# late, beyond this history's reach, must not ask for its old commit (main's
+# promote job would refuse it as behind nightly-next).
+# After a Release compile, nothing is requested unless nightly-next was read:
+# without it no candidate is provably ahead of it.
+if [[ "$mode" == release-compile-green && -n "$promoted_unknown" ]]; then
+  echo "not requesting: could not read nightly-next from origin; the tree side asks"
+  exit 0
+fi
+if [[ "$mode" == release-compile-green && -n "$promoted" ]] && ! git cat-file -e "$promoted^{commit}" 2>/dev/null; then
+  echo "not requesting: nightly-next (${promoted:0:12}) is not in this history, so no candidate is provably ahead of it; the tree side asks"
+  exit 0
+fi
+fallback="$sha"
+if [[ "$mode" == release-compile-green && -n "$promoted" ]] \
+   && ! git merge-base --is-ancestor "$promoted" "$sha" 2>/dev/null; then
+  fallback=""
+fi
 refused=0
 max_refused="${CMUX_NIGHTLY_NEXT_MAX_REFUSED:-5}"
 [[ "$max_refused" =~ ^[1-9][0-9]?$ ]] || { echo "error: CMUX_NIGHTLY_NEXT_MAX_REFUSED must be 1 to 99" >&2; exit 2; }
 while read -r run_sha; do
   [[ "$run_sha" =~ ^[0-9a-f]{40}$ ]] || continue
+  # <sha> without its ancestry proof (above) is never requested, even when the
+  # history lists it (a merge can bring nightly-next in beside it).
+  [[ "$run_sha" != "$sha" || -n "$fallback" ]] || continue
   if [[ "$run_sha" != "$sha" ]]; then
     git merge-base --is-ancestor "$lower" "$run_sha" 2>/dev/null || continue
     if run_key="$(python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "$run_sha" 2>/dev/null)"; then
@@ -244,7 +265,8 @@ while read -r run_sha; do
     fi
     [[ "$run_key" == "$key" ]] || continue
   fi
-  has_notary_gate "$run_sha" || continue
+  # <sha> itself goes to request(), which names a missing gate.
+  [[ "$run_sha" == "$sha" ]] || has_notary_gate "$run_sha" || continue
   rc=0
   request "$run_sha" || rc=$?
   [[ "$rc" != 0 ]] || exit 0
@@ -255,5 +277,5 @@ while read -r run_sha; do
     echo "not promoting: the $refused newest commits with tree $key are not promotable (see above)"
     exit 0
   fi
-done < <({ git rev-list --first-parent -n "$window" "$tip" ^"$lower" 2>/dev/null || true; echo "$sha"; } | awk '!seen[$0]++')
+done < <({ git rev-list --first-parent -n "$window" "$tip" ^"$lower" 2>/dev/null || true; [[ -z "$fallback" ]] || echo "$fallback"; } | awk '!seen[$0]++')
 echo "not promoting: no recent feat-cmux-next push with tree $key is promotable yet"
