@@ -30,10 +30,34 @@ struct SessionPriorityMatrixTests {
         #expect(t.model == "opus")
     }
 
-    @Test func missingCellIsEmptyTarget() throws {
+    @Test func missingCellKeepsTheShippedDefault() throws {
         let m = try decode(#"{"urgent": {"hard": {"effort": "max"}}}"#)
+        #expect(m.target(tier: .urgent, difficulty: .hard).effort == .max)
+        #expect(m.target(tier: .slow, difficulty: .easy).effort == .low)
+        #expect(m.target(tier: .urgent, difficulty: .easy).effort == .medium)
+    }
+
+    @Test func emptyCellIsNotAdjusted() throws {
+        let m = try decode(#"{"slow": {"easy": {}}}"#)
         #expect(m.target(tier: .slow, difficulty: .easy).isEmpty)
-        #expect(m.target(tier: .urgent, difficulty: .easy).isEmpty)
+        for tier in SessionPriorityTier.allCases {
+            for difficulty in ClaudeSessionDifficulty.allCases where !(tier == .slow && difficulty == .easy) {
+                #expect(m.target(tier: tier, difficulty: difficulty)
+                    == SessionPriorityMatrix.shippedDefault.target(tier: tier, difficulty: difficulty))
+            }
+        }
+    }
+
+    @Test func writtenCellReplacesTheWholeCell() throws {
+        let m = try decode(#"{"urgent": {"hard": {"model": "opus"}}}"#)
+        let t = m.target(tier: .urgent, difficulty: .hard)
+        #expect(t.effort == nil)
+        #expect(t.model == "opus")
+        #expect(m.target(tier: .urgent, difficulty: .normal).effort == .high)
+    }
+
+    @Test func emptyObjectEqualsShippedDefault() throws {
+        #expect(try decode("{}") == .shippedDefault)
     }
 
     @Test func rejectsUnknownEffort() {
@@ -68,9 +92,9 @@ struct SessionPriorityMatrixTests {
     }
 
     @Test func canonicalStringRoundTrips() throws {
-        let m = try decode(#"{"slow": {"hard": {"model": "opus", "effort": "low"}}, "urgent": {"easy": {"effort": "high"}}}"#)
+        let m = try decode(#"{"slow": {"hard": {"model": "opus", "effort": "low"}, "easy": {}}, "urgent": {"easy": {"effort": "high"}}}"#)
         let canonical = m.canonicalJSONString()
-        #expect(canonical == #"{"slow":{"hard":{"effort":"low","model":"opus"}},"urgent":{"easy":{"effort":"high"}}}"#)
+        #expect(canonical == #"{"slow":{"easy":{},"hard":{"effort":"low","model":"opus"},"normal":{"effort":"medium"}},"urgent":{"easy":{"effort":"high"},"hard":{"effort":"xhigh"},"normal":{"effort":"high"}}}"#)
         #expect(try decode(canonical) == m)
         #expect(try decode(SessionPriorityMatrix.shippedDefault.canonicalJSONString()) == .shippedDefault)
     }
