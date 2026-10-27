@@ -69,11 +69,12 @@ const { act, Profiler, createElement } = await import("react");
 const { createMemoryHistory } = await import("@tanstack/react-router");
 const { settle } = await import("./testing");
 const { SettingsPage } = await import("./components/SettingsPage");
+const { createSectionLoader } = await import("./lazySections");
 const { createMockClient } = await import("./mockProvider");
 const { SettingsStore } = await import("./store");
 const { setLocale } = await import("./strings");
 const { homes } = await import("./categories");
-const { THEME_KEY } = await import("./components/ThemeStudio");
+const { THEME_KEY } = await import("./cardRows");
 const { withMockTiming } = await import("./mockTiming");
 // The same fresh React DOM copy testing.tsx loads (it sees the jsdom and the hook above).
 const { fileURLToPath } = await import("node:url");
@@ -104,6 +105,7 @@ async function mount(path: string, latency = 0): Promise<Page> {
   // `latency`: every call answers after that many ms, as the app's bridge does (mockTiming.ts).
   const client = latency ? withMockTiming(mock.client, new URLSearchParams({ latency: String(latency) })) : mock.client;
   const store = new SettingsStore(client);
+  const sections = createSectionLoader();
   const container = document.createElement("div");
   document.body.append(container);
   const root = createRoot(container);
@@ -123,7 +125,7 @@ async function mount(path: string, latency = 0): Promise<Page> {
               firstFrame = { at: performance.now(), react: renderMs - mountReactStart, rows };
           },
         },
-        createElement(SettingsPage, { store, history }),
+        createElement(SettingsPage, { store, sections, history }),
       ),
     );
   });
@@ -136,6 +138,7 @@ async function mount(path: string, latency = 0): Promise<Page> {
     unmount() {
       act(() => root.unmount());
       container.remove();
+      sections.dispose();
       store.dispose();
       mock.close();
     },
