@@ -233,8 +233,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     nonisolated static func mayServe(_ descriptor: PageDescriptor, from root: URL) -> Bool {
         guard PageID.isReserved(descriptor.id) else { return true }
         let wanted = root.standardizedFileURL.resolvingSymlinksInPath().path
-        let allowed = [PageSchemeHandler.bundledRoot(for: descriptor), PageID.bundledRoot(for: descriptor.id),
+        var allowed = [PageSchemeHandler.bundledRoot(for: descriptor), PageID.bundledRoot(for: descriptor.id),
                        debugRoot(for: descriptor)].compactMap { $0 }
+        #if DEBUG
+        allowed += PageID.fixtureRoots(for: descriptor.id)
+        #endif
         return allowed.contains { $0.standardizedFileURL.resolvingSymlinksInPath().path == wanted }
     }
 

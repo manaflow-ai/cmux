@@ -115,6 +115,7 @@ pub use new_request::{
 pub use paging::{EventFilter, EventPage, MAX_PAGE_BYTES, page_bytes};
 pub use spawn::expand_env_value;
 pub mod approvers;
+pub mod mac_approvers;
 mod own_host;
 mod peer_cache;
 mod peer_lease;
@@ -161,6 +162,8 @@ mod trust_wait;
 mod turn_git;
 mod turn_usage;
 mod turns;
+#[cfg(test)]
+mod turns_copy_stop_tests;
 pub(crate) mod views;
 mod warm;
 mod watch_events;
@@ -465,6 +468,9 @@ pub struct Hub {
     /// Tests only: a pause before a family message's write (`full_access_bound::WriteSeam`).
     #[cfg(test)]
     pub(super) family_write_seam: full_access_bound::WriteSeam,
+    /// Tests only: a pause while a prompt's model-sized copies are made (`turns::agent_blocks`).
+    #[cfg(test)]
+    pub(super) copy_seam: full_access_bound::WriteSeam,
     pub(super) harness_watch: harness_watch::HarnessWatchState,
     /// The settings file watched for start-mode changes (`settings_watch.rs`).
     pub(super) settings_watch: settings_watch::SettingsWatchState,
@@ -605,6 +611,8 @@ impl Hub {
             family_gate: tokio::sync::RwLock::new(()),
             #[cfg(test)]
             family_write_seam: Default::default(),
+            #[cfg(test)]
+            copy_seam: Default::default(),
             harness_watch: Default::default(),
             settings_watch: Default::default(),
             git_watch: Default::default(),
@@ -859,6 +867,7 @@ impl Hub {
             replaced: AtomicBool::new(false),
             closing: AtomicBool::new(false),
             stops: AtomicU64::new(0),
+            cancels: AtomicU64::new(0),
             status_writes: AtomicU64::new(0),
             state_seq: AtomicU64::new(0),
             attached: std::sync::atomic::AtomicUsize::new(0),

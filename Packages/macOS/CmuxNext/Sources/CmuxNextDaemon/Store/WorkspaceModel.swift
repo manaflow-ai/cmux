@@ -199,6 +199,7 @@ public final class WorkspaceModel: Identifiable {
     }
 
     func setName(_ value: String) { if name != value { name = value } }
+    func setColor(_ value: String?) { if color != value { color = value } }
     func setGroup(_ value: WorkspaceGroupID?) { if group != value { group = value } }
 
     /// Moves `screen` to `index` (a `screen-changed` delta whose index differs).
