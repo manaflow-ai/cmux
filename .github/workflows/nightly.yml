@@ -3399,7 +3399,7 @@ jobs:
       # reads it, so the status is never lost and nothing polls.
       - &prove-the-browser-data-import
         name: Prove the browser-data import is compiled out (cx-f58x notary test)
-        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.notary_test_browser_data == 'true')) }}
+        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (needs.decide.outputs.notary_test_browser_data == 'true') }}
         run: |
           set -euo pipefail
           state="$RUNNER_TEMP/browser-data-proof"
@@ -3407,13 +3407,9 @@ jobs:
           mkdir -p "$state/snapshot"
           app="build-universal/Build/Products/Release/cmux.app"
           cp -a "$app" "$state/snapshot/cmux.app"
-          # The proof covers the compiled app. build-nightly-app now installs the
-          # cmux-tui client before this job (#25885); the proof ran before that
-          # install until then, so it never scanned the client. Drop what
-          # the client install writes from the copy to keep that scope.
-          ( cd "$state/snapshot/cmux.app/Contents/Resources/bin" 2>/dev/null &&
-            rm -rf cmux cmux-tui cmux-app-host cmux-cloud cmux-tui-host cmux-holder cmux-browser-host \
-              cmux-tui-ssh cmux-tui.version daemon-capabilities.json ) || true
+          # The proof scans the whole bundle, the cmux-tui client build-nightly-app
+          # installs in Contents/Resources/bin included: the client carries only
+          # browser ids and names (#26120).
           mkfifo "$state/status.fifo"
           (
             status=0
@@ -3590,7 +3586,7 @@ jobs:
 
       - &finish-the-browser-data-import
         name: Finish the browser-data import proof
-        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.notary_test_browser_data == 'true')) }}
+        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (needs.decide.outputs.notary_test_browser_data == 'true') }}
         run: |
           set -euo pipefail
           state="$RUNNER_TEMP/browser-data-proof"
