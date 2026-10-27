@@ -106,6 +106,8 @@ public final class TerminalSurfaceView: NSView {
     var releasesGPUWhilePaused = false {
         didSet { if releasesGPUWhilePaused != oldValue { updateOcclusion() } }
     }
+    /// Shown in a window that stays off screen, the surface lets its GPU memory go (``TerminalOffScreenRelease``).
+    var offScreenRelease: TerminalOffScreenRelease
     var pause: SurfacePause? = .notInWindow // why it does not draw (nil: draws)
     /// The presented frame kept volatile while the surface does not draw.
     var heldFrame = TerminalHeldFrame()
@@ -175,6 +177,7 @@ public final class TerminalSurfaceView: NSView {
         modifierWatch = modifiers
         frameCoalescers = pointerFrames
         gpu = TerminalGPUResidencyGate(seam: gpuResidency)
+        offScreenRelease = TerminalOffScreenRelease(deadline: gpuResidency?.makeOffScreenDeadline())
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         bridge.target = self
         createSurface(mode: mode, echoStage: echoStage, contentsGate: echoStages.contentsGate)

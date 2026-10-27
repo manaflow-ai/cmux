@@ -28,6 +28,9 @@ package import CmuxNextWakeups
         }
     }
 
+    /// Page `key` follows its tab's node: Chromium hears the node's hide itself, in the node's own turn.
+    package func follows(_ key: String) -> Bool { captureWatches[key] != nil }
+
     package func forget(_ key: String) {
         captureWatches[key] = nil
     }

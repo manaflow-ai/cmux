@@ -1328,6 +1328,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// The Chromium page a minimized, other-Space or covered window shows freezes at once, hidden to Chromium first via DevTools, when its tab follows no visibility node (fork before API 37); a playing page stays awake. Needs occludedWindowDiscard.
+    public static let offScreenWindowPageFreeze = Feature(
+        index: 75,
+        name: "offScreenWindowPageFreeze",
+        owner: "PL-memory",
+        description: "The Chromium page a minimized, other-Space or covered window shows freezes at once, hidden to Chromium first via DevTools, when its tab follows no visibility node (fork before API 37); a playing page stays awake. Needs occludedWindowDiscard.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["idle-tabs"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Tooltips, toasts, popovers, menus, drag ghosts, dialogs and the agent cursor draw in a top layer view of the main window above its content; the overlay child panel and its child window re-ordering run only while a Chromium page child window shows.
     public static let overlayTopLayer = Feature(
         index: 76,
@@ -1772,12 +1789,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// A terminal hidden outside the keep-alive band lets its Ghostty GPU memory and renderer thread go while paused and gets them back before it draws; the warm set then grows. Needs a GhosttyNextKit pin with ghostty_surface_set_gpu_resident.
+    /// A terminal hidden outside the keep-alive band, or shown in a window off screen for 30 s, lets its Ghostty GPU memory and renderer thread go while paused and gets them back before it draws; the warm set then grows. Needs a GhosttyNextKit pin with ghostty_surface_set_gpu_resident.
     public static let terminalGPURelease = Feature(
         index: 102,
         name: "terminalGPURelease",
         owner: "PL-memory",
-        description: "A terminal hidden outside the keep-alive band lets its Ghostty GPU memory and renderer thread go while paused and gets them back before it draws; the warm set then grows. Needs a GhosttyNextKit pin with ghostty_surface_set_gpu_resident.",
+        description: "A terminal hidden outside the keep-alive band, or shown in a window off screen for 30 s, lets its Ghostty GPU memory and renderer thread go while paused and gets them back before it draws; the warm set then grows. Needs a GhosttyNextKit pin with ghostty_surface_set_gpu_resident.",
         kind: .labs,
         process: .app,
         chromiumFeature: nil,
@@ -2136,6 +2153,7 @@ nonisolated extension Feature {
         .metricsView,
         .newTabParksHidden,
         .occludedWindowDiscard,
+        .offScreenWindowPageFreeze,
         .overlayTopLayer,
         .pageHangNotice,
         .pageLifecycle,
@@ -2258,6 +2276,7 @@ nonisolated extension Feature {
         .metricsView,
         .newTabParksHidden,
         .occludedWindowDiscard,
+        .offScreenWindowPageFreeze,
         .overlayTopLayer,
         .pageHangNotice,
         .pageLifecycle,
