@@ -71,7 +71,7 @@ struct TerminalThemeSettingsRows: View {
         }
     }
 
-    private static func subtitle(for selection: CmuxTerminalThemePair) -> String {
+    static func subtitle(for selection: CmuxTerminalThemePair) -> String {
         let defaultName = String(
             localized: "settings.terminal.themeGallery.default",
             defaultValue: "Ghostty default colors",
