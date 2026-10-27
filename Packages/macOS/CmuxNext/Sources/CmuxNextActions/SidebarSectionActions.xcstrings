@@ -10483,6 +10483,58 @@
           }
         }
       }
+    },
+    "action.sidebar.noFade.on": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "إظهار الشريط الجانبي كاملا (دون تلاشٍ)"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Prikaži cijelu bočnu traku (bez prelaza)"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Vis hele sidepanelet (uden udtoning)"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Gesamte Seitenleiste zeigen (ohne Verblassen)"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Show Whole Sidebar (No Fade)"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Mostrar toda la barra lateral (sin desvanecimiento)"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Afficher toute la barre latérale (sans fondu)"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Mostra tutta la barra laterale (senza sfumatura)"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "サイドバー全体を表示（フェードなし）"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បង្ហាញរបារចំហៀងទាំងមូល (គ្មានការស្រអាប់)"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "사이드바 전체 표시 (페이드 없음)"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Vis hele sidepanelet (uten uttoning)"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Pokaż cały pasek boczny (bez zanikania)"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Mostrar a barra lateral inteira (sem desvanecimento)"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Показать всю боковую панель (без затемнения)"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "แสดงแถบด้านข้างทั้งหมด (ไม่มีการจางหาย)"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar çubuğunun tamamını göster (solma yok)"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Показати всю бічну панель (без затухання)"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Hiển thị toàn bộ thanh bên (không mờ dần)"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "显示整个侧边栏（无渐隐）"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "顯示整個側邊欄（無漸隱）"}}
+      }
+    },
+    "action.sidebar.noFade.off": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "استعادة تلاشي الشريط الجانبي"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Vrati prelaz bočne trake"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Gendan sidepanelets udtoning"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Verblassen der Seitenleiste wiederherstellen"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Restore Sidebar Fade"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Restaurar el desvanecimiento de la barra lateral"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Rétablir le fondu de la barre latérale"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Ripristina la sfumatura della barra laterale"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "サイドバーのフェードを元に戻す"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ស្តារការស្រអាប់របារចំហៀង"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "사이드바 페이드 복원"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Gjenopprett uttoning av sidepanelet"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Przywróć zanikanie paska bocznego"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Restaurar o desvanecimento da barra lateral"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Вернуть затемнение боковой панели"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "คืนค่าการจางหายของแถบด้านข้าง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar çubuğu solmasını geri yükle"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Повернути затухання бічної панелі"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Khôi phục hiệu ứng mờ dần của thanh bên"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "恢复侧边栏渐隐"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "恢復側邊欄漸隱"}}
+      }
     }
   },
   "version": "1.0"

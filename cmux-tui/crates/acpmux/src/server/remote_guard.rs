@@ -426,6 +426,7 @@ async fn check_inner(
             | method::MUX_FILE_PUT_CHUNK
             | method::MUX_FILE_PUT_FINISH
             | method::MUX_FILE_PUT_CANCEL
+            | method::MUX_FILE_PUT_STATUS
     ) && control_of(origin, auth, params) == crate::hub::Control::Web
     {
         return Err(RpcError::invalid_params(
@@ -748,9 +749,10 @@ async fn web_starts_asking(
     // session with no policy stays without one: `requests.rs` starts it
     // approve-all (hub/remote_sandbox.rs `vm_host_peer_approves`).
     let vm_host_peer = crate::hub::vm_host_peer_approves(
-        hub.config.read().await.vm_host,
+        hub.vm_host().await,
         cfg!(target_os = "macos"),
         control == crate::hub::Control::Peer,
+        hub.approve_all_allowed(),
     );
     if m == method::SESSION_NEW {
         let meta = params.pointer("/_meta/acpmux");
@@ -796,7 +798,8 @@ async fn web_starts_asking(
     }
     // Web CONTROL of a session (not reads) needs its current mode in the
     // asking table and no drift since (`hub/web_control.rs`); the hub checks
-    // again at dispatch.
+    // again at dispatch. A permission answer that only narrows, or carries
+    // the person's proof, is held to less (`Hub::web_answer_check`).
     let controls = matches!(
         m,
         method::SESSION_PROMPT
@@ -860,6 +863,14 @@ async fn web_starts_asking(
     if controls {
         let key = super::session_key(params)?;
         return match hub.resolve(key) {
+            Ok(s) if m == method::MUX_PERMISSION_RESPOND => {
+                let (narrows, proved) = hub.answer_shape(params);
+                hub.web_answer_check(&s, control, narrows, proved)
+            }
+            Ok(s) if m == method::MUX_PERMISSION_GROUP_RESPOND => {
+                let narrows = params["decision"].as_str() == Some("deny");
+                hub.web_answer_check(&s, control, narrows, false)
+            }
             Ok(s) => hub.web_control_check(&s, control),
             // A configured peer's session: forwarded with `via: web`, so
             // that peer applies the Web's rules on its own fresh state.

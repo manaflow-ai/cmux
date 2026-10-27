@@ -12,11 +12,13 @@
 //! staged helper lacks persistence supervision; G1b supplies the marked hook.
 //! Collection loops stop at finite input exhaustion. Service loops stop on child
 //! exit, cancellation, or runtime teardown. No daemon-owned threads are added.
+pub(crate) use crate::hub::remote_sandbox::loader_env_key;
+
 use super::{bwrap, proxy, rules};
 use bwrap::Paths;
 use std::collections::BTreeMap;
 use std::ffi::OsString;
-use std::io;
+use std::io::{self, Read};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
@@ -31,6 +33,20 @@ use tokio::signal::unix::{Signal, SignalKind, signal};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 type Result<T> = std::result::Result<T, String>;
+/// Hidden canary helper; the parent's 20-second canary deadline bounds connect.
+/// Only an explicit permission denial proves the Unix-socket boundary held.
+pub(crate) fn canary_unix(args: &[OsString]) -> Result<()> {
+    let [path] = args else {
+        return Err("expected one Unix socket path".into());
+    };
+    match UnixStream::connect(path) {
+        Ok(_) => println!("unix=0"),
+        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => println!("unix=1"),
+        Err(e) => return Err(format!("Unix canary could not run: {e}")),
+    }
+    Ok(())
+}
+
 #[derive(Debug)]
 struct Options {
     paths: Paths,
@@ -190,13 +206,10 @@ fn stat_fd(fd: RawFd) -> Result<(u64, u64)> {
     Ok((stat.st_dev as u64, stat.st_ino as u64))
 }
 fn listener_in_keeper_namespace(fd: RawFd) -> Result<bool> {
-    let mut netns: RawFd = -1;
-    // SAFETY: ioctl writes one descriptor to this valid output pointer.
-    if unsafe { libc::ioctl(fd, SIOCGSKNS as _, &mut netns) } < 0 {
-        return Err(io::Error::last_os_error().to_string());
-    }
+    // SAFETY: fd is a live socket; SIOCGSKNS returns a descriptor, not an output buffer.
+    let netns = unsafe { libc::ioctl(fd, SIOCGSKNS as _, 0) };
     if netns < 0 {
-        return Err("SIOCGSKNS returned an invalid descriptor".into());
+        return Err(io::Error::last_os_error().to_string());
     }
     // SAFETY: successful SIOCGSKNS returns a new owned descriptor.
     let netns = unsafe { OwnedFd::from_raw_fd(netns) };
@@ -485,7 +498,24 @@ async fn run(options: Options) -> Result<i32> {
         prefix.extend(["--api-port".into(), api.port().to_string()]);
     }
     prefix.push("--".into());
-    let (mut argv, bind_fds) = bwrap::plan(paths, &denies, &prefix)?;
+    // The snapshot precedes the bwrap clone. Only unsandboxed host processes
+    // can add mounts in that window, and they already have full host access.
+    // After cloning, seccomp and user namespaces block sandbox mounts; the
+    // only sandbox-triggered propagation path is automount. The plan refuses
+    // all autofs outside /proc and /dev, which bwrap replaces. Systemd's
+    // binfmt_misc automount under /proc/sys is unaffected. Mount IDs come from
+    // O_PATH + /proc/self/fdinfo in this keeper, never from deepest-path guesses.
+    let mut mountinfo = Vec::new();
+    std::fs::File::open("/proc/self/mountinfo")
+        .map_err(|e| format!("cannot read mountinfo: {e}"))?
+        .take(4 * 1024 * 1024 + 1)
+        .read_to_end(&mut mountinfo)
+        .map_err(|e| format!("cannot read mountinfo: {e}"))?;
+    if mountinfo.len() > 4 * 1024 * 1024 {
+        return Err("mountinfo exceeds 4 MiB".into());
+    }
+    let mountinfo = String::from_utf8(mountinfo).map_err(|_| "mountinfo is not UTF-8")?;
+    let (mut argv, bind_fds) = bwrap::plan(paths, &denies, &mountinfo, &prefix)?;
     let separator =
         argv.iter().position(|arg| arg == "--").ok_or("bwrap plan has no command separator")?;
     argv.splice(
@@ -504,6 +534,7 @@ async fn run(options: Options) -> Result<i32> {
         .collect();
     let bwrap_path = format!("/proc/self/fd/{}", bwrap_fd.as_raw_fd());
     let mut command = Command::new(bwrap_path);
+    crate::hub::remote_sandbox::scrub_loader_env(&mut command);
     // bwrap passes inherited non-CLOEXEC fds to its command; bind fds are
     // consumed by the mount plan, and init closes the handoff before exec.
     command
@@ -574,6 +605,23 @@ pub(crate) fn main(args: Vec<OsString>) -> ! {
 /// deadline; listeners are only inspected, never accepted, and all fds are RAII-owned.
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn bwrap_command_scrubs_loader_env() {
+        let mut cmd = Command::new("/usr/bin/bwrap");
+        cmd.env("LD_PRELOAD", "injected")
+            .env("LOCPATH", "injected")
+            .env("TMPDIR", "/injected")
+            .env("MALLOC_CHECK_", "3")
+            .env("PATH", "/usr/bin");
+        crate::hub::remote_sandbox::scrub_loader_env(&mut cmd);
+        let env = crate::agent::command_env(&cmd);
+        assert!(!env.iter().any(|(k, _)| matches!(
+            k.as_str(),
+            "LD_PRELOAD" | "LOCPATH" | "TMPDIR" | "MALLOC_CHECK_"
+        )));
+        assert!(env.iter().any(|(k, v)| k == "PATH" && v == "/usr/bin"));
+    }
+
     use super::*;
     use std::net::{TcpStream, UdpSocket};
     use std::os::unix::ffi::OsStringExt;

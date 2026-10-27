@@ -1515,7 +1515,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
           measureVmEffect(
             input.timing,
             "resolve_network",
-            resolveOwnerNetwork({ userId: input.userId, provider: input.provider, billingTeamId: input.billingTeamId, teamDirectory: input.teamDirectory }),
+            resolveOwnerNetwork({ userId: input.userId, provider: input.provider, billingTeamId: input.billingTeamId, teamDirectory: input.teamDirectory, providerCredential: input.providerCredential, providerMetadata: input.providerMetadata }),
           ),
         ),
         beginCreateWithLazyProviderRefresh(repo, providers, beginInput),
@@ -2064,7 +2064,7 @@ function finishBaseCreate(
     const network = yield* measureVmEffect(
       input.timing,
       "resolve_network",
-      resolveOwnerNetwork({ userId: input.userId, provider: input.provider, billingTeamId: input.billingTeamId, teamDirectory: input.teamDirectory }).pipe(
+      resolveOwnerNetwork({ userId: input.userId, provider: input.provider, billingTeamId: input.billingTeamId, teamDirectory: input.teamDirectory, providerCredential: input.providerCredential, providerMetadata: input.providerMetadata }).pipe(
         Effect.provideService(VmRepository, repo),
         Effect.provideService(VmProviderGateway, providers),
       ),
@@ -4507,6 +4507,7 @@ function preflightResumeIfSuspended(
       vm,
       providerVmId,
       new VmNotFoundError({ vmId: providerVmId }),
+      options.providerCredential,
     ).pipe(
       Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
     );
@@ -4556,6 +4557,7 @@ function withResumeOnSuspendedAfterFailure<A>(
   callerPlanId?: string | null,
   /** Failures a status probe and resume cannot fix; they are returned as they are. */
   isUnrecoverable: (error: VmWorkflowError) => boolean = () => false,
+  providerCredential?: ProviderCredential,
 ): Effect.Effect<A, VmWorkflowError> {
   return op.pipe(
     Effect.catchAll((originalError) => {
@@ -4564,11 +4566,11 @@ function withResumeOnSuspendedAfterFailure<A>(
       if (!getStatus || !resume || isUnrecoverable(originalError)) return Effect.fail(originalError);
 
       return Effect.gen(function* () {
-        const status = yield* getStatus(vm.provider, providerVmId).pipe(
+        const status = yield* getStatus(vm.provider, providerVmId, providerCredential).pipe(
           Effect.catchAll(() => Effect.succeed(null as VMStatus | null)),
         );
         if (status === "creating") {
-          const settled = yield* waitForRunningStatus(providers, vm, providerVmId);
+          const settled = yield* waitForRunningStatus(providers, vm, providerVmId, providerCredential);
           if (!settled) return yield* Effect.fail(originalError);
           const recorded = yield* repo.markProviderObservedStatus({
             id: vm.id,
@@ -4583,7 +4585,7 @@ function withResumeOnSuspendedAfterFailure<A>(
         }
 
         const reserved = yield* reservePausedResumeIfTeam(repo, vm, providerVmId, maxActiveVms, callerPlanId);
-        yield* resumeUntilRunning(providers, vm, providerVmId).pipe(
+        yield* resumeUntilRunning(providers, vm, providerVmId, providerCredential).pipe(
           Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
           // An allowance refusal is the answer the caller needs; any other
           // resume failure reports the operation's own error.
@@ -4593,7 +4595,7 @@ function withResumeOnSuspendedAfterFailure<A>(
               : originalError,
           )),
         );
-        yield* recordRunningTransition(repo, providers, vm, providerVmId, originalError).pipe(
+        yield* recordRunningTransition(repo, providers, vm, providerVmId, originalError, providerCredential).pipe(
           Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
         );
         if (reserved) yield* recordResumeUsageEvent(repo, vm, resumeSource);
@@ -4615,11 +4617,12 @@ function recordRunningTransition<E extends VmWorkflowError>(
   vm: CloudVmRow,
   providerVmId: string,
   staleRowError: E,
+  providerCredential?: ProviderCredential,
 ): Effect.Effect<void, VmDatabaseError | E> {
   const rollbackPause = (): Effect.Effect<void, never> => {
     const pause = providers.pause;
     if (!pause) return Effect.void;
-    return pause(vm.provider, providerVmId).pipe(Effect.catchAll(() => Effect.void));
+    return pause(vm.provider, providerVmId, providerCredential).pipe(Effect.catchAll(() => Effect.void));
   };
   return Effect.gen(function* () {
     const didUpdate = yield* repo.markProviderObservedStatus({
@@ -5960,6 +5963,8 @@ type OpenAttachEndpointInput = {
   /** Current billing-scope machine allowance; null means unlimited. */
   readonly maxActiveVms?: number | null;
   readonly options?: AttachOptions;
+  readonly transport?: "ssh" | "websocket";
+  readonly providerCredential?: ProviderCredential;
   readonly sessionTitle?: string | null;
   /** Caller's CURRENT billing plan; used for the free access window. */
   readonly callerPlanId?: string | null;
@@ -5970,7 +5975,7 @@ export function openAttachEndpoint(input: OpenAttachEndpointInput) {
   return Effect.gen(function* () {
     const result = yield* openAttachEndpointResult(input);
     return result.endpoint;
-  });
+  }).pipe(releaseProviderCredential(input.providerCredential, input.userId));
 }
 
 /**
@@ -6126,13 +6131,14 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
     const vm = yield* requireAccessibleUserVm(input);
     // A provider that only runs the cmux-tui daemon cannot serve the legacy
     // websocket/SSH attach at all; say so before waking or mutating anything.
+    const requestedTransport = input.transport ?? "websocket";
     const supportedTransports = providers.attachTransports?.(vm.provider);
-    if (supportedTransports && !supportedTransports.some((t) => t === "websocket" || t === "ssh")) {
+    if (supportedTransports && !supportedTransports.includes(requestedTransport)) {
       return yield* Effect.fail(
         new VmAttachTransportUnsupportedError({
           provider: vm.provider,
           vmId: input.providerVmId,
-          requested: "websocket",
+          requested: requestedTransport,
           supported: supportedTransports,
         }),
       );
@@ -6145,24 +6151,37 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
       vm,
       input.providerVmId,
       "attach",
-      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms, callerPlanId: input.callerPlanId, modelPlane: input.modelPlane },
+      {
+        forceProviderProbe: true,
+        maxActiveVms: input.maxActiveVms,
+        callerPlanId: input.callerPlanId,
+        modelPlane: input.modelPlane,
+        providerCredential: input.providerCredential,
+      },
     );
     // Once preflight records the VM as running, that state is externally
     // visible to concurrent attach/SSH requests. Later cleanup failures must
     // fail closed without pausing a VM another request may have attached to.
     yield* revokeActiveIdentities(vm, { failOnCleanupError: true });
+    const providerCredential = input.providerCredential && vm.provider === "gcp" && !input.providerCredential.sshUsername
+      ? { ...input.providerCredential, sshUsername: typeof vm.providerMetadata.gcpSshUsername === "string" ? vm.providerMetadata.gcpSshUsername : undefined }
+      : input.providerCredential;
     const endpoint = yield* withResumeOnSuspendedAfterFailure(
       repo,
       providers,
       vm,
       input.providerVmId,
       "attach",
-      providers.openAttach(vm.provider, input.providerVmId, {
-        ...(input.options ?? {}),
-        providerMetadata: vm.providerMetadata,
-      }),
+      input.transport === "ssh"
+        ? providers.openSSH(vm.provider, input.providerVmId, providerCredential)
+        : providers.openAttach(vm.provider, input.providerVmId, {
+          ...(input.options ?? {}),
+          providerMetadata: vm.providerMetadata,
+        }),
       input.maxActiveVms,
       input.callerPlanId,
+      undefined,
+      providerCredential,
     );
     yield* storeEndpointLeases(vm, endpoint).pipe(
       Effect.catchAll((err) =>

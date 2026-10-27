@@ -9,7 +9,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { AgentMark, agentBrand, knownMark } from "../shared/AgentMark";
+import { AgentMark, agentBrand, hasAgentMark, knownMark } from "../shared/AgentMark";
 import { agentName } from "./agents";
 import { isDefaultChoice } from "./defaultChoice";
 import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPickers";
@@ -23,7 +23,7 @@ import { effortWords, fitsQuery, modelEffort, parseQuery, type ParsedQuery } fro
 import { groupVariants } from "./modelVariants";
 import { registerPicker } from "./pickerOpeners";
 import { OnNewTab } from "./newTabComposer";
-import { QuickModelMenu, type QuickAccount, type QuickFamily, type QuickModel } from "./QuickModelMenu";
+import { QuickModelMenu, type QuickProfile, type QuickFamily, type QuickModel } from "./QuickModelMenu";
 import type { PickerProfile } from "./pickerProfiles";
 import { useUiAnchor } from "../../ui/anchor";
 import { useEscapeCloses } from "../../ui/escapeDismiss";
@@ -272,13 +272,8 @@ function quickRow(family: string, model: ModelChoice): QuickModel {
 /// The rail's Starred tab (never a harness id).
 const STARRED = "\u0000starred";
 
-/// The compact menu's rail, one tab per harness (Leo 2026-10-22: "the harnes picker exists but it's
-/// ass and it's not per-account available"): profiles that draw one brand's mark (Claude Code,
-/// claude-sr2) are that harness's accounts, listed under its Account row, never tabs of their own.
-/// Folder profiles are machine choices and stay out of this rail. A tab is the account the chat runs,
-/// else its first signed-in one, named as the harness's first profile ("Claude Code").
-/// `profiles` are the installed profiles each tab's catalog entry folded into one (pickerProfiles.ts,
-/// by tab id): `claude` and `claude-sr` are one Claude Code there, and both its accounts here.
+/// One tab per installed harness. Launch profiles that share its brand live under Profile;
+/// route-backed signed-in identities remain in Account. Folder profiles belong to the machine chip.
 function railByHarness(
   list: QuickFamily[],
   running: string | undefined,
@@ -293,7 +288,7 @@ function railByHarness(
   }
   return [...groups.values()].map((members) => {
     const first = members[0]!;
-    const listed = members.flatMap((member): QuickAccount[] => {
+    const listed = members.flatMap((member): QuickProfile[] => {
       const folded = profiles[member.id];
       if (!folded?.length) return [{ id: member.id, name: member.name, ...(member.note ? { disabled: true } : {}) }];
       return folded.map((profile) => ({
@@ -312,7 +307,7 @@ function railByHarness(
     const lead = members.find((member) => member.id === running) ?? members.find((member) => !member.note) ?? first;
     const account = accounts.some((choice) => choice.id === running) ? running : lead.id;
     if (members.length === 1 && accounts.length < 2) return first;
-    return { ...lead, name: first.name, accounts, ...(account ? { account } : {}) };
+    return { ...lead, name: first.name, profiles: accounts, ...(account ? { profile: account } : {}) };
   });
 }
 
@@ -765,7 +760,7 @@ export function ModelPicker(props: ModelPickerProps) {
       list.push({
         id: entry.id,
         name: entry.name,
-        ...(agentBrand(entry.mark ?? entry.id) ? { mark: entry.mark ?? entry.id } : {}),
+        ...(hasAgentMark(entry.mark ?? entry.id) ? { mark: entry.mark ?? entry.id } : {}),
         models: shown.map((model) => row(entry, model)),
         more: more.map((model) => row(entry, model)),
         ...(signedOutHere ? { note: t("harnesses.signedOut") } : {}),
@@ -777,12 +772,12 @@ export function ModelPicker(props: ModelPickerProps) {
     const rail = railByHarness(list, harness ?? current?.id, props.profiles, (id) => signedOut?.[id] !== undefined);
     if (!harnessFixed) return rail;
     // A started chat (Leo 2026-10-22: "can expose as fork"): another harness's tab is Fork to it,
-    // Starred keeps the chat's own models, and another account of any harness forks there.
+    // Starred keeps the chat's own models, and another launch profile of any harness forks there.
     return rail.flatMap((family): QuickFamily[] => {
-      const accounts = family.accounts?.map((account) =>
+      const accounts = family.profiles?.map((account) =>
         account.id === harness || fork?.ready ? account : { ...account, disabled: true },
       );
-      const own = { ...family, ...(accounts ? { accounts } : {}) };
+      const own = { ...family, ...(accounts ? { profiles: accounts } : {}) };
       if (family.starred) {
         const models = family.models.filter((model) => model.family === current?.id);
         return models.length ? [{ ...family, models }] : [];
@@ -832,7 +827,7 @@ export function ModelPicker(props: ModelPickerProps) {
   };
   /// An Account pick: the harness's other profile starts a chat there, or forks a started chat there.
   /// `id` is an acpmux profile: one a tab folded (pickerProfiles.ts) is no harness entry of its own.
-  const pickAccount = (id: string) => {
+  const pickProfile = (id: string) => {
     if (id === harness || signedOut?.[id] !== undefined) return;
     const owner = allHarnesses.find((entry) => entry.id === id);
     if (owner && loginFor(owner) !== undefined) return;
@@ -1097,9 +1092,9 @@ export function ModelPicker(props: ModelPickerProps) {
                       current: current?.id,
                       onPick: pickQuickToPrompt,
                       ...(onAddAgent ? { onAddHarness: onAddAgent } : {}),
-                      ...(harnessFixed ? {} : onHarness ? { onAccount: pickAccount } : {}),
+                      ...(harnessFixed ? {} : onHarness ? { onProfile: pickProfile } : {}),
                       ...(harnessFixed && fork
-                        ? { onAccount: pickAccount, onFork: forkTo, forkReady: fork.ready }
+                        ? { onProfile: pickProfile, onFork: forkTo, forkReady: fork.ready }
                         : {}),
                     },
                   }
@@ -1243,7 +1238,7 @@ export function ModelPicker(props: ModelPickerProps) {
                     }}
                     active={index === activeHarness}
                   >
-                    {agentBrand(entry.mark ?? entry.id) ? (
+                    {hasAgentMark(entry.mark ?? entry.id) ? (
                       <AgentMark agent={entry.mark ?? entry.id} size={16} />
                     ) : (
                       // A harness without a mark: its initial, never an empty tab.

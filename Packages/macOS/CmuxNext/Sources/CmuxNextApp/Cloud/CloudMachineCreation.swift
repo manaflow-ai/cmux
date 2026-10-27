@@ -97,7 +97,8 @@ final class CloudMachineCreation: Identifiable {
     /// or the app server's `plan_required`.
     nonisolated static func proRefusal(_ error: any Error) -> ProRefusal? {
         if case let CloudAPIError.planRequired(message, url, plan) = error { return ProRefusal(message: message, upgradeURL: url, plan: plan) }
-        // The plan gate refused a free plan before any request: its card already offered an upgrade.
+        // The plan gate refused a free plan before any request: a person's create already showed its
+        // card, and an agent's shows none (the agent reports the refusal), so no second offer either way.
         if case CloudMachineCreateFlow.Failure.upgradeRequired(.freePlan) = error { return ProRefusal(plan: "pro", offered: true) }
         guard let failure = error as? CloudAppOpFailure, failure.code == CloudAppOpFailure.planRequired else { return nil }
         // The app server's message is the backend's English text, not the person's language: the dialog's own copy stands in.
