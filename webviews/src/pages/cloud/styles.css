@@ -1039,6 +1039,7 @@ select {
 @media (max-width: 860px) {
   .cloud-body {
     flex-direction: column;
+    flex-wrap: nowrap;
     gap: 0;
   }
 
@@ -1057,6 +1058,10 @@ select {
     padding-inline-start: 0;
     border-top: 1px solid var(--cloud-separator);
     border-left: 0;
+  }
+
+  .cloud-body.layout-cards .cloud-machines {
+    flex-basis: auto;
   }
 }
 
