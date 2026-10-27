@@ -268,3 +268,26 @@ fn a_compaction_a_crash_cut_short_is_done_again_and_still_lists() {
     assert_eq!(store.compacted_seq("c1"), Some(15));
     assert_eq!(store.list().unwrap().len(), 1);
 }
+
+/// huge-blue, 2026-10-27: `--archive ~/archive/...` was refused because `~/archive` is
+/// group-writable, and the pass archived nothing.
+#[cfg(unix)]
+#[test]
+fn an_archive_under_a_group_writable_folder_is_kept_owner_only() {
+    use std::os::unix::fs::PermissionsExt;
+    let (home, store) = Home::new();
+    chat(&store, "c1");
+    let shared = home.0.join("shared");
+    std::fs::create_dir_all(&shared).unwrap();
+    std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o775)).unwrap();
+    let archive = shared.join("archive");
+    let mode = CompactMode::Write { archive: Some(&archive) };
+    let staged = store.stage_compaction("c1", mode).unwrap().unwrap();
+    assert!(store.commit_compaction("c1", staged).unwrap());
+    let pass = &passes(&archive, "c1")[0];
+    for dir in [archive.clone(), archive.join("c1"), pass.clone(), pass.join("events")] {
+        let mode = std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o700, "{}", dir.display());
+    }
+    assert!(pass.join("events/000001.ndjson").exists());
+}
