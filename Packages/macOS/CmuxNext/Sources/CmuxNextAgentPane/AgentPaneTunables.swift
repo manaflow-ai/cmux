@@ -1,6 +1,7 @@
 import CmuxNextCompat
 public import CmuxNextDesign
 import CmuxNextPages
+import Foundation
 
 /// The look of what stands on the composer card's top edge (the location strip of a new chat, the
 /// queued prompts of a started one), for comparing designs: `agentPane.debug.topStripStyle`.
@@ -97,9 +98,12 @@ public nonisolated enum AgentPaneHarnessPlacement: String, Sendable, CaseIterabl
 
     public var tunableTitle: String {
         switch self {
-        case .left: "Left rail with names"
-        case .top: "Top strip with names"
-        case .compact: "Compact left rail"
+        case .left:
+            String(localized: "agentPane.harnessPlacement.left", defaultValue: "Left rail with names", bundle: .module)
+        case .top:
+            String(localized: "agentPane.harnessPlacement.top", defaultValue: "Top strip with names", bundle: .module)
+        case .compact:
+            String(localized: "agentPane.harnessPlacement.compact", defaultValue: "Compact left rail", bundle: .module)
         }
     }
 }
@@ -298,8 +302,10 @@ public nonisolated struct AgentPaneTunables {
         default: true, code: "AgentPaneTunables.composerPlainFooter")
 
     public static let harnessPlacement = Tunable<AgentPaneHarnessPlacement>.choice(
-        "agent.harnessPlacement", PageTunables.section, "Model picker harness placement",
-        help: "Compare a named left rail, a wrapping top strip and a compact left rail.",
+        "agent.harnessPlacement", PageTunables.section,
+        String(localized: "agentPane.harnessPlacement.title", defaultValue: "Model picker harness placement", bundle: .module),
+        help: String(localized: "agentPane.harnessPlacement.help",
+                     defaultValue: "Compare a named left rail, a wrapping top strip and a compact left rail.", bundle: .module),
         default: .left, code: "AgentPaneTunables.harnessPlacement")
 
     /// Tool runs fold as the Codex desktop app folds them (webviews conversation/turns.ts
