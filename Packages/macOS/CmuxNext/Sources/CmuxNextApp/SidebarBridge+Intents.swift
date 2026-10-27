@@ -173,7 +173,8 @@ extension SidebarBridge {
         model.ungroupedFirst = !usesMixedOrder
         var sections = Self.sections(services.machines, members: services.windows.registry.members(of: state.id), profile: state.profileID,
                                      hidesHome: Self.hidesHome(services.sidebarLayout.document), selection: state.selection,
-                                     newTabPages: Self.newTabPages(services.agentTabs, in: services.machines.local.store), muted: services.notifications.preferences.mutedWorkspaces)
+                                     newTabPages: Self.newTabPages(services.agentTabs, in: services.machines.local.store), muted: services.notifications.preferences.mutedWorkspaces,
+                                     harnessIcons: { [weak services] in services?.harnessIconLookup ?? .none })
         sections = WorkspaceGroupConfigLook(config: services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig(), machines: services.machines)
             .applying(to: sections)
         // A connecting SSH machine keeps its pending row through a resync (cx-gaq9).
