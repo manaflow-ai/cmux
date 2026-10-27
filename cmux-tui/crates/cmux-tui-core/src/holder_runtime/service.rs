@@ -793,6 +793,7 @@ pub(crate) mod tests {
     /// A service on a stand-in holder's socket (no holder is launched).
     pub(crate) fn stand_in_service(socket: PathBuf) -> Arc<HolderService> {
         Arc::new(HolderService {
+            panic_log: socket.with_extension("panics.jsonl"),
             socket,
             token: [0x44; 32],
             link: Mutex::default(),
