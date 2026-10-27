@@ -11,8 +11,8 @@ single-use token can approve the phone. The page's link (`cmux.mobilePairing.sta
 is opened on the simulator iPhone, signed in to the same account, as the Camera opens a scanned
 code; the step passes when the Mac logs `phone <id8> paired from this Mac's pairing code`.
 
-Screens: the Mac's Mobile Pairing page while it shows no code (a code's image carries its token,
-so it is never saved), the phone's Settings > Devices before and after, and its scanner sheet with
+Screens: the Mac's Mobile Pairing page on a ref that shows no code (a code's image carries its
+token, so on a ref with codes the page is never saved), the phone's Settings > Devices before and after, and its scanner sheet with
 the camera off (needs `axe`). On a ref without the feature the Mac shows no code: the pairing is
 skipped, the run passes, and the Devices screen is the "before"; on a ref with it, no code fails.
 The token is never printed: `t=` is redacted in every log line and file. Ends the Mac app it started (its own PID) and the
@@ -186,13 +186,16 @@ def main():
             last.update(value)
         return value
 
+    expects_code = shows_a_code()
+
     def mac_shot(name):
-        """The Mac page as rendered, only while it shows no code: a code's image carries a live token
-        (text redaction can't reach it), so then the page's QR element is only counted, never saved."""
-        if status().get("qr"):
+        """The Mac page as rendered, only on a ref that never shows a code: a code's image carries a
+        live token (text redaction can't reach it, and a code may render between a status read and
+        a snapshot), so there the page's QR elements are only counted, never saved."""
+        if expects_code:
             shown = rpc("debug.page", {"page": PAGE, "action": "query", "selector": "img.pairing-qr"})
-            count = len(shown.get("elements") or shown.get("matches") or []) if isinstance(shown, dict) else 0
-            return f"no snapshot while a code shows ({count or 'no'} QR element on the page)"
+            count = len(shown.get("elements") or []) if isinstance(shown, dict) else 0
+            return f"no snapshot on a ref that shows a code ({count or 'no'} QR element on the page)"
         r = rpc("debug.page", {"page": PAGE, "action": "snapshot", "path": os.path.join(screens, f"{name}.png")})
         return f"screens/{name}.png" if r.get("path") else f"no snapshot ({r.get('error')})"
 
@@ -212,7 +215,6 @@ def main():
     teardown = TagTeardown(a.mac_app)
     teardown.install()
     streams, app, paired, url = [], None, None, None
-    expects_code = shows_a_code()
     try:
         if os.path.exists(sock):
             os.unlink(sock)  # this run's own tag
