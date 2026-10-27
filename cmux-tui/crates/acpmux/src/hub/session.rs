@@ -126,6 +126,9 @@ pub struct Session {
     /// How many times the chat was stopped (`kill`). A start reads it when its request came
     /// (`Hub::child_for_since`); a stop since then ends that start and keeps the chat closed.
     pub(super) stops: AtomicU64,
+    /// Status writes under way: each sets the status, then logs it (`Hub::write_status`). Log
+    /// retention leaves a chat alone while one is (`retention.rs` `untouched`).
+    pub(super) status_writes: AtomicU64,
     /// Bumps on every status, permission and turn change; waits gate on it.
     pub(super) state_seq: AtomicU64,
     /// Clients attached right now (TUI, web, CLI streams).

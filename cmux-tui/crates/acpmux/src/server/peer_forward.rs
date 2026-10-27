@@ -54,6 +54,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_HANDOFF_DISCARD,
     "_acpmux/peers",
     "_acpmux/peer_status",
+    // Names a peer machine, never a session (`vm_host.rs`).
+    "_acpmux/vm_host",
     "_acpmux/host_health",
     "_acpmux/place",
     "_acpmux/models",
@@ -313,6 +315,12 @@ async fn forward_inner(
             && let Some(obj) = result.as_object_mut()
         {
             obj.insert("presence".into(), crate::hub::presence::none(&id));
+        }
+        // This daemon's link is never the person on the peer, so the peer
+        // refuses every group allow it forwards (`hub/person.rs`), whatever
+        // its build says: the client draws none.
+        if m == method::MUX_PERMISSION_GROUPS && result.is_object() {
+            result["allowRefused"] = json!(crate::hub::person::REASON);
         }
         if m == method::SESSION_FORK
             && let Some(new_id) = result.get("sessionId").and_then(Value::as_str)
