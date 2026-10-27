@@ -196,6 +196,8 @@ const EXEC_DEFAULT_TIMEOUT_MS = 30_000;
 const SCP_PREPARE_EXEC_TIMEOUT_MS = 20_000;
 /** Cloud machines are durable boxes; only an explicit pause/stop should put one to sleep. */
 export const FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS = -1;
+/** Metadata key tying a Freestyle VM to the one create call that asked for it. */
+export const FREESTYLE_CREATE_ATTEMPT_METADATA_KEY = "cmuxCreateAttempt";
 /** The exec API rejects timeoutMs above 300000 (5 minutes per exec). */
 const MAX_EXEC_TIMEOUT_MS = 300_000;
 const EXEC_OVERHEAD_TIMEOUT_MS = 15_000;
