@@ -60,9 +60,7 @@
         "method": "workspace.run",
         "params": {
           "argv": [
-            "/bin/sh",
-            "-c",
-            "exit 0"
+            "/bin/cat"
           ],
           "correlation_key": ""
         },
@@ -77,6 +75,19 @@
         "settled"
       ],
       "note": "correlation_key breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+    },
+    {
+      "id": "one-tab",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/layout/root/tab_ids",
+        "predicate": {
+          "op": "lengthEquals",
+          "value": 1
+        },
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
     }
   ],
   "invariants": [
