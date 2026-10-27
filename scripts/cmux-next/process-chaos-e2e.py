@@ -4,8 +4,8 @@
 While keys go into a terminal (`debug.key`, one at a time), each fault SIGKILLs one of the app's processes, one
 fault at a time, and checks that fault's own expected outcome (the per-fault outcomes of the VM chaos suite,
 scripts/fuzz/macos-matrix/chaos.py, p10-stability-009). A main-thread ping runs on a thread of its own through
-every kill and its recovery; its p99 must be <= --ping-p99-ms (250 ms). VM timing is not perf evidence: run this
-on a lab mini, not in a VM.
+every kill and its recovery; its p99 must be <= --ping-p99-ms (250 ms) and no ping may take longer than
+--ping-hang-ms (1000 ms). VM timing is not perf evidence: run this on a lab mini, not in a VM.
 
   webkit-webcontent  a WebKit tab's WebContent: the crash page with Reload; Reload brings the page back in a new
                      WebContent process.
@@ -28,12 +28,18 @@ on a lab mini, not in a VM.
 
 Every fault also needs the app's pid unchanged, every main-thread ping answered with p99 <= the limit, and no crash
 report (.ips) of the app's processes written from the fault's start. A fault the app cannot offer (no acpmux, no
-holder, no agent page) is `skip` with the reason: no verdict, never ok.
+holder) is `skip` with the reason: no verdict, never ok. With no agent page open, agent-webcontent opens one (New
+Agent Chat, in a pane of its own split from the pages' pane, so the typed terminal never hides it), as the VM suite
+does. A proved pid that exits by itself before its signal (a short-lived Chromium utility process) is recorded in
+`gone_before_kill` and the fault goes on with the others; only a fault left with no pid to signal stops there.
 
 The main-thread ping is `debug.windows`, a `mainActor`-lane method (CmuxNextControl ControlMethod.swift): its reply
 waits for a main-thread turn. `system.ping` reads the last published snapshot and answers while the main thread is
 stalled, so it measures the socket, not the main thread. A ping with no answer within --ping-bound-ms counts as that
 bound and fails the fault, as Chrome's HangWatcher counts a hung main thread (base/threading/hang_watcher.cc).
+The pings go out on a fixed 100 ms clock, and a slow reply also records the pings its wait kept from going out (a
+reply of R ms records R, R-100, R-200, ... down to 100: HdrHistogram's recordValueWithExpectedInterval), so a
+3 s stall is 30 slow samples, not one among hundreds of fast ones (coordinated omission).
 
 It attaches to an app already running and never launches or quits it. It refuses any socket that is not a tagged
 debug socket (`cmux-debug-*.sock`) of a tagged DEV build (`system.identify` bundle `com.cmuxterm.app.debug.<tag>`,
@@ -44,7 +50,8 @@ terminals, and a pane with a Chromium and a WebKit tab on a page it serves on 12
 
 Output: one JSON line per kill on stdout (and appended to --out): {"fault", "expected", "observed", "outcome":
 "ok"|"FAIL"|"skip", "ok", "killed", "app_pid_kept", "main_ping_ms": {n, p50, p95, p99, max, iqr},
-"main_ping_unanswered", "main_ping_after_kill", "main_ping_p99_ok", "keys": {"sent", "failed", "reply_ms"}, "crash_reports", "seconds"}.
+"main_ping_replies", "main_ping_unanswered", "main_ping_after_kill", "main_ping_p99_ok", "main_ping_max_ok",
+"main_ping_ok", "gone_before_kill", "keys": {"sent", "failed", "reply_ms"}, "crash_reports", "seconds"}.
 Progress goes to stderr. Exit 0 when every fault is ok, 1 on any FAIL (or a crash report no fault saw), 3 when a
 fault skipped and none failed, 2 when it refuses the socket.
 
@@ -52,7 +59,7 @@ Without --only it runs every fault but the one the app's terminal model rules ou
 else no holder). Run `--only holder` against an app launched with CMUX_TUI_TERMINAL_HOST_MODEL=holder.
 
   process-chaos-e2e.py --socket ~/.local/state/cmux/cmux-debug-<tag>.sock [--only a,b] [--out chaos.jsonl]
-      [--ping-p99-ms 250]
+      [--ping-p99-ms 250] [--ping-hang-ms 1000]
 """
 from __future__ import annotations
 
@@ -94,6 +101,7 @@ NEEDED_METHODS = ("debug.key", "debug.surfaces", "debug.windows", "debug.daemon"
 MAIN_PING = "debug.windows"
 PING_P99_MS = 250
 PING_BOUND_MS = 10000
+PING_HANG_MS = 1000  # the longest one main-thread ping may take in a fault
 PING_EVERY = 0.1  # s between main-thread pings
 PINGS_AFTER_KILL = 5  # the fewest main-thread pings sent after a kill, however fast the recovery
 KEY_EVERY = 0.05  # s between typed keys
@@ -142,14 +150,30 @@ def missing_methods(identity):
     return [m for m in NEEDED_METHODS if m not in methods]
 
 
-def ping_verdict(samples, limit_ms, bound_ms=PING_BOUND_MS):
-    """The main-thread pings of one fault: `samples` are ms, or None for a ping with no answer within the bound
-    (counted as the bound). ok needs at least one ping, every one answered, and p99 <= `limit_ms`."""
-    values = [bound_ms if s is None else s for s in samples]
-    stats = perf_stats.summary(values)
-    unanswered = sum(1 for s in samples if s is None)
-    ok = stats["n"] > 0 and unanswered == 0 and stats["p99"] <= limit_ms
-    return {"main_ping_ms": stats, "main_ping_unanswered": unanswered, "main_ping_p99_ok": ok}
+def open_loop(replies, every_ms):
+    """The samples of pings due every `every_ms`: each reply, and for a reply of R ms the pings it kept from going
+    out, R-every, R-2*every, ... while >= every (HdrHistogram recordValueWithExpectedInterval)."""
+    samples = []
+    for reply in replies:
+        samples.append(reply)
+        missed = reply - every_ms
+        while every_ms > 0 and missed >= every_ms:
+            samples.append(missed)
+            missed -= every_ms
+    return samples
+
+
+def ping_verdict(replies, limit_ms, bound_ms=PING_BOUND_MS, every_ms=PING_EVERY * 1000, hang_ms=PING_HANG_MS):
+    """The main-thread pings of one fault: `replies` are ms, or None for a ping with no answer within the bound
+    (counted as the bound). The statistics are open-loop (open_loop). ok needs at least one ping, every one
+    answered, p99 <= `limit_ms` and the slowest <= `hang_ms`."""
+    values = [bound_ms if r is None else r for r in replies]
+    stats = perf_stats.summary(open_loop(values, every_ms))
+    unanswered = sum(1 for r in replies if r is None)
+    p99_ok = stats["n"] > 0 and unanswered == 0 and stats["p99"] <= limit_ms
+    max_ok = stats["n"] > 0 and stats["max"] <= hang_ms
+    return {"main_ping_ms": stats, "main_ping_replies": len(replies), "main_ping_unanswered": unanswered,
+            "main_ping_p99_ok": p99_ok, "main_ping_max_ok": max_ok, "main_ping_ok": p99_ok and max_ok}
 
 
 def report_owner(header, body, bundle_id, bundle_path, app_pid):
@@ -246,7 +270,9 @@ class AppProcesses:
 
 # ---------------------------------------------------------------- background loops
 class Loop:
-    """Runs `step()` every `every` s on a thread of its own, at least once, until stopped; keeps the results."""
+    """Runs `step()` on a fixed clock of `every` s on a thread of its own, at least once, until stopped; keeps the
+    results. A step that overruns its slot skips the slots it covered (the next step starts on the next slot), so
+    the clock never drifts with the replies."""
 
     def __init__(self, step, every, name):
         self.step, self.every = step, every
@@ -254,9 +280,12 @@ class Loop:
         self.thread = threading.Thread(target=self._run, name=name, daemon=True)
 
     def _run(self):
+        start = time.monotonic()
         while True:
             self.results.append(self.step())
-            if self.done.wait(self.every):
+            elapsed = time.monotonic() - start
+            slot = (int(elapsed / self.every) + 1) * self.every if self.every > 0 else elapsed
+            if self.done.wait(slot - elapsed):
                 return
 
     def start(self):
@@ -311,12 +340,12 @@ class Chaos:
     them at once."""
 
     def __init__(self, rpc, procs, url, *, kill=None, reports=None, ping_limit_ms=PING_P99_MS,
-                 ping_bound_ms=PING_BOUND_MS, ping_every=PING_EVERY, key_every=KEY_EVERY, pre_s=0.5, post_s=1.0,
-                 report_settle_s=REPORT_SETTLE_S, step_s=STEP_S, patience=1.0):
+                 ping_bound_ms=PING_BOUND_MS, ping_hang_ms=PING_HANG_MS, ping_every=PING_EVERY, key_every=KEY_EVERY,
+                 pre_s=0.5, post_s=1.0, report_settle_s=REPORT_SETTLE_S, step_s=STEP_S, patience=1.0):
         self.rpc, self.procs, self.url = rpc, procs, url
         self.kill_pid = kill or (lambda pid: os.kill(pid, signal.SIGKILL))
         self.reports = reports or (lambda since: [])
-        self.ping_limit_ms, self.ping_bound_ms = ping_limit_ms, ping_bound_ms
+        self.ping_limit_ms, self.ping_bound_ms, self.ping_hang_ms = ping_limit_ms, ping_bound_ms, ping_hang_ms
         self.ping_every, self.key_every = ping_every, key_every
         self.pre_s, self.post_s, self.report_settle_s, self.step_s = pre_s, post_s, report_settle_s, step_s
         self.patience = patience  # scales every recovery wait (tests)
@@ -324,7 +353,7 @@ class Chaos:
         self.pings_at_kill = None  # the pinger's count when the first kill was sent
         self.tabs = {}  # role -> tab id: left, right (terminals), cef, webkit (pages)
         self.marker = 0
-        self.killed = []
+        self.killed, self.gone = [], []  # this fault's signalled pids; proved pids that exited before their signal
         self.seen_reports = set()
 
     # -- app reads and input
@@ -447,22 +476,40 @@ class Chaos:
 
     def kill(self, pids, reported_by_app=False):
         """SIGKILL each of `pids` once proved the app's; a FAIL (RuntimeError) on one the app reported that the proof
-        refuses, a Skip on one it found itself."""
+        refuses, a Skip on one it found itself. A pid it found itself that exited by itself before its proof, or any
+        proved pid that exited before its signal, goes to `gone`; the others are still signalled. With none left to
+        signal: a FAIL when the app reported the pid, else a Skip."""
+        proved = []
         for pid in pids:
             owned, why = self.procs.proof(pid, reported_by_app)
-            if not owned:
-                if reported_by_app:
-                    raise RuntimeError(f"the pid the app reports is not proved the app's: {why}")
+            if owned:
+                proved.append(pid)
+            elif not reported_by_app and not self.procs.running(pid):
+                self.gone.append(pid)
+            elif reported_by_app:
+                raise RuntimeError(f"the pid the app reports is not proved the app's: {why}")
+            else:
                 raise Skip(f"refused to signal {pid}: {why}")
         time.sleep(self.pre_s)  # test harness: keys before the kill are the window's baseline
         if self.typist:  # the kill lands while keys go in
             crash.wait(lambda: self.typist.loop.results, 10, 0.01)
         if self.pings_at_kill is None and self.pinger:
             self.pings_at_kill = len(self.pinger.results)
-        for pid in pids:
-            self.kill_pid(pid)
+        for pid in proved:
+            try:
+                self.kill_pid(pid)
+            except ProcessLookupError:
+                self.gone.append(pid)
+                continue
             self.killed.append(pid)
-        log(f"killed {', '.join(map(str, pids))}")
+        if self.gone:
+            log(f"exited by itself before its signal: {', '.join(map(str, self.gone))}")
+        if not self.killed:
+            why = f"every pid exited by itself before its signal ({', '.join(map(str, pids))})"
+            if reported_by_app:
+                raise RuntimeError(why)
+            raise Skip(why)
+        log(f"killed {', '.join(map(str, self.killed))}")
 
     def ping(self):
         began = time.monotonic()
@@ -473,7 +520,7 @@ class Chaos:
     def run_fault(self, name):
         row = {"fault": name, "expected": FAULTS[name]}
         started, clock = time.time(), time.monotonic()
-        self.killed, self.typist, self.pings_at_kill = [], None, None
+        self.killed, self.gone, self.typist, self.pings_at_kill = [], [], None, None
         pinger = self.pinger = Loop(self.ping, self.ping_every, "chaos-pinger").start()
         try:
             try:
@@ -484,13 +531,14 @@ class Chaos:
                                PINGS_AFTER_KILL * (self.ping_every + self.ping_bound_ms / 1000), 0.01)
             finally:
                 pings = pinger.stop(self.ping_bound_ms / 1000 + 5)
-            verdict = ping_verdict(pings, self.ping_limit_ms, self.ping_bound_ms)
+            verdict = ping_verdict(pings, self.ping_limit_ms, self.ping_bound_ms, self.ping_every * 1000,
+                                   self.ping_hang_ms)
             verdict["main_ping_after_kill"] = len(pings) - (self.pings_at_kill or 0)
             kept = crash.alive(self.procs.app_pid)
             time.sleep(self.report_settle_s)  # test harness: ReportCrash writes seconds after a death
             reports = [r for r in self.reports(started - 1) if r not in self.seen_reports]
             self.seen_reports.update(reports)
-            good = ok and kept and verdict["main_ping_p99_ok"] and not reports
+            good = ok and kept and verdict["main_ping_ok"] and not reports
             row.update(observed=observed, outcome=OK if good else FAIL, app_pid_kept=kept, crash_reports=reports,
                        **verdict)
         except Skip as why:
@@ -500,6 +548,7 @@ class Chaos:
                        app_pid_kept=crash.alive(self.procs.app_pid))
         row["ok"] = row["outcome"] == OK
         row["killed"] = list(self.killed)
+        row["gone_before_kill"] = list(self.gone)
         row["keys"] = self.typist.summary() if self.typist else None
         row["seconds"] = round(time.monotonic() - clock, 1)
         return row
@@ -531,17 +580,37 @@ class Chaos:
         return seen["crash_page"] and seen["reloaded"] and bool(fresh) and fresh != page, {"new_page_pid": fresh, **seen}
 
     def agent_pid(self, pane=None):
+        """(pane, WebContent pid) of the agent page shown in `pane`, or else in the focused pane or the only pane
+        that shows one; with several and none focused the reply names them and no pid, so ask the first."""
         reply = self.call("debug.agent_pane", {"action": "pid", **({"pane": pane} if pane else {})})
-        return reply.get("pane") or ((reply.get("agent_panes") or [None])[0]), reply.get("pid")
+        found = reply.get("pane") or ((reply.get("agent_panes") or [None])[0])
+        if not reply.get("pid") and found and not pane:
+            return self.agent_pid(found)
+        return found, reply.get("pid")
+
+    def open_agent_chat(self):
+        """New Agent Chat in a pane of its own, split from the pages' pane: the typist focuses the left terminal,
+        and an agent tab in that pane would be hidden then (debug.agent_pane reports only a shown agent tab)."""
+        page_tab = self.tabs.get("cef") or self.tabs.get("webkit")
+        if page_tab:
+            self.focus(page_tab)
+        known = {p.get("selected_tab") for p in self.panes()}
+        if not self.split("splitRight", known):
+            raise RuntimeError("splitRight made no pane for the agent chat")
+        self.action("palette.newAgentChat")
+        return self.wait(lambda: (lambda found: found if found[1] else None)(self.agent_pid()), 60)
 
     def fault_agent_webcontent(self):
         pane, page = self.agent_pid()
+        opened = not page
+        if opened:
+            pane, page = self.open_agent_chat() or (None, None)
         if not page:
-            raise Skip("no agent page reports a WebContent pid (debug.agent_pane)")
+            raise Skip("no agent page reports a WebContent pid (debug.agent_pane), even after New Agent Chat")
         with self.typing():
             self.kill([int(page)], reported_by_app=True)
             fresh = self.wait(lambda: (lambda p: p if p and p != page else None)(self.agent_pid(pane)[1]), 30)
-        return bool(fresh), {"pane": pane, "new_pid": fresh}
+        return bool(fresh), {"pane": pane, "opened_chat": opened, "new_pid": fresh}
 
     def fault_chromium_renderer(self):
         tab = self.page("cef")
@@ -718,6 +787,7 @@ def main(argv=None):
     parser.add_argument("--out", help="also append each JSON line to this file")
     parser.add_argument("--ping-p99-ms", type=float, default=PING_P99_MS)
     parser.add_argument("--ping-bound-ms", type=float, default=PING_BOUND_MS)
+    parser.add_argument("--ping-hang-ms", type=float, default=PING_HANG_MS)
     opts = parser.parse_args(argv)
     only = [f for f in opts.only.split(",") if f]
     unknown = [f for f in only if f not in FAULTS]
@@ -736,7 +806,8 @@ def main(argv=None):
     procs = AppProcesses(app_pid, bundle_id, bundle_path)
     server, url = crash.serve()
     reports = lambda since: app_reports(since, bundle_id, bundle_path, app_pid)  # noqa: E731
-    chaos = Chaos(rpc, procs, url, reports=reports, ping_limit_ms=opts.ping_p99_ms, ping_bound_ms=opts.ping_bound_ms)
+    chaos = Chaos(rpc, procs, url, reports=reports, ping_limit_ms=opts.ping_p99_ms, ping_bound_ms=opts.ping_bound_ms,
+                  ping_hang_ms=opts.ping_hang_ms)
     began = time.time()
     log(f"app pid {app_pid} ({bundle_id}), page {url}")
     out = open(opts.out, "a") if opts.out else None

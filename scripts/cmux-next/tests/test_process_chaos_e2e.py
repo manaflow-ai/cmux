@@ -30,6 +30,7 @@ import os
 import re
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -61,8 +62,10 @@ OTHER_WEBCONTENT = 950  # a WebContent of another app
 class FakeApp:
     """A tagged app's socket and process table. Kills change what the app reports the way the real one recovers."""
 
-    def __init__(self, holders=False, acpmux=True, recover=True, hang_on_kill=False):
-        self.recover, self.hang_on_kill = recover, hang_on_kill
+    def __init__(self, holders=False, acpmux=True, recover=True, hang_on_kill=False, agent="open"):
+        """`agent`: "open" (an agent page shows), "none" (none until New Agent Chat opens one in the focused pane)
+        or "several" (two panes show one and neither is focused: the reply names them, a pid needs `pane`)."""
+        self.recover, self.hang_on_kill, self.agent_mode = recover, hang_on_kill, agent
         self.next_pid = 1000
         self.procs = {
             APP: Proc(APP, 1, f"{BUNDLE}/Contents/MacOS/cmux DEV"),
@@ -82,7 +85,8 @@ class FakeApp:
         self.daemon = 700
         self.panes = [{"kind": "terminal", "selected_tab": "old", "focused": True, "link": "connected", "text": ""}]
         self.pages = {}
-        self.agent = 801
+        self.agent = None if agent == "none" else 801
+        self.exits_before_kill = set()  # pids that exit by themselves after the proof, before the signal
         self.lines = {}
         self.killed = []
         self.keys = 0
@@ -103,6 +107,10 @@ class FakeApp:
     def kill(self, pid):
         if pid in (APP, PERSON, OTHER_WEBCONTENT):
             raise AssertionError(f"signalled {pid}")
+        if pid in self.exits_before_kill:
+            self.procs.pop(pid, None)
+        if pid not in self.procs:
+            raise ProcessLookupError(pid)
         self.killed.append(pid)
         command = self.procs.pop(pid).command
         if "--type=renderer" in command:
@@ -170,7 +178,7 @@ class FakeApp:
         if method == "debug.daemon":
             return {"pid": self.daemon, "connection": "connected"}
         if method == "debug.agent_pane":
-            return {"pane": "agent-pane", "pid": self.agent}
+            return self.agent_pane(params.get("pane"))
         if method == "debug.key":
             self.keys += 1
             pane = self.focused()
@@ -205,6 +213,21 @@ class FakeApp:
             return self.action(params["action"], params.get("args") or {}, params.get("target"))
         return {"error": {"code": "method_not_found"}}
 
+    def agent_pane(self, pane):
+        shown = [p["selected_tab"] for p in self.panes if p["kind"] == "agent"]
+        if self.agent_mode == "several":
+            shown = ["agent-a", "agent-b"]
+        elif self.agent_mode == "open":
+            shown = ["agent-pane"]
+        if pane:
+            return {"pane": pane, "pid": self.agent} if pane in shown else {"error": f"pane {pane} shows no agent tab",
+                                                                             "agent_panes": []}
+        if self.agent_mode == "open":
+            return {"pane": "agent-pane", "pid": self.agent}
+        if len(shown) == 1:
+            return {"pane": shown[0], "pid": self.agent}
+        return {"error": "no focused pane shows an agent tab", "agent_panes": shown}
+
     def action(self, name, args, target):
         if name in ("newWorkspace", "splitRight", "splitDown"):
             self.add_terminal()
@@ -217,6 +240,11 @@ class FakeApp:
             pid = 800 if args["engine"] == "webkit" else None
             self.pages[tab] = {"engine": args["engine"], "gone": "0", "page_pid": pid}
             return {"created": [tab]}
+        if name == "palette.newAgentChat":
+            pane = self.focused()
+            pane.update(kind="agent", selected_tab="agent-chat")
+            self.agent = self.spawn(1, "/System/Library/com.apple.WebKit.WebContent")
+            return {}
         if name == "tab.focus":
             tab = target.removeprefix("tab:")
             for pane in self.panes:
@@ -317,6 +345,27 @@ class PingVerdictTests(unittest.TestCase):
         self.assertEqual(verdict["main_ping_ms"]["max"], 10000)
         self.assertFalse(chaos.ping_verdict([], 250)["main_ping_p99_ok"])
 
+    def test_one_long_stall_among_fast_pings_fails(self):
+        # Closed loop, a 3 s stall is one sample in ~270 and p99 stays fast; open loop it is the 30 pings it held up.
+        verdict = chaos.ping_verdict([8.0] * 270 + [3000.0], 250, every_ms=100)
+        self.assertFalse(verdict["main_ping_p99_ok"])
+        self.assertFalse(verdict["main_ping_ok"])
+        self.assertEqual(verdict["main_ping_replies"], 271)
+        self.assertEqual(verdict["main_ping_ms"]["n"], 271 + 29)
+        self.assertGreater(verdict["main_ping_ms"]["p99"], 250)
+        stall = chaos.ping_verdict([5.0] * 300 + [4000.0], 250, every_ms=100)
+        self.assertFalse(stall["main_ping_ok"])
+
+    def test_a_ping_over_the_hang_bound_fails_even_with_p99_within_the_limit(self):
+        verdict = chaos.ping_verdict([5.0] * 2000 + [1500.0], 250, every_ms=100, hang_ms=1000)
+        self.assertTrue(verdict["main_ping_p99_ok"])
+        self.assertFalse(verdict["main_ping_max_ok"])
+        self.assertFalse(verdict["main_ping_ok"])
+
+    def test_open_loop_adds_the_pings_a_slow_reply_held_up(self):
+        self.assertEqual(chaos.open_loop([350.0, 5.0], 100), [350.0, 250.0, 150.0, 5.0])
+        self.assertEqual(chaos.open_loop([199.0], 100), [199.0])
+
 
 class RunTests(unittest.TestCase):
     def setUp(self):
@@ -345,7 +394,7 @@ class RunTests(unittest.TestCase):
         for line in lines:
             self.assertEqual(line["outcome"], "ok", line)
             self.assertTrue(line["expected"] and isinstance(line["observed"], dict))
-            self.assertTrue(line["app_pid_kept"] and line["main_ping_p99_ok"])
+            self.assertTrue(line["app_pid_kept"] and line["main_ping_ok"])
             self.assertGreaterEqual(line["main_ping_after_kill"], chaos.PINGS_AFTER_KILL)
             self.assertGreater(line["keys"]["sent"], 0, line["fault"])
         by_fault = {line["fault"]: line["killed"] for line in lines}
@@ -371,6 +420,61 @@ class RunTests(unittest.TestCase):
         self.assertTrue(lines[0]["observed"]["reloaded"])
         self.assertGreater(lines[0]["main_ping_unanswered"], 0)
         self.assertFalse(lines[0]["main_ping_p99_ok"])
+        self.assertFalse(lines[0]["main_ping_ok"])
+
+    def test_a_main_thread_stall_inside_the_fault_fails_it(self):
+        app = FakeApp()
+        rpc = app.rpc
+
+        def stalling(method, params=None, timeout=60):
+            if method == "debug.windows" and app.killed and not app.stalled:
+                app.stalled = True
+                time.sleep(0.3)  # 30 ping slots of 10 ms
+            return rpc(method, params, timeout)
+
+        app.stalled = False
+        app.rpc = stalling
+        _, _, _, _, lines = self.run_all(app, only={"chromium-gpu"}, ping_hang_ms=100)
+        self.assertEqual(lines[0]["outcome"], "FAIL", lines[0])
+        self.assertFalse(lines[0]["main_ping_ok"])
+        self.assertGreaterEqual(lines[0]["main_ping_ms"]["max"], 250)
+
+    def test_agent_page_opened_by_new_agent_chat_when_none_shows(self):
+        app = FakeApp(agent="none")
+        run, _, _, rows, lines = self.run_all(app, only={"agent-webcontent", "acpmux"})
+        self.assertEqual([line["outcome"] for line in lines], ["ok", "ok"], lines)
+        self.assertTrue(lines[0]["observed"]["opened_chat"])
+        self.assertEqual(lines[0]["observed"]["pane"], "agent-chat")
+        self.assertEqual(len(lines[0]["killed"]), 1)
+        agent = next(p for p in app.panes if p["kind"] == "agent")
+        self.assertNotIn(agent["selected_tab"], (run.tabs["left"], run.tabs["right"]))
+        self.assertEqual(chaos.exit_status(rows, []), 0)
+
+    def test_several_agent_panes_and_none_focused_asks_the_first(self):
+        _, _, _, _, lines = self.run_all(FakeApp(agent="several"), only={"agent-webcontent"})
+        self.assertEqual(lines[0]["outcome"], "ok", lines[0])
+        self.assertEqual(lines[0]["observed"]["pane"], "agent-a")
+        self.assertFalse(lines[0]["observed"]["opened_chat"])
+        self.assertEqual(lines[0]["killed"], [801])
+
+    def test_a_utility_process_that_exits_before_its_signal_is_gone_not_a_fail(self):
+        app = FakeApp()
+        app.procs[599] = Proc(599, APP, f"{BUNDLE}/Contents/Frameworks/Helper --type=utility "
+                                        "--utility-sub-type=data_decoder.mojom.DataDecoderService")
+        app.exits_before_kill = {599}
+        _, _, _, rows, lines = self.run_all(app, only={"chromium-utility"})
+        self.assertEqual(lines[0]["outcome"], "ok", lines[0])
+        self.assertEqual(lines[0]["gone_before_kill"], [599])
+        self.assertEqual(lines[0]["killed"], [603])
+        self.assertEqual(chaos.exit_status(rows, []), 0)
+
+    def test_every_utility_process_gone_before_its_signal_skips(self):
+        app = FakeApp()
+        app.exits_before_kill = {603}
+        _, _, _, _, lines = self.run_all(app, only={"chromium-utility"})
+        self.assertEqual(lines[0]["outcome"], "skip", lines[0])
+        self.assertEqual(lines[0]["killed"], [])
+        self.assertEqual(lines[0]["gone_before_kill"], [603])
 
     def test_a_crash_report_in_the_window_fails_the_fault_once(self):
         _, _, _, _, lines = self.run_all(FakeApp(), only={"chromium-renderer", "chromium-gpu"},
