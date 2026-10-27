@@ -53,17 +53,80 @@ def _page(sample: dict) -> list | None:
     return max(rows, key=lambda row: float(row[5]) if len(row) >= 8 else 0.0)
 
 
-def drive(driver, out: Path, strip: bool = False) -> None:
-    """Splits right, opens the probe in the right pane, then traces four divider drags.
+# A heavy page: about 3000 text cards in an auto-fill grid (every width change reflows them) and a full-width
+# canvas redrawn with 20000 shapes on each resize (a map's tile redraw), with the probe's animation-frame record.
+HEAVY_PAGE = """<!doctype html><meta charset="utf-8"><title>Resize heavy</title>
+<style>
+html,body{margin:0;background:#10233a;color:#e8eef5;font:14px/1.4 -apple-system,sans-serif}
+canvas{display:block;width:100%;height:420px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;padding:12px}
+.grid article{padding:8px;border-radius:8px;background:#1d3b5c}
+.grid h3{margin:0 0 4px;font-size:15px}.grid p{margin:0;hyphens:auto}
+</style>
+<canvas id="map"></canvas><div class="grid" id="grid"></div>
+<script>
+window.__rz = [];
+requestAnimationFrame(function frame(t) {
+  if (__rz.length < 20000) __rz.push([performance.timeOrigin + t, innerWidth, innerHeight]);
+  requestAnimationFrame(frame);
+});
+var words = "pane divider layout chromium frame resize width height page reflow paint tile road river park street".split(" ");
+var grid = document.getElementById("grid"), html = [];
+for (var i = 0; i < 3000; i++) {
+  var text = [];
+  for (var j = 0; j < 28; j++) text.push(words[(i * 7 + j * 13) % words.length]);
+  html.push("<article><h3>Card " + i + "</h3><p>" + text.join(" ") + "</p></article>");
+}
+grid.innerHTML = html.join("");
+var canvas = document.getElementById("map");
+function draw() {
+  var w = canvas.clientWidth, h = canvas.clientHeight, dpr = devicePixelRatio || 1;
+  canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+  var g = canvas.getContext("2d"); g.scale(dpr, dpr); g.fillStyle = "#16324f"; g.fillRect(0, 0, w, h);
+  for (var k = 0; k < 20000; k++) {
+    var x = (k * 97) % w, y = (k * 57) % h;
+    g.fillStyle = "hsl(" + (k % 360) + ",45%," + (30 + k % 30) + "%)";
+    g.fillRect(x, y, 6 + k % 9, 4 + k % 7);
+  }
+}
+new ResizeObserver(draw).observe(canvas);
+</script>
+"""
 
+# Named pages of `drive(page=...)`; any other value is an http(s) URL, whose recorder is injected after it loads.
+PAGES = {"probe": browser_resize.PROBE_PAGE, "heavy": HEAVY_PAGE}
+PAGE_URLS = {"maps": "https://www.google.com/maps/@37.7749,-122.4194,14z"}
+
+# The probe's animation-frame record, added to a page it is not part of (idempotent); true once it records.
+INJECT_RECORDER = """(function () {
+  if (!Array.isArray(window.__rz)) {
+    window.__rz = [];
+    requestAnimationFrame(function frame(t) {
+      if (window.__rz.length < 20000) window.__rz.push([performance.timeOrigin + t, innerWidth, innerHeight]);
+      requestAnimationFrame(frame);
+    });
+  }
+  return document.readyState === 'complete' && window.__rz.length > 2;
+})()"""
+
+
+def drive(driver, out: Path, strip: bool = False, page: str = "probe") -> None:
+    """Splits right, opens `page` in the right pane, then traces four divider drags.
+
+    `page`: "probe" (browser_resize's probe), "heavy" (HEAVY_PAGE), "maps" or an http(s) URL (the page's
+    animation frames are recorded by INJECT_RECORDER once it loaded).
     `strip`: then one more drag, held open while `debug.window_snapshot` takes the window every
     12 moves (`strip-NN.png` in `out`): a frame strip of where the page is while the divider moves.
     Snapshots perturb timing, so that drag is not measured."""
-    page = out / "split-resize-probe.html"
-    page.write_text(browser_resize.PROBE_PAGE)
+    if page in PAGES:
+        path = out / f"split-resize-{page}.html"
+        path.write_text(PAGES[page])
+        url = path.as_uri()
+    else:
+        url = PAGE_URLS.get(page, page)
     split = driver.call("action.run", {"action": "splitRight", "focus": True}, timeout=30)
     time.sleep(1.0)
-    opened = driver.call("action.run", {"action": "openBrowser.chromium", "args": {"url": page.as_uri()}, "focus": True},
+    opened = driver.call("action.run", {"action": "openBrowser.chromium", "args": {"url": url}, "focus": True},
                          timeout=90)
 
     def evaluate(script: str):
@@ -73,14 +136,14 @@ def drive(driver, out: Path, strip: bool = False) -> None:
     deadline = time.monotonic() + 60
     ready = False
     while time.monotonic() < deadline:
-        if evaluate("document.readyState === 'complete' && Array.isArray(window.__rz) && window.__rz.length > 2") is True:
+        if evaluate(INJECT_RECORDER) is True:
             ready = True
             break
         time.sleep(0.5)
     if not ready:
-        driver.save("split_resize", {"error": "the probe page never ran in a Chromium tab", "split": split, "opened": opened})
+        driver.save("split_resize", {"error": f"the {page} page never ran in a Chromium tab", "split": split, "opened": opened})
         return
-    time.sleep(1.5)
+    time.sleep(1.5 if page in PAGES else 6.0)  # a remote page keeps loading tiles and scripts after `complete`
 
     started = driver.call("debug.motion", {"action": "trace_start", "targets": ["dividers", "page"]})
     time.sleep(0.2)
@@ -139,7 +202,8 @@ def drive(driver, out: Path, strip: bool = False) -> None:
         path = out / "strip-landed.png"
         shots.append({"step": "landed", "path": path.name,
                       "result": driver.call("debug.window_snapshot", {"kind": "main", "path": str(path)}, timeout=20)})
-    driver.save("split_resize", {"drags": drags, "split": split, "opened": opened, "strip": shots})
+    driver.save("split_resize", {"page": page, "url": url, "drags": drags, "split": split, "opened": opened,
+                                 "strip": shots})
 
 
 # The recording drag: a window snapshot every this many of its 96 moves (16 frames, then one after it landed).

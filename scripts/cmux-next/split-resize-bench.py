@@ -13,8 +13,10 @@ On the fleet (through the allowlisted entry, which builds the app at the commit)
 
 With --variants=live,hold,synced each `browserResize.dragResize` value runs in its own launch of the
 same build, back to back, through a Debug Settings override file (CMUX_NEXT_DEBUG_TUNABLES_FILE).
+With --page (repeatable: probe, heavy, maps or an http(s) URL; default probe) each page runs every variant.
 
 Usage: split-resize-bench.py --app APP --out DIR [--json PATH] [--tag TAG] [--variants=live,hold,synced]
+                             [--page=probe --page=heavy --page=maps]
 """
 
 from __future__ import annotations
@@ -37,12 +39,20 @@ parser.add_argument("--tag")
 # `browserResize.dragResize` values to measure, each in its own launch of the same build, back to back
 # (live: AsyncLiveResize, the behaviour before cmux#25842; hold; synced: AsyncLiveResize off).
 parser.add_argument("--variants", default="")
+# Pages to drag beside (split_resize.drive): probe (the light probe), heavy (a large reflowing DOM and a canvas
+# redrawn on resize), maps (Google Maps) or an http(s) URL. Each page runs every variant.
+parser.add_argument("--page", action="append", default=[])
 opts, _ = parser.parse_known_args()
 VARIANTS = ("live", "hold", "synced")
 variants = [v for v in opts.variants.split(",") if v] or [None]
 for variant in variants:
     if variant is not None and variant not in VARIANTS:
         sys.exit(f"--variants: {variant!r} is not one of {', '.join(VARIANTS)}")
+pages = opts.page or ["probe"]
+for page_name in pages:
+    if page_name not in split_resize.PAGES and page_name not in split_resize.PAGE_URLS and \
+            not page_name.startswith(("http://", "https://")):
+        sys.exit(f"--page: {page_name!r} is not probe, heavy, maps or an http(s) URL")
 
 out = Path(opts.out)
 out.mkdir(parents=True, exist_ok=True)
@@ -57,8 +67,8 @@ def strip_png(path: Path) -> str | None:
     return base64.b64encode((small if scaled.returncode == 0 and small.is_file() else path).read_bytes()).decode()
 
 
-def measure(variant: str | None, folder: Path) -> dict:
-    """One launch: the harness's drags and its recording drag, judged."""
+def measure(variant: str | None, folder: Path, page: str = "probe") -> dict:
+    """One launch: the harness's drags and its recording drag beside `page`, judged."""
     folder.mkdir(parents=True, exist_ok=True)
     env = {}
     if variant is not None:
@@ -66,13 +76,13 @@ def measure(variant: str | None, folder: Path) -> dict:
         tunables.write_text(json.dumps({"version": 1, "values": {"browserResize.dragResize": variant}}))
         env["CMUX_NEXT_DEBUG_TUNABLES_FILE"] = str(tunables)
     app = BenchApp(opts.app, out=str(folder), env=env, window=(80, 80, 1100, 720))
-    report: dict = {"variant": variant}
+    report: dict = {"variant": variant, "page": page}
     try:
         app.launch()
         driver = golden.Driver(app.socket, folder)
         driver.call("debug.motion", {"action": "speed", "value": "fast"})
         driver.call("debug.motion", {"action": "reduce", "value": False})
-        split_resize.drive(driver, folder, strip=True)
+        split_resize.drive(driver, folder, strip=True, page=page)
         data = json.loads((folder / "split_resize.json").read_text())
         refresh = next((float(d.get("refresh_ms") or 0) for d in data.get("drags") or [] if float(d.get("refresh_ms") or 0) > 0),
                        1000 / 60)
@@ -81,18 +91,26 @@ def measure(variant: str | None, folder: Path) -> dict:
         # The recording goes back inside the report (the step returns one file).
         report["strip"] = [{"step": shot["step"], "error": (shot.get("result") or {}).get("error"),
                             "png": strip_png(folder / shot["path"])} for shot in (data.get("strip") or [])[:20]]
-        print(f"[{variant or 'default'}] " + split_resize.markdown_row(report))
+        print(f"[{page} {variant or 'default'}] " + split_resize.markdown_row(report))
         print("SPLIT-RESIZE " + json.dumps({k: v for k, v in report.items() if k not in ("drags", "strip", "log")}))
     except (Exception, SystemExit) as error:  # one variant's failure (BenchApp's launch error is a SystemExit) still reports the others
         report["error"] = repr(error)
-        print(f"[{variant or 'default'}] failed: {error!r}")
+        print(f"[{page} {variant or 'default'}] failed: {error!r}")
     finally:
         app.stop()
     return report
 
 
-reports = [measure(variant, out / (variant or "default")) for variant in variants]
-result = reports[0] if variants == [None] else {"variants": reports}
+# One folder per variant (and per page when there is more than the probe), as before for the probe alone.
+def folder_for(page: str, variant: str | None) -> Path:
+    name = variant or "default"
+    if pages == ["probe"]:
+        return out / name
+    return out / ("".join(c if c.isalnum() else "-" for c in page)[:40] + "-" + name)
+
+
+reports = [measure(variant, folder_for(page, variant), page) for page in pages for variant in variants]
+result = reports[0] if variants == [None] and pages == ["probe"] else {"variants": reports}
 if opts.json:
     Path(opts.json).parent.mkdir(parents=True, exist_ok=True)
     Path(opts.json).write_text(json.dumps(result, indent=1) + "\n")
