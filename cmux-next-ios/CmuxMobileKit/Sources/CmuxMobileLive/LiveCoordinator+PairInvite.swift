@@ -18,7 +18,8 @@ extension LiveCoordinator {
             return false
         }
         // Before the spaces load it is held only; steerToInvite checks the space before it moves.
-        pairing.invites.hold(invite)
+        // A code whose token was already presented is not taken again.
+        guard pairing.invites.hold(invite) else { return false }
         log.info("pairing code for \(invite.mac, privacy: .private)")
         steerToInvite()
         return true

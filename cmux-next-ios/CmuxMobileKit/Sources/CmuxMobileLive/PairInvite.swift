@@ -2,7 +2,7 @@ import CoreImage
 import CryptoKit
 import Foundation
 
-/// A Mac's pairing code, `cmux-next://pair?mac=&team=&name=&t=&k=` (the Mac's
+/// A Mac's pairing code, `cmux-next://pair?mac=&team=&name=&t=&k=&e=` (the Mac's
 /// `MobileHostPairInvite`): scanned in the app or opened from the Camera.
 /// The phone moves to `team`, focuses `mac`, and presents `t` in that Mac's
 /// `auth` so the Mac skips its Allow prompt once. It never admits another
@@ -24,6 +24,9 @@ public struct PairInvite: Equatable, Sendable, CustomStringConvertible {
     /// base64url SHA-256 of the Mac's 65-byte identity public key.
     let keyHash: String
     public let receivedAt: Date
+    /// When the Mac's token expires (`e`, Unix seconds), capped at ``lifetime`` after receipt: a
+    /// photo of an old code sends nothing.
+    public let expiresAt: Date
 
     /// The code in `url`; nil for any other link or a malformed code.
     public init?(url: URL, now: Date = Date()) {
@@ -34,13 +37,16 @@ public struct PairInvite: Equatable, Sendable, CustomStringConvertible {
               let team = value("team"), Self.matches(team, Self.teamCharacters, 1...128),
               let token = value("t"), Self.matches(token, Self.base64URLCharacters, 16...64),
               let keyHash = value("k"), Self.matches(keyHash, Self.base64URLCharacters, 43...43),
-              Self.base64URLDecoded(keyHash)?.count == 32 else { return nil }
+              Self.base64URLDecoded(keyHash)?.count == 32,
+              let expiry = value("e"), Self.matches(expiry, Self.digits, 1...12), let seconds = TimeInterval(expiry)
+        else { return nil }
         self.mac = mac
         self.team = team
         name = String((value("name") ?? "").filter { !$0.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) }.prefix(64))
         self.token = token
         self.keyHash = keyHash
         receivedAt = now
+        expiresAt = min(Date(timeIntervalSince1970: seconds), now.addingTimeInterval(Self.lifetime))
     }
 
     /// The code in scanned text.
@@ -50,7 +56,7 @@ public struct PairInvite: Equatable, Sendable, CustomStringConvertible {
     }
 
     public func isExpired(at now: Date = Date()) -> Bool {
-        now.timeIntervalSince(receivedAt) >= Self.lifetime || now < receivedAt
+        now >= expiresAt || now < receivedAt
     }
 
     /// Whether `key` (the X9.63 hex a challenge proves) is the key this code names.
@@ -72,6 +78,7 @@ public struct PairInvite: Equatable, Sendable, CustomStringConvertible {
 
     static let base64URLCharacters = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")
     static let teamCharacters = base64URLCharacters
+    static let digits = CharacterSet(charactersIn: "0123456789")
     static let idCharacters = base64URLCharacters.union(CharacterSet(charactersIn: ".:"))
 
     static func matches(_ value: String, _ allowed: CharacterSet, _ length: ClosedRange<Int>) -> Bool {
@@ -97,14 +104,24 @@ public final class PairInvites: @unchecked Sendable {
     // carve-out: a lock, read from the pairing task off the main actor.
     private let lock = NSLock()
     private var held: PairInvite?
+    /// Tokens already used at a challenge, until they expire: opening the same code again holds nothing.
+    private var used: [String: Date] = [:]
     private let now: @Sendable () -> Date
 
     public init(now: @escaping @Sendable () -> Date = { Date() }) {
         self.now = now
     }
 
-    public func hold(_ invite: PairInvite) {
-        lock.withLock { held = invite }
+    /// Holds `invite`, unless its token was already used at a challenge (false then).
+    @discardableResult
+    public func hold(_ invite: PairInvite) -> Bool {
+        lock.withLock {
+            let at = now()
+            used = used.filter { $0.value > at }
+            guard used[invite.token] == nil else { return false }
+            held = invite
+            return true
+        }
     }
 
     /// The held code (for `mac`, when given), unless it expired (it is dropped then).
@@ -135,6 +152,7 @@ public final class PairInvites: @unchecked Sendable {
         lock.withLock {
             guard let invite = held, invite.mac.lowercased() == mac.lowercased() else { return nil }
             held = nil
+            used[invite.token] = invite.expiresAt
             guard !invite.isExpired(at: now()), let provenKey, invite.names(key: provenKey) else { return nil }
             return invite.token
         }

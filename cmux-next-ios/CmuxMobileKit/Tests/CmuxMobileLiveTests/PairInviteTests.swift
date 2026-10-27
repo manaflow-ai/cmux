@@ -18,13 +18,15 @@ import Testing
 
     /// The code's text as the Mac builds it (URLComponents).
     static func url(mac: String = MacPinTests.mac, team: String = "team_1", name: String = "Leo's MacBook Pro", t: String? = token,
-                    k: String? = keyHash(macKey), scheme: String = "cmux-next", host: String = "pair") -> String {
+                    k: String? = keyHash(macKey), e: String? = "9999999999", scheme: String = "cmux-next",
+                    host: String = "pair") -> String {
         var components = URLComponents()
         components.scheme = scheme
         components.host = host
         components.queryItems = [URLQueryItem(name: "mac", value: mac), URLQueryItem(name: "team", value: team),
                                  URLQueryItem(name: "name", value: name)]
             + (t.map { [URLQueryItem(name: "t", value: $0)] } ?? []) + (k.map { [URLQueryItem(name: "k", value: $0)] } ?? [])
+            + (e.map { [URLQueryItem(name: "e", value: $0)] } ?? [])
         return components.string!
     }
 
@@ -52,6 +54,9 @@ import Testing
         #expect(PairInvite(text: Self.url(host: "open")) == nil)
         #expect(PairInvite(text: Self.url(t: nil)) == nil)
         #expect(PairInvite(text: Self.url(k: nil)) == nil)
+        #expect(PairInvite(text: Self.url(e: nil)) == nil)
+        #expect(PairInvite(text: Self.url(e: "soon")) == nil)
+        #expect(PairInvite(text: Self.url(e: "-1")) == nil)
         #expect(PairInvite(text: Self.url(mac: "")) == nil)
         #expect(PairInvite(text: Self.url(team: "")) == nil)
         #expect(PairInvite(text: "cmux-next://pair") == nil)
@@ -71,6 +76,16 @@ import Testing
         let invite = try #require(PairInvite(text: Self.url(), now: start))
         #expect(!invite.isExpired(at: start.addingTimeInterval(299)))
         #expect(invite.isExpired(at: start.addingTimeInterval(300)))
+    }
+
+    /// A photo of an old code: the Mac's expiry (`e`) has passed, so it is expired on arrival.
+    @Test func aCodeExpiresWhenTheMacsTokenDoes() throws {
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        let invite = try #require(PairInvite(text: Self.url(e: "1800000060"), now: start))
+        #expect(!invite.isExpired(at: start.addingTimeInterval(59)))
+        #expect(invite.isExpired(at: start.addingTimeInterval(60)))
+        let old = try #require(PairInvite(text: Self.url(e: "1799999999"), now: start))
+        #expect(old.isExpired(at: start))
     }
 
     /// The decode step: a QR image of a Mac's code reads back as the same text, and parses.
@@ -114,6 +129,10 @@ import Testing
         #expect(invites.pending() == nil)
         let second = try #require(try await Self.reply(pairing, challenge: MacPinTests.challenge(Self.macKey, nonce: "c0ffee2")))
         #expect(second["pairToken"] == nil)
+        // Opening the same code again holds nothing: its token was presented already.
+        #expect(!invites.hold(try #require(PairInvite(text: Self.url()))))
+        let third = try #require(try await Self.reply(pairing, challenge: MacPinTests.challenge(Self.macKey, nonce: "c0ffee3")))
+        #expect(third["pairToken"] == nil)
     }
 
     @Test func aMacWithAnotherKeyOrNoProofNeverSeesTheTokenAndUsesTheCodeUp() async throws {
