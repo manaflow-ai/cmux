@@ -1,6 +1,6 @@
 import AppKit
 public import CmuxNextActions
-import CmuxNextCompat
+public import CmuxNextCompat
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError
 public import CmuxNextControl
@@ -89,6 +89,10 @@ public final class DaemonService {
     /// Watches each line the service's connections and its terminal attachments read (their reader threads'
     /// `daemon.line` scopes); nil watches nothing.
     @ObservationIgnored public let hangWatch: (any HangWatchScoping)?
+    /// The local daemon's diagnostic sites (`server-diagnostic-site`), each once per daemon life across this
+    /// service's connections; the app's hang reports install their sink here (`WatchdogReporting`), whose
+    /// ledger keeps them once across app launches.
+    @ObservationIgnored public let diagnosticSites = DaemonDiagnosticSiteRelay<DaemonDiagnosticSite.Sighting>()
 
     /// - Parameters:
     ///   - machineID: `local`, or the remote machine's id.
@@ -411,6 +415,7 @@ public final class DaemonService {
         Self.launchMark("daemon_connected")
         connection.heartbeat.follow(KeepaliveGate(mainWork.energy))
         self.connection = connection
+        connection.diagnosticSites.forward(to: diagnosticSites)
         launchSnapshot.remember(identity)
         resumeConnectionWaiters()
         store.noteHandshake(identity)

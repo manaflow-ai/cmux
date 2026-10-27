@@ -262,6 +262,7 @@ extension ControlRouter {
     static func awaitIdle(_ scope: ControlCommandScope) async {
         // wakeup-allow: bounded: each iteration waits for the scope's open commands to reply, never polls
         while !Task.isCancelled {
+            // main-hop-allow: an order barrier: the read must queue behind the main-actor tasks the handler started (the FIFO main executor), which a class queue does not
             if await MainActor.run(body: { scope.isIdle }) { return }
             await scope.waitUntilIdle()
         }
