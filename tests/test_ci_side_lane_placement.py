@@ -12,6 +12,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -453,6 +454,30 @@ class FreshRoute(unittest.TestCase):
                 # A routed compile is no longer the cascade's: it takes no Blacksmith slot as well.
                 cascade_env = place.call_args.args[0]
                 self.assertEqual("cmux-scheme-compile" in cascade_env["CASCADE_RUNS"].split(), not label)
+
+
+class FreshSlotJobs(unittest.TestCase):
+    """cmux-next.yml's FRESH_SLOT_JOBS names exactly the jobs the slot's glaeda hook admits
+    (dev_compile_refusal, glaeda#1636): a job it refuses would fail in setup instead of falling back."""
+
+    def test_the_workflow_routes_only_what_the_slot_admits(self):
+        workflow = Path(__file__).resolve().parents[1] / ".github/workflows/cmux-next.yml"
+        text = workflow.read_text()
+        match = re.search(r"^\s*FRESH_SLOT_JOBS:\s*(.+)$", text, re.MULTILINE)
+        self.assertIsNotNone(match)
+        self.assertEqual(set(match.group(1).split()), {"cmux-scheme-compile", "release-compile"})
+        # Every slot job reads the slot in its runs-on (a slot job that never reads it would still be dropped
+        # from the cascade by fresh_route() and lose its Blacksmith overflow).
+        for job in match.group(1).split():
+            self.assertIn(f"contains(needs.macos-placement.outputs.fresh_jobs, ' {job} ')", text)
+
+    def test_a_pushs_release_compile_takes_an_idle_slot(self):
+        idle = [runner("mini-a-glaeda-2", labels=(FRESH,)), runner("mini-b-glaeda-2", labels=(FRESH,))]
+        values = {"FRESH_LABEL": FRESH, "FRESH_JOBS": "release-compile",
+                  "FRESH_SLOT_JOBS": "cmux-scheme-compile release-compile", "JOBS": " ".join(JOBS)}
+        self.assertEqual(placement.fresh_route(values, idle), (FRESH, ("release-compile",)))
+        busy = [runner("mini-a-glaeda-2", busy=True, labels=(FRESH,))]
+        self.assertEqual(placement.fresh_route(values, busy), ("", ()), "busy: the side route and the cascade")
 
 
 class GatewayRoute(unittest.TestCase):
