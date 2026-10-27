@@ -36,7 +36,15 @@ import sys
 import tempfile
 from pathlib import Path
 
-CHECKS = ("check:browser-lanes", "check:fixed-waits", "check:design-tokens", "typecheck", "acpmux-protocol:check", "check:catalog-keys")
+CHECKS = (
+    "check:browser-lanes",
+    "check:fixed-waits",
+    "check:design-tokens",
+    "typecheck",
+    "acpmux-protocol:check",
+    "check:catalog-keys",
+    "check:popup-hover-reveals",
+)
 LINE_REF = re.compile(r"(\S):\d+(?::\d+)?\b")
 TIMING = re.compile(r"\b\d+(?:\.\d+)?\s?(?:ms|s)\b")
 ANSI = re.compile(r"\x1b\[[0-9;]*m")

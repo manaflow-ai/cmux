@@ -35,7 +35,7 @@
 .nt-row-title{flex:none;max-width:60%;overflow:hidden;text-overflow:ellipsis}
 .nt-row-detail{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim);font-size:12px}
 .nt-row-action{flex:none;margin-left:auto;display:flex;align-items:center;gap:6px;color:var(--acpmux-composer-dim);font-size:12px;opacity:0}
-.nt-row.is-selected .nt-row-action,.nt-row:hover .nt-row-action{opacity:1}
+.nt-row.is-selected .nt-row-action,.nt-row-host:hover .nt-row-action,.nt-row-host:has([data-popup-open]) .nt-row-action{opacity:1}
 .nt-row-action kbd{padding:2px 6px;border-radius:5px;background:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));color:var(--agent-soft);font:11.5px/1 var(--font-ui)}
 /* The create actions the rows don't list (screenModel.ts createStrip): one quiet line under them, never three rows (Leo 2026-10-24: "the new terminal, new browser tab, new tab ... less annoying"). Shows with the rows, no fade. */
 .nt-create-strip{display:flex;gap:4px;margin-top:4px;padding-top:4px;border-top:1px solid color-mix(in srgb,var(--agent-text) 8%,transparent)}
