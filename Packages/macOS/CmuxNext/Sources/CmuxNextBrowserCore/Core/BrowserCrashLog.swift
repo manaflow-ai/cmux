@@ -72,6 +72,7 @@ public final class BrowserCrashLog {
 
     /// Returns a token; drop it with `removeObserver`.
     @discardableResult
+    // raw-observer-allow: the log's own subscriber list (a direct registry, R-notif's target for a point-to-point broadcast), no notice center
     public func addObserver(_ observer: @escaping (BrowserCrashRecord) -> Void) -> UUID {
         let id = UUID()
         observers[id] = observer
