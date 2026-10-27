@@ -339,7 +339,10 @@ NIGHTLY_EVENTS = frozenset({"push", "schedule"})
 TRUSTED_LABEL = re.compile(r"glaeda-(?:root-)?trusted-(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
 # feat-cmux-next's session and fast roles (glaeda#1530, pr_runner_pool.OWNED_LABEL there), which main's
 # picker never hands out: cmux-next-base-autofix.yml's Mac exports take glaeda-session-std-xcode-26.6.
-LANE_LABEL = re.compile(r"glaeda-(?:aws-)?(?:session-|fast-)(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
+# The freshness slot's dev role (glaeda#1628, vars.CI_DEV_COMPILE_RUNNER, glaeda-dev-std-xcode-26.6) too:
+# cmux-next.yml's macos-placement puts a feed compile there, and a job there that no runner acquired
+# needs the same re-run as one on any other owned label.
+LANE_LABEL = re.compile(r"glaeda-(?:aws-)?(?:session-|fast-|dev-)(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
 # Every other workflow that can put a job on an owned pool, on main or on
 # feat-cmux-next (whose files are not in main's tree): owned_pool_sources.py
 # finds them from their jobs' runs-on, and tests/test_ci_owned_pool_sources.py

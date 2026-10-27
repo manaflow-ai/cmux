@@ -2714,6 +2714,19 @@ class Sweeper(unittest.TestCase):
         self.assertTrue(target.side)
         self.assertEqual(target.push_branch, "feat-cmux-next")
 
+    def test_the_dev_freshness_slot_label_is_an_owned_pool(self):
+        # cmux-next.yml's freshness slot (vars.CI_DEV_COMPILE_RUNNER): a feed compile queued there gets the
+        # rescue's refusal and queue handling like a side or session job.
+        label = "glaeda-dev-std-xcode-26.6"
+        self.assertEqual(rescue.job_pool({"labels": [label]}), label)
+        self.assertEqual(rescue.job_pool({"labels": ["glaeda-aws-dev-light-xcode-26"]}), "glaeda-aws-dev-light-xcode-26")
+        for labels in (["glaeda-dev"], ["glaeda-dev-std"], ["glaeda-devx-std-xcode-26.6"]):
+            self.assertIsNone(rescue.job_pool({"labels": labels}), labels)
+        lost = unacquired_job(labels=(label,))
+        self.assertTrue(rescue.unacquired(lost))
+        # GitHub reports the runner of a job it cancelled unacquired as "" as well as null (run 40453240553).
+        self.assertTrue(rescue.unacquired({**lost, "runner_name": ""}))
+
     def test_a_finished_run_only_when_it_failed_since_the_last_sweeper(self):
         recent, old = stamp(-10 * 60), stamp(-rescue.SWEEP_FINISHED_SECONDS - 60)
         runs = [listed(1, status="completed", conclusion="success", updated_at=recent),
