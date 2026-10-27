@@ -153,7 +153,7 @@ public final class InputDispatchContext {
     public func answering<T>(input: TimeInterval?, _ body: () throws -> T) rethrows -> T {
         guard let input else { return try body() }
         answered.append(input)
-        defer { answered.removeLast() }
+        defer { _ = answered.popLast() }
         return try body()
     }
 
@@ -177,17 +177,21 @@ public final class InputDispatchContext {
         let isDiscrete = Self.isDiscreteInput(event.type) && stack.last?.event !== event
         stack.append(Dispatch(event: event, isScroll: isScroll, isDiscrete: isDiscrete))
         if isDiscrete { watchNestedRunLoops(opening: true) }
-        defer {
-            let dispatch = stack.removeLast()
-            if dispatch.isScroll { scrollFrames.end(target: dispatch.layoutTook ? .layout : .content) }
-            if dispatch.isDiscrete {
-                _ = report(dispatch)
-                watchNestedRunLoops(opening: false)
-            } else if let outer = stack.indices.last {
-                stack[outer].expectsFrame = stack[outer].expectsFrame || dispatch.expectsFrame
-            }
-        }
+        defer { endDispatch() }
         return try body()
+    }
+
+    /// Closes the innermost dispatch ``dispatching(_:_:)`` opened: its scroll frame, its report, or its frame
+    /// expectation handed to the outer one.
+    private func endDispatch() {
+        guard let dispatch = stack.popLast() else { return }
+        if dispatch.isScroll { scrollFrames.end(target: dispatch.layoutTook ? .layout : .content) }
+        if dispatch.isDiscrete {
+            _ = report(dispatch)
+            watchNestedRunLoops(opening: false)
+        } else if let outer = stack.indices.last {
+            stack[outer].expectsFrame = stack[outer].expectsFrame || dispatch.expectsFrame
+        }
     }
 
     /// A run loop nested in the open discrete inputs' dispatch is about to wait: its render pass draws what they

@@ -124,6 +124,8 @@ impl Drop for Started {
     fn drop(&mut self) {
         #[cfg(unix)]
         if let Some(pid) = self.child.id() {
+            // SAFETY: killpg takes no pointers; `child.id()` is Some only while the
+            // harness, which leads its own group (agent::harness_command), is unreaped.
             unsafe {
                 libc::killpg(pid as libc::pid_t, libc::SIGKILL);
             }
