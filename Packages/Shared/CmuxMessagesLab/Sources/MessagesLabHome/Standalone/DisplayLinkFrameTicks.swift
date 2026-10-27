@@ -9,7 +9,7 @@ public final class DisplayLinkFrameTicks: FrameTickSource {
     /// and a Swift 5 module evaluates default arguments outside the main actor. It holds no state.
     nonisolated public init() {}
 
-    public func frames(for view: NSView, onFrame: @escaping @MainActor () -> Bool) -> any FrameTickStream {
+    public func frames(for view: NSView, onFrame: @escaping @MainActor @Sendable () -> Bool) -> any FrameTickStream {
         DisplayLinkFrameTickStream(view: view, onFrame: onFrame)
     }
 }
@@ -18,10 +18,10 @@ public final class DisplayLinkFrameTicks: FrameTickSource {
 /// resize's tracking loop); the frame that finds no work pauses it again.
 @MainActor
 private final class DisplayLinkFrameTickStream: NSObject, FrameTickStream {
-    private let onFrame: @MainActor () -> Bool
+    private let onFrame: @MainActor @Sendable () -> Bool
     private var link: CADisplayLink?
 
-    init(view: NSView, onFrame: @escaping @MainActor () -> Bool) {
+    init(view: NSView, onFrame: @escaping @MainActor @Sendable () -> Bool) {
         self.onFrame = onFrame
         super.init()
         // wakeup-allow: fixture standalone MessagesLab and tests only; CmuxNext Home injects its FrameScheduler
