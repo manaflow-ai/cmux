@@ -1282,6 +1282,14 @@ mod endpoint_tests {
 
     #[cfg(target_os = "linux")]
     #[test]
+    fn linux_canary_checks_write_open_persistence_paths() {
+        assert!(CANARY.contains(".git/hooks/pre-commit"));
+        assert!(CANARY.contains("CLAUDE.md"));
+        assert!(CANARY.contains("printf"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
     fn canary_missing_unix_helper_is_unknown() {
         let out = std::process::Command::new("/bin/bash")
             .args([

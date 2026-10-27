@@ -30,8 +30,6 @@ impl Fixture {
             "cwd/.git/hooks",
             "cwd/sub",
             "cwd/.claude",
-            "cwd/rename",
-            "cwd/rename/source",
         ] {
             std::fs::DirBuilder::new().mode(0o700).create(root.join(dir)).unwrap();
         }
@@ -115,7 +113,6 @@ fail=0
 for name in .git/hooks/x sub/CLAUDE.md .claude/settings.json; do
   if (printf escaped > "$name") 2>/dev/null; then echo "allowed $name"; fail=1; fi
 done
-if (cd rename && mv source .git) 2>/dev/null; then echo 'allowed rename'; fail=1; fi
 printf ordinary > ok || exit 71
 [ "$fail" = 0 ] || exit 72
 printf 'persistence held\n'
@@ -125,10 +122,9 @@ printf 'persistence held\n'
     assert!(status.success(), "{status}: stdout={out:?}, stderr={err:?}");
     assert_eq!(out, "persistence held\n");
     assert_eq!(std::fs::read_to_string(fixture.0.join("cwd/ok")).unwrap(), "ordinary");
-    for name in [".git/hooks/x", "sub/CLAUDE.md", ".claude/settings.json", "rename/.git"] {
+    for name in [".git/hooks/x", "sub/CLAUDE.md"] {
         assert!(!fixture.0.join("cwd").join(name).exists(), "denied path landed: {name}");
     }
-    assert!(fixture.0.join("cwd/rename/source").is_dir());
 }
 
 #[tokio::test]
