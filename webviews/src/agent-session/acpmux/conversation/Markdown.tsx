@@ -667,17 +667,18 @@ function scrollNote(note: HTMLElement | null) {
     const paddingBottom =
       Number.parseFloat(node.ownerDocument.defaultView?.getComputedStyle(node).scrollPaddingBottom ?? "0") || 0;
     const bottom = top + node.clientHeight - paddingBottom;
+    const visibleHeight = Math.max(0, bottom - top);
     const above = box.top < top;
     const below = box.bottom > bottom;
     const delta =
       above && below
         ? 0
         : above
-          ? box.height <= node.clientHeight
+          ? box.height <= visibleHeight
             ? box.top - top
             : box.bottom - bottom
           : below
-            ? box.height <= node.clientHeight
+            ? box.height <= visibleHeight
               ? box.bottom - bottom
               : box.top - top
             : 0;
