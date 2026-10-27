@@ -104,22 +104,36 @@ impl LocalReader {
             return Ok(TerminalReader::Looped);
         }
         #[cfg(unix)]
-        if let Some(sink) = self.holder_sink.clone() {
-            let owner = self.surface.as_pty().and_then(|pty| pty.mux.upgrade());
-            let registered = match owner {
-                Some(mux) => mux.vt_pool().register(Box::new(self)),
-                // Dropped at once: its shard ends after this terminal's end.
-                None => VtPool::for_machine().register(Box::new(self)),
-            };
-            let Ok(wake) = registered else {
-                anyhow::bail!("terminal {id}'s output cannot be parsed on the VT pool");
-            };
-            // Wakes the shard once for what the sink queued already.
-            sink.set_wake(wake);
-            return Ok(TerminalReader::Looped);
-        }
+        let this = match self.holder_sink.clone() {
+            Some(sink) => {
+                let owner = self.surface.as_pty().and_then(|pty| pty.mux.upgrade());
+                let registered = match owner {
+                    Some(mux) => mux.vt_pool().register(Box::new(self)),
+                    // Dropped at once: its shard ends after this terminal's end.
+                    None => VtPool::for_machine().register(Box::new(self)),
+                };
+                let unplaced: Box<dyn std::any::Any> = match registered {
+                    Ok(wake) => {
+                        // Wakes the shard once for what the sink queued already.
+                        sink.set_wake(wake);
+                        return Ok(TerminalReader::Looped);
+                    }
+                    Err(unplaced) => unplaced,
+                };
+                let Ok(this) = unplaced.downcast::<Self>() else {
+                    anyhow::bail!("terminal {id}'s output cannot be parsed on the VT pool");
+                };
+                // No shard's thread starts now: this terminal reads on its
+                // own thread, as before the pool.
+                eprintln!("cmux-tui: terminal {id} parses on its own reader thread");
+                *this
+            }
+            None => self,
+        };
+        #[cfg(not(unix))]
+        let this = self;
         let thread =
-            crate::echo_thread::spawn(format!("surface-{id}-reader"), move || self.run_blocking())?;
+            crate::echo_thread::spawn(format!("surface-{id}-reader"), move || this.run_blocking())?;
         Ok(TerminalReader::Thread(thread))
     }
 
@@ -170,12 +184,21 @@ impl LocalReader {
         loop {
             match self.step() {
                 Step::Read(_) => would_block.reset(),
-                // No parser or source lock is held across backoff.
-                Step::Idle => would_block.sleep(),
+                Step::Idle => self.wait_for_output(&mut would_block),
                 Step::Ended => break,
             }
         }
         self.end();
+    }
+
+    /// Nothing to read: a holder terminal waits for its queue, anything
+    /// else backs off. No parser or source lock is held across either.
+    fn wait_for_output(&self, would_block: &mut crate::backoff::Backoff) {
+        #[cfg(unix)]
+        if let Some(sink) = &self.holder_sink {
+            return sink.wait_readable();
+        }
+        would_block.sleep();
     }
 
     /// The stream ended: release the parser's descriptor, publish the final

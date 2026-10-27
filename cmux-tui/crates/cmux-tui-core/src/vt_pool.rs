@@ -22,16 +22,24 @@
 //!   terminal delays a chunk of another terminal of its shard by at most one
 //!   slice.
 //! - **Blocking.** A run that will wait (a query answer to a child that does
-//!   not read its input, a snapshot to a holder that is slow to read, a
-//!   publication the full terminal work pool hands back) calls
-//!   [`will_block`]: the shard's queue moves to a new thread for the call, as
-//!   Chrome's `ScopedBlockingCall` (`BlockingType::WILL_BLOCK`,
-//!   base/threading/scoped_blocking_call.h) adds a worker to its group. The
-//!   blocked thread then hands its terminal back to the shard and ends.
+//!   not read its input, a credit acknowledgement or a snapshot to a holder
+//!   that is slow to read, a publication the full terminal work pool hands
+//!   back) calls [`will_block`]: the shard's queue moves to its parked spare
+//!   thread for the call, as Chrome's `ScopedBlockingCall`
+//!   (`BlockingType::WILL_BLOCK`, base/threading/scoped_blocking_call.h)
+//!   raises its group's capacity and wakes an idle worker, which
+//!   base/task/thread_pool/thread_group_impl.cc keeps on a stack rather
+//!   than starting one per blocking call. A thread starts only when the
+//!   shard has no spare. The blocked thread then hands its terminal back
+//!   and parks as the shard's spare, so a shard keeps at most one idle
+//!   thread and a query answer starts none.
+//! - **Starting.** A shard whose thread could not start is tried again at
+//!   the next terminal; meanwhile its terminals go to a shard that runs.
 //! - **Lifetime.** A shard starts with its first terminal and waits on its
 //!   queue with no timeout (no idle wakeup). A dropped owner's shards end
 //!   once their last terminal finished.
 
+use std::any::Any;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
@@ -98,8 +106,9 @@ pub(crate) enum VtFlow {
     Finished,
 }
 
-/// One terminal's output on the pool.
-pub(crate) trait VtSource: Send + 'static {
+/// One terminal's output on the pool. `Any`: a caller takes its own source
+/// back when no shard can run it ([`VtPool::register`]).
+pub(crate) trait VtSource: Any + Send {
     /// Parses and publishes queued output until there is none or `slice` is
     /// spent; never waits for more.
     fn run(&mut self, slice: &mut Slice) -> VtFlow;
@@ -146,7 +155,20 @@ enum Msg {
     Run(u64),
     /// A run that went on on a thread inside [`will_block`] ended there.
     Return(u64, Box<dyn VtSource>, Ran),
+    /// A thread a run blocked on parks as the shard's spare: it runs the
+    /// shard when the shard's next run blocks.
+    Spare(Sender<Box<ShardLoop>>),
     OwnerGone,
+}
+
+/// Starts a named thread that runs the body: the seam a test counts or
+/// fails thread starts through.
+pub(crate) type StartThread =
+    Arc<dyn Fn(String, Box<dyn FnOnce() + Send>) -> std::io::Result<()> + Send + Sync>;
+
+/// Starts echo-path threads (`crate::echo_thread`).
+fn echo_path_threads() -> StartThread {
+    Arc::new(|name, body| crate::echo_thread::spawn(name, body).map(drop))
 }
 
 /// Queues a run of one terminal: the holder-link thread calls it after it
@@ -181,8 +203,9 @@ impl VtWake {
 /// The started shards' queues, made at the first terminal.
 struct Shards {
     config: VtPoolConfig,
-    /// `None`: the shard's thread could not start.
-    queues: Box<[OnceLock<Option<Sender<Msg>>>]>,
+    /// Empty until the shard's thread started (tried again at each
+    /// terminal while it cannot).
+    queues: Box<[OnceLock<Sender<Msg>>]>,
 }
 
 /// An owner's VT pool (the mux's, through its terminal work pool).
@@ -192,6 +215,7 @@ pub(crate) struct VtPool {
     shards: OnceLock<Shards>,
     next_token: AtomicU64,
     sources: Arc<AtomicUsize>,
+    start: StartThread,
 }
 
 impl VtPool {
@@ -203,21 +227,29 @@ impl VtPool {
     /// A pool of `config`'s shards and slice.
     #[cfg(test)]
     pub(crate) fn new(config: VtPoolConfig) -> Self {
-        Self::with_config(Some(config))
+        Self::with_thread_start(Some(config), echo_path_threads())
     }
 
     fn with_config(config: Option<VtPoolConfig>) -> Self {
+        Self::with_thread_start(config, echo_path_threads())
+    }
+
+    /// A pool whose threads start through `start` (a test counts or fails
+    /// them there).
+    pub(crate) fn with_thread_start(config: Option<VtPoolConfig>, start: StartThread) -> Self {
         Self {
             config,
             shards: OnceLock::new(),
             next_token: AtomicU64::new(0),
             sources: Arc::default(),
+            start,
         }
     }
 
-    /// Puts `source` on a shard (round robin) and returns the wake that
-    /// queues its runs; no run happens before the first wake. Returns
-    /// `source` when the shard's thread cannot start.
+    /// Puts `source` on a shard (round robin; the next running one when
+    /// its own cannot start) and returns the wake that queues its runs; no
+    /// run happens before the first wake. Returns `source` when no shard's
+    /// thread can start.
     pub(crate) fn register(&self, source: Box<dyn VtSource>) -> Result<VtWake, Box<dyn VtSource>> {
         let token = self.next_token.fetch_add(1, Ordering::Relaxed);
         let Some(queue) = self.shard_queue(token) else { return Err(source) };
@@ -241,33 +273,55 @@ impl VtPool {
     /// The shards whose thread started.
     #[cfg(test)]
     pub(crate) fn started_shards(&self) -> usize {
-        self.shards.get().map_or(0, |shards| {
-            shards.queues.iter().filter(|queue| queue.get().is_some_and(Option::is_some)).count()
-        })
+        self.shards
+            .get()
+            .map_or(0, |shards| shards.queues.iter().filter(|queue| queue.get().is_some()).count())
     }
 
+    /// The queue of `token`'s shard, or of the next shard that runs when
+    /// that one's thread cannot start now.
     fn shard_queue(&self, token: u64) -> Option<&Sender<Msg>> {
         let shards = self.shards.get_or_init(|| {
             let config = self.config.unwrap_or_else(VtPoolConfig::for_machine);
             let count = config.shards.max(1);
             Shards { config, queues: (0..count).map(|_| OnceLock::new()).collect() }
         });
-        let index = usize::try_from(token % shards.queues.len() as u64).unwrap_or(0);
+        let count = shards.queues.len();
+        let first = usize::try_from(token % count as u64).unwrap_or(0);
+        (0..count).find_map(|step| self.started_shard(shards, (first + step) % count))
+    }
+
+    /// Shard `index`'s queue, its thread started now if it was not yet. A
+    /// start that fails leaves the slot empty for the next terminal.
+    fn started_shard<'a>(&self, shards: &'a Shards, index: usize) -> Option<&'a Sender<Msg>> {
         let slot = shards.queues.get(index)?;
-        slot.get_or_init(|| start_shard(index, shards.config.slice, self.sources.clone())).as_ref()
+        if let Some(queue) = slot.get() {
+            return Some(queue);
+        }
+        let queue = start_shard(index, shards.config.slice, &self.sources, &self.start)?;
+        if let Err(raced) = slot.set(queue) {
+            // Another terminal started this shard first: this one ends.
+            let _ = raced.send(Msg::OwnerGone);
+        }
+        slot.get()
     }
 }
 
 impl Drop for VtPool {
     fn drop(&mut self) {
         let Some(shards) = self.shards.get() else { return };
-        for queue in shards.queues.iter().filter_map(|queue| queue.get().and_then(Option::as_ref)) {
+        for queue in shards.queues.iter().filter_map(OnceLock::get) {
             let _ = queue.send(Msg::OwnerGone);
         }
     }
 }
 
-fn start_shard(index: usize, slice: SliceBudget, sources: Arc<AtomicUsize>) -> Option<Sender<Msg>> {
+fn start_shard(
+    index: usize,
+    slice: SliceBudget,
+    sources: &Arc<AtomicUsize>,
+    start: &StartThread,
+) -> Option<Sender<Msg>> {
     let (queue, receiver) = mpsc::channel();
     let shard = Box::new(ShardLoop {
         index,
@@ -276,12 +330,14 @@ fn start_shard(index: usize, slice: SliceBudget, sources: Arc<AtomicUsize>) -> O
         queue: queue.clone(),
         entries: HashMap::new(),
         owner_gone: false,
-        sources,
+        sources: sources.clone(),
+        start: start.clone(),
+        spare: None,
     });
     match on_new_thread(shard) {
         Ok(()) => Some(queue),
         Err(_) => {
-            eprintln!("cmux-tui: VT pool shard {index} could not start");
+            eprintln!("cmux-tui: VT pool shard {index} could not start (tried again later)");
             None
         }
     }
@@ -305,6 +361,9 @@ struct ShardLoop {
     entries: HashMap<u64, Entry>,
     owner_gone: bool,
     sources: Arc<AtomicUsize>,
+    start: StartThread,
+    /// A parked thread that takes the shard when a run blocks.
+    spare: Option<Sender<Box<ShardLoop>>>,
 }
 
 /// What the shard's thread does next.
@@ -342,6 +401,12 @@ impl ShardLoop {
                 Msg::Return(token, source, ran) => {
                     if let Some(source) = self.settle(token, source, ran) {
                         return Work::Finish(source);
+                    }
+                }
+                // One spare at most: the thread of a second one ends.
+                Msg::Spare(spare) => {
+                    if self.spare.is_none() {
+                        self.spare = Some(spare);
                     }
                 }
                 Msg::OwnerGone => self.owner_gone = true,
@@ -408,30 +473,74 @@ impl ShardLoop {
 fn on_new_thread(shard: Box<ShardLoop>) -> Result<(), Box<ShardLoop>> {
     let (give, take) = mpsc::channel::<Box<ShardLoop>>();
     let name = format!("{VT_POOL_THREAD}-{}", shard.index);
-    match crate::echo_thread::spawn(name, move || {
+    let body = Box::new(move || {
         if let Ok(shard) = take.recv() {
             run_shard(shard);
         }
-    }) {
-        Ok(_) => give.send(shard).map_err(|error| error.0),
+    });
+    match (shard.start)(name, body) {
+        Ok(()) => give.send(shard).map_err(|error| error.0),
         Err(_) => Err(shard),
     }
 }
 
-/// A shard thread's body. It ends when its shard ends, or after a run or
-/// finish whose [`will_block`] moved the shard to another thread.
+/// A terminal whose run blocked, for its shard to take back.
+type Returned = (u64, Box<dyn VtSource>, Ran);
+
+/// Why a thread stopped running its shard.
+enum Left {
+    /// The shard ended.
+    Ended,
+    /// A [`will_block`] moved the shard to another thread, with the
+    /// terminal of the run that blocked (none when a finish blocked).
+    Moved(Option<Returned>),
+}
+
+/// A shard thread's body: runs the shard, and parks as the shard's spare
+/// once a [`will_block`] moved the shard to another thread. It ends with
+/// its shard, or when the shard has a spare already.
 fn run_shard(shard: Box<ShardLoop>) {
-    let (queue, budget) = (shard.queue.clone(), shard.slice);
+    let mut next = Some(shard);
+    while let Some(shard) = next.take() {
+        let queue = shard.queue.clone();
+        match serve(shard) {
+            Left::Ended => return,
+            Left::Moved(returned) => next = park_as_spare(&queue, returned),
+        }
+    }
+}
+
+/// Offers this thread as the shard's spare, hands back the terminal whose
+/// run blocked, and waits for the shard with no timeout. `None`: the shard
+/// ended or has a spare already, and this thread ends.
+fn park_as_spare(queue: &Sender<Msg>, returned: Option<Returned>) -> Option<Box<ShardLoop>> {
+    let (give, take) = mpsc::channel();
+    // The spare first: the returned terminal's next run, the one most
+    // likely to block again, then finds it.
+    let offered = queue.send(Msg::Spare(give)).is_ok();
+    if let Some((token, source, ran)) = returned {
+        let _ = queue.send(Msg::Return(token, source, ran));
+    }
+    if !offered {
+        return None;
+    }
+    take.recv().ok()
+}
+
+/// Runs `shard` on this thread until it ends or moves to another thread.
+fn serve(shard: Box<ShardLoop>) -> Left {
+    let budget = shard.slice;
     SHARD.with(|slot| *slot.borrow_mut() = Some(shard));
     loop {
         let Some(work) = SHARD.with(|slot| slot.borrow_mut().as_mut().map(|shard| shard.next()))
         else {
-            return;
+            // A finish blocked and the shard went on on another thread.
+            return Left::Moved(None);
         };
         match work {
             Work::End => {
                 SHARD.with(|slot| slot.borrow_mut().take());
-                return;
+                return Left::Ended;
             }
             Work::Run(token, mut source) => {
                 let mut slice = Slice::start(budget);
@@ -441,17 +550,14 @@ fn run_shard(shard: Box<ShardLoop>) {
                 .map_or(Ran::Panicked, Ran::Flow);
                 let settled = SHARD.with(|slot| match slot.borrow_mut().as_mut() {
                     Some(shard) => Ok(shard.settle(token, source, ran)),
-                    None => Err((source, ran)),
+                    None => Err((token, source, ran)),
                 });
                 match settled {
                     Ok(Some(source)) => finish_source(source),
                     Ok(None) => {}
                     // The run blocked and the shard went on on another
-                    // thread: hand the terminal back to it, and end.
-                    Err((source, ran)) => {
-                        let _ = queue.send(Msg::Return(token, source, ran));
-                        return;
-                    }
+                    // thread: the terminal goes back to it.
+                    Err(returned) => return Left::Moved(Some(returned)),
                 }
             }
             Work::Finish(source) => finish_source(source),
@@ -468,11 +574,17 @@ fn finish_source(source: Box<dyn VtSource>) {
 
 /// Runs `f`, which may wait on others (a PTY write, a holder socket, a
 /// contended lock). On a VT pool shard, the shard's other terminals run on
-/// a new thread meanwhile, so a terminal that blocks here holds only this
-/// thread, as its reader thread did. Anywhere else it only runs `f`.
+/// its spare thread meanwhile (a new thread only when it has none), so a
+/// terminal that blocks here holds only this thread, as its reader thread
+/// did. Anywhere else it only runs `f`.
 pub(crate) fn will_block<R>(f: impl FnOnce() -> R) -> R {
-    let Some(shard) = SHARD.with(|slot| slot.borrow_mut().take()) else { return f() };
-    if let Err(shard) = on_new_thread(shard) {
+    let Some(mut shard) = SHARD.with(|slot| slot.borrow_mut().take()) else { return f() };
+    let moved = match shard.spare.take() {
+        Some(spare) => spare.send(shard).map_err(|error| error.0),
+        None => Err(shard),
+    }
+    .or_else(on_new_thread);
+    if let Err(shard) = moved {
         // No thread to move to: the shard waits for this call.
         SHARD.with(|slot| *slot.borrow_mut() = Some(shard));
     }

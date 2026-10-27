@@ -151,6 +151,12 @@ impl SinkState {
         }
     }
 
+    /// A read returns now: bytes are queued, or the stream ended, was lost
+    /// or detached.
+    fn readable(&self) -> bool {
+        !self.bytes.is_empty() || self.exit.is_some() || self.detached || self.lost
+    }
+
     /// The reader finished parsing what it took: drop it from the queue
     /// and move the confirmed offset past its last holder byte.
     fn confirm(&mut self) {
@@ -466,10 +472,13 @@ impl HolderSink {
             state.due_ack(self.acker.get().is_some())
         };
         if let (Some(offset), Some(acker)) = (ack, self.acker.get()) {
-            acker(offset);
+            // Onto the holder link's one writer, which waits while another
+            // terminal's snapshot or keys fill the holder's socket: off the
+            // shard's other terminals.
+            crate::vt_pool::will_block(|| acker(offset));
         }
         let mut state = self.state.lock().recover_poison();
-        while state.bytes.is_empty() && state.exit.is_none() && !state.detached && !state.lost {
+        while !state.readable() {
             if !block {
                 return None;
             }
@@ -489,6 +498,15 @@ impl HolderSink {
         let unnumbered: usize =
             state.runs.iter().take_while(|run| run.offset.is_none()).map(|run| run.len).sum();
         Some((n, unnumbered.min(n)))
+    }
+
+    /// Block until a read returns at once: the terminal's own reader thread
+    /// waits here when no VT pool shard could start for it.
+    pub(crate) fn wait_readable(&self) {
+        let mut state = self.state.lock().recover_poison();
+        while !state.readable() {
+            state = self.changed.wait(state).recover_poison();
+        }
     }
 
     /// Block until the terminal ended, was lost or the daemon detached.
@@ -678,6 +696,10 @@ impl Read for SnapshottingReader {
         Ok(n)
     }
 }
+
+#[cfg(test)]
+#[path = "sink_vt_pool_tests.rs"]
+mod vt_pool_tests;
 
 #[cfg(test)]
 mod tests {
@@ -874,55 +896,6 @@ mod tests {
         assert_eq!(&buf[7..9], b"$ ");
         sink.data(2, b"ls");
         assert_eq!(sink.read(&mut buf), (2, 0), "only the shell's output");
-    }
-
-    /// p01-process-120: the holder-link thread's DATA and the end wake the
-    /// terminal's VT pool shard, which reads without waiting: what came
-    /// before the wake was set runs once it is set, and the end finishes it.
-    #[test]
-    fn data_and_the_end_wake_the_terminal_on_its_vt_pool_shard() {
-        use crate::vt_pool::{Slice, VtFlow, VtPool, VtPoolConfig, VtSource};
-
-        struct Parser {
-            sink: Arc<HolderSink>,
-            parsed: std::sync::mpsc::Sender<Vec<u8>>,
-        }
-        impl VtSource for Parser {
-            fn run(&mut self, _: &mut Slice) -> VtFlow {
-                let mut buf = [0u8; 64];
-                loop {
-                    let Some((n, _)) = self.sink.try_read(&mut buf) else { return VtFlow::Idle };
-                    if n == 0 {
-                        return VtFlow::Finished;
-                    }
-                    self.sink.confirm_parsed();
-                    let _ = self.parsed.send(buf[..n].to_vec());
-                }
-            }
-            fn finish(self: Box<Self>) {
-                let _ = self.parsed.send(Vec::new());
-            }
-        }
-
-        let wait = std::time::Duration::from_secs(10);
-        let pool =
-            VtPool::new(VtPoolConfig { shards: 1, slice: crate::vt_pool::SliceBudget::DEFAULT });
-        let sink = HolderSink::new(0);
-        sink.data(0, b"before ");
-        let (parsed, received) = std::sync::mpsc::channel();
-        let parser = Parser { sink: sink.clone(), parsed };
-        let wake = pool.register(Box::new(parser)).map_err(drop).unwrap();
-        assert!(received.recv_timeout(std::time::Duration::from_millis(50)).is_err());
-        sink.set_wake(wake);
-        assert_eq!(received.recv_timeout(wait).unwrap(), b"before ");
-        sink.data(7, b"after");
-        assert_eq!(received.recv_timeout(wait).unwrap(), b"after");
-        assert_eq!(sink.confirmed(), 12);
-        sink.exit(ExitStatus::Exited(0), 12);
-        assert_eq!(received.recv_timeout(wait).unwrap(), b"", "the end finished it");
-        // Nothing queued and no end: the read says so instead of waiting.
-        let idle = HolderSink::new(0);
-        assert_eq!(idle.try_read(&mut [0u8; 8]), None);
     }
 
     /// The replay race (holder item 1): a chunk the reader took but has not

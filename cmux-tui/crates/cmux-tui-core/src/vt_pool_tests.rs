@@ -279,6 +279,90 @@ fn terminals_spread_over_the_shards_and_outlive_a_dropped_owner() {
     }
 }
 
+/// Starts echo-path threads and counts them, after failing the first
+/// `failing` starts.
+fn counted_threads(failing: usize) -> (StartThread, Arc<AtomicUsize>) {
+    let attempts = AtomicUsize::new(0);
+    let started = Arc::new(AtomicUsize::new(0));
+    let count = started.clone();
+    let start: StartThread = Arc::new(move |name, body| {
+        if attempts.fetch_add(1, Ordering::AcqRel) < failing {
+            return Err(std::io::ErrorKind::WouldBlock.into());
+        }
+        count.fetch_add(1, Ordering::AcqRel);
+        crate::echo_thread::spawn(name, body).map(drop)
+    });
+    (start, started)
+}
+
+/// A thread start that fails once (EAGAIN in a restart burst) costs no
+/// shard for good: the terminal goes to a shard that runs, and the next
+/// terminal of the failed shard starts it.
+#[test]
+fn a_shard_that_could_not_start_starts_at_its_next_terminal() {
+    let config = VtPoolConfig { shards: 2, slice: SliceBudget::DEFAULT };
+    let (start, _) = counted_threads(1);
+    let pool = VtPool::with_thread_start(Some(config), start);
+    let mut terminals = Vec::new();
+    // Shard 0 fails (on the next shard), then shard 1 and shard 0 again.
+    for name in ["first", "second", "third"] {
+        let (source, runs, _) = probe(name, usize::MAX);
+        let wake = pool.register(Box::new(source)).map_err(drop).expect("a shard runs it");
+        terminals.push((name, wake, runs));
+    }
+    assert_eq!(pool.started_shards(), 2, "shard 0 started at its next terminal");
+    for (name, wake, runs) in &terminals {
+        wake.wake();
+        assert_eq!(runs.recv_timeout(WAIT), Ok(*name));
+    }
+
+    // With no shard to go to, the source comes back; the next one runs.
+    let config = VtPoolConfig { shards: 1, slice: SliceBudget::DEFAULT };
+    let (start, _) = counted_threads(1);
+    let pool = VtPool::with_thread_start(Some(config), start);
+    let (source, _, _) = probe("refused", usize::MAX);
+    assert!(pool.register(Box::new(source)).is_err(), "no thread, no shard");
+    let (source, runs, _) = probe("later", usize::MAX);
+    let wake = pool.register(Box::new(source)).map_err(drop).expect("shard 0 started now");
+    wake.wake();
+    assert_eq!(runs.recv_timeout(WAIT), Ok("later"));
+}
+
+/// Answers a query (`will_block` around the PTY write) on each run.
+struct AnswersQueries {
+    left: usize,
+    done: Sender<()>,
+}
+
+impl VtSource for AnswersQueries {
+    fn run(&mut self, _: &mut Slice) -> VtFlow {
+        will_block(|| ());
+        self.left -= 1;
+        if self.left == 0 { VtFlow::Finished } else { VtFlow::Yield }
+    }
+
+    fn finish(self: Box<Self>) {
+        let _ = self.done.send(());
+    }
+}
+
+/// A TUI that asks for the cursor position on every redraw: each answer
+/// moves the shard to its parked spare thread, so the answers start no
+/// thread each (the shard's own and the first spare only).
+#[test]
+fn query_answers_reuse_the_shard_spare_thread() {
+    const ANSWERS: usize = 200;
+    let config = VtPoolConfig { shards: 1, slice: SliceBudget::DEFAULT };
+    let (start, started) = counted_threads(0);
+    let pool = VtPool::with_thread_start(Some(config), start);
+    let (done, finished) = mpsc::channel();
+    let wake =
+        pool.register(Box::new(AnswersQueries { left: ANSWERS, done })).map_err(drop).unwrap();
+    wake.wake();
+    finished.recv_timeout(WAIT).expect("every query answered");
+    assert_eq!(started.load(Ordering::Acquire), 2, "a thread per answer");
+}
+
 /// `perf-hot: vt-pool-dispatch`: one holder-link wake of a terminal, both
 /// while its run is queued (no send) and from idle (one send).
 #[test]
