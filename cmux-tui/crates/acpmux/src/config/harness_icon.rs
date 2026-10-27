@@ -108,8 +108,13 @@ pub enum IconSpec {
         text: String,
         source: IconSource,
     },
+    /// An SF Symbol; `text` and `hue` are the monogram a client that cannot
+    /// draw the symbol (a page without the host's symbol images, an older
+    /// macOS without the name) shows instead.
     Symbol {
         name: String,
+        text: String,
+        hue: u16,
         source: IconSource,
     },
     /// The file's bytes, base64, so a page draws it with no file access.
@@ -224,7 +229,12 @@ pub fn resolve(
             return IconSpec::Emoji { text: text.clone(), source: IconSource::Profile };
         }
         (Some(IconValue::Symbol(name)), _) => {
-            return IconSpec::Symbol { name: name.clone(), source: IconSource::Profile };
+            return IconSpec::Symbol {
+                name: name.clone(),
+                text: monogram(display_name.filter(|n| !n.trim().is_empty()).unwrap_or(id)),
+                hue: hue(id),
+                source: IconSource::Profile,
+            };
         }
         // A missing or bad file: the profile's diagnostics say so; pick one.
         (Some(IconValue::File(_)), None) | (None, _) => {}

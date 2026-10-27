@@ -615,7 +615,7 @@ pub fn scaffold(id: &str, command: &str, protocol: &str) -> String {
 schema = 1
 id = "{id}"
 name = "{name}"
-# icon = "{id}.svg"       # a file next to this one, or: claude, openai, opencode, pi, gemini, terminal
+# icon = "{id}.svg"       # a file next to this one, an emoji, an SF Symbol (hammer.fill) or an agent mark (claude, goose, ...); unset: cmux picks one
 protocol = "{protocol}"   # "acp" (Agent Client Protocol over stdio) or "terminal" (a CLI/TUI without ACP)
 command = "{command}"     # a program on your PATH, or an absolute path
 args = []                 # for example ["acp"]; "${{model}}" becomes the chosen model

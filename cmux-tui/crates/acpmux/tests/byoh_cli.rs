@@ -369,10 +369,12 @@ fn a_custom_harness_gets_the_icon_it_sets_or_a_smart_default() {
     // Changed later from the CLI: an SF Symbol, then a brand, then an image file.
     let out = user.run(&["harness", "icon", "zeta-bot", "hammer.fill"]);
     assert!(out.status.success(), "icon failed: {}", text(&out));
-    assert_eq!(
-        icon_spec(&user, "zeta-bot"),
-        json!({"kind": "symbol", "name": "hammer.fill", "source": "profile"})
-    );
+    let symbol = icon_spec(&user, "zeta-bot");
+    assert_eq!(symbol["kind"], "symbol", "{symbol}");
+    assert_eq!(symbol["name"], "hammer.fill", "{symbol}");
+    assert_eq!(symbol["source"], "profile", "{symbol}");
+    // Where a symbol cannot be drawn, the same monogram stands in.
+    assert_eq!((&symbol["text"], &symbol["hue"]), (&json!("ZB"), &json!(hue)), "{symbol}");
     let out = user.run(&["harness", "icon", "zeta-bot", "goose"]);
     assert!(out.status.success(), "icon failed: {}", text(&out));
     assert_eq!(icon_spec(&user, "zeta-bot")["brand"], "goose");
