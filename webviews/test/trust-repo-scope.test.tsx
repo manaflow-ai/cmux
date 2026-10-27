@@ -179,7 +179,7 @@ test("the repository's own folder has no separate Only this folder; a plain fold
   expect(buttons()).toEqual(["Trust folder", "Not now"]);
 });
 
-test("a worktree answered by its repository says so, with Undo", async () => {
+test("a worktree answered by its repository keeps Trust and Undo after Not now", async () => {
   await render({
     cwd: worktree,
     repo: { root: repoRoot, worktree: true },
@@ -189,16 +189,23 @@ test("a worktree answered by its repository says so, with Undo", async () => {
   });
   expect(host.querySelector(".acpmux-trust-ask-text")!.textContent).toBe("Trusted via repo atlas-web");
   expect(buttons()).toEqual(["Undo"]);
-  await render({
-    cwd: worktree,
-    repo: { root: repoRoot, worktree: true },
-    via: repoRoot,
-    state: "decided",
-    level: "untrusted",
-  });
+  let trustRepo = 0;
+  await render(
+    {
+      cwd: worktree,
+      repo: { root: repoRoot, worktree: true },
+      via: repoRoot,
+      state: "decided",
+      level: "untrusted",
+    },
+    () => (trustRepo += 1),
+  );
   expect(host.querySelector(".acpmux-trust-ask-text")!.textContent).toBe(
     "Not trusted: Claude Code won't run in the atlas-web repo",
   );
+  expect(buttons()).toEqual(["Trust repo", "Undo"]);
+  await act(async () => (host.querySelector(".acpmux-trust-ask-primary") as HTMLButtonElement).click());
+  expect(trustRepo).toBe(1);
 });
 
 test("the Access grant names where the answer lives: the repository, not the chat's private folder", () => {
