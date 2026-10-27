@@ -78,7 +78,8 @@ final class FeedService {
         }
         var observe: (@MainActor (FeedSourceEvent) -> Void)?
         localOwner = LocalFeedSourceAdapter(primary: showcase ? MockFeedSource() : source)
-        github = GitHubFeedSource(owner: localOwner, energy: energy, shown: shown)
+        github = GitHubFeedSource(owner: localOwner, energy: energy, shown: shown,
+                                  activities: SystemBackgroundActivityScheduler(work: deadlines.work))
         model = FeedModel(source: FeedTeeSource(localOwner) { observe?($0) })
         model.githubDetail = { [weak self] item in self?.githubDetail(for: item) }
         observe = { [weak self] in self?.observe($0) }
