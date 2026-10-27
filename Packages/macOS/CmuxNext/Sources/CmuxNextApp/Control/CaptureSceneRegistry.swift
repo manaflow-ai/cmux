@@ -311,15 +311,18 @@ extension CaptureSceneRegistry {
             controller.state.selection.select(created.key, in: pane.id)
             _ = services.revealTab(created.key, intent: .focus)
             controller.sidebar.restore(width: 300, hidden: false)
+            let tabSession = workspace.screens.flatMap(\.panes).flatMap(\.tabs).first(where: { $0.id == created.key })?.agentSession
+            let fixtureSession = tabSession?.session ?? Self.autoNameSession
             // The fixture supplies an acpmux summary. Only the production namer may write its title.
-            let summary: [String: Any] = ["sessionId": Self.autoNameSession, "title": Self.generatedAutoName, "titleSource": "generated"]
+            let summary: [String: Any] = ["sessionId": fixtureSession, "title": Self.generatedAutoName, "titleSource": "generated"]
             let title = AgentTurnStates.title(summary)
             let generatedTitle = AgentTurnStates.title(summary, includingPrompt: false)
             guard let generatedTitle, generatedTitle == Self.generatedAutoName else {
                 return await failure("generated title fixture did not produce the expected literal title")
             }
-            AgentTurnStateStore.shared.apply(session: Self.autoNameSession, state: nil, lastMessage: nil, muted: false,
-                                              title: title, generatedTitle: generatedTitle, detail: nil, recordsTimeline: false)
+            AgentTurnStateStore.shared.apply(session: fixtureSession, state: nil, lastMessage: nil, muted: false,
+                                              title: title, generatedTitle: generatedTitle, detail: nil, recordsTimeline: false,
+                                              source: "capture-scene")
             let expected = expectedName ?? Self.generatedAutoName
             let (settled, frameStats) = await autoNameSettled {
                 self.autoNameReady(workspace: workspace, tabID: created.key, windowID: windowID, expected: expected)
@@ -347,16 +350,16 @@ extension CaptureSceneRegistry {
             if mode == "after_user_rename" {
                 _ = try await connection.renameWorkspace(key, to: Self.userWorkspaceName, source: .user,
                                                           expectedNameRevision: workspace.nameRevision)
-                let laterSummary: [String: Any] = ["sessionId": Self.autoNameSession,
+                let laterSummary: [String: Any] = ["sessionId": fixtureSession,
                                                     "title": Self.laterGeneratedName, "titleSource": "generated"]
                 let laterTitle = AgentTurnStates.title(laterSummary)
                 let laterGeneratedTitle = AgentTurnStates.title(laterSummary, includingPrompt: false)
                 guard let laterGeneratedTitle, laterGeneratedTitle == Self.laterGeneratedName else {
                     return await failure("later generated title fixture did not produce the expected literal title")
                 }
-                AgentTurnStateStore.shared.apply(session: Self.autoNameSession, state: nil, lastMessage: nil, muted: false,
+                AgentTurnStateStore.shared.apply(session: fixtureSession, state: nil, lastMessage: nil, muted: false,
                                                   title: laterTitle, generatedTitle: laterGeneratedTitle, detail: nil,
-                                                  recordsTimeline: false)
+                                                  recordsTimeline: false, source: "capture-scene")
                 let (laterSettled, laterFrameStats) = await autoNameSettled {
                     self.autoNameReady(workspace: workspace, tabID: created.key, windowID: windowID, expected: Self.userWorkspaceName,
                                        expectedSource: .user, expectedGeneratedTitle: laterGeneratedTitle)
@@ -428,6 +431,7 @@ extension CaptureSceneRegistry {
         let tabFound = tab != nil
         let session = tab?.agentSession
         let sessionOK = session?.session == Self.autoNameSession
+        if let session { AgentTurnStateStore.shared.localHost = session.host }
         let generatedOK = session.map { AgentTurnStateStore.shared.generatedTitle(for: $0) == expectedGeneratedTitle } ?? false
         let view = services.agentTabs.existingView(tabID)
         let painted = view?.model.hasPainted == true
