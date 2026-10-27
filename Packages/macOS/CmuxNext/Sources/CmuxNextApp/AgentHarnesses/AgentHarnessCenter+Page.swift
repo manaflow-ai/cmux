@@ -34,6 +34,8 @@ extension AgentHarnessCenter {
                     throw PageError.invalidParams("no backup")
                 }
                 return try await restore(backup: backup)
+            case "icon" where !id.isEmpty:
+                return try await setIcon(id: id, change: AgentHarnessIconChange(params))
             case "doctor" where !id.isEmpty:
                 return try await doctor(id: id, noPrompt: params["noPrompt"]?.boolValue ?? false)
             default:

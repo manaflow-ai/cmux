@@ -18,7 +18,7 @@ nonisolated enum AgentHarnessRows {
                 "removable": .bool(source == "user"),
                 "default": .bool(id == defaultID),
             ]
-            for key in ["family", "icon", "unavailable", "probeError", "sourcePath"] {
+            for key in ["family", "icon", "iconSpec", "unavailable", "probeError", "sourcePath"] {
                 if let value = entry[key], value != .null { row[key] = value }
             }
             return .object(row)

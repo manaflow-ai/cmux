@@ -1,4 +1,4 @@
-//! `_acpmux/harness/add|remove|restore|doctor|secret/set` and `_acpmux/registry`
+//! `_acpmux/harness/add|remove|restore|doctor|secret/set|icon` and `_acpmux/registry`
 //! (BRING-YOUR-OWN-HARNESS H2): the app's Settings, palette and MCP tools add
 //! and check a user's own harness through the daemon. The work is
 //! `crate::harness_admin`, shared with the CLI. Also Update Everything's
@@ -67,6 +67,7 @@ pub(super) const METHODS: &[&str] = &[
     method::MUX_HARNESS_RESTORE,
     method::MUX_HARNESS_DOCTOR,
     method::MUX_HARNESS_SECRET_SET,
+    method::MUX_HARNESS_ICON,
     method::MUX_REGISTRY,
     method::MUX_HARNESS_HEALTH,
     method::MUX_HARNESS_INVENTORY_REFRESH,
@@ -258,6 +259,40 @@ pub(super) async fn handle(
             .map_err(rpc_error)?;
             hub.reload_and_announce().await;
             serde_json::to_value(&stored).map_err(|e| RpcError::internal(e.to_string()))?
+        }
+        method::MUX_HARNESS_ICON => {
+            use crate::harness_icon_set::{IconChange, set_icon};
+            let id =
+                text("id").ok_or_else(|| RpcError::invalid_params("id is required"))?.to_owned();
+            let change = if params.get("clear").and_then(Value::as_bool) == Some(true) {
+                IconChange::Clear
+            } else if let Some(data) = text("data") {
+                use base64::Engine as _;
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(data)
+                    .map_err(|_| RpcError::invalid_params("data must be base64"))?;
+                let ext = text("ext").unwrap_or("png").to_ascii_lowercase();
+                IconChange::Image { bytes, ext }
+            } else if let Some(icon) = text("icon") {
+                // A page never names a file on this Mac: it sends the bytes.
+                if matches!(
+                    crate::config::harness_icon::IconValue::parse(icon),
+                    Ok(crate::config::harness_icon::IconValue::File(_))
+                ) {
+                    return Err(RpcError::invalid_params(
+                        "send an image as {data, ext}, not a file path",
+                    ));
+                }
+                IconChange::Value(icon.to_owned())
+            } else {
+                return Err(RpcError::invalid_params("give icon, data or clear"));
+            };
+            let set = tokio::task::spawn_blocking(move || set_icon(&id, change, &sources))
+                .await
+                .map_err(joined)?
+                .map_err(rpc_error)?;
+            hub.reload_and_announce().await;
+            json!({"id": set.id, "path": set.path, "icon": set.icon})
         }
         method::MUX_REGISTRY => {
             let refresh = params.get("refresh").and_then(Value::as_bool).unwrap_or(false);
