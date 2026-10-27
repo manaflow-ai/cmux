@@ -12,6 +12,9 @@ public struct CloudWorkspaceSetupWizard {
     /// A retryable attempt waits until its workspace opens or the person ends it.
     public enum Readiness: Equatable, Sendable { case waiting, ready, ended }
 
+    /// The localized destination label for an account without a selected team.
+    public nonisolated static let personalAccountTitle = String(localized: "cloud.workspaceSetup.personalAccount", defaultValue: "Personal account", table: "Cloud", bundle: .module)
+
     /// The starting contents of a new machine.
     public nonisolated enum Source: String, Sendable, Equatable {
         case empty
