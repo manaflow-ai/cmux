@@ -21,8 +21,11 @@ actor SidebarSnapshotStore {
     /// a window back (records travel in separate tasks).
     private var sequences: [String: UInt64] = [:]
 
-    init(file: SidebarSnapshotFile?, clock: any Clock<Duration> = ContinuousClock(), debounce: Duration = .milliseconds(500)) {
-        let loaded = file?.read() ?? SidebarSnapshotDocument()
+    /// `readsLaunchDocument` false (a crash streak's safe launch, `LaunchSafeMode`) reads nothing: the launch draws no
+    /// saved sidebar, and the first change writes the file anew.
+    init(file: SidebarSnapshotFile?, readsLaunchDocument: Bool = true, clock: any Clock<Duration> = ContinuousClock(),
+         debounce: Duration = .milliseconds(500)) {
+        let loaded = (readsLaunchDocument ? file?.read() : nil) ?? SidebarSnapshotDocument()
         launchDocument = loaded
         document = loaded
         self.file = file

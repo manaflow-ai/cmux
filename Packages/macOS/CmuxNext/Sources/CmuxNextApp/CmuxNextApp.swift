@@ -4,6 +4,7 @@ import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextCloud
 import CmuxNextControl
+import CmuxNextCrashReporting
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextFeatures
@@ -71,6 +72,10 @@ public struct CmuxNextApp {
         // Shells get the launch limit back. Path lookups only: the stores at these paths read and create on first use.
         var environment = AppEnvironment.current(openFiles: openFiles)
         environment.marksRun = true
+        // The run marker and its crash handlers before any launch cache is read: a run that a cache ends is counted,
+        // and after a streak the launch reads none of them (p08-startup-089).
+        let runMarker = AppRunMarker(directory: AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID))
+        environment.runMarker = runMarker
         #if DEBUG || CMUX_BENCH_HOOKS
         environment.globalJobCensus = globalJobs
         #endif
@@ -111,10 +116,13 @@ public struct CmuxNextApp {
         // the launch steps that need it run when it lands, never waiting for it on main (p08-startup 025).
         let settingsRead = SettingsController.startLaunchRead(on: work, in: ledgerThenSettings)
         let launchImages = AgentPaneLaunchImages(state: state), relaunchWake = AgentPaneRelaunchWake(directory: state)
-        launchImages.prefetch(on: work) { DebugTimings.markLaunch($0) }
-        TerminalLaunchFrames.beside(state).prefetch(on: work) { DebugTimings.markLaunch($0) }
         environment.browserLaunchPictures = BrowserLaunchPictures(state: state, work: work)  // browser pages' (p08-startup-043)
-        environment.browserLaunchPictures?.prefetch { DebugTimings.markLaunch($0) }
+        let browserLaunchPictures = environment.browserLaunchPictures
+        runMarker.safeMode.readLaunchCaches(mark: { DebugTimings.markLaunch($0) }) {
+            launchImages.prefetch(on: work) { DebugTimings.markLaunch($0) }
+            TerminalLaunchFrames.beside(state).prefetch(on: work) { DebugTimings.markLaunch($0) }
+            browserLaunchPictures?.prefetch { DebugTimings.markLaunch($0) }
+        }
         environment.windowPictures = WindowPictureStore(state: state, work: work)  // the windows' (p08-startup-057)
         relaunchWake.begin(on: work)
         // The browser source registry (browser-sources.json) the import pickers and the Passwords page read:
@@ -144,7 +152,7 @@ public struct CmuxNextApp {
         DebugTimings.markLaunch("main.prestart")
         // The front window's picture for the first frame, read and decoded on the files lane (p08-startup-058);
         // which window is front comes from the launch snapshot, read there only when a picture was saved.
-        if features.isEnabled(.savedWindowPicture) {
+        if runMarker.safeMode.readsLaunchCaches, features.isEnabled(.savedWindowPicture) {
             let snapshot = prestart.map { (session: $0.launcher.configuration.session, state: $0.launcher.configuration.stateDirectory) }
             environment.windowPictures?.prefetchFront({
                 // The window `LaunchSnapshotWindow.showSaved` builds, by the same rule (WindowStateDocument.frontWindow).
@@ -166,6 +174,7 @@ public struct CmuxNextApp {
         WindowOverlayHost.appInputTap = inputTap
         TooltipPresenter.shared.inputTap = inputTap
         let order = LaunchOrder(fence: fence, board: mainBoard, input: inputTap) { DebugTimings.markLaunch($0) }
+        runMarker.observe(order.startup) // its last task and completion in run.json, before the first post
         DaemonLauncher.captureLoginEnvironment(after: order.startup) // at once only with nothing remembered (p08-startup-034)
         #if DEBUG || CMUX_BENCH_HOOKS
         globalJobs?.freeze(after: order.startup)

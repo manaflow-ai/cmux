@@ -36,8 +36,11 @@ final class CrashRecoveryService {
     /// `marksRun` false (tests, tools that build AppServices) leaves no
     /// marker and installs no signal handlers. With a marker, the crash
     /// path writes `crashKeys` into the marker folder's `run.crashkeys`.
-    init(bundleID: String?, marksRun: Bool, crashKeys: CrashKeySlots? = nil, work: BackgroundWork, mainWork: MainWorkScheduler) {
-        marker = marksRun ? AppRunMarker(directory: AppRunMarker.standardDirectory(bundleID: bundleID)) : nil
+    /// `runMarker`: the one the app's `main` made before the launch caches'
+    /// reads (``AppEnvironment/runMarker``); without it a marking run makes its own.
+    init(bundleID: String?, marksRun: Bool, runMarker: AppRunMarker? = nil, crashKeys: CrashKeySlots? = nil, work: BackgroundWork,
+         mainWork: MainWorkScheduler) {
+        marker = marksRun ? runMarker ?? AppRunMarker(directory: AppRunMarker.standardDirectory(bundleID: bundleID)) : nil
         if marker != nil, let crashKeys { CrashReporter.attachCrashKeys(crashKeys) }
         writer = CrashReportWriter.standard(bundleID: bundleID)
         self.work = work
@@ -174,6 +177,7 @@ final class CrashRecoveryService {
             object["exception_frames"] = exception.frames
         }
         if let previousCrashLog { object["system_report"] = previousCrashLog.path }
+        if previous.startupComplete == false, let task = previous.lastStartupTask { object["last_startup_task"] = task }
         if let tags = crashKeys?.tags, !tags.isEmpty { object["crash_keys"] = tags }
         return object
     }

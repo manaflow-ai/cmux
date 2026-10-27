@@ -74,14 +74,14 @@ public final class DaemonService {
     /// userBlocking work (``settleReply(_:)``).
     let mainWork: MainWorkScheduler
     @ObservationIgnored public let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.daemon")
-    /// The window records of the daemon's launch snapshot, drawn before the
-    /// first connection (`LaunchSnapshotWindow`); nil without one.
+    /// The window records of the daemon's launch snapshot, drawn before the first connection (`LaunchSnapshotWindow`).
     @ObservationIgnored public var launchSnapshotWindows: WindowStateDocument?
+    /// False: the launch neither reads nor draws the launch snapshot (the app's crash-streak safe launch).
+    @ObservationIgnored public var showsLaunchSnapshot = true
     /// The local session whose launch snapshot path each handshake records.
     @ObservationIgnored var launchSnapshotSession: String?
     @ObservationIgnored var launchSnapshotLocation = LaunchSnapshotLocation()
-    /// Callers of `endpoint()` waiting for the first connection (terminals
-    /// drawn from the launch snapshot attach as soon as it exists).
+    /// Callers of `endpoint()` waiting for the first connection (terminals drawn from the launch snapshot attach then).
     @ObservationIgnored var connectionWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
     /// Watches each line the service's connections and its terminal attachments read (their reader threads'
     /// `daemon.line` scopes); nil watches nothing.

@@ -79,15 +79,19 @@ nonisolated func arrivedOnASystemCall(_ context: UnsafeMutableRawPointer?) -> Bo
 ///
 /// - `run.json`: pid, launch time, whether this run is a restart, whether
 ///   it lived past the quick-crash window, and whether a requested quit had
-///   begun (`markQuitting`).
+///   begun (`markQuitting`); whether its startup completed, the last startup
+///   task it began before that, and the runs in a row before it that ended
+///   before theirs (`LaunchSafeMode`, ``observe(_:)``).
 /// - `run.signal`: empty until a fatal signal handler writes its number.
 ///
 /// A normal quit removes both. A quit that had begun, or a requested-quit
 /// signal (`LaunchRecovery.requestedQuitSignals`), counts as a quit that
 /// was asked for, even when the process is then killed before it ends.
 ///
-/// `run.json` is written off the main thread (`RunMarkerFile`); the quit
-/// path awaits its `quitting` write (`markQuitting`).
+/// `run.json` is encoded and written off the main thread (`RunMarkerFile`);
+/// the quit path awaits its `quitting` write (`markQuitting`). Made in the
+/// app's `main` before any launch cache is read, so a cache that ends the
+/// launch is counted, and skipped after a streak (``safeMode``).
 @MainActor
 final class AppRunMarker {
     private let directory: URL
@@ -104,6 +108,9 @@ final class AppRunMarker {
     /// How the previous run ended when it did not quit as asked (stability.unclean_exit, task 109); nil after a
     /// normal or requested quit, or on a first launch.
     let previousExit: HistogramID.UncleanExit?
+    /// Whether this launch reads the launch caches: not after a streak of runs that ended before their startup
+    /// completed (p08-startup-089).
+    nonisolated let safeMode: LaunchSafeMode
     private var signalFile: URL { directory.appending(path: "run.signal") }
     private var exceptionFile: URL { directory.appending(path: "run.exception") }
     private var crashKeysFile: URL { directory.appending(path: "run.crashkeys") }
@@ -129,9 +136,34 @@ final class AppRunMarker {
         previousExit = previous?.uncleanExit(bootSession: bootSession)
         let recovered = previous?.forRecovery(bootSession: bootSession)
         recovery = LaunchRecovery.decide(previous: recovered)
+        let safeMode = previous?.safeMode(bootSession: bootSession) ?? .noStreak
+        self.safeMode = safeMode
         marker = PreviousRun(pid: getpid(), launched: now, recovery: LaunchRecovery.watchesForLoop(previous: recovered),
-                             survived: false, signal: nil, bootSession: bootSession)
+                             survived: false, signal: nil, bootSession: bootSession, startupComplete: false,
+                             incompleteLaunches: safeMode.incompleteLaunches)
         start()
+    }
+
+    /// Records the launch's startup in `run.json`: the name of each main task `startup` begins before it completes,
+    /// then the completion, which resets ``LaunchSafeMode``'s streak for the next launch. Each record is one queued
+    /// write, encoded off the main thread and coalesced (``RunMarkerFile``).
+    func observe(_ startup: StartupScheduler) {
+        startup.taskStarted = { [weak self] name in self?.startupTaskStarted(name) }
+        startup.whenComplete { [weak self] _ in self?.startupCompleted() }
+    }
+
+    /// The startup main task `name` began (``observe(_:)``).
+    func startupTaskStarted(_ name: StaticString) {
+        marker.lastStartupTask = name.description
+        writeMarker()
+    }
+
+    /// Startup completed (``observe(_:)``): the next launch reads its caches again.
+    func startupCompleted() {
+        guard marker.startupComplete != true else { return }
+        marker.startupComplete = true
+        marker.incompleteLaunches = 0
+        writeMarker()
     }
 
     /// This boot's id, `kern.bootsessionuuid` as 32 hex digits; nil when the kernel does not give it.
@@ -255,14 +287,17 @@ final class AppRunMarker {
         file.close()
     }
 
-    /// Encodes the marker (about 120 bytes) and hands it to the background
-    /// writer.
+    /// Hands the marker (about 200 bytes) to the background writer, which encodes it there.
     private func writeMarker() {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .secondsSince1970
-        do { lastTicket = file.submit(try encoder.encode(marker)) } catch {
-            logger.error("run marker encode failed: \(String(describing: error), privacy: .public)")
-        }
+        let (run, logger) = (marker, logger)
+        lastTicket = file.submit(encoding: {
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .secondsSince1970
+            do { return try encoder.encode(run) } catch {
+                logger.error("run marker encode failed: \(String(describing: error), privacy: .public)")
+                return nil
+            }
+        })
     }
 
     /// The crash keys a run's crash path wrote (`url`: ``previousCrashKeysFile``); nil when that run ended with no
@@ -308,5 +343,11 @@ extension PreviousRun {
     /// is neither a crash nor a restart loop.
     nonisolated func forRecovery(bootSession current: String?) -> PreviousRun? {
         uncleanExit(bootSession: current) == .systemShutdown ? nil : self
+    }
+
+    /// The launch caches' safe mode after this run, seen from a launch in boot `current` (p08-startup-089).
+    nonisolated func safeMode(bootSession current: String?) -> LaunchSafeMode {
+        LaunchSafeMode.after(startupComplete: startupComplete, incompleteLaunches: incompleteLaunches, endedAsAsked: endedAsAsked,
+                             machineRestarted: uncleanExit(bootSession: current) == .systemShutdown)
     }
 }

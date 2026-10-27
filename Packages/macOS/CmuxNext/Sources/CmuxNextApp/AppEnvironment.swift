@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextControl
+import CmuxNextCrashReporting
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextFeatures
@@ -29,6 +30,10 @@ struct AppEnvironment: Sendable {
     /// Mark this run for crash recovery (`AppRunMarker`): only the real app
     /// process, never tests that build `AppServices`.
     var marksRun = false
+    /// The run marker `main` made before the launch caches' reads (`CrashRecoveryService` takes it); nil in tests.
+    var runMarker: AppRunMarker?
+    /// Whether this launch reads the launch caches (``AppRunMarker/safeMode``): not after a crash streak.
+    var readsLaunchCaches: Bool { runMarker?.safeMode.readsLaunchCaches ?? true }
     /// What every local terminal of this app gets on top of its filtered
     /// login environment: the launch identity (`LaunchIdentity`) and the
     /// terminal identity Ghostty gives its shells (`TerminalEnvironment.instance.ghostty`),

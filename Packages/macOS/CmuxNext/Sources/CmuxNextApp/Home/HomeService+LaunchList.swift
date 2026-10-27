@@ -14,11 +14,12 @@ import Observation
 /// archived Chiefs, and each piece popped in. Now the last state is read synchronously from disk
 /// before the list is made, and every live answer replaces its piece in place.
 extension HomeService {
-    /// Reads the last launch's list into the store, the inboxes, the directory and the roster;
-    /// once, before the Home list's first frame (`makeSidebarSource`, `start`).
+    /// Reads the last launch's list into the store, the inboxes, the directory and the roster once, before the
+    /// Home list's first frame (`makeSidebarSource`, `start`); nothing in a crash streak's safe launch (`LaunchSafeMode`).
     func primeHomeList() {
         guard !homeListPrimed else { return }
         homeListPrimed = true
+        guard services.environment.readsLaunchCaches else { return }
         homeStore.primeFromCache()
         guard let last = sidebarLaunch.load(account: pinAccount) else { return }
         last.seed([homeInbox, homeCloudInbox])
@@ -29,8 +30,7 @@ extension HomeService {
     /// Writes the list's state for the next launch after each change (coalesced, off the main actor).
     func keepHomeListForLaunch() {
         guard launchListObservation == nil else { return }
-        let source = groupMuting
-        let cache = sidebarLaunch
+        let (source, cache) = (groupMuting, sidebarLaunch)
         let directory = directory
         // Background: nobody sees the write; it still runs while no Home shows (a service observation).
         launchListObservation = ServiceObservation(.background, owner: "HomeService.launchList", on: services.mainWork) { [weak self] in

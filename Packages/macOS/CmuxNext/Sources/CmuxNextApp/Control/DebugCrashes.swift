@@ -24,6 +24,15 @@ enum DebugCrashes {
                 "was_restart": .bool(previous.recovery),
                 "survived": .bool(previous.survived),
                 "signal": previous.signal.map { .number(Double($0)) } ?? .null,
+                "startup_complete": previous.startupComplete.map { .bool($0) } ?? .null,
+                "last_startup_task": previous.lastStartupTask.map { .string($0) } ?? .null,
+            ])
+        }
+        // The crash-streak safe launch (p08-startup-089): a reason means this launch read no launch cache.
+        if let safeMode = crash.marker?.safeMode {
+            launch["safe_mode"] = .object([
+                "incomplete_launches": .number(Double(safeMode.incompleteLaunches)),
+                "reason": safeMode.reason.map { .string($0.rawValue) } ?? .null,
             ])
         }
         launch["system_report"] = crash.previousCrashLog.map { .string($0.path) } ?? .null

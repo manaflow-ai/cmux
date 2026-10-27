@@ -23,9 +23,16 @@ nonisolated struct PreviousRun: Codable, Equatable, Sendable {
     /// (`UncaughtExceptionRecorder`). Read from `run.exception`, never
     /// encoded into `run.json`.
     var exception: RecordedException?
+    /// That run's startup completed (`StartupScheduler`'s completion). Nil in markers written before this field,
+    /// which never count toward ``LaunchSafeMode``'s streak.
+    var startupComplete: Bool?
+    /// The last startup main task that run began before its startup completed (`debug.crashes`).
+    var lastStartupTask: String?
+    /// The runs in a row before that one that ended before their startup completed (``LaunchSafeMode``).
+    var incompleteLaunches: Int?
 
     private enum CodingKeys: String, CodingKey {
-        case pid, launched, recovery, survived, signal, quitting, bootSession
+        case pid, launched, recovery, survived, signal, quitting, bootSession, startupComplete, lastStartupTask, incompleteLaunches
     }
 
     /// The run ended because someone asked it to: a requested-quit signal
