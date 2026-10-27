@@ -9,8 +9,9 @@
 # removes one left by an earlier Debug build, so Release, RC and NIGHTLY
 # bundles carry no host. A host that does not build leaves a Debug
 # build without the host app (a warning), unless
-# CMUX_NEXT_REQUIRE_CHROMIUM_HOST=1. Every build step is a stand-in (no
-# network, no compiler, no signing).
+# CMUX_NEXT_REQUIRE_CHROMIUM_HOST=1. Chromium's crash_reporter.cfg (Crashpad, local
+# dumps only, p01-process task 226) goes into Contents/Resources with the host and
+# only with it. Every build step is a stand-in (no network, no compiler, no signing).
 #
 # Not in CI (lead, 2026-10-23: no new CI tests); run it when you change the
 # host's embed or build.
@@ -23,7 +24,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 scripts="$TMP/scripts"
 mkdir -p "$scripts" "$TMP/build" "$TMP/cache" "$TMP/bin"
 cp "$ROOT/scripts/cmux-next/embed-cef.sh" "$ROOT/scripts/cmux-next/cef-locale-allowlist.sh" \
-  "$ROOT/scripts/cmux-next/bundle-ublock.sh" "$scripts/"
+  "$ROOT/scripts/cmux-next/bundle-ublock.sh" "$ROOT/scripts/cmux-next/chromium-host-crash-reporter.cfg" "$scripts/"
 printf '{"chromium": "1.0"}\n' > "$scripts/cef-manifest.json"
 dist="$TMP/dist"
 mkdir -p "$dist/Chromium Embedded Framework.framework/Libraries" "$dist/Chromium Embedded Framework.framework/Resources"
@@ -68,6 +69,7 @@ embed() { # <configuration> [VAR=value...]
 host_app="$TMP/build/app.app/Contents/MacOS/app Chromium Host"
 remote_shim="$TMP/build/app.app/Contents/Frameworks/libcmux_cef_shim_remote.dylib"
 old_host_app="$TMP/build/app.app/Contents/Frameworks/app Chromium Host.app"
+crash_config="$TMP/build/app.app/Contents/Resources/crash_reporter.cfg"
 
 # 1. Debug: the host, built from the arm64 shim build, in Contents/MacOS; the earlier host app is removed.
 mkdir -p "$old_host_app/Contents/MacOS"
@@ -77,12 +79,15 @@ embed Debug
 [[ "$(cat "$TMP/host-builds")" == "arm64 $dist $TMP/shim" ]] || fail "the host was not built once against the arm64 artifact and shim build: $(cat "$TMP/host-builds")"
 [[ "$(cat "$host_app")" == "host binary" ]] || fail "the host is not the host build"
 [[ "$(cat "$remote_shim")" == "remote shim" ]] || fail "a Debug embed has not the host build's remote shim"
+cmp -s "$crash_config" "$ROOT/scripts/cmux-next/chromium-host-crash-reporter.cfg" ||
+  fail "a Debug embed has not chromium-host-crash-reporter.cfg as Contents/Resources/crash_reporter.cfg"
 
 # 2. Release on the same bundle: no host build, and the Debug host app is gone.
 rm -f "$TMP/host-builds"
 embed Release
 [[ ! -e "$host_app" ]] || fail "a Release embed keeps a Chromium host app"
 [[ ! -e "$remote_shim" ]] || fail "a Release embed keeps the remote shim"
+[[ ! -e "$crash_config" ]] || fail "a Release embed keeps Chromium's crash_reporter.cfg"
 [[ ! -e "$TMP/host-builds" ]] || fail "a Release embed built the Chromium host"
 [[ -d "$TMP/build/app.app/Contents/Frameworks/app Helper.app" ]] || fail "a Release embed lost the base helper"
 
@@ -103,6 +108,7 @@ embed Debug
 embed Debug
 [[ ! -e "$host_app" ]] || fail "a Debug embed whose host did not build keeps a host app"
 [[ ! -e "$remote_shim" ]] || fail "a Debug embed whose host did not build keeps the remote shim"
+[[ ! -e "$crash_config" ]] || fail "a Debug embed whose host did not build keeps Chromium's crash_reporter.cfg"
 grep -q "warning: the Chromium host app did not build" "$TMP/embed-Debug.log" || fail "no warning for a host that did not build"
 [[ -d "$TMP/build/app.app/Contents/Frameworks/app Helper.app" ]] || fail "a Debug embed whose host did not build lost the base helper"
 
@@ -113,6 +119,7 @@ embed Debug
 embed Debug CMUX_NEXT_SKIP_CEF=1
 [[ ! -e "$host_app" ]] || fail "a CMUX_NEXT_SKIP_CEF=1 embed keeps the Chromium host"
 [[ ! -e "$remote_shim" ]] || fail "a CMUX_NEXT_SKIP_CEF=1 embed keeps the remote shim"
+[[ ! -e "$crash_config" ]] || fail "a CMUX_NEXT_SKIP_CEF=1 embed keeps Chromium's crash_reporter.cfg"
 : > "$TMP/host-fails"
 
 # 5. The same failing host with CMUX_NEXT_REQUIRE_CHROMIUM_HOST=1: the build fails.

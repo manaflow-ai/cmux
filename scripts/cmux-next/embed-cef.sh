@@ -9,6 +9,8 @@
 #                                                                build-chromium-host.sh)
 #   Contents/Frameworks/libcmux_cef_shim_remote.dylib           (with the host: the shim ABI
 #                                                                cmux loads in host mode)
+#   Contents/Resources/crash_reporter.cfg                       (with the host: Chromium's Crashpad, local
+#                                                                dumps only; chromium-host-crash-reporter.cfg)
 #
 # then signs them inside out with the build's identity (ad hoc for dev
 # builds) through sign-cef.sh. Xcode signs the outer app afterwards; release
@@ -59,8 +61,10 @@ rm -f "$phase_stamp"
 # Remove the complete CEF payload when this build explicitly has no CEF. A
 # valid prior payload must not survive a skip, or a dependency-analysis stamp
 # would make the app claim CEF is unavailable while still shipping stale code.
+crash_config="$app/Contents/Resources/crash_reporter.cfg"
 remove_embed() {
   rm -rf "$frameworks/$FW_NAME" "$frameworks/libcmux_cef_shim.dylib" "$frameworks/libcmux_cef_shim_remote.dylib"
+  rm -f "$crash_config"
   for helper in "$frameworks"/*" Helper"*.app "$frameworks"/*" Chromium Host.app" "$app/Contents/MacOS/"*" Chromium Host"; do
     if [[ -e "$helper" ]]; then rm -rf "$helper"; fi
   done
@@ -360,8 +364,15 @@ if [[ -n "$host_out" ]]; then
     cp "$host_out/libcmux_cef_shim_remote.dylib" "$remote_shim"
     printf '%s' "$host_key $product" > "$host_stamp"
   fi
+  # Crashpad for the host and its helpers (p01-process.md task 226): CEF reads crash_reporter.cfg from the main
+  # bundle's Resources and starts the handler in CefInitialize. Only with the host: a build without one keeps
+  # Chromium's crash reporting off, as before.
+  mkdir -p "$app/Contents/Resources"
+  if ! cmp -s "$SCRIPT_DIR/chromium-host-crash-reporter.cfg" "$crash_config"; then
+    cp "$SCRIPT_DIR/chromium-host-crash-reporter.cfg" "$crash_config"
+  fi
 else
-  rm -f "$host_binary" "$remote_shim"
+  rm -f "$host_binary" "$remote_shim" "$crash_config"
 fi
 
 printf '%s' "$shim_key $product" > "$binary_stamp"

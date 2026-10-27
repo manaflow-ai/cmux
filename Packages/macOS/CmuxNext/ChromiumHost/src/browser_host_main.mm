@@ -224,6 +224,31 @@ std::string Arg(const std::vector<std::string>& args, const std::string& name) {
   return std::string();
 }
 
+// The Crashpad database in the host's data folder (`--root-cache`); ChromiumHostConfiguration.crashDatabase
+// names the same folder for cmux, which reads the dumps.
+constexpr char kCrashDatabase[] = "Crashpad";
+
+// Puts this host's crash dumps (its own and its helpers') into `<root cache>/Crashpad`. CEF starts Chromium's
+// Crashpad handler in CefInitialize when the app bundle holds crash_reporter.cfg (embed-cef.sh puts it there with
+// the host; no ServerURL, so no dump leaves this Mac), as Chrome does in components/crash/core/app/crashpad_mac.mm,
+// and takes the database folder from BREAKPAD_DUMP_LOCATION (CefCrashReporterClient::GetCrashDumpLocation).
+// Before any other thread starts: setenv races a thread that reads the environment.
+void SetCrashDumpLocation(const std::string& root_cache) {
+  if (root_cache.empty()) return;
+  const std::string database = root_cache + "/" + kCrashDatabase;
+  @autoreleasepool {
+    NSError* error = nil;
+    if (![NSFileManager.defaultManager createDirectoryAtPath:@(database.c_str())
+                                 withIntermediateDirectories:YES
+                                                  attributes:@{NSFilePosixPermissions : @0700}
+                                                       error:&error]) {
+      fprintf(stderr, "cmux-chromium-host: no crash dump folder: %s\n", error.localizedDescription.UTF8String ?: "");
+      return;
+    }
+  }
+  setenv("BREAKPAD_DUMP_LOCATION", database.c_str(), 1);
+}
+
 // A kWheel frame to its page (task p04-input-063), with its scroll phase,
 // momentum phase and precise flag through the fork's wheel call, so
 // Chromium's MouseWheelPhaseHandler latches the gesture and hands the
@@ -465,6 +490,7 @@ int main(int argc, char* argv[]) {
   }
   const std::string framework = Arg(args, "framework");
   const std::string binary = framework + "/Chromium Embedded Framework";
+  SetCrashDumpLocation(Arg(args, "root-cache"));
 
   @autoreleasepool {
     [ChromiumHostApplication sharedApplication];

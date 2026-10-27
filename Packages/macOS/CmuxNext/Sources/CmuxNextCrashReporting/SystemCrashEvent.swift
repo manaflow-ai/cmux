@@ -3,14 +3,25 @@ public import Sentry
 
 /// A Sentry event for a helper process crash that macOS recorded (the
 /// cmux-tui daemon and its terminal, app and browser hosts, acpmux, the
-/// Chromium helpers). Frames carry instruction addresses and the debug
+/// Chromium helpers), or that Crashpad dumped (a helper of the Chromium
+/// Host, ``ChromiumMinidumpReport/systemReport``). Frames carry instruction addresses and the debug
 /// images their UUIDs, so Sentry symbolicates them from the debug files
 /// the nightly uploads, as for the app's own crashes.
 public nonisolated struct SystemCrashEvent: Sendable {
-    public let report: SystemCrashReport
+    /// Where the report came from: the event's `crash_source` tag.
+    public enum Source: String, Sendable {
+        /// macOS's crash reporter (an `.ips` file, ``SystemCrashForwarder``).
+        case macOSCrashReport = "macos_crash_report"
+        /// A Crashpad dump of a Chromium helper (``ChromiumMinidumpCollector``).
+        case crashpad
+    }
 
-    public init(report: SystemCrashReport) {
+    public let report: SystemCrashReport
+    public let source: Source
+
+    public init(report: SystemCrashReport, source: Source = .macOSCrashReport) {
         self.report = report
+        self.source = source
     }
 
     public func event() -> Event {
@@ -40,7 +51,7 @@ public nonisolated struct SystemCrashEvent: Sendable {
             meta.codeFile = image.name
             return meta
         }
-        event.tags = ["process": report.processName, "crash_source": "macos_crash_report"]
+        event.tags = ["process": report.processName, "crash_source": source.rawValue]
         if let incident = report.incident { event.extra = ["incident": incident] }
         return event
     }

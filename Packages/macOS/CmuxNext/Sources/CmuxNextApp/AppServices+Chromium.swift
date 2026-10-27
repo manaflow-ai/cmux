@@ -149,7 +149,7 @@ extension AppServices {
     static func chromiumEngineHook(crashRecovery: CrashRecoveryService, reporter: CrashReporter,
                                    routes: @escaping (CEFEngine) -> Void) -> (CEFEngine) -> Void {
         { engine in
-            crashRecovery.observe(engine.crashLog)
+            crashRecovery.observe(engine.crashLog, reporter: reporter)
             AppRunMarker.keepSignalHandlers(crashRecovery.marker, across: engine, reporter: reporter)
             (NSApp as? CmuxApplication)?.assistiveClientsChanged = { [weak engine] active in engine?.setAssistiveClientActive(active) }
             routes(engine)

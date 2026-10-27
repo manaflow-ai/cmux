@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextCrashReporting
 import Foundation
 import os
 
@@ -41,6 +42,11 @@ nonisolated struct CrashReportWriter: Sendable {
         if let text = record.codeDescription { object["code_text"] = text }
         if let tab = record.tab { object["tab"] = tab.rawValue }
         return object
+    }
+
+    /// The JSON object of a Chromium Crashpad dump (p01-process task 226, ``ChromiumMinidumpReport/jsonObject``).
+    func report(for dump: ChromiumMinidumpReport) -> [String: Any] {
+        dump.jsonObject.merging(["kind": "chromium_dump", "bundle_id": bundleID, "version": version]) { _, ours in ours }
     }
 
     /// A report object as JSON bytes (Sendable, for the write off main).

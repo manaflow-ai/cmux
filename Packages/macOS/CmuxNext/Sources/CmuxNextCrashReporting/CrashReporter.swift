@@ -263,6 +263,19 @@ public final class CrashReporter: Sendable {
         SentrySDK.capture(event: event)
     }
 
+    /// Sends a Chromium helper's Crashpad dump (``ChromiumMinidumpCollector``, p01-process task 226) as a crash
+    /// event, under the same consent as the app's own crashes: nothing while Sentry is off (consent, a debug
+    /// build), and a dump found while it was off is never sent later. The event holds the crashed thread's
+    /// frames and the image list (``ChromiumMinidumpReport/systemReport``), no annotation and no memory.
+    /// The host's own dump is not sent: its crash also reaches macOS's crash reporter
+    /// (`BrowserCrashForwardingEnabled` in crash_reporter.cfg), whose `.ips` report ``SystemCrashForwarder``
+    /// sends, and two events would count one crash twice. Any thread.
+    public func sendChromiumDump(_ report: ChromiumMinidumpReport) {
+        guard isStarted, !report.isBrowserProcess else { return }
+        // A clean scope, as SystemCrashForwarder's: the app's breadcrumbs do not describe a helper's crash.
+        SentrySDK.capture(event: SystemCrashEvent(report: report.systemReport, source: .crashpad).event(), scope: Scope())
+    }
+
     /// The previous run's black box as the crash event's `blackbox.txt` (p09-observability-128): nil without
     /// the hang-reports opt-in, and never a key-timing, per-key PTY or flow record (``TraceBlackBoxUpload``).
     /// The caller passes it through the scrubber like every other attachment.

@@ -79,6 +79,17 @@ public nonisolated struct ChromiumHostConfiguration: Sendable, Equatable {
         rootCache.appending(path: "chromium-host.log")
     }
 
+    /// The data folder of this app's host: `<Application Support>/<bundle id>/ChromiumHost`.
+    public static func rootCache(applicationSupport: URL, bundleIdentifier: String) -> URL {
+        applicationSupport.appending(path: bundleIdentifier).appending(path: "ChromiumHost")
+    }
+
+    /// The Crashpad database of a host whose data folder is `rootCache`: browser_host_main.mm points
+    /// Chromium's dumps (the host's and its helpers') at `<root cache>/Crashpad` (p01-process task 226).
+    public static func crashDatabase(rootCache: URL) -> URL {
+        rootCache.appending(path: "Crashpad", directoryHint: .isDirectory)
+    }
+
     /// The `--log-file` this configuration passes, or nil.
     public var logFile: String? {
         arguments.first { $0.hasPrefix("--log-file=") }.map { String($0.dropFirst("--log-file=".count)) }
