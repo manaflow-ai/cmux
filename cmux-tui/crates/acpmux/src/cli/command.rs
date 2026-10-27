@@ -603,6 +603,21 @@ pub enum HarnessCmd {
         /// installed program, else npx, else uvx).
         #[arg(long, conflicts_with_all = ["command", "example"])]
         registry: bool,
+        /// The icon cmux shows for it: one emoji, an SF Symbol name (hammer.fill), an agent
+        /// mark (claude, goose, ...) or an .svg/.png file. Default: the mark of the agent its
+        /// command runs, else a monogram.
+        #[arg(long)]
+        icon: Option<String>,
+    },
+    /// Show or set the icon cmux shows for one of your harnesses: one emoji, an SF Symbol
+    /// name (hammer.fill), an agent mark (claude, goose, ...) or an .svg/.png file (copied
+    /// next to the profile). With no VALUE, prints the icon cmux shows now and why.
+    Icon {
+        id: String,
+        value: Option<String>,
+        /// Remove the icon line: cmux picks the icon again.
+        #[arg(long, conflicts_with = "value")]
+        clear: bool,
     },
     /// Sign in to a harness with its own ACP sign-in (or `claude auth login`
     /// for Claude Code). `--status` checks it; `--list` shows the methods.

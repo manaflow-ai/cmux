@@ -1644,6 +1644,34 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "workspace name-from-activity",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspace.nameFromActivity",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Name from Activity",
+      "title_key" : "action.workspace.nameFromActivity",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "workspace edit-description",
       "context_menu" : "offered",
       "context_menus" : [
@@ -45989,7 +46017,7 @@
                 },
                 {
                   "enabled_when" : "can_perform",
-                  "id" : "editWorkspaceDescription",
+                  "id" : "workspace.nameFromActivity",
                   "kind" : "action",
                   "order" : 1,
                   "visible_when" : {
@@ -46002,7 +46030,7 @@
                 },
                 {
                   "enabled_when" : "can_perform",
-                  "id" : "palette.clearWorkspaceDescription",
+                  "id" : "editWorkspaceDescription",
                   "kind" : "action",
                   "order" : 2,
                   "visible_when" : {
@@ -46015,7 +46043,7 @@
                 },
                 {
                   "enabled_when" : "can_perform",
-                  "id" : "palette.workspaceStatus",
+                  "id" : "palette.clearWorkspaceDescription",
                   "kind" : "action",
                   "order" : 3,
                   "visible_when" : {
@@ -46028,7 +46056,7 @@
                 },
                 {
                   "enabled_when" : "can_perform",
-                  "id" : "markWorkspaceDone",
+                  "id" : "palette.workspaceStatus",
                   "kind" : "action",
                   "order" : 4,
                   "visible_when" : {
@@ -46041,7 +46069,7 @@
                 },
                 {
                   "enabled_when" : "can_perform",
-                  "id" : "palette.markWorkspaceRead",
+                  "id" : "markWorkspaceDone",
                   "kind" : "action",
                   "order" : 5,
                   "visible_when" : {
@@ -46054,7 +46082,7 @@
                 },
                 {
                   "enabled_when" : "can_perform",
-                  "id" : "notifications.dismissHighlight",
+                  "id" : "palette.markWorkspaceRead",
                   "kind" : "action",
                   "order" : 6,
                   "visible_when" : {
@@ -46067,9 +46095,22 @@
                 },
                 {
                   "enabled_when" : "can_perform",
-                  "id" : "palette.markWorkspaceUnread",
+                  "id" : "notifications.dismissHighlight",
                   "kind" : "action",
                   "order" : 7,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "palette.markWorkspaceUnread",
+                  "kind" : "action",
+                  "order" : 8,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -46083,7 +46124,7 @@
                   "id" : "notifications.toggleWorkspaceMute",
                   "kind" : "action",
                   "label" : "Mute\/Unmute Notifications",
-                  "order" : 8,
+                  "order" : 9,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -46096,7 +46137,7 @@
                   "enabled_when" : "can_perform",
                   "id" : "clearWorkspaceNotifications",
                   "kind" : "action",
-                  "order" : 9,
+                  "order" : 10,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -46109,7 +46150,7 @@
                   "enabled_when" : "can_perform",
                   "id" : "workspace.toggleAudioMute",
                   "kind" : "action",
-                  "order" : 10,
+                  "order" : 11,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -46122,7 +46163,7 @@
                   "enabled_when" : "can_perform",
                   "id" : "palette.addWorkspaceChecklistItem",
                   "kind" : "action",
-                  "order" : 11,
+                  "order" : 12,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -46133,13 +46174,13 @@
                 },
                 {
                   "kind" : "separator",
-                  "order" : 12
+                  "order" : 13
                 },
                 {
                   "enabled_when" : "can_perform",
                   "id" : "browserProfile.setWorkspaceDefault",
                   "kind" : "action",
-                  "order" : 13,
+                  "order" : 14,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -46152,7 +46193,7 @@
                   "enabled_when" : "can_perform",
                   "id" : "browserProfile.clearWorkspaceDefault",
                   "kind" : "action",
-                  "order" : 14,
+                  "order" : 15,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -46163,13 +46204,13 @@
                 },
                 {
                   "kind" : "separator",
-                  "order" : 15
+                  "order" : 16
                 },
                 {
                   "enabled_when" : "can_perform",
                   "id" : "reconnectWorkspace",
                   "kind" : "action",
-                  "order" : 16,
+                  "order" : 17,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -46182,7 +46223,7 @@
                   "enabled_when" : "can_perform",
                   "id" : "disconnectWorkspace",
                   "kind" : "action",
-                  "order" : 17,
+                  "order" : 18,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,

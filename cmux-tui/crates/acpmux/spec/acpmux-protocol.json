@@ -1068,6 +1068,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/harness/icon",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/harness/health",
       "params": true,
       "result": true
