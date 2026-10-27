@@ -121,6 +121,16 @@ resolve GITHUB_WORKFLOW_REF="$NIGHTLY_REF"
 [[ "$status" == 0 ]] && grep -qx "source_commit=$tip" <<<"$out" && grep -qx "commit=$owner" <<<"$out" \
   || fail "same-key owner: the resolver must wait for the owner and resolve the tip with the owner's manifest"
 
+# 2b. The recent runs list cannot be read (rate limit, network): that is not "no publisher".
+#     The tip's own run deferred, so only that list could show the owner: wait, bounded, and
+#     resolve once the owner publishes, instead of failing fast.
+reset; runs "$tip" completed success; echo 'API rate limit exceeded' > "$api/all.json"
+fake_clock_at 300 "'$TMP/publish' '$owner'"
+resolve GITHUB_WORKFLOW_REF="$NIGHTLY_REF"
+[[ "$status" == 0 ]] && grep -qx "source_commit=$tip" <<<"$out" || fail "unreadable runs list: must wait, not fail fast"
+grep -q "a same-tree run is unknown" <<<"$err" || fail "unreadable runs list: say the run is unknown"
+(( took >= 300 && took < 600 )) || fail "unreadable runs list: expected to stop waiting once the tree published"
+
 # 3. No run exists: it fails at once with what to dispatch (no actions: write, no dispatch).
 reset; runs "$tip" ""
 resolve GITHUB_WORKFLOW_REF="$NIGHTLY_REF"

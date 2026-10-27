@@ -390,12 +390,17 @@ github_api() {
 }
 
 # Prints the head_sha of an active (not completed) cmux-tui artifacts run whose
-# commit has tree <key>, or nothing. A commit missing locally is fetched once
-# (depth 1, best effort); one it cannot read does not count.
+# commit has tree <key>, nothing when the runs list has none, or "unknown" when
+# the runs list cannot be read (rate limit, network, an unparsable body): a
+# caller that fails fast on "no publisher" must not read a failed read as none.
+# A commit missing locally is fetched once (depth 1, best effort); one it
+# cannot read does not count.
 active_publisher_for_key() {
   local key="$1" body candidate depth=()
   body="$(github_api GET "actions/workflows/cmux-tui-artifacts.yml/runs?per_page=50" 2>/dev/null)" || {
-    echo "note: could not list cmux-tui artifacts runs (rate limit or network): no same-tree run is known" >&2; return 0; }
+    echo "note: could not list cmux-tui artifacts runs (rate limit or network): a same-tree run is unknown" >&2; echo unknown; return 0; }
+  python3 -c 'import json, sys; json.loads(sys.stdin.read())["workflow_runs"]' <<<"$body" 2>/dev/null || {
+    echo "note: the cmux-tui artifacts runs list is unreadable: a same-tree run is unknown" >&2; echo unknown; return 0; }
   # Depth 1 only in a shallow checkout: in a full clone --depth writes
   # .git/shallow and truncates history for every worktree sharing it.
   [[ "$(git -C "$repo_root" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
@@ -435,7 +440,7 @@ ensure_tree_publisher() {
     tree_publisher_sha="$sha"; tree_publisher_action=active; return 0
   fi
   current="$(active_publisher_for_key "$key")"
-  if [[ -n "$current" ]]; then
+  if [[ -n "$current" && "$current" != unknown ]]; then
     echo "cmux-tui tree $key: active artifacts run for $current has the same tree; not dispatching" >&2
     tree_publisher_sha="$current"; tree_publisher_action=active; return 0
   fi
@@ -470,7 +475,7 @@ await_outside_publisher() {
       tree_publisher_sha="$sha"; tree_publisher_action=active; return 0
     fi
     current="$(active_publisher_for_key "$key")"
-    if [[ -n "$current" ]]; then
+    if [[ -n "$current" && "$current" != unknown ]]; then
       echo "cmux-tui tree $key: active artifacts run for $current has the same tree; deferring to it" >&2
       tree_publisher_sha="$current"; tree_publisher_action=active; return 0
     fi
@@ -610,8 +615,12 @@ wait_for_tree() {
         *)
           # Another commit's active run for the same tree will publish it (a merge train tip, a
           # same-key build): that counts as active, not as a run that ended without publishing.
-          if [[ -n "$(active_publisher_for_key "$key")" ]]; then state=active; ended_checks=0
-          else ended_checks=$(( ended_checks + 1 )); fi ;;
+          # An unreadable runs list keeps waiting (bounded), like an unknown state above.
+          case "$(active_publisher_for_key "$key")" in
+            unknown) state=unknown; ended_checks=0 ;;
+            "") ended_checks=$(( ended_checks + 1 )) ;;
+            *) state=active; ended_checks=0 ;;
+          esac ;;
       esac
       echo "cmux-tui artifacts runs for $publisher: $state" >&2
       # Two checks in a row: a failed publish requeues its run, and a new
@@ -1337,6 +1346,8 @@ resolve_newest_published_or_await_tip() {
   key="$(tree_key HEAD)" || { echo "error: cannot compute the tree key of the tip ${tip:0:12}" >&2; exit 1; }
   if ! tree_published "$key"; then
     state="$(artifacts_runs_state "$tip")"
+    # Fail fast only on a confirmed miss: the tip's runs read and none active, and
+    # the recent runs list read with no same-tree run. An unreadable list waits.
     if [[ "$state" != active && "$state" != unknown && -z "$(active_publisher_for_key "$key")" ]]; then
       {
         echo "error: the tip ${tip:0:12}'s cmux-tui tree $key is not published and no cmux-tui artifacts run is publishing it, so the nightly has nothing to wait for."
