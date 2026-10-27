@@ -55,6 +55,25 @@ import Testing
         #expect(!tab.showsUnread)
     }
 
+    @Test func anAttentionClearReconcilesEchoesAndOnlyRollsBackItsOwnRequest() throws {
+        let (_, _, tab) = try Self.marked()
+        let original = try #require(tab.attention)
+        let cleared = try #require(tab.expectAttentionClear())
+        #expect(!tab.showsUnread)
+        tab.applyState(SessionStateMirror.TabRecord(attention: original), progress: nil)
+        #expect(!tab.showsUnread, "an older echo restored the cleared request")
+        let newer = Self.attention("Approve a new demo", at: 2_000)
+        tab.applyState(SessionStateMirror.TabRecord(attention: newer), progress: nil)
+        tab.dropExpectedAttentionClear(cleared)
+        #expect(tab.attention == newer, "the failed old clear overwrote a newer request")
+        let second = try #require(tab.expectAttentionClear())
+        tab.dropExpectedAttentionClear(second)
+        #expect(tab.attention == newer, "a failed clear did not restore its own request")
+        _ = tab.expectAttentionClear()
+        tab.applyState(SessionStateMirror.TabRecord(), progress: nil)
+        #expect(!tab.showsUnread, "the clear's owner echo restored its request")
+    }
+
     @Test func theWorkspaceRowShowsTheDotAndTheReason() throws {
         let (_, workspace, _) = try Self.marked()
         let row = SidebarMapping.shared.row(workspace, machine: CmuxNextSidebar.MachineID.local)

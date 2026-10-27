@@ -233,7 +233,7 @@ final class NotificationCenterService {
         endViewHolds()
         guard let press = clickedTab(in: window, at: location) else { return }
         if left, press.onStrip, let window {
-            beginStripPress(tab: press.tab, in: window, at: screen ?? window.convertPoint(toScreen: location), synthetic: synthetic)
+            beginStripPress(tab: press.tab, target: interactionTarget(tabID: press.tab, in: window), at: screen ?? window.convertPoint(toScreen: location), synthetic: synthetic)
             return
         }
         interacted(.click, tabID: press.tab, in: window)
@@ -324,12 +324,30 @@ final class NotificationCenterService {
 
     /// A click or key in `window` went into a tab in the workspace shown there. Resolve the tab
     /// on that workspace's owning machine so identical ids on different machines cannot cross-clear.
+    struct TabInteractionTarget {
+        let tab: TabModel
+        let store: DaemonStore
+        let local: Bool
+    }
+
+    func interactionTarget(tabID: String, in window: NSWindow?) -> TabInteractionTarget? {
+        guard let services else { return nil }
+        let content = content(of: window)
+        let daemon = content?.daemon ?? services.daemon
+        guard let tab = daemon.store.tab(idOrResource: tabID),
+              content.map({ $0.workspace.screens.flatMap(\.panes).flatMap(\.tabs).contains { $0 === tab } }) ?? true else { return nil }
+        return TabInteractionTarget(tab: tab, store: daemon.store, local: daemon.isLocal)
+    }
+
+    func interacted(_ trigger: NotificationTrigger, target: TabInteractionTarget) {
+        // A closed tab or replaced store is no longer the object pressed, even if its id is reused.
+        guard target.store.tab(idOrResource: target.tab.id) === target.tab else { return }
+        interacted(trigger, tab: target.tab, local: target.local)
+    }
+
     func interacted(_ trigger: NotificationTrigger, tabID: String, in window: NSWindow?) {
-        guard let content = content(of: window) else { return interacted(trigger, tabID: tabID) }
-        let local = content.daemon.isLocal
-        if !interacted(trigger, tabID: tabID, in: content.workspace, local: local), local {
-            interacted(trigger, tabID: tabID)
-        }
+        guard let target = interactionTarget(tabID: tabID, in: window) else { return }
+        interacted(trigger, target: target)
     }
 
     /// The workspace content `window` shows (a Chromium page window resolves to its cmux window);

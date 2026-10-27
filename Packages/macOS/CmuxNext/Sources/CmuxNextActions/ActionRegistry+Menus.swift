@@ -25,6 +25,18 @@ extension ActionRegistry {
 }
 
 extension ActionRegistry {
+    /// Binds one menu action to the machine that supplied its native target. Other items keep
+    /// their ordinary invocation; no synthetic argument leaks into their handlers.
+    public func scopeMenuAction(_ menu: NSMenu, action: ActionID, toMachine machineID: String) {
+        for item in menu.items {
+            if let payload = item.representedObject as? ActionMenuPayload, payload.id == action {
+                payload.targetMachineID = machineID
+                if let title = self.action(for: action)?.targetTitle?(payload.invocation(in: self)) { item.title = title }
+            }
+            if let submenu = item.submenu { scopeMenuAction(submenu, action: action, toMachine: machineID) }
+        }
+    }
+
     /// The action, target and arguments a generated menu item runs (nil
     /// for items the registry did not make). Callers that retitle a row
     /// (Search Google for "…") and tests read it.
@@ -39,6 +51,7 @@ extension ActionRegistry {
 final class ActionMenuPayload: NSObject {
     let id: ActionID
     let target: ActionTargetRef?
+    var targetMachineID: String?
     let arguments: [String: ActionValue]
     /// Focus facts the right-clicked object stands in for (`ActionRegistry.impliedContext(for:)`):
     /// the item is enabled and runs with them added to the window's context, the same facts
@@ -55,6 +68,7 @@ final class ActionMenuPayload: NSObject {
     /// The run of this item in `registry`'s context, plus the implied facts.
     func invocation(in registry: ActionRegistry, withArguments: Bool = true) -> ActionInvocation {
         var invocation = ActionInvocation(target: target, arguments: withArguments ? arguments : [:])
+        invocation.targetMachineID = targetMachineID
         if !implied.isEmpty { invocation.keyContext = registry.context.union(implied) }
         return invocation
     }

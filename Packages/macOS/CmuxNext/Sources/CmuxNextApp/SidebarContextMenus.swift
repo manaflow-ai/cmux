@@ -16,9 +16,12 @@ enum SidebarContextMenus {
         switch target {
         case .tab(let workspace, let tab):
             // The tab's own menu, as on its strip; the row is not selected by the right-click.
-            let model = services.locateTab(tab.rawValue)?.0
-            let menu = PaneController.tabMenu(tab.rawValue, tab: model, keepsTab: TabPromotion.staysPut(tab: tab.rawValue, in: services.workspace(id: workspace.rawValue)),
-                                              sameKind: NewTabKind.of(tab.rawValue, tab: model, services: services), registry: registry)
+            guard let row = model.workspace(workspace), let daemon = services.machines.daemon(machine: row.machineID.rawValue),
+                  let owner = daemon.store.workspaces.first(where: { $0.id == workspace.rawValue }) else { return nil }
+            let tabModel = owner.screens.flatMap(\.panes).flatMap(\.tabs).first { $0.id == tab.rawValue }
+            let menu = PaneController.tabMenu(tab.rawValue, tab: tabModel, keepsTab: TabPromotion.staysPut(tab: tab.rawValue, in: owner),
+                                              sameKind: NewTabKind.of(tab.rawValue, tab: tabModel, services: services), registry: registry,
+                                              machineID: daemon.machineID)
             menu.themeRows(in: scope)
             return menu
         case .workspaces(let ids):

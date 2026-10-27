@@ -97,7 +97,24 @@ public final class TabModel: Identifiable {
     /// `tab.update {attention}`, tab-attention-v1. It shows as the tab's unread dot and the
     /// workspace row's dot like ``markedUnread``, but viewing the tab keeps it: the agent's clear,
     /// a browser tab's navigation to another page, or the tab's close drops it in the daemon.
-    public internal(set) var attention: TabAttention?
+    public private(set) var attention: TabAttention?
+    @ObservationIgnored private var recordAttention: TabAttention?
+    @ObservationIgnored private var pendingAttentionClear: TabAttention?
+
+    /// Hide the request in the action's own turn. The returned token identifies this clear.
+    public func expectAttentionClear() -> TabAttention? {
+        guard let attention else { return nil }
+        pendingAttentionClear = attention
+        self.attention = nil
+        return attention
+    }
+
+    /// A failed old clear never restores over a newer request or a newer clear.
+    public func dropExpectedAttentionClear(_ request: TabAttention) {
+        guard pendingAttentionClear == request else { return }
+        pendingAttentionClear = nil
+        attention = recordAttention
+    }
     /// This app's own view state, never sent to the daemon: the `at_ms` of the newest
     /// ``attention`` request whose ring the person hid (went into the tab, or Dismiss
     /// Highlight). A newer request rings again. It lives on the model, which belongs to one
@@ -327,7 +344,10 @@ public final class TabModel: Identifiable {
         if zoom != record.zoom { zoom = record.zoom }
         if userIcon != record.icon { userIcon = record.icon }
         if emulation != record.emulation { emulation = record.emulation }
-        if attention != record.attention { attention = record.attention }
+        recordAttention = record.attention
+        if pendingAttentionClear != record.attention { pendingAttentionClear = nil }
+        let shownAttention = pendingAttentionClear == nil ? record.attention : nil
+        if attention != shownAttention { attention = shownAttention }
         recordMarkedUnread = record.markedUnread
         if pendingMarkedUnread == record.markedUnread { pendingMarkedUnread = nil }
         publishMarkedUnread()
