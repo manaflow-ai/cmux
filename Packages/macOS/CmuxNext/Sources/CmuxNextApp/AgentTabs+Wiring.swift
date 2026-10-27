@@ -1,5 +1,6 @@
 import CmuxNextAgentPane
 import CmuxNextCompat
+import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextFloating
 import CmuxNextHomeEngine
@@ -369,7 +370,7 @@ extension AgentTabStore {
     /// Keep the native recovery callback aligned with the current Cloud account. This runs at
     /// construction and on each observed sign-in/account transition, so sign-in restores it.
     func syncCloudCredentialTransferAvailability(services: AppServices) {
-        guard CloudCredentialTransferAvailability.isAvailable(
+        guard Self.cloudCredentialTransferIsAvailable(
             linkSource: services.cloud.configuration.linkSource,
             isSignedIn: services.cloud.auth.isSignedIn) else {
             cloudCredentialTransfer = nil
@@ -380,10 +381,7 @@ extension AgentTabStore {
             return await CloudPresenter.recoverCredentials(chat: chat, request: request, services: services)
         }
     }
-}
-
-enum CloudCredentialTransferAvailability {
-    static func isAvailable(linkSource: CloudConfiguration.LinkSource, isSignedIn: Bool) -> Bool {
+    static func cloudCredentialTransferIsAvailable(linkSource: CloudConfiguration.LinkSource, isSignedIn: Bool) -> Bool {
         linkSource == .legacy && isSignedIn
     }
 }
