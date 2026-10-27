@@ -144,7 +144,7 @@ struct CloudAPIClientRunTests {
         // The server scopes the key per account: had another account signed in between the two
         // creates, its credentials would start a second Run. Each read of the tokens here is a new
         // account; both creates still carry the first.
-        final class Accounts: @unchecked Sendable { var reads = 0 }
+        nonisolated final class Accounts: @unchecked Sendable { nonisolated(unsafe) var reads = 0 }
         let accounts = Accounts()
         SandboxAPI.waits = 0
         SandboxAPI.finishAfter = 0
