@@ -56,8 +56,8 @@ pub(super) async fn handle(
 /// and a paired machine's Full access). With `subagentId`, that failed subagent is resumed.
 async fn retry(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Value, RpcError> {
     let s = hub.resolve(session_key(params)?)?;
-    // A retry reads the failed turn's log, and its held prompts come back with the logs.
-    hub.wait_logs().await;
+    // A retry reads the failed turn's log, and its held prompts come back with its log.
+    hub.session_log(&s).await;
     let by = crate::hub::auto_resume::retry_turn::RetryBy {
         control: super::remote_guard::control_of(conn.origin, conn.auth, params),
         trust_gate: super::trust_gate::gated(conn.origin, params),
@@ -70,10 +70,15 @@ async fn retry(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Value
 /// Before the person's own `session/prompt` into `s` (no provenance: not an agent's message, from
 /// a connection that proved the person key on this machine): every agent pair `s` is in starts
 /// over, and a paused one is resumed.
-pub(super) async fn person_prompt(hub: &Arc<Hub>, conn: &Conn, s: &Session, agent_message: bool) {
+pub(super) async fn person_prompt(
+    hub: &Arc<Hub>,
+    conn: &Conn,
+    s: &Arc<Session>,
+    agent_message: bool,
+) {
     if !agent_message && local_person(conn) {
-        // After the logs load, which restore the pairs this resumes.
-        hub.wait_logs().await;
+        // After its log and its peers' load, which restore the pairs this resumes.
+        hub.pair_peer_logs(s).await;
         hub.agent_pair_person_prompt(s);
     }
 }

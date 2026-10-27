@@ -98,6 +98,8 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// The brand id (CmuxAgentBrands) of an agent running in one of the workspace's
     /// tabs, a working or waiting one first; the row draws its mark per `SidebarAgentMarkVariant`.
     public var agentBrand: String?
+    /// A custom harness's own icon (user 12922), drawn instead of `agentBrand`'s mark when set.
+    public var agentIcon: SidebarAgentIcon?
     /// That agent's name ("Claude Code", "Codex"): the hover card's agent line (cx-13w3).
     public var agentName: String?
     /// The last message of the workspace's agent chat: an expanded row's second line (cx-13w3.1).
@@ -110,6 +112,9 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var progress: SidebarProgress?
     /// Tabs in pane order, shown only when the sidebar tab setting is enabled.
     public var tabs: [SidebarTab]
+    /// The selected tab of the most recently focused pane (the tab the row stands for): the
+    /// second crumb of a `SidebarRowTitleMode.breadcrumb` name. Nil for a workspace with no tabs.
+    public var focusedTab: TabID?
     /// Live daemon data, a saved row drawn before the daemon answered, or a
     /// placeholder (`SidebarRowState`).
     public var rowState: SidebarRowState
@@ -177,6 +182,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         activity: StatusIndicatorState = .idle,
         activityStyle: StatusIndicatorStyle? = nil,
         agentBrand: String? = nil,
+        agentIcon: SidebarAgentIcon? = nil,
         agentName: String? = nil,
         progress: SidebarProgress? = nil,
         tabs: [SidebarTab] = [],
@@ -205,6 +211,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         self.activity = activity
         self.activityStyle = activityStyle
         self.agentBrand = agentBrand
+        self.agentIcon = agentIcon
         self.agentName = agentName
         self.progress = progress
         self.tabs = tabs

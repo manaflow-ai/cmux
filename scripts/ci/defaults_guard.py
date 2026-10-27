@@ -17,13 +17,14 @@ the sources of truth with no hand list:
   python3 scripts/ci/defaults_guard.py snapshot           # regenerate it
   python3 scripts/ci/defaults_guard.py check-fresh        # it matches the sources
 
-check-fresh also recomputes the source stamp: SettingsSchemaExportTests writes
-schemas/settings-export/settings-schema.sources.sha256 with the schema, one
-`sha256  path` entry per CmuxNextSettings source it exported from and per export
-test, a blank line apart (outside schemas/settings, which is a web bundle input).
-A stamp that still conflicts after a merge is regenerated, never hand-merged. The schema and docs/mdm come
-from a Swift test, so committed files can agree with each other and still be
-stale against Swift (e190c402850c); a stamp that differs from the sources says so.
+The settings exports' source stamp is derived, never committed (Leo 2026-10-21):
+`source-stamp [--ref REF]` prints one `sha256  path` entry per CmuxNextSettings
+source and export test at REF, a blank line apart. Base autofix compares the
+stamp of the commit its exports were made at with the tip's: equal means the
+exports' inputs did not move. A committed copy changed in every pull request that
+touched a settings source and conflicted on nearly every base move (#22674); the
+exports themselves are checked against a fresh Swift export (the generated files
+job of cmux-next.yml).
   python3 scripts/ci/defaults_guard.py check --base B --head H [--pr N --repo R]
 
 `check` compares the defaults at the merge base with the ones at the head, each
@@ -69,19 +70,13 @@ OWNERS = ".github/defaults-call-owners.json"
 ACTION_SURFACES = "plans/cmux-next/action-surfaces.json"
 SETTINGS_SCHEMA = "schemas/settings/settings-schema.json"
 SWIFT_SOURCES = "Packages/macOS/CmuxNext/Sources"
-# The settings exporter's inputs and its stamp. Keep in step with
-# SettingsSchemaExportTests.sourceStamp (Swift), which writes the stamp.
-SETTINGS_STAMP = "schemas/settings-export/settings-schema.sources.sha256"
+# The settings exporter's inputs, which the source stamp hashes.
 SETTINGS_SOURCE_DIR = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings"
 SETTINGS_SOURCE_SUFFIXES = (".swift", ".xcstrings")
 SETTINGS_EXPORTER_FILES = (
     "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/ManagedPreferencesManifestTests.swift",
     "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/SettingsSchemaExportTests.swift",
 )
-STALE_EXPORTS = ("settings exports are stale against CmuxNextSettings sources: the PR autofix "
-                 "(.github/workflows/cmux-next-pr-autofix.yml) commits them to a pull request that changes "
-                 "these sources, and the base autofix after a merge; to regenerate them yourself, run "
-                 "scripts/cmux-next/regenerate-settings-exports.sh on a fleet Mac and commit what it writes")
 # Default bindings that step aside in a context (a code editor, a focused terminal): a change to
 # one changes what a key does there.
 KEY_BINDING_DEFAULTS = "Packages/macOS/CmuxNext/Sources/CmuxNextActions/KeyBindingDefaults.swift"
@@ -598,11 +593,10 @@ def freshness(tree: Tree) -> list[str]:
 
 
 def settings_source_stamp(tree: Tree) -> str:
-    """SettingsSchemaExportTests.sourceStamp in Python: one `sha256  path` entry per exporter input
+    """The settings exports' source stamp: one `sha256  path` entry per exporter input
     (lowercase hex of the file's bytes, two spaces, the repository-relative path) in UTF-8 path
-    order, with a blank line between entries and a newline at the end. An entry per file, apart,
-    means two pull requests that edit different sources change lines git merges cleanly, and the
-    merged stamp is exactly the merged sources' (#21946)."""
+    order, with a blank line between entries and a newline at the end. It is derived for a
+    commit, never committed."""
     paths = list(SETTINGS_EXPORTER_FILES) + [
         path for path in tree.files(SETTINGS_SOURCE_DIR) if PurePosixPath(path).suffix in SETTINGS_SOURCE_SUFFIXES]
     paths.sort(key=lambda path: path.encode("utf-8"))
@@ -610,100 +604,17 @@ def settings_source_stamp(tree: Tree) -> str:
     return "\n\n".join(f"{hashlib.sha256(contents[path]).hexdigest()}  {path}" for path in paths) + "\n"
 
 
-def stamp_entries(stamp: str) -> dict[str, str]:
-    """path -> digest for each `sha256  path` line of a stamp."""
-    entries = {}
-    for line in stamp.splitlines():
-        digest, separator, path = line.partition("  ")
-        if separator:
-            entries[path] = digest
-    return entries
-
-
-def stamp_freshness(tree: Tree, base: Tree | None = None) -> tuple[list[str], list[str]]:
-    """(problems, notes) for the settings export stamp of `tree`. With `base`, a stale source whose
-    bytes and stamp entry are both the base's is the base's: a warning note, not a problem (the base
-    autofix regenerates the exports after each merge, so the base is often stale for minutes). One
-    whose bytes are the base's but whose stamp entry is not is the head's: a problem labeled as this
-    pull request's red, since the source's name makes it look like the base's."""
-    stamp = tree.read(SETTINGS_STAMP)
-    if stamp is None and SETTINGS_STAMP.rsplit("/", 1)[1] in (tree.read(SETTINGS_EXPORTER_FILES[1]) or ""):
-        # The tree's exporter writes the stamp, so a missing stamp is a deleted or never-run export.
-        return [f"DEFAULTS exports: {SETTINGS_STAMP} is missing; {STALE_EXPORTS}"], []
-    if stamp is None:
-        return [], [f"note: {SETTINGS_STAMP} is missing (a commit before the first stamped export); "
-                    "the settings exports are not checked against the Swift sources"]
-    actual = settings_source_stamp(tree)
-    if stamp == actual:  # exactly what SettingsSchemaExportTests writes and expects
-        return [], []
-    stored, current = stamp_entries(stamp), stamp_entries(actual)
-    if not stored:
-        return [f"DEFAULTS exports: {STALE_EXPORTS}",
-                f"  {SETTINGS_STAMP} is a single digest from before the per-source stamp"], []
-    moved = sorted((path for path in stored.keys() | current.keys() if stored.get(path) != current.get(path)),
-                   key=lambda path: path.encode("utf-8"))
-    if not moved:
-        return [f"DEFAULTS exports: {STALE_EXPORTS}",
-                f"  {SETTINGS_STAMP} lists the right digests but is not in the exporter's format"], []
-
-    def listed(paths: list[str]) -> list[str]:
-        lines = [f"  {path}: {'not stamped' if path not in stored else 'gone' if path not in current else 'changed'}"
-                 for path in paths[:20]]
-        return lines + ([f"  and {len(paths) - 20} more"] if len(paths) > 20 else [])
-
-    notes: list[str] = []
-    kept: list[str] = []
-    if base is not None:
-        base_stored = stamp_entries(base.read(SETTINGS_STAMP) or "")
-        base_current = stamp_entries(settings_source_stamp(base))
-        inherited = [path for path in moved
-                     if current.get(path) == base_current.get(path) and stored.get(path) == base_stored.get(path)]
-        if inherited:
-            moved = [path for path in moved if path not in inherited]
-            notes = [f"::warning title=Settings exports stale on the base::settings exports stale on the base "
-                     f"{(base.ref or str(base.root))[:12]} too, for sources not changed here; the base autofix "
-                     "regenerates them:", *listed(inherited)]
-        # A source the head left as the base has it, whose stamp entry is not the base's: a local base
-        # merge with cmux-generated-v1 kept this branch's stamp (#22762). The files are base sources,
-        # so the red reads as the base's; merged, it puts the old digests back on the base.
-        kept = [path for path in moved if current.get(path) == base_current.get(path)]
-        moved = [path for path in moved if path not in kept]
-    problems = [f"DEFAULTS exports: {STALE_EXPORTS}", *listed(moved)] if moved else []
-    if kept:
-        problems += ["::error title=Settings stamp: this pull request's red::DEFAULTS exports: this pull "
-                     "request's red, not the base's: its stamp keeps older digests than the base's for "
-                     "sources it did not change, as a local base merge with the "
-                     "cmux-generated-v1 driver does (it keeps this branch's stamp). Merged, this puts the old "
-                     "digests back on the base. Apply the pr-autofix-patch artifact of this head's cmux-next PR "
-                     "autofix run, or regenerate the exports, and push:", *listed(kept)]
-    return problems, notes
-
-
 def command_check_fresh(args: argparse.Namespace) -> int:
     tree = Tree.named(args.ref) if args.ref else Tree(None)
     problems = freshness(tree)
-    stamp_problems, notes = stamp_freshness(tree)
-    problems += stamp_problems
-    for note in notes:
-        print(note)
     for problem in problems:
         print(problem)
     return 1 if problems else 0
 
 
-def command_check_stamp(args: argparse.Namespace) -> int:
-    """Only the settings export stamp: exit 1 when the exports need the Swift export. With --base,
-    only the sources the head changed since the base fail."""
-    problems, notes = stamp_freshness(Tree.named(args.ref) if args.ref else Tree(None),
-                                      Tree.named(args.base) if args.base else None)
-    for line in problems + notes:
-        print(line)
-    return 1 if problems else 0
-
-
 def command_source_stamp(args: argparse.Namespace) -> int:
-    """The stamp the settings sources of a commit give (what the export would write there). Base autofix
-    compares it with the stamp its exports carry: equal means the exports' inputs did not move."""
+    """The stamp the settings sources of a commit give. Base autofix compares the stamp of the commit
+    its exports were made at with the tip's: equal means the exports' inputs did not move."""
     sys.stdout.write(settings_source_stamp(Tree.named(args.ref) if args.ref else Tree(None)))
     return 0
 
@@ -764,13 +675,9 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("snapshot", help="regenerate the golden snapshot from the sources").set_defaults(run=command_snapshot)
-    fresh = sub.add_parser("check-fresh", help="the committed snapshot matches the sources, and the settings export stamp matches the CmuxNextSettings sources")
+    fresh = sub.add_parser("check-fresh", help="the committed snapshot matches the sources")
     fresh.add_argument("--ref", help="a commit to check instead of the working tree")
     fresh.set_defaults(run=command_check_fresh)
-    stamp = sub.add_parser("check-stamp", help="only the settings export stamp matches the CmuxNextSettings sources")
-    stamp.add_argument("--ref", help="a commit to check instead of the working tree")
-    stamp.add_argument("--base", help="fail only for sources changed since this commit; the rest is the base's")
-    stamp.set_defaults(run=command_check_stamp)
     source = sub.add_parser("source-stamp", help="print the settings export stamp the CmuxNextSettings sources give")
     source.add_argument("--ref", help="a commit to read instead of the working tree")
     source.set_defaults(run=command_source_stamp)

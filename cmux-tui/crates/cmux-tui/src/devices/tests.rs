@@ -8,6 +8,7 @@ use super::network::{
     WeftNetwork,
 };
 use super::removal;
+use crate::machine_runtime::SshConfigHost;
 
 fn tailscale_up() -> NetworkStatus {
     NetworkStatus {
@@ -98,6 +99,7 @@ fn sources() -> Sources {
                 {"login": "new@manaflow.ai", "scopes": ["shell"], "consented_at": null, "revoked_at": null}
             ]
         }),
+        ssh_hosts: Vec::new(),
     }
 }
 
@@ -240,6 +242,54 @@ fn available_lists_online_network_computers_that_are_not_devices_mine_first() {
 }
 
 #[test]
+fn ssh_config_hosts_follow_the_network_computers_without_repeats() {
+    let mut src = sources();
+    let host = |alias: &str, host_name: Option<&str>| SshConfigHost {
+        alias: alias.to_owned(),
+        host_name: host_name.map(str::to_owned),
+    };
+    src.ssh_hosts = vec![
+        host("Zeta", None),
+        host("github.com", None),
+        host("vm-1", None),
+        host("10.0.4.2", None),
+        host("mini-7", None),
+        host("build-box", None),
+        host("old-air", None),
+        host("alpha", Some("alpha.internal")),
+        // Already a device (a paired one, by any case).
+        host("Leo-MBP", None),
+        host("sandbox", Some("127.0.0.1")),
+        // Aliases of a forge, a peer's address and a tailnet node.
+        host("gh", Some("github.com")),
+        host("vm", Some("10.0.4.2")),
+        host("studio-ts", Some("old-air.tail1234.ts.net")),
+    ];
+    let listing = model::merge(&src, tailscale_up(), &nodes());
+    let rows: Vec<(&str, model::Found)> =
+        listing.available.iter().map(|a| (a.name.as_str(), a.found)).collect();
+    assert_eq!(
+        rows,
+        vec![
+            ("build-box", model::Found::Network),
+            ("alpha", model::Found::SshConfig),
+            ("Zeta", model::Found::SshConfig),
+        ],
+        "a device, a peer's name or host, a tailnet node (online or not) and a git forge are not offered again"
+    );
+    let alpha = &listing.available[1];
+    assert_eq!((alpha.address.as_str(), alpha.os.as_str(), alpha.mine), ("alpha", "", true));
+    let row = serde_json::to_value(alpha).unwrap();
+    assert_eq!(row["found"], "ssh-config");
+
+    // With no network at all, the ssh config still offers its hosts; with no
+    // tailnet to say otherwise, an alias of a tailnet name is one of them.
+    let listing = model::merge(&src, NetworkStatus::none("no tailscale"), &[]);
+    let names: Vec<&str> = listing.available.iter().map(|a| a.name.as_str()).collect();
+    assert_eq!(names, vec!["alpha", "build-box", "old-air", "studio-ts", "Zeta"]);
+}
+
+#[test]
 fn open_tickets_are_invites_and_spent_ones_are_not() {
     let listing = listing();
     let ids: Vec<&str> = listing.invites.iter().map(|i| i.id.as_str()).collect();
@@ -349,4 +399,13 @@ fn auto_uses_weft_only_when_this_device_is_on_it() {
     assert_eq!(Choice::parse("Tailscale"), Some(Choice::Tailscale));
     assert_eq!(Choice::parse(""), Some(Choice::Auto));
     assert_eq!(Choice::parse("zerotier"), None);
+}
+
+#[test]
+fn the_add_command_quotes_an_alias_a_shell_would_read() {
+    assert_eq!(super::shell_word("build-box.tail1234.ts.net"), "build-box.tail1234.ts.net");
+    assert_eq!(super::shell_word("leo@10.0.4.2"), "leo@10.0.4.2");
+    assert_eq!(super::shell_word("foo$(touch /tmp/x)"), "'foo$(touch /tmp/x)'");
+    assert_eq!(super::shell_word("a;b"), "'a;b'");
+    assert_eq!(super::shell_word("it's"), "'it'\\''s'");
 }

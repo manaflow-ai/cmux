@@ -21,6 +21,8 @@ nonisolated enum AcpmuxDaemonLauncher {
         case exited(logPath: String)
         /// Ready, but without a WebSocket listener (the port was taken).
         case noWebSocket(logPath: String)
+        /// The daemon refused to start, and said why on its ready line.
+        case refused(String)
     }
 
     static let script = #"set -m; "$@" 3>&1 1>>"$ACPMUX_LAUNCH_LOG" 2>&1 </dev/null &"#
@@ -219,6 +221,7 @@ nonisolated enum AcpmuxDaemonLauncher {
         } catch AgentPaneLineReader.Failure.endOfFile {
             throw Failure.exited(logPath: environment.logPath)
         }
+        if let why = AcpmuxReadyLine.refusal(line) { throw Failure.refused(why) }
         guard let ready = AcpmuxReadyLine.parse(line) else { throw Failure.exited(logPath: environment.logPath) }
         guard let webURL = ready.webUrl, let endpoint = AcpmuxWebEndpoint(webURL: webURL) else {
             throw Failure.noWebSocket(logPath: environment.logPath)

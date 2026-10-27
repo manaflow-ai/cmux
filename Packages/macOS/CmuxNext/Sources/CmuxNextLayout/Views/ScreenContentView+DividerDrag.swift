@@ -62,6 +62,7 @@ extension ScreenContentView {
             context.requestFrames()
         case let .moved(windowPoint):
             activeDrag?.sample(contentPoint(fromWindow: windowPoint, kind: kind), at: CACurrentMediaTime())
+            if activeDrag != nil { resizeGestureMoved() }
             applyDrag(at: windowPoint, phase: .changed)
             context.requestFrames()
         case let .ended(windowPoint):
@@ -76,6 +77,7 @@ extension ScreenContentView {
             applyDrag(at: windowPoint, phase: .ended)
             activeDrag = nil
             model.setGestureActive(false)
+            resizeGestureReleased()
         }
     }
 
@@ -87,6 +89,7 @@ extension ScreenContentView {
         rowDragPreview = nil
         context.model.cancelGesture(drag.transaction)
         context.model.setGestureActive(false)
+        resizeGestureReleased()
     }
 
     func applyDrag(at windowPoint: NSPoint, phase: LayoutGesturePhase) {

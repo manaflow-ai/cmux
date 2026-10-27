@@ -11,6 +11,7 @@ import UserNotificationsUI
 final class NotificationViewController: UIViewController, @MainActor UNNotificationContentExtension {
     private let model = NotificationContentModel()
     private var host: UIHostingController<NotificationContentView>?
+    private var loading: Task<Void, Never>?
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -52,14 +53,26 @@ final class NotificationViewController: UIViewController, @MainActor UNNotificat
         case .openOnly(let p): (p, false)
         case .refused: (nil, false)
         }
-        let group = PushAppGroup.current()
-        model.load(payload: payload, group: group)
         model.actionable = actionable
-        // The notification's own buttons: a question's options, the permission's offers.
-        // With previews off the static buttons stay (review L1); Require Face ID opens the app (L2).
-        if let payload, actionable {
-            let actions = PushActions(defaults: PushActions.sharedDefaults(group)).extensionActions(for: payload)
-            if !actions.isEmpty { extensionContext?.notificationActions = actions }
+        // The push shows at once; the App Group's outbox and snapshot join it once resolved.
+        model.load(payload: payload, group: nil)
+        // The App Group (outbox, chat snapshot) and the shared Require Face ID
+        // choice are read off the main thread. A build signed without the
+        // App Group shows the push alone and offers "Open in app" only.
+        loading?.cancel()
+        loading = Task { [weak self] in
+            let (group, preference) = await Task.detached(priority: .userInitiated) { () -> (PushAppGroup?, Bool) in
+                let group = await PushAppGroup.resolved()
+                return (group, PushSharedPreference.live(group: group).requireFaceID)
+            }.value
+            guard let self, !Task.isCancelled else { return }
+            if group != nil { self.model.load(payload: payload, group: group) }
+            // The notification's own buttons: a question's options, the permission's offers.
+            // With previews off the static buttons stay (review L1); Require Face ID opens the app (L2).
+            if let payload, actionable {
+                let actions = PushActions(requireFaceID: preference).extensionActions(for: payload)
+                if !actions.isEmpty { self.extensionContext?.notificationActions = actions }
+            }
         }
     }
 

@@ -1,15 +1,19 @@
+import CmuxNextDesign
 public import WebKit
 
 @MainActor
 extension PageWebView {
     /// The tab closed: cancels subscriptions and stops the bridge.
     public func close() {
+        isClosed = true
         _ = claimState.end()
         router.close()
         bridge.uninstall()
         endChromium()
         webView.configuration.userContentController.removeScriptMessageHandler(forName: PagePaintProbe.handlerName, contentWorld: .page)
         resumeLoadWaiters()
+        webView.stopLoading()
+        WebViewRetirement.retire(webView)
     }
 
     /// Waits for the current document to finish loading or fail, and for a pending claim to be

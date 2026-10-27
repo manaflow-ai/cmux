@@ -7,7 +7,7 @@ import { AUTH_FAILED, claudeAuthFor } from "./claude-auth.ts"
 import { prunePiEntries } from "./pi-prune.ts"
 import { RETRY_MS } from "./memory.ts"
 import { creditsCanStart, creditsNotice, turnFailedNotice, isClaude, isMetered, liveOf, pickTurnModel } from "./models.ts"
-import { clipReply, formatMessage, isNoReply, linkIds, replyTarget } from "./brain-text.ts"
+import { clipReply, formatMessage, inboxKind, isNoReply, linkIds, replyTarget } from "./brain-text.ts"
 import { turnThread } from "./brain-spawn.ts"
 import { ccRoute } from "../chief-brain-cc/vm.ts"
 import { ccTurn } from "../chief-brain-cc/turn.ts"
@@ -59,7 +59,7 @@ export async function wake(b: ChiefBrainDO, w: { agent: string; owner: string; c
     const text = formatMessage(view.head, m, { files, owner: w.owner })
     if (!text) continue
     const fresh = b.sql
-      .exec(`INSERT INTO cb_inbox (message, conversation, seq, kind, thread_root, text, effect_authorized) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (message) DO NOTHING RETURNING n`, m.id, w.conversation, m.seq, view.head.kind ?? "group", m.thread_root ?? null, text, messageEffectAuthorized(view.head, m, view.messages, w.owner, w.agent) ? 1 : 0)
+      .exec(`INSERT INTO cb_inbox (message, conversation, seq, kind, thread_root, text, effect_authorized) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (message) DO NOTHING RETURNING n`, m.id, w.conversation, m.seq, inboxKind(view.head), m.thread_root ?? null, text, messageEffectAuthorized(view.head, m, view.messages, w.owner, w.agent) ? 1 : 0)
       .toArray()
     queued += fresh.length
   }
