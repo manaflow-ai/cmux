@@ -45,7 +45,11 @@ public import Foundation
             // rotate. A new device login is required for every transfer; a broker can supersede this.
             load: { provider == .codex ? nil : try await CloudCredentialLogin.load(provider: provider, teamID: teamID, userID: userID, machineID: machineID) },
                 acquire: { try await CloudCredentialLogin.acquire(provider: provider, openTerminal: openTerminal) },
-                store: { try await CloudCredentialLogin.store($0, provider: provider, teamID: teamID, userID: userID, machineID: machineID) }))
+                // Codex auth.json contains a VM-bound refresh token. Never retain a second Mac copy;
+                // each VM gets a fresh device login until a broker owns refresh persistence.
+                store: { value in
+                    if provider == .claude { try await CloudCredentialLogin.store(value, provider: provider, teamID: teamID, userID: userID, machineID: machineID) }
+                }))
     }
 
     nonisolated struct Effects: Sendable {
