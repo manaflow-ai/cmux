@@ -242,7 +242,7 @@ impl MessageWriter {
                 let header = call.reply_header(ok, text.len()).map_err(|bad| {
                     std::io::Error::new(std::io::ErrorKind::InvalidData, bad.to_string())
                 })?;
-                self.sink.send_frame(header, text)
+                call.send_reply_with(ok, || self.sink.send_frame(header, text))
             }
             None => self.sink.send_control(text),
         }
@@ -253,18 +253,24 @@ impl MessageWriter {
         self.start_stream_on(StreamLane::Bulk, overflow)
     }
 
-    /// A stream with its own FIFO on `lane`.
+    /// A stream with its own FIFO on `lane`. Started while answering a
+    /// framed opener, it is the view of the client stream the opener opens
+    /// (server/pending_streams.rs).
     pub(super) fn start_stream_on(
         &self,
         lane: StreamLane,
         overflow: &Value,
     ) -> std::io::Result<OutboundStream> {
-        Ok(OutboundStream::with_sequence(
+        let stream = OutboundStream::with_sequence(
             self.next_stream_id.fetch_add(1, Ordering::Relaxed),
             self.render_service.serialize_control(overflow)?,
             false,
             lane,
-        ))
+        );
+        if let Some(opens) = self.reply.as_ref().and_then(|call| call.opens()) {
+            opens.carries(&stream);
+        }
+        Ok(stream)
     }
 
     /// A stream on the connection's control sequence: its items are written

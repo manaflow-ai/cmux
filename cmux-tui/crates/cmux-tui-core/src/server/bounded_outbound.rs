@@ -505,6 +505,8 @@ impl BoundedOutbound {
         }
     }
 
+    /// The writer thread's wait for its own next item: an idle wait
+    /// (`Condvar::idle`), so a writer that disallows blocking may take it.
     pub(super) fn recv(&self) -> Option<OutboundItem> {
         let mut state = self.state.lock().recover_poison();
         loop {
@@ -516,7 +518,7 @@ impl BoundedOutbound {
             if state.closed {
                 return None;
             }
-            state = waits::wait(&self.changed, state).recover_poison();
+            state = self.changed.idle().wait(state).recover_poison();
         }
     }
 

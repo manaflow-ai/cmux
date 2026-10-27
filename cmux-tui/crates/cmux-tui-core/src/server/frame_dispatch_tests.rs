@@ -23,25 +23,25 @@ use crate::server::*;
 
 /// What the daemon sent: a line, or a frame and its JSON payload.
 #[derive(Debug)]
-enum Got {
+pub(in crate::server) enum Got {
     Line(Value),
     Frame(FrameHeader, Value),
 }
 
-struct Client {
-    mux: Arc<Mux>,
-    socket: UnixStream,
-    read_half: UnixStream,
-    reader: FrameReader,
+pub(in crate::server) struct Client {
+    pub(in crate::server) mux: Arc<Mux>,
+    pub(in crate::server) socket: UnixStream,
+    pub(in crate::server) read_half: UnixStream,
+    pub(in crate::server) reader: FrameReader,
     served: JoinHandle<ConnectionEnd>,
 }
 
-fn method(name: &str) -> &'static MethodAttrs {
+pub(in crate::server) fn method(name: &str) -> &'static MethodAttrs {
     let tables = MethodTables::schema();
     tables.v12_id(name).and_then(|id| tables.method(id)).expect("a v12 method")
 }
 
-fn call_frame(
+pub(in crate::server) fn call_frame(
     kind: FrameKind,
     request_id: u32,
     method_id: u16,
@@ -56,7 +56,7 @@ fn call_frame(
 }
 
 /// A REQUEST frame for `body`'s `cmd`, with its table priority.
-fn request(request_id: u32, body: &Value) -> Vec<u8> {
+pub(in crate::server) fn request(request_id: u32, body: &Value) -> Vec<u8> {
     let method = method(body["cmd"].as_str().unwrap());
     call_frame(
         FrameKind::Request,
@@ -67,7 +67,7 @@ fn request(request_id: u32, body: &Value) -> Vec<u8> {
     )
 }
 
-fn cancel(request_id: u32, name: &str) -> Vec<u8> {
+pub(in crate::server) fn cancel(request_id: u32, name: &str) -> Vec<u8> {
     let method = method(name);
     call_frame(FrameKind::Cancel, request_id, method.id.raw(), method.priority, b"")
 }
@@ -75,6 +75,11 @@ fn cancel(request_id: u32, name: &str) -> Vec<u8> {
 impl Client {
     /// A same-user local peer whose `set-client-info` declared frames.
     fn granted(label: &str) -> Client {
+        Client::granted_with(label, &[])
+    }
+
+    /// [`Client::granted`] that also declares `capabilities`.
+    pub(in crate::server) fn granted_with(label: &str, capabilities: &[&str]) -> Client {
         let mux =
             Mux::new_for_test(format!("frame-dispatch-{label}"), crate::SurfaceOptions::default());
         let (socket, server) = UnixStream::pair().unwrap();
@@ -110,7 +115,7 @@ impl Client {
             "id": 1,
             "cmd": "set-client-info",
             "name": "frames",
-            "capabilities": ["ipc-frames-v2"],
+            "capabilities": ([["ipc-frames-v2"].as_slice(), capabilities].concat()),
             "api_revision": current,
         }));
         match client.next() {
@@ -133,16 +138,16 @@ impl Client {
         client
     }
 
-    fn line(&mut self, value: &Value) {
+    pub(in crate::server) fn line(&mut self, value: &Value) {
         self.socket.write_all(format!("{value}\n").as_bytes()).unwrap();
     }
 
-    fn send(&mut self, bytes: &[u8]) {
+    pub(in crate::server) fn send(&mut self, bytes: &[u8]) {
         self.socket.write_all(bytes).unwrap();
     }
 
     /// The next reply (events skipped); `None` once the daemon closed.
-    fn next(&mut self) -> Option<Got> {
+    pub(in crate::server) fn next(&mut self) -> Option<Got> {
         loop {
             match self.reader.next_message().unwrap() {
                 Some(Message::Json(line)) if line.trim().is_empty() => {}
@@ -165,7 +170,7 @@ impl Client {
         }
     }
 
-    fn line_reply(&mut self, body: &Value) -> Value {
+    pub(in crate::server) fn line_reply(&mut self, body: &Value) -> Value {
         self.line(body);
         match self.next() {
             Some(Got::Line(reply)) => reply,
@@ -173,7 +178,11 @@ impl Client {
         }
     }
 
-    fn frame_reply(&mut self, request_id: u32, body: &Value) -> (FrameHeader, Value) {
+    pub(in crate::server) fn frame_reply(
+        &mut self,
+        request_id: u32,
+        body: &Value,
+    ) -> (FrameHeader, Value) {
         self.send(&request(request_id, body));
         match self.next() {
             Some(Got::Frame(header, reply)) => (header, reply),
@@ -181,14 +190,21 @@ impl Client {
         }
     }
 
-    fn finish(self) -> ConnectionEnd {
+    pub(in crate::server) fn finish(self) -> ConnectionEnd {
         let _ = self.socket.shutdown(Shutdown::Write);
         self.served.join().unwrap()
     }
 
-    /// The daemon closes at once, and says why.
+    /// The daemon closes at once, and says why. Only the ERROR of a request
+    /// the close cancelled (a `wait-for` before the bad frame) may still
+    /// arrive; the bad frame itself is never answered.
     fn closed_with(mut self, refusal: CallRefusal) {
-        assert!(self.next().is_none(), "the daemon answered a bad message");
+        while let Some(got) = self.next() {
+            assert!(
+                matches!(&got, Got::Frame(header, _) if header.kind() == FrameKind::Error),
+                "the daemon answered a bad message: {got:?}"
+            );
+        }
         assert_eq!(self.finish(), ConnectionEnd::BadMessage(ConnectionBadMessage::Call(refusal)));
     }
 }

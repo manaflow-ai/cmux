@@ -22,6 +22,11 @@
 //! answered without running. A CANCEL for an id that is not in flight lost a
 //! race with its reply and is dropped.
 //!
+//! A REQUEST or INPUT frame on stream S != 0 goes to the stream an opener
+//! REQUEST on S announced (`attach-surface`), queued until the opener's
+//! reply (server/pending_streams.rs, p05-ipc-087); a frame naming a stream
+//! that was never announced is a bad message.
+//!
 //! Only `Command` methods answer on frames yet. A feature route or a v2
 //! operation replies on its own writer, so a frame naming one gets the ERROR
 //! [`METHOD_NOT_FRAMED`] and the client sends that method as a line; the
@@ -45,6 +50,7 @@ use crate::diagnostics::{IpcTransport, JsonParseScope};
 use super::line_connection::{
     ConnectionBadMessage, FrameConnection, FrameLane, IPC_FRAMES_CAPABILITY,
 };
+use super::pending_streams::{ClientStreams, RequestLane, StreamEndpoint, post_request};
 use super::{Command, ConnectionCancellation, MessageWriter, Mux, handle_connection_frame_at};
 
 /// The `error_code` of the ERROR reply to a method that answers only lines.
@@ -61,16 +67,51 @@ pub(super) struct FrameCall {
     call: CallAux,
     answered: AtomicBool,
     cancellation: Arc<ConnectionCancellation>,
+    /// The stream this request opens (an opener on stream S): its reply
+    /// binds or ends it.
+    opens: Option<Arc<StreamEndpoint>>,
 }
 
 impl FrameCall {
-    fn new(stream: u16, call: CallAux) -> Self {
+    fn new(stream: u16, call: CallAux, opens: Option<Arc<StreamEndpoint>>) -> Self {
         FrameCall {
             stream,
             call: CallAux { flags: CallFlags::empty(), ..call },
             answered: AtomicBool::new(false),
             cancellation: Arc::default(),
+            opens,
         }
+    }
+
+    /// Answered by its stream's `stream-end` (it never ran): no reply
+    /// frame, and its id is free again.
+    pub(super) fn abandon(&self) {
+        self.answered.store(true, Ordering::Release);
+    }
+
+    /// The stream this request opens, for its handler to name the surface.
+    pub(super) fn opens(&self) -> Option<&Arc<StreamEndpoint>> {
+        self.opens.as_ref()
+    }
+
+    /// Queues its reply with `send`. An opener that failed ends its stream
+    /// first, so `stream-end` precedes the error; one that succeeded binds
+    /// its stream after, so the items queued on it follow the reply.
+    pub(super) fn send_reply_with(
+        &self,
+        ok: bool,
+        send: impl FnOnce() -> std::io::Result<()>,
+    ) -> std::io::Result<()> {
+        let Some(stream) = &self.opens else { return send() };
+        if !ok {
+            stream.open_failed();
+            return send();
+        }
+        let sent = send();
+        if sent.is_ok() {
+            stream.opened();
+        }
+        sent
     }
 
     /// Whether its reply was sent (its id is free again).
@@ -100,8 +141,11 @@ impl FrameCall {
 /// Why a REQUEST or CANCEL frame closed its connection.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum CallRefusal {
-    /// A call on a stream this connection has not opened.
+    /// A call on a stream this connection never announced.
     UnknownStream { stream: u16 },
+    /// A control method on a stream: only stream-scoped methods and
+    /// openers name one.
+    NotStreamScoped { stream: u16, method_id: u16 },
     /// A method id this daemon's table does not have.
     UnknownMethod { method_id: u16 },
     /// A priority hint that differs from the method's table priority.
@@ -126,6 +170,7 @@ impl CallRefusal {
     pub(super) fn reason(&self) -> &'static str {
         match self {
             CallRefusal::UnknownStream { .. } => "unknown_stream",
+            CallRefusal::NotStreamScoped { .. } => "not_stream_scoped",
             CallRefusal::UnknownMethod { .. } => "unknown_method",
             CallRefusal::PriorityMismatch { .. } => "priority_mismatch",
             CallRefusal::FlagsRefused { .. } => "flags_refused",
@@ -141,7 +186,12 @@ impl CallRefusal {
 impl fmt::Display for CallRefusal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            CallRefusal::UnknownStream { stream } => write!(f, "call on unopened stream {stream}"),
+            CallRefusal::UnknownStream { stream } => {
+                write!(f, "call on never-announced stream {stream}")
+            }
+            CallRefusal::NotStreamScoped { stream, method_id } => {
+                write!(f, "method {method_id:#06x} is not stream-scoped; it named stream {stream}")
+            }
             CallRefusal::UnknownMethod { method_id } => {
                 write!(f, "unknown method {method_id:#06x}")
             }
@@ -175,13 +225,16 @@ impl fmt::Display for CallRefusal {
 }
 
 /// The production frame lane: the grant is the client's recorded
-/// capability; REQUEST and CANCEL frames on stream 0 are routed, every other
-/// kind is a bad message. Owned by the connection's reader thread.
+/// capability; REQUEST and CANCEL frames are routed, and INPUT frames on a
+/// stream; every other kind is a bad message. Owned by the connection's
+/// reader thread.
 pub(super) struct RequestFrames {
     tables: &'static MethodTables,
     /// Requests by id, from arrival until a sweep after their reply.
     in_flight: HashMap<u32, Arc<FrameCall>>,
     sweep_at: usize,
+    /// The streams the client announced.
+    streams: ClientStreams,
 }
 
 impl Default for RequestFrames {
@@ -190,6 +243,7 @@ impl Default for RequestFrames {
             tables: MethodTables::schema(),
             in_flight: HashMap::new(),
             sweep_at: SWEEP_MIN,
+            streams: ClientStreams::default(),
         }
     }
 }
@@ -213,6 +267,9 @@ impl FrameLane for RequestFrames {
                 .cancel(&header, call, frame.payload().is_empty())
                 .map(|()| true)
                 .map_err(ConnectionBadMessage::Call),
+            (FrameKind::Input, None) if header.stream() != 0 => {
+                self.streams.input(frame).map(|()| true)
+            }
             (kind, _) => Err(ConnectionBadMessage::UnroutedKind { kind }),
         }
     }
@@ -226,7 +283,7 @@ impl RequestFrames {
         payload: &[u8],
         connection: &FrameConnection<'_>,
     ) -> Result<bool, ConnectionBadMessage> {
-        let method = self.method(header, call).map_err(ConnectionBadMessage::Call)?;
+        let method = self.method(call).map_err(ConnectionBadMessage::Call)?;
         request_flags(method, call.flags).map_err(ConnectionBadMessage::Call)?;
         if let Some(max) = method.max_bytes
             && payload.len() > usize::try_from(max).unwrap_or(usize::MAX)
@@ -241,26 +298,38 @@ impl RequestFrames {
         let body = std::str::from_utf8(payload).map_err(|error| {
             ConnectionBadMessage::Wire(BadMessage::InvalidUtf8 { valid_up_to: error.valid_up_to() })
         })?;
+        let stream = header.stream();
+        let lane = self.streams.request_lane(stream, method).map_err(ConnectionBadMessage::Call)?;
         self.admit(call.request_id).map_err(ConnectionBadMessage::Call)?;
         // An admitted REQUEST is one framed request of `server-stats` `ipc`:
         // the body parses below and on its line's path count toward it.
         let _parses = JsonParseScope::enter(connection.mux.ipc_stats(), IpcTransport::Frames);
-        let frame_call = Arc::new(FrameCall::new(header.stream(), call));
-        let writer = connection.writer.replying_to(frame_call.clone());
         if !self.served_on_frames(method) {
-            return Ok(send_not_framed(&writer, method));
+            let call = Arc::new(FrameCall::new(stream, call, None));
+            return Ok(send_not_framed(&connection.writer.replying_to(call), method));
         }
         names_method(body, method).map_err(ConnectionBadMessage::Call)?;
-        self.in_flight.insert(call.request_id, frame_call);
-        Ok(handle_connection_frame_at(
-            connection.mux,
-            connection.client,
-            connection.transport,
-            body,
-            &writer,
-            connection.scheduler,
-            connection.arrived,
-        ))
+        let opens =
+            matches!(lane, RequestLane::Open).then(|| self.streams.announce(stream, connection));
+        let frame_call = Arc::new(FrameCall::new(stream, call, opens));
+        let writer = connection.writer.replying_to(frame_call.clone());
+        self.in_flight.insert(call.request_id, frame_call.clone());
+        match lane {
+            RequestLane::InUse => Ok(send_stream_in_use(&writer, stream)),
+            RequestLane::Stream(endpoint) => {
+                post_request(&endpoint, body, frame_call, connection);
+                Ok(true)
+            }
+            RequestLane::Control | RequestLane::Open => Ok(handle_connection_frame_at(
+                connection.mux,
+                connection.client,
+                connection.transport,
+                body,
+                &writer,
+                connection.scheduler,
+                connection.arrived,
+            )),
+        }
     }
 
     fn cancel(
@@ -269,7 +338,8 @@ impl RequestFrames {
         call: CallAux,
         empty: bool,
     ) -> Result<(), CallRefusal> {
-        let method = self.method(header, call)?;
+        let method = self.method(call)?;
+        self.streams.check_cancel(header.stream())?;
         let request_id = call.request_id;
         if !empty {
             return Err(CallRefusal::CancelPayload { request_id });
@@ -291,18 +361,9 @@ impl RequestFrames {
         Ok(())
     }
 
-    /// The header's method, refusing an unopened stream or a priority hint
-    /// that differs from the table.
-    fn method(
-        &self,
-        header: &FrameHeader,
-        call: CallAux,
-    ) -> Result<&'static MethodAttrs, CallRefusal> {
-        // No stream opens on this daemon yet (attach-streams, p05-ipc-074):
-        // every call rides the connection's control sequence.
-        if header.stream() != 0 {
-            return Err(CallRefusal::UnknownStream { stream: header.stream() });
-        }
+    /// The call's method, refusing a priority hint that differs from the
+    /// table.
+    fn method(&self, call: CallAux) -> Result<&'static MethodAttrs, CallRefusal> {
         let method_id = call.method_id;
         let method = self
             .tables
@@ -376,6 +437,17 @@ fn names_method(body: &str, method: &MethodAttrs) -> Result<(), CallRefusal> {
     }
 }
 
+/// An opener naming a stream that is still live: the client reused its id
+/// before the stream's `stream-end`.
+fn send_stream_in_use(writer: &MessageWriter, stream: u16) -> bool {
+    let reply = json!({
+        "ok": false,
+        "error": format!("stream {stream} is open"),
+        "error_code": "stream_in_use",
+    });
+    writer.send_reply(&reply).is_ok()
+}
+
 fn send_not_framed(writer: &MessageWriter, method: &MethodAttrs) -> bool {
     let reply = json!({
         "ok": false,
@@ -387,4 +459,4 @@ fn send_not_framed(writer: &MessageWriter, method: &MethodAttrs) -> bool {
 
 #[cfg(all(test, unix))]
 #[path = "frame_dispatch_tests.rs"]
-mod tests;
+pub(super) mod tests;

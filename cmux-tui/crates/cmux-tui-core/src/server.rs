@@ -164,6 +164,7 @@ mod orphan_shutdown;
 mod page_router;
 pub use orphan_shutdown::stop_orphaned_owner;
 mod pending_handoff;
+mod pending_streams;
 mod renderer_grant;
 use line_connection::{
     handle_connection_with_permit, serve_line_connection, spawn_connection_reader,

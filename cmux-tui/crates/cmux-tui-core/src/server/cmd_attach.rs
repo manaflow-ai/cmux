@@ -215,6 +215,14 @@ pub(super) fn attach_surface(
         }
     };
     let surface = get_surface(mux, surface_id)?;
+    // A framed attach on stream S opens S: its queued INPUT and requests go
+    // to this surface once the attach succeeds (server/pending_streams.rs).
+    if let Some(stream) = writer.frame_call().and_then(|call| call.opens()) {
+        anyhow::ensure!(
+            stream.target(surface_id),
+            "stream_ended: the stream ended before it opened"
+        );
+    }
     anyhow::ensure!(
         !mux.is_frontend_browser_surface(&surface),
         "surface {surface_id} is a frontend-rendered browser and has no daemon stream"

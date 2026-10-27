@@ -104,6 +104,8 @@ use test_pty::FdMasterPty;
 use test_pty::{
     StartupChild, StartupChildState, TestChildKiller, TestMasterPty, TestMasterPtyControl,
 };
+#[cfg(test)]
+pub(crate) use test_spawn::PtyInputCapture;
 #[cfg(any(unix, windows))]
 mod clipboard_read;
 #[cfg(any(unix, windows))]

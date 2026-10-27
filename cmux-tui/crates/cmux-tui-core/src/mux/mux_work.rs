@@ -54,7 +54,7 @@ impl Mux {
     /// sequence before it, never beside one, on `lane` (Chrome's
     /// `SequencedTaskRunner`, base/task/sequenced_task_runner.h). A refused
     /// or dropped drain drops the queued bodies.
-    pub(super) fn post_mux_work_sequenced(
+    pub(crate) fn post_mux_work_sequenced(
         &self,
         sequence: &Arc<Sequence>,
         priority: Priority,
