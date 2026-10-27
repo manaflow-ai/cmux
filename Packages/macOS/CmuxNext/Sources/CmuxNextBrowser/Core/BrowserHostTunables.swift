@@ -9,6 +9,16 @@ public import CmuxNextDesign
 public nonisolated enum BrowserBackend: String, Sendable, Equatable {
     case inProcess
     case host
+
+    /// Where the windows' Chromium pages draw (task 223): in process the fork shows each page in a
+    /// child window (`CefNSWindow`); with the Chromium Host each page is a `ChromiumHostPageView` in
+    /// the window's view tree, and the child-window machinery is off.
+    public var pageSurface: PageSurface {
+        switch self {
+        case .inProcess: .childWindows
+        case .host: .views
+        }
+    }
 }
 
 /// Debug Settings of the Chromium Host app: Debug and bench builds only, like the

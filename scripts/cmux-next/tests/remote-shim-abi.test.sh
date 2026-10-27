@@ -121,7 +121,9 @@ if [[ -n "${CMUX_REAL_SHIM:-}" ]]; then
 fi
 
 test_libs=(-pthread)
+# remote_shim.mm hands the chooser pushes to remote_shim_choosers.mm (task 228) and the drag source
+# handler to remote_shim_local.mm (task 051).
 "${cxx[@]}" "${flags[@]}" -DCMUX_TEST_ABI_ID="\"$abi\"" -o "$work/remote-shim-test" \
-  "$host/tests/remote_shim_test.cpp" "$host/src/chromium_host_control.cc" -x c++ "$host/client/remote_shim_local.mm" \
-  "${test_libs[@]}"
+  "$host/tests/remote_shim_test.cpp" -x c++ "$host/client/remote_shim_choosers.mm" "$host/client/remote_shim_local.mm" -x none \
+  "$host/src/chromium_host_control.cc" "${test_libs[@]}"
 "$work/remote-shim-test"

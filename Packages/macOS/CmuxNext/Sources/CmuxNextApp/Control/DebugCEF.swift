@@ -68,6 +68,11 @@ enum DebugCEF {
             .object(["asked": .number(Double(report.asked)), "answered": .number(Double(report.answered)),
                      "waiting": .number(Double(report.waiting))])
         } ?? .null
+        // Host mode with feature chromiumHostChoosers (p01-process-228): null while cmux shows none of the host's choosers.
+        object["host_choosers"] = services.cache.cef.hostChoosers.map { report in
+            .object(["color_open": .bool(report.colorOpen), "device_choosers": .number(Double(report.deviceChoosers)),
+                     "screen_shares": .number(Double(report.screenShares)), "answers": .number(Double(report.answers))])
+        } ?? .null
         object["host_resize"] = services.cache.cef.hostResizeCounters.map { counters in .object(counters.mapValues { value in .number(value) }) } ?? .null
         // Swipes over Chromium pages (p01-process-234): a hosted page on a host that acks wheels probes nothing.
         let swipe = services.cache.cef.swipeStats
@@ -226,6 +231,14 @@ enum DebugCEF {
         }, reset: { [weak chromium] in chromium?.built?.resetPumpInputCounters() })
     }
 
+    /// `debug.input` section `chromium`: Chromium's own EventLatency and ScrollJank histograms (p04-input-091),
+    /// read through `Browser.getHistograms` on each read only. Builds no engine: before one exists the section
+    /// says `unavailable: not_started`.
+    static func histogramSource(_ chromium: ChromiumEngineSlot) -> DebugInputSectionSource<ChromiumInputHistograms> {
+        let reader = CEFHistogramReader(engine: chromium)
+        return DebugInputSectionSource(section: .chromium, read: { await reader.read() }, reset: { await reader.reset() })
+    }
+
     /// Per action = the change of each counter over it (scripts/cmux-next/pane-perf-terminal.py --browser).
     private static func trackerReport(_ stats: CEFTrackerStats) -> JSONValue {
         .object([
@@ -236,6 +249,8 @@ enum DebugCEF {
             "clip_ms": .number(stats.clipSeconds * 1_000),
             "geometry_posts": .number(Double(stats.geometryPosts)),
             "hosted_pages": .number(Double(stats.hostedPages)),
+            // Keyed by the page window's kind: "page", "devtools", "popup", "popup_window".
+            "hosted_pages_by_widget": .object(stats.hostedPagesByWidget.mapValues { JSONValue.number(Double($0)) }),
             "hosting_refused": .number(Double(stats.hostingRefused)),
             "hosting_widget_fallbacks": .number(Double(stats.hostingWidgetFallbacks)),
             "hosting_without_track_a": .number(Double(stats.hostingWithoutTrackA)),

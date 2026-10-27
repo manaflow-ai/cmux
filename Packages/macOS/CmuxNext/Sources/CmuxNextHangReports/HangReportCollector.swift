@@ -143,6 +143,18 @@ public final class HangReportCollector: Sendable {
         }
     }
 
+    /// One daemon site (``DaemonDiagnosticSite``, from the app's `BlockingReportSink` on a background lane): kept
+    /// once as a ``HangSample/Source/daemon`` sample, under the blocking samples' rules (none when the wire
+    /// schema has no blocking samples, kept before the setting is read, a site already kept adds nothing).
+    public func noteDaemonSite(_ site: DaemonDiagnosticSite) {
+        guard resolveBlocking != nil, acceptsUndecided else { return }
+        let sample = HangSample.daemonSite(site)
+        state.withLock { state in
+            guard acceptsUndecided else { return }
+            state.aggregate.keep(sample)
+        }
+    }
+
     /// On, or the setting not read yet: what launch replays (blocking sites, other processes' hang lines) is kept.
     private var acceptsUndecided: Bool {
         isEnabled || !decided.load(ordering: .relaxed)

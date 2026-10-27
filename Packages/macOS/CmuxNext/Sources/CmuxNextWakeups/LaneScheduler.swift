@@ -358,6 +358,7 @@ final class LaneScheduler: Sendable {
         stats = LaneStats()
         self.mayBlock = mayBlock
         self.compensation = compensation
+        // timer-class-allow: off main: the lane's may-block recheck runs on the lane's clock and never wakes the main thread
         recheck = compensation.map { DemandTimer(owner: "\(label).may-block", clock: $0.clock) }
         var names: [String] = [], levelSlots: [Range<Int>] = [], reserved = 0
         switch policy {

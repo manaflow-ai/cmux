@@ -415,7 +415,7 @@ public final class CEFEngine: BrowserEngine {
                       hostSupervisor: runtimeSource.hostSupervisor, hostWidgets: runtimeSource.showsHostWidgets, hostDrags: runtimeSource.takesHostDrags,
                       hostDragOut: runtimeSource.dragsOutOfHostPages,
                       hostResizeFence: runtimeSource.fencesHostResizes, hostPopupMenus: runtimeSource.drawsHostPopupMenus,
-                      hostSuggestions: runtimeSource.drawsHostSuggestions, hostFileDialogs: runtimeSource.hostFileDialogs)
+                      hostSuggestions: runtimeSource.drawsHostSuggestions, hostChoosers: runtimeSource.drawsHostChoosers, hostFileDialogs: runtimeSource.hostFileDialogs)
         if let pagesProfileID { runtime.spareWindow.pagesProfile = pagesProfileID }
     }
 

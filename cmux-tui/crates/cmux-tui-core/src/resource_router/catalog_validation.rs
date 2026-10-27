@@ -2,6 +2,11 @@
 
 use super::*;
 
+#[allow(
+    clippy::expect_used,
+    reason = "INVARIANT: CATALOG_JSON is the checked-in spec compiled into the binary, and every \
+              catalog-validated request in the router tests parses it"
+)]
 pub(super) fn operation_catalog() -> &'static Value {
     static CATALOG: OnceLock<Value> = OnceLock::new();
     CATALOG.get_or_init(|| {
@@ -26,6 +31,17 @@ pub(super) fn operation_descriptor(
     Ok((operation_name, descriptor))
 }
 
+/// A field the catalog marks required; its absence is a validation error,
+/// never a panic, even when a caller skipped catalog validation.
+pub(super) fn required_field<'a>(
+    fields: &'a Map<String, Value>,
+    field: &str,
+) -> Result<&'a Value, ResourceError> {
+    fields
+        .get(field)
+        .ok_or_else(|| validation_error("required field is missing", json!({"field":field})))
+}
+
 pub(super) fn validate_catalog_params(
     operation: ResourceOperation,
     params: &Value,
@@ -38,7 +54,9 @@ pub(super) fn validate_catalog_params(
             json!({}),
         )
     })?;
-    let input = params.as_object().expect("request envelope validates params");
+    let input = params.as_object().ok_or_else(|| {
+        validation_error("request params must be an object", json!({"field":"params"}))
+    })?;
     let selector_descriptors = params_descriptor["selectors"]
         .as_object()
         .ok_or_else(|| malformed_catalog(&operation_name, "selectors"))?;
@@ -472,14 +490,14 @@ pub(super) fn validate_length(
     if descriptor["min_length"]
         .as_u64()
         .or_else(|| descriptor["min_items"].as_u64())
-        .is_some_and(|minimum| length < minimum as usize)
+        .is_some_and(|minimum| usize::try_from(minimum).ok().is_none_or(|minimum| length < minimum))
     {
         return Err(invalid_value(path, &format!("value has too few {unit}")));
     }
     if descriptor["max_length"]
         .as_u64()
         .or_else(|| descriptor["max_items"].as_u64())
-        .is_some_and(|maximum| length > maximum as usize)
+        .is_some_and(|maximum| usize::try_from(maximum).is_ok_and(|maximum| length > maximum))
     {
         return Err(invalid_value(path, &format!("value has too many {unit}")));
     }
