@@ -197,7 +197,10 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
 /// Operations the curated `cmux` CLI offers but MCP does not, with the
 /// reason. Unlike [`EXCLUDED`], the parity test lets `cmux` reach these.
 pub(super) const CLI_ONLY: &[(&str, &str)] = &[
-    ("settings.list", SETTINGS_REASON),
+    (
+        "settings.list",
+        "CLI listings read schema rows from the daemon. MCP access awaits a policy for credential-bearing setting values.",
+    ),
     ("agent.message.release", AGENT_MESSAGE_RELEASE_REASON),
     ("agent.message.unsend", AGENT_MESSAGE_UNSEND_REASON),
     ("history.entries.list", HISTORY_MCP_PENDING_REASON),

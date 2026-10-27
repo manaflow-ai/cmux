@@ -1213,6 +1213,11 @@ fn config_is_the_settings_scope() {
 #[test]
 fn settings_list_keys_and_schema_answer_without_the_app() {
     let keys = local(parse(&args(&["settings", "list", "--keys"])).unwrap().unwrap()).unwrap();
+    assert_eq!(
+        local(parse(&args(&["settings", "list", "--keys", "--keys"])).unwrap().unwrap()).unwrap(),
+        keys,
+        "repeated completion flag remains harmless",
+    );
     let keys: Vec<&str> =
         keys.as_array().unwrap().iter().map(|key| key.as_str().unwrap()).collect();
     assert!(keys.contains(&"sidebar.side") && keys.contains(&"appearance.theme"), "{keys:?}");
