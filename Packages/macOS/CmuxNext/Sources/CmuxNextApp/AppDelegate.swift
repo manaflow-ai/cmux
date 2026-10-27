@@ -6,6 +6,7 @@ import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextInput
@@ -24,8 +25,8 @@ import os
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let environment: AppEnvironment
-    /// The daemon's first connect attempt, begun in `main`.
-    let daemonPrestart: DaemonPrestart?
+    /// The local daemon's Team ID and first connect attempt, made on the system lane in `main`.
+    let daemonStart: LaunchRead<DaemonLaunchStart>
     /// The launch load-in, region by region; its last region revealing ends the startup phase's
     /// `launching` (made here, the composition root, and passed by init).
     let launchReveal: LaunchReveal
@@ -83,12 +84,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var webAuthHandler: WebAuthSessionHandler?
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
-    init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, wireStats: DaemonWireStats?, features: FeatureList? = nil,
+    init(environment: AppEnvironment, daemonStart: LaunchRead<DaemonLaunchStart>, wireStats: DaemonWireStats?, features: FeatureList? = nil,
          startupTrace: StartupTrace? = nil, order: LaunchOrder, inputTap: InputEventTap, settingsRead: SettingsController.PendingLaunchRead,
          launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, frames: TerminalLaunchFrames, wake: AgentPaneRelaunchWake),
          launchCleanup: LaunchCleanup = LaunchCleanup(cleanUpDownloadTempFiles: { BrowserDownloadTempFiles.shared.cleanUpLeftovers() })) {
         (self.environment, self.launchReads, self.settingsRead) = (environment, launchReads, settingsRead)
-        (self.daemonPrestart, self.startupTrace) = (daemonPrestart, startupTrace)
+        (self.daemonStart, self.startupTrace) = (daemonStart, startupTrace)
         (self.wireStats, self.features) = (wireStats, features)
         self.launchCleanup = launchCleanup
         self.order = order
@@ -147,14 +148,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registerTerminal(services: services)
         DebugTimings.markLaunch("dfl.bind")
         let settings = registerSettings(services: services, launch: settingsRead)
-        // An attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) keeps its owner's chat settings.
-        let acpmux = QuitAgents.environment(services)
-        services.lifetimeFollowers += ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath, on: services.mainWork)
         // The platform services: what the first frame or the restore reads now, the rest posted (p08-startup-029).
         services.startPlatformServices(settings: settings, on: order.startup, hotKeys: !environment.isolatedLaunch)
         services.followEnergySaver(settings)
         registerSavedPicture(services: services, settings: settings)
-        registerHomeFeeds(services: services, settings: settings, acpmux: acpmux)
+        registerHomeFeeds(services: services, settings: settings)
         order.startup.post(.afterFirstFrame, "ConfigActions.start", on: .main) { [weak services, weak settings] in
             if let settings { services?.configActions.start(settings: settings) }  // cmux.json's custom actions for the palette and menus
         }

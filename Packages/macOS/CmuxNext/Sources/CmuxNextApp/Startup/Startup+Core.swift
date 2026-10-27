@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextLaunch
 import CmuxNextPalette
@@ -63,8 +64,13 @@ extension AppDelegate {
         order.startup.post(.critical, "WindowActivation.activateApp", on: .main) { WindowActivation.activateApp() }
         launchSettle.install(daemon: services.daemon, warmup: services.agentPageWarmup, on: services.mainWork)
         launchSettle.dropLaunchReads(frames: services.terminalLaunchFrames, pages: services.launchImages, features: services.features, images: launchImageHold)  // p07-memory-083
+        if services.features.isEnabled(.hiddenPollPause) {  // before the local daemon's first connect (p14-energy-064)
+            let presence = DaemonPresenceFeed(windows: services.appVisibility.shownWindows)
+            services.lifetimeFollowers.append(presence)
+            services.machines.connectionPresence = presence.presence
+        }
         // The painted terminal colors first (OSC 10/11/12), and the prompts' side-event subscriptions before the connect.
-        daemonPrompts = services.startLocalDaemon(prestart: daemonPrestart)
+        daemonPrompts = services.startLocalDaemon(after: daemonStart)
         services.lifetimeFollowers.append(FeaturePolicyEnforcer(services: services).start())
         services.postCloudStart(on: order.startup)  // no Cloud restore or connect before the first frame (p08-startup 020)
         services.postNonPaintServices(on: order.startup)

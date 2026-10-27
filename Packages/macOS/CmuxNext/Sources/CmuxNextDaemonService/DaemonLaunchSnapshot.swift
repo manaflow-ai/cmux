@@ -60,6 +60,21 @@ public final class DaemonLaunchSnapshot {
         }
     }
 
+    /// Holds ``whenSettled(_:)`` steps for a ``take(_:session:stateDirectory:work:)`` still to come: the app starts its
+    /// local daemon once its system-lane launch step lands (`AppServices.startLocalDaemon(after:)`), and the launch
+    /// window must not open before the snapshot that start applies. ``endExpectedTake()`` releases them when the
+    /// start made no take. Nothing once a take was made.
+    public func expectTake() {
+        guard session == nil, waiters == nil else { return }
+        waiters = []
+    }
+
+    /// Runs the steps ``expectTake()`` held when the start ended without a take (its launcher could not be made).
+    public func endExpectedTake() {
+        guard session == nil else { return }
+        settle()
+    }
+
     /// Runs `step` once the snapshot is applied or known to be missing: at once when no read runs (it ended before
     /// `start`, or none started), else on the read's end, in post order. The launch window opens here, so it is
     /// drawn from the snapshot instead of showing the connecting state for a frame.

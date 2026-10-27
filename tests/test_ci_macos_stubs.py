@@ -111,6 +111,25 @@ class StubTests(unittest.TestCase):
         self.assertEqual(stubs.cmd_check(self.dir, ["d"]), 1)
         self.assertEqual(stubs.cmd_check(self.dir, ["d"], system), 0)
 
+    def test_committed_stubs_cover_the_mac_built_cmux_tui(self) -> None:
+        # The framework imports (llvm-objdump --dylibs-used, llvm-nm -m -u without
+        # libSystem and libiconv) of the Mac-built cmux-tui at 5801558c47f3 (macOS
+        # 26.5 SDK, fleet job 33395d5c94454aab00ab5d3b). p14-energy-137's
+        # power_source.rs added IOKit, Foundation and libobjc (objc2-foundation);
+        # with no stub for them every Linux cross-link of cmux-tui stopped at
+        # "library not found for -lobjc" and undefined objc_msgSend.
+        fixtures = ROOT / "tests/fixtures/macos-stubs"
+        stubs._run = FakeTools({"cmux-tui": ((fixtures / "cmux-tui-arm64.dylibs.txt").read_text(),
+                                             (fixtures / "cmux-tui-arm64.nm.txt").read_text())})
+        committed = ROOT / "scripts/ci/macos-stubs"
+        self.assertEqual(stubs.cmd_check(committed, ["cmux-tui"]), 0)
+        sysroot = self.dir / "sysroot"
+        stubs.cmd_install(committed, sysroot)
+        # -lobjc and -framework IOKit / Foundation resolve in the cross sysroot.
+        self.assertTrue((sysroot / "usr/lib/libobjc.tbd").exists())
+        self.assertTrue((sysroot / "System/Library/Frameworks/IOKit.framework/IOKit.tbd").exists())
+        self.assertTrue((sysroot / "System/Library/Frameworks/Foundation.framework/Foundation.tbd").exists())
+
     def test_two_versions_of_one_framework_are_refused(self) -> None:
         stubs._run = FakeTools({"a": (DYLIBS, NM), "c": (DYLIBS.replace("5026.5.4", "4000.0.0"), NM)})
         with self.assertRaises(SystemExit):

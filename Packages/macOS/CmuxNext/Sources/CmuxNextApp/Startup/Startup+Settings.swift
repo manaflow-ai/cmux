@@ -14,12 +14,12 @@ extension AppDelegate {
     func registerSettings(services: AppServices, launch: SettingsController.LaunchRead) -> SettingsController {
         // The web OTA launch check (kept update read in `main`) before any page asks for its entry document, else the
         // entry can come from the bundle and later chunks from the update; the network check waits for startup complete.
-        WebUpdates.shared.prepare(
-            launch.snapshot.updates, launch: environment.webUpdates, files: services.work, energy: services.mainWork.energy,
-            shown: services.features.isEnabled(.hiddenPollPause) ? services.appVisibility.shownWindows : nil)
+        WebUpdates.shared.prepare(launch.snapshot.updates, launch: environment.webUpdates, inputs: WebUpdates.Inputs(
+            files: services.work, energy: services.mainWork.energy, shown: services.features.isEnabled(.hiddenPollPause) ? services.appVisibility.shownWindows : nil,
+            deadlines: services.mainDeadlines, appEvents: services.appEvents, checkNode: services.appVisibility.node))
         order.startup.post(.afterStartup, "WebUpdates.startChecks", on: .main) { WebUpdates.shared.startChecks() }
         let registry = services.registry
-        let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch)
+        let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch, mainWork: services.mainWork)
         // Managed-settings status for MDM tooling (osquery, Fleet, Jamf), plans/cmux-next/enterprise.md: written on the files lane after startup.
         let bundleID = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app"
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
@@ -58,8 +58,8 @@ extension AppDelegate {
                                           locationTrailScope: { [weak services] in services?.locationTrail.watchScope(settings: settings) }).post(on: order.startup)
         // The file watches and the diagnostic toasts; the launch read is applied above, and the start reloads once.
         // A diagnostic's Show in Settings follows the same availability as the page and `openSettings`.
-        order.startup.post(.afterFirstFrame, "Settings.start", on: .main) { [weak settings, weak services] in
-            settings?.start(announcingDiagnostics: true,
+        order.startup.post(.afterFirstFrame, "Settings.start", on: .main) { [weak settings, weak services, events = services.appEvents] in
+            settings?.start(announcingDiagnosticsOn: events,
                             availability: { [weak services] in services?.settingsAvailability ?? SettingsAvailability() })
         }
         AppProcessRoot.shared.hangReports?.recordUserWrites(of: settings)  // the person's own consent, from the first write on
@@ -77,10 +77,17 @@ extension AppDelegate {
         }, on: services.mainWork))
     }
 
-    /// The chats pager, Home's launch feeds and the GitHub feed.
-    func registerHomeFeeds(services: AppServices, settings: SettingsController, acpmux: AcpmuxEnvironment?) {
-        // A page's chat clicks and All chats pages work from its first frame; the feeds come after it (p08-startup-027).
-        AgentPageChats.wirePager(services.agentTabs, environment: acpmux, opener: services.chatsOpener)
+    /// The chat settings push and chats pager once acpmux resolves, Home's launch feeds and the GitHub feed.
+    func registerHomeFeeds(services: AppServices, settings: SettingsController) {
+        // Once main's acpmux resolve lands (now, unless its signature check still runs on the system lane): an
+        // attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) keeps its owner's chat settings; a page's chat clicks and All
+        // chats pages work from then; the feeds come after the first frame (p08-startup-027).
+        QuitAgents.whenResolved(services, owner: "launch.acpmuxChats") { [weak services] acpmux in
+            guard let services else { return }
+            services.lifetimeFollowers += ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath,
+                                                                 on: services.mainWork)
+            AgentPageChats.wirePager(services.agentTabs, environment: acpmux, opener: services.chatsOpener)
+        }
         services.home.postLaunchFeeds(startup: order.startup)
         // The GitHub connection is deliberately off by default. Changes in
         // Settings apply to the one feed owner and never create a second
