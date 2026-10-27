@@ -19,7 +19,7 @@ struct LaunchPolishVisibilityTests {
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let center = WhatsNewCenter(currentVersion: "1.0.0", defaults: defaults, sources: [])
-        var settings = CmuxConfigSnapshot()
+        var settings = CmuxConfigSnapshot.parse(.object([:]), validDensities: [], validMetrics: [])
         #expect(!settings.previewFeatures)
         center.isItemEnabled = settings.previewFeatures && settings.updates.showWhatsNew
         await center.load().value
