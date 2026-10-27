@@ -2542,3 +2542,105 @@ async fn a_left_host_whose_replay_is_incomplete_ends_under_mdm_off() {
         "the next daemon adopted a host whose replay was incomplete under the managed off"
     );
 }
+
+/// Rewrites the first record of `session`'s log whose line holds every one of `marks` with
+/// `rewrite`, for the next daemon to read.
+fn rewrite_log_record(
+    daemon: &Daemon,
+    session: &str,
+    marks: &[&str],
+    rewrite: impl Fn(&str) -> String,
+) {
+    let dir = daemon.home.join("sessions").join(session).join("events");
+    let mut files: Vec<PathBuf> =
+        std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().path()).collect();
+    files.sort();
+    for file in files {
+        let text = std::fs::read_to_string(&file).unwrap();
+        let Some(line) = text.lines().find(|l| marks.iter().all(|m| l.contains(m))) else {
+            continue;
+        };
+        std::fs::write(&file, text.replacen(line, &rewrite(line), 1)).unwrap();
+        return;
+    }
+    panic!("no record holds {marks:?}");
+}
+
+/// Review 62 of #23322: under MDM's off, a left host whose log lost a record since it started (a
+/// torn or malformed line) is not known to ask: it ends, never adopted. The lost record is the one
+/// where its harness moved itself into full access.
+#[tokio::test]
+async fn a_left_host_whose_log_lost_a_record_ends_under_mdm_off() {
+    let (mut daemon, session, harness_pid) = left_in_bypass("mdmtorn", None).await;
+    let marks = ["\"kind\":\"current_mode_update\"", "bypassPermissions"];
+    rewrite_log_record(&daemon, &session, &marks, |line| line[..line.len() / 2].to_owned());
+    record_mdm_off(&daemon);
+    daemon.start();
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "the next daemon adopted a host whose log lost a record under the managed off"
+    );
+}
+
+/// Review 62 of #23322: a mode a harness reports while a load replays its history is logged as
+/// `current_mode_update.replay` and counts as live (`on_update`). Under MDM's off the next daemon
+/// reads it back too.
+#[tokio::test]
+async fn a_full_access_mode_reported_during_a_load_ends_a_left_host_under_mdm_off() {
+    let (mut daemon, session, harness_pid) = left_in_bypass("mdmloadmode", None).await;
+    let marks = ["\"kind\":\"current_mode_update\"", "bypassPermissions"];
+    rewrite_log_record(&daemon, &session, &marks, |line| {
+        line.replacen(
+            "\"kind\":\"current_mode_update\"",
+            "\"kind\":\"current_mode_update.replay\"",
+            1,
+        )
+    });
+    record_mdm_off(&daemon);
+    daemon.start();
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "a full-access mode the harness reported during a load was not read back"
+    );
+}
+
+/// Review 62 of #23322: a fork's answer describes the new chat, not this one. A chat whose harness
+/// moved its mode option to full access and was then forked (the fork answers its harness's
+/// defaults) still runs in full access: under MDM's off the next daemon ends that host though the
+/// saved chat is older and says it asks.
+#[tokio::test]
+async fn a_forks_answer_does_not_hide_its_parents_full_access_under_mdm_off() {
+    let mut daemon = Daemon::new("mdmforkans", "ask");
+    daemon.sigterm();
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_NO_MODES": "1",
+                      "FAKE_MODE_OPTION": "1", "FAKE_FORK_DEFAULTS": "1"}});
+    let config =
+        json!({"harnesses": {"fake": fake}, "defaultHarness": "fake", "permissionPolicy": "ask"});
+    std::fs::write(daemon.home.join("config.json"), config.to_string()).unwrap();
+    daemon.start();
+    let session = new_session(&daemon).await;
+    let mut rpc = daemon.rpc().await;
+    let moved = json!({"sessionId": session,
+                       "prompt": [{"type": "text", "text": "set-mode-option: full-access"}]});
+    rpc.call("session/prompt", moved).await;
+    rpc.call("session/fork", json!({"sessionId": session, "cwd": daemon.home})).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    daemon.sigterm();
+    drop(rpc);
+    assert!(alive(harness_pid), "SIGTERM ended the agent");
+    // The saved chat as a daemon that died before it saved the report would leave it: asking.
+    let saved = daemon.home.join("sessions").join(&session).join("session.json");
+    let mut meta: Value = serde_json::from_slice(&std::fs::read(&saved).unwrap()).unwrap();
+    for o in meta.get_mut("configOptions").and_then(Value::as_array_mut).into_iter().flatten() {
+        if o["currentValue"] == "full-access" {
+            o["currentValue"] = json!("normal");
+        }
+    }
+    std::fs::write(&saved, meta.to_string()).unwrap();
+    record_mdm_off(&daemon);
+    daemon.start();
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "the fork's answer hid its parent's full access from the next daemon"
+    );
+}
