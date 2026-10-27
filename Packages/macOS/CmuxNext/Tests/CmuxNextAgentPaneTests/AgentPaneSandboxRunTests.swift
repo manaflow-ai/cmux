@@ -96,18 +96,16 @@ struct AgentPaneSandboxRunTests {
         #expect(fromJSON["timedOut"] as? Bool == false)
     }
 
-    @Test func theRunAPIsRequestRefusalsAreDefiniteAndNoOtherShapeIs() {
-        for code in ["run_task_required", "run_model_required", "run_task_invalid", "run_invalid_request"] {
-            #expect(AgentPaneReply.isRunRequestRefusal(code))
+    @Test func onlyTheRunAPIsDocumentedRequestRefusalsAreDefinite() {
+        for code in ["run_task_required", "run_image_invalid", "run_invalid_request"] {
             #expect(AgentPaneSandboxRuns.isDefiniteRefusal(AgentPaneReply.failure(code: code, message: code)))
+            #expect(AgentPaneReply.pageCode(code) == code)
         }
-        for code in ["run_vm1_invalid", "run_invalid", "provider_vm_abc_invalid", "run_task_failed"] {
-            #expect(!AgentPaneReply.isRunRequestRefusal(code))
+        // Shaped like one but undocumented, or could hold a handle: no proof nothing ran.
+        for code in ["run_model_required", "run_task_invalid", "run_vm_deadbeef_invalid", "provider_vm_abc_invalid", "run_task_failed"] {
+            #expect(!AgentPaneSandboxRuns.isDefiniteRefusal(AgentPaneReply.failure(code: code, message: code)))
+            #expect(AgentPaneReply.pageCode(code) == "unavailable")
         }
-        // An undocumented one, which could hold an all-letter handle, reaches the page as a fixed code.
-        #expect(AgentPaneReply.pageCode("run_vm_deadbeef_invalid") == "run_invalid_request")
-        #expect(AgentPaneReply.pageCode("run_task_required") == "run_task_required")
-        #expect(AgentPaneReply.pageCode("provider_vm_abc123") == "unavailable")
     }
 
     @Test func aServerCodeThePageDoesNotWordReachesItAsUnavailable() async {
@@ -221,6 +219,21 @@ struct AgentPaneSandboxRunTests {
         model.transport.gestures.record()
         _ = await model.respond(to: Self.run("after it failed"))
         #expect(runs.tasks == ["after it failed"])
+    }
+
+    @Test func anUndocumentedRefusalShapedCodeSpendsTheTab() async {
+        // `run_vm_deadbeef_invalid` looks like a request refusal but is no proof nothing ran: the
+        // page sees `unavailable`, and a second send could start a second paid Run, so it is refused.
+        struct Failed: Error {}
+        let reply = await AgentPaneReply.sandbox({ throw Failed() }) { _ in "run_vm_deadbeef_invalid" }
+        #expect((reply["error"] as? [String: Any])?["code"] as? String == "unavailable")
+        let runs = AgentPaneSandboxRuns()
+        _ = await runs.run(task: "x", key: "k-1") { reply }
+        #expect(runs.refusal == "sandbox_spent")
+        // A documented one refused the request before anything was stored: the tab may send again.
+        let documented = AgentPaneSandboxRuns()
+        _ = await documented.run(task: "x", key: "k-2") { AgentPaneReply.failure(code: "run_image_invalid", message: "x") }
+        #expect(documented.refusal == nil)
     }
 
     @Test func aReloadedPageFindsTheRunningSendAndItsReceipt() async {

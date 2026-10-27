@@ -298,6 +298,7 @@ import math
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -360,7 +361,7 @@ OWNED_VARIABLE = "CI_PR_POOL_OWNED"
 SPLIT_VARIABLE = "CI_PR_POOL_OWNED_SPLIT"
 SLOTS_VARIABLE = "CI_OWNED_POOL_SLOTS"
 LIGHT_CLASS = "light"
-# github-actions[bot] re-runs a run only after a host fault on a mini: the rescue after a refusal or a
+# The rescue bot (RESCUE_ACTORS) re-runs a run only after a host fault on a mini: the rescue after a refusal or a
 # stuck queue (owned_pool_rescue.py), the failure attribution when every failed job is a machine failure
 # (classify_failures.py). Its attempt 2 still goes to the owned pool first, like attempt 1: a runner that
 # lost communication is offline, and a busy mini's gui runner stops listening, so the label hands the job
@@ -369,13 +370,16 @@ LIGHT_CLASS = "light"
 # them to retry_runner (Blacksmith), which ends the loop. Anyone else's re-run follows a code or test
 # failure and goes back to the owned pool on any attempt.
 RESCUE_ACTOR = "github-actions[bot]"
+# Its re-runs come from either identity: GITHUB_TOKEN's, or the cmux-bot App's token the rescue now re-runs
+# with. A cmux-bot re-run counted as a person's went back to the owned label on every attempt and looped.
+RESCUE_ACTORS = frozenset({RESCUE_ACTOR, "cmux-bot[bot]"})
 # The last attempt of the bot's re-runs that may take an owned pool (owned_pool_rescue.LAST_OWNED_ATTEMPT).
 LAST_OWNED_ATTEMPT = 2
 
 
 def host_fault_retry(run_attempt: int, triggering_actor: str | None) -> bool:
-    """The bot's re-run past LAST_OWNED_ATTEMPT (see RESCUE_ACTOR): it goes to Blacksmith."""
-    return run_attempt > LAST_OWNED_ATTEMPT and (triggering_actor or "").strip() == RESCUE_ACTOR
+    """The bot's re-run past LAST_OWNED_ATTEMPT (see RESCUE_ACTORS): it goes to Blacksmith."""
+    return run_attempt > LAST_OWNED_ATTEMPT and (triggering_actor or "").strip() in RESCUE_ACTORS
 MAIN_RESERVE_VARIABLE = "CI_OWNED_MAIN_RESERVE"
 # Machines and root runners main's full suite leaves free for pull requests.
 # 0: main takes the minis like a pull request. A reserve lets it in only
@@ -478,6 +482,36 @@ MARKER_STEP = "Mark a run on a persistent macOS pool"
 # many are replayed as unknown.
 ROUTE_LOOKUPS = 8
 API = "https://api.github.com"
+# A refused read is logged with its detail. It is retried once after its Retry-After only when
+# the caller opts in with retry_cap > 0, the most it can wait: callers here run under step
+# timeouts and budgets (`timeout 120`, a 2-minute placement step, the picker's rounds) that an
+# unbounded wait would break, so the default (0) logs and raises after one attempt, as before.
+
+# What a refused GitHub read said: its status, the rate-limit headers and the start of its
+# body ("secondary rate limit", "Resource not accessible by integration", ...). urllib's own
+# message is only "HTTP Error 403: Forbidden", which cannot tell those apart.
+REFUSAL_HEADERS = ("Retry-After", "X-RateLimit-Remaining", "X-RateLimit-Resource")
+
+
+def refusal(error: "urllib.error.HTTPError") -> str:
+    headers = error.headers or {}
+    shown = " ".join(f"{name}={headers.get(name)}" for name in REFUSAL_HEADERS if headers.get(name) is not None)
+    try:
+        body = " ".join(error.read(2000).decode("utf-8", "replace").split())[:300]
+    except Exception:  # noqa: BLE001 - the detail is best effort
+        body = ""
+    return f"HTTP {error.code}" + (f" {shown}" if shown else "") + (f" body: {body}" if body else "")
+
+
+def retry_wait(error: "urllib.error.HTTPError", cap: float) -> float | None:
+    """Seconds to wait before the one retry: a 403 or 429 that carries Retry-After, capped."""
+    if error.code not in (403, 429):
+        return None
+    try:
+        after = float((error.headers or {}).get("Retry-After") or "")
+    except ValueError:
+        return None
+    return max(0.0, min(after, cap))
 # The org runner group holding the glaeda minis (glaeda#1222 moved them there).
 RUNNER_GROUP = "glaeda-minis"
 
@@ -2097,8 +2131,20 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+@dataclasses.dataclass
+class RetryBudget:
+    """Retries left to the clients that share it: one for a whole step, not one per client or read."""
+    left: int = 1
+
+
 class GitHub:
-    def __init__(self, token: str, repo: str) -> None:
+    def __init__(self, token: str, repo: str, *, retry_cap: float = 0.0,
+                 retries: RetryBudget | None = None) -> None:
+        # One retry per budget, not per read: whatever the reads, retrying adds at most one
+        # wait (retry_cap) and one request (its 15 s timeout) to what the reads take today.
+        # Clients that share a budget (one per token in a step) share that one retry.
+        self.retry_cap = retry_cap
+        self.retries = retries if retries is not None else RetryBudget(1 if retry_cap > 0 else 0)
         self.repo = repo
         self.headers = {
             "Accept": "application/vnd.github+json",
@@ -2114,8 +2160,21 @@ class GitHub:
     def get_api(self, path: str) -> Any:
         """GET any API path (an org endpoint, for one)."""
         request = urllib.request.Request(f"{API}{path}", headers=self.headers)
-        with urllib.request.urlopen(request, timeout=15) as response:
-            return json.loads(response.read())
+        for attempt in (1, 2):
+            try:
+                with urllib.request.urlopen(request, timeout=15) as response:
+                    return json.loads(response.read())
+            except urllib.error.HTTPError as error:
+                wait = (retry_wait(error, self.retry_cap)
+                        if attempt == 1 and self.retry_cap > 0 and self.retries.left > 0 else None)
+                if wait is not None:
+                    self.retries.left -= 1
+                print(f"GitHub refused GET {path.split('?')[0]}: {refusal(error)}"
+                      + (f"; retrying once in {wait:.0f} s" if wait is not None else ""), file=sys.stderr)
+                if wait is None:
+                    raise
+                time.sleep(wait)
+        raise AssertionError("unreachable")
 
     def snapshot(self, *, now: dt.datetime, branch: str = SNAPSHOT_BRANCH) -> Mapping[str, Any] | None:
         """The newest trusted, unexpired janitor snapshot, in two API requests."""

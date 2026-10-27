@@ -10,7 +10,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextSettings/*
 webviews/src/pages/settings/*
 docs/mdm/*
 # Pure generator output of the settings export tests (regenerate-settings-exports.sh on a
-# Mac; defaults_guard.py check-fresh finds a stale one from its source stamp): the bot
+# Mac; SettingsSchemaExportTests compares them with a fresh export): the bot
 # copies them in (hq-11, 2026-10-16). The settings sources stay frozen.
 !schemas/settings/settings-schema.json
 !docs/mdm/com.manaflow.cmux*

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import UniformTypeIdentifiers
 
 /// The Chief's avatar in the settings card: its picture (or text) in a disc;
 /// a click opens the menu that changes it.
@@ -11,9 +12,13 @@ final class HomeChiefAvatarButton: NSButton {
     /// grey disc beside the header's full-size one.
     static let emojiScale: CGFloat = 0.78
 
+    /// A picture file dropped on the avatar (one PNG, JPEG, HEIC, GIF or WebP, as Choose Picture… offers).
+    var onDropPicture: ((URL) -> Void)?
+
     init(size: CGFloat) {
         self.size = size
         super.init(frame: NSRect(x: 0, y: 0, width: size, height: size))
+        registerForDraggedTypes([.fileURL])
         isBordered = false
         bezelStyle = .regularSquare
         title = ""
@@ -33,6 +38,31 @@ final class HomeChiefAvatarButton: NSButton {
 
     override func resetCursorRects() {
         addCursorRect(bounds, cursor: .pointingHand)
+    }
+
+    /// The one picture file a drag carries; nil for none, several, or another type.
+    private func picture(in drag: any NSDraggingInfo) -> URL? {
+        let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true,
+                                                             .urlReadingContentsConformToTypes: HomeChiefFiles.pictureTypes.map(\.identifier)]
+        let files = drag.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL] ?? []
+        return files.count == 1 ? files[0] : nil
+    }
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        let takes = onDropPicture != nil && picture(in: sender) != nil
+        highlight(takes)
+        return takes ? .copy : []
+    }
+
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        highlight(false)
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        highlight(false)
+        guard let onDropPicture, let file = picture(in: sender) else { return false }
+        onDropPicture(file)
+        return true
     }
 
     /// The picture fills the disc; letters sit centered on the theme's fill, and an emoji (or any

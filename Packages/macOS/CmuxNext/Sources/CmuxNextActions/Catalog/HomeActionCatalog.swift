@@ -144,6 +144,26 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 category: .window, symbol: "text.quote", surfaces: [.palette, .keyboard],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.liveInput), contextMenuExemption: .liveInput)
             ),
+            // Chief zoom: Cmd-= (and Cmd-+), Cmd-- and Cmd-0 on Home (KeyBindingDefaults.scopedDefaults) step
+            // the Agent Chat Zoom setting (`agentPane.zoom`), which the Chief transcript follows like an agent chat.
+            ActionDescriptor(
+                id: "home.zoomIn", title: t("action.home.zoomIn", "Chief: Zoom In"),
+                keywords: ["home", "chief", "chat", "zoom", "bigger", "text size", "font"],
+                category: .window, symbol: "plus.magnifyingglass", surfaces: [.palette, .keyboard],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.stepAdjust), contextMenuExemption: .stepAdjust)
+            ),
+            ActionDescriptor(
+                id: "home.zoomOut", title: t("action.home.zoomOut", "Chief: Zoom Out"),
+                keywords: ["home", "chief", "chat", "zoom", "smaller", "text size", "font"],
+                category: .window, symbol: "minus.magnifyingglass", surfaces: [.palette, .keyboard],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.stepAdjust), contextMenuExemption: .stepAdjust)
+            ),
+            ActionDescriptor(
+                id: "home.zoomReset", title: t("action.home.zoomReset", "Chief: Actual Size"),
+                keywords: ["home", "chief", "chat", "zoom", "reset", "actual size", "text size"],
+                category: .window, symbol: "1.magnifyingglass", surfaces: [.palette, .keyboard],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.stepAdjust), contextMenuExemption: .stepAdjust)
+            ),
             // The Home page's conversation list (plans/cmux-next/home-messaging.md):
             // New Message (a DM or a group), Invite, New Chief and Archive Chief.
             // Without arguments the first three open their sheet on the Home page;
