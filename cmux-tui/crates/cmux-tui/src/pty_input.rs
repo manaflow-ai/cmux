@@ -1400,6 +1400,7 @@ pub(crate) mod fuzz;
 mod tests {
     use {super::*, crate::local_actor::TuiMuxOps};
     mod retire_tests;
+    mod session_mutation_tests;
     use cmux_tui_core::{Mux as TestMux, SurfaceOptions as TestSurfaceOptions};
 
     fn lane(surface_id: SurfaceId) -> PtyInputLane {
