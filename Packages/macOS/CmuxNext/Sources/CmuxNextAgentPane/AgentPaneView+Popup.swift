@@ -33,7 +33,11 @@ extension AgentPaneView {
 
     func contextMenu(params: [String: Any], reply: @escaping @MainActor ([String: Any]) -> Void) {
         guard let menu = WebContextMenu(params) else { return reply(["ok": true, "value": ["picked": NSNull()]]) }
-        menu.present(in: webView, zoom: webView.pageZoom) { picked in
+        menu.present(in: webView, zoom: webView.pageZoom) { [weak self] picked in
+            // A legacy bridge has no PageCallContext. The menu choice itself is the person's
+            // gesture, so renew the one-use credit before a page action such as a user-only setting
+            // write runs after this reply; a script cannot synthesize this AppKit event.
+            if picked != nil, let self { AgentPanePersonInput.record(self.model.transport.gestures) }
             reply(["ok": true, "value": ["picked": picked.map { $0 as Any } ?? NSNull()]])
         }
     }

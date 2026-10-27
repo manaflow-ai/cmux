@@ -271,6 +271,7 @@ function analyze(
   start: number,
   longTasks: { t: number; ms: number }[] | null,
   dockHeight: number,
+  streamWindowEnd: number,
 ) {
   const at = (t: number) => round2(t - start);
   const live = frames.filter((frame) => frame.live);
@@ -391,6 +392,9 @@ function analyze(
       maxMs: round2(Math.max(0, ...longTasks.map((task) => task.ms))),
       totalMs: round2(longTasks.reduce((sum, task) => sum + task.ms, 0)),
       tasks: longTasks.slice(0, 20).map((task) => ({ t: at(task.t), ms: round2(task.ms) })),
+      duringStream: longTasks
+        .filter((task) => task.t >= start && task.t < streamWindowEnd && task.ms > 50)
+        .map((task) => ({ t: at(task.t), ms: round2(task.ms) })),
     },
     reveal: {
       // Drawn: the reply's textContent. A closing fence keeps its plain card under the highlighted one
@@ -493,7 +497,7 @@ async function run({
     : null;
   const observer = longTasks
     ? new PerformanceObserver((list) => {
-        for (const entry of list.getEntries()) if (live) longTasks.push({ t: entry.startTime, ms: entry.duration });
+        for (const entry of list.getEntries()) if (sampling) longTasks.push({ t: entry.startTime, ms: entry.duration });
       })
     : undefined;
   observer?.observe({ type: "longtask", buffered: false });
@@ -533,10 +537,14 @@ async function run({
   live = false;
   // fixed-wait: the settle window is sampled for any jump after the stream; the window is the test
   await new Promise((resolve) => setTimeout(resolve, settleMs));
+  const sampleEnd = performance.now();
+  if (observer && longTasks) {
+    for (const entry of observer.takeRecords()) longTasks.push({ t: entry.startTime, ms: entry.duration });
+  }
   sampling = false;
   observer?.disconnect();
   const dock = document.querySelector<HTMLElement>(".acpmux-dock")?.getBoundingClientRect().height ?? 0;
-  return analyze(cadence, deltas, frames, start, longTasks, dock);
+  return analyze(cadence, deltas, frames, start, longTasks, dock, sampleEnd);
 }
 
 (window as unknown as { __streamingText: { run: typeof run } }).__streamingText = { run };

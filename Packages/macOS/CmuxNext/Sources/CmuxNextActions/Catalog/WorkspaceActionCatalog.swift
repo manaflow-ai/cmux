@@ -132,6 +132,14 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .menu, .contextMenu], targets: [.workspace], cliName: "workspace clear-name",
                 mainMenu: .file
             ),
+            // Asks the cheapest model for a name from the workspace's tabs and applies it as the
+            // person's own rename (WorkspaceActivityName). Leo 2026-10-26: "just run it on the cheapest model."
+            ActionDescriptor(
+                id: "workspace.nameFromActivity",
+                title: String(localized: "action.workspace.nameFromActivity", defaultValue: "Name from Activity", bundle: .module),
+                keywords: ["title", "name", "rename", "auto", "summarize", "ai"], category: .workspace, symbol: "sparkles",
+                surfaces: [.palette, .contextMenu], targets: [.workspace], cliName: "workspace name-from-activity"
+            ),
             ActionDescriptor(
                 id: "editWorkspaceDescription",
                 title: String(localized: "action.editWorkspaceDescription", defaultValue: "Edit Workspace Description…", bundle: .module),
@@ -240,9 +248,7 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.palette.toggleWorkspacePin", defaultValue: "Pin/Unpin Workspace", bundle: .module),
                 keywords: ["pin", "unpin", "favorite"], category: .workspace, symbol: "pin",
                 surfaces: [.palette, .menu, .contextMenu, .keyboard],
-                arguments: [ActionArgument(name: "pinned", title: String(localized: "argument.pinned", defaultValue: "Pinned", bundle: .module),
-                                           kind: .bool, isRequired: false)],
-                targets: [.workspace], cliName: "workspace pin-unpin", mainMenu: .file
+                arguments: [CatalogArgument.pinnedBool], targets: [.workspace], cliName: "workspace pin-unpin", mainMenu: .file
             ),
             // Archive keeps the workspace in its group (or its section), last and dimmed; Unarchive puts
             // it back (plans/cmux-next/archiving-DESIGN.md). The menu reads Archive or Unarchive.
@@ -362,12 +368,12 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 id: "workspaceGroup.togglePin",
                 title: String(localized: "action.workspaceGroup.togglePin", defaultValue: "Pin/Unpin Group", bundle: .module),
                 keywords: ["group"], category: .workspace, symbol: "pin.circle", surfaces: [.palette, .contextMenu],
-                targets: [.workspaceGroup], cliName: "workspace-group toggle-pin"
+                arguments: [CatalogArgument.pinnedBool], targets: [.workspaceGroup], cliName: "workspace-group toggle-pin"
             ),
             ActionDescriptor(
                 id: "workspaceGroup.toggleArchive",
                 title: String(localized: "action.workspaceGroup.toggleArchive", defaultValue: "Archive/Unarchive Group", bundle: .module),
-                keywords: ["group", "archive", "unarchive", "dim", "done"], category: .workspace, symbol: "archivebox",
+                keywords: ["group", "archive", "unarchive", "dim", "done"], category: .workspace, symbol: "archivebox.circle",
                 surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group toggle-archive"
             ),
             ActionDescriptor(
@@ -441,6 +447,6 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 keywords: ["current work", "tasks"], category: .workspace, symbol: "sparkle.magnifyingglass",
                 surfaces: [.palette], targets: [.workspace], cliName: "workspace find-work"
             ),
-        ] + classicImportActions()
+        ] + classicImportActions() + sessionTransferActions()
     }
 }

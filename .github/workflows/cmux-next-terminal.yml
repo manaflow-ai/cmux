@@ -45,7 +45,7 @@ concurrency:
 jobs:
 
   rust-terminal-linux:
-    name: terminal crates (Linux)
+    name: terminal crates (portable)
     if: github.repository_owner == 'manaflow-ai'
     runs-on: ${{ !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 40
@@ -79,7 +79,7 @@ jobs:
             -- --skip terminal_corpus_snapshots_encode_ready_and_complete
 
   swift-terminal-linux:
-    name: Swift terminal packages (Linux)
+    name: Swift terminal packages (portable)
     if: github.repository_owner == 'manaflow-ai'
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 30
@@ -106,7 +106,7 @@ jobs:
     name: terminal crates (cmux-pty and corpus snapshot, macOS)
     if: github.repository_owner == 'manaflow-ai' && vars.CI_SIDE_LANE_RUNNER != ''
     # The bot's third attempt leaves the minis, as in ci-macos.yml, so a refused run cannot loop there.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt <= 2 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 40
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
@@ -148,7 +148,7 @@ jobs:
     name: Swift terminal packages (CmuxTerminalClient FFI, macOS)
     if: github.repository_owner == 'manaflow-ai' && vars.CI_SIDE_LANE_RUNNER != ''
     # The bot's third attempt leaves the minis, as in ci-macos.yml, so a refused run cannot loop there.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt <= 2 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
