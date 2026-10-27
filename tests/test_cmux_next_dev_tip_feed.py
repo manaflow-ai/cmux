@@ -62,6 +62,7 @@ stamp = workflow.index("Stamp the tip feed, its key and a build number")
 check(stamp < workflow.index("Sign and verify cmux NEXT DEV"), "the stamp happens before signing")
 check("secrets.NIGHTLY_SPARKLE_PRIVATE_KEY" in workflow and "secrets.SPARKLE_NEXT_PRIVATE_KEY" not in workflow,
       "the tip feed uses the release environment's NIGHTLY Sparkle key")
+tip_dmg_build = workflow[workflow.index("\n  tip-dmg-build:\n"):workflow.index("\n  tip-dmg:\n")]
 tip_dmg = workflow[workflow.index("\n  tip-dmg:\n"):workflow.index("\n  tip:\n")]
 tip = workflow[workflow.index("\n  tip:\n"):workflow.index("\n  tip-deltas:\n")]
 tip_deltas = workflow[workflow.index("\n  tip-deltas:\n"):]
@@ -71,18 +72,30 @@ for job, label in ((tip_dmg, "tip-dmg"), (tip, "tip"), (tip_deltas, "tip-deltas"
     check("needs.sign.outputs.build != ''" in job.split("steps:")[0], f"only a stamped build gets a tip DMG ({label})")
     check(job.split("needs:")[0].count("continue-on-error: true") == 1,
           f"a red {label} job never makes the dispatcher re-publish the same source run")
-check(tip_dmg.index("notarytool submit") < tip_dmg.index("./scripts/sparkle_generate_appcast.sh"), "the DMG is notarized before the feed names it")
+# The Mac half (Leo, 2026-10-26: "I THOUGHT THESE COULD JUST GO ON LINUX"): only Apple's codesign
+# check and hdiutil, with no environment and no secret.
+check("environment:" not in tip_dmg_build and "secrets." not in tip_dmg_build and "keychain" not in tip_dmg_build,
+      "tip-dmg-build holds no signing secret and no keychain")
+check(tip_dmg_build.split("needs:")[0].count("continue-on-error: true") == 1
+      and "needs.sign.outputs.build != ''" in tip_dmg_build.split("steps:")[0],
+      "tip-dmg-build is advisory and runs only for a stamped build")
+check(all(word not in tip_dmg_build for word in ("notarytool", "stapler", "codesign --force", "sparkle_generate_appcast")),
+      "tip-dmg-build only checks the app and builds the unsigned DMG")
+tip_dmg_code = "\n".join(line for line in tip_dmg.splitlines() if not line.lstrip().startswith("#"))
+check(all(word not in tip_dmg_code for word in ("keychain", "xcrun", "hdiutil", "/usr/bin/", "PlistBuddy", "swift ")),
+      "tip-dmg uses no macOS tool: rcodesign and Python on Linux")
+check(tip_dmg.index("./scripts/ci/rcodesign-notarize-dmg-dev.sh") < tip_dmg.index("python3 scripts/ci/tip_appcast_linux.py"),
+      "the DMG is signed, notarized and stapled before the feed names it")
 uploads = tip[tip.index("Upload the tip feed to R2"):]
 check(uploads.index("upload \"tip-new/") < uploads.index("r2_cas.py put"),
       "archives upload before the feed that names them")
 check("TIP_APP_FLOOR_SHA: df21458196edaaf3de5192da56ecd2a315aacae7" in workflow
       and 'compare/$TIP_APP_FLOOR_SHA...$SOURCE_SHA' in workflow,
       "a source from before the tip app (#24954) gets no tip feed")
-check('[[ "$app_key" == "$signing_key" ]]' in tip_dmg and '[[ "$app_build" == "$TIP_BUILD" ]]' in tip_dmg,
-      "the feed key must be the key the app in the DMG trusts, and the DMG must hold this build")
-check("generate_appcast did not add edSignature" in tip_dmg, "the sign_update fallback never publishes")
-check(tip_dmg.index('[[ "$app_key" == "$signing_key" ]]') < tip_dmg.index("./scripts/sparkle_generate_appcast.sh"),
-      "the key is checked before the feed is generated")
+check('python3 scripts/ci/tip_appcast_linux.py SPARKLE_PRIVATE_KEY "tip-new/cmux-NEXT-DEV-$TIP_BUILD-$TIP_RUN_TAG.dmg"' in tip_dmg
+      and '"signed-handoff/$APP_ARCHIVE_NAME" "$APP_NAME" "$DOWNLOAD_URL_PREFIX" "$RELEASE_NOTES_URL" "$TIP_BUILD"' in tip_dmg
+      and "SPARKLE_PRIVATE_KEY: ${{ secrets.NIGHTLY_SPARKLE_PRIVATE_KEY }}" in tip_dmg,
+      "the appcast is signed with the key named by variable, for this build, from the archive the DMG holds")
 sign = workflow[workflow.index("\n  sign:\n"):workflow.index("\n  verify:\n")]
 verify = workflow[workflow.index("\n  verify:\n"):workflow.index("\n  publish:\n")]
 # The signer runs on Linux (rcodesign): no keychain, no DMG and no notarization there.
@@ -95,13 +108,16 @@ check(all(line.strip().startswith("[[ -n") for line in sign_code.splitlines() if
       and "sparkle-public-key NIGHTLY_SPARKLE_PRIVATE_KEY" in sign,
       "the Sparkle private key reaches the key derivation by environment, never on a command line")
 check("notary_id" not in workflow, "the tip job makes its own notarization submission")
-# The tip job builds, signs and submits the DMG, with a keychain it deletes before notarizing.
-steps = [tip_dmg.find(marker) for marker in (
+steps = [tip_dmg_build.find(marker) for marker in (
     "name: Download the signed app\n", "codesign --verify --deep --strict", "-format ULMO",
-    "signing-keychain.sh create", "codesign --force --timestamp --keychain", "signing-keychain.sh delete",
-    "notarytool submit", 'notarytool wait "$id"', "xcrun stapler staple", "./scripts/sparkle_generate_appcast.sh")]
-check(-1 not in steps and steps == sorted(steps), "tip: unpack and codesign the signed app, build the DMG, sign it, delete the keychain, then notarize")
-check(tip_dmg.count("if: always()") >= 2, "tip-dmg deletes its keychain whatever happens")
+    "name: Upload the unsigned tip DMG", "name: Mark the unsigned DMG uploaded")]
+check(-1 not in steps and steps == sorted(steps), "tip-dmg-build: codesign the signed app, build the DMG, then hand it off")
+steps = [tip_dmg.find(marker) for marker in (
+    "name: Download the unsigned tip DMG", 'sha256sum -c "$APP_ARCHIVE_NAME.sha256"', 'cmp -s tip-unsigned/built-from.sha256',
+    '"$UNSIGNED_SHA256  tip-unsigned/$TIP_DMG_NAME" | sha256sum -c -', "./scripts/ci/install-rcodesign.sh",
+    "./scripts/ci/rcodesign-notarize-dmg-dev.sh", "python3 scripts/ci/tip_appcast_linux.py")]
+check(-1 not in steps and steps == sorted(steps),
+      "tip-dmg: require the DMG tip-dmg-build made from the signed archive, then sign, notarize, staple and write the appcast")
 publish = workflow[workflow.index("\n  publish:\n"):workflow.index("\n  tip:\n")]
 # Apple's codesign runs in verify now, so publish and tip ship only what verify passed. A skipped
 # or cancelled verify has empty outputs and a result other than success: both block.
@@ -126,7 +142,7 @@ check("verified: ${{ steps.check.outputs.verified }}" in verify
 check("tip" not in publish.split("needs:")[1].split("\n")[0], "the rolling prerelease never waits for the tip feed")
 # Freshness (2026-10-26: nothing published for six hours): the signer never waits on the 12 vCPU
 # macOS label, and no shared group evicts a newer handoff while a signer waits.
-check(all("12vcpu" not in line for job in (sign, tip_dmg, tip, tip_deltas) for line in job.splitlines() if line.strip().startswith("runs-on:")),
+check(all("12vcpu" not in line for job in (sign, tip_dmg_build, tip_dmg, tip, tip_deltas) for line in job.splitlines() if line.strip().startswith("runs-on:")),
       "sign and tip never queue on blacksmith-12vcpu-macos-26")
 check("concurrency:" not in sign.split("steps:")[0], "no concurrency group evicts a newer DEV handoff while a signer waits")
 # No group anywhere in the publisher (a group replaces a pending run): the newest write wins instead.
@@ -156,12 +172,21 @@ check("--write-once" in tip, "tip archives and deltas are write-once, so a feed'
 # notarizes while verify runs; tip, the only R2 writer, still needs verify.
 import yaml
 jobs = yaml.safe_load(workflow)["jobs"]
-dmg_job, feed_job = jobs["tip-dmg"], jobs["tip"]
-check(dmg_job["needs"] == ["sign"] and "verify" not in dmg_job["if"], "tip-dmg starts right after sign, alongside verify")
+build_job, dmg_job, feed_job = jobs["tip-dmg-build"], jobs["tip-dmg"], jobs["tip"]
+check(build_job["needs"] == ["sign"] and "verify" not in build_job["if"], "tip-dmg-build starts right after sign, alongside verify")
+check(dmg_job["needs"] == ["sign", "tip-dmg-build"] and "verify" not in dmg_job["if"]
+      and "needs.tip-dmg-build.outputs.fresh == 'true'" in dmg_job["if"],
+      "tip-dmg signs only a DMG tip-dmg-build uploaded for a fresh build, alongside verify")
+check("macos" in build_job["runs-on"] and "ubuntu" in dmg_job["runs-on"] and "macos" not in dmg_job["runs-on"],
+      "only the unsigned DMG is built on a Mac; signing, notarization, stapling and the appcast run on Linux")
+check(build_job["outputs"]["fresh"] == "${{ steps.upload.outputs.fresh }}"
+      and dmg_job["env"]["UNSIGNED_SHA256"] == "${{ needs.tip-dmg-build.outputs.dmg_sha256 }}"
+      and "cmux-next-dev-tip-unsigned-$GITHUB_RUN_ATTEMPT" in tip_dmg_build,
+      "each tip-dmg-build attempt hands off its own artifact, which tip-dmg checks by digest")
 check(feed_job["needs"] == ["sign", "verify", "tip-dmg"] and "needs.tip-dmg.outputs.ready == 'true'" in feed_job["if"],
       "tip writes the feed only after verify passed and tip-dmg handed off a ready DMG")
 dmg_steps = {step.get("name"): step for step in dmg_job["steps"]}
-build_dmg = dmg_steps["Build the tip DMG"]
+build_dmg = {step.get("name"): step for step in build_job["steps"]}["Build the tip DMG"]
 check("continue-on-error" not in build_dmg, "tip-dmg's codesign check is never advisory")
 build_run = build_dmg["run"]
 codesign_line = next(line for line in build_run.splitlines() if "codesign --verify --deep --strict" in line)
@@ -171,13 +196,12 @@ check('grep -q "sealed resource is missing or invalid" codesign-verify.log; then
       and build_run.index("sealed resource is missing or invalid") < build_run.index("hdiutil create"),
       "a sealed resource missing or invalid fails tip-dmg before the DMG exists")
 order = [tip_dmg.find(marker) for marker in (
-    "codesign --verify --deep --strict", "hdiutil create", "codesign --force --timestamp", "notarytool submit",
-    "xcrun stapler staple", '[[ "$app_key" == "$signing_key" ]]', "./scripts/sparkle_generate_appcast.sh",
+    "./scripts/ci/rcodesign-notarize-dmg-dev.sh", "python3 scripts/ci/tip_appcast_linux.py",
     "python3 scripts/ci/tip_feed.py check", "name: Upload the tip DMG and appcast for tip", "name: Mark the tip DMG ready for tip")]
 check(-1 not in order and order == sorted(order),
-      "tip-dmg: codesign the app, build, sign, notarize and staple the DMG, check its key and build, then hand off")
-check("CF_R2_" not in tip_dmg and "r2_cas.py" not in tip_dmg and "upload-r2-object.py" not in tip_dmg,
-      "tip-dmg writes nothing public: R2 keys and uploads live only in tip, after verify")
+      "tip-dmg: sign, notarize and staple the DMG, write and check the appcast, then hand off")
+check(all(word not in tip_dmg + tip_dmg_build for word in ("CF_R2_", "r2_cas.py", "upload-r2-object.py")),
+      "tip-dmg and tip-dmg-build write nothing public: R2 keys and uploads live only in tip, after verify")
 check(dmg_job["outputs"]["ready"] == "${{ steps.ready.outputs.ready }}" and dmg_steps["Mark the tip DMG ready for tip"]["id"] == "ready"
       and "if" in dmg_steps["Mark the tip DMG ready for tip"] and "always()" not in dmg_steps["Mark the tip DMG ready for tip"]["if"],
       "ready is set only by the step after the handoff upload, so a failed tip-dmg never reads as ready")
@@ -641,6 +665,66 @@ check(rc != 0 and "r2 put" not in log, f"a failed delta upload writes no feed, w
 # CMUX_TIMESTAMP=none makes the Linux signer drop the time stamp and the Developer ID check
 # (scripts/ci/rcodesign-sign-bundle-dev.sh); the publisher must never set it.
 check("CMUX_TIMESTAMP" not in workflow, "the DEV workflow never sets CMUX_TIMESTAMP")
+
+# tip-deltas runs Apple's tools on the DMG rcodesign signed, notarized and stapled on Linux,
+# before any delta work.
+delta_steps = [step.get("name") for step in jobs["tip-deltas"]["steps"]]
+apple = next(step for step in jobs["tip-deltas"]["steps"] if step.get("name") == "Check the published DMG with Apple's tools")
+check(delta_steps.index("Download the tip DMG") < delta_steps.index("Check the published DMG with Apple's tools")
+      < delta_steps.index("Fetch the delta bases") and "if" not in apple and "continue-on-error" not in apple
+      and all(word in apple["run"] for word in ("codesign --verify", "xcrun stapler validate",
+                                                 "spctl --assess --type open --context context:primary-signature")),
+      "tip-deltas checks the published DMG's signature, stapled ticket and Gatekeeper verdict with Apple's tools")
+
+# The Linux appcast (scripts/ci/tip_appcast_linux.py) against openssl and a fake signed archive.
+import base64
+import plistlib
+import zipfile
+spec = importlib.util.spec_from_file_location("tip_appcast_linux", ROOT / "scripts/ci/tip_appcast_linux.py")
+tip_appcast = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(tip_appcast)
+with tempfile.TemporaryDirectory() as tmp:
+    tmp = Path(tmp)
+    dmg = tmp / "cmux-NEXT-DEV-102-r7-1.dmg"
+    dmg.write_bytes(os.urandom(300_000))
+    seed = os.urandom(32)
+    der = tmp / "key.der"
+    der.write_bytes(bytes.fromhex("302e020100300506032b657004220420") + seed)
+    reference = subprocess.run(["openssl", "pkeyutl", "-sign", "-keyform", "DER", "-inkey", str(der), "-rawin", "-in", str(dmg)],
+                               capture_output=True, check=True).stdout
+    signature, public = tip_appcast.sign_file(seed, str(dmg))
+    check(signature == reference, "the Ed25519 signature is openssl's for the same seed (so generate_appcast's too)")
+    scalar, nonce = tip_appcast.expanded_key(seed)
+    check(tip_appcast.sign_file(scalar.to_bytes(32, "little") + nonce + public, str(dmg)) == (signature, public),
+          "the old 96-byte Sparkle key signs the same as its seed")
+    def write_archive(build, key):
+        archive = tmp / f"app-{build}-{key[:4]}.zip"
+        with zipfile.ZipFile(archive, "w") as zf:
+            zf.writestr("cmux NEXT DEV.app/Contents/Info.plist", plistlib.dumps({
+                "CFBundleVersion": build, "CFBundleShortVersionString": f"1.0.0-tip.{build}", "CFBundleName": "cmux NEXT DEV",
+                "LSMinimumSystemVersion": "14.0", "SUPublicEDKey": key}, fmt=plistlib.FMT_BINARY))
+        return archive
+    def run_appcast(archive, build="102"):
+        out = tmp / "appcast-arm64.xml"
+        out.unlink(missing_ok=True)
+        env = {**os.environ, "TIP_KEY": base64.b64encode(seed).decode()}
+        result = subprocess.run([sys.executable, str(ROOT / "scripts/ci/tip_appcast_linux.py"), "TIP_KEY", str(dmg), str(archive),
+                                 "cmux NEXT DEV", "https://files.cmux.com/nightly-next/tip/", "https://example.com/notes", build, str(out)],
+                                env=env, capture_output=True, text=True, timeout=60)
+        return result.returncode, out
+    good = base64.b64encode(public).decode()
+    rc, out = run_appcast(write_archive("102", good))
+    entries = tip_feed.items(str(out)) if rc == 0 else []
+    check(rc == 0 and tip_feed.check(str(out), 102) == [] and entries[0]["url"] == f"{prefix}102-r7-1.dmg"
+          and f'length="{dmg.stat().st_size}"' in out.read_text()
+          and f'sparkle:edSignature="{base64.b64encode(signature).decode()}"' in out.read_text()
+          and "<sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>" in out.read_text()
+          and "<sparkle:deltas>" not in out.read_text(),
+          "the Linux appcast offers the signed full DMG alone, for this build")
+    rc, _ = run_appcast(write_archive("101", good))
+    check(rc != 0, "an archive of another build gets no appcast")
+    rc, _ = run_appcast(write_archive("102", base64.b64encode(os.urandom(32)).decode()))
+    check(rc != 0, "an app that trusts another key gets no appcast")
 
 if failures:
     for failure in failures:
