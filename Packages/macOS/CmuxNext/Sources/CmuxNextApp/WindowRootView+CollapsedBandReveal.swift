@@ -7,10 +7,16 @@ import CmuxNextDesign
 // the strip's tabs slide right with it (`CollapsedBandReveal`).
 extension WindowRootView {
     /// The row's reveal (pointer, keyboard focus on a band button, holds) is
-    /// the one input; the band's on-screen share is where an open starts.
+    /// the one input. A change lays this view out once and springs the band,
+    /// the accessories after it and the strips' tab rows from where they
+    /// showed (`CollapsedBandReveal`).
     func setUpCollapsedBandReveal() {
         collapsedBand.install(in: self)
-        collapsedBand.shownPresence = { [weak self] in self?.toolbarBandPresence ?? 0 }
+        collapsedBand.riders = { [weak self] in
+            guard let self else { return (nil, []) }
+            let accessories = [titlebarBadge, hostPressureIndicator].compactMap(\.self).filter { !$0.isHidden }
+            return (toolbarBand, accessories)
+        }
         collapsedBand.reveal = titlebarReveal
         titlebarReveal.onStateChange = { [weak self] state in
             guard let band = self?.collapsedBand else { return }
@@ -21,10 +27,8 @@ extension WindowRootView {
 
     /// How much of the toolbar band shows: the sidebar's on-screen share of
     /// its width (cx-uxdr), or the corner hover's open share over a hidden
-    /// sidebar, whichever is larger. Both are animated widths: each frame
-    /// lays this view out, so the band and the strip after it move in step,
-    /// a change mid-animation retargets from what is on screen, and Reduce
-    /// Motion snaps.
+    /// sidebar (0 or 1 at rest; its motion is the render server's), whichever
+    /// is larger. The band and the strip after it are placed in the same pass.
     var toolbarBandPresence: CGFloat { max(sidebarBandShare, collapsedBand.presence) }
 
     /// The sidebar's on-screen share of its width.

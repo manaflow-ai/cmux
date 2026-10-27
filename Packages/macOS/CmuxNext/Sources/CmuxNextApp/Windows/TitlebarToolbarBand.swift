@@ -13,12 +13,13 @@ import Observation
 /// width and is clear, so only the traffic lights show (cx-uxdr, Lawrence
 /// 2026-10-08), until the pointer is over the top-left corner
 /// (`CollapsedBandReveal`, 2026-10-09); `presence` follows the larger of the
-/// two on-screen widths, frame by frame (`WindowRootView.layout`).
+/// sidebar's on-screen width and the corner hover's open share at rest
+/// (`WindowRootView.layout`), whose motion runs on the render server.
 final class TitlebarToolbarBand: NSView {
     let sidebarToggle = TitlebarBandButton(symbol: SidebarToggleIcon.currentCollapseSymbol)
     /// How much of the band shows: 1 with the sidebar shown, 0 with it
-    /// hidden, in between while the sidebar's width (or the corner hover's
-    /// `CollapsedBandReveal`) animates. The items close up toward the band's
+    /// hidden, in between while the sidebar's width animates (the corner
+    /// hover's `CollapsedBandReveal` sets 0 or 1 once). The items close up toward the band's
     /// origin and fade with it. Fully collapsed, the band is clear and 0
     /// wide but never hidden: keyboard and VoiceOver reach its buttons with
     /// no hover, and keyboard focus on one opens the band.

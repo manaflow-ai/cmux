@@ -13,6 +13,10 @@ extension WindowController {
         root.onToolbarBandPresenceChange = { [weak self] in
             for pane in self?.content?.panes.values.map({ $0 }) ?? [] { pane.view.stripView.updateWindowControlsAvoidance() }
         }
+        // A band reveal springs the tab rows it moved from where they showed.
+        root.collapsedBand.stripRows = { [weak self] in
+            (self?.content?.panes.values.map({ $0 }) ?? []).flatMap { $0.view.stripView.windowControlsRows }
+        }
         // The host pressure indicator joins the top row after the band and badge (cmuxterm-hq#2995).
         root.hostPressureIndicator = HostPressureIndicatorView(services: services) { [weak self] in
             // The top row places it (layoutTitlebarAccessories), then strips avoid it.

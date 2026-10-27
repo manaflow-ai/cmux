@@ -18,11 +18,16 @@ import CmuxNextWakeups
 /// delay instead of fading before the band closes; that hold does not
 /// count as engagement.
 ///
-/// The open share is the width of `driver`, a constraint animated with the
-/// sidebar's tokens: every animation frame lays the window root out, which
-/// places the band and the strips under it in the same pass, the same way
-/// the sidebar's own width drives the band. A change mid-animation
-/// retargets from what is on screen. Reduce Motion (or speed off) snaps.
+/// A change sets the open share once and lays the top row out once, at
+/// rest: the band, the badge after it and the strips' tabs under it take
+/// their final frames in the change's turn. The render server then shows
+/// them moving there with additive springs from the frames they left
+/// (``RenderSpring``), the band clipped to its springing width, so no frame
+/// of the motion runs main-thread layout. A change mid-flight adds its
+/// springs to the ones still running, so what shows stays continuous.
+/// Chrome commits the layout and lets the compositor animate the layers
+/// (cc/animation/keyframe_model.h; ui/compositor/layer_animator.cc).
+/// Reduce Motion (or speed off) snaps the movement and crossfades.
 @MainActor
 final class CollapsedBandReveal {
     /// How long the band stays open after the pointer leaves.
@@ -43,41 +48,32 @@ final class CollapsedBandReveal {
     private(set) var engaged = false
     /// The band is open (or opening) over the hidden sidebar.
     private(set) var isOpen = false
-    /// Whether the last open or close animated (false under Reduce Motion,
-    /// speed off, or a window with no screen).
+    /// Whether the last open or close moved on the render server (false under
+    /// Reduce Motion, speed off, or a window with no screen).
     private(set) var lastChangeAnimated = false
-    /// Carries the open share as its width; takes no clicks, draws nothing.
-    let driver = PassThroughView(frame: .zero)
-    private var width: NSLayoutConstraint?
+    /// The open share at rest: 1 open, 0 closed. It changes once per open or
+    /// close, never per frame; the window root's layout reads it.
+    private(set) var presence: CGFloat = 0
+    /// The top row the share lays out (the window root).
+    private weak var root: NSView?
+    /// The views a change of the share moves in the root: the band, which
+    /// clips to its springing bounds, and what the root places after it (the
+    /// badge, the host pressure indicator).
+    var riders: () -> (band: NSView?, followers: [NSView]) = { (nil, []) }
+    /// The tab rows of the window's strips (`TabStripView.windowControlsRows`):
+    /// those under the top row move with the band.
+    var stripRows: () -> [NSView] = { [] }
     /// The close delay's one-shot deadline: `visible` work, the band is on screen.
     private let closeTimer: MainDeadline
-    /// The band's share on screen now (the sidebar's or this driver's), so
-    /// an open starts from it instead of from 0.
-    var shownPresence: () -> CGFloat = { 0 }
 
     /// - Parameter deadlines: The app's one main-thread deadline scheduler.
     init(deadlines: MainDeadlineScheduler) {
         closeTimer = MainDeadline(owner: "CollapsedBandReveal.close", workClass: .visible, scheduler: deadlines)
-        driver.setAccessibilityElement(false)
     }
 
-    /// Adds the driver to `root` (top-leading, 0 tall).
+    /// Lays `root` out on every change of the share.
     func install(in root: NSView) {
-        driver.translatesAutoresizingMaskIntoConstraints = false
-        root.addSubview(driver)
-        let width = driver.widthAnchor.constraint(equalToConstant: 0)
-        NSLayoutConstraint.activate([
-            driver.leadingAnchor.constraint(equalTo: root.leadingAnchor),
-            driver.topAnchor.constraint(equalTo: root.topAnchor),
-            driver.heightAnchor.constraint(equalToConstant: 0),
-            width,
-        ])
-        self.width = width
-    }
-
-    /// The open share on screen: 0 closed, 1 open, in between while it animates.
-    var presence: CGFloat {
-        min(1, max(0, driver.frame.width / TitlebarToolbarBand.width))
+        self.root = root
     }
 
     func setEngaged(_ value: Bool) {
@@ -110,25 +106,40 @@ final class CollapsedBandReveal {
             // An open always comes from engagement, so the callback inside hold() changes nothing.
             ownHold = reveal.hold()
         }
-        let full = TitlebarToolbarBand.width
-        guard let width else { return }
-        lastChangeAnimated = animates
-        guard lastChangeAnimated else { width.constant = full; return }
-        // Start from what shows (a sidebar that is still sliding out), so the band never dips.
-        let start = max(presence, shownPresence()) * full
-        if start > width.constant {
-            Motion.withoutAnimation { Motion.animator(width, in: driver).constant = start }
-        }
-        Motion.sidebar.animateTimed(.appear, in: driver) { Motion.animator(width, in: driver).constant = full }
+        setPresence(1, token: .appear)
     }
 
     private func close() {
         isOpen = false
         releaseHold()
-        guard let width else { return }
-        lastChangeAnimated = animates
-        guard lastChangeAnimated else { width.constant = 0; return }
-        Motion.sidebar.animateExit(.disappear, in: driver) { Motion.animator(width, in: driver).constant = 0 }
+        setPresence(0, token: .disappear)
+    }
+
+    /// Sets the share, lays the top row out once at rest, and springs every
+    /// rider from where it showed on `token`.
+    private func setPresence(_ value: CGFloat, token: MotionSpring) {
+        presence = value
+        guard let root else { return }
+        let (band, followers) = riders()
+        let bandRest = band.flatMap { RenderSpring.LayerRest($0) }
+        let followerRests = (followers + stripRows()).map { view in (view, RenderSpring.LayerRest(view)) }
+        root.needsLayout = true // invalidate: the band's open share changed.
+        // The change's one layout: the band and what follows it take their rest frames now.
+        // sync-layout: the springs below start from the frames this layout leaves, so they need its result in this turn.
+        root.layoutSubtreeIfNeeded()
+        let spring = Motion.sidebar.renderSpring(token)
+        lastChangeAnimated = spring.animates(RenderSpringKey<CGSize>.boundsSize.path, in: root)
+        guard let band, let bandMoves = bandRest?.moves(to: band), !bandMoves.isEmpty else {
+            // The band did not move (the sidebar's width holds it open), so nothing after it did either.
+            return
+        }
+        var moves = bandMoves
+        for (view, rest) in followerRests { moves += rest?.moves(to: view) ?? [] }
+        if lastChangeAnimated { band.clipsToBounds = true }
+        // The newest change's landing is the band at rest: its items draw unclipped again (focus rings).
+        spring.animateGroup(moves, in: root) { [weak band] finished in
+            if finished { band?.clipsToBounds = false }
+        }
     }
 
     private func releaseHold() {
@@ -136,6 +147,4 @@ final class CollapsedBandReveal {
         ownHold = nil
         hold?.release()
     }
-
-    private var animates: Bool { Motion.sidebar.policy.animatesMovement && Motion.canAnimate(in: driver) }
 }
