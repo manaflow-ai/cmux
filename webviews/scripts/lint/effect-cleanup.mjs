@@ -160,7 +160,12 @@ export const intervalCleanup = {
       };
       const cleanup = (node) => {
         const fn = resolveFunction(node);
-        return fn && !fn.async && clears(fn.body, handle);
+        if (!fn || fn.async) return false;
+        let starts = false;
+        walk(fn.body, (child) => {
+          if (child.type === "CallExpression" && isTimer(child.callee, "setInterval")) starts = true;
+        });
+        return !starts && clears(fn.body, handle);
       };
       function flow(node, started) {
         if (!node) return [started];
