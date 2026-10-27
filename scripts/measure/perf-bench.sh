@@ -111,7 +111,7 @@ if [ "$debug" = 1 ]; then
   # tagged Debug build answers. One build serves both.
   # The tab switch and palette rows drive debug.* commands: bench_config=bench (default debug) builds that
   # app optimized with the commands kept (reload.sh --config bench).
-  if CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag pbswitch --config "$bench_config" > "$work/reload-switch.log" 2>&1; then
+  if CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag pbswitch --config "$bench_config" 2>&1 | tee "$work/reload-switch.log"; then
     switch_app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$work/reload-switch.log" | tail -n 1)"
     if [ "$tabswitch" != off ]; then
       mkdir -p "$work/switch"
