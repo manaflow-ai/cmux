@@ -50,7 +50,9 @@ public nonisolated struct BrowserCrashTally: Hashable, Sendable {
 }
 
 /// Recent engine process failures, newest last (bounded). Observers run on
-/// the main actor for each new record (the App writes crash reports).
+/// the main actor for each new record (the App writes crash reports), and
+/// helper-exit observers for each helper process's one end (the App sends
+/// it to crash reporting, ``helperExited(_:)``).
 public final class BrowserCrashLog {
     public static let capacity = 64
     public private(set) var records: [BrowserCrashRecord] = []
@@ -59,6 +61,7 @@ public final class BrowserCrashLog {
     /// Records since launch by source and process type, kept past the ring.
     public private(set) var tallies: [BrowserCrashTally: Int] = [:]
     private var observers: [UUID: (BrowserCrashRecord) -> Void] = [:]
+    private var helperExitObservers: [UUID: (BrowserHelperExit) -> Void] = [:]
 
     public init() {}
 
@@ -78,7 +81,24 @@ public final class BrowserCrashLog {
         return id
     }
 
+    /// One helper process ended abnormally. Called once per process (a renderer shared by several tabs, or
+    /// seen by both Chromium and the child monitor, is one end), where ``append(_:)`` keeps each tab's and
+    /// each source's record.
+    public func helperExited(_ exit: BrowserHelperExit) {
+        for observer in helperExitObservers.values { observer(exit) }
+    }
+
+    /// Returns a token; drop it with `removeObserver`.
+    @discardableResult
+    public func addHelperExitObserver(_ observer: @escaping (BrowserHelperExit) -> Void) -> UUID {
+        let id = UUID()
+        helperExitObservers[id] = observer
+        return id
+    }
+
+    /// Drops a record or helper-exit observer.
     public func removeObserver(_ id: UUID) {
         observers[id] = nil
+        helperExitObservers[id] = nil
     }
 }

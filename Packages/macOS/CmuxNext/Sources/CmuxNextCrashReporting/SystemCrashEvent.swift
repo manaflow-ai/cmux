@@ -40,7 +40,10 @@ public nonisolated struct SystemCrashEvent: Sendable {
             meta.codeFile = image.name
             return meta
         }
-        event.tags = ["process": report.processName, "crash_source": "macos_crash_report"]
+        var tags = ["process": report.processName, "crash_source": "macos_crash_report"]
+        // The same tag as a Chromium helper's exit event (``HelperExitEvent``): one search finds both.
+        if let pid = report.pid { tags["pid"] = String(pid) }
+        event.tags = tags
         if let incident = report.incident { event.extra = ["incident": incident] }
         return event
     }
