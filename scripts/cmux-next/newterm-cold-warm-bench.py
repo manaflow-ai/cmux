@@ -79,6 +79,10 @@ parser.add_argument("--sample", action="store_true")
 parser.add_argument("--input", choices=("debug", "real"), default="debug")
 parser.add_argument("--alt-app-sha256", default="",
                     help="a second fleet app (artifact sha256) that `alt:SPEC` sessions launch, in the same step and host")
+parser.add_argument("--first-key", type=int, default=0,
+                    help="first-key mode: N new tabs, each typed --first-key-keys keys from the action's reply on (no wait)")
+parser.add_argument("--first-key-keys", type=int, default=5)
+parser.add_argument("--first-key-settle", type=float, default=1.5)
 parser.add_argument("--shell", default="", help="terminal.shell for the app's cmux.json (default: the app's own)")
 opts = parser.parse_args()
 OUT = os.path.abspath(opts.out)
@@ -215,6 +219,71 @@ def measure_window(label, poster, count, interval, extra=None):
     return entry
 
 
+COLUMNS = ("contents_ms", "dispatch_start_ms", "dispatch_end_ms", "io_write_ms", "socket_submit_ms",
+           "output_received_ms", "output_parsed_ms")
+
+
+def run_first_key(session, poster):
+    """Each trial: newSurface, then --first-key-keys keys at --interval from the reply (key 0 is the first key a person
+    types into the new tab); per key index the probe row's key-to-frame and hops, or why it has none."""
+    trials = session["first_key"] = []
+    for trial in range(opts.first_key):
+        t0 = time.perf_counter()
+        reply = action("newSurface")
+        reply_ms = round((time.perf_counter() - t0) * 1000, 2)
+        start = probe_count()
+        before = hid_input.probe_rows(PROBE)
+        base = max([int(r["index"]) for r in before if (r.get("index") or "").isdigit()], default=-1) + 1
+        sent = []
+        for index in range(opts.first_key_keys):
+            k0 = time.perf_counter()
+            answer = poster.key(hid_input.LETTERS[index % 26])
+            sent.append({"at_ms": round((k0 - t0) * 1000, 2), "rpc_ms": round((time.perf_counter() - k0) * 1000, 2),
+                         "error": answer.get("error") if isinstance(answer, dict) else None})
+            rest = opts.interval - (time.perf_counter() - k0)
+            if rest > 0 and index + 1 < opts.first_key_keys:
+                time.sleep(rest)
+        time.sleep(opts.first_key_settle)  # the echoes land (a shell still starting echoes late)
+        rows = probe_since(start)
+        by_index = {int(r["index"]): r for r in rows if (r.get("index") or "").isdigit()}
+        keys = []
+        for index in range(opts.first_key_keys):
+            row = by_index.get(base + index)
+            entry = {"sent": sent[index], "row": None if row is None else {c: row.get(c) for c in ("complete",) + COLUMNS}}
+            if row is not None and row.get("complete") == "1" and row.get("contents_ms"):
+                entry["ms"] = float(row["contents_ms"])
+            keys.append(entry)
+        entry = {"trial": trial, "reply_ms": reply_ms, "reply": json.dumps(reply)[:160], "rows": len(rows), "base": base,
+                 "row_indices": sorted(by_index), "keys": keys}
+        if trial < 3:
+            entry["focus"] = focus_brief()
+        trials.append(entry)
+        k = keys[0]
+        note(f"  ft{trial}: reply {reply_ms} ms; first key {k.get('ms')} ms (row {'complete' if k.get('ms') is not None else (k['row'] or {}).get('complete')}); "
+             f"keys 1..: {[x.get('ms') for x in keys[1:]]}")
+        action("terminal.sendText", {"text": "\x15"})
+        action("closeTab")
+        time.sleep(1.0)  # the close settles
+    first = [t["keys"][0].get("ms") for t in trials]
+    got = [v for v in first if v is not None]
+    session["first_key_summary"] = {"first": dist(got), "missing": len(first) - len(got),
+                                    "by_index": [dist([t["keys"][i].get("ms") for t in trials if t["keys"][i].get("ms") is not None])
+                                                 for i in range(opts.first_key_keys)],
+                                    "reply_ms": dist([t["reply_ms"] for t in trials])}
+    for column in COLUMNS[1:]:
+        vals = [float(t["keys"][0]["row"][column]) for t in trials if t["keys"][0].get("row") and (t["keys"][0]["row"].get(column) or "") != ""]
+        session["first_key_summary"]["first_" + column] = dist(vals)
+    f = session["first_key_summary"]["first"] or {}
+    note(f"FIRSTKEY {session['spec']}: p50 {f.get('p50')} p95 {f.get('p95')} p99 {f.get('p99')} max {f.get('max')} n {f.get('n')} "
+         f"missing {len(first) - len(got)}")
+    for i, d in enumerate(session["first_key_summary"]["by_index"]):
+        note(f"FIRSTKEY {session['spec']} key{i}: p50 {(d or {}).get('p50')} p95 {(d or {}).get('p95')} n {(d or {}).get('n')}")
+    for column in COLUMNS[1:]:
+        d = session["first_key_summary"]["first_" + column] or {}
+        note(f"FIRSTKEY {session['spec']} key0 {column}: p50 {d.get('p50')} p95 {d.get('p95')} n {d.get('n')}")
+    save()
+
+
 def focus_brief():
     """What has the keyboard: debug.focus's context and the Ghostty tabs it holds focused (the measured terminal)."""
     reply = rpc("debug.focus", timeout=20)
@@ -297,6 +366,9 @@ def run_session(spec, digest):
             note(f"  signposts: not recorded ({error!r})")
         time.sleep(6)  # the launch settles
         session["focus_launch"] = focus_brief()
+        if opts.first_key:
+            run_first_key(session, poster)
+            return
         # The launch window shows Home (its first responder is HomeDockView, not a terminal: warm0 had no probe
         # rows in d0cb9743), so warm0 is a terminal tab opened here and typed into after --warm-delay s.
         session["warm0_open"] = json.dumps(action("newSurface"))[:200]
@@ -409,6 +481,9 @@ def run_session(spec, digest):
 
 
 def summarize():
+    if opts.first_key:
+        results["summary"] = {s["spec"]: s.get("first_key_summary") for s in results["sessions"]}
+        return
     rows = {}
     for s in results["sessions"]:
         pick = lambda entries: [v for e in entries for v in (e.get("values") or [])]
