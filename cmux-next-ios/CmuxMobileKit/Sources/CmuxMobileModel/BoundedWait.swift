@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 import Foundation
 
 /// Waits for work at most `limit`, then returns while the work goes on in
@@ -15,37 +16,23 @@ public struct BoundedWait: Sendable {
     @discardableResult
     public func run(_ work: @escaping @Sendable () async -> Void) async -> Bool {
         let limit = limit
-        return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-            let once = ResumeOnce(continuation)
-            let worker = Task {
-                await work()
-                once.resume(true)
-            }
-            Task {
-                try? await Task.sleep(for: limit)
-                if once.resume(false) { worker.cancel() }
+        let worker = Task { await work() }
+        // The wait for the work: cancellable, so the limit ends it at once and the work's late end is a no-op.
+        let wait = Task {
+            try await withOnceThrowingContinuation(cancellation: .cancellable) { (finished: OnceContinuation<Void, any Error>) in
+                Task {
+                    await worker.value
+                    finished.resume(returning: ())
+                }
             }
         }
-    }
-}
-
-/// Resumes a continuation at most once, from either side of a race.
-private final class ResumeOnce: @unchecked Sendable { // crash-allow: lock-guarded state
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<Bool, Never>?
-
-    init(_ continuation: CheckedContinuation<Bool, Never>) {
-        self.continuation = continuation
-    }
-
-    /// True when this call resumed it.
-    @discardableResult
-    func resume(_ value: Bool) -> Bool {
-        let pending: CheckedContinuation<Bool, Never>? = lock.withLock {
-            defer { continuation = nil }
-            return continuation
+        let deadline = Task {
+            try? await Task.sleep(for: limit)
+            wait.cancel()
         }
-        pending?.resume(returning: value)
-        return pending != nil
+        let finished = (try? await wait.value) != nil
+        deadline.cancel()
+        if !finished { worker.cancel() }
+        return finished
     }
 }

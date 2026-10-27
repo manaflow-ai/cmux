@@ -29,13 +29,13 @@ extension TerminalSurfaceView {
         defer { gpu.release(releases: releases)?.setResident(false, of: self) }
         guard (pause == nil) != lastOcclusionVisible else { return }
         lastOcclusionVisible = pause == nil
-        heldFrame.hold(volatile: pause != nil, presented: presentedFrame, layer: layer)
+        heldFrame.hold(volatile: pause != nil, in: frameSource)
         // SAFETY: the view's live surface (`surface`).
         unsafe ghostty_surface_set_occlusion(surface, pause == nil)
     }
 
-    /// The presented frame for one reader (hover pictures; ``TerminalHeldFrame/beginRead(presented:layer:)``).
-    func beginFrameRead() -> IOSurface? { heldFrame.beginRead(presented: presentedFrame, layer: layer) }
+    /// The presented frame for one reader (hover pictures; ``TerminalHeldFrame/beginRead(from:)``).
+    func beginFrameRead() -> IOSurface? { heldFrame.beginRead(from: frameSource) }
 
     func endFrameRead(_ frame: IOSurface) { heldFrame.endRead(frame) }
 }

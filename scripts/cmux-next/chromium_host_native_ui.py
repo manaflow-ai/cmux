@@ -19,6 +19,8 @@ layer contexts (ChromiumHostWidgetHost, feature `chromiumHostWidgets`), one row 
                     cmux's DevTools window)
   extension_popup   a click on a test extension's action: its popup in a cmux panel (`extension_popup`)
   side_panel        a click on a side panel extension's action: the panel's page over its tab (`side_panel`)
+  autofill,         a page's suggestions in cmux's own list (chromium_host_suggestions.py, p01-process-061, feature
+  password          `chromiumHostSuggestions`); with it on, the datalist row's options come in that list too
 
 Each widget row passes when `debug.cef` `host_widgets` lists a shown widget of its kind with a non-empty screen frame
 within the row's deadline; it records the widget and how long it took to show. Without a widget host (`host_widgets`
@@ -29,6 +31,8 @@ import json
 import os
 import time
 
+import chromium_host_suggestions as suggestions
+
 PAGE = """<!doctype html><meta charset=utf-8><title>native ui probe</title>
 <style>body{margin:0;font:16px system-ui} input,button,select{position:fixed;left:40px;width:240px;height:32px;font-size:16px}</style>
 <input id=date type=date style="top:40px">
@@ -37,11 +41,11 @@ PAGE = """<!doctype html><meta charset=utf-8><title>native ui probe</title>
 <button id=pop style="top:160px" onclick="window.open('about:blank#native-ui-popup', '', 'popup,width=420,height=320')">popup</button>
 <select id=sel style="top:220px" onchange="window.selectChanges = (window.selectChanges || 0) + 1">
 <option>alpha<option>bravo<option>charlie</select>
-"""
+""" + suggestions.FIELDS
 
 # Every row, in the order they run.
 ROWS = ("select", "date", "datalist", "popup_window", "devtools_docked", "devtools_window", "extension_popup",
-        "side_panel")
+        "side_panel", *suggestions.ROWS)
 SELECT_OPTIONS = ["alpha", "bravo", "charlie"]
 
 EXTENSIONS = (
@@ -75,18 +79,18 @@ def write_extensions(root):
 
 def launch_env(extension_paths):
     """What the app needs for these rows: the features, and the test extensions."""
-    return {"CMUX_ENABLE_FEATURES": "chromiumHostWidgets,chromiumHostPopupMenus",
+    return {"CMUX_ENABLE_FEATURES": "chromiumHostWidgets,chromiumHostPopupMenus,chromiumHostSuggestions",
             "CMUX_NEXT_CEF_LOAD_EXTENSIONS": ":".join(extension_paths)}
 
 
-def rows_named(names):
-    """`--native-ui`'s value as the rows to run, in ROWS order: all for "", else the comma-separated names. Raises
+def rows_named(names, rows=ROWS):
+    """`--native-ui`'s value as the rows to run, in `rows` order: all for "", else the comma-separated names. Raises
     ValueError for a name that is no row."""
     wanted = [name.strip() for name in (names or "").split(",") if name.strip()]
-    unknown = sorted(set(wanted) - set(ROWS))
+    unknown = sorted(set(wanted) - set(rows))
     if unknown:
-        raise ValueError(f"no native-ui row {', '.join(unknown)} (rows: {', '.join(ROWS)})")
-    return [row for row in ROWS if not wanted or row in wanted]
+        raise ValueError(f"no native-ui row {', '.join(unknown)} (rows: {', '.join(rows)})")
+    return [row for row in rows if not wanted or row in wanted]
 
 
 def host_widgets(rpc):
@@ -168,14 +172,16 @@ def run(rpc, wait, page_eval, url, rows_to_run=ROWS, front=lambda: None, app_pid
 
     if "select" in rows_to_run:
         rows["select"] = select_row(rpc, wait, page_eval, click, front, app_pid)
-    widget_rows = [row for row in rows_to_run if row != "select"]
-    if not widget_rows:
-        return rows, all(row.get("ok") for row in rows.values())
-    if host_widgets(rpc) is None:
-        reason = "no widget host: host mode is not live in this build (task 080) or chromiumHostWidgets is off"
-        rows.update({name: {"ok": False, "not_run": reason} for name in widget_rows})
-        return rows, False
-    rows.update(run_widget_rows(rpc, wait, click, dismiss_page_popup, widget_rows))
+    widget_rows = [row for row in rows_to_run if row != "select" and row not in suggestions.ROWS]
+    if widget_rows:
+        if host_widgets(rpc) is None:
+            reason = "no widget host: host mode is not live in this build (task 080) or chromiumHostWidgets is off"
+            rows.update({name: {"ok": False, "not_run": reason} for name in widget_rows})
+        else:
+            rows.update(run_widget_rows(rpc, wait, click, dismiss_page_popup, widget_rows))
+    suggestion_rows = [row for row in rows_to_run if row in suggestions.ROWS]
+    if suggestion_rows:
+        rows.update(suggestions.run(rpc, wait, page_eval, click, suggestion_rows))
     return rows, all(row.get("ok") for row in rows.values())
 
 
@@ -190,7 +196,7 @@ def run_widget_rows(rpc, wait, click, dismiss_page_popup, names):
     if "datalist" in names:
         click("list")
         rpc("debug.key", {"target": "page", "key": "a"})
-        rows["datalist"] = wait_shown(rpc, wait, ("page_popup",))
+        rows["datalist"] = suggestions.datalist(rpc, wait) if suggestions.drawn(rpc) else wait_shown(rpc, wait, ("page_popup",))
         dismiss_page_popup()
 
     if "popup_window" in names:
@@ -221,4 +227,3 @@ def run_widget_rows(rpc, wait, click, dismiss_page_popup, names):
         if kind == "extension_popup":
             rpc("debug.extensions.popup", {"hide": True})
     return rows
-

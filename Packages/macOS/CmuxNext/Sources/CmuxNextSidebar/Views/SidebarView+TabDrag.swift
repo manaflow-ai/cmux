@@ -26,12 +26,6 @@ extension SidebarViewComponents {
         set { list.springLoadDelay = newValue }
     }
 
-    /// Clock for the spring-load delay (inject a test clock).
-    public var springLoadClock: any Clock<Duration> {
-        get { list.springLoadClock }
-        set { list.springLoadClock = newValue }
-    }
-
     /// Call on every pointer move of an in-app tab drag. Opens a gap, lights
     /// a row or group, spring-loads rows, and auto-scrolls near the edges.
     /// Returns nil when the point is outside the sidebar or cannot accept the

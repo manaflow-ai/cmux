@@ -31,6 +31,12 @@ final class CEFHostStart {
     let drawsPopupMenus: Bool
     /// The host's `<select>` popups in cmux menus, from the start on when ``drawsPopupMenus``; nil otherwise.
     var popupMenus: ChromiumHostPopupMenus?
+    /// The host's autofill, password and `<datalist>` suggestions show in cmux's list (feature
+    /// `chromiumHostSuggestions`, ``CEFRuntimeSource/drawsHostSuggestions``; task 061). Read at the attach.
+    var drawsSuggestions = false
+    /// Page file choosers answered by cmux's pickers (feature `chromiumHostFileDialogs`,
+    /// `CEFRuntime.fileDialogAsked`); nil leaves Chromium's own panel.
+    let files: ChromiumHostFiles?
     /// The attached host's page resizes (`CEFRuntime.hostPageResizes()`), made on first use; a new host starts with none.
     var pageResizes: ChromiumHostResizeFence?
     private let supervisor: any ChromiumHostSupervising
@@ -51,9 +57,11 @@ final class CEFHostStart {
     /// before the start fails (a host that hangs while it starts Chromium). Reply deadlines run on
     /// `clock` too.
     init(supervisor: any ChromiumHostSupervising, showsWidgets: Bool = false, takesDrags: Bool = false,
-         fencesResizes: Bool = false, drawsPopupMenus: Bool = false, open: @escaping Open = { CEFRemoteShim.open($0) },
+         fencesResizes: Bool = false, drawsPopupMenus: Bool = false, fileDialogs: (any ChromiumFileDialogAnswering)? = nil,
+         open: @escaping Open = { CEFRemoteShim.open($0) },
          helloDeadline: Duration = .seconds(30), clock: any Clock<Duration> = ContinuousClock()) {
         self.supervisor = supervisor
+        files = fileDialogs.map { ChromiumHostFiles(panels: $0) }
         self.showsWidgets = showsWidgets
         self.takesDrags = takesDrags
         self.fencesResizes = fencesResizes
@@ -71,15 +79,17 @@ final class CEFHostStart {
 
     /// The attached host; the first caller starts the attach, later ones await it.
     func attached() async -> Result<CEFAttachedHost, CEFRuntime.BootError> {
+        let startsAttach = self.task == nil
         let task = self.task ?? Task { [supervisor, open, replies, helloDeadline, clock, fencesResizes] in
             await CEFHostStart.attach(supervisor, open: open, replies: replies, helloDeadline: helloDeadline, clock: clock,
                                       fencesResizes: fencesResizes)
         }
         self.task = task
         let outcome = await task.value
-        if case .success(let host) = outcome {
-            (remote, mapsClientIDs, acksWheels, hostGone) = (host.remote, host.mapsClientIDs, host.acksWheels, false)
-        }
+        guard case .success(let host) = outcome else { return outcome }
+        (remote, mapsClientIDs, acksWheels, hostGone) = (host.remote, host.mapsClientIDs, host.acksWheels, false)
+        // Once per attach, before initialize: a preinit op, which the remote shim replays to every later host.
+        if startsAttach, drawsSuggestions { host.shim.suggestions.setEvents(1) }
         return outcome
     }
 
@@ -88,6 +98,7 @@ final class CEFHostStart {
     /// starts, as a mojo `Remote` whose peer closed is rebound to a new pipe, never reused.
     func hostEnded() {
         remote?.detach()
+        files?.hostEnded()
         (task, remote, mapsClientIDs, acksWheels, hostGone, pageResizes) = (nil, nil, false, false, true, nil)
     }
 
