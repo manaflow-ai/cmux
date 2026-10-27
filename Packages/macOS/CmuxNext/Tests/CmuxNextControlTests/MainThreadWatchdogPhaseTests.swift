@@ -52,7 +52,7 @@ import Testing
     /// the stall ends only once the hang reached the sink: host load can neither add a stall nor make the hang
     /// report miss this one.
     @MainActor
-    private func watchStall(crashKeys: CrashKeySlots?, trace: TraceRuntime, enterPump: @escaping (Bool) -> Void) -> PhaseSeen {
+    private func watchStall(crashKeys: CrashKeySlots?, trace: TraceRuntime, enterPump: @escaping @Sendable (Bool) -> Void) -> PhaseSeen {
         let clock = ManualUptime()
         let seen = PhaseSeen()
         let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), logStalls: false,
@@ -92,7 +92,7 @@ import Testing
 /// the main thread held until the hang reached the sink (a 20 s wall-clock bound turns a missing report into a
 /// test failure, not a hang).
 @inline(never)
-private func stallInsideTheCEFPump(enterPump: (Bool) -> Void, clock: ManualUptime, seen: PhaseSeen) {
+private func stallInsideTheCEFPump(enterPump: @Sendable (Bool) -> Void, clock: ManualUptime, seen: PhaseSeen) {
     enterPump(true)
     clock.advance(by: .seconds(3))
     let deadline = ContinuousClock.now + .seconds(20)
