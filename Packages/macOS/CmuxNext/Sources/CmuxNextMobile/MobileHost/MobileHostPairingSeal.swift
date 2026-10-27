@@ -38,7 +38,12 @@ public enum MobileHostPairingSealError: Error {
 /// key (``MobileHostMacIdentityStore``) and the relay secrets already do, so one Allow holds across
 /// relaunches and updates (https://github.com/manaflow-ai/cmux/issues/26396). Only that answer
 /// moves a call there: an entitled build never reads the login Keychain, so an item planted there
-/// counts for nothing in it.
+/// counts for nothing in it, and an item left there from before the entitlement is never moved over.
+/// In a build without the entitlement the seal is weaker: it catches a rewritten file, but a
+/// same-user process can delete the item or plant its own (no item is the app's alone there). Such
+/// a build has no store a same-user process cannot write; signing it with a profile that grants
+/// keychain-access-groups puts the seal back in the app's access group. A login item this build may
+/// not read or change (a locked keychain, an ad hoc rebuild) fails without UI: the phone asks again.
 public struct MobileHostKeychainPairingSeal: MobileHostPairingSealStore {
     public let service: String
     let keychain: MobileHostSecItems

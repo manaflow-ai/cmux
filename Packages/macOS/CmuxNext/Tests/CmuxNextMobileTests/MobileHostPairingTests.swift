@@ -496,7 +496,7 @@ import Testing
             .load(userID: "u")
         #expect(list.decision(for: Self.request) == .trusted, "the phone would be asked again")
 
-        // The fallback seal still guards the file: a rewritten list trusts no phone.
+        // The fallback seal still catches a rewritten file (not a planted login item; see the seal's doc).
         let file = MobileHostPairedDevicesFile(directory: directory, seal: MobileHostKeychainPairingSeal(bundleID: "test.next", keychain: keychain.calls))
         let theirs = "04" + String(repeating: "cc", count: 64)
         let text = try String(contentsOf: file.file, encoding: .utf8).replacingOccurrences(of: Self.approval, with: theirs)
