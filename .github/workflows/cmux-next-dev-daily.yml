@@ -1188,6 +1188,7 @@ jobs:
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
           R2_BUCKET: cmux-binaries
+          RELEASE_POKE_URL: https://presence.cmux.dev/releases/v1/poke?feed=tip
         run: |
           set -euo pipefail
           key="$TIP_R2_PREFIX/$TIP_APPCAST"
@@ -1254,6 +1255,16 @@ jobs:
             echo "::warning::another run wrote the tip feed first; reading it again (attempt $attempt)"
             (( attempt < 5 )) || { echo "the tip feed kept changing under build $TIP_BUILD" >&2; exit 1; }
           done
+          # Release push, now that written=true: the presence worker re-reads
+          # the public tip feed and tells connected NEXT DEV apps at once. No
+          # secret (it only reads an allowlisted public appcast); a failure
+          # never fails the step, and the worker's minute cron catches up.
+          # RELEASE_POKE_URL comes from the step env, so a test running this
+          # body without it never calls production.
+          if [[ -n "${RELEASE_POKE_URL:-}" ]]; then
+            curl -fsS -X POST --max-time 10 --retry 3 "$RELEASE_POKE_URL" \
+              || echo "::warning::release poke failed; the minute cron will catch up"
+          fi
           {
             echo "### cmux NEXT DEV tip $TIP_BUILD"
             echo "feat-cmux-next $SOURCE_SHA, feed $TIP_BASE_URL/$TIP_APPCAST"
