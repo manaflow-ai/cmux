@@ -1,10 +1,14 @@
 // l10n-allow-file: gallery fixtures (sample harness status), not shipped UI.
+import { useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import { row } from "../../gallery/fixtures/acpmux";
+import type { Play } from "../../gallery/play";
 import type { AcpmuxSnapshot } from "./model";
 import { HarnessStatusCard } from "./HarnessStatusCard";
+import { ContextRing } from "./ComposerPickers";
+import { ImageViewer } from "./conversation/ImageViewer";
 
-type Props = { harness: "claude" | "codex" | "opencode" };
+type Props = { harness: "claude" | "codex" | "opencode"; overlays?: boolean };
 
 const details: Record<Props["harness"], { version: string; model: string; effort: string; route: string }> = {
   claude: {
@@ -50,17 +54,58 @@ function snapshot(harness: Props["harness"]): AcpmuxSnapshot["summary"] {
   };
 }
 
-function GalleryStatusCard({ harness }: Props) {
+function GalleryStatusCard({ harness, overlays }: Props) {
+  const [open, setOpen] = useState(true);
+  const [imageOpen, setImageOpen] = useState(false);
+  if (!open) return <div data-status-card-dismissed>Status card dismissed</div>;
   return (
     <div className="acpmux-shell" style={{ padding: 24 }}>
       <HarnessStatusCard
         summary={snapshot(harness)}
         rows={[row("sessionStart", 0, { sessionStart: { agent: "claude", version: details[harness].version } })]}
-        onDismiss={() => undefined}
+        onDismiss={() => setOpen(false)}
       />
+      {overlays && (
+        <>
+          <button type="button" onClick={() => setImageOpen(true)}>
+            Open status test image
+          </button>
+          <ContextRing used={100_000} size={200_000} onOpenDetails={() => undefined} />
+          {imageOpen && (
+            <ImageViewer
+              images={[{ src: "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=", alt: "Status test image" }]}
+              index={0}
+              onIndex={() => undefined}
+              onClose={() => setImageOpen(false)}
+            />
+          )}
+        </>
+      )}
     </div>
   );
 }
+
+const copyAndEscape: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: "Copy all" });
+  await ctx.waitFor(() => ctx.find({ role: "button", name: "Copied" }) !== null);
+  await ctx.press("Escape");
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-harness-status") === null);
+};
+
+const overlayPriority: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: "Open status test image" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-image-viewer") !== null);
+  await ctx.press("Escape");
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-image-viewer") === null);
+  if (!ctx.document.querySelector(".acpmux-harness-status")) throw new Error("Image Escape also closed status");
+  await ctx.click({ selector: ".acpmux-context-ring" });
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-context-card[role="dialog"]') !== null);
+  await ctx.press("Escape");
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-context-card") === null);
+  if (!ctx.document.querySelector(".acpmux-harness-status")) throw new Error("Context Escape also closed status");
+  await ctx.press("Escape");
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-harness-status") === null);
+};
 
 export default componentEntry<Props>({
   id: "agent-pane.harness-status",
@@ -85,6 +130,16 @@ export default componentEntry<Props>({
     opencode: {
       note: "OpenCode keeps unsupported effort and plan usage explicit as Not reported instead of implying zero or direct access.",
       props: { harness: "opencode" },
+    },
+    "copy-and-escape": {
+      note: "Values remain selectable while a click copies them; Copy all uses plain label-value lines, and Escape dismisses the card.",
+      props: { harness: "claude" },
+      play: copyAndEscape,
+    },
+    "overlay-escape-priority": {
+      note: "The real image viewer and interactive Context ring card take Escape before Session status; the next press closes status.",
+      props: { harness: "claude", overlays: true },
+      play: overlayPriority,
     },
   },
 });

@@ -12,8 +12,12 @@
 .acpmux-harness-status__head {
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 12px;
+}
+
+.acpmux-harness-status__head > :first-child {
+  margin-right: auto;
 }
 
 .acpmux-harness-status__eyebrow {
@@ -50,6 +54,29 @@
   color: var(--agent-text);
 }
 
+.acpmux-harness-status__copy-all {
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--agent-muted);
+  font: inherit;
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.acpmux-harness-status__copy-all:hover,
+.acpmux-harness-status__copy-all:focus-visible {
+  background: var(--acpmux-menu-hover);
+  color: var(--agent-text);
+}
+
+.acpmux-harness-status__copy-all:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 1px;
+}
+
 .acpmux-harness-status__close:focus-visible {
   outline: 1.5px solid var(--agent-text);
   outline-offset: 1px;
@@ -77,4 +104,46 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+
+.acpmux-harness-status__value {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  cursor: copy;
+  user-select: text;
+}
+
+.acpmux-harness-status__value-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+}
+
+.acpmux-harness-status__copy-feedback {
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  font-weight: 400;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.acpmux-harness-status__value:hover {
+  color: var(--agent-text);
+}
+
+.acpmux-harness-status__value:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 1px;
+  border-radius: 2px;
 }
