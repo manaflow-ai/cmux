@@ -444,6 +444,7 @@ public actor CloudCodexBroker {
             try await ensureScope()
             try? await target.removeFile(stageAccess)
             try? await target.removeFile(stageMode)
+            try await ensureScope()
             guard targets[target.machineID] != nil, targetGenerations[target.machineID] == generation else { throw CloudCodexBrokerError.cancelled }
         } catch {
             if commitAttempted || Task.isCancelled || error as? CloudCodexBrokerError == .scopeChanged {
@@ -485,8 +486,8 @@ public actor CloudCodexBroker {
     }
 
     private func ensureScope() async throws {
-        guard !Task.isCancelled else { throw CloudCodexBrokerError.cancelled }
         guard await currentScope() == scope else { throw CloudCodexBrokerError.scopeChanged }
+        guard !Task.isCancelled else { throw CloudCodexBrokerError.cancelled }
     }
 
     func registeredMachineIDs() -> Set<String> { Set(targets.keys) }
