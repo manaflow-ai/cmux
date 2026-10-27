@@ -29,8 +29,15 @@
 :root[data-borders="none"] .acpmux-cu-preview {
   --acpmux-cu-preview-rim: transparent;
 }
-:root:not([data-glass="lens"], [data-glass="spectrum"]) .acpmux-cu-preview {
-  --glass-tint: color-mix(in srgb, var(--agent-page-bg) 72%, transparent);
+/* The same glass as the model picker and the other popups (glass.css .ui-popup.ui-glass): its own
+   tint and blur, never a heavier one of its own. */
+.acpmux-cu-preview.ui-glass {
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-plain-tint), transparent);
+  --glass-backdrop: var(--surface-blur);
+}
+:root[data-glass-lens]:is([data-glass="lens"], [data-glass="spectrum"]) .acpmux-cu-preview.ui-glass {
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-lens-tint), transparent);
+  --glass-backdrop: var(--ds-glass-lens-blur);
 }
 
 .acpmux-cu-preview__open {
