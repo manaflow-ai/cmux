@@ -483,7 +483,7 @@ select {
 
 .cloud-meter {
   display: grid;
-  grid-template-columns: 70px minmax(60px, 1fr) max-content;
+  grid-template-columns: minmax(0, 70px) minmax(0, 1fr) minmax(0, max-content);
   align-items: center;
   gap: 10px;
 }
@@ -493,6 +493,7 @@ select {
   font-size: 11px;
   color: var(--cloud-text-2);
   font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 
 .cloud-meter-track {
@@ -1030,7 +1031,7 @@ select {
   max-width: none;
   margin-top: 0;
   padding: 0;
-  border-left: 0;
+  border-inline-start: 0;
 }
 
 .cloud-header .cloud-title {
