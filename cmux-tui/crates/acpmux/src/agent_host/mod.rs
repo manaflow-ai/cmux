@@ -273,6 +273,23 @@ fn live_path(dir: &Path, session_id: &str, nonce: &str) -> PathBuf {
     dir.join(format!("{session_id}.{nonce}.live"))
 }
 
+/// Where host `record`'s live lock may be: the pool, then the hosts directory (a pooled host's
+/// lock moves there when a session takes it, so a move between the two is not missed), then its
+/// socket's directory, its own when the path was short enough.
+pub fn live_lock_dirs(record: &HostRecord) -> Vec<PathBuf> {
+    let hosts = hosts_dir();
+    let mut dirs = vec![pool_dir(&hosts), hosts];
+    if let Some(own) = record.socket.parent().filter(|d| !dirs.iter().any(|x| x == d)) {
+        dirs.push(own.to_path_buf());
+    }
+    dirs
+}
+
+/// Whether host incarnation `nonce` of `session_id` keeps its live lock in `dir`.
+pub fn live_lock_exists(dir: &Path, session_id: &str, nonce: &str) -> bool {
+    live_path(dir, session_id, nonce).exists()
+}
+
 /// Socket for one host: next to the record when the path is short enough for
 /// `sun_path`, else in the private per-user directory acpmux already uses.
 #[cfg(unix)]
@@ -317,6 +334,15 @@ pub fn random_hex(bytes: usize) -> Result<String> {
 
 /// Every record in `dir`: those this build reads, and those it cannot.
 pub fn load_records(dir: &Path) -> Result<(Vec<(PathBuf, HostRecord)>, Vec<UnreadableRecord>)> {
+    // Debug builds only: while the file `ACPMUX_TEST_HOST_RECORDS_FAIL_FILE` names exists, the
+    // records cannot be read, as on a disk that fails, so the daemon's integration tests can drive
+    // that path. Release builds have no seam.
+    #[cfg(debug_assertions)]
+    if let Some(flag) = std::env::var_os("ACPMUX_TEST_HOST_RECORDS_FAIL_FILE")
+        && Path::new(&flag).exists()
+    {
+        anyhow::bail!("the agent host records could not be read");
+    }
     let mut good = Vec::new();
     let mut bad = Vec::new();
     match std::fs::symlink_metadata(dir) {
