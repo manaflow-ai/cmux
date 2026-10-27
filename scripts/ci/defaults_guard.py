@@ -405,7 +405,7 @@ def strip_swift_comments(text: str) -> str:
 # helper or depend on other declarations; reading an unchanged expression is not its value.
 # Track those declarations and their dependencies instead of evaluating untrusted Swift.
 SWIFT_TOKEN = re.compile(r'"(?:\\.|[^"\\])*"|[A-Za-z_]\w*|[^\s]', re.S)
-STATIC_DECL = re.compile(r"\bstatic\s+(let|var|func)\s+(\w+)")
+STATIC_DECL = re.compile(r"\bstatic\s+(let|var|func)\s+(`?\w+`?)")
 
 
 def static_declarations(text: str) -> list[tuple[str, str, list[str]]]:
@@ -417,6 +417,7 @@ def static_declarations(text: str) -> list[tuple[str, str, list[str]]]:
                              if match.group().startswith('"') else match.group(), text)
     for match in STATIC_DECL.finditer(syntax):
         kind, name = match.groups()
+        name = name.strip("`")
         tokens = [kind, name]
         depth, started, previous_end = 0, False, match.end()
         for token in SWIFT_TOKEN.finditer(text, match.end()):
