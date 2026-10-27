@@ -112,6 +112,7 @@ extension ThreadRegistry {
         // before the first frame (LaunchWarmup).
         ThreadDeclaration("cmux-next resource bundle warm-up", qos: .userInitiated),
         ThreadDeclaration("cmux-next launch warm-up", qos: .userInteractive),
+        ThreadDeclaration("cmux-next icon warm-up", qos: .userInitiated),
         ThreadDeclaration("cmux.updates.network", qos: .utility),
         ThreadDeclaration("com.cmuxterm.next.energy.wake-path", qos: .utility),
         ThreadDeclaration("cmux.home.fixture.video", qos: .utility),

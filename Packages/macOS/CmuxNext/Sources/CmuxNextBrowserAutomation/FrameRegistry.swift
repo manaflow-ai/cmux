@@ -17,6 +17,7 @@ final class FrameRegistry {
     func refresh(_ webView: WKWebView) async -> [FrameRecord] {
         if let next { return await next.value }
         if let running = inFlight {
+            // main-hop-allow: the one shared read after the running one: FrameTree.read is WebKit's main-actor `_frames:` call (it answers on main), and the task only waits for it and hands its tree to every caller that asked meanwhile
             let follow = Task { [weak self] () -> [FrameRecord] in
                 _ = await running.value
                 return await self?.read(webView) ?? []
@@ -28,6 +29,7 @@ final class FrameRegistry {
     }
 
     private func read(_ webView: WKWebView) async -> [FrameRecord] {
+        // main-hop-allow: FrameTree.read is WebKit's main-actor `_frames:` call (it answers on main); the task only shares its answer with callers that ask while it runs
         let task = Task { await FrameTree.read(webView) }
         inFlight = task
         next = nil

@@ -100,7 +100,11 @@ extension CEFPaneHost {
         // After the hosting op on the same ordered channel: the detached window takes the view's display.
         runtime.placeHostedPage(page, browser: browser)
         runtime.whenAnswered(sent, label: "page context") { [weak self, weak page] id in
-            guard let self, let page, hostedPageView === page, window == shown else { return }
+            guard let self else { return }
+            // A context means the host detached the page window (it refuses hosting it cannot
+            // detach): the page's focus is embedder-active from here (p01-process-046).
+            if let id, id != 0 { runtime.tabsByBrowser[browser]?.hostDetachedPage(browser: browser) }
+            guard let page, hostedPageView === page, window == shown else { return }
             if let id, id != 0, page.show(contextID: id) { return }
             runtime.logger.error("Chromium Host gave no page context for browser \(browser)")
         }
