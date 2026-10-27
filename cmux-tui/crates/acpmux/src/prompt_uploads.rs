@@ -18,8 +18,10 @@
 //! it, while it fits the model's input ([`INLINE_IMAGE_BYTES`]) and the prompt's inline room
 //! ([`INLINE_PROMPT_BYTES`], so the prompt stays one message on every hop); any other file, and an
 //! image past those, goes as a `resource_link` to its path, never as base64. A context note lists
-//! every file's path. Only a file of the chat's own uploads folder is read, never through a
-//! symlink, and only an inline image is read whole. A remote web client uploads nothing here
+//! every file's path while the message has room. Only a file of the chat's own uploads folder is
+//! read, never through a symlink or another hard link (`file_uploads::open_finished`), and only
+//! an inline image is read whole. A prompt that waits is refused at its turn if a file it links
+//! to was swept meanwhile. A remote web client uploads nothing here
 //! (`filePut.remote`), so it references nothing either.
 //!
 //! A chat on a peer: the prompt is forwarded as it is, and the peer that owns the chat resolves
@@ -67,7 +69,13 @@ pub fn resolve(session: &str, web: bool, blocks: &mut Vec<Value>) -> Result<(), 
         let message = "a remote web connection cannot send uploaded files".to_owned();
         return Err(refused("upload.remote", message));
     }
-    let (mut inline_left, mut listed) = (INLINE_PROMPT_BYTES, Vec::new());
+    // What the prompt's other blocks take of one message, and room for the envelope and links.
+    let others: usize =
+        blocks.iter().filter(|b| upload_of(b).is_none()).map(|b| b.to_string().len()).sum();
+    let room = crate::rpc::MAX_MESSAGE_BYTES.saturating_sub(others + (1 << 20));
+    // Counted as base64, what the message carries.
+    let mut inline_left = (INLINE_PROMPT_BYTES.div_ceil(3) * 4).min(room);
+    let mut listed = Vec::new();
     for block in blocks.iter_mut() {
         let Some(upload) = upload_of(block) else { continue };
         let (id, name) = (upload.get("uploadId"), upload.get("fileName"));
@@ -95,37 +103,88 @@ pub fn resolve(session: &str, web: bool, blocks: &mut Vec<Value>) -> Result<(), 
             || refused("upload.missing", format!("no finished upload {name} in this chat"));
         let path =
             crate::hub::file_uploads::finished_path(session, id, name).ok_or_else(missing)?;
-        let mut file = crate::config::private_state_file(&path).map_err(|_| missing())?;
-        let len = file.metadata().map_err(|_| missing())?.len();
+        // Not there is `upload.missing`; any other failure says what it was.
+        let unreadable = |e: std::io::Error| match e.kind() {
+            std::io::ErrorKind::NotFound => missing(),
+            _ => refused("upload.unreadable", format!("cannot read upload {name}: {e}")),
+        };
+        let mut file = crate::hub::file_uploads::open_finished(&path).map_err(unreadable)?;
+        let len = file.metadata().map_err(unreadable)?.len();
         let mut head = Vec::with_capacity(64);
-        (&mut file).take(64).read_to_end(&mut head).map_err(|_| missing())?;
+        (&mut file).take(64).read_to_end(&mut head).map_err(unreadable)?;
         let sniffed = crate::hub::prompt_images::sniffed_type(&head);
         let mime = sniffed.unwrap_or("application/octet-stream");
         let image = sniffed.filter(|t| t.starts_with("image/"));
         let inline = image.is_some()
-            && usize::try_from(len).is_ok_and(|n| n <= INLINE_IMAGE_BYTES && n <= inline_left);
+            && usize::try_from(len)
+                .is_ok_and(|n| n <= INLINE_IMAGE_BYTES && n.div_ceil(3) * 4 <= inline_left);
         *block = if inline {
             let mut bytes = head;
-            file.read_to_end(&mut bytes).map_err(|_| missing())?;
-            inline_left -= bytes.len();
+            file.read_to_end(&mut bytes).map_err(unreadable)?;
             let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
+            inline_left = inline_left.saturating_sub(data.len());
             json!({"type": "image", "mimeType": mime, "name": name, "data": data})
         } else {
+            // Its path, so a turn that starts later finds out if the file is gone (`still_there`).
             json!({"type": "resource_link", "uri": file_uri(&path), "name": name,
-                   "mimeType": mime, "size": len})
+                   "mimeType": mime, "size": len,
+                   "_meta": {"acpmux": {"uploadPath": path.to_string_lossy()}}})
         };
         let shown = if inline || image.is_none() { "" } else { ", not shown inline: open it" };
         listed.push(format!("- {} ({mime}, {}{shown})", path.display(), size_text(len)));
     }
+    // The note lists the files while the message has room; every link names its file anyway.
+    let used: usize = blocks.iter().map(|b| b.to_string().len()).sum();
+    let mut note_room = crate::rpc::MAX_MESSAGE_BYTES.saturating_sub(used + (64 << 10));
+    let total = listed.len();
+    let shown: Vec<String> = listed
+        .into_iter()
+        .take_while(|line| {
+            let fits = line.len() < note_room;
+            note_room = note_room.saturating_sub(line.len() + 1);
+            fits
+        })
+        .collect();
+    let more = match total - shown.len() {
+        0 => String::new(),
+        n => format!("\n- and {n} more, each a resource_link in this message"),
+    };
     blocks.push(json!({
         "type": "text",
         "text": format!(
-            "<cmux-attachments-context>\nThe files sent with this message, saved on this machine:\n{}\n</cmux-attachments-context>",
-            listed.join("\n")
+            "<cmux-attachments-context>\nThe files sent with this message, saved on this machine:\n{}{more}\n</cmux-attachments-context>",
+            shown.join("\n")
         ),
         "_meta": {"acpmux": {"context": true}},
     }));
+    if blocks.iter().map(|b| b.to_string().len()).sum::<usize>() > crate::rpc::MAX_MESSAGE_BYTES {
+        let message = format!(
+            "{total} files do not fit one message's links ({} MiB): send them in more than one",
+            crate::rpc::MAX_MESSAGE_BYTES >> 20
+        );
+        return Err(refused("upload.tooMany", message));
+    }
     Ok(())
+}
+
+/// Whether every file a resolved prompt links to by path is still there: a prompt that waited
+/// (queued, held, restored after a restart) is refused at its turn when an upload was swept
+/// meanwhile, instead of handing the agent a path to nothing. Blocking.
+fn still_there(blocks: &[Value]) -> Result<(), RpcError> {
+    for block in blocks {
+        let Some(path) = block.pointer("/_meta/acpmux/uploadPath").and_then(Value::as_str) else {
+            continue;
+        };
+        if !std::fs::symlink_metadata(path).is_ok_and(|m| m.is_file()) {
+            let name = block.get("name").and_then(Value::as_str).unwrap_or(path);
+            return Err(refused("upload.missing", format!("upload {name} was removed")));
+        }
+    }
+    Ok(())
+}
+
+fn links_upload(blocks: &[Value]) -> bool {
+    blocks.iter().any(|b| b.pointer("/_meta/acpmux/uploadPath").is_some())
 }
 
 fn size_text(bytes: u64) -> String {
@@ -141,17 +200,21 @@ fn file_uri(path: &Path) -> String {
 
 /// [`resolve`] off the runtime, for a prompt that reaches a turn without passing `session/prompt`
 /// (`turns.rs`: a queued prompt restored from the log, a held agent message released): no block
-/// goes to an agent without its bytes. Immediate when no block names an upload.
+/// goes to an agent without its bytes, and no link to a file swept while it waited
+/// ([`still_there`]). Immediate when no block names or links an upload.
 pub async fn resolve_off_runtime(
     session: &str,
     web: bool,
     blocks: &mut Vec<Value>,
 ) -> Result<(), RpcError> {
-    if !any(blocks) {
+    if !any(blocks) && !links_upload(blocks) {
         return Ok(());
     }
     let (id, mut owned) = (session.to_owned(), std::mem::take(blocks));
-    let read = tokio::task::spawn_blocking(move || (resolve(&id, web, &mut owned), owned));
+    let read = tokio::task::spawn_blocking(move || {
+        let result = resolve(&id, web, &mut owned).and_then(|()| still_there(&owned));
+        (result, owned)
+    });
     let (result, back) = read.await.map_err(|e| RpcError::internal(e.to_string()))?;
     *blocks = back;
     result

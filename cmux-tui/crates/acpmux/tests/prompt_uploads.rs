@@ -3,7 +3,7 @@
 //! so 50 screenshots reach a busy chat with no frame over one MiB (claude-sr2, 2026-10-26: Leo's
 //! 8 screenshots in one frame never reached acpmux), with no size or count cap. What the agent
 //! gets (inline images within the model's room, every other file by path), a peer's chat and a
-//! peer that cannot read them are checked. A 2 GB file: `prompt_uploads_large.rs`.
+//! peer that cannot read them are checked. An upload past the old 1 GiB cap begins.
 #![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
@@ -238,6 +238,60 @@ async fn fifty_uploaded_screenshots_reach_a_busy_chat_by_reference() {
     let last = messages.last().unwrap();
     assert_eq!(last["images"].as_array().map(Vec::len), Some(12), "{last}");
     assert_eq!(last["text"], "look", "the note of paths stays out of the transcript: {last}");
+}
+
+/// No size cap (Leo, 2026-10-26: "I ALREADY SAID WE NEED ARBITARRILY LARGE FILES OF ANY TYPE"): a
+/// 2 GB upload, past the 1 GiB the uploads were capped at, begins and takes its bytes; only the
+/// size it began with bounds it.
+#[tokio::test]
+async fn an_upload_of_any_size_begins_and_takes_its_bytes() {
+    let hub = hub();
+    let mut c = client(&hub, Origin::Local);
+    let session = c.new_session("uploads-nocap").await;
+    let size = 2_000_000_000u64;
+    let begun = c
+        .call(
+            method::MUX_FILE_PUT_BEGIN,
+            json!({"sessionId": session, "fileName": "big.bin", "size": size}),
+        )
+        .await;
+    let id = begun["result"]["uploadId"].as_str().unwrap_or_else(|| panic!("{begun}")).to_owned();
+    let put = json!({"sessionId": session, "uploadId": id, "offset": 0, "data": b64(&[7; 1024])});
+    let put = c.call(method::MUX_FILE_PUT_CHUNK, put).await;
+    assert_eq!(put["result"]["offset"], 1024, "{put}");
+    let begun = c
+        .call(method::MUX_FILE_PUT_BEGIN, json!({"sessionId": session, "fileName": "s", "size": 1}))
+        .await;
+    let small = begun["result"]["uploadId"].as_str().unwrap().to_owned();
+    let past = json!({"sessionId": session, "uploadId": small, "offset": 0, "data": b64(b"ab")});
+    let past = c.call(method::MUX_FILE_PUT_CHUNK, past).await;
+    assert_eq!(past["error"]["data"]["reason"], "filePut.pastSize", "{past}");
+    for upload in [id, small] {
+        c.call(method::MUX_FILE_PUT_CANCEL, json!({"sessionId": session, "uploadId": upload}))
+            .await;
+    }
+}
+
+/// A prompt that waits behind a turn while its file is swept is refused when its turn comes: the
+/// agent never gets a path to nothing.
+#[tokio::test]
+async fn a_waiting_prompt_whose_upload_was_swept_is_refused_at_its_turn() {
+    let hub = hub();
+    let mut c = client(&hub, Origin::Local);
+    let session = c.new_session("uploads-swept").await;
+    let id = c.upload(&session, "gone.bin", b"\x00 any bytes").await;
+    let link = json!({"type": "resource_link", "uri": format!("acpmux-upload:{id}"),
+        "name": "gone.bin",
+        "_meta": {"acpmux": {"upload": {"uploadId": id, "fileName": "gone.bin"}}}});
+    c.post(method::SESSION_PROMPT, prompt(&session, "busy", "until-cancel", vec![])).await;
+    c.until(|v| v.pointer("/params/update/content/text").is_some()).await;
+    let asked = c.post(method::SESSION_PROMPT, prompt(&session, &v7(), "read", vec![link])).await;
+    c.until(|v| v["method"] == "_acpmux/prompt_accepted" && v["params"]["queued"] == true).await;
+    std::fs::remove_dir_all(home().join("uploads").join(&session).join(&id)).unwrap();
+    c.post(method::SESSION_CANCEL, json!({"sessionId": session})).await;
+    let reply = c.until(|v| v.get("id") == Some(&json!(asked))).await;
+    assert_eq!(reply["error"]["data"]["reason"], "upload.missing", "{reply}");
+    assert!(!c.text.contains("resource_link:gone.bin"), "{}", c.text);
 }
 
 /// An image too large for the model and a file of any other type go by path, never as base64.

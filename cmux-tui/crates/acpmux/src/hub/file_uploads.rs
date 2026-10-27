@@ -199,6 +199,35 @@ pub(crate) fn finished_path(session: &str, upload: &str, name: &str) -> Option<P
     Some(session_dir(session)?.join(upload_id(upload)?).join(name))
 }
 
+/// Opens a finished upload at `path` ([`finished_path`]) to read: its chat's folder and its own
+/// folder are real folders (no symlink anywhere below `uploads`), and the file is this user's
+/// owner-only file with no other name (one hard link), so nothing outside the uploads can be
+/// read through it. `NotFound` when it is not there. Blocking.
+pub(crate) fn open_finished(path: &Path) -> std::io::Result<std::fs::File> {
+    for dir in path.ancestors().skip(1).take(2) {
+        let meta = std::fs::symlink_metadata(dir)?;
+        if !meta.is_dir() {
+            return Err(std::io::Error::other(format!("{} is not a folder", dir.display())));
+        }
+    }
+    let file = crate::config::private_state_file(path).map_err(|e| {
+        match e.chain().find_map(|c| c.downcast_ref::<std::io::Error>()) {
+            Some(io) if io.kind() == std::io::ErrorKind::NotFound => {
+                std::io::Error::from(std::io::ErrorKind::NotFound)
+            }
+            _ => std::io::Error::other(e.to_string()),
+        }
+    })?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if file.metadata()?.nlink() != 1 {
+            return Err(std::io::Error::other(format!("{} has another name", path.display())));
+        }
+    }
+    Ok(file)
+}
+
 fn begin(session: &str, params: &Value) -> Result<Value, RpcError> {
     let name = params
         .get("fileName")
