@@ -108,7 +108,7 @@
           "key": "updates.downloadAutomatically",
           "title": {
             "key": "settings.updates.downloadAutomatically",
-            "text": "Download and Install Updates Automatically"
+            "text": "Download Updates Automatically"
           },
           "help": {
             "key": "settings.updates.downloadAutomatically.help",

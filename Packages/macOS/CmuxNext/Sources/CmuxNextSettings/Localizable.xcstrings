@@ -57744,127 +57744,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Download and Install Updates Automatically"
+            "value": "Download Updates Automatically"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تنزيل التحديثات وتثبيتها تلقائيًا"
+            "value": "تنزيل التحديثات تلقائيًا"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Automatski preuzmi i instaliraj ažuriranja"
+            "value": "Automatski preuzmi ažuriranja"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hent og installer opdateringer automatisk"
+            "value": "Hent opdateringer automatisk"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Updates automatisch laden und installieren"
+            "value": "Updates automatisch laden"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Descargar e instalar actualizaciones automáticamente"
+            "value": "Descargar actualizaciones automáticamente"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Télécharger et installer les mises à jour automatiquement"
+            "value": "Télécharger les mises à jour automatiquement"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Scarica e installa gli aggiornamenti automaticamente"
+            "value": "Scarica gli aggiornamenti automaticamente"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アップデートを自動的にダウンロードしてインストール"
+            "value": "アップデートを自動的にダウンロード"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ទាញយក និងដំឡើងបច្ចុប្បន្នភាពដោយស្វ័យប្រវត្តិ"
+            "value": "ទាញយកបច្ចុប្បន្នភាពដោយស្វ័យប្រវត្តិ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "업데이트 자동 다운로드 및 설치"
+            "value": "업데이트 자동 다운로드"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Last ned og installer oppdateringer automatisk"
+            "value": "Last ned oppdateringer automatisk"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Automatycznie pobieraj i instaluj aktualizacje"
+            "value": "Automatycznie pobieraj aktualizacje"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Baixar e instalar atualizações automaticamente"
+            "value": "Baixar atualizações automaticamente"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Автоматически загружать и устанавливать обновления"
+            "value": "Автоматически загружать обновления"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ดาวน์โหลดและติดตั้งอัปเดตโดยอัตโนมัติ"
+            "value": "ดาวน์โหลดอัปเดตโดยอัตโนมัติ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Güncellemeleri otomatik olarak indir ve yükle"
+            "value": "Güncellemeleri otomatik olarak indir"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Автоматично завантажувати та встановлювати оновлення"
+            "value": "Автоматично завантажувати оновлення"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tự động tải xuống và cài đặt bản cập nhật"
+            "value": "Tự động tải xuống bản cập nhật"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "自动下载并安装更新"
+            "value": "自动下载更新"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "自動下載並安裝更新"
+            "value": "自動下載更新"
           }
         }
       }

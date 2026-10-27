@@ -611,7 +611,7 @@
 			<key>pfm_name</key>
 			<string>updates.downloadAutomatically</string>
 			<key>pfm_title</key>
-			<string>Download and Install Updates Automatically</string>
+			<string>Download Updates Automatically</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
