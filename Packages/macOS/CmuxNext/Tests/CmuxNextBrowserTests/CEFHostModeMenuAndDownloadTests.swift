@@ -125,9 +125,55 @@ import Testing
         #expect(rig.delivered.first?.destination?.lastPathComponent == "c.zip")
     }
 
+    /// The runtime's own host end (`CEFRuntime.hostEnded`, as the supervisor reports it) reaches the
+    /// runtime's downloads (``CEFDownloads/forRuntime(_:)``): a running row ends interrupted with CRASH.
+    @Test func theRuntimesHostEndInterruptsItsRunningDownloads() async throws {
+        let runtime = try await Self.runtime(hostMode: true)
+        let (tab, _) = Self.tab(runtime)
+        defer { withExtendedLifetime(tab) {} }
+        let rig = try RuntimeDownloads(runtime)
+        defer { rig.clean() }
+        let url = "https://a.test/f.zip"
+
+        #expect(rig.downloads.download(url, browser: Self.page))
+        rig.downloads.handle(.started(id: 1, browser: Self.page, url: url, suggestedName: "f.zip", totalBytes: nil))
+        let row = try #require(rig.delivered.first)
+        runtime.state = .ready
+        runtime.hostEnded(Self.killed)
+
+        #expect(row.status == .failed("interrupted (\(CEFDownloads.crashReason))"), "the host's end left its download running")
+        #expect(row.canRetry)
+    }
+
+    /// The next host gives the tab a new browser id; the ended host's id names no tab. Retry of a row the
+    /// host's end interrupted starts the download from the tab's new browser.
+    @Test func retryAfterTheHostEndedStartsFromTheTabsNewBrowser() async throws {
+        let runtime = try await Self.runtime(hostMode: true)
+        let (tab, _) = Self.tab(runtime)
+        defer { withExtendedLifetime(tab) {} }
+        let rig = try RuntimeDownloads(runtime)
+        defer { rig.clean() }
+        let url = "https://a.test/f.zip"
+        #expect(rig.downloads.download(url, browser: Self.page))
+        rig.downloads.handle(.started(id: 1, browser: Self.page, url: url, suggestedName: "f.zip", totalBytes: nil))
+        let row = try #require(rig.delivered.first)
+        runtime.state = .ready
+        runtime.hostEnded(Self.killed)
+
+        // The next host is attached, and the tab gets its browser there.
+        runtime.shim = try CEFShimLibrary.resolving(MenuSpy.symbol)
+        runtime.state = .ready
+        runtime.register(tab, browser: Self.page + 1)
+        MenuSpy.downloads = []
+
+        #expect(row.retry(), "Retry found no tab for the ended host's browser id")
+        #expect(MenuSpy.downloads == ["\(Self.page + 1) \(url)"])
+    }
+
     // MARK: Fixtures
 
     static let page: Int32 = 7
+    static let killed = BrowserProcessExit(reason: .killed, code: 9, engine: .cef)
 
     /// A runtime that outlives the test (a tab's scheduled work reads it through an unowned reference); in
     /// host mode attached to the spy.
@@ -201,23 +247,52 @@ import Testing
     }
 }
 
-/// The shim of these tests: `context_menu_done` recorded as "token command"; every other function
-/// returns 0. In host mode the remote wire's entry points are ``SpyRemoteWire``'s.
+/// `CEFDownloads.forRuntime` of a test runtime, writing into a folder of its own (``clean()`` removes it).
+@MainActor private final class RuntimeDownloads {
+    let downloads: CEFDownloads
+    private let folder: URL
+    private(set) var delivered: [BrowserDownload] = []
+
+    init(_ runtime: CEFRuntime) throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "cef-runtime-downloads-\(UUID().uuidString)", directoryHint: .isDirectory)
+        self.folder = folder
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        downloads = CEFDownloads.forRuntime(runtime)
+        downloads.directory = { folder }
+        downloads.deliver = { [weak self] _, item in self?.delivered.append(item) }
+    }
+
+    func clean() {
+        try? FileManager.default.removeItem(at: folder)
+    }
+}
+
+/// The shim of these tests: `context_menu_done` recorded as "token command", `download_url` as
+/// "browser url"; every other function returns 0. In host mode the remote wire's entry points are
+/// ``SpyRemoteWire``'s.
 private nonisolated enum MenuSpy {
     // crash-allow: test-only spy state, read and written on the main thread by a serialized suite and the C stand-ins it calls there
     nonisolated(unsafe) static var done: [String] = []
+    // crash-allow: test-only spy state, read and written on the main thread by a serialized suite and the C stand-ins it calls there
+    nonisolated(unsafe) static var downloads: [String] = []
 
     static func reset() {
         done = []
+        downloads = []
     }
 
     static func symbol(_ name: String) -> UnsafeMutableRawPointer? {
         let menuDone: @convention(c) (Int32, Int32, Int32) -> Void = { token, command, _ in
             MenuSpy.done.append("\(token) \(command)")
         }
+        let downloadURL: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32 = { browser, url in
+            MenuSpy.downloads.append("\(browser) \(url.map { String(cString: $0) } ?? "")")
+            return 1
+        }
         let nothing: @convention(c) () -> Int = { 0 }
         return switch name {
         case "cmux_shim_context_menu_done": unsafeBitCast(menuDone, to: UnsafeMutableRawPointer.self)
+        case "cmux_shim_download_url": unsafeBitCast(downloadURL, to: UnsafeMutableRawPointer.self)
         default: unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self)
         }
     }
