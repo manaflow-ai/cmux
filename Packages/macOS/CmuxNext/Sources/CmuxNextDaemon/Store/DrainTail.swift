@@ -95,7 +95,7 @@ final class DrainTail {
         }
         let transactions = Self.transactions(in: batch)
         var now: [DaemonEventEnvelope] = []
-        var rest = transactions[...]
+        var rest = ArraySlice(transactions)
         if let cut = transactions.lastIndex(where: { $0.drainsInFrame || $0.envelopes.contains(where: awaited) }) {
             now = takeAll()
             for transaction in transactions.prefix(cut + 1) { now.append(contentsOf: transaction.envelopes) }
