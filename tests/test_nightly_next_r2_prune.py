@@ -37,11 +37,12 @@ def feed(*names: str) -> bytes:
 
 class FakeBucket:
     def __init__(self, objects: dict[str, int], feeds: dict[str, bytes], complete: bool = True,
-                 feeds_after: dict[str, bytes] | None = None):
+                 feeds_after: dict[str, bytes] | None = None, fail_read_after: int | None = None):
         self.prefix = PREFIX
         self.objects, self.feeds, self.complete = objects, feeds, complete
         self.feeds_after = feeds_after
         self.reads = 0
+        self.fail_read_after = fail_read_after
         self.deleted: list[str] = []
 
     def list(self):
@@ -50,6 +51,8 @@ class FakeBucket:
 
     def read(self, key):
         self.reads += 1
+        if self.fail_read_after is not None and self.reads > self.fail_read_after:
+            raise prune.urllib.error.HTTPError(key, 404, "Not Found", {}, None)
         source = self.feeds_after if (self.feeds_after is not None and self.reads > len(self.feeds)) else self.feeds
         if key not in source:
             raise prune.urllib.error.HTTPError(key, 404, "Not Found", {}, None)
@@ -59,7 +62,7 @@ class FakeBucket:
         self.deleted.append(key)
 
 
-def objects(builds: range, age: int = 30) -> dict[str, int]:
+def objects(builds: range, age: float = 30) -> dict[str, float]:
     out = {}
     for b in builds:
         out[PREFIX + dmg(b)] = age
@@ -118,6 +121,31 @@ class PruneTests(unittest.TestCase):
         summary = self.run_prune(bucket)
         self.assertEqual(bucket.reads, 1 + len(summary["deleted"]))
 
+    def test_a_feed_that_fails_a_later_read_stops_the_deletes(self) -> None:
+        bucket = FakeBucket(objects(range(100, 120)), {FEED: feed(dmg(119))}, fail_read_after=3)
+        summary = self.run_prune(bucket)
+        self.assertEqual(len(bucket.deleted), 2)
+        self.assertIn("HTTP 404", summary["stopped"])
+        self.assertIn("stopped after 2 deletes", prune.render(summary))
+
+    def test_keeps_the_delta_bases_a_publication_may_name(self) -> None:
+        # A pause: builds 100-109 are 10 days old, then 110-159 came in the last day.
+        objs = objects(range(100, 110), age=10)
+        objs.update(objects(range(110, 160), age=0.5))
+        bucket = FakeBucket(objs, {FEED: feed(dmg(159))})
+        summary = self.run_prune(bucket, keep_builds=5, min_age=7)
+        deleted = {k[len(PREFIX):] for k in bucket.deleted}
+        for kept in (dmg(109), dmg(108)):  # the newest builds at least 24 and 72 hours old
+            self.assertNotIn(kept, deleted)
+        self.assertIn(dmg(107), deleted)
+        self.assertIsNone(summary["stopped"])
+
+    def test_the_base_ages_match_generate_nightly_deltas(self) -> None:
+        script = (ROOT / "scripts" / "ci" / "generate-nightly-deltas.sh").read_text()
+        match = prune.re.search(r"^OLDER_BASE_HOURS=\(([0-9 ]+)\)$", script, prune.re.M)
+        self.assertIsNotNone(match)
+        self.assertEqual(tuple(int(h) for h in match.group(1).split()), prune.OLDER_BASE_HOURS)
+
     def test_a_github_enclosure_name_is_kept_too(self) -> None:
         bucket = FakeBucket(objects(range(100, 120)), {FEED: feed(dmg(119)).replace(
             b"</channel>", f'<item><enclosure url="{GH}{dmg(100)}"/></item></channel>'.encode())})
@@ -126,7 +154,8 @@ class PruneTests(unittest.TestCase):
 
     def test_the_cli_refuses_unsafe_settings(self) -> None:
         for argv in (["--prefix", "nightly-next/next"], ["--prefix", "other/"], ["--keep-builds", "1"],
-                     ["--min-age-days", "0"], ["--feed", "other/appcast-arm64.xml"]):
+                     ["--min-age-days", "0"], ["--feed", "other/appcast-arm64.xml"], ["--feed", PREFIX],
+                     ["--feed", PREFIX + "notes/index.json"]):
             with self.assertRaises(SystemExit):
                 prune.main(["--endpoint-url", "https://x", "--bucket", "b", "--prefix", PREFIX, "--feed", FEED, *argv])
 

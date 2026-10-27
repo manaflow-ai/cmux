@@ -14,16 +14,21 @@ A candidate is kept when any of these holds:
   - a feed names it: every enclosure in every --feed, read from the bucket, not the cache;
   - its build is one of the newest --keep-builds builds on R2 (a delta counts by its
     target build), which covers a rollback to an earlier build;
-  - it is younger than --min-age-days (a build publishing now, a feed write in flight).
+  - it is younger than --min-age-days (a build publishing now, a feed write in flight);
+  - its build is a delta base a later publication may name: for each hour count in
+    OLDER_BASE_HOURS, the BASES_PER_AGE newest builds at least that old
+    (generate-nightly-deltas.sh picks the newest build at least 24 and 72 hours old,
+    which after a pause can be far down the list).
 It fails closed: a feed that is missing, unreadable or names no item, or an incomplete
-listing, deletes nothing. Without --delete it is a dry run. One run deletes at most
-MAX_DELETES objects. The prefix is fixed (PREFIX): this never lists or deletes elsewhere.
+listing, deletes nothing; a feed that fails a later read stops the deletes there. Without
+--delete it is a dry run. One run deletes at most MAX_DELETES objects. The prefix is fixed
+(PREFIX): this never lists or deletes anywhere else.
 
-Why reading the feed before each delete is enough: S3 has no delete-if-unreferenced, but no
-writer adds an old file to the feed. A publication names its own new files (under the
-minimum age) and items the live feed already names (kept); nightly-next-rollback.yml only
-takes items off the feed and serves one already on it. So a file outside the newest builds,
-older than the minimum age and absent from the feed just read cannot become live meanwhile.
+S3 has no delete-if-unreferenced, so this runs as the last step of republish-nightly-deltas,
+inside release-publish-<tag>: publish-nightly and republish-nightly-deltas, the only
+writers of this feed in nightly.yml, hold that group, so neither writes while this deletes. nightly-next-rollback.yml writes outside it, but only removes
+items (and serves one already on the feed), which never makes a deleted file live. Every
+feed is still read again before each delete.
 """
 from __future__ import annotations
 
@@ -46,7 +51,11 @@ import r2_cache_prune  # noqa: E402
 
 ASSET = re.compile(r"^cmux-nightly-next-macos-[a-z0-9_]+-(?P<build>[0-9]{3,})(?:-(?P<base>[0-9]{3,}))?\.(?P<kind>dmg|delta)$")
 SPARKLE_NS = "http://www.andymatuschak.org/xml-namespaces/sparkle"
-MAX_DELETES = 500
+MAX_DELETES = 100
+# generate-nightly-deltas.sh's OLDER_BASE_HOURS (tests/test_nightly_next_r2_prune.py checks).
+OLDER_BASE_HOURS = (24, 72)
+BASES_PER_AGE = 2
+FEED_NAME = re.compile(r"^appcast[a-z0-9-]*\.xml$")
 # The only prefix this prunes: cmux NEXT's downloads (NIGHTLY_NEXT_R2_PREFIX in nightly.yml).
 PREFIX = "nightly-next/next/"
 
@@ -127,6 +136,20 @@ def referenced(feed_xml: bytes, feed_key: str) -> set[str]:
     return names
 
 
+def read_names(bucket, feeds: list[str]) -> set[str]:
+    """Every enclosure name the feeds name now; Refused on any feed that can't be read."""
+    names: set[str] = set()
+    for key in feeds:
+        try:
+            body = bucket.read(key)
+        except urllib.error.HTTPError as error:
+            raise Refused(f"{key}: HTTP {error.code}") from error
+        except (urllib.error.URLError, OSError) as error:
+            raise Refused(f"{key}: {error}") from error
+        names |= referenced(body, key)
+    return names
+
+
 def age_days(last_modified: str, now: dt.datetime) -> float:
     try:
         when = dt.datetime.fromisoformat(last_modified.replace("Z", "+00:00"))
@@ -148,6 +171,13 @@ def plan(objects: list[dict], keep_names: set[str], prefix: str, keep_builds: in
             continue
         assets.append({**item, "name": name, "build": int(match.group("build")), "kind": match.group("kind")})
     newest = set(sorted({a["build"] for a in assets}, reverse=True)[:keep_builds])
+    # A build's age is its newest file's (its DMG, or a delta republished later).
+    build_age: dict[int, float] = {}
+    for a in assets:
+        build_age[a["build"]] = min(build_age.get(a["build"], float("inf")), age_days(a["last_modified"], now))
+    for hours in OLDER_BASE_HOURS:
+        old_enough = sorted((b for b, age in build_age.items() if age * 24 >= hours), reverse=True)
+        newest |= set(old_enough[:BASES_PER_AGE])
     delete, counts = [], {"assets": len(assets), "kept_by_feed": 0, "kept_by_build": 0, "kept_by_age": 0}
     for asset in assets:
         if asset["name"] in keep_names:
@@ -163,31 +193,30 @@ def plan(objects: list[dict], keep_names: set[str], prefix: str, keep_builds: in
 
 
 def prune(bucket, feeds: list[str], keep_builds: int, min_age_days: float, now: dt.datetime, delete: bool) -> dict:
-    keep: set[str] = set()
-    for key in feeds:
-        try:
-            keep |= referenced(bucket.read(key), key)
-        except urllib.error.HTTPError as error:
-            raise Refused(f"{key}: HTTP {error.code}") from error
+    keep = read_names(bucket, feeds)
     objects, complete = bucket.list()
     if not complete:
         raise Refused("the listing is incomplete")
     candidates, counts = plan(objects, keep, bucket.prefix, keep_builds, min_age_days, now)
-    deleted = []
+    deleted, stopped = [], None
     if delete and candidates:
-        # A feed can change between the first read and the deletes: read every feed again just
-        # before each delete and never delete what any of them names then (fails closed too).
+        # Read every feed again just before each delete and never delete what one names then.
+        # A read or delete that fails stops here; what was deleted so far is reported.
         for asset in candidates[:MAX_DELETES]:
-            now_named: set[str] = set()
-            for key in feeds:
-                now_named |= referenced(bucket.read(key), key)
-            if asset["name"] in now_named:
-                continue
-            bucket.delete(asset["key"])
+            try:
+                if asset["name"] in read_names(bucket, feeds):
+                    continue
+                bucket.delete(asset["key"])
+            except Refused as refusal:
+                stopped = str(refusal)
+                break
+            except (urllib.error.URLError, OSError) as error:
+                stopped = f"deleting {asset['key']}: {error}"
+                break
             deleted.append(asset["name"])
     return {**counts, "dry_run": not delete, "candidates": [a["name"] for a in candidates],
             "candidate_bytes": sum(int(a["size"]) for a in candidates), "deleted": deleted,
-            "feed_names": sorted(keep)}
+            "stopped": stopped, "feed_names": sorted(keep)}
 
 
 def render(summary: dict) -> str:
@@ -198,6 +227,8 @@ def render(summary: dict) -> str:
              f"{summary['assets']} DMGs and deltas ({summary['candidate_bytes'] / gib:.1f} GiB eligible); kept "
              f"{summary['kept_by_feed']} the feeds name, {summary['kept_by_build']} of the newest builds, "
              f"{summary['kept_by_age']} too new", ""]
+    if summary.get("stopped"):
+        lines[1:1] = [f"stopped after {len(summary['deleted'])} deletes: {summary['stopped']}"]
     names = summary["candidates"] if summary["dry_run"] else summary["deleted"]
     lines += [f"- {name}" for name in names[:200]]
     if len(names) > 200:
@@ -217,8 +248,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.prefix != PREFIX or args.keep_builds < 5 or args.min_age_days < 2:
         parser.error(f"--prefix must be {PREFIX}, --keep-builds at least 5 and --min-age-days at least 2")
-    if any(not feed.startswith(PREFIX) or "/" in feed[len(PREFIX):] for feed in args.feed):
-        parser.error(f"every --feed must be an object directly under {PREFIX}")
+    if any(not feed.startswith(PREFIX) or not FEED_NAME.match(feed[len(PREFIX):]) for feed in args.feed):
+        parser.error(f"every --feed must be an appcast*.xml directly under {PREFIX}")
     bucket = Bucket(args.endpoint_url, args.bucket, args.prefix)
     try:
         summary = prune(bucket, args.feed, args.keep_builds, args.min_age_days, dt.datetime.now(dt.timezone.utc),
@@ -227,7 +258,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"nightly-next R2 prune: deleted nothing: {refusal}")
         return 1
     print(render(summary))
-    return 0
+    return 1 if summary["stopped"] else 0
 
 
 if __name__ == "__main__":

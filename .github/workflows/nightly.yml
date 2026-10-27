@@ -7895,6 +7895,9 @@ jobs:
             scripts/ci/gh_budget_wait.sh
             scripts/ci/publish-nightly-next-r2.py
             scripts/ci/upload-r2-object.py
+            scripts/ci/nightly_next_r2_prune.py
+            scripts/ci/r2_cache_census.py
+            scripts/ci/r2_cache_prune.py
           sparse-checkout-cone-mode: false
 
       - name: Wait through GitHub API rate limits in this job's gh calls
@@ -8032,30 +8035,16 @@ jobs:
             python3 "$r2" write-feed --feed "$feed" --same-build
           done
 
-  # cmux NEXT's downloads on R2 (publish-nightly, republish-nightly-deltas) are about 240 MB a
-  # build. Keep what the live feed names, the newest 20 builds and anything under 7 days old;
-  # delete the rest (scripts/ci/nightly_next_r2_prune.py, which fails closed). A dry run unless
-  # the repository variable NIGHTLY_NEXT_R2_PRUNE_DELETE is 1. Its own job after the delta
-  # republish, with the track's own scoped token: nothing waits on it and it never fails a run.
-  prune-nightly-next-r2:
-    needs: [decide, publish-nightly, republish-nightly-deltas]
-    if: "always() && !cancelled() && needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true' && (needs.republish-nightly-deltas.result == 'success' || needs.republish-nightly-deltas.result == 'skipped')"
-    environment: ${{ needs.decide.outputs.environment }}
-    continue-on-error: true
-    permissions:
-      contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 15
-    steps:
-      - name: Checkout publication tooling at the workflow commit
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          ref: ${{ github.sha }}
-          path: .publish-tooling
-          sparse-checkout: scripts
-
+      # cmux NEXT's downloads on R2 are about 240 MB a build. Keep what the live feed names,
+      # the newest 20 builds, the delta bases a later build may name and anything under 7 days
+      # old; delete the rest (scripts/ci/nightly_next_r2_prune.py, which fails closed). Here,
+      # inside release-publish-<tag>, so no publish-path feed write runs while it deletes. A dry
+      # run unless the repository variable NIGHTLY_NEXT_R2_PRUNE_DELETE is 1; at most 100
+      # deletes and 3 minutes a run, and it never fails the job.
       - name: Prune old nightly-next downloads on R2
+        if: success() && needs.decide.outputs.track == 'nightly-next'
+        continue-on-error: true
+        timeout-minutes: 3
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
