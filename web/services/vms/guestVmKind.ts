@@ -18,15 +18,19 @@
 //   runs writes `team` at bake and corrects it itself, so on it this does
 //   nothing and the sync's answer stands.
 // - Idempotent: a second run finds the file and leaves it.
+// - Every attempt first reads the machine's row again and goes on only while
+//   it is the same running machine (same row, provider id, owner and kind);
+//   a deleted, paused or rebound machine ends the work with no exec.
 // - After the create response, retried with a bounded backoff until the
-//   machine's exec answers; a failure is logged and never fails the create.
+//   machine's exec answers, for at most GUEST_VM_KIND_BUDGET in all; a failure
+//   is logged and never fails the create.
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Schedule from "effect/Schedule";
 
 import { shellQuote } from "./drivers/cmuxTuiDaemon";
 import type { VmProviderGatewayShape } from "./providerGateway";
-import type { CloudVmRow } from "./repository";
+import type { CloudVmRow, VmRepositoryShape } from "./repository";
 import { resolveVmGuestKind, type VmGuestKind } from "./vmKind";
 
 /** The guest directory that holds the marker (root-owned on every image). */
@@ -34,9 +38,15 @@ export const GUEST_VM_KIND_DIRECTORY = "/etc/cmux";
 
 /**
  * Writes `kind` to `<directory>/vm-kind` when no file of that name exists.
- * The write is a hard link of a finished 0644 temporary file, so a reader
- * never sees a partial file and a marker that appeared meanwhile is kept
- * (link() never replaces). Prints `written` or `kept`; any other end is a
+ *
+ * The write is a hard link (`ln -T`, GNU coreutils on every cmux Linux guest)
+ * of a finished 0644 temporary file, so a reader never sees a partial file, a
+ * marker that appeared meanwhile is kept (link() never replaces), and a
+ * directory that appeared there is not written into. `written` is printed only
+ * after the path reads back as a regular file holding `kind`. The temporary
+ * file is removed on every exit the shell sees; a temporary file a kill left
+ * behind (older than a minute, so never a live writer's, the image's sync
+ * included) is swept first. Prints `written` or `kept`; any other end is a
  * non-zero exit. Run as root on a guest, so the file is root-owned.
  */
 export function guestVmKindCommand(kind: VmGuestKind, directory = GUEST_VM_KIND_DIRECTORY): string {
@@ -44,39 +54,67 @@ export function guestVmKindCommand(kind: VmGuestKind, directory = GUEST_VM_KIND_
   const dir = shellQuote(directory);
   return [
     `f=${shellQuote(`${directory}/vm-kind`)}`,
+    `tmp=`,
+    `trap 'rm -f "$tmp"' EXIT`,
+    `trap 'exit 1' HUP INT TERM`,
     `if [ -e "$f" ] || [ -L "$f" ]; then echo kept; exit 0; fi`,
     `[ -d ${dir} ] || mkdir -p -m 0755 ${dir} || exit 1`,
+    `find ${dir} -maxdepth 1 -type f -name '.vm-kind.*' -mmin +1 -exec rm -f {} + 2>/dev/null`,
     `tmp=$(mktemp ${shellQuote(`${directory}/.vm-kind.XXXXXX`)}) || exit 1`,
-    `printf '${kind}\\n' > "$tmp" && chmod 0644 "$tmp" && ln "$tmp" "$f" 2>/dev/null; linked=$?`,
-    `rm -f "$tmp"`,
-    `if [ "$linked" -eq 0 ]; then echo written; elif [ -e "$f" ] || [ -L "$f" ]; then echo kept; else exit 1; fi`,
+    `printf '${kind}\\n' > "$tmp" && chmod 0644 "$tmp" || exit 1`,
+    `if ln -T "$tmp" "$f" 2>/dev/null; then`,
+    `  [ -f "$f" ] && [ ! -L "$f" ] && [ "$(head -c 16 "$f")" = ${kind} ] || exit 1`,
+    `  echo written; exit 0`,
+    `fi`,
+    `if [ -e "$f" ] || [ -L "$f" ]; then echo kept; exit 0; fi`,
+    `exit 1`,
   ].join("\n");
 }
 
+type GuestVmKindRow = Pick<CloudVmRow, "provider" | "providerVmId" | "status" | "userId" | "ownerTeamId">;
+
 /** The kind to record on this machine's guest, or null when the create records none. */
-export function guestVmKindToRecord(
-  row: Pick<CloudVmRow, "provider" | "providerVmId" | "status" | "userId" | "ownerTeamId">,
-): VmGuestKind | null {
+export function guestVmKindToRecord(row: GuestVmKindRow): VmGuestKind | null {
   // Only the cmux devbox image (Freestyle) reads the marker this way; GCP Labs
   // machines keep their own bootstrap and stay off until it writes one.
   if (row.provider !== "freestyle" || !row.providerVmId || row.status !== "running") return null;
   return resolveVmGuestKind(row);
 }
 
+/** Whether `current` is still the machine `created` was, with the same kind to record. */
+export function sameGuestVmKindTarget(created: CloudVmRow, current: CloudVmRow | null, kind: VmGuestKind): boolean {
+  return !!current
+    && current.id === created.id
+    && current.provider === created.provider
+    && current.providerVmId === created.providerVmId
+    && current.userId === created.userId
+    && current.ownerTeamId === created.ownerTeamId
+    && guestVmKindToRecord(current) === kind;
+}
+
+/** All of the work, exec time included, ends within this. */
+export const GUEST_VM_KIND_BUDGET = Duration.minutes(2);
+
 /**
- * Up to 13 tries over about two minutes: 1, 2, 4, 8 s, then every 15 s. A
- * machine's exec can lag its create answer by a few seconds.
+ * 1, 2, 4, 8 s, then every 10 s, at most 12 retries: 13 tries over 95 s of
+ * waits. Slow execs (10 s each at most) are cut off by GUEST_VM_KIND_BUDGET.
  */
 export const GUEST_VM_KIND_RETRY: Schedule.Schedule<unknown> = Schedule.exponential("1 second").pipe(
-  Schedule.modifyDelay((delay) => Duration.min(delay, Duration.seconds(15))),
+  Schedule.modifyDelay((delay) => Duration.min(delay, Duration.seconds(10))),
   Schedule.intersect(Schedule.recurs(12)),
 );
+
+/** The machine is gone or is no longer the one this work was for: stop, never retry. */
+class GuestVmKindTargetGone {
+  readonly _tag = "GuestVmKindTargetGone";
+}
 
 /**
  * Records the machine's kind (module docs) after the create response when the
  * route gives a hook, detached otherwise. Never fails.
  */
 export function scheduleGuestVmKindRecord(
+  repo: Pick<VmRepositoryShape, "findUserVm">,
   providers: VmProviderGatewayShape,
   row: CloudVmRow,
   defer: ((work: Effect.Effect<void>) => void) | undefined,
@@ -86,20 +124,28 @@ export function scheduleGuestVmKindRecord(
   const kind = guestVmKindToRecord(row);
   if (!providerVmId || !kind) return Effect.void;
   const command = guestVmKindCommand(kind);
-  const work = Effect.suspend(() =>
-    providers.exec(row.provider, providerVmId, command, {
-      timeoutMs: 10_000,
-      providerMetadata: row.providerMetadata,
-      // /etc/cmux is root-owned, and the marker must be too.
-      asRoot: true,
-    })
-  ).pipe(
+  const attempt = Effect.gen(function* () {
+    // A failed read is retried; only a confirmed same machine gets the exec.
+    const current = yield* Effect.suspend(() =>
+      repo.findUserVm({ userId: row.userId, billingTeamId: row.ownerTeamId, providerVmId, provider: row.provider })
+    );
+    if (!sameGuestVmKindTarget(row, current, kind)) return yield* Effect.fail(new GuestVmKindTargetGone());
+    const result = yield* Effect.suspend(() =>
+      providers.exec(row.provider, providerVmId, command, {
+        timeoutMs: 10_000,
+        providerMetadata: row.providerMetadata,
+        // /etc/cmux is root-owned, and the marker must be too.
+        asRoot: true,
+      })
+    );
     // The command exits 0 only after `written` or `kept`; anything else (a
     // silent or timed-out exec included) is tried again.
-    Effect.flatMap((result) => result.exitCode === 0
-      ? Effect.succeed(result.stdout.trim().split("\n").at(-1) ?? "")
-      : Effect.fail(new Error(`vm-kind write exited ${result.exitCode}`))),
-    Effect.retry(retry),
+    if (result.exitCode !== 0) return yield* Effect.fail(new Error(`vm-kind write exited ${result.exitCode}`));
+    return result.stdout.trim().split("\n").at(-1) ?? "";
+  });
+  const work = attempt.pipe(
+    Effect.retry({ schedule: retry, while: (error) => !(error instanceof GuestVmKindTargetGone) }),
+    Effect.timeoutFail({ duration: GUEST_VM_KIND_BUDGET, onTimeout: () => new Error("vm-kind write ran out of time") }),
     Effect.flatMap((outcome) => Effect.logDebug("Cloud vm-kind marker", { vmId: row.id, kind, outcome })),
     Effect.catchAllCause((cause) => Effect.logWarning("Cloud vm-kind marker not written", { vmId: row.id, kind, cause })),
   );
