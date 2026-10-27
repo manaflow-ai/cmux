@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "terminalPreCommitPresent",
+  "owner": "PL-ghostty",
+  "description": "A resized or newly shown terminal's frame at its new size goes into the commit that carries the size when Ghostty already drew it; it never waits. Needs a GhosttyNextKit pin whose ghostty_surface_present_host_frame never waits (p03-rendering-084).",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-24",
+  "process": "app",
+  "params": [],
+  "stories": ["motion"],
+  "sticky": false,
+  "runtimeMutable": false
+}

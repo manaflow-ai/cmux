@@ -209,8 +209,10 @@ enum Op : uint16_t {
   kOpBrowserImeCommitText = 197,  // optional
   kOpBrowserImeFinishComposing = 198,  // optional
   kOpBrowserImeCancelComposition = 199,  // optional
+  kOpTabCopySurface = 200,  // optional
+  kOpTabSendMouseMove = 201,  // optional
 };
-inline constexpr uint16_t kOpCount = 199;
+inline constexpr uint16_t kOpCount = 201;
 inline constexpr uint16_t kOpEvent = 0x8001;  // host -> cmux: one shim event
 inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's result
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
@@ -218,7 +220,7 @@ inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
 inline constexpr int kEventKindCount = 60;
 inline constexpr char kShimAbiID[] = "ec94696eec9bbb3c6ca8595bc715fd1fde01493bc8e1c7adc8aabf5ad62b6359";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "ff88f755e64b97bbf2163442d0bb239a4b40a5f568c70ee1eff642dc183620ec";
+inline constexpr char kWireID[] = "0203bbd0fa7bcaa3b223dca530b54ff9f1e1b860d41054b2ada9413f6ddd2460";
 // Exports the header does not declare yet (fork API symbols): the client sends one only to
 // a host whose HELLO lists its symbol.
 struct OptionalExport {
@@ -241,6 +243,8 @@ inline constexpr OptionalExport kOptionalExports[] = {
     {kOpBrowserImeCommitText, "cmux_shim_browser_ime_commit_text"},
     {kOpBrowserImeFinishComposing, "cmux_shim_browser_ime_finish_composing"},
     {kOpBrowserImeCancelComposition, "cmux_shim_browser_ime_cancel_composition"},
+    {kOpTabCopySurface, "cmux_shim_tab_copy_surface"},
+    {kOpTabSendMouseMove, "cmux_shim_tab_send_mouse_move"},
 };
 }  // namespace cmux_remote
 
@@ -1925,6 +1929,29 @@ CMUX_SHIM_EXPORT void cmux_shim_browser_ime_cancel_composition(int arg_browser_i
   TlvWriter op_w;
   op_w.I32(arg_browser_id);
   (void)Post(kOpBrowserImeCancelComposition, 0, op_w);
+}
+
+CMUX_SHIM_EXPORT int cmux_shim_tab_copy_surface(int arg_browser_id, int arg_reply, int arg_max_width, int arg_max_height, int arg_format, int arg_jpeg_quality) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.I32(arg_reply);
+  op_w.I32(arg_max_width);
+  op_w.I32(arg_max_height);
+  op_w.I32(arg_format);
+  op_w.I32(arg_jpeg_quality);
+  const uint32_t op_token = NextToken();
+  const bool op_sent = PostForReply(kOpTabCopySurface, op_token, op_w);
+  return op_sent ? 1 : 0;
+}
+
+CMUX_SHIM_EXPORT int cmux_shim_tab_send_mouse_move(int arg_browser_id, double arg_x, double arg_y, int arg_modifiers) {
+  TlvWriter op_w;
+  op_w.I32(arg_browser_id);
+  op_w.F64(arg_x);
+  op_w.F64(arg_y);
+  op_w.I32(arg_modifiers);
+  (void)Post(kOpTabSendMouseMove, 0, op_w);
+  return 1;
 }
 
 }  // extern "C"

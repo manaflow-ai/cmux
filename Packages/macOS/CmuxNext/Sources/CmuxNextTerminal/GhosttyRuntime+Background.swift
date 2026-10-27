@@ -1,4 +1,6 @@
 public import CmuxNextDesign
+import CmuxNextCompat
+import CmuxNextWakeups
 import Foundation
 
 /// cmux's own window background (`appearance.backgroundOpacity`,
@@ -35,10 +37,13 @@ extension GhosttyRuntime {
         // Not inside the theme pass that asked: the reload repaints the hosts again. One reload
         // per turn, and none when the set flipped back (a host moving between superviews).
         seeThroughReloadPending = true
-        DispatchQueue.main.async {
+        let reload: @MainActor () -> Void = {
             seeThroughReloadPending = false
             if seeThroughShown != seeThroughLoaded { shared.reloadConfig() }
         }
+        // A window's look changed on screen: visible work, after the pass that asked.
+        guard let mainWork = shared.mainWork else { return MainRunLoopBlock.perform(reload) }
+        mainWork.post(.visible, owner: "ghostty.seeThrough", reload)
     }
 
     /// The ``seeThroughShown`` the last config build asked for reads (set when asked: `GhosttyConfigInputs.current`).

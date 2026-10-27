@@ -6,7 +6,7 @@
 //! link never replaces an existing file: an existing segment with the same
 //! bytes is success (a retry after a crash), different bytes is an error.
 
-use std::fs::{self, File, OpenOptions};
+use std::fs::OpenOptions;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
@@ -36,7 +36,7 @@ fn valid_wal_name(name: &str) -> bool {
 }
 
 fn same_content(a: &Path, b: &Path) -> io::Result<bool> {
-    let (mut fa, mut fb) = (File::open(a)?, File::open(b)?);
+    let (mut fa, mut fb) = (cmux_blocking::fs::open(a)?, cmux_blocking::fs::open(b)?);
     if fa.metadata()?.len() != fb.metadata()?.len() {
         return Ok(false);
     }
@@ -67,12 +67,14 @@ pub fn archive_wal(wal_dir: &Path, src: &Path, name: &str) -> Result<Archived> {
         return Err(Error::usage(format!("invalid WAL file name {name:?}")));
     }
     let dest = wal_dir.join(name);
-    if dest.exists() {
+    if cmux_blocking::fs::metadata(&dest).is_ok() {
         return match same_content(src, &dest).ctx(dest.display())? {
             // A retry after a crash: the earlier link may not be durable
             // yet, so the file and the directory are synced before success.
             true => {
-                File::open(&dest).and_then(|f| f.sync_all()).ctx(dest.display())?;
+                cmux_blocking::fs::open(&dest)
+                    .and_then(|f| cmux_threads::checked::fs::sync_all(&f))
+                    .ctx(dest.display())?;
                 sys::fsync_dir(wal_dir).ctx(wal_dir.display())?;
                 Ok(Archived::AlreadyPresent)
             }
@@ -84,7 +86,7 @@ pub fn archive_wal(wal_dir: &Path, src: &Path, name: &str) -> Result<Archived> {
     }
     let tmp = fsx::temp_sibling(&dest, "tmp");
     let result = (|| -> Result<()> {
-        let mut input = File::open(src).ctx(src.display())?;
+        let mut input = cmux_blocking::fs::open(src).ctx(src.display())?;
         let mut options = OpenOptions::new();
         options.write(true).create_new(true);
         #[cfg(unix)]
@@ -92,10 +94,10 @@ pub fn archive_wal(wal_dir: &Path, src: &Path, name: &str) -> Result<Archived> {
             use std::os::unix::fs::OpenOptionsExt;
             options.mode(0o600);
         }
-        let mut out = options.open(&tmp).ctx(tmp.display())?;
+        let mut out = cmux_threads::checked::fs::open_with(&options, &tmp).ctx(tmp.display())?;
         io::copy(&mut input, &mut out).ctx(tmp.display())?;
-        out.sync_all().ctx(tmp.display())?;
-        match fs::hard_link(&tmp, &dest) {
+        cmux_threads::checked::fs::sync_all(&out).ctx(tmp.display())?;
+        match cmux_threads::checked::fs::hard_link(&tmp, &dest) {
             Ok(()) => {}
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
                 if !same_content(src, &dest).ctx(dest.display())? {
@@ -107,11 +109,11 @@ pub fn archive_wal(wal_dir: &Path, src: &Path, name: &str) -> Result<Archived> {
             }
             Err(e) => return Err(Error::io(dest.display(), e)),
         }
-        fs::remove_file(&tmp).ctx(tmp.display())?;
+        cmux_blocking::fs::remove_file(&tmp).ctx(tmp.display())?;
         sys::fsync_dir(wal_dir).ctx(wal_dir.display())
     })();
     if result.is_err() {
-        let _ = fs::remove_file(&tmp);
+        let _ = cmux_blocking::fs::remove_file(&tmp);
     }
     result.map(|()| Archived::Stored)
 }
@@ -163,7 +165,7 @@ impl Postgres<'_> {
     /// The newest archived WAL file name, if any.
     pub fn last_wal(&self) -> Option<String> {
         let dir = fsx::local(&self.layout.wal_archive());
-        fs::read_dir(dir)
+        cmux_blocking::fs::read_dir(dir)
             .ok()?
             .flatten()
             .filter_map(|e| e.file_name().into_string().ok())

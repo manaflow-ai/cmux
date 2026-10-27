@@ -101,7 +101,7 @@ struct ServerReachAdmissionTests {
         func settle(frames: Bool = true, until done: () -> Bool) async {
             let end = ContinuousClock.now.advanced(by: .seconds(5))
             while !done(), ContinuousClock.now < end {
-                _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.005))
+                runMainLoopPass(for: 0.005)
                 if frames { rig.frame() }
                 await Task.yield()
             }

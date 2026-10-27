@@ -1,0 +1,95 @@
+{
+  "$schema": "../../../../schemas/oracle/case-v1.schema.json",
+  "corpusVersion": 1,
+  "id": "new-workspace-real-typing",
+  "suite": "e2e",
+  "title": "No key typed right after Cmd-N, Cmd-T from a terminal or Cmd-D from a New Tab page is lost: the new New Tab page's field holds the whole text",
+  "priority": "P0",
+  "surface": "cmux-next-native",
+  "source": {"repo": "manaflow-ai/cmux", "ref": "$RUN", "artifact": "$RUN"},
+  "environment": {"viewport": {"width": 1440, "height": 900}},
+  "fixture": {"seed": "e2e-new-workspace-real-typing-v1", "network": "offline", "clock": "fixed", "agent": "mock"},
+  "preconditions": [
+    "private scratch config",
+    "tagged bench build",
+    "no unrelated app instance",
+    "a fresh launch: one window, one terminal workspace (the script's cold run: the app's first Cmd-N)",
+    "converted from scripts/cmux-next/new-workspace-real-typing-e2e.py (cx-kql5h), which stays for its real-event and timing legs; tests/oracle/corpus/e2e/_scripts-094.json links them"
+  ],
+  "requires": ["keys", "gui"],
+  "platforms": ["mac"],
+  "steps": [
+    {
+      "id": "cmd-n-typed",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["cmd+n", "h", "e", "l", "l", "o", "space", "w", "o", "r", "l", "d", "space", "1", "2", "3"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/topology/topology/focus/workspace", "predicate": "changed", "maxMs": 10000},
+      "checkpoint": ["turn", "settled"],
+      "settleMaxMs": 10000,
+      "note": "Cmd-N then 'hello world 123' back to back: the keys come while the daemon makes the workspace and its page (Lawrence's 'lo world 123'), so the window holds them for the new page's field"
+    },
+    {
+      "id": "after-cmd-n",
+      "op": "snapshot",
+      "args": {"facets": ["topology", "focus", "webviews", "agents"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "terminal-tab",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["ctrl+`"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/topology/tab_count", "predicate": "changed", "maxMs": 10000},
+      "settleMaxMs": 10000,
+      "note": "the script's warm Cmd-T run starts on a terminal tab, made here by New Terminal Tab and not measured"
+    },
+    {
+      "id": "cmd-t-typed",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["cmd+t", "h", "e", "l", "l", "o", "space", "w", "o", "r", "l", "d", "space", "1", "2", "3"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/topology/tab_count", "predicate": "changed", "maxMs": 10000},
+      "settleMaxMs": 10000,
+      "note": "Cmd-T from a terminal then the text: a new page really opens, and its field gets every key"
+    },
+    {
+      "id": "after-cmd-t",
+      "op": "snapshot",
+      "args": {"facets": ["focus", "webviews", "agents"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "cmd-d-typed",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["cmd+d", "h", "e", "l", "l", "o", "space", "w", "o", "r", "l", "d", "space", "1", "2", "3"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/topology/tab_count", "predicate": "changed", "maxMs": 10000},
+      "settleMaxMs": 10000,
+      "note": "Cmd-D from a New Tab page: the new pane gets its own New Tab page, and the keys go to its field"
+    },
+    {
+      "id": "after-cmd-d",
+      "op": "snapshot",
+      "args": {"facets": ["topology", "focus", "webviews", "agents"]},
+      "settleMaxMs": 5000
+    }
+  ],
+  "invariants": [
+    "at after-cmd-n, after-cmd-t and after-cmd-d the focused tab is the New Tab page the step opened and its draft is sha256 of 'hello world 123'; the page the previous step typed into keeps its own draft",
+    "focus.context.terminal is false at each of those snapshots: no held key leaked to a terminal",
+    "every mutation has one receipt or one typed error (I1)",
+    "ids stay stable unless the step created or closed them (I2)"
+  ],
+  "teardown": ["quit the tagged app the run started", "verify its debug socket is gone", "end the tag's daemons (TagTeardown)"],
+  "untested": [
+    "keys posted at the window server (CGEvent, HID tap) at 25-30 keys/s with the first one 40 ms after Cmd-N: the case types through debug.key, the app's own key path, one request per key; the real-event timing stays in the script and the new-workspace-typing perf story",
+    "New Tab Page from the command palette: typing the palette query and Return would put the case's own keys into the palette's field first",
+    "cold runs after a relaunch (the script relaunches before each Cmd-N): the case's fresh launch is its one cold run",
+    "Cmd-Shift-N (the script's --flow window)"
+  ]
+}
