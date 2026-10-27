@@ -195,7 +195,10 @@ final class CreationInputCoordinator {
     }
 
     private func resolve(_ ticket: CreationInputBuffer.Ticket?, landed: Bool, workspace: String?, in window: NSWindow?) {
-        if let window, let workspace, let ticket, let claim = claims[window.windowNumber], claim.ticket == ticket { claim.workspace = workspace }
+        if let window, let workspace, let ticket, let claim = claims[window.windowNumber], claim.ticket == ticket {
+            claim.workspace = workspace
+            _ = activeClaim(in: window) // the window may show it already (its delta came before the reply)
+        }
         guard let ticket, let window, let buffer = buffers[window.windowNumber] else { return }
         buffer.resolve(ticket, awaitsFocus: landed, workspace: workspace)
         scheduleFlush(in: window)
@@ -365,7 +368,9 @@ extension CreationInputCoordinator {
     /// action asks for claims the keyboard again.
     static func installPersonIntent(_ services: AppServices) {
         services.registry.willRunObservers.append { [weak services] _, origin in
-            guard origin == .user, let services else { return }
+            // Only a top-level run is a new intent: a run inside another (its handler's, or a later turn of an earlier
+            // run, whose task keeps that run's scope) answers no new press.
+            guard origin == .user, ActionRunScope.current == nil, let services else { return }
             services.keyRouter.creationInputCoordinator.personActed(in: services.windows.active?.window,
                                                                     event: services.registry.dispatchingInputEvent())
         }

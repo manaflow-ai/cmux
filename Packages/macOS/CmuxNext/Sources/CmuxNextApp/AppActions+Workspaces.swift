@@ -194,15 +194,18 @@ extension AppActions {
             do {
                 made = try await create(); BenchSpans.mark("cmdN.created")
                 pageMade = true
-                var shown = quiet == nil
-                if let quiet, let made, let target, let controller = windows.controller(for: target), !controller.hasTextInputKeyboard {
+                // A window with no controller yet (a launch window still to build, a new one) has nobody typing in it.
+                if let quiet, let made, let target, windows.controller(for: target)?.hasTextInputKeyboard != true {
                     // Claimed again, out loud: shown now when the store has it, else when it lists it (reconcile).
                     windows.quietClaims.remove(made)
                     let shows = ActionRunScope(origin: quiet.origin, allowsViewChange: true)
-                    ActionRunScope.carrying(shows) { windows.claimNew(workspaceID: made, window: target) }
-                    shown = true
+                    ActionRunScope.carrying(shows) {
+                        windows.claimNew(workspaceID: made, window: target)
+                        if focus.activatesApp { focusWindow(windows, target) }
+                    }
+                } else if quiet == nil, focus.activatesApp, let target {
+                    focusWindow(windows, target)
                 }
-                if shown, focus.activatesApp, let target { focusWindow(windows, target) }
                 return nil
             } catch is CancellationError {
                 return nil // a close took it before it started (WorkspaceLanes)

@@ -34,10 +34,12 @@ extension WindowController {
     /// field, an editor). Automation does not take the window from it (CLAUDE.md, "Go past Chrome where cmux is
     /// scripted"). A terminal is not a text input here: a person's `cmux open --focus` from a terminal moves on.
     @MainActor var hasTextInputKeyboard: Bool {
-        // The person's keyboard is in this window only while it is the active app's key window (a CLI run from another
-        // app finds it elsewhere): the focus model's own facts, fed by the window's key and the app's activation.
+        // The person's keyboard is in this window only while the app is active and the key window is this window or one
+        // it owns (a Chromium page window, a sheet: the shell itself resigns key then). A CLI run from another app finds
+        // the keyboard elsewhere.
         let facts = focus.currentState()
-        guard let window, facts.appActive, facts.windowKey else { return false }
+        guard let window, facts.appActive else { return false }
+        guard facts.windowKey || NSApp.keyWindow.flatMap(services.windows.owner(of:)) === self else { return false }
         if let responder = window.firstResponder {
             if responder.ownsTypedText { return true }
             if !(responder is TerminalSurfaceView), let client = responder as? any NSTextInputClient, client.hasMarkedText() { return true }
