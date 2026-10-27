@@ -2306,9 +2306,13 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
         self.assertEqual(context["needs.path_route.outputs.cmuxnext_swift"], "false")
         self.assertFalse(self.runs(context))
         self.assertTrue(self.runs(self.context(["App/Info.plist"], labels=("full-ci",))))
-        # With no build-fleet verdict, the Mac compiles it instead.
+        # With no build-fleet verdict, the Mac compiles it only for an input only its xcodebuild sees
+        # (path_route's mac_release): App/ is the Xcode app target's, not the package's.
         context["needs.app-compile-fleet.outputs.verdict"] = "unavailable"
-        self.assertTrue(self.runs(context))
+        self.assertFalse(self.runs(context))
+        resolved = self.context(["Packages/macOS/CmuxNext/Package.resolved"])
+        resolved["needs.app-compile-fleet.outputs.verdict"] = "unavailable"
+        self.assertTrue(self.runs(resolved))
         self.assertFalse(self.runs(self.context(["App/Info.plist"], head_repo="someone/cmux")))
         self.assertTrue(self.runs(self.context(["App/Info.plist"], labels=("full-ci",), head_repo="someone/cmux")))
 
