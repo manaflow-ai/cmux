@@ -108,7 +108,16 @@ extension CloudHandlers {
                   cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else { return }
             try await wizard.offerCredentialSetup(machine: session.machine.title,
                 account: cloud.auth.activeTeam.team?.displayName ?? String(localized: "cloud.workspaceSetup.personalAccount", defaultValue: "Personal account", table: "Cloud", bundle: .module), present: present) { provider in
-                let transfer = CloudCredentialTransfer(provider: provider == .claude ? .claude : .codex,
+                if provider == .codex {
+                    try await cloud.codexBroker.run(machineID: session.machineID,
+                        scope: .init(userID: userID, teamID: teamID), confirmed: true,
+                        presentDeviceCode: { prompt in
+                            guard let window = services.windows.active?.window else { return false }
+                            return await CloudPresenter.presentCodexDeviceCode(prompt, in: window)
+                        })
+                    return
+                }
+                let transfer = CloudCredentialTransfer(provider: .claude,
                     machineID: session.machineID, teamID: teamID, userID: userID, openTerminal: { [weak services] line in
                         await services?.openLocalProviderLogin(line) ?? false
                     })
