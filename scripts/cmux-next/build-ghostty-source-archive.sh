@@ -58,6 +58,14 @@ if [[ "$vt_name" != ghostty ]]; then
   next_verify=(--next-name "$vt_name" --next-license-manifest "$out/$vt_name-licenses/SOURCE-MANIFEST.json" --next-revision "$vt_revision")
   next_build=("${next_verify[@]}" --next-source "$vt")
 fi
+# CMUX_NEXT_SOURCE_ARCHIVE_TARBALL=0: the license trees only. A nightly that
+# will not publish the archive (vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE unset)
+# skips the two ~75 s tarball builds; cmux-next-source-archive.yml still builds
+# and verifies the tarball whenever its inputs change.
+if [[ "${CMUX_NEXT_SOURCE_ARCHIVE_TARBALL:-1}" == 0 ]]; then
+  echo "license trees only (CMUX_NEXT_SOURCE_ARCHIVE_TARBALL=0): no source tarball"
+  exit 0
+fi
 archive="$out/cmux-next-source-$build.tar.gz"
 args=(--ghostty-source "$ghostty" --zig-cache "$ZIG_GLOBAL_CACHE_DIR" --license-manifest "$out/ghostty-licenses/SOURCE-MANIFEST.json"
   --revision "$revision" --cmux-commit "$commit" --tag "cmux-next-src-${commit:0:11}" ${next_build[@]+"${next_build[@]}"})

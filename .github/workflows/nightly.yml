@@ -1647,8 +1647,9 @@ jobs:
       # every Zig package of the build, so the MPL-2.0 source offer for Ghostty's
       # Zig packages names an archive this release publishes (and the public
       # cmux-next-src-<commit> tag) instead of upstream URLs. Built and verified
-      # on every nightly-next build (twice, byte-identical); the publish job
-      # attaches it only while vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE is 1.
+      # (twice, byte-identical) only while vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE
+      # is 1, the same gate the publish job attaches it under; otherwise only
+      # the license trees (cmux-next-source-archive.yml dry-runs the tarball).
       # Blocking: a Ghostty Zig package with no license text (or any other
       # collect, verify or reproducibility failure) fails this job, so the sign
       # job never runs and no nightly-next ships without the license tree.
@@ -1656,6 +1657,9 @@ jobs:
       - name: Build the cmux-next source archive
         id: source_archive
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true')
+        env:
+          # The tarball only when this build may publish it; the license trees always.
+          CMUX_NEXT_SOURCE_ARCHIVE_TARBALL: ${{ vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' && '1' || '0' }}
         run: |
           set -euo pipefail
           if ! ZIG_GLOBAL_CACHE_DIR="$HOME/.cache/zig" \
