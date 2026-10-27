@@ -68,7 +68,11 @@ export default componentEntry<{ treatment: Treatment }>({
             "p",
             null,
             createElement(SenderIdentityLabel, {
-              identity: resolveSenderIdentity({ name: "syntax-check" }, child, "fixture-parent"),
+              identity: resolveSenderIdentity(
+                { name: "syntax-check", sessionId: child.sessionId },
+                child,
+                "fixture-parent",
+              ),
             }),
           ),
           createElement(

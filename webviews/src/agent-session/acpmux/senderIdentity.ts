@@ -18,7 +18,9 @@ export function resolveSenderIdentity(
   viewerSessionId?: string,
 ): SenderIdentity {
   const parent = entry?.startedBy ?? entry?.spawnedBy;
-  const relation = sender.relation ?? (viewerSessionId && parent === viewerSessionId ? "subsession" : undefined);
+  const relation =
+    sender.relation ??
+    (sender.sessionId === entry?.sessionId && viewerSessionId && parent === viewerSessionId ? "subsession" : undefined);
   const name =
     senderSessionName(entry?.shortName ?? "", entry?.peer) ||
     senderSessionName(entry?.name ?? "", entry?.peer) ||

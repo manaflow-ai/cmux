@@ -335,7 +335,11 @@ export function useSenderIdentity(sender: SenderReference, viewerSessionId?: str
   const entry = useSyncExternalStore(store.subscribeNames, read, read);
   return useMemo(
     () =>
-      resolveSenderIdentity({ name: sender.name, sessionId: id, relation: sender.relation }, entry, viewerSessionId),
-    [sender.name, sender.relation, id, entry, viewerSessionId],
+      resolveSenderIdentity(
+        { name: sender.name, sessionId: sender.sessionId, relation: sender.relation },
+        entry,
+        viewerSessionId,
+      ),
+    [sender.name, sender.sessionId, sender.relation, entry, viewerSessionId],
   );
 }
