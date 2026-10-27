@@ -347,7 +347,6 @@ import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { sessionLink } from "./links";
 import { ChatHeaderInlineStatus, ChatHeaderStatus } from "./header/ChatHeaderStatus";
 import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "./header/ChatHeaderTools";
-import { EnvironmentLine, environmentOpener } from "./header/EnvironmentLine";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabRow";
 import { PullRequestDock } from "./summary/PullRequestDock";
@@ -356,7 +355,7 @@ import { RecapCard, useRecapCard } from "./RecapCard";
 import { HarnessStatusCard } from "./HarnessStatusCard";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { chatColumnOf, configureChatWidth, useChatWidth } from "./chatWidth";
-import { environmentPlacementSurface, registerChatDisplayHost, useChatDisplay } from "./chatDisplay";
+import { registerChatDisplayHost, useChatDisplay } from "./chatDisplay";
 import { ChatDisplaySettings } from "./ChatDisplaySettings";
 import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
 import { configureLiveLineBelow, useLiveLineBelow } from "./liveLineBelow";
@@ -5817,7 +5816,6 @@ function AcpmuxPane() {
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
   const [surface, setSurface] = useState<PaneSurface>("pane");
   const quick = surface === "quick";
-  const environmentPlacement = useChatDisplay().environmentPlacement;
   /// The header's tools in the pane's tab row, while the App offers one (header/tabRow.ts).
   const tabRow = useTabRow();
   const inTabRow = tabRow.height > 0 && !quick;
@@ -7810,40 +7808,7 @@ function AcpmuxPane() {
   const ComposerChips = registryChips ?? DefaultComposerChips;
   // The catalog arrives through the query cache, which composerSnapshot carries.
   const header = paneHeader(composerSnapshot, t);
-  // The Environment line (header/EnvironmentLine.tsx): machine · folder · branch, opening the
-  // Inspector at Environment while the Inspector is on, else the chat folder's Files tree. Left
-  // owns the dedicated row below tabs; Right preserves the original header slot/compact tab-row
-  // placement.
-  // Called while the header draws, after `localCwd` and `runSplitAction` below are set.
-  const environmentOpenRef = useRef<(() => void) | undefined>(undefined);
-  const stableEnvironmentOpen = useCallback(() => environmentOpenRef.current?.(), []);
-  const environmentLine = (compact = false) => {
-    const open = environmentOpener(
-      inspector.reveal,
-      localCwd ? () => runSplitAction(HEADER_ACTIONS.files, localCwd, "toggle") : undefined,
-    );
-    environmentOpenRef.current = open;
-    return (
-      <EnvironmentLine
-        summary={snapshot.summary}
-        machineName={machineName}
-        peerKinds={snapshot.peerKinds}
-        compact={compact}
-        onOpen={open ? stableEnvironmentOpen : undefined}
-      />
-    );
-  };
-  // Keep the row out of a new/loading chat until the daemon has reported a cwd or branch. The
-  // render site calls `environmentLine()` only after the local folder and split handlers below
-  // have been initialized, avoiding a transient render-time TDZ for a started chat.
-  const hasEnvironment = Boolean(snapshot.summary?.cwd || snapshot.summary?.branch);
-  const environmentSurface = environmentPlacementSurface({
-    placement: environmentPlacement,
-    inTabRow,
-    hasEnvironment,
-    hasStatus: Boolean(header.status),
-    covered: environmentCovered,
-  });
+  // The pane header never says where the chat runs (Leo 2026-10-26); the Inspector's Environment does.
   const handoffTargets = continueTargets(composerSnapshot.catalog, snapshot.summary?.harness);
   const canContinue = continueAvailable;
   const ignoreFailure = (result: Promise<unknown>) => void result.catch(() => undefined);
@@ -9683,19 +9648,13 @@ function AcpmuxPane() {
                 style={inTabRow ? tabRowStyle(tabRow) : undefined}
               >
                 <header className="acpmux-header" data-tab-row={inTabRow ? "" : undefined}>
-                  <ChatHeaderStatus status={header.status} detail={header.detail}>
-                    {!inTabRow && environmentSurface.header && environmentLine(environmentSurface.compact)}
-                  </ChatHeaderStatus>
+                  <ChatHeaderStatus status={header.status} detail={header.detail} />
                   <div className="acpmux-handoff-header-tools" ref={tabRowTools}>
                     <LivePresenceStack
                       sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
                       fallback={snapshot.presence}
                     />
-                    {inTabRow && (
-                      <ChatHeaderInlineStatus status={header.status} detail={header.detail}>
-                        {environmentSurface.header && environmentLine(environmentSurface.compact)}
-                      </ChatHeaderInlineStatus>
-                    )}
+                    {inTabRow && <ChatHeaderInlineStatus status={header.status} detail={header.detail} />}
                     {preview && (
                       <span
                         className="acpmux-session-coverage"
@@ -9781,11 +9740,6 @@ function AcpmuxPane() {
                     />
                   </div>
                 </header>
-                {environmentSurface.row && (
-                  <div className="acpmux-environment-row" data-placement="left">
-                    {environmentLine()}
-                  </div>
-                )}
                 {!inspector.on && !summaryCard.column && summaryPanel}
                 {!diffView && checkpoints.review}
                 {/* The lines under the header drop in from the top (ui/popupSurface.css `data-enter`). */}

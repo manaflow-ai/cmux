@@ -187,10 +187,9 @@ const meta = (element: HTMLElement | null) =>
 const head = (element: HTMLElement) => element.querySelector<HTMLElement>("button.ui-disclosure-trigger")!;
 const click = (element: HTMLElement) => act(async () => element.click());
 
-test("the Inspector inset follows the visible Left chip row only", () => {
-  expect(inspectorTopOffset(0, true)).toBe("calc(var(--acpmux-header-height, 44px) + var(--ui-row-height))");
-  expect(inspectorTopOffset(28, true)).toBe("calc(28px + var(--ui-row-height))");
-  expect(inspectorTopOffset(28, false)).toBe("28px");
+test("the Inspector starts right under the header: no row for a machine and folder label", () => {
+  expect(inspectorTopOffset(0)).toBe("var(--acpmux-header-height, 44px)");
+  expect(inspectorTopOffset(28)).toBe("28px");
 });
 
 test("the Inspector opens with a first chat: its environment, context use and outputs; the toggle closes it", async () => {
