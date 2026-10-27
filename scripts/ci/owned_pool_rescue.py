@@ -254,9 +254,11 @@ re-runs jobs only in a finished run, so this cancels the run first, which a
 started nightly allows only when it loses no work: every other job of the run
 has finished and no runner has taken the stalled jobs (signing_stall()). While
 any other job is still running or queued the rescue only logs and looks again.
-It acts only on attempt 1, and only when the run's own nightly.yml has the
-attempt-2 alternate in the job's runs-on (sign_stall_gate()); otherwise the
-re-run would queue on the same label.
+It acts only when the run's own nightly.yml has the attempt-2 alternate in the
+job's runs-on (sign_stall_gate()); otherwise the re-run would queue on the same
+label. From attempt 2 on (through SIGN_RESCUE_LAST_ATTEMPT) a re-run of failed
+jobs would read that attempt's own pick, the label that stalled, so the run is
+re-run in full and its pickers choose again (signing_rerun_full()).
 
 A job stuck with no runner is not rescued while another job of its run is
 running on a persistent runner, whatever the workflow: the rescue cancels the
@@ -712,6 +714,19 @@ NIGHTLY_SIGN_ALTERNATES: dict[str, tuple[str, str]] = {
 SIGN_BLACKSMITH_LABEL = re.compile(r"blacksmith-[0-9]+vcpu-macos-[0-9]+(?:-[a-z0-9]+)*")
 # simple_pool_picker.blacksmith_stalled()'s rule: a Blacksmith job with no runner this long is on a stalled label.
 SIGN_STALL_SECONDS = simple_pool_picker.BLACKSMITH_STALL_MINUTES * 60
+# The last attempt whose stalled signing jobs are rescued. Attempt 1 re-runs its failed jobs: attempt 2 reads the
+# `alternate` its pickers wrote. From attempt 2 on a re-run of failed jobs would read that attempt's own outputs,
+# the very label that stalled (run 40500413442, 2026-10-27: attempt 2's legacy sign queued on
+# blacksmith-12vcpu-macos-26 from 13:01Z, its verify jobs from 15:15Z), so the run is re-run in full: the pickers
+# run again and choose afresh, never a size their snapshot sees stalled (nightly_sign_runner.py, #26239). A full
+# re-run builds the app again, so it stops here.
+SIGN_RESCUE_LAST_ATTEMPT = 3
+
+
+def signing_rerun_full(attempt: int) -> bool:
+    """Whether a signing-stall rescue of `attempt` re-runs the whole run (the pickers choose again) rather than its
+    failed jobs (which take the alternate attempt 1's pickers wrote)."""
+    return attempt > 1
 
 
 def sign_job_key(job: Mapping[str, Any]) -> str | None:
@@ -1948,7 +1963,7 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
     while True:
         looks += 1
         jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
-        if target.late_owned_jobs and target.attempt == 1:
+        if target.late_owned_jobs and target.attempt <= SIGN_RESCUE_LAST_ATTEMPT:
             # nightly-next's signing jobs on a stalled Blacksmith macOS label (signing_stall()).
             seen_at = now()
             for job in jobs:
@@ -2602,7 +2617,8 @@ def rescue_stalled_signing(api: GitHub, target: Target, *, now: Callable[[], dt.
                            deadline: dt.datetime | None, sign_seen: Mapping[Any, dt.datetime] | None = None,
                            workflow_text: str | None = None) -> str:
     """Cancel a nightly-next run whose only unfinished jobs are signing jobs stalled on Blacksmith macOS, then
-    re-run its failed jobs: only those jobs (and what needs them) run again, on their alternate label.
+    re-run it. Attempt 1 re-runs its failed jobs: only those jobs (and what needs them) run again, on their
+    alternate label. A later attempt is re-run in full (signing_rerun_full()), so its pickers choose again.
 
     The jobs are read again first, with the watch's first-seen times and the gate (gated_signing_stall()), so
     a job that started, a sibling that came back or a job without the alternate leaves the run alone, and
@@ -2636,13 +2652,18 @@ def rescue_stalled_signing(api: GitHub, target: Target, *, now: Callable[[], dt.
 
     try:
         still_stalled()
-        result = rescue(api, target, now=now, sleep=sleep, log=log, failed_only=True, deadline=deadline,
+        full = signing_rerun_full(target.attempt)
+        result = rescue(api, target, now=now, sleep=sleep, log=log, failed_only=not full, deadline=deadline,
                         refused=False, before_cancel=still_stalled)
     except SignStallChanged as changed:
         # Raised before the cancel was sent (or re-sent): the run is as GitHub has it.
         return f"{SIGN_NOT_YET}{changed}"
     if result.startswith("re-ran the failed jobs"):
         result += "; its signing jobs take their alternate macOS label on that attempt"
+    elif result.startswith("re-ran run"):
+        result = (f"re-ran every job of run {target.run_id}: attempt {target.attempt}'s own pick is the label that "
+                  f"stalled, so attempt {target.attempt + 1}'s pickers choose its signing labels again, never a "
+                  "stalled one")
     return result
 
 
