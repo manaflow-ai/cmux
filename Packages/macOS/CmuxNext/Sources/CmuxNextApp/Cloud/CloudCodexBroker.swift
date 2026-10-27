@@ -1,5 +1,5 @@
-import CmuxNextCloud
-import CmuxNextDaemon
+public import CmuxNextCloud
+public import CmuxNextDaemon
 public import Foundation
 
 /// The account scope that owns one local Codex refresh-token holder. The scope is
@@ -202,7 +202,7 @@ public actor CloudCodexBroker {
     private var refreshTask: Task<Void, Never>?
     private var refreshInFlight: Task<CloudCodexAccessGrant, Error>?
 
-    nonisolated public init(scope: CloudCodexBrokerScope,
+    public init(scope: CloudCodexBrokerScope,
                 currentScope: @escaping @Sendable () async -> CloudCodexBrokerScope?,
                 executable: URL,
                 executablePrefix: [String] = [],
@@ -461,7 +461,7 @@ public actor CloudCodexBroker {
 public actor CloudCodexBrokerRegistry {
     private var brokers: [CloudCodexBrokerScope: CloudCodexBroker] = [:]
 
-    nonisolated public init() {}
+    public init() {}
 
     public func broker(for scope: CloudCodexBrokerScope,
                        currentScope: @escaping @Sendable () async -> CloudCodexBrokerScope?,
