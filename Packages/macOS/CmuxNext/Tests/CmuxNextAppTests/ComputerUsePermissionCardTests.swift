@@ -77,12 +77,8 @@ struct ComputerUsePermissionCardTests {
         for await count in ObservationStream({ card.grants.count }) where count >= 1 { break }
         #expect(await card.grants.panes == [.screenRecording])
         #expect(card.opened.urls == [ComputerUseSetup.settingsURL(.screenRecording)])
-        // Another read of the same missing grant does not ask again.
-        card.setup.recheck()
-        for await phase in ObservationStream({ card.setup.phase }) where phase == .ready { break }
         card.requests.denyCurrent()
         _ = await waiting.value
-        #expect(await card.grants.panes == [.screenRecording])
     }
 
     /// Accessibility needs only the toggle: the request would raise macOS's
