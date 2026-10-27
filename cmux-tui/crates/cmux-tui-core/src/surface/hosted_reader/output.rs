@@ -125,8 +125,7 @@ impl HostedReader {
             pty.record_output(journal_target, &journal_output);
         }
         drop(journal_update.take());
-        surface.publish_pending_directory();
-        surface.publish_pending_progress();
+        surface.post_pending_publications();
         pty.stream_progress.notify();
         pty.request_frame(generation);
         if let Some(title) = title_update
@@ -139,10 +138,8 @@ impl HostedReader {
         {
             mux.emit_terminal_scroll(surface.id, offset, at_bottom);
         }
-        if !terminal_notifications.is_empty()
-            && let Some(mux) = mux.upgrade()
-        {
-            mux.post_terminal_notifications(surface.id, terminal_notifications);
+        if !terminal_notifications.is_empty() {
+            surface.post_output_notifications(terminal_notifications);
         }
         if !finished_commands.is_empty()
             && let Some(mux) = mux.upgrade()

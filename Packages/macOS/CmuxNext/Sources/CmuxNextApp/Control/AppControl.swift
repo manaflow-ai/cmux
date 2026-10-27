@@ -54,12 +54,18 @@ final class AppControl {
     #if DEBUG || CMUX_BENCH_HOOKS
     private let keySequencePlayer = DebugKeySequencePlayer() // `debug.key` sequences' player (one at a time), not a static
     let hops = InputTurnHops() // `debug.input hops` (p04-input-022); the MainJobGate hook (021) records into `hops.recorder`
+    /// `debug.startup`'s report: the launch marks and the first committed frame (kept by AppDelegate). Counters, scheduler
+    /// and catalog wait have no producer yet (tasks 007, 012, 092 wire theirs here); their fields read null until then.
+    let startupReport = StartupReportRecorder(launch: { DebugTimings.launchMarksNow }, processStartNanos: DebugTimings.processStartUptimeNanos,
+                                              counters: { nil }, scheduler: { _ in nil }, actionCatalogMainWaitMs: { nil })
     #endif
     private(set) var service: ControlService?
     private var publisher: ControlSnapshotPublisher?
     private(set) var errorJournal: ErrorJournalService?
     /// Over-budget action runs: the Release report's counters, and the Debug log line per run.
     private(set) var actionBudget: ActionBudgetReporter?
+    /// The frames after the person's actions on the key window (`action.missed_frames.cmd_t/n/w`).
+    private var commitWindows: ActionCommitWindows?
     /// The task diagnostics mode (`CMUX_NEXT_MAIN_TASK_DIAGNOSTICS=1`): the watchdog records over-budget
     /// tasks with a stack, and the action budget's Debug line names that it sampled them. Read once.
     private let recordsTaskBudgets = MainThreadWatchdog.recordsTaskBudgets(environment: ProcessInfo.processInfo.environment)
@@ -122,6 +128,7 @@ final class AppControl {
         actionBudget = ActionBudgetReporter(monitor: services.actionBudget, naming: ActionReportNaming(catalog: Set(registry.descriptors.map(\.id.rawValue))),
                                             overBudget: watchdog.overBudget, sampling: recordsTaskBudgets,
                                             logsRuns: ControlService.isDebugBuild, work: services.work, mainWork: mainWork)
+        commitWindows = ActionCommitWindows(monitor: services.actionBudget) { NSApp.keyWindow.map { FrameScheduler.forWindow($0) } }
         services.restartControlListener = { [weak service] in try service?.restartListener() }
         // A busy renderer's record names the Chromium tabs it serves (p14-energy-124), from the snapshot
         // the cache publishes: the watchdog reads it off the main thread.
@@ -160,7 +167,7 @@ final class AppControl {
             // The field histograms since launch (`cmux metrics`), read-only; `unavailable` until the metricsView feature is on.
             ControlRouter.metricsMethod(enabled: services.features.isEnabled(.metricsView)),
         ])
-        router.register(DebugHibernationControl.methods(services)) // debug.memory serves release builds too
+        router.register(DebugHibernationControl.methods(services)) // debug.memory and debug.discards serve release builds too
         // trace.start, trace.stop and trace.status (p09-observability 020), behind the default-off traceControl feature.
         if services.features.isEnabled(.traceControl) { router.register(services.daemon.traceMethods(blackBox: services.traceBlackBox?.blackBox, work: services.work)) }
     }
@@ -179,7 +186,7 @@ final class AppControl {
         if let actionBudget { router.register([actionBudget.method(registry: services.registry)]) }
         // The local daemon's wire traffic, decodes, output copies and connections by role.
         if let wireStats = services.wireStats { router.register([DaemonWireControl(stats: wireStats).method]) }
-        router.register([DebugInput(sources: [InputTapDebugSource(tap: services.inputTap), DebugCEF.pumpInputSource(services.cache.chromium),
+        router.register([DebugInput(sources: [InputTapDebugSource(tap: services.inputTap, mainWork: services.mainWork), DebugCEF.pumpInputSource(services.cache.chromium),
                                                DebugCEF.histogramSource(services.cache.chromium),
                                                IntentPrewarmDebugSource { [weak services] in services?.cache.hibernation?.intentPrewarm?.service },
                                                MainJobGateDebugSource { (NSApp as? CmuxApplication)?.jobGate?.gate },
@@ -191,10 +198,12 @@ final class AppControl {
                                                        }
                                                    }) ?? DebugInputScrollViews(rows: [])
                                                }],
+                                     // `hittest` (p04-input-098): one audit for the app, its hooks installed on request only.
                                      recorders: [hops.start(input: input),
                                                  InputDirtyRecorder(tap: services.inputTap) { [mainWork = services.mainWork] copy in
                                                      await mainWork.apply(.automation, owner: "debug.input.dirty") { copy() }
-                                                 }]).method])
+                                                 },
+                                                 HitTestAuditDebugRecorder(audit: HitTestAudit(input: services.inputTap))]).method])
         router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugDrainCostMethod])
     }
     #endif
