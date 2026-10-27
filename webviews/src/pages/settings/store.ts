@@ -508,6 +508,12 @@ export class SettingsStore {
     await this.refreshHost();
   }
 
+  /** Settings > Machines: a Cloud machine's "Dedicated agent machine" on or off, then re-read the host lists. */
+  async setMachineVmHost(id: string, on: boolean): Promise<void> {
+    await this.request("cmux.settings.machines.vm_host", { id, on });
+    await this.refreshHost();
+  }
+
   /** Settings > Mobile: answer a phone's pairing request, then re-read the host lists. */
   async answerPair(id: string, allow: boolean): Promise<void> {
     await this.request("cmux.settings.mobile.answer_pair", { id, allow });

@@ -2,25 +2,62 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Combobox } from "../../ui/Combobox";
 import { Popover } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
-import { translate as t } from "./i18n";
+import { translate as t, type StringKey } from "./i18n";
 import {
   type ConnectKind,
   type Environment,
   type EnvironmentKind,
   type OffloadKind,
+  type EnvironmentSection,
   type SavedEnvironment,
   environmentDigit,
   environmentForDigit,
+  environmentReady,
+  environmentSections,
+  numberedEnvironments,
   orderEnvironments,
 } from "./environments";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { machineColor } from "./machineColor";
 
-const SECTION_LABELS = {
+/// The sections (environments.ts `environmentSections`): This Mac, My machines, Cloud and VMs.
+export const SECTION_LABELS: Record<EnvironmentSection, StringKey> = {
+  local: "composer.thisMac",
+  mine: "composer.envMine",
+  fleet: "composer.envFleet",
+};
+/// A machine's kind, which the search also matches ("ssh", "cloud").
+const KIND_LABELS: Record<EnvironmentKind, StringKey> = {
   local: "composer.envLocal",
   ssh: "composer.envSSH",
   cloud: "composer.cloud",
-} as const;
+};
+/// A machine a chat cannot start on yet, in words: its link state as acpmux says it.
+const STATE_LABELS: Record<string, StringKey> = {
+  connecting: "rail.connectorPending",
+  degraded: "rail.connectorPending",
+  reconnecting: "header.reconnecting",
+};
+export function environmentStateLabel(environment: Environment): string {
+  return t(STATE_LABELS[environment.state ?? ""] ?? "composer.envNotConnected");
+}
+
+/// How often an open machine list reads the machines again: acpmux sends no peer events, so a
+/// machine that connects or drops while the list is open shows within this long.
+export const MACHINES_REFRESH_MS = 5_000;
+
+/// While a machine list is open, `refresh` runs as it opens and then every MACHINES_REFRESH_MS;
+/// the timer stops when the list closes or the picker unmounts.
+export function useMachineRefresh(open: boolean, refresh: (() => void) | undefined): void {
+  const latest = useRef(refresh);
+  latest.current = refresh;
+  useEffect(() => {
+    if (!open) return;
+    latest.current?.();
+    const timer = setInterval(() => latest.current?.(), MACHINES_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [open]);
+}
 
 /// The New Tab page's saved environments in the picker: a Saved section over the machines, Create
 /// environment under New environment, and Edit environment while one is picked.
@@ -35,8 +72,10 @@ export type SavedEnvironmentRows = {
   onEdit(id: string): void;
 };
 
-/// The environment picker (preview, `labs.previewFeatures`): one searchable list with Local, SSH
-/// and Cloud sections, ⌥⌘1–9 on the first nine. Cloud is always a section: its machines, then New
+/// The environment picker (preview, `labs.previewFeatures`): one searchable list of every machine
+/// acpmux lists, in This Mac, My machines and Cloud and VMs sections (environments.ts), the ones a
+/// chat can start on first and the rest greyed with their state; ⌥⌘1–9 on the first nine that can
+/// take a chat. Cloud is always a section: its machines, then New
 /// Cloud Machine (the host's create flow) with what one gives, so a cloud machine is one click away
 /// even before the first. New environment at the bottom holds the SSH… connect flow. ⌥⌘1–9 also
 /// work while the composer it heads has focus. On the New Tab page it also lists the saved
@@ -68,7 +107,8 @@ export function EnvironmentPicker({
   onPick(id: string): void;
   onConnect?(kind: ConnectKind): void;
   saved?: SavedEnvironmentRows;
-  /// The list opened: the host reads the machines again, so each one's status is current.
+  /// The list opened, and every few seconds while it stays open: the host reads the machines
+  /// again, so each one's status is current.
   onOpen?(): void;
   /// A started chat's move, run by `onOffload`.
   offload?: OffloadKind;
@@ -89,15 +129,22 @@ export function EnvironmentPicker({
   });
   useLocationOpener(menu, () => setOpen(true));
   const ordered = useMemo(() => orderEnvironments(environments), [environments]);
+  const sections = useMemo(() => environmentSections(environments), [environments]);
+  const sectionOf = (environment: Environment) => sections.get(environment.id) ?? "fleet";
   const numbers = useMemo(
-    () => new Map(ordered.slice(0, 9).map((environment, index) => [environment.id, index + 1])),
-    [ordered],
+    () => new Map(numberedEnvironments(environments).map((environment, index) => [environment.id, index + 1])),
+    [environments],
   );
   const words = useMemo(() => query.trim().toLowerCase().split(/\s+/).filter(Boolean), [query]);
   const shown = useMemo(
     () =>
-      ordered.filter((environment) => matches(words, `${environment.label} ${t(SECTION_LABELS[environment.kind])}`)),
-    [ordered, words],
+      ordered.filter((environment) =>
+        matches(
+          words,
+          `${environment.label} ${t(SECTION_LABELS[sections.get(environment.id) ?? "fleet"])} ${t(KIND_LABELS[environment.kind])}`,
+        ),
+      ),
+    [ordered, sections, words],
   );
   // The saved environments, first, by name and the Saved section's name.
   const savedShown = useMemo(
@@ -113,10 +160,14 @@ export function EnvironmentPicker({
       new Map(
         shown.map((environment, index) => [
           environment.id,
-          { environment, index, sectionStart: index === 0 || shown[index - 1]!.kind !== environment.kind },
+          {
+            environment,
+            index,
+            sectionStart: index === 0 || sections.get(shown[index - 1]!.id) !== sections.get(environment.id),
+          },
         ]),
       ),
-    [shown],
+    [shown, sections],
   );
   // New Cloud Machine and Open Cloud… close the Cloud section (New Cloud Machine heads the section
   // when there is no cloud machine); New environment, last: Create environment (the New Tab page's saved ones), Edit environment
@@ -208,15 +259,13 @@ export function EnvironmentPicker({
     ...shown.map((environment) => environment.id),
     ...actions.map((action) => action.value),
   ];
-  const cloudShown = shown.some((environment) => environment.kind === "cloud");
-  const localShown = shown.some((environment) => environment.kind === "local");
+  const cloudShown = shown.some((environment) => sectionOf(environment) === "fleet");
+  const localShown = shown.some((environment) => sectionOf(environment) === "local");
   const firstNew = actions.find((action) => action.kind !== "cloud" && action.kind !== "local");
 
-  const latest = useRef({ ordered, current: currentRow, onPick, onOpen });
-  latest.current = { ordered, current: currentRow, onPick, onOpen };
-  useEffect(() => {
-    if (open) latest.current.onOpen?.();
-  }, [open]);
+  const latest = useRef({ ordered, current: currentRow, onPick });
+  latest.current = { ordered, current: currentRow, onPick };
+  useMachineRefresh(open, onOpen);
   const close = () => {
     setOpen(false);
     reset();
@@ -261,11 +310,15 @@ export function EnvironmentPicker({
   const autoHighlighted = useRef<string | undefined>(undefined);
   const submit = (value: string) => {
     const action = actions.find((candidate) => candidate.value === value);
+    // A machine still connecting or down is listed, greyed, in its place, but is no pick: the list
+    // stays open.
+    const machine = positions.get(value)?.environment;
+    if (machine && !environmentReady(machine)) return;
     close();
     if (action) action.run();
     else if (value === currentRow) focusPrompt();
     else if (value.startsWith(SAVED)) saved?.onPick(value.slice(SAVED.length));
-    else if (positions.has(value)) onPick(value);
+    else if (machine) onPick(value);
   };
   const row = (value: string) => {
     const action = actions.find((candidate) => candidate.value === value);
@@ -275,7 +328,7 @@ export function EnvironmentPicker({
       const section =
         action.kind === "cloud"
           ? action === actions[0] && !cloudShown
-            ? t(SECTION_LABELS.cloud)
+            ? t(SECTION_LABELS.fleet)
             : undefined
           : action.kind === "local"
             ? localShown
@@ -326,20 +379,25 @@ export function EnvironmentPicker({
     if (!position) return null;
     const { environment, index, sectionStart } = position;
     const number = numbers.get(environment.id);
+    const ready = environmentReady(environment);
     return (
       <span
         className="acpmux-location-row acpmux-env-row"
         data-kind={environment.kind}
-        data-section={sectionStart ? t(SECTION_LABELS[environment.kind]) : undefined}
+        data-section={sectionStart ? t(SECTION_LABELS[sectionOf(environment)]) : undefined}
         data-first-section={sectionStart && index === 0 && savedShown.length === 0 ? "" : undefined}
         data-current={environment.id === currentRow ? "" : undefined}
+        data-ready={ready ? undefined : "false"}
+        aria-disabled={ready ? undefined : true}
       >
         <EnvironmentIcon kind={environment.kind} name={environment.label} />
         <span className="acpmux-menu-text acpmux-location-name">
           <span className="acpmux-menu-label">{environment.label}</span>
         </span>
-        {/* Only an SSH or Cloud machine acpmux lists has a status; this Mac never shows one. */}
-        {environment.kind !== "local" && environment.connected !== undefined && (
+        {/* A machine a chat cannot start on yet says why, greyed; one that can shows a status dot.
+            Only an SSH or Cloud machine acpmux lists has a status; this Mac never shows one. */}
+        {!ready && <span className="acpmux-env-state">{environmentStateLabel(environment)}</span>}
+        {ready && environment.kind !== "local" && environment.connected !== undefined && (
           <span className="acpmux-env-status" data-connected={String(environment.connected)}>
             <span className="acpmux-env-status-text">
               {t(environment.connected ? "composer.envConnected" : "composer.envNotConnected")}

@@ -1170,9 +1170,11 @@ When no config exists, harnesses are imported from `~/.acpx/config.json` (its `a
   tool call strings over 2 KB (outputs, file text, diffs; their first 512 bytes stay) are removed,
   and everything else stays with its sequence number: the prompts, the agent's messages, the turn
   and status records, and `session.json`, so the chat still lists, opens and resumes. A chat with
-  a running agent, an attached client, a turn, queue or watch is never touched. `acpmux daemon
-  retention` runs a pass; `--dry-run` only reports what it would free; `--archive DIR` keeps the
-  old segments under `DIR/<chat id>/<pass>/events/`; `--older-than-days N` and `--only CHAT` narrow it.
+  a running agent, an attached client, a turn, queue or watch is never touched. The daemon runs a
+  pass by itself once it has read every chat's log after its start, and again when a chat closes,
+  at most every 6 hours. `acpmux daemon retention` runs one now; `--dry-run` only reports what it
+  would free; `--archive DIR` keeps the old segments under `DIR/<chat id>/<pass>/events/`;
+  `--older-than-days N` and `--only CHAT` narrow it.
   Read when the daemon starts.
 - `websocket`: optional. The same protocol over WebSocket text frames, for remote clients such
   as a dashboard or a Durable Object. Put it behind a tunnel; the token is a bearer token.

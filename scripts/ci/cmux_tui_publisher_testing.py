@@ -3,8 +3,8 @@
 
 A published tree is promotable to nightly-next only with
 tree/<key>/daemon-tests.json, which its publisher writes once its
-"cmux_next_ daemon tests (Linux)" job passes (named "(macOS)" before
-2026-10-26; either name counts). cmux-tui-artifacts.yml's
+"cmux_next_ daemon tests" job passes (older runs named it with a
+parenthesised runner suffix; every such name counts). cmux-tui-artifacts.yml's
 tree-preflight and tree-owner-wait let every later push of the same key skip
 those tests while that publisher is an active feat-cmux-next push. On
 2026-10-21 the publisher's job sat queued for hours on a pool pull requests
@@ -40,7 +40,7 @@ JOB_NAME = "cmux_next_ daemon tests"
 
 
 def is_daemon_job(name: str | None) -> bool:
-    """The gate job by its name: "(Linux)" now, "(macOS)" in older runs."""
+    """The gate job by its name: bare now, with a "(...)" runner suffix in older runs."""
     return name == JOB_NAME or (name or "").startswith(JOB_NAME + " (")
 
 
