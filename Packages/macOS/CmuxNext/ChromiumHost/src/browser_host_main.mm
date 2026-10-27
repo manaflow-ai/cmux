@@ -541,7 +541,7 @@ int main(int argc, char* argv[]) {
       [&agent_relays](std::vector<cmux_host::RelayFrame> frames) {
         for (const cmux_host::RelayFrame& frame : frames) agent_relays.OnFrame(frame);
       },
-      [&agent_relays] { agent_relays.LinkEnded(); });
+      [&agent_relays] { agent_relays.LinkEnded(); }, &cmux_host::ProviderLinkPeerSignedAsCmux);
   host.SetProviderLink(&agent_relays, [&agent_relays, &provider_link](
                                           const cmux_host::ProviderLinkConfig& config) {
     if (provider_link->Dials(config)) return;  // the same browser host: the link and its relays stay

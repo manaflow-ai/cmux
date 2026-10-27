@@ -528,19 +528,29 @@ class AgentRelays {
 int32_t ProviderLinkPeerPid(int fd);
 bool ProviderLinkAcceptsPeer(const ProviderLinkConfig& config, int32_t peer);
 
+// Whether the peer of a connected Unix socket is code signed as this cmux,
+// named by its audit token (never by pid): with a Team ID, the peer satisfies
+// this build's Team ID requirement; an unsigned build's peer runs an
+// executable of this app bundle (host_peer_identity.mm, macOS; p01-process.md
+// risk 6). The link's reader calls it before relay.hello.
+bool ProviderLinkPeerSignedAsCmux(int fd);
+
 // The socket to the browser host and its two threads (host_provider_link.mm).
 // Connect, Close and the callbacks are UI thread only; Write is any thread
 // and never blocks. `post_main` runs a task on the UI thread (PostToMain);
 // `on_frames` gets each batch the reader read, `on_end` runs once when the
 // link that Connect started ends by itself (not after Close or a newer
-// Connect). The object must outlive the UI thread's tasks.
+// Connect). `peer_signed` checks the dialed socket's peer on the reader
+// thread, after the pid rule and before the credential leaves
+// (ProviderLinkPeerSignedAsCmux). The object must outlive the UI thread's tasks.
 class ProviderLink {
  public:
   using Post = std::function<void(std::function<void()>)>;
   using OnFrames = std::function<void(std::vector<RelayFrame>)>;
   using OnEnd = std::function<void()>;
+  using PeerSigned = std::function<bool(int fd)>;
 
-  ProviderLink(Post post_main, OnFrames on_frames, OnEnd on_end);
+  ProviderLink(Post post_main, OnFrames on_frames, OnEnd on_end, PeerSigned peer_signed);
   ~ProviderLink();
   ProviderLink(const ProviderLink&) = delete;
   ProviderLink& operator=(const ProviderLink&) = delete;
@@ -556,7 +566,8 @@ class ProviderLink {
 
  private:
   struct Session;
-  static void ReadLoop(ProviderLink* link, std::shared_ptr<Session> session, ProviderLinkConfig dial, Post post);
+  static void ReadLoop(ProviderLink* link, std::shared_ptr<Session> session, ProviderLinkConfig dial, Post post,
+                       PeerSigned peer_signed);
   static void WriteLoop(std::shared_ptr<Session> session);
   static bool NextOutbound(Session& session, std::string* bytes);
   void Drain(uint64_t generation);
@@ -565,6 +576,7 @@ class ProviderLink {
   Post post_main_;
   OnFrames on_frames_;
   OnEnd on_end_;
+  PeerSigned peer_signed_;
   std::shared_ptr<Session> session_;
   ProviderLinkConfig config_;  // the last Connect's
   uint64_t generation_ = 0;

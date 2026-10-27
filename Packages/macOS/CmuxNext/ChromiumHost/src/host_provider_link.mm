@@ -4,7 +4,8 @@
 // thousand CDP messages a second cost it one task per batch and no wait.
 //
 // Threads (plans/cmux-next/threading-model.md, "Chromium"):
-//   chromium-host.provider-link.read   dials, checks the peer, says
+//   chromium-host.provider-link.read   dials, checks the peer (its pid,
+//                                      then its code signature), says
 //                                      relay.hello, then waits only in read(2)
 //   chromium-host.provider-link.write  waits for frames to send, then in write(2)
 // Both are user-initiated, as the control channel's reader is. Bounds: frames
@@ -143,8 +144,11 @@ struct ProviderLink::Session {
   }
 };
 
-ProviderLink::ProviderLink(Post post_main, OnFrames on_frames, OnEnd on_end)
-    : post_main_(std::move(post_main)), on_frames_(std::move(on_frames)), on_end_(std::move(on_end)) {}
+ProviderLink::ProviderLink(Post post_main, OnFrames on_frames, OnEnd on_end, PeerSigned peer_signed)
+    : post_main_(std::move(post_main)),
+      on_frames_(std::move(on_frames)),
+      on_end_(std::move(on_end)),
+      peer_signed_(std::move(peer_signed)) {}
 
 ProviderLink::~ProviderLink() {
   Close();
@@ -167,9 +171,9 @@ void ProviderLink::Connect(const ProviderLinkConfig& config) {
   // Each thread holds the session and nothing of `this`: what reaches the UI
   // thread is posted with the generation, which a later Connect or Close
   // makes stale.
-  std::thread([this_link = this, session, dial, post = post_main_] {
+  std::thread([this_link = this, session, dial, post = post_main_, peer_signed = peer_signed_] {
     NameThread("chromium-host.provider-link.read");
-    ReadLoop(this_link, session, dial, post);
+    ReadLoop(this_link, session, dial, post, peer_signed);
   }).detach();
   std::thread([session] {
     NameThread("chromium-host.provider-link.write");
@@ -232,7 +236,7 @@ void ProviderLink::WriteLoop(std::shared_ptr<Session> session) {
 }
 
 void ProviderLink::ReadLoop(ProviderLink* link, std::shared_ptr<Session> session, ProviderLinkConfig dial,
-                            Post post) {
+                            Post post, PeerSigned peer_signed) {
   const uint64_t generation = session->generation;
   auto ended = [&] {
     {
@@ -262,8 +266,10 @@ void ProviderLink::ReadLoop(ProviderLink* link, std::shared_ptr<Session> session
   std::memcpy(address.sun_path, dial.socket->c_str(), dial.socket->size() + 1);
   if (::connect(fd, reinterpret_cast<const sockaddr*>(&address), sizeof address) != 0) return ended();
   // The browser host proves itself before the credential leaves: a same-uid
-  // process that took the socket path first gets nothing.
+  // process that took the socket path first gets nothing, and neither does a
+  // process that is not signed as this cmux.
   if (!ProviderLinkAcceptsPeer(dial, ProviderLinkPeerPid(fd))) return ended();
+  if (!peer_signed || !peer_signed(fd)) return ended();
   if (!WriteAll(fd, RelayFrameBytes(EncodeRelayHello(dial.link_id, dial.credential)))) {
     return ended();
   }

@@ -504,6 +504,10 @@ struct FakeBrowserHost {
   static inline int count = 0;
 };
 
+// The fake browser host runs in this test process: the signature check
+// (ProviderLinkPeerSignedAsCmux, macOS) is the test's.
+bool SignedPeer(int) { return true; }
+
 void TheTransportRelaysBothWays() {
   constexpr int kCommands = 300;
   std::vector<std::string> frames = {"{\"t\":\"relay.attach\",\"targetId\":\"T\",\"browser\":7}"};
@@ -520,7 +524,7 @@ void TheTransportRelaysBothWays() {
                       ++batches;
                       for (RelayFrame& frame : batch) got.push_back(std::move(frame));
                     },
-                    [&] { ended = true; });
+                    [&] { ended = true; }, SignedPeer);
   ProviderLinkConfig config;
   config.socket = browser_host.path;
   config.credential = "cred-1";
@@ -544,13 +548,13 @@ void TheTransportRelaysBothWays() {
   Check(!ended, "a Close reports no end");
 }
 
-void TheTransportRefusesAnotherPeerAndAWrongCredential() {
+void TheTransportRefusesAnotherPeerAnUnsignedPeerAndAWrongCredential() {
   {
     FakeBrowserHost browser_host("cred-1", {});
     MainQueue main;
     bool ended = false;
     ProviderLink link([&main](std::function<void()> task) { main.Post(std::move(task)); },
-                      [](std::vector<RelayFrame>) {}, [&] { ended = true; });
+                      [](std::vector<RelayFrame>) {}, [&] { ended = true; }, SignedPeer);
     ProviderLinkConfig config;
     config.socket = browser_host.path;
     config.credential = "cred-1";
@@ -566,7 +570,7 @@ void TheTransportRefusesAnotherPeerAndAWrongCredential() {
     MainQueue main;
     bool ended = false;
     ProviderLink link([&main](std::function<void()> task) { main.Post(std::move(task)); },
-                      [](std::vector<RelayFrame>) {}, [&] { ended = true; });
+                      [](std::vector<RelayFrame>) {}, [&] { ended = true; }, SignedPeer);
     ProviderLinkConfig config;
     config.socket = browser_host.path;
     config.credential = "wrong";
@@ -574,6 +578,29 @@ void TheTransportRefusesAnotherPeerAndAWrongCredential() {
     link.Connect(config);
     Check(main.PumpUntil([&] { return ended; }), "a link the browser host does not ack ends");
     Check(!link.connected(), "and is not up");
+  }
+  {
+    // The right pid, but code not signed as this cmux.
+    FakeBrowserHost browser_host("cred-1", {});
+    MainQueue main;
+    bool ended = false;
+    int checked = -1;
+    ProviderLink link([&main](std::function<void()> task) { main.Post(std::move(task)); },
+                      [](std::vector<RelayFrame>) {}, [&] { ended = true; },
+                      [&checked](int fd) {
+                        checked = fd;
+                        return false;
+                      });
+    ProviderLinkConfig config;
+    config.socket = browser_host.path;
+    config.credential = "cred-1";
+    config.link_id = "L1";
+    config.host_pid = ::getpid();
+    link.Connect(config);
+    Check(main.PumpUntil([&] { return ended; }), "a peer not signed as cmux ends the link");
+    Check(checked >= 0, "the signature check ran on the dialed socket");
+    Check(browser_host.hello.empty(), "and the credential never left");
+    Check(!link.connected(), "and the link is not up");
   }
 }
 
@@ -585,7 +612,7 @@ int main() {
   RelaysAPagesCommandsAndTakesItsMessages();
   TheDispatcherRelaysThroughTheLink();
   TheTransportRelaysBothWays();
-  TheTransportRefusesAnotherPeerAndAWrongCredential();
+  TheTransportRefusesAnotherPeerAnUnsignedPeerAndAWrongCredential();
   if (failures) {
     std::fprintf(stderr, "chromium-host-provider-link: %d failure(s)\n", failures);
     return 1;
