@@ -16,6 +16,20 @@ fn blip_at_the_next_read() {
     AFTER_OFF_COUNT.set(Some(came_and_went));
 }
 
+/// MDM's off comes and goes right after every read of it on this thread, until `stop_blips`: a
+/// chat's creation reads it for the pool claim before its start does.
+fn blip_at_every_read() {
+    fn again(hub: &Hub) {
+        came_and_went(hub);
+        AFTER_OFF_COUNT.set(Some(again));
+    }
+    AFTER_OFF_COUNT.set(Some(again));
+}
+
+fn stop_blips() {
+    AFTER_OFF_COUNT.set(None);
+}
+
 /// A hub on the stand-in agent, run with `env` and the extra arguments `args`.
 fn hub_on(env: &[&str], args: &[&str]) -> Arc<Hub> {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
@@ -41,8 +55,9 @@ fn here() -> NewRequest {
 #[tokio::test]
 async fn a_start_holds_an_off_that_came_and_went_after_its_first_read() {
     let hub = hub_on(&[], &["--yolo"]);
-    blip_at_the_next_read();
+    blip_at_every_read();
     let started = hub.new_session(here()).await;
+    stop_blips();
     assert!(
         started.is_err(),
         "a profile pinning full access started though MDM's off came and went as the start read it"
