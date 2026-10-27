@@ -1165,6 +1165,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-ffi-guard"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-flow-trace"
 version = "0.1.0"
 dependencies = [
@@ -1639,6 +1643,7 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-blocking",
+ "cmux-ffi-guard",
  "cmux-panic-log",
  "cmux-remote",
  "cmux-remote-protocol",

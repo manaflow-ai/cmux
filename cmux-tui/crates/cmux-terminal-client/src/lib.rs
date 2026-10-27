@@ -1,5 +1,6 @@
 #![cfg_attr(not(test), deny(clippy::disallowed_methods))]
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::ffi::{CStr, CString, c_char, c_void};
 use std::future::Future;
@@ -10,6 +11,7 @@ use std::time::{Duration as StdDuration, Instant};
 
 use base64::Engine;
 use bytes::Bytes;
+use cmux_ffi_guard::ffi_boundary;
 use cmux_remote::MuxLineClient;
 use cmux_remote::connection::{ClientConnection, ClientConnectionConfig, ReconnectPolicy};
 use cmux_remote::crypto::{ClientAuthMode, StaticIdentity};
@@ -1429,6 +1431,25 @@ fn attach_target_already_satisfied(
     Err(format!("terminal {attached} is already attached; detach it before attaching {requested}"))
 }
 
+/// The error an export with an error buffer reports when its body panicked.
+/// Every export runs in cmux-ffi-guard's boundary, which records the panic
+/// for `cmux_ffi_take_panic` and returns this instead of aborting the app.
+const PANICKED: Cow<'static, str> = Cow::Borrowed("terminal client panicked");
+
+/// Writes a failed export's error into the caller's buffer and returns the
+/// export's error value.
+fn report_error<T>(
+    result: Result<T, Cow<'static, str>>,
+    error_buffer: *mut c_char,
+    error_capacity: usize,
+    error_value: T,
+) -> T {
+    result.unwrap_or_else(|error| {
+        copy_utf8(&error, error_buffer, error_capacity);
+        error_value
+    })
+}
+
 fn copy_utf8(value: &str, buffer: *mut c_char, capacity: usize) -> usize {
     if !buffer.is_null() && capacity > 0 {
         let mut count = value.len().min(capacity - 1);
@@ -1576,10 +1597,13 @@ pub unsafe extern "C" fn cmux_terminal_client_connect(
     error_buffer: *mut c_char,
     error_capacity: usize,
 ) -> *mut CmuxTerminalClient {
-    // SAFETY: this function forwards its documented pointer contract unchanged.
-    unsafe {
-        connect_terminal_client(invitation_uri, terminal_id, error_buffer, error_capacity, None)
-    }
+    let result = ffi_boundary("cmux_terminal_client_connect", Err(PANICKED), || {
+        // SAFETY: this function forwards its documented pointer contract unchanged.
+        Ok(unsafe {
+            connect_terminal_client(invitation_uri, terminal_id, error_buffer, error_capacity, None)
+        })
+    });
+    report_error(result, error_buffer, error_capacity, std::ptr::null_mut())
 }
 
 /// Connects a terminal client and cancels the underlying enrollment future
@@ -1596,16 +1620,19 @@ pub unsafe extern "C" fn cmux_terminal_client_connect_with_timeout(
     error_capacity: usize,
     timeout_milliseconds: u64,
 ) -> *mut CmuxTerminalClient {
-    // SAFETY: this function forwards its documented pointer contract unchanged.
-    unsafe {
-        connect_terminal_client(
-            invitation_uri,
-            terminal_id,
-            error_buffer,
-            error_capacity,
-            Some(StdDuration::from_millis(timeout_milliseconds)),
-        )
-    }
+    let result = ffi_boundary("cmux_terminal_client_connect_with_timeout", Err(PANICKED), || {
+        // SAFETY: this function forwards its documented pointer contract unchanged.
+        Ok(unsafe {
+            connect_terminal_client(
+                invitation_uri,
+                terminal_id,
+                error_buffer,
+                error_capacity,
+                Some(StdDuration::from_millis(timeout_milliseconds)),
+            )
+        })
+    });
+    report_error(result, error_buffer, error_capacity, std::ptr::null_mut())
 }
 
 /// Reopens the terminal service on an already enrolled transport.
@@ -1622,8 +1649,13 @@ pub unsafe extern "C" fn cmux_terminal_client_attach(
     error_buffer: *mut c_char,
     error_capacity: usize,
 ) -> bool {
-    // SAFETY: this function forwards its documented pointer contract unchanged.
-    unsafe { attach_terminal_client(client, terminal_id, error_buffer, error_capacity, None) }
+    let result = ffi_boundary("cmux_terminal_client_attach", Err(PANICKED), || {
+        // SAFETY: this function forwards its documented pointer contract unchanged.
+        Ok(unsafe {
+            attach_terminal_client(client, terminal_id, error_buffer, error_capacity, None)
+        })
+    });
+    report_error(result, error_buffer, error_capacity, false)
 }
 
 /// Reopens the terminal service with a deadline on an already enrolled transport.
@@ -1639,16 +1671,19 @@ pub unsafe extern "C" fn cmux_terminal_client_attach_with_timeout(
     error_capacity: usize,
     timeout_milliseconds: u64,
 ) -> bool {
-    // SAFETY: this function forwards its documented pointer contract unchanged.
-    unsafe {
-        attach_terminal_client(
-            client,
-            terminal_id,
-            error_buffer,
-            error_capacity,
-            Some(StdDuration::from_millis(timeout_milliseconds)),
-        )
-    }
+    let result = ffi_boundary("cmux_terminal_client_attach_with_timeout", Err(PANICKED), || {
+        // SAFETY: this function forwards its documented pointer contract unchanged.
+        Ok(unsafe {
+            attach_terminal_client(
+                client,
+                terminal_id,
+                error_buffer,
+                error_capacity,
+                Some(StdDuration::from_millis(timeout_milliseconds)),
+            )
+        })
+    });
+    report_error(result, error_buffer, error_capacity, false)
 }
 
 unsafe fn attach_terminal_client(
@@ -1686,10 +1721,12 @@ unsafe fn attach_terminal_client(
 /// [`cmux_terminal_client_connect`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_terminal_client_detach(client: *mut CmuxTerminalClient) {
-    let Some(client) = (unsafe { client.as_ref() }) else {
-        return;
-    };
-    client.detach_terminal();
+    ffi_boundary("cmux_terminal_client_detach", (), || {
+        let Some(client) = (unsafe { client.as_ref() }) else {
+            return;
+        };
+        client.detach_terminal();
+    });
 }
 
 /// Registers a lightweight notification invoked whenever frame or diagnostic
@@ -1708,10 +1745,12 @@ pub unsafe extern "C" fn cmux_terminal_client_set_update_callback(
     callback: Option<TerminalUpdateCallback>,
     context: *mut c_void,
 ) {
-    let Some(client) = (unsafe { client.as_ref() }) else {
-        return;
-    };
-    client.updates.set_callback(callback, context);
+    ffi_boundary("cmux_terminal_client_set_update_callback", (), || {
+        let Some(client) = (unsafe { client.as_ref() }) else {
+            return;
+        };
+        client.updates.set_callback(callback, context);
+    });
 }
 
 /// Disconnects and consumes an owning terminal client handle.
@@ -1724,27 +1763,29 @@ pub unsafe extern "C" fn cmux_terminal_client_set_update_callback(
 /// again after this function begins.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_terminal_client_disconnect(client: *mut CmuxTerminalClient) {
-    if client.is_null() {
-        return;
-    }
-    // SAFETY: ownership of a pointer returned by connect transfers exactly once.
-    let client = unsafe { Box::from_raw(client) };
-    client.updates.set_callback(None, std::ptr::null_mut());
-    client.raw_output.set_callback(None, std::ptr::null_mut());
-    // Connection teardown may wait on the carrier. Transfer ownership to a
-    // background thread so the C call is nonblocking for AppKit.
-    let _ = cmux_threads::spawn("cmux-terminal-disconnect", TEARDOWN_QOS, move || {
-        let terminal = client.terminal.lock().unwrap().take();
-        client.runtime.block_on(async {
-            if let Some(terminal) = terminal {
-                terminal.close().await;
-            }
-            if let Some(mux) = client.mux.lock().await.take() {
-                let _ = mux.close().await;
-            }
-            client.multiplexer.shutdown().await;
-            let _ = client.connection.close().await;
-            client.transport.close().await;
+    ffi_boundary("cmux_terminal_client_disconnect", (), || {
+        if client.is_null() {
+            return;
+        }
+        // SAFETY: ownership of a pointer returned by connect transfers exactly once.
+        let client = unsafe { Box::from_raw(client) };
+        client.updates.set_callback(None, std::ptr::null_mut());
+        client.raw_output.set_callback(None, std::ptr::null_mut());
+        // Connection teardown may wait on the carrier. Transfer ownership to a
+        // background thread so the C call is nonblocking for AppKit.
+        let _ = cmux_threads::spawn("cmux-terminal-disconnect", TEARDOWN_QOS, move || {
+            let terminal = client.terminal.lock().unwrap().take();
+            client.runtime.block_on(async {
+                if let Some(terminal) = terminal {
+                    terminal.close().await;
+                }
+                if let Some(mux) = client.mux.lock().await.take() {
+                    let _ = mux.close().await;
+                }
+                client.multiplexer.shutdown().await;
+                let _ = client.connection.close().await;
+                client.transport.close().await;
+            });
         });
     });
 }
@@ -1775,13 +1816,15 @@ pub unsafe extern "C" fn cmux_terminal_client_send(
     bytes: *const u8,
     length: usize,
 ) -> bool {
-    // SAFETY: forwarded C buffer contract is validated by bytes_from_ffi.
-    let Some((client, bytes)) =
-        (unsafe { client.as_ref() }).zip(unsafe { bytes_from_ffi(bytes, length) })
-    else {
-        return false;
-    };
-    enqueue_command(client, Frame::new(MessageKind::Input, bytes.to_vec()))
+    ffi_boundary("cmux_terminal_client_send", false, || {
+        // SAFETY: forwarded C buffer contract is validated by bytes_from_ffi.
+        let Some((client, bytes)) =
+            (unsafe { client.as_ref() }).zip(unsafe { bytes_from_ffi(bytes, length) })
+        else {
+            return false;
+        };
+        enqueue_command(client, Frame::new(MessageKind::Input, bytes.to_vec()))
+    })
 }
 
 /// Encodes a named key chord with the local libghostty terminal modes and
@@ -1798,35 +1841,37 @@ pub unsafe extern "C" fn cmux_terminal_client_send_key(
     chord: *const c_char,
     repeat: bool,
 ) -> bool {
-    let Some(client) = (unsafe { client.as_ref() }) else {
-        return false;
-    };
-    if chord.is_null() {
-        return false;
-    }
-    // SAFETY: checked non-null above; the C API requires a NUL-terminated chord.
-    let chord = unsafe { CStr::from_ptr(chord) };
-    let chord = match chord.to_str() {
-        Ok(chord) => chord,
-        Err(error) => {
-            client.state.lock().unwrap().status = format!("key: {error}");
-            client.updates.notify();
+    ffi_boundary("cmux_terminal_client_send_key", false, || {
+        let Some(client) = (unsafe { client.as_ref() }) else {
+            return false;
+        };
+        if chord.is_null() {
             return false;
         }
-    };
-    let key_result = client.state.lock().unwrap().encode_key(chord, repeat);
-    let encoded = match key_result {
-        Ok(encoded) => encoded,
-        Err(error) => {
-            client.state.lock().unwrap().status = format!("key: {error}");
-            client.updates.notify();
-            return false;
+        // SAFETY: checked non-null above; the C API requires a NUL-terminated chord.
+        let chord = unsafe { CStr::from_ptr(chord) };
+        let chord = match chord.to_str() {
+            Ok(chord) => chord,
+            Err(error) => {
+                client.state.lock().unwrap().status = format!("key: {error}");
+                client.updates.notify();
+                return false;
+            }
+        };
+        let key_result = client.state.lock().unwrap().encode_key(chord, repeat);
+        let encoded = match key_result {
+            Ok(encoded) => encoded,
+            Err(error) => {
+                client.state.lock().unwrap().status = format!("key: {error}");
+                client.updates.notify();
+                return false;
+            }
+        };
+        if encoded.is_empty() {
+            return true;
         }
-    };
-    if encoded.is_empty() {
-        return true;
-    }
-    enqueue_command(client, Frame::new(MessageKind::Input, encoded))
+        enqueue_command(client, Frame::new(MessageKind::Input, encoded))
+    })
 }
 
 /// Queues opaque paste bytes for the connected terminal.
@@ -1844,13 +1889,15 @@ pub unsafe extern "C" fn cmux_terminal_client_paste(
     bytes: *const u8,
     length: usize,
 ) -> bool {
-    // SAFETY: forwarded C buffer contract is validated by bytes_from_ffi.
-    let Some((client, bytes)) =
-        (unsafe { client.as_ref() }).zip(unsafe { bytes_from_ffi(bytes, length) })
-    else {
-        return false;
-    };
-    enqueue_command(client, Frame::new(MessageKind::Paste, bytes.to_vec()))
+    ffi_boundary("cmux_terminal_client_paste", false, || {
+        // SAFETY: forwarded C buffer contract is validated by bytes_from_ffi.
+        let Some((client, bytes)) =
+            (unsafe { client.as_ref() }).zip(unsafe { bytes_from_ffi(bytes, length) })
+        else {
+            return false;
+        };
+        enqueue_command(client, Frame::new(MessageKind::Paste, bytes.to_vec()))
+    })
 }
 
 /// Queues a terminal viewport resize.
@@ -1866,10 +1913,12 @@ pub unsafe extern "C" fn cmux_terminal_client_resize(
     cols: u16,
     rows: u16,
 ) -> bool {
-    let Some(client) = (unsafe { client.as_ref() }) else {
-        return false;
-    };
-    queue_resize(client, cols, rows).is_some()
+    ffi_boundary("cmux_terminal_client_resize", false, || {
+        let Some(client) = (unsafe { client.as_ref() }) else {
+            return false;
+        };
+        queue_resize(client, cols, rows).is_some()
+    })
 }
 
 /// Queues a coalesced viewport resize and returns its protocol request ID.
@@ -1885,19 +1934,21 @@ pub unsafe extern "C" fn cmux_terminal_client_resize_with_request_id(
     rows: u16,
     request_id: *mut u64,
 ) -> bool {
-    let Some(client) = (unsafe { client.as_ref() }) else {
-        return false;
-    };
-    if request_id.is_null() {
-        return false;
-    }
-    let Some(queued_request_id) = queue_resize(client, cols, rows) else {
-        return false;
-    };
-    // SAFETY: the output was checked non-null, and the caller promises writable
-    // storage for the duration of this call.
-    unsafe { request_id.write(queued_request_id) };
-    true
+    ffi_boundary("cmux_terminal_client_resize_with_request_id", false, || {
+        let Some(client) = (unsafe { client.as_ref() }) else {
+            return false;
+        };
+        if request_id.is_null() {
+            return false;
+        }
+        let Some(queued_request_id) = queue_resize(client, cols, rows) else {
+            return false;
+        };
+        // SAFETY: the output was checked non-null, and the caller promises writable
+        // storage for the duration of this call.
+        unsafe { request_id.write(queued_request_id) };
+        true
+    })
 }
 
 fn queue_resize(client: &CmuxTerminalClient, cols: u16, rows: u16) -> Option<u64> {
@@ -1933,25 +1984,27 @@ pub unsafe extern "C" fn cmux_terminal_client_last_resize_ack(
     rows: *mut u16,
     canonical_changed: *mut bool,
 ) -> bool {
-    let Some(client) = (unsafe { client.as_ref() }) else {
-        return false;
-    };
-    if request_id.is_null() || cols.is_null() || rows.is_null() || canonical_changed.is_null() {
-        return false;
-    }
-    let state = client.state.lock().unwrap();
-    let Some(acknowledgement) = state.resize_acknowledgement else {
-        return false;
-    };
-    // SAFETY: all outputs were checked non-null, and the caller promises each
-    // points to writable storage for the duration of this call.
-    unsafe {
-        request_id.write(acknowledgement.request_id);
-        cols.write(acknowledgement.cols);
-        rows.write(acknowledgement.rows);
-        canonical_changed.write(acknowledgement.canonical_changed);
-    }
-    true
+    ffi_boundary("cmux_terminal_client_last_resize_ack", false, || {
+        let Some(client) = (unsafe { client.as_ref() }) else {
+            return false;
+        };
+        if request_id.is_null() || cols.is_null() || rows.is_null() || canonical_changed.is_null() {
+            return false;
+        }
+        let state = client.state.lock().unwrap();
+        let Some(acknowledgement) = state.resize_acknowledgement else {
+            return false;
+        };
+        // SAFETY: all outputs were checked non-null, and the caller promises each
+        // points to writable storage for the duration of this call.
+        unsafe {
+            request_id.write(acknowledgement.request_id);
+            cols.write(acknowledgement.cols);
+            rows.write(acknowledgement.rows);
+            canonical_changed.write(acknowledgement.canonical_changed);
+        }
+        true
+    })
 }
 
 /// Copies the latest rendered frame as a NUL-terminated UTF-8 string.
@@ -1969,14 +2022,16 @@ pub unsafe extern "C" fn cmux_terminal_client_copy_frame(
     buffer: *mut c_char,
     capacity: usize,
 ) -> usize {
-    let Some(client) = (unsafe { client.as_ref() }) else {
-        return 0;
-    };
-    let mut state = client.state.lock().unwrap();
-    if let Err(error) = state.materialize_frame() {
-        state.status = format!("render: {error}");
-    }
-    copy_utf8(&state.frame_text, buffer, capacity)
+    ffi_boundary("cmux_terminal_client_copy_frame", 0, || {
+        let Some(client) = (unsafe { client.as_ref() }) else {
+            return 0;
+        };
+        let mut state = client.state.lock().unwrap();
+        if let Err(error) = state.materialize_frame() {
+            state.status = format!("render: {error}");
+        }
+        copy_utf8(&state.frame_text, buffer, capacity)
+    })
 }
 
 /// Copies the row indexes changed by the latest materialized frame. A null
@@ -1995,21 +2050,23 @@ pub unsafe extern "C" fn cmux_terminal_client_copy_frame_dirty_rows(
     buffer: *mut u16,
     capacity: usize,
 ) -> usize {
-    let Some(client) = (unsafe { client.as_ref() }) else {
-        return 0;
-    };
-    let mut state = client.state.lock().unwrap();
-    if let Err(error) = state.materialize_frame() {
-        state.status = format!("render: {error}");
-    }
-    let required = state.frame_dirty_rows.len();
-    if buffer.is_null() || capacity < required {
-        return required;
-    }
-    unsafe {
-        std::ptr::copy_nonoverlapping(state.frame_dirty_rows.as_ptr(), buffer, required);
-    }
-    required
+    ffi_boundary("cmux_terminal_client_copy_frame_dirty_rows", 0, || {
+        let Some(client) = (unsafe { client.as_ref() }) else {
+            return 0;
+        };
+        let mut state = client.state.lock().unwrap();
+        if let Err(error) = state.materialize_frame() {
+            state.status = format!("render: {error}");
+        }
+        let required = state.frame_dirty_rows.len();
+        if buffer.is_null() || capacity < required {
+            return required;
+        }
+        unsafe {
+            std::ptr::copy_nonoverlapping(state.frame_dirty_rows.as_ptr(), buffer, required);
+        }
+        required
+    })
 }
 
 /// Returns the number of rows in the latest materialized viewport frame.
@@ -2023,14 +2080,16 @@ pub unsafe extern "C" fn cmux_terminal_client_copy_frame_dirty_rows(
 pub unsafe extern "C" fn cmux_terminal_client_frame_row_count(
     client: *const CmuxTerminalClient,
 ) -> usize {
-    let Some(client) = (unsafe { client.as_ref() }) else {
-        return 0;
-    };
-    let mut state = client.state.lock().unwrap();
-    if let Err(error) = state.materialize_frame() {
-        state.status = format!("render: {error}");
-    }
-    state.frame_rows.len()
+    ffi_boundary("cmux_terminal_client_frame_row_count", 0, || {
+        let Some(client) = (unsafe { client.as_ref() }) else {
+            return 0;
+        };
+        let mut state = client.state.lock().unwrap();
+        if let Err(error) = state.materialize_frame() {
+            state.status = format!("render: {error}");
+        }
+        state.frame_rows.len()
+    })
 }
 
 /// Copies one row from the latest materialized frame as a NUL-terminated
@@ -2050,14 +2109,20 @@ pub unsafe extern "C" fn cmux_terminal_client_copy_frame_row(
     buffer: *mut c_char,
     capacity: usize,
 ) -> usize {
-    let Some(client) = (unsafe { client.as_ref() }) else {
-        return 0;
-    };
-    let mut state = client.state.lock().unwrap();
-    if let Err(error) = state.materialize_frame() {
-        state.status = format!("render: {error}");
-    }
-    state.frame_rows.get(row as usize).map(|value| copy_utf8(value, buffer, capacity)).unwrap_or(0)
+    ffi_boundary("cmux_terminal_client_copy_frame_row", 0, || {
+        let Some(client) = (unsafe { client.as_ref() }) else {
+            return 0;
+        };
+        let mut state = client.state.lock().unwrap();
+        if let Err(error) = state.materialize_frame() {
+            state.status = format!("render: {error}");
+        }
+        state
+            .frame_rows
+            .get(row as usize)
+            .map(|value| copy_utf8(value, buffer, capacity))
+            .unwrap_or(0)
+    })
 }
 
 /// Copies current client diagnostics as a NUL-terminated UTF-8 string.
@@ -2075,10 +2140,12 @@ pub unsafe extern "C" fn cmux_terminal_client_copy_diagnostics(
     buffer: *mut c_char,
     capacity: usize,
 ) -> usize {
-    let Some(client) = (unsafe { client.as_ref() }) else {
-        return 0;
-    };
-    copy_utf8(&client.state.lock().unwrap().diagnostics(), buffer, capacity)
+    ffi_boundary("cmux_terminal_client_copy_diagnostics", 0, || {
+        let Some(client) = (unsafe { client.as_ref() }) else {
+            return 0;
+        };
+        copy_utf8(&client.state.lock().unwrap().diagnostics(), buffer, capacity)
+    })
 }
 
 /// Returns whether the attached PTY has exited.
@@ -2092,10 +2159,12 @@ pub unsafe extern "C" fn cmux_terminal_client_copy_diagnostics(
 pub unsafe extern "C" fn cmux_terminal_client_has_exited(
     client: *const CmuxTerminalClient,
 ) -> bool {
-    let Some(client) = (unsafe { client.as_ref() }) else {
-        return false;
-    };
-    client.state.lock().unwrap().exited
+    ffi_boundary("cmux_terminal_client_has_exited", false, || {
+        let Some(client) = (unsafe { client.as_ref() }) else {
+            return false;
+        };
+        client.state.lock().unwrap().exited
+    })
 }
 
 /// Keep the diagnostics snapshot current across carrier generations.
@@ -2414,20 +2483,23 @@ pub unsafe extern "C" fn cmux_terminal_client_connect_route(
     error_capacity: usize,
     timeout_milliseconds: u64,
 ) -> *mut CmuxTerminalClient {
-    // SAFETY: forwards the documented pointer and ownership contract.
-    unsafe {
-        connect_route_from_ffi(
-            route,
-            state_dir,
-            device_name,
-            invitation_uri,
-            false,
-            wireguard,
-            error_buffer,
-            error_capacity,
-            timeout_milliseconds,
-        )
-    }
+    let result = ffi_boundary("cmux_terminal_client_connect_route", Err(PANICKED), || {
+        // SAFETY: forwards the documented pointer and ownership contract.
+        Ok(unsafe {
+            connect_route_from_ffi(
+                route,
+                state_dir,
+                device_name,
+                invitation_uri,
+                false,
+                wireguard,
+                error_buffer,
+                error_capacity,
+                timeout_milliseconds,
+            )
+        })
+    });
+    report_error(result, error_buffer, error_capacity, std::ptr::null_mut())
 }
 
 /// Connects using a Cloud server's explicit private-tunnel trust grant.
@@ -2450,20 +2522,23 @@ pub unsafe extern "C" fn cmux_terminal_client_connect_trusted_route(
     error_capacity: usize,
     timeout_milliseconds: u64,
 ) -> *mut CmuxTerminalClient {
-    // SAFETY: forwards the documented pointer and ownership contract.
-    unsafe {
-        connect_route_from_ffi(
-            route,
-            state_dir,
-            device_name,
-            std::ptr::null(),
-            true,
-            wireguard,
-            error_buffer,
-            error_capacity,
-            timeout_milliseconds,
-        )
-    }
+    let result = ffi_boundary("cmux_terminal_client_connect_trusted_route", Err(PANICKED), || {
+        // SAFETY: forwards the documented pointer and ownership contract.
+        Ok(unsafe {
+            connect_route_from_ffi(
+                route,
+                state_dir,
+                device_name,
+                std::ptr::null(),
+                true,
+                wireguard,
+                error_buffer,
+                error_capacity,
+                timeout_milliseconds,
+            )
+        })
+    });
+    report_error(result, error_buffer, error_capacity, std::ptr::null_mut())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2560,34 +2635,23 @@ pub unsafe extern "C" fn cmux_wireguard_net_start(
     error_buffer: *mut c_char,
     error_capacity: usize,
 ) -> *mut CmuxWireGuardNet {
-    let fail = |error: String| {
-        copy_utf8(&error, error_buffer, error_capacity);
-        std::ptr::null_mut()
-    };
-    // SAFETY: forwards the documented pointer contract.
-    let text = match unsafe { required_str_from_ffi(config, "config") } {
-        Ok(text) => Zeroizing::new(text.to_owned()),
-        Err(error) => return fail(error),
-    };
-    let parsed = match WgConfig::parse_wg_quick(&text) {
-        Ok(parsed) => parsed,
-        Err(error) => return fail(format!("wireguard config: {error}")),
-    };
-    let runtime = match tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(1)
-        .enable_all()
-        .thread_name("cmux-wireguard")
-        .build()
-    {
-        Ok(runtime) => runtime,
-        Err(error) => return fail(error.to_string()),
-    };
-    match runtime.block_on(WgNet::start_with_new_socket(parsed)) {
-        Ok(net) => {
-            Box::into_raw(Box::new(CmuxWireGuardNet { _runtime: runtime, net: Arc::new(net) }))
-        }
-        Err(error) => fail(format!("wireguard: {error}")),
-    }
+    let result = ffi_boundary("cmux_wireguard_net_start", Err(PANICKED), || {
+        // SAFETY: forwards the documented pointer contract.
+        let text = Zeroizing::new(unsafe { required_str_from_ffi(config, "config") }?.to_owned());
+        let parsed = WgConfig::parse_wg_quick(&text)
+            .map_err(|error| format!("wireguard config: {error}"))?;
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .thread_name("cmux-wireguard")
+            .build()
+            .map_err(|error| error.to_string())?;
+        let net = runtime
+            .block_on(WgNet::start_with_new_socket(parsed))
+            .map_err(|error| format!("wireguard: {error}"))?;
+        Ok(Box::into_raw(Box::new(CmuxWireGuardNet { _runtime: runtime, net: Arc::new(net) })))
+    });
+    report_error(result, error_buffer, error_capacity, std::ptr::null_mut())
 }
 
 /// Checks whether a trusted-carrier route is a literal WebSocket IP covered
@@ -2607,25 +2671,16 @@ pub unsafe extern "C" fn cmux_wireguard_net_route_is_allowed(
     error_buffer: *mut c_char,
     error_capacity: usize,
 ) -> bool {
-    let fail = |error: String| {
-        copy_utf8(&error, error_buffer, error_capacity);
-        false
-    };
-    let Some(net) = (unsafe { net.as_ref() }) else {
-        return fail("wireguard tunnel is null".into());
-    };
-    let route = match unsafe { required_str_from_ffi(route, "route") } {
-        Ok(route) => route,
-        Err(error) => return fail(error),
-    };
-    let parsed = match Url::parse(route) {
-        Ok(parsed) => parsed,
-        Err(error) => return fail(format!("route: {error}")),
-    };
-    match validate_trusted_route(&parsed, Some(net.net.routes())) {
-        Ok(()) => true,
-        Err(error) => fail(error),
-    }
+    let result = ffi_boundary("cmux_wireguard_net_route_is_allowed", Err(PANICKED), || {
+        // SAFETY: null or a live tunnel handle, per the contract.
+        let net = unsafe { net.as_ref() }.ok_or("wireguard tunnel is null")?;
+        // SAFETY: forwards the documented pointer contract.
+        let route = unsafe { required_str_from_ffi(route, "route") }?;
+        let parsed = Url::parse(route).map_err(|error| format!("route: {error}"))?;
+        validate_trusted_route(&parsed, Some(net.net.routes()))?;
+        Ok(true)
+    });
+    report_error(result, error_buffer, error_capacity, false)
 }
 
 /// Stops the tunnel and frees the handle.
@@ -2636,14 +2691,16 @@ pub unsafe extern "C" fn cmux_wireguard_net_route_is_allowed(
 /// live client still references. The pointer must not be used afterward.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_wireguard_net_free(net: *mut CmuxWireGuardNet) {
-    if net.is_null() {
-        return;
-    }
-    // SAFETY: ownership transfers exactly once per the documented contract.
-    let net = unsafe { Box::from_raw(net) };
-    // The driver task lives on this runtime; drop it off the caller's thread so
-    // an AppKit or UIKit caller never blocks on socket teardown.
-    let _ = cmux_threads::spawn("cmux-wireguard-free", TEARDOWN_QOS, move || drop(net));
+    ffi_boundary("cmux_wireguard_net_free", (), || {
+        if net.is_null() {
+            return;
+        }
+        // SAFETY: ownership transfers exactly once per the documented contract.
+        let net = unsafe { Box::from_raw(net) };
+        // The driver task lives on this runtime; drop it off the caller's thread so
+        // an AppKit or UIKit caller never blocks on socket teardown.
+        let _ = cmux_threads::spawn("cmux-wireguard-free", TEARDOWN_QOS, move || drop(net));
+    });
 }
 
 /// Installs the raw output callback, or clears it with NULL.
@@ -2663,12 +2720,14 @@ pub unsafe extern "C" fn cmux_terminal_client_set_output_callback(
     callback: Option<TerminalOutputCallback>,
     context: *mut c_void,
 ) {
-    if client.is_null() {
-        return;
-    }
-    // SAFETY: the caller guarantees a live handle.
-    let client = unsafe { &*client };
-    client.raw_output.set_callback(callback, context);
+    ffi_boundary("cmux_terminal_client_set_output_callback", (), || {
+        if client.is_null() {
+            return;
+        }
+        // SAFETY: the caller guarantees a live handle.
+        let client = unsafe { &*client };
+        client.raw_output.set_callback(callback, context);
+    });
 }
 
 /// Chooses whether the next attach asks for viewer-size priority, so the
@@ -2688,11 +2747,13 @@ pub unsafe extern "C" fn cmux_terminal_client_set_viewer_size_priority(
     client: *mut CmuxTerminalClient,
     preferred: bool,
 ) -> bool {
-    let Some(client) = (unsafe { client.as_ref() }) else {
-        return false;
-    };
-    client.viewer_size_priority.store(preferred, Ordering::Release);
-    true
+    ffi_boundary("cmux_terminal_client_set_viewer_size_priority", false, || {
+        let Some(client) = (unsafe { client.as_ref() }) else {
+            return false;
+        };
+        client.viewer_size_priority.store(preferred, Ordering::Release);
+        true
+    })
 }
 
 /// Bytes of a `cmux.protocol/2` request id or idempotency key.
@@ -2805,27 +2866,18 @@ pub unsafe extern "C" fn cmux_terminal_client_list_terminals(
     error_capacity: usize,
     timeout_milliseconds: u64,
 ) -> *mut c_char {
-    if client.is_null() {
-        copy_utf8("client is null", error_buffer, error_capacity);
-        return std::ptr::null_mut();
-    }
-    // SAFETY: the caller guarantees a live handle.
-    let client = unsafe { &*client };
-    let result = client
-        .resource_operation(
+    let result = ffi_boundary("cmux_terminal_client_list_terminals", Err(PANICKED), || {
+        // SAFETY: null or a live handle, per the contract.
+        let client = unsafe { client.as_ref() }.ok_or("client is null")?;
+        let value = client.resource_operation(
             "terminal.list",
             serde_json::Map::new(),
             false,
             timeout_from_millis(timeout_milliseconds),
-        )
-        .and_then(|value| json_to_c_string(&value));
-    match result {
-        Ok(text) => text,
-        Err(error) => {
-            copy_utf8(&error, error_buffer, error_capacity);
-            std::ptr::null_mut()
-        }
-    }
+        )?;
+        Ok(json_to_c_string(&value)?)
+    });
+    report_error(result, error_buffer, error_capacity, std::ptr::null_mut())
 }
 
 /// Returns the daemon's public session snapshot as the JSON `session.snapshot`
@@ -2848,27 +2900,18 @@ pub unsafe extern "C" fn cmux_terminal_client_session_snapshot(
     error_capacity: usize,
     timeout_milliseconds: u64,
 ) -> *mut c_char {
-    if client.is_null() {
-        copy_utf8("client is null", error_buffer, error_capacity);
-        return std::ptr::null_mut();
-    }
-    // SAFETY: the caller guarantees a live handle.
-    let client = unsafe { &*client };
-    let result = client
-        .resource_operation(
+    let result = ffi_boundary("cmux_terminal_client_session_snapshot", Err(PANICKED), || {
+        // SAFETY: null or a live handle, per the contract.
+        let client = unsafe { client.as_ref() }.ok_or("client is null")?;
+        let value = client.resource_operation(
             "session.snapshot",
             serde_json::Map::new(),
             false,
             timeout_from_millis(timeout_milliseconds),
-        )
-        .and_then(|value| json_to_c_string(&value));
-    match result {
-        Ok(text) => text,
-        Err(error) => {
-            copy_utf8(&error, error_buffer, error_capacity);
-            std::ptr::null_mut()
-        }
-    }
+        )?;
+        Ok(json_to_c_string(&value)?)
+    });
+    report_error(result, error_buffer, error_capacity, std::ptr::null_mut())
 }
 
 /// Creates a workspace holding one new terminal (`workspace.create` with
@@ -2888,40 +2931,25 @@ pub unsafe extern "C" fn cmux_terminal_client_create_terminal(
     error_capacity: usize,
     timeout_milliseconds: u64,
 ) -> *mut c_char {
-    if client.is_null() {
-        copy_utf8("client is null", error_buffer, error_capacity);
-        return std::ptr::null_mut();
-    }
-    // SAFETY: the caller guarantees a live handle.
-    let client = unsafe { &*client };
-    // SAFETY: null is permitted; otherwise NUL-terminated per the contract.
-    let name = match unsafe { optional_str_from_ffi(name, "name") } {
-        Ok(name) => name,
-        Err(error) => {
-            copy_utf8(&error, error_buffer, error_capacity);
-            return std::ptr::null_mut();
+    let result = ffi_boundary("cmux_terminal_client_create_terminal", Err(PANICKED), || {
+        // SAFETY: null or a live handle, per the contract.
+        let client = unsafe { client.as_ref() }.ok_or("client is null")?;
+        // SAFETY: null is permitted; otherwise NUL-terminated per the contract.
+        let name = unsafe { optional_str_from_ffi(name, "name") }?;
+        let mut params = serde_json::Map::new();
+        params.insert("initial_content".into(), json!("terminal"));
+        if let Some(name) = name {
+            params.insert("name".into(), json!(name));
         }
-    };
-    let mut params = serde_json::Map::new();
-    params.insert("initial_content".into(), json!("terminal"));
-    if let Some(name) = name {
-        params.insert("name".into(), json!(name));
-    }
-    let result = client
-        .resource_operation(
+        let value = client.resource_operation(
             "workspace.create",
             params,
             true,
             timeout_from_millis(timeout_milliseconds),
-        )
-        .and_then(|value| json_to_c_string(&value));
-    match result {
-        Ok(text) => text,
-        Err(error) => {
-            copy_utf8(&error, error_buffer, error_capacity);
-            std::ptr::null_mut()
-        }
-    }
+        )?;
+        Ok(json_to_c_string(&value)?)
+    });
+    report_error(result, error_buffer, error_capacity, std::ptr::null_mut())
 }
 
 /// Creates a terminal tab inside an existing workspace (`tab.create_terminal`
@@ -2950,52 +2978,34 @@ pub unsafe extern "C" fn cmux_terminal_client_create_terminal_in_workspace(
     error_capacity: usize,
     timeout_milliseconds: u64,
 ) -> *mut c_char {
-    if client.is_null() {
-        copy_utf8("client is null", error_buffer, error_capacity);
-        return std::ptr::null_mut();
-    }
-    // SAFETY: the caller guarantees a live handle.
-    let client = unsafe { &*client };
-    let arguments = || -> Result<_, String> {
-        // SAFETY: `workspace_id` is NUL-terminated; `name` is null or
-        // NUL-terminated, per the contract.
-        let (workspace_id, name) = unsafe {
-            (
-                required_str_from_ffi(workspace_id, "workspace_id")?,
-                optional_str_from_ffi(name, "name")?,
-            )
-        };
-        let workspace_id = WorkspacePublicId::parse(workspace_id)
-            .map_err(|error| format!("workspace_id is invalid: {error}"))?;
-        Ok((workspace_id, name))
-    };
-    let (workspace_id, name) = match arguments() {
-        Ok(arguments) => arguments,
-        Err(error) => {
-            copy_utf8(&error, error_buffer, error_capacity);
-            return std::ptr::null_mut();
-        }
-    };
-    let mut params = serde_json::Map::new();
-    params.insert("workspace".into(), json!(workspace_id.as_str()));
-    if let Some(name) = name {
-        params.insert("name".into(), json!(name));
-    }
-    let result = client
-        .resource_operation(
-            "tab.create_terminal",
-            params,
-            true,
-            timeout_from_millis(timeout_milliseconds),
-        )
-        .and_then(|value| json_to_c_string(&value));
-    match result {
-        Ok(text) => text,
-        Err(error) => {
-            copy_utf8(&error, error_buffer, error_capacity);
-            std::ptr::null_mut()
-        }
-    }
+    let result =
+        ffi_boundary("cmux_terminal_client_create_terminal_in_workspace", Err(PANICKED), || {
+            // SAFETY: null or a live handle, per the contract.
+            let client = unsafe { client.as_ref() }.ok_or("client is null")?;
+            // SAFETY: `workspace_id` is NUL-terminated; `name` is null or
+            // NUL-terminated, per the contract.
+            let (workspace_id, name) = unsafe {
+                (
+                    required_str_from_ffi(workspace_id, "workspace_id")?,
+                    optional_str_from_ffi(name, "name")?,
+                )
+            };
+            let workspace_id = WorkspacePublicId::parse(workspace_id)
+                .map_err(|error| format!("workspace_id is invalid: {error}"))?;
+            let mut params = serde_json::Map::new();
+            params.insert("workspace".into(), json!(workspace_id.as_str()));
+            if let Some(name) = name {
+                params.insert("name".into(), json!(name));
+            }
+            let value = client.resource_operation(
+                "tab.create_terminal",
+                params,
+                true,
+                timeout_from_millis(timeout_milliseconds),
+            )?;
+            Ok(json_to_c_string(&value)?)
+        });
+    report_error(result, error_buffer, error_capacity, std::ptr::null_mut())
 }
 
 /// Lists the daemon's remote workspaces as returned by `workspace.list`.
@@ -3011,27 +3021,18 @@ pub unsafe extern "C" fn cmux_terminal_client_list_workspaces(
     error_capacity: usize,
     timeout_milliseconds: u64,
 ) -> *mut c_char {
-    if client.is_null() {
-        copy_utf8("client is null", error_buffer, error_capacity);
-        return std::ptr::null_mut();
-    }
-    // SAFETY: the caller guarantees a live handle.
-    let client = unsafe { &*client };
-    let result = client
-        .resource_operation(
+    let result = ffi_boundary("cmux_terminal_client_list_workspaces", Err(PANICKED), || {
+        // SAFETY: null or a live handle, per the contract.
+        let client = unsafe { client.as_ref() }.ok_or("client is null")?;
+        let value = client.resource_operation(
             "workspace.list",
             serde_json::Map::new(),
             false,
             timeout_from_millis(timeout_milliseconds),
-        )
-        .and_then(|value| json_to_c_string(&value));
-    match result {
-        Ok(text) => text,
-        Err(error) => {
-            copy_utf8(&error, error_buffer, error_capacity);
-            std::ptr::null_mut()
-        }
-    }
+        )?;
+        Ok(json_to_c_string(&value)?)
+    });
+    report_error(result, error_buffer, error_capacity, std::ptr::null_mut())
 }
 
 /// Creates a remote workspace. The optional name is sent as the workspace
@@ -3049,40 +3050,25 @@ pub unsafe extern "C" fn cmux_terminal_client_create_workspace(
     error_capacity: usize,
     timeout_milliseconds: u64,
 ) -> *mut c_char {
-    if client.is_null() {
-        copy_utf8("client is null", error_buffer, error_capacity);
-        return std::ptr::null_mut();
-    }
-    // SAFETY: the caller guarantees a live handle.
-    let client = unsafe { &*client };
-    // SAFETY: null is permitted; otherwise NUL-terminated per the contract.
-    let name = match unsafe { optional_str_from_ffi(name, "name") } {
-        Ok(name) => name,
-        Err(error) => {
-            copy_utf8(&error, error_buffer, error_capacity);
-            return std::ptr::null_mut();
+    let result = ffi_boundary("cmux_terminal_client_create_workspace", Err(PANICKED), || {
+        // SAFETY: null or a live handle, per the contract.
+        let client = unsafe { client.as_ref() }.ok_or("client is null")?;
+        // SAFETY: null is permitted; otherwise NUL-terminated per the contract.
+        let name = unsafe { optional_str_from_ffi(name, "name") }?;
+        let mut params = serde_json::Map::new();
+        params.insert("initial_content".into(), json!("terminal"));
+        if let Some(name) = name {
+            params.insert("name".into(), json!(name));
         }
-    };
-    let mut params = serde_json::Map::new();
-    params.insert("initial_content".into(), json!("terminal"));
-    if let Some(name) = name {
-        params.insert("name".into(), json!(name));
-    }
-    let result = client
-        .resource_operation(
+        let value = client.resource_operation(
             "workspace.create",
             params,
             true,
             timeout_from_millis(timeout_milliseconds),
-        )
-        .and_then(|value| json_to_c_string(&value));
-    match result {
-        Ok(text) => text,
-        Err(error) => {
-            copy_utf8(&error, error_buffer, error_capacity);
-            std::ptr::null_mut()
-        }
-    }
+        )?;
+        Ok(json_to_c_string(&value)?)
+    });
+    report_error(result, error_buffer, error_capacity, std::ptr::null_mut())
 }
 
 /// Frees a string returned by this library.
@@ -3093,9 +3079,11 @@ pub unsafe extern "C" fn cmux_terminal_client_create_workspace(
 /// been freed.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_terminal_client_string_free(text: *mut c_char) {
-    if text.is_null() {
-        return;
-    }
-    // SAFETY: ownership transfers exactly once per the documented contract.
-    drop(unsafe { CString::from_raw(text) });
+    ffi_boundary("cmux_terminal_client_string_free", (), || {
+        if text.is_null() {
+            return;
+        }
+        // SAFETY: ownership transfers exactly once per the documented contract.
+        drop(unsafe { CString::from_raw(text) });
+    });
 }

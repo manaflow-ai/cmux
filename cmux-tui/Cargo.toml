@@ -46,6 +46,7 @@ members = [
     "crates/cmux-focus-core",
     "crates/cmux-unix-socket",
     "crates/cmux-panic-log",
+    "crates/cmux-ffi-guard",
     "crates/cmux-blocking",
     "crates/cmux-lock-rank",
     "crates/cmux-memory",
@@ -215,6 +216,7 @@ cmux-feed-core = { path = "crates/cmux-feed-core" }
 cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
 cmux-unix-socket = { path = "crates/cmux-unix-socket" }
 cmux-panic-log = { path = "crates/cmux-panic-log" }
+cmux-ffi-guard = { path = "crates/cmux-ffi-guard" }
 cmux-blocking = { path = "crates/cmux-blocking" }
 cmux-lock-rank = { path = "crates/cmux-lock-rank" }
 cmux-memory = { path = "crates/cmux-memory" }

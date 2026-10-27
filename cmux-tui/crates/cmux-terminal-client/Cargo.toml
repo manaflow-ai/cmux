@@ -19,6 +19,7 @@ cmux-stability = ["cmux-blocking/cmux-stability"]
 
 [dependencies]
 cmux-blocking.workspace = true
+cmux-ffi-guard.workspace = true
 cmux-panic-log.workspace = true
 cmux-threads.workspace = true
 base64.workspace = true
@@ -36,5 +37,6 @@ url.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
+cmux-ffi-guard = { workspace = true, features = ["testing"] }
 async-trait.workspace = true
 tempfile = "3"

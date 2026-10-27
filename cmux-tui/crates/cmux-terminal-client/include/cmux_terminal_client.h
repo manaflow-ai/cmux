@@ -9,6 +9,9 @@
 extern "C" {
 #endif
 
+// A Rust panic inside any function below does not abort the process: the
+// function returns its error value (NULL, false, 0, or nothing) and, when it
+// takes an error_buffer, writes "terminal client panicked" there.
 typedef struct CmuxTerminalClient CmuxTerminalClient;
 typedef struct CmuxWireGuardNet CmuxWireGuardNet;
 typedef void (*CmuxTerminalClientUpdateCallback)(void *context);
