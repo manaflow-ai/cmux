@@ -1018,9 +1018,10 @@ async function scrubSandboxHandles(attemptId: string, cleanupLeaseToken: string)
     if (!row) return;
     const handles = await sandboxAttemptHandles(tx, row.run, row.attempt);
     if (handles.length === 0) return;
-    const reply = typeof row.run.receipt?.reply === "string" ? row.run.receipt.reply : null;
-    if (reply !== null) {
-      await tx.update(runs).set({ receipt: { ...row.run.receipt, reply: redactReceiptText(reply, handles) } }).where(eq(runs.id, row.run.id));
+    const receipt = row.run.receipt;
+    if (receipt) {
+      const scrub = (value: unknown) => (typeof value === "string" ? redactReceiptText(value, handles) : value ?? null);
+      await tx.update(runs).set({ receipt: { ...receipt, reply: scrub(receipt.reply), error: scrub(receipt.error) } }).where(eq(runs.id, row.run.id));
     }
     if (row.attempt.error) {
       await tx.update(runAttempts).set({ error: redactReceiptText(row.attempt.error, handles) }).where(eq(runAttempts.id, attemptId));
@@ -1120,7 +1121,8 @@ export async function recordSandboxOutcome(input: {
     const run = (await tx.select().from(runs).where(eq(runs.id, input.runId)).limit(1))[0];
     const handles = run ? await sandboxAttemptHandles(tx, run, attempt) : [attempt.providerVmId, attempt.providerWorkspaceId, attempt.providerTerminalId];
     const reply = input.outcome.reply === null ? null : sandboxReply(input.outcome.reply, handles);
-    await tx.update(runs).set({ receipt: { reply, exitCode, signal, timedOut, bootMs }, updatedAt: nowAt }).where(eq(runs.id, input.runId));
+    const error = input.outcome.error ? redactReceiptText(input.outcome.error, handles).slice(0, 500) : null;
+    await tx.update(runs).set({ receipt: { reply, exitCode, signal, timedOut, bootMs, error }, updatedAt: nowAt }).where(eq(runs.id, input.runId));
     return true;
   });
 }

@@ -156,6 +156,8 @@ export type SandboxRunOutcome = {
   readonly signal: number | null;
   readonly timedOut: boolean;
   readonly bootMs: number | null;
+  /** Why the run failed, as the launcher saw it (boot, setup, timeout); null when it didn't. */
+  readonly error?: string | null;
 };
 
 /** `cmux.run.receipt/v1`: the result of a sandboxed Run. No provider handles, no secrets. */
