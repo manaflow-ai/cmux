@@ -249,6 +249,7 @@
     "setting.agentPane.images.remote": "click",
     "setting.agentPane.links.outsideRoots": "open",
     "setting.agentPane.needsYou.enabled": false,
+    "setting.agentPane.scrollToBottomOnSend": true,
     "setting.agentPane.showContextUsage": true,
     "setting.agentPane.showDictation": true,
     "setting.agentPane.spellChecking": false,
