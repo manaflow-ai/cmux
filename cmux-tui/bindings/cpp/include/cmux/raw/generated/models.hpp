@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "b4cbcd5e1cff6ed7a4f4ff8b4e4b29747510b8c6eb30f11155b70ed1d0b8c7b5";
+inline constexpr std::string_view kProtocolIrSha256 = "bd628b182fbf46b7af5765359211ddc10dd59e37005342d5083854986ee46aa9";
 
 enum class AccessRequestKind;
 struct AccessRequestPending;
@@ -4563,6 +4563,7 @@ struct IdentifyResult {
     std::optional<std::vector<std::string>> capabilities{};
     Field<std::string> cli_path{};
     Field<std::string> crate_version{};
+    Field<std::vector<std::uint16_t>> framed_methods{};
     std::string generation{};
     Field<std::string> ghostty_commit{};
     Field<std::string> install{};
@@ -4576,6 +4577,7 @@ struct IdentifyResult {
     std::uint32_t pid{};
     std::uint32_t protocol{};
     std::string registry_id{};
+    Field<std::string> sdk_schema_digest{};
     std::string session{};
     std::optional<std::string> session_id{};
     std::uint64_t terminal_revision{};

@@ -103,6 +103,20 @@ final class CEFTabNodeVisibility {
         return done
     }
 
+    /// ``CEFTab/freezeShownInOffScreenWindow()``: the page an off-screen window shows (p07-memory-097). A tab that
+    /// follows its node was hidden to Chromium by the window node and freezes as a hidden page. One that follows none
+    /// (a fork before API 37) still counts visible to Chromium, so `SetPageFrozen` would refuse it: DevTools
+    /// `Page.setWebLifecycleState` hides it first (`WasHidden`), as for a page that is never shown. Its thaw is
+    /// ``setFrozen(_:of:)`` with `false`, sent now, so an agent call after it reaches a live page.
+    func freezeShown(of tab: CEFTab) -> Bool {
+        guard node == nil else { return setFrozen(true, of: tab) }
+        guard let browser = tab.browserID, !tab.isClosed, let shim = tab.runtime.shim else { return false }
+        if isPageFrozen { return true }
+        let state = CEFDevToolsResult.params(["state": "frozen"])
+        if shim.devToolsCall(browser, "Page.setWebLifecycleState", state) != 0 { isPageFrozen = true }
+        return isPageFrozen
+    }
+
     /// Freezes a page that is never shown: the spare window's about:blank placeholder, on a fork with no
     /// renderer-less placeholder. Unfrozen, the placeholder counted visible and ran rAF at ~98/s at idle (fleet probe
     /// 4e065838, macOS 27). It is never thawed: a take closes it on the next turn (`CEFPaneHost.closeSparePlaceholder`).

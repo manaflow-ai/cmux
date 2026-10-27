@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR b4cbcd5e1cff6ed7a4f4ff8b4e4b29747510b8c6eb30f11155b70ed1d0b8c7b5. */
+/* cmux-tui mux protocol 12, IR bd628b182fbf46b7af5765359211ddc10dd59e37005342d5083854986ee46aa9. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "b4cbcd5e1cff6ed7a4f4ff8b4e4b29747510b8c6eb30f11155b70ed1d0b8c7b5" as const;
+export const SDK_IR_SHA256 = "bd628b182fbf46b7af5765359211ddc10dd59e37005342d5083854986ee46aa9" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -10728,6 +10728,20 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "value": 1
         }
       },
+      "framed_methods": {
+        "constraints": [
+          "The method ids this daemon answers on REQUEST frames, in id order; a client sends every other command as a line. Only with identify {revisions: true} on a connection offered ipc-frames-v2."
+        ],
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "uint16"
+          },
+          "kind": "array"
+        }
+      },
       "generation": {
         "nullable": false,
         "presence": "required",
@@ -10847,6 +10861,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "nullable": false,
         "presence": "required",
         "since": 7,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "sdk_schema_digest": {
+        "constraints": [
+          "FNV-1a 64 of the sdk-schema.json bytes this daemon's method tables came from, as 16 lowercase hex digits. A client sends REQUEST frames only when its own table has the same digest. Only with identify {revisions: true} on a connection offered ipc-frames-v2."
+        ],
+        "nullable": true,
+        "presence": "optional",
         "type": {
           "kind": "scalar",
           "name": "string"

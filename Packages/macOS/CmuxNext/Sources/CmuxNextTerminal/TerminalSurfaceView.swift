@@ -106,6 +106,8 @@ public final class TerminalSurfaceView: NSView {
     var releasesGPUWhilePaused = false {
         didSet { if releasesGPUWhilePaused != oldValue { updateOcclusion() } }
     }
+    /// Shown in a window that stays off screen, the surface lets its GPU memory go (``TerminalOffScreenRelease``).
+    var offScreenRelease: TerminalOffScreenRelease
     var pause: SurfacePause? = .notInWindow // why it does not draw (nil: draws)
     /// The presented frame kept volatile while the surface does not draw.
     var heldFrame = TerminalHeldFrame()
@@ -179,6 +181,7 @@ public final class TerminalSurfaceView: NSView {
         modifierWatch = modifiers
         frameCoalescers = pointerFrames
         gpu = TerminalGPUResidencyGate(seam: gpuResidency)
+        offScreenRelease = TerminalOffScreenRelease(deadline: gpuResidency?.makeOffScreenDeadline())
         windowWatch = TerminalWindowWatch(node: node)
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         addCursorUpdateArea()
@@ -191,7 +194,7 @@ public final class TerminalSurfaceView: NSView {
         // as in Ghostty; moves arrive only while the pointer is over this surface's visible rect
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .inVisibleRect, .activeAlways],
                                        owner: self))
-        createSurface(mode: mode, echoStage: echoStage, contentsGate: echoStages.contentsGate)
+        createSurface(mode: mode, echoStage: echoStage, stages: echoStages)
     }
 
     @available(*, unavailable)
@@ -211,16 +214,16 @@ public final class TerminalSurfaceView: NSView {
                 // that reaches it off the main thread closed.
                 unsafe ghostty_surface_free(surface)
             }
+            bridgeObject.surfaceFreed() // free joined every thread that reads the bridge: the hook stops reading it
             // Released after free: free joins the IO thread that reads the bridge.
             // SAFETY: the one release of `init`'s retain (`bridge`'s note), after the free.
             unsafe bridge.release()
         }
     }
 
-    /// `ghostty_surface_new` with embedder-owned IO (ghostty.h:548-559,
-    /// :627-629). `GHOSTTY_SURFACE_IO_MANUAL_MIRROR` for the daemon,
-    /// `GHOSTTY_SURFACE_IO_MANUAL` for a bare PTY. The bridge carries `echoStage` to ``GhosttyTraceHook``.
-    private func createSurface(mode: ghostty_surface_io_mode_e, echoStage: TerminalEchoStage?, contentsGate: TerminalContentsGate) {
+    /// `ghostty_surface_new` with embedder-owned IO (ghostty.h:548-559, :627-629). `GHOSTTY_SURFACE_IO_MANUAL_MIRROR` for
+    /// the daemon, `GHOSTTY_SURFACE_IO_MANUAL` for a bare PTY. The bridge carries `echoStage` to ``GhosttyTraceHook``.
+    private func createSurface(mode: ghostty_surface_io_mode_e, echoStage: TerminalEchoStage?, stages: TerminalEchoStages) {
         let timings = TerminalTimings()
         let signpost = timings.surfaceCreateBegan()
         defer { timings.surfaceCreated(signpost) }
@@ -247,6 +250,8 @@ public final class TerminalSurfaceView: NSView {
         }
         // SAFETY: the new surface, owned by this view and freed once, in deinit (`surface`'s note).
         self.surface = unsafe surface
+        // SAFETY: the view's live surface (`surface`); the hook reads only its trace id.
+        unsafe bridgeObject.traceFrames(of: surface, with: stages.traceHook)
         // The drawable follows the size this view sets (`setFrameSize`), not
         // its layer's bounds: one synchronous frame per size change at the
         // next display pass, no draw for a bounds change alone.
@@ -262,7 +267,7 @@ public final class TerminalSurfaceView: NSView {
                                          keyFlows: bridgeObject.typingSurface, hangs: hangWatch)
         if let layer {
             echoStage?.attach(to: layer)
-            TypingFrameProbe.install(on: layer, gate: contentsGate, keyFlows: bridgeObject.typingSurface)
+            TypingFrameProbe.install(on: layer, stages: stages, keyFlows: bridgeObject.typingSurface)
         }
         registerForDraggedTypes([.fileURL, .URL, .string])
         updateContentScale()

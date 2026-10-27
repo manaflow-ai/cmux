@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR b4cbcd5e1cff6ed7a4f4ff8b4e4b29747510b8c6eb30f11155b70ed1d0b8c7b5.
+// cmux-tui mux protocol 12, IR bd628b182fbf46b7af5765359211ddc10dd59e37005342d5083854986ee46aa9.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1646,6 +1646,8 @@ pub struct IdentifyResult {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub crate_version: Optional<String>,
     pub daemon_handoff: u64,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub framed_methods: Optional<Vec<u16>>,
     pub generation: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub ghostty_commit: Optional<String>,
@@ -1668,6 +1670,8 @@ pub struct IdentifyResult {
     pub pid: u32,
     pub protocol: u32,
     pub registry_id: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub sdk_schema_digest: Optional<String>,
     pub session: String,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
