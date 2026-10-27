@@ -142,7 +142,8 @@
     {"owner": "ErrorJournalService.harvest", "period_s": 300, "why": "harvests crash and error reports written by other processes; task 064 moves it to NSBackgroundActivityScheduler"},
     {"owner": "GitHubFeedSource.refresh", "period_s": 120, "why": "GitHub has no push for the feed; task 066 stops it while no feed surface shows"},
     {"owner": "DeviceHubSocket.ping", "period_s": 30, "why": "PROTOCOL.md keepalive of the device hub; task 066 sends it only after silence"},
-    {"owner": "ControlEventBus.heartbeat", "period_s": 15, "why": "events.stream include_heartbeats keepalive, only while a client asked for it and stays connected"}
+    {"owner": "ControlEventBus.heartbeat", "period_s": 15, "why": "events.stream include_heartbeats keepalive, only while a client asked for it and stays connected"},
+    {"owner": "HomeWireStream.keepalive", "period_s": 25, "why": "cmux.wire/1 keepalive of each Home socket (CmuxHomeCore), sent only after 25 s with no frame from the owner; task p14-energy-067b. Pending the lead's approval"}
   ],
   "assertions_allowed_when": ["sessions.keepAwake", "phone.keepAwake"]
 }
