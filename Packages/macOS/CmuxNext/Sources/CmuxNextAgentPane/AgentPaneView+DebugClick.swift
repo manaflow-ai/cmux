@@ -1,6 +1,7 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import AppKit
 import CmuxNextCompat
+public import CmuxNextPages
 public import WebKit
 
 /// `debug.agent_pane click` and `hover` (DEBUG builds), in whichever engine the page host shows
@@ -64,8 +65,10 @@ extension AgentPaneView {
     public var debugPageWebView: WKWebView? { page.webKitEngine }
 
     /// A trusted left click at `x`,`y` (CSS pixels) on a chat shown in Chromium: the engine's native
-    /// click, DevTools input on an older fork; false otherwise (``PageWebView/debugPress(x:y:)``).
-    public func debugPress(x: Double, y: Double) async -> Bool {
+    /// click, DevTools input on an older fork (``PageWebView/debugPress(x:y:)``).
+    ///
+    /// - Returns: The path that delivered the click; nil when the chat is not in Chromium or DevTools refused it.
+    public func debugPress(x: Double, y: Double) async -> PageDebugInputPath? {
         await page.debugPress(x: x, y: y)
     }
 }

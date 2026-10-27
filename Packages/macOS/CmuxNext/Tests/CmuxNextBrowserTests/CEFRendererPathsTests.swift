@@ -237,7 +237,8 @@ import Testing
         let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
         rig.runtime.handle(.reply(browser: 7, id: call.reply, value: 640 | (Int64(400) << 32), json: png.base64EncodedString()))
         await rig.until { !copies.isEmpty }
-        #expect(copies == [CEFSurfaceCopy(data: png, pixelSize: CGSize(width: 640, height: 400))])
+        #expect(copies == [CEFSurfaceCopy(base64: png.base64EncodedString(), pixelSize: CGSize(width: 640, height: 400))],
+                "the copy is passed on in base64: the page host decodes it off the main thread")
 
         tab.copySurface(maxPixelSize: CGSize(width: 10, height: 10)) { copies.append($0) }
         let empty = try #require(Spy.copies.last)
@@ -283,6 +284,23 @@ import Testing
         } else {
             #expect(Spy.devToolsCalls == ["Runtime.evaluate"])
         }
+    }
+
+    /// From fork API 38 a scripted hover is the fork's native mouse move (`SendMouseMoveEvent`, no button), with no
+    /// DevTools call; below it, or with the export missing, the tab says no and the caller uses DevTools input.
+    @Test(arguments: [CEFForkFeatures.mouseMoveForkAPI - 1, CEFForkFeatures.mouseMoveForkAPI])
+    func aTabMovesTheMouseNativelyFromForkAPI38(forkAPI: Int32) async throws {
+        let rig = try Rig(forkAPI: forkAPI)
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        await rig.settle()
+        Spy.devToolsCalls = []
+        let native = forkAPI >= CEFForkFeatures.mouseMoveForkAPI
+        #expect(tab.sendMouseMove(x: 12.5, y: 30) == native)
+        #expect(Spy.mouseMoves == (native ? [Spy.Move(browser: 7, x: 12.5, y: 30, modifiers: 0)] : []))
+        #expect(Spy.devToolsCalls.isEmpty, "\(Spy.devToolsCalls)")
+        rig.runtime.handle(.beforeClose(browser: 7))
+        #expect(!tab.sendMouseMove(x: 1, y: 1), "a closed tab moved the mouse")
     }
 
     /// Below fork API 38 there is no surface copy: no picture at once, no shim call and no DevTools.
@@ -370,6 +388,9 @@ private nonisolated enum Spy {
     nonisolated(unsafe) static var copies: [Copy] = []
     /// What `cmux_shim_tab_copy_surface` returns (1 started).
     nonisolated(unsafe) static var copyStart: Int32 = 1
+    /// One `cmux_shim_tab_send_mouse_move` call: browser, x, y (view points), modifiers.
+    struct Move: Equatable { let browser: Int32; let x: Double; let y: Double; let modifiers: Int32 }
+    nonisolated(unsafe) static var mouseMoves: [Move] = []
     static let rendererPathSymbols: Set<String> = ["cmux_shim_add_document_script", "cmux_shim_add_page_channel", "cmux_shim_tab_evaluate",
                                                     "cmux_shim_tab_set_frozen", "cmux_shim_tab_send_click", "cmux_shim_tab_set_color_scheme"]
 
@@ -388,6 +409,7 @@ private nonisolated enum Spy {
         exportsRendererPaths = true
         copies = []
         copyStart = 1
+        mouseMoves = []
     }
 
     static func library() throws -> CEFShimLibrary {
@@ -419,6 +441,10 @@ private nonisolated enum Spy {
             Spy.copies.append(Copy(browser: browser, reply: reply, width: width, height: height, format: format))
             return Spy.copyStart
         }
+        let mouseMove: @convention(c) (Int32, Double, Double, Int32) -> Int32 = { browser, x, y, modifiers in
+            Spy.mouseMoves.append(Move(browser: browser, x: x, y: y, modifiers: modifiers))
+            return 1
+        }
         let nothing: @convention(c) () -> Int = { 0 }
         return try CEFShimLibrary.resolving { name in
             if !Spy.exportsRendererPaths, Spy.rendererPathSymbols.contains(name) { return nil }
@@ -434,6 +460,7 @@ private nonisolated enum Spy {
             case "cmux_shim_add_page_channel": unsafeBitCast(channel, to: UnsafeMutableRawPointer.self)
             case "cmux_shim_add_document_script": unsafeBitCast(script, to: UnsafeMutableRawPointer.self)
             case "cmux_shim_tab_copy_surface": unsafeBitCast(copy, to: UnsafeMutableRawPointer.self)
+            case "cmux_shim_tab_send_mouse_move": unsafeBitCast(mouseMove, to: UnsafeMutableRawPointer.self)
             default: unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self)
             }
         }

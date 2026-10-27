@@ -4,8 +4,9 @@ import CmuxNextWakeups
 
 /// A picture of a tab's page that Chromium copied from its surface and encoded (``CEFTab/copySurface(maxPixelSize:done:)``).
 public nonisolated struct CEFSurfaceCopy: Sendable, Equatable {
-    /// The encoded image (PNG, alpha kept).
-    public var data: Data
+    /// The encoded image (PNG, alpha kept) in base64, as the shim's reply carries it. A full window is megabytes of
+    /// text: the main actor only passes it on, and the page host decodes it on its `.cpu` lane.
+    public var base64: String
     /// Its size in pixels.
     public var pixelSize: CGSize
 }
@@ -84,7 +85,7 @@ final class CEFSurfaceCopies {
     }
 
     /// A CMUX_SHIM_REPLY: true when it answers one of the copies (value = width | height << 32 in pixels, 0
-    /// for none; json = the PNG in base64), which then takes no site reply waiter.
+    /// for none; json = the PNG in base64, passed on undecoded), which then takes no site reply waiter.
     func answer(reply id: Int32, value: Int64, json: String) -> Bool {
         guard pending[id] != nil else { return false }
         finish(id, Self.copy(value: value, base64: json))
@@ -96,11 +97,11 @@ final class CEFSurfaceCopies {
         for (id, copy) in pending where copy.browser == browser { finish(id, nil) }
     }
 
-    /// The picture of an answer; nil when it has no size or no image.
+    /// The picture of an answer, still in base64 (no decode in the event's turn); nil when it has no size or no image.
     nonisolated static func copy(value: Int64, base64: String) -> CEFSurfaceCopy? {
         let width = value & 0xFFFF_FFFF, height = (value >> 32) & 0xFFFF_FFFF
-        guard width > 0, height > 0, let data = Data(base64Encoded: base64), !data.isEmpty else { return nil }
-        return CEFSurfaceCopy(data: data, pixelSize: CGSize(width: Int(width), height: Int(height)))
+        guard width > 0, height > 0, !base64.isEmpty else { return nil }
+        return CEFSurfaceCopy(base64: base64, pixelSize: CGSize(width: Int(width), height: Int(height)))
     }
 
     /// A side of the copy's limit in whole pixels; nil below one pixel.

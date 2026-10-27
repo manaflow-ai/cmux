@@ -79,23 +79,36 @@ extension PageWebView {
     ///   - devToolsParams: The `Page.captureScreenshot` params on a fork without the surface copy.
     /// - Returns: The image; nil when the page gives none or the lanes shut down.
     func chromiumPicture(of session: PageChromiumSession, devToolsParams: [String: any Sendable]) async -> CGImage? {
-        guard let data = await chromiumPictureData(of: session, devToolsParams: devToolsParams) else { return nil }
-        return try? await session.work.run(WorkPriority(Task.currentPriority), mayBlock: .cpu) { blockingImageDecode(data) }
+        guard let reply = await chromiumPictureReply(of: session, devToolsParams: devToolsParams) else { return nil }
+        return try? await session.work.run(WorkPriority(Task.currentPriority), mayBlock: .cpu) {
+            reply.data().flatMap { blockingImageDecode($0) }
+        }
     }
 
     /// The Chromium page's picture, encoded: its surface copy at the view's pixel size, with no DevTools
     /// agent (``PageChromiumPage/copySurface(maxPixelSize:done:)``, PNG with alpha). Only a fork without the
     /// copy asks DevTools (`Page.captureScreenshot` with `devToolsParams`), whose agent ends main-frame
-    /// renderer reuse for the whole browser; its multi-megabyte base64 reply is parsed on the `.cpu` lane.
+    /// renderer reuse for the whole browser. Either answer is multi-megabyte base64 text, decoded on the
+    /// `.cpu` lane.
     ///
     /// - Parameters:
     ///   - session: The page's Chromium session.
     ///   - devToolsParams: The `Page.captureScreenshot` params on a fork without the surface copy.
     /// - Returns: The encoded image; nil when there is none.
     func chromiumPictureData(of session: PageChromiumSession, devToolsParams: [String: any Sendable]) async -> Data? {
-        if session.page.copiesSurface { return await session.page.copiedSurface(maxPixelSize: snapshotPixelSize)?.data }
+        guard let reply = await chromiumPictureReply(of: session, devToolsParams: devToolsParams) else { return nil }
+        return try? await session.work.run(WorkPriority(Task.currentPriority), mayBlock: .cpu) { reply.data() }
+    }
+
+    /// The engine's answer for the page's picture, not decoded yet: the surface copy, or the DevTools reply on a
+    /// fork without it.
+    private func chromiumPictureReply(of session: PageChromiumSession,
+                                      devToolsParams: [String: any Sendable]) async -> PageChromiumPictureReply? {
+        if session.page.copiesSurface {
+            return await session.page.copiedSurface(maxPixelSize: snapshotPixelSize).map(PageChromiumPictureReply.surface)
+        }
         guard let json = try? await session.page.devTools("Page.captureScreenshot", params: devToolsParams) else { return nil }
-        return try? await session.work.run(WorkPriority(Task.currentPriority), mayBlock: .cpu) { Self.capturedPageData(json) }
+        return .devTools(json)
     }
 
     /// The image of a `Page.captureScreenshot` reply, parsed on the calling thread.
@@ -162,5 +175,21 @@ private final class PageMessageRelay: NSObject, WKScriptMessageHandler {
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let view, let webView = message.webView, webView === view.webKitPieces?.view, message.frameInfo.isMainFrame else { return }
         handler(message.body)
+    }
+}
+
+/// A Chromium page's picture as its engine answered it, still base64 text (``PageWebView/chromiumPictureData(of:devToolsParams:)``).
+private nonisolated enum PageChromiumPictureReply: Sendable {
+    /// The page's surface copy.
+    case surface(PageSurfaceCopy)
+    /// A `Page.captureScreenshot` reply (JSON) on a fork without the surface copy.
+    case devTools(String)
+
+    /// The image's bytes (PNG, or the DevTools params' format), decoded on the calling thread: run it on the `.cpu` lane.
+    func data() -> Data? {
+        switch self {
+        case .surface(let copy): copy.encoded()?.data
+        case .devTools(let json): PageWebView.capturedPageData(json)
+        }
     }
 }

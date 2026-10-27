@@ -271,6 +271,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let tabSetFrozen: (@convention(c) (Int32, Int32) -> Int32)?
     /// `CefBrowserHost::SendMouseClickEvent` down and up: browser, x, y (view points), button, modifiers, clicks.
     let tabSendClick: (@convention(c) (Int32, Double, Double, Int32, Int32, Int32) -> Int32)?
+    /// `CefBrowserHost::SendMouseMoveEvent` with no button held (p13-webui-077): browser, x, y (view points),
+    /// modifiers. Nil without the export.
+    let tabSendMouseMove: (@convention(c) (Int32, Double, Double, Int32) -> Int32)?
     /// The page's `prefers-color-scheme` (WebPreferences preferred_color_scheme): browser, 1 light, 2 dark.
     let tabSetColorScheme: (@convention(c) (Int32, Int32) -> Int32)?
     /// `WebContents::Discard` in place (p13-webui-018): browser; 1 discarded, 0 refused. Nil without the

@@ -24,6 +24,9 @@ nonisolated struct CEFForkFeatures: Equatable, Sendable {
     /// Max + 1 of the numbers the app claims (37 is ``tabVisibilityForkAPI``); the fork train (p13-webui-086)
     /// confirms it with its pin.
     static let surfaceCopyForkAPI: Int32 = 38
+    /// The first fork API with `cmux_shim_tab_send_mouse_move` (`CefBrowserHost::SendMouseMoveEvent`): the same fork
+    /// line as the surface copy (p13-webui-077 adds both), numbered by the train with it.
+    static let mouseMoveForkAPI: Int32 = surfaceCopyForkAPI
 
     /// `cmux_shim_fork_api_version()`; 0 for stock CEF or no shim.
     var forkAPIVersion: Int32
@@ -33,6 +36,8 @@ nonisolated struct CEFForkFeatures: Equatable, Sendable {
     var shimHasTabVisibility = false
     /// The shim exports `cmux_shim_tab_copy_surface` (`CEFShimLibrary.tabCopySurface`).
     var shimHasSurfaceCopy = false
+    /// The shim exports `cmux_shim_tab_send_mouse_move` (`CEFShimLibrary.tabSendMouseMove`).
+    var shimHasMouseMove = false
 
     /// No always-on per-tab DevTools session: a tab gets a DevTools agent only when DevTools opens
     /// or an agent drives it over CDP, so Chrome's process reuse can put up to 2 same-site main
@@ -55,12 +60,17 @@ nonisolated struct CEFForkFeatures: Equatable, Sendable {
     /// Chrome copies a tab thumbnail (`RenderWidgetHostView::CopyFromSurface`): a picture attaches no DevTools agent,
     /// so the renderer stays shareable. Below this API a picture needs `Page.captureScreenshot`.
     var surfaceCopy: Bool { shimHasSurfaceCopy && forkAPIVersion >= Self.surfaceCopyForkAPI }
+
+    /// A mouse move with no button reaches the page as the person's own (``CEFTab/sendMouseMove(x:y:)``), with no
+    /// DevTools agent, as the native click does. Below this API a scripted hover needs DevTools input.
+    var mouseMove: Bool { shimHasMouseMove && forkAPIVersion >= Self.mouseMoveForkAPI }
 }
 
 extension CEFForkFeatures {
     /// The features of a loaded shim.
     init(_ shim: CEFShimLibrary) {
         self.init(forkAPIVersion: shim.forkAPIVersion(), shimHasRendererPaths: shim.hasRendererPaths,
-                  shimHasTabVisibility: shim.tabSetVisibility != nil, shimHasSurfaceCopy: shim.tabCopySurface != nil)
+                  shimHasTabVisibility: shim.tabSetVisibility != nil, shimHasSurfaceCopy: shim.tabCopySurface != nil,
+                  shimHasMouseMove: shim.tabSendMouseMove != nil)
     }
 }

@@ -1,12 +1,13 @@
 import AppKit
 @testable import CmuxNextPages
 import CmuxNextPagesTestSupport
+import CmuxNextSettings
 import Foundation
 import Testing
 
 /// p13-webui-078: a Chromium page's pictures (window image, cover snapshot, debug snapshot), debug
-/// click, menu Copy and selected text go through the engine's paths that attach no DevTools agent
-/// (the fork's surface copy, native click and `tabEvaluate`), because one DevTools agent ends
+/// click and hover, menu Copy and selected text go through the engine's paths that attach no DevTools agent
+/// (the fork's surface copy, native click and move, and `tabEvaluate`), because one DevTools agent ends
 /// main-frame renderer reuse for the whole browser. DevTools stays only where the engine has no such
 /// path (a fork before them).
 @MainActor
@@ -47,7 +48,7 @@ struct PageChromiumDevToolsFreeTests {
         let (view, page) = try await started()
         let png = try #require(Data(base64Encoded: Self.onePixel))
         page.copiesSurface = true
-        page.surfaceCopy = PageEncodedSnapshot(data: png, pixelSize: CGSize(width: 1, height: 1))
+        page.surfaceCopy = PageSurfaceCopy(base64: Self.onePixel, pixelSize: CGSize(width: 1, height: 1))
 
         let image = try #require(await view.chromiumImage())
         #expect(image.width == 1 && image.height == 1)
@@ -100,20 +101,44 @@ struct PageChromiumDevToolsFreeTests {
     }
 
     #if DEBUG
-    /// A debug press is the native click at the page's CSS point times its zoom; with no native click
-    /// (a fork before API 29) it is a DevTools press and release.
+    /// A debug press is the native click at the page's CSS point times its zoom, and says so; with no native
+    /// click (a fork before API 29) it is a DevTools press and release, reported as DevTools.
     @Test func aDebugPressIsTheNativeClick() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let (view, page) = try await started()
         page.nativeClicks = true
-        #expect(await view.debugPress(x: 10, y: 20))
+        #expect(await view.debugPress(x: 10, y: 20) == .native)
         #expect(page.clicks == [CGPoint(x: 10 * view.pageZoom, y: 20 * view.pageZoom)])
         #expect(Self.devToolsSites(page).isEmpty, "\(Self.devToolsSites(page))")
 
         page.nativeClicks = false
-        #expect(await view.debugPress(x: 10, y: 20))
+        #expect(await view.debugPress(x: 10, y: 20) == .devtools)
         let presses = page.calls.filter { $0.method == "Input.dispatchMouseEvent" }.map { $0.params["type"] as? String }
         #expect(presses == ["mousePressed", "mouseReleased"])
+        view.close()
+    }
+
+    /// A debug hover is the native mouse move at the element's CSS center times the zoom, says so, and
+    /// counts only once the page reports `:hover`; with no native move (a fork before API 38) it is a
+    /// DevTools `mouseMoved`, reported as DevTools.
+    @Test func aDebugHoverIsTheNativeMouseMove() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (view, page) = try await started()
+        page.rendererEvaluate = { script in
+            if script.contains("scrollIntoView") { return #""{\"x\":10,\"y\":20,\"w\":4,\"h\":2,\"hit\":true}""# }
+            return script.contains(":hover") ? "true" : "null"
+        }
+        page.nativeMoves = true
+        guard case .object(let native) = await view.debugHover("#target") else { Issue.record("no object"); return }
+        #expect(native["hovered"] == .bool(true) && native["delivered"] == .string("native"), "\(native)")
+        #expect(page.mouseMoves == [CGPoint(x: 10 * view.pageZoom, y: 20 * view.pageZoom)])
+        #expect(Self.devToolsSites(page).isEmpty, "\(Self.devToolsSites(page))")
+
+        page.nativeMoves = false
+        guard case .object(let devTools) = await view.debugHover("#target") else { Issue.record("no object"); return }
+        #expect(devTools["delivered"] == .string("devtools"), "\(devTools)")
+        let moves = page.calls.filter { $0.method == "Input.dispatchMouseEvent" }.map { $0.params["type"] as? String }
+        #expect(moves == ["mouseMoved"])
         view.close()
     }
     #endif
