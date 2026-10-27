@@ -6,8 +6,8 @@ public import Foundation
 /// `<Application Support>/<bundle id>/Chromium`, so every restored Chromium tab loaded in WebKit, signed out).
 ///
 /// The claim is an exclusive `flock` on `<Application Support>/<bundle id>/instance.lock`, held for the life of the
-/// process (the kernel drops it when the process ends, however it ends) and holding the owner's pid. Two launches
-/// racing each other cannot both get it. A copy that cannot get it hands its URLs and files to the owner and exits
+/// process (the kernel drops it when the process ends, however it ends). Two launches racing each other cannot
+/// both get it. A copy that cannot get it hands its URLs and files to the owner and exits
 /// (`SingleInstanceHandoff`), before it reads the relaunch-focus record, a session, the daemon or CEF.
 /// `LSMultipleInstancesProhibited` is not used: it does nothing for a direct exec (the copy above).
 ///
@@ -19,7 +19,7 @@ public nonisolated struct SingleInstanceGuard: Equatable, Sendable {
     public enum Decision: Equatable, Sendable {
         /// Start normally (this process owns the claim, or is not guarded).
         case launch
-        /// Another copy owns the claim: forward to it and exit, never start. `activates` is false for an agent
+        /// Another copy owns the claim: hand off to it and exit, never start. `activates` is false for an agent
         /// launch (`CMUX_NEXT_NO_ACTIVATE=1`), which then forwards nothing (an open would bring the owner forward).
         case handOff(activates: Bool)
     }
@@ -69,8 +69,8 @@ public extension SingleInstanceGuard {
         applicationSupport?.appending(path: bundleIdentifier).appending(path: "instance.lock")
     }
 
-    /// Takes the claim at `url`, keeping the descriptor open (close-on-exec) for the life of the process, and
-    /// records this pid in it (``owner(at:)``).
+    /// Takes the claim at `url`, keeping the descriptor open (close-on-exec, so no child keeps it) for the life of
+    /// the process. Only a lock another process holds is `.taken`; any file error launches as before.
     static func claim(at url: URL) -> Claim {
         // blocking-allow: runs once in `main` before NSApp exists and before any other thread starts; whether this copy may start at all decides everything after it, so nothing can run first (one mkdir of an existing folder)
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -81,30 +81,7 @@ public extension SingleInstanceGuard {
             close(fd)
             return lockError == EWOULDBLOCK ? .taken : .unavailable
         }
-        let pid = Data("\(getpid())\n".utf8)
-        _ = ftruncate(fd, 0)
-        _ = pid.withUnsafeBytes { pwrite(fd, $0.baseAddress, $0.count, 0) }
         return .held  // fd stays open: the claim lasts until this process ends
-    }
-
-    /// Whether nobody holds the claim at `url` now (its owner ended).
-    static func isFree(at url: URL) -> Bool {
-        let fd = open(url.path, O_RDONLY | O_CLOEXEC)
-        guard fd >= 0 else { return true }
-        defer { close(fd) }
-        return flock(fd, LOCK_EX | LOCK_NB) == 0  // released with the close
-    }
-
-    /// The pid the claim's owner recorded, nil before it wrote it (it writes right after it locks).
-    static func owner(at url: URL) -> pid_t? {
-        let fd = open(url.path, O_RDONLY | O_CLOEXEC)
-        guard fd >= 0 else { return nil }
-        defer { close(fd) }
-        var buffer = [UInt8](repeating: 0, count: 32)
-        let count = pread(fd, &buffer, buffer.count, 0)
-        guard count > 0, let text = String(bytes: buffer[0..<count], encoding: .utf8),
-              let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)), pid > 0, pid != getpid() else { return nil }
-        return pid
     }
 
     /// This launch's lock file, nil when it is not guarded.

@@ -39,9 +39,8 @@ import Testing
         }
     }
 
-    /// The claim is a lifetime flock: a second descriptor (a second copy) finds it taken with the owner's pid,
-    /// and gets it once the owner lets go (the kernel releases it when the owner process ends).
-    @Test func theClaimIsExclusiveAndNamesItsOwner() throws {
+    /// The claim is a lifetime flock: a second descriptor (a second copy) finds it taken.
+    @Test func theClaimIsExclusive() throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "single-instance-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appending(path: "instance.lock")
@@ -51,8 +50,6 @@ import Testing
         defer { close(other) }
         #expect(flock(other, LOCK_EX | LOCK_NB) != 0, "held by the first descriptor")
         #expect(SingleInstanceGuard.claim(at: url) == .taken)
-        #expect(!SingleInstanceGuard.isFree(at: url))
-        #expect(SingleInstanceGuard.owner(at: url) == nil, "this process's own pid is never an owner to hand to")
     }
 
     @Test func eachBundleHasItsOwnLock() throws {
@@ -63,93 +60,31 @@ import Testing
             != SingleInstanceGuard.lockURL(bundleIdentifier: "com.cmuxterm.app.nightly", applicationSupport: support))
     }
 
-    @Test func filesGoAsOneOpenAndOtherURLsEachAsAGetURL() throws {
-        let file = URL(filePath: "/tmp/a.md"), web = try #require(URL(string: "https://github.com/settings"))
-        let link = try #require(URL(string: "cmux-nightly://open"))
-        #expect(SingleInstanceHandoffEvents.events(for: [web, file, link]) == [.openDocuments([file]), .getURL(web), .getURL(link)])
-        #expect(SingleInstanceHandoffEvents.events(for: []).isEmpty)
-    }
-
-    @Test func theOwnerIsReadFromTheClaimAndAFreedClaimIsFree() throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: "single-instance-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: directory) }
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let url = directory.appending(path: "instance.lock")
-        try Data("4242\n".utf8).write(to: url)
-        #expect(SingleInstanceGuard.owner(at: url) == 4242)
-        #expect(SingleInstanceGuard.isFree(at: url), "nobody holds it: its owner ended")
-    }
-
-    /// A retry never repeats an open the owner already answered (each open makes a tab).
-    @Test func aRetrySendsOnlyWhatWasNotAnswered() throws {
-        let a = try #require(URL(string: "https://a.example/")), b = try #require(URL(string: "https://b.example/"))
-        var queue = SingleInstanceHandoffQueue()
-        #expect(queue.pending == [.reopen], "a bare launch brings the owner forward")
-        queue.add([a, b])
-        #expect(queue.pending == [.getURL(a), .getURL(b)], "URLs replace the bare launch's reopen")
-        var sent: [SingleInstanceHandoffEvents.Event] = []
-        queue.drain { sent.append($0); return $0 == .getURL(a) ? .answered : .notDelivered }  // a answered, b not
-        #expect(sent == [.getURL(a), .getURL(b)])
-        #expect(queue.pending == [.getURL(b)])
-        #expect(queue.unansweredURLs == [b], "a reopen through LaunchServices carries only b")
-        sent = []
-        queue.drain { sent.append($0); return .answered }
-        #expect(sent == [.getURL(b)], "the retry sends only b")
-        #expect(queue.isDone)
-    }
-
-    /// A reply timeout is never sent again, but stays for a reopen if the owner exits before answering.
-    @Test func aTimedOutEventIsNotResentButKeptForAReopen() throws {
-        let a = try #require(URL(string: "https://a.example/")), b = try #require(URL(string: "https://b.example/"))
-        var queue = SingleInstanceHandoffQueue()
-        queue.add([a, b])
-        var sent: [SingleInstanceHandoffEvents.Event] = []
-        queue.drain { sent.append($0); return $0 == .getURL(a) ? .delivered : .answered }
-        #expect(sent == [.getURL(a), .getURL(b)])
-        #expect(queue.isDone, "nothing is sent again")
-        #expect(queue.unansweredURLs == [a])
-    }
-
-    @Test func aFailedFirstEventStopsThePass() {
-        var queue = SingleInstanceHandoffQueue()
-        var calls = 0
-        queue.drain { _ in calls += 1; return .notDelivered }
-        #expect(calls == 1)
-        #expect(queue.pending == [.reopen])
-        #expect(queue.unansweredURLs.isEmpty)
-    }
-
-    /// A slow first batch (each event waits its whole budget) still ends by the give-up instant, so the recovery
-    /// there runs before the hard exit.
-    @MainActor @Test func sendsNeverRunPastTheGiveUpInstant() {
-        let start = ContinuousClock.now
-        let giveUpAt = start + .seconds(SingleInstanceHandoff.deadline)
-        var now = start + .milliseconds(1500)  // AppKit's start was slow
-        var sent = 0
-        while let wait = SingleInstanceHandoff.replyBudget(now: now, giveUpAt: giveUpAt) {
-            #expect(wait <= SingleInstanceHandoff.replyWait)
-            now = now + .seconds(wait)  // no reply: the whole wait is spent
-            sent += 1
-        }
-        #expect(now <= giveUpAt)
-        #expect(sent == 3, "1 s, 1 s, then the last 0.5 s")
-        #expect(SingleInstanceHandoff.hardDeadline - SingleInstanceHandoff.deadline >= 1, "the recovery keeps its time")
-        #expect(SingleInstanceHandoff.replyBudget(now: giveUpAt - .milliseconds(10), giveUpAt: giveUpAt) == nil)
-    }
-
-    /// A reply timeout means the owner has the event queued: it is never sent again (that would open a second
-    /// tab) and never reopened. An undelivered event is retried.
-    @Test func onlyAnUndeliveredEventIsSentAgain() {
-        #expect(SingleInstanceHandoffEvents.wasDelivered(errorCode: Int(errAETimeout)))
-        #expect(!SingleInstanceHandoffEvents.wasDelivered(errorCode: Int(procNotFound)))
-        #expect(!SingleInstanceHandoffEvents.wasDelivered(errorCode: Int(connectionInvalid)))
-    }
-
-    @Test func theGetURLEventTargetsTheOwnersPid() throws {
+    /// The helper waits on the second copy's exit, then hands its URLs (files as paths) to the bundle's running
+    /// copy through LaunchServices. `$0` is the pid and `$1` the bundle id; `shift` leaves only the URLs.
+    @Test func theReopenHelperOpensTheURLsWithThisBundleAfterThisPidExits() throws {
         let web = try #require(URL(string: "https://github.com/settings"))
-        let event = SingleInstanceHandoffEvents.descriptor(.getURL(web), to: 4242)
-        #expect(event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue == web.absoluteString)
-        let target = event.attributeDescriptor(forKeyword: AEKeyword(keyAddressAttr))
-        #expect(target?.descriptorType == DescType(typeKernelProcessID))
+        let file = URL(filePath: "/tmp/a b.md")
+        let command = SingleInstanceHandoff.reopenCommand(pid: 4242, bundleIdentifier: "com.cmuxterm.app.nightly", urls: [web, file])
+        #expect(command[0] == "/bin/sh")
+        #expect(command[1] == "-c")
+        #expect(command[2].contains("caffeinate -w \"$p\""))
+        #expect(command[2].contains("open -b \"$b\" \"$@\""))
+        #expect(Array(command[3...]) == ["4242", "com.cmuxterm.app.nightly", "https://github.com/settings", "/tmp/a b.md"])
+    }
+
+    /// The helper really runs: with an exited pid it goes straight on (here `open` is replaced by `echo`).
+    @Test func theReopenHelperPassesOnlyTheURLs() throws {
+        var command = SingleInstanceHandoff.reopenCommand(pid: 999_999, bundleIdentifier: "com.example.id",
+                                                          urls: [try #require(URL(string: "https://a.example/"))])
+        command[2] = command[2].replacingOccurrences(of: "/usr/bin/caffeinate -w \"$p\"; exec /usr/bin/open", with: "exec /bin/echo")
+        let process = Process(), pipe = Pipe()
+        process.executableURL = URL(filePath: command[0])
+        process.arguments = Array(command.dropFirst())
+        process.standardOutput = pipe
+        try process.run()
+        process.waitUntilExit()
+        let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        #expect(output == "-b com.example.id https://a.example/\n")
     }
 }
