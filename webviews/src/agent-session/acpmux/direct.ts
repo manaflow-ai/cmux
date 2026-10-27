@@ -6790,7 +6790,7 @@ export class AcpmuxDirectClient {
     const waiting = this.waitingTrust;
     this.waitingTrust = undefined;
     if (route && waiting && !this.closed && waiting.generation === this.selectionGeneration)
-      route(waiting.refusal, waiting.again);
+      route(waiting.refusal, waiting.again, waiting.declined);
   }
   private trustRoute?: TrustRoute;
   private trustCancellation = 0;
@@ -6800,25 +6800,27 @@ export class AcpmuxDirectClient {
     this.trustCancellation += 1;
     this.waitingTrust = undefined;
   }
-  private waitingTrust?: { refusal: TrustRefusal; again?: () => void; generation: number };
+  private waitingTrust?: { refusal: TrustRefusal; again?: () => void; declined?: () => void; generation: number };
+
   /// True when `error` is a trust refusal, which then went to the route.
-  routeTrustRefusal(error: unknown, again?: () => void): boolean {
+  routeTrustRefusal(error: unknown, again?: () => void, declined?: () => void): boolean {
     const refusal = trustRefusal(error);
     if (!refusal) return false;
     if (this.closed) return true;
-    if (this.trustRoute) this.trustRoute(refusal, again);
-    else this.waitingTrust = { refusal, again, generation: this.selectionGeneration };
+    if (this.trustRoute) this.trustRoute(refusal, again, declined);
+    else this.waitingTrust = { refusal, again, declined, generation: this.selectionGeneration };
     return true;
   }
   /// `session/new` for every caller: a trust refusal goes to the one route, then rejects as before.
-  private async newSession(params: Record<string, unknown>, again?: () => void): Promise<any> {
+  private async newSession(params: Record<string, unknown>, again?: () => void, declined?: () => void): Promise<any> {
     const generation = this.selectionGeneration;
     const trustCancellation = this.trustCancellation;
     try {
       return await this.request("session/new", params);
     } catch (error) {
       if (generation === this.selectionGeneration && trustCancellation === this.trustCancellation)
-        this.routeTrustRefusal(error, again);
+        this.routeTrustRefusal(error, again, declined);
+
       throw error;
     }
   }
@@ -6857,7 +6859,9 @@ export class AcpmuxDirectClient {
               if (this.closed || generation !== this.selectionGeneration) return cancel();
               if (settled || running) return;
               running = true;
-              void this.startSession(harness, cwd, peer, run, noProject, model).then(
+              void this.startSession(harness, cwd, peer, run, noProject, model, () =>
+                finish(undefined, new Error(translate("switch.cancelled"))),
+              ).then(
                 (id) => finish(id),
                 (error: unknown) => {
                   running = false;
@@ -6897,10 +6901,12 @@ export class AcpmuxDirectClient {
     again?: () => void,
     noProject = false,
     model?: string,
+    declined?: () => void,
   ): Promise<string | undefined> {
     const result = await this.newSession(
       newSessionParams(newSessionHost(this.host, cwd, peer, noProject), harness, noProject, model),
       again,
+      declined,
     );
     // Startup picks handed to this new-chat page are one-shot defaults: consume them only after
     // session/new succeeds, so a failed start can retry with the same picks. The inherited cwd
@@ -7887,7 +7893,7 @@ export function isTrustRefusal(error: unknown): boolean {
 /// What a trust refusal names: its reason and the folder acpmux asks about.
 export type TrustRefusal = { reason: "trust.pending" | "trust.untrusted"; cwd?: string };
 /// The pane's handler of every trust refusal (`AcpmuxDirectClient.onTrustRefused`).
-export type TrustRoute = (refusal: TrustRefusal, again?: () => void) => void;
+export type TrustRoute = (refusal: TrustRefusal, again?: () => void, declined?: () => void) => void;
 
 export function trustRefusal(error: unknown): TrustRefusal | undefined {
   if (!isTrustRefusal(error)) return undefined;

@@ -5377,6 +5377,7 @@ function AcpmuxPane() {
   const continueAvailable = canContinueIn(snapshot);
   /// Takes acpmux's trust refusal of a prompt (useFolderTrustAsk.ts): the question shows for the
   /// folder it named, and `again` sends the held prompt after Trust.
+
   const trustRefused = useRef<((error: unknown, again?: () => void) => boolean) | undefined>(undefined);
   const trustCancelEpoch = useRef(0);
   const pendingTrustRefusal = useRef<
@@ -5387,12 +5388,14 @@ function AcpmuxPane() {
         cancelEpoch: number;
         error: unknown;
         again?: () => void;
+        declined?: () => void;
       }
     | undefined
   >(undefined);
   const trustRouteOwner = useRef<
     { client: AcpmuxDirectClient; generation: number; sessionId?: string; cancelEpoch: number } | undefined
   >(undefined);
+
   /// Keeps a send's gesture for the prompt acpmux held behind the trust question (heldPrompt.ts).
   const holdPrompt = useRef<(() => void) | undefined>(undefined);
   // A folder without a trust answer is asked about beside the chat's other permission asks as
@@ -8364,12 +8367,9 @@ function AcpmuxPane() {
         });
         // Every trust refusal (a new chat, a resumed one, a switch, a prewarm, a prompt) shows the
         // folder's one question above the composer; Trust re-runs the refused step (cx-nn3e).
-        client.onTrustRefused = (refusal, again) => {
+        client.onTrustRefused = (refusal, again, declined) => {
           if (directClient.current !== client) return;
           const shownSessionId = client.shownSession()?.sessionId;
-          // A New Tab has no shown session while ensureSession is creating its first one. A
-          // refusal in that window belongs to the client/generation that produced it; once a
-          // rendered session exists, reject a stale route from another selection.
           if (
             shownSessionId !== undefined &&
             sessionIdRef.current !== undefined &&
@@ -8385,11 +8385,12 @@ function AcpmuxPane() {
           routeCurrentTrustRefusal(
             current,
             trustRouteOwner.current,
-            () => trustRefused.current?.(refusal, again) ?? false,
+            () => trustRefused.current?.(refusal, again, declined) ?? false,
             () => {
-              pendingTrustRefusal.current = { ...current, error: refusal, again };
+              pendingTrustRefusal.current = { ...current, error: refusal, again, declined };
             },
           );
+
         };
         // Only a connected client clears the error, so a stale endpoint doesn't flicker it away.
         setHostError(undefined);

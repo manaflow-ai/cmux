@@ -86,14 +86,15 @@ async function until(check: () => boolean, what: string, within = 10_000) {
   expect(check(), what).toBe(true);
 }
 
-for (const [remoteStart, trust, reconnectStart] of [
+for (const [remoteStart, trust, reconnectStart, decline] of [
   [true, false, false],
   [false, false, false],
   [true, true, false],
   [false, true, false],
-  [false, false, true],
+  [false, false, true, false],
+  [true, true, false, true],
 ])
-  test(`a refused ${remoteStart ? "SSH" : "local"} session/new keeps the mounted New Tab draft and machine${trust ? " with Trust" : reconnectStart ? " across reconnect" : ""}`, async () => {
+  test(`a refused ${remoteStart ? "SSH" : "local"} session/new keeps the mounted New Tab draft and machine${decline ? " after Not now" : trust ? " with Trust" : reconnectStart ? " across reconnect" : ""}`, async () => {
     const { MockAcpmuxSocket } = await import("../src/agent-session/acpmux/mock");
     type Answer = (method: string, params: Record<string, any>) => Promise<any>;
     const proto = MockAcpmuxSocket.prototype as unknown as { answer: Answer };
@@ -103,7 +104,7 @@ for (const [remoteStart, trust, reconnectStart] of [
     const prompts: Record<string, any>[] = [];
     let trusted = false;
     proto.answer = async function (method, params) {
-      if (method === "acp.trust.set") trusted = true;
+      if (method === "acp.trust.set") trusted = params.level === "trusted";
       if (method === "session/prompt") {
         prompts.push(params);
         return { stopReason: "end_turn" };
@@ -224,7 +225,24 @@ for (const [remoteStart, trust, reconnectStart] of [
     if (trust) {
       await until(() => !!host.querySelector(".acpmux-trust-ask-primary"), "Trust control on the retained New Tab");
       expect(host.querySelector(".nt-field")).toBe(field);
+      if (decline) {
+        const notNow = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-trust-ask button")].find(
+          (button) => button.textContent === "Not now",
+        )!;
+        await act(async () => notNow.click());
+        await until(() => !!host.querySelector('[role="alert"]'), "declined start settles with the draft retained");
+        expect(host.querySelector(".nt-field")).toBe(field);
+        expect(prompts).toHaveLength(0);
+        await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-trust-ask-action")!.click());
+        await until(() => !!host.querySelector(".acpmux-trust-ask-primary"), "Undo offers Trust again");
+      }
       await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-trust-ask-primary")!.click());
+      if (decline) {
+        expect(prompts).toHaveLength(0);
+        await act(async () =>
+          field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
+        );
+      }
       await until(() => prompts.length === 1, "Trust resumes the retained request exactly once");
       await until(() => !host.querySelector(".nt-field"), "the trusted start leaves New Tab");
       await tick();
