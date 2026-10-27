@@ -57,6 +57,28 @@ Still open: the 984 old refusal lines in the live memory. The inspector's `rebui
 (`inspect/edit.rs`) can rebuild them. The order is the 652 original refusals first, then their
 parents. This writes to the user's live memory, so it waits for the user's word.
 
+## Trace metrics (Oct 27)
+
+`measure/chief_health.py` gives the health of a real Chief home in about 1 s, no model.
+Baseline, Lawrence's default Chief (copy of Oct 26 22:57), last 7 days:
+
+| Number | Last 7 days | All time |
+| --- | ---: | ---: |
+| Messages the person typed (no acks) | 541 | 949 |
+| Time to first reply, p50 / p90 | 25 s / 75 s | 24 s / 69 s |
+| Replied within 10 s | 10.5% | 9.0% |
+| No reply within 15 min | 4.4% | 2.7% |
+| Turns cut by a server restart | 9 | 10 |
+| Turns that ended in an error | 1.2% | 2.2% |
+| Turn first token p50 / p95 | 2.9 s / 8.4 s | 3.2 s / 11.4 s |
+| "No such tool" calls | 13 of 61,559 | 14 of 86,832 |
+| `cmux` usage errors | 18 (3.1%) | 18 (1.7%) |
+| Subagents without a workspace | 25 of 298 | 25 of 478 |
+
+17 of the 18 usage errors are `browser right navigate --url`, which the show block taught
+(fixed in d43a10946c6). The 2 "refusal lines" of all time are Chief's own Oct 13 reply
+"Could you open the a12 link ...", kept verbatim: not refusals.
+
 ## Next
 
 1. A `chief-replay` runner that runs each replay above with one command against a scratch home and
