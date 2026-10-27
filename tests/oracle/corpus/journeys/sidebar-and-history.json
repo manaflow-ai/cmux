@@ -3,7 +3,7 @@
   "corpusVersion": 1,
   "id": "sidebar-and-history",
   "suite": "journeys",
-  "title": "Close a tab and a workspace, filter and walk Recently Closed, reopen one, clear the closed history, switch sidebar items and open the History page",
+  "title": "Close a tab and a workspace, walk Recently Closed and reopen one, search for nothing, clear the closed history, switch sidebar items and open the History page",
   "journey": "sidebar-and-history",
   "priority": "P1",
   "surface": "cmux-next-native",
@@ -78,53 +78,71 @@
       "note": "Recently Closed…: the palette's closed page, newest first (the workspace, then the tab)"
     },
     {
-      "id": "filter-to-empty",
-      "op": "key",
+      "id": "walk-down",
+      "op": "action.run",
       "target": {"window": "current"},
-      "args": {"keys": ["q", "x", "z"]},
-      "expect": {"outcome": "ok", "noReceiptReason": "typed text edits the palette query; it runs no action"},
-      "waitFor": {"pointer": "/overlays/palette/querySha256", "predicate": "changed", "maxMs": 5000},
-      "note": "a query no closed item matches: the list shows its bounded empty state"
+      "args": {"action": "commandPaletteNext"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/overlays/palette/selectedIndex", "predicate": "changed", "maxMs": 5000},
+      "note": "Next Item, the action Down runs in the open palette: the selection moves to the closed tab. debug.key would reach the shell window, not the palette panel, so the palette's own actions drive it"
     },
     {
-      "id": "filtered",
-      "op": "snapshot",
-      "args": {"facets": ["overlays"]},
-      "settleMaxMs": 5000
-    },
-    {
-      "id": "clear-filter",
-      "op": "key",
+      "id": "walk-up",
+      "op": "action.run",
       "target": {"window": "current"},
-      "args": {"keys": ["backspace", "backspace", "backspace"]},
-      "expect": {"outcome": "ok", "noReceiptReason": "deleting query text edits the palette query; it runs no action"},
-      "waitFor": {"pointer": "/overlays/palette/querySha256", "predicate": "changed", "maxMs": 5000},
-      "note": "the empty query lists both closed items again"
-    },
-    {
-      "id": "walk-rows",
-      "op": "key",
-      "target": {"window": "current"},
-      "args": {"keys": ["down", "up"]},
-      "expect": {"outcome": "ok", "noReceiptReason": "moving the palette selection runs no action"},
-      "settleMaxMs": 5000,
-      "note": "down to the closed tab, back up to the closed workspace"
+      "args": {"action": "commandPalettePrevious"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/overlays/palette/selectedIndex", "predicate": "changed", "maxMs": 5000},
+      "note": "Previous Item (Up): back to the closed workspace"
     },
     {
       "id": "reopen-row",
-      "op": "key",
+      "op": "action.run",
       "target": {"window": "current"},
-      "args": {"keys": ["return"]},
-      "expect": {"outcome": "ok", "noReceiptReason": "Return runs the palette row's own reopen, not a key-router shortcut, so debug.key names no action; the closed entry it removes is the receipt the waitFor reads"},
+      "args": {"action": "paletteKey.submit"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
       "waitFor": {"pointer": "/history/closed", "predicate": {"op": "lengthEquals", "value": 1}, "maxMs": 10000},
       "checkpoint": ["turn", "settled"],
-      "note": "Return on the selected row reopens the closed workspace and closes the palette"
+      "note": "Palette: Run Item (Return) runs the selected row's reopen: the closed workspace comes back and its entry leaves the closed history"
     },
     {
       "id": "reopened",
       "op": "snapshot",
       "args": {"facets": ["topology", "sidebar", "history", "tabs", "overlays"]},
       "settleMaxMs": 5000
+    },
+    {
+      "id": "search-to-empty",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "palette.open", "params": {"scope": "search", "query": "qxz", "focus": true}},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/overlays/palette/querySha256", "predicate": "changed", "maxMs": 5000},
+      "note": "the sidebar's Search scope with a query nothing matches (palette.open; a socket run opens it only with focus): its bounded empty state"
+    },
+    {
+      "id": "searched",
+      "op": "snapshot",
+      "args": {"facets": ["overlays"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "clear-search",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "paletteKey.escape"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/overlays/palette/querySha256", "predicate": "changed", "maxMs": 5000},
+      "note": "Palette: Clear or Close (Escape) on an opened scope with a query clears the query (PaletteNavReducer.escape)"
+    },
+    {
+      "id": "dismiss-search",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "paletteKey.escape"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/overlays/palette/open", "equals": false, "maxMs": 5000},
+      "note": "Escape again with an empty query closes the palette"
     },
     {
       "id": "clear-closed",
@@ -152,11 +170,12 @@
     },
     {
       "id": "dismiss-list",
-      "op": "key",
+      "op": "action.run",
       "target": {"window": "current"},
-      "args": {"keys": ["escape"]},
-      "expect": {"outcome": "ok", "noReceiptReason": "Escape closes the palette itself; no catalog action runs"},
-      "waitFor": {"pointer": "/overlays/palette/open", "equals": false, "maxMs": 5000}
+      "args": {"action": "paletteKey.escape"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/overlays/palette/open", "equals": false, "maxMs": 5000},
+      "note": "Palette: Clear or Close (Escape) with an empty query closes the palette"
     },
     {
       "id": "focus-sidebar",
@@ -196,17 +215,17 @@
   ],
   "invariants": [
     "close-tab and close-workspace each add exactly one closed entry, newest first, with the kind and workspace of what closed",
-    "the Recently Closed rows are the closed history's entries in its order; a query no entry matches shows an empty list, not an error",
+    "the Recently Closed rows are the closed history's entries in its order, and walk-down and walk-up move the selection one row each way; the Search scope with a query nothing matches shows an empty list, not an error",
     "reopen-row brings back the row it selected (the workspace, with the public id it had) and removes exactly that entry",
     "clear-closed empties the closed history only; Recently Closed then shows its empty state",
     "after next-sidebar-item the sidebar's selected row and the topology's focused workspace are the same workspace",
     "every mutation has one receipt or one typed error (I1)",
     "ids stay stable unless the step created or closed them (I2)",
-    "the turn checkpoint of each key step is a prefix of its settled checkpoint (I3)"
+    "the turn checkpoint of each step that records one is a prefix of its settled checkpoint (I3)"
   ],
   "teardown": ["quit the tagged app the run started", "verify its debug socket is gone", "end the tag's daemons (TagTeardown)"],
   "untested": [
-    "the sidebar's own filter field (sidebar.filterSha256): no action types into it, so the case filters the Recently Closed palette page",
+    "typing into the palette or the sidebar's filter field: debug.key reaches the shell window, not the palette panel, so the query comes from palette.open and the palette's own actions (Next Item, Run Item, Clear or Close) stand for its keys",
     "paging past one page of closed entries: the fixture closes two items",
     "the History page's own rows and their clear buttons: the webviews facet is not asserted (p15-oracle-215)",
     "an error state of the closed history: an offline launch has no failing source to show"

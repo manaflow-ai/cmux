@@ -23,10 +23,13 @@ serve --all-tools` over stdio), settle (`debug.oracle.settle`), snapshot. Any st
 (`debug.oracle.wait_for`, resolved from facet change signals; `changed` compares with the value read before the step). Checkpoints: `before`; `turn` for
 action.run and key (the turn recorder armed for that step, `debug.oracle.recorder` and `debug.oracle.turns`);
 `settled` after `debug.oracle.settle` (the action's reply sequence, else `sync`). No sleeps and no polls: every
-wait is one of the app's own barriers, each bounded by the case's ms times the Slow multiplier. resource.call,
-kill, restart, tui.key and advance_clock belong to other drivers and fail the case as a Crash that names them.
-So do the conditions a launch cannot apply yet: environment keys other than viewport, fixture.agent none,
-fixture.clock virtual, a named fixture handle (no seeding reaches the app) and a key aimed at a pane, tab or page.
+wait is one of the app's own barriers, each bounded by the case's ms times the Slow multiplier. `kill` of
+target.process daemon signals the tag's cmux-tui owner (its terminal hosts and holders keep running); `restart` of
+target.process app is Quit and Keep Sessions, then the same bundle on the same saved session, daemon and config
+file (bench_launch `quit_keep_sessions`, then a launch that keeps the state). Either step leaves the session dirty,
+so the next case gets a fresh launch. resource.call, the other kill and restart targets, tui.key and advance_clock
+belong to other drivers and fail the case as a Crash that names them. So do the conditions a launch cannot apply
+yet: environment keys other than viewport, fixture.agent none, fixture.clock virtual, a named fixture handle (no seeding reaches the app) and a key aimed at a pane, tab or page.
 
 Expect: `result` is the action's own value (action.run's `result` member, never the run's sequence or ids).
 `receipt` needs the ActionEffect kind, which no app reply carries yet: the driver checks that an action ran,
@@ -60,6 +63,7 @@ import os
 import platform as platform_mod
 import re
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -110,9 +114,14 @@ SOCKET_ORIGINS = ("cli", "mcp", "script", "remote")
 MODIFIERS = {"cmd": "cmd", "ctrl": "control", "opt": "option", "alt": "option", "shift": "shift"}
 # case-v1 key names -> debug.key names (DebugKey.named); function keys are not synthesized by debug.key.
 KEY_NAMES = {"plus": "+", "backspace": "delete", "delete": "forwarddelete"}
+# The kill and restart steps this driver runs itself: op -> the target.process it takes.
+APP_PROCESS_STEPS = {"kill": "daemon", "restart": "app"}
+# case-v1 argsKill signals.
+SIGNALS = {"KILL": signal.SIGKILL, "TERM": signal.SIGTERM, "ABRT": signal.SIGABRT, "SEGV": signal.SIGSEGV}
+QUIT_S = 30.0
 OTHER_DRIVERS = {
     "resource.call": "driver_daemon.py (p15-oracle-023)",
-    "kill": "driver_daemon.py (p15-oracle-023); app child kills are p15-oracle-188",
+    "kill": "driver_daemon.py (p15-oracle-023); app child kills other than the daemon are p15-oracle-188",
     "restart": "driver_daemon.py (p15-oracle-023)",
     "advance_clock": "driver_daemon.py (p15-oracle-185)",
     "tui.key": "driver_tui.py (p15-oracle-234)",
@@ -216,8 +225,17 @@ def launch_spec(case: Mapping[str, Any]) -> LaunchSpec:
     return LaunchSpec(window=(*WINDOW_ORIGIN, width, height))
 
 
-def other_driver(op: str) -> str:
-    return f"op {op} is not an app-driver step; it runs in {OTHER_DRIVERS.get(op, 'no driver')}"
+def other_driver(op: str, process: Optional[str] = None) -> str:
+    what = f"op {op} of target.process {process}" if op in APP_PROCESS_STEPS else f"op {op}"
+    return f"{what} is not an app-driver step; it runs in {OTHER_DRIVERS.get(op, 'no driver')}"
+
+
+def runs_here(step: Mapping[str, Any]) -> bool:
+    """Whether this driver runs `step`: an op of its own, or a kill or restart of the process it owns."""
+    op = step.get("op")
+    if op in APP_PROCESS_STEPS:
+        return (step.get("target") or {}).get("process") == APP_PROCESS_STEPS[op]
+    return op not in OTHER_DRIVERS
 
 
 def check_conditions(case: Mapping[str, Any]) -> None:
@@ -232,8 +250,9 @@ def check_conditions(case: Mapping[str, Any]) -> None:
         raise CaseError("Crash", f"fixture.clock virtual: the app runs on the wall clock; the virtual clock is "
                                  f"{CLOCK_TASK}")
     for step in case.get("steps") or ():
-        if step.get("op") in OTHER_DRIVERS:
-            raise CaseError("Crash", other_driver(step["op"]), step.get("id"))
+        if not runs_here(step):
+            raise CaseError("Crash", other_driver(step["op"], (step.get("target") or {}).get("process")),
+                            step.get("id"))
         for kind, value in (step.get("target") or {}).items():
             if kind != "process" and isinstance(value, str) and value != CURRENT and not STEP_REF.match(value):
                 raise CaseError("Crash", f"target.{kind} {value!r} is a named fixture identity, and no seeding "
@@ -409,16 +428,51 @@ class BenchAppPort:
         env["CMUX_NEXT_CONFIG_FILE"] = self.bench.launched_env["CMUX_NEXT_CONFIG_FILE"]
         return env
 
-    def daemon_socket(self) -> Optional[str]:
-        """The `--socket` of the tag's `cmux-tui --headless` (TagTeardown matches it by bundle path)."""
+    def daemon_process(self) -> Optional[Tuple[int, List[str]]]:
+        """The pid and argv of the tag's cmux-tui owner, `cmux-tui --headless` (TagTeardown matches it by bundle
+        path); its terminal hosts and holders are other processes."""
         tui = os.path.join(self.bench.teardown.bin, "cmux-tui")
-        for _, command in self.bench.teardown.processes():
-            words = command.split()
-            if command.startswith(tui + " --headless") and "--socket" in words:
-                index = words.index("--socket")
-                if index + 1 < len(words):
-                    return words[index + 1]
+        for pid, command in self.bench.teardown.processes():
+            if command.startswith(tui + " --headless"):
+                return pid, command.split()
         return None
+
+    def daemon_socket(self) -> Optional[str]:
+        """The `--socket` of the tag's cmux-tui owner."""
+        found = self.daemon_process()
+        if found is None or "--socket" not in found[1]:
+            return None
+        words = found[1]
+        index = words.index("--socket")
+        return words[index + 1] if index + 1 < len(words) else None
+
+    def signal_daemon(self, signum: int) -> Optional[int]:
+        """Sends `signum` to the tag's cmux-tui owner; its pid, or None when none runs."""
+        found = self.daemon_process()
+        if found is None:
+            return None
+        os.kill(found[0], signum)
+        return found[0]
+
+    def relaunch(self) -> None:
+        """Quit and Keep Sessions, then the same bundle on the same saved session, daemon and config file. BenchApp
+        writes its `config` at each launch, so the file the app wrote (a toggled setting) is read back first."""
+        from bench_launch import LaunchError
+
+        quit_reply = self.bench.quit_keep_sessions(timeout=QUIT_S)
+        if not quit_reply["quit"]:
+            raise AppLaunchFailed("quit-keep-sessions", quit_reply["error"][:600])
+        config_file = self.bench.launched_env["CMUX_NEXT_CONFIG_FILE"]
+        try:
+            self.bench.config = json.loads(Path(config_file).read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            raise AppLaunchFailed("config-unreadable", f"{config_file}: {error}") from None
+        self.bench.fresh_state = False
+        try:
+            self.bench.launch(timeout=LAUNCH_S)
+        except LaunchError as error:  # a SystemExit: never let it end oracle.py
+            raise AppLaunchFailed(error.reason, str(error)[:600]) from None
+        self.bench.teardown.remember()
 
     def stop(self) -> None:
         if self.bench is not None:
@@ -500,6 +554,8 @@ class CaseRun:
             "mcp": self.op_mcp,
             "settle": self.op_settle,
             "snapshot": self.op_snapshot,
+            "kill": self.op_kill,
+            "restart": self.op_restart,
         }
 
     # -- control calls
@@ -829,6 +885,37 @@ class CaseRun:
 
     def op_snapshot(self, index: int, step: Mapping[str, Any]) -> Tuple[Tuple[str, Any], Any]:
         return ("ok", {}), "sync"
+
+    def op_kill(self, index: int, step: Mapping[str, Any]) -> Tuple[Tuple[str, Any], Any]:
+        """Signals the tag's cmux-tui owner. The app's view of the loss is the step's waitFor."""
+        step_id = step["id"]
+        if not runs_here(step):
+            raise CaseError("Crash", other_driver("kill", (step.get("target") or {}).get("process")), step_id)
+        name = (step.get("args") or {}).get("signal", "KILL")
+        if name not in SIGNALS:
+            raise CaseError("Crash", f"kill signal {name}: the app driver sends {', '.join(SIGNALS)}", step_id)
+        if self.app.signal_daemon(SIGNALS[name]) is None:
+            raise CaseError("Crash", "kill target.process daemon: no cmux-tui of this tag is running", step_id)
+        # A later case must not inherit the owner that replaced this one.
+        self.dirty = True
+        reply = {"process": "daemon", "signal": name}
+        self.state.replies[step_id] = reply
+        return ("ok", reply), "sync"
+
+    def op_restart(self, index: int, step: Mapping[str, Any]) -> Tuple[Tuple[str, Any], Any]:
+        """Quits the app keeping its sessions and launches it again on the same state."""
+        step_id = step["id"]
+        if not runs_here(step):
+            raise CaseError("Crash", other_driver("restart", (step.get("target") or {}).get("process")), step_id)
+        try:
+            self.app.relaunch()
+        except (AppLaunchFailed, AppGone, socket.timeout) as error:
+            raise CaseError("Crash", f"restart target.process app: {error}", step_id) from None
+        # A later case must not inherit the restored session.
+        self.dirty = True
+        reply = {"process": "app"}
+        self.state.replies[step_id] = reply
+        return ("ok", reply), "sync"
 
     def check_expect(self, step: Mapping[str, Any], outcome: Tuple[str, Any]) -> None:
         expect = step.get("expect")

@@ -3,7 +3,7 @@
   "corpusVersion": 1,
   "id": "disconnect-reconnect",
   "suite": "journeys",
-  "title": "Kill the local cmux-tui under two terminal tabs, retry the connection, and converge to the same workspace, tabs and terminals",
+  "title": "Kill the local cmux-tui under two terminal tabs, send a mutation while the app is disconnected, and converge to the same workspace, tabs and terminals on the new connection",
   "journey": "disconnect-reconnect",
   "priority": "P1",
   "surface": "cmux-next-native",
@@ -57,23 +57,23 @@
       "expect": {"outcome": "ok", "noReceiptReason": "a killed process runs no action; the connection state the waitFor reads is the result"},
       "waitFor": {"pointer": "/topology/topology/daemon_state", "predicate": "changed", "maxMs": 10000},
       "checkpoint": ["before"],
-      "note": "SIGKILL of the cmux-tui owner (not its terminal hosts): the app sees the connection end and leaves connected"
+      "note": "SIGKILL of the cmux-tui owner (not its terminal hosts): the app sees the connection end and leaves connected; no settle, so the next step goes at once"
     },
     {
-      "id": "retry-now",
-      "op": "cli",
-      "target": {"machine": "current"},
-      "args": {"argv": ["app", "call", "debug.daemon", "{\"action\":\"retry\"}"]},
-      "expect": {"outcome": "ok", "noReceiptReason": "debug.daemon retry is the recovery card's Retry Now, which runs no catalog action; the connection state the next step waits for is its result"},
+      "id": "rename-while-disconnected",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "renameWorkspace", "params": {"name": "sent while disconnected"}},
+      "expect": {"outcome": "error", "error": "control.daemon_error"},
       "settleMaxMs": 30000,
-      "note": "Retry Now: the app ensures a new owner and connects at once; a no-op when the app already reconnected by itself"
+      "note": "reaches the app before the next owner is up (server ensure, its restore, then the handshake), so its command finds no connection and the run answers a typed error; the settle after it waits through the reconnect"
     },
     {
       "id": "reconnected",
       "op": "settle",
       "waitFor": {"pointer": "/topology/topology/daemon_state", "equals": "connected", "maxMs": 30000},
       "settleMaxMs": 30000,
-      "note": "the new owner adopted the terminal hosts and the app has a fresh snapshot"
+      "note": "the app reconnected by itself to a new owner, which adopted the terminal hosts, and has a fresh snapshot"
     },
     {
       "id": "after-reconnect",
@@ -98,18 +98,19 @@
     }
   ],
   "invariants": [
+    "rename-while-disconnected answers control.daemon_error, and the workspace's name at after-reconnect is the one at before-drop: the mutation sent while disconnected was refused with a typed error, neither dropped silently nor applied later",
+    "the crashes facet counts no daemon exit at before-drop and exactly one at after-reconnect: the app names the dropped connection, and every snapshot from after-reconnect on is the next connection's (daemon_state connected); no holder exit",
     "after-reconnect has the workspace, the two terminal tabs and the focused pane of before-drop with the same public ids: the new owner adopted the hosts",
-    "no intent is pending at after-reconnect and the rollback and refusal counters did not move: no mutation was dropped without a refusal",
-    "the crashes facet counts exactly one daemon exit, at drop-connection, and no holder exit",
+    "no intent is pending at after-reconnect and the rollback counter did not move",
     "rename-after-reconnect changes only the workspace's name",
     "0 debug.desync violations at converged (I5)",
     "every mutation has one receipt or one typed error (I1)"
   ],
   "teardown": ["quit the tagged app the run started", "verify its debug socket is gone", "end the tag's daemons (TagTeardown)"],
   "untested": [
-    "a mutation sent while disconnected: no barrier holds the disconnected state, so whether it lands before or after the reconnect is a race",
-    "a delayed (not dropped) connection: the app has no latency injection for its local daemon",
+    "Retry Now on the recovery card (debug.daemon retry): the app reconnects by itself first, so a press would be a no-op here",
+    "a delayed (not dropped) connection: the app has no latency injection for its local daemon, and case-v1 kill sends no SIGSTOP",
     "the agent connection: the bench launch's mock agent pane has no connection to drop",
-    "the connection generation as the UI names it: topology.generation is volatile (schemas/oracle/README.md, Counters of commits)"
+    "the daemon's process generation itself: session.generation is a fresh random value per start (x-oracle-volatile), so the case names the connection by the crashes facet's daemon count and daemon_state"
   ]
 }
