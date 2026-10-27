@@ -1,3 +1,4 @@
+#if canImport(IrohLib)
 import CmuxIrohTransport
 import Foundation
 import Testing
@@ -150,3 +151,4 @@ struct IrxBrokerArmingTests {
 private extension IrxBrokerService {
     func registrationTailIsDisabled() -> Bool { registrationParameters?.pairingEnabled == false }
 }
+#endif

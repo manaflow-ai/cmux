@@ -1,14 +1,8 @@
+#if canImport(IrohLib)
 public import CMUXMobileCore
 public import Foundation
 public import IrohLib
 import CmuxIrohTransport
-
-public enum IrxEndpointError: Error, Sendable {
-    case noUsableRelayCredential
-    case endpointClosed
-    case bindFailed(String)
-    case noDirectAddress
-}
 
 /// How the endpoint constrains paths. `relayOnly` is the soak/reliability
 /// mode: dial addresses carry only the relay URL and NAT traversal is never
@@ -505,3 +499,4 @@ extension IrxEndpointSupervisor {
         return irx
     }
 }
+#endif

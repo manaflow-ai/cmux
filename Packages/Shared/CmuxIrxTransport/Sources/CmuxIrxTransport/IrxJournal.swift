@@ -1,6 +1,5 @@
 import CmuxSafeConcurrency
 public import Foundation
-import OSLog
 
 /// One journaled transport event. Every state transition, dial attempt,
 /// admission, credential movement, keepalive exchange, and close is recorded
@@ -39,8 +38,8 @@ public struct IrxJournalEvent: Sendable {
     }
 }
 
-/// Structured transport journal: every event goes to os.Logger at NOTICE
-/// level (notice persists in `log show` where info does not) and, when a
+/// Structured transport journal: every event goes to the system log
+/// (``IrxSystemLog``: os.Logger at NOTICE on Apple platforms) and, when a
 /// journal URL is configured, to an append-only JSONL file the soak analyzer
 /// consumes directly. Also keeps a bounded in-memory ring for the diag verb.
 public final class IrxJournal: Sendable {
@@ -57,7 +56,7 @@ public final class IrxJournal: Sendable {
 
     /// The append-only JSONL file this journal writes, when one was configured.
     public let fileURL: URL?
-    private let logger: Logger
+    private let systemLog: IrxSystemLog
     private let state = Mutex(State())
     private let startedAt = DispatchTime.now()
     /// Opened `O_APPEND`, so each line's single `write(2)` lands whole at the
@@ -71,7 +70,7 @@ public final class IrxJournal: Sendable {
     }
 
     public init(subsystem: String, category: String, journalFileURL: URL? = nil) {
-        logger = Logger(subsystem: subsystem, category: category)
+        systemLog = IrxSystemLog(subsystem: subsystem, category: category)
         fileURL = journalFileURL
         fileHandle = journalFileURL.flatMap(IrxJournal.openAppending)
     }
@@ -125,7 +124,7 @@ public final class IrxJournal: Sendable {
             attributes: attributes
         ).redacted()
         let rendered = Self.render(entry)
-        logger.notice("irx \(rendered, privacy: .public)")
+        systemLog.notice(rendered)
         state.withLock { state in
             state.counters[event, default: 0] += 1
             state.ring.append(entry)

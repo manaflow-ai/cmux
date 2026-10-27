@@ -1,3 +1,4 @@
+#if canImport(IrohLib)
 public import CmuxIrohTransport
 internal import Foundation
 
@@ -48,3 +49,4 @@ extension IrxBrokerService {
     }
 
 }
+#endif

@@ -1,3 +1,4 @@
+#if canImport(IrohLib)
 import Foundation
 import IrohLib
 import Testing
@@ -277,3 +278,4 @@ private actor IrxLivenessTestHost {
         try? await client.close()
     }
 }
+#endif

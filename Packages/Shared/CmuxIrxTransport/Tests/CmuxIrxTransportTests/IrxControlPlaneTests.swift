@@ -100,6 +100,7 @@ import CMUXMobileCore
     }
 }
 
+#if canImport(IrohLib)
 /// The event-driven relay race on the reconnect owner.
 @Suite struct IrxPeerEngineHintRaceTests {
     private final class DialGate: @unchecked Sendable {
@@ -285,3 +286,4 @@ private final class PeerRetryTestClock: @unchecked Sendable {
     var now: ContinuousClock.Instant { lock.withLock { instant } }
     func advance(by duration: Duration) { lock.withLock { instant = instant.advanced(by: duration) } }
 }
+#endif

@@ -1,5 +1,5 @@
+import CmuxSafeConcurrency
 import Foundation
-import os
 import Testing
 @testable import CmuxIrxTransport
 
@@ -291,8 +291,8 @@ struct V2InboundAdmissionAuthorityTests {
 
 private final class V2AdmissionTestClock: Sendable {
     private struct State: Sendable { var wall: Date; var monotonic: ContinuousClock.Instant }
-    private let state: OSAllocatedUnfairLock<State>
-    init(wall: Int) { state = OSAllocatedUnfairLock(initialState: State(wall: Date(timeIntervalSince1970: Double(wall)), monotonic: .now)) }
+    private let state: Mutex<State>
+    init(wall: Int) { state = Mutex(State(wall: Date(timeIntervalSince1970: Double(wall)), monotonic: .now)) }
     var wall: Date { state.withLock { $0.wall } }
     var monotonic: ContinuousClock.Instant { state.withLock { $0.monotonic } }
     func advance(_ seconds: Int) {

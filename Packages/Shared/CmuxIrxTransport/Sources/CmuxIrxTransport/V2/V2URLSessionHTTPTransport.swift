@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 public import Foundation
 
 /// Executes v2 HTTP recovery requests with an injected URLSession.
@@ -24,3 +25,4 @@ public actor V2URLSessionHTTPTransport {
         return V2HTTPResponse(status: response.statusCode, body: data, retryAfter: retryAfter)
     }
 }
+#endif

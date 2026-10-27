@@ -1,3 +1,4 @@
+#if canImport(Network)
 import CryptoKit
 import Foundation
 import Network
@@ -340,3 +341,4 @@ final class IrxStaleKeepAliveHTTPServer: @unchecked Sendable {
         return buffer.count >= total ? total : nil
     }
 }
+#endif

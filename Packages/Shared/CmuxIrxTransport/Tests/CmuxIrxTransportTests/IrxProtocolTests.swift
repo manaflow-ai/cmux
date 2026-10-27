@@ -199,6 +199,7 @@ struct IrxIdentityTests {
     }
 }
 
+#if canImport(IrohLib)
 @Suite("endpoint path policy")
 struct IrxEndpointPathPolicyTests {
     @Test("automatic dials carry direct candidates and relay-only dials strip them")
@@ -244,3 +245,4 @@ struct IrxEndpointPathPolicyTests {
         )
     }
 }
+#endif

@@ -1,3 +1,4 @@
+#if canImport(IrohLib)
 public import CmuxIrohTransport
 public import Foundation
 
@@ -54,3 +55,4 @@ extension IrxLaneStream {
         )
     }
 }
+#endif

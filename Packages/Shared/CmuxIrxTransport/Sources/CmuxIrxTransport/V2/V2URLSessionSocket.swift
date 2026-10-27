@@ -1,6 +1,8 @@
 import CmuxSafeConcurrency
 public import Foundation
-import os
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
 
 /// Adapts a URLSession WebSocket to the shared actor's transport seam.
 public actor V2URLSessionSocket: V2ControlSocket {
@@ -77,7 +79,7 @@ public actor V2URLSessionSocket: V2ControlSocket {
 
         // lint:allow lock -- URLSession callbacks and task cancellation can race synchronously;
         // an actor would add an async hop between claiming and resuming a continuation.
-        private let state = OSAllocatedUnfairLock(initialState: State())
+        private let state = Mutex(State())
 
         func install(_ continuation: OnceContinuation<Void, any Error>) -> Bool {
             enum Action {

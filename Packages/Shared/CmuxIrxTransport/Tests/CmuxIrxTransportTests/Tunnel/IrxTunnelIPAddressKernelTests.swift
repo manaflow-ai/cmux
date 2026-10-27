@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Foundation
 import Testing
 
@@ -45,11 +49,13 @@ struct IrxTunnelIPAddressKernelTests {
         #expect(IrxTunnelIPAddress("fe80::1%en0") == nil)
     }
 
+    #if canImport(Network)
     @Test("resolving a numeric host returns that address")
     func resolveNumericHost() async {
         let addresses = await IrxTunnelNetworkConnector().resolve(host: "127.0.0.1")
         #expect(addresses.contains(.v4([127, 0, 0, 1])))
     }
+    #endif
 
     @Test("the frame length prefix is four bytes big-endian")
     func frameLengthPrefix() throws {

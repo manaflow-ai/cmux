@@ -1,3 +1,4 @@
+#if canImport(IrohLib)
 import Foundation
 
 /// Phone side of the browser tunnel lanes over one irx connection.
@@ -71,3 +72,4 @@ public struct IrxTunnelClient: Sendable {
         return try await read()
     }
 }
+#endif

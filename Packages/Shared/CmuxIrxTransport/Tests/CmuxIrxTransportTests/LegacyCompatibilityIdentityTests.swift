@@ -1,3 +1,4 @@
+#if canImport(IrohLib)
 import Foundation
 import Testing
 @testable import CmuxIrxTransport
@@ -40,3 +41,4 @@ struct LegacyCompatibilityIdentityTests {
                     deviceID: installationID, appInstanceID: "v2-tuple")
     }
 }
+#endif

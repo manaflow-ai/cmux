@@ -1,6 +1,10 @@
 public import Foundation
 import CoreFoundation
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 
 /// Produces the canonical bytes shared with the v2 Worker's signature verifier.
 public struct V2WireSigningCodec: Sendable {

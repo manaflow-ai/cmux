@@ -1,5 +1,10 @@
+#if canImport(Network)
 import CmuxSafeConcurrency
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Foundation
 import Testing
 
@@ -151,3 +156,4 @@ private final class ConnectOutcomeFaults: Sendable {
         faults.withLock { $0 }
     }
 }
+#endif

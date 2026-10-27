@@ -13,29 +13,6 @@ public protocol IrxTunnelLane: Sendable {
     func abort() async
 }
 
-extension IrxLaneStream: IrxTunnelLane {
-    public func readRaw(maximumByteCount: Int) async throws -> Data? {
-        try await reader.readRaw(maximumByteCount: maximumByteCount)
-    }
-
-    public func write(_ data: Data) async throws {
-        try await writer.write(data)
-    }
-
-    public func writeFrame(_ value: some Encodable & Sendable) async throws {
-        try await writer.writeControlFrame(value)
-    }
-
-    public func finish() async {
-        await writer.finish()
-    }
-
-    public func abort() async {
-        await writer.reset(errorCode: 3)
-        await reader.stop(errorCode: 3)
-    }
-}
-
 /// Serves the phone browser tunnel for ONE admitted phone connection.
 ///
 /// Security posture (see `IrxTunnelDestinationPolicy` for destinations):
@@ -89,7 +66,7 @@ public actor IrxTunnelHost {
 
     public init(
         limits: Limits = Limits(),
-        connector: any IrxTunnelConnecting = IrxTunnelNetworkConnector(),
+        connector: any IrxTunnelConnecting,
         policy: @escaping @Sendable () -> IrxTunnelDestinationPolicy,
         isAuthorized: @escaping @Sendable () -> Bool,
         // Not a closure-literal default: see IrxPeerEngine.init (cx-bsue).

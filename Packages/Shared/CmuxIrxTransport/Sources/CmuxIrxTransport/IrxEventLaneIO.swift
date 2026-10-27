@@ -18,9 +18,6 @@ public protocol IrxEventLaneReading: Sendable {
     func stop(errorCode: UInt64) async
 }
 
-extension IrxStreamWriter: IrxEventLaneWriting {}
-extension IrxStreamReader: IrxEventLaneReading {}
-
 /// Wire vocabulary for per-surface event lanes.
 ///
 /// A surface lane is an `events` lane whose descriptor names the terminal it

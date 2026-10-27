@@ -1,3 +1,4 @@
+#if canImport(IrohLib)
 import Foundation
 
 /// Supersession authority on the host: a new admitted connection from a
@@ -121,3 +122,4 @@ public actor IrxServerSessionRegistry {
         }
     }
 }
+#endif

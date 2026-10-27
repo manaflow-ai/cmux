@@ -5,7 +5,7 @@ import Testing
 struct LegacyCompatibilityDirectoryTests {
     @Test func modernPeerCannotRegainLegacyAuthorityWhenMarkerDisappears() {
         var directory = LegacyCompatibilityDirectory()
-        directory.apply(snapshot(revision: 1, capabilities: [LegacyCompatibilityService.v2Capability]))
+        directory.apply(snapshot(revision: 1, capabilities: [LegacyCompatibilityDirectory.v2Capability]))
         #expect(directory.current?.entries[endpoint] == nil)
         directory.apply(snapshot(revision: 2, capabilities: []))
         #expect(directory.current?.entries[endpoint] == nil)

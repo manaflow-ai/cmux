@@ -1,3 +1,4 @@
+#if canImport(IrohLib)
 import CMUXMobileCore
 public import Foundation
 
@@ -607,3 +608,4 @@ public actor IrxPeerEngine {
         }
     }
 }
+#endif

@@ -3,6 +3,9 @@ import Foundation
 /// Keeps older-client permission separate from v2 permission. A key once known
 /// to belong to v2 never obtains permission through the older account list.
 struct LegacyCompatibilityDirectory {
+    /// The capability a v2 installation advertises in the older directory.
+    static let v2Capability = "cmux.iroh-control.v2"
+
     private(set) var current: IrxDeviceListSnapshot?
     private var v2Endpoints = Set<String>()
     private var stopped = false
@@ -10,7 +13,7 @@ struct LegacyCompatibilityDirectory {
     mutating func apply(_ snapshot: IrxDeviceListSnapshot) {
         guard !stopped, current.map({ snapshot.rev > $0.rev }) ?? true else { return }
         for (endpoint, entry) in snapshot.entries
-            where entry.capabilities?.contains(LegacyCompatibilityService.v2Capability) == true {
+            where entry.capabilities?.contains(Self.v2Capability) == true {
             v2Endpoints.insert(endpoint)
         }
         var filtered = snapshot

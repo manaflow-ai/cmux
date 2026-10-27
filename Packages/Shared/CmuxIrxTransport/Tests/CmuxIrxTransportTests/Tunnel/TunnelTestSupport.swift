@@ -1,7 +1,20 @@
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Foundation
 
 @testable import CmuxIrxTransport
+
+// Glibc imports the socket type and shutdown mode as an enum and an Int; Darwin as Int32.
+#if canImport(Glibc)
+private let streamSocketType = Int32(SOCK_STREAM.rawValue)
+private let shutdownBothHalves = Int32(SHUT_RDWR)
+#else
+private let streamSocketType = SOCK_STREAM
+private let shutdownBothHalves = SHUT_RDWR
+#endif
 
 /// A blocking loopback TCP server on its own thread.
 /// `.echo` echoes every byte and, after the client half-closes, writes
@@ -15,7 +28,7 @@ final class TunnelTestTCPServer: @unchecked Sendable {
     private var stopped = false
 
     init(mode: Mode) throws {
-        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        let fd = socket(AF_INET, streamSocketType, 0)
         guard fd >= 0 else { throw POSIXError(.EIO) }
         var one: Int32 = 1
         // SAFETY: setsockopt reads the Int32 size passed from the local `one`.
@@ -82,7 +95,7 @@ final class TunnelTestTCPServer: @unchecked Sendable {
         defer { lock.unlock() }
         guard !stopped else { return }
         stopped = true
-        shutdown(listenFD, SHUT_RDWR)
+        shutdown(listenFD, shutdownBothHalves)
         close(listenFD)
     }
 }

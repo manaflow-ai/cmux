@@ -22,7 +22,7 @@ struct IrxRelayCredentialInstallerTests {
 
     @Test func failedInstallationRetriesTheSameTokenWithoutAnotherRefresh() async throws {
         let native = RelayInstallProbe(failFirst: true)
-        let installer = IrxRelayCredentialInstaller(installed: [], journal: IrxLiveTestSupport.journal(),
+        let installer = IrxRelayCredentialInstaller(installed: [], journal: installerTestJournal(),
             sleep: { _ in try await Task.sleep(for: .milliseconds(5)) },
             install: { try await native.install($0) })
         await installer.replace(with: [credential("fresh")])
@@ -37,7 +37,7 @@ struct IrxRelayCredentialInstallerTests {
         let gate = IrxRelayCredentialRotationGate()
         let retry = IrxAsyncLatch()
         let generation = await gate.begin()
-        let installer = IrxRelayCredentialInstaller(installed: [], journal: IrxLiveTestSupport.journal(),
+        let installer = IrxRelayCredentialInstaller(installed: [], journal: installerTestJournal(),
             sleep: { _ in
                 await native.noteSleep()
                 await retry.wait()
@@ -60,7 +60,7 @@ struct IrxRelayCredentialInstallerTests {
         let native = RelayInstallProbe(failFirst: true)
         let gate = IrxRelayCredentialRotationGate()
         let generation = await gate.begin()
-        let installer = IrxRelayCredentialInstaller(installed: [], journal: IrxLiveTestSupport.journal(),
+        let installer = IrxRelayCredentialInstaller(installed: [], journal: installerTestJournal(),
             sleep: { _ in try await Task.sleep(for: .milliseconds(5)) },
             install: { try await native.install($0) })
         await installer.replace(with: [credential("fresh")], ownership: .init(gate: gate, generation: generation))
@@ -72,7 +72,7 @@ struct IrxRelayCredentialInstallerTests {
 
     @Test func updatesDuringInstallAreSerializedAndOnlyTheLatestPendingTokenRuns() async throws {
         let native = RelayInstallProbe(holdFirst: true)
-        let installer = IrxRelayCredentialInstaller(installed: [], journal: IrxLiveTestSupport.journal(),
+        let installer = IrxRelayCredentialInstaller(installed: [], journal: installerTestJournal(),
             install: { try await native.install($0) })
         await installer.replace(with: [credential("first")])
         try await waitUntil { await native.tokens.count == 1 }
@@ -87,7 +87,7 @@ struct IrxRelayCredentialInstallerTests {
 
     @Test func newTokenInterruptsBackoffWithoutWaitingForTheOldRetry() async throws {
         let native = RelayInstallProbe(failFirst: true)
-        let installer = IrxRelayCredentialInstaller(installed: [], journal: IrxLiveTestSupport.journal(),
+        let installer = IrxRelayCredentialInstaller(installed: [], journal: installerTestJournal(),
             sleep: { _ in
                 await native.noteSleep()
                 try await Task.sleep(for: .seconds(30))
@@ -102,7 +102,7 @@ struct IrxRelayCredentialInstallerTests {
 
     @Test func stoppedInstallerCannotInstallPendingCredentialsAfterAnOldCallReturns() async throws {
         let native = RelayInstallProbe(holdFirst: true)
-        let installer = IrxRelayCredentialInstaller(installed: [], journal: IrxLiveTestSupport.journal(),
+        let installer = IrxRelayCredentialInstaller(installed: [], journal: installerTestJournal(),
             install: { try await native.install($0) })
         await installer.replace(with: [credential("in-flight")])
         try await waitUntil { await native.tokens.count == 1 }
@@ -117,7 +117,7 @@ struct IrxRelayCredentialInstallerTests {
     @Test func alreadyInstalledAndExpiredCredentialsDoNotReachNativeInstallation() async throws {
         let native = RelayInstallProbe()
         let existing = credential("installed")
-        let installer = IrxRelayCredentialInstaller(installed: [existing], journal: IrxLiveTestSupport.journal(),
+        let installer = IrxRelayCredentialInstaller(installed: [existing], journal: installerTestJournal(),
             install: { try await native.install($0) })
         await installer.replace(with: [existing])
         await installer.replace(with: [credential("expired", lifetime: -1)])
@@ -160,4 +160,9 @@ private actor RelayInstallProbe {
         releaseWaiter?.resume()
         releaseWaiter = nil
     }
+}
+
+/// The journal every installer test records into (IrxLiveTestSupport needs a live iroh endpoint).
+private func installerTestJournal() -> IrxJournal {
+    IrxJournal(subsystem: "dev.cmux.tests", category: "irx-live")
 }

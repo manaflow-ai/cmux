@@ -1,3 +1,4 @@
+#if canImport(IrohLib)
 public import CMUXMobileCore
 import CmuxSafeConcurrency
 public import Foundation
@@ -613,3 +614,4 @@ extension IrxControlByteTransport: CmxByteTransportLivenessObserving {
         return await connection.isConnectionClosed()
     }
 }
+#endif

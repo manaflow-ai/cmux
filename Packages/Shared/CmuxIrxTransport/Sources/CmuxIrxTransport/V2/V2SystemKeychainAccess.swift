@@ -1,3 +1,4 @@
+#if canImport(Security)
 public import Foundation
 import Security
 
@@ -148,3 +149,4 @@ public struct V2SystemKeychainAccess: V2KeychainAccess, Sendable {
         return query
     }
 }
+#endif

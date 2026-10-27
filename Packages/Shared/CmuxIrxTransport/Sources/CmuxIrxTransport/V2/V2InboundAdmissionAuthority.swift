@@ -1,5 +1,5 @@
 public import Foundation
-import os
+import CmuxSafeConcurrency
 
 /// Synchronous inbound authority for one enrolled Mac tuple, key and generation.
 /// The current directory is swapped under one lock; admission never waits for networking.
@@ -24,7 +24,7 @@ public final class V2InboundAdmissionAuthority: Sendable {
     }
 
     private let host: V2DeviceDescriptor
-    private let state = OSAllocatedUnfairLock(initialState: State())
+    private let state = Mutex(State())
     private let wallNow: @Sendable () -> Date
     private let monotonicNow: @Sendable () -> ContinuousClock.Instant
     private let initialWall: Date

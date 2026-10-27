@@ -4,4 +4,6 @@ public enum V2KeychainAccessError: Error, Equatable, Sendable {
     case duplicate
     /// A Security framework operation failed with this status.
     case status(Int32)
+    /// This platform has no system keychain (Linux): ``V2SystemKeychainAccess`` cannot store anything.
+    case unavailable
 }

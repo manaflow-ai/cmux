@@ -1,5 +1,10 @@
 public import Foundation
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+// swift-crypto's Linux keys are immutable values that do not declare Sendable yet.
+@unsafe @preconcurrency import Crypto
+#endif
 
 /// A fresh Ed25519 key used both for this v2 IROH endpoint and backend proofs.
 public struct V2IdentityKey: Sendable {

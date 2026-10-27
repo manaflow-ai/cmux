@@ -1,3 +1,4 @@
+#if canImport(IrohLib)
 public import CMUXMobileCore
 public import CmuxIrohTransport
 public import Foundation
@@ -6,7 +7,7 @@ public import Foundation
 /// older peer records without turning them into trusted v2 device records.
 /// The owning runtime keeps the endpoint, credentials and v2 authority.
 public actor LegacyCompatibilityService {
-    public static let v2Capability = "cmux.iroh-control.v2"
+    public static let v2Capability = LegacyCompatibilityDirectory.v2Capability
 
     /// Keeps the older directory's physical computer ID while using the current
     /// v2 endpoint key. This changes presentation identity, never v2 authority.
@@ -378,3 +379,4 @@ public actor LegacyCompatibilityService {
         subscribers.values.forEach { $0.yield(value) }
     }
 }
+#endif
