@@ -665,7 +665,9 @@ pub async fn serve_ws_with(
         let policy = policy.clone();
         let local_app = auth.local_app.clone();
         let peer_auth = auth.peer.clone();
-        crate::supervised::spawn_scoped(async move {
+        // A ticket redeems and a paired machine opens on the hub: Fatal, as its connection.
+        let supervising = hub.clone();
+        supervising.supervise("server.ws-connection", Fatal, ShutdownBehavior::Skip, async move {
             let mut head = [0u8; 4096];
             let n = match tokio::time::timeout(HANDSHAKE, stream.peek(&mut head)).await {
                 Ok(Ok(n)) => n,
@@ -1050,8 +1052,8 @@ pub async fn serve_connection_device(
     serve_connection_from(hub, inbound, out, origin, auth, None, Some(device.id)).await
 }
 
-/// `serve_connection_authed` for a unix socket peer named by its audit token.
-async fn serve_connection_from(
+/// The body of `serve_connection_from` (`connection_task.rs`), under the hub's supervisor.
+async fn serve_connection_body(
     hub: Arc<Hub>,
     mut inbound: mpsc::Receiver<String>,
     out: mpsc::Sender<String>,
@@ -1065,35 +1067,7 @@ async fn serve_connection_from(
         return;
     }
     let Some(_client) = hub.clients.connect() else { return }; // exiting idle (daemon_lifecycle)
-    let raw_text = !peer_text::masks(origin);
-    let conn = Arc::new(Conn {
-        id: uuid::Uuid::now_v7().to_string(),
-        origin,
-        auth,
-        device,
-        raw_text,
-        name: StdMutex::new(String::new()),
-        out,
-        outbound_lock: Arc::new(StdMutex::new(())),
-        outbound_dropped: Arc::new(AtomicU64::new(0)),
-        outbound_gap_pending: Arc::new(AtomicBool::new(false)),
-        outbound_pending_controls: Arc::new(AtomicUsize::new(0)),
-        subs: StdMutex::new(HashMap::new()),
-        mailbox_bindings: StdMutex::new(HashMap::new()),
-        watch_all: AtomicBool::new(false),
-        watch_inventory: StdMutex::new(false),
-        peer,
-        requests: std::sync::atomic::AtomicU64::new(0),
-        challenged: AtomicBool::new(false),
-        nonce: crate::hub::person::new_nonce(),
-        person: AtomicBool::new(false),
-        holds_calls: std::sync::atomic::AtomicU32::new(0),
-        caller: std::sync::OnceLock::new(),
-        unproven_caller: std::sync::OnceLock::new(),
-        peer_leases: StdMutex::new(Some(Vec::new())),
-        ephemeral: StdMutex::new(Some(Vec::new())),
-        media: crate::hub::media_handles::Handles::default(),
-    });
+    let conn = Arc::new(Conn::new(origin, auth, device, peer, out));
     tracing::debug!(conn = %conn.id, "client connected");
 
     let fan = fanout::start(hub.clone(), conn.clone());
@@ -1101,15 +1075,7 @@ async fn serve_connection_from(
     let (notification_tx, notification_rx) =
         mpsc::channel::<(String, Value)>(NOTIFICATION_QUEUE_LIMIT);
     let (cancel_tx, cancel_rx) = mpsc::channel::<(String, Value)>(NOTIFICATION_QUEUE_LIMIT);
-    let notification_handler = {
-        let hub = hub.clone();
-        let conn = conn.clone();
-        move |method: String, params| {
-            let hub = hub.clone();
-            let conn = conn.clone();
-            async move { handle_notification(&hub, &conn, &method, params).await }
-        }
-    };
+    let notification_handler = connection_task::notification_handler(&hub, &conn);
     let notification_worker =
         spawn_notification_worker(notification_rx, notification_handler.clone());
     let cancel_worker = spawn_notification_worker(cancel_rx, notification_handler);
@@ -1438,6 +1404,7 @@ mod worktrees;
 use crate::hub::is_permission_ask;
 pub use pending::{event_value, into_event_value};
 use pending::{peer_permission_pending, permission_pending};
+mod connection_task;
 mod redact;
 pub(crate) mod remote_guard;
 mod request_task;
@@ -1452,7 +1419,7 @@ mod view;
 mod wait;
 #[cfg(windows)]
 mod windows_socket;
-use requests::handle_notification;
+use connection_task::serve_connection_from;
 
 #[cfg(test)]
 mod request_admission_tests {

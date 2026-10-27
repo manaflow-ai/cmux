@@ -152,6 +152,22 @@ pub struct QueryReply {
 
 type Queries = Arc<std::sync::Mutex<std::collections::HashMap<u64, oneshot::Sender<QueryReply>>>>;
 
+/// The end of a link's reader, on its return or its unwind: the link reports
+/// closed, and each query waiting for a reply gets none.
+#[cfg(unix)]
+struct ReaderEnd {
+    closed: Arc<std::sync::atomic::AtomicBool>,
+    queries: Queries,
+}
+
+#[cfg(unix)]
+impl Drop for ReaderEnd {
+    fn drop(&mut self) {
+        self.closed.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.queries.lock_or_recover().clear();
+    }
+}
+
 pub struct Link {
     tx: mpsc::Sender<(ControllerFrame, Option<oneshot::Sender<()>>)>,
     queries: Queries,
@@ -239,6 +255,8 @@ async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect>
         let closed = closed.clone();
         let queries = queries.clone();
         crate::supervised::spawn_scoped(async move {
+            // Made first, so a panic in the reader still closes the link.
+            let _end = ReaderEnd { closed, queries: queries.clone() };
             let mut detach_tx = Some(detach_tx);
             loop {
                 match read_frame::<_, HostFrame>(&mut rd).await {
@@ -268,8 +286,6 @@ async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect>
                     Ok(Some(_)) | Ok(None) | Err(_) => break,
                 }
             }
-            closed.store(true, std::sync::atomic::Ordering::SeqCst);
-            queries.lock_or_recover().clear();
         });
     }
     tx.send((ControllerFrame::Resume { after: resume_after }, None))
@@ -367,3 +383,7 @@ impl Link {
         self.closed.load(std::sync::atomic::Ordering::SeqCst)
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "link_tests.rs"]
+mod tests;

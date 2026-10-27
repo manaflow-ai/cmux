@@ -6,10 +6,7 @@ use super::*;
 use crate::supervised::tests::Recorded;
 
 fn hub(supervisor: Supervisor) -> Arc<Hub> {
-    let mut cfg = Config::default();
-    cfg.store.mode = crate::config::StoreMode::Memory;
-    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
-    Hub::new_supervised(cfg, store, Mailbox::memory(), supervisor)
+    Hub::in_memory(supervisor)
 }
 
 #[tokio::test]

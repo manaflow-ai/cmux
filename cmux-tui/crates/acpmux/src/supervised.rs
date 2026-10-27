@@ -2,19 +2,22 @@
 //! policy (plans/cmux-next/chrome-parity/p10-stability.md, "Supervision").
 //!
 //! Chromium's split, which [`cmux_panic_log::Supervisor`] implements:
-//! - Work on shared state (the hub's sessions, turns, queues and peers; the
+//! - Work on shared state (the hub's sessions, turns, queues and peers, and so
+//!   each client connection, request and notification handler of the hub; the
 //!   writer threads' queues; an agent host's event loop) runs under the
 //!   process's [`Supervisor`] as [`Fatal`]. A panic there may leave that state
-//!   half-changed, so the process records it and ends with
-//!   [`cmux_panic_log::SUPERVISED_FATAL_EXIT_CODE`]; its supervisor (launchd,
-//!   the app, the daemon for a host) starts it again and the journal restores
-//!   what it held (`content/browser/browser_main_loop.cc`: a dead browser
-//!   thread is fatal, never a live process serving nothing).
-//! - Work scoped to one request or one connection runs through
-//!   [`spawn_scoped`]: a panic ends only that scope. The request gets an
-//!   internal error, the connection closes
-//!   (`content/public/browser/render_process_host.h`, `ReportBadMessage`
-//!   ends one renderer, not the browser).
+//!   half-changed or a lock on it poisoned, so the process records it and ends
+//!   with [`cmux_panic_log::SUPERVISED_FATAL_EXIT_CODE`]; its supervisor
+//!   (launchd, the app, the daemon for a host) starts it again and the journal
+//!   restores what it held (`content/browser/browser_main_loop.cc`: a dead
+//!   browser thread is fatal, never a live process serving nothing). A caller
+//!   that waits for such work as for an inline call uses [`call`].
+//! - Work that owns only its scope's state (a pump between a socket half and a
+//!   channel, a child's pipe, one call's reply) runs through [`spawn_scoped`],
+//!   [`scoped_thread`] or [`spawn_request`]: a panic ends only that scope
+//!   (`content/public/browser/render_process_host.h`, `ReportBadMessage` ends
+//!   one renderer, not the browser). Cleanup such a task owes shared state
+//!   runs from a drop guard made at its start, so an unwind runs it too.
 //!
 //! Every call names its policy and its [`ShutdownBehavior`]. The supervisor is
 //! built by each process's composition root ([`process_supervisor`]) and
@@ -77,6 +80,52 @@ pub fn task_boxed(
 ) {
     if let Err(error) = supervisor.supervise_task(name, policy, shutdown, move |_stop| work) {
         tracing::warn!(task = name, "not started: {error}");
+    }
+}
+
+/// Runs `work` under `supervisor` with `policy` and `shutdown`, and returns once
+/// it has ended (returned, unwound, or stopped): its caller waits as for an
+/// inline call, while a panic in `work` reaches the supervisor under `name`.
+/// Dropping the returned future first stops `work`, as dropping it inline
+/// would have (with [`ShutdownBehavior::Skip`], at its next await).
+pub async fn call<F>(
+    supervisor: &Supervisor,
+    name: &str,
+    policy: Fatal,
+    shutdown: ShutdownBehavior,
+    work: F,
+) -> Result<(), SuperviseError>
+where
+    F: Future<Output = ()> + Send + 'static,
+{
+    let work: BoxFuture<'static, ()> = Box::pin(work);
+    let (ended_tx, ended) = tokio::sync::oneshot::channel::<()>();
+    let handle = supervisor.supervise_task(name, policy, shutdown, move |_stop| async move {
+        // Dropped when `work` returns or unwinds, which ends the caller's wait.
+        let _ended = ended_tx;
+        work.await;
+    })?;
+    let stop = StopUnlessEnded(Some(handle));
+    let _ = ended.await;
+    // Ended: a stop now could race the supervisor's read of a panic.
+    stop.disarm();
+    Ok(())
+}
+
+/// Stops its worker when its caller's wait is dropped before the worker ended.
+struct StopUnlessEnded(Option<WorkerHandle>);
+
+impl StopUnlessEnded {
+    fn disarm(mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for StopUnlessEnded {
+    fn drop(&mut self) {
+        if let Some(handle) = &self.0 {
+            handle.stop();
+        }
     }
 }
 
@@ -149,7 +198,9 @@ where
 /// Starts `work`, a task scoped to one connection, child process or call that
 /// owns only its scope's state (channel ends, a socket half, a pipe). A panic
 /// in it ends only that scope: its captures drop, which closes its channels for
-/// the other side. Shutdown: Skip (the runtime drops it when the process ends).
+/// the other side, and the drop guards it made run. Work that changes shared
+/// state runs under a [`Supervisor`] instead ([`task`], [`call`]). Shutdown:
+/// Skip (the runtime drops it when the process ends).
 pub fn spawn_scoped<F>(work: F)
 where
     F: Future<Output = ()> + Send + 'static,
@@ -159,9 +210,12 @@ where
     tokio::spawn(work);
 }
 
-/// Starts `work`, a task scoped to one request. A panic in it ends only that
+/// Starts `work`, a task scoped to one request whose state is its own (a call
+/// into another process, a reply to send). A panic in it ends only that
 /// request: `ended` then runs and answers it with an internal error (the panic
-/// hook has already logged the panic with its stack). Shutdown: Skip.
+/// hook has already logged the panic with its stack). A request handler that
+/// changes the hub's shared state runs under the hub's [`Supervisor`] as
+/// [`Fatal`] instead (`server/request_task.rs`). Shutdown: Skip.
 pub fn spawn_request<F, E>(work: F, ended: E)
 where
     F: Future<Output = ()> + Send + 'static,

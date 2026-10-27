@@ -53,6 +53,29 @@ impl Hub {
     pub fn supervisor(&self) -> &Supervisor {
         &self.supervisor
     }
+
+    /// A hub with an in-memory store whose tasks run under `supervisor`.
+    #[cfg(test)]
+    pub(crate) fn in_memory(supervisor: Supervisor) -> Arc<Self> {
+        let mut cfg = Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent"))
+            .expect("an in-memory store opens");
+        Self::new_supervised(cfg, store, Mailbox::memory(), supervisor)
+    }
+
+    /// Panic injection: a handler that panics while it holds the hub's session map.
+    #[cfg(test)]
+    pub(crate) fn panic_holding_sessions(&self) {
+        let _held = self.sessions.lock();
+        panic!("injected while holding the hub's sessions");
+    }
+
+    /// The hub's session map was left poisoned.
+    #[cfg(test)]
+    pub(crate) fn sessions_poisoned(&self) -> bool {
+        self.sessions.is_poisoned()
+    }
 }
 
 #[cfg(test)]

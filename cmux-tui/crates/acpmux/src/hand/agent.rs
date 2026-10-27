@@ -59,6 +59,33 @@ fn idle_limit() -> Option<std::time::Duration> {
     (minutes > 0).then(|| std::time::Duration::from_secs(minutes * 60))
 }
 
+/// The end of a session's event pump, on its return or its unwind: the Cloud stops
+/// the session's model access, the hand forgets it, and its one-run route goes.
+struct PumpEnd {
+    agents: Agents,
+    session: String,
+    sink: EventSink,
+    route: Option<String>,
+}
+
+impl Drop for PumpEnd {
+    fn drop(&mut self) {
+        let end = json!({ "t": "event", "session": self.session, "seq": 0, "event": { "kind": "session_end", "reason": "daemon_gone" } });
+        let _ = self.sink.try_send(end);
+        self.agents
+            .sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&self.session);
+        // The route goes with a new connection; an expired one is swept anyway (gateway::sweep).
+        if let Some(id) = self.route.take()
+            && tokio::runtime::Handle::try_current().is_ok()
+        {
+            crate::supervised::spawn_scoped(async move { super::gateway::remove_fresh(&id).await });
+        }
+    }
+}
+
 /// One outbound frame: `{"t":"event","session","seq","event"}`.
 pub type EventSink = mpsc::Sender<Value>;
 
@@ -236,6 +263,9 @@ impl Agents {
             attached.get("events").and_then(Value::as_array).cloned().unwrap_or_default();
         let agents = self.clone();
         crate::supervised::spawn_scoped(async move {
+            // Made first, so a panic in the pump still ends the session.
+            let _end =
+                PumpEnd { agents: agents.clone(), session: sid.clone(), sink: sink.clone(), route };
             let mut text = TextBuffer::default();
             for ev in backlog {
                 forward(&sid, &ev, &mut text, &sink).await;
@@ -268,14 +298,6 @@ impl Agents {
                 }
             }
             text.flush(&sid, None, &sink).await;
-            // The daemon went away: the Cloud stops this session's model access.
-            let _ = sink.try_send(json!({ "t": "event", "session": sid, "seq": 0, "event": { "kind": "session_end", "reason": "daemon_gone" } }));
-            agents.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&sid);
-            // The event stream ended (the daemon went away): the route goes with
-            // a new connection; an expired one is swept anyway (gateway::sweep).
-            if let Some(id) = &route {
-                super::gateway::remove_fresh(id).await;
-            }
         });
         let prompt_id = self.prompt(&session, prompt)?;
         Ok(json!({ "session": session, "harness": harness, "cwd": cwd, "prompt_id": prompt_id }))
@@ -524,3 +546,7 @@ pub fn summarize(ev: &Value) -> Option<Value> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+#[path = "agent_tests.rs"]
+mod tests;
