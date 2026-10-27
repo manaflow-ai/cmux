@@ -1,0 +1,109 @@
+{
+  "$schema": "../../../../schemas/oracle/case-v1.schema.json",
+  "corpusVersion": 1,
+  "id": "newtab-chat-header",
+  "suite": "e2e",
+  "title": "A chat started on a New Tab page has a working header: Terminal and Browser open their tab beside it, the app keeps answering, and [+] opens a New Tab page in a new column",
+  "priority": "P1",
+  "surface": "cmux-next-webview",
+  "source": {"repo": "manaflow-ai/cmux", "ref": "$RUN", "artifact": "$RUN"},
+  "environment": {"viewport": {"width": 1440, "height": 900}},
+  "fixture": {"seed": "e2e-newtab-chat-header-v1", "network": "offline", "clock": "fixed", "agent": "mock"},
+  "preconditions": [
+    "private scratch config",
+    "tagged bench build with the mock agent pane (CMUX_NEXT_AGENT_PANE_MOCK=1): its in-page daemon answers the chat in place of the script's `fake` ACP harness",
+    "no unrelated app instance",
+    "a fresh launch: one window, one workspace, one terminal tab",
+    "converted from scripts/cmux-next/newtab-chat-header-e2e.py (cx-65br #19299, cx-p0fz), which stays for the real-harness run; tests/oracle/corpus/e2e/_scripts-094.json links them"
+  ],
+  "requires": ["keys", "gui"],
+  "platforms": ["mac"],
+  "steps": [
+    {
+      "id": "new-tab-page",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["cmd+t"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/topology/tab_count", "predicate": "changed", "maxMs": 10000},
+      "settleMaxMs": 10000
+    },
+    {
+      "id": "start-chat",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["h", "e", "l", "l", "o", "return"]},
+      "expect": {"outcome": "ok", "noReceiptReason": "typed text and Return submit the New Tab page's own field; the key router names no action"},
+      "waitFor": {"pointer": "/agents/sessions", "predicate": "changed", "maxMs": 30000},
+      "settleMaxMs": 30000,
+      "note": "the page becomes that chat in its own tab (the script's page_chat)"
+    },
+    {
+      "id": "chat",
+      "op": "snapshot",
+      "args": {"facets": ["topology", "layout", "focus", "agents", "webviews"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "terminal",
+      "op": "cli",
+      "target": {"window": "current"},
+      "args": {"argv": ["--json", "app", "call", "debug.agent_pane", "{\"action\":\"click\",\"selector\":\".acpmux-header-tool[aria-label=\\\"Terminal\\\"]\"}"]},
+      "expect": {"outcome": "ok", "noReceiptReason": "a native click on the page's header button; the terminal tab it opens is its result"},
+      "waitFor": {"pointer": "/topology/tab_count", "predicate": "changed", "maxMs": 15000},
+      "settleMaxMs": 10000,
+      "note": "script row 'New Tab Page chat: header Terminal opens a terminal beside the chat'; with no pane param debug.agent_pane takes the focused pane's chat, else the one pane that shows an agent page, which is the chat until [+] adds a second"
+    },
+    {
+      "id": "browser",
+      "op": "cli",
+      "target": {"window": "current"},
+      "args": {"argv": ["--json", "app", "call", "debug.agent_pane", "{\"action\":\"click\",\"selector\":\".acpmux-header-tool[aria-label=\\\"Browser\\\"]\"}"]},
+      "expect": {"outcome": "ok", "noReceiptReason": "a native click on the page's header button; the browser tab it opens is its result"},
+      "waitFor": {"pointer": "/topology/tab_count", "predicate": "changed", "maxMs": 15000},
+      "settleMaxMs": 10000,
+      "note": "script row 'header Browser opens a browser beside the chat'"
+    },
+    {
+      "id": "terminal-beside-browser",
+      "op": "cli",
+      "target": {"window": "current"},
+      "args": {"argv": ["--json", "app", "call", "debug.agent_pane", "{\"action\":\"click\",\"selector\":\".acpmux-header-tool[aria-label=\\\"Terminal\\\"]\"}"]},
+      "expect": {"outcome": "ok", "noReceiptReason": "a native click on the page's header button; the app answering and the terminal tab are its result"},
+      "waitFor": {"pointer": "/topology/tab_count", "predicate": "changed", "maxMs": 15000},
+      "settleMaxMs": 10000,
+      "note": "cx-p0fz: with the browser's address bar editing beside the chat, the next header click restarted its edit in a loop and the main-thread watchdog stopped the app"
+    },
+    {
+      "id": "plus",
+      "op": "cli",
+      "target": {"window": "current"},
+      "args": {"argv": ["--json", "app", "call", "debug.agent_pane", "{\"action\":\"click\",\"selector\":\".acpmux-header-tool[aria-label=\\\"New tab\\\"]\"}"]},
+      "expect": {"outcome": "ok", "noReceiptReason": "a native click on the page's header button; the page runs the open, and the new pane is its result"},
+      "waitFor": {"pointer": "/topology/tab_count", "predicate": "changed", "maxMs": 15000},
+      "settleMaxMs": 10000,
+      "note": "script row 'header [+] opens a New Tab page in a new column' (cx-65br: the page's move into the column raced the store's tree); last, because its column page is a second agent page"
+    },
+    {
+      "id": "column",
+      "op": "snapshot",
+      "args": {"facets": ["topology", "layout", "focus", "agents", "webviews", "crashes"]},
+      "settleMaxMs": 5000
+    }
+  ],
+  "invariants": [
+    "agents at chat lists one chat session more than before start-chat, on the tab the New Tab page had: the chat started in place",
+    "each of terminal, browser and terminal-beside-browser adds one tab of its kind outside the chat's pane",
+    "column has one pane more than terminal-beside-browser's settled checkpoint, right of the chat's pane, showing a New Tab page; the chat's pane keeps only the chat",
+    "crashes at column shows no exit, and every step after terminal-beside-browser's click answered: the app kept running (cx-p0fz)",
+    "every mutation has one receipt or one typed error (I1)",
+    "ids stay stable unless the step created or closed them (I2)"
+  ],
+  "teardown": ["quit the tagged app the run started", "verify its debug socket is gone", "end the tag's daemons (TagTeardown)"],
+  "untested": [
+    "the real ACP harness path (harnesses/fake.toml in the build's acpmux home, the folder trust question): the oracle launch runs the mock agent pane, so the chat's daemon is the page's mock",
+    "the script's four repeated [+] rounds, each in a fresh workspace (a race that failed about half the clicks): the oracle's repeat and shuffle runs give the repeats",
+    "the [+] column's own chat and a plain New Agent Chat as the control",
+    "Hide tabs on the chat header"
+  ]
+}

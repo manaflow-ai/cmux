@@ -1,0 +1,82 @@
+{
+  "$schema": "../../../../schemas/oracle/case-v1.schema.json",
+  "corpusVersion": 1,
+  "id": "page-popup-escape",
+  "suite": "e2e",
+  "title": "In a 600 x 400 window a new agent chat's composer menu opens and closes: the page reports the menu panel open, then gone, and no native overlay stays behind",
+  "priority": "P2",
+  "surface": "cmux-next-webview",
+  "source": {"repo": "manaflow-ai/cmux", "ref": "$RUN", "artifact": "$RUN"},
+  "environment": {"viewport": {"width": 600, "height": 400}},
+  "fixture": {"seed": "e2e-page-popup-escape-v1", "network": "offline", "clock": "fixed", "agent": "mock"},
+  "preconditions": [
+    "private scratch config",
+    "tagged bench build",
+    "no unrelated app instance",
+    "a fresh launch: one window of 600 x 400 pt (the script resized it with debug.window_frame)",
+    "converted from scripts/cmux-next/page-popup-escape-e2e.py (cx-6k6cg, #19819), which stays for the panel geometry; tests/oracle/corpus/e2e/_scripts-094.json links them"
+  ],
+  "requires": ["keys", "gui"],
+  "platforms": ["mac"],
+  "steps": [
+    {
+      "id": "new-chat",
+      "op": "key",
+      "target": {"window": "current"},
+      "args": {"keys": ["cmd+i"]},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "waitFor": {"pointer": "/topology/tab_count", "predicate": "changed", "maxMs": 30000},
+      "settleMaxMs": 30000,
+      "note": "New Agent Chat (palette.newAgentChat); the settle covers the composer mounting"
+    },
+    {
+      "id": "chat-shown",
+      "op": "snapshot",
+      "args": {"facets": ["windows", "focus", "webviews", "overlays"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "open-location",
+      "op": "cli",
+      "target": {"window": "current"},
+      "args": {"argv": ["--json", "app", "call", "debug.agent_pane", "{\"action\":\"open_menu\",\"label\":\"Location\"}"]},
+      "expect": {"outcome": "ok", "noReceiptReason": "a debug click on the composer's own control runs no action; the page's menu panel is its result"},
+      "waitFor": {"pointer": "/webviews/pages", "predicate": "changed", "maxMs": 10000},
+      "note": "the composer's folder menu (Location), as the script opens it"
+    },
+    {
+      "id": "menu-open",
+      "op": "snapshot",
+      "args": {"facets": ["focus", "webviews", "overlays"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "close-menus",
+      "op": "cli",
+      "target": {"window": "current"},
+      "args": {"argv": ["--json", "app", "call", "debug.agent_pane", "{\"action\":\"close_menus\"}"]},
+      "expect": {"outcome": "ok", "noReceiptReason": "closing the composer's menus runs no action; the gone panel is its result"},
+      "waitFor": {"pointer": "/webviews/pages", "predicate": "changed", "maxMs": 5000},
+      "note": "script row 'closing the Location menu removes the panel'"
+    },
+    {
+      "id": "menu-closed",
+      "op": "snapshot",
+      "args": {"facets": ["focus", "webviews", "overlays"]},
+      "settleMaxMs": 5000
+    }
+  ],
+  "invariants": [
+    "windows at chat-shown lists one window whose frame is 600 x 400 pt",
+    "the chat's page at menu-open lists one menu panel more than at chat-shown, and at menu-closed its panels equal chat-shown's",
+    "overlays at menu-closed equal overlays at chat-shown: no native popup host is left in front of the page",
+    "every mutation has one receipt or one typed error (I1)",
+    "ids stay stable unless the step created or closed them (I2)"
+  ],
+  "teardown": ["quit the tagged app the run started", "verify its debug socket is gone", "end the tag's daemons (TagTeardown)"],
+  "untested": [
+    "the cited bug itself (cx-6k6cg): whether the menu went past the window's edge into a native panel, drew every row unclipped and stayed on its screen; that is the panel's geometry (debug.page_popup), which no facet records",
+    "the folder menu's rows: they list the Mac's projects, and the hermetic HOME has none, so the case cannot make the menu taller than the window",
+    "the commands list (/) and the file list (@query): they list what a running agent sent"
+  ]
+}
