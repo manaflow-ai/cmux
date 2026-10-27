@@ -128,6 +128,7 @@ public final class SidebarDocStore {
         // The load answers the changes unanswered before it was asked for (a later one asks for another load).
         let answering = unanswered
         // task-owner: one sidebar.get; settles the load
+        // main-hop-allow: SidebarDocRemote is the home daemon connection's main-actor async seam; the load applies in its one resume
         Task { [weak self] in
             defer {
                 self?.loading = false
@@ -188,6 +189,7 @@ public final class SidebarDocStore {
         adopting.formUnion(fresh)
         // task-owner: one sidebar.adopt; its batch places the rows. A failed adopt is
         // tried again on the next structural change.
+        // main-hop-allow: SidebarDocRemote is the home daemon connection's main-actor async seam; a failure frees the refs in its resume
         Task { [weak self] in
             if (try? await remote.adopt(fresh, key: Self.newKey())) == nil { self?.adopting.subtract(fresh) }
         }
@@ -333,6 +335,7 @@ public final class SidebarDocStore {
         // An undo's or redo's inverse fills the step the undo put; a user's change puts its own step now (cx-kpicb).
         let origin = Self.undoOrigin ?? (undoable ? onUndoPending(title) : nil)
         // task-owner: one sidebar mutation; settles its pending intent
+        // main-hop-allow: the intent applied to the mirror in this turn (the person sees it now); the send is the home daemon's main-actor async seam (SidebarDocRemote) and settles in its resume
         Task { [weak self] in
             // wakeup-allow: bounded retry only after an awaited remote call; this is not polling.
             // Each ask either returns or, unanswered before the last one, asks again: at most `unsettledAsks` sends.

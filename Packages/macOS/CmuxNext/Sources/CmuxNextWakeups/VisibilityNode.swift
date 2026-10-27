@@ -19,9 +19,13 @@ import Darwin
 /// let window = VisibilityNode(root: "window", own: .visible)
 /// let workspace = VisibilityNode("workspace", own: .hidden, parent: window)
 /// let token = workspace.subscribe(owner: "Sidebar.rows") { visibility in rows.apply(visibility) }
-/// workspace.deferUntilVisible(key: "appearance") { [weak view] in view?.applyAppearance() }
+/// workspace.deferAppearance(owner: "Strip") { [weak view] in view?.applyAppearance() }
 /// workspace.set(.visible) // token is notified once, then the appearance body runs
 /// ```
+///
+/// A view hidden in AppKit forwards it and nothing else (recipe R-hide): `viewDidHide` calls
+/// `node.set(.hidden)`, `viewDidUnhide` calls `node.set(.visible)`, and work a hidden view skips waits in
+/// ``deferUntilVisible(key:_:)`` under a key, so a show runs each kind of work once.
 ///
 /// Subscribers are told only when ``effective`` flips, after the whole subtree has its new state,
 /// parents before children. Hold the ``VisibilitySubscription``: releasing it ends the
@@ -81,6 +85,8 @@ import Darwin
 
     private let isRoot: Bool
     let uptime: Uptime
+    /// The counts a root was made with (``workCounts``); nil on a child.
+    let rootWorkCounts: VisibilityWorkCounts?
     /// Children whose own state is visible or occluded: the ones a parent flip can change.
     private var shownChildren: [ObjectIdentifier: WeakNode] = [:]
     /// Children whose own state is hidden: always hidden, never visited by a parent flip.
@@ -105,7 +111,8 @@ import Darwin
     var nextVoteID: UInt64 = 0
     /// Counts changes of ``notified``: a delivery stops when a subscriber's change started a newer one.
     private var notifyGeneration = 0
-    var deferred: [(key: AnyHashable, work: @MainActor () -> Void)] = []
+    /// Work waiting for the node to reach `from` (``deferUntilVisible(key:_:)``, ``deferUntilShown(key:_:)``).
+    var deferred: [(key: AnyHashable, from: Visibility, work: @MainActor () -> Void)] = []
     var mediaPlaying = false
     var mediaStoppedAt: Duration?
     /// The task queues made on this node (``queue(_:owner:on:)``), told of every flip and freeze.
@@ -132,8 +139,11 @@ import Darwin
     ///   - name: The name diagnostics show.
     ///   - own: The starting state.
     ///   - uptime: The clock for ``hiddenSince`` and ``mediaActiveWithin(_:)``.
-    public init(root name: String, own: Visibility, uptime: @escaping Uptime = VisibilityNode.systemUptime) {
+    ///   - workCounts: Where the tree's nodes count their work (``workCounts``); nil counts nothing.
+    public init(root name: String, own: Visibility, uptime: @escaping Uptime = VisibilityNode.systemUptime,
+                workCounts: VisibilityWorkCounts? = nil) {
         self.name = name
+        self.rootWorkCounts = workCounts
         self.own = own
         self.effective = own
         self.notified = own
@@ -166,6 +176,7 @@ import Darwin
         self.notifiedWarm = warm
         self.isRoot = false
         self.uptime = parent.uptime
+        self.rootWorkCounts = nil
         self.hiddenSince = effective == .visible ? nil : parent.uptime()
         self.hiddenStateSince = effective == .hidden ? parent.uptime() : nil
         self.parent = parent
@@ -290,7 +301,7 @@ import Darwin
             }
             guard renderingGeneration == generation else { return }
         }
-        runDeferredIfRendering()
+        runDeferredIfReached()
         guard isCaptured != notifiedCaptured else { return }
         notifiedCaptured = isCaptured
         notifyExemption()
@@ -321,7 +332,7 @@ import Darwin
             subscription.onFlip(value)
         }
         guard notifyGeneration == generation else { return }
-        runDeferredIfRendering()
+        runDeferredIfReached()
     }
 
     // MARK: Children
