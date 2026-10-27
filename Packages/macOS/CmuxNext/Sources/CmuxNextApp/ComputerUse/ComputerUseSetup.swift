@@ -7,7 +7,7 @@ import CmuxNextWakeups
 import Observation
 import os
 
-private let setupLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "computer-use")
+nonisolated private let setupLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "computer-use")
 
 /// Computer Use Setup: the one place that knows whether the helper this app
 /// uses holds Accessibility and Screen Recording. The palette and CLI action

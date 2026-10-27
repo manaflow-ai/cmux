@@ -12,16 +12,20 @@ public struct HoverCardHit {
 }
 
 /// A card body a source supplies: its view (reused per kind), where the
-/// card goes, the view whose theme scope it draws in, and its recolor.
+/// card goes, the view whose theme scope it draws in, whether it takes clicks, and its recolor.
 public struct HoverCardBody {
     public var view: NSView
     public var placement: HoverCardPlacement
     public weak var themeAnchor: NSView?
+    /// The card has a button: its window takes clicks instead of letting them through (a tab card's Discard).
+    public var interactive: Bool
     public var applyTheme: () -> Void
-    public init(view: NSView, placement: HoverCardPlacement, themeAnchor: NSView?, applyTheme: @escaping () -> Void) {
+    public init(view: NSView, placement: HoverCardPlacement, themeAnchor: NSView?, interactive: Bool = false,
+                applyTheme: @escaping () -> Void) {
         self.view = view
         self.placement = placement
         self.themeAnchor = themeAnchor
+        self.interactive = interactive
         self.applyTheme = applyTheme
     }
 }

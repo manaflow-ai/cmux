@@ -60,8 +60,9 @@ struct ProcessRoleTests {
 
 /// The exit-test children: each changes its own process's role, checks it, and exits with the number of the first
 /// check that fails (0 when all pass). The external flag is whatever the child inherited, so only the internal one,
-/// which the child sets itself, is checked.
-enum ProcessRoleChild {
+/// which the child sets itself, is checked. Nonisolated: an exit-test body is a nonisolated `@Sendable` closure, and
+/// the children touch no main-actor state.
+nonisolated enum ProcessRoleChild {
     /// TASK_FOREGROUND_APPLICATION and TASK_BACKGROUND_APPLICATION (mach/task_policy.h).
     private static let foreground: Int32 = 1
     private static let background: Int32 = 2

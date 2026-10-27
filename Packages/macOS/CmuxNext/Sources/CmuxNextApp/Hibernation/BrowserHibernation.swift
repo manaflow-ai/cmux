@@ -175,8 +175,8 @@ final class BrowserHibernation {
     /// Chromium tabs take their visibility from their tab's node, before the freeze (feature `chromiumTabVisibility`).
     let tabVisibility: BrowserVisibilityFollowers
     /// Energy Saver's one change to the freeze delay: a hidden page busy at Chrome's high-CPU proportion freezes early
-    /// (`SaverCPUFreeze`). `measureCPU` reads the pages' renderer CPU time off the main actor (injected by the App).
-    var saverCPU = SaverCPUFreeze(), measureCPU: (([String], @escaping @MainActor @Sendable (SaverCPUFreeze.Reading) -> Void) -> Void)?
+    /// (`SaverCPUFreeze`); `measureCPU` reads renderer CPU off the main actor; `highEnergy` flags busy hidden tabs, each replan its wake (App-set).
+    var saverCPU = SaverCPUFreeze(), measureCPU: SaverCPUFreeze.Measure?, highEnergy: HighEnergyTabMonitor?
 
     /// When the person showed each tab lately, for its ranking.
     private(set) var focusHistory = TabFocusHistory()
@@ -213,9 +213,8 @@ final class BrowserHibernation {
     /// - Parameters:
     ///   - energy: The app's Energy Saver policy (`MainWorkScheduler.energy`); the default, fixed off, is for tests.
     ///   - audible: The pages' sound history (`recentlyAudibleProtection`); nil turns the recently audible protection off.
-    /// - Parameter deadlines: The app's main-thread deadline scheduler: the hibernation and freeze
-    ///   deadlines, the hover dwell and the frozen pages' one-shot reading are `background` deadlines on
-    ///   it (nobody sees a discard or a reading), and the probes' answers land on its scheduler.
+    ///   - deadlines: The app's main-thread deadline scheduler: the hibernation and freeze deadlines, the hover dwell and the frozen
+    ///     pages' one-shot reading are `background` deadlines on it (nobody sees them), and the probes' answers land on its scheduler.
     init(cache: TabContentCache, memory: any MemoryConsumerRegistry, deadlines: MainDeadlineScheduler,
          energy: EnergyPolicySource = EnergyPolicySource(), audible: AudibleHistory? = nil, followsTabVisibility: Bool = false) {
         self.cache = cache
@@ -555,6 +554,7 @@ final class BrowserHibernation {
             deadline.cancel()
         }
         replanFreeze(candidates.filter { !$0.isNeighbor && !$0.isAgentDriving && !$0.isActiveTab })
+        highEnergy?.wake()
     }
 
     /// Every hidden page, and every page shown in an off-screen window, that could go now.

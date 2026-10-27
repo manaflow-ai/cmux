@@ -1338,6 +1338,31 @@ every task that changes behavior or performance and is not repeated per row.
   NSView (rule 5); detach main-safe; teardown test.
 - Test phase: `git submodule update --init ghostty-next`; zig build test on the fleet; GhosttyNextKit build.
 - Size M. Depends: 017.
+- Fork state (2026-10-26): ghostty-next branch `cp/p03-rendering-080`, commit f60815cf5, on the 017 spike
+  (6fb98534e). Form (a) only; the spike's `macos-present-form` key is gone. The renderer copies each frame into a
+  drawable of an overlay `CAMetalLayer` (`presentsWithTransaction = false`, `DrawablePresenter.zig`), taken before
+  the draw lock. Main writes only the view's layers; a main present (first frame, sync draw, resize pre-commit) hides
+  the overlay, and the first frame encoded after it asks main once through the app mailbox (`present_reveal`, run in
+  `ghostty_app_tick`, not a Ghostty `dispatch_async`) to show it again (`PresentState.zig` hide generations).
+  Frames of a size other than the drawable size are dropped; `setHostDrawableSize` sets the drawables before the
+  atomic host size. New C API: `ghostty_surface_config_s.presented_cb`/`presented_userdata` (frame id, host time,
+  `presentedTime`; delivery stops before `ghostty_surface_free` returns, `PresentedSink.zig`),
+  `ghostty_surface_presented_frame` (+1), `ghostty_surface_set_presentation` (HIDDEN, SHOWN, PURGE). The config
+  struct grows to 128 bytes; Swift must zero-init it (`ghostty_surface_config_new`). The gitlink is not moved: it must
+  match the pinned GhosttyNextKit, and 081 adopts this at the pin bump (the cmux leaf reads `layer.contents`
+  today, which now holds a frame only until the renderer's next one). Costs to measure on the fleet: one GPU blit and
+  three drawables per surface next to the swap chain (`bench_memory.py`), the `nextDrawable` wait histogram
+  (`present_form` log line, `ghostty-present-form-bench.py`).
+- Fork fixes (2026-10-27): commit 612a8ff99 on the same branch, after review. `nextDrawable` never runs under the
+  draw lock: a frame whose drawable has the size from before a resize is dropped and drawn again at once with a
+  drawable taken outside the lock (`stale_drawables` in the `present_form` line). The reveal request comes from the
+  drawable's presented handler, not the command buffer's completion, so no older drawable can show after it. Every
+  `set_size` and `set_content_scale` syncs the overlay's geometry and scale and the drawable size (a display scale
+  change keeps the bounds); 081 must set the root layer's `contentsScale` before those calls, as upstream Ghostty's
+  `viewDidChangeBackingProperties` does (the cmux leaf does not today). The overlay is `opaque` only for
+  `background-opacity` >= 1 without glass, also on a config reload. A hidden or purged presentation draws nothing in
+  the display pass; a purge clears the overlay's drawable, and a frame encoded before a hide, purge or main present
+  never becomes `ghostty_surface_presented_frame`.
 
 #### p03-rendering-081 cmux adopts renderer-owned frames
 - Files: `.../CmuxNextTerminal/TerminalSurfaceView.swift`, `TerminalFrameHold.swift`, `TerminalFramePurgeability.swift`,
