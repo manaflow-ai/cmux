@@ -49,6 +49,7 @@ pub mod hand;
 pub mod harness_admin;
 pub mod harness_config;
 pub mod harness_health;
+pub mod harness_icon_set;
 pub mod harness_limits;
 pub mod host_pressure;
 pub mod hub;
