@@ -566,13 +566,14 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 }
 .nt-foot .acpmux-composer-strip::after { content: none; }
 .nt-foot .acpmux-composer-context > .acpmux-location-leading {
+  order: -3;
   flex: 0 1 auto;
   max-width: 45%;
   margin-inline-end: auto;
 }
 .nt-foot:has(.acpmux-access) .acpmux-location-leading { margin-inline-end: 0; }
-.nt-foot .acpmux-access { order: 0; }
 .nt-foot .acpmux-composer-context > .acpmux-location-picker:last-child {
+  order: -2;
   margin-inline: 0;
 }
 
