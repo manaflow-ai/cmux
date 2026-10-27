@@ -175,6 +175,58 @@ class ExpectTests(unittest.TestCase):
         self.assertEqual(caught.exception.status, "Crash")
 
 
+class CaseReadsTests(unittest.TestCase):
+    def test_the_case_session_name_becomes_the_fixtures_in_the_session_and_the_panic_log(self):
+        """Every case runs as oracle-<token of its root>: a facet that kept it would differ on each run."""
+        class Raw:
+            def request(self, cmd):
+                return {"ok": True, "data": {
+                    "session": {"session": {"name": "oracle-abc123"}},
+                    "panicLog": {"bytes": 0, "path": "/tmp/o/x/y/state/owner-panics-oracle-abc123.jsonl"}}}
+
+        daemon = object.__new__(d.Daemon)
+        daemon.raw = Raw()
+        data = d.CaseReads(daemon, "oracle-abc123", 1.0).command(d.ORACLE_STATE)["data"]
+        self.assertEqual(data["session"]["session"]["name"], d.SESSION_NAME)
+        self.assertEqual(data["panicLog"]["path"], f"/tmp/o/x/y/state/owner-panics-{d.SESSION_NAME}.jsonl")
+
+
+class AnyOutcomeTests(unittest.TestCase):
+    """case-v1 outcome any (a walk move, p15-oracle-098): either outcome passes and becomes the reply facet."""
+
+    def run_expect(self, outcome, op="resource.call"):
+        run = object.__new__(d.CaseRun)
+        run.state = d.CaseState()
+        run.check_expect({"id": "m01", "op": op, "expect": {"outcome": "any", "receipt": "mutation_result"}}, outcome)
+        return run
+
+    def test_ok_and_typed_error_both_pass_and_are_recorded(self):
+        receipt = {"value": {}, "generation": "g", "revision": "1", "replayed": True}
+        self.assertEqual(self.run_expect(("ok", receipt)).state.reply_facets["m01"], {"outcome": "ok", "replayed": True})
+        self.assertEqual(self.run_expect(("error", "resource.not_found")).state.reply_facets["m01"],
+                         {"outcome": "error", "error": "resource.not_found"})
+
+    def test_an_ok_reply_must_still_be_the_named_receipt(self):
+        with self.assertRaises(d.CaseError) as caught:
+            self.run_expect(("ok", {"value": {}}))
+        self.assertEqual(caught.exception.status, "Failure")
+
+    def test_only_a_resource_call_has_an_any_outcome(self):
+        with self.assertRaises(d.CaseError) as caught:
+            self.run_expect(("ok", {}), op="restart")
+        self.assertEqual(caught.exception.status, "Crash")
+
+    def test_the_reply_facet_validates_against_the_snapshot_schema(self):
+        import normalize
+
+        doc = json.loads(d.SCHEMA.read_text(encoding="utf-8"))
+        reply = doc["properties"]["facets"]["properties"][d.REPLY_FACET]["oneOf"][0]
+        for value in (d.reply_facet("ok", {"replayed": False}), d.reply_facet("error", "validation.invalid"),
+                      d.reply_facet("ok", {})):
+            self.assertEqual(normalize.validate(value, reply), [], value)
+        self.assertNotEqual(normalize.validate({"outcome": "error", "error": "Bad"}, reply), [])
+
+
 class PredicateTests(unittest.TestCase):
     def check(self, wait, value, baseline=d.MISSING):
         return d.predicate_holds(wait, value, baseline)
@@ -591,6 +643,25 @@ class LiveTests(unittest.TestCase):
                      for key in ("workspaces", "screens", "panes", "tabs")} for cp in result["checkpoints"]]
 
         self.assertEqual(json.dumps(layouts(first), sort_keys=True), json.dumps(layouts(second), sort_keys=True))
+
+    def test_a_generated_walk_passes_and_each_move_has_its_reply_facet(self):
+        """gen_walks.py (p15-oracle-098): every call move's settled checkpoint has the reply facet, ok or a
+        typed error, and two runs of the walk give the same reply facets."""
+        import gen_walks
+
+        table = gen_walks.load_move_table(gen_walks.DEFAULT_CORPUS, gen_walks.DEFAULT_SOURCE, "daemon")
+        case = gen_walks.generate_walk(table, 0, 12)
+        moves = [s["id"] for s in case["steps"] if (s.get("expect") or {}).get("outcome") == d.ANY_OUTCOME]
+
+        def replies(result):
+            self.assertEqual(result["status"], "Pass", result["message"])
+            return {cp["step"]: cp["snapshot"]["facets"].get(d.REPLY_FACET) for cp in result["checkpoints"]
+                    if cp["checkpoint"] == "settled" and cp["step"] in moves}
+
+        first, second = replies(self.run_case(copy.deepcopy(case))), replies(self.run_case(copy.deepcopy(case)))
+        self.assertEqual(sorted(first), sorted(moves))
+        self.assertTrue(all(value["outcome"] in ("ok", "error") for value in first.values()), first)
+        self.assertEqual(first, second)
 
     def test_killed_daemon_terminals_are_ended_at_teardown(self):
         case = example_case()
