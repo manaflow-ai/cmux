@@ -344,6 +344,42 @@ struct SessionPriorityCoordinatorStateTests {
         #expect(typedNow)
     }
 
+    /// A restart that replaced nothing leaves the user's own `/effort` on screen counting: it was
+    /// typed while the pane waited in the queue or was held, not redrawn by a resumed Claude.
+    @Test(arguments: [
+        SessionPriorityApplyResult.held(.recentInput),
+        .refused(.noConversationYet),
+        .respawnFailed,
+    ])
+    func aRestartThatReplacedNothingKeepsTheUsersScreenChange(result: SessionPriorityApplyResult) {
+        var state = SessionPriorityCoordinatorState()
+        state.follow(panelId: pane, sessionId: "s1")
+        state.noteRestartStarted(panelId: pane, sessionId: "s1", target: high, nowMs: 0)
+        _ = state.noteResult(panelId: pane, result, nowMs: 3_000)
+
+        let usersEffortSeen = state.screenShowsManualMarker(panelId: pane, markerCount: 1)
+
+        #expect(usersEffortSeen)
+    }
+
+    @Test
+    func resumeNotTypedRedrawIsNotAManualChange() {
+        var state = SessionPriorityCoordinatorState()
+        state.noteRestartStarted(panelId: pane, sessionId: "s1", target: high, nowMs: 0)
+        let manual = ClaudeAccountSwitchManualResume(
+            command: "claude --resume s1",
+            typedInput: "claude --resume s1\n",
+            paneWasReplaced: false
+        )
+        _ = state.noteResult(panelId: pane, .resumeNotTyped(manual), nowMs: 4_000)
+
+        // The user runs the resume by hand; that Claude redraws the conversation.
+        let redrawn = state.screenShowsManualMarker(panelId: pane, markerCount: 1)
+        let typedNow = state.screenShowsManualMarker(panelId: pane, markerCount: 2)
+        #expect(!redrawn)
+        #expect(typedNow)
+    }
+
     @Test
     func screenMarkerCountCountsEachResult() {
         let screen = "Effort level set to low\n> hi\nModel set to opus\n> again\nEffort level set to high\n"
