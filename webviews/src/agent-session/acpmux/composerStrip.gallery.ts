@@ -87,7 +87,7 @@ export default agentPaneEntry({
       snapshot: started(),
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer-strip"));
-        await ctx.click('.acpmux-composer-strip .acpmux-location-picker[data-kind="computer"] button');
+        await ctx.click({ selector: '.acpmux-composer-strip .acpmux-location-picker[data-kind="computer"] button' });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
       },
     },
