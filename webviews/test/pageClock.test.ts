@@ -119,7 +119,7 @@ describe("pageClock", () => {
     expect(timers.delays[0]).toBe(433);
     timers.advance(3000);
     expect(at).toEqual([1_235_000, 1_236_000, 1_237_000]);
-    expect(clock.now("second")).toBe(1_237_000);
+    expect(clock.now()).toBe(1_237_000);
   });
 
   test("the minute granularity has its own aligned timer", () => {
@@ -132,7 +132,24 @@ describe("pageClock", () => {
     timers.advance(120_000);
     expect(at).toEqual([120_000, 180_000]);
     expect(seconds).toBe(120);
-    expect(clock.now("minute")).toBe(180_000);
+    expect(clock.now()).toBe(210_000);
+  });
+
+  test("the minute granularity reads the same time as the second one, so an elapsed time never goes back", () => {
+    const { timers, clock } = makeClock(4_000_000);
+    timers.advance(500);
+    const start = timers.now();
+    const elapsed = () => Math.max(0, clock.now() - start);
+    const stopSecond = clock.subscribe("second", () => undefined);
+    timers.advance(61_000);
+    const atSecond = elapsed();
+    expect(atSecond).toBe(60_500);
+    const stopMinute = clock.subscribe("minute", () => undefined);
+    stopSecond();
+    expect(elapsed()).toBeGreaterThanOrEqual(atSecond);
+    timers.advance(60_000);
+    expect(elapsed()).toBe(120_500);
+    stopMinute();
   });
 
   test("hidden runs 0 timers; showing ticks once when a boundary passed", () => {
@@ -217,7 +234,9 @@ describe("useNow", () => {
     saved.clear();
   });
 
-  async function render(element: ReturnType<typeof createElement>): Promise<void> {
+  async function render(
+    element: ReturnType<typeof createElement>,
+  ): Promise<(next: ReturnType<typeof createElement>) => Promise<void>> {
     const { JSDOM } = await import("jsdom");
     const dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
       url: "http://localhost/",
@@ -233,6 +252,7 @@ describe("useNow", () => {
     const root = createRoot(dom.window.document.getElementById("root") as unknown as Element);
     await act(async () => root.render(element));
     unmount = () => root.unmount();
+    return (next) => act(async () => root.render(next));
   }
 
   test("five labels re-render on each boundary from one timer, and none while hidden", async () => {
@@ -269,6 +289,27 @@ describe("useNow", () => {
     await act(async () => unmount?.());
     unmount = undefined;
     expect(timers.live).toBe(0);
+  });
+
+  test("an elapsed label does not go back when it moves from second to minute granularity", async () => {
+    const { timers, clock } = makeClock(6_000_500);
+    const start = timers.now();
+    const elapsed: number[] = [];
+    function Elapsed({ granularity }: { granularity: "second" | "minute" }) {
+      elapsed.push(Math.max(0, useNow(granularity, { clock }) - start));
+      return null;
+    }
+    const rerender = await render(createElement(Elapsed, { granularity: "second" }));
+    await act(async () => timers.advance(61_000));
+    const beforeSwitch = elapsed.at(-1) ?? 0;
+    expect(beforeSwitch).toBe(60_500);
+
+    await rerender(createElement(Elapsed, { granularity: "minute" }));
+    expect(elapsed.at(-1) ?? 0).toBeGreaterThanOrEqual(beforeSwitch);
+    expect(timers.live).toBe(1);
+    await act(async () => timers.advance(60_000));
+    expect(elapsed.at(-1)).toBe(120_500);
+    expect(elapsed.slice(1).every((value, index) => value >= (elapsed[index] ?? 0))).toBe(true);
   });
 
   test("enabled false subscribes nothing", async () => {

@@ -121,11 +121,13 @@ export class PageClock {
   ) {}
 
   /**
-   * The start of the current period of `granularity`. It changes only on a boundary, so a render
-   * reads the same value as every other label on the page, and a React snapshot stays stable.
+   * The start of the current second, for every granularity: a granularity sets only how often a
+   * subscriber wakes, never what it reads. The value changes only on a second boundary, so labels on
+   * the page read the same time and a React snapshot stays stable, and it never goes back when a label
+   * moves from second to minute granularity.
    */
-  now(granularity: ClockGranularity): number {
-    return clockFloor(this.timers.now(), granularity);
+  now(): number {
+    return clockFloor(this.timers.now(), "second");
   }
 
   /** Calls `listener` on each boundary of `granularity` while the page is active; returns the

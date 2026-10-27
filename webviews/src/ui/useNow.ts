@@ -15,8 +15,9 @@ export interface UseNowOptions {
 }
 
 /**
- * The start of the current second or minute (epoch milliseconds). It is the same for every label on
- * the page and changes only on a boundary, so an elapsed time is `useNow(...) - start`, clamped at 0.
+ * The start of the current second (epoch milliseconds), the same for every label on the page. An
+ * elapsed time is `useNow(...) - start`, clamped at 0. `granularity` sets only how often the label
+ * re-renders: at "minute" it reads the same time as at "second", so it never goes back on a switch.
  */
 export function useNow(granularity: ClockGranularity = "second", options: UseNowOptions = {}): number {
   const clock = options.clock ?? pageClockFor();
@@ -25,6 +26,6 @@ export function useNow(granularity: ClockGranularity = "second", options: UseNow
     (notify: () => void) => (enabled ? clock.subscribe(granularity, notify) : () => undefined),
     [clock, granularity, enabled],
   );
-  const snapshot = useCallback(() => clock.now(granularity), [clock, granularity]);
+  const snapshot = useCallback(() => clock.now(), [clock]);
   return useSyncExternalStore(subscribe, snapshot, snapshot);
 }
