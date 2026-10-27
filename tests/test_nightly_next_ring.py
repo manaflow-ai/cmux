@@ -193,6 +193,54 @@ class LegacyTests(unittest.TestCase):
             ring.legacy(feed(), feed(item("200")), "on", self.verdicts())
 
 
+class KeepNightlyScriptTests(unittest.TestCase):
+    """scripts/ci/nightly-steps/publish-next-feed-keep-nightly.sh with a stand-in curl."""
+
+    SCRIPT = ROOT / "scripts/ci/nightly-steps/publish-next-feed-keep-nightly.sh"
+
+    def run_script(self, live_code: int, live_text: str = "", ring: str = "on"):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "verdicts").mkdir()
+            (root / "verdicts" / "200.json").write_text(json.dumps({"build": "200", "verdict": "pass"}))
+            (root / "live.xml").write_text(live_text)
+            curl = root / "curl"
+            curl.write_text(f"""#!/usr/bin/env bash
+out=""; while [ $# -gt 0 ]; do [ "$1" = -o ] && {{ out="$2"; shift; }}; shift; done
+[ {live_code} = 200 ] && cp "{root}/live.xml" "$out"
+printf {live_code}
+[ {live_code} -lt 400 ]
+""")
+            curl.chmod(0o755)
+            new = root / "appcast-arm64.xml"
+            new.write_text(feed(item("400", "cmux-next-dev")))
+            env = {"PATH": f"{root}:/usr/bin:/bin", "DEV_RING": ring, "CHANNEL_FEED_BASE": "https://example.invalid/next",
+                   "NIGHTLY_NEXT_FEED_BASE": str(root), "RUNNER_TEMP": str(root), "GITHUB_RUN_ID": "1"}
+            result = subprocess.run(["bash", str(self.SCRIPT), str(new)], env=env, capture_output=True, text=True)
+            return result, new.read_text()
+
+    def test_the_live_nightly_item_is_kept(self):
+        result, out = self.run_script(200, feed(item("300", "cmux-next-dev"), item("200")))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(offered(out, NIGHTLY_RING), ["200"])
+        self.assertEqual(offered(out, DEV_RING), ["400", "300", "200"])
+
+    def test_no_live_feed_yet_publishes_the_new_build_alone(self):
+        result, out = self.run_script(404)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(offered(out, DEV_RING), ["400"])
+
+    def test_an_unreadable_live_feed_stops_the_publication(self):
+        result, _ = self.run_script(503)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("would drop its Nightly item", result.stdout)
+
+    def test_ring_off_leaves_the_feed_alone(self):
+        result, out = self.run_script(503, ring="off")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(out, feed(item("400", "cmux-next-dev")))
+
+
 class CliTests(unittest.TestCase):
     def run_cli(self, *args: str) -> subprocess.CompletedProcess:
         return subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True, text=True)
@@ -263,14 +311,18 @@ class WorkflowTests(unittest.TestCase):
         job = text[text.index("\n  publish-nightly:"):text.index("\n  publish-nightly-next-github:")]
         keep = job.index("- name: Keep the live feed's newest Nightly item beside the new build")
         step = job[keep:job.index("\n      - ", keep + 1)]
-        self.assertIn('"$PUBLISH_TOOLING/ci/nightly_next_ring.py" legacy --new "nightly-out/$feed" "${current[@]}"', step)
-        self.assertIn('--out "nightly-out/$feed" --mode "$DEV_RING" --verdicts-base "$NIGHTLY_NEXT_FEED_BASE"', step)
+        self.assertIn("publish-next-feed-keep-nightly.sh $(printf 'nightly-out/%s ' $NIGHTLY_FEEDS)", step)
         self.assertIn("DEV_RING: ${{ steps.ring.outputs.mode || 'off' }}", step)
-        # Before the live-ring retag, which then sets each kept item's channel again.
-        self.assertLess(keep, job.index("- name: Tag the new build's items from the live Dev ring switch"))
-        # Before the feed is handed to the release job and before its guard and live write.
-        self.assertLess(keep, job.index("- name: Hand the published feed to the GitHub release job"))
-        self.assertLess(keep, job.index("- name: Upload nightly-next appcasts to R2"))
+        # Before the live-ring retag, the hand-off, the guard and the live write.
+        for later in ("- name: Tag the new build's items from the live Dev ring switch",
+                      "- name: Hand the published feed to the GitHub release job",
+                      "- name: Upload nightly-next appcasts to R2"):
+            self.assertLess(keep, job.index(later), later)
+        # The delta republish keeps it too, before its retag and its same-build write.
+        deltas = text[text.index("\n  republish-nightly-deltas:"):text.index("\n  published-in:")]
+        merge = deltas.index("publish-next-feed-keep-nightly.sh nightly-deltas/appcast*.xml")
+        self.assertLess(merge, deltas.index("nightly_next_ring.py retag --feed \"$feed\""))
+        self.assertIn("scripts/ci/nightly-steps/publish-next-feed-keep-nightly.sh\n", deltas)
 
     def test_a_new_dev_build_leaves_the_nightly_ring_its_newest_item(self):
         # What the step above publishes: the new Dev build beside the live feed's Nightly item,

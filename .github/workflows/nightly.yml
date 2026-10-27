@@ -5971,7 +5971,8 @@ jobs:
         if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         env:
           DEV_RING: ${{ steps.ring.outputs.mode || 'off' }}
-        run: bash .publish-tooling/scripts/ci/nightly-steps/publish-next-feed-keep-nightly.sh
+        run: |
+          bash .publish-tooling/scripts/ci/nightly-steps/publish-next-feed-keep-nightly.sh $(printf 'nightly-out/%s ' $NIGHTLY_FEEDS)
 
       # The build job tagged its items from its own snapshot of the switch; the feed goes out
       # tagged from the live one (a Dev item stays Dev only while the ring is on and no pass).
@@ -7761,6 +7762,7 @@ jobs:
             scripts/ci/upload-r2-object.py
             scripts/ci/gh_app_token.sh
             scripts/ci/nightly_next_dev_ring.sh
+            scripts/ci/nightly-steps/publish-next-feed-keep-nightly.sh
           sparse-checkout-cone-mode: false
 
       - *gh-app-token-write
@@ -7839,8 +7841,10 @@ jobs:
             exit 0
           fi
           # The revised feed lists earlier builds again, all on the new build's
-          # ring: each goes back to Nightly when its canary verdict is a pass.
+          # ring: each goes back to Nightly when its canary verdict is a pass. It
+          # keeps the live feed's newest Nightly item as publish-nightly does.
           if [ "$TRACK" = nightly-next ]; then
+            bash .publish-tooling/scripts/ci/nightly-steps/publish-next-feed-keep-nightly.sh nightly-deltas/appcast*.xml
             for feed in nightly-deltas/appcast*.xml; do
               [ -f "$feed" ] || continue
               python3 .publish-tooling/scripts/ci/nightly_next_ring.py retag --feed "$feed" --out "$feed" \

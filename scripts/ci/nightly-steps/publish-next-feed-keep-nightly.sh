@@ -1,20 +1,34 @@
 #!/usr/bin/env bash
-# nightly.yml publish-nightly: "Keep the live feed's newest Nightly item beside the new build".
-# The new build's feed alone drops every earlier item, so a Nightly-ring app (cmux-next only) is
-# offered nothing while the new build waits on Dev for its verdict, and a later pass on that build
-# can never promote it here. Combined as the old feed is (nightly_next_ring.py legacy): the new
-# build, the newest cmux-next item and at most five Dev items above it, each tagged from its
-# verdict. With the ring off every item is cmux-next and only the new build stays.
-# Moved out of the workflow to keep nightly.yml under GitHub's workflow file size limit.
+# The cmux NEXT feed keeps its newest Nightly item beside a new build (nightly.yml publish-nightly
+# "Keep the live feed's newest Nightly item beside the new build", and republish-nightly-deltas
+# before it revises the feed). The new build's feed alone drops every earlier item, so a
+# Nightly-ring app (cmux-next only) is offered nothing while the new build waits on Dev for its
+# verdict, and a later pass on that build can never promote it here. Combined as the old feed is
+# (nightly_next_ring.py legacy): the new build, the newest cmux-next item and at most five Dev items
+# above it, each tagged from its verdict. With the ring off every item is cmux-next and the feed
+# is left as it is.
+#
+# A live feed that cannot be read stops the publication: going on without it would replace the
+# feed with the new build alone and drop the Nightly item for good. Only a 404 (no feed yet)
+# starts from the new build's items.
+#
+# usage: publish-next-feed-keep-nightly.sh FEED... (each read live at $CHANNEL_FEED_BASE/<name>)
+# env: DEV_RING (on|off), CHANNEL_FEED_BASE, NIGHTLY_NEXT_FEED_BASE (the verdicts), GITHUB_RUN_ID
 set -euo pipefail
-for feed in $NIGHTLY_FEEDS; do
+[ "${DEV_RING:?}" = on ] || { echo "Dev ring off: every item is cmux-next; nothing to keep"; exit 0; }
+ring="$(cd "$(dirname "$0")/.." && pwd)/nightly_next_ring.py"
+for feed in "$@"; do
+  [ -f "$feed" ] || continue
+  name="$(basename "$feed")"
+  live="${RUNNER_TEMP:-/tmp}/keep-live-$name"
+  code="$(curl -sSL --retry 3 --retry-all-errors -A "cmux-nightly-next-feed/1" -H "Cache-Control: no-cache" \
+    -o "$live" -w '%{http_code}' "${CHANNEL_FEED_BASE:?}/${name}?keep=${GITHUB_RUN_ID:-0}")" || code="${code:-000}"
   current=()
-  if curl -fsSL --retry 3 -A "cmux-nightly-next-feed/1" -H "Cache-Control: no-cache" \
-      -o "$RUNNER_TEMP/live-$feed" "${CHANNEL_FEED_BASE}/${feed}?keep=${GITHUB_RUN_ID}"; then
-    current=(--current "$RUNNER_TEMP/live-$feed")
-  else
-    echo "::warning::could not read the live $feed; publishing the new build's item alone"
-  fi
-  python3 "$PUBLISH_TOOLING/ci/nightly_next_ring.py" legacy --new "nightly-out/$feed" "${current[@]}" \
-    --out "nightly-out/$feed" --mode "$DEV_RING" --verdicts-base "$NIGHTLY_NEXT_FEED_BASE"
+  case "$code" in
+    200) current=(--current "$live") ;;
+    404) echo "::notice::no live $name yet; publishing the new build's items alone" ;;
+    *) echo "::error title=nightly-next feed::could not read the live $name (HTTP $code); publishing it now would drop its Nightly item"; exit 1 ;;
+  esac
+  python3 "$ring" legacy --new "$feed" ${current[@]+"${current[@]}"} --out "$feed" --mode on \
+    --verdicts-base "${NIGHTLY_NEXT_FEED_BASE:?}"
 done
