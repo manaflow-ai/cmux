@@ -44,6 +44,8 @@ struct PanePlacementSettleTests {
             model.rowsEnabledOverride = true
             root = LayoutRootView(model: model, contentProvider: panes, rendersMotionOnServer: { false },
                                   mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+            // This suite measures the split spring: the Debug choice `motion.split.arrival` = grow (a split fades in by default).
+            root.context.splitArrival = { .grow }
             root.context.reduceMotionOverride = false
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: true)

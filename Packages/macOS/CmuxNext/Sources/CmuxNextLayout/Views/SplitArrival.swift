@@ -1,11 +1,13 @@
 public import CmuxNextDesign
+import Foundation
 
 /// How the pane a split adds comes in (Cmd-D, Cmd-Shift-D, a split of the New Tab page). Debug Settings
 /// `motion.split.arrival` (``LayoutTunables/splitArrival``) picks it; the layout reads it in each change turn
 /// (`LayoutViewContext.splitArrival`).
 ///
-/// A new dock column and a content handoff (the added pane takes over what its neighbour showed) are spatial
-/// changes a person sees rarely: they keep their slide in either choice.
+/// A new dock column is a spatial change a person sees rarely: it keeps its growth from the screen edge in either
+/// choice. A content handoff (the added pane takes over what its neighbour showed) fades the pane with the new
+/// content in at its rest with ``fade``, and slides it in from the screen edge with ``grow``.
 public nonisolated enum SplitArrival: String, Sendable, CaseIterable, TunableChoice {
     /// The default (Lawrence 2026-10-27: "a more subtle animation for the split that is coming in (just an
     /// opacity fade maybe)"; plans/cmux-next/motion-first-principles.md). The key's turn lays the split out once

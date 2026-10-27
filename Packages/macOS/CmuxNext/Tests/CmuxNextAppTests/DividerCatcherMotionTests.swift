@@ -31,6 +31,8 @@ import Testing
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .columns([column]))], activeScreenID: "s", focusedPane: "a")
             model.followsDesignMetrics = false
             root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+            // This suite measures the split spring: the Debug choice `motion.split.arrival` = grow (a split fades in by default).
+            root.context.splitArrival = { .grow }
             root.context.reduceMotionOverride = false
             window = ShellWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.titled, .resizable],
                                  backing: .buffered, defer: true)

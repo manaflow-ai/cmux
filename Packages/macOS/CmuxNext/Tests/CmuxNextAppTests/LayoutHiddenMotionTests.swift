@@ -24,6 +24,8 @@ struct LayoutHiddenMotionTests {
 
         init() {
             root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+            // This suite measures the split spring: the Debug choice `motion.split.arrival` = grow (a split fades in by default).
+            root.context.splitArrival = { .grow }
             root.context.reduceMotionOverride = false
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: true)
@@ -79,6 +81,8 @@ struct LayoutHiddenMotionTests {
         let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(split))], activeScreenID: "s",
                                 focusedPane: "p1")
         let root = LayoutRootView(model: model, contentProvider: Panes(), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        // This suite measures the split spring: the Debug choice `motion.split.arrival` = grow (a split fades in by default).
+        root.context.splitArrival = { .grow }
         root.context.reduceMotionOverride = false
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: true)
@@ -119,6 +123,8 @@ struct LayoutHiddenMotionTests {
         init() {
             model.snapsAutomationBursts = true
             root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+            // This suite measures the split spring: the Debug choice `motion.split.arrival` = grow (a split fades in by default).
+            root.context.splitArrival = { .grow }
             root.context.reduceMotionOverride = false
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: true)

@@ -88,6 +88,10 @@ struct PaneArrival: Equatable {
               var arrival = of(target: target, previous: before, next: after) ?? docking(pane, target: target, from: old, to: new)
         else { return [:] }
         if new.scrolls(pane: pane) { arrival.seed.origin.x -= new.viewShift(offset: offset) }
+        // A pane that opens a docked column grows from its edge, whichever neighbour gave up the room.
+        if let entry = new.dockFrame(containing: pane), !old.dock.contains(where: { $0.column == entry.column }) {
+            arrival.source = .dock
+        }
         return [pane: arrival]
     }
 

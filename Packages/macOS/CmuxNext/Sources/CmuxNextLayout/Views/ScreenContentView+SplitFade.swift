@@ -23,13 +23,9 @@ struct SplitFades {
         return Set(arrivals.filter { $0.value.source == .split }.keys)
     }
 
-    /// `pane` fades in on `wait` (a pane fading in already is cancelled first; ``FadeInWait/cancel()`` calls back
-    /// into nothing, so this mutation never re-enters).
+    /// `pane` fades in on `wait` (``cancel(_:)`` ended any earlier fade of it first, before the new hold was added:
+    /// both holds use one key on the same layers).
     mutating func track(_ pane: PaneID, wait: FadeInWait, cancelContent: (@MainActor () -> Void)?) {
-        if let old = running[pane] {
-            old.cancelContent?()
-            old.wait.cancel()
-        }
         running[pane] = (wait, cancelContent)
     }
 
@@ -66,6 +62,8 @@ extension ScreenContentView {
         context.overlaySyncNow()
         for pane in panes {
             guard let host = context.hosts[pane], holds(host), let layer = host.layer else { continue }
+            // A pane fading in already (a handoff giver split again) restarts: its old hold goes before the new one.
+            splitFades.cancel(pane)
             let layers = [layer] + [host.chrome.layer].compactMap { $0 }
             guard let wait = Motion.panes.fadeIn(.fadeIn, layers: layers, in: host, waitingUpTo: SplitArrival.firstFrameWait,
                                                  ended: { [weak self] wait in self?.splitFades.ended(pane, wait: wait) }) else { continue }

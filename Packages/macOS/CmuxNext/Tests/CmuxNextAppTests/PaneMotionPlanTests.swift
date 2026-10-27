@@ -93,7 +93,7 @@ struct PaneMotionPlanTests {
         let before = Self.splits(Self.stacked(.leaf("p1"), .leaf("p3"), id: "a"))
         let after = Self.splits(Self.stacked(Self.side(.leaf("p1"), .leaf("p2")), .leaf("p3"), id: "a"))
         #expect(before.panes["p3"] == after.panes["p3"])
-        let plan = PaneMotionPlan.build(from: before, to: after)
+        let plan = PaneMotionPlan.build(from: before, to: after, arrival: .grow)
         #expect(plan.kind == .split)
         #expect(Set(plan.panes.keys) == ["p1", "p2"])
         // The divider above p3 kept its place; only the new one is listed.
@@ -129,7 +129,7 @@ struct PaneMotionPlanTests {
     @Test func theVariantPicksTheCloseAndSplitSprings() {
         let one = Self.splits(.leaf("p1")), two = Self.splits(Self.side(.leaf("p1"), .leaf("p2")))
         for variant in PaneMotionVariant.allCases {
-            let split = PaneMotionPlan.build(from: one, to: two, variant: variant)
+            let split = PaneMotionPlan.build(from: one, to: two, variant: variant, arrival: .grow)
             let close = PaneMotionPlan.build(from: two, to: one, variant: variant)
             #expect(split.panes.values.allSatisfy { $0.token == variant.splitSpring })
             #expect(close.panes.values.allSatisfy { $0.token == variant.closeSpring })
@@ -301,7 +301,7 @@ struct PaneMotionPlanTests {
         let top = LayoutColumn(id: "top", root: .leaf("p-top"), dock: DockColumn(edge: .top))
         let after = Self.geometry(.columns([top] + columns))
         #expect(after.stripMinY > before.stripMinY)
-        let plan = PaneMotionPlan.build(from: before, to: after)
+        let plan = PaneMotionPlan.build(from: before, to: after, arrival: .grow)
         #expect(plan.kind == .split)
         for pane: PaneID in ["p-c0", "p-c1"] {
             let change = try #require(plan.panes[pane])
@@ -448,7 +448,7 @@ struct PaneMotionPlanTests {
     @Test func aSplitInAThirtyPaneStripListsOnlyItsColumn() {
         let (before, after) = Self.thirtyPaneSplit()
         let camera = PaneMotionPlan.Camera(stripOffset: 600)
-        let plan = PaneMotionPlan.build(from: before, camera: camera, to: after, camera: camera)
+        let plan = PaneMotionPlan.build(from: before, camera: camera, to: after, camera: camera, arrival: .grow)
         #expect(plan.kind == .split)
         #expect(Set(plan.panes.keys) == ["c4p0", "c4p1", "c4p2", "p-split"])
         #expect(plan.camera.isEmpty)

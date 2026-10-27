@@ -38,6 +38,8 @@ import Testing
                                 focusedPane: pane)
             model.splitSizingOverride = .even
             root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+            // This suite measures the split spring: the Debug choice `motion.split.arrival` = grow (a split fades in by default).
+            root.context.splitArrival = { .grow }
             root.context.reduceMotionOverride = false
             window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless],
                               backing: .buffered, defer: false)

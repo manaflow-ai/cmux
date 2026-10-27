@@ -47,6 +47,26 @@ struct SplitFadeMotionTests {
         }
     }
 
+    /// A content handoff (the added pane takes over what p1 showed): p1, which shows the new content, fades in at its
+    /// rest; nothing slides in from the screen edge.
+    @Test func aHandoffFadesTheGiverInAtItsRest() throws {
+        let before = Plan.splits(.leaf("p1")), after = Plan.splits(Plan.side(.leaf("p1"), .leaf("p2")))
+        let plan = PaneMotionPlan.build(from: before, to: after, handoff: "p1")
+        #expect(plan.fadesIn == ["p1"])
+        for (pane, change) in plan.panes {
+            #expect(change.from == change.to, "\(pane) springs from \(change.from) to \(change.to)")
+        }
+    }
+
+    /// A new docked column is a rare spatial change: it still grows in from its screen edge, and fades nothing.
+    @Test func aNewDockColumnStillGrowsFromItsEdge() throws {
+        let plan = PaneMotionPlan.build(from: Plan.geometry(DockArrivalRenderMotionTests.strip),
+                                        to: Plan.geometry(DockArrivalRenderMotionTests.docked))
+        #expect(plan.fadesIn.isEmpty, "the dock column fades: \(plan.fadesIn)")
+        let dock = try #require(plan.panes["chat"])
+        #expect(dock.from != dock.to, "the dock column does not grow in")
+    }
+
     // MARK: The window
 
     /// Cmd-D in a window: the key's turn lays every pane of the chain out at its rest (one layout pass), and no

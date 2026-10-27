@@ -73,6 +73,8 @@ struct ChatDockLinkSplitMotionTests {
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: ChatDockLinkSplitMotionTests.lone)],
                                 activeScreenID: "s", focusedPane: ChatDockLinkSplitMotionTests.anchor)
             root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+            // This suite measures the split spring: the Debug choice `motion.split.arrival` = grow (a split fades in by default).
+            root.context.splitArrival = { .grow }
             // Pins the pane springs on: the shared settings stay untouched.
             root.context.reduceMotionOverride = false
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],

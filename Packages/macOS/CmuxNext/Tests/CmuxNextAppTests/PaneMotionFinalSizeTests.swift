@@ -37,6 +37,8 @@ import Testing
         let provider = Panes()
         let model = LayoutModel(screens: PaneMotionBench.grid(2, 1), activeScreenID: "s", focusedPane: PaneID("p0-0"))
         let root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        // This suite measures the split spring: the Debug choice `motion.split.arrival` = grow (a split fades in by default).
+        root.context.splitArrival = { .grow }
         root.context.reduceMotionOverride = false
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1600, height: 1000), styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = root
@@ -66,6 +68,8 @@ import Testing
     @Test func reduceMotionTurnedOnMidSpringLandsInTheNextFrame() throws {
         let model = LayoutModel(screens: PaneMotionBench.grid(2, 1), activeScreenID: "s", focusedPane: PaneID("p0-0"))
         let root = LayoutRootView(model: model, contentProvider: Panes(), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        // This suite measures the split spring: the Debug choice `motion.split.arrival` = grow (a split fades in by default).
+        root.context.splitArrival = { .grow }
         root.context.reduceMotionOverride = false
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1600, height: 1000), styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = root

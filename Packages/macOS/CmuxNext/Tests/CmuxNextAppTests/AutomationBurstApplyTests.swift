@@ -68,6 +68,8 @@ import Testing
             window.orderFrontRegardless()
             content.contentView.layoutSubtreeIfNeeded()
             content.layoutView.context.reduceMotionOverride = false
+            // This suite measures the split spring: the Debug choice `motion.split.arrival` = grow (a split fades in by default).
+            content.layoutView.context.splitArrival = { .grow }
             content.layoutView.driver.isManual = true
             content.layoutView.burstClock = { [clock] in clock.now }
         }
