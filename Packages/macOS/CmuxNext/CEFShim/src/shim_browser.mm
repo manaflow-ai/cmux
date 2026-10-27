@@ -221,8 +221,12 @@ int cmux_shim_renderer_frames(int* browser_ids, int* client_ids, int* frame_coun
   if (!browser_ids || !client_ids || !frame_counts || capacity < 0) {
     return 0;
   }
+  // Every browser the shim holds: the clients' (tabs, popups, spares) and the DevTools front ends,
+  // which are not in browsers() but run in renderers of their own.
+  std::vector<std::pair<int, CefRefPtr<CefBrowser>>> all(browsers().begin(), browsers().end());
+  for (const CefRefPtr<CefBrowser>& devtools : DevToolsBrowsers()) all.emplace_back(devtools->GetIdentifier(), devtools);
   int count = 0;
-  for (const auto& [browser_id, browser] : browsers()) {
+  for (const auto& [browser_id, browser] : all) {
     std::vector<std::pair<int, int>> renderers;  // client id, frames
     for (const int id : FrameRendererClientIDs(browser)) {
       size_t at = 0;

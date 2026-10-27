@@ -42,9 +42,6 @@ protocol MemorySnapshotModel {
     /// The terminal cache's counts.
     var memoryTerminal: MemoryDiagnosticsSnapshot.Terminal { get }
     var memorySpares: [MemoryDiagnosticsSnapshot.Spare] { get }
-    /// The renderer client ids of every Chromium page the app holds; nil without Chromium
-    /// (``MemoryDiagnosticsSnapshot/rendererClientsInUse``).
-    var memoryRendererClientsInUse: Set<Int32>? { get }
 }
 
 extension MemorySnapshotModel {
@@ -76,7 +73,7 @@ extension MemorySnapshotModel {
         }
         return MemoryDiagnosticsSnapshot(
             report: memoryReport, kernelLevel: kernelPressure, override: pressureOverride, history: history, tabs: tabs,
-            workspaces: workspaces, terminal: memoryTerminal, spares: memorySpares, rendererClientsInUse: memoryRendererClientsInUse)
+            workspaces: workspaces, terminal: memoryTerminal, spares: memorySpares)
     }
 
     private func memoryTab(_ tab: TabModel, surface: MemoryTerminalSurface?) -> MemoryDiagnosticsSnapshot.Tab {

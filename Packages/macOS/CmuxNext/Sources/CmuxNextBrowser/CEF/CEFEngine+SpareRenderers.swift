@@ -17,15 +17,13 @@ extension CEFEngine {
         }
     }
 
-    /// The renderer client ids of every Chromium page the runtime holds (browser tabs, cmux pages, popups
-    /// and the spare windows' placeholders). A renderer helper outside this set runs no page the runtime
-    /// holds: at Home that is Chromium's own spare renderer (`debug.memory`); a DevTools front end or a
-    /// worker-only renderer would be outside it too. One shim read per page.
-    public var rendererClientsInUse: Set<Int32> {
-        var clients = Set<Int32>()
-        for tab in CEFRuntime.shared.tabsByBrowser.values {
-            if case .chromiumRendererClients(let ids) = tab.contentProcesses { clients.formUnion(ids) }
-        }
-        return clients
+    /// The renderer client ids that host a frame of any browser Chromium holds: tabs, cmux pages, popups,
+    /// the spare windows' placeholders and DevTools front ends (``rendererFrames``, one shim call). A
+    /// renderer helper outside it hosts no frame: Chromium's own spare, or a renderer whose navigation has
+    /// not committed or that holds only workers or back/forward-cached pages. Nil until Chromium is ready
+    /// and in host mode, where the renderers are not this process's helpers.
+    public var rendererClientsWithFrames: Set<Int32>? {
+        guard isRunning, let frames = rendererFrames else { return nil }
+        return Set(frames.entries.map(\.clientID))
     }
 }

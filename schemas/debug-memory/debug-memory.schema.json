@@ -190,14 +190,14 @@
       }
     },
     "spares": {
-      "description": "Prewarmed pages and processes that wait for a tab, by pool: new_tab and page_host (the app's page spares), chromium_window and chromium_pages_window (spare Chromium windows of the default and the cmux pages profile; pid is their placeholder's renderer, null when it has none) and chromium_spare_renderer (a Chromium renderer that runs no page the app holds: Chromium's own spare renderer, one row per such helper). Each row with a pid is one spare process.",
+      "description": "Prewarmed pages and processes that wait for a tab, by pool: new_tab and page_host (the app's page spares), chromium_window and chromium_pages_window (spare Chromium windows of the default and the cmux pages profile; pid is their placeholder's renderer, null when it has none) and chromium_unattributed_renderer (one row per Chromium renderer helper that hosts no frame of any browser, DevTools included: Chromium's own spare renderer, but also a renderer whose first page has not committed or that holds only workers or back/forward-cached pages; the rows do not say which one is the spare, so their count is an upper bound on Chromium's spares). Each row with a pid is one process.",
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
         "required": ["pool", "process_kind", "pid", "bytes"],
         "properties": {
-          "pool": { "enum": ["new_tab", "page_host", "chromium_window", "chromium_pages_window", "chromium_spare_renderer"] },
+          "pool": { "enum": ["new_tab", "page_host", "chromium_window", "chromium_pages_window", "chromium_unattributed_renderer"] },
           "process_kind": { "$ref": "#/$defs/processKind" },
           "pid": { "$ref": "#/$defs/countOrNull" },
           "bytes": { "$ref": "#/$defs/countOrNull" }

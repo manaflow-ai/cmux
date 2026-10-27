@@ -10,9 +10,11 @@ import CmuxNextSettings
 /// (`chrome/browser/ui/webui/memory_internals/memory_internals_ui.cc`).
 ///
 /// `spares` lists every spare by pool, each with its process and bytes: the page spares, Chromium's spare
-/// windows (their placeholder's renderer) and Chromium's own spare renderer, a sampled renderer helper that
-/// runs no page the app holds (``MemoryDiagnosticsSnapshot/rendererClientsInUse``), as Chrome's Task Manager
-/// shows its "Spare Renderer" row. With `chromiumOneSpareRenderer`, Home keeps at most one (p07-memory-113).
+/// windows (their placeholder's renderer) and, as `chromium_unattributed_renderer`, each sampled renderer
+/// helper that hosts no frame of any browser (``MemoryDiagnosticsProcesses/rendererClientsWithFrames``).
+/// Chromium's own spare is one of those, but so is a renderer whose page has not committed yet: the fork
+/// has no read of the spare's id, which Chrome's Task Manager matches its "Spare Renderer" row on, so the
+/// row does not claim to be the spare. With `chromiumOneSpareRenderer`, Home keeps at most one (p07-memory-113).
 ///
 /// It owns the pressure history, so `debug.hibernation.pressure` records its overrides in the same one.
 /// A read records nothing: the histograms' footprints come from ``MemoryFootprintEmitter``, as a
@@ -34,12 +36,13 @@ final class DebugMemoryControl {
     /// - Parameters:
     ///   - services: The app's services, held weakly.
     ///   - budget: The budgets the report shows: the app passes this Mac's, sized for the terminal GPU release when it has one.
-    ///   - sample: Reads the footprints; the app's processes by default.
-    init(services: AppServices, budget: SubsystemBudget = .forThisMac(gpuResidentAvailable: false),
-         sample: @escaping Sampler = { await AppMemoryModel.processes($0) }) {
+    ///   - sample: Reads the footprints; the app's processes by default, with the renderers that host a frame.
+    init(services: AppServices, budget: SubsystemBudget = .forThisMac(gpuResidentAvailable: false), sample: Sampler? = nil) {
         self.services = services
         self.budget = budget
-        self.sample = sample
+        let framed: @MainActor @Sendable () -> Set<Int32>? = { [weak services] in AppMemoryModel.rendererClientsWithFrames(services) }
+        let appSample: Sampler = { await AppMemoryModel.processes($0, rendererClientsWithFrames: framed) }
+        self.sample = sample ?? appSample
         history = MemoryPressureHistory(pressure: services.memoryPressure)
         histograms = services.memoryHistograms
     }

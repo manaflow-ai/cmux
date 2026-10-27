@@ -152,6 +152,13 @@ std::vector<int> DevToolsBrowserIds() {
   return ids;
 }
 
+std::vector<CefRefPtr<CefBrowser>> DevToolsBrowsers() {
+  std::vector<CefRefPtr<CefBrowser>> list;
+  list.reserve(devtools_browsers().size());
+  for (const auto& [inspected, devtools] : devtools_browsers()) list.push_back(devtools);
+  return list;
+}
+
 void PrepareDevToolsPopup(int inspected, CefWindowInfo& window_info, CefRefPtr<CefClient>& client,
                           bool* use_default_window) {
   // The host decides now (synchronously, from this event) and calls

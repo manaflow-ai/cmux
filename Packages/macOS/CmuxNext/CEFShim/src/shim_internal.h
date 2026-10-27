@@ -230,6 +230,8 @@ void ApplyPopupMenus(int browser_id);
 // The live DevTools browsers' identifiers (shim_devtools.mm, UI thread): they
 // are not in browsers(), and their <select> popups go to the host too.
 std::vector<int> DevToolsBrowserIds();
+// The live DevTools browsers themselves (same thread and set).
+std::vector<CefRefPtr<CefBrowser>> DevToolsBrowsers();
 
 // The file chooser handler (shim_file_dialog.mm); CancelFileDialogs cancels
 // the pending choosers of a browser that closed or crashed (UI thread).

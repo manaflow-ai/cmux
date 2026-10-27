@@ -91,8 +91,9 @@ public nonisolated struct MemoryDiagnosticsSnapshot: Sendable {
 
     public nonisolated struct Spare: Sendable {
         /// The pool: `new_tab`, `page_host`, or a Chromium spare window, `chromium_window` (the default
-        /// profile's) or `chromium_pages_window` (the cmux pages profile's). Chromium's own spare renderer
-        /// is no snapshot row: the report finds it among the sampled helpers (``rendererClientsInUse``).
+        /// profile's) or `chromium_pages_window` (the cmux pages profile's). A renderer that hosts no frame
+        /// is no snapshot row: the report finds it among the sampled helpers
+        /// (``MemoryDiagnosticsProcesses/rendererClientsWithFrames``).
         public var pool: String
         public var processKind: MemoryDiagnosticsProcesses.Kind
         /// The spare's process; nil while it has none or the pool cannot tell.
@@ -121,18 +122,12 @@ public nonisolated struct MemoryDiagnosticsSnapshot: Sendable {
     public var workspaces: [Workspace]
     public var terminal: Terminal
     public var spares: [Spare]
-    /// The renderer client ids of every Chromium page the app holds (tabs, cmux pages, the spare windows'
-    /// placeholders); nil when it was not read. A sampled renderer helper outside it runs no page: the
-    /// report lists it as Chromium's own spare renderer (`chromium_spare_renderer`,
-    /// `SpareRenderProcessHostManager`, which Chrome's Task Manager shows as its "Spare Renderer" row,
-    /// chrome/browser/task_manager/providers/spare_render_process_host_task_provider.cc).
-    public var rendererClientsInUse: Set<Int32>?
     /// The local memory histograms (``MemoryHistograms``).
     public var histograms: MemoryHistograms.Snapshot
 
     public init(report: MemoryReport, kernelLevel: MemoryPressureLevel, override: MemoryPressureLevel?,
                 history: MemoryPressureHistory.Snapshot, tabs: [Tab], workspaces: [Workspace], terminal: Terminal,
-                spares: [Spare], rendererClientsInUse: Set<Int32>? = nil, histograms: MemoryHistograms.Snapshot = .empty) {
+                spares: [Spare], histograms: MemoryHistograms.Snapshot = .empty) {
         self.report = report
         self.kernelLevel = kernelLevel
         self.override = override
@@ -141,7 +136,6 @@ public nonisolated struct MemoryDiagnosticsSnapshot: Sendable {
         self.workspaces = workspaces
         self.terminal = terminal
         self.spares = spares
-        self.rendererClientsInUse = rendererClientsInUse
         self.histograms = histograms
     }
 
@@ -184,9 +178,15 @@ public nonisolated struct MemoryDiagnosticsProcesses: Sendable {
     public var rows: [Row]
     /// Chromium renderer client id to its helper's pid.
     public var rendererPIDs: [Int32: Int32]
+    /// The renderer client ids that host a frame of any browser Chromium holds (tabs, popups, the spare
+    /// windows' placeholders, DevTools), read after the helpers were listed: a listed renderer's frame
+    /// that committed before the read is in it; nil when not read (no Chromium in this process). A listed
+    /// renderer outside it is a `chromium_unattributed_renderer` row in `spares`.
+    public var rendererClientsWithFrames: Set<Int32>?
 
-    public init(rows: [Row], rendererPIDs: [Int32: Int32] = [:]) {
+    public init(rows: [Row], rendererPIDs: [Int32: Int32] = [:], rendererClientsWithFrames: Set<Int32>? = nil) {
         self.rows = rows
         self.rendererPIDs = rendererPIDs
+        self.rendererClientsWithFrames = rendererClientsWithFrames
     }
 }
