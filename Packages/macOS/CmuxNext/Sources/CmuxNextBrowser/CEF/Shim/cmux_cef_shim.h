@@ -248,6 +248,16 @@ typedef enum {
   CMUX_SHIM_COLOR_CHOOSER = 61,
   CMUX_SHIM_DEVICE_CHOOSER = 62,
   CMUX_SHIM_DESKTOP_MEDIA = 63,
+  // A frame other than a browser's main frame gained or lost its renderer
+  // (CefFrameHandler::OnFrameAttached and OnFrameDetached): browser_id;
+  // request = the frame's renderer client id (its render process host id, the
+  // renderer's --renderer-client-id); a = 1 attached, 0 detached; s1 = the
+  // frame's identifier (CefFrame::GetIdentifier). A renderer's
+  // death detaches its frames too (WebContentsObserver::RenderFrameDeleted),
+  // before or after the app sees the process end. The app names the pages a
+  // renderer's crash leaves a sad frame in from it (Chrome's
+  // DiscardPageWithCrashedSubframePolicy reads the dead process's frame nodes).
+  CMUX_SHIM_SUBFRAME_RENDERER = 64,
   // A window request the shim decided with the policy cmux pushed
   // (cmux_shim_set_window_request_policy), while no window_request_fn is
   // installed: the Chromium Host decides inside Chromium's navigation and
@@ -261,7 +271,7 @@ typedef enum {
   // s2 = "x,y,width,height" (or nothing), ";", the request's store (the
   // source pane's, else the normalized profile directory). An INSERT's tab
   // comes in its own AFTER_CREATED, which names it by that minted id.
-  CMUX_SHIM_WINDOW_REQUEST_RESULT = 64,
+  CMUX_SHIM_WINDOW_REQUEST_RESULT = 65,
 } cmux_shim_event_kind_t;
 
 typedef enum {

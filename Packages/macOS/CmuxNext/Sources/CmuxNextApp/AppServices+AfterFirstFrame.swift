@@ -28,20 +28,13 @@ extension AppServices {
                                          browserHost: { [weak self] in self?.startBrowserHost() })
     }
 
-    /// Warm-ups for later tabs (WebKit for agent pages, Chromium, the New Tab spare, page hosts), the agent tab
+    /// Warm-ups for later tabs (WebKit for agent pages, Chromium, the New Tab spare, page preloads), the agent tab
     /// import and the right sidebar's icons (on the cpu lane; a panel built first posted them already), through
     /// ``LaterTabWarmups`` on this app (`AppServices+LaterTabWarmupHost`). No WebKit view is made by these before
     /// startup completes (p08-startup-042). The warm-up makes no WebKit page when a shown agent tab made its view
     /// or agent pages open in Chromium (`AgentPageWarmup.start(webUI:)` decides when it runs).
     func postLaterTabWarmups(on startup: StartupScheduler) {
         LaterTabWarmups(host: self).posts().post(on: startup)
-    }
-
-    /// The page host pool follows the main windows (``LaterTabWarmupHost``); it makes no host until a page is likely.
-    func followWindowsForPageHosts() {
-        pageHostPool.start(isMainWindow: { [weak self] window in self?.windows.controllers.contains { $0.window === window } == true },
-                           fallback: { [weak self] window in self?.windows.controllers.compactMap(\.window).first { $0 !== window && $0.isVisible } },
-                           mainWork: mainWork)
     }
 
     /// The platform services (p08-startup-029). Now, before the windows build and the restore mounts a page:
