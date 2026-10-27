@@ -26,6 +26,15 @@ import Darwin
 /// Subscribers are told only when ``effective`` flips, after the whole subtree has its new state,
 /// parents before children. Hold the ``VisibilitySubscription``: releasing it ends the
 /// subscription and releases its closure.
+///
+/// A capture of something nobody sees (an agent's screenshot or screencast of a hidden tab, a
+/// shared screen) takes a vote with ``captureVote(reason:stayHidden:)``, as Chromium's
+/// `WebContents::IncrementCapturerCount(size, stay_hidden, stay_awake)`
+/// (content/public/browser/web_contents.h) keeps a hidden page rendering. While a vote holds a node,
+/// the node and its own-shown subtree render (``wantsFrames``): frame clients tick, view
+/// observations apply and the node's task queues run. A `stayHidden` vote leaves ``effective``,
+/// page visibility and the hidden timer alignment as they are; any other vote makes the node
+/// ``Visibility/visible``.
 @MainActor public final class VisibilityNode {
     /// Monotonic time since an arbitrary origin (`CLOCK_UPTIME_RAW` in the app, as Chromium's
     /// `base::TimeTicks` on the Mac). Tests inject a fake.
@@ -48,15 +57,24 @@ import Darwin
     public private(set) var hiddenSince: Duration?
     /// When ``effective`` last became ``Visibility/hidden``; `nil` while visible or occluded (Chrome `WasHidden`).
     public private(set) var hiddenStateSince: Duration?
+    /// Whether a capture vote holds this node, or holds an ancestor and every node between them and
+    /// this one is not own-hidden (an unselected tab of a captured pane is not in the picture).
+    /// Chromium's `WebContentsImpl::IsBeingCaptured()`.
+    public private(set) var isCaptured = false
 
     /// Whether ``effective`` is ``Visibility/visible``. O(1): the state is kept, never walked.
     public var isVisible: Bool { effective == .visible }
+
+    /// Whether this node renders: it is ``Visibility/visible``, or a capture vote holds it
+    /// (``isCaptured``: a screenshot, a screencast or screen share sees it while it is hidden).
+    /// Frame clients, view observations and the node's task queues follow it.
+    public var wantsFrames: Bool { isVisible || isCaptured }
 
     /// How many times a propagation recomputed this node (tests prove a flip visits only what can change).
     package private(set) var visits = 0
 
     private let isRoot: Bool
-    private let uptime: Uptime
+    let uptime: Uptime
     /// Children whose own state is visible or occluded: the ones a parent flip can change.
     private var shownChildren: [ObjectIdentifier: WeakNode] = [:]
     /// Children whose own state is hidden: always hidden, never visited by a parent flip.
@@ -65,24 +83,30 @@ import Darwin
     /// after each pass, so dropping costs O(1) amortized per insert.
     private var compactAt = 16
     private var subscriptions: [WeakSubscription] = []
-    /// Told when media starts or stops, or a capture vote begins or ends (``subscribeExemption(owner:_:)``).
-    private var exemptionSubscriptions: [WeakSubscription] = []
+    /// Told when media starts or stops, or ``isCaptured`` changes (``subscribeExemption(owner:_:)``).
+    var exemptionSubscriptions: [WeakSubscription] = []
+    /// Told when ``wantsFrames`` changes (``subscribeRendering(owner:_:)``).
+    var renderingSubscriptions: [WeakSubscription] = []
     /// The value subscribers were last told, so a flip and its undo inside one pass tell nobody.
     private var notified: Visibility
+    /// ``isCaptured`` and ``wantsFrames`` as their subscribers were last told.
+    private var notifiedCaptured = false
+    private var notifiedRendering: Bool
+    /// Counts changes of ``notifiedRendering``, as ``notifyGeneration`` does for flips.
+    private var renderingGeneration = 0
+    /// The capture votes on this node, in the order they were taken.
+    var votes: [CaptureRecord] = []
+    var nextVoteID: UInt64 = 0
     /// Counts changes of ``notified``: a delivery stops when a subscriber's change started a newer one.
     private var notifyGeneration = 0
     private var deferred: [(key: AnyHashable, work: @MainActor () -> Void)] = []
-    private var mediaPlaying = false
-    private var mediaStoppedAt: Duration?
+    var mediaPlaying = false
+    var mediaStoppedAt: Duration?
     /// The task queues made on this node (``queue(_:owner:on:)``), told of every flip and freeze.
     private var queues: [WeakQueue] = []
 
     /// Whether ``freeze()`` stopped this node's task queues.
     public private(set) var isFrozen = false
-
-    /// Whether a capture vote that does not stay hidden holds this node: its hidden work runs as if it were
-    /// seen (a screenshot, a screencast, screen share). Task 211's `captureVote(reason:stayHidden:)` drives it.
-    public private(set) var isCaptured = false
 
     /// Makes a root node (the app, or a window when the app has no node yet).
     ///
@@ -95,6 +119,7 @@ import Darwin
         self.own = own
         self.effective = own
         self.notified = own
+        self.notifiedRendering = own == .visible
         self.isRoot = true
         self.uptime = uptime
         self.hiddenSince = own == .visible ? nil : uptime()
@@ -113,6 +138,10 @@ import Darwin
         self.own = own
         self.effective = effective
         self.notified = effective
+        let captured = own != .hidden && parent.isCaptured
+        self.isCaptured = captured
+        self.notifiedCaptured = captured
+        self.notifiedRendering = effective == .visible || captured
         self.isRoot = false
         self.uptime = parent.uptime
         self.hiddenSince = effective == .visible ? nil : parent.uptime()
@@ -130,9 +159,7 @@ import Darwin
         let wasHidden = own == .hidden
         own = visibility
         if let parent, wasHidden != (visibility == .hidden) { parent.insert(self) }
-        var flipped: [VisibilityNode] = []
-        recompute(into: &flipped)
-        Self.deliver(flipped)
+        repropagate()
     }
 
     /// Why ``attach(to:)`` refused a move; the tree is unchanged.
@@ -153,9 +180,7 @@ import Darwin
         parent?.remove(child: ObjectIdentifier(self))
         parent = newParent
         newParent.insert(self)
-        var flipped: [VisibilityNode] = []
-        recompute(into: &flipped)
-        Self.deliver(flipped)
+        repropagate()
     }
 
     /// Takes this child out of the tree: it and its subtree become hidden.
@@ -163,54 +188,15 @@ import Darwin
         guard let parent else { return }
         parent.remove(child: ObjectIdentifier(self))
         self.parent = nil
-        var flipped: [VisibilityNode] = []
-        recompute(into: &flipped)
-        Self.deliver(flipped)
+        repropagate()
     }
 
-    // MARK: Media
-
-    /// Records that this node starts or stops playing audio or video.
-    public func setMediaActive(_ active: Bool) {
-        guard active != mediaPlaying else { return }
-        mediaPlaying = active
-        if !active { mediaStoppedAt = uptime() }
-        notifyExemption()
-    }
-
-    /// Records that a capture vote that does not stay hidden starts or stops holding this node (``isCaptured``).
-    public func setCaptured(_ captured: Bool) {
-        guard captured != isCaptured else { return }
-        isCaptured = captured
-        notifyExemption()
-    }
-
-    /// Calls `onChange` each time media starts or stops on this node or ``isCaptured`` changes: the inputs of
-    /// the hidden-work exemptions, so a pending throttled deadline is placed again at once (Blink's
-    /// `PageSchedulerImpl::AudioStateChanged` updates the policy of its throttled queues the same way). Hold the
-    /// returned token as a ``subscribe(owner:_:)`` one.
-    public func subscribeExemption(owner: String, _ onChange: @escaping @MainActor () -> Void) -> VisibilitySubscription {
-        let subscription = VisibilitySubscription(owner: owner, node: self) { _ in onChange() }
-        exemptionSubscriptions.removeAll { $0.subscription == nil }
-        exemptionSubscriptions.append(WeakSubscription(subscription: subscription))
-        return subscription
-    }
-
-    private func notifyExemption() {
-        exemptionSubscriptions.removeAll { $0.subscription == nil }
-        let value = effective
-        for subscription in exemptionSubscriptions.compactMap(\.subscription) where subscription.isActive {
-            subscription.onFlip(value)
-        }
-    }
-
-    /// Whether this node plays media now or stopped less than `window` ago. Hidden-work rules exempt
-    /// such a node, as Blink's `kRecentAudioDelay` (30 s) keeps a page that played audio from
-    /// being throttled or frozen.
-    public func mediaActiveWithin(_ window: Duration) -> Bool {
-        if mediaPlaying { return true }
-        guard let mediaStoppedAt else { return false }
-        return uptime() - mediaStoppedAt < window
+    /// Recomputes this node and the subtree a change can reach, then notifies what changed
+    /// (``set(_:)``, a move, a capture vote).
+    func repropagate() {
+        var changed: [VisibilityNode] = []
+        recompute(into: &changed)
+        Self.deliver(changed)
     }
 
     // MARK: Task queues
@@ -288,15 +274,17 @@ import Darwin
     /// The number of keys waiting for this node to become visible.
     public var deferredCount: Int { deferred.count }
 
-    /// The live subscriptions to this node's flips and to its exemption changes (tests).
-    package var subscriberCounts: (flips: Int, exemptions: Int) {
+    /// The live subscriptions to this node's flips, exemption changes and rendering changes (tests).
+    package var subscriberCounts: (flips: Int, exemptions: Int, rendering: Int) {
         (subscriptions.count(where: { $0.subscription?.isActive == true }),
-         exemptionSubscriptions.count(where: { $0.subscription?.isActive == true }))
+         exemptionSubscriptions.count(where: { $0.subscription?.isActive == true }),
+         renderingSubscriptions.count(where: { $0.subscription?.isActive == true }))
     }
 
     func remove(_ subscription: VisibilitySubscription) {
         subscriptions.removeAll { $0.subscription == nil || $0.subscription === subscription }
         exemptionSubscriptions.removeAll { $0.subscription == nil || $0.subscription === subscription }
+        renderingSubscriptions.removeAll { $0.subscription == nil || $0.subscription === subscription }
     }
 
     // MARK: Propagation
@@ -306,10 +294,17 @@ import Darwin
         return parent?.effective ?? .hidden
     }
 
-    private func recompute(into flipped: inout [VisibilityNode]) {
+    /// A parent's capture reaches only a child that is not own-hidden, so the own-hidden children a
+    /// parent's change never visits are captured by their own votes alone.
+    private var parentCaptured: Bool {
+        !isRoot && own != .hidden && parent?.isCaptured == true
+    }
+
+    private func recompute(into changed: inout [VisibilityNode]) {
         visits += 1
-        let next = min(own, parentCap)
-        guard next != effective else { return }
+        let next = votes.contains(where: { !$0.stayHidden }) ? Visibility.visible : min(own, parentCap)
+        let captured = !votes.isEmpty || parentCaptured
+        guard next != effective || captured != isCaptured else { return }
         if next == .visible {
             hiddenSince = nil
         } else if effective == .visible {
@@ -317,15 +312,39 @@ import Darwin
         }
         if next != .hidden { hiddenStateSince = nil } else if effective != .hidden { hiddenStateSince = uptime() }
         effective = next
-        flipped.append(self)
-        for child in liveShownChildren() { child.recompute(into: &flipped) }
+        isCaptured = captured
+        changed.append(self)
+        for child in liveShownChildren() { child.recompute(into: &changed) }
     }
 
-    /// Notifies each flipped node in propagation order (parents first). A subscriber may change
+    /// Notifies each changed node in propagation order (parents first). A subscriber may change
     /// visibility again; then the nested pass tells everyone the newer state and this pass stops
     /// telling the older one.
-    private static func deliver(_ flipped: [VisibilityNode]) {
-        for node in flipped { node.deliverFlip() }
+    private static func deliver(_ changed: [VisibilityNode]) {
+        for node in changed {
+            node.deliverFlip()
+            node.deliverRendering()
+        }
+    }
+
+    /// Tells the rendering subscribers that ``wantsFrames`` changed, then the exemption subscribers
+    /// that ``isCaptured`` did, once per change however many votes come and go.
+    private func deliverRendering() {
+        let rendering = wantsFrames
+        if rendering != notifiedRendering {
+            notifiedRendering = rendering
+            renderingGeneration += 1
+            let generation = renderingGeneration
+            notifyQueues()
+            renderingSubscriptions.removeAll { $0.subscription == nil }
+            for subscription in renderingSubscriptions.compactMap(\.subscription) where subscription.isActive {
+                guard renderingGeneration == generation else { return }
+                subscription.onFlip(effective)
+            }
+        }
+        guard isCaptured != notifiedCaptured else { return }
+        notifiedCaptured = isCaptured
+        notifyExemption()
     }
 
     private func deliverFlip() {
@@ -406,35 +425,11 @@ import Darwin
         weak var node: VisibilityNode?
     }
 
-    private struct WeakSubscription {
+    struct WeakSubscription {
         weak var subscription: VisibilitySubscription?
     }
 
     private struct WeakQueue {
         weak var queue: MainTaskQueue?
-    }
-}
-
-/// A subscription to a ``VisibilityNode``'s flips. The node holds it weakly: releasing the token
-/// ends the subscription and releases its closure. ``cancel()`` ends it early.
-@MainActor public final class VisibilitySubscription {
-    /// The subscriber's name for diagnostics.
-    public let owner: String
-    let onFlip: @MainActor (Visibility) -> Void
-    private weak var node: VisibilityNode?
-
-    init(owner: String, node: VisibilityNode, onFlip: @escaping @MainActor (Visibility) -> Void) {
-        self.owner = owner
-        self.node = node
-        self.onFlip = onFlip
-    }
-
-    /// Whether the subscription has not been cancelled.
-    var isActive: Bool { node != nil }
-
-    /// Ends the subscription now.
-    public func cancel() {
-        node?.remove(self)
-        node = nil
     }
 }

@@ -1,0 +1,94 @@
+// Copyright 2024 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+module remote_cocoa.mojom;
+
+import "components/remote_cocoa/common/font.mojom";
+import "mojo/public/mojom/base/string16.mojom";
+import "mojo/public/mojom/base/unguessable_token.mojom";
+import "skia/public/mojom/skcolor.mojom";
+import "ui/gfx/geometry/mojom/geometry.mojom";
+import "ui/gfx/image/mojom/image.mojom";
+
+// Struct containing all the fields that are shared between the various types of
+// menu items.
+struct MenuItemCommonFields {
+  int32 command_id;
+  mojo_base.mojom.String16 label;
+  bool may_have_mnemonics = false;
+  bool is_checked = false;
+  gfx.mojom.ImageSkia? icon;
+  bool is_enabled = false;
+  bool is_visible = false;
+  bool is_alerted = false;
+  bool is_new_feature = false;
+};
+
+// A submenu consists of the common fields plus a list of items in the submenu.
+struct SubmenuMenuItem {
+  MenuItemCommonFields common;
+  array<MenuItem> children;
+};
+
+union MenuItem {
+  MenuItemCommonFields separator;
+  MenuItemCommonFields regular;
+  SubmenuMenuItem submenu;
+};
+
+// This interface lets the remote_cocoa code signal back to the browser process
+// when a menu is interacted with.
+interface MenuHost {
+  // Called when the menu item with chrome command id equal to `command_id` is
+  // activated. If there are no menu items with the given `command_id` in the
+  // menu, this method does nothing.
+  CommandActivated(int32 command_id, int32 event_flags);
+
+  // Called when the top-level menu is closed.
+  MenuClosed();
+};
+
+// Interface through which the browser process can communicate with the menu in
+// the remote_cocoa process.
+interface Menu {
+  // Closes the currently displayed menu.
+  Cancel();
+
+  // Updates the label and state of a menu item.
+  UpdateMenuItem(int32 command_id,
+                 bool enabled,
+                 bool visible,
+                 mojo_base.mojom.String16 label);
+};
+
+// Parameters that are used to determine how to render certain aspects of items
+// in a menu.
+struct MenuControllerParams {
+  // Menu items with `is_new_feature` set should include a "new" badge. This
+  // is rendered with the following font, color and sizing.
+  Font badge_font;
+  skia.mojom.SkColor badge_color;
+  skia.mojom.SkColor badge_text_color;
+  uint32 badge_horizontal_margin;
+  uint32 badge_internal_padding;
+  uint32 badge_min_height;
+  uint32 badge_radius;
+
+  // Menu items with `is_alerted` set will include a dot with the given color.
+  skia.mojom.SkColor iph_dot_color;
+};
+
+// All the data needed to describe a context menu.
+struct ContextMenu {
+  array<MenuItem> items;
+
+  // Anchor point for the menu, in screen coordinates.
+  gfx.mojom.Point anchor;
+
+  // Id of the NSView passed to NSMenu, used for example by AppKit to populate
+  // the "Services" submenu.
+  uint64 target_view_id;
+
+  MenuControllerParams params;
+};

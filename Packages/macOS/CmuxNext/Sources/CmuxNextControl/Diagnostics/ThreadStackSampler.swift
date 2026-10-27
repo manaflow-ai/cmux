@@ -21,11 +21,14 @@ final class ThreadStackSampler: @unchecked Sendable {
     init(thread: thread_act_t, maxFrames: Int = 64) {
         self.thread = thread
         self.maxFrames = maxFrames
-        buffer = .allocate(capacity: maxFrames)
+        // SAFETY: a fresh allocation of maxFrames words, freed once in deinit; store writes only indices under
+        // maxFrames and copy reads only the first min(count, maxFrames) of them.
+        buffer = unsafe UnsafeMutablePointer<UInt>.allocate(capacity: maxFrames)
     }
 
     deinit {
-        buffer.deallocate()
+        // SAFETY: the allocation of init; nothing else holds `self` any more.
+        unsafe buffer.deallocate()
     }
 
     /// Return addresses, innermost first. Empty when the thread could not be
@@ -50,12 +53,16 @@ final class ThreadStackSampler: @unchecked Sendable {
     /// call and no allocation (a generic accessor could, at -Onone).
     private func store(_ address: UInt, at index: Int) {
         guard index >= 0, index < maxFrames else { return }
-        (buffer + index).pointee = address
+        // SAFETY: 0 <= index < maxFrames (checked above), the buffer's capacity; UInt needs no initialization.
+        let slot = unsafe buffer + index
+        unsafe slot.pointee = address
     }
 
     /// The first `count` addresses of the last sample.
     func copy(count: Int) -> [UInt] {
-        Array(UnsafeBufferPointer(start: buffer, count: min(max(count, 0), maxFrames)))
+        // SAFETY: at most maxFrames words, the buffer's capacity, which walk() wrote for this sample (`count` is the
+        // frame count it returned); no sample writes meanwhile (the type's note).
+        unsafe Array(UnsafeBufferPointer(start: buffer, count: min(max(count, 0), maxFrames)))
     }
 
     /// Caller has suspended the thread. No allocation in here.
@@ -66,9 +73,11 @@ final class ThreadStackSampler: @unchecked Sendable {
         #if arch(arm64)
         var state = arm_thread_state64_t()
         var count = mach_msg_type_number_t(MemoryLayout<arm_thread_state64_t>.size / MemoryLayout<natural_t>.size)
-        let result = withUnsafeMutablePointer(to: &state) {
-            $0.withMemoryRebound(to: natural_t.self, capacity: Int(clamping: count)) {
-                thread_get_state(thread, ARM_THREAD_STATE64, $0, &count)
+        // SAFETY: thread_get_state writes at most `count` natural_t words, the size of `state` (a local live for the
+        // call), and the count it wrote into `count`; the words are the thread state's own layout.
+        let result = unsafe withUnsafeMutablePointer(to: &state) {
+            unsafe $0.withMemoryRebound(to: natural_t.self, capacity: Int(clamping: count)) {
+                unsafe thread_get_state(thread, ARM_THREAD_STATE64, $0, &count)
             }
         }
         guard result == KERN_SUCCESS else { return 0 }
@@ -78,9 +87,10 @@ final class ThreadStackSampler: @unchecked Sendable {
         #elseif arch(x86_64)
         var state = x86_thread_state64_t()
         var count = mach_msg_type_number_t(MemoryLayout<x86_thread_state64_t>.size / MemoryLayout<natural_t>.size)
-        let result = withUnsafeMutablePointer(to: &state) {
-            $0.withMemoryRebound(to: natural_t.self, capacity: Int(clamping: count)) {
-                thread_get_state(thread, x86_THREAD_STATE64, $0, &count)
+        // SAFETY: as for arm64 above.
+        let result = unsafe withUnsafeMutablePointer(to: &state) {
+            unsafe $0.withMemoryRebound(to: natural_t.self, capacity: Int(clamping: count)) {
+                unsafe thread_get_state(thread, x86_THREAD_STATE64, $0, &count)
             }
         }
         guard result == KERN_SUCCESS else { return 0 }
@@ -97,9 +107,11 @@ final class ThreadStackSampler: @unchecked Sendable {
         var pair: (UInt, UInt) = (0, 0)
         while fp != 0, fp & 0x7 == 0, frames < maxFrames {
             var size: vm_size_t = 0
-            let read = withUnsafeMutablePointer(to: &pair) { pointer in
-                vm_read_overwrite(mach_task_self_, vm_address_t(fp), vm_size_t(MemoryLayout<(UInt, UInt)>.size),
-                                  vm_address_t(UInt(bitPattern: pointer)), &size)
+            // SAFETY: vm_read_overwrite copies exactly the size of `pair` (two words, a local live for the call) into it
+            // and fails, without a fault, when `fp` is not readable; it writes the size it copied into `size`.
+            let read = unsafe withUnsafeMutablePointer(to: &pair) { pointer in
+                unsafe vm_read_overwrite(mach_task_self_, vm_address_t(fp), vm_size_t(MemoryLayout<(UInt, UInt)>.size),
+                                         vm_address_t(UInt(bitPattern: pointer)), &size)
             }
             guard read == KERN_SUCCESS else { break }
             let (next, returnAddress) = pair

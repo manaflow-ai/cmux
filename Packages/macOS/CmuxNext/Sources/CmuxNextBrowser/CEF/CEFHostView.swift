@@ -8,13 +8,25 @@ import CmuxNextSignposts
 /// (find bar, prompt bar) or must get the mouse (the window's dividers and
 /// switcher, `BrowserWindowOcclusionProviding`), and masks it to the rounded
 /// pane and window corners. What it reads lives in `ChildWindowPageFallback`.
+///
+/// With the feature `cefAttachedPages` and the fork's attach call, each tab's Chromium view is a subview of
+/// this view instead (`CEFLayerHosting.attachedPages`, Chrome's model): the page draws, takes clicks and keys
+/// and gets the first responder as any view does, after the window's key routing (`KeyRouter` in
+/// `sendEvent` and the window's `performKeyEquivalent` run before any view's), and the page window never
+/// orders in. Layer hosting and the page window above are the fallback of a tab the fork does not attach.
 final class CEFHostView: NSView {
     /// Rects in this view's coordinates where native UI covers the page.
     var occlusionRects: [CGRect] = [] {
         didSet {
             guard occlusionRects != oldValue else { return }
             postGeometryChange()
+            for case let page as ChromiumHostPageView in subviews { showOcclusion(in: page) }
         }
+    }
+
+    /// Host mode: `page`'s cursor leaves out the native UI over the page, as the page window does.
+    func showOcclusion(in page: ChromiumHostPageView) {
+        page.cursorHoles = occlusionRects.map { convert($0, to: page) }
     }
     /// The shown page's own background (`CEFTab.pageBackdropColor`). While
     /// the window live-resizes, this view fills with it instead of the pane
@@ -34,29 +46,48 @@ final class CEFHostView: NSView {
     var liveResizeWillStart: (() -> Void)?
     /// Hands files dragged in from another app to the shown page (`CEFFileDragRelay`).
     let fileDrag = CEFFileDragRelay()
-    /// Layer hosting (fork API 26) of the page window over this view (`CEFLayerHosting`).
-    let layerHosting = CEFLayerHosting()
+    /// Layer hosting (fork API 26) of the page window over this view, or its tabs' attached Chromium views
+    /// (`CEFLayerHosting`).
+    let layerHosting: CEFLayerHosting
+    /// Widgets that order an attached page's window in over this view (`CEFPageWindowWidgets`).
+    let pageWindowWidgets = CEFPageWindowWidgets()
     /// Takes a `cef.geometry` instant per geometry post (tests set one on their own trace runtime).
     var signposter = Signposter.cef
     /// Where its window's page update requests arrive (`BrowserPageUpdates`): `.default` in the app,
     /// a private center in tests.
     let pageUpdateCenter: NotificationCenter
 
-    init(frame: NSRect, pageUpdateCenter: NotificationCenter) {
+    /// - Parameters:
+    ///   - pageUpdateCenter: where its window's page update requests arrive.
+    ///   - layerHosting: the page's layer hosting; tests pass one with a fake fork and their own turn.
+    init(frame: NSRect, pageUpdateCenter: NotificationCenter, layerHosting: CEFLayerHosting) {
         self.pageUpdateCenter = pageUpdateCenter
+        self.layerHosting = layerHosting
         super.init(frame: frame)
         wantsLayer = true
         updateBackground()
         fileDrag.view = self
         layerHosting.view = self
-        #if DEBUG
+        // The page window ordered in or out for a widget: the fork places it over this view now.
+        pageWindowWidgets.changed = { [weak self] in self?.childWindowPage.pagesNeedUpdate(force: true) }
+        #if DEBUG || CMUX_BENCH_HOOKS
         Self.registerMotionSampler()
         #endif
     }
 
     /// A host view that takes its window's page update requests on `NotificationCenter.default`.
     override convenience init(frame: NSRect) {
-        self.init(frame: frame, pageUpdateCenter: .default)
+        self.init(frame: frame, pageUpdateCenter: .default, layerHosting: CEFLayerHosting())
+    }
+
+    /// A host view with its own page update center (tests) and the app's layer hosting.
+    convenience init(frame: NSRect, pageUpdateCenter: NotificationCenter) {
+        self.init(frame: frame, pageUpdateCenter: pageUpdateCenter, layerHosting: CEFLayerHosting())
+    }
+
+    /// A host view with its own layer hosting (tests) that takes page update requests on `.default`.
+    convenience init(frame: NSRect, layerHosting: CEFLayerHosting) {
+        self.init(frame: frame, pageUpdateCenter: .default, layerHosting: layerHosting)
     }
 
     @available(*, unavailable)
@@ -78,6 +109,13 @@ final class CEFHostView: NSView {
         super.viewDidEndLiveResize()
         layerHosting.windowLiveResize(active: false)
         updateBackground()
+    }
+
+    /// The content lifecycle shows and hides the shown page by this flag (`CEFTab.setContentVisible`,
+    /// `CEFPaneHost.present`): a hosted page's layer goes with it in this transaction, and the fork
+    /// hears the page's visibility after the commit (`CEFLayerHosting.visibilityMayHaveChanged`).
+    override var isHidden: Bool {
+        didSet { if isHidden != oldValue { layerHosting.visibilityMayHaveChanged() } }
     }
 
     /// Until Chromium's page window shows its first frame, the page area
@@ -120,6 +158,19 @@ final class CEFHostView: NSView {
                 other != index && outer.contains(rect) && (outer != rect || other < index)
             }
         }.map(\.element)
+    }
+
+    /// The shown tab's attached Chromium view takes this view's bounds (`CEFAttachedPages`), as Chrome sizes
+    /// a tab's view to its contents container (`WebContentsViewMac::SetBounds`); the find bar and the other
+    /// subviews stay above it. No fork call: Chromium hears the new size from its own view.
+    override func layout() { // perf-hot: 0.1ms cef-geometry (each layout of a pane's host view)
+        super.layout()
+        layerHosting.attachedPages.layout()
+    }
+
+    override func resizeSubviews(withOldSize oldSize: NSSize) {
+        super.resizeSubviews(withOldSize: oldSize)
+        layerHosting.attachedPages.layout()
     }
 
     override func viewDidMoveToWindow() {
@@ -272,6 +323,6 @@ final class CEFTabContentView: NSView, PaneMotionSettling {
         } else if tab?.deviceEmulation?.fit == nil, let current {
             current.removeFromSuperview()
         }
-        needsLayout = true
+        needsLayout = true // invalidate: a new emulation (`applyEmulation`'s change check) moves the page to its fit
     }
 }

@@ -2,6 +2,8 @@ import Foundation
 import CmuxNextWakeups
 import Network
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceContinuation
 import os
 
 /// The in-process HTTP proxy that remote-localhost browser stores use
@@ -214,25 +216,27 @@ public final class RemoteLocalhostProxy: Sendable {
             }
             self.accept(connection, localPort: port, machineListener: machine)
         }
-        let result: Result<UInt16, StartError> = await withCheckedContinuation { continuation in
-            let resumed = Mutex(false)
-            listener.stateUpdateHandler = { update in
-                let outcome: Result<UInt16, StartError>?
-                switch update {
-                case .ready: outcome = listener.port.map { .success($0.rawValue) } ?? .failure(.listener("no port"))
-                case .failed(let error): outcome = .failure(.listener(String(describing: error)))
-                case .cancelled: outcome = .failure(.listener("cancelled"))
-                default: outcome = nil
+        do throws(StartError) {
+            // A state handler dropped without an answer is a listener that never started.
+            let port = try await withOnceContinuation(failingWith: { _ in StartError.listener("no state update") }) {
+                (continuation: OnceContinuation<UInt16, StartError>) in
+                // A listener reports ready, then later failed or cancelled: only its first ending answers.
+                let resumed = Mutex(false)
+                listener.stateUpdateHandler = { update in
+                    let outcome: Result<UInt16, StartError>?
+                    switch update {
+                    case .ready: outcome = listener.port.map { .success($0.rawValue) } ?? .failure(.listener("no port"))
+                    case .failed(let error): outcome = .failure(.listener(String(describing: error)))
+                    case .cancelled: outcome = .failure(.listener("cancelled"))
+                    default: outcome = nil
+                    }
+                    guard let outcome, resumed.withLock({ done in defer { done = true }; return !done }) else { return }
+                    continuation.resume(with: outcome)
                 }
-                guard let outcome, resumed.withLock({ done in defer { done = true }; return !done }) else { return }
-                continuation.resume(returning: outcome)
+                listener.start(queue: queue)
             }
-            listener.start(queue: queue)
-        }
-        switch result {
-        case .success(let port):
             return (listener, port)
-        case .failure(let error):
+        } catch {
             listener.cancel()
             throw error
         }

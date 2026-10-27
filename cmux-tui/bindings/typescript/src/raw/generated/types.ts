@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 6ee91cefdca789ee18e94753ea8301875cf2019c96e0764ae99594b35cd42f61. */
+/* cmux-tui mux protocol 12, IR 0099f55a8d73eeccd65a50020e3ff0c8be1ac82f5723a1d6b384ce58b5e9108c. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -424,6 +424,11 @@ export type BrowserRuntimeStopResult = {
   "stopped": true;
 };
 
+export type CancelStreamResult = {
+  "outcome": "applied" | "ended";
+  "stream": number;
+};
+
 export type CellPixelFailure = {
   "error": string;
   "surface": Id;
@@ -442,6 +447,23 @@ export type CellPixelSurface = {
   "width_px": number;
 };
 
+export type ClientHelloFeaturePending = {
+  "app": boolean;
+  "daemon": boolean;
+  "name": string;
+};
+
+export type ClientHelloFeatureReport = {
+  "applied": Array<string>;
+  "hash": string;
+  "pending": Array<ClientHelloFeaturePending>;
+};
+
+export type ClientHelloFeatures = {
+  "hash"?: string;
+  "values": Record<string, boolean>;
+};
+
 export type ClientHelloPageOperations = {
   "confirm": Array<string>;
   "gesture": Array<string>;
@@ -450,6 +472,7 @@ export type ClientHelloPageOperations = {
 
 export type ClientHelloResult = {
   "connection_id": string;
+  "features"?: ClientHelloFeatureReport;
   "install_id"?: string;
   "nonce"?: string;
   "page"?: string;
@@ -924,6 +947,7 @@ export type IdentifyResult = {
   "app": "cmux-tui";
   "build_commit"?: (string) | null;
   "build_id"?: (string) | null;
+  "bulk_frame_max"?: (number) | null;
   "capabilities"?: Array<string>;
   "cli_path"?: (string) | null;
   "crate_version"?: (string) | null;
@@ -1538,6 +1562,24 @@ export type ServerStatsLockWaits = {
   "recent": Array<ServerStatsLockWait>;
 };
 
+export type ServerStatsMethodLatency = {
+  "class": string;
+  "handler_us": ServerStatsPercentiles;
+  "id": (number) | null;
+  "latency_us": ServerStatsPercentiles;
+  "lock_wait_us": ServerStatsPercentiles;
+  "method": string;
+  "trace_id": number;
+};
+
+export type ServerStatsPercentiles = {
+  "count": bigint;
+  "max": bigint;
+  "p50": bigint;
+  "p95": bigint;
+  "p99": bigint;
+};
+
 export type ServerStatsRegistryLock = {
   "contended_acquisitions": bigint;
   "hold_us": ServerStatsHistogram;
@@ -1605,6 +1647,7 @@ export type ServerStatsResult = {
   "connections": ServerStatsConnections;
   "dispatch_queue_us"?: ServerStatsHistogram;
   "ipc"?: ServerStatsIpc;
+  "ipc_methods"?: Array<ServerStatsMethodLatency>;
   "journal_writer": (ServerStatsJournalWriter) | null;
   "lock_classes"?: ServerStatsLockClasses;
   "registry_lock": ServerStatsRegistryLock;

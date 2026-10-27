@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextInput
 import CmuxNextWakeups
 
@@ -11,6 +12,8 @@ extension ShellWindow {
     /// top-row tab bar's empty space drags its pane instead (`PaneSwapDrag`).
     override func sendEvent(_ event: NSEvent) {
         cursorRectHold?.windowWillSend(event, in: self)
+        // A hover under an overlay of the window's top layer reaches only the overlay (feature `overlayTopLayer`).
+        if WindowOverlayHost.isCoverableHover(event.type), WindowOverlayHost.existingHost(for: self)?.routeCoveredHover(event) == true { return }
         // A press in a workspace shown beside the focused one (`sidebar.multiView`) focuses it before it lands there.
         switch event.type {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown: (windowController as? WindowController)?.focusOnScreenWorkspace(at: event.locationInWindow)
@@ -71,4 +74,77 @@ extension ShellWindow {
 /// coalescers (feature `pointerFrameHover`), read when they join the window.
 extension ShellWindow: HoverFrameInputHosting {
     var hoverFrameInput: FrameInputCoalescers? { (windowController as? WindowController)?.services.hoverFrameInput }
+}
+
+/// Its reorder drags (tab strip, sidebar rows and spaces, extension buttons) move once per frame on the app's
+/// coalescers (feature `pointerFrameDrags`), read on each press (``PointerFrameDrag``).
+extension ShellWindow: DragFrameInputHosting {
+    var dragFrameInput: FrameInputCoalescers? { (windowController as? WindowController)?.services.dragFrameInput }
+}
+
+/// Its find pills hold the app's input tap `findPillOpen` flag while their field edits, so a key-down
+/// asks no responder whether a pill takes it (`FindPillView.forwardArrowKeyDownToEditingPill`).
+extension ShellWindow: InputTapHosting {
+    var inputTap: InputEventTap? { (windowController as? WindowController)?.services.inputTap }
+}
+
+/// Overlays draw in the window's own top layer while no page child window shows (feature `overlayTopLayer`,
+/// p03-rendering-052), read when the overlay host is made. A modal there keeps the keys it had in the panel:
+/// the window routes keys as a panel over itself while ``overlayHasKeyboard`` holds (`KeyRouter.focus(for:)`),
+/// and a field editor's Tab cycles inside the modal.
+extension ShellWindow: OverlayTopLayerHosting {
+    var overlaysInTopLayer: Bool { (windowController as? WindowController)?.services.features.isEnabled(.overlayTopLayer) == true }
+
+    /// An overlay control of the top layer has the keyboard: no content shortcut runs below it.
+    var overlayHasKeyboard: Bool { WindowOverlayHost.existingHost(for: self)?.keyboardIsInWindowTopLayer == true }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // A panel over this window has the keys: no Ghostty keybind below (`KeyRouter.overlayHasKeys`).
+        if !isKeyWindow, let focus, KeyRouter.overlayHasKeys(focus.state) { return false }
+        // A modal of the top layer has the keys: only the top layer sees them, as only the key panel did; the
+        // content below (an empty workspace's Return) never does. The main menu still comes after.
+        if let host = WindowOverlayHost.existingHost(for: self), host.keyboardIsInWindowTopLayer {
+            return host.topLayer.performKeyEquivalent(with: event)
+        }
+        if let keyRouter, let focus, keyRouter.routeContentKeyEquivalent(event, focus: focus.state) { return true }
+        // A chord the dispatcher decided for a focused terminal or page, or a field in a pane: that surface or pane answers.
+        if let surface = keyRouter?.directKeyEquivalentTarget(for: event, firstResponder: firstResponder) {
+            return surface.performKeyEquivalent(with: event)
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    override func selectNextKeyView(_ sender: Any?) {
+        if WindowOverlayHost.existingHost(for: self)?.cycleKeyViewInWindowTopLayer(forward: true) != true { super.selectNextKeyView(sender) }
+    }
+
+    override func selectPreviousKeyView(_ sender: Any?) {
+        if WindowOverlayHost.existingHost(for: self)?.cycleKeyViewInWindowTopLayer(forward: false) != true { super.selectPreviousKeyView(sender) }
+    }
+}
+
+/// The window's child windows: content children (page windows in process, content panels on either
+/// page surface) keep the overlay layer's placement and the overlay host's order current as they come and go.
+extension ShellWindow {
+    /// The Chromium fork adds each page window as a child ordered above
+    /// everything, the overlay panel included. Lift the overlay (and the app
+    /// panels above it) in the same call, before the window server shows a
+    /// frame with the page over the focus ring; the notifications that
+    /// follow the page would come a frame late.
+    override func addChildWindow(_ childWin: NSWindow, ordered place: NSWindow.OrderingMode) {
+        // Only the overlay host panel and page windows belong here (debug and test builds record the rest).
+        ChildWindowPolicy.check(childWin, parent: self)
+        super.addChildWindow(childWin, ordered: place)
+        if WindowOverlayLayer.isContent(childWin, of: self) { overlayLayer.evaluate() }
+        WindowOverlayHost.childWindowsDidChange(of: self)
+    }
+
+    /// A content child left (a page popup closed: `removeChildWindow`, then `orderOut`): the planes go
+    /// back into the view tree in the same call. With pages in the view tree no other window's notice
+    /// is watched, so nothing else would tell the overlay layer.
+    override func removeChildWindow(_ childWin: NSWindow) {
+        let wasContent = childWin.parent === self && WindowOverlayLayer.isContent(childWin, of: self)
+        super.removeChildWindow(childWin)
+        if wasContent { overlayLayer.evaluate() }
+    }
 }

@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 import Darwin
 import Foundation
 import Testing
@@ -5,9 +6,9 @@ import Testing
 @testable import CmuxIrxTransport
 
 /// The real Network.framework connector and the exactly-once outcome that
-/// settles its connect from state change, deadline or cancellation. A double
-/// resume traps (`CheckedContinuation`) and a lost one hangs the test, so each
-/// case passing proves exactly one resume. Run under TSan
+/// settles its connect from state change, deadline or cancellation. The
+/// outcome cases record the OnceContinuation's faults: a double resume or a
+/// dropped continuation is one, so no fault proves exactly one resume. Run under TSan
 /// (`swift test --sanitize=thread --filter IrxTunnelNetworkConnectorTests`).
 @Suite("tunnel network connector", .serialized)
 struct IrxTunnelNetworkConnectorTests {
@@ -65,30 +66,35 @@ struct IrxTunnelNetworkConnectorTests {
     }
 
     @Test func outcomeSettledBeforeInstallResumesWithTheFirstResult() async {
+        let faults = ConnectOutcomeFaults()
         let outcome = IrxTunnelConnectOutcome()
         outcome.finish(.failure(IrxTunnelOpenError(status: .refused)))
-        let result = await withCheckedContinuation { continuation in
+        let result = try? await withOnceContinuation(faults: faults.reporter) { continuation in
             for _ in 0..<64 {
                 Task.detached { outcome.finish(.failure(IrxTunnelOpenError(status: .timedOut))) }
             }
             outcome.install(continuation)
         }
-        #expect(Self.status(result) == .refused)
+        #expect(result.flatMap(Self.status) == .refused)
+        #expect(faults.recorded.isEmpty)
     }
 
     @Test func racingFinishesResumeTheInstalledContinuationOnce() async {
         let statuses: [IrxTunnelOpenReply.Status] = [.refused, .timedOut, .failed, .hostUnreachable]
+        let faults = ConnectOutcomeFaults()
         for _ in 0..<200 {
             let outcome = IrxTunnelConnectOutcome()
-            let result = await withCheckedContinuation { continuation in
+            let result = try? await withOnceContinuation(faults: faults.reporter) { continuation in
                 for status in statuses {
                     Task.detached { outcome.finish(.failure(IrxTunnelOpenError(status: status))) }
                 }
                 Task.detached { outcome.finish(.success(())) }
                 outcome.install(continuation)
             }
-            #expect(Self.status(result).map { statuses.contains($0) } ?? true)
+            #expect(result != nil)
+            #expect(result.flatMap(Self.status).map { statuses.contains($0) } ?? true)
         }
+        #expect(faults.recorded.isEmpty)
     }
 
     private static func status(_ result: Result<Void, IrxTunnelOpenError>) -> IrxTunnelOpenReply.Status? {
@@ -130,5 +136,18 @@ struct IrxTunnelNetworkConnectorTests {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(fd, $0, &length) }
         }
         return Int(UInt16(bigEndian: address.sin_port))
+    }
+}
+
+/// The faults the connect outcome's continuations report, from any thread.
+private final class ConnectOutcomeFaults: Sendable {
+    private let faults = Mutex<[OnceContinuationFault]>([])
+
+    var reporter: OnceContinuationFaultReporter {
+        OnceContinuationFaultReporter { fault in self.faults.withLock { $0.append(fault) } }
+    }
+
+    var recorded: [OnceContinuationFault] {
+        faults.withLock { $0 }
     }
 }

@@ -69,6 +69,7 @@ class AssignError(Exception):
 FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
     "daemon": (0x01, "Daemon identity, liveness, configuration and machine state.", (
         "identify", "ping", "shutdown-daemon", "reload-config", "server-stats", "machine-*",
+        "debug-daemon-locks", "server-threads", "server-blocking",
         "subscribe-activity", "ws-listen", "page-credential", "pairing-response",
         "set-default-colors", "set-window-title", "clear-window-title", "trace-*",
     )),
@@ -79,7 +80,7 @@ FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
     "terminal-io": (0x03, "Terminal input, output streams, screen reads and terminal requests to the frontend.", (
         "send", "send-key", "paste-image", "read-screen", "read-scrollback", "wait-for", "copy",
         "clear-history", "vt-state", "scroll-surface", "snapshot-request", "terminal-history",
-        "terminal-read-range", "terminal-events", "attach-surface", "subscribe",
+        "terminal-read-range", "terminal-events", "attach-surface", "cancel-stream", "subscribe",
         "mint-terminal-renderer", "mint-terminal-renderer-by-terminal", "get-cell-pixels",
         "set-cell-pixels", "url-open", "url-open-*", "terminal-clipboard-*",
     )),
@@ -158,7 +159,7 @@ FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
 EVENT_FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
     "terminal-stream-events": (0xC0, "Content of an attach stream: output, render state, frames and sizes.", (
         "output", "render-delta", "render-state", "frame", "browser-state", "vt-state", "resized",
-        "colors-changed", "detached", "overflow", "scroll-changed", "size-state",
+        "colors-changed", "detached", "overflow", "scroll-changed", "size-state", "stream-end",
     )),
     "mux-events": (0xC1, "The mux tree: workspaces, screens, panes, tabs, surfaces and their state.", (
         "layout-changed", "tree-changed", "empty", "pane-*", "tab-*", "screen-*", "workspace-*",
@@ -170,6 +171,7 @@ EVENT_FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
     "daemon-events": (0xC2, "Clients, daemon lifetime, settings, pairing and machine state.", (
         "client-*", "daemon-shutdown", "config-reload-requested", "keybindings-changed",
         "settings-changed", "pairing-*", "machine-usage-changed", "activity-changed",
+        "server-diagnostic-site",
     )),
     "agent-events": (0xC3, "Agents and the agent inventory.", ("agent-*",)),
     "personal-events": (0xC4, "Personal profiles, bookmarks and history.", (
@@ -219,7 +221,10 @@ COMMAND_PRIORITY: dict[str, tuple[str, ...]] = {
         # that control command pass the bytes it names.
         "fs.read", "agent-transfer-read",
     ),
-    "background": ("server-stats", "machine-usage", "terminal-resources", "agent-inventory-refresh"),
+    "background": (
+        "server-stats", "debug-daemon-locks", "server-threads", "server-blocking", "machine-usage",
+        "terminal-resources", "agent-inventory-refresh",
+    ),
 }
 
 # Bulk writes: the bytes of a data stream and its half close, like a Mojo
@@ -258,7 +263,9 @@ RELEASES_SLOT: dict[str, str] = {
 EVENT_PRIORITY: dict[str, tuple[str, ...]] = {
     "input": ("output", "render-delta", "render-state", "frame"),
     "bulk": ("surface-output", "loopback-data", "loopback-eof"),
-    "background": ("machine-usage-changed", "activity-changed", "agent-inventory-changed"),
+    "background": (
+        "machine-usage-changed", "activity-changed", "agent-inventory-changed", "server-diagnostic-site",
+    ),
 }
 
 # Ordering --------------------------------------------------------------------
@@ -269,7 +276,10 @@ EVENT_PRIORITY: dict[str, tuple[str, ...]] = {
 # fs.read and fs.stat are not here: they observe the files this connection's
 # own fs.write, fs.mkdir, fs.rename and fs.delete change (sync_cli's push
 # stats a folder its failed mkdir found, and reads back what it wrote).
-INDEPENDENT = ("server-stats", "machine-usage", "machine-listening-tcp")
+INDEPENDENT = (
+    "server-stats", "debug-daemon-locks", "server-threads", "server-blocking", "machine-usage",
+    "machine-listening-tcp",
+)
 
 # Durability --------------------------------------------------------------------
 # read_only: changes no daemon state. memory: changes state the journal never
@@ -279,7 +289,8 @@ INDEPENDENT = ("server-stats", "machine-usage", "machine-listening-tcp")
 READ_ONLY = (
     "list-*", "get-*", "read-*", "ids", "identify", "ping", "export-layout", "vt-state",
     "resolve-terminal", "process-info", "terminal-ports", "terminal-resources",
-    "terminal-history", "terminal-read-range", "terminal-events", "server-stats", "machine-*",
+    "terminal-history", "terminal-read-range", "terminal-events", "server-stats",
+    "debug-daemon-locks", "server-threads", "server-blocking", "machine-*",
     "wait-for", "pane-neighbor", "remote-terminal-snapshot",
     "conversation-list", "conversation-snapshot", "conversation-history", "conversation-thread",
     "conversation-search", "conversation-link-resolve", "conversation-runs", "conversation-run",
@@ -332,6 +343,8 @@ MEMORY = (
     "browser-host-provider",
     # Admits a snapshot on the stream's gate (collapse and 500 ms throttle).
     "snapshot-request",
+    # Ends one attach stream of this connection and removes its view.
+    "cancel-stream",
     # Agent chat attachments and what they send to acpmux, which keeps the
     # session and the folder trust itself; children also records the chats
     # the tab may file. agent-session-start binds the tab, a journaled write.

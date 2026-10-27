@@ -8,6 +8,7 @@
 
 use super::*;
 use crate::Actor;
+use crate::diagnostics::LockCaller;
 use crate::panic_free::RecoverPoison;
 use crate::request_origin::{
     CONFIRMATION_TTL_MS, HelloRole, LocalPeer, PeerProcess, RequestOrigin, forbidden, mint_token,
@@ -118,7 +119,7 @@ fn classify_local_peer(
     LocalPeer::Other
 }
 
-fn peer_pid(key: &str) -> Option<u32> {
+pub(super) fn peer_pid(key: &str) -> Option<u32> {
     let (pid, version) = key.strip_prefix("token:")?.split_once('.')?;
     let pid = pid.parse().ok()?;
     (!version.is_empty() && pid > 0).then_some(pid)
@@ -188,6 +189,17 @@ pub(super) fn is_user(mux: &Mux, client: u64) -> bool {
 /// page relay, with or without a page id).
 pub(super) fn is_page(mux: &Mux, client: u64) -> bool {
     derived_origin(mux, client) == RequestOrigin::Page
+}
+
+/// Stores the caller class `record`'s origin derives on its writer, where
+/// its reader and dispatcher read it without the clients lock
+/// (`debug-daemon-locks`). Called wherever the origin's role or
+/// `verified_app` changes, under the clients lock.
+fn sync_lock_caller(record: &ClientRecord) {
+    record.writer.lock_caller.set(match record.origin.derive() {
+        RequestOrigin::User => LockCaller::Frontend,
+        RequestOrigin::Page | RequestOrigin::Agent | RequestOrigin::App => LockCaller::Automation,
+    });
 }
 
 /// The origin `client` derives; a client with no record is an agent.
@@ -289,19 +301,20 @@ pub(super) fn set_scoped_page(mux: &Mux, client: u64, page: String) {
 /// The conversation events a page-bound connection of the Channels page
 /// hears (and `chief-changed`, its Chiefs, and `participant-avatar-changed`,
 /// the pictures it draws); every other page-bound connection hears none.
-static CHANNELS_SCOPED_EVENTS: std::sync::LazyLock<[String; 8]> = std::sync::LazyLock::new(|| {
-    [
-        "conversation-changed",
-        "conversation-typing",
-        "conversation-draft",
-        "conversation-run-changed",
-        "conversation-live",
-        "conversation-inbox-changed",
-        "chief-changed",
-        "participant-avatar-changed",
-    ]
-    .map(String::from)
-});
+pub(super) static CHANNELS_SCOPED_EVENTS: std::sync::LazyLock<[String; 8]> =
+    std::sync::LazyLock::new(|| {
+        [
+            "conversation-changed",
+            "conversation-typing",
+            "conversation-draft",
+            "conversation-run-changed",
+            "conversation-live",
+            "conversation-inbox-changed",
+            "chief-changed",
+            "participant-avatar-changed",
+        ]
+        .map(String::from)
+    });
 
 /// The subscribe events a page relay connection hears (page-router.json
 /// `events` of its page; none for a relay without a page), a page-bound
@@ -361,6 +374,11 @@ pub(super) fn set_hello(
     }
     record.origin.page = page;
     record.origin.verified_app = role == HelloRole::Main && signature_proved;
+    sync_lock_caller(record);
+    let verified_process = record.origin.verified_app.then(|| record.origin.peer_key.clone());
+    if let Some(Some(peer_key)) = verified_process {
+        state.reclassify_process(&peer_key);
+    }
     true
 }
 
@@ -553,6 +571,10 @@ pub(super) fn set_install_proved(mux: &Mux, client: u64, install_id: &str) -> bo
     }
     record.origin.verified_app = true;
     record.origin.install_id = Some(install_id.to_string());
+    sync_lock_caller(record);
+    if let Some(peer_key) = record.origin.peer_key.clone() {
+        state.reclassify_process(&peer_key);
+    }
     true
 }
 
@@ -662,7 +684,9 @@ mod test_hooks {
 
     fn with_origin(mux: &Arc<Mux>, client: u64, change: impl FnOnce(&mut ConnectionOrigin)) {
         let mut state = mux.control_clients.state.lock().recover_poison();
-        change(&mut state.clients.get_mut(&client).expect("registered client").origin);
+        let record = state.clients.get_mut(&client).expect("registered client");
+        change(&mut record.origin);
+        sync_lock_caller(record);
     }
 
     pub(in crate::server) fn set_role_for_test(mux: &Arc<Mux>, client: u64, role: &str) {

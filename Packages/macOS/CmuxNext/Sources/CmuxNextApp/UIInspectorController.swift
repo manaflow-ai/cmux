@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextInput
 import CmuxNextLayout
@@ -354,7 +355,7 @@ final class UIInspectorController {
     }
 
     private static func cropWeb(_ image: NSImage, bounds: CGRect, viewport: CGSize) -> Data? {
-        guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        guard let cg = image.bestCGImage else { return nil }
         let scaleX = Double(cg.width) / viewport.width
         let scaleY = Double(cg.height) / viewport.height
         let rect = CGRect(x: bounds.minX * scaleX,

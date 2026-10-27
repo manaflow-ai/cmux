@@ -9,10 +9,10 @@
 //!    from `web/data/model-catalog` by `web/tools/refresh-model-catalog-snapshot.ts`).
 //!
 //! A stored copy older than the bundled one (an app update shipped newer
-//! data) loses to it. The daemon fetches at start and every 6 h with
-//! If-None-Match; `catalog.refresh` fetches now. A body that is too big, not
-//! valid, or of a newer major schema version never replaces the current
-//! copy. Every change is announced to every connection as `catalog.changed`.
+//! data) loses to it. The daemon fetches at start and every 6 h on its
+//! maintenance clock (`maintenance.rs`, [`REFRESH_JOB`]) with If-None-Match;
+//! `catalog.refresh` fetches now. A body that is too big, not valid, or of a
+//! newer major schema version never replaces the current copy. Every change is announced to every connection as `catalog.changed`.
 
 pub mod fetch;
 pub mod schema;
@@ -25,6 +25,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::sync::broadcast;
 
+use crate::maintenance::{JobSpec, Maintenance, MaintenanceError, Start};
+
 pub use fetch::{FetchOutcome, Fetcher, HttpsFetcher};
 pub use schema::{Catalog, CatalogError, CatalogHarness, HarnessModel, ModelInfo};
 
@@ -36,6 +38,11 @@ pub const RPC_REFRESH: &str = "catalog.refresh";
 pub const EVENT_CHANGED: &str = "catalog.changed";
 /// How often the daemon checks for a new catalog.
 pub const REFRESH_EVERY: Duration = Duration::from_secs(6 * 60 * 60);
+/// The periodic refresh on the maintenance clock. Energy Saver may stretch
+/// it: a newer catalog only adds models, the copy in use stays valid, and a
+/// person's `catalog.refresh` still fetches at once.
+pub const REFRESH_JOB: JobSpec =
+    JobSpec { name: "catalog.refresh", period: REFRESH_EVERY, skippable_in_saver: true };
 /// A refresh request within this long of the last network read answers from the current copy.
 pub const MIN_FETCH_SPACING: Duration = Duration::from_secs(10);
 const STORE_FILE: &str = "models-v1.json";
@@ -295,13 +302,17 @@ impl CatalogService {
         }
     }
 
-    /// Fetches at once and then every [`REFRESH_EVERY`], until the task is dropped.
-    pub async fn run(self: Arc<Self>) {
-        let mut every = tokio::time::interval(REFRESH_EVERY);
-        every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        loop {
-            every.tick().await;
-            self.refresh(true).await;
-        }
+    /// Fetches at once when `fetch_now`, and registers [`REFRESH_JOB`] on
+    /// `maintenance`. A service without a fetcher registers it too: its
+    /// refresh answers at once, and it shares the health check's wake.
+    pub fn schedule(
+        self: &Arc<Self>,
+        maintenance: &Maintenance,
+        fetch_now: bool,
+    ) -> Result<(), MaintenanceError> {
+        let start = if fetch_now { Start::Now } else { Start::OnGrid };
+        maintenance.register_for(REFRESH_JOB, self, start, |service| async move {
+            service.refresh(true).await;
+        })
     }
 }

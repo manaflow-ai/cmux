@@ -1,0 +1,17 @@
+{
+  "id": "mux2-spawn",
+  "tier": "builder",
+  "description": "Where a terminal create's time goes on macOS (cmux-mux2's mux2-spawnbench, release, built at the commit on a builder Mac): Terminal::new, openpty, fork + exec and posix_spawn of /bin/sleep, 200 of each per run, the run's p50 (cmux-tui/scripts/bench-rust-lab.py).",
+  "command": ["cmux-tui/scripts/bench-rust-lab.py", "--bench", "mux2-spawn", "--runs", "3"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "mux2\\.spawn\\.(terminal_new|openpty|fork|posix_spawn)", "unit": "us", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 300,
+  "needs": ["file:cmux-tui/crates/cmux-mux2/src/macos/mux2_spawnbench.rs"],
+  "owner": "PL-daemon",
+  "component": "Terminal>Spawn"
+}

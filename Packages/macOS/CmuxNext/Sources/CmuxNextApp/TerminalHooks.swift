@@ -1,3 +1,4 @@
+import CmuxNextFeatures
 import CmuxNextTerminal
 
 /// Connects the terminal module's process-wide hooks to the app's services
@@ -9,6 +10,9 @@ struct TerminalHooks {
 
     func install() {
         GhosttyRuntime.shared.appActionHandler = { [weak services] in services?.terminalDelegate.performAppAction($0) ?? false }
+        // A resized or shown terminal's drawn frame goes into the commit that carries its size (p03-rendering-084).
+        let preCommitPresent = services?.features.isEnabled(.terminalPreCommitPresent) ?? false
+        GhosttyRuntime.shared.hostFramePresenter = preCommitPresent ? TerminalHostFramePresenter.makeIfPresentNeverWaits() : nil
         TerminalKeyEquivalent.menuMayClaim = { [weak services] in services?.keyRouter.menuMayClaim($0) ?? true }
         // A TUI's Command chord (Cmd-C with nothing selected, Cmd-Z, Cmd-A): the tab's daemon
         // encodes it with the program's keyboard modes. A refused key falls back; one that may have

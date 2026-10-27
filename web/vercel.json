@@ -86,6 +86,10 @@
     {
       "path": "/api/cron/vm-usage-analytics",
       "schedule": "5 * * * *"
+    },
+    {
+      "path": "/api/cron/hang-reports-retention",
+      "schedule": "41 4 * * *"
     }
   ]
 }

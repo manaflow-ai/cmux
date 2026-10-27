@@ -1310,6 +1310,14 @@ repositories.
   and released after false; a sink with input in the last 1 s is not throttled; a renderer's leeway is 32 ms in saver.
 - Test phase: fork CI build (136); idle-budget energy-saver: anim page rAF <= 31/s; D8 Chromium scroll at 120 Hz.
 - Size M. Queue fork.
+- Fork ref: manaflow-ai/cef `cp/p14-energy-029` (11649d01, on 124's `cp/p14-energy-124`), with no API number (136
+  numbers it). Files follow the fork layout: `libcef/browser/cmux/cmux_energy_saver.{h,cc}`, the BUILD.gn entry, and
+  one call in `CefBrowserContentsDelegate::ObserveWebContents` that watches every CEF page. Throttling is per page
+  (`UpdateThrottlingFrameSinks` on the primary main frame; viz throttles the sinks embedded in it, so input in any
+  widget of a page releases the whole page). `cmux_battery_saver_embedder_owned.patch` gives Chrome's
+  `BatterySaverModeManager` no provider, so Chrome's battery saver never turns on and cmux's saver is the only writer of
+  the frame sink throttle, the wake-up leeway and the child process mode. Embedder test:
+  `scripts/test-cmux-embedder.sh energy-saver`, run with Chrome's battery saver pref set to always on.
 
 #### p14-energy-030 Shim and Swift binding for the saver fork API
 - Files: `Packages/macOS/CmuxNext/CEFShim/src/shim_process.mm`,
@@ -1470,6 +1478,21 @@ repositories.
   duration, or no batching on that thread only). Do not use `--disable-features=RunTasksByBatches`, because
   child processes inherit it. cmux judges passes by the switch's 2 ms from fork API 26
   (`CEFPumpSchedule.pumpTimeSliceSwitchForkAPI`, the first API built on 066b083f), so 136 needs no cmux gate for 037.
+- 043 notes (Q8 slot B; manaflow-ai/cef `cp/p14-energy-043`, 4ab03f16dd2b, on the bundle tip ce8526971c0b): patch
+  `cmux_cpu_health_tracker_hidden_ui`. Location: `CpuHealthTracker`'s `cpu_probe_timer_`
+  (chrome/browser/performance_manager/user_tuning/cpu_health_tracker.cc). `PerformanceDetectionManager` makes it on
+  every desktop platform, with no feature gate, and it samples system CPU every 15 s (`kCPUSampleFrequency`) for
+  Chrome's toolbar performance intervention button. With `--cmux-tabbed-windows` the tracker makes no `CpuProbe`
+  (Chromium already handles a null probe), so it starts no timer. per_s from the source: CrBrowserMain 0.067 timer +
+  0.067 reply, a ThreadPool worker 0.067 (`cpu_probe_mac.cc` `CpuProbeMac::Update`); after, 0. No API number and no
+  cmux gate: cmux passes `cmux-tabbed-windows` for every fork API >= 1 (`CEFCpuHealthTrackerSwitchTests`). Not
+  claimed here, because other branches have them: HangWatcher, sync and OptimizationHints (p13-webui-084), and the
+  PartitionAlloc memory reclaimer (042).
+- 044 notes (manaflow-ai/cef `cp/p14-energy-044`, 27a449ef65521e51, one commit on the bundle tip ce852697): patch
+  `cmux_disk_space_check_backoff` (Q8 record below). It needs no API number and no cmux gate: the app makes no new call.
+  Its test is `components_unittests --gtest_filter=MacSystemMemoryPressureEvaluatorTest.*`. 043 and 044 each add
+  their patch after the same entry in `patch/patch.cfg` and in `CMUX.md`, so the two fork branches conflict there:
+  136 keeps both entries, 043 first, then 044.
 
 #### p14-energy-138 GlassModeWatch and BackdropVideoView follow EnergyPolicy
 - Files: `.../CmuxNextApp/GlassModeWatch.swift`, `.../CmuxNextApp/AppServices+Glass.swift`,
@@ -1535,6 +1558,46 @@ repositories.
   without an equivalent (stated).
 - Test phase: split-spring --suite=cef-idle before/after; idle-budget tabs-static `--gate`.
 - Size M each. Depends: 109, 040. Queue Q8.
+
+Q8 record (044, 2026-10-26). The rates come from the Chromium 154.0.8037.58 sources, not from a run: no probe run
+existed when the slots started. The lead's fleet run (`split-spring --suite=cef-idle --vdisplay=120` with `--queue`,
+then `idle-budget tabs-static --gate`) gives the measured values and adds a slot for each queue line that remains.
+
+| Slot | Location (process, thread) | Fix | per_s before | per_s after |
+| --- | --- | --- | --- | --- |
+| 042 | `MemoryReclaimerSupport::Run` (each process with PartitionAlloc, main thread; the app's CrBrowserMain too) | switch `PartitionAllocAdaptiveMemoryReclaimInterval`, landed | 0.25 per process | 0.017 per process |
+| 043 | `CpuHealthTracker`'s `cpu_probe_timer_` (chrome/browser/performance_manager/user_tuning/cpu_health_tracker.cc; browser: a timer task and a reply on CrBrowserMain, a `CpuProbeMac::Update` on a ThreadPool worker) | fork patch `cmux_cpu_health_tracker_hidden_ui` (043 notes in 136) | 0.067 each | 0 |
+| 044 | `SystemMemoryPressureEvaluator::CheckDiskSpace` (browser: a timer task and a reply on CrBrowserMain, a statfs on a ThreadPool worker) | fork patch `cmux_disk_space_check_backoff` (044 notes in 136) | 0.2 each | 0.017 each with 60 GiB free, 0.0033 each with 300 GiB or more |
+
+- tabs-static app main wakes from Chromium, these locations only: before about 0.78/s on CrBrowserMain (0.25 reclaim,
+  0.067 CPU probe timer, 0.067 CPU probe reply, 0.2 disk timer, 0.2 disk reply). After 136 is pinned: about 0.024/s
+  with 300 GiB or more free, about 0.05/s with 60 GiB free (the reclaim and the disk check; the CPU probe is 0). The
+  fleet run replaces these numbers.
+- Q8 locations that p13-webui-084 claims (manaflow-ai/cmux `cp/p13-webui-084`, d436f89d40f): `disable-sync`, and
+  `disable-features=EnableHangWatcher,EnableHangWatcherOnGpuProcess` (a HangWatcher thread in each Chromium process
+  wakes every 10 s, 0.1/s) and `disable-features=OptimizationHints`. That branch is pushed but is not on
+  perf/chrome-parity when this record is written, so these locations still run on the base. No Q8 slot takes them;
+  the fleet run counts them against 084. They are not on CrBrowserMain, so the totals above do not include them.
+- Locations Chromium needs. They stay at the rates below. With the F2 host on, the browser-process ones run in the host,
+  not on the app's main thread. 045 gives the host the same switches, and the fork patch is in the host's Chromium too.
+  - Safe Browsing and CRLSet updates (section E). The component updater checks 1 min after start, then every 5 h
+    (configurator_impl.cc).
+  - PartitionAlloc reclaim at its adaptive interval: memory goes back to the system.
+  - The disk space check at its adaptive interval: Chrome's critical memory pressure vote below 250 MiB free.
+  - `BatteryStateSampler`: 1/min (base/power_monitor/battery_state_sampler.cc). Chrome's Battery Saver uses it.
+    This is under the threshold.
+- Q8 item kept at Chromium's rate: GPU process, `GpuWatchdogThread::OnWatchdogTimeout` on the GpuWatchdog thread
+  every 25 s on Mac (0.04/s; `kGpuWatchdogTimeout`, gpu/ipc/common/gpu_watchdog_timeout.h). It kills and restarts a
+  hung GPU process. An existing switch sets a longer period and keeps the watchdog: `GetGpuWatchdogTimeout`
+  (gpu/ipc/service/gpu_watchdog_thread.cc) reads the `watchdog_timeout_seconds` param of
+  `ConfigurableGPUWatchdogTimeout` (gpu/config/gpu_finch_features.cc) and `--gpu-watchdog-timeout-seconds`
+  (gpu/config/gpu_switches.cc), which `GpuProcessHost` copies to the GPU process (content/browser/gpu/gpu_process_host.cc,
+  `kSwitchNames`). It stays at 25 s for this reason: `OnWatchdogTimeout` kills the process only when the GPU main
+  thread was armed with no progress for one whole period, so a hang is found 1 to 2 periods after it starts. Under the
+  threshold needs a period above 50 s (60 s gives 0.017/s), and then every Chromium pane stays frozen 60 to 120 s
+  before the GPU process restarts, instead of 25 to 50 s. The saving is 0.023 wakes/s on a GPU-process thread, not on
+  the app's main thread. If the fleet run puts a GPU-process thread over its budget, the next slot passes
+  `gpu-watchdog-timeout-seconds=60` with this trade-off in its commit.
 
 #### p14-energy-045 Chromium Host: same switches and saver wire message
 - Files: `Packages/macOS/CmuxNext/CEFShim/src/browser_host_main.mm`, `Packages/macOS/CmuxNext/CEFShim/src/chromium_host_wire.h`,

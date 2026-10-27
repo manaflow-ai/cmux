@@ -533,6 +533,7 @@
       "browser-activate",
       "subscribe",
       "attach-surface",
+      "cancel-stream",
       "resize-attached-view",
       "release-attached-view-size",
       "detach-attached-view",
@@ -545,6 +546,9 @@
     ],
     "local-admin": [
       "server-stats",
+      "debug-daemon-locks",
+      "server-threads",
+      "server-blocking",
       "trace-start",
       "trace-stop",
       "trace-status",
@@ -880,6 +884,12 @@
       ]
     },
     {
+      "name": "server-diagnostic-site",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
       "name": "notification",
       "streams": [
         "subscribe",
@@ -1013,6 +1023,14 @@
       "name": "status",
       "streams": [
         "subscribe"
+      ]
+    },
+    {
+      "name": "stream-end",
+      "streams": [
+        "attach-byte",
+        "attach-render",
+        "attach-browser"
       ]
     },
     {

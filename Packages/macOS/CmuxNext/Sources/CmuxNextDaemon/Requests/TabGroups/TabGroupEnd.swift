@@ -27,7 +27,7 @@ public struct CloseTabGroupRequest: DaemonRequest {
         self.endTerminals = endTerminals
     }
 
-    enum CodingKeys: String, CodingKey { case group, endTerminals }
+    enum CodingKeys: String, CodingKey { case group, endTerminals = "end_terminals" }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(group, forKey: .group)

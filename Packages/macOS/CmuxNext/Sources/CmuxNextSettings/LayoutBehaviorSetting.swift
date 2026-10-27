@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// `layout.centerFocusedColumn` in cmux.json: "never" (default), "always" or
 /// "on-overflow" (plans/cmux-next/column-scroll.md).

@@ -59,7 +59,7 @@
       "args": {
         "method": "screen.rename",
         "params": {
-          "name": "oracle"
+          "name": "renamed"
         },
         "idempotencyKey": "screen-rename-ok.call"
       },
@@ -71,7 +71,42 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "the screen's name is set"
+    },
+    {
+      "id": "named",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/name",
+        "equals": "renamed",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "screen": "$step:fx-workspace#/value/screen_id"
+      },
+      "args": {
+        "method": "screen.rename",
+        "params": {
+          "name": "renamed"
+        },
+        "idempotencyKey": "screen-rename-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

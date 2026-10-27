@@ -1,4 +1,7 @@
 import CmuxNextActions
+import CmuxNextCompat
+import CmuxNextFeatures
+import CmuxNextMemory
 import CmuxNextSettings
 import os
 
@@ -15,12 +18,14 @@ enum HibernationHandlers {
         for radius in BrowserHibernationSetting.neighborRadiusRange {
             registry.bind(ActionID(rawValue: "browser.keepNeighborTabsAwake.\(radius)"), run: { _ in setNeighbors(radius, context) })
         }
+        bindMemorySaver(into: registry, context: context)
         registry.bind("hibernateTab", invoke: { invocation in
             guard let (_, id) = context.tab(invocation), let hibernation = context.services.cache.hibernation else { return }
             switch hibernation.hibernateNow(id.rawValue) {
             case nil: break
             case .unsupported?: context.refuse(RefusalStrings.hibernateUnsupported)
             case .formSubmission?: context.refuse(RefusalStrings.hibernateFormSubmission)
+            case .discardAttempted?: context.refuse(RefusalStrings.hibernateDiscardAttempted)
             case _?: context.refuse(RefusalStrings.hibernateVisibleTab)
             }
         })
@@ -33,6 +38,35 @@ enum HibernationHandlers {
             guard let (_, id) = context.tab(invocation), let hibernation = context.services.cache.hibernation else { return }
             if !hibernation.wake(id.rawValue) { context.refuseQuietly(RefusalStrings.wakeNotHibernated) }
         })
+    }
+
+    /// `memory.saver.<mode>` (p07-memory-065), behind `memorySaverSetting`: the coordinator takes the
+    /// mode in the action's turn and the validated settings write runs after it. A failed write puts
+    /// the previous mode back (the effect's rollback) and reloads Settings, so the coordinator,
+    /// cmux-next.json and Settings agree again; settings not loaded yet refuse before anything changes.
+    private static func bindMemorySaver(into registry: ActionRegistry, context: AppActionContext) {
+        let services = context.services
+        MemorySaverSetting.bindActions(into: registry, unavailable: {
+            services.features.isEnabled(.memorySaverSetting) ? nil : MemorySaverSetting.featureOffReason
+        }, refusal: { path in
+            guard let settings = services.settings else { return RefusalStrings.settingsNotLoaded }
+            return settings.managedKey(forPath: path).map { RefusalStrings.settingManaged($0.key) }
+        }, write: { path, value in
+            let settings = services.settings
+            // The run's origin, read in its turn: a socket or page run may change only agent-settable keys.
+            let writer = SettingWriter.currentRun()
+            return {
+                guard let settings else { return ActionWorkFailure(RefusalStrings.settingsNotLoaded) }
+                do {
+                    try await settings.setSetting(at: path, to: value, by: writer)
+                    return nil
+                } catch {
+                    logger.error("set memory.saver failed: \(String(describing: error), privacy: .public)")
+                    await settings.reload()
+                    return ActionWorkFailure(String(describing: error))
+                }
+            }
+        }, current: { services.memoryCoordinator.mode }, apply: { services.memoryCoordinator.mode = $0 })
     }
 
     /// Adds `host` to `browser.hibernationExclusions`: applies at once (a hibernated page of it
