@@ -28,7 +28,7 @@ final class SidebarPullRequestCardController {
 
     private let host = SidebarPopoverIslandHost(width: SidebarPullRequestCardView.width)
     private let content = SidebarPullRequestCardView()
-    private let closer = DemandTimer(owner: "sidebar.pull-request-card.close")
+    private let closer = DemandTimer(owner: "sidebar.pull-request-card.close") // timer-class-allow: the 250 ms grace a pointer crossing to the card waits on (visible); no MainDeadlineScheduler reaches the sidebar's cards yet
     private weak var badge: SidebarPullRequestBadgeView?
     private weak var cards: HoverCardCoordinator?
     private var open: ((URL) -> Void)?
@@ -165,7 +165,7 @@ final class SidebarPullRequestCardView: NSView, HoverCardTextReporting {
         performWithTheme { rows.forEach { $0.applyColors() } }
     }
 
-    override func viewDidChangeEffectiveAppearance() {
+    override func viewDidChangeEffectiveAppearance() { // visibility-walk-allow: the rows' label and pill colors only, and the card shows only while presented
         super.viewDidChangeEffectiveAppearance()
         applyColors()
     }
@@ -288,7 +288,7 @@ final class SidebarPullRequestCardRow: NSView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self)
         addTrackingArea(area)
         tracking = area
     }

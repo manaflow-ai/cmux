@@ -125,7 +125,7 @@ public nonisolated enum HomeCoreMapping {
             participants: summary.participants.map(participant), lastSeq: summary.lastSeq, rev: summary.rev,
             createdAt: date(summary.createdAt) ?? .distantPast, updatedAt: date(summary.updatedAt) ?? .distantPast,
             lastMessage: summary.lastMessage.map(message),
-            readCursors: Dictionary(uniqueKeysWithValues: summary.readCursors.map { (ParticipantID($0.key), $0.value) }))
+            readCursors: Dictionary(summary.readCursors.map { (ParticipantID($0.key), $0.value) }, uniquingKeysWith: { first, _ in first }))
     }
 
     /// The parts an op sends. The local owner stores text, work, attachment
