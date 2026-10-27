@@ -15,9 +15,9 @@ import enum CmuxSafeConcurrency.OnceContinuationError
 /// the page's last committed URL and the view's geometry. When the host ends
 /// (a Chromium CHECK, a crash, a kill), cmux keeps running; the page view
 /// shows nothing until a new host gives its context, and
-/// ``ChromiumHostRestartPolicy`` decides whether a new host starts with the
-/// saved page. A host that could not start (``ChromiumHostExit/startFailure``)
-/// is not restarted: a new one would fail the same way. Frames that a host
+/// ``ChromiumHostRestartPolicy`` (Chrome's GPU crash budget) decides whether a
+/// new host starts with the saved page. A host that died before its `ready`
+/// is not restarted: a new one would die the same way. Frames that a host
 /// sent before it ended and that arrive after it ended change nothing.
 ///
 /// Ending on purpose (``close()``) sends `quit` and SIGKILLs a host that has
@@ -74,8 +74,7 @@ public final class ChromiumHostSession {
 
     let configuration: ChromiumHostConfiguration
     private let launcher: any ChromiumHostLaunching
-    private let policy: ChromiumHostRestartPolicy
-    private let now: () -> ContinuousClock.Instant
+    private var policy: ChromiumHostRestartPolicy
     private let quitLimit: Duration
     /// Told each connection the session opens (tests await its reader's end).
     private let connected: (ChromiumHostConnection) -> Void
@@ -84,8 +83,8 @@ public final class ChromiumHostSession {
     let reportsInputPresented: ReportsInputPresented
     @ObservationIgnored var failedInputPresentations = 0
     private(set) var connection: ChromiumHostConnection?
-    private var startedAt: ContinuousClock.Instant?
-    private var isFirstStart = true
+    /// The current host sent `ready`: its Chromium context is initialized.
+    private var saidHello = false
     /// ``close()`` sent `quit` to the running host; its exit does not restart it.
     private var closing = false
     /// ``open(_:)`` came while the host was quitting: start a new host when it has ended.
@@ -125,13 +124,13 @@ public final class ChromiumHostSession {
                             standInPicture: @escaping @MainActor () -> CGImage? = { nil },
                             inputPresented: @escaping InputPresented = { _, _ in },
                             reportsInputPresented: @escaping ReportsInputPresented = { _ in }) {
-        self.init(configuration: configuration, launcher: ChromiumHostLauncher(), now: { ContinuousClock.now },
+        self.init(configuration: configuration, launcher: ChromiumHostLauncher(),
                   idleExit: idleExit, standInPicture: standInPicture, inputPresented: inputPresented,
                   reportsInputPresented: reportsInputPresented)
     }
 
     init(configuration: ChromiumHostConfiguration, launcher: any ChromiumHostLaunching,
-         policy: ChromiumHostRestartPolicy = ChromiumHostRestartPolicy(), now: @escaping () -> ContinuousClock.Instant,
+         policy: ChromiumHostRestartPolicy = ChromiumHostRestartPolicy(),
          quitLimit: Duration = ChromiumHostFrame.quitLimit, idleExit: ChromiumHostIdleExit? = nil,
          standInPicture: @escaping @MainActor () -> CGImage? = { nil },
          inputPresented: @escaping InputPresented = { _, _ in },
@@ -140,7 +139,6 @@ public final class ChromiumHostSession {
         self.configuration = configuration
         self.launcher = launcher
         self.policy = policy
-        self.now = now
         self.quitLimit = quitLimit
         self.idleExit = idleExit?.after
         self.standInPicture = standInPicture
@@ -256,7 +254,6 @@ public final class ChromiumHostSession {
     /// host ended after its idle deadline.
     private func startNew() {
         if phase == .exitedIdle, view.standIn == nil, let picture = standInPicture() { view.showStandIn(picture) }
-        isFirstStart = true
         start()
     }
 
@@ -324,7 +321,7 @@ public final class ChromiumHostSession {
         connected(connection)
         pid = handle.pid
         phase = .starting
-        startedAt = now()
+        saidHello = false
         // The host reads these once Chromium is up; the wire holds them until then.
         connection.send(ChromiumHostFrame(.navigate, payload: Array(url.utf8)))
         if let geometry { connection.send(geometry.frame) }
@@ -357,6 +354,7 @@ public final class ChromiumHostSession {
         switch frame.kind {
         case .ready:
             forkAPI = frame.v[0]
+            saidHello = true
             phase = .running
             reportsInputPresented(frame.reportsInputPresented)
         case .context:
@@ -407,44 +405,40 @@ public final class ChromiumHostSession {
         statsWaiters = [:]
         quitDeadline.cancel()
         idleDeadline?.cancel()
-        let ranFor = startedAt.map { now() - $0 } ?? .zero
         let endedIdle = idleQuitting
         idleQuitting = false
-        if let failure = exit.startFailure {
-            // The host could not start (no wire, no framework, an old fork, CefInitialize):
-            // a new host would fail the same way, so none starts until ``open(_:)``.
+        // A quit (close or the idle exit) is cmux's own end: it spends nothing of the budget.
+        switch policy.hostEnded(exit, saidHello: saidHello, cause: closing ? .quit : .crash) {
+        case .notCounted:
             closing = false
-            reopenWhenEnded = false
-            view.removeStandIn()
-            phase = .ended(failure)
-        } else if closing, endedIdle {
-            closing = false
-            idleExits += 1
-            phase = .exitedIdle
-            // Shown again while it quit (and still shown), or opened: the new host starts under the stand-in.
-            if reopenWhenEnded || isLive {
+            if endedIdle {
+                idleExits += 1
+                phase = .exitedIdle
+                // Shown again while it quit (and still shown), or opened: the new host starts under the stand-in.
+                if reopenWhenEnded || isLive {
+                    reopenWhenEnded = false
+                    startNew()
+                }
+            } else if reopenWhenEnded {
                 reopenWhenEnded = false
-                startNew()
-            }
-        } else if closing {
-            closing = false
-            if reopenWhenEnded {
-                reopenWhenEnded = false
-                isFirstStart = true
                 start()
             } else {
                 phase = .idle
             }
-        } else if idleExit != nil, !isLive {
+        case .restart where idleExit != nil && !isLive:
             // A hidden page's host crashed: nothing shows it, so the next show starts its host.
             phase = .exitedIdle
-        } else if policy.restarts(ranFor: ranFor, isFirstStart: isFirstStart) {
+        case .restart:
             restarts += 1
-            isFirstStart = false
             start()
-        } else {
+        case .ended(let crashes):
             view.removeStandIn()
-            phase = .ended("ended twice within \(policy.quickEnd): \(exit)")
+            phase = .ended("ended \(crashes) times within \(policy.forgiveAfter): \(exit)")
+        case .cannotStart(let failure):
+            // No wire, no framework, an old fork, CefInitialize, or a death before `ready`:
+            // a new host would fail the same way, so none starts until ``open(_:)``.
+            view.removeStandIn()
+            phase = .ended(failure.description)
         }
     }
 

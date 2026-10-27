@@ -73,8 +73,10 @@ cmux (app)                          <App>.app/Contents/MacOS/<App> Chromium Host
 - Crash: a thread blocked in `waitid(WEXITED | WNOWAIT)` reports the exit with its signal (SIGTRAP is a CHECK). The supervisor
   (prototype: `ChromiumHostSession`) clears every page's context (no stale pixels), restarts the host and reloads each
   page from the saved session: today's `cmux_shim_tab_navigation_state` / `tab_restore_navigation` (fork v7) per tab,
-  which `BrowserHistory` already saves on every commit (`S/CEFTab+RestoredHistory.swift`). The app's safe-restart rule
-  applies (`ChromiumHostRestartPolicy`): a host that ends again within 60 s stays ended; pages show "Reload".
+  which `BrowserHistory` already saves on every commit (`S/CEFTab+RestoredHistory.swift`). Chrome's GPU crash budget
+  applies (`ChromiumHostRestartPolicy`, `GpuProcessHost::RecordProcessCrash`): each 5 min forgives one crash, the 3rd
+  recent crash leaves the host ended and pages show "Reload"; quit, logout and updates spend nothing; a host that dies
+  before its `ready` cannot start (exit code and code-signature check) and is not retried.
 - The exit is read with `waitid(WNOWAIT)`: the host's pid stays a zombie until the supervisor reaps it, so a SIGKILL
   that cmux sends to a broken host (a bad frame, a flood, a full send buffer) can never reach a reused pid.
 
