@@ -3407,6 +3407,13 @@ jobs:
           mkdir -p "$state/snapshot"
           app="build-universal/Build/Products/Release/cmux.app"
           cp -a "$app" "$state/snapshot/cmux.app"
+          # The proof covers the compiled app. build-nightly-app now installs the
+          # cmux-tui client before this job (#25885); the proof ran before that
+          # install until then, so it never scanned the client. Drop what
+          # the client install writes from the copy to keep that scope.
+          ( cd "$state/snapshot/cmux.app/Contents/Resources/bin" 2>/dev/null &&
+            rm -rf cmux cmux-tui cmux-app-host cmux-cloud cmux-tui-host cmux-holder cmux-browser-host \
+              cmux-tui-ssh cmux-tui.version daemon-capabilities.json ) || true
           mkfifo "$state/status.fifo"
           (
             status=0
@@ -5960,6 +5967,13 @@ jobs:
       # secondary rate-limit backoff (runs 40357982361, 40376320918). The GitHub release copy,
       # its aliases, metadata and tag follow in publish-nightly-next-github, which never holds
       # the feed. Same bytes, so the item's EdDSA signature is unchanged.
+      - name: Keep the live feed's newest Nightly item beside the new build
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
+        env:
+          DEV_RING: ${{ steps.ring.outputs.mode || 'off' }}
+        run: |
+          bash .publish-tooling/scripts/ci/nightly-steps/publish-next-feed-keep-nightly.sh $(printf 'nightly-out/%s ' $NIGHTLY_FEEDS)
+
       # The build job tagged its items from its own snapshot of the switch; the feed goes out
       # tagged from the live one (a Dev item stays Dev only while the ring is on and no pass).
       - name: Tag the new build's items from the live Dev ring switch
@@ -7420,6 +7434,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          RELEASE_POKE_URL: https://presence.cmux.dev/releases/v1/poke?feed=nightly-next-legacy
         run: bash scripts/ci/nightly-steps/legacy-identity-publish.sh
 
       # Retire the continued submission once it is published, or when Apple's
@@ -7449,35 +7464,7 @@ jobs:
           # Apple's answer as the signing job saw it (a notary log or a stapled ticket).
           APPLE: ${{ needs.sign-nightly-identity-legacy.outputs.apple || 'unknown' }}
           REQUIREMENT_REFUSED: ${{ needs.sign-nightly-identity-legacy.outputs.requirement_refused || 'false' }}
-        run: |
-          set -euo pipefail
-          apple="$APPLE"
-          refused="$REQUIREMENT_REFUSED"
-          decision="$(python3 scripts/ci/nightly-next-legacy-resolve.py --action "$LEGACY_ACTION" --pending "$PENDING" \
-            --notarize "$NOTARIZE" --published "$PUBLISHED" --apple "$apple" --requirement-refused "$refused")"
-          echo "$decision" >> "$GITHUB_OUTPUT"
-          echo "attempt: action=$LEGACY_ACTION pending=$PENDING notarize=$NOTARIZE published=$PUBLISHED apple=$apple -> $(tr '\n' ' ' <<<"$decision")"
-          if [ "$LEGACY_ACTION" = continue ] && grep -Fxq retire=true <<<"$decision"; then
-            for run in "$PENDING_RUN" "$BUNDLE_RUN"; do
-              for name in cmux-nightly-identity-pending-meta cmux-nightly-identity-pending-bundle; do
-                gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts?name=$name" --jq '.artifacts[].id' \
-                  | while IFS= read -r id; do gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id" || true; done
-              done
-            done
-            echo "retired the pending submission of runs $PENDING_RUN/$BUNDLE_RUN"
-          elif [ "$LEGACY_ACTION" = continue ]; then
-            echo "kept the pending submission of run $BUNDLE_RUN"
-          fi
-          # Apple accepted it but a later step failed: store metadata that marks
-          # the bundle accepted, so later runs continue it with no time limit
-          # and never submit the build again (newest metadata wins).
-          if [ "$LEGACY_ACTION" = continue ] && grep -Fxq mark_accepted=true <<<"$decision"; then
-            [ -f pending/pending.json ] || { echo "the signing job left no metadata of the continued submission" >&2; exit 1; }
-            mkdir -p accepted-meta
-            python3 -I -c 'import json, sys; m = json.load(open(sys.argv[1])); m["accepted"] = True; m["bundle_run"] = sys.argv[2]; json.dump(m, open(sys.argv[3], "w"))' \
-              pending/pending.json "$BUNDLE_RUN" accepted-meta/pending.json
-            cat accepted-meta/pending.json
-          fi
+        run: bash scripts/ci/nightly-steps/legacy-identity-resolve.sh
 
       - name: Store the accepted submission's metadata
         if: always() && steps.resolve.outputs.mark_accepted == 'true'
@@ -7748,6 +7735,7 @@ jobs:
             scripts/ci/upload-r2-object.py
             scripts/ci/gh_app_token.sh
             scripts/ci/nightly_next_dev_ring.sh
+            scripts/ci/nightly-steps/publish-next-feed-keep-nightly.sh
           sparse-checkout-cone-mode: false
 
       - *gh-app-token-write
@@ -7826,8 +7814,10 @@ jobs:
             exit 0
           fi
           # The revised feed lists earlier builds again, all on the new build's
-          # ring: each goes back to Nightly when its canary verdict is a pass.
+          # ring: each goes back to Nightly when its canary verdict is a pass. It
+          # keeps the live feed's newest Nightly item as publish-nightly does.
           if [ "$TRACK" = nightly-next ]; then
+            bash .publish-tooling/scripts/ci/nightly-steps/publish-next-feed-keep-nightly.sh nightly-deltas/appcast*.xml
             for feed in nightly-deltas/appcast*.xml; do
               [ -f "$feed" ] || continue
               python3 .publish-tooling/scripts/ci/nightly_next_ring.py retag --feed "$feed" --out "$feed" \
