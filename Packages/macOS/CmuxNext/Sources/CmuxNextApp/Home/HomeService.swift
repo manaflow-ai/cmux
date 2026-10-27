@@ -227,7 +227,7 @@ final class HomeService {
             if self?.settleNotice != text { self?.settleNotice = text }
         }
         watchReplies()
-        chief.start(work: services.work)
+        chief.start(work: services.work, installKeys: services.environment.installKeys)
         startCloud()
         // task-owner: lives as long as the service; event-driven (Observation)
         homeStore.start()

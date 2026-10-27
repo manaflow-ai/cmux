@@ -61,7 +61,8 @@ extension AppServices {
     /// OSC 10/11/12 queries match the screen, and each connect sends them again.
     func startLocalDaemon(prestart: DaemonPrestart?) {
         terminalColors.apply()
-        daemon.start(work: work, launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
+        daemon.start(work: work, launch: environment.launch, installKeys: environment.installKeys,
+                     terminalEnvironment: environment.terminalEnvironment,
                      resolvedTerminalEnvironment: environment.resolvedTerminalEnvironment(),
                      terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
                      resolvesShellIntegration: environment.resolvesShellIntegration, prestart: prestart, launchSnapshot: environment.launchSnapshot)

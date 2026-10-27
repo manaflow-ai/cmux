@@ -1,5 +1,4 @@
 public import Foundation
-import Security
 
 /// Where the app keeps its `FrontendInstallKey`, one per tagged daemon
 /// session. Only unsigned or ad-hoc development builds have one: a 0600 file
@@ -12,42 +11,23 @@ public protocol FrontendInstallKeyStore: Sendable {
     func loadOrCreate() -> FrontendInstallKey?
 }
 
-public struct FrontendInstallKeyStores {
-    public init() {}
+/// Picks the app's `FrontendInstallKeyStore` from this process's code signing team, which the composition
+/// root injects: on macOS `SigningTeamInstall`, read once on the system lane; on Linux no team, since an
+/// ELF binary carries no code signature, so every Linux build gets the 0600 file. The launchers never ask
+/// for the signature themselves.
+public struct FrontendInstallKeyStores: Sendable {
+    private let team: @Sendable () -> String?
 
-    /// The store for this app process, or nil. `team` is this process's Team
-    /// ID: a signed build gets no store, whatever sits in its state directory.
-    public static func forApp(stateDirectory: URL?,
-                              team: String? = CodeSigningTeam.current()) -> (any FrontendInstallKeyStore)? {
-        guard team == nil, let stateDirectory else { return nil }
-        return FileFrontendInstallKeyStore(file: stateDirectory.appendingPathComponent("frontend-install-key"))
+    /// - Parameter team: This process's code signing Team ID, nil for an unsigned or ad-hoc build. Read when a
+    ///   launcher picks its store, never here.
+    public init(team: @escaping @Sendable () -> String?) {
+        self.team = team
     }
-}
 
-/// This process's code signing Team ID, if it has one.
-public struct CodeSigningTeam {
-    public init() {}
-
-    /// Read once per process: the signature of a running process does not change. Three
-    /// callers asked at launch on the main thread (the daemon prestart, CloudService and the
-    /// Chief's launcher), three SecCode reads each, which Security reports as main-thread
-    /// calls that "may lead to UI unresponsiveness".
-    public static func current() -> String? { cached }
-
-    private static let cached: String? = read()
-
-    private static func read() -> String? {
-        var code: SecCode?
-        // SAFETY (each Copy call below): Security stores at most one +1 object, which ARC then owns, into the
-        // optional local it is given, live for the call.
-        guard unsafe SecCodeCopySelf([], &code) == errSecSuccess, let code else { return nil }
-        var staticCode: SecStaticCode?
-        // SAFETY: as above.
-        guard unsafe SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
-        var information: CFDictionary?
-        // SAFETY: as above.
-        guard unsafe SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &information) == errSecSuccess,
-              let dictionary: [String: Any] = information as? [String: Any] else { return nil }
-        return dictionary[kSecCodeInfoTeamIdentifier as String] as? String
+    /// The store for this app process, or nil: a signed build gets no store, whatever sits in its state
+    /// directory.
+    public func forApp(stateDirectory: URL?) -> (any FrontendInstallKeyStore)? {
+        guard let stateDirectory, team() == nil else { return nil }
+        return FileFrontendInstallKeyStore(file: stateDirectory.appendingPathComponent("frontend-install-key"))
     }
 }

@@ -107,12 +107,14 @@ public final class ChiefConversationOwner {
     }
 
     /// Ensures the owner and keeps a connection to it, its launcher's disk steps on `work` (the app's one
-    /// ``BackgroundWork``). Idempotent.
-    public func start(work: BackgroundWork, bundle: Bundle = .main, environment: [String: String] = ProcessInfo.processInfo.environment) {
+    /// ``BackgroundWork``). Idempotent. `installKeys`: as in `DaemonLauncher.forChief`.
+    public func start(work: BackgroundWork, installKeys: FrontendInstallKeyStores, bundle: Bundle = .main,
+                      environment: [String: String] = ProcessInfo.processInfo.environment) {
         guard runTask == nil else { return }
         let launcher: DaemonLauncher
         do {
             launcher = try DaemonLauncher.forChief(work: work, session: home.session, stateDirectory: home.daemonStateDirectory,
+                                                   installKeys: installKeys,
                                                    bundle: bundle, processEnvironment: Self.ownerEnvironment(home: home, process: environment, bundle: bundle))
         } catch {
             lastError = String(describing: error)

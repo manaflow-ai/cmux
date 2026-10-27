@@ -167,7 +167,9 @@ public final class DaemonService {
     /// (`DaemonService.prestart`); without one the first attempt starts here, its launcher's disk steps on
     /// `work` (the app's one ``BackgroundWork``). `launchSnapshot` is the snapshot's read `main` began; without one
     /// the read is posted to `work` here (``DaemonLaunchSnapshot/take(_:session:stateDirectory:work:)``).
-    public func start(work: BackgroundWork, launch: LaunchIdentity, terminalEnvironment: [String: String],
+    /// `installKeys`: as in `DaemonLauncher.forApp`.
+    public func start(work: BackgroundWork, launch: LaunchIdentity, installKeys: FrontendInstallKeyStores,
+               terminalEnvironment: [String: String],
                resolvedTerminalEnvironment: (@Sendable () async -> [String: String])? = nil,
                terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
                resolvesShellIntegration: Bool = false,
@@ -179,7 +181,7 @@ public final class DaemonService {
             retryWake = prestart.wake
         } else {
             do {
-                launcher = try DaemonLauncher.forApp(work: work, build: launch.build,
+                launcher = try DaemonLauncher.forApp(work: work, build: launch.build, installKeys: installKeys,
                                                 terminalEnvironment: terminalEnvironment,
                                                 resolvedTerminalEnvironment: resolvedTerminalEnvironment,
                                                 daemonEnvironment: Self.firstPartyAppsEnvironment, webSocketPageOrigins: Self.pageOrigins,

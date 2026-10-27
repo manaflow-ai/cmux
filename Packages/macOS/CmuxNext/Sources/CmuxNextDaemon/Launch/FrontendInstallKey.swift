@@ -1,4 +1,8 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 public import Foundation
 
 /// The app's install key (P8 slice 3b-2, plans/cmux-next/identity.md):

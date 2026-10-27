@@ -141,9 +141,11 @@ public struct DaemonLauncher: Sendable {
     /// environment at startup and honors it only inside its own app bundle, so no child inherits it (bead cx-e0cs).
     /// `resolvedTerminalEnvironment` adds the keys the app looks up on the disk off the main thread (Ghostty's `TERM`
     /// and resources), awaited when `server ensure` builds its environment, over `terminalEnvironment`.
+    /// `installKeys` is the composition root's, so an unsigned build hands its daemon the install key.
     public static func forApp(
         work: BackgroundWork,
         build: BuildIdentity,
+        installKeys: FrontendInstallKeyStores,
         terminalEnvironment: [String: String],
         resolvedTerminalEnvironment: (@Sendable () async -> [String: String])? = nil,
         daemonEnvironment: [String: String] = [:], webSocketPageOrigins: [String] = [],
@@ -156,7 +158,7 @@ public struct DaemonLauncher: Sendable {
         let binary = try resolveBinary(bundle: bundle, environment: processEnvironment)
         DaemonLaunchTimings.shared.mark("daemon.binary_resolved")
         let (session, stateDirectory) = appNames(build: build, applicationSupport: applicationSupport, log: true)
-        let keyStore = FrontendInstallKeyStores.forApp(stateDirectory: stateDirectory)
+        let keyStore = installKeys.forApp(stateDirectory: stateDirectory)
         let configuration = Configuration(binary: binary, session: session, stateDirectory: stateDirectory,
                                           rememberedSocket: socketMemory.socket(session: session),
                                           installKey: keyStore?.loadOrCreate(),
@@ -177,11 +179,12 @@ public struct DaemonLauncher: Sendable {
     /// state in `stateDirectory`, shared by every build of one account. It
     /// spawns no terminals, so `server ensure` gets the process environment
     /// without any app or terminal identity, and it is never handed off to a
-    /// connecting build's binary.
+    /// connecting build's binary. `installKeys` is the composition root's.
     public static func forChief(
         work: BackgroundWork,
         session: String,
         stateDirectory: URL,
+        installKeys: FrontendInstallKeyStores,
         bundle: Bundle = .main,
         processEnvironment: [String: String] = ProcessInfo.processInfo.environment
     ) throws -> DaemonLauncher {
@@ -190,7 +193,7 @@ public struct DaemonLauncher: Sendable {
         // install key, as with its own daemon: the owner then takes its origin.confirmation.issue
         // (a Home page's Chief create on the person's gesture). A signed build proves it by its
         // code signature and gets no key.
-        let installKey = FrontendInstallKeyStores.forApp(stateDirectory: stateDirectory)?.loadOrCreate()
+        let installKey = installKeys.forApp(stateDirectory: stateDirectory)?.loadOrCreate()
         let configuration = Configuration(binary: binary, session: session, stateDirectory: stateDirectory,
                                           installKey: installKey, binaryIsBundled: isBundledBinary(binary, bundle: bundle))
         let environment = chiefEnvironment(processEnvironment)

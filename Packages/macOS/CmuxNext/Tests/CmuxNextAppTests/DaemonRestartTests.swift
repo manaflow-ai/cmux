@@ -105,7 +105,8 @@ struct DaemonRestartTests {
         let services = AppServices(environment: environment)
         services.windows.ordersWindowsIn = false
         let prestart = DaemonPrestart(launcher: launcher, configuration: DaemonConnection.Configuration(terminalEnvironment: nil))
-        services.daemon.start(work: services.work, launch: environment.launch, terminalEnvironment: [:], terminalEnvironmentProvider: { [:] },
+        services.daemon.start(work: services.work, launch: environment.launch, installKeys: environment.installKeys,
+                              terminalEnvironment: [:], terminalEnvironmentProvider: { [:] },
                               prestart: prestart)
         services.windows.restoreWhenLoaded()
         return Launched(services: services, standIn: standIn)

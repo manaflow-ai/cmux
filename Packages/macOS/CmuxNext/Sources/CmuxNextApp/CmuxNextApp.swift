@@ -143,7 +143,8 @@ public struct CmuxNextApp {
         let wireStats = DaemonWireStats.forBuild(fieldData: features.isEnabled(.ipcMethodLatencyFieldData),
                                                  methods: MethodTable.schema.methods.map { .init(id: $0.id.rawValue, name: $0.name) })
         // The daemon connect overlaps AppKit's start (off the main thread).
-        let prestart = DaemonService.prestart(work: work, launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
+        let prestart = DaemonService.prestart(work: work, launch: environment.launch, installKeys: environment.installKeys,
+                                              terminalEnvironment: environment.terminalEnvironment,
                                               resolvedTerminalEnvironment: environment.resolvedTerminalEnvironment(),
                                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
                                               resolvesShellIntegration: environment.resolvesShellIntegration,

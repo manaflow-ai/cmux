@@ -1,4 +1,8 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 import Foundation
 
 /// One `cmux.protocol/2` operation named at runtime, for relays that forward a caller's typed

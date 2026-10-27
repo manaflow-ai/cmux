@@ -17,18 +17,19 @@ extension DaemonService {
     /// Begins the local daemon's first connect attempt off the main thread,
     /// at the top of `main`, so it overlaps AppKit's start; `start(launch:…
     /// prestart:)` takes it over. Nil when the launcher cannot be made (the
-    /// later `start` reports why). `resolvedTerminalEnvironment`: as in `DaemonLauncher.forApp`. `work` is the app's
+    /// later `start` reports why). `resolvedTerminalEnvironment` and `installKeys`: as in `DaemonLauncher.forApp`. `work` is the app's
     /// one ``BackgroundWork`` (the launcher's disk steps). Its connect milestones (`daemon.connect_started`,
     /// `spawned`, `identified`, `snapshot_received`) go to the launch timings, once each, for the connection the
     /// service attaches.
-    public nonisolated static func prestart(work: BackgroundWork, launch: LaunchIdentity, terminalEnvironment: [String: String],
+    public nonisolated static func prestart(work: BackgroundWork, launch: LaunchIdentity, installKeys: FrontendInstallKeyStores,
+                                     terminalEnvironment: [String: String],
                                      resolvedTerminalEnvironment: (@Sendable () async -> [String: String])? = nil,
                                      terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
                                      resolvesShellIntegration: Bool = false,
                                      echoesPlacementShift: Bool = false,
                                      wireStats: DaemonWireStats? = nil,
                                      hangWatch: (any HangWatchScoping)? = nil) -> DaemonPrestart? {
-        guard let launcher = try? DaemonLauncher.forApp(work: work, build: launch.build,
+        guard let launcher = try? DaemonLauncher.forApp(work: work, build: launch.build, installKeys: installKeys,
                                                 terminalEnvironment: terminalEnvironment,
                                                 resolvedTerminalEnvironment: resolvedTerminalEnvironment,
                                                 daemonEnvironment: firstPartyAppsEnvironment,

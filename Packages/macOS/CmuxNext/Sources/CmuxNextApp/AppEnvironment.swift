@@ -13,6 +13,9 @@ import Foundation
 /// variables were stripped in `CmuxNextApp.shared.main` before this is read.
 struct AppEnvironment: Sendable {
     let launch: LaunchIdentity
+    /// Where this app keeps its daemon install key, chosen by its signing team (`SigningTeamInstall`, which
+    /// `main` loads on the system lane): only an unsigned or ad-hoc build has one.
+    let installKeys: FrontendInstallKeyStores
     /// `CMUX_NEXT_NO_ACTIVATE=1`: never take focus from the user's frontmost
     /// app (agent preflights and background launches). Windows open ordered
     /// back and the app never activates itself.
@@ -138,6 +141,7 @@ struct AppEnvironment: Sendable {
         let launch = LaunchIdentity.current()
         return AppEnvironment(
             launch: launch,
+            installKeys: FrontendInstallKeyStores(team: { SigningTeamInstall.process.team }),
             noActivate: isolation.noActivate,
             isolatedLaunch: isolation.isolated,
             showcase: showcase,
