@@ -4845,7 +4845,9 @@ function AcpmuxPane() {
   const continueAvailable = canContinueIn(snapshot);
   /// Takes acpmux's trust refusal of a prompt (useFolderTrustAsk.ts): the question shows for the
   /// folder it named, and `again` sends the held prompt after Trust.
-  const trustRefused = useRef<((error: unknown, again?: () => void) => boolean) | undefined>(undefined);
+  const trustRefused = useRef<((error: unknown, again?: () => void, declined?: () => void) => boolean) | undefined>(
+    undefined,
+  );
   /// Keeps a send's gesture for the prompt acpmux held behind the trust question (heldPrompt.ts).
   const holdPrompt = useRef<(() => void) | undefined>(undefined);
   // A folder without a trust answer is asked about beside the chat's other permission asks as
@@ -7260,8 +7262,8 @@ function AcpmuxPane() {
         });
         // Every trust refusal (a new chat, a resumed one, a switch, a prewarm, a prompt) shows the
         // folder's one question above the composer; Trust re-runs the refused step (cx-nn3e).
-        client.onTrustRefused = (refusal, again) => {
-          trustRefused.current?.(refusal, again);
+        client.onTrustRefused = (refusal, again, declined) => {
+          trustRefused.current?.(refusal, again, declined);
         };
         // Only a connected client clears the error, so a stale endpoint doesn't flicker it away.
         setHostError(undefined);

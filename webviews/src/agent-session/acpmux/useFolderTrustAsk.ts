@@ -146,7 +146,7 @@ export function useFolderTrustAsk(
   const [reads, setReads] = useState(0);
   /// The folder acpmux named in a trust refusal for this chat, and the prompt to send after Trust.
   const [refusal, setRefusal] = useState<{ sessionId?: string; cwd?: string }>();
-  const resend = useRef<(() => void) | undefined>(undefined);
+  const resend = useRef<{ again: () => void; declined?: () => void } | undefined>(undefined);
   /// What acpmux's last trust refusal for this chat said of its folder: the question draws from it
   /// when the folder's read gets no answer in time (a peer's folder, read over the peer link).
   const refusedTrust = useRef<{ sessionId?: string; cwd: string; level: TrustLevel } | undefined>(undefined);
@@ -287,7 +287,8 @@ export function useFolderTrustAsk(
         // The prompt acpmux refused goes now that the folder is trusted; another answer keeps it.
         const held = resend.current;
         resend.current = undefined;
-        if (level === "trusted") held?.();
+        if (level === "trusted") held?.again();
+        else held?.declined?.();
       } catch {
         if (stillHere()) setAsk({ cwd: asked.cwd, state: "failed" });
       } finally {
@@ -330,7 +331,7 @@ export function useFolderTrustAsk(
     /// Takes a refusal from acpmux: for its folder trust it reads the folder it named again (the
     /// question shows), keeps `again` to send after Trust, and is true; any other refusal is false.
     refused: useCallback(
-      (error: unknown, again?: () => void): boolean => {
+      (error: unknown, again?: () => void, declined?: () => void): boolean => {
         const said = trustRefusal(error);
         if (!said) return false;
         const named = said.cwd;
@@ -345,7 +346,7 @@ export function useFolderTrustAsk(
         setTrusted(false);
         setReading(true);
         // A refusal without its own re-run (a prompt the client routed first) keeps the one set.
-        if (again) resend.current = again;
+        if (again) resend.current = { again, declined };
         setReads((count) => count + 1);
         return true;
       },
