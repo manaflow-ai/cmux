@@ -40,6 +40,8 @@ import Testing
         #expect(intents.isEmpty, "releasing the menu must not also create the default tab")
         #expect(button.accessibilityPerformPress())
         #expect(presentations == 2, "VoiceOver opens the same type menu")
+        #expect(button.accessibilityPerformShowMenu())
+        #expect(presentations == 3)
     }
 
     @Test func optionClickStillCreatesTheSameKind() throws {
@@ -54,11 +56,7 @@ import Testing
         let point = button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: strip)
         strip.pressedNewTab = true
         #expect(strip.endNewTabPress(at: point, modifiers: [.option]))
-        #expect(intents.count == 1)
-        guard case .newTab(after: nil, sameKind: true) = intents.first else {
-            Issue.record("Option-click must keep the existing same-kind action")
-            return
-        }
+        #expect(intents == [.newTab(after: nil, sameKind: true)], "Option-click keeps the existing same-kind action")
     }
 
     @Test func creationButtonsStayVisibleForChatAndTargetTheirOwnPane() throws {
@@ -84,6 +82,7 @@ import Testing
         }
         #expect(calls.count == 2)
         #expect(calls.allSatisfy { $0.target == pane && $0.origin == .user })
+        registry.bind("splitRight", invoke: { _ in })
         toolbar.update(target: "sample-terminal", kind: .terminal, pinned: ["splitRight"])
         #expect(toolbar.view.items.prefix(2).allSatisfy(\.alwaysVisible))
         #expect(toolbar.view.items.last?.id == "splitRight", "existing pinned controls remain available")

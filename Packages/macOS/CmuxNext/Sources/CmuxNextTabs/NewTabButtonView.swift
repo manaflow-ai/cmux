@@ -119,6 +119,12 @@ final class NewTabButtonView: NSView {
         }
     }
 
+    override func accessibilityPerformShowMenu() -> Bool {
+        guard showsChevron else { return false }
+        onPress?()
+        return true
+    }
+
     override func accessibilityPerformPress() -> Bool {
         onPress?()
         return true
