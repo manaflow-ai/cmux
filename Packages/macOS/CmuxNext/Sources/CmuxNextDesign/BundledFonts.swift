@@ -24,7 +24,11 @@ public nonisolated struct BundledFonts: Sendable {
     static func file(_ name: String) -> URL? {
         let dot = name.lastIndex(of: ".") ?? name.endIndex
         let ext = dot < name.endIndex ? String(name[name.index(after: dot)...]) : nil
-        return resources.bundle?.url(forResource: String(name[..<dot]), withExtension: ext)
+        let base = String(name[..<dot])
+        // SwiftPM's `.process("Resources")` flattens Resources/Fonts into the bundle's root (as it
+        // does Resources/BackdropArt); a build that keeps the folder has it under Fonts/.
+        return resources.bundle?.url(forResource: base, withExtension: ext)
+            ?? resources.bundle?.url(forResource: base, withExtension: ext, subdirectory: "Fonts")
     }
 
     /// Whether the UI font is a process font: the first read registers the TTF (or finds it
