@@ -73,6 +73,9 @@ public final class WebUIHost {
     /// (``webBundleDidChange()``). Armed at the first page open, so a launch that shows no page reads
     /// nothing; the first page loads bundled and reloads once the file is read.
     public let devOverride = WebDevOverrideWatcher()
+    /// A web files change reloads only the shown pages; hidden and frozen ones reload when they show
+    /// (feature `webUpdateReloadOnShow`, ``webBundleDidChange()``). Off: every page reloads at the change.
+    package var bundleReloadsOnShow = false
     #if DEBUG || CMUX_BENCH_HOOKS
     /// Yields when a page's oracle reading may have changed (the `webviews` facet's wait, p15-oracle-215): a page
     /// ``observeOracleState(of:)`` hooked posted ``PageRouter/oracleStateChangedOp`` or its document loaded.
@@ -195,21 +198,26 @@ public final class WebUIHost {
 // The served web files change (a web UI update at its safe point, a `web-dev.json` change): only the
 // pages a person sees are asked and reloaded (p13-webui.md 3.C, task 071).
 extension WebUIHost: WebBundleHost {
-    /// Every live page of the host's registry, which lists the pages it opened and, in the app, the
-    /// views made outside it while the static forwarders remain (p13-webui-010); not the preloaded
-    /// page, which nobody sees and the swap makes again.
+    /// Every live WebKit page of the host's registry (``PageWebView/bundleServedByOverlay``), which
+    /// lists the pages it opened and, in the app, the views made outside it while the static
+    /// forwarders remain (p13-webui-010), the pool's parked spare included. With
+    /// ``bundleReloadsOnShow``, not the preloaded page, which nobody sees and the swap makes again.
     package var webBundlePages: [any WebBundlePage] {
-        let preloaded = preload?.page?.preloadView
-        return registry.pages().filter { page in preloaded.map { !page.isDescendant(of: $0) } ?? true }
+        let preloaded = bundleReloadsOnShow ? preload?.page?.preloadView : nil
+        return registry.pages().filter { page in
+            page.bundleServedByOverlay && (preloaded.map { !page.isDescendant(of: $0) } ?? true)
+        }
     }
 
-    /// Shown pages reload now; hidden and frozen ones are marked and reload when they show
-    /// (``PageWebView/bundleStale``), so a frozen page is never woken. The preloaded page is dropped
-    /// and made again from the new files. A document kept meanwhile keeps loading its lazy chunks
-    /// from the files it started with (``WebBundleOverlay/Pin``).
+    /// With ``bundleReloadsOnShow``, shown pages reload now; hidden and frozen ones are marked and
+    /// reload when they show (``PageWebView/bundleStale``), so a frozen page is never woken, and the
+    /// preloaded page is dropped and made again from the new files. Without it, every page that
+    /// holds a document reloads now. The parked spare is marked either way and its claim loads the
+    /// new files. A document kept meanwhile keeps loading its lazy chunks from the files it started
+    /// with (``WebBundleOverlay/Pin``).
     @discardableResult
     package func webBundleDidChange() -> Int {
-        preload?.dropStale()
-        return reloadShownMarkingOthers(webBundlePages)
+        if bundleReloadsOnShow { preload?.dropStale() }
+        return reloadOrMarkStale(webBundlePages)
     }
 }

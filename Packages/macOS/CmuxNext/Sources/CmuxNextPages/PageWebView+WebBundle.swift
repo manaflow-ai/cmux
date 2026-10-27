@@ -10,9 +10,15 @@ extension PageWebView: WebBundlePage {
     return typeof held === "string" && held ? held : null;
     """
 
-    package var bundleShown: Bool { engineVisible && bundleHasDocument }
+    package var bundleShown: Bool { engineVisible && bundleHasDocument && !isParkedSpare }
 
-    package var bundleHasDocument: Bool { !awaitsFirstShow && !isDiscarded && !isParkedSpare }
+    package var bundleHasDocument: Bool { !awaitsFirstShow && !isDiscarded }
+
+    package var bundleParked: Bool { isParkedSpare }
+
+    /// Its document came from the scheme handler, which serves the web update folder: a WebKit page.
+    /// A Chromium page keeps its bundled files (plans/cmux-next/web-ota.md), so no change reaches it.
+    package var bundleServedByOverlay: Bool { webKitEngine != nil }
 
     package var bundleLoading: Bool { loadState.isLoading }
 

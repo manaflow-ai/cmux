@@ -72,8 +72,9 @@ extension PageWebView {
     /// pushes); the glass feed stops while the page is hidden and pushes what changed on the show's
     /// next frame (``GlassBackdropFeed/setPageShown(_:)``); a page whose renderer died while hidden reloads as it shows (``PageCrashRecovery/engineVisibilityChanged(_:page:)``); a page
     /// that hangs shows its "Page unresponsive" card only while it shows (``PageHangNotice``); a page
-    /// whose web files changed while it was hidden reloads as it shows (``bundleStale``), unless its
-    /// crash reload already loads it.
+    /// whose web files changed while it was hidden reloads as it shows (``bundleStale``, set only with
+    /// feature `webUpdateReloadOnShow`), unless its crash reload already loads it. A parked spare keeps
+    /// its mark for its claim (``retarget(descriptor:routes:route:documentAttributes:surface:dynamicResources:)``).
     func setEngineVisible(_ visible: Bool) {
         engineVisible = visible
         if visible { thawPage() }
@@ -81,8 +82,9 @@ extension PageWebView {
         chromiumSession?.page.setVisible(visible)
         chromiumSession?.hang.visibilityChanged(visible)
         holdDeliveryWhileHidden(visible: visible)
-        let reloadsStale = visible && bundleStale && !crash.needsReload
-        if visible { bundleStale = false }
+        let showsStale = visible && bundleStale && !isParkedSpare
+        let reloadsStale = showsStale && !crash.needsReload
+        if showsStale { bundleStale = false }
         crash.engineVisibilityChanged(visible, page: self)
         if reloadsStale { reloadPage() }
         #if DEBUG || CMUX_BENCH_HOOKS

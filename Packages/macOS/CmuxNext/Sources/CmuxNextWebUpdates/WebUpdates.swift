@@ -12,10 +12,11 @@ import Observation
 /// bundled web output sits in an update, starts the launch check of the kept update before a
 /// page loads, follows `updates.web`, and makes a ready update the served one at a safe point
 /// (``WebSwapGate``, WebUpdates+SafePoint.swift): at once while no page shows, else once nobody has
-/// touched cmux for a while (or it has been behind other apps for a moment) and every shown page
-/// answers that a reload keeps what it holds. The swap goes through the page host
-/// (``WebBundleHost/webBundleDidChange()``): shown pages reload in place, hidden and frozen ones reload
-/// when they show, and the preload is made again. Until then a page keeps the files it started with
+/// touched cmux for a while (or it has been behind other apps for a moment) and every page the swap
+/// reloads answers that a reload keeps what it holds. The swap goes through the page host
+/// (``WebBundleHost/webBundleDidChange()``), which reaches only the WebKit pages the update folder
+/// serves: they reload in place, or with feature `webUpdateReloadOnShow` only the shown ones do and
+/// hidden and frozen ones reload when they show. Until then a page keeps the files it started with
 /// (``WebBundleOverlay/Pin``), so it never mixes two builds' chunks.
 /// The App starts it with ``prepare(_:bundle:files:energy:shown:pages:)`` and calls ``follow(_:bundle:)`` with each `updates.*` read.
 /// Observable, so the Settings card (``pageJSON``) follows the updater and the pending swap.
@@ -72,7 +73,7 @@ public final class WebUpdates {
     /// bundled web even while the settings observer is still starting. `files` is the app's
     /// blocking-work lanes (its one `BackgroundWork`). Checks wait `energy`'s poll stretch, and
     /// with `shown`, none is booked while no cmux window shows (p14-energy-032). `pages` gives the
-    /// app's page host once it exists: a swap reloads its shown pages and marks the others.
+    /// app's page host once it exists: a swap goes through it (``WebBundleHost/webBundleDidChange()``).
     package func prepare(_ settings: UpdatesSettings, bundle: Bundle = .main, files: BackgroundWork,
                         energy: EnergyPolicySource, shown: ShownWindows?,
                         pages: @escaping @MainActor () -> (any WebBundleHost)?) {
@@ -176,8 +177,8 @@ public final class WebUpdates {
         scheduleSafePoint()
     }
 
-    /// Serves the pending folder now; the shown pages reload and the others reload when they show.
-    /// Returns how many reloaded now.
+    /// Serves the pending folder now and hands the change to the page host
+    /// (``WebBundleHost/webBundleDidChange()``). Returns how many pages reloaded now.
     @discardableResult
     public func applyPending() -> Int {
         guard let tree = pending else { return 0 }

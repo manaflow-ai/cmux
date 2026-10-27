@@ -36,6 +36,9 @@ extension PageWebView {
         touched = false
         reinstallPageScripts(documentAttributes: documentAttributes)
         installDocumentStartTheme()
+        // A spare parked before the served web files changed holds the old build: this claim loads the new one.
+        let keepsDocument = claimKeepsDocument
+        bundleStale = false
         guard sameDocument else {
             noteLoadedClaim()
             loaded = false
@@ -43,7 +46,7 @@ extension PageWebView {
             webView.load(URLRequest(url: target))
             return true
         }
-        if loaded {
+        if keepsDocument {
             claimDocument(documentAttributes: documentAttributes)
         } else {
             noteLoadedClaim()
@@ -52,6 +55,10 @@ extension PageWebView {
         }
         return true
     }
+
+    /// Whether a claim of the same page keeps the current document (``claimDocument(documentAttributes:)``):
+    /// it loaded, and no web files change came since (``bundleStale``). Otherwise the claim reloads it.
+    var claimKeepsDocument: Bool { loaded && !bundleStale }
 
     /// True when `a` and `b` differ at most in their fragment (a load would not replace the document).
     nonisolated static func sameDocumentURL(_ a: URL, _ b: URL) -> Bool {

@@ -10,21 +10,22 @@ import CoreGraphics
 // The safe point (plans/cmux-next/web-ota.md, ``WebSwapGate``). While an update is pending, one
 // DemandTimer (`web-updates.safe-point`) books the next look; a look either swaps or books the
 // next one. It stops when nothing is pending: a swap (here or `updates.web.apply`) cancels it, and
-// a look that finds nothing pending books none. Each look asks the pages the page host shows now
-// (``WebBundleHost/shownBundlePages``, both engines; twice), in the page's own world, through
-// `window.cmuxWebSwap.hold()` (webviews/src/pages/shared/webSwap.ts), and never waits on a page past
-// ``WebSwapGate/answerWithin``. A hidden or frozen page is never asked, so it never holds the swap:
-// it keeps its document, which loads its lazy chunks from its own files (``WebBundleOverlay/Pin``),
-// and reloads when it shows (p13-webui.md 3.C).
+// a look that finds nothing pending books none. Each look asks the pages the swap reloads now
+// (``WebBundleHost/bundleAskedPages``, the WebKit pages the update folder serves; twice), in the
+// page's own world, through `window.cmuxWebSwap.hold()` (webviews/src/pages/shared/webSwap.ts), and
+// never waits on a page past ``WebSwapGate/answerWithin``. With feature `webUpdateReloadOnShow` those
+// are the shown pages only: a hidden or frozen page is never asked, so it never holds the swap; it
+// keeps its document, which loads its lazy chunks from its own files (``WebBundleOverlay/Pin``), and
+// reloads when it shows (p13-webui.md 3.C).
 extension WebUpdates {
-    /// The pages the page host shows now; none before the host exists.
-    var shownPages: [any WebBundlePage] { pages()?.shownBundlePages ?? [] }
+    /// The pages the swap reloads now (``WebBundleHost/bundleAskedPages``); none before the host exists.
+    var askedPages: [any WebBundlePage] { pages()?.bundleAskedPages ?? [] }
 
-    /// Books the next look: at once while no page shows, after ``WebSwapGate/grace`` behind other
+    /// Books the next look: at once while no page would reload, after ``WebSwapGate/grace`` behind other
     /// apps, else when the input quiet period could end. Replaces a booked look.
     func scheduleSafePoint() {
         guard pending != nil else { return safePoint.cancel() }
-        let wait: Duration = if shownPages.isEmpty {
+        let wait: Duration = if askedPages.isEmpty {
             .zero
         } else if NSApp?.isActive ?? false {
             .milliseconds(Int(max(0, WebSwapGate.seconds(WebSwapGate.quietInput) - Self.idleSeconds()) * 1000))
@@ -34,8 +35,8 @@ extension WebUpdates {
         safePoint.schedule(after: wait) { @MainActor [weak self] in await self?.look() }
     }
 
-    /// Swaps when the app and every shown page allow it, else books the next look. The shown pages
-    /// are asked twice, all at once each time; the second pass and the checks after it run right
+    /// Swaps when the app and every page the swap reloads allow it, else books the next look. Those
+    /// pages are asked twice, all at once each time; the second pass and the checks after it run right
     /// before the swap, so a page that got busy (or started loading) after its first answer holds it.
     func look() async {
         guard pending != nil, !looking else { return }
@@ -44,15 +45,15 @@ extension WebUpdates {
         let generation = pendingGeneration
         var decision = appDecision()
         if decision == .askPages {
-            let shown = shownPages
-            let documents = shown.map(\.bundleDocument)
-            decision = WebSwapGate.pages(await Self.askAll(shown))
-            if decision == .swap { decision = WebSwapGate.pages(await Self.askAll(shown)) }
+            let asked = askedPages
+            let documents = asked.map(\.bundleDocument)
+            decision = WebSwapGate.pages(await Self.askAll(asked))
+            if decision == .swap { decision = WebSwapGate.pages(await Self.askAll(asked)) }
             // A page that came up, navigated or started loading while the pages answered was not
             // asked about what it shows now: it is asked next time.
             if decision == .swap,
-               Set(shownPages.map { ObjectIdentifier($0) }) != Set(shown.map { ObjectIdentifier($0) })
-               || shown.map(\.bundleDocument) != documents || shown.contains(where: \.bundleLoading) {
+               Set(askedPages.map { ObjectIdentifier($0) }) != Set(asked.map { ObjectIdentifier($0) })
+               || asked.map(\.bundleDocument) != documents || asked.contains(where: \.bundleLoading) {
                 decision = .later(after: .seconds(1), reason: "page.changed")
             }
             // Input, a sheet or a switch away that came while the pages answered still holds it.
@@ -74,7 +75,7 @@ extension WebUpdates {
     }
 
     private func appDecision() -> WebSwapGate.Decision {
-        let pagesShown = !shownPages.isEmpty
+        let pagesShown = !askedPages.isEmpty
         if let appGate { return appGate(pagesShown) }
         let away = resignedAt.map { WebSwapGate.seconds(.now - $0) } ?? .infinity
         return WebSwapGate.app(pagesShown: pagesShown, active: NSApp?.isActive ?? false,

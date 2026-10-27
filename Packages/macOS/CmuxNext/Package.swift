@@ -713,7 +713,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextHomeEngine", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextIPC", "CmuxNextWakeups",
                 // ManualClock: PageCallDeadlineTests' deadline (p10-stability-171).
                 "CmuxNextWakeupsTestSupport",
-                "CmuxNextWebUpdates",
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
             ],
             swiftSettings: daemonSwiftSettings
@@ -1805,7 +1804,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDesignTokens",
                 "CmuxNextInput",
                 "CmuxNextWakeupsTestSupport",
-                "CmuxNextWebUpdates",
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
                 "CmuxNextTrace",
@@ -2292,7 +2290,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextMetrics",
                 "CmuxNextWakeups",
                 "CmuxNextWakeupsTestSupport",
-                "CmuxNextWebUpdates",
             ],
             swiftSettings: daemonSwiftSettings
         ),
@@ -2509,7 +2506,6 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
                 "CmuxNextSignposts",
                 "CmuxNextWakeups",
                 "CmuxNextWakeupsTestSupport",
-                "CmuxNextWebUpdates",
                 "CmuxNextProcessEnvironment",
                 "CCmuxAppFFILinux",
                 "CmuxNextActions",

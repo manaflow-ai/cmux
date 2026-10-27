@@ -456,6 +456,7 @@ final class AppServices {
             openPanel: openPanel, memory: memoryCoordinator, registry: .processWide, startsPagesAtFirstShow: features.isEnabled(.pageRendererAtFirstShow),
             hoverFrameInput: hoverFrameInput, retirer: PageRetirer(deadlines: mainDeadlines))
         host.scriptFrames = pageScriptFrame
+        host.bundleReloadsOnShow = features.isEnabled(.webUpdateReloadOnShow)
         return host
     }()
     /// The frame cmux pages deliver their router envelopes on, one board task per page per frame
