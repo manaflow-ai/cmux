@@ -137,8 +137,7 @@ impl Hub {
         bundle: &Path,
         name: Option<String>,
     ) -> Result<Arc<Session>, RpcError> {
-        let session = self.import_into(bundle, name, false, None, false, false).await?;
-        Ok(session)
+        self.import_into(bundle, name, false, None, false, false).await
     }
 
     /// `import`; a `live` one (a chat moved here, `transfer_in.rs`) has its queue back before
@@ -159,6 +158,8 @@ impl Hub {
             .map_err(|e| RpcError::invalid_params(format!("parse session.json: {e}")))?;
         // A store comes from this machine's chat index, never from a bundle.
         meta.chat_store = None;
+        // Nor the VM boundary: only a caller's peer link asks for it (`vm_boundary.rs`).
+        meta.vm_boundary = false;
         // Nor is a mode cmux set here, which only this daemon records (`SessionMeta::mode_set_by_cmux`).
         meta.mode_set_by_cmux = None;
         super::bookmarks::capped(&mut meta.bookmarks);
@@ -175,8 +176,7 @@ impl Hub {
                 return Err(RpcError::invalid_params(format!("session name {n:?} is taken")));
             }
         }
-        // Claim the id so a concurrent import of the same bundle fails
-        // instead of writing the store and log a second time.
+        // Claim the id so a concurrent import of the same bundle fails, never writing twice.
         let _reservation = {
             let sessions = self.sessions.lock().unwrap();
             let mut importing = self.importing.lock().unwrap();
@@ -212,7 +212,8 @@ impl Hub {
             return Err(e.with_data(json!({"reason": "cwd_missing", "cwd": meta.cwd})));
         }
         meta.status = SessionStatus::Idle;
-        // A family lives on one daemon: a moved-in sub-session is a root here.
+        // An approve-all an older daemon or a vmHost machine gave asks here (`policy_source.rs`).
+        super::policy_source::settle_imported_grant(&mut meta);
         meta.subsession = None;
         meta.lineage = None;
         self.prepare_harness_state(&meta, replace_durable)
