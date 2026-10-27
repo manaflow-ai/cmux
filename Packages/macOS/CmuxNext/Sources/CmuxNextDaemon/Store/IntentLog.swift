@@ -13,6 +13,7 @@ enum IntentUndo: Equatable {
     case screenIcon(screen: ScreenID, icon: String?)
     case screenPinned(screen: ScreenID, pinned: Bool)
     case workspaceName(key: WorkspaceKey, name: String)
+    case workspaceColor(key: WorkspaceKey, color: String?)
     /// The workspace's daemon-order index and group before the apply.
     case workspacePlace(key: WorkspaceKey, index: Int, group: WorkspaceGroupID?)
     case workspaceGroupCollapsed(WorkspaceGroupID, collapsed: Bool)

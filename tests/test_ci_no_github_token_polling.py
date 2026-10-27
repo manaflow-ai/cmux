@@ -42,16 +42,13 @@ ALLOWED: dict[str, str] = {
         "each pass; a candidate for a concurrency group",
     "merge-group-fail-fast.yml: Locate and watch the merge-group CI run":
         "per merge group: finds and watches its CI run (lawrencecchen's #16224 cuts it)",
-    "nightly-next-tick.yml: Coalesce tick requests without cancelling work":
-        "only a hand dispatch with --ref feat-cmux-next runs this copy (schedule, workflow_run and the "
-        "tick's own dispatches run main's, which has no coalescer): at most 48 passes, 15 s apart",
     'cmux-next-base-autofix.yml: Wait for the GhosttyKit release':
         'per feat-cmux-next push touching its paths, only while the ghostty gitlink has no published GhosttyKit release: one release read every 120 s, at most 45 passes, one run at a time; a candidate for workflow_run on build-ghosttykit.yml',
-    "cmux-next.yml: Decide the Linux build's REF capture":
+    "cmux-next.yml: Decide the fleet build's REF capture":
         "per DEV compile on a mini with CMUX_NEXT_HYBRID_REF_CAPTURE=1: two artifact reads "
         "(hybrid_ref_capture.py have), each sleeping only after a rate-limit refusal (Retry-After or "
         "the reset) or a 5xx, 600 s in all; a silent rate limit lost run 40428066457's capture",
-    "cmux-next.yml: Capture the Linux build's REF":
+    "cmux-next.yml: Capture the fleet build's REF":
         "calls hybrid_ref_capture.py capture, which never runs have's retry loop (the scan reads the "
         "whole script); its one jobs read is not in a loop",
     'cmux-next.yml: Probe the same-tree cmux-tui':

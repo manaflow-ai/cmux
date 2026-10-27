@@ -1002,6 +1002,23 @@
             }
           },
           {
+            "key" : "settings.group.sounds",
+            "rows" : [
+              "notifications.sounds.events.finished",
+              "notifications.sounds.events.needsInput",
+              "notifications.sounds.events.error",
+              "notifications.sounds.events.bell",
+              "notifications.sounds.events.message",
+              "notifications.sounds.volume",
+              "notifications.sounds.when",
+              "notifications.sounds.cooldownSeconds"
+            ],
+            "title" : {
+              "key" : "settings.group.sounds",
+              "text" : "Sounds"
+            }
+          },
+          {
             "key" : "settings.group.dismissal",
             "rows" : [
               "notifications.dismissal",
@@ -4110,7 +4127,7 @@
       },
       "help" : {
         "key" : "settings.updates.downloadAutomatically.help",
-        "text" : "Off: cmux still checks for updates and shows Update Available; one click downloads and installs it. On by default in NIGHTLY and DEV builds."
+        "text" : "Off: cmux checks for updates and asks before it downloads one. On: updates download by themselves. Either way, cmux asks before it restarts into an update."
       },
       "kept_on_reset_all" : false,
       "key" : "updates.downloadAutomatically",
@@ -4135,7 +4152,7 @@
       "summary" : null,
       "title" : {
         "key" : "settings.updates.downloadAutomatically",
-        "text" : "Download and Install Updates Automatically"
+        "text" : "Download Updates Automatically"
       },
       "validation" : "portable"
     },
@@ -4295,7 +4312,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.updates",
@@ -22440,7 +22457,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -22837,7 +22854,7 @@
         false
       ],
       "agent_refusal" : null,
-      "agent_settable" : false,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -31250,8 +31267,11 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "moderate",
-      "default_label" : null,
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.neverDiscard",
+        "text" : "Never Discard"
+      },
       "group" : {
         "key" : "settings.group.memory",
         "text" : "Memory"
@@ -31265,7 +31285,9 @@
       "keywords" : [
         "memory saver",
         "sleep",
-        "discard"
+        "discard",
+        "freeze",
+        "reload"
       ],
       "kind" : "choice_or_number",
       "page_hidden" : false,

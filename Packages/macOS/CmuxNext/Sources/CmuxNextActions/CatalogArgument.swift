@@ -166,6 +166,12 @@ nonisolated enum CatalogArgument {
         ActionArgument(name: "size", title: String(localized: "argument.size", defaultValue: "Size", bundle: .module), kind: .enumeration([choice("small"), choice("medium"), choice("large"), choice("xlarge")]))
     }
 
+    /// `cloud enroll-machine --ssh-key FILE`: this Mac's ssh public key (default `~/.ssh/id_ed25519.pub`).
+    static var sshKeyString: ActionArgument {
+        ActionArgument(name: "sshKey", title: String(localized: "argument.sshKey", defaultValue: "SSH Public Key", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
     /// `cloud new-machine --size small|medium|large|xlarge`: plain text, not a choice, so New Cloud
     /// Machine stays one menu item and one palette row (a choice argument becomes a submenu).
     static var newMachineSizeString: ActionArgument {
@@ -185,9 +191,27 @@ nonisolated enum CatalogArgument {
                        kind: .string, isRequired: false)
     }
 
+    /// `--machine-config FILE`: a `.cmux/machine.toml` on this Mac (CloudMachineConfig).
+    static var machineConfigString: ActionArgument {
+        ActionArgument(name: "machineConfig", title: String(localized: "argument.machineConfig", defaultValue: "Machine Config", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
+    /// `cloud new-machine --repo OWNER/NAME[@REF]`: the GitHub repository the machine clones.
+    static var repoString: ActionArgument {
+        ActionArgument(name: "repo", title: String(localized: "argument.repo", defaultValue: "Repository", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
     /// The bootstrap script file on this Mac (the CLI makes a relative path absolute).
     static var bootstrapScriptString: ActionArgument {
         ActionArgument(name: "bootstrapScript", title: String(localized: "argument.bootstrapScript", defaultValue: "Bootstrap Script", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
+    /// `cloud deliver-secrets --repo OWNER/NAME`: whose repo-scoped secrets the machine gets.
+    static var secretRepoString: ActionArgument {
+        ActionArgument(name: "repo", title: String(localized: "argument.secretRepo", defaultValue: "Repository", bundle: .module),
                        kind: .string, isRequired: false)
     }
 

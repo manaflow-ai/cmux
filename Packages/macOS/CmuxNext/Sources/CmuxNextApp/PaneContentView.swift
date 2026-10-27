@@ -85,6 +85,11 @@ final class PaneContentView: NSView, PaneContentChrome {
     var launchImageView: NSView?
     /// Runs once when the launch image goes (`clearLaunchImage`).
     var onLaunchImageCleared: (() -> Void)?
+    /// Asked when the launch image's limit is up, before it goes: `false` keeps the frame, because
+    /// the page it stands in for is still coming and dropping it now would leave the pane empty
+    /// (`PaneContentView+LaunchImage`). Nil means the limit clears it, as it does for a frame held
+    /// over a page that has already painted.
+    var launchImageMayClear: (() -> Bool)?
     let launchImageDeadline = DemandTimer(owner: "pane.launch-image")
     /// Browsers this pane showed before, kept in place and hidden, oldest
     /// first (`PaneContentView+Parking`).
@@ -348,6 +353,8 @@ final class PaneContentView: NSView, PaneContentChrome {
     func detachContent(parks: Bool = false) {
         // The strip's band pins end before the browser leaves (R109).
         releaseBand()
+        // A displaced or closed page cannot reveal this pane's saved frame anymore.
+        clearLaunchImage()
         endPaintHold()
         let shown = hostsContent ? content : nil
         (shown as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
