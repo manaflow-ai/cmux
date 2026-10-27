@@ -75,7 +75,9 @@ use pending_bells::PendingBells;
 mod reconnect_backoff;
 #[cfg(any(unix, windows))]
 use exit_state::mark_hosted_runtime_exited;
-use exit_state::{close_local_terminal_master_after_exit, publish_local_exit_if_ready};
+use exit_state::{
+    close_local_terminal_master_after_exit, post_local_exit_if_ready, publish_local_exit_if_ready,
+};
 #[cfg(all(unix, test))]
 use reconnect_backoff::TERMINAL_HOST_RECONNECT_MAX_FAILURES;
 #[cfg(any(unix, windows))]
@@ -828,6 +830,8 @@ impl Surface {
                 pwd: Mutex::new(pwd),
                 published_directory: Mutex::new(PublishedDirectory::Unreported),
                 directory_pending: AtomicBool::new(true),
+                publication_posted: AtomicBool::new(false),
+                publications: Arc::default(),
                 geometry: RankedMutex::new(
                     LockRank::Geometry,
                     "pty.geometry",
@@ -922,10 +926,16 @@ impl Surface {
             resync_backoff: TerminalHostReconnectBackoff::default(),
             connected_at: None,
         };
-        let reader_thread = crate::echo_thread::spawn(format!("surface-{id}-host"), {
-            let surface = surface.clone();
-            move || hosted_reader.run(surface, reader)
-        })?;
+        // Echo path class; blocking is disallowed while it streams a host
+        // connection (`HostedReader::run`), not between connections.
+        let reader_thread = cmux_threads::spawn(
+            format!("surface-{id}-host"),
+            crate::echo_thread::ECHO_PATH_QOS,
+            {
+                let surface = surface.clone();
+                move || hosted_reader.run(surface, reader)
+            },
+        )?;
         *terminal.reader_thread.lock().recover_poison() =
             Some(TerminalReader::Thread(reader_thread));
         let kitty_registration = kitty_reservation.map_or(Ok(()), |reservation| {

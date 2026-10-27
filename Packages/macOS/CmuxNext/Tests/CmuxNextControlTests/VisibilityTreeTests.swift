@@ -266,6 +266,28 @@ import Testing
         #expect(runs.count == 3)
     }
 
+    /// A flip subscriber defers work on hide and shows the node again inside its call: the nested
+    /// pass does not change what the rendering subscribers were told, and the work still runs.
+    @Test func workDeferredAndShownInsideAFlipRunsOnce() {
+        let window = VisibilityNode(root: "window", own: .visible)
+        var runs = 0
+        var bounced = false
+        let bounce = window.subscribe(owner: "bounce") { value in
+            guard value == .hidden, !bounced else { return }
+            bounced = true
+            window.deferUntilVisible(key: "k") { runs += 1 }
+            window.set(.visible)
+        }
+        window.set(.hidden)
+        #expect(window.isVisible)
+        #expect(window.deferredCount == 0)
+        #expect(runs == 1)
+        window.set(.hidden)
+        window.set(.visible)
+        #expect(runs == 1, "no stale entry runs again on the next show")
+        _ = bounce
+    }
+
     @Test func hiddenSinceAndRecentMediaFollowTheInjectedClock() {
         let clock = FakeUptime()
         let window = VisibilityNode(root: "window", own: .visible, uptime: clock.read)
