@@ -91,7 +91,9 @@ Blocking work never runs on the cooperative pool: a process wait uses AsyncProce
 .files (serial per priority); a sync system call (getaddrinfo, Security, Launch Services, AX) uses lane .system (6 at
 once, Chrome kDefaultMaxSystemTasks); long CPU work uses lane .cpu (P-cores minus 1). ShutdownBehavior: skipOnShutdown
 (default), continueOnShutdown, blockShutdown (quit awaits BackgroundWork.shutdown() in its engine-stop step, after
-Home's last cache flush and before CefShutdown). A small state file a main-actor owner saves on every change (a new
+Home's last cache flush, under the engine-stop deadline, before CefShutdown; a second quit signal's forced exit drains
+the lanes beside Home's last batch, under its 160 ms bound). The lanes still take a blockShutdown item after shutdown
+began. A small state file a main-actor owner saves on every change (a new
 chat's unsent drafts, chats' scroll places) goes through StateFileWriter (CmuxNextWakeups): encoded and written on lane
 .files at bestEffort, blockShutdown, latest save wins (at most one write runs and one waits).
 

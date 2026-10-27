@@ -61,13 +61,11 @@ public nonisolated final class StateFileWriter: Sendable {
             return !state.running
         }
         guard start else { return }
-        work.post(.bestEffort, mayBlock: .files, shutdown: .blockShutdown, dropped: { [self] in finish(dropped: true) }) { [self] in
-            drain()
-        }
+        // blockShutdown: the lanes take it even after shutdown began, and the quit waits for it.
+        work.post(.bestEffort, mayBlock: .files, shutdown: .blockShutdown) { [self] in drain() }
     }
 
-    /// Returns once every save queued before the call is on disk (or was dropped by shutdown). The caller
-    /// suspends; no thread waits.
+    /// Returns once every save queued before the call is on disk. The caller suspends; no thread waits.
     public func flushed() async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             let idle = state.withLock { state -> Bool in
@@ -78,32 +76,30 @@ public nonisolated final class StateFileWriter: Sendable {
         }
     }
 
-    /// Writes the newest save until none is left.
+    /// Writes the newest save until none is left, then ends this run and wakes the waiters.
     private func drain() {
-        while let next = state.withLock({ state -> Contents? in
-            defer { state.pending = nil }
-            return state.pending
-        }) {
-            let data: Data?
-            do { data = try next() } catch { continue }
-            write(file, data)
-        }
-        finish(dropped: false)
+        repeat {
+            while let next = state.withLock({ state -> Contents? in
+                defer { state.pending = nil }
+                return state.pending
+            }) {
+                let data: Data?
+                do { data = try next() } catch { continue }
+                write(file, data)
+            }
+        } while !finished()
     }
 
-    /// Ends this run, unless a save came in after the last take (the drain then takes it), and wakes the waiters.
-    private func finish(dropped: Bool) {
+    /// Ends this run unless a save came in after the last take (the drain then takes it); wakes the waiters.
+    private func finished() -> Bool {
         let waiters = state.withLock { state -> [CheckedContinuation<Void, Never>]? in
-            if dropped { state.pending = nil }
             guard state.pending == nil else { return nil }
             state.running = false
             defer { state.waiters = [] }
             return state.waiters
         }
-        guard let waiters else {
-            drain()
-            return
-        }
+        guard let waiters else { return false }
         for waiter in waiters { waiter.resume() }
+        return true
     }
 }

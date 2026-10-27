@@ -91,9 +91,9 @@ import Testing
         writer.save { Data("typed before quit".utf8) }
         await work.shutdown()
         #expect(try String(contentsOf: file, encoding: .utf8) == "typed before quit")
-        // After the shutdown a save is refused, and nobody waits for it.
-        writer.save { Data("after".utf8) }
+        // A save after the shutdown began still runs: the lanes take blockShutdown items to the end.
+        writer.save { Data("typed during quit".utf8) }
         await writer.flushed()
-        #expect(try String(contentsOf: file, encoding: .utf8) == "typed before quit")
+        #expect(try String(contentsOf: file, encoding: .utf8) == "typed during quit")
     }
 }
