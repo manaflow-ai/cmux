@@ -32,6 +32,9 @@ import CmuxNextTerminal
 /// - `scroll_conversions`: scroll points the layout's intercept converted from a child window (a page, a
 ///   divider catcher) into its own (`LayoutRootView.scrollPointConversions`); a page's plain scroll adds none.
 ///   Cumulative per root: read a delta.
+/// - `screen_reconciles`, `screen_resizes_in_place`: the mounted roots' screen reconcile passes and resizes that
+///   set only the changed rects (`LayoutRootView.screenReconciles`, `screenResizesInPlace`); a window live-resize
+///   event at rest adds one resize in place and no reconcile (window-live-resize-bench.py). Read a delta.
 /// - `terminal_window_updates`: window notifications terminals handled (shown terminals only).
 /// - `terminal_grid_reports`: grids terminals reported to their session (one PTY resize and shell
 ///   redraw each). A motion that moves the content edge over frames (a pane's layout spring, the
@@ -86,6 +89,8 @@ enum DebugLayoutCounters {
             "presses_mid_spring": JSONValue(roots.reduce(0) { $0 + $1.pressesMidRenderSpring }),
             "scroll_routes": JSONValue(Int(truncatingIfNeeded: roots.reduce(UInt64(0)) { $0 &+ $1.routedScrolls })),
             "scroll_conversions": JSONValue(Int(truncatingIfNeeded: roots.reduce(UInt64(0)) { $0 &+ $1.scrollPointConversions })),
+            "screen_reconciles": JSONValue(roots.reduce(0) { $0 + $1.screenReconciles }),
+            "screen_resizes_in_place": JSONValue(roots.reduce(0) { $0 + $1.screenResizesInPlace }),
             "terminal_window_updates": JSONValue(Int(truncatingIfNeeded: TerminalSurfaceView.windowStateUpdates)),
             "terminal_grid_reports": JSONValue(Int(truncatingIfNeeded: TerminalSurfaceView.gridReports)),
             "indicator_resyncs": JSONValue(Int(truncatingIfNeeded: StatusIndicatorAppearance.resyncs)),

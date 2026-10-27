@@ -15,7 +15,7 @@ final class ScreenContentView: NSView {
     /// The same for the strip's dividers and column edges.
     var carriedDividers: [DividerHandleView.Kind: CGFloat] = [:]
     /// Frames before the rows' vertical offsets: what the springs target.
-    private(set) var baseGeometry: ScreenGeometry {
+    internal(set) var baseGeometry: ScreenGeometry {
         didSet { restStripRange = stripRange(in: baseGeometry, beside: []) }
     }
     /// The strip's range beside the docks at rest (`PaneArrival.stripClip`), computed when the geometry is
@@ -174,8 +174,13 @@ final class ScreenContentView: NSView {
         guard changed else { return }
         // A hidden screen (another of the workspace's screens shows) lays out once, when it shows:
         // each live-resize tick re-ran its full geometry, pane and divider reconcile.
-        if isHidden { needsReconcileOnShow = true } else { reconcileAndScroll(keepsMotion: hasMotion && window?.inLiveResize != true) }
+        // A screen at rest sets only the rects that changed (`resizeInPlace`); one that moves reconciles.
+        if isHidden { needsReconcileOnShow = true } else if !resizeInPlace() {
+            reconcileAndScroll(keepsMotion: hasMotion && window?.inLiveResize != true)
+        }
     }
+    /// Resizes that took the in-place path (``resizeInPlace()``), cumulative (`debug.layout_counters`).
+    internal(set) var resizesInPlace = 0
 
     /// Resized while hidden: reconcile when it shows.
     private(set) var needsReconcileOnShow = false
@@ -356,13 +361,7 @@ final class ScreenContentView: NSView {
         }
 
         // Dividers and column edges.
-        var targets: [DividerHandleView.Kind: (rect: CGRect, axis: SplitAxis)] = [:]
-        for divider in baseGeometry.dividers { targets[.split(divider.id)] = (divider.hitFrame, divider.axis) }
-        for edge in baseGeometry.columnEdges { targets[.columnEdge(edge.column)] = (edge.hitFrame, edge.axis) }
-        // Row heights are resizable only where the daemon serves rows-v1.
-        if context.model.acceptsRowOps {
-            for edge in baseGeometry.rowEdges { targets[.rowEdge(edge.column, edge.upper)] = (edge.hitFrame, .vertical) }
-        }
+        let targets = dividerTargets(in: baseGeometry)
         // A column edge whose column changed id in place (a New Column stand-in's handoff) keeps its spring.
         var renamedEdges: [AnimatedFrame] = dividerFrames.compactMap { kind, frame in
             if case .columnEdge = kind, targets[kind] == nil { return frame }

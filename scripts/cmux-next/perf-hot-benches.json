@@ -224,6 +224,14 @@
         "input.frame"
       ]
     },
+    "window-live-resize": {
+      "what": "one window live-resize or full-screen resize event of a screen at rest (ScreenContentView.resizeInPlace): the geometry at the new size and frames set only on the panes and dividers whose rects changed, no reconcile",
+      "bench": "scripts/cmux-next/window-live-resize-bench.py --app APP --out DIR --vdisplay 120 (STRESS with Chromium selected: main ms per resize event p50/p95/p99/max, layout() calls, grids per frame, page resize waits, screen reconciles per event; DC16 wants p99 <= 4 ms and 0 reconciles), base and head on macOS 26 and 27; swift test --filter ScreenResizeInPlaceTests",
+      "owner": "Performance Lead",
+      "trace": [
+        "resize.frame"
+      ]
+    },
     "terminal-pointer": {
       "what": "one pointer move, drag or scroll event over a terminal and each coalesced delivery it gets (feature terminalPointerFrames: at most a leading and a trailing ghostty_surface_mouse_pos or mouse-reporting ghostty_surface_mouse_scroll per frame, PointerFrameCoalescer)",
       "bench": "swift test --filter 'TerminalPointerCoalescingTests' for Ghostty calls per frame; live: scripts/cmux-next/pointer-probe.swift path/drag (1000 Hz moves) over a terminal running a mouse-reporting program (vim with mouse=a), with CMUX_ENABLE_FEATURES=terminalPointerFrames and without, light and STRESS, reading ghostty.lock_wait and main stalls from debug.hangs",
