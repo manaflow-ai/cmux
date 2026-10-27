@@ -105,6 +105,32 @@ export type RunArtifactView = {
   readonly createdAt: string;
 };
 
+/** Every sandbox VM's create key starts with this; the VM workflows refuse pause, snapshot and fork on it. */
+export const SANDBOX_VM_IDEMPOTENCY_PREFIX = "sandbox-run:";
+
+export function sandboxVmIdempotencyKey(runId: string, attemptId: string): string {
+  return `${SANDBOX_VM_IDEMPOTENCY_PREFIX}${runId}:attempt:${attemptId}`;
+}
+
+/**
+ * The providerMetadata key the sandbox launcher sets on its VM (to its create key). Only the
+ * server writes providerMetadata, so a VM is a sandbox's when this and its create key agree; a
+ * row that only happens to carry the key prefix stays an ordinary machine.
+ */
+export const SANDBOX_VM_MARKER_KEY = "cmuxSandboxRun";
+
+/**
+ * Set on a sandbox VM's row once a strict destroy confirmed the provider no longer has it. A
+ * `destroyed` status alone is not proof (status reconciliation writes it from what the provider
+ * answers), so the reaper keeps looking for a marked machine until this is set.
+ */
+export const SANDBOX_VM_DESTROY_CONFIRMED_KEY = "cmuxSandboxDestroyConfirmed";
+
+export function isSandboxRunVm(vm: { readonly idempotencyKey: string | null; readonly providerMetadata?: Readonly<Record<string, unknown>> | null }): boolean {
+  const key = vm.idempotencyKey;
+  return !!key && key.startsWith(SANDBOX_VM_IDEMPOTENCY_PREFIX) && vm.providerMetadata?.[SANDBOX_VM_MARKER_KEY] === key;
+}
+
 export type RunView = {
   readonly id: string;
   readonly status: RunStatus;

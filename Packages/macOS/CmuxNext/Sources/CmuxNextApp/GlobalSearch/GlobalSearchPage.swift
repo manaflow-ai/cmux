@@ -11,8 +11,14 @@ enum GlobalSearchPage {
     /// A searched tab, as the rows show and reveal it.
     struct Tab {
         let source: GlobalSearchCorpus.Source
+        /// The title the tab strip shows (`TabTitleResolver`).
+        let title: String
         let located: LocatedTab
-        var place: String { "\(located.workspace.displayName) › \(located.tab.displayTitle)" }
+        /// An agent chat with no title of its own is named by its workspace: shown once.
+        var place: String {
+            let workspace = located.workspace.displayName
+            return title == workspace ? workspace : "\(workspace) › \(title)"
+        }
     }
 
     /// Shows a tab and, given a needle, runs its terminal's Find for it.
@@ -70,7 +76,7 @@ enum GlobalSearchPage {
         }
         return PaletteItem(
             id: "globalSearch.tab.\(hit.tabID)",
-            title: line.map { GlobalSearchCorpus.snippet($0, words: words) } ?? located.tab.displayTitle,
+            title: line.map { GlobalSearchCorpus.snippet($0, words: words) } ?? tab.title,
             subtitle: subtitle,
             accessory: hit.count > 1 ? GlobalSearchStrings.matches(hit.count) : nil,
             symbol: symbol(hit, kind: located.tab.kind),

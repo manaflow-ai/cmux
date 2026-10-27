@@ -24,9 +24,22 @@ pub struct Session {
     /// so the log and fan-out always see sequences in order.
     pub(super) append_lock: StdMutex<()>,
     pub(super) loading: AtomicBool,
+    /// The generations of the agents whose `session/load` (or Claude fork prime) replays
+    /// history: from the load's start until the inbound loop reaches that agent's
+    /// [`crate::agent::Inbound::ReplayDone`], its agent messages are history, never the chat's
+    /// newest reply (`ReplayHold` in `lifecycle.rs`). A start abandoned mid-load leaves its
+    /// agent's generation here, so what that agent still had queued stays out even after the
+    /// next agent's load begins. None is ever dropped unended: only such an abandoned start
+    /// (one past the agent start budget) leaves one behind, a few bytes for the session's life.
+    pub(super) replaying: StdMutex<Vec<u64>>,
     /// The log's records past the saved `lastSeq` are counted (`Hub::catch_up`).
     /// False from a deferred daemon start until the first append or the log load.
     pub(super) caught_up: AtomicBool,
+    /// Whether its log is read after a deferred daemon start (`log_load.rs`): once, by the
+    /// background pass or the first request for it, under this lock. `log_loaded` mirrors it
+    /// for reads that take no lock.
+    pub(super) log_load: StdMutex<bool>,
+    pub(super) log_loaded: AtomicBool,
     pub(super) turn_lock: Mutex<()>,
     pub(super) turn: StdMutex<Option<TurnInfo>>,
     pub(super) queued: AtomicU64,
@@ -49,6 +62,10 @@ pub struct Session {
     /// 0 while it is not. The lane's `input` since (cx-v9k2f): later records,
     /// a draft save or a second ask do not move it.
     pub(super) input_since: AtomicU64,
+    /// Since when work the session started still runs past its own turn (a
+    /// background subagent, a working sub-session), in ms; 0 while none does
+    /// (`work_below.rs`).
+    pub(super) work_below_since: StdMutex<u64>,
     /// Agent permission requests read but not yet past their group
     /// (`permission_groups::AskInFlight`); `asks_landed` fires when the
     /// last one lands. A group is not shown while one is on its way.
@@ -106,6 +123,12 @@ pub struct Session {
     /// Set when the chat is closed (`kill`) until its agent starts again: its host may still
     /// hold its record while it ends, and it is not running (`policy_mode.rs` `follow_policy`).
     pub(super) closing: AtomicBool,
+    /// How many times the chat was stopped (`kill`). A start reads it when its request came
+    /// (`Hub::child_for_since`); a stop since then ends that start and keeps the chat closed.
+    pub(super) stops: AtomicU64,
+    /// Status writes under way: each sets the status, then logs it (`Hub::write_status`). Log
+    /// retention leaves a chat alone while one is (`retention.rs` `untouched`).
+    pub(super) status_writes: AtomicU64,
     /// Bumps on every status, permission and turn change; waits gate on it.
     pub(super) state_seq: AtomicU64,
     /// Clients attached right now (TUI, web, CLI streams).
@@ -168,11 +191,18 @@ pub struct Session {
     /// Tool calls that run `gh pr create`, and the URL each printed so far, until they end
     /// (`pull_requests.rs`).
     pub(super) pr_creates: StdMutex<std::collections::HashMap<String, Option<String>>>,
+    /// Its agent's `start_session` tool calls that run, with their input (`lineage.rs`).
+    pub(super) start_calls: StdMutex<std::collections::HashMap<String, Value>>,
     /// The places typing into it, and who sent its prompts (`composers.rs`).
     pub(super) composers: StdMutex<super::composers::Composers>,
 }
 
 impl Session {
+    /// Lifts the replay hold of the agent of this generation (`Session::replaying`).
+    pub(super) fn end_replay(&self, agent: u64) {
+        self.replaying.lock().unwrap_or_else(|e| e.into_inner()).retain(|g| *g != agent);
+    }
+
     /// Notes whether the session now waits on the person: `input_since` is when it began
     /// (the lane's `input` since, cx-v9k2f), 0 while it does not.
     pub(super) fn mark_waiting(&self, waiting: bool) {

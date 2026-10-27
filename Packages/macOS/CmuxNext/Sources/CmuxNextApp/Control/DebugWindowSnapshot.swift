@@ -171,7 +171,7 @@ enum DebugWindowSnapshot {
             let reactPages = PageRegistry.shownChromiumPages(in: window)
             for (page, rect) in reactPages {
                 guard let image = await page.chromiumImage() else { pagesFailed += 1; continue }
-                layers.append(.page(image, rect))
+                layers.append(.page(image, rect, holes: page.chromiumWindowHoles)) // a chat leaves its pane's tabs uncovered
             }
             var floatingCount = together?.floating ?? 0
             if base.method == .composited {

@@ -326,6 +326,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if let Some(h) = &host {
                 meta["peer"] = json!(h);
             }
+            if args.force_admit {
+                meta["forceAdmit"] = json!(true);
+            }
             if let Some(n) = &launch.name {
                 meta["name"] = json!(n);
             }
@@ -414,6 +417,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 },
             };
             let id = v.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
+            // Started past this host's lane cap: a warning, never a refusal (`hub/admission.rs`).
+            if reused.is_none()
+                && let Some(w) =
+                    v.pointer("/_meta/acpmux/admission/warning").and_then(Value::as_str)
+            {
+                eprintln!("acpmux: warning: {w}");
+            }
             let name = v
                 .pointer("/_meta/acpmux/name")
                 .or_else(|| v.get("name"))
@@ -479,6 +489,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 if let Some(w) = v.pointer("/_meta/acpmux/worktree") {
                     info["worktree"] = w.clone();
                 }
+                if let Some(a) = v.pointer("/_meta/acpmux/admission") {
+                    info["admission"] = a.clone();
+                }
                 print_json(&info);
             } else if !one_shot {
                 let folder = v.pointer("/_meta/acpmux/cwd").and_then(Value::as_str);
@@ -517,9 +530,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     }
                     let r = outcome?;
                     if json_out {
-                        print_json(
-                            &json!({"sessionId": id, "name": name, "reply": r.reply, "stopReason": r.stop_reason, "permissions": r.permissions_asked, "permissionsDenied": r.permissions_denied, "ephemeral": ephemeral}),
-                        );
+                        let mut out = json!({"sessionId": id, "name": name, "reply": r.reply, "stopReason": r.stop_reason, "permissions": r.permissions_asked, "permissionsDenied": r.permissions_denied, "ephemeral": ephemeral});
+                        if let Some(a) = v.pointer("/_meta/acpmux/admission") {
+                            out["admission"] = a.clone();
+                        }
+                        print_json(&out);
                     } else {
                         println!("{}", r.reply);
                     }

@@ -109,10 +109,10 @@
 #          lines like resolve-newest-published, so app and daemon come from this commit)
 #        | resolve-newest-published (nightly: newest verified published tree in the last
 #          CMUX_TUI_TREE_SEARCH_COMMITS commits, default 50, and CMUX_TUI_TREE_MAX_AGE_HOURS,
-#          default 24; never waits; CMUX_TUI_TREE_SAME_PATHS, space-separated
+#          default 24; a hit never waits, and in nightly.yml a miss waits once, up to
+#          CMUX_TUI_TREE_TIP_WAIT_SECONDS (3000), for the tip's active publisher; CMUX_TUI_TREE_SAME_PATHS, space-separated
 #          paths, skips a commit whose copy of any of them differs from the tip's;
-#          CMUX_TUI_TREE_REQUIRE_RELEASE_GREEN=1 skips a commit other than the tip
-#          whose feat-cmux-next push has no green "cmux-next Release compile (Xcode 26)")
+#          no Mac Release compile is required: the nightly compiles the app itself)
 #        | wait (wait for the tree; superseded=true output for a superseded commit)
 #        | fallback-key (fleet suites: when HEAD has the tree of its base,
 #          CMUX_TUI_TREE_FALLBACK_BASE (default origin/feat-cmux-next), print the newest
@@ -337,6 +337,7 @@ artifacts_runs_state() {
 import json, sys
 try:
     runs = json.loads(sys.stdin.read())["workflow_runs"]
+    assert isinstance(runs, list) and all(isinstance(r, dict) for r in runs)
 except Exception:
     print("unknown"); sys.exit(0)
 if not runs:
@@ -390,12 +391,21 @@ github_api() {
 }
 
 # Prints the head_sha of an active (not completed) cmux-tui artifacts run whose
-# commit has tree <key>, or nothing. A commit missing locally is fetched once
-# (depth 1, best effort); one it cannot read does not count.
+# commit has tree <key>, nothing when the runs list has none, or "unknown" when
+# the runs list cannot be read (rate limit, network, an unparsable body): a
+# caller that fails fast on "no publisher" must not read a failed read as none.
+# A commit missing locally is fetched once (depth 1, best effort); one it
+# cannot read does not count.
 active_publisher_for_key() {
   local key="$1" body candidate depth=()
   body="$(github_api GET "actions/workflows/cmux-tui-artifacts.yml/runs?per_page=50" 2>/dev/null)" || {
-    echo "note: could not list cmux-tui artifacts runs (rate limit or network): no same-tree run is known" >&2; return 0; }
+    echo "note: could not list cmux-tui artifacts runs (rate limit or network): a same-tree run is unknown" >&2; echo unknown; return 0; }
+  python3 -c '
+import json, sys
+runs = json.loads(sys.stdin.read())["workflow_runs"]
+assert isinstance(runs, list) and all(isinstance(r, dict) and isinstance(r.get("status"), str) for r in runs)
+' <<<"$body" 2>/dev/null || {
+    echo "note: the cmux-tui artifacts runs list is unreadable: a same-tree run is unknown" >&2; echo unknown; return 0; }
   # Depth 1 only in a shallow checkout: in a full clone --depth writes
   # .git/shallow and truncates history for every worktree sharing it.
   [[ "$(git -C "$repo_root" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
@@ -435,7 +445,7 @@ ensure_tree_publisher() {
     tree_publisher_sha="$sha"; tree_publisher_action=active; return 0
   fi
   current="$(active_publisher_for_key "$key")"
-  if [[ -n "$current" ]]; then
+  if [[ -n "$current" && "$current" != unknown ]]; then
     echo "cmux-tui tree $key: active artifacts run for $current has the same tree; not dispatching" >&2
     tree_publisher_sha="$current"; tree_publisher_action=active; return 0
   fi
@@ -470,7 +480,7 @@ await_outside_publisher() {
       tree_publisher_sha="$sha"; tree_publisher_action=active; return 0
     fi
     current="$(active_publisher_for_key "$key")"
-    if [[ -n "$current" ]]; then
+    if [[ -n "$current" && "$current" != unknown ]]; then
       echo "cmux-tui tree $key: active artifacts run for $current has the same tree; deferring to it" >&2
       tree_publisher_sha="$current"; tree_publisher_action=active; return 0
     fi
@@ -610,8 +620,12 @@ wait_for_tree() {
         *)
           # Another commit's active run for the same tree will publish it (a merge train tip, a
           # same-key build): that counts as active, not as a run that ended without publishing.
-          if [[ -n "$(active_publisher_for_key "$key")" ]]; then state=active; ended_checks=0
-          else ended_checks=$(( ended_checks + 1 )); fi ;;
+          # An unreadable runs list keeps waiting (bounded), like an unknown state above.
+          case "$(active_publisher_for_key "$key")" in
+            unknown) state=unknown; ended_checks=0 ;;
+            "") ended_checks=$(( ended_checks + 1 )) ;;
+            *) state=active; ended_checks=0 ;;
+          esac ;;
       esac
       echo "cmux-tui artifacts runs for $publisher: $state" >&2
       # Two checks in a row: a failed publish requeues its run, and a new
@@ -1172,39 +1186,6 @@ resolve_exact_tree() {
   fi
 }
 
-# release_compile_green <sha>: exit 0 when a cmux-next.yml push run on
-# feat-cmux-next at <sha> has a completed, successful "cmux-next Release
-# compile (Xcode 26)" job (the rule of admitted() in
-# scripts/ci/promote-nightly-next.mjs), 1 when none has, 2 when GitHub could
-# not be read. Prints nothing.
-release_compile_green() {
-  local sha="$1" runs run_id page jobs found=1
-  runs="$(github_api GET "actions/workflows/cmux-next.yml/runs?event=push&branch=feat-cmux-next&head_sha=$sha&per_page=20" 2>/dev/null)" || return 2
-  while read -r run_id; do
-    [[ "$run_id" =~ ^[0-9]+$ ]] || continue
-    for page in 1 2 3; do
-      jobs="$(github_api GET "actions/runs/$run_id/jobs?filter=latest&per_page=100&page=$page" 2>/dev/null)" || return 2
-      found="$(python3 -c '
-import json, sys
-jobs = json.loads(sys.stdin.read()).get("jobs") or []
-green = any(j.get("name") == "cmux-next Release compile (Xcode 26)" and j.get("status") == "completed"
-            and j.get("conclusion") == "success" for j in jobs)
-print("green" if green else ("more" if len(jobs) >= 100 else "none"))
-' <<<"$jobs" 2>/dev/null)" || return 2
-      [[ "$found" == green ]] && return 0
-      [[ "$found" == more ]] || break
-    done
-  done < <(python3 -c '
-import json, sys
-sha = sys.argv[1]
-for run in json.loads(sys.stdin.read()).get("workflow_runs") or []:
-    if (run.get("head_sha") == sha and run.get("head_branch") == "feat-cmux-next" and run.get("event") == "push"
-            and run.get("path") == ".github/workflows/cmux-next.yml"):
-        print(run["id"])
-' "$sha" <<<"$runs" 2>/dev/null)
-  return 1
-}
-
 # The nightly's resolver: the newest commit within the last
 # CMUX_TUI_TREE_SEARCH_COMMITS (default 50) commits of HEAD whose v2 tree is
 # published and whose publishing commit's attested manifest carries the same
@@ -1216,15 +1197,23 @@ for run in json.loads(sys.stdin.read()).get("workflow_runs") or []:
 # to GITHUB_STEP_SUMMARY. The nightly builds the app at source_commit, so app and
 # daemon come from one commit. A tree more than CMUX_TUI_TREE_MAX_AGE_HOURS
 # (default 24) behind the tip, or none in the window, fails: never ship stale.
-# With CMUX_TUI_TREE_REQUIRE_RELEASE_GREEN=1 (the nightly) a commit other than
-# the tip also needs a green Release compile (release_compile_green): nightly-next
-# run 40070613185 fell back from dfe61743 32 commits to dee35e3f, whose app did
-# not compile in Release. An older commit with the same published tree can
-# still qualify. Every skipped commit and its reason is listed on a miss.
+# No commit needs a green "cmux-next Release compile (Xcode 26)": the nightly
+# compiles the app at the resolved commit itself and publishes nothing when
+# that fails, so the feed keeps its last good build (the same rule as the
+# promote guard since #25786). Leo, 2026-10-26: "SKIP THE OLD FUCKING NIGHTLY
+# BUILDS THEN WE'RE JSUT BUILDING FROM THE TIP" and "Just fucking compile on
+# Linux." CMUX_TUI_TREE_REQUIRE_RELEASE_GREEN, which nightly.yml set to make a
+# fallback commit wait for that Mac job, is ignored with a notice: nightly-next
+# run 40427307041 failed here when the only published tree in the window,
+# fb384d011b85's, had no such job. Every skipped commit and its reason is
+# listed on a miss.
 resolve_newest_published_tree() {
   local limit max_age temp_dir rev rev_time tip_time behind_hours key commit manifest_sha published_sha tip tip_key behind=0 checked=0 distinct=0
-  local bad_keys=" " good_keys=" " skips="" gate_rc
+  local bad_keys=" " good_keys=" " skips=""
   local i same_path skewed skipped_skew=0 same_paths=() tip_blobs=()
+  if [[ -n "${CMUX_TUI_TREE_REQUIRE_RELEASE_GREEN:-}" ]]; then
+    echo "notice: CMUX_TUI_TREE_REQUIRE_RELEASE_GREEN is ignored: the nightly's own compile is the gate (#25786), so a published tree needs no Mac Release compile" >&2
+  fi
   limit="${CMUX_TUI_TREE_SEARCH_COMMITS:-50}"
   [[ "$limit" =~ ^[1-9][0-9]*$ ]] || { echo "error: CMUX_TUI_TREE_SEARCH_COMMITS must be a positive whole number" >&2; exit 2; }
   limit=$((10#$limit))
@@ -1283,12 +1272,13 @@ resolve_newest_published_tree() {
     if [[ "$bad_keys" == *" $key "* ]]; then
       skips+="  ${rev:0:12}: tree ${key:0:12} not published or unverifiable"$'\n'; behind=$((behind + 1)); continue
     fi
-    # A verified tree is checked once; a newer commit with it may be skipped
-    # for its Release compile while an older one qualifies.
+    # A verified tree is checked once.
     commit="$(tr ' ' '\n' <<<"$good_keys" | awk -F= -v k="$key" '$1 == k { print $2; exit }')"
     if [[ -z "$commit" ]]; then
       distinct=$((distinct + 1))
-      if ! download "$BASE/tree/$key/cmux-tui-$TARGET.sha256" "$temp_dir/sha256" 2>/dev/null; then
+      # The query string bypasses a cached 404 at the CDN edge: the nightly's
+      # second search follows a wait that saw this tree publish.
+      if ! download "$BASE/tree/$key/cmux-tui-$TARGET.sha256?t=$(date +%s)" "$temp_dir/sha256" 2>/dev/null; then
         echo "tree $key (${rev:0:12}): not published" >&2
         skips+="  ${rev:0:12}: tree ${key:0:12} not published"$'\n'
         bad_keys+="$key "; behind=$((behind + 1)); continue
@@ -1310,19 +1300,6 @@ resolve_newest_published_tree() {
       fi
       good_keys+="$key=$commit "
     fi
-    if [[ "${CMUX_TUI_TREE_REQUIRE_RELEASE_GREEN:-}" == 1 && "$rev" != "$tip" ]]; then
-      gate_rc=0; release_compile_green "$rev" || gate_rc=$?
-      if (( gate_rc != 0 )); then
-        if (( gate_rc == 2 )); then
-          echo "commit ${rev:0:12}: its Release compile could not be read from GitHub; skipping" >&2
-          skips+="  ${rev:0:12}: Release compile unreadable (GitHub API)"$'\n'
-        else
-          echo "commit ${rev:0:12}: tree $key is published, but its feat-cmux-next push has no green \"cmux-next Release compile (Xcode 26)\"; skipping" >&2
-          skips+="  ${rev:0:12}: Release compile not green"$'\n'
-        fi
-        behind=$((behind + 1)); continue
-      fi
-    fi
     echo "resolved cmux-tui tree $key from ${rev:0:12} ($behind commits and $behind_hours h behind the tip ${tip:0:12}, tip tree ${tip_key:-unknown}); published by $commit" >&2
     printf 'commit=%s\nkey=%s\nsource_commit=%s\ntip_key=%s\nbehind=%s\nbehind_hours=%s\n' "$commit" "$key" "$rev" "$tip_key" "$behind" "$behind_hours"
     if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
@@ -1335,9 +1312,68 @@ resolve_newest_published_tree() {
     fi
     return 0
   done < <(git rev-list --date-order --max-count="$limit" HEAD)
-  echo "error: no published cmux-tui tree in the last $limit commits of ${tip:0:12} ($checked checked, $distinct distinct trees, $skipped_skew skipped because ${CMUX_TUI_TREE_SAME_PATHS:-no path} differs from the tip): no commit there has a tree under $BASE/tree/<key>/ whose publishing commit's manifest sha256 matches${CMUX_TUI_TREE_REQUIRE_RELEASE_GREEN:+ and a green Release compile}. Publish one (pin-cmux-tui.sh --help) or raise CMUX_TUI_TREE_SEARCH_COMMITS." >&2
+  echo "error: no published cmux-tui tree in the last $limit commits of ${tip:0:12} ($checked checked, $distinct distinct trees, $skipped_skew skipped because ${CMUX_TUI_TREE_SAME_PATHS:-no path} differs from the tip): no commit there has a tree under $BASE/tree/<key>/ whose publishing commit's manifest sha256 matches. Publish one (pin-cmux-tui.sh --help) or raise CMUX_TUI_TREE_SEARCH_COMMITS." >&2
   [[ -z "$skips" ]] || printf 'skipped commits, newest first:\n%s' "$skips" >&2
   exit 1
+}
+
+# resolve-newest-published as the nightly runs it: the search above, and on a miss
+# one bounded wait for the publisher of the TIP's own tree, then the search again.
+# A promotion can move nightly-next to a commit whose tree is still being built
+# by a same-key run (nightly-next run 40445128409 missed tree bf6faf9c692f of
+# 5d81874b330a, which owner run 40444370171 was building, and every older commit
+# carried a different nightly.yml). A hit never waits. The wait is
+# CMUX_TUI_TREE_TIP_WAIT_SECONDS: by default 3000 in nightly.yml (inside the
+# resolver job's 75 min) and 0 everywhere else, so request-nightly-next.sh and
+# the media workflow still look once. It runs only while a cmux-tui artifacts
+# run for the tip, or an active run of the same tree, exists; it fails at once
+# when none does (this job holds actions: read, so it starts no publisher), when
+# the publisher ends without publishing, or when the bound is hit.
+resolve_newest_published_or_await_tip() {
+  local wait_seconds rc=0 tip key state sha_file
+  if [[ "${GITHUB_WORKFLOW_REF:-}" == */.github/workflows/nightly.yml@* ]]; then
+    wait_seconds="${CMUX_TUI_TREE_TIP_WAIT_SECONDS:-3000}"
+  else
+    wait_seconds="${CMUX_TUI_TREE_TIP_WAIT_SECONDS:-0}"
+  fi
+  [[ "$wait_seconds" =~ ^[0-9]+$ ]] || { echo "error: CMUX_TUI_TREE_TIP_WAIT_SECONDS must be whole seconds" >&2; exit 2; }
+  if (( wait_seconds == 0 )); then resolve_newest_published_tree; return 0; fi
+  sha_file="$(mktemp "${TMPDIR:-/tmp}/cmux-tui-resolve.XXXXXX")"
+  # A subshell with errexit of its own: the search exits on a miss.
+  set +e
+  (set -e; resolve_newest_published_tree) > "$sha_file"
+  rc=$?
+  set -e
+  if (( rc == 0 )); then cat "$sha_file"; rm -f "$sha_file"; return 0; fi
+  rm -f "$sha_file"
+  (( rc == 1 )) || exit "$rc"
+  tip="$(git -C "$repo_root" rev-parse HEAD)"
+  key="$(tree_key HEAD)" || { echo "error: cannot compute the tree key of the tip ${tip:0:12}" >&2; exit 1; }
+  if ! tree_published "$key"; then
+    state="$(artifacts_runs_state "$tip")"
+    # Fail fast only on a confirmed miss: the tip's runs read and none active, and
+    # the recent runs list read with no same-tree run. An unreadable list waits.
+    if [[ "$state" != active && "$state" != unknown && -z "$(active_publisher_for_key "$key")" ]]; then
+      {
+        echo "error: the tip ${tip:0:12}'s cmux-tui tree $key is not published and no cmux-tui artifacts run is publishing it, so the nightly has nothing to wait for."
+        case "$state" in
+          none) echo "  No cmux-tui artifacts run exists for $tip." ;;
+          *) echo "  Its runs ended without publishing it: ${state#ended }." ;;
+        esac
+        echo "  This job holds actions: read only and starts no publisher. Start one, then re-run this nightly:"
+        echo "    gh workflow run cmux-tui-artifacts.yml --repo ${GITHUB_REPOSITORY:-manaflow-ai/cmux} --ref feat-cmux-next"
+        echo "  (or re-run the failed artifacts run for $tip)."
+      } >&2
+      exit 1
+    fi
+    echo "no older commit can be built; waiting up to ${wait_seconds}s for the publisher of the tip ${tip:0:12}'s tree $key (artifacts runs: $state)" >&2
+    sha_file="$(mktemp "${TMPDIR:-/tmp}/cmux-tui-tip.XXXXXX")"
+    CMUX_TUI_TREE_WAIT_SECONDS="$wait_seconds" CMUX_TUI_TREE_PUBLISHER_SHA="$tip" CMUX_TUI_TREE_DISPATCH="" \
+      wait_for_tree "$key" "$sha_file" ""
+    rm -f "$sha_file"
+  fi
+  echo "the tip's tree $key is published; resolving again" >&2
+  resolve_newest_published_tree
 }
 
 # fetch_pinned <url> <sha256> <destination> <label>
@@ -1536,7 +1572,7 @@ PY
     resolve_tree_commit
     ;;
   resolve-newest-published)
-    resolve_newest_published_tree
+    resolve_newest_published_or_await_tip
     ;;
   resolve-exact)
     resolve_exact_tree

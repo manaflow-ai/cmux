@@ -188,7 +188,7 @@ fn has_content(value: &Value) -> bool {
 }
 
 /// `scheme://user:secret@host/path?q#f` -> `scheme://host/path`.
-fn url_without_secrets(url: &str) -> String {
+pub(crate) fn url_without_secrets(url: &str) -> String {
     let bare = url.split(['?', '#']).next().unwrap_or_default();
     let Some((scheme, rest)) = bare.split_once("://") else { return bare.to_owned() };
     let (authority, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));

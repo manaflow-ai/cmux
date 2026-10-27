@@ -75,6 +75,9 @@ async fn send_message_carries_attachments_to_a_child() {
         std::env::set_var("ACPMUX_HOME", root.join("home"));
         std::env::set_var("FLEET_REGISTRY", root.join("fleet-registry.json"));
     }
+    // A registry that lists no machine: this host is uncapped. A set
+    // FLEET_REGISTRY that is missing refuses every create (`hub/admission.rs`).
+    std::fs::write(root.join("fleet-registry.json"), r#"{"machines": {}}"#).unwrap();
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {"fake": {"argv": ["python3", FAKE]}},
         "defaultHarness": "fake",

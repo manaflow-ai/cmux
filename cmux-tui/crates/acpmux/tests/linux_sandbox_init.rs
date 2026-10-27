@@ -95,7 +95,7 @@ fn recv_handoff(
         msg.msg_iov = &mut iov;
         msg.msg_iovlen = 1;
         msg.msg_control = cmsg.as_mut_ptr().cast();
-        msg.msg_controllen = control_len;
+        msg.msg_controllen = control_len as _;
         let n = libc::recvmsg(stream.as_raw_fd(), &mut msg, libc::MSG_CMSG_CLOEXEC);
         (n, msg)
     };
@@ -108,7 +108,8 @@ fn recv_handoff(
         let mut hdr = libc::CMSG_FIRSTHDR(&msg);
         while !hdr.is_null() {
             if (*hdr).cmsg_level == libc::SOL_SOCKET && (*hdr).cmsg_type == libc::SCM_RIGHTS {
-                let payload = (*hdr).cmsg_len - libc::CMSG_LEN(0) as usize;
+                let cmsg_len: usize = (*hdr).cmsg_len as _;
+                let payload = cmsg_len - libc::CMSG_LEN(0) as usize;
                 let count = payload / std::mem::size_of::<RawFd>();
                 let data = libc::CMSG_DATA(hdr).cast::<RawFd>();
                 for index in 0..count {
