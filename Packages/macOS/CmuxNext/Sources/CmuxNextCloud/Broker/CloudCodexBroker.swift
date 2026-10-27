@@ -209,6 +209,7 @@ public actor CloudCodexBroker {
     private var targetLocks: Set<String> = []
     private var targetWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
     private var refreshTask: Task<Void, Never>?
+    private var refreshCycle = 0
     private var refreshInFlight: Task<CloudCodexAccessGrant, Error>?
 
     public init(scope: CloudCodexBrokerScope,
@@ -479,6 +480,8 @@ public actor CloudCodexBroker {
 
     private func scheduleRefresh(grant: CloudCodexAccessGrant) {
         refreshTask?.cancel()
+        refreshCycle += 1
+        let cycle = refreshCycle
         let wait = max(1, grant.expiresAt.timeIntervalSinceNow - 120)
         let expectedScope = scope
         refreshTask = Task { [weak self] in
@@ -493,12 +496,13 @@ public actor CloudCodexBroker {
                     catch CloudCodexBrokerError.scopeChanged { throw CloudCodexBrokerError.scopeChanged }
                     catch { continue }
                 }
-                await self.rescheduleRefresh(after: refreshed)
+                await self.rescheduleRefresh(after: refreshed, cycle: cycle)
             } catch { /* cancellation, logout, or a stopped VM ends renewal */ }
         }
     }
 
-    private func rescheduleRefresh(after grant: CloudCodexAccessGrant) {
+    private func rescheduleRefresh(after grant: CloudCodexAccessGrant, cycle: Int) {
+        guard cycle == refreshCycle, !Task.isCancelled, !targets.isEmpty else { return }
         // This method runs on the renewal task itself; clear its handle before
         // installing the next one so scheduleRefresh cannot cancel this task.
         refreshTask = nil
