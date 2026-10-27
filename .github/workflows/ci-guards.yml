@@ -1461,6 +1461,7 @@ jobs:
           bash ./tests/test_nightly_universal_build.sh
           python3 tests/test_nightly_trusted_routing.py
           python3 tests/test_nightly_build_state.py
+          python3 tests/test_ensure_setup_node.py
 
       # .github/nightly-step-coverage.json: every step only the nightly runs
       # names its pull-request dry run here or elsewhere, or a reviewed reason.
@@ -1608,6 +1609,10 @@ jobs:
       - name: Validate the nightly-next build takes an idle owned Mac or a moving Blacksmith label
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_build_runner.py
+
+      - name: Validate the warm nightly-next builder's git fetches are bounded and retried
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_git_fetch_retry.py
 
       - name: Validate test compilation cache seeding
         if: ${{ !cancelled() && matrix.group == 'quality-sharding' }}
