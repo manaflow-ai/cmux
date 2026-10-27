@@ -925,6 +925,25 @@ fn fetch_checks_every_redirect_hop_and_the_address_it_reached() {
     assert!(rebound.message.contains("resolved to 169.254.169.254"), "{}", rebound.message);
 }
 
+/// An engine answer to `net.fetch` that is not an object (a provider engine
+/// is another process) fails that fetch with a typed error; it never takes
+/// the host down (cmux-tui/fuzz `browser_host_gate_fetch`).
+#[test]
+fn a_fetch_answer_that_is_not_an_object_fails_the_fetch() {
+    let (gate, driver) = make_gate(Value::Null, false);
+    for answer in [json!(7), json!("text"), json!(true), json!([1, 2])] {
+        *driver.fetch_reply.lock().unwrap() = answer.clone();
+        let error = gate
+            .driver_call("net.fetch", json!({"targetId": "T", "url": "https://a.test/x"}))
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::Invalid, "{answer}: {error}");
+        assert!(
+            error.message.starts_with("fetch: the engine's answer is not an object"),
+            "{error}"
+        );
+    }
+}
+
 fn wait_for_in_flight(driver: &FakeDriver, count: usize) {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     while driver.fetch_in_flight.load(std::sync::atomic::Ordering::SeqCst) < count {
