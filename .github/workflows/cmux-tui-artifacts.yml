@@ -73,8 +73,14 @@ on:
   # publication exists. A push trigger cannot filter paths per branch, so
   # tree-preflight is the filter: a branch push whose tree key is already
   # published spends no macOS time (run_macos=false) and publishes nothing.
+  #
+  # cp/** is the one exception: those are per-item patch refs (974 on
+  # 2026-10-27) that never open a pull request, so no check reads their
+  # trees, and each push still took a Linux runner for tree-preflight. They
+  # were 163 of this workflow's 235 queued runs in the 2026-10-27 Actions
+  # stall. A cp/ commit that lands publishes from the base branch as usual.
   push:
-    branches: ["**"]
+    branches: ["**", "!cp/**"]
     # The branch itself is trusted. Run on every base-branch advance so a
     # Swift-only change can repair a missing cmux-tui tree publication before
     # downstream app jobs try to fetch it.

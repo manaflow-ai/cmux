@@ -3,8 +3,10 @@
 # rehearse/apply runner and the deploy ordering gate on a scratch Postgres with
 # a fake PlanetScale, the post-deploy rollback rail with a fake wrangler and a
 # fake Worker, and image promotion with a fake provider. No secrets, no
-# database or Cloudflare access, no deploys: it runs on every branch that
-# touches these paths, side branches included.
+# database or Cloudflare access, no deploys: it runs on every pull request
+# that touches these paths, side-branch pull requests included, and on the
+# base branches' pushes. A push to a branch with no pull request starts
+# nothing (the 2026-10-27 push flood).
 
 name: release rails
 
@@ -22,6 +24,7 @@ on:
       - images/cmux-vm/promote.ts
       - .github/workflows/release-rails.yml
   push:
+    branches: [main, feat-cmux-next]
     paths:
       - scripts/cmux-next/release/**
       - workers/cmux-vm/migrations/**

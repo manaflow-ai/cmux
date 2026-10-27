@@ -209,9 +209,10 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     # default branch's workflow file, so a trigger here never ran.
     assert "pull_request_target" not in triggers
     push_trigger = triggers["push"]
-    # Every branch of this repository (forks never push here); tree-preflight
-    # is the filter: a push whose tree is published builds nothing.
-    assert push_trigger.get("branches") == ["**"]
+    # Every branch of this repository (forks never push here) except the cp/
+    # patch refs, which never open a pull request; tree-preflight is the
+    # filter: a push whose tree is published builds nothing.
+    assert push_trigger.get("branches") == ["**", "!cp/**"]
     assert "paths" not in push_trigger
     preflight = workflow_job(artifacts, "tree-preflight")
     assert "runs-on:" in preflight and "ubuntu" in preflight
