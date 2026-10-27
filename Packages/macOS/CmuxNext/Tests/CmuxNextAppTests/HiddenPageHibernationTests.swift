@@ -426,14 +426,18 @@ import Testing
         func isHibernated(_ key: String) -> Bool { services.cache.browsers[key]?.tab is HibernatedBrowserTab }
         func exemption(_ key: String) -> HibernationPlanner.Exemption? { hibernation.exemptions[key] }
 
-        /// Polls `condition` every 25 ms until it holds. The budget is a count of polls (15 s on an
-        /// idle machine), not a wall-clock deadline: in the full parallel CmuxNextAppTests run the
+        /// Polls `condition` every 25 ms until it holds. The budget is a count of idle polls (15 s on
+        /// an idle machine), not a wall-clock deadline: in the full parallel CmuxNextAppTests run the
         /// main actor and the pages' content processes are starved (tests that do nothing took
-        /// over 300 s), each poll then takes as long as the load makes it, and the wait stretches
-        /// with the load instead of running out. A condition that never holds still fails.
+        /// over 300 s), so the wait stretches with the load instead of running out. A poll while the
+        /// hibernation asks a page (its probe, snapshot and `beforeunload`, bounded by
+        /// `pageDeadline`) is not idle: the page is still on its way to hibernating or being kept,
+        /// however slowly its content process answers. A condition that never holds still fails.
         func until(_ what: @autoclosure () -> String, _ condition: () async -> Bool) async throws {
-            for _ in 0..<Self.polls {
+            var idle = 0
+            while idle < Self.polls {
                 if await condition() { return }
+                if hibernation.probing.isEmpty { idle += 1 }
                 try await Task.sleep(for: .milliseconds(25))
             }
             try #require(await condition(), "\(what()) never happened")
