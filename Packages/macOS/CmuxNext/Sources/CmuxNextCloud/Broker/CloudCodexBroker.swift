@@ -313,6 +313,7 @@ public actor CloudCodexBroker {
                 pendingRevocations.insert(target.machineID)
             }
             let previous = previousModeByMachine[target.machineID] ?? nil
+            if committed { accessRemovalAttempted.insert(target.machineID) }
             // Cleanup must complete even when the initiating task was cancelled.
             let cleanup = Task {
                 if stagingAttempted {
@@ -327,7 +328,10 @@ public actor CloudCodexBroker {
             }
             do {
                 try await cleanup.value
-                if committed { installedAccess.removeValue(forKey: target.machineID) }
+                if committed {
+                    installedAccess.removeValue(forKey: target.machineID)
+                    accessRemovalAttempted.remove(target.machineID)
+                }
             }
             catch { throw CloudCodexBrokerError.remoteDeliveryFailed }
             throw error as? CloudCodexBrokerError ?? (Task.isCancelled ? .cancelled : .remoteDeliveryFailed)
