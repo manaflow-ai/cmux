@@ -238,6 +238,7 @@ fn lease_socket_path(
     // chmods an existing caller-owned directory. A pathname swap after this
     // point therefore requires the same OS identity (which already has full
     // daemon authority) or root.
+    // SAFETY: geteuid takes no arguments, cannot fail, and touches no memory.
     validate_socket_directory_for_uid(parent, unsafe { libc::geteuid() })?;
 
     let lock_path = sibling_lock_path(&path).map_err(UnixSocketError::Io)?;

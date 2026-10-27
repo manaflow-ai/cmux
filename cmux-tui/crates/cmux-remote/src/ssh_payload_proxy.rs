@@ -87,23 +87,23 @@ mod macos {
             is_external_representation: u8,
         ) -> CfTypeRef;
         fn CFStringGetLength(string: CfTypeRef) -> CfIndex;
-        fn CFStringGetMaximumSizeForEncoding(length: CfIndex, encoding: u32) -> CfIndex;
+        safe fn CFStringGetMaximumSizeForEncoding(length: CfIndex, encoding: u32) -> CfIndex;
         fn CFStringGetCString(
             string: CfTypeRef,
             buffer: *mut c_char,
             size: CfIndex,
             encoding: u32,
         ) -> u8;
-        fn CFStringGetTypeID() -> usize;
+        safe fn CFStringGetTypeID() -> usize;
         fn CFURLCreateWithString(alloc: CfTypeRef, string: CfTypeRef, base: CfTypeRef)
         -> CfTypeRef;
         fn CFURLGetString(url: CfTypeRef) -> CfTypeRef;
-        fn CFURLGetTypeID() -> usize;
+        safe fn CFURLGetTypeID() -> usize;
         fn CFArrayGetCount(array: CfTypeRef) -> CfIndex;
         fn CFArrayGetValueAtIndex(array: CfTypeRef, index: CfIndex) -> CfTypeRef;
         fn CFDictionaryGetValue(dictionary: CfTypeRef, key: CfTypeRef) -> CfTypeRef;
         fn CFNumberGetValue(number: CfTypeRef, kind: CfIndex, value: *mut c_void) -> u8;
-        fn CFNumberGetTypeID() -> usize;
+        safe fn CFNumberGetTypeID() -> usize;
         fn CFGetTypeID(value: CfTypeRef) -> usize;
         fn CFEqual(first: CfTypeRef, second: CfTypeRef) -> u8;
         fn CFRelease(value: CfTypeRef);
@@ -111,17 +111,17 @@ mod macos {
 
     #[link(name = "CFNetwork", kind = "framework")]
     unsafe extern "C" {
-        static kCFProxyTypeKey: CfTypeRef;
-        static kCFProxyHostNameKey: CfTypeRef;
-        static kCFProxyPortNumberKey: CfTypeRef;
-        static kCFProxyAutoConfigurationURLKey: CfTypeRef;
-        static kCFProxyAutoConfigurationJavaScriptKey: CfTypeRef;
-        static kCFProxyTypeNone: CfTypeRef;
-        static kCFProxyTypeHTTP: CfTypeRef;
-        static kCFProxyTypeHTTPS: CfTypeRef;
-        static kCFProxyTypeSOCKS: CfTypeRef;
-        static kCFProxyTypeAutoConfigurationURL: CfTypeRef;
-        static kCFProxyTypeAutoConfigurationJavaScript: CfTypeRef;
+        safe static kCFProxyTypeKey: CfTypeRef;
+        safe static kCFProxyHostNameKey: CfTypeRef;
+        safe static kCFProxyPortNumberKey: CfTypeRef;
+        safe static kCFProxyAutoConfigurationURLKey: CfTypeRef;
+        safe static kCFProxyAutoConfigurationJavaScriptKey: CfTypeRef;
+        safe static kCFProxyTypeNone: CfTypeRef;
+        safe static kCFProxyTypeHTTP: CfTypeRef;
+        safe static kCFProxyTypeHTTPS: CfTypeRef;
+        safe static kCFProxyTypeSOCKS: CfTypeRef;
+        safe static kCFProxyTypeAutoConfigurationURL: CfTypeRef;
+        safe static kCFProxyTypeAutoConfigurationJavaScript: CfTypeRef;
         fn CFNetworkCopySystemProxySettings() -> CfTypeRef;
         fn CFNetworkCopyProxiesForURL(url: CfTypeRef, settings: CfTypeRef) -> CfTypeRef;
         fn CFNetworkCopyProxiesForAutoConfigurationScript(
@@ -157,9 +157,11 @@ mod macos {
         let proxies = match pac_script {
             Some(script) => evaluate(script, &target),
             None => {
-                // SAFETY: plain Copy calls; both results are owned and checked.
+                // SAFETY: takes no arguments; the +1 result is owned and checked for null.
                 let settings = Owned::new(unsafe { CFNetworkCopySystemProxySettings() });
                 settings.and_then(|settings| {
+                    // SAFETY: `target` is a live CFURL and `settings` a live CFDictionary for
+                    // the call; the +1 result is owned and checked for null.
                     Owned::new(unsafe { CFNetworkCopyProxiesForURL(target.0, settings.0) })
                 })
             }
@@ -183,37 +185,43 @@ mod macos {
     /// Appends the routes of a CFNetwork proxy list. PAC entries are run once:
     /// a PAC script's own results are never PAC entries.
     fn collect(proxies: &Owned, target: &Owned, expand_pac: bool, routes: &mut Vec<ProxyRoute>) {
-        // SAFETY: CFNetwork returns a CFArray of CFDictionaries. Values read
-        // from them are borrowed and used only while `proxies` is alive.
+        // SAFETY: CFNetwork returns `proxies` as a live CFArray, kept alive by the borrow.
         let count = unsafe { CFArrayGetCount(proxies.0) };
         for index in 0..count {
+            // SAFETY: `index` is in 0..count of the live array; the value is borrowed and used
+            // only while `proxies` is alive.
             let proxy = unsafe { CFArrayGetValueAtIndex(proxies.0, index) };
             if proxy.is_null() {
                 continue;
             }
+            // SAFETY: every entry CFNetwork returns is a CFDictionary, alive while `proxies` is,
+            // and every key passed is a CFNetwork key constant; the value is borrowed.
             let value = |key: CfTypeRef| unsafe { CFDictionaryGetValue(proxy, key) };
-            let kind = value(unsafe { kCFProxyTypeKey });
+            let kind = value(kCFProxyTypeKey);
             if kind.is_null() {
                 continue;
             }
+            // SAFETY: `kind` is a non-null CF object borrowed from the live entry and every
+            // `other` is a CFNetwork constant.
             let is = |other: CfTypeRef| unsafe { CFEqual(kind, other) } != 0;
-            if is(unsafe { kCFProxyTypeNone }) {
+            if is(kCFProxyTypeNone) {
                 routes.push(ProxyRoute::Direct);
-            } else if is(unsafe { kCFProxyTypeHTTP }) || is(unsafe { kCFProxyTypeHTTPS }) {
+            } else if is(kCFProxyTypeHTTP) || is(kCFProxyTypeHTTPS) {
                 routes.extend(endpoint(proxy, "http").map(ProxyRoute::Via));
-            } else if is(unsafe { kCFProxyTypeSOCKS }) {
+            } else if is(kCFProxyTypeSOCKS) {
                 routes.extend(endpoint(proxy, "socks5h").map(ProxyRoute::Via));
-            } else if expand_pac && is(unsafe { kCFProxyTypeAutoConfigurationURL }) {
-                let location = value(unsafe { kCFProxyAutoConfigurationURLKey });
-                let script = has_type(location, unsafe { CFURLGetTypeID() })
+            } else if expand_pac && is(kCFProxyTypeAutoConfigurationURL) {
+                let location = value(kCFProxyAutoConfigurationURLKey);
+                let script = has_type(location, CFURLGetTypeID())
+                    // SAFETY: `location` was type-checked as a CFURL, alive while `proxies` is.
                     .then(|| rust_string(unsafe { CFURLGetString(location) }))
                     .flatten()
                     .and_then(|location| fetch_pac(&location));
                 if let Some(proxies) = script.and_then(|script| evaluate(&script, target)) {
                     collect(&proxies, target, false, routes);
                 }
-            } else if expand_pac && is(unsafe { kCFProxyTypeAutoConfigurationJavaScript }) {
-                let script = rust_string(value(unsafe { kCFProxyAutoConfigurationJavaScriptKey }));
+            } else if expand_pac && is(kCFProxyTypeAutoConfigurationJavaScript) {
+                let script = rust_string(value(kCFProxyAutoConfigurationJavaScriptKey));
                 if let Some(proxies) = script.and_then(|script| evaluate(&script, target)) {
                     collect(&proxies, target, false, routes);
                 }
@@ -229,9 +237,13 @@ mod macos {
             return None;
         }
         let host = if host.contains(':') { format!("[{host}]") } else { host };
+        // SAFETY: `proxy` is a live CFDictionary and the key a CFNetwork constant; the value is
+        // borrowed and type-checked before use.
         let port = unsafe { CFDictionaryGetValue(proxy, kCFProxyPortNumberKey) };
         let mut number: i32 = 0;
-        let has_port = has_type(port, unsafe { CFNumberGetTypeID() })
+        let has_port = has_type(port, CFNumberGetTypeID())
+            // SAFETY: `port` was type-checked as a CFNumber, and kCFNumberSInt32Type writes one
+            // i32 into `number`, a live local of that type.
             && unsafe { CFNumberGetValue(port, K_CF_NUMBER_SINT32_TYPE, (&raw mut number).cast()) }
                 != 0
             && number > 0;
@@ -281,16 +293,16 @@ mod macos {
 
     /// Copies a borrowed CFString; anything else is `None`.
     fn rust_string(string: CfTypeRef) -> Option<String> {
-        // SAFETY: `string` is type-checked, and the buffer is as large as the
-        // encoding can need plus the terminator.
-        if !has_type(string, unsafe { CFStringGetTypeID() }) {
+        if !has_type(string, CFStringGetTypeID()) {
             return None;
         }
-        let size = unsafe {
-            CFStringGetMaximumSizeForEncoding(CFStringGetLength(string), K_CF_STRING_ENCODING_UTF8)
-        }
-        .checked_add(1)?;
+        // SAFETY: `string` was type-checked as a live CFString.
+        let length = unsafe { CFStringGetLength(string) };
+        let size =
+            CFStringGetMaximumSizeForEncoding(length, K_CF_STRING_ENCODING_UTF8).checked_add(1)?;
         let mut buffer = vec![0_u8; usize::try_from(size).ok()?];
+        // SAFETY: `string` is a live CFString and `buffer` holds `size` writable bytes, as large
+        // as the encoding can need plus the terminator; CFStringGetCString writes at most that.
         let copied = unsafe {
             CFStringGetCString(string, buffer.as_mut_ptr().cast(), size, K_CF_STRING_ENCODING_UTF8)
         };

@@ -77,6 +77,7 @@ fn read_and_shred(path: &Path) -> Result<String, ManagedEnrollmentError> {
     let mut validation_error = None;
     #[cfg(unix)]
     {
+        // SAFETY: geteuid takes no arguments, cannot fail, and touches no memory.
         if metadata.uid() != unsafe { libc::geteuid() } {
             return Err(error("Managed enrollment file must be owned by the current user."));
         }

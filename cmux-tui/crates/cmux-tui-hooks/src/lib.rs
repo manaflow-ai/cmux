@@ -783,6 +783,8 @@ struct HermesWindowsJob {
 #[cfg(windows)]
 impl HermesWindowsJob {
     fn assign_and_resume(child: &Child) -> io::Result<Self> {
+        // SAFETY: both arguments are null, which CreateJobObjectW accepts as default security and
+        // no name.
         let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
         if handle.is_null() {
             return Err(io::Error::last_os_error());
@@ -793,6 +795,8 @@ impl HermesWindowsJob {
         let information_size =
             u32::try_from(std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())
                 .expect("Windows job information fits in u32");
+        // SAFETY: `job.handle` is the open job and the pointer is to the live local `information`,
+        // whose size is the length passed; SetInformationJobObject only reads it.
         if unsafe {
             SetInformationJobObject(
                 job.handle,
@@ -804,12 +808,17 @@ impl HermesWindowsJob {
         {
             return Err(io::Error::last_os_error());
         }
+        // SAFETY: OpenProcess takes plain values; it returns a new handle or null.
         let process = unsafe { OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, child.id()) };
         if process.is_null() {
             return Err(io::Error::last_os_error());
         }
+        // SAFETY: `job.handle` is the open job and `process` the non-null handle opened above; both
+        // stay open for the call.
         let assigned = unsafe { AssignProcessToJobObject(job.handle, process) };
         let assign_error = (assigned == 0).then(io::Error::last_os_error);
+        // SAFETY: `process` is the non-null handle OpenProcess returned, owned only here and closed
+        // once.
         unsafe {
             CloseHandle(process);
         }
@@ -821,6 +830,8 @@ impl HermesWindowsJob {
     }
 
     fn terminate(&self) {
+        // SAFETY: `self.handle` is the job handle this value owns, open until Drop; no pointers are
+        // passed.
         unsafe {
             TerminateJobObject(self.handle, 1);
         }
@@ -830,6 +841,7 @@ impl HermesWindowsJob {
 #[cfg(windows)]
 impl Drop for HermesWindowsJob {
     fn drop(&mut self) {
+        // SAFETY: `self.handle` is the job handle this value owns, closed here exactly once.
         unsafe {
             CloseHandle(self.handle);
         }
@@ -838,6 +850,8 @@ impl Drop for HermesWindowsJob {
 
 #[cfg(windows)]
 fn resume_hermes_child(child: &Child) -> io::Result<()> {
+    // SAFETY: CreateToolhelp32Snapshot takes plain values; it returns a new handle or
+    // INVALID_HANDLE_VALUE.
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
     if snapshot == INVALID_HANDLE_VALUE {
         return Err(io::Error::last_os_error());
@@ -848,16 +862,22 @@ fn resume_hermes_child(child: &Child) -> io::Result<()> {
                 .expect("Windows thread entry size fits in u32"),
             ..THREADENTRY32::default()
         };
+        // SAFETY: `snapshot` is the open snapshot and `entry` a live THREADENTRY32 whose dwSize is
+        // set to its size, as Thread32First requires.
         if unsafe { Thread32First(snapshot, &mut entry) } == 0 {
             return Err(io::Error::last_os_error());
         }
         loop {
             if entry.th32OwnerProcessID == child.id() {
+                // SAFETY: OpenThread takes plain values; it returns a new handle or null.
                 let thread = unsafe { OpenThread(THREAD_SUSPEND_RESUME, 0, entry.th32ThreadID) };
                 if thread.is_null() {
                     return Err(io::Error::last_os_error());
                 }
+                // SAFETY: `thread` is the non-null handle OpenThread returned, open for the call.
                 let resumed = unsafe { ResumeThread(thread) };
+                // SAFETY: `thread` is the non-null handle OpenThread returned, owned only here and
+                // closed once.
                 unsafe {
                     CloseHandle(thread);
                 }
@@ -866,6 +886,8 @@ fn resume_hermes_child(child: &Child) -> io::Result<()> {
                 }
                 return Ok(());
             }
+            // SAFETY: `snapshot` is the open snapshot and `entry` the live THREADENTRY32 filled by
+            // the previous call.
             if unsafe { Thread32Next(snapshot, &mut entry) } == 0 {
                 return Err(io::Error::new(
                     io::ErrorKind::NotFound,
@@ -874,6 +896,8 @@ fn resume_hermes_child(child: &Child) -> io::Result<()> {
             }
         }
     })();
+    // SAFETY: `snapshot` is the valid handle CreateToolhelp32Snapshot returned, owned only here and
+    // closed once after the closure that uses it returns.
     unsafe {
         CloseHandle(snapshot);
     }
@@ -883,7 +907,9 @@ fn resume_hermes_child(child: &Child) -> io::Result<()> {
 #[cfg(unix)]
 fn read_hermes_output(mut pipe: impl Read + AsRawFd, deadline: Instant) -> io::Result<Vec<u8>> {
     let fd = pipe.as_raw_fd();
+    // SAFETY: `pipe` keeps `fd` open for the call; F_GETFL takes no pointer argument.
     let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    // SAFETY: `pipe` keeps `fd` open for the call; F_SETFL takes an int flag set, no pointer.
     if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
         return Err(io::Error::last_os_error());
     }
@@ -914,6 +940,8 @@ fn read_hermes_output(mut pipe: impl Read + AsRawFd, deadline: Instant) -> io::R
                     remaining.as_millis().max(1).min(libc::c_int::MAX as u128) as libc::c_int;
                 let mut descriptor =
                     libc::pollfd { fd, events: libc::POLLIN | libc::POLLHUP, revents: 0 };
+                // SAFETY: `descriptor` is one live pollfd and the count passed is 1, so poll
+                // touches only it.
                 let ready = unsafe { libc::poll(&mut descriptor, 1, timeout_ms) };
                 if ready < 0 {
                     let error = io::Error::last_os_error();

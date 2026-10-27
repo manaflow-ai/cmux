@@ -112,6 +112,7 @@ fn install_impl(e: &Path, config: &Path) -> Result<String, String> {
     let x = e.to_str().ok_or("executable path is not valid UTF-8")?;
     let c = config.to_str().ok_or("config path is not valid UTF-8")?;
     atomic_write(&p, &launchd_plist(x, c))?;
+    // SAFETY: getuid takes no arguments, cannot fail, and touches no memory.
     let d = format!("gui/{}", unsafe { libc::getuid() });
     let s = p.to_str().ok_or("autostart path is not valid UTF-8")?;
     let _ = run("launchctl", &["bootout", &d, s]);
@@ -166,6 +167,7 @@ pub fn install(e: &Path, config: &Path) -> Result<String, String> {
 #[cfg(target_os = "macos")]
 fn uninstall_impl() -> Result<String, String> {
     let p = home()?.join("Library/LaunchAgents").join(format!("{LABEL}.plist"));
+    // SAFETY: getuid takes no arguments, cannot fail, and touches no memory.
     let d = format!("gui/{}", unsafe { libc::getuid() });
     if let Some(s) = p.to_str() {
         let _ = run("launchctl", &["bootout", &d, s]);

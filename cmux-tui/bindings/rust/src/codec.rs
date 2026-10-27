@@ -343,6 +343,8 @@ fn connect_unix_with_poll_checks(
             "session socket path contains a NUL byte".to_string(),
         ));
     }
+    // SAFETY: sockaddr_un is a plain C struct of integers and a char array, so all-zero bytes are a
+    // valid value (an empty, unset address).
     let mut address: libc::sockaddr_un = unsafe { zeroed() };
     if path.len() >= address.sun_path.len() {
         return Err(CmuxError::InvalidArgument(format!(
@@ -370,14 +372,20 @@ fn connect_unix_with_poll_checks(
     }
 
     let creation = platform_socket_creation_plan();
+    // SAFETY: socket takes integer arguments only and returns a new descriptor or -1.
     let raw_descriptor = unsafe { libc::socket(libc::AF_UNIX, creation.socket_type, 0) };
     if raw_descriptor < 0 {
         return Err(connect_error(socket_path, std::io::Error::last_os_error()));
     }
+    // SAFETY: `raw_descriptor` is non-negative, so socket returned a fresh descriptor that nothing
+    // else owns; the OwnedFd takes its sole ownership.
     let descriptor = unsafe { OwnedFd::from_raw_fd(raw_descriptor) };
     if creation.needs_cloexec_fcntl {
+        // SAFETY: `descriptor` owns the socket for the call; F_GETFD takes no pointer argument.
         let descriptor_flags = unsafe { libc::fcntl(descriptor.as_raw_fd(), libc::F_GETFD) };
         if descriptor_flags < 0
+            // SAFETY: `descriptor` owns the socket for the call; F_SETFD takes an int flag set, no
+            // pointer.
             || unsafe {
                 libc::fcntl(
                     descriptor.as_raw_fd(),
@@ -396,8 +404,11 @@ fn connect_unix_with_poll_checks(
         target_os = "netbsd",
     ))]
     set_no_sigpipe(descriptor.as_raw_fd()).map_err(|error| connect_error(socket_path, error))?;
+    // SAFETY: `descriptor` owns the socket for the call; F_GETFL takes no pointer argument.
     let status_flags = unsafe { libc::fcntl(descriptor.as_raw_fd(), libc::F_GETFL) };
     if status_flags < 0
+        // SAFETY: `descriptor` owns the socket for the call; F_SETFL takes an int flag set, no
+        // pointer.
         || unsafe {
             libc::fcntl(descriptor.as_raw_fd(), libc::F_SETFL, status_flags | libc::O_NONBLOCK)
         } < 0
@@ -405,6 +416,8 @@ fn connect_unix_with_poll_checks(
         return Err(connect_error(socket_path, std::io::Error::last_os_error()));
     }
 
+    // SAFETY: `address` is a live, initialized sockaddr_un and `address_length` is at most its size
+    // (the path was checked to fit with its NUL); connect only reads it during the call.
     let connected = unsafe {
         libc::connect(
             descriptor.as_raw_fd(),
@@ -429,6 +442,7 @@ fn connect_unix_with_poll_checks(
         )?;
     }
 
+    // SAFETY: `descriptor` owns the socket for the call; F_SETFL takes an int flag set, no pointer.
     if unsafe {
         libc::fcntl(descriptor.as_raw_fd(), libc::F_SETFL, status_flags & !libc::O_NONBLOCK)
     } < 0
@@ -506,6 +520,8 @@ fn platform_socket_creation_plan() -> SocketCreationPlan {
 ))]
 fn set_no_sigpipe(descriptor: libc::c_int) -> std::io::Result<()> {
     let enabled: libc::c_int = 1;
+    // SAFETY: `enabled` is a live c_int and the length passed is its size; setsockopt only reads
+    // it.
     if unsafe {
         libc::setsockopt(
             descriptor,
@@ -552,6 +568,8 @@ fn wait_for_connect_with_poll_checks(
             .clamp(1, libc::c_int::MAX as u128) as libc::c_int;
         let mut poll_descriptor =
             libc::pollfd { fd: descriptor, events: libc::POLLOUT, revents: 0 };
+        // SAFETY: `poll_descriptor` is one live pollfd and the count passed is 1, so poll touches
+        // only it.
         let ready = unsafe { libc::poll(&raw mut poll_descriptor, 1, timeout_ms) };
         if ready == 0 {
             continue;
@@ -574,6 +592,8 @@ fn wait_for_connect_with_poll_checks(
         }
         let mut socket_error = 0;
         let mut socket_error_length = size_of::<libc::c_int>() as libc::socklen_t;
+        // SAFETY: `socket_error` is a live c_int and `socket_error_length` holds its size, so
+        // SO_ERROR writes at most that many bytes and updates the length through a live socklen_t.
         if unsafe {
             libc::getsockopt(
                 descriptor,
