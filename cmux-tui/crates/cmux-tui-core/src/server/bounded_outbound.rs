@@ -34,13 +34,13 @@ use crate::panic_free::RecoverPoison;
 use cmux_ipc::FrameHeader;
 use cmux_ipc::lane_writer::BULK_FRAME_MAX;
 use cmux_threads::checked::sync as waits;
+use cmux_threads::sync::Condvar;
+use cmux_threads::sync::Mutex;
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::io::Write;
 use std::ops::Range;
 use std::sync::Arc;
-use std::sync::Condvar;
-use std::sync::Mutex;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 

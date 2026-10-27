@@ -52,22 +52,27 @@ import Testing
     @Test(arguments: [NSApplication.didBecomeActiveNotification, NSApplication.didUnhideNotification,
                       NSWindow.didBecomeMainNotification])
     func theAppComingBackResyncsEveryIndicator(_ name: Notification.Name) {
-        let app = NotificationCenter()
-        let appearance = StatusIndicatorAppearance(appCenter: app, workspaceCenter: NotificationCenter())
+        let follows = StatusIndicatorTestFollows()
+        let appearance = StatusIndicatorAppearance(windows: { [] })
+        follows.start(appearance)
         let client = ResyncCounter()
         appearance.register(client)
-        app.post(name: name, object: nil)
+        follows.app.post(name: name, object: nil)
         #expect(client.resyncs == 1)
+        withExtendedLifetime(follows) {}
     }
 
-    @Test(arguments: [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification])
+    @Test(arguments: [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification,
+                      NSWorkspace.sessionDidBecomeActiveNotification])
     func wakingFromSleepResyncsEveryIndicator(_ name: Notification.Name) {
-        let workspace = NotificationCenter()
-        let appearance = StatusIndicatorAppearance(appCenter: NotificationCenter(), workspaceCenter: workspace)
+        let follows = StatusIndicatorTestFollows()
+        let appearance = StatusIndicatorAppearance(windows: { [] })
+        follows.start(appearance)
         let client = ResyncCounter()
         appearance.register(client)
-        workspace.post(name: name, object: nil)
+        follows.workspace.post(name: name, object: nil)
         #expect(client.resyncs == 1)
+        withExtendedLifetime(follows) {}
     }
 }
 

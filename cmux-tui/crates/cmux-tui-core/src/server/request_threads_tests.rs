@@ -114,6 +114,42 @@ fn the_control_sequence_runs_on_request_threads_that_record_their_blocking() {
     );
 }
 
+/// The line of an idle pool worker's wait for its next task in
+/// sequenced_pool.rs.
+fn idle_worker_wait_line() -> u32 {
+    let source = include_str!("sequenced_pool.rs");
+    let start = source.find("fn run_worker(").expect("run_worker");
+    let wait = start + source[start..].find(".idle().wait(").expect("an idle worker waits");
+    u32::try_from(source[..wait].lines().count()).expect("line")
+}
+
+/// A connection's control sequence holds no thread; an idle control worker
+/// waits for the next task of any connection while idle (Chromium's
+/// `WaitableEvent::declare_only_used_while_idle`): on a request thread, a
+/// wait far over the 2 ms lock-wait budget records no site.
+#[test]
+fn an_idle_control_worker_waiting_for_its_next_task_records_no_site() {
+    use super::super::sequenced_pool::{PoolConfig, SequencePriority, SequencedPool};
+    const IDLE: Duration = Duration::from_millis(20);
+    let pool = SequencedPool::new(PoolConfig::for_cores(4));
+    let sequence = pool.sequence(SequencePriority::Control);
+    let (ran_tx, ran_rx) = std::sync::mpsc::channel();
+    sequence.post(move || ran_tx.send(Instant::now()).expect("ran")).expect("posted");
+    let ran = ran_rx.recv_timeout(Duration::from_secs(5)).expect("the worker runs the task");
+    std::thread::sleep(IDLE);
+    let (again_tx, again_rx) = std::sync::mpsc::channel();
+    sequence.post(move || again_tx.send(()).expect("ran")).expect("posted");
+    again_rx.recv_timeout(Duration::from_secs(5)).expect("the idle worker wakes");
+    assert!(ran.elapsed() >= IDLE);
+    let file = file!().replace("request_threads_tests.rs", "sequenced_pool.rs");
+    let line = idle_worker_wait_line();
+    assert_eq!(
+        cmux_threads::blocking::snapshot().site(&file, line).copied(),
+        None,
+        "{file}:{line}"
+    );
+}
+
 /// A clear-history request runs on its own `mux-surface-control` worker at
 /// UserInitiated. Its path makes no checked blocking call (its waits are
 /// unchecked `Condvar` waits), so the test holds the terminal lock the worker

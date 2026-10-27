@@ -210,6 +210,32 @@ the connection with `bad_message` and the reason (`bad_magic`, `unknown_kind`,
 `frames_not_negotiated`, `line_too_long`, `invalid_utf8`, `truncated`).
 Nothing after the bad byte is interpreted.
 
+#### Bulk payloads: SNAPSHOT, SNAPSHOT_MORE, REPLAY
+
+A snapshot viewer's `snapshot` events (READY, local-history READY, history and
+images chunks) go as SNAPSHOT frames and the `vt-state` replay as a REPLAY
+frame (p05-ipc-077). The payload of one event is:
+
+| Bytes | Field | Notes |
+| --- | --- | --- |
+| 0-3 | meta_len | u32 little endian |
+| 4.. | meta | one UTF-8 JSON object, `meta_len` bytes |
+| then | raw | `data_len` bytes, then `pending_len` bytes (REPLAY only, when present) |
+
+The meta is the event's JSON line without its base64 fields (`data`, and
+`pending` for `vt-state`), plus `data_len` and, when the replay has a pending
+sequence, `pending_len`. The raw bytes are what those fields decode to: a
+history chunk's raw DEFLATE, the GHOSTSNP READY prefix, the Kitty replay
+stream, the VT replay and its pending sequence. aux is the PTY offset of the
+READY or of the replay cut. A writer cuts a long event into chunks: a SNAPSHOT
+continues as SNAPSHOT_MORE frames with the same aux; a REPLAY continues as
+REPLAY frames with the same aux, because its payload bytes (the prefix, the
+meta and the synthesized VT replay) are not PTY bytes. The next OUTPUT starts
+at that same offset. The reader takes the offset from the first frame, appends chunks
+until it holds `4 + meta_len + data_len + pending_len` bytes, and then has the
+whole event. A frame that would pass the 32 MiB payload limit is not built;
+that event goes as its JSON line.
+
 Golden vectors for every kind, one mixed stream and each bad-message case are
 in `spec/fixtures/ipc-frames` with a `manifest.json` that describes them in
 plain fields. Every implementation decodes them the same way.
@@ -490,6 +516,35 @@ than the daemon's. To get the grant again, the client must echo the
 capability again in a later `set-client-info`. A later page-relay
 `client-hello` also ends every grant. The daemon checks a grant again each
 time the grant is used.
+
+### Attach frames
+
+Status: encoder only (p05-ipc-076). `attach-frames-v1` stays unbound until
+the outbound queue carries stream frames, so no connection gets these yet.
+
+On a stream granted `attach-frames-v1`, the byte attach events of
+`attach-surface` (see [events](events.md)) arrive as frames instead of JSON
+lines. The aux of every one is an absolute PTY offset: the count of output
+bytes the terminal published before the frame. The first `OUTPUT` of an
+attach starts at the offset the attach's replay was taken at.
+
+| Event | Frames | Payload |
+| --- | --- | --- |
+| `output` | `OUTPUT` at the offset of its first byte | the raw PTY bytes |
+| `output` with `colors` or `flow` | `OUTPUT`, then `EVENT` at the same offset | `EVENT`: the `output` event text without `data` |
+| `resized` | `GRID` at the current offset | `meta_len` (u32 LE), the `resized` event text without `replay` and `pending`, then the replay bytes, then the pending bytes |
+| `colors-changed`, `detached`, `overflow` | `EVENT` at the current offset | the event text |
+
+`OUTPUT` offsets are contiguous: each one starts where the previous one
+ended, also across the chunks of a long payload. A reader that sees a gap
+lost bytes and resyncs. The server does not skip bytes when its outbound
+byte budget is full: it waits and sends the same frame at the same offset,
+as it does for a JSON line. A `GRID` meta has `pending_len`, the byte count of
+the pending sequence at the end of the payload, only for a viewer that
+advertised `terminal-pending-sequence-v1` and only when the sequence is not
+empty. For any other viewer, the pending bytes end the replay, as in its
+`resized` line. Putting the payload bytes back as base64 gives the JSON
+event of the line path.
 
 ## Framed IPC method attributes
 

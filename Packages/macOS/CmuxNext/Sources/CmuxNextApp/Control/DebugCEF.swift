@@ -62,6 +62,11 @@ enum DebugCEF {
         object["host_popup_menus"] = .bool(services.cache.cef.drawsHostPopupMenus) // p01-process-060
         // Host mode with feature chromiumHostSuggestions (p01-process-061): null while the host draws none in cmux.
         object["host_suggestions"] = services.cache.cef.hostSuggestions.map { .array($0.map(hostSuggestion)) } ?? .null
+        // Host mode with feature chromiumHostFileDialogs (p01-process-064): the page file choosers cmux answered.
+        object["host_file_dialogs"] = services.cache.cef.hostFileDialogs.map { report in
+            .object(["asked": .number(Double(report.asked)), "answered": .number(Double(report.answered)),
+                     "waiting": .number(Double(report.waiting))])
+        } ?? .null
         object["host_resize"] = services.cache.cef.hostResizeCounters.map { counters in .object(counters.mapValues { value in .number(value) }) } ?? .null
         // Swipes over Chromium pages (p01-process-234): a hosted page on a host that acks wheels probes nothing.
         let swipe = services.cache.cef.swipeStats

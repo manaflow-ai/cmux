@@ -72,8 +72,9 @@ struct LaunchSnapshotWindow {
         let phase = LaunchPicturePhase(deadlines: services.mainDeadlines) { DebugTimings.markLaunch($0) }
         manager.launchPicture = phase
         phase.start({ _ = await pictures.frontFinished() }, on: services.work, mainWork: services.mainWork) { _ in
-            // `takeFront` hands out a picture whose read ended by now, or marks it missed.
-            LaunchSnapshotWindow(manager: manager).show(pictures.takeFront(), of: window, in: phase)
+            // `takeFront(matching:launch:)` hands out a picture whose read ended by now and that the launch rules
+            // allow (p08-startup-063), or marks it missed or refused.
+            LaunchSnapshotWindow(manager: manager).show(from: pictures, of: window, in: phase)
         }
     }
 
@@ -82,19 +83,34 @@ struct LaunchSnapshotWindow {
         DebugTimings.markLaunch("launch_snapshot_shown")
     }
 
-    private func show(_ front: WindowPictureStore.FrontPicture?, of window: WindowRegistry.Window, in phase: LaunchPicturePhase) {
+    private func show(from pictures: WindowPictureStore, of window: WindowRegistry.Window, in phase: LaunchPicturePhase) {
         let manager = manager, services = manager.services
         guard manager.launchPicture === phase else { return }
-        guard let front, front.windowID == window.id else { return skip(phase, window) }
         // The window's room scope, themed as its controller's will be: its backdrop under the picture.
         let room = manager.state(for: window.id).profileID, scope = ThemeScope(level: .room)
         services.themes.setTheme(of: scope, to: services.themes.roomTheme(room))
         services.themes.applyWindowBackground(of: scope, room: room)
-        guard let opening = pictureMeta(of: window, appearance: scope.appearance),
-              WindowPictureMeta.mismatches(saved: front.meta, opening: opening).isEmpty else {
+        guard let opening = pictureMeta(of: window, appearance: scope.appearance) else {
+            pictures.dropFront()
             DebugTimings.markLaunch("launch_picture_mismatch")
             return skip(phase, window)
         }
+        // The setting unknown (settings not loaded yet) shows no picture, as the quit saves none then.
+        let settings = services.settings
+        let facts = WindowPictureStore.LaunchFacts(savedPicture: settings.map { $0.loadCount >= 1 && $0.snapshot.savedPicture } ?? false,
+                                                   recovered: services.crashRecovery.recovery.isRestart,
+                                                   incognitoLeftovers: manager.incognitoLedger.mayHaveLeftovers)
+        // A refusal records its own `launch_picture_refused.<reason>` mark.
+        guard let shown = pictures.takeFront(matching: opening, launch: facts), shown.picture.windowID == window.id else {
+            return skip(phase, window)
+        }
+        // Stand-in until the launch builds stale regions live under the rest of the picture (p08-startup-063's
+        // region refusal): a changed sidebar or pane layout takes today's path for the whole window, as 059 did.
+        guard shown.stale.isEmpty else {
+            DebugTimings.markLaunch("launch_picture_mismatch")
+            return skip(phase, window)
+        }
+        let front = shown.picture
         let shell = ShellWindow.main(frame: opening.frame)
         shell.setFrame(opening.frame, display: false)  // contentRect grows by the titlebar: the saved frame exactly
         // Before any view reaches the window, as the controller does: its visibility node, its key family.

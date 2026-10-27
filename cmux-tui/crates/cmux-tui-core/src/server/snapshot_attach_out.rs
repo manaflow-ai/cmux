@@ -16,8 +16,8 @@ use cmux_threads::checked::sync as waits;
 use serde_json::{Value, json};
 
 use super::{
-    PendingTail, digest_json, frame_json, frame_output_len, local_snapshot_json,
-    log_skipped_images, snapshot_json,
+    PendingTail, digest_json, frame_json, frame_output_len, local_ready_event, log_skipped_images,
+    ready_event,
 };
 use crate::server::attach_lifecycle::attach_pump::{
     AttachPump, PumpTimer, Step, ViewDrain, ViewOut, ViewSource,
@@ -104,7 +104,7 @@ impl SnapshotWorker {
                 log_skipped_images(self.surface_id, &frame);
                 // The older READY's history and images no longer apply.
                 self.tail = Some(PendingTail::of(&mut frame));
-                self.send(&snapshot_json(self.surface_id, &frame))
+                self.send(&ready_event(self.surface_id, &frame).into_json())
             }
             Err(_) => {
                 // The unfinished escape sequence is longer than the snapshot
@@ -127,7 +127,7 @@ impl SnapshotWorker {
             return self.send_snapshot();
         }
         self.generation = ready.frame.generation;
-        self.send(&local_snapshot_json(self.surface_id, ready))
+        self.send(&local_ready_event(self.surface_id, ready).into_json())
     }
 
     /// One history or images chunk; the last one ends the pending tail. A
@@ -137,7 +137,8 @@ impl SnapshotWorker {
     fn send_tail_chunk(&mut self) -> bool {
         let Some(tail) = self.tail.as_mut() else { return true };
         match tail.next_chunk(self.surface_id) {
-            Ok(Some((value, done))) => {
+            Ok(Some((event, done))) => {
+                let value = event.into_json();
                 if done {
                     self.tail = None;
                 }

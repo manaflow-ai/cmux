@@ -7,9 +7,60 @@
 //! (`terminal-snapshot-v1`) is resynchronized instead: the queue drops its
 //! pending frames, records that the viewer needs a snapshot, and the worker
 //! sends one READY snapshot taken under the terminal lock before live bytes.
+//!
+//! Output fans out without a copy per viewer: each viewer queues a handle to
+//! the one shared chunk, cut from the PTY's [`OutputArena`], and a slow
+//! viewer's adjacent chunks merge into an [`OutputRope`] that is joined on the
+//! viewer's own thread.
 
 use super::snapshot_attach::LocalReadySnapshot;
 use super::*;
+use bytes::Bytes;
+use std::ops::DerefMut;
+
+mod output_arena;
+mod output_rope;
+#[cfg(test)]
+pub(super) use output_arena::OUTPUT_ARENA_BLOCK_BYTES;
+pub(super) use output_arena::OutputArena;
+#[cfg(test)]
+pub(super) use output_rope::OUTPUT_ROPE_COPY_MAX_BYTES;
+pub(super) use output_rope::OutputRope;
+
+/// A PTY's attach viewers and the arena their output is cut from, both under
+/// the `pty.taps` lock the reader already holds to fan out.
+#[derive(Default)]
+pub(super) struct AttachTaps {
+    taps: Vec<AttachTap>,
+    output: OutputArena,
+}
+
+impl AttachTaps {
+    /// `bytes` as one chunk every viewer shares. The arena block is dropped
+    /// once no viewer is left.
+    pub(super) fn output_chunk(&mut self, bytes: &[u8]) -> Option<Bytes> {
+        if self.taps.is_empty() {
+            self.output.release();
+            return None;
+        }
+        Some(self.output.chunk(bytes))
+    }
+}
+
+impl Deref for AttachTaps {
+    type Target = Vec<AttachTap>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.taps
+    }
+}
+
+impl DerefMut for AttachTaps {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.taps
+    }
+}
+
 pub struct AttachFrameReceiver {
     state: Arc<AttachTapState>,
     lifecycle: AttachLifecycle,
@@ -24,11 +75,13 @@ impl AttachFrameReceiver {
 
     /// The next frame of a plain receiver. Only a snapshot viewer that opted
     /// into local history is ever offered a local READY, and it reads its
-    /// queue with `recv_viewer_event`; any other item is skipped.
-    fn pop(queue: &mut AttachTapQueue) -> Option<AttachFrame> {
+    /// queue with `recv_viewer_event`; any other item is skipped. The caller
+    /// releases the queue lock before it joins the frame.
+    fn pop(queue: &mut AttachTapQueue) -> Option<TakenFrame> {
         loop {
             match Self::pop_item(queue)? {
-                QueuedFrame::Frame(frame) => return Some(frame),
+                QueuedFrame::Output(rope) => return Some(TakenFrame::Output(rope)),
+                QueuedFrame::Frame(frame) => return Some(TakenFrame::Frame(frame)),
                 QueuedFrame::LocalReady(_) => {}
             }
         }
@@ -38,7 +91,8 @@ impl AttachFrameReceiver {
         let mut queue = self.state.queue.lock().unwrap();
         loop {
             if let Some(frame) = Self::pop(&mut queue) {
-                return Ok(frame);
+                drop(queue);
+                return Ok(frame.into_frame());
             }
             if !queue.sender_alive {
                 return Err(RecvError);
@@ -52,7 +106,8 @@ impl AttachFrameReceiver {
         let mut queue = self.state.queue.lock().unwrap();
         loop {
             if let Some(frame) = Self::pop(&mut queue) {
-                return Ok(frame);
+                drop(queue);
+                return Ok(frame.into_frame());
             }
             if !queue.sender_alive {
                 return Err(RecvTimeoutError::Disconnected);
@@ -89,7 +144,8 @@ impl AttachFrameReceiver {
         let mut queue = self.state.queue.lock().unwrap();
         loop {
             if let Some(frame) = Self::pop(&mut queue) {
-                return Ok(frame);
+                drop(queue);
+                return Ok(frame.into_frame());
             }
             if !queue.sender_alive {
                 return Err(RecvTimeoutError::Disconnected);
@@ -112,7 +168,8 @@ impl AttachFrameReceiver {
     pub fn try_recv(&self) -> Result<AttachFrame, TryRecvError> {
         let mut queue = self.state.queue.lock().unwrap();
         if let Some(frame) = Self::pop(&mut queue) {
-            Ok(frame)
+            drop(queue);
+            Ok(frame.into_frame())
         } else if queue.sender_alive {
             Err(TryRecvError::Empty)
         } else {
@@ -134,53 +191,19 @@ impl Drop for AttachFrameReceiver {
 }
 
 impl AttachFrame {
-    pub(super) fn merge_adjacent_output(
-        &mut self,
-        next: AttachFrame,
-        max_retained_bytes: usize,
-    ) -> AttachFrameMerge {
-        let (mut next, next_flow) = match next {
-            AttachFrame::Output(next) => (next, 0),
-            AttachFrame::FlowOutput { output, flow } => (output, flow),
-            other => return AttachFrameMerge::Unmerged(other),
-        };
-        // Each key press keeps its own output event: two echoes of two
-        // flows never merge into one.
-        let (pending, pending_flow) = match self {
-            AttachFrame::Output(pending) => (pending, 0),
-            AttachFrame::FlowOutput { output, flow } if next_flow == 0 => (output, *flow),
-            _ => return AttachFrameMerge::Unmerged(AttachFrame::with_flow(next, next_flow)),
-        };
-        let Some(max_capacity) = max_retained_bytes.checked_sub(size_of::<Self>()) else {
-            return AttachFrameMerge::Overflow;
-        };
-        let Some(required) = pending.len().checked_add(next.len()) else {
-            return AttachFrameMerge::Overflow;
-        };
-        if required > max_capacity {
-            return AttachFrameMerge::Overflow;
-        }
-        if required > pending.capacity() {
-            let desired = pending.capacity().saturating_mul(2).max(required).min(max_capacity);
-            let mut merged = Vec::new();
-            if merged.try_reserve_exact(desired).is_err() || merged.capacity() > max_capacity {
-                return AttachFrameMerge::Overflow;
-            }
-            merged.extend_from_slice(pending);
-            merged.append(&mut next);
-            *pending = merged;
-        } else {
-            pending.append(&mut next);
-        }
-        if pending_flow == 0 && next_flow != 0 {
-            *self = AttachFrame::with_flow(std::mem::take(pending), next_flow);
-        }
-        AttachFrameMerge::Merged
+    /// Output bytes as one frame, echoing `flow` when it is not 0.
+    pub(crate) fn with_flow(output: Bytes, flow: u64) -> Self {
+        if flow == 0 { Self::Output(output) } else { Self::FlowOutput { output, flow } }
     }
 
-    /// Output bytes as one frame, echoing `flow` when it is not 0.
-    pub(crate) fn with_flow(output: Vec<u8>, flow: u64) -> Self {
-        if flow == 0 { Self::Output(output) } else { Self::FlowOutput { output, flow } }
+    /// Output that changed colors. The bytes keep no spare capacity, so the
+    /// backlog's count of their length is the memory they hold.
+    pub(crate) fn output_with_colors(
+        output: Vec<u8>,
+        colors: Box<TerminalColors>,
+        flow: u64,
+    ) -> Self {
+        Self::OutputWithColors { output: output.into_boxed_slice().into(), colors, flow }
     }
 
     /// The key press this frame's output echoes (0: none).
@@ -201,17 +224,63 @@ impl AttachFrame {
         }
     }
 
+    /// The colors one output transition replaces, if it carries them.
+    pub(crate) fn output_colors(&self) -> Option<&TerminalColors> {
+        match self {
+            Self::OutputWithColors { colors, .. } => Some(colors),
+            _ => None,
+        }
+    }
+
+    /// The fields of a grid replacement, with or without its colors.
+    pub(crate) fn resize(&self) -> Option<AttachResize<'_>> {
+        match self {
+            Self::Resized {
+                cols,
+                rows,
+                replay,
+                kitty_image_aliases,
+                kitty_state,
+                pending_sequence,
+            } => Some(AttachResize {
+                cols: *cols,
+                rows: *rows,
+                replay,
+                kitty_image_aliases,
+                kitty_state: *kitty_state,
+                colors: None,
+                pending_sequence,
+            }),
+            Self::ResizedWithColors {
+                cols,
+                rows,
+                replay,
+                kitty_image_aliases,
+                kitty_state,
+                colors,
+                pending_sequence,
+            } => Some(AttachResize {
+                cols: *cols,
+                rows: *rows,
+                replay,
+                kitty_image_aliases,
+                kitty_state: *kitty_state,
+                colors: Some(colors),
+                pending_sequence,
+            }),
+            _ => None,
+        }
+    }
+
     pub(super) fn retained_bytes(&self) -> usize {
         size_of::<Self>()
             + match self {
-                Self::Output(bytes) | Self::FlowOutput { output: bytes, .. } => bytes.capacity(),
+                Self::Output(bytes) | Self::FlowOutput { output: bytes, .. } => bytes.len(),
                 Self::Resized { replay, kitty_image_aliases, .. } => {
                     replay.len()
                         + kitty_image_aliases.capacity() * size_of::<ghostty_vt::KittyImageAlias>()
                 }
-                Self::OutputWithColors { output, .. } => {
-                    output.capacity() + size_of::<TerminalColors>()
-                }
+                Self::OutputWithColors { output, .. } => output.len() + size_of::<TerminalColors>(),
                 Self::ResizedWithColors { replay, kitty_image_aliases, .. } => {
                     replay.len()
                         + kitty_image_aliases.capacity() * size_of::<ghostty_vt::KittyImageAlias>()
@@ -222,9 +291,40 @@ impl AttachFrame {
     }
 }
 
+/// A plain receiver's next frame, joined after the queue lock is released.
+enum TakenFrame {
+    Output(OutputRope),
+    Frame(AttachFrame),
+}
+
+impl TakenFrame {
+    fn into_frame(self) -> AttachFrame {
+        match self {
+            Self::Output(rope) => rope.into_frame(),
+            Self::Frame(frame) => frame,
+        }
+    }
+}
+
+/// A grid replacement (`Resized` or `ResizedWithColors`) by reference.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct AttachResize<'a> {
+    pub(crate) cols: u16,
+    pub(crate) rows: u16,
+    pub(crate) replay: &'a [u8],
+    pub(crate) kitty_image_aliases: &'a [ghostty_vt::KittyImageAlias],
+    pub(crate) kitty_state: KittyReplayState,
+    pub(crate) colors: Option<&'a TerminalColors>,
+    /// The incomplete sequence the replay ends inside (see [`AttachStream`]).
+    pub(crate) pending_sequence: &'a [u8],
+}
+
 /// One item of a viewer queue.
 #[derive(Debug)]
 pub(super) enum QueuedFrame {
+    /// Plain output (`Output`, `FlowOutput`); the output after it merges in
+    /// while the viewer has not taken it.
+    Output(OutputRope),
     Frame(AttachFrame),
     /// A local-history READY at a resize cut, after every frame queued before
     /// the resize (`terminal-snapshot-local-history-v1`).
@@ -232,8 +332,17 @@ pub(super) enum QueuedFrame {
 }
 
 impl QueuedFrame {
+    fn new(frame: AttachFrame) -> Self {
+        match frame {
+            AttachFrame::Output(output) => Self::Output(OutputRope::new(output, 0)),
+            AttachFrame::FlowOutput { output, flow } => Self::Output(OutputRope::new(output, flow)),
+            other => Self::Frame(other),
+        }
+    }
+
     fn retained_bytes(&self) -> usize {
         match self {
+            Self::Output(rope) => rope.retained_bytes(),
             Self::Frame(frame) => frame.retained_bytes(),
             // The READY bytes are shared between viewers; each viewer's
             // backlog still counts them, so a stuck viewer stays bounded.
@@ -449,6 +558,11 @@ impl AttachFrameReceiver {
             return Ok(ViewerEvent::Snapshot);
         }
         match Self::pop_item(&mut queue) {
+            Some(QueuedFrame::Output(rope)) => {
+                // Joined outside the queue lock, as `recv_viewer_event` does.
+                drop(queue);
+                Ok(ViewerEvent::Frame(rope.into_frame()))
+            }
             Some(QueuedFrame::Frame(frame)) => Ok(ViewerEvent::Frame(frame)),
             Some(QueuedFrame::LocalReady(ready)) => Ok(ViewerEvent::LocalReady(ready)),
             None if queue.sender_alive => Err(TryRecvError::Empty),
@@ -473,6 +587,10 @@ impl AttachFrameReceiver {
                 return Ok(ViewerEvent::Snapshot);
             }
             match Self::pop_item(&mut queue) {
+                Some(QueuedFrame::Output(rope)) => {
+                    drop(queue);
+                    return Ok(ViewerEvent::Frame(rope.into_frame()));
+                }
                 Some(QueuedFrame::Frame(frame)) => return Ok(ViewerEvent::Frame(frame)),
                 Some(QueuedFrame::LocalReady(ready)) => return Ok(ViewerEvent::LocalReady(ready)),
                 None => {}
@@ -711,11 +829,11 @@ impl AttachTap {
         }
         let queue_retained_bytes = queue.retained_bytes;
         let queue_max_retained_bytes = queue.max_retained_bytes;
-        if let Some(QueuedFrame::Frame(pending)) = queue.frames.back_mut() {
+        if let Some(QueuedFrame::Output(pending)) = queue.frames.back_mut() {
             let previous_bytes = pending.retained_bytes();
             let max_frame_bytes = queue_max_retained_bytes
                 .saturating_sub(queue_retained_bytes.saturating_sub(previous_bytes));
-            match pending.merge_adjacent_output(frame, max_frame_bytes) {
+            match pending.merge(frame, max_frame_bytes) {
                 AttachFrameMerge::Merged => {
                     let merged_bytes = pending.retained_bytes();
                     queue.retained_bytes = queue
@@ -730,7 +848,7 @@ impl AttachTap {
                 AttachFrameMerge::Overflow => return self.overflow(queue),
             }
         }
-        self.push(queue, QueuedFrame::Frame(frame))
+        self.push(queue, QueuedFrame::new(frame))
     }
 }
 

@@ -28,10 +28,10 @@ use crate::panic_free::RecoverPoison;
 use crate::stream_interrupt::InterruptSet;
 use crate::stream_interrupt::StreamInterrupt;
 use cmux_ipc::{FrameHeader, StreamLane};
+use cmux_threads::sync::Mutex;
 use serde::Serialize;
 use serde_json::Value;
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::sync::Weak;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
@@ -436,10 +436,43 @@ impl MessageWriter {
         if !self.is_open() {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
-        let result = self
-            .render_service
-            .serialize_for(value, stream.client_stream)
-            .and_then(|text| self.sink.send_stream_backpressured(text, stream));
+        self.send_encoded_backpressured(self.encode(value, stream), stream)
+    }
+
+    /// The first half of [`Self::send_stream_backpressured`]: `value` as
+    /// the text it sends. An echo thread watches this half as its frame's
+    /// work, not the hand-off that waits for room.
+    pub(super) fn encode<T: Serialize + ?Sized>(
+        &self,
+        value: &T,
+        stream: &OutboundStream,
+    ) -> std::io::Result<Arc<BudgetedText>> {
+        self.render_service.serialize_for(value, stream.client_stream)
+    }
+
+    /// [`Self::encode`] of an attach frame in `shape`.
+    pub(super) fn encode_attach_frame(
+        &self,
+        surface: SurfaceId,
+        frame: &AttachFrame,
+        shape: AttachWireShape,
+        stream: &OutboundStream,
+    ) -> std::io::Result<Arc<BudgetedText>> {
+        self.render_service.serialize_attach_frame_for(surface, frame, shape, stream.client_stream)
+    }
+
+    /// The second half of [`Self::send_stream_backpressured`]: hand the
+    /// encoded text to the stream, waiting while its queue is full. A failed
+    /// encode or hand-off closes the stream, as the whole send does.
+    pub(super) fn send_encoded_backpressured(
+        &self,
+        encoded: std::io::Result<Arc<BudgetedText>>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let result = encoded.and_then(|text| self.sink.send_stream_backpressured(text, stream));
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
             stream.close();
         }
@@ -482,27 +515,7 @@ impl MessageWriter {
         result
     }
 
-    pub(super) fn send_attach_frame_backpressured(
-        &self,
-        surface: SurfaceId,
-        frame: &AttachFrame,
-        shape: AttachWireShape,
-        stream: &OutboundStream,
-    ) -> std::io::Result<()> {
-        if !self.is_open() {
-            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
-        }
-        let result = self
-            .render_service
-            .serialize_attach_frame_for(surface, frame, shape, stream.client_stream)
-            .and_then(|text| self.sink.send_stream_backpressured(text, stream));
-        if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
-            stream.close();
-        }
-        result
-    }
-
-    /// [`Self::send_attach_frame_backpressured`] for a producer that checked
+    /// An attach frame on `stream` for a producer that checked
     /// [`MessageSink::stream_has_room`] first: it never waits.
     pub(super) fn send_attach_frame(
         &self,
@@ -515,8 +528,7 @@ impl MessageWriter {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
         let result = self
-            .render_service
-            .serialize_attach_frame_for(surface, frame, shape, stream.client_stream)
+            .encode_attach_frame(surface, frame, shape, stream)
             .and_then(|text| self.sink.send_stream(text, stream));
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
             stream.close();

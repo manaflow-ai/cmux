@@ -44,12 +44,13 @@
 //! scheduler's) while it posts; the pool never calls out while it holds its
 //! lock (tasks and fence callbacks run after it is released).
 
+use cmux_threads::sync::{Condvar, Mutex};
 use std::cell::{Cell, RefCell};
 use std::cmp::Ordering as CmpOrdering;
 use std::collections::{BinaryHeap, HashMap, VecDeque};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard};
+use std::sync::{Arc, MutexGuard};
 use std::time::{Duration, Instant};
 
 use cmux_threads::ThreadQos;
@@ -678,10 +679,10 @@ impl Shared {
                 state.workers[index].idle += 1;
                 let next_due = state.delayed[index].peek().map(|head| head.due);
                 state = match next_due {
-                    None => self.work[index].wait(state).recover_poison(),
+                    None => self.work[index].idle().wait(state).recover_poison(),
                     Some(due) => {
                         let wait = due.saturating_duration_since(Instant::now());
-                        self.work[index].wait_timeout(state, wait).recover_poison().0
+                        self.work[index].idle().wait_timeout(state, wait).recover_poison().0
                     }
                 };
                 self.wakeups.fetch_add(1, Ordering::Relaxed);

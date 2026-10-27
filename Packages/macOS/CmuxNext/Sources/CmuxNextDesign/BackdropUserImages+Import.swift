@@ -2,6 +2,8 @@ public import Foundation
 import AVFoundation
 import ImageIO
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 import UniformTypeIdentifiers
 
 /// Bringing a background in (cx-t2x.8, backgrounds plan phase 3): a file is checked before it is
@@ -137,7 +139,7 @@ private nonisolated final class LinkDownload: NSObject, URLSessionDataDelegate, 
         var sniffed = false
         var mimeType: String?
         var refusal: BackdropUserImages.ImportError?
-        var continuation: CheckedContinuation<String?, any Error>?
+        var continuation: OnceContinuation<String?, any Error>?
         var task: URLSessionDataTask?
         var cancelled = false
     }
@@ -160,7 +162,7 @@ private nonisolated final class LinkDownload: NSObject, URLSessionDataDelegate, 
                                  delegateQueue: .sessionDelegate("com.cmuxterm.next.backdrop.import", qos: .utility))
         defer { session.finishTasksAndInvalidate() }
         return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
+            try await withOnceThrowingContinuation { (continuation: OnceContinuation<String?, any Error>) in
                 let task = session.dataTask(with: link)
                 // A cancel that came before the task existed cancels it now: it then completes
                 // at once, cancelled, and resumes the continuation.

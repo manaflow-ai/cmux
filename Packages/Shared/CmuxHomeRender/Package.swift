@@ -27,6 +27,7 @@ let package = Package(
         .package(path: "../CmuxHomeCore"),
         .package(path: "../CmuxFuzzSupport"),
         // Invariant (p10-stability-099): CrashGuard's faults report through notFatalUntil.
+        // OnceContinuation, the continuation that resumes exactly once (p10-stability-089).
         .package(path: "../CmuxSafeConcurrency"),
     ],
     targets: [

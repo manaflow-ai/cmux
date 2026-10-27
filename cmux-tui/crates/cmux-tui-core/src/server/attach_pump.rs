@@ -18,9 +18,10 @@
 //! weakly. When the drain is done the pump fires its stop interrupt, which
 //! drops that waker.
 
+use cmux_threads::sync::Mutex;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::TryRecvError;
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::Serialize;
