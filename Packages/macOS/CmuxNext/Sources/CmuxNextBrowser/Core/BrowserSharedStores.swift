@@ -1,3 +1,4 @@
+public import CmuxNextWakeups
 public import Foundation
 
 /// The browser stores both engines and the App share, constructed once by the App and passed by
@@ -6,10 +7,10 @@ public import Foundation
 ///
 /// Every store that keeps profile data asks the same ``OffTheRecordProfiles``: a second set would
 /// answer "not off the record" for an incognito profile and write its data to disk. So the App
-/// builds one ``application()`` set, and tests build an ``inMemory()`` set each.
+/// builds one ``application(files:)`` set, and tests build an ``inMemory()`` set each.
 ///
 /// ```swift
-/// let stores = BrowserSharedStores.application()
+/// let stores = BrowserSharedStores.application(files: work)
 /// let webKit = WebKitEngine(stores: stores)
 /// let cef = CEFEngine(source: source, stores: stores, signInCallbacks: CEFSignInCallbacks(), input: inputTap)
 /// ```
@@ -35,15 +36,23 @@ public final class BrowserSharedStores {
     }
 
     /// The App's stores: site settings and zoom levels in files under Application Support (one per
-    /// profile; an incognito profile keeps its own in memory).
-    public static func application() -> BrowserSharedStores {
+    /// profile; an incognito profile keeps its own in memory). Each store reads and writes its files in its
+    /// own sequence on `work`'s files lane, never on main or the cooperative pool (p08-startup-098); nothing
+    /// is read before a profile's first question.
+    ///
+    /// - Parameter work: The app's blocking-work lanes.
+    public static func application(files work: BackgroundWork) -> BrowserSharedStores {
         let offTheRecord = OffTheRecordProfiles()
+        let permissions = work.sequence("browser.siteSettings")
         return BrowserSharedStores(
             offTheRecord: offTheRecord,
             siteSettings: SiteSettingsRegistry(
-                persistence: { profile in FileSitePermissionPersistence(fileURL: SiteSettingsRegistry.defaultFile(for: profile)) },
+                persistence: { profile in
+                    FilesLaneSitePermissionPersistence(fileURL: SiteSettingsRegistry.defaultFile(for: profile), files: permissions)
+                },
                 offTheRecord: offTheRecord),
-            siteZoom: SiteZoomLevels(directory: SiteZoomLevels.defaultDirectory(), offTheRecord: offTheRecord))
+            siteZoom: SiteZoomLevels(directory: SiteZoomLevels.defaultDirectory(), offTheRecord: offTheRecord,
+                                     files: work.sequence("browser.siteZoom")))
     }
 
     /// Stores that keep everything in memory (tests, a debug window): nothing reaches the person's
@@ -54,5 +63,24 @@ public final class BrowserSharedStores {
             offTheRecord: offTheRecord,
             siteSettings: SiteSettingsRegistry(persistence: { _ in MemorySitePermissionPersistence() }, offTheRecord: offTheRecord),
             siteZoom: SiteZoomLevels(directory: nil, offTheRecord: offTheRecord))
+    }
+}
+
+/// One profile's site decisions in one JSON file, read and written in a files-lane sequence: a load after
+/// a save reads what it wrote, and two saves never reorder.
+nonisolated struct FilesLaneSitePermissionPersistence: SitePermissionPersistence {
+    /// The profile's file.
+    let fileURL: URL
+    /// The sequence every site-settings file read and write runs in.
+    let files: WorkSequence
+
+    func load() async -> SitePermissionSnapshot {
+        let fileURL = fileURL
+        return (try? await files.run(.userVisible) { FileSitePermissionPersistence.read(fileURL) }) ?? SitePermissionSnapshot()
+    }
+
+    func save(_ snapshot: SitePermissionSnapshot) async {
+        let fileURL = fileURL
+        try? await files.run(.bestEffort, shutdown: .blockShutdown) { FileSitePermissionPersistence.write(snapshot, to: fileURL) }
     }
 }

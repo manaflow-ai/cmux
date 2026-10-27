@@ -7,10 +7,12 @@ import Foundation
 /// app build ships without the CEF runtime and a pin
 /// (`Contents/Resources/cef-runtime.json`) names the pack to download.
 ///
-/// At launch ``make(work:bundle:environment:applicationSupport:hostSupervisor:)`` picks the
-/// runtime: the embedded one (builds that still bundle CEF), the pinned pack
-/// when it is installed, or an older compatible pack while the pinned one
-/// downloads. With none, tabs open in WebKit and the ``source`` reports
+/// ``pick(bundle:environment:applicationSupport:)`` finds the runtime on disk:
+/// the embedded one (builds that still bundle CEF), the pinned pack when it is
+/// installed, or an older compatible pack while the pinned one downloads. The
+/// app reads it on a files lane at launch, and ``make(_:work:hostSupervisor:)``
+/// builds the service from it with no disk read at its first reader
+/// (p08-startup-098). With none, tabs open in WebKit and the ``source`` reports
 /// `downloading` until the install finishes; then the next Chromium tab
 /// starts Chromium, in this process or, with a host supervisor, in the
 /// Chromium Host (``backend``).
@@ -32,6 +34,22 @@ final class ChromiumRuntimeService {
         case downloading
         /// No runtime and no pin (fleet and CI builds).
         case none
+    }
+
+    /// What a launch finds of the runtime on disk (``pick(bundle:environment:applicationSupport:)``): values only, read on
+    /// a files lane and handed to ``make(_:work:hostSupervisor:)`` on main.
+    nonisolated struct Pick: Sendable {
+        /// Embedded in the app bundle (or `CMUX_NEXT_CEF_RUNTIME`); the bundled pin, its store, the pack the store
+        /// selects and that pack's layout (nil: none usable yet); or no runtime and no pin (fleet and CI builds).
+        nonisolated enum Found: Sendable {
+            case bundled(CEFRuntimeLayout)
+            case pinned(ChromiumRuntimePin, store: ChromiumRuntimeStore, selection: ChromiumRuntimeSelection, layout: CEFRuntimeLayout?)
+            case none
+        }
+
+        let found: Found
+        /// The app bundle: Chromium's main bundle for a runtime outside an `.app`.
+        let mainBundle: URL
     }
 
     /// The runtime ``CEFEngine`` reads.
@@ -74,32 +92,66 @@ final class ChromiumRuntimeService {
         self.prefetchDelay = prefetchDelay
     }
 
-    /// The service for this app: the embedded runtime when present, else the
-    /// bundled pin with the URLSession, tar, code-signature and path-monitor
-    /// implementations. `work` is the app's one ``BackgroundWork``: the
-    /// code-signature checks run on its system lane. `hostSupervisor` puts
-    /// Chromium in the Chromium Host (``BrowserBackend/host``); nil keeps it
-    /// in this process.
+    /// The service for this app, picked now: ``pick(bundle:environment:applicationSupport:)`` then
+    /// ``make(_:work:hostSupervisor:)``. `work` is the app's one ``BackgroundWork``: the
+    /// code-signature checks run on its system lane. `hostSupervisor` puts Chromium in the Chromium Host
+    /// (``BrowserBackend/host``); nil keeps it in this process.
     static func make(work: BackgroundWork, bundle: Bundle = .main,
                      environment: [String: String] = ProcessInfo.processInfo.environment,
                      applicationSupport: URL? = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first,
                      hostSupervisor: (any ChromiumHostSupervising)? = nil)
         -> ChromiumRuntimeService {
+        make(pick(bundle: bundle, environment: environment, applicationSupport: applicationSupport), work: work, hostSupervisor: hostSupervisor)
+    }
+
+    /// What this app finds on disk: the embedded runtime when present, else the bundled pin and the pack
+    /// the store selects for it, else nothing. It lists folders and reads the pin file, so the app runs it
+    /// on a files lane (`AppServices.chromiumRuntimePick`), not on main.
+    nonisolated static func pick(bundle: Bundle = .main,
+                                 environment: [String: String] = ProcessInfo.processInfo.environment,
+                                 applicationSupport: URL? = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first)
+        -> Pick {
         if let layout = CEFRuntimeLayout.locate(bundle: bundle, environment: environment) {
-            return ChromiumRuntimeService(source: CEFRuntimeSource(layout: layout, hostSupervisor: hostSupervisor), origin: .bundled,
-                                          installer: nil, mainBundle: bundle.bundleURL)
+            return Pick(found: .bundled(layout), mainBundle: bundle.bundleURL)
         }
         guard let resources = bundle.resourceURL, let pin = ChromiumRuntimePin.bundled(in: resources),
               let bundleID = bundle.bundleIdentifier, let applicationSupport else {
-            return ChromiumRuntimeService(source: CEFRuntimeSource(layout: nil, hostSupervisor: hostSupervisor), origin: .none,
-                                          installer: nil, mainBundle: bundle.bundleURL)
+            return Pick(found: .none, mainBundle: bundle.bundleURL)
         }
         let store = ChromiumRuntimeStore(root: ChromiumRuntimeStore.defaultRoot(applicationSupport: applicationSupport, bundleIdentifier: bundleID))
-        return launch(pin: pin, store: store, mainBundle: bundle.bundleURL, hostSupervisor: hostSupervisor) { inUse in
-            ChromiumRuntimeInstaller(pin: pin, store: store, downloader: URLSessionChromiumRuntimeDownloader(),
-                                     unpacker: TarChromiumRuntimeUnpacker(), signatures: SecCodeChromiumRuntimeSignatureChecker(work: work),
-                                     network: PathMonitorChromiumRuntimeNetwork(), keepAlso: { inUse })
+        let (selection, layout) = select(pin, store: store, mainBundle: bundle.bundleURL)
+        return Pick(found: .pinned(pin, store: store, selection: selection, layout: layout), mainBundle: bundle.bundleURL)
+    }
+
+    /// The service for `pick`, with the URLSession, tar, code-signature and path-monitor installer
+    /// implementations for a pinned pack. It reads no file.
+    static func make(_ pick: Pick, work: BackgroundWork, hostSupervisor: (any ChromiumHostSupervising)? = nil)
+        -> ChromiumRuntimeService {
+        switch pick.found {
+        case .bundled(let layout):
+            return ChromiumRuntimeService(source: CEFRuntimeSource(layout: layout, hostSupervisor: hostSupervisor), origin: .bundled,
+                                          installer: nil, mainBundle: pick.mainBundle)
+        case .none:
+            return ChromiumRuntimeService(source: CEFRuntimeSource(layout: nil, hostSupervisor: hostSupervisor), origin: .none,
+                                          installer: nil, mainBundle: pick.mainBundle)
+        case .pinned(let pin, let store, let selection, let layout):
+            return launch(pin: pin, selection: selection, layout: layout, mainBundle: pick.mainBundle,
+                          prefetchDelay: .seconds(20), hostSupervisor: hostSupervisor) { inUse in
+                ChromiumRuntimeInstaller(pin: pin, store: store, downloader: URLSessionChromiumRuntimeDownloader(),
+                                         unpacker: TarChromiumRuntimeUnpacker(), signatures: SecCodeChromiumRuntimeSignatureChecker(work: work),
+                                         network: PathMonitorChromiumRuntimeNetwork(), keepAlso: { inUse })
+            }
         }
+    }
+
+    /// The pack `store` selects for `pin`, and its layout when it is usable (a folder listing each).
+    private nonisolated static func select(_ pin: ChromiumRuntimePin, store: ChromiumRuntimeStore, mainBundle: URL)
+        -> (ChromiumRuntimeSelection, CEFRuntimeLayout?) {
+        let selection = store.select(for: pin)
+        let layout = selection.installation.flatMap {
+            CEFRuntimeLayout.at($0.frameworksDirectory, fallbackMainBundle: mainBundle, trust: .downloaded(teamID: pin.teamID))
+        }
+        return (selection, layout)
     }
 
     /// Picks the launch runtime for `pin` from `store`, and the installer
@@ -109,11 +161,16 @@ final class ChromiumRuntimeService {
     static func launch(pin: ChromiumRuntimePin, store: ChromiumRuntimeStore, mainBundle: URL, prefetchDelay: Duration = .seconds(20),
                        hostSupervisor: (any ChromiumHostSupervising)? = nil,
                        makeInstaller: (Set<String>) -> ChromiumRuntimeInstaller) -> ChromiumRuntimeService {
-        let selection = store.select(for: pin)
+        let (selection, layout) = select(pin, store: store, mainBundle: mainBundle)
+        return launch(pin: pin, selection: selection, layout: layout, mainBundle: mainBundle, prefetchDelay: prefetchDelay,
+                      hostSupervisor: hostSupervisor, makeInstaller: makeInstaller)
+    }
+
+    /// The service over the pack `selection` names (`layout` nil: none usable, the pinned one downloads).
+    private static func launch(pin: ChromiumRuntimePin, selection: ChromiumRuntimeSelection, layout: CEFRuntimeLayout?, mainBundle: URL,
+                               prefetchDelay: Duration, hostSupervisor: (any ChromiumHostSupervising)?,
+                               makeInstaller: (Set<String>) -> ChromiumRuntimeInstaller) -> ChromiumRuntimeService {
         let trust = CEFRuntimeLayout.Trust.downloaded(teamID: pin.teamID)
-        let layout = selection.installation.flatMap {
-            CEFRuntimeLayout.at($0.frameworksDirectory, fallbackMainBundle: mainBundle, trust: trust)
-        }
         let origin: Origin
         switch selection {
         case .exact where layout != nil: origin = .installed

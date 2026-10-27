@@ -15,11 +15,14 @@ public final class ChromiumEngineSlot {
     public let stores: BrowserSharedStores
     /// The main thread's deadline queue the pages' keyed waits use, shared with the WebKit engine.
     public let waitDeadlines: MainWakeUpQueue
-    /// Where the engine's runtime comes from; the engine is built over it.
-    public let source: CEFRuntimeSource
+    /// Where the engine's runtime comes from; the engine is built over it. Made at its first read (a "can
+    /// Chromium open a tab?" question or the engine's build), so the App picks its runtime then, not when it
+    /// builds the slot (p08-startup-098).
+    public private(set) lazy var source: CEFRuntimeSource = makeSource()
     /// A restored page's launch order (p08-startup-040), over the launch's scheduler while feature `cefLaunchOrigin`
     /// is on, else over none (every page `.user`, at once). The engine orders its starts over the same scheduler.
     public let launchOrder: CEFLaunchDeferral
+    private let makeSource: () -> CEFRuntimeSource
     private let make: (BrowserSharedStores, MainWakeUpQueue, CEFRuntimeSource) -> CEFEngine
     private let engineDidCreate: (CEFEngine) -> Void
     private let stop: @MainActor (CEFEngine) async -> Void
@@ -29,16 +32,19 @@ public final class ChromiumEngineSlot {
     public private(set) var built: CEFEngine?
 
     /// - Parameters:
+    ///   - source: The runtime source, evaluated once, at the first read of ``source``.
     ///   - launch: The launch's scheduler with feature `cefLaunchOrigin` on, else nil (``launchOrder``); `make` gives it to the engine.
     ///   - make: Builds the engine over `stores`, `waitDeadlines` and `source`; runs once, at the first read of ``engine``.
     ///   - engineDidCreate: Runs once with the built engine, before ``whenBuilt(_:)`` work and before the reader
     ///     that built it gets it.
     ///   - stop: Stops a built engine at quit (``shutdown()``): the App passes `CEFEngine.shutdown`, tests a recorder.
-    public init(stores: BrowserSharedStores, waitDeadlines: MainWakeUpQueue, source: CEFRuntimeSource, launch: StartupScheduler? = nil,
+    public init(stores: BrowserSharedStores, waitDeadlines: MainWakeUpQueue, source: @autoclosure @escaping () -> CEFRuntimeSource,
+                launch: StartupScheduler? = nil,
                 make: @escaping (BrowserSharedStores, MainWakeUpQueue, CEFRuntimeSource) -> CEFEngine,
                 engineDidCreate: @escaping (CEFEngine) -> Void = { _ in },
                 stop: @escaping @MainActor (CEFEngine) async -> Void) {
-        (self.stores, self.waitDeadlines, self.source) = (stores, waitDeadlines, source)
+        (self.stores, self.waitDeadlines) = (stores, waitDeadlines)
+        makeSource = source
         launchOrder = CEFLaunchDeferral(startup: launch)
         self.make = make
         self.engineDidCreate = engineDidCreate

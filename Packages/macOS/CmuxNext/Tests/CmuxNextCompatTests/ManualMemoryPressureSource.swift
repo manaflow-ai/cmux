@@ -7,13 +7,29 @@ nonisolated final class ManualMemoryPressureSource: MemoryPressureSource {
         var deliver: (@MainActor @Sendable (MemoryPressureLevel) -> Void)?
         var level = MemoryPressureLevel.normal
         var isCancelled = false
+        var starts = 0
     }
 
     // The events start and cancel the source on whichever thread runs their init and deinit; a test sends on main.
     private let state = Mutex(State())
+    /// The level the start reads, as the kernel's source reads the kernel's (not delivered).
+    private let levelAtStart: MemoryPressureLevel
+
+    init(levelAtStart: MemoryPressureLevel = .normal) {
+        self.levelAtStart = levelAtStart
+    }
 
     func start(delivering deliver: @escaping @MainActor @Sendable (MemoryPressureLevel) -> Void) {
-        state.withLock { $0.deliver = deliver }
+        state.withLock {
+            $0.deliver = deliver
+            $0.level = levelAtStart
+            $0.starts += 1
+        }
+    }
+
+    /// How many times the events started the source.
+    var starts: Int {
+        state.withLock { $0.starts }
     }
 
     func cancel() {

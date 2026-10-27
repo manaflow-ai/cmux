@@ -116,6 +116,25 @@ import Testing
         #expect(ran.names == firstFrame + afterStartup, "each platform service ran once, in post order")
     }
 
+    /// p08-startup-098: the sources `AppServices`' stored initializers started (the kernel memory pressure source,
+    /// the late-commit run-loop observer) start after the first frame, one post each, before startup completes.
+    @Test func storedInitializerSourcesStartAfterTheFirstFrame() {
+        let f = LaunchOrderFixture()
+        let ran = LaunchServiceRan()
+        func run(_ name: String) -> @MainActor @Sendable () -> Void { { ran.names.append(name) } }
+        LaunchServicePosts.initSources(memoryPressure: run("MemoryPressure.start"),
+                                       motionLateCommits: run("MotionLateCommits.observe")).post(on: f.order.startup)
+        f.hand.drain()
+        let names = ["MemoryPressure.start", "MotionLateCommits.observe"]
+        #expect(f.order.startup.log.records.map(\.name.description) == names)
+        #expect(f.order.startup.log.records.allSatisfy { $0.priority == .afterFirstFrame && $0.destination == .main })
+        for _ in 0..<3 { f.fire() }
+        #expect(ran.names.isEmpty, "a stored initializer's source started before the first frame")
+        f.order.startup.firstFrameCommitted()
+        for _ in 0..<names.count { f.fire() }
+        #expect(ran.names == names, "each source started once after the first frame, before startup completes")
+    }
+
     /// An agent- or bench-launched build posts no hot key start: it never takes the person's system-wide keys.
     @Test func anIsolatedLaunchPostsNoHotKeys() {
         let f = LaunchOrderFixture()

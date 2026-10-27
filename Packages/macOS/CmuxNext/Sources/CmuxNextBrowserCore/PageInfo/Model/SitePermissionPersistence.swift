@@ -29,7 +29,16 @@ public actor FileSitePermissionPersistence: SitePermissionPersistence {
     }
 
     public func load() async -> SitePermissionSnapshot {
-        // concurrency-allow: runs on this actor's executor, never the main actor.
+        Self.read(fileURL)
+    }
+
+    public func save(_ snapshot: SitePermissionSnapshot) async {
+        Self.write(snapshot, to: fileURL)
+    }
+
+    /// The decisions in `fileURL`, empty when it is missing or unreadable. Blocking: a lane or this actor only.
+    public nonisolated static func read(_ fileURL: URL) -> SitePermissionSnapshot {
+        // concurrency-allow: called on this actor's executor or a files lane, never the main actor.
         guard let data = try? Data(contentsOf: fileURL),
               let snapshot = try? JSONDecoder().blockingDecode(SitePermissionSnapshot.self, from: data) else {
             return SitePermissionSnapshot()
@@ -37,7 +46,8 @@ public actor FileSitePermissionPersistence: SitePermissionPersistence {
         return snapshot
     }
 
-    public func save(_ snapshot: SitePermissionSnapshot) async {
+    /// Writes `snapshot` to `fileURL` atomically, making its folder. Blocking: a lane or this actor only.
+    public nonisolated static func write(_ snapshot: SitePermissionSnapshot, to fileURL: URL) {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         guard let data = try? encoder.encode(snapshot) else { return }

@@ -1,4 +1,5 @@
 import CmuxNextCompat
+public import CmuxNextWakeups
 public import Foundation
 
 /// Zoom per site (Chrome's per-host zoom): one level per host and browser
@@ -10,6 +11,8 @@ public import Foundation
 public final class SiteZoomLevels {
     private let directory: URL?
     private let offTheRecord: OffTheRecordProfiles
+    /// Where the files are read and written in order; nil: on ``SiteZoomFile``'s actor.
+    private let files: WorkSequence?
     private var levels: [BrowserProfileID: [String: Double]] = [:]
     /// Followers; one that answers false is gone and is dropped.
     private var observers: [UUID: (BrowserProfileID, String) -> Bool] = [:]
@@ -17,12 +20,14 @@ public final class SiteZoomLevels {
     /// Levels in files under `directory` (nil: in memory), an incognito profile's in memory.
     ///
     /// - Parameters:
-    ///   - directory: One JSON file per profile; ``BrowserSharedStores/application()`` passes
+    ///   - directory: One JSON file per profile; ``BrowserSharedStores/application(files:)`` passes
     ///     `<Application Support>/<bundle id>/SiteZoom/` (tagged DEV builds have their own bundle id).
     ///   - offTheRecord: The App's incognito profiles (``BrowserSharedStores``).
-    public init(directory: URL?, offTheRecord: OffTheRecordProfiles) {
+    ///   - files: A files-lane sequence the reads and writes run in, in order (the App's); nil runs them on an actor.
+    public init(directory: URL?, offTheRecord: OffTheRecordProfiles, files: WorkSequence? = nil) {
         self.directory = directory
         self.offTheRecord = offTheRecord
+        self.files = files
     }
 
     /// The stored level of `host`, nil for the default (100%).
@@ -63,9 +68,14 @@ public final class SiteZoomLevels {
         requested.insert(profile)
         guard let file = file(for: profile) else { return nil }
         // task-owner: the profile's one read (`pending`); load() awaits it.
-        // main-hop-allow: the read runs on SiteZoomFile's actor; the resume merges it into this store's few-entry table and tells its followers (BrowserSharedStores takes no scheduler: AppServices builds it in a property initializer)
-        let task = Task { [weak self] in
-            let stored = await SiteZoomFile.read(file)
+        // main-hop-allow: the read runs on the files lane (or SiteZoomFile's actor); the resume merges it into this store's few-entry table and tells its followers
+        let task = Task { [weak self, files] in
+            let stored: [String: Double]
+            if let files {
+                stored = (try? await files.run(.userVisible) { SiteZoomFile.readNow(file) }) ?? [:]
+            } else {
+                stored = await SiteZoomFile.read(file)
+            }
             self?.merge(stored, into: profile)
         }
         pending[profile] = task
@@ -95,6 +105,10 @@ public final class SiteZoomLevels {
 
     private func save(_ table: [String: Double], profile: BrowserProfileID) {
         guard let file = file(for: profile) else { return }
+        if let files {  // in order behind the reads and writes before it
+            files.post(.bestEffort, shutdown: .blockShutdown) { SiteZoomFile.writeNow(table, to: file) }
+            return
+        }
         let previous = lastWrite
         // task-owner: the write chain (`lastWrite`). Off main: nothing of it runs on the main thread.
         lastWrite = Task { @concurrent in
@@ -123,13 +137,19 @@ private actor SiteZoomFile {
     static func read(_ file: URL) async -> [String: Double] { await shared.read(file) }
     static func write(_ table: [String: Double], to file: URL) async { await shared.write(table, to: file) }
 
-    private func read(_ file: URL) -> [String: Double] {
-        // concurrency-allow: runs on this actor's executor, never the main actor.
+    private func read(_ file: URL) -> [String: Double] { Self.readNow(file) }
+
+    private func write(_ table: [String: Double], to file: URL) { Self.writeNow(table, to: file) }
+
+    /// The levels in `file`, empty when it is missing or unreadable. Blocking: this actor or a files lane.
+    nonisolated static func readNow(_ file: URL) -> [String: Double] {
+        // concurrency-allow: runs on this actor's executor or a files lane, never the main actor.
         guard let data = try? Data(contentsOf: file) else { return [:] }
         return (try? JSONDecoder().blockingDecode([String: Double].self, from: data)) ?? [:]
     }
 
-    private func write(_ table: [String: Double], to file: URL) {
+    /// Writes `table` to `file` atomically, making its folder. Blocking: this actor or a files lane.
+    nonisolated static func writeNow(_ table: [String: Double], to file: URL) {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         guard let data = try? encoder.encode(table) else { return }

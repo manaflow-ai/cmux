@@ -155,6 +155,24 @@ import Testing
         #expect(routed == [ObjectIdentifier(engine)], "then the window routes")
     }
 
+    /// p08-startup-098: the slot makes its runtime source at its first read, so the App picks the runtime (folder
+    /// listings and the pin file) then, not when it builds the cache; the engine is built over that one source.
+    @Test func theSlotMakesItsRuntimeSourceAtTheFirstRead() {
+        let fixture = Self.engine()
+        var made = 0
+        let slot = ChromiumEngineSlot(stores: fixture.stores, waitDeadlines: fixture.waitDeadlines,
+                                      source: { made += 1; return CEFRuntimeSource(layout: nil) }(),
+                                      make: { CEFEngine(source: $2, stores: $0, signInCallbacks: CEFSignInCallbacks(), waitDeadlines: $1, input: InputEventTap()) },
+                                      stop: { _ in })
+        _ = TabContentCache(daemon: DaemonService(), chromium: slot, fileInput: NoFileInput(), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        #expect(made == 0, "building the slot and the cache over it made the runtime source")
+        _ = slot.unavailableReason
+        #expect(made == 1)
+        let source = slot.source
+        #expect(slot.engine.runtimeSource === source, "the engine is built over the slot's one source")
+        #expect(made == 1, "a later read made the source again")
+    }
+
     /// The launch: `AppServices.init` and what `applicationDidFinishLaunching` reads before the first frame (the page
     /// host behind `webUI` and the icon picker, the tab service's Chromium question, the link-click, managed-policy,
     /// password and search followers) build no engine. The first Chromium read builds it, with the handlers and

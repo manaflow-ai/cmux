@@ -47,6 +47,28 @@ struct AppServicesInitStartsTests {
         #expect(services.notifications.isStarted, "the Notifications.start post follows the store")
     }
 
+    /// p08-startup-098: no stored-property initializer starts work. The iPhone host (its stream follows) and the VS Code
+    /// server are made at their first read, the late-commit run-loop observer and the kernel memory pressure source by
+    /// their afterFirstFrame posts; a second post run makes nothing new.
+    @Test func storedInitializersStartNothingUntilTheirFirstReadOrPost() {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        #expect(services.iphoneIfBuilt == nil, "init made the iPhone host, which follows the host supervisor's streams")
+        #expect(services.vscodeServeWebIfBuilt == nil, "init made the VS Code server service")
+        #expect(services.motionLateCommits == nil, "init added the late-commit run-loop observer")
+        let posts = services.initSourcePosts().posts
+        #expect(posts.map(\.name.description) == ["MemoryPressure.start", "MotionLateCommits.observe"])
+        #expect(posts.allSatisfy { $0.priority == .afterFirstFrame })
+        for post in posts { post.work() }
+        let observer = services.motionLateCommits
+        #expect(observer?.isWatching == true, "the MotionLateCommits.observe post adds the observer")
+        services.observeMotionLateCommits()
+        #expect(services.motionLateCommits === observer, "a second run made a second observer")
+        let iphone = services.iphone
+        #expect(services.iphoneIfBuilt === iphone && services.iphone === iphone, "the first read makes the one iPhone host")
+        iphone.stop()
+    }
+
     /// The store only appends live notifications, and the start now runs after the daemon may have sent
     /// some: one that came before the start arrives, once.
     @Test func aNotificationInTheStoreBeforeTheStartArrivesOnce() async throws {

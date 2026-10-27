@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextDesign
 import CmuxNextKeepAwake
 import CmuxNextLaunch
 import CmuxNextSettings
@@ -10,6 +11,7 @@ extension AppServices {
     /// repair (built here when no window's content built it first).
     func postNonPaintServices(on startup: StartupScheduler) {
         serviceStartPosts().post(on: startup)
+        initSourcePosts().post(on: startup)
         let attest = FreeTierAttestStarter(build: environment.build, bundle: .main, apiBaseURL: FeedService.apiBaseURL(auth: cloudAuth), settings: settings, signedIn: { [weak self] in self.map { $0.cloudAuth.isSignedIn || $0.cloudAuth.isRestoring } ?? true })
         LaunchServicePosts.nonPaint(freeTierAttest: { [weak self] in if let self, let follow = attest.start(on: self.mainWork) { self.lifetimeFollowers.append(follow) } }, ssh: { [weak self] in self?.ssh.start() }, serverReach: { [weak self] in self?.serverReach.start() },
                                     updater: { [weak self] in self?.updater.start(); DebugTimings.markLaunch("launch.non_paint_services") },
@@ -26,6 +28,20 @@ extension AppServices {
                                          updaterWork: { [weak self] in self?.updater.startAttachedWork() },
                                          serverUpdates: { [weak self] in self?.serverUpdates.start() },
                                          browserHost: { [weak self] in self?.startBrowserHost() })
+    }
+
+    /// The sources stored-property initializers started before the first frame (p08-startup-098;
+    /// startup-DESIGN.md section 7, B-rows marked posted): the kernel memory pressure source and the
+    /// late-commit observer. An `AppServices` a test builds without a launch starts neither.
+    func initSourcePosts() -> LaunchServicePosts {
+        LaunchServicePosts.initSources(memoryPressure: { [weak self] in self?.memoryPressure.start() },
+                                       motionLateCommits: { [weak self] in self?.observeMotionLateCommits() })
+    }
+
+    /// Makes ``motionLateCommits`` once: its counter observes the main run loop from now on.
+    func observeMotionLateCommits() {
+        guard motionLateCommits == nil else { return }
+        motionLateCommits = MotionLateCommits(displays: FrameScheduler.appDisplays)
     }
 
     /// Warm-ups for later tabs (WebKit for agent pages, Chromium, the New Tab spare, page hosts), the agent tab

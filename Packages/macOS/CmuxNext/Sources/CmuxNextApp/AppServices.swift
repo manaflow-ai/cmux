@@ -146,13 +146,14 @@ final class AppServices {
     /// so `Motion` reads the same one.
     let appearance: AppearanceSignals
     let mobile: MobileHostService  // phone access; the account layer starts it
-    /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).
-    let iphone = IPhoneHostService()
+    /// iPhone connections (cmux-next-ios, Settings > Mobile), made at the first read; quit stops ``iphoneIfBuilt``.
+    private(set) lazy var iphone: IPhoneHostService = { let made = IPhoneHostService(); iphoneIfBuilt = made; return made }()
+    private(set) weak var iphoneIfBuilt: IPhoneHostService?
     /// Every action run's perform-to-commit time against the 10 ms budget (always on; zero-latency.md),
     /// each run published on the board of the app's ``MainWorkScheduler`` so the watchdog samples a slow one.
     let actionBudget: ActionBudgetMonitor
-    /// `motion.late_commits`: the main commits that miss their frame while a Motion animation runs (starts no link).
-    let motionLateCommits = MotionLateCommits(displays: FrameScheduler.appDisplays)
+    /// `motion.late_commits`: the main commits that miss their frame while a Motion animation runs; made by its post.
+    var motionLateCommits: MotionLateCommits?
     /// Every action; timed by the always-on `action.*` signposts and `actionBudget`, in Debug and Release.
     let registry: ActionRegistry
     #if DEBUG || CMUX_BENCH_HOOKS
@@ -193,10 +194,11 @@ final class AppServices {
     var paletteShortcutEditor: PaletteShortcutEditor? {
         didSet { palettes.built?.shortcutRecorder.editor = paletteShortcutEditor }
     }
-    /// Where Chromium comes from: embedded, or downloaded on first use (bundle-size-DESIGN.md section 6).
-    let chromiumRuntime: ChromiumRuntimeService
+    /// Where Chromium comes from: embedded, or downloaded on first use (bundle-size-DESIGN.md section 6), from the files-lane pick.
+    private(set) lazy var chromiumRuntime: ChromiumRuntimeService = makeChromiumRuntime()
+    let chromiumRuntimePick: LaunchRead<ChromiumRuntimeService.Pick>
     /// The browser stores both engines and the App share: the one answer to "is this profile off the record".
-    let browserStores = BrowserSharedStores.application()
+    private(set) lazy var browserStores = BrowserSharedStores.application(files: work)
     /// Chromium sign-in tabs: the engine's runtime and the sign-in windows share it.
     let signInCallbacks = CEFSignInCallbacks()
     /// Every terminal's grid sender: next frame, one in flight, a split's or close's final grid at once.
@@ -408,15 +410,15 @@ final class AppServices {
     let paneMounts = PaneMounts()
     /// The new tab screen's Search | Ask mode and last agent, and what `!` typed ahead.
     let newTabChoices = NewTabChoiceMemory()
-    /// The New Tab weather widget's last reading and its refresh (`tabs.newTabWidgets.weather`).
-    let newTabWeather = NewTabWeather()
+    /// The New Tab weather widget's last reading and its refresh (`tabs.newTabWidgets.weather`); its first reader decodes the stored one.
+    private(set) lazy var newTabWeather = NewTabWeather()
     /// The models picked per harness in the Chief card's Model menu (its Recent section).
     let chiefModelRecents = HomeChiefModelRecents(defaults: .standard)
     let newTabTypeAhead = NewTabTypeAhead()
     /// Home's first-run Switching card: Hide memory and the Mission Control check.
     let homeSwitchKeys = HomeSwitchKeysSource()
-    /// The app's one kernel memory pressure source, shared by every owner that reacts to pressure.
-    let memoryPressure = MemoryPressureEvents(source: KernelMemoryPressureSource())
+    /// The app's one kernel memory pressure source, shared by every owner that reacts to pressure; started by its post.
+    let memoryPressure = MemoryPressureEvents(source: KernelMemoryPressureSource(), startsNow: false)
     /// The app's one memory coordinator (consumers register in AppServices+Memory.swift); it releases in background work.
     private(set) lazy var memoryCoordinator = AppMemoryConsumers.coordinator(pressure: memoryPressure, deadlines: mainDeadlines)
     /// Every window's parked workspaces: torn down one per release slice at critical memory pressure, and
@@ -535,8 +537,8 @@ final class AppServices {
     private(set) lazy var backdropCatalog = BackdropCatalogStore(systemDirectory: AppleWallpapers.system.desktopPictures, userImages: SettingsWindowService.userImages,
                                                                  mainWork: mainWork)
     let chiefPetHomes = ChiefPetHomes()  // the Chief Settings popovers the Chief pet's Chief Pet Settings… opens
-    /// Each Chief's own pet character (the default Chief's is `home.chiefPetMascot`).
-    let chiefMascotPicks = ChiefMascotPicks(defaults: .standard, defaultChief: HomeChiefAvatars.defaultChief)
+    /// Each Chief's own pet character (the default Chief's is `home.chiefPetMascot`); its first reader reads the stored picks.
+    private(set) lazy var chiefMascotPicks = ChiefMascotPicks(defaults: .standard, defaultChief: HomeChiefAvatars.defaultChief)
     /// Debug Settings: tunable overrides and their window (DEV and NIGHTLY).
     private(set) lazy var debugSettings = DebugSettingsService(services: self)
     /// Debug menu > Toggle Action Latency HUD (DEV and NIGHTLY): the newest runs of `actionBudget`.
@@ -674,12 +676,14 @@ final class AppServices {
     let launchValues = LaunchValueMarks { LaunchMarkSink.shared.writeValue(name: $0, value: $1) }
     /// Every tab switch's `switch.tab` trace pair, in every build (`DebugTabSwitch`); tests replace it.
     var tabSwitch = TabSwitchSignpost()
-    /// The inline VS Code server (`serve-web`) behind VS Code (Inline); starts on first use.
-    let vscodeServeWeb = VSCodeServeWebService(
-        planner: VSCodeServeWebLaunchPlanner(homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
-                                             environment: ProcessInfo.processInfo.environment),
-        launcher: VSCodeServeWebProcessLauncher(), tokenDirectory: FileManager.default.temporaryDirectory
-    )
+    /// The inline VS Code server (`serve-web`) behind VS Code (Inline), made at the first read; quit ends ``vscodeServeWebIfBuilt``.
+    private(set) lazy var vscodeServeWeb: VSCodeServeWebService = {
+        let planner = VSCodeServeWebLaunchPlanner(homeDirectory: FileManager.default.homeDirectoryForCurrentUser, environment: ProcessInfo.processInfo.environment)
+        let made = VSCodeServeWebService(planner: planner, launcher: VSCodeServeWebProcessLauncher(), tokenDirectory: FileManager.default.temporaryDirectory)
+        vscodeServeWebIfBuilt = made
+        return made
+    }()
+    private(set) weak var vscodeServeWebIfBuilt: VSCodeServeWebService?
     /// The browser host's engine provider (idle until the daemon offers the endpoint).
     private(set) var browserHost: AppBrowserHost?
     /// Remote-terminal tabs: mount, placeholder, snapshot, moves.
@@ -730,7 +734,7 @@ final class AppServices {
         // Estimated presents read the key display's last tick; no link starts for them.
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board, displays: FrameScheduler.appDisplays)
         updater = UpdaterService(work: work)
-        chromiumRuntime = ChromiumRuntimeService.make(work: work)
+        chromiumRuntimePick = LaunchRead(on: work) { ChromiumRuntimeService.pick() }  // its first reader may be a restored Chromium pane
         mobile = MobileHostService(displayName: { await MacName().displayName() }, work: work)
         let runTiming = SignpostActionRunTiming(monitor: actionBudget, crashKeys: crashKeys, crashKeyPage: traceBlackBox?.blackBox.crashKeys)
         #if DEBUG || CMUX_BENCH_HOOKS

@@ -90,6 +90,31 @@ import Testing
         #expect(service.state.name == "installed")
     }
 
+    /// p08-startup-098: the launch reads the runtime on a files lane (`pick`), and the service built from that pick on
+    /// main reads no file: removing the packs after the pick changes nothing the service reports.
+    @Test func theServiceBuiltFromAPickReadsNoFile() throws {
+        let installation = try install(pin("aaaaaaaaaaaaaaaa"))
+        let selection = store.select(for: pin("aaaaaaaaaaaaaaaa"))
+        let layout = CEFRuntimeLayout.at(installation.frameworksDirectory, fallbackMainBundle: app,
+                                         trust: .downloaded(teamID: "ABCDE12345"))
+        let pick = ChromiumRuntimeService.Pick(found: .pinned(pin("aaaaaaaaaaaaaaaa"), store: store, selection: selection, layout: layout), mainBundle: app)
+        try FileManager.default.removeItem(at: root)
+        let service = ChromiumRuntimeService.make(pick, work: BackgroundWork(label: "test.chromium-pick"))
+        #expect(service.origin == .installed)
+        #expect(service.source.layout?.frameworksDirectory.path == installation.frameworksDirectory.path)
+        #expect(service.pinnedKey == "aaaaaaaaaaaaaaaa")
+    }
+
+    /// A build with no runtime and no pin picks none, and its service has no installer to start.
+    @Test func aPickWithNoRuntimeAndNoPinIsNone() throws {
+        let empty = try #require(Bundle(path: root.path))
+        let pick = ChromiumRuntimeService.pick(bundle: empty, environment: [:], applicationSupport: nil)
+        guard case .none = pick.found else { Issue.record("an empty bundle picked a runtime"); return }
+        let service = ChromiumRuntimeService.make(pick, work: BackgroundWork(label: "test.chromium-pick"))
+        #expect(service.origin == .none)
+        #expect(service.pinnedKey == nil)
+    }
+
     @Test func anInstallWithoutTheRuntimeLayoutStaysAFailure() throws {
         let (service, _) = launch(pin("aaaaaaaaaaaaaaaa"))
         let staging = try store.makeStagingDirectory()

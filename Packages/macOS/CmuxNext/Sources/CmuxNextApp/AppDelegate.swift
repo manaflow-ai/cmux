@@ -487,7 +487,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Design mode's Home composer files left by cards still in a draft (BrowserDesignModeTempFiles).
         BrowserDesignModeController.tempFiles.removeAll()
         services?.home.applicationWillTerminate()
-        services?.vscodeServeWeb.terminateForAppExit()
+        services?.vscodeServeWebIfBuilt?.terminateForAppExit()  // made on first use: none, no server
         services?.stopCloud()
         services?.madeSSH?.stop()
         services?.serverReach.stop()
@@ -497,7 +497,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.globalHotKeys.stop()
         settings?.stop()
         services?.mobile.stop()
-        services?.iphone.stop()
+        services?.iphoneIfBuilt?.stop()
         services?.daemon.shutdownConnection()
     }
 

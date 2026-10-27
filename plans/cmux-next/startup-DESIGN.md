@@ -320,60 +320,73 @@ Target <= 3 (cache, windows, keyRouter).
 024 gave Q1-7 its daemon-start reader, so with 020's auth split for Q1-1, Q1 is 3 (cache, keyRouter, windows). Without the auth split Q1-1 stays built before the
 first frame (by the critical `ManagedPolicyBridge.start`), so it does not count toward the target.
 
-## 7. Q1b stored initializers (42)
+## 7. Q1b stored initializers (39)
 
 Queue command: `grep -n -E '^    (let|var|private\(set\) (var|let)) [a-zA-Z]+(: [^=]+)? = [A-Z][A-Za-z.]*[(.]' Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppServices.swift`.
-42 hits at `cf1f106ddbe`; the spec's 43 were at `772cdfc45ac`. Since then `inputTap` (p04-input) and
-`energyMonitor` (p14-energy) are made outside `AppServices` and passed by init, so they are no longer stored
-initializers, and `appEvents` (p06-scheduler-021) was added. Line numbers at `cf1f106ddbe`. Mark: `value-only` (the initializer stores values, no I/O, no observer, no
-source), `lazy` (becomes a lazy var built on first use), `posted` (the work in its initializer moves to a
-post). The "Init does" column comes from reading each initializer; 098 checks each and changes the
-`lazy` and `posted` rows.
+The spec's 43 were at `772cdfc45ac`, 42 at `cf1f106ddbe`. Task 098 read every initializer again on `7c7c6662b22` (45
+hits) and changed each one that did I/O, started a source or followed a stream; 39 hits stay, all value-only. Since
+`cf1f106ddbe`, `inputTap` (p04-input) and `energyMonitor` (p14-energy) come by init, `linkHints` and `hoverCards` are
+made in init (no longer stored initializers), `openPanel` and `terminalTheme` are lazy, and `hiddenLayoutWork`,
+`workspaceEvents`, `oracleTurns`, `switchHits`, `inputFrameSignposts`, `overlayChanges`, `terminalScreenChanges` and
+`tabSwitch` were added. Line numbers on `cp/p08-startup-098`. Mark: `value-only` (the initializer stores values, no
+I/O, no observer, no source), `lazy` (built on first use: a lazy var, which sets a weak `IfBuilt` value
+when quit must not build it), `posted` (the work in its initializer moves to a post). The `lazy` and `posted` rows
+left the queue and are in the second table.
 
 | # | Line | Property | Init does | Mark | Owner |
 |---|---|---|---|---|---|
-| B1 | 49 | `themeStore = ThemeScope.app.store` | A reference to the app store. | value-only | - |
-| B2 | 51 | `recoveryDrafts = RecoveryDraftStore(directory:)` | Stores the directory; reads on `load`. | value-only | - |
-| B3 | 78 | `autoNameHold = WorkspaceAutoNameHold()` | Empty. | value-only | - |
-| B4 | 90 | `machineAsks = SidebarAsks()` | Empty. | value-only | - |
-| B5 | 98 | `showcase = ShowcaseState()` | Value. | value-only | - |
-| B6 | 109 | `machineHealth = MachineHealthStore()` | Empty. | value-only | - |
-| B7 | 112 | `appEvents = AppEvents(center: .default)` | Stores the notification center; observers subscribe per name on use. | value-only | - |
-| B8 | 113 | `mobile = MobileHostService(displayName:)` | Stores a closure; the listener starts on `follow`. | value-only | - |
-| B9 | 115 | `iphone = IPhoneHostService()` | Starts a task that follows the supervisor's states. | lazy | 098 |
-| B10 | 122 | `blocking = BlockingDetector.forProcess()` | A handle to the process table. | value-only | - |
-| B11 | 128 | `openPanel = MadeAheadOpenPanel()` | Stores a factory; the panel is made at idle (Q2 69). | value-only | - |
-| B12 | 138 | `chromiumRuntime = ChromiumRuntimeService.make()` | Locates the CEF layout and reads the runtime pin file. | lazy (with 024's engine factory); the pin read becomes a LaunchRead | 098, 024 |
-| B13 | 140 | `browserStores = BrowserSharedStores.application()` | File-backed site settings and zoom levels per profile. | lazy; any read on `.files` | 098 |
-| B14 | 142 | `signInCallbacks = CEFSignInCallbacks()` | Empty. | value-only | - |
-| B15 | 144 | `resizes = ResizeCoordinator()` | Stores a closure; its frame client is lazy. | value-only | - |
-| B16 | 170 | `surfaceInvariant = SurfaceInvariantMonitor()` | A DemandTimer value; the observer starts in S6. | value-only | 031 |
-| B17 | 172 | `input = InputVerificationService()` | Values; observers start in S8. | value-only | 031 |
-| B18 | 181 | `workContext = WorkContextTrail()` | Value. | value-only | - |
-| B19 | 284 | `browserNativeInputs = BrowserNativeInputs()` | Values. | value-only | - |
-| B20 | 286 | `paneTabBars = PaneTabBarChoices()` | One `UserDefaults` array read; every pane build reads it. | value-only (the defaults domain is loaded once per process; 038 if Q5 lists it) | 038 |
-| B21 | 288 | `paneFullWidthTabs = PaneFullWidthTabs()` | One `UserDefaults` array read; every pane build reads it. | value-only (as B19) | 038 |
-| B22 | 290 | `paneMounts = PaneMounts()` | Value. | value-only | - |
-| B23 | 292 | `newTabChoices = NewTabChoiceMemory()` | Stores the defaults; reads on use. | value-only | - |
-| B24 | 294 | `newTabWeather = NewTabWeather()` | A `UserDefaults` data read and a JSON decode. | lazy | 098 |
-| B25 | 296 | `chiefModelRecents = HomeChiefModelRecents(defaults:)` | Stores the defaults. | value-only | - |
-| B26 | 297 | `newTabTypeAhead = NewTabTypeAhead()` | Empty. | value-only | - |
-| B27 | 299 | `homeSwitchKeys = HomeSwitchKeysSource()` | Stores the defaults and a reader. | value-only | - |
-| B28 | 301 | `memoryPressure = MemoryPressureEvents(source:)` | Starts the kernel memory-pressure source. | posted: afterFirstFrame, main (the level reads normal until then; the restored-page loader runs after startup) | 098 |
-| B29 | 331 | `terminalDelegate = TerminalHostDelegate()` | Value. | value-only | - |
-| B30 | 333 | `notifications = NotificationCenterService()` | Values; starts in S10. | value-only | 031 |
-| B31 | 362 | `chiefPetHomes = ChiefPetHomes()` | Empty. | value-only | - |
-| B32 | 364 | `chiefMascotPicks = ChiefMascotPicks(defaults:defaultChief:)` | A `UserDefaults` dictionary read. | lazy | 098 |
-| B33 | 387 | `terminalTheme = TerminalThemeSetting(backdropScope:)` | Stores the scope; `follow` is critical. | value-only | - |
-| B34 | 421 | `linkHints = LinkHintController()` | Values. | value-only | - |
-| B35 | 423 | `reactGrab = ReactGrab(scripts:)` | Stores the loader; loads on use. | value-only | - |
-| B36 | 425 | `windowHints = WindowHintController()` | Values. | value-only | - |
-| B37 | 442 | `pages = InternalPageTabStore()` | Values. | value-only | - |
-| B38 | 446 | `favicons = TabFaviconStore(loader:)` | Stores the loader. | value-only | - |
-| B39 | 449 | `hoverCards = HoverCardCoordinator()` | A DemandTimer value; observers with the first source. | value-only | - |
-| B40 | 451 | `refusalHUD = RefusalHUD()` | Stores the toast center. | value-only | - |
-| B41 | 461 | `burstTrace = BurstTrace()` | Empty. | value-only | - |
-| B42 | 463 | `vscodeServeWeb = VSCodeServeWebService(...)` | Stores a planner (home directory, environment) and a launcher. | lazy (only the VS Code page uses it; quit calls it only when built) | 098 |
+| B1 | 57 | `themeStore = ThemeScope.app.store` | A reference to the app store. | value-only | - |
+| B2 | 59 | `recoveryDrafts = RecoveryDraftStore(directory:)` | Stores the directory; reads on `load`. | value-only | - |
+| B3 | 91 | `autoNameHold = WorkspaceAutoNameHold()` | Empty. | value-only | - |
+| B4 | 103 | `machineAsks = SidebarAsks()` | Empty. | value-only | - |
+| B5 | 115 | `showcase = ShowcaseState()` | Value. | value-only | - |
+| B6 | 127 | `machineHealth = MachineHealthStore()` | Empty. | value-only | - |
+| B7 | 129 | `hiddenLayoutWork = HiddenLayoutWork()` | Two counters. | value-only | - |
+| B8 | 132 | `appEvents = AppEvents(center: .default)` | Stores the notification center; observers subscribe per name on use. | value-only | - |
+| B9 | 136 | `workspaceEvents = AppEvents(center: NSWorkspace.shared.notificationCenter)` | As B8, over the workspace center. | value-only | - |
+| B10 | 162 | `oracleTurns = OracleActionTurns()` | A turn ring (DEBUG and bench builds). | value-only | - |
+| B11 | 165 | `blocking = BlockingDetector.forProcess()` | A handle to the process table. | value-only | - |
+| B12 | 203 | `signInCallbacks = CEFSignInCallbacks()` | Empty. | value-only | - |
+| B13 | 205 | `resizes = ResizeCoordinator()` | Stores a closure; its frame client is lazy. | value-only | - |
+| B14 | 223 | `switchHits = SwitchHits(counting:)` | Stores a flag. | value-only | - |
+| B15 | 246 | `surfaceInvariant = SurfaceInvariantMonitor()` | A logger and counters; the observer starts in S6. | value-only | 031 |
+| B16 | 248 | `input = InputVerificationService()` | Values; observers start in S8. | value-only | 031 |
+| B17 | 259 | `workContext = WorkContextTrail()` | Value. | value-only | - |
+| B18 | 404 | `browserNativeInputs = BrowserNativeInputs()` | Values. | value-only | - |
+| B19 | 406 | `paneTabBars = PaneTabBarChoices()` | One `UserDefaults` array read; every pane build reads it. | value-only (the defaults domain is loaded once per process; 038 if Q5 lists it) | 038 |
+| B20 | 408 | `paneFullWidthTabs = PaneFullWidthTabs()` | One `UserDefaults` array read; every pane build reads it. | value-only (as B19) | 038 |
+| B21 | 410 | `paneMounts = PaneMounts()` | Value. | value-only | - |
+| B22 | 412 | `newTabChoices = NewTabChoiceMemory()` | Stores the defaults; reads on use. | value-only | - |
+| B23 | 416 | `chiefModelRecents = HomeChiefModelRecents(defaults:)` | Stores the defaults. | value-only | - |
+| B24 | 417 | `newTabTypeAhead = NewTabTypeAhead()` | Empty. | value-only | - |
+| B25 | 419 | `homeSwitchKeys = HomeSwitchKeysSource()` | Stores the defaults and a reader. | value-only | - |
+| B26 | 421 | `memoryPressure = MemoryPressureEvents(source:startsNow:)` | Stores the kernel source, held (`startsNow: false`). | value-only; its start is posted (P3) | 098 |
+| B27 | 483 | `terminalDelegate = TerminalHostDelegate()` | Value. | value-only | - |
+| B28 | 485 | `notifications = NotificationCenterService()` | Values (the notifier makes its center on first use); starts in S10. | value-only | 031 |
+| B29 | 507 | `inputFrameSignposts = InputFrameSignposts()` | Stores closures; the signposts are made at the first call. | value-only | - |
+| B30 | 539 | `chiefPetHomes = ChiefPetHomes()` | Empty. | value-only | - |
+| B31 | 613 | `reactGrab = ReactGrab(scripts:)` | Stores the loader; loads on use. | value-only | - |
+| B32 | 615 | `windowHints = WindowHintController()` | Values. | value-only | - |
+| B33 | 635 | `pages = InternalPageTabStore()` | Values. | value-only | - |
+| B34 | 639 | `favicons = TabFaviconStore(loader:)` | Stores the loader. | value-only | - |
+| B35 | 644 | `overlayChanges = OverlayChangeFeed()` | Empty. | value-only | - |
+| B36 | 648 | `terminalScreenChanges = OverlayChangeFeed()` | Empty (DEBUG and bench builds). | value-only | - |
+| B37 | 654 | `refusalHUD = RefusalHUD()` | Stores the toast center. | value-only | - |
+| B38 | 674 | `burstTrace = BurstTrace()` | Stores the trace runtime. | value-only | - |
+| B39 | 678 | `tabSwitch = TabSwitchSignpost()` | Stores the signposter and a commit-boundary closure. | value-only | - |
+
+Changed by 098 (no longer queue hits):
+
+| # | Property | Init did | Mark | Now |
+|---|---|---|---|---|
+| L1 | `iphone` | `IPhoneHostService()` started two tasks that follow the host supervisor's state and pairing streams. | lazy | A lazy var that sets the weak `iphoneIfBuilt`: made by the Cloud start's wiring, Settings > Mobile or a phone's remove; quit stops only a made one. |
+| L2 | `chromiumRuntime` | `ChromiumRuntimeService.make()` listed the bundle's and the runtime store's folders and read the pin file, on main. | lazy, read on `.files` | `ChromiumRuntimeService.pick()` runs as a `LaunchRead` on the files lane from init (`chromiumRuntimePick`); the lazy var builds the service from it with no read (`makeChromiumRuntime`; a reader before the read ends picks on main). The Chromium slot's `source` is lazy too, so building the cache picks nothing. |
+| L3 | `browserStores` | `BrowserSharedStores.application()`: site settings and zoom files read on actors (the cooperative pool), the off-the-record end observer. | lazy, read on `.files` | `application(files: work)` at the slot's build: each store reads and writes in its own files-lane sequence (`browser.siteSettings`, `browser.siteZoom`); nothing is read before a profile's first question. |
+| L4 | `newTabWeather` | `NewTabWeather()` read a `UserDefaults` data value and decoded its JSON. | lazy | Built by the agent tabs' wiring or the first New Tab page. |
+| L5 | `chiefMascotPicks` | `ChiefMascotPicks(defaults:defaultChief:)` read a `UserDefaults` dictionary. | lazy | Built by Home's first Chief row. |
+| L6 | `vscodeServeWeb` | `VSCodeServeWebService(...)` read the home directory and the environment for its planner. | lazy | A lazy var that sets the weak `vscodeServeWebIfBuilt`: made by a VS Code (Inline) action; quit ends only a made one. |
+| P2 | `motionLateCommits` | `MotionLateCommits(displays:)` added a main run-loop observer. | posted: afterFirstFrame `MotionLateCommits.observe`, main | Nil until the post (`observeMotionLateCommits`); no Motion animation runs before the first frame. |
+| P3 | `memoryPressure` (start) | `MemoryPressureEvents(source:)` started the kernel memory-pressure dispatch source and read the level. | posted: afterFirstFrame `MemoryPressure.start`, main | The level reads normal until then; `start()` hands a level other than normal to the subscribers made before it (the coordinator, the histograms), and the restored-page loader runs after startup. |
 
 ## 8. How to check
 

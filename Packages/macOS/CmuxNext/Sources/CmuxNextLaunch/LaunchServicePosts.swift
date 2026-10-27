@@ -150,6 +150,23 @@ public struct LaunchServicePosts {
         ])
     }
 
+    /// The sources `AppServices`' stored-property initializers started (p08-startup-098, startup-DESIGN.md
+    /// section 7): the kernel memory pressure source and the late-commit run-loop observer. Both are
+    /// afterFirstFrame: nothing before the first frame reacts to memory pressure (the level reads normal
+    /// until the start hands on the kernel's) and no Motion animation runs before it.
+    ///
+    /// - Parameters:
+    ///   - memoryPressure: Starts the app's held memory pressure events (`MemoryPressureEvents.start()`).
+    ///   - motionLateCommits: Makes the late-commit counter, which observes the main run loop.
+    /// - Returns: The posts, both at afterFirstFrame.
+    public static func initSources(memoryPressure: @escaping @MainActor @Sendable () -> Void,
+                                   motionLateCommits: @escaping @MainActor @Sendable () -> Void) -> LaunchServicePosts {
+        LaunchServicePosts(posts: [
+            Post(priority: .afterFirstFrame, name: "MemoryPressure.start", work: memoryPressure),
+            Post(priority: .afterFirstFrame, name: "MotionLateCommits.observe", work: motionLateCommits),
+        ])
+    }
+
     /// Posts each start on its own, in order, to the main thread.
     ///
     /// - Parameter startup: The launch's scheduler.

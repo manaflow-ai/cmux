@@ -48,6 +48,40 @@ import Testing
         withExtendedLifetime(events) {}
     }
 
+    /// p08-startup-098: the app's events hold their source until the first frame. Until `start()` the source
+    /// is not started and the level reads normal; `start()` starts it once and hands a non-normal level read at
+    /// the start to the subscribers made before it.
+    @Test func aHeldSourceStartsOnceAtStartAndHandsOnItsFirstLevel() {
+        let source = ManualMemoryPressureSource(levelAtStart: .warning)
+        let events = MemoryPressureEvents(source: source, startsNow: false)
+        let levels = Levels()
+        let registration = events.observe { levels.seen.append($0) }
+        #expect(source.starts == 0, "a held source started before start()")
+        #expect(events.currentLevel == .normal)
+        events.start()
+        #expect(source.starts == 1)
+        #expect(events.currentLevel == .warning)
+        #expect(levels.seen == [.warning], "a subscriber made before the start missed the level read at the start")
+        events.start()
+        #expect(source.starts == 1, "a second start() started the source again")
+        #expect(levels.seen == [.warning])
+        source.send(.critical)
+        #expect(levels.seen == [.warning, .critical])
+        withExtendedLifetime((events, registration)) {}
+    }
+
+    @Test func aSourceStartedInTheInitIsNotStartedAgainAndHandsNothingOnAtStart() {
+        let source = ManualMemoryPressureSource(levelAtStart: .warning)
+        let events = MemoryPressureEvents(source: source)
+        let levels = Levels()
+        let registration = events.observe { levels.seen.append($0) }
+        #expect(source.starts == 1)
+        events.start()
+        #expect(source.starts == 1)
+        #expect(levels.seen.isEmpty, "start() after an init start delivered the start's level")
+        withExtendedLifetime((events, registration)) {}
+    }
+
     @Test func releasingTheEventsCancelsTheirSource() {
         let source = ManualMemoryPressureSource()
         var events: MemoryPressureEvents? = MemoryPressureEvents(source: source)
