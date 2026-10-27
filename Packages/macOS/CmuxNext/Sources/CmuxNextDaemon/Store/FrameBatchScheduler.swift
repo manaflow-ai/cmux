@@ -11,6 +11,7 @@ public struct NextTurnFrameScheduler: FrameBatchScheduler {
     public init() {}
     public func scheduleFrame(_ work: @escaping @MainActor @Sendable () -> Void) {
         // task-owner: the frame hop itself; runs once
+        // main-hop-allow: the default of `DaemonStore.run` for tests and fixtures only; the app passes its frame batcher (DaemonService.drainScheduler)
         Task { @MainActor in work() }
     }
 }

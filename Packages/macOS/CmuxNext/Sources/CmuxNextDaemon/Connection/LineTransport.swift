@@ -92,6 +92,7 @@ final class LineTransport: Sendable {
         self.trace = trace
         traceConnection = Self.traceConnectionBits(scope: trace.nextAsyncScope())
         traceFlowSeed = Self.requestFlowSeed(pid: getpid())
+        // timer-class-allow: off main: the request deadlines fail their expired requests from the transport's own state; no main-thread job
         deadlineTimer = DemandTimer(owner: "LineTransport.deadline", clock: clock)
         elapsed = Self.elapsedReader(clock)
         let recorder = stats?.recorder()

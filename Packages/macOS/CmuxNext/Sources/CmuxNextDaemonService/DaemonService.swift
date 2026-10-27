@@ -72,7 +72,11 @@ public final class DaemonService {
     @ObservationIgnored let drainScheduler: FrameBatcher
     /// The app's main-thread scheduler: a person-scope command's reply settles on it as
     /// userBlocking work (``settleReply(_:)``).
-    let mainWork: MainWorkScheduler
+    public let mainWork: MainWorkScheduler
+    /// Where the service's main-thread deadlines go (the startup deadline, the update restart's bound).
+    let deadlines: MainDeadlineScheduler
+    /// The app's notices (the activation that wakes a retry).
+    let appEvents: AppEvents
     @ObservationIgnored public let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.daemon")
     /// The window records of the daemon's launch snapshot, drawn before the
     /// first connection (`LaunchSnapshotWindow`); nil without one.
@@ -100,8 +104,12 @@ public final class DaemonService {
     ///     attachment this service opens; nil (tests) watches nothing.
     ///   - crashKeys: The app's crash keys, for the local daemon's service only: its store names its connection
     ///     epoch there (``DaemonStore/init(waitDeadlines:causes:crashKeys:)``).
+    ///   - deadlines: The app's deadline scheduler; nil makes one on `mainWork` (the same wake-up queue: the
+    ///     service's deadlines are flexible, never in a hidden node's pool).
+    ///   - appEvents: The app's notices (`AppServices.appEvents`); nil makes one on the default center.
     public init(machineID: String = "local", echoesPlacementShift: Bool = false, mainWork: MainWorkScheduler,
-                wireStats: DaemonWireStats? = nil, hangWatch: (any HangWatchScoping)? = nil, crashKeys: CrashKeySlots? = nil) {
+                wireStats: DaemonWireStats? = nil, hangWatch: (any HangWatchScoping)? = nil, crashKeys: CrashKeySlots? = nil,
+                deadlines: MainDeadlineScheduler? = nil, appEvents: AppEvents? = nil) {
         self.machineID = machineID
         self.echoesPlacementShift = echoesPlacementShift
         // Its keyed waits' timeouts share the main thread's one deadline timer.
@@ -110,6 +118,8 @@ public final class DaemonService {
         self.hangWatch = hangWatch
         drainScheduler = FrameBatcher(owner: "DaemonStore.drain", scheduler: mainWork.frames)
         self.mainWork = mainWork
+        self.deadlines = deadlines ?? MainDeadlineScheduler(work: mainWork)
+        self.appEvents = appEvents ?? AppEvents(center: .default)
         retryWake = RetryWake(owner: "DaemonService.retry \(machineID)")
         // The local daemon's kept tabs restart at its first connect (`relaunchKeptLayoutIfNeeded`).
         keptTabRestarts = isLocal ? .expected : .none
@@ -124,13 +134,11 @@ public final class DaemonService {
     }
     private nonisolated static let launchMarkSink = Mutex<@Sendable (String) -> Void>({ _ in })
 
-    /// Fires `retryWake` when the app becomes active.
+    /// Fires `retryWake` when the app becomes active (an ``AppEvents`` subscription: one observer for the app).
     private func observeRetryEvents() {
-        guard activationObserver == nil else { return }
+        guard activationWatch == nil else { return }
         let wake = retryWake
-        activationObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: nil
-        ) { _ in wake.fire() }
+        activationWatch = appEvents.subscribe(NSApplication.didBecomeActiveNotification, owner: "DaemonService.retryWake") { wake.fire() }
     }
 
     /// How the first connection is going (window connecting state, control
@@ -139,10 +147,7 @@ public final class DaemonService {
     public private(set) var startup: DaemonStartupState = .connecting
     @ObservationIgnored var startupDeadline: Duration = DaemonStartup.shared.defaultDeadline
     @ObservationIgnored var startupClock: any Clock<Duration> = ContinuousClock()
-    /// Times the wait for a reopened workspace to reach the mirror
-    /// (`DaemonStore.workspace(afterReopen:)`); tests advance it.
-    @ObservationIgnored public var reopenClock: any Clock<Duration> = ContinuousClock()
-    @ObservationIgnored private var startupDeadlineTimer: DemandTimer?
+    @ObservationIgnored private var startupDeadlineTimer: MainDeadline?
     /// The last failed connect attempt until a connection succeeds (`notConnectedReason`).
     @ObservationIgnored private(set) var lastStartupError: DaemonError?
     /// Events that may let a failed connect succeed: the daemon socket
@@ -150,7 +155,7 @@ public final class DaemonService {
     /// for a Cloud machine a network path change. Retries past their timed
     /// budget wait only for these (no polling).
     @ObservationIgnored public private(set) var retryWake: RetryWake
-    @ObservationIgnored private var activationObserver: (any NSObjectProtocol)?
+    @ObservationIgnored private var activationWatch: EventSubscription?
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
     /// How the connections reach this app's daemon (the page relay opens its own with it).
     @ObservationIgnored public private(set) var endpointProvider: DaemonConnection.EndpointProvider?
@@ -192,7 +197,7 @@ public final class DaemonService {
             }
         }
         endpointProvider = launcher.endpointProvider
-        recovery.attach(launcher, wake: retryWake)
+        recovery.attach(launcher, wake: retryWake, on: mainWork)
         // Before the first connection the retry loop has no socket watch of its own (the connection installs one
         // after its first handshake): watch the socket the last launch used and its ready marker, so a daemon
         // that finishes a long restore or handoff wakes a loop past its timed budget (cx-4bd8m).
@@ -223,8 +228,9 @@ public final class DaemonService {
         // (their hosts are adopted by the new daemon). The bundled build's
         // commit is read while the first connect runs, off its path.
         let logger = logger
-        // task-owner: one `--version` run per start; the handoff check awaits it
-        let bundledCommit = prestart?.bundledCommit ?? Task { try? await launcher.bundledBuildCommit() }
+        // task-owner: one `--version` run per start; the handoff check awaits it. Off main: the run's process
+        // wait never resumes on the main actor.
+        let bundledCommit = prestart?.bundledCommit ?? Task { @concurrent in try? await launcher.bundledBuildCommit() }
         let handOff: @Sendable (DaemonConnection, DaemonIdentity) async -> Bool = { connection, identity in
             guard identity.buildCommit != nil, let bundled = await bundledCommit.value else { return false }
             let decision = await launcher.handOffIfStale(identity: identity, using: connection, bundledCommit: bundled)
@@ -254,6 +260,8 @@ public final class DaemonService {
         armStartupDeadline()
         observeRetryEvents()
         let wake = retryWake
+        // task-owner: the first connection's lifecycle (`runTask`); shutdownConnection cancels it
+        // main-hop-allow: the connection lifecycle: it awaits DaemonStartup's connect (off main) and the store's main-actor run, and applies each connection to this service's main-actor state between them, once per connection
         runTask = Task { [weak self, drainScheduler, logger] in
             let clock = self?.startupClock ?? ContinuousClock()
             weak let weakSelf = self
@@ -286,8 +294,7 @@ public final class DaemonService {
             self.didConnect(connection, identity: identity)
             self.windowState = WindowStateStore(connection: connection)
             logger.info("cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
-            // task-owner: one hop to read the endpoint; the store run below owns the connection
-            Task { await self.rememberSocket(identity, connection: connection) }
+            self.rememberSocket(identity, connection: connection)
             await store.run(connection: connection, scheduler: drainScheduler)
         }
     }
@@ -327,6 +334,8 @@ public final class DaemonService {
         var configuration = DaemonConnection.Configuration(retryWake: wake, terminalEnvironment: nil, sessionEvents: true)
         configuration.echoesPlacementShift = echoesPlacementShift
         configuration.hangWatch = hangWatch
+        // task-owner: the remote machine's connection lifecycle (`runTask`); shutdownConnection cancels it
+        // main-hop-allow: the connection lifecycle: it awaits DaemonStartup's connect (off main) and the store's main-actor run, and applies each connection to this service's main-actor state between them, once per connection
         runTask = Task { [weak self, drainScheduler, logger, configuration] in
             weak let weakSelf = self
             var ends = RetryPacer(.firstConnect)
@@ -405,11 +414,12 @@ public final class DaemonService {
         }
     }
 
+    /// The first connection's deadline: a visible deadline (the window shows the failure), flexible (no sooner).
     private func armStartupDeadline() {
         startupDeadlineTimer?.cancel()
-        let timer = DemandTimer(owner: "DaemonService.startupDeadline", clock: startupClock)
+        let timer = startupDeadlineTimer ?? MainDeadline(owner: "DaemonService.startupDeadline", workClass: .visible, scheduler: deadlines)
         startupDeadlineTimer = timer
-        timer.scheduleOnMain(after: startupDeadline) { [weak self] in
+        timer.schedule(after: startupDeadline) { [weak self] in
             guard let self, self.startup == .connecting else { return }
             self.startup = .unavailable(self.lastStartupError ?? .timedOut("first connection to cmux-tui"))
             self.resumeConnectionWaiters()
@@ -461,11 +471,12 @@ public final class DaemonService {
 
     /// Fire-and-forget variant for UI handlers.
     public func send(_ label: String, _ body: @escaping DaemonCommandBody) {
-        // Always start the task; `workTracker?(Task {...})` would skip
-        // creating it (and drop the command) when no tracker is set.
+        // Always start the task; making it inside `workTracker?(...)` would
+        // skip creating it (and drop the command) when no tracker is set.
         // The ticket opens now, so an action that awaits its scope waits
         // for this command even before the task starts.
         let ticket = openTicket(label)
+        // main-hop-allow: failure is the service's main-actor command path (the connection read and the ticket close); the command itself runs on the connection's actor
         let task = Task { await failure(label, ticket: ticket, body) }
         workTracker?(task)
     }
@@ -475,6 +486,7 @@ public final class DaemonService {
     public func send(_ label: String, onFailure: @escaping @MainActor (ActionWorkFailure) -> Void,
               _ body: @escaping DaemonCommandBody) {
         let ticket = openTicket(label)
+        // main-hop-allow: failure is the service's main-actor command path (the connection read and the ticket close), and onFailure is the caller's main-actor report; the command runs on the connection's actor
         let task = Task {
             let failed = await failure(label, ticket: ticket, body)
             if let failed { onFailure(failed) }
@@ -515,14 +527,13 @@ public final class DaemonService {
         startupDeadlineTimer = nil
         pathMonitor?.cancel()
         pathMonitor = nil
-        if let activationObserver { NotificationCenter.default.removeObserver(activationObserver) }
-        activationObserver = nil
+        activationWatch = nil
         runTask?.cancel()
         runTask = nil
         keptLayoutRelaunch?.cancel()
         keptLayoutRelaunch = nil
-        // task-owner: teardown hop; close() is idempotent and finishes the store pump
-        if let connection { Task { await connection.close() } }
+        // task-owner: teardown; close() is idempotent and finishes the store pump. Off main: nothing resumes here.
+        if let connection { Task { @concurrent in await connection.close() } }
         connection = nil
     }
 }

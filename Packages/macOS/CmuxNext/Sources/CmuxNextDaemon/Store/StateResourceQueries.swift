@@ -1,11 +1,9 @@
-import CmuxNextCompat
 import Foundation
-import Observation
 
 /// Read-only queries over a store's state resources and its applied event
 /// sequence (`DaemonStore` conforms): whether the daemon serves the v2 state
-/// operations, the public ids they take, and event-driven waits for the
-/// mirror to catch up. Kept apart from the store's apply paths.
+/// operations and the public ids they take; the store's keyed waits for the
+/// mirror to catch up follow. Kept apart from the store's apply paths.
 @MainActor
 public protocol StateResourceQueries: AnyObject {
     var identity: DaemonIdentity? { get }
@@ -53,29 +51,30 @@ extension StateResourceQueries {
     public func workspace(resourceID id: ResourceID) -> WorkspaceModel? {
         workspaces.first { $0.resourceID == id }
     }
+}
+
+extension DaemonStore {
+    /// How long ``sessionStateResolved()`` waits at most: a bound for its keyed wait, never reached by a daemon
+    /// that answers (the stream's snapshot or its end comes within the connect).
+    static let sessionStateWaitBound: Duration = .seconds(600)
 
     /// Returns once the tree reflects every event up to `sequence` (a
     /// `DaemonConnection.eventSequence()` taken after a command's reply), or
-    /// the connection changed. Event-driven: it observes the store.
+    /// the connection changed. Event-driven: the applied wait's continuation
+    /// (``waitApplied(atLeast:since:)``), resumed by the apply that reaches it;
+    /// a read-your-writes wait never waits on a script batch's stage.
     public func applied(through sequence: UInt64?) async {
         guard let sequence, appliedSequence < sequence else { return }
-        // A read-your-writes wait never waits on a script batch's stage: what it needs shows now.
-        beginAppliedWait(sequence)
-        defer { endAppliedWait(sequence) }
-        guard appliedSequence < sequence else { return }
-        let state = connectionState
-        for await done in ObservationStream({ self.appliedSequence >= sequence || self.connectionState != state }) where done {
-            return
-        }
+        _ = await waitApplied(atLeast: sequence, since: connectionEpoch)
     }
 
     /// Returns once the state resources' first snapshot arrived, or this
     /// daemon serves none (`SessionStateStore.known`), or the connection changed.
+    /// A keyed wait on the connection slot (recipe R-wait, StoreWaiters), which
+    /// the session stream settles when it becomes known.
     public func sessionStateResolved() async {
         guard !session.known else { return }
-        let state = connectionState
-        for await done in ObservationStream({ self.session.known || self.connectionState != state }) where done {
-            return
-        }
+        let state = connectionState, session = session
+        _ = await waitConnection(timeout: Self.sessionStateWaitBound) { now in session.known || now != state }
     }
 }

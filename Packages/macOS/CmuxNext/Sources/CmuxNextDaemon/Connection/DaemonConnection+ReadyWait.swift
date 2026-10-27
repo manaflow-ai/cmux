@@ -15,6 +15,7 @@ extension DaemonConnection {
         if isClosedPhase || Task.isCancelled || limit <= .zero { return false }
         readyWaitNext &+= 1
         let key = readyWaitNext
+        // timer-class-allow: off main: the wait's limit resumes it on the connection's actor; no main-thread job
         let timer = DemandTimer(owner: "DaemonConnection.readyWait", clock: clock)
         return await withTaskCancellationHandler {
             // A wait dropped unresumed is not ready, as one past its limit is.

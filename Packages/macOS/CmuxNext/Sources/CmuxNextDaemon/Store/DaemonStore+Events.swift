@@ -322,7 +322,12 @@ extension DaemonStore {
             tabsBySurface[presence.surface]?.setPresence(presence.activity == nil ? nil : presence)
             return .none
 
-        case .sessionState(let item): session.apply(item, in: self); return .none
+        case .sessionState(let item):
+            let known = session.known
+            session.apply(item, in: self)
+            // `sessionStateResolved` waits on the connection slot for the session to become known.
+            if !known, session.known { waiters.settle(.connection, in: self) }
+            return .none
         case .terminalRegistryChanged, .bookmarksChanged, .historyChanged, .keybindingsChanged, .conversationChanged, .conversationTyping, .conversationDraft, .conversationLive, .conversationRunChanged, .cloudConversations,
              .terminalClipboardRead, .terminalClipboardReadCancelled, .unknown: // .unknown: the `apps-*` events of apps-v1
             sideEvents.deliver(event, envelope: envelope)

@@ -12,7 +12,7 @@ import Testing
 
     func repair(create: @escaping @MainActor (WorkspaceKey) async throws -> SurfaceID? = { _ in nil }) -> EmptyWorkspaceRepair {
         EmptyWorkspaceRepair(store: DaemonStore(), create: create, close: { _ in }, cause: { _ in .tabClosed },
-                             canCreate: { true }, epoch: { 1 }, isLive: { true })
+                             canCreate: { true }, epoch: { 1 }, isLive: { true }, on: RepairTurns().work)
     }
 
     @Test func aRepeatedNewSendsOneCreate() async {

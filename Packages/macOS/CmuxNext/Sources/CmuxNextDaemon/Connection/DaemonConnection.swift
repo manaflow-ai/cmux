@@ -102,6 +102,7 @@ public actor DaemonConnection {
         self.endpointProvider = endpointProvider
         pacer = RetryPacer(configuration.retry)
         wake = configuration.retryWake ?? RetryWake(owner: "DaemonConnection.reconnect")
+        // timer-class-allow: off main: it marks a connection healthy on the connection's actor; no main-thread job
         healthy = DemandTimer(owner: "DaemonConnection.healthy", clock: clock)
         // concurrency-allow: holds only events no consumer took yet (DaemonEventRoute); the store drains them at once into the bounded EventInbox
         let (events, continuation) = AsyncThrowingStream.makeStream(of: DaemonEventEnvelope.self, bufferingPolicy: .unbounded)

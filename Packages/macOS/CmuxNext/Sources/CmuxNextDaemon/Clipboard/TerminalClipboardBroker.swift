@@ -137,6 +137,8 @@ public final class TerminalClipboardBroker {
         let terminals = desired
         inFlight = terminals
         let subscribe = environment.subscribe
+        // task-owner: one subscribe at a time (`subscribing`); a new connection cancels it
+        // main-hop-allow: `subscribe` is the connection's main-actor async seam (Environment); the send runs on the connection's actor, and this task only records the acknowledged set
         subscribing = Task { [weak self] in
             let ok: Bool
             do {
@@ -239,6 +241,8 @@ public final class TerminalClipboardBroker {
         let previous = lastReply
         let reply = environment.reply
         let logger = logger
+        // task-owner: the reply chain (`lastReply`); each reply waits for the one before it
+        // main-hop-allow: `reply` is the connection's main-actor async seam (Environment); the send runs on the connection's actor, and the chain keeps the replies in order
         lastReply = Task {
             await previous?.value
             do {

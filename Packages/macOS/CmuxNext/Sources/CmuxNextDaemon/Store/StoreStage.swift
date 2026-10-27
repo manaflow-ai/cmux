@@ -79,6 +79,7 @@ public final class StoreStage {
         // The earliest deadline holds: a batch that joins later never keeps the stage open longer.
         guard deadlineRemaining.map({ remaining() < $0() }) ?? true else { return batch }
         deadlineRemaining = remaining
+        // timer-class-allow: the stage's one commit bound on the batch's own clock (StoreStageTests step it), and the store has no deadline scheduler seam; a batch's end commits it first
         let timer = self.deadline ?? DemandTimer(owner: "StoreStage.deadline", clock: clock)
         self.deadline = timer
         timer.scheduleOnMain(after: max(remaining(), .zero)) { [weak self] in self?.commitAll() }

@@ -28,6 +28,7 @@ extension DaemonService {
                 break
             case "restart":
                 // task-owner: the button's own call; the report shows its progress.
+                // main-hop-allow: restart is DaemonRecovery's main-actor async flow (its replace runs off main in the launcher); this task only starts it
                 Task { await self.recovery.restart() }
             case "retry":
                 self.recovery.retryNow()

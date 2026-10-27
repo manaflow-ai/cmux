@@ -44,11 +44,13 @@ public struct WorkspaceCloseFlow {
         // its place among the window's creates and closes (`WorkspaceLanes`).
         guard asks else {
             let work = send(hidden)
+            // main-hop-allow: the press's close bookkeeping (`running`) is main-actor state, cleared once the lane's close ends
             return Task { @MainActor in
                 defer { Self.running.remove(id) }
                 return await work.value
             }
         }
+        // main-hop-allow: the person's close in press order: question, the alert and restore are main-actor async seams of the window, read between the terminals' off-main answers (rule 2: the row left in the press's turn)
         return Task { @MainActor in
             defer { Self.running.remove(id) }
             let ask = await question()

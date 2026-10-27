@@ -203,6 +203,7 @@ import Foundation
     mutating func insert(_ pane: PaneModel, in screen: ScreenModel) {
         remove(pane)
         add(pane, .pane(handle: pane.handle, resource: pane.resourceID, groups: pane.tabGroups), parent: screen)
+        waiters.notePaneKeyed(in: workspace(holding: screen)?.key)
         for tab in pane.tabs { insert(tab, in: pane) }
     }
 
@@ -252,7 +253,7 @@ import Foundation
             if let resource { workspacesByResource[resource] = workspace }
             countList(WorkspaceModel.listID(id: id, handle: handle), by: 1)
             unread.join(workspace)
-            waiters.noteWorkspaceKeyed(id: id, resource: resource)
+            waiters.noteWorkspaceKeyed(id: id, resource: resource, key: key)
         case .screen(let handle, let resource):
             guard let screen = record as? ScreenModel else { return }
             screensByHandle[handle] = screen

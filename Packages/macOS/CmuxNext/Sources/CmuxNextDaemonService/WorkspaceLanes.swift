@@ -80,7 +80,8 @@ public final class WorkspaceLanes {
     @discardableResult
     public func run(in window: String?, _ body: @escaping @MainActor () async -> ActionWorkFailure?) -> ActionWork {
         let task = enqueue(window ?? "") { await body() }
-        return Task { (try? await task.value) ?? nil }
+        // Off main: it only forwards the lane task's result.
+        return Task { @concurrent in (try? await task.value) ?? nil }
     }
 
     /// A close pressed in `window`: takes its newest outstanding create, if
@@ -126,11 +127,13 @@ public final class WorkspaceLanes {
 
     private func enqueue<T>(_ lane: String, _ body: @escaping @MainActor () async throws -> T) -> Task<T, Error> {
         let previous = tails[lane]
+        // main-hop-allow: the window's lane runs its creates and closes in press order; each body is a main-actor async action step (the create's records, the close's restore)
         let task = Task { @MainActor () async throws -> T in
             await previous?.value
             return try await body()
         }
-        tails[lane] = Task { _ = try? await task.value }
+        // Off main: the lane's tail only waits for the task.
+        tails[lane] = Task { @concurrent in _ = try? await task.value }
         return task
     }
 }

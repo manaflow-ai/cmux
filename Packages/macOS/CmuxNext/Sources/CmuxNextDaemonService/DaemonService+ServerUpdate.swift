@@ -1,5 +1,4 @@
 public import CmuxNextDaemon
-import CmuxNextCompat
 import CmuxNextWakeups
 
 /// "Restart cmux-tui to use new features" (plans/cmux-next/server-updates-DESIGN.md): after the
@@ -17,20 +16,17 @@ extension DaemonService {
     }
 
     /// The first handshake from another daemon process than `previous`, through the store's
-    /// observed identity (no polling), or nil when `timeout` passes first.
+    /// observed identity (no polling: an ``ObservedCondition``), or nil when `timeout` passes
+    /// first (its ``MainDeadline``). The person confirmed the restart and waits for it: the
+    /// re-reads and the bound are userBlocking.
     private func successor(of previous: DaemonIdentity, within timeout: Duration) async -> DaemonIdentity? {
         let store = store
-        let watch = Task { @MainActor () -> DaemonIdentity? in
-            for await next in ObservationStream({ store.identity }) {
-                if let next, next.pid != previous.pid || next.generation != previous.generation { return next }
-            }
-            return nil
+        let successor: @MainActor () -> DaemonIdentity? = {
+            guard let next = store.identity, next.pid != previous.pid || next.generation != previous.generation else { return nil }
+            return next
         }
-        // The deadline cancels the watch, whose stream then ends with nil.
-        let deadline = DemandTimer(owner: "daemon.update.restart")
-        deadline.schedule(after: timeout) { watch.cancel() }
-        let found = await watch.value
-        deadline.cancel()
-        return found
+        await ObservedCondition(owner: "DaemonService.updateRestart", .userBlocking, on: mainWork)
+            .until(timeout: timeout, deadlines: deadlines) { successor() != nil }
+        return successor()
     }
 }

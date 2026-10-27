@@ -2,7 +2,7 @@ public import AppKit
 public import CmuxNextDaemon
 public import CmuxNextDaemonService
 import CmuxNextDesign
-import CmuxNextWakeups
+public import CmuxNextWakeups
 
 /// Content of a window that has no workspace yet. The window opens at
 /// launch with this view, so the app is never windowless while the daemon
@@ -35,16 +35,21 @@ public final class DaemonConnectingView: NSView {
         self.init(frame: frame, clock: ContinuousClock())
     }
 
-    public convenience init(frame: NSRect, recovery: DaemonRecovery) {
-        self.init(frame: frame, clock: ContinuousClock(), recovery: recovery)
+    /// - Parameters:
+    ///   - recovery: The local daemon's Retry Now and Restart.
+    ///   - node: The window's visibility node: the controls follow the recovery only while it shows.
+    ///   - work: The app's main-thread scheduler.
+    public convenience init(frame: NSRect, recovery: DaemonRecovery, node: VisibilityNode, on work: MainWorkScheduler) {
+        self.init(frame: frame, clock: ContinuousClock(), recoveryControls: DaemonRecoveryControls(recovery: recovery, node: node, on: work))
     }
 
     /// - Parameters:
     ///   - clock: Times the status delay (tests step it).
-    ///   - recovery: The local daemon's Retry Now and Restart; nil shows neither.
-    init(frame: NSRect, clock: any Clock<Duration>, recovery: DaemonRecovery? = nil) {
+    ///   - recoveryControls: The local daemon's Retry Now and Restart; nil shows neither.
+    init(frame: NSRect, clock: any Clock<Duration>, recoveryControls: DaemonRecoveryControls? = nil) {
+        // timer-class-allow: the status line's one delay per connect on the injected clock (the launch suites step it), armed only while the view is in a window; a MainDeadline wakes on uptime only
         statusTimer = DemandTimer(owner: "launch.status", clock: clock)
-        recoveryControls = recovery.map(DaemonRecoveryControls.init(recovery:))
+        self.recoveryControls = recoveryControls
         super.init(frame: frame)
         // Layer-backed, so the status line's fade sets its model alpha at once.
         wantsLayer = true
@@ -82,6 +87,7 @@ public final class DaemonConnectingView: NSView {
     @available(*, unavailable)
     public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    // visibility-walk-allow: two label color stores in the theme scope, no layout or text measure; cheaper than a deferral
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         performWithTheme {

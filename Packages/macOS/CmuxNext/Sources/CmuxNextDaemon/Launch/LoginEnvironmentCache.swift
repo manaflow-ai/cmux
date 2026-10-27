@@ -114,12 +114,13 @@ actor LoginEnvironmentCache {
         if let task { return task }
         let capture = capture
         let waitTimeout = waitTimeout
-        let task = Task(priority: priority) { [self] () -> [String: String]? in
+        // The capture runs off this actor; only its record comes back to it.
+        let task = Task(priority: priority) { @concurrent [self] () -> [String: String]? in
             guard let environment = await capture(waitTimeout) else {
-                refreshInBackground()
+                await refreshInBackground()
                 return nil
             }
-            record(environment)
+            await record(environment)
             return environment
         }
         self.task = task
@@ -130,8 +131,8 @@ actor LoginEnvironmentCache {
         guard retry == nil else { return }
         let capture = capture
         let refreshTimeout = refreshTimeout
-        retry = Task { [self] in
-            if let environment = await capture(refreshTimeout) { record(environment) }
+        retry = Task { @concurrent [self] in
+            if let environment = await capture(refreshTimeout) { await record(environment) }
         }
     }
 

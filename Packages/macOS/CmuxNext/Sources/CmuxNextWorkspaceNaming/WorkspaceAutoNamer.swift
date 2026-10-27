@@ -1,6 +1,6 @@
 import CmuxNextBridge
-import CmuxNextCompat
 public import CmuxNextDaemon
+public import CmuxNextWakeups
 
 /// Variant B of workspace auto-naming (`workspaces.autoName.variant` =
 /// `persist`, hq#1957): the first time a default-named workspace of a
@@ -12,9 +12,10 @@ public import CmuxNextDaemon
 /// name revision, and never one the user named (`WorkspaceAutoName.persistedName`).
 ///
 /// Event-driven: one app-wide observation of daemon stores, the chat
-/// titles, the setting and the variant; nothing polls. Process-wide, so two
-/// windows showing one workspace send one rename. A rename changes no
-/// focus or selection.
+/// titles, the setting and the variant (a ``ServiceObservation``: the rename
+/// is a daemon write that must happen while no window shows the workspace);
+/// nothing polls. Process-wide, so two windows showing one workspace send one
+/// rename. A rename changes no focus or selection.
 @MainActor
 public final class WorkspaceAutoNamer {
     /// The identity and name state read immediately before an automatic rename.
@@ -83,9 +84,15 @@ public final class WorkspaceAutoNamer {
         self.rename = rename
     }
 
-    /// Follows the stores until the task is cancelled; the app runs it for its lifetime.
-    public func run() async {
-        for await renames in ObservationStream({ self.pending() }) { apply(renames) }
+    /// Follows the stores on `work` and sends each rename the rule asks for: the current ones now, later ones in
+    /// a visible task after the change that asks for them. Returns the follow, which holds this namer; the app
+    /// keeps it for its lifetime, and releasing it stops the follow.
+    public func follow(on work: MainWorkScheduler) -> AnyObject {
+        ServiceObservation(.visible, owner: "WorkspaceAutoNamer.renames", on: work) {
+            self.pending()
+        } apply: { renames in
+            self.apply(renames)
+        }
     }
 
     /// The renames the rule asks for now, across local and remote daemon

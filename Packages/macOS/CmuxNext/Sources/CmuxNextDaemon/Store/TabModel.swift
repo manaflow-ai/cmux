@@ -341,6 +341,7 @@ public final class TabModel: Identifiable {
     /// Reads the running command's age again after `delay`: one one-shot timer per running command,
     /// armed by the status mapping while the command is younger than its threshold.
     public func recheckCommand(after delay: Duration) {
+        // timer-class-allow: one one-shot per young command that only bumps `commandRecheck`; the status follows that read it run in their own class, and a record has no deadline scheduler seam
         let timer = commandTimer ?? DemandTimer(owner: "tab.command-busy")
         commandTimer = timer
         // A replace, not scheduleIfIdle: a lowered threshold moves the deadline earlier.

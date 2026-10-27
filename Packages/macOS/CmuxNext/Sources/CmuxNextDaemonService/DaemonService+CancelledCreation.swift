@@ -38,6 +38,7 @@ extension DaemonService {
             if batch { _ = try await connection.closeTabs([surface], endTerminals: true, reason: reason) } else { try await connection.closeTab(surface) }
         }
         // task-owner: one close of a cancelled creation's daemon tab; its failure shows what the daemon kept
+        // main-hop-allow: runReportingTimeout is the service's main-actor command path (the close runs on the connection's actor); the store's intent and refresh are main-actor state at its resume
         Task {
             switch await daemon.runReportingTimeout("close-tabs (cancelled creation)", run) {
             case .succeeded:

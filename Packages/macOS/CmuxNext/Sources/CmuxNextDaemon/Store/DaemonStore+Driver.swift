@@ -286,6 +286,7 @@ extension DaemonStore {
         let covering = personalRefetch.seen
         let barrier = snapshotBarrier
         // task-owner: at most one list-personal at a time (personalRefetch.inFlight); its request has the connection's deadline
+        // main-hop-allow: the store driver's fetch and apply: the request runs on the connection's actor, and the apply checks the snapshot barrier and the overlay, main-actor store state, at its one resume
         Task { @MainActor in
             let state = try? await driver.connection.listPersonal()
             personalRefetch.inFlight = false
@@ -325,6 +326,7 @@ extension DaemonStore {
         causes.resync = .program
         driver.inbox.hold()
         // task-owner: at most one resync at a time (isResyncing); its snapshot request has a deadline
+        // main-hop-allow: the store driver's resync under the inbox hold (no batch drains meanwhile): the snapshot and its diff run off main, the apply at their resumes is the drain's own work
         Task { @MainActor in
             var failed = false
             do {
@@ -409,6 +411,7 @@ extension DaemonStore {
             needsResync = true
             return
         }
+        // timer-class-allow: the retry spacing runs on the store's injected resyncClock (DaemonDrainFrameTests step it), and the store has no deadline scheduler seam; at most one per failed snapshot
         let timer = DemandTimer(owner: "DaemonStore.resync", clock: resyncClock)
         resyncRetry = timer
         timer.scheduleOnMain(after: delay) { [weak self] in

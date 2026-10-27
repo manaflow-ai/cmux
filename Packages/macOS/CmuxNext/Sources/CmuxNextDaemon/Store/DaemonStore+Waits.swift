@@ -37,6 +37,7 @@ extension DaemonStore {
             }) ?? .cancelled
         } onCancel: {
             // task-owner: one hop to the store's actor to resume this cancelled wait's continuation
+            // main-hop-allow: the cancel handler runs on the canceller's thread; the hop only resumes the cancelled wait (the store's main-actor waiters), no frame work
             Task { @MainActor in self.sequenceWaiters.cancel(id) }
         }
     }
@@ -61,6 +62,7 @@ extension DaemonStore {
             }) ?? false
         } onCancel: {
             // task-owner: one hop to the store's actor to resume this cancelled wait's continuation
+            // main-hop-allow: the cancel handler runs on the canceller's thread; the hop only resumes the cancelled wait (the store's main-actor waiters), no frame work
             Task { @MainActor in self.sequenceWaiters.cancel(id) }
         }
     }
@@ -88,6 +90,7 @@ extension DaemonStore {
             }) ?? false
         } onCancel: {
             // task-owner: one hop to the store's actor to resume this cancelled wait's continuation
+            // main-hop-allow: the cancel handler runs on the canceller's thread; the hop only resumes the cancelled wait (the store's main-actor waiters), no frame work
             Task { @MainActor in self.sequenceWaiters.cancel(id) }
         }
     }

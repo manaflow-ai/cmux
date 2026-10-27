@@ -1,5 +1,6 @@
 import CmuxNextCompat
 public import CmuxNextDaemon
+public import CmuxNextWakeups
 import Foundation
 public import Observation
 import os
@@ -90,11 +91,14 @@ public final class EmptyWorkspaceRepair {
     /// it without one (the daemon restarted without its terminals): that one
     /// is repaired. Tests replace it.
     @ObservationIgnored public var isLive: @MainActor () -> Bool
-    @ObservationIgnored private var observation: Task<Void, Never>?
+    /// Where the follows run: the app's main-thread scheduler.
+    @ObservationIgnored private let work: MainWorkScheduler
+    /// The store's membership and first live tree (`observe`).
+    @ObservationIgnored private var observation: ServiceObservation<[String]>?
     /// The store observed; weak, the store owns its life.
     @ObservationIgnored private weak var store: DaemonStore?
     /// One pane observation per workspace in the store (`watch`).
-    @ObservationIgnored private var watchers: [ObjectIdentifier: Task<Void, Never>] = [:]
+    @ObservationIgnored private var watchers: [ObjectIdentifier: ServiceObservation<Bool>] = [:]
     /// The live tree epoch whose workspaces were all examined.
     @ObservationIgnored private var checkedTreeEpoch: Int??
     /// Whether each watched workspace had a pane when last examined.
@@ -107,14 +111,17 @@ public final class EmptyWorkspaceRepair {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.empty-workspace")
 
     /// The daemon-facing closures come from the App (`init(daemon:)`), which
-    /// owns the connection and the workspace close path.
+    /// owns the connection and the workspace close path. `work` is the app's
+    /// main-thread scheduler: the follows are ``ServiceObservation``s on it.
     public init(store: DaemonStore,
                 create: @escaping @MainActor (WorkspaceKey) async throws -> SurfaceID?,
                 close: @escaping @MainActor (WorkspaceKey) async throws -> Void,
                 cause: @escaping @MainActor (WorkspaceKey) async -> EmptiedWorkspaceCause,
                 canCreate: @escaping @MainActor () -> Bool,
                 epoch: @escaping @MainActor () -> Int,
-                isLive: @escaping @MainActor () -> Bool) {
+                isLive: @escaping @MainActor () -> Bool,
+                on work: MainWorkScheduler) {
+        self.work = work
         self.create = create
         self.close = close
         self.cause = cause
@@ -129,7 +136,7 @@ public final class EmptyWorkspaceRepair {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             observation?.cancel()
-            for task in watchers.values { task.cancel() }
+            for watch in watchers.values { watch.cancel() }
         }
     }
 
@@ -138,19 +145,22 @@ public final class EmptyWorkspaceRepair {
     /// one store observation of membership and of the connection's first live
     /// tree. A move, a group change or a change to another workspace wakes
     /// nothing here (sidebar churn: this looked at every workspace on each).
+    ///
+    /// Both are ``ServiceObservation``s in the visible class (recipe R-obs): a
+    /// close or a repair is a daemon command that must run while no window
+    /// shows the workspace, and a person's last-tab close flushes as theirs
+    /// (userBlocking). The membership pass runs once now, in this turn.
     private func observe(_ store: DaemonStore) {
         self.store = store
-        observation = Task { [weak self, weak store] in
-            for await _ in ObservationStream({ () -> [String] in
-                guard let store else { return [] }
-                // Turning live counts as a change: a tree drawn from the
-                // launch snapshot is first seen on a connection then.
-                return [String(store.isLoaded), String(store.isProvisional), String(store.workspaceSetRevision),
-                        store.liveTreeEpoch.map(String.init) ?? "-"]
-            }) {
-                guard let self, let store else { return }
-                self.membershipDidChange(store)
-            }
+        observation = ServiceObservation(.visible, owner: "EmptyWorkspaceRepair.membership", on: work) { [weak store] () -> [String] in
+            guard let store else { return [] }
+            // Turning live counts as a change: a tree drawn from the
+            // launch snapshot is first seen on a connection then.
+            return [String(store.isLoaded), String(store.isProvisional), String(store.workspaceSetRevision),
+                    store.liveTreeEpoch.map(String.init) ?? "-"]
+        } apply: { [weak self, weak store] _ in
+            guard let self, let store else { return }
+            self.membershipDidChange(store)
         }
     }
 
@@ -172,8 +182,8 @@ public final class EmptyWorkspaceRepair {
             if joined { watchers[id] = watch(workspace) }
             if joined || everyOne { workspaceDidChange(workspace) }
         }
-        for (id, task) in watchers where !live.contains(id) {
-            task.cancel()
+        for (id, watch) in watchers where !live.contains(id) {
+            watch.cancel()
             watchers[id] = nil
             seenPane[id] = nil
         }
@@ -186,17 +196,16 @@ public final class EmptyWorkspaceRepair {
         retryPending()
     }
 
-    /// Follows whether `workspace` has a pane; wakes only when that flips.
-    private func watch(_ workspace: WorkspaceModel) -> Task<Void, Never> {
-        // task-owner: one per watched workspace in `watchers`, cancelled when it leaves the store or the repair goes
-        Task { [weak self, weak workspace] in
-            for await hasPane in ObservationStream({ workspace.map(Self.hasPane) ?? false }) {
-                guard let self, let workspace else { return }
-                // The membership pass examined it when it joined; only a flip since counts.
-                guard self.seenPane[ObjectIdentifier(workspace)] != hasPane else { continue }
-                self.workspaceDidChange(workspace)
-                self.retryPending()
-            }
+    /// Follows whether `workspace` has a pane; applies only when that flips (a Bool: equal values do not apply).
+    /// One per watched workspace in `watchers`, cancelled when it leaves the store or the repair goes.
+    private func watch(_ workspace: WorkspaceModel) -> ServiceObservation<Bool> {
+        ServiceObservation(.visible, owner: "EmptyWorkspaceRepair.pane", on: work) { [weak workspace] in
+            workspace.map(Self.hasPane) ?? false
+        } apply: { [weak self, weak workspace] hasPane in
+            // The membership pass examines it when it joins (after this first apply); only a flip since counts.
+            guard let self, let workspace, let seen = self.seenPane[ObjectIdentifier(workspace)], seen != hasPane else { return }
+            self.workspaceDidChange(workspace)
+            self.retryPending()
         }
     }
 
@@ -261,6 +270,7 @@ public final class EmptyWorkspaceRepair {
         populated[key] = nil
         let close = close, cause = cause, create = create
         // task-owner: one decision per emptied workspace; the claim is the state above
+        // main-hop-allow: the repair's decision reads and writes its main-actor claim (`states`) between the daemon's async seams (cause, then create or close, each run on the connection's actor)
         Task {
             // A lost terminal (its host died: crash, kill, reboot) is not a
             // closed tab: the workspace stays and gets a new terminal.
@@ -321,6 +331,8 @@ public final class EmptyWorkspaceRepair {
         guard states[key] == nil, canCreate() else { return }
         states[key] = .awaitingPane
         logger.info("workspace \(key.rawValue, privacy: .public) requested a new tab")
+        // task-owner: one first tab per claim (`states`); a failure releases the claim
+        // main-hop-allow: the claim (`states`) and the caller's `created` are main-actor state around the daemon's async create seam (run on the connection's actor)
         Task {
             do {
                 if let surface = try await create(key) { created(surface) }

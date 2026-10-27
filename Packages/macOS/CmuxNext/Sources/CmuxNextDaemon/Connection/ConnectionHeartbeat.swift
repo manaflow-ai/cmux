@@ -44,6 +44,7 @@ public final class ConnectionHeartbeat: Sendable {
     private let state = Mutex(State())
 
     init(clock: any Clock<Duration> = ContinuousClock()) {
+        // timer-class-allow: off main: each ask runs on the connection's own probe (a request on its transport) and posts no main-thread job
         timer = DemandTimer(owner: "DaemonConnection.heartbeat", clock: clock)
     }
 

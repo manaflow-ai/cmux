@@ -180,6 +180,7 @@ public final class RetryWake: Sendable {
                     state.timer?.cancel()
                     state.timer = nil
                     if let delay {
+                        // timer-class-allow: off main: the retry backoff only resumes the connect loop's waiter (thread-safe); no main-thread job
                         let timer = DemandTimer(owner: owner, clock: clock, ledger: ledger)
                         state.timer = timer
                         timer.schedule(after: delay) { [weak self] in self?.resume(.timer, latchIfIdle: false) }

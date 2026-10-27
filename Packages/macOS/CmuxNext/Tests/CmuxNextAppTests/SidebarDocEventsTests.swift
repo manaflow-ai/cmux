@@ -134,17 +134,21 @@ import Testing
         #expect(told.count(.faviconsChanged) == 1, "a released observation was told")
     }
 
-    /// The App's favicon follow tells the store's observers on each favicon revision.
+    /// The App's favicon follow tells the store's observers on each favicon revision. It is a ServiceObservation
+    /// (p06-scheduler-339, R-obs): the first pass tells in the caller's turn, a revision in the follow's visible task.
     @Test func aFaviconRevisionTellsTheStoresObservers() async {
         let store = SidebarDocStore(remote: nil, mirror: nil)
         let revision = Revision()
+        let rig = MainDeadlineRig()
         let (events, observation) = Self.events(of: store)
         defer { observation.cancel() }
-        let follow = SidebarDocMachines.followFavicons(store, revision: { revision.value }, byOrigin: { [:] }, faviconKey: { _ in nil })
-        defer { follow.cancel() }
+        let follow = SidebarDocMachines.followFavicons(store, revision: { revision.value }, byOrigin: { [:] },
+                                                       faviconKey: { _ in nil }, on: rig.work)
+        defer { withExtendedLifetime(follow) {} }
         var iterator = events.makeAsyncIterator()
         #expect(await iterator.next() == .faviconsChanged, "the follow's first pass told nothing")
         revision.value += 1
+        rig.frame()
         #expect(await iterator.next() == .faviconsChanged, "a new favicon revision told nothing")
     }
 
