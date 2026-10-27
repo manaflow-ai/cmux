@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxNextCloud
 
-@Suite("Cloud Codex broker app adapter", .timeLimit(.minutes(1)))
+@Suite("Cloud Codex broker app adapter", .serialized, .timeLimit(.minutes(1)))
 struct CloudCodexBrokerAdapterTests {
     actor Files {
         var values: [String: [String: Data]] = [:]
