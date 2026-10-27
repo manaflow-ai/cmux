@@ -134,7 +134,8 @@ in `try`, and `detail: "the peer was saved and will keep reconnecting"`.
 For WebSocket URLs, `try` is `acpmux host ls`. Saving failures remain errors.
 Peer requests that cannot be sent include `acpmux host ls` and state that the
 request was not sent. A method rejected by an older peer is reported as
-`peer_version_skew` with `acpmux host update NAME`.
+`peer_version_skew` with `acpmux host update NAME`; status adds the peer's
+target and `--binary-dir DIR` form when it differs from this build.
 
 `ACPMUX_SOCKET` takes precedence over `ACPMUX_HOME`. To inspect an isolated
 home from a shell that may be inside another agent, use
@@ -240,7 +241,9 @@ The CLI and MCP watch tools are not exposed yet; `acpmux wait` remains the scrip
 
 Agents spawned by acpmux get `ACPMUX_ENV=1`, `ACPMUX_SESSION_ID`, `ACPMUX_SESSION_NAME` and
 `ACPMUX_SOCKET`, and `@` names that session (`acpmux last @`), so an agent can drive its own
-session and siblings. The event log carries `turn_started` and `turn_result`
+session and siblings. A session an agent starts (`acpmux new` in its shell, or its
+`start_session` tool) records that session as its lineage `parent`, with the tree's `root` and
+its `depth`; `ACPMUX_TOOL_CALL_ID`, when the harness sets it, names the tool call that started it. The event log carries `turn_started` and `turn_result`
 (`completed|cancelled|failed`); a daemon that restarts mid-turn writes
 `turn_result failed outcome_unknown` so nobody replays a prompt that may have run. A turn a
 connection error cut off ("stream disconnected", a refused or reset connection, a 502/504), or
@@ -266,7 +269,10 @@ start (Claude Code's own too), a prompt waits, a continuation may fire, the chat
 sub-session's run slots are full, or that subagent's retry is under way;
 `retry.nothing_failed` (`data.why`: `closed`, `running`, `resumed`, `replaced`, `ended`,
 `forgotten`, `not_retryable`, `skipped`) and `retry.unknown_subagent`, never the chat's own
-turn. A
+turn. Under `subagent-retry-v2` the subagent's entry carries `retryInFlight: {attempt, of,
+reason, firedAt, promptId, manual}` from an attempt's fire until the subagent runs again or the
+attempt is over (the next wait, given up, refused, Stop, close), `null` on acpmux's other
+entries; a restart, or a move to another daemon, settles one left open with `retryable: false`. A
 `notifyCommand` in the config runs on a permission request and on a turn that ends
 unattended, with `ACPMUX_EVENT`, `ACPMUX_SESSION_NAME` and `ACPMUX_TEXT` set.
 `agentStartTimeoutMs` (default 90000) bounds a cold agent start (spawn, `initialize`,
@@ -874,7 +880,7 @@ The simplest peer is an SSH host, and `host setup` does the whole install from t
 acpmux host setup HOST                 # scp the binary, write config + launchd plist, start it, add the peer
 acpmux host ls                         # connected/offline, remote build, and "outdated" when it lags yours
 acpmux host status [HOST]              # each host asked live: reachable, round trip, disk, load, live sessions, build
-acpmux host update --all               # push the current binary to every ssh peer and restart it
+acpmux host update --all               # update compatible ssh peers; use --binary-dir for another target
 acpmux host update HOST --if-idle --binary-dir DIR  # push DIR/acpmux-<target>, unless a session there is mid-turn (not counting the one running this)
 acpmux host update HOST --keep-newer --binary-dir DIR  # never a move back: a later day's build or one with local changes stays (current)
 acpmux ls                              # HOST/session-name next to local sessions
@@ -955,7 +961,8 @@ with 5 s each, and lists this machine first. Each row has:
 
 An offline peer's row gives its link state and the next command (`acpmux host doctor HOST`).
 A peer on an older build that lacks the method shows as reachable, and names
-`acpmux host update HOST`. A remote session's `--cwd` and worktrees are on the peer's disk
+`acpmux host update HOST` (or the target-specific `--binary-dir DIR` form when
+its OS or architecture differs). A remote session's `--cwd` and worktrees are on the peer's disk
 (`~/.cmux/worktrees/<project>/<name>` there). There is no move from one peer to another:
 `session export HOST/name` and `session import DIR` bring a session here.
 
@@ -1134,6 +1141,15 @@ When no config exists, harnesses are imported from `~/.acpx/config.json` (its `a
   a start with no proven session (no caller token) is unchanged (`hub/start_mode.rs`, "Inherit").
 - `store.mode`: `local` (default) or `memory`. Local writes `sessions/<id>/session.json` and
   append-only `events/NNNNNN.ndjson` segments.
+- `store.closedLogDays`: days a closed chat's event log is kept whole (default 14; 0 keeps every
+  log whole). After them its log is compacted: the harness's raw lines (`claude.*`, `codex.*`) and
+  tool call strings over 2 KB (outputs, file text, diffs; their first 512 bytes stay) are removed,
+  and everything else stays with its sequence number: the prompts, the agent's messages, the turn
+  and status records, and `session.json`, so the chat still lists, opens and resumes. A chat with
+  a running agent, an attached client, a turn, queue or watch is never touched. `acpmux daemon
+  retention` runs a pass; `--dry-run` only reports what it would free; `--archive DIR` keeps the
+  old segments under `DIR/<chat id>/<pass>/events/`; `--older-than-days N` and `--only CHAT` narrow it.
+  Read when the daemon starts.
 - `websocket`: optional. The same protocol over WebSocket text frames, for remote clients such
   as a dashboard or a Durable Object. Put it behind a tunnel; the token is a bearer token.
 

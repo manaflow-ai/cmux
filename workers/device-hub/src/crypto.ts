@@ -178,3 +178,50 @@ export async function verifyRs256Jwk(jwk: JsonWebKey, signingInput: string, sign
   const key = await crypto.subtle.importKey("jwk", { kty: jwk.kty, n: jwk.n, e: jwk.e }, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
   return crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, signature, encoder.encode(signingInput));
 }
+
+// ---- sealed strings (the Stack token inside the hub session) ----
+
+const sealKeyCache = new Map<string, Promise<CryptoKey>>();
+
+/** AES-256-GCM key derived (HKDF-SHA256) from a server secret, one per purpose. */
+function sealKey(secret: string | undefined, info: string): Promise<CryptoKey> {
+  if (!secret) return Promise.reject(new Error("server key is not configured"));
+  const cacheKey = `${info}\n${secret}`;
+  let hit = sealKeyCache.get(cacheKey);
+  if (!hit) {
+    hit = (async () => {
+      const ikm = await crypto.subtle.importKey("raw", encoder.encode(secret), "HKDF", false, ["deriveKey"]);
+      return crypto.subtle.deriveKey(
+        { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(32), info: encoder.encode(info) },
+        ikm,
+        { name: "AES-GCM", length: 256 },
+        false,
+        ["encrypt", "decrypt"],
+      );
+    })();
+    hit.catch(() => sealKeyCache.delete(cacheKey));
+    sealKeyCache.set(cacheKey, hit);
+  }
+  return hit;
+}
+
+/** Encrypts `plaintext` as `<iv>.<ciphertext>` (base64url), bound to `info`. */
+export async function sealString(secret: string | undefined, info: string, plaintext: string): Promise<string> {
+  const key = await sealKey(secret, info);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoder.encode(plaintext));
+  return `${base64url(iv)}.${base64url(new Uint8Array(ct))}`;
+}
+
+/** Opens a `sealString` value; null when it is malformed, tampered or sealed under another key. */
+export async function openString(secret: string | undefined, info: string, sealed: string): Promise<string | null> {
+  const parts = sealed.split(".");
+  if (parts.length !== 2) return null;
+  try {
+    const key = await sealKey(secret, info);
+    const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: base64urlDecode(parts[0]!) }, key, base64urlDecode(parts[1]!));
+    return decoder.decode(pt);
+  } catch {
+    return null;
+  }
+}
