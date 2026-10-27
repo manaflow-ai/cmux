@@ -13,8 +13,8 @@ So every rust-cache step must set `cache-bin: false`, unless every runner its
 job can resolve to is a literal ephemeral Linux or Windows label (GitHub-hosted
 ubuntu/windows, Blacksmith ubuntu/windows). A `runs-on` built from an
 expression or a repository variable can resolve to a self-hosted host, so it
-needs the setting. Composite actions under .github/actions can be called from
-any job, so they always need it.
+needs the setting. Composite actions anywhere under .github/actions can be
+called from any job, so they always need it.
 """
 
 from __future__ import annotations
@@ -27,7 +27,13 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 RUST_CACHE = "swatinem/rust-cache@"
-EPHEMERAL_LABEL = re.compile(r"^(ubuntu-[\w.-]+|windows-[\w.-]+|blacksmith-\d+vcpu-(ubuntu|windows)-[\w.-]+)$")
+# Exact shapes of GitHub-hosted and Blacksmith ephemeral Linux/Windows labels.
+# Anything else (a suffix such as -glaeda, a custom ubuntu-self-hosted) may be a
+# persistent host.
+EPHEMERAL_LABEL = re.compile(
+    r"^(ubuntu-(\d{2}\.\d{2}|latest)(-arm)?|windows-(\d{4}|latest)"
+    r"|blacksmith-\d+vcpu-(ubuntu-\d{4}(-arm)?|windows-\d{4}))$"
+)
 MATRIX_REF = re.compile(r"^\$\{\{\s*matrix\.([A-Za-z0-9_-]+)\s*\}\}$")
 
 
@@ -116,6 +122,11 @@ def self_test() -> list[str]:
         ({"runs-on": "blacksmith-32vcpu-ubuntu-2404"}, True),
         ({"runs-on": "blacksmith-6vcpu-macos-15"}, False),
         ({"runs-on": "macos-26"}, False),
+        ({"runs-on": "blacksmith-4vcpu-ubuntu-2404-arm"}, True),
+        ({"runs-on": "blacksmith-4vcpu-windows-2025"}, True),
+        ({"runs-on": "blacksmith-4vcpu-ubuntu-2404-glaeda"}, False),
+        ({"runs-on": "ubuntu-self-hosted"}, False),
+        ({"runs-on": "ubuntu-24.04-mini"}, False),
         ({"runs-on": ["self-hosted", "macOS"]}, False),
         ({"runs-on": "${{ vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}"}, False),
         ({"runs-on": "${{ matrix.runner }}", "strategy": {"matrix": {"include": [{"runner": "ubuntu-24.04"}]}}}, True),
@@ -137,7 +148,7 @@ def main() -> int:
         found, errors = workflow_failures(path)
         total += found
         failures += errors
-    for path in sorted((ROOT / ".github/actions").glob("*/action.y*ml")):
+    for path in sorted((ROOT / ".github/actions").rglob("action.y*ml")):
         found, errors = action_failures(path)
         total += found
         failures += errors
