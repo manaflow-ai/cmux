@@ -14,7 +14,7 @@ extension DaemonService {
 
     /// The socket for callers that open a connection of their own (re-read on reconnect).
     public func endpoint() async throws -> DaemonEndpoint {
-        guard let endpoint = await machineConnection().endpoint else { throw DaemonError.notConnected }
+        guard let endpoint = try await machineConnection().endpoint else { throw DaemonError.notConnected }
         return endpoint
     }
 
