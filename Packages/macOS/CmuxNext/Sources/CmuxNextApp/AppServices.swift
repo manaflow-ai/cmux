@@ -326,13 +326,15 @@ final class AppServices {
     /// before the daemon connects), else built the same way. Tests set their own before the services that read it are built.
     var features: FeatureList
 
-    /// Every declared feature's value for this launch: this build's channel, the launch
+    /// Every declared feature's value for this launch: this build's channel and default set (a dogfood build's
+    /// switches, ``FeatureDogfoodSet``, by the tag it ships), the launch
     /// environment (`CMUX_ENABLE_FEATURES`, `CMUX_DISABLE_FEATURES`) and the local choices (the Labs page's, then
     /// the Debug tunables features replace: ``FeatureLaunchLocalOverrides``) whose launch reads have ended.
     /// The composition root builds it once, before anything that reads a feature.
     static func launchFeatures(_ environment: AppEnvironment) -> FeatureList {
         FeatureList(registry: FeatureRegistry(), channel: Feature.Channel(environment.build.kind),
-                    overrides: FeatureOverrides(environment: ProcessInfo.processInfo.environment),
+                    overrides: FeatureOverrides(environment: ProcessInfo.processInfo.environment,
+                                                buildDefaults: FeatureDogfoodSet.chromeParity.buildDefaults(forTag: environment.launch.build.tag)),
                     local: FeatureLaunchLocalOverrides(labs: environment.featureLocalOverrides?.value ?? FeatureLocalOverrides(),
                                                        tunables: environment.featureTunableOverrides?.value ?? [:]))
     }
