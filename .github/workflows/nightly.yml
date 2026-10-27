@@ -2159,14 +2159,44 @@ jobs:
       # entitlements before notarization, like every Mach-O there.
       # It builds in the background too, and is bundled with the Chief after
       # xcodebuild. An unsigned resume restores the app and builds neither.
+      - name: Resolve the iPhone host build identity
+        id: mobile-host-key
+        if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next' && steps.nightly-product.outputs.hit != 'true'
+        continue-on-error: true
+        env:
+          SOURCE_KEY: ${{ needs.resolve-nightly-cmux-tui-client.outputs.mobile_host_source_key }}
+        run: |
+          scripts/ci/clear-dirs.sh "$GITHUB_WORKSPACE/.nightly-mobile-host"
+          if [ -n "$SOURCE_KEY" ] && [ -f scripts/ci/nightly_mobile_host_reuse.py ]; then
+            python3 scripts/ci/nightly_mobile_host_reuse.py builder-key --source-key "$SOURCE_KEY" \
+              --archs "$NIGHTLY_COMPILE_ARCHS" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Restore the published iPhone host
+        id: mobile-host-cache
+        if: steps.mobile-host-key.outputs.key != ''
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .nightly-mobile-host
+          key: nightly-mobile-host-v1-${{ steps.mobile-host-key.outputs.key }}
+
       - name: Build the cmux-next iPhone host (cmux-mobile-host)
         if: (inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next') && steps.nightly-product.outputs.hit != 'true'
+        env:
+          REUSE_KEY: ${{ steps.mobile-host-key.outputs.key }}
+          TOOLCHAIN_KEY: ${{ steps.mobile-host-key.outputs.toolchain }}
         run: |
           set -euo pipefail
-          if [[ "$NIGHTLY_FAST_BUILD" == "true" ]]; then archs=arm64; else archs=arm64,x86_64; fi
           hostd_bin="$RUNNER_TEMP/cmux-next-mobile-host/cmux-mobile-host"
+          build=(env CMUX_NEXT_MOBILE_HOST_ARCHS="$NIGHTLY_COMPILE_ARCHS" scripts/cmux-next/build-mobile-host.sh --output "$hostd_bin")
+          if [ -n "$REUSE_KEY" ] && [ -n "$TOOLCHAIN_KEY" ]; then
+            build=(python3 scripts/ci/nightly_mobile_host_reuse.py build --key "$REUSE_KEY" \
+              --toolchain-key "$TOOLCHAIN_KEY" --archs "$NIGHTLY_COMPILE_ARCHS" \
+              --cache "$GITHUB_WORKSPACE/.nightly-mobile-host" --output "$hostd_bin")
+          fi
           python3 scripts/ci/background_build.py start --state "$RUNNER_TEMP/nightly-helper-builds" mobile-host -- \
-            nice -n 10 env CMUX_NEXT_MOBILE_HOST_ARCHS="$archs" scripts/cmux-next/build-mobile-host.sh --output "$hostd_bin"
+            nice -n 10 "${build[@]}"
           echo "CMUX_NEXT_MOBILE_HOST_PENDING_BIN=$hostd_bin" >> "$GITHUB_ENV"
 
       # A fast branch dogfood build only needs the arm64 client that is bundled
@@ -2400,6 +2430,14 @@ jobs:
           python3 scripts/ci/background_build.py join --state "$state" mobile-host
           env "${phase_env[@]}" CMUX_NEXT_MOBILE_HOST_BIN="${CMUX_NEXT_MOBILE_HOST_PENDING_BIN:?}" \
             CMUX_NEXT_REQUIRE_MOBILE_HOST=1 scripts/cmux-next/bundle-mobile-host.sh
+
+      - name: Publish the iPhone host for unchanged inputs
+        if: steps.mobile-host-key.outputs.key != '' && steps.mobile-host-cache.outputs.cache-hit != 'true' && github.event_name == 'push' && github.ref == 'refs/heads/nightly-next'
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .nightly-mobile-host
+          key: nightly-mobile-host-v1-${{ steps.mobile-host-key.outputs.key }}
 
       # cmux-next ships THIRD_PARTY_LICENSES.md for exactly what this nightly
       # bundles: the daemon, app host and Cloud server come from this tree
@@ -2860,6 +2898,7 @@ jobs:
       build_sha: ${{ steps.build.outputs.build_sha }}
       build_short_sha: ${{ steps.build.outputs.build_short_sha }}
       tip_sha: ${{ needs.decide.outputs.head_sha }}
+      mobile_host_source_key: ${{ steps.mobile-host-source.outputs.key }}
       behind: ${{ steps.build.outputs.behind }}
       behind_hours: ${{ steps.build.outputs.behind_hours }}
       # decide compares the TIP with the published marker; this compares the
@@ -2992,6 +3031,17 @@ jobs:
           else
             echo "superseded=false" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Source key of the iPhone host
+        id: mobile-host-source
+        if: needs.decide.outputs.track == 'nightly-next' && inputs.nightly_next_unsigned_run == ''
+        continue-on-error: true
+        env:
+          BUILD_SHA: ${{ steps.build.outputs.build_sha }}
+          BUILD_ARCHS: ${{ needs.decide.outputs.compile_archs }}
+        run: |
+          key="$(python3 scripts/ci/nightly_mobile_host_reuse.py source-key --revision "$BUILD_SHA" --archs "$BUILD_ARCHS")"
+          echo "key=$key" >> "$GITHUB_OUTPUT"
 
   prepare-nightly-variant-primary:
     # No environment and no secrets: this job runs code from the bundle (the
