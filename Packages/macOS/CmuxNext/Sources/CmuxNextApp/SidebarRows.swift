@@ -50,8 +50,17 @@ final class SidebarRows {
     }
 
     /// The layout the sidebar draws: the store's without a stored All chats section (cx-n0i9).
-    static func visibleLayout(_ document: SidebarLayoutDocument) -> SidebarLayoutDocument {
-        document.withoutChats
+    static func visibleLayout(_ document: SidebarLayoutDocument, showAppStore: Bool = true) -> SidebarLayoutDocument {
+        var visible = document.withoutChats
+        guard !showAppStore else { return visible }
+        visible.sections = visible.sections.map { section in
+            var section = section
+            section.items.removeAll { item in
+                item.ref == .builtIn(.appStore) || item.ref == .app(SidebarLayoutDocument.firstPartyApps[.appStore] ?? "cmux/app-store")
+            }
+            return section
+        }
+        return visible
     }
 
     /// The layout window `windowID` draws: `visibleLayout` without the band's
@@ -59,10 +68,10 @@ final class SidebarRows {
     /// the sidebar document, whose band moves anchor on a drawn neighbour; the
     /// older owner's index ops count the stored layout, so it draws it whole.
     static func visibleLayout(_ document: SidebarLayoutDocument, window windowID: String, machines: MachineRegistry,
-                              registry: WindowRegistry) -> SidebarLayoutDocument {
-        guard SidebarDocWiring.isActive else { return visibleLayout(document) }
+                              registry: WindowRegistry, showAppStore: Bool = true) -> SidebarLayoutDocument {
+        guard SidebarDocWiring.isActive else { return visibleLayout(document, showAppStore: showAppStore) }
         let refs = WorkspaceLayoutRefs(machines: machines)
-        return visibleLayout(document).scopedToWindow { refs.ownedElsewhere($0, window: windowID, registry: registry) }
+        return visibleLayout(document, showAppStore: showAppStore).scopedToWindow { refs.ownedElsewhere($0, window: windowID, registry: registry) }
     }
 
     /// Shows `live` (when given) with the pending edits applied, then the

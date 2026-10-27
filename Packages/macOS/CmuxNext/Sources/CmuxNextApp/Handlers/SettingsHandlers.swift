@@ -39,6 +39,9 @@ enum SettingsHandlers {
         ChangelogPageTab.register(context.services)
         UpdateHandlers.bind(into: registry, updater: context.services.updater,
                             openWhatsNew: { [weak services = context.services] in services.map { WhatsNewPage.open($0) } ?? false },
+                            whatsNewUnavailable: { [weak services = context.services] in
+                                services?.settings?.snapshot.previewFeatures == true ? nil : "What's New is a preview feature: turn on labs.previewFeatures in cmux.json."
+                            },
                             stateDirectories: { [weak services = context.services] in services?.environment.daemonStateDirectories ?? [nil] })
         OnboardingHandlers.bind(into: registry, context: context)
         SessionMoveFromBuild.bind(into: registry, context: context)

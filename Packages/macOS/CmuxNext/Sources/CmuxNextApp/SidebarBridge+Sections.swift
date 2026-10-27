@@ -102,7 +102,7 @@ extension SidebarBridge {
                 // The window closed: the bridge is gone, stop observing.
                 guard self != nil else { return }
                 // `model.layout` is written with the rows it projects (SidebarBridge.show).
-                let visibleLayout = layout.withoutChats
+                let visibleLayout = SidebarRows.visibleLayout(layout, showAppStore: services.settings?.snapshot.previewFeatures == true)
                 let infos = Self.itemInfo(for: visibleLayout, registered: { registry.action(for: $0) != nil },
                                           unread: unread, homeUnread: homeUnread,
                                           app: { SidebarAppItemInfo.info($0, client: apps) }, shortcut: { shortcuts[$0] },
