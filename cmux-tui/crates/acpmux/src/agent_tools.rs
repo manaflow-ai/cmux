@@ -559,7 +559,7 @@ fn resolve_with_cua_helper(
             env: vec![],
         });
         // send, ls, last and info (`acpmux_mcp.rs`): messages another session as this one,
-        // instead of `acpmux send` in a shell.
+        // instead of `acpmux send` in a shell; and the chat's daemon-owned background tasks.
         servers.push(McpServer {
             name: crate::acpmux_mcp::SERVER_NAME.into(),
             command: acpmux.exe.clone(),
@@ -908,6 +908,8 @@ fn materialize(state_dir: &Path) -> anyhow::Result<PathBuf> {
         all.extend_from_slice(text.as_bytes());
         all.push(0);
     }
+    let hooks = bg_hooks();
+    all.extend_from_slice(hooks.as_bytes());
     let hash = crate::sha256::sha256_hex(&all);
     let dir = state_dir.join(&hash[..16]);
     if dir.join(".claude-plugin/plugin.json").is_file() {
@@ -922,6 +924,7 @@ fn materialize(state_dir: &Path) -> anyhow::Result<PathBuf> {
     });
     let mut files = vec![(".claude-plugin/plugin.json".to_owned(), manifest.to_string())];
     files.extend(SKILL_FILES.iter().map(|(p, t)| (format!("skills/{p}"), (*t).to_owned())));
+    files.push(("hooks/hooks.json".to_owned(), hooks));
     for (path, text) in files {
         let file = tmp.join(path);
         if let Some(parent) = file.parent() {
@@ -941,6 +944,21 @@ fn materialize(state_dir: &Path) -> anyhow::Result<PathBuf> {
             Err(e.into())
         }
     }
+}
+
+/// The plugin's `hooks/hooks.json`: `bg_hook.rs` before every `Bash` call, run by this binary
+/// as the daemon runs (so it reads the same home). Leo, 2026-10-27: "also when it comes to
+/// hibernation...can't you hibernate the agent but not hibernate the bg tasks?"
+fn bg_hooks() -> String {
+    let this = crate::self_command::SelfCommand::current()
+        .unwrap_or_else(|_| crate::self_command::SelfCommand::new("acpmux".into(), Vec::new()));
+    let mut words = vec![this.exe.to_string_lossy().into_owned()];
+    words.extend(this.args_lossy(&[crate::bg_hook::HOOK_ARG]));
+    let quoted: Vec<String> =
+        words.iter().map(|w| format!("'{}'", w.replace('\'', "'\\''"))).collect();
+    json!({"hooks": {"PreToolUse": [{"matcher": "Bash",
+        "hooks": [{"type": "command", "command": quoted.join(" "), "timeout": 10}]}]}})
+    .to_string()
 }
 
 /// The signed helper's own `cmux-cua` (`<app>/Contents/Library/cmux Computer
