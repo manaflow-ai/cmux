@@ -64,6 +64,9 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
       return has("input.token-input") ? null : "no number token field";
     case "string_map":
       return has("[data-string-map]") && has("input[data-map-new-key]") ? null : "no key and value list";
+    case "sound_rules":
+      // Per-level sound maps are set from the sidebar menus, the palette and the CLI; never a row.
+      return "a sound_rules row on the page";
   }
 }
 

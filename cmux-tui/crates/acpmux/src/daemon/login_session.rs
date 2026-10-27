@@ -170,7 +170,7 @@ pub(crate) fn start_in_login_session(
             .map(|(k, v)| (k.to_owned(), v.to_string_lossy().into_owned()))
             .collect();
     let log = &if log.is_relative() { cwd.join(log) } else { log.to_path_buf() };
-    for key in ["PATH", "LANG", "SHELL"] {
+    for key in ["PATH", "LANG", "SHELL", super::exe_path::ALLOW_ENV] {
         if let Ok(v) = std::env::var(key) {
             env.push((key.to_owned(), v));
         }
