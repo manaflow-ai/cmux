@@ -85,6 +85,9 @@ public final class WebKitEngine: BrowserEngine {
     let deadlines: MainDeadlineScheduler
     /// App-wide notices for its tabs: one observer per name for every tab (each tab's Web Inspector watch).
     let appEvents: AppEvents
+    /// Same-site tabs share a WebContent process above the renderer limit (``WebKitProcessReuse``); nil (the
+    /// `webKitSameSiteProcesses` feature off): every tab starts its own.
+    let processReuse: WebKitProcessReuse?
 
     /// An engine over the App's `stores`.
     ///
@@ -100,6 +103,7 @@ public final class WebKitEngine: BrowserEngine {
     ///   - deadlines: The app's one `MainDeadline` placer (`AppServices.mainDeadlines`); its `work` is the app's one
     ///     main-thread scheduler, which the tabs' and downloads' main-thread follow-ups are posted on.
     ///   - appEvents: The app's one ``AppEvents`` (`AppServices.appEvents`): its tabs' app-wide notices share its observers.
+    ///   - processReuse: Same-site process sharing above the renderer limit; nil: a process per tab.
     public init(
         fileInput: any WebFileInputAnswering,
         stores: BrowserSharedStores,
@@ -110,9 +114,11 @@ public final class WebKitEngine: BrowserEngine {
         energy: EnergyPolicySource = EnergyPolicySource(),
         waitDeadlines: MainWakeUpQueue? = nil,
         deadlines: MainDeadlineScheduler,
-        appEvents: AppEvents
+        appEvents: AppEvents,
+        processReuse: WebKitProcessReuse? = nil
     ) {
         self.fileInput = fileInput
+        self.processReuse = processReuse
         mainWork = deadlines.work
         self.deadlines = deadlines
         self.appEvents = appEvents
@@ -138,11 +144,13 @@ public final class WebKitEngine: BrowserEngine {
         energy: EnergyPolicySource = EnergyPolicySource(),
         waitDeadlines: MainWakeUpQueue? = nil,
         mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
-        appEvents: AppEvents = AppEvents(center: .default)
+        appEvents: AppEvents = AppEvents(center: .default),
+        processReuse: WebKitProcessReuse? = nil
     ) {
         self.init(fileInput: fileInput, stores: stores, profileStore: profileStore, faviconLoader: faviconLoader,
                   downloadsDirectory: downloadsDirectory, applicationNameForUserAgent: applicationNameForUserAgent, energy: energy,
-                  waitDeadlines: waitDeadlines, deadlines: MainDeadlineScheduler(work: mainWork), appEvents: appEvents)
+                  waitDeadlines: waitDeadlines, deadlines: MainDeadlineScheduler(work: mainWork), appEvents: appEvents,
+                  processReuse: processReuse)
     }
 
     public func makeTab(_ configuration: BrowserTabConfiguration) async throws -> any BrowserTab {
@@ -170,8 +178,14 @@ public final class WebKitEngine: BrowserEngine {
     private func makeTab(unproxied configuration: BrowserTabConfiguration, webViewConfiguration: WKWebViewConfiguration?) -> WebKitTab {
         let webConfiguration = webViewConfiguration ?? makeConfiguration(for: configuration.profile)
         prepare(webConfiguration)
+        // A page-opened tab is already related to its opener; any other may join a same-site process.
+        let site = processReuse?.site(of: configuration.initialURL)
+        let anchor = webViewConfiguration == nil
+            ? processReuse?.join(webConfiguration, site: site, profile: configuration.profile, among: openTabs.allObjects) : nil
         let tab = WebKitTab(configuration: configuration, webViewConfiguration: webConfiguration, engine: self,
                             openedByPage: webViewConfiguration != nil)
+        tab.processSite = site
+        tab.processAnchor = anchor
         openTabs.add(tab)
         if let url = configuration.initialURL {
             tab.load(url)

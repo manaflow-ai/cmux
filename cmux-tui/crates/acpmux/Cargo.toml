@@ -16,6 +16,11 @@ categories = ["command-line-utilities", "development-tools"]
 name = "acpmux"
 path = "src/main.rs"
 
+# The agent tool relay (src/mcp_relay.rs): std and serde_json only, under 1 MB.
+[[bin]]
+name = "acpmux-mcp-relay"
+path = "src/mcp_relay_main.rs"
+
 [lints.rust]
 # The stability lab builds with RUSTFLAGS="--cfg tokio_unstable" (cmux-tui/lab/stability.env).
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(tokio_unstable)"] }

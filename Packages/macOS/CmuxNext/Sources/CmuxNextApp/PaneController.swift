@@ -477,7 +477,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // Terminals come in on their first frame (`LaunchSettle`), or at once with their frame from the last
         // quit (`TerminalLaunchFrames`); other content (a page, an agent) is ready once shown, and a page's
         // first paint while shown is the launch's `first_page_frame`.
-        if case .terminal(let terminal) = content, let key { if terminal.session.showLaunchFrame(key, beside: services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), in: view.contentHost, reveal: services.launchReveal) { DebugTimings.markLaunch("terminal.launch_frame_shown") } } else if let content { services.launchReveal.markReady(.pane); if let key { DebugTimings.markFirstPageFrame(of: content.view, node: services.cache.node(for: key)) } }
+        if case .terminal(let terminal) = content, let key { if services.terminalLaunchFrames.show(key, on: terminal.session, in: view.contentHost, reveal: services.launchReveal) { DebugTimings.markLaunch("terminal.launch_frame_shown") } } else if let content { services.launchReveal.markReady(.pane); if let key { DebugTimings.markFirstPageFrame(of: content.view, node: services.cache.node(for: key)) } }
         // The content view exists now: the coordinator re-applies focus if
         // this pane has it (content is shown a frame after selection).
         if workspace?.isParked == false { BenchSpans.measure("switch.focus") { workspace?.focus.send(.contentPresented(pane: paneKey)) } }

@@ -1,4 +1,4 @@
-"""The `--native-ui` rows of chromium-host-bench.py (p01-process-060, 066): Chromium's native UI from the Chromium
+"""The `--native-ui` rows of chromium-host-bench.py (p01-process-060, 066, 069): Chromium's native UI from the Chromium
 host, drawn by cmux. `--native-ui` runs every row; `--native-ui select,date` only those.
 
   select            <select>: a click opens a cmux menu with its options (POPUP_MENU, ChromiumHostPopupMenus,
@@ -7,6 +7,14 @@ host, drawn by cmux. `--native-ui` runs every row; `--native-ui select,date` onl
                     event, and a dismissed menu changes nothing. Without cmux popup menus (`debug.cef`
                     `host_popup_menus` false: host mode not live, the feature off, or a fork below API 31) the row
                     says so and fails.
+  context_menu      a right click on an empty spot of the page opens cmux's page menu with Chromium's rows
+                    (CONTEXT_MENU JSON; `debug.menu` lists it) while cmux is the frontmost app; choosing Chromium's
+                    Reload there reloads the page (context_menu_done with the row's command), and a dismissed menu
+                    (context_menu_done -1) runs nothing and lets the next right click open a menu again.
+  download          a click on a `download` link: the App's downloads list gets a row (DOWNLOAD_STARTED,
+                    download_continue with cmux's path, DOWNLOAD_PROGRESS, DOWNLOAD_DONE) that finishes in the
+                    Downloads folder with the link's bytes; the row removes the file after.
+                    Without host mode (`debug.cef` `backend` not `host`) both say so and fail.
 
 The other rows are Chromium's widgets with a WebContents, made by the Chromium host and shown by cmux from their
 layer contexts (ChromiumHostWidgetHost, feature `chromiumHostWidgets`), one row per widget kind:
@@ -41,12 +49,27 @@ PAGE = """<!doctype html><meta charset=utf-8><title>native ui probe</title>
 <button id=pop style="top:160px" onclick="window.open('about:blank#native-ui-popup', '', 'popup,width=420,height=320')">popup</button>
 <select id=sel style="top:220px" onchange="window.selectChanges = (window.selectChanges || 0) + 1">
 <option>alpha<option>bravo<option>charlie</select>
+<a id=dl href="data:text/plain;charset=utf-8,native-ui-download" download="native-ui-download.txt"
+ style="position:fixed;left:40px;top:340px;font-size:16px">download</a>
 """ + suggestions.FIELDS
 
 # Every row, in the order they run.
-ROWS = ("select", "date", "datalist", "popup_window", "devtools_docked", "devtools_window", "extension_popup",
-        "side_panel", *suggestions.ROWS)
+ROWS = ("select", "context_menu", "download", "date", "datalist", "popup_window", "devtools_docked", "devtools_window",
+        "extension_popup", "side_panel", *suggestions.ROWS)
+# The rows cmux draws itself: no hosted widget, no suggestion list.
+CMUX_ROWS = ("select", "context_menu", "download")
 SELECT_OPTIONS = ["alpha", "bravo", "charlie"]
+# Chromium's page menu row the context_menu row chooses (IDS_CONTENT_CONTEXT_RELOAD), and the page's proof that it ran:
+# the marker set before the menu is gone and the last navigation was a reload.
+MENU_RELOAD = "Reload"
+RELOADED = ("(() => !window.__menuMarker && document.readyState === 'complete' && "
+            "performance.getEntriesByType('navigation')[0].type === 'reload')()")
+SET_MARKER = "(() => { window.__menuMarker = 1; return true; })()"
+MARKER_STAYS = "window.__menuMarker === 1"
+PROBE_LOADED = "document.readyState === 'complete' && !!document.getElementById('pop')"
+# The download link's file name and bytes (PAGE's #dl).
+DOWNLOAD_NAME = "native-ui-download"
+DOWNLOAD_BYTES = b"native-ui-download"
 
 EXTENSIONS = (
     ("Native UI Popup", {"action": {"default_popup": "popup.html"}}),
@@ -151,11 +174,105 @@ def select_row(rpc, wait, page_eval, click, front, app_pid):
     return row
 
 
-def run(rpc, wait, page_eval, url, rows_to_run=ROWS, front=lambda: None, app_pid=None):
-    """`rows_to_run` (rows_named); `front` gives the frontmost app's pid, `app_pid` is cmux's. Returns (rows, ok)."""
+def host_mode(rpc):
+    """None when Chromium runs in the Chromium Host, else why the host rows cannot run."""
+    backend = (rpc("debug.cef") or {}).get("backend")
+    return None if backend == "host" else f"host mode is not live in this build (debug.cef backend {backend!r})"
+
+
+def menu_after(rpc, wait, right_click):
+    """A right click on the page, then the cmux menu it opened (`debug.menu`), or None."""
+    if right_click() is False:
+        return None
+    return wait(lambda: open_menu(rpc), SHOW_DEADLINE_S)
+
+
+def dismiss_menu(rpc, wait):
+    rpc("debug.menu", {"dismiss": True})
+    return wait(lambda: open_menu(rpc) is None, 5)
+
+
+def context_menu_row(rpc, wait, page_eval, right_click, front, app_pid):
+    """Chromium's page menu from the host in cmux's menu (task 069): its rows arrive (CONTEXT_MENU), a chosen row runs
+    in the host (context_menu_done with its command), a dismissed menu runs nothing and the page opens the next one."""
+    reason = host_mode(rpc) or (None if right_click else "the bench gave no way to right-click the page")
+    if reason:
+        return {"ok": False, "not_run": reason}
+    page_eval(SET_MARKER)
+    started = time.time()
+    menu = menu_after(rpc, wait, right_click)
+    row = {"items": (menu or {}).get("items"), "show_ms": round((time.time() - started) * 1000, 1) if menu else None}
+    if not menu:
+        row.update(ok=False, error="no cmux menu opened for the right click")
+        return row
+    # Read while the menu is open: the frontmost app is cmux, not the Chromium host.
+    row["front_pid"], row["app_pid"] = front(), app_pid
+    row["host_never_front"] = row["front_pid"] is not None and row["front_pid"] == app_pid
+    if MENU_RELOAD not in (row["items"] or []):
+        dismiss_menu(rpc, wait)
+        row.update(ok=False, error=f"the menu has no {MENU_RELOAD!r} row: CONTEXT_MENU's items did not reach it")
+        return row
+    rpc("debug.menu", {"choose": MENU_RELOAD})
+    row["chose"] = bool(wait(lambda: page_eval(RELOADED), SHOW_DEADLINE_S))
+    # Dismissed: nothing runs, and Chromium, told the menu ended, shows the next one.
+    page_eval(SET_MARKER)
+    shown = menu_after(rpc, wait, right_click)
+    closed = dismiss_menu(rpc, wait)
+    time.sleep(0.3)  # test harness: a command the dismissal might wrongly run has reached the page
+    row["dismissed"] = bool(shown) and bool(closed) and bool(page_eval(MARKER_STAYS))
+    row["reopened"] = bool(menu_after(rpc, wait, right_click))
+    dismiss_menu(rpc, wait)
+    row["ok"] = row["host_never_front"] and row["chose"] and row["dismissed"] and row["reopened"]
+    return row
+
+
+def downloads_list(rpc):
+    """`debug.downloads`' rows, or None without the App's downloads list."""
+    reply = rpc("debug.downloads")
+    return reply.get("downloads") if isinstance(reply, dict) else None
+
+
+def download_row(rpc, wait, click, front, app_pid):
+    """A page's download through the host (task 069): DOWNLOAD_STARTED reaches the App's list, cmux's path goes back
+    (download_continue) and the file lands there with the link's bytes. Removes the file after."""
+    reason = host_mode(rpc)
+    if reason:
+        return {"ok": False, "not_run": reason}
+    before = downloads_list(rpc)
+    if before is None:
+        return {"ok": False, "not_run": "no downloads list (debug.downloads): not a DEBUG or bench build"}
+    known = {item.get("id") for item in before}
+
+    def ended():
+        return next((item for item in downloads_list(rpc) or [] if item.get("id") not in known
+                     and (item.get("filename") or "").startswith(DOWNLOAD_NAME) and item.get("status") != "inProgress"),
+                    None)
+    started = time.time()
+    click("dl")
+    item = wait(ended, SHOW_DEADLINE_S)
+    row = {"download": item, "done_ms": round((time.time() - started) * 1000, 1) if item else None,
+           "front_pid": front(), "app_pid": app_pid}
+    row["host_never_front"] = row["front_pid"] is not None and row["front_pid"] == app_pid
+    if not item:
+        row.update(ok=False, error="no download row ended for the link")
+        return row
+    destination = item.get("destination")
+    row["bytes_ok"] = False
+    if item.get("status") == "finished" and destination and os.path.isfile(destination):
+        with open(destination, "rb") as f:
+            row["bytes_ok"] = f.read() == DOWNLOAD_BYTES
+        os.remove(destination)
+    row["ok"] = item.get("status") == "finished" and row["bytes_ok"] and row["host_never_front"]
+    return row
+
+
+def run(rpc, wait, page_eval, url, rows_to_run=ROWS, front=lambda: None, app_pid=None, right_click=None):
+    """`rows_to_run` (rows_named); `front` gives the frontmost app's pid, `app_pid` is cmux's; `right_click` right-clicks
+    an empty spot of the page and returns False when it could not (None: the context_menu row cannot run). Returns
+    (rows, ok)."""
     rows = {}
     opened = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url}, "focus": True, "origin": "script"}, timeout=120)
-    if not wait(lambda: page_eval("document.readyState === 'complete' && !!document.getElementById('pop')"), 60, 0.5):
+    if not wait(lambda: page_eval(PROBE_LOADED), 60, 0.5):
         return {"error": f"the probe never loaded: {json.dumps(opened)[:200]}"}, False
 
     def center(element):
@@ -172,7 +289,12 @@ def run(rpc, wait, page_eval, url, rows_to_run=ROWS, front=lambda: None, app_pid
 
     if "select" in rows_to_run:
         rows["select"] = select_row(rpc, wait, page_eval, click, front, app_pid)
-    widget_rows = [row for row in rows_to_run if row != "select" and row not in suggestions.ROWS]
+    if "context_menu" in rows_to_run:
+        rows["context_menu"] = context_menu_row(rpc, wait, page_eval, right_click, front, app_pid)
+        wait(lambda: page_eval(PROBE_LOADED), 60, 0.5)  # the row reloaded the probe
+    if "download" in rows_to_run:
+        rows["download"] = download_row(rpc, wait, click, front, app_pid)
+    widget_rows = [row for row in rows_to_run if row not in CMUX_ROWS and row not in suggestions.ROWS]
     if widget_rows:
         if host_widgets(rpc) is None:
             reason = "no widget host: host mode is not live in this build (task 080) or chromiumHostWidgets is off"

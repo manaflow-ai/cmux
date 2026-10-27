@@ -1,0 +1,27 @@
+{
+  "id": "vs-browsers",
+  "tier": "T2",
+  "description": "xbench vs-browsers (scripts/perf-bench/xbench.py --perf-lab run): the bench build's Chromium tab against Chrome stable as the reference arm, interleaved and rotated each round on one host from cloned template profiles, local pages only: cold launch to window and to the linked page's paint, new tab paint, tab switch, memory at 1, 10, 20 and back to 1 tab, idle CPU and wakeups at 1 and 20 tabs, and CPU energy (with billed energy and GPU time) idle in view and hidden, scrolling, playing video and switching tabs. Each row is a series per browser (xbench.<browser>.<row>); Chrome's carry its version (xbench.chrome-<version>.<row>), so a Chrome update starts new series instead of a step at a cmux commit. Each cmux row also has its per-round ratio to that Chrome (.vs-chrome-<version>), which a change of the host cancels out of. A run refuses to start when Chrome cannot be fetched.",
+  "command": ["scripts/perf-bench/xbench.py", "--perf-lab", "run", "--browsers", "cmux-chromium,chrome",
+              "--fetch", "chrome"],
+  "session": "light",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {"name": "xbench\\.(cmux-chromium|chrome-[0-9]+(\\.[0-9]+)*)\\.(launch-window|launch-link|newtab-paint|tab-switch)", "unit": "ms",
+     "better": "lower"},
+    {"name": "xbench\\.(cmux-chromium|chrome-[0-9]+(\\.[0-9]+)*)\\.memory-(1|10|20|closed)", "unit": "bytes", "better": "lower"},
+    {"name": "xbench\\.(cmux-chromium|chrome-[0-9]+(\\.[0-9]+)*)\\.idle-cpu-(1|20)", "unit": "percent", "better": "lower"},
+    {"name": "xbench\\.(cmux-chromium|chrome-[0-9]+(\\.[0-9]+)*)\\.idle-wakeups-(1|20)(-pkg-idle)?", "unit": "per_s", "better": "lower"},
+    {"name": "xbench\\.(cmux-chromium|chrome-[0-9]+(\\.[0-9]+)*)\\.power-(idle-hidden|idle-visible|idle-visible-1|scroll|video|switch)(-billed)?",
+     "unit": "mW", "better": "lower"},
+    {"name": "xbench\\.(cmux-chromium|chrome-[0-9]+(\\.[0-9]+)*)\\.power-(idle-hidden|idle-visible|idle-visible-1|scroll|video|switch)-gpu",
+     "unit": "percent", "better": "lower"},
+    {"name": "xbench\\.cmux-chromium\\.[a-z0-9-]+\\.vs-chrome-[0-9]+(\\.[0-9]+)*", "unit": "ratio", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 3000,
+  "needs": [],
+  "owner": "Performance Lead",
+  "component": "Browser>Comparison"
+}
