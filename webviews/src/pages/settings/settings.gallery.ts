@@ -884,7 +884,7 @@ Object.assign(variants, {
     },
     steps: [
       wait('[data-harness-update-card="claude"]'),
-      { selector: '[data-harness-update-command]', action: "focus" },
+      { selector: "[data-harness-update-command]", action: "focus" },
     ],
     note: "An outdated harness whose installer needs admin rights: the card gives the exact manual command and no unsafe one-click action.",
   }),
