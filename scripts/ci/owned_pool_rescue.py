@@ -2394,6 +2394,10 @@ def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
     return ""
 
 
+# Looks nightly_cancel()'s guard makes for a jobs read no rate-limit wait made stale.
+NIGHTLY_GUARD_TRIES = 3
+# A run read slower than this (a token mint, a slow API) leaves the jobs read before it stale too.
+NIGHTLY_GUARD_FRESH_SECONDS = 15
 # rescue()'s answer when a nightly it was about to cancel had a job running: follow() then watches the run again.
 NIGHTLY_BUSY = "not rescued: started nightly work is running"
 
@@ -2412,16 +2416,27 @@ def nightly_cancel(api: GitHub, target: Target, sleep: Callable[[float], None], 
             before_cancel()
         if not target.nightly:
             return
-        run = api.run(target.run_id) or {}
-        attempt = int(run.get("run_attempt") or 0)
-        if attempt != target.attempt:
-            # Someone re-ran it meanwhile: the cancel would hit that newer attempt's running jobs.
-            raise Aborted(f"nightly run {target.run_id} is at attempt {attempt}, not {target.attempt}; not cancelled")
-        if run.get("status") == "completed":
-            raise Aborted(f"nightly run {target.run_id} has finished; nothing to cancel")
-        busy = started_nightly_work(api, target, sleep, log)
-        if busy:
-            raise NightlyBusy(busy)
+        for _ in range(NIGHTLY_GUARD_TRIES):
+            # The jobs first, then the run: a jobs read that waited (a rate limit, a retried error) may return
+            # the old attempt's jobs after someone re-ran the run, and the run read after it shows that attempt.
+            busy = started_nightly_work(api, target, sleep, log)
+            waited, began = getattr(api, "rate_limit_waited", 0.0), time.monotonic()
+            run = api.run(target.run_id) or {}
+            attempt = int(run.get("run_attempt") or 0)
+            if attempt != target.attempt:
+                # Someone re-ran it meanwhile: the cancel would hit that newer attempt's running jobs.
+                raise Aborted(f"nightly run {target.run_id} is at attempt {attempt}, not {target.attempt}; "
+                              "not cancelled")
+            if run.get("status") == "completed":
+                raise Aborted(f"nightly run {target.run_id} has finished; nothing to cancel")
+            if busy:
+                raise NightlyBusy(busy)
+            if getattr(api, "rate_limit_waited", 0.0) == waited and \
+                    time.monotonic() - began < NIGHTLY_GUARD_FRESH_SECONDS:
+                return
+            # The run read itself waited (a rate limit, a token mint): a job may have started since the jobs
+            # read. Look again.
+        raise NightlyBusy(f"slow reads kept the jobs of run {target.run_id} unconfirmed")
     if before_cancel is None and not target.nightly:
         api.cancel(target.run_id)
         return

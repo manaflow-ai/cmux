@@ -2271,7 +2271,7 @@ class Nightly(unittest.TestCase):
 
     def test_a_refused_next_dispatch_moves_its_failed_jobs_to_blacksmith(self):
         clock = Clock()
-        api = NightlyAPI(clock, nightly_run(refused_at=60), finished=lambda s: s >= 200)
+        api = NightlyAPI(clock, nightly_run(refused_at=60, helper_done_at=200), finished=lambda s: s >= 200)
         code, summary = run_main(api, clock, payload=nightly_event(event="workflow_dispatch", head_branch="nightly-next"))
         self.assertEqual(code, 0)
         self.assertNotIn("cancel", api.calls)
@@ -2716,6 +2716,62 @@ class Nightly(unittest.TestCase):
         self.assertNotIsInstance(raised.exception, rescue.NightlyBusy)
         self.assertIn("attempt 2", str(raised.exception))
         self.assertEqual([line for line in sent if line.endswith("/cancel")], [sent[0]])
+
+    def guard_http(self, limited):
+        """A real GitHub over a fake urlopen: `limited` is the request path part ("/jobs" or "/runs/<id>") whose first
+        send gets a 429; during its wait the nightly moves on as `state` says."""
+        import email.message
+        sent, state = [], {"attempt": 1, "running": False, "limited": False}
+
+        class Response(io.BytesIO):
+            headers = {}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def urlopen(request, timeout=None):
+            method, url = request.get_method(), request.full_url
+            sent.append(f"{method} {url}")
+            if not state["limited"] and url.split("?")[0].endswith(limited):
+                state["limited"] = True
+                headers = email.message.Message()
+                headers["Retry-After"] = "1"
+                raise urllib.error.HTTPError(url, 429, "rate limited", headers, io.BytesIO(b"{}"))
+            if url.endswith("/cancel"):
+                return Response(b"{}")
+            if "/jobs" in url:
+                status = "in_progress" if state["running"] else "completed"
+                return Response(json.dumps({"jobs": [job("publish-nightly", status=status)]}).encode())
+            return Response(json.dumps({"run_attempt": state["attempt"], "status": "in_progress"}).encode())
+
+        api = rescue.GitHub("t", "manaflow-ai/cmux")
+        api.read_headers = api.headers  # every read on the token that waits through a rate limit
+        return api, sent, state, unittest.mock.patch("urllib.request.urlopen", urlopen)
+
+    def test_a_rate_limited_jobs_read_never_lets_the_cancel_hit_a_newer_attempt(self):
+        # The jobs GET waits through a 429; meanwhile attempt 1 ends and attempt 2 starts. The retried read still
+        # returns attempt 1's finished jobs, so only the run read after it can tell: no cancel goes out.
+        api, sent, state, patch = self.guard_http("/attempts/1/jobs")
+        api.sleep = lambda seconds: state.update(attempt=2)
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, side=True, nightly=True, path=rescue.NIGHTLY_WORKFLOW_PATH)
+        with patch, self.assertRaises(rescue.Aborted) as raised:
+            rescue.nightly_cancel(api, target, lambda _: None, lambda _: None)
+        self.assertNotIsInstance(raised.exception, rescue.NightlyBusy)
+        self.assertIn("attempt 2", str(raised.exception))
+        self.assertFalse([line for line in sent if line.endswith("/cancel")], sent)
+
+    def test_a_rate_limited_run_read_looks_at_the_jobs_again(self):
+        # The run GET waits through a 429; meanwhile a job of the nightly starts. The guard reads the jobs again.
+        api, sent, state, patch = self.guard_http(f"/runs/{RUN_ID}")
+        api.sleep = lambda seconds: state.update(running=True)
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, side=True, nightly=True, path=rescue.NIGHTLY_WORKFLOW_PATH)
+        with patch, self.assertRaises(rescue.NightlyBusy) as raised:
+            rescue.nightly_cancel(api, target, lambda _: None, lambda _: None)
+        self.assertIn("publish-nightly", str(raised.exception))
+        self.assertFalse([line for line in sent if line.endswith("/cancel")], sent)
 
     def test_a_linux_sibling_blocks_the_look_too(self):
         jobs = nightly_run(helper_done_at=0)(30 * 60) + [
