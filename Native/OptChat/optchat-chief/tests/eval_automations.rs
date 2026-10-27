@@ -1,6 +1,7 @@
 //! Chief fast evals, group `automations` (deterministic, no model call;
-//! plans/cmux-next/chief-automations-DESIGN.md). A recurring or triggered
-//! job, or one that must run while the user's computers sleep, goes to the
+//! plans/cmux-next/chief-automations-DESIGN.md). A recurring job, or one
+//! the Chief's own subagents trigger, is a local `automation`; one that must
+//! run while the user's computers sleep, or that a URL starts, goes to the
 //! Cloud Chief, which makes it with `chief-auto`; sleep() is not a scheduler.
 
 use optchat_chief::prompt::{Tools, chief_system_text};
@@ -18,7 +19,8 @@ fn the_chief_prompt_sends_recurring_and_sleeping_computer_jobs_to_the_cloud_chie
     ] {
         let flat = flat(&text);
         for want in [
-            "- Jobs: a recurring or triggered job",
+            "- Jobs: a recurring job",
+            "is an automation: make it at once with `automation`",
             "while the user's computers sleep",
             "id chief:<name>",
             "`chief-auto`",
