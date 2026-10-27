@@ -1151,6 +1151,39 @@ mod tests {
         assert!(chat.floor.full_access_end_pending.load(Ordering::SeqCst));
     }
 
+    /// Review 6 of #26052: a mode report of an agent MDM's off ended, still queued while eight
+    /// agents after it start and end, is not applied to the ninth: it is not the current agent's.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_report_queued_across_nine_ends_is_not_the_next_agents() {
+        let (hub, chat, _) = two_chats_on(&[], false).await;
+        let first = hub.child_for(&chat).await.expect("an agent");
+        // The first agent's report, queued: it reaches the inbound loop after all the rest.
+        let report = Inbound::Notification {
+            method: crate::rpc::method::SESSION_UPDATE.to_owned(),
+            params: Some(json!({"sessionId": "own",
+                                "update": {"sessionUpdate": "current_mode_update",
+                                           "currentModeId": "full-access"}})),
+            agent: first.generation,
+        };
+        hub.end_managed_full_access(&chat).await;
+        for _ in 0..8 {
+            hub.child_for(&chat).await.expect("an agent");
+            hub.end_managed_full_access(&chat).await;
+        }
+        let last = hub.child_for(&chat).await.expect("an agent");
+        chat.inbound_tx.send(report).await.unwrap();
+        let (done, drained) = tokio::sync::oneshot::channel();
+        chat.inbound_tx.send(Inbound::Barrier(done)).await.unwrap();
+        drained.await.unwrap();
+        assert_ne!(
+            crate::web_modes::mode_of(&chat.meta()).as_deref(),
+            Some("full-access"),
+            "an ended agent's late report set the mode of the agent after it"
+        );
+        let current = chat.child.lock().await.clone().expect("the last agent");
+        assert_eq!(current.generation, last.generation);
+    }
+
     /// Review 2 of #26034: under MDM's off, an agent whose end is pending is not handed out by
     /// `child_for`'s fast path, though what it reports no longer says full access: the start
     /// ends it first.
