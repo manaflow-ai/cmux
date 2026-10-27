@@ -50,19 +50,20 @@ struct ResourceStreamLifecycleTests {
         let bridge = DaemonBridge(executable: "/usr/bin/python3", arguments: ["-u", "-c", Self.script])
         let connection = DaemonConnection(
             endpoint: .init(socketPath: "/tmp/cmux-stream-cleanup-\(UUID().uuidString).sock", bridge: bridge),
-            configuration: .init(requiredCapabilities: [], requestTimeout: .seconds(1), spawnTimeout: .seconds(5),
+            configuration: .init(requiredCapabilities: [], requestTimeout: cancelTask ? nil : .seconds(1), spawnTimeout: .seconds(5),
                                  terminalEnvironment: nil))
         try await connection.start()
         let opening = Task { try await connection.resourceStream(operation: "tailnet.state", params: [:], as: JSONValue.self) }
         _ = try await connection.request(Opened())
         if cancelTask { opening.cancel() }
+        // No open-request timeout in the cancellation case: only actual task cancellation can
+        // clean up. This independent bounded probe also releases the fixture if cleanup breaks.
+        let recorded = try? await connection.request(Cancelled(), timeout: .seconds(3))
+        await connection.close()
         do {
             _ = try await opening.value
             Issue.record("the withheld opening reply must not succeed")
         } catch {}
-        // The fake holds this probe until cancel arrives; the request deadline bounds a broken cleanup.
-        let recorded = try? await connection.request(Cancelled())
-        await connection.close()
         let result = try #require(recorded, "the accepted stream must be cancelled before connection closure")
         #expect(result["stream"]?.stringValue != nil)
         #expect(result["stream"]?.stringValue == result["cancelled"]?.stringValue)
