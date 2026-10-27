@@ -2040,6 +2040,207 @@ async fn a_full_access_stop_is_bounded_when_the_host_never_takes_the_terminate()
     );
 }
 
+/// MDM's off as a push recorded it in start-mode.json, for the next daemon to load.
+fn record_mdm_off(daemon: &Daemon) {
+    let state = daemon.home.join("start-mode.json");
+    let mut recorded: Value = std::fs::read(&state)
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_else(|| json!({}));
+    recorded["fullAccessManaged"] = json!(false);
+    std::fs::write(&state, recorded.to_string()).unwrap();
+}
+
+/// The settings push that turns full access off as MDM forces it.
+fn mdm_off_push() -> Value {
+    json!({"enabled": true, "discovery": false, "roots": [], "managedRoots": [],
+           "allowFullAccess": false, "allowFullAccessManaged": true})
+}
+
+/// A daemon whose profile pins full access (`--yolo`), with `env`, and one chat that ran a turn
+/// on it, stopped with its host left running: the daemon, the chat and its host record.
+async fn left_pinned(tag: &str, env: &[(&str, &str)]) -> (Daemon, String, Value) {
+    let mut daemon = Daemon::with_env(tag, "ask", env);
+    daemon.sigterm();
+    let config = json!({"harnesses": {"fake": {"argv": ["python3", FAKE, "--yolo"]}},
+                        "defaultHarness": "fake", "permissionPolicy": "ask"});
+    std::fs::write(daemon.home.join("config.json"), config.to_string()).unwrap();
+    daemon.start();
+    let session = new_session(&daemon).await;
+    let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
+    let mut rpc = daemon.rpc().await;
+    rpc.call("session/prompt", prompt).await;
+    let host = daemon.host_record(&session);
+    daemon.sigterm();
+    drop(rpc);
+    assert!(alive(host["harness_pid"].as_i64().unwrap()), "SIGTERM ended the agent");
+    (daemon, session, host)
+}
+
+/// #23322 (claude-sr2: "an MDM-managed value is an upper bound the user can't override"): a host
+/// a restart left running in full access (its profile pins `--yolo`) is not reached again when the
+/// next daemon starts with MDM forcing `sessions.allowFullAccess` off (start-mode.json, as a push
+/// recorded it): its agent ends and the chat is refused.
+#[tokio::test]
+async fn a_retained_full_access_host_ends_once_mdm_turns_full_access_off() {
+    let (mut daemon, session, host) = left_pinned("mdmoff", &[]).await;
+    let harness_pid = host["harness_pid"].as_i64().unwrap();
+    record_mdm_off(&daemon);
+    daemon.start();
+    // Ended at start, before any prompt: startup adoption never resumes it.
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "the next daemon adopted the full-access agent under the managed off"
+    );
+    let mut rpc = daemon.rpc().await;
+    let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
+    let r = rpc.reply("session/prompt", prompt).await;
+    assert_eq!(r["error"]["data"]["reason"], "full_access_off", "{r}");
+}
+
+/// #23322 review: the same, for a host whose record this build cannot read (another record
+/// version): it is not adopted, and under the managed off it ends too (its nonce proves it).
+#[tokio::test]
+async fn an_unadoptable_full_access_host_ends_once_mdm_turns_full_access_off() {
+    let (mut daemon, session, host) = left_pinned("mdmoffbad", &[]).await;
+    let record = daemon.home.join("hosts").join(format!("{session}.json"));
+    let mut unreadable: Value = serde_json::from_slice(&std::fs::read(&record).unwrap()).unwrap();
+    unreadable["record_version"] = json!(99);
+    std::fs::write(&record, unreadable.to_string()).unwrap();
+    record_mdm_off(&daemon);
+    daemon.start();
+    assert!(
+        gone_within(host["harness_pid"].as_i64().unwrap(), Duration::from_secs(10)),
+        "the unadoptable full-access agent ran on under the managed off"
+    );
+}
+
+/// Review 44 of #23322: the argv a start runs is on disk before its agent starts. A chat whose
+/// agent ended starts again, for a model pick, on a profile a config reload pinned to `--yolo`;
+/// the daemon dies while that agent initializes. Under MDM's off the next daemon ends that host
+/// instead of adopting it on the argv the chat was created with. A cold start's folder check
+/// (`revive_folder`) saves the chat too, but only when its git read answers within 2 s.
+#[tokio::test]
+async fn a_host_a_daemon_left_while_it_started_ends_under_mdm_off_by_the_argv_it_ran() {
+    let mut daemon = Daemon::new("mdmspawn", "ask");
+    let session = new_session(&daemon).await;
+    let first = daemon.host_record(&session);
+    let mut rpc = daemon.rpc().await;
+    // The profile is pinned to full access now; its agent takes 4 s to initialize.
+    let pinned =
+        json!({"argv": ["python3", FAKE, "--yolo"], "env": {"FAKE_INIT_DELAY_MS": "4000"}});
+    let config =
+        json!({"harnesses": {"fake": pinned}, "defaultHarness": "fake", "permissionPolicy": "ask"});
+    std::fs::write(daemon.home.join("config.json"), config.to_string()).unwrap();
+    rpc.call("_acpmux/reload_config", json!({})).await;
+    // The first agent ends on its own, under a live daemon.
+    for pid in [first["harness_pid"].as_i64(), first["host_pid"].as_i64()].into_iter().flatten() {
+        // SAFETY: process groups this test's daemon created (its host record).
+        unsafe { libc::killpg(pid as i32, libc::SIGKILL) };
+        assert!(gone_within(pid, Duration::from_secs(10)), "the first agent did not end");
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    // A start no prompt asks for (a model pick), so no turn bookkeeping saves the chat first.
+    rpc.send("session/set_model", json!({"sessionId": session, "modelId": "m2"})).await;
+    // The new host runs; the daemon dies before the agent answers initialize.
+    let record = daemon.home.join("hosts").join(format!("{session}.json"));
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let started = loop {
+        let host: Option<Value> =
+            std::fs::read(&record).ok().and_then(|b| serde_json::from_slice(&b).ok());
+        // The second agent's record: the first one's may still be on disk.
+        if let Some(host) =
+            host.filter(|h| h["harness_pid"].is_i64() && h["harness_pid"] != first["harness_pid"])
+        {
+            break host;
+        }
+        assert!(Instant::now() < deadline, "the second agent never started");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    let harness_pid = started["harness_pid"].as_i64().unwrap();
+    daemon.sigkill();
+    drop(rpc);
+    assert!(alive(harness_pid), "the daemon's death ended the agent");
+    // What the next daemon reads: the argv that agent runs.
+    let saved = daemon.home.join("sessions").join(&session).join("session.json");
+    let meta: Value = serde_json::from_slice(&std::fs::read(&saved).unwrap()).unwrap();
+    assert!(
+        meta["spawnArgv"].as_array().is_some_and(|a| a.iter().any(|v| v == "--yolo")),
+        "the argv the agent runs was not saved before it started: {}",
+        meta["spawnArgv"]
+    );
+
+    record_mdm_off(&daemon);
+    daemon.start();
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "the next daemon adopted the --yolo agent on the argv its chat was created with"
+    );
+}
+
+/// Review 51 of #23322: a host a restart left in full access whose end by its nonce fails (the
+/// debug seam `ACPMUX_TEST_HOST_END_FAILS`) is never reached again under MDM's off. What says it
+/// runs in full access stays, and each prompt is refused while that host may still run.
+#[tokio::test]
+async fn a_full_access_host_whose_end_failed_is_never_reached_under_mdm_off() {
+    let env = [("ACPMUX_TEST_HOST_END_FAILS", "1")];
+    let (mut daemon, session, host) = left_pinned("mdmendfail", &env).await;
+    record_mdm_off(&daemon);
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
+    for attempt in 0..2 {
+        let r = rpc.reply("session/prompt", prompt.clone()).await;
+        assert_eq!(
+            r["error"]["data"]["reason"], "full_access_off",
+            "attempt {attempt}: a full-access agent whose end failed was reached again: {r}"
+        );
+    }
+    assert!(alive(host["harness_pid"].as_i64().unwrap()), "the seam did not keep the host running");
+    for pid in [host["harness_pid"].as_i64(), host["host_pid"].as_i64()].into_iter().flatten() {
+        // SAFETY: process groups this test's daemon created (its host record).
+        unsafe { libc::killpg(pid as i32, libc::SIGKILL) };
+    }
+}
+
+/// Review 66 of #23322: an end that cannot read the host records (the debug seam
+/// `ACPMUX_TEST_HOST_RECORDS_FAIL_FILE`) has not proven the host gone, so what says it runs in
+/// full access stays and the next off push ends it. The harness moved its mode option to full
+/// access, which an end that counts as done scrubs.
+#[tokio::test]
+async fn an_end_that_could_not_read_the_host_records_is_tried_again() {
+    let flag = std::env::temp_dir().join(format!("amd-recfail-{}", std::process::id()));
+    let flag_env = flag.to_string_lossy().into_owned();
+    let env = [
+        ("ACPMUX_TEST_STALL_HOST_TERMINATE", "1"),
+        ("ACPMUX_TEST_HOST_RECORDS_FAIL_FILE", flag_env.as_str()),
+    ];
+    let mut daemon = Daemon::with_env("mdmrecfail", "ask", &env);
+    daemon.sigterm();
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_MODE_OPTION": "1"}});
+    let config =
+        json!({"harnesses": {"fake": fake}, "defaultHarness": "fake", "permissionPolicy": "ask"});
+    std::fs::write(daemon.home.join("config.json"), config.to_string()).unwrap();
+    daemon.start();
+    let session = new_session(&daemon).await;
+    let mut rpc = daemon.rpc().await;
+    let moved = json!({"sessionId": session,
+                       "prompt": [{"type": "text", "text": "set-mode-option: full-access"}]});
+    rpc.call("session/prompt", moved).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    std::fs::write(&flag, "").unwrap();
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    std::fs::remove_file(&flag).unwrap();
+    assert!(alive(harness_pid), "the seams did not keep the first end from working");
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "an end that could not read the host records counted the host as gone"
+    );
+}
+
 /// #24337 review: a prompt the next daemon adopts carries acpmux's own display line, worked out
 /// again, never one its log held (an older daemon's record, or a line the agent forged).
 #[tokio::test]
