@@ -148,6 +148,11 @@ public final class TerminalSession {
     private(set) var surfaceHasContent = false
     /// How many times content reached a live surface: the launch's output count (`VisiblePaneRefs.PaneState.shown`).
     public private(set) var contentCount: UInt64 = 0
+    /// The frame the current surface showed when its first content was queued; nil until then.
+    private(set) var firstContentFrame: TerminalContentFrame?
+    /// A ``whenContentFrameDrawn(_:)`` wait saw the current surface present a frame drawn after its first content:
+    /// the snapshot shows (the launch's loaded-idle starts its quiet period there, p08-startup task 105).
+    public internal(set) var contentFrameDrawn = false
     let frameHold = TerminalFrameHold()
     /// READY snapshots restored in place, and surfaces swapped in for a later VT replay (diagnostics: a snapshot attach never swaps).
     private(set) var restoredSnapshots = 0
@@ -372,6 +377,7 @@ public final class TerminalSession {
         #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.contentOnMain(session: ObjectIdentifier(self)) }
         #endif
+        if !surfaceHasContent { firstContentFrame = TerminalContentFrame(surfaceView.presentedFrame) }
         surfaceHasContent = true
         contentCount &+= 1
         frameHold.contentQueued()
@@ -424,6 +430,7 @@ public final class TerminalSession {
         }
         if wasFirstResponder { fresh.window?.makeFirstResponder(fresh) }
         surfaceHasContent = false
+        (firstContentFrame, contentFrameDrawn) = (nil, false)
         // The fresh surface has no search; an open find bar searches it again.
         find.surfaceReplaced()
     }

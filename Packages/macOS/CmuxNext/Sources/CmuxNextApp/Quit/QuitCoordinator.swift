@@ -29,9 +29,8 @@ final class QuitCoordinator {
     private(set) var failureAlert: QuitFailureAlert?
     /// A quit is in progress (deciding, asking or completing).
     private(set) var isQuitting = false
-    /// While a quit decides during the launch, startup does not complete (p08-startup task 105): a decided
-    /// quit ends the launch's scheduler (`beginQuit`), a cancelled one releases this.
-    private var launchHold: StartupInProgressRef?
+    /// While a quit decides during the launch, startup does not complete (p08-startup task 105).
+    let launchHold: QuitLaunchHold
     /// The last dialog brought the app forward (`debug.quit`).
     private(set) var lastAskActivated = false
     /// The browser tabs that held Secure Input as this quit began, before any dialog took the keyboard: they leave
@@ -55,6 +54,7 @@ final class QuitCoordinator {
     init(services: AppServices) {
         self.services = services
         unsaved = services.quitUnsaved
+        launchHold = QuitLaunchHold(startup: services.launchStartup)
         origins = QuitOriginTracker(workspaceEvents: services.workspaceEvents)
     }
 
@@ -91,7 +91,7 @@ final class QuitCoordinator {
             return .terminateLater
         }
         isQuitting = true
-        launchHold = services.launchStartup?.hold("Quit.deciding")
+        launchHold.deciding()
         secureInputPages = services.cache.secureInputPages()
         // Quit (menu, Cmd-Q, socket) never waits on another open sheet.
         SheetDismissal.endAll()
@@ -164,17 +164,15 @@ final class QuitCoordinator {
     /// held completes again.
     private func cancelQuit(_ sender: NSApplication) {
         isQuitting = false
-        launchHold?.release(.quitCancelled)
-        launchHold = nil
+        launchHold.cancelled()
         sender.reply(toApplicationShouldTerminate: false)
     }
 
     private func complete(_ choice: QuitSessionsChoice, remember: Bool, _ sender: NSApplication) async {
         logger.info("quit choice=\(choice.rawValue, privacy: .public) remember=\(remember)")
         let services = services, secureInputPages = secureInputPages
-        // The quit is decided: no launch task held for after startup runs now (Chrome drops after-startup tasks at shutdown).
-        services.launchStartup?.beginQuit()
-        launchHold = nil
+        // The quit is decided: no launch task held for after startup runs now.
+        launchHold.decided()
         // Sparkle installs a staged update as the app exits unless
         // `updates.installOnQuit` is off (then its installer is cancelled now).
         services.updater.prepareForQuit()

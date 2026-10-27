@@ -47,6 +47,7 @@ package final class PageCrashRecovery {
             reload(page)
         } else {
             page.loadState.set(loading: false, page: page) // no load follows now
+            page.runLoadEndWaiters()
             if !reloading { Self.logStop(page) }
         }
         page.onCrash?(page, reloading)

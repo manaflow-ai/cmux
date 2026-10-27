@@ -130,6 +130,25 @@ extension PageWebView {
         let waiters = loadWaiters
         loadWaiters.removeAll()
         for waiter in waiters { waiter.resume(returning: ()) }
+        runLoadEndWaiters()
+    }
+
+    /// Whether the current document's load ended (finished or failed, or the page is discarded) and no claim of it
+    /// waits for its acknowledgement: what the launch's visible pane refs read as a page's loaded-idle
+    /// (p08-startup task 105), as Chrome's `PageNode::LoadingState` leaves loading at the load's end, not at first paint.
+    public var hasEndedLoad: Bool { !loadState.isLoading && !claimState.pending }
+
+    /// Runs `body` once the current document's load ended (``hasEndedLoad``): now if it has.
+    public func whenLoadEnded(_ body: @escaping () -> Void) {
+        if hasEndedLoad { body() } else { loadEndWaiters.append(body) }
+    }
+
+    /// Runs the ``whenLoadEnded(_:)`` callbacks once the load ended; a load still going (a claim's reload) keeps them.
+    func runLoadEndWaiters() {
+        guard hasEndedLoad, !loadEndWaiters.isEmpty else { return }
+        let waiters = loadEndWaiters
+        loadEndWaiters = []
+        for waiter in waiters { waiter() }
     }
 
     // crash-allow: WebKit delegate signature uses nullable navigation handles.

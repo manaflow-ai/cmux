@@ -134,8 +134,8 @@ final class LaunchSettle {
     }
 
     /// A terminal was handed content: the visible pane refs read the panes again while they hold
-    /// startup (a terminal pane is loaded-idle once it shows content and then gets none for
-    /// `VisiblePaneRefs.quietPeriod`, p08-startup task 105); the first one also settles the launch once
+    /// startup (a terminal pane is loaded-idle once the first frame after its content drew and then it
+    /// gets none for `VisiblePaneRefs.quietPeriod`, p08-startup task 105); the first one also settles the launch once
     /// the frame showing it is committed. The hook stays installed while the refs hold startup, and goes
     /// at the first content after.
     func terminalContentApplied() {

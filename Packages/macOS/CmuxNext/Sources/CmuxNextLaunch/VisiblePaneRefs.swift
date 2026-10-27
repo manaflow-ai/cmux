@@ -64,6 +64,20 @@ public final class VisiblePaneRefs {
         case shown(output: UInt64)
         /// Its content shows and nothing more is coming at launch (a page's load finished).
         case loadedIdle
+
+        /// A live terminal: loading until the first frame drawn after its first content (the daemon's snapshot,
+        /// a replay or output) presented, then shown with its output count, so its quiet period starts at that
+        /// frame (p08-startup.md: "terminal: first frame after the snapshot plus 100 ms with no output").
+        public static func terminal(hasContent: Bool, contentFrameDrawn: Bool, output: UInt64) -> Self {
+            hasContent && contentFrameDrawn ? .shown(output: output) : .loading
+        }
+
+        /// A page document (an agent pane, an internal page): loaded-idle once its load ended (finished or failed,
+        /// Chrome's `PageNode::LoadingState::kLoadedIdle` follows the load, not the first paint) and it painted,
+        /// so the pane shows the loaded document and not the one it kept.
+        public static func page(loadEnded: Bool, painted: Bool) -> Self {
+            loadEnded && painted ? .loadedIdle : .loading
+        }
     }
 
     /// One visible pane, by its pane key.
@@ -136,6 +150,8 @@ public final class VisiblePaneRefs {
     private var taken: Set<String> = []
     /// The objects whose one-shot content signal already calls ``noteChange()`` (``follow(_:signal:)``).
     private var followed: Set<ObjectIdentifier> = []
+    /// What cancels each wait ``follow(_:cancellable:)`` started, run once no ref is held.
+    private var followCancels: [@MainActor () -> Void] = []
     /// The windows' notifications that call ``noteChange()`` (``followWindows(_:)``), cancelled once no ref is held.
     var windowEvents: [EventSubscription] = []
     private var paneWatch: Task<Void, Never>?
@@ -225,6 +241,14 @@ public final class VisiblePaneRefs {
     public func follow(_ object: AnyObject, signal: (@escaping () -> Void) -> Void) {
         guard windows != nil, followed.insert(ObjectIdentifier(object)).inserted else { return }
         signal { [weak self] in self?.noteChange() }
+    }
+
+    /// As ``follow(_:signal:)``, for a signal whose wait runs until it is cancelled (a terminal's content frame,
+    /// which reads each display frame while it waits): `signal` returns what cancels it, and it is cancelled once
+    /// no ref is held.
+    public func follow(_ object: AnyObject, cancellable signal: (@escaping @MainActor () -> Void) -> @MainActor () -> Void) {
+        guard windows != nil, followed.insert(ObjectIdentifier(object)).inserted else { return }
+        followCancels.append(signal { [weak self] in self?.noteChange() })
     }
 
     /// Watches the daemon until it is unavailable or no ref is held: then no pane can load, and every
@@ -367,6 +391,9 @@ public final class VisiblePaneRefs {
         unavailableWatch = nil
         windows = nil
         followed = []
+        let cancels = followCancels
+        followCancels = []
+        for cancel in cancels { cancel() }
         for subscription in windowEvents { subscription.cancel() }
         windowEvents = []
     }

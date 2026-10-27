@@ -278,6 +278,56 @@ import Testing
         #expect(f.recorder.releases == [["restoreFinished"], ["visiblePaneTimedOut"]])
     }
 
+    /// A terminal whose content is queued but whose first frame after it has not drawn is still loading: it keeps its
+    /// ref past the quiet period, and its quiet period starts only at that frame (the followed frame wait reads the
+    /// panes again). p08-startup.md: "terminal: first frame after the snapshot plus 100 ms with no output".
+    @Test func aTerminalWhoseContentFrameHasNotDrawnKeepsItsRefPastTheQuietPeriod() async throws {
+        let f = PaneRefsFixture()
+        let terminal = TerminalFrame()
+        terminal.queueContent()
+        f.refs.restoreFinished { [refs = f.refs, terminal] in terminal.windows(following: refs) }
+        #expect(f.recorder.releases == [["restoreFinished"], []])
+        #expect(terminal.waits == 1)
+        #expect(f.quietClock.sleeperCount == 0, "no quiet period before the frame draws")
+        f.quietClock.advance(by: VisiblePaneRefs.quietPeriod * 3)
+        terminal.queueContent()
+        f.refs.noteChange()
+        for _ in 0..<10 { await Task.yield() }
+        #expect(f.refs.pendingPanes == ["t"], "content queued is not loaded-idle while its frame has not drawn")
+        #expect(terminal.waits == 1, "the frame wait is followed once, however often the pane is read")
+        #expect(f.quietClock.sleeperCount == 0)
+        terminal.draw()
+        try await f.quietClock.waitForSleeper()
+        f.quietClock.advance(by: VisiblePaneRefs.quietPeriod - .milliseconds(1))
+        #expect(f.refs.pendingPanes == ["t"], "the quiet period starts at the frame")
+        f.quietClock.advance(by: .milliseconds(1))
+        await f.recorder.released(count: 2)
+        #expect(f.recorder.releases == [["restoreFinished"], ["visiblePaneLoadedIdle"]])
+    }
+
+    /// A frame wait that never ends (the terminal never draws) is cancelled when the last pane ref ends, here at the
+    /// bound: nothing reads frames after startup.
+    @Test func aFrameWaitStillRunningIsCancelledWithTheLastPaneRef() async throws {
+        let f = PaneRefsFixture()
+        let terminal = TerminalFrame()
+        terminal.queueContent()
+        f.refs.restoreFinished { [refs = f.refs, terminal] in terminal.windows(following: refs) }
+        #expect(terminal.waits == 1)
+        #expect(terminal.cancels == 0)
+        try await f.clock.waitForSleeper()
+        f.clock.advance(by: VisiblePaneRefs.paneBound)
+        await f.recorder.released(count: 2)
+        #expect(f.recorder.releases == [["restoreFinished"], ["visiblePaneTimedOut"]])
+        #expect(terminal.cancels == 1)
+    }
+
+    /// An agent pane or page tab that painted is loaded-idle only once its document's load ended.
+    @Test func aPagePaintedBeforeItsLoadEndedIsLoading() {
+        #expect(VisiblePaneRefs.PaneState.page(loadEnded: false, painted: true) == .loading)
+        #expect(VisiblePaneRefs.PaneState.page(loadEnded: true, painted: false) == .loading)
+        #expect(VisiblePaneRefs.PaneState.page(loadEnded: true, painted: true) == .loadedIdle)
+    }
+
     /// Every visible pane hides (the window minimized): the panes keep their refs and the bound starts
     /// again; at its end with nothing visible they release as not visible.
     @Test func theBoundStartsAgainWhenEveryVisiblePaneHides() async throws {
@@ -524,6 +574,46 @@ private final class TerminalContent {
 @MainActor
 private final class TerminalOutput {
     var count: UInt64 = 0
+}
+
+/// A live terminal as the app reads it (`TerminalSession`): content queued, the first frame after it drawn
+/// (`whenContentFrameDrawn`, a wait that runs until cancelled) and the output count, none observable.
+@MainActor
+private final class TerminalFrame {
+    private(set) var hasContent = false
+    private(set) var drawn = false
+    private(set) var output: UInt64 = 0
+    private(set) var waits = 0
+    private(set) var cancels = 0
+    private var waiter: (@MainActor () -> Void)?
+
+    func queueContent() {
+        hasContent = true
+        output += 1
+    }
+
+    func draw() {
+        drawn = true
+        let ready = waiter
+        waiter = nil
+        ready?()
+    }
+
+    func whenContentFrameDrawn(_ body: @escaping @MainActor () -> Void) -> @MainActor () -> Void {
+        waits += 1
+        waiter = body
+        return { [weak self] in
+            self?.cancels += 1
+            self?.waiter = nil
+        }
+    }
+
+    /// The launch's one window with this terminal's pane, following its frame wait as the app does.
+    func windows(following refs: VisiblePaneRefs) -> [Window] {
+        if hasContent, !drawn { refs.follow(self, cancellable: { self.whenContentFrameDrawn($0) }) }
+        let state = VisiblePaneRefs.PaneState.terminal(hasContent: hasContent, contentFrameDrawn: drawn, output: output)
+        return [Window(id: "w", content: .workspace(onScreen: [Pane(key: "t", state: state)], layoutPanes: 1))]
+    }
 }
 
 /// A one-shot paint signal, as `PageWebView.whenPainted` gives.

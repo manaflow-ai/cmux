@@ -103,33 +103,47 @@ extension VisiblePaneRefs {
         return .workspace(onScreen: onScreen.map { Pane(key: $0.paneKey, state: state(of: $0)) }, layoutPanes: content.modelPanes.count)
     }
 
-    /// A pane's loaded-idle signal (p08-startup task 105): a terminal shows its content (its frame draws within two
-    /// display ticks, inside the quiet period) and then gets no output for `VisiblePaneRefs.quietPeriod`; a page's
-    /// load ended; an agent or page tab painted. A
-    /// placeholder, a notice and a conversation are native views with nothing left to load: they show
-    /// whole when selected.
+    /// A pane's loaded-idle signal (p08-startup task 105): a terminal shows the first frame drawn after its first
+    /// content (``PaneState/terminal(hasContent:contentFrameDrawn:output:)``) and then gets no output for
+    /// `VisiblePaneRefs.quietPeriod`; a browser page's load ended; an agent pane's or page tab's document load ended
+    /// and it painted (``PaneState/page(loadEnded:painted:)``). A placeholder, a notice and a conversation are native
+    /// views with nothing left to load: they show whole when selected.
     func state(of pane: PaneController) -> PaneState {
         guard pane.stripModel.selectedID != nil else { return .loadedIdle }
-        let loaded: Bool
         switch pane.currentContent {
-        case nil: loaded = false
+        case nil:
+            return .loading
         case .terminal(let entry)?:
             guard pane.showsLiveTerminal else { return .loadedIdle }
-            return entry.session.hasContent ? .shown(output: entry.session.contentCount) : .loading
-        case .browser(let entry)?: loaded = entry.tab is DeferredBrowserTab || entry.tab is HibernatedBrowserTab || entry.tab.state.launchLoadEnded
-        case .agent(let view)?: loaded = view.model.hasPainted
-        case .page(let view)?: loaded = state(of: view) == .loadedIdle
-        case .placeholder?, .notice?, .conversation?: loaded = true
+            let session = entry.session
+            if session.hasContent, !session.contentFrameDrawn {
+                // The frame wait reads each display frame: it is cancelled once no pane ref is held.
+                follow(session.surfaceView, cancellable: { session.whenContentFrameDrawn($0) })
+            }
+            return .terminal(hasContent: session.hasContent, contentFrameDrawn: session.contentFrameDrawn, output: session.contentCount)
+        case .browser(let entry)?:
+            let tab = entry.tab
+            return tab is DeferredBrowserTab || tab is HibernatedBrowserTab || tab.state.launchLoadEnded ? .loadedIdle : .loading
+        case .agent(let view)?:
+            // Its paint is observable (`AgentPaneModel`); its page's load end is not.
+            let page = view.page
+            if !page.hasEndedLoad { follow(page) { page.whenLoadEnded($0) } }
+            return .page(loadEnded: page.hasEndedLoad, painted: view.model.hasPainted)
+        case .page(let view)?:
+            return state(of: view)
+        case .placeholder?, .notice?, .conversation?:
+            return .loadedIdle
         }
-        return loaded ? .loadedIdle : .loading
     }
 
-    /// A page tab or a top page: loaded once its document painted (``PageWebView/hasPainted``), as its
-    /// pane's paint hold waits for; the paint reads the panes again. Native content shows whole at once.
+    /// A page tab or a top page: loaded-idle once its document's load ended and it painted
+    /// (``PageWebView/hasEndedLoad``, ``PageWebView/hasPainted``); either signal reads the panes again. Native
+    /// content shows whole at once.
     func state(of page: InternalPageView) -> PaneState {
-        guard let web = page.content as? PageWebView, !web.hasPainted else { return .loadedIdle }
-        follow(web) { web.whenPainted($0) }
-        return .loading
+        guard let web = page.content as? PageWebView else { return .loadedIdle }
+        let state = PaneState.page(loadEnded: web.hasEndedLoad, painted: web.hasPainted)
+        if state != .loadedIdle { follow(web) { done in web.whenPainted { web.whenLoadEnded(done) } } }
+        return state
     }
 }
 

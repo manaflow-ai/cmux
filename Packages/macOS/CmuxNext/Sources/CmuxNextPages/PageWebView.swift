@@ -514,6 +514,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public var hasPainted: Bool { paintedUptime != nil }
     /// Callbacks for the current document's first frame (`whenPainted`).
     var paintWaiters: [() -> Void] = []
+    /// Callbacks for the current document's load end (`whenLoadEnded`).
+    var loadEndWaiters: [() -> Void] = []
     /// The cold open's stand-in, over the page until its first frame (``showStandIn(title:)``).
     var standIn: PageStandInLayer?
     /// A ``SignpostName/webuiOpen`` slice is open until the document's first paint (`traceOpenEnd`).
