@@ -4,7 +4,7 @@ public import CmuxNextSettings
 /// `trace.blackbox` (plans/cmux-next/chrome-parity/p09-observability.md task 125), which `cmux trace blackbox`
 /// exports to Perfetto:
 ///
-/// - `{now: true}` (or no parameter): every live process's black box copied now into `blackbox-now`
+/// - `{now: true}` (or no parameter): every live process's black box copied now into a new folder of `blackbox-now`
 ///   (``LastHangBundles/captureNow(_:)``), on BackgroundWork `.files`.
 /// - `{last_hang: N}`: the bundle copied at the N-th newest hang (1 to ``LastHangBundles/kept``), with the cause
 ///   its manifest names.

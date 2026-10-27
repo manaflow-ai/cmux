@@ -25,7 +25,8 @@ public protocol LastHangHost: AnyObject {
 
 extension LastHangHost {
     /// New bundles in the black box's folder; nil with no black box. The watchdog's triggers and `trace.blackbox`
-    /// each make their own: only the triggers' copy has a rate limit to share.
+    /// each make their own: only the triggers' copy has a rate limit to share, and every copy builds in a folder of
+    /// its own (``LastHangBundles``), so the two instances' copies may run at once.
     public func makeLastHangBundles() -> LastHangBundles? {
         guard let blackBox = lastHangBlackBox else { return nil }
         let roots = lastHangRoots

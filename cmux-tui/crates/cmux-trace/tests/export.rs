@@ -1283,3 +1283,32 @@ fn trace_processor_shows_the_hung_lane() {
         "each hang on the hung thread"
     );
 }
+
+/// A main-thread hang (task 125): the watchdog thread writes `hang.thread_hung` with the main
+/// thread's tid when the hang crosses its threshold, and the main thread writes another when the
+/// stall ends (1 s and up), each with how long the main thread has been busy in ms. Both land on
+/// the `hang` track under the main thread, the second from where the first ended.
+#[test]
+fn export_a_main_thread_hang_shows_on_the_main_threads_lane() {
+    let tracer = tracer(Role::App, 5556);
+    let mut main = Writer::new(&tracer, ThreadIdentity::new(259, 0x21, "main"));
+    let mut watchdog = Writer::new(&tracer, ThreadIdentity::new(707, 0x21, "cmux-watchdog"));
+    main.write(record(100_000_000, "action.perform", Phase::Instant, 0, 1, 0));
+    watchdog.write(record(2_100_000_000, "hang.thread_hung", Phase::Instant, 0, 259, 2_000));
+    main.write(record(3_100_000_000, "hang.thread_hung", Phase::Instant, 0, 259, 3_000));
+    drop(main);
+    drop(watchdog);
+    let ring = decode(&tracer.snapshot_active()).expect("the ring decodes");
+    let (trace, stats) = export_rings(&[RingInput { ring: &ring, machine: Machine::Local }], &[]);
+    let parsed = parse(&trace);
+    assert_eq!(stats.hung_lanes, 2);
+    assert_eq!(stats.unmatched_ends, 0);
+    assert_eq!(
+        hung_slices(&parsed, 259),
+        [
+            (100_000_000, 2_100_000_000, "uint 259".into(), "uint 2000".into()),
+            (2_100_000_000, 3_100_000_000, "uint 259".into(), "uint 3000".into()),
+        ],
+        "the hang from its start to the watchdog's record, then on to the stall's end"
+    );
+}

@@ -20,7 +20,7 @@ mod arg {
         [(ARG0, "arg0"), (ARG1, "arg1"), (ESTIMATED, "estimated"), (ID, "id")];
 }
 
-/// The watchdog's dump of a watched thread's hang ([`RingExport::hung_lane`]).
+/// A watched thread's or the main thread's hang ([`RingExport::hung_lane`]).
 const HANG_THREAD_HUNG: &str = "hang.thread_hung";
 
 /// A record's debug annotations: up to two numbers and the estimate flag. No allocation.
@@ -182,9 +182,10 @@ impl<'a> RingExport<'a> {
         builder.tracks.insert(uuid_of(&parts), || Track { parent: Some(process), kind })
     }
 
-    /// A watched thread's hang dump (`hang.thread_hung`, task 068) names the hung thread by its tid
-    /// (arg0) and says how far past its budget it ran, in ms (arg1); the record itself is on the
-    /// watchdog thread that wrote it. This adds the hang as a slice from the budget's end to the
+    /// A watched thread's hang dump (`hang.thread_hung`, task 068) or a main-thread hang (task 125)
+    /// names the hung thread by its tid (arg0) and says how far past its budget it ran, in ms (arg1;
+    /// the main thread's: how long it has been busy); the record itself is on the thread that wrote
+    /// it. This adds the hang as a slice from the budget's end to the
     /// dump on a `hang` track under the hung thread's own track, so the trace shows which lane
     /// hung and for how long, as Chrome's `HangWatcher` names the hung thread rather than its
     /// watcher (base/threading/hang_watcher.cc, `HangWatcher::RecordHang`). The hung thread may

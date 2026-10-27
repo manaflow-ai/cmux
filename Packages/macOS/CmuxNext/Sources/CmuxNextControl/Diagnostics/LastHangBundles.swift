@@ -15,7 +15,9 @@ import Foundation
 /// its children share, the terminal hosts' and each holder's) with the decode protocol
 /// (``TraceRingFile/snapshot(atPath:)``), writes them with the `manifest.json` of a `cmux trace record` bundle
 /// into a hidden folder, and renames it to `last-hang/1` after moving `1`...`4` one up and deleting `5`: at most
-/// ``kept`` bundles, the newest first. ``captureNow(_:)`` makes the same bundle in `blackbox-now` on request.
+/// ``kept`` bundles, the newest first. ``captureNow(_:)`` makes the same bundle on request, each in its own folder
+/// of `blackbox-now` (the newest ``nowKept`` stay). Every copy builds in its own hidden folder (pid and UUID), so
+/// copies of two instances, or a hang's and a request's, never share one.
 ///
 /// Chrome keeps the same kind of local record: its HangWatcher captures the hung thread at the hang
 /// (base/threading/hang_watcher.cc) and the crash database keeps a bounded number of local reports
@@ -40,8 +42,11 @@ public final class LastHangBundles: Sendable {
     static let slowKeyFrameMicros: UInt64 = 50_000, minimumIntervalNanos: UInt64 = 30_000_000_000
     /// The bundles' folder in the trace folder.
     public static let folderName = "last-hang"
-    /// ``captureNow(_:)``'s bundle in the trace folder.
+    /// The folder of ``captureNow(_:)``'s bundles in the trace folder.
     public static let nowFolderName = "blackbox-now"
+    /// The most ``captureNow(_:)`` bundles kept: each request exports its own, so a newer request never replaces
+    /// the one an earlier caller is still exporting.
+    public static let nowKept = 4
     /// The wall clock in milliseconds since 1970 (the manifest's `captured_unix_ms`).
     public static let wallClockMillis: @Sendable () -> UInt64 = { clock_gettime_nsec_np(CLOCK_REALTIME) / 1_000_000 }
     static let manifestName = "manifest.json"
@@ -51,7 +56,7 @@ public final class LastHangBundles: Sendable {
 
     /// The bundles' folder: `<trace folder>/last-hang`.
     public let directory: String
-    /// ``captureNow(_:)``'s bundle: `<trace folder>/blackbox-now`.
+    /// ``captureNow(_:)``'s bundles: `<trace folder>/blackbox-now/<ms since 1970>-<UUID>`.
     public let nowDirectory: String
     /// Whether hangs make bundles (the `lastHangBundle` feature); ``captureNow(_:)`` and the existing bundles work
     /// either way.
@@ -69,8 +74,6 @@ public final class LastHangBundles: Sendable {
     private let isAlive: @Sendable (_ pid: Int32, _ startMicros: UInt64) -> Bool
     /// When the next hang may start a bundle (``now``).
     private let nextAllowedNanos = Atomic<UInt64>(0)
-    /// Numbers the hidden folders two copies of this process build in.
-    private let builds = Atomic<UInt64>(0)
 
     /// Bundles in `<traceDirectory>/last-hang`; nothing touches the disk until a copy runs on `work`'s `.files`.
     ///
@@ -152,18 +155,27 @@ public final class LastHangBundles: Sendable {
         return rotate(building, permit)
     }
 
-    /// Copies every live black box into `blackbox-now`, replacing the last one (`cmux trace blackbox --now`).
+    /// Copies every live black box into a new folder of `blackbox-now` (`cmux trace blackbox --now`), then deletes
+    /// all but the newest ``nowKept`` and anything else there. Each call gets its own folder, so two requests at
+    /// once never move, export or delete each other's bundle.
     ///
     /// - Returns: The bundle's folder; nil when nothing could be written.
     public func captureNow(_ permit: borrowing BlockingPermit) -> String? {
         guard let building = build(cause: nil, permit) else { return nil }
         let files = FileManager.checked
-        try? files.removeItem(atPath: nowDirectory, permit)
-        guard (try? files.moveItem(atPath: building, toPath: nowDirectory, permit)) != nil else {
+        let path = nowDirectory + "/" + Self.nowBundleName(wallClock())
+        guard (try? files.createDirectory(atPath: nowDirectory, withIntermediateDirectories: true, permit,
+                                          attributes: [.posixPermissions: 0o700])) != nil,
+              (try? files.moveItem(atPath: building, toPath: path, permit)) != nil else {
             try? files.removeItem(atPath: building, permit)
             return nil
         }
-        return nowDirectory
+        let names = Self.fileNames(in: nowDirectory, permit)
+        let bundles = names.filter(Self.isNowBundleName)
+        for name in names.filter({ !Self.isNowBundleName($0) }) + bundles.dropLast(Self.nowKept) {
+            try? files.removeItem(atPath: nowDirectory + "/" + name, permit)
+        }
+        return path
     }
 
     /// The `n`-th newest bundle (1 the newest) and the cause its manifest names; nil when there is none.
@@ -190,7 +202,7 @@ public final class LastHangBundles: Sendable {
     /// manifest. Nil when the folder or the manifest cannot be written.
     private func build(cause: JSONValue?, _ permit: borrowing BlockingPermit) -> String? {
         let files = FileManager.checked
-        let folder = directory + "/" + Self.buildingPrefix + "\(getpid())-\(builds.add(1, ordering: .relaxed).newValue)"
+        let folder = directory + "/" + Self.buildingPrefix + "\(getpid())-\(UUID().uuidString)"
         guard (try? files.createDirectory(atPath: folder + "/" + Self.ringsName, withIntermediateDirectories: true, permit,
                                           attributes: [.posixPermissions: 0o700])) != nil else { return nil }
         var used = Set<String>()
@@ -262,6 +274,21 @@ public final class LastHangBundles: Sendable {
         guard let pid = Int32(pid, radix: 10) else { return false }
         return pid == getpid() || kill(pid, 0) == 0 || errno == EPERM
     }
+
+    /// A ``captureNow(_:)`` bundle's name: the wall clock in 16 digits, so names sort oldest first, and a UUID.
+    static func nowBundleName(_ wallClockMillis: UInt64) -> String {
+        let millis = String(wallClockMillis)
+        return String(repeating: "0", count: max(0, nowStampDigits - millis.count)) + millis + "-" + UUID().uuidString
+    }
+
+    /// Whether `name` is a ``captureNow(_:)`` bundle's (``nowBundleName(_:)``).
+    static func isNowBundleName(_ name: String) -> Bool {
+        let bytes = Array(name.utf8)
+        guard bytes.count > nowStampDigits + 1, bytes[nowStampDigits] == UInt8(ascii: "-") else { return false }
+        return bytes[..<nowStampDigits].allSatisfy { (UInt8(ascii: "0") ... UInt8(ascii: "9")).contains($0) }
+    }
+
+    private static let nowStampDigits = 16
 
     private static func fileNames(in folder: String, _ permit: borrowing BlockingPermit) -> [String] {
         ((try? FileManager.checked.contentsOfDirectory(atPath: folder, permit)) ?? []).sorted()

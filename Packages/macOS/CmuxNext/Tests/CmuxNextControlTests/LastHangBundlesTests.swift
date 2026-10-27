@@ -1,7 +1,8 @@
 @testable import CmuxNextControl
 import CmuxNextCompat
 import CmuxNextSettings
-import CmuxNextTrace
+import CmuxNextSignposts
+@testable import CmuxNextTrace
 import CmuxNextWakeups
 import Darwin
 import Foundation
@@ -115,21 +116,95 @@ struct LastHangBundlesTests {
         #expect(stalls.values == [.milliseconds(999), .milliseconds(1_000)])
     }
 
-    /// `--now` writes `blackbox-now` with no cause and leaves the hang bundles alone.
-    @Test func captureNowReplacesItsOwnBundle() async throws {
+    /// `--now` writes a folder of `blackbox-now` of its own per call, with no cause, keeps the newest
+    /// ``LastHangBundles/nowKept``, deletes anything else there and leaves the hang bundles alone.
+    @Test func captureNowGivesEachCallItsOwnBundle() async throws {
         let trace = try Self.temporaryFolder()
         defer { try? FileManager.default.removeItem(atPath: trace) }
         try Self.plantRing(in: trace, role: .app, pid: UInt32(bitPattern: getpid()))
         let lane = HeldFiles()
         let bundles = Self.bundles(trace: trace, folders: { _ in [trace] }, lane: lane)
-        for _ in 0 ..< 2 {
-            let made = try await lane.runFiles(.userVisible) { permit in bundles.captureNow(permit) }
-            #expect(made == bundles.nowDirectory)
+        try FileManager.default.createDirectory(atPath: bundles.nowDirectory + "/rings", withIntermediateDirectories: true)
+        var made: [String] = []
+        for _ in 0 ..< LastHangBundles.nowKept + 2 {
+            made.append(try #require(try await lane.runFiles(.userVisible) { permit in bundles.captureNow(permit) }))
         }
-        let manifest = try Self.manifest(bundles.nowDirectory)
+        #expect(Set(made).count == made.count, "each call its own folder")
+        #expect(made.allSatisfy { $0.hasPrefix(bundles.nowDirectory + "/") })
+        let left = try FileManager.default.contentsOfDirectory(atPath: bundles.nowDirectory).sorted()
+        #expect(left.map { bundles.nowDirectory + "/" + $0 } == made.suffix(LastHangBundles.nowKept).sorted(),
+                "the newest stay, the oldest and a stray entry go")
+        let manifest = try Self.manifest(try #require(made.last))
         #expect(manifest["cause"] == .null)
         #expect(manifest["rings"]?.arrayValue?.count == 1)
         #expect(access(bundles.directory + "/1", F_OK) != 0)
+        #expect(LastHangBundles.isNowBundleName(LastHangBundles.nowBundleName(1_700_000_000_000)))
+        #expect(!LastHangBundles.isNowBundleName("manifest.json") && !LastHangBundles.isNowBundleName("0000000000000001-"))
+    }
+
+    /// Two instances on one trace folder (the watchdog's triggers and `trace.blackbox` each make one) copy at the
+    /// same time, a hang's and a request's, and two requests copy at the same time: every bundle is whole.
+    @Test func copiesRunningAtOnceNeverShareAFolder() async throws {
+        let trace = try Self.temporaryFolder()
+        defer { try? FileManager.default.removeItem(atPath: trace) }
+        try Self.plantRing(in: trace, role: .app, pid: UInt32(bitPattern: getpid()))
+        let lane = HeldFiles()
+        let meet = Rendezvous()
+        let hangs = Self.bundles(trace: trace, folders: { _ in meet.arrive(0); return [trace] }, lane: lane)
+        let requests = Self.bundles(trace: trace, folders: { _ in meet.arrive(1); return [trace] }, lane: lane)
+        async let hang = lane.runFiles(.userBlocking) { permit in hangs.captureLastHang(.mainThreadHang(.seconds(2)), permit) }
+        async let now = lane.runFiles(.userBlocking) { permit in requests.captureNow(permit) }
+        let paths = [try await hang, try await now]
+        #expect(paths[0] == hangs.directory + "/1")
+        for path in paths {
+            let bundle = try #require(path)
+            let rings = try Self.manifest(bundle)["rings"]?.arrayValue ?? []
+            #expect(rings.count == 1, "\(bundle) has the ring")
+            for ring in rings {
+                #expect(access(bundle + "/" + (ring["file"]?.stringValue ?? ""), F_OK) == 0)
+            }
+        }
+
+        let again = Rendezvous()
+        let first = Self.bundles(trace: trace, folders: { _ in again.arrive(0); return [trace] }, lane: lane)
+        let second = Self.bundles(trace: trace, folders: { _ in again.arrive(1); return [trace] }, lane: lane)
+        async let a = lane.runFiles(.userBlocking) { permit in first.captureNow(permit) }
+        async let b = lane.runFiles(.userBlocking) { permit in second.captureNow(permit) }
+        let both = [try await a, try await b].compactMap { $0 }
+        #expect(both.count == 2 && both[0] != both[1], "two requests at once each get their own bundle")
+        for bundle in both {
+            #expect(try Self.manifest(bundle)["rings"]?.arrayValue?.count == 1)
+        }
+    }
+
+    /// A main-thread hang names the main thread in the ring before the bundle starts: the watchdog's at the hang
+    /// threshold (``MainThreadWatchdog/reportHang``) and the main thread's at the end of a stall of 1 s and up
+    /// (``MainThreadWatchdog/deliverStall(_:)``), a `hang.thread_hung` instant with the main thread's id and how
+    /// long it was busy in ms, which the exporter draws on the main thread's `hang` track.
+    @Test func aMainThreadHangIsInTheRingBeforeTheBundleStarts() throws {
+        let ring = Collected<TraceRuntime.StubRecord>()
+        let runtime = TraceRuntime(role: .app, clock: TraceClock(), stubRecorder: { ring.append($0) })
+        runtime.setCategoryMask(UInt64(1) << UInt64(SignpostName.hangThreadHung.traceCategory.traceBit))
+        let watchdog = MainThreadWatchdog()
+        watchdog.attach(HangMonitor.Source(watch: HangWatch(hangAfterBudget: .milliseconds(300)), crashKeys: nil, trace: runtime))
+        defer { watchdog.stop() }
+        try #require(watchdog.hangWatchAttached.load(ordering: .acquiring), "a kqueue for the watchdog")
+        let recordsAtTrigger = Collected<Int>()
+        watchdog.onLastHang = { _ in recordsAtTrigger.append(ring.values.count) }
+        var mainTID: UInt64 = 0
+        pthread_threadid_np(pthread_main_thread_np(), &mainTID)
+
+        var lastReport: UInt64?
+        watchdog.reportHang(beat: 7, elapsedNanos: 2_000_000_000, now: 1, sampler: nil, crashKeys: nil, trace: runtime,
+                            lastReportNanos: &lastReport)
+        for milliseconds in [999, 1_500] {
+            watchdog.deliverStall(HangRecord(sequence: 1, startUptimeNanos: 0, duration: .milliseconds(milliseconds), cpu: .zero, addresses: []))
+        }
+        let instants = ring.values.filter { $0.name == SignpostName.hangThreadHung.rawValue }
+        #expect(instants.map(\.phase) == [.instant, .instant])
+        #expect(instants.map(\.arg0) == [mainTID, mainTID], "arg0 is the main thread's id")
+        #expect(instants.map(\.arg1) == [2_000, 1_500], "arg1 is how long the main thread was busy, in ms")
+        #expect(recordsAtTrigger.values == [1, 2], "each record is in the ring before its bundle starts")
     }
 
     /// `trace.blackbox`: `now` by default, `last_hang` 1 to 5, never both; a remote relay, a cmux app or an unknown
@@ -155,7 +230,9 @@ struct LastHangBundlesTests {
         #expect(reply["bundle"] == .string(bundles.directory + "/1"))
         #expect(reply["cause"] == ["kind": "slow_key_frame", "milliseconds": 80])
         let now = try await control.reply(Self.call([:]))
-        #expect(now["bundle"] == .string(bundles.nowDirectory))
+        let nowBundle = try #require(now["bundle"]?.stringValue)
+        #expect(nowBundle.hasPrefix(bundles.nowDirectory + "/"))
+        #expect(access(nowBundle + "/manifest.json", F_OK) == 0, "the reply names the request's own bundle")
 
         for (params, callerApp) in [(["origin": "remote"], nil), (["path": "/tmp/x"], nil), ([:], "com.example.app")] as [([String: JSONValue], String?)] {
             await #expect(throws: ControlError.self, "\(params) \(callerApp ?? "")") {
@@ -202,6 +279,17 @@ private final class Collected<Value: Sendable>: Sendable {
     private let list = Mutex<[Value]>([])
     var values: [Value] { list.withLock { $0 } }
     func append(_ value: Value) { list.withLock { $0.append(value) } }
+}
+
+/// Two copies meet in their ring listing, so both are building at once; each waits at most 5 s for the other, so
+/// a lane that ran them one after the other still finishes.
+private final class Rendezvous: Sendable {
+    private let arrived = [DispatchSemaphore(value: 0), DispatchSemaphore(value: 0)]
+
+    func arrive(_ party: Int) {
+        arrived[1 - party].signal()
+        _ = arrived[party].wait(timeout: .now() + 5)
+    }
 }
 
 /// A clock the test moves.

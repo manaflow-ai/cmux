@@ -285,8 +285,8 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     case taskRun = 51
 
     // MARK: hang (reserved: PL-telemetry)
-    /// Reserved (task 068, PL-telemetry). A watched thread past its hang-watch deadline. Ring: instant;
-    /// arg0 the thread's name id, arg1 how far past the deadline, in ms.
+    /// Reserved (task 068, PL-telemetry). A watched thread past its hang-watch deadline, or the main thread hung (task 125).
+    /// Ring: instant; arg0 the hung thread's id, arg1 how far past the deadline (the main thread: how long busy), in ms.
     case hangThreadHung = 52
     /// Reserved (task 110, PL-telemetry). The main thread stalled for 2 s: the fatal-hang candidate is
     /// written to the crash-key page. Ring: instant; arg0 the stall's start (uptime ns).

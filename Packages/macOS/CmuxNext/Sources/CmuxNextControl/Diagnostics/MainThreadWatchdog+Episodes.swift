@@ -1,7 +1,9 @@
 import os
 import CmuxNextCompat
 import CmuxNextSettings
+import CmuxNextSignposts
 import CmuxNextTrace
+import Darwin
 import CmuxNextWakeups
 
 extension MainThreadWatchdog {
@@ -23,12 +25,26 @@ extension MainThreadWatchdog {
         }
     }
 
-    /// Hands a finished stall to ``onStall`` and, at ``LastHangBundles/mainThreadHang`` and up, to ``onLastHang``.
+    /// Hands a finished stall to ``onStall`` and, at ``LastHangBundles/mainThreadHang`` and up, writes it into the
+    /// attached ring (``traceMainThreadHang(_:elapsed:)``) and hands it to ``onLastHang``.
     /// Main thread, once per finished stall.
     func deliverStall(_ record: HangRecord) {
         stallSink.withLock { $0 }?(record)
         guard record.duration >= LastHangBundles.mainThreadHang else { return }
+        let trace = hangWatchAttached.load(ordering: .acquiring) ? hangWatchSink.withLock { $0 }?.trace : nil
+        Self.traceMainThreadHang(trace, elapsed: record.duration)
         threadHangSinks.withLock { $0.lastHang }?(.mainThreadHang(record.duration))
+    }
+
+    /// The main thread's hang as the ring's `hang.thread_hung` instant, as a watched thread's hang dump writes it
+    /// (``HangMonitor``): arg0 the main thread's id, arg1 how long it has been busy, in ms. The exporter draws it on
+    /// a `hang` track under the main thread, so the last-hang bundle copied right after shows the hung lane, as
+    /// Chrome's `HangWatcher` names the hung thread (base/threading/hang_watcher.cc). Any thread.
+    static func traceMainThreadHang(_ trace: TraceRuntime?, elapsed: Duration) {
+        guard let trace else { return }
+        var tid: UInt64 = 0
+        guard pthread_threadid_np(pthread_main_thread_np(), &tid) == 0, tid != 0 else { return }
+        trace.event(.hangThreadHung, arg0: tid, arg1: UInt64(LastHangCause.milliseconds(max(elapsed, .zero))))
     }
 
     /// A stall just crossed the hang threshold (once per stall): samples the main thread and
@@ -38,7 +54,9 @@ extension MainThreadWatchdog {
                     trace: TraceRuntime?, lastReportNanos: inout UInt64?) {
         let duration = Duration.nanoseconds(Int64(clamping: elapsedNanos))
         logger.fault("main thread hang: busy \(duration.fractionalMilliseconds, format: .fixed(precision: 0)) ms and counting")
-        // The last-hang bundle copies the black boxes while the hang lasts, whatever the report interval says.
+        // The last-hang bundle copies the black boxes while the hang lasts, whatever the report interval says; the
+        // ring names the hung main thread first, so the copy shows it.
+        Self.traceMainThreadHang(trace, elapsed: duration)
         threadHangSinks.withLock { $0.lastHang }?(.mainThreadHang(duration))
         let due = lastReportNanos.map { now >= $0 &+ hangIntervalNanos } ?? true
         let sink = due ? onHang : nil
