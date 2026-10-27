@@ -145,6 +145,8 @@ class _Parser:
         if not IDENTITY.fullmatch(value):
             return {CONST, FALSY}
         name = INPUT.fullmatch(value)
+        if self.event == UNREAD:
+            return {VARY, FALSY}  # unknown event: the value may be set or empty
         if name is not None:
             if self.event is not None and self.event not in INPUT_EVENTS:
                 return {FALSY}
