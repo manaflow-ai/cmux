@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use proptest::prelude::*;
 
 use super::*;
-use crate::request_path::{note, will_block};
+use crate::request_path::{BlockingKind, note, will_block};
 
 const WAIT: Duration = Duration::from_secs(5);
 

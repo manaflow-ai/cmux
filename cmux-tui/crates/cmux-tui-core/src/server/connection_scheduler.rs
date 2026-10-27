@@ -47,6 +47,7 @@ use super::ServerSurfaceBytesPermit;
 use super::ServerSurfaceOperationAdmission;
 use super::frame_dispatch::FrameCall;
 use super::handle_request_with_cancellation;
+use super::request_priority::RequestClass;
 use super::send_request_error;
 use super::send_request_error_with_delivery;
 use super::sequenced_pool::{Fenced, PostError, Sequence, SequencePriority};
@@ -260,6 +261,11 @@ impl ConnectionSurfaceScheduler {
         self.class = class;
         self
     }
+
+    /// Whom the connection's requests serve, from its class now.
+    pub(super) fn request_class(&self) -> RequestClass {
+        RequestClass::of_cell(&self.class)
+    }
 }
 
 impl ConnectionSurfaceScheduler {
@@ -433,7 +439,9 @@ impl ConnectionSurfaceScheduler {
         }
         let Some(control) = state.control.as_ref() else { return Ok(()) };
         let scheduler = self.clone();
-        control.post(move || scheduler.pump())?;
+        // The sequence serves its connection's class: a person's request
+        // runs before automation's (request_priority.rs).
+        control.post_as(self.request_class(), move || scheduler.pump())?;
         state.pump_scheduled = true;
         Ok(())
     }
@@ -882,7 +890,8 @@ fn run_clear_history(
     surface: SurfaceId,
     writer: &MessageWriter,
 ) -> bool {
-    let Some(worker_permit) = scheduler.admission.try_reserve_worker() else {
+    let Some(worker_permit) = scheduler.admission.try_reserve_worker(scheduler.request_class())
+    else {
         let (id, reply) = (pending.request.id.clone(), pending.reply_writer(writer));
         drop(pending);
         scheduler.finish_clear(surface);

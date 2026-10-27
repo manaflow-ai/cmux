@@ -18,6 +18,12 @@ pub(crate) const TABLE: &[crate::FeatureDef] = &[
         process: crate::Process::Daemon,
     },
     crate::FeatureDef {
+        name: "daemonPersonFirst",
+        defaults: crate::Defaults { dev: false, nightly: false, release: false },
+        kind: crate::Kind::PerfPath,
+        process: crate::Process::Daemon,
+    },
+    crate::FeatureDef {
         name: "daemonRequestQos",
         defaults: crate::Defaults { dev: false, nightly: false, release: false },
         kind: crate::Kind::PerfPath,
@@ -86,6 +92,8 @@ pub mod feature {
         AGENT_TOOLS_IN_DAEMON = "agentToolsInDaemon",
         /// The daemon compresses the scrollback of a terminal that no client views and that printed nothing for 10 minutes, at utility priority and never under memory pressure; any access restores it first. Stays off until the kernel compressor measurement (p07-memory-112) shows a 2x gain.
         COLD_SCROLLBACK_COMPRESSION = "coldScrollbackCompression",
+        /// The daemon serves the verified app's connections before automation connections (CLI, MCP, agents, scripts, pages): pool workers take the person's requests first with a starvation bound, automation holds at most the pool's worker count and 7/8 of each server permit cap.
+        DAEMON_PERSON_FIRST = "daemonPersonFirst",
         /// Daemon requests run at their cause's class: verified-app requests at user-initiated, CLI, script, agent and page requests at utility, raised while they wait for or hold a daemon lock.
         DAEMON_REQUEST_QOS = "daemonRequestQos",
         /// Energy Saver turns on as the energy.saver setting asks (Low Power Mode, low battery or a hot Mac on battery by default) and makes cmux draw fewer frames and wake less often.

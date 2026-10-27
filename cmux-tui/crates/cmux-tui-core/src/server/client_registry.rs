@@ -36,6 +36,7 @@ use super::VIEW_ATTACHMENT_LEASE_CAPABILITY;
 #[cfg(unix)]
 use super::agent_session_attach;
 use super::connection_scheduler::connection_qos::ConnectionClassCell;
+use super::request_priority::{PersonFirstGate, RequestClass};
 use super::sanitize_window_title;
 use super::size_state_event_json;
 use super::{
@@ -351,6 +352,9 @@ pub(crate) struct ClientRegistry {
     pub(super) attach_stream_admission: Arc<super::attach_streams::AttachStreamAdmission>,
     /// The framed IPC transports this daemon serves (capabilities.rs).
     pub(super) ipc_transports: super::capabilities::IpcTransports,
+    /// `daemonPersonFirst`: the person's connections go before automation
+    /// (request_priority.rs).
+    pub(super) person_first: PersonFirstGate,
     pub(super) state: Mutex<ClientRegistryState>,
 }
 
@@ -424,6 +428,7 @@ impl ClientRegistry {
                 super::ATTACH_STREAMS_SERVER_CAPACITY,
             ),
             ipc_transports: super::capabilities::IpcTransports::default(),
+            person_first: PersonFirstGate::from_env(),
             state: Mutex::new(ClientRegistryState::default()),
         }
     }
@@ -464,7 +469,10 @@ impl ClientRegistry {
                 writer,
                 origin: Default::default(),
                 person: false,
-                connection_class: Arc::new(ConnectionClassCell::of_client(client)),
+                connection_class: Arc::new(ConnectionClassCell::of_client(
+                    client,
+                    self.person_first.enabled(),
+                )),
                 #[cfg(unix)]
                 machine_catalog: None,
                 #[cfg(test)]
@@ -516,7 +524,8 @@ impl ClientRegistry {
         if record.resource_streams.contains_key(stream_id.as_str()) {
             return Err(ResourceStreamInstallError::Duplicate);
         }
-        let worker_permit = self.resource_stream_admission.try_reserve(client)?;
+        let class = RequestClass::of_cell(&record.connection_class);
+        let worker_permit = self.resource_stream_admission.try_reserve(client, class)?;
         let canceled = Arc::new(AtomicBool::new(false));
         record.resource_streams.insert(
             stream_id.to_string(),
@@ -572,7 +581,8 @@ impl ClientRegistry {
         if record.resource_waits.contains_key(request_id) {
             return Err(ResourceWaitInstallError::Duplicate);
         }
-        let worker_permit = self.resource_wait_admission.try_reserve(client)?;
+        let class = RequestClass::of_cell(&record.connection_class);
+        let worker_permit = self.resource_wait_admission.try_reserve(client, class)?;
         let canceled = Arc::new(ResourceWaitCancellation::default());
         record.resource_waits.insert(
             request_id.clone(),

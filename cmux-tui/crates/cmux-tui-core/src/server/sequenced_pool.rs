@@ -19,6 +19,11 @@
 //!   sequence at the back of its priority's ready queue: a long sequence
 //!   never starves the others (base/task/thread_pool/thread_group_impl.cc
 //!   reenqueues a sequence after each task).
+//! - **Person first.** A sequence carries a [`RequestClass`]: a worker
+//!   takes person sequences before automation ones with a starvation bound,
+//!   automation holds at most the priority's worker count, and a person
+//!   sequence that finds every worker busy while automation holds some
+//!   starts one more (request_priority.rs, p05-ipc-143).
 //! - **Blocking compensation.** Each worker is its thread's
 //!   `request_path::BlockingObserver`, as Chrome's worker is its thread's
 //!   `BlockingObserver` (base/task/thread_pool/thread_group_impl.cc
@@ -56,7 +61,6 @@
 //! lock (tasks and fence callbacks run after it is released).
 
 use cmux_threads::sync::{Condvar, Mutex};
-use std::cell::{Cell, RefCell};
 use std::cmp::Ordering as CmpOrdering;
 use std::collections::{BinaryHeap, HashMap, VecDeque};
 use std::io;
@@ -68,11 +72,11 @@ use std::time::{Duration, Instant};
 use cmux_threads::ThreadQos;
 
 use crate::panic_free::RecoverPoison;
-use crate::request_path::{BlockingKind, BlockingObserver, set_blocking_observer};
 use crate::thread_qos::ThreadType;
 
 use super::CONNECTION_SURFACE_QUEUE_CAPACITY;
 use super::connection_scheduler::REQUEST_THREAD_QOS;
+use super::request_priority::{ClassedReady, PERSON_HEADROOM_WORKERS, RequestClass};
 
 /// The most temporary workers one priority starts for blocked tasks
 /// (Chrome's `kMaxNumberOfWorkers`, 256).
@@ -231,6 +235,8 @@ enum Item {
 
 struct SequenceState {
     priority: SequencePriority,
+    /// Whom it serves: the ready queue it waits in.
+    class: RequestClass,
     items: VecDeque<Item>,
     /// Queued tasks (fences not counted), against `cap`.
     tasks: usize,
@@ -301,7 +307,9 @@ struct PoolState {
     sequences: HashMap<u64, SequenceState>,
     fences: HashMap<u64, FenceState>,
     next_id: u64,
-    ready: [VecDeque<u64>; 4],
+    ready: [ClassedReady; 4],
+    /// Automation tasks running per priority (blocked ones included).
+    automation_running: [usize; 4],
     /// Delayed tasks per priority, earliest due on top.
     delayed: [BinaryHeap<DelayedTask>; 4],
     workers: [Workers; 4],
@@ -352,6 +360,7 @@ impl SequencedPool {
                     fences: HashMap::new(),
                     next_id: 1,
                     ready: Default::default(),
+                    automation_running: [0; 4],
                     delayed: Default::default(),
                     workers: [Workers::default(); 4],
                     shut_down: false,
@@ -363,12 +372,14 @@ impl SequencedPool {
         }
     }
 
-    /// A new sequence at `priority` that queues at most
+    /// A new person sequence at `priority` that queues at most
     /// [`CONNECTION_SURFACE_QUEUE_CAPACITY`] tasks.
     pub(crate) fn sequence(&self, priority: SequencePriority) -> Sequence {
         self.sequence_with_cap(priority, CONNECTION_SURFACE_QUEUE_CAPACITY)
     }
 
+    /// A new person sequence at `priority` that queues at most `cap` tasks;
+    /// [`Sequence::post_as`] changes its class.
     pub(crate) fn sequence_with_cap(&self, priority: SequencePriority, cap: usize) -> Sequence {
         let mut state = self.shared.lock();
         let id = state.next_id;
@@ -377,6 +388,7 @@ impl SequencedPool {
             id,
             SequenceState {
                 priority,
+                class: RequestClass::Person,
                 items: VecDeque::new(),
                 tasks: 0,
                 cap,
@@ -421,6 +433,12 @@ impl SequencedPool {
     #[cfg(test)]
     pub(crate) fn worker_count(&self, priority: SequencePriority) -> usize {
         self.shared.lock().workers[priority.index()].live
+    }
+
+    /// Automation tasks running at `priority`.
+    #[cfg(test)]
+    pub(crate) fn automation_running(&self, priority: SequencePriority) -> usize {
+        self.shared.lock().automation_running[priority.index()]
     }
 
     /// Live workers of every priority.
@@ -495,6 +513,20 @@ impl Sequence {
     where
         F: FnOnce() + Send + 'static,
     {
+        self.post_classed(None, Box::new(task))
+    }
+
+    /// [`Self::post`], with the sequence serving `class` from now on: its
+    /// connection's class, read at each post because a connection is
+    /// classed after its sequence may exist (request_priority.rs).
+    pub(crate) fn post_as<F>(&self, class: RequestClass, task: F) -> Result<(), PostError>
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        self.post_classed(Some(class), Box::new(task))
+    }
+
+    fn post_classed(&self, class: Option<RequestClass>, task: Task) -> Result<(), PostError> {
         let index = self.priority.index();
         let mut state = self.shared.lock();
         if state.shut_down {
@@ -506,14 +538,36 @@ impl Sequence {
         if sequence.tasks >= sequence.cap {
             return Err(PostError::Full);
         }
+        let previous = sequence.class;
+        let class = class.unwrap_or(previous);
+        sequence.class = class;
+        // Waiting in the ready queue of its old class: it moves.
+        let queued = !sequence.running && sequence.tasks > 0;
         sequence.tasks += 1;
-        sequence.items.push_back(Item::Task(Box::new(task)));
+        sequence.items.push_back(Item::Task(task));
         let became_ready = !sequence.running && sequence.tasks == 1;
+        if queued && previous != class && state.ready[index].remove(previous, self.id) {
+            state.ready[index].push_back(class, self.id);
+            // Queued as automation at its cap, no worker was woken for it.
+            // A live worker runs it at the latest when its task ends.
+            if class == RequestClass::Person
+                && self.shared.wake_or_reserve(&mut state, self.priority, class)
+            {
+                self.shared.spawn_worker_locked(&mut state, self.priority);
+            }
+        }
         if !became_ready {
             return Ok(());
         }
-        state.ready[index].push_back(self.id);
-        if !self.shared.wake_or_reserve(&mut state, self.priority) {
+        state.ready[index].push_back(class, self.id);
+        // Automation at its worker cap waits for one of its running tasks:
+        // that task's worker takes it next, so a worker is live.
+        if class == RequestClass::Automation
+            && !self.shared.automation_may_run(&state, self.priority)
+        {
+            return Ok(());
+        }
+        if !self.shared.wake_or_reserve(&mut state, self.priority, class) {
             return Ok(());
         }
         // The worker starts under the lock (only while the priority grows
@@ -535,10 +589,8 @@ impl Sequence {
     /// no worker could start. Under the same lock hold as the post: nothing
     /// ran it, and nothing was queued behind it.
     fn take_back(&self, state: &mut PoolState) -> Option<Item> {
-        let ready = &mut state.ready[self.priority.index()];
-        if let Some(position) = ready.iter().rposition(|id| *id == self.id) {
-            ready.remove(position);
-        }
+        let class = state.sequences.get(&self.id)?.class;
+        state.ready[self.priority.index()].remove(class, self.id);
         let sequence = state.sequences.get_mut(&self.id)?;
         let item = sequence.items.pop_back()?;
         sequence.tasks -= 1;
@@ -571,7 +623,9 @@ impl Sequence {
         let earliest = heap.peek().is_none_or(|head| delayed.key() < head.key());
         heap.push(delayed);
         // A new earliest due time: one worker (re)computes its wait.
-        if !earliest || !self.shared.wake_or_reserve(&mut state, self.priority) {
+        if !earliest
+            || !self.shared.wake_or_reserve(&mut state, self.priority, RequestClass::Automation)
+        {
             return Ok(());
         }
         // As in `post`: the worker starts under the lock, so a delayed task
@@ -623,69 +677,6 @@ impl Drop for Sequence {
     }
 }
 
-thread_local! {
-    /// The pool and priority of the worker this thread is.
-    static WORKER: RefCell<Option<(Arc<Shared>, SequencePriority)>> = const { RefCell::new(None) };
-    /// `request_path::will_block` scopes open on this worker's task.
-    static SCOPES: Cell<usize> = const { Cell::new(0) };
-    /// This worker's task noted a blocking kind: blocked until it ends.
-    static TASK_BLOCKED: Cell<bool> = const { Cell::new(false) };
-}
-
-/// Every worker's `request_path::BlockingObserver`: it reads the worker it
-/// runs on from [`WORKER`].
-struct WorkerObserver;
-
-static WORKER_OBSERVER: WorkerObserver = WorkerObserver;
-
-impl WorkerObserver {
-    fn blocked() -> bool {
-        SCOPES.with(Cell::get) > 0 || TASK_BLOCKED.with(Cell::get)
-    }
-
-    fn worker() -> Option<(Arc<Shared>, SequencePriority)> {
-        WORKER.try_with(|worker| worker.borrow().clone()).ok().flatten()
-    }
-}
-
-impl BlockingObserver for WorkerObserver {
-    fn noted(&self, _kind: BlockingKind) {
-        if TASK_BLOCKED.with(Cell::get) {
-            return;
-        }
-        let was_blocked = Self::blocked();
-        TASK_BLOCKED.with(|blocked| blocked.set(true));
-        if !was_blocked && let Some((shared, priority)) = Self::worker() {
-            shared.enter_blocked(priority);
-        }
-    }
-
-    fn scope_started(&self) {
-        let was_blocked = Self::blocked();
-        SCOPES.with(|scopes| scopes.set(scopes.get() + 1));
-        if !was_blocked && let Some((shared, priority)) = Self::worker() {
-            shared.enter_blocked(priority);
-        }
-    }
-
-    fn scope_ended(&self) {
-        SCOPES.with(|scopes| scopes.set(scopes.get().saturating_sub(1)));
-        if !Self::blocked()
-            && let Some((shared, priority)) = Self::worker()
-        {
-            shared.leave_blocked(priority);
-        }
-    }
-}
-
-/// Ends the blocked state a finished task's note left (its scopes ended
-/// with it).
-fn end_task_block(shared: &Shared, priority: SequencePriority) {
-    if TASK_BLOCKED.with(|blocked| blocked.replace(false)) && SCOPES.with(Cell::get) == 0 {
-        shared.leave_blocked(priority);
-    }
-}
-
 impl Shared {
     fn lock(&self) -> MutexGuard<'_, PoolState> {
         self.state.lock().recover_poison()
@@ -697,17 +688,42 @@ impl Shared {
         self.config.workers(priority) + workers.blocked.min(MAX_COMPENSATING_WORKERS)
     }
 
-    /// Wakes an idle worker for one more ready sequence, or reserves a new
-    /// worker (true: the caller starts it after releasing the lock).
-    fn wake_or_reserve(&self, state: &mut PoolState, priority: SequencePriority) -> bool {
+    /// Whether an automation task of `priority` may start: automation
+    /// holds at most the priority's worker count.
+    fn automation_may_run(&self, state: &PoolState, priority: SequencePriority) -> bool {
+        state.automation_running[priority.index()] < self.limit(state, priority)
+    }
+
+    /// Ready sequences of `priority` a worker may take now.
+    fn runnable(&self, state: &PoolState, priority: SequencePriority) -> usize {
+        let room =
+            self.limit(state, priority).saturating_sub(state.automation_running[priority.index()]);
+        state.ready[priority.index()].runnable(room)
+    }
+
+    /// Wakes an idle worker for one more ready sequence of `class`, or
+    /// reserves a new worker (true: the caller starts it after releasing
+    /// the lock). Person work may reserve [`PERSON_HEADROOM_WORKERS`] past
+    /// the limit while automation holds a worker of the priority.
+    fn wake_or_reserve(
+        &self,
+        state: &mut PoolState,
+        priority: SequencePriority,
+        class: RequestClass,
+    ) -> bool {
         let limit = self.limit(state, priority);
+        let automation_running = state.automation_running[priority.index()];
         let workers = &mut state.workers[priority.index()];
         if workers.idle > workers.waking {
             workers.waking += 1;
             self.work[priority.index()].notify_one();
             return false;
         }
-        if workers.live < limit {
+        let headroom = match class {
+            RequestClass::Person if automation_running > 0 => PERSON_HEADROOM_WORKERS,
+            RequestClass::Person | RequestClass::Automation => 0,
+        };
+        if workers.live < limit + headroom {
             workers.live += 1;
             return true;
         }
@@ -720,10 +736,10 @@ impl Shared {
         let spawn = {
             let mut state = self.lock();
             state.workers[priority.index()].blocked += 1;
-            let ready = state.ready[priority.index()].len();
+            let ready = self.runnable(&state, priority);
             let workers = state.workers[priority.index()];
             ready > workers.idle.saturating_sub(workers.waking)
-                && self.wake_or_reserve(&mut state, priority)
+                && self.wake_or_reserve(&mut state, priority, RequestClass::Automation)
         };
         if spawn {
             self.spawn_worker(priority);
@@ -788,9 +804,7 @@ impl Shared {
     }
 
     fn run_worker(self: &Arc<Self>, priority: SequencePriority) {
-        WORKER.with(|worker| *worker.borrow_mut() = Some((self.clone(), priority)));
-        set_blocking_observer(Some(&WORKER_OBSERVER));
-        let _clear = ClearWorker;
+        let _worker = worker_blocking::enter_worker(self.clone(), priority);
         let index = priority.index();
         let mut state = self.lock();
         loop {
@@ -809,7 +823,8 @@ impl Shared {
                 state = self.lock();
                 continue;
             }
-            let Some(id) = state.ready[index].pop_front() else {
+            let automation_may_run = self.automation_may_run(&state, priority);
+            let Some((id, class)) = state.ready[index].pop(automation_may_run) else {
                 // A temporary worker whose blocked task left exits once it
                 // has nothing to run; it never waits.
                 if state.workers[index].live > self.limit(&state, priority) {
@@ -833,6 +848,10 @@ impl Shared {
                 continue;
             };
             let Some(task) = take_task(&mut state, id) else { continue };
+            let automation = class == RequestClass::Automation;
+            if automation {
+                state.automation_running[index] += 1;
+            }
             drop(state);
             if catch_unwind(AssertUnwindSafe(task)).is_err() {
                 eprintln!("cmux: a {} task panicked", priority.thread_name());
@@ -840,8 +859,20 @@ impl Shared {
             end_task_block(self, priority);
             state = self.lock();
             let callbacks = finish_task(&mut state, id);
-            if !callbacks.is_empty() {
+            // A freed automation slot lets queued automation run; this
+            // worker takes person work first, so another worker takes it.
+            let mut spawn = false;
+            if automation {
+                state.automation_running[index] -= 1;
+                spawn = state.ready[index].has_automation()
+                    && state.ready[index].has_person()
+                    && self.wake_or_reserve(&mut state, priority, RequestClass::Automation);
+            }
+            if !callbacks.is_empty() || spawn {
                 drop(state);
+                if spawn {
+                    self.spawn_worker(priority);
+                }
                 for then in callbacks {
                     if catch_unwind(AssertUnwindSafe(then)).is_err() {
                         eprintln!("cmux: a {} fence callback panicked", priority.thread_name());
@@ -875,21 +906,15 @@ impl Shared {
             sequence.tasks += 1;
             sequence.items.push_back(Item::Task(delayed.task));
             if !sequence.running && sequence.tasks == 1 {
-                state.ready[index].push_back(delayed.sequence);
+                let class = sequence.class;
+                state.ready[index].push_back(class, delayed.sequence);
                 became_ready += 1;
             }
         }
-        let spawns = (1..became_ready).filter(|_| self.wake_or_reserve(state, priority)).count();
+        let spawns = (1..became_ready)
+            .filter(|_| self.wake_or_reserve(state, priority, RequestClass::Automation))
+            .count();
         (spawns, orphans)
-    }
-}
-
-struct ClearWorker;
-
-impl Drop for ClearWorker {
-    fn drop(&mut self) {
-        set_blocking_observer(None);
-        let _ = WORKER.try_with(|worker| worker.borrow_mut().take());
     }
 }
 
@@ -924,13 +949,14 @@ fn finish_task(state: &mut PoolState, id: u64) -> Vec<Task> {
         passed.push(*fence);
         sequence.items.pop_front();
     }
-    let (has_task, remove, priority) = (
+    let (has_task, remove, priority, class) = (
         !sequence.items.is_empty(),
         sequence.released && sequence.items.is_empty(),
         sequence.priority,
+        sequence.class,
     );
     if has_task {
-        state.ready[priority.index()].push_back(id);
+        state.ready[priority.index()].push_back(class, id);
     }
     if remove {
         state.sequences.remove(&id);
@@ -950,6 +976,10 @@ fn finish_task(state: &mut PoolState, id: u64) -> Vec<Task> {
     }
     callbacks
 }
+
+#[path = "sequenced_pool_worker_blocking.rs"]
+mod worker_blocking;
+use worker_blocking::end_task_block;
 
 #[cfg(test)]
 #[path = "sequenced_pool_tests.rs"]

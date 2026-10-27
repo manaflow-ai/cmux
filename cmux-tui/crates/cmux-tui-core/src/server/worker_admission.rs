@@ -1,9 +1,13 @@
 //! Server-wide admission for long-lived work: resource stream and wait
 //! worker permits (per client and per server), and surface-operation
-//! admission by worker count and retained bytes.
+//! admission by worker count and retained bytes. Automation holds at most
+//! [`automation_capacity`](super::request_priority::automation_capacity) of
+//! each server cap; the rest is the person's (request_priority.rs,
+//! p05-ipc-143).
 
 use super::SERVER_SURFACE_RETAINED_BYTE_CAPACITY;
 use super::SERVER_SURFACE_WORKER_CAPACITY;
+use super::request_priority::{RequestClass, admits};
 use crate::panic_free::RecoverPoison;
 use cmux_threads::sync::Condvar;
 use cmux_threads::sync::Mutex;
@@ -15,6 +19,8 @@ use std::time::Instant;
 #[derive(Default)]
 struct ResourceWorkerAdmissionState {
     active: usize,
+    /// Of `active`, the permits automation holds.
+    automation_active: usize,
     active_by_client: HashMap<u64, usize>,
 }
 
@@ -39,12 +45,16 @@ pub(super) struct ResourceWorkerPermit {
 struct ResourceWorkerPermitLease {
     admission: Arc<ResourceWorkerAdmission>,
     client: u64,
+    class: RequestClass,
 }
 
 impl Drop for ResourceWorkerPermitLease {
     fn drop(&mut self) {
         let mut state = self.admission.state.lock().recover_poison();
         state.active = state.active.saturating_sub(1);
+        if self.class == RequestClass::Automation {
+            state.automation_active = state.automation_active.saturating_sub(1);
+        }
         let remove_client = state.active_by_client.get_mut(&self.client).is_some_and(|active| {
             *active = active.saturating_sub(1);
             *active == 0
@@ -66,9 +76,11 @@ impl ResourceWorkerAdmission {
         })
     }
 
+    /// A permit for connection `client`, whose requests serve `class`.
     pub(super) fn try_reserve(
         self: &Arc<Self>,
         client: u64,
+        class: RequestClass,
     ) -> Result<ResourceWorkerPermit, ResourceWorkerAdmissionError> {
         let mut state = self.state.lock().recover_poison();
         if state.active_by_client.get(&client).copied().unwrap_or_default()
@@ -76,13 +88,16 @@ impl ResourceWorkerAdmission {
         {
             return Err(ResourceWorkerAdmissionError::ClientCapacity);
         }
-        if state.active >= self.server_capacity {
+        if !admits(class, self.server_capacity, state.active, state.automation_active) {
             return Err(ResourceWorkerAdmissionError::ServerCapacity);
         }
         state.active += 1;
+        if class == RequestClass::Automation {
+            state.automation_active += 1;
+        }
         *state.active_by_client.entry(client).or_default() += 1;
         Ok(ResourceWorkerPermit {
-            _lease: Arc::new(ResourceWorkerPermitLease { admission: self.clone(), client }),
+            _lease: Arc::new(ResourceWorkerPermitLease { admission: self.clone(), client, class }),
         })
     }
 
@@ -111,6 +126,8 @@ impl ResourceWorkerAdmission {
 #[derive(Default)]
 pub(super) struct ServerSurfaceOperationState {
     pub(super) workers: usize,
+    /// Of `workers`, the ones automation holds.
+    automation_workers: usize,
     retained_bytes: usize,
 }
 
@@ -126,12 +143,16 @@ pub(super) enum ServerSurfaceAdmissionError {
 
 pub(super) struct ServerSurfaceWorkerPermit {
     admission: Arc<ServerSurfaceOperationAdmission>,
+    class: RequestClass,
 }
 
 impl Drop for ServerSurfaceWorkerPermit {
     fn drop(&mut self) {
         let mut state = self.admission.state.lock().recover_poison();
         state.workers = state.workers.saturating_sub(1);
+        if self.class == RequestClass::Automation {
+            state.automation_workers = state.automation_workers.saturating_sub(1);
+        }
     }
 }
 
@@ -148,13 +169,20 @@ impl Drop for ServerSurfaceBytesPermit {
 }
 
 impl ServerSurfaceOperationAdmission {
-    pub(super) fn try_reserve_worker(self: &Arc<Self>) -> Option<ServerSurfaceWorkerPermit> {
+    /// A surface worker for a request that serves `class`.
+    pub(super) fn try_reserve_worker(
+        self: &Arc<Self>,
+        class: RequestClass,
+    ) -> Option<ServerSurfaceWorkerPermit> {
         let mut state = self.state.lock().recover_poison();
-        if state.workers >= SERVER_SURFACE_WORKER_CAPACITY {
+        if !admits(class, SERVER_SURFACE_WORKER_CAPACITY, state.workers, state.automation_workers) {
             return None;
         }
         state.workers += 1;
-        Some(ServerSurfaceWorkerPermit { admission: self.clone() })
+        if class == RequestClass::Automation {
+            state.automation_workers += 1;
+        }
+        Some(ServerSurfaceWorkerPermit { admission: self.clone(), class })
     }
 
     pub(super) fn try_reserve_bytes(

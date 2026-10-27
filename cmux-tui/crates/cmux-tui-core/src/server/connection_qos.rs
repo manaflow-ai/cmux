@@ -135,12 +135,22 @@ pub(in crate::server) struct ConnectionClassCell {
     /// The connection's client id; `None` for a cell no registry record
     /// holds.
     client: Option<u64>,
+    /// `daemonPersonFirst` was on when the connection registered: its class
+    /// orders its requests against other connections' (request_priority.rs).
+    person_first: bool,
 }
 
 impl ConnectionClassCell {
-    /// The cell of connection `client`'s registry record.
-    pub(in crate::server) fn of_client(client: u64) -> Self {
-        Self { class: AtomicU8::default(), client: Some(client) }
+    /// The cell of connection `client`'s registry record; `person_first` is
+    /// the registry's `daemonPersonFirst` gate.
+    pub(in crate::server) fn of_client(client: u64, person_first: bool) -> Self {
+        Self { class: AtomicU8::default(), client: Some(client), person_first }
+    }
+
+    /// Whether the class orders the connection's requests
+    /// (`RequestClass::of_cell`).
+    pub(in crate::server) const fn person_first(&self) -> bool {
+        self.person_first
     }
 
     pub(in crate::server) fn get(&self) -> ConnectionClass {

@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "daemonPersonFirst",
+  "owner": "Performance Lead",
+  "description": "The daemon serves the verified app's connections before automation connections (CLI, MCP, agents, scripts, pages): pool workers take the person's requests first with a starvation bound, automation holds at most the pool's worker count and 7/8 of each server permit cap.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "daemon",
+  "params": [],
+  "stories": ["automation-typing", "cli-storm"],
+  "sticky": false,
+  "runtimeMutable": false
+}

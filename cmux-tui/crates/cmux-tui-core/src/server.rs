@@ -2379,6 +2379,7 @@ pub(crate) use request_watchdog::{
 };
 
 mod connection_scheduler;
+mod request_priority;
 mod sequenced_pool;
 pub(crate) use sequenced_pool::SequencedPool;
 mod stream_lanes;
