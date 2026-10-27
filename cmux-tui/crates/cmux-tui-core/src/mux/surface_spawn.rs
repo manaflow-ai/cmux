@@ -76,9 +76,9 @@ impl Mux {
             };
             hook(unlocked);
         }
-        #[cfg(all(test, any(unix, windows)))]
+        #[cfg(all(any(test, feature = "fuzz"), any(unix, windows)))]
         let use_host_runtime = !self.test_surface_runtime;
-        #[cfg(all(not(test), any(unix, windows)))]
+        #[cfg(all(not(any(test, feature = "fuzz")), any(unix, windows)))]
         let use_host_runtime = true;
         #[cfg(any(unix, windows))]
         if let (Some(_), Some(workspace_key), true) =
@@ -298,7 +298,7 @@ impl Mux {
             {
                 hook(&terminal_hex);
             }
-            #[cfg(test)]
+            #[cfg(any(test, feature = "fuzz"))]
             let surface_result = if self.test_surface_runtime {
                 Surface::spawn_for_test_with_resource_identity_at_cell_pixels(
                     id,
@@ -318,7 +318,7 @@ impl Mux {
                     cell_pixels,
                 )
             };
-            #[cfg(not(test))]
+            #[cfg(not(any(test, feature = "fuzz")))]
             let surface_result =
                 Surface::spawn_with_terminal_id_and_resource_identity_at_cell_pixels(
                     id,
@@ -398,13 +398,13 @@ impl Mux {
             self.reserved_in_process_terminals.lock().unwrap().insert(surface.id, identity);
             return Ok(surface);
         }
-        #[cfg(test)]
+        #[cfg(any(test, feature = "fuzz"))]
         let surface_result = if self.test_surface_runtime {
             Surface::spawn_for_test_at_cell_pixels(id, opts, Arc::downgrade(self), cell_pixels)
         } else {
             Surface::spawn_at_cell_pixels(id, opts, Arc::downgrade(self), cell_pixels)
         };
-        #[cfg(not(test))]
+        #[cfg(not(any(test, feature = "fuzz")))]
         let surface_result =
             Surface::spawn_at_cell_pixels(id, opts, Arc::downgrade(self), cell_pixels);
         let surface = match surface_result {
@@ -454,7 +454,7 @@ impl Mux {
             drop(cell_pixel_lifecycle);
             cell_pixels
         };
-        #[cfg(test)]
+        #[cfg(any(test, feature = "fuzz"))]
         let surface = if self.test_surface_runtime {
             Surface::spawn_auxiliary_for_test_at_cell_pixels(
                 id,
@@ -465,7 +465,7 @@ impl Mux {
         } else {
             Surface::spawn_auxiliary_at_cell_pixels(id, opts, Arc::downgrade(self), cell_pixels)?
         };
-        #[cfg(not(test))]
+        #[cfg(not(any(test, feature = "fuzz")))]
         let surface =
             Surface::spawn_auxiliary_at_cell_pixels(id, opts, Arc::downgrade(self), cell_pixels)?;
         let cell_pixel_lifecycle = match self.reconcile_surface_cell_pixels_for_publish(&surface) {

@@ -2471,6 +2471,9 @@ mod request_head;
 mod request_spans;
 mod request_wait;
 mod routes;
+/// The stateful request fuzzer's in-process connection (task p10-stability 176).
+#[cfg(any(test, feature = "fuzz"))]
+pub(crate) mod test_harness;
 #[cfg(test)]
 use connection_frame::write_vt_state_command_json;
 use connection_frame::{

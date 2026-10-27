@@ -294,3 +294,13 @@ pub fn page_request_head(
 
 /// The largest request head the listener reads before it answers 431.
 pub const PAGE_REQUEST_HEAD_MAX_BYTES: usize = crate::server::page_files::REQUEST_HEAD_MAX_BYTES;
+
+/// The stateful request fuzzer (task 176): request sequences from the SDK
+/// schema against an in-memory daemon (server/test_harness.rs).
+pub mod requests {
+    pub use crate::mux::fuzz_support::LiveIds;
+    pub use crate::server::test_harness::{
+        Choices, Finding, HOST_EFFECTS, RequestCatalog, RequestHarness, RunSummary,
+        record_request_thread_blocking, run,
+    };
+}

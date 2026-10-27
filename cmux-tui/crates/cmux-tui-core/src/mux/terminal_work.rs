@@ -316,9 +316,9 @@ impl Mux {
     /// in-process surfaces).
     #[cfg(any(unix, windows))]
     fn uses_terminal_host_runtime(&self) -> bool {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "fuzz"))]
         return !self.test_surface_runtime;
-        #[cfg(not(test))]
+        #[cfg(not(any(test, feature = "fuzz")))]
         true
     }
 

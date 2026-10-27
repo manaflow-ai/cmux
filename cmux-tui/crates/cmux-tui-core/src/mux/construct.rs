@@ -64,7 +64,7 @@ impl Mux {
         session: impl Into<String>,
         surface_options: SurfaceOptions,
         provider_workspace: ProviderWorkspaceState,
-        #[cfg_attr(not(test), allow(unused_variables))] test_surface_runtime: bool,
+        #[cfg_attr(not(any(test, feature = "fuzz")), allow(unused_variables))] test_surface_runtime: bool,
     ) -> Arc<Self> {
         let session = session.into();
         let registry = WorkspaceRegistry::in_memory(&session)
@@ -170,7 +170,7 @@ impl Mux {
         surface_options: SurfaceOptions,
         mut registry: WorkspaceRegistry,
         provider_workspace: ProviderWorkspaceState,
-        #[cfg_attr(not(test), allow(unused_variables))] test_surface_runtime: bool,
+        #[cfg_attr(not(any(test, feature = "fuzz")), allow(unused_variables))] test_surface_runtime: bool,
         memory_setup: crate::memory::MemorySetup,
     ) -> anyhow::Result<Arc<Self>> {
         let snapshot = registry.snapshot()?;
@@ -468,7 +468,7 @@ impl Mux {
             work,
             git_sequences: crate::git_ops::Sequences::default(),
             pairing: PairingBroker::new(),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "fuzz"))]
             test_surface_runtime,
             session,
         });

@@ -3,19 +3,19 @@
 
 use super::*;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "fuzz"))]
 pub(super) struct TestMasterPty {
     pub(super) size: Mutex<PtySize>,
     pub(super) control: Arc<TestMasterPtyControl>,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "fuzz"))]
 #[derive(Default)]
 pub(super) struct TestMasterPtyControl {
     pub(super) fail_next_resize: AtomicBool,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "fuzz"))]
 impl MasterPty for TestMasterPty {
     fn resize(&self, size: PtySize) -> anyhow::Result<()> {
         if self.control.fail_next_resize.swap(false, Ordering::AcqRel) {
@@ -92,11 +92,11 @@ impl MasterPty for FdMasterPty {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "fuzz"))]
 #[derive(Debug)]
 pub(super) struct TestChildKiller;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "fuzz"))]
 impl ChildKiller for TestChildKiller {
     fn kill(&mut self) -> std::io::Result<()> {
         Ok(())

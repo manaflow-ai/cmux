@@ -241,6 +241,9 @@ use agent_types::{
     legacy_hook_session_id, parse_projection_agent_state, published_agent_session_id,
 };
 mod events;
+/// The in-memory store and post-request checks of the request fuzzer.
+#[cfg(any(test, feature = "fuzz"))]
+pub(crate) mod fuzz_support;
 pub(crate) mod layout_invariants;
 mod layout_ratio_error;
 mod layout_resize;
@@ -838,7 +841,7 @@ pub struct Mux {
     /// order (git_ops/sequence.rs).
     pub(crate) git_sequences: crate::git_ops::Sequences,
     pairing: PairingBroker,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "fuzz"))]
     test_surface_runtime: bool,
     pub session: String,
 }

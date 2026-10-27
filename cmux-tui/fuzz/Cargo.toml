@@ -414,3 +414,11 @@ path = "fuzz_targets/page_request_head.rs"
 test = false
 doc = false
 bench = false
+
+# Task 176: the stateful daemon request fuzzer (cmux_tui_core::fuzz_entry::requests).
+[[bin]]
+name = "mux_requests"
+path = "fuzz_targets/mux_requests.rs"
+test = false
+doc = false
+bench = false

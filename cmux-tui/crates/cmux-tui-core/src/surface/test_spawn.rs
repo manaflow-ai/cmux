@@ -21,7 +21,7 @@ impl Surface {
         )
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "fuzz"))]
     pub(crate) fn spawn_for_test_at_cell_pixels(
         id: SurfaceId,
         opts: SurfaceOptions,
@@ -55,7 +55,7 @@ impl Surface {
         )
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "fuzz"))]
     pub(crate) fn spawn_for_test_with_resource_identity_at_cell_pixels(
         id: SurfaceId,
         opts: SurfaceOptions,
@@ -73,7 +73,7 @@ impl Surface {
         )
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "fuzz"))]
     pub(crate) fn spawn_auxiliary_for_test_at_cell_pixels(
         id: SurfaceId,
         opts: SurfaceOptions,
@@ -90,7 +90,7 @@ impl Surface {
         )
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "fuzz"))]
     pub(super) fn spawn_for_test_with_lifetime_at_cell_pixels(
         id: SurfaceId,
         opts: SurfaceOptions,
@@ -147,7 +147,13 @@ impl Surface {
 
         let render_state = RenderState::new()?;
         let frame_requests = frame_producer::FrameRequests::new();
-        let test_master_control = Arc::new(TestMasterPtyControl::default());
+        let master = TestMasterPty {
+            size: Mutex::new(initial_pty_size),
+            control: Arc::new(TestMasterPtyControl::default()),
+        };
+        #[cfg(test)]
+        let test_master_control = Arc::clone(&master.control);
+        #[cfg(test)]
         let frame_producer_before_upgrade = Arc::new(Mutex::new(None));
 
         let surface = Arc::new(Surface::Pty(PtySurface {
@@ -188,10 +194,7 @@ impl Surface {
                     "pty.runtime",
                     PtyRuntime::Local {
                         writer: Box::new(std::io::sink()),
-                        master: Some(Box::new(TestMasterPty {
-                            size: Mutex::new(initial_pty_size),
-                            control: test_master_control.clone(),
-                        })),
+                        master: Some(Box::new(master)),
                         killer: Box::new(TestChildKiller),
                         #[cfg(unix)]
                         holder: None,
@@ -231,9 +234,13 @@ impl Surface {
                     "pty.kitty_limits_request",
                     (),
                 ),
+                #[cfg(test)]
                 geometry_test_hook: Mutex::new(None),
+                #[cfg(test)]
                 deferred_cell_pixel_ack_test_hook: Mutex::new(None),
+                #[cfg(test)]
                 test_master_control: Some(test_master_control),
+                #[cfg(test)]
                 vt_replay_builds: AtomicUsize::new(0),
                 mux,
                 taps: RankedMutex::new(LockRank::AttachTaps, "pty.taps", AttachTaps::default()),
@@ -260,6 +267,7 @@ impl Surface {
                 )),
                 render_generation: AtomicU64::new(1),
                 frame_requests,
+                #[cfg(test)]
                 frame_producer_before_upgrade,
             }),
             viewport: Mutex::new(TerminalViewportState::default()),

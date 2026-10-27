@@ -94,16 +94,16 @@ pub(crate) use stream_progress::{TerminalStreamProgress, TerminalStreamSubscript
 pub use terminal_runtime::PtyTerminalRuntime;
 pub(crate) use terminal_runtime::{ColdFreeze, ScrollbackMemory, TerminalJournalGap, ThawWake};
 use terminal_runtime::{PtyChildStartupGuard, PtyRuntime, ReaderCompletion, ReaderCompletionGuard};
-#[cfg(test)]
+#[cfg(any(test, feature = "fuzz"))]
 mod test_pty;
-#[cfg(test)]
+#[cfg(any(test, feature = "fuzz"))]
 mod test_spawn;
 #[cfg(all(test, unix))]
 use test_pty::FdMasterPty;
 #[cfg(test)]
-use test_pty::{
-    StartupChild, StartupChildState, TestChildKiller, TestMasterPty, TestMasterPtyControl,
-};
+use test_pty::{StartupChild, StartupChildState};
+#[cfg(any(test, feature = "fuzz"))]
+use test_pty::{TestChildKiller, TestMasterPty, TestMasterPtyControl};
 #[cfg(any(unix, windows))]
 mod clipboard_read;
 #[cfg(any(unix, windows))]
@@ -135,7 +135,7 @@ use directory::PublishedDirectory;
 
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
-#[cfg(test)]
+#[cfg(any(test, feature = "fuzz"))]
 use std::io::Read;
 use std::io::Write;
 use std::mem::size_of;
