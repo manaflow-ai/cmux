@@ -184,9 +184,9 @@ check(build_job["runs-on"] == "${{ github.repository_owner != 'manaflow-ai' && '
 runner_job = jobs["runner"]
 pick = next(step for step in runner_job["steps"] if step.get("id") == "pool")
 check(runner_job["outputs"]["dmg_label"] == "${{ steps.pool.outputs.dmg_label }}"
-      and 'label="$(pick 2)"' in pick["run"] and 'glaeda-*) dmg_label="$label" ;;' in pick["run"]
+      and 'label="$(pick 2 --wait-owned)"' in pick["run"] and 'glaeda-*) dmg_label="$label" ;;' in pick["run"]
       and 'label="$(pick 1 --wait-owned)"' in pick["run"] and '--jobs "$1"' in pick["run"],
-      "dmg_label is an owned pool with two machines free, so tip-dmg-build never queues behind verify")
+      "dmg_label is an owned pool with two machines free, or waited on when Blacksmith has no two free, moving slots")
 build_steps = [step for step in build_job["steps"] if isinstance(step, dict)]
 fresh = [i for i, step in enumerate(build_steps) if 'rm -rf "$dir"' in str(step.get("run", ""))
          and '"$RUNNER_TEMP/' in str(step.get("run", ""))]

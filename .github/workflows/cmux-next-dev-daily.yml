@@ -374,13 +374,17 @@ jobs:
               "${@:2}"
           }
           # Two machines free: verify and tip-dmg-build both take the owned
-          # pool. Otherwise verify alone may take one, and tip-dmg-build
-          # stays on Blacksmith macOS.
-          label="$(pick 2)" || label=""
+          # pool. With no two owned Macs free and no Blacksmith label with two
+          # free, moving slots, both wait on the fleet rather than a stalled
+          # Blacksmith queue (the rescue watches them; --wait-owned): run
+          # 40445038889's tip-dmg-build queued 25 min on Blacksmith for 3 min
+          # of work. Otherwise Blacksmith has room: verify alone may take an
+          # owned Mac, and tip-dmg-build takes Blacksmith macOS.
+          label="$(pick 2 --wait-owned)" || label=""
           case "$label" in
             glaeda-*) dmg_label="$label" ;;
             *)
-              echo "No two owned Macs free now (picker said '${label:-nothing}'); Blacksmith macOS 26 takes tip-dmg-build."
+              echo "No two owned Macs to take or wait on (picker said '${label:-nothing}'); Blacksmith macOS 26 takes tip-dmg-build."
               dmg_label=""
               # verify alone waits on the fleet rather than a stalled
               # Blacksmith queue (the rescue watches it; --wait-owned).
