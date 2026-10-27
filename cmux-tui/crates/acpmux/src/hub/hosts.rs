@@ -62,6 +62,15 @@ pub(super) struct OpenWork {
     doing: super::activity::TurnActivity,
 }
 
+/// What the host records say (`Hub::read_host_records`).
+pub(super) struct HostRecords {
+    /// Sessions whose agent host may still run (a live or unproven record).
+    pub(super) live: std::collections::HashSet<String>,
+    /// Of those, the sessions whose record this build cannot read: what their host runs is not
+    /// known (#23322, review 69).
+    pub(super) unreadable: std::collections::HashSet<String>,
+}
+
 impl Hub {
     /// Sessions whose agent host is still running, by session id. Read at
     /// startup so their open turns are not marked lost.
@@ -71,8 +80,14 @@ impl Hub {
 
     /// `live_host_sessions`, or `None` when the host records cannot be read.
     fn read_live_host_sessions() -> Option<std::collections::HashSet<String>> {
+        Self::read_host_records().map(|records| records.live)
+    }
+
+    /// The host records as the full-access bound reads them, or `None` when they cannot be read.
+    pub(super) fn read_host_records() -> Option<HostRecords> {
         let dir = agent_host::hosts_dir();
         let (good, bad) = agent_host::load_records(&dir).ok()?;
+        let mut unreadable = std::collections::HashSet::new();
         let mut live: std::collections::HashSet<String> = good
             .into_iter()
             .filter(|(_, r)| {
@@ -88,9 +103,10 @@ impl Hub {
                 let _ = std::fs::remove_file(&b.path);
                 continue;
             }
+            unreadable.insert(b.session_id.clone());
             live.insert(b.session_id);
         }
-        Some(live)
+        Some(HostRecords { live, unreadable })
     }
 
     /// Adopt this session's running host again (its link was lost, or a
