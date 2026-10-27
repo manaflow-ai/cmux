@@ -126,6 +126,11 @@ public final class IPhoneHostService {
     @ObservationIgnored let supervisor = MobileHostSupervisor()
     /// Pairing requests waiting for the person, and the anti-flood state (Settings > Mobile lists them).
     internal(set) var prompts = MobileHostPairPrompts()
+    /// The pre-approval behind this Mac's pairing code (``pairInvite()``): a phone presenting the
+    /// live one pairs without the prompt, once.
+    @ObservationIgnored var pairTokens = MobileHostPairTokens()
+    /// This Mac's identity public key, as hostd proves it to phones (nil until hostd started).
+    @ObservationIgnored private(set) var macPublicKey: Data?
     /// The open "Allow … to connect?" dialog: its dialog id and the request it shows.
     @ObservationIgnored var pairDialog: (id: Int, request: MobileHostPairRequest)?
     /// The banner and Dock bounce that tell the person about a request while cmux is not in front.
@@ -310,6 +315,7 @@ public final class IPhoneHostService {
     /// hostd reported the removal: remember it (across relaunches) and forget the device id.
     private func recordRemoval() {
         removed = true
+        pairTokens.revoke()
         guard let dependencies, let key = running else { return }
         do {
             try MobileHostRemovalMarker(directory: dependencies.stateDirectory)
@@ -342,6 +348,8 @@ public final class IPhoneHostService {
         }
         // Turning the setting on again is the person allowing connections again.
         if allowed, removed { clearRemoval() }
+        // A pairing code shown before the switch went off pairs nothing afterwards.
+        if !allowed { pairTokens.revoke() }
         self.allowed = allowed
         // Turning connections off withdraws the waiting pairing requests and their prompt.
         if !allowed { resetPrompts() }
@@ -405,6 +413,7 @@ public final class IPhoneHostService {
                 let name = await dependencies.computerName()
                 let chief = await dependencies.chief?()
                 guard !Task.isCancelled, self?.running == key else { return }
+                self?.macPublicKey = identity.publicKey
                 let launch = Self.launch(dependencies, executable: executable, account: want, deviceID: deviceID,
                                          deviceName: name, daemonSocket: socket, chief: chief)
                 await supervisor.start(.init(
