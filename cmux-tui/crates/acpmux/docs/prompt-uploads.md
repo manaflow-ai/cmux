@@ -25,7 +25,7 @@ binding, and calls this API over its daemon connection.
 | `promptUploads` feature flag | landed, #25730 |
 | `_acpmux/file_put_status`, finish `sha256`, the `upload.*` error reasons, `upload.diskFull` | #25793, flag `uploadResume` |
 | binary data frames `_acpmux/file_put_data` on the app's WebSocket, peer chats included | #25803, flag `uploadFrames` |
-| `acpmux send --attach` and `send_message` send any size and number by reference (no 8 MiB / 10 MiB / 16-file refusal) | #25840 |
+| `acpmux send --attach` and `send_message` send any size and number by reference (no 8 MiB / 10 MiB / 16-file refusal), begin `forPrompt` | #25840 |
 
 A native caller checks the flags, not the PRs. Without `uploadFrames` it sends data with
 `_acpmux/file_put_chunk`; the base64 then travels only on the native-to-daemon socket, never on
@@ -68,6 +68,9 @@ The native side uses the WebSocket it already holds to its local daemon (the loc
     frame is taken. This limits a frame, not a file.
   - Frames may be pipelined at increasing offsets. A frame whose `offset` is not the upload's
     current end is refused with `upload.offset`.
+  - A text message on the same connection is read only after every frame sent before it is
+    written and answered, so a finish (or a prompt) sent right behind the last frame sees all of
+    its bytes.
   - Only the local app's connection may send them. Any other connection's frame is answered
     with `filePut.remote`, never left unanswered.
 - **Data, before `uploadFrames` and on the unix socket:**
@@ -76,7 +79,8 @@ The native side uses the WebSocket it already holds to its local daemon (the loc
 - **Chat on a peer:** send to your own daemon as for a local chat, naming the chat as in
   `session/prompt`. The daemon forwards begin, data, finish and cancel to the daemon that owns
   the chat, and that daemon writes the file. A peer without `promptUploads` refuses the reference
-  with `upload.unsupported`, before anything is sent.
+  with `upload.unsupported`, before anything is sent. A peer without `filePutChunks` refuses the
+  begin and every data frame with `filePut.unsupported`.
 
 ## 1b. Bytes held by a page
 
@@ -156,11 +160,15 @@ from its path. The page only gets `{token, name, type, size}` for its preview ro
 
 ### Begin
 
-`_acpmux/file_put_begin {sessionId, fileName, size}` returns `{uploadId, fileName, size}`.
+`_acpmux/file_put_begin {sessionId, fileName, size, forPrompt?}` returns
+`{uploadId, fileName, size}`.
 
 - `fileName` must be a plain file name: no `/`, no leading `.`, no control or bidi characters.
   Otherwise it is refused with `filePut.name`.
 - `size` is the exact byte count, any u64.
+- `forPrompt: true` says the upload is for a prompt that names it. A chat on a peer without
+  `promptUploads` is then refused here (`upload.unsupported`), before any byte is sent, rather
+  than leaving a finished upload for a prompt the peer would refuse.
 
 ### Data
 
@@ -176,6 +184,7 @@ Send data with `file_put_chunk` (section 1), or with `file_put_data` once `uploa
 `{uploadId, fileName, size, offset, finished, path?}`.
 
 - After a disconnect or a daemon restart, call status and resume at `offset`.
+- Asking keeps an unfinished upload from the age sweep, as writing to it does.
 
 ### Finish
 
