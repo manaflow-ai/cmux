@@ -36,14 +36,24 @@ impl Log {
     }
 
     fn update(&mut self, update: Value) {
+        self.update_of("own", update);
+    }
+
+    /// An update under `session_id`: the chat's own, or a subagent's.
+    fn update_of(&mut self, session_id: &str, update: Value) {
         let kind = update["sessionUpdate"].as_str().unwrap().to_owned();
-        let msg = json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "own", "update": update}});
+        let msg = json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": session_id, "update": update}});
         self.push("in", &kind, msg, true);
     }
 
     fn turn(&mut self, turn: u64, updates: u64) {
         let id = format!("t{turn}");
-        self.push("mux", "turn_started", json!({"turnId": id, "promptId": format!("p{turn}"), "prompt": "go", "client": "cli"}), false);
+        self.push(
+            "mux",
+            "turn_started",
+            json!({"turnId": id, "promptId": format!("p{turn}"), "prompt": "go", "client": "cli"}),
+            false,
+        );
         self.push("out", "session/prompt", json!({"jsonrpc": "2.0", "id": turn, "method": "session/prompt", "params": {"sessionId": "own"}}), true);
         let text = "x".repeat(1500);
         for n in 0..updates {
@@ -53,8 +63,18 @@ impl Log {
     }
 
     fn end_turn(&mut self, turn: u64) {
-        self.push("in", "response", json!({"jsonrpc": "2.0", "id": turn, "result": {"stopReason": "end_turn"}}), true);
-        self.push("mux", "turn_result", json!({"turnId": format!("t{turn}"), "status": "completed"}), false);
+        self.push(
+            "in",
+            "response",
+            json!({"jsonrpc": "2.0", "id": turn, "result": {"stopReason": "end_turn"}}),
+            true,
+        );
+        self.push(
+            "mux",
+            "turn_result",
+            json!({"turnId": format!("t{turn}"), "status": "completed"}),
+            false,
+        );
     }
 
     fn ask(&mut self, id: u64, answered: bool) {
@@ -89,9 +109,14 @@ fn hosted_log() -> Log {
     }
     log.turn(TURNS, 2);
     log.update(json!({"sessionUpdate": "tool_call", "toolCallId": "open", "title": "Run tests", "status": "in_progress"}));
-    log.update(json!({"sessionUpdate": "tool_call", "toolCallId": "sub-call", "title": "Sub", "status": "in_progress", "_meta": {"acpmux": {"subagent": "sub"}}}));
+    log.update_of("sub", json!({"sessionUpdate": "tool_call", "toolCallId": "sub-call", "title": "Sub", "status": "in_progress"}));
     log.push("out", "session/prompt", json!({"jsonrpc": "2.0", "id": 77, "method": "session/prompt", "params": {"sessionId": "own", "_meta": {"steer": true}}}), true);
-    log.push("in", "response", json!({"jsonrpc": "2.0", "id": 77, "result": {"stopReason": "steered"}}), true);
+    log.push(
+        "in",
+        "response",
+        json!({"jsonrpc": "2.0", "id": 77, "result": {"stopReason": "steered"}}),
+        true,
+    );
     log.ask(6_000, false);
     log.update(json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "working"}}));
     log
@@ -132,7 +157,10 @@ async fn adoption_reads_parse_only_the_records_they_fold() {
     let (hub, root) = hub_with(SESSIONS, &log).await;
     let lines = (SESSIONS * log.records.len()) as u64;
     let bytes: u64 = (0..SESSIONS)
-        .flat_map(|n| std::fs::read_dir(root.join("sessions").join(format!("chat{n}")).join("events")).unwrap())
+        .flat_map(|n| {
+            std::fs::read_dir(root.join("sessions").join(format!("chat{n}")).join("events"))
+                .unwrap()
+        })
         .map(|e| e.unwrap().metadata().unwrap().len())
         .sum();
     let parsed_before = PARSED_LINES.with(std::cell::Cell::get);
@@ -159,4 +187,68 @@ async fn adoption_reads_parse_only_the_records_they_fold() {
     assert!(parsed * 20 < lines, "parsed {parsed} of {lines} log lines");
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// What `open_work` recovers from the heads is what a parse of every record recovers: for the
+/// adopted incarnation and an older one, with the last turn open and with it closed.
+#[tokio::test]
+async fn open_work_from_heads_matches_a_parse_of_every_record() {
+    let open = hosted_log();
+    let mut closed = hosted_log();
+    let last_start = closed.records.iter().rposition(|r| r.kind == "turn_started").unwrap();
+    closed.records.truncate(last_start);
+    for log in [&open, &closed] {
+        let (hub, root) = hub_with(1, log).await;
+        let session = hub.resolve("chat0").unwrap();
+        for incarnation in ["inc", "old", "gone"] {
+            let all = hub.open_work_reading(&session, incarnation, |_, _, _| true);
+            let heads = hub.open_work(&session, incarnation);
+            let fields = |w: &OpenWork| {
+                format!(
+                    "{:?} {} {} {:?} {:?} {:?} {:?} {:?} {} {:?} {:?} {} {} {:?}",
+                    w.turn.as_ref().map(|t| (t.0, &t.1, &t.2, &t.3, &t.4, t.5)),
+                    w.turn_at,
+                    w.heard_at,
+                    w.open_tools.iter().collect::<std::collections::BTreeSet<_>>(),
+                    w.prompt_request,
+                    w.prompt_response,
+                    w.steers,
+                    w.requests,
+                    w.last_host_seq,
+                    w.floor_cancelled,
+                    w.last_control,
+                    w.harness_grant,
+                    w.unsandboxed,
+                    w.doing,
+                )
+            };
+            assert_eq!(fields(&heads), fields(&all), "{incarnation}");
+            let permissions = |w: &OpenWork| {
+                w.permissions
+                    .iter()
+                    .collect::<std::collections::BTreeMap<_, _>>()
+                    .into_iter()
+                    .map(|(k, v)| format!("{k}{v:?}"))
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(permissions(&heads), permissions(&all), "{incarnation}");
+        }
+        let work = hub.open_work(&session, "inc");
+        if std::ptr::eq(log, &open) {
+            let turn = work.turn.as_ref().map(|t| t.1.as_str());
+            assert_eq!(turn, Some(format!("t{TURNS}").as_str()));
+            assert_eq!(work.requests.len(), 1, "{:?}", work.requests);
+            assert_eq!(work.steers.len(), 1);
+            assert!(work.harness_grant, "the answered ask chose allow always");
+            assert!(work.doing.open_tools.contains("open"), "{:?}", work.doing);
+            assert!(
+                !work.doing.open_tools.contains("sub-call"),
+                "a subagent's tool is not the turn's"
+            );
+        } else {
+            assert!(work.turn.is_none());
+        }
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

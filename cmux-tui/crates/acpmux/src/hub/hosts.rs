@@ -7,6 +7,7 @@
 use super::*;
 use crate::agent::Attached;
 use crate::agent_host::{self, Liveness};
+use crate::store::RecordHead;
 
 /// How long adoption waits for the next replayed entry of one host to be
 /// logged before it recovers from the log as it is.
@@ -358,9 +359,10 @@ impl Hub {
 
     fn remote_host_env_current(&self, session: &Session, incarnation: &str) -> bool {
         let mut current = false;
-        let _ = self.store.scan(&session.id, 0, &mut |event: EventRecord| {
-            if event.dir == "mux"
-                && event.kind == "host_started"
+        let _ = self.store.scan_heads(&session.id, &mut |head| {
+            if head.dir == "mux"
+                && head.kind == "host_started"
+                && let Some(event) = head.record()
                 && event.msg.get("incarnation").and_then(Value::as_str) == Some(incarnation)
             {
                 current = event.msg.get("remoteEnvPolicy").and_then(Value::as_str)
@@ -375,13 +377,16 @@ impl Hub {
     fn last_host_seq(&self, session: &Session, incarnation: &str) -> u64 {
         let mut last = 0;
         let mut current = false;
-        let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
-            if e.dir == "mux" && e.kind == "host_started" {
-                current = e.msg.get("incarnation").and_then(Value::as_str) == Some(incarnation);
-                if current {
-                    last = 0;
+        // Only a host start is parsed: every other record counts by the `hostSeq` of its head.
+        let _ = self.store.scan_heads(&session.id, &mut |head| {
+            if head.dir == "mux" && head.kind == "host_started" {
+                if let Some(e) = head.record() {
+                    current = e.msg.get("incarnation").and_then(Value::as_str) == Some(incarnation);
+                    if current {
+                        last = 0;
+                    }
                 }
-            } else if current && let Some(h) = e.host_seq {
+            } else if current && let Some(h) = head.host_seq {
                 last = last.max(h);
             }
             true
@@ -393,6 +398,16 @@ impl Hub {
     /// requests, answers and permission records count only within this
     /// incarnation: every harness restarts its own request ids.
     pub(super) fn open_work(&self, session: &Session, incarnation: &str) -> OpenWork {
+        self.open_work_reading(session, incarnation, open_work_reads)
+    }
+
+    /// `open_work`, parsing the records `reads` asks for (tests: every one).
+    fn open_work_reading(
+        &self,
+        session: &Session,
+        incarnation: &str,
+        reads: fn(&RecordHead<'_>, bool, bool) -> bool,
+    ) -> OpenWork {
         let mut work = OpenWork::default();
         let mut current = false;
         let mut requests: Vec<(Value, String, Option<Value>, Option<u64>)> = Vec::new();
@@ -421,7 +436,34 @@ impl Hub {
         // the log itself started, never by an update's own `_meta`.
         let mut subagents = crate::subagents::SubagentTree::default();
         subagents.set_own(session.meta().agent_session_id.as_deref());
-        let _ = self.store.scan(&session.id, 0, &mut |mut e: EventRecord| {
+        // Only the log's last turn can be open when the scan ends: an earlier turn's records
+        // (most of a long log) are folded away at its `turn_result`. Found from the end, on the
+        // heads of the records after that turn's marker.
+        let mut last_turn = 0;
+        let _ = self.store.scan_back(
+            &session.id,
+            0,
+            u64::MAX,
+            &|dir, kind| dir != b"mux" || !matches!(kind, b"turn_started" | b"turn_result"),
+            // A line whose head does not read reaches here unskipped.
+            &mut |e| {
+                if e.dir == "mux" && matches!(e.kind.as_str(), "turn_started" | "turn_result") {
+                    last_turn = e.seq;
+                    return false;
+                }
+                true
+            },
+        );
+        let _ = self.store.scan_heads(&session.id, &mut |head| {
+            // A record the fold would leave as it is counts by its head's `hostSeq` alone.
+            let last_turn_open = work.turn.as_ref().is_some_and(|t| t.0 >= last_turn);
+            if !reads(head, current, last_turn_open) {
+                if current && let Some(h) = head.host_seq {
+                    work.last_host_seq = work.last_host_seq.max(h);
+                }
+                return true;
+            }
+            let Some(mut e) = head.record() else { return true };
             let subagents_own = e.dir == "in"
                 && e.msg.get("method").and_then(Value::as_str) == Some(method::SESSION_UPDATE)
                 && e.msg.get_mut("params").is_some_and(|p| subagents.annotate(p).is_some());
@@ -515,6 +557,10 @@ impl Hub {
                 }
                 ("mux", "turn_result") => {
                     work.turn = None;
+                    // No turn, no turn state: an ended turn's records are not read
+                    // (`open_work_reads`), so none of them may outlive it here.
+                    work.heard_at = 0;
+                    work.open_tools.clear();
                     work.prompt_request = None;
                     work.prompt_response = None;
                     work.steers.clear();
@@ -1089,6 +1135,53 @@ impl Hub {
             json!({"incarnation": record.incarnation, "hostPid": record.host_pid, "ended": ended, "error": format!("{error:#}")}),
         );
         ended
+    }
+}
+
+/// The `mux` kinds `open_work` folds.
+const OPEN_WORK_MUX_KINDS: [&str; 9] = [
+    "host_started",
+    "remote_sandbox",
+    "permission_request",
+    "permission_decision",
+    "permission_auto",
+    "turn_started",
+    "turn_control",
+    "turn_result",
+    "remote_floor_cancel",
+];
+
+/// Whether `open_work` must parse a record to fold it, judged from its head and the scan so far:
+/// whether the adopted incarnation is current and the log's last turn is open (`turn_open`; an
+/// earlier turn's records are folded away when it ends). A record it passes is one the fold would
+/// leave as it is but for its `hostSeq`, which the head holds; one it cannot rule out is read.
+/// Most of a long log is closed turns' agent output, which is passed unparsed.
+fn open_work_reads(head: &RecordHead<'_>, current: bool, turn_open: bool) -> bool {
+    match head.dir {
+        "mux" => OPEN_WORK_MUX_KINDS.contains(&head.kind),
+        "out" => {
+            current
+                && (head.kind == "response" || (turn_open && head.kind == method::SESSION_PROMPT))
+        }
+        "in" => {
+            // An open turn's records: the model's signs of work, its tools, steers' answers.
+            turn_open
+                // Every subagent the log starts, which a later turn's update may belong to
+                // (`SubagentTree::annotate`, replayed history included; Codex's legacy ones are
+                // a `spawnAgent` call or a `_meta.codex.subagent` object).
+                || matches!(
+                    head.kind.strip_suffix(".replay").unwrap_or(head.kind),
+                    "subagent_spawned" | "subagent_state_update" | "subagent_progress"
+                )
+                || (matches!(
+                    head.kind.strip_suffix(".replay").unwrap_or(head.kind),
+                    "tool_call" | "tool_call_update"
+                ) && (head.may_contain(b"\"spawnAgent\"")
+                    || head.may_contain(b"\"subagent\":{")))
+                // An agent request (an `id` and a `method`), answered or not.
+                || (current && head.may_contain(b"\"id\":") && head.may_contain(b"\"method\":"))
+        }
+        _ => true,
     }
 }
 
