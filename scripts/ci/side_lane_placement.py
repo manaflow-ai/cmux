@@ -97,7 +97,7 @@ def _picker():
 
 
 pool = _picker()
-SIDE_RETRY_CAP_SECONDS = 10.0
+SIDE_RETRY_CAP_SECONDS = 5.0
 
 
 def _cascade():
@@ -462,8 +462,8 @@ def main(env: Mapping[str, str] = os.environ) -> int:
         if not (token and repo):
             continue
         try:
-            # One retry per read, at most 10 s, on a refusal that names a Retry-After: the listing is
-            # about three reads, and this step shares its 2-minute timeout with the cascade's 45 s.
+            # One retry per read, at most 5 s, on a refusal that names a Retry-After: each token lists
+            # in about three reads, two tokens at most, inside the 2-minute step shared with the cascade (45 s).
             runners = pool.GitHub(token, repo, retry_cap=SIDE_RETRY_CAP_SECONDS).runners()
             break
         except Exception as error:  # noqa: BLE001 - fail open: keep today's route

@@ -7,7 +7,7 @@ missing permission. pr_runner_pool.GitHub.get_api and next_macos_cascade.Api._ge
 print the status, Retry-After, X-RateLimit-Remaining, X-RateLimit-Resource and the
 start of the body. The pool client retries once after Retry-After on a 403 or 429 that
 carries one only when its caller opts in (retry_cap > 0, the cap): side-lane placement
-does, at 10 s, inside its 2-minute step. Every other caller, the cascade included (its
+does, at 5 s, inside its 2-minute step. Every other caller, the cascade included (its
 reads share a 45 s budget), logs and raises after one attempt, as before.
 """
 from __future__ import annotations
@@ -137,10 +137,10 @@ class RefusalDetailTests(unittest.TestCase):
         self.assertNotIn("time.sleep(wait)", cascade_source)
         side = (ROOT / "scripts/ci/side_lane_placement.py").read_text()
         self.assertIn("retry_cap=SIDE_RETRY_CAP_SECONDS", side)
-        self.assertIn("SIDE_RETRY_CAP_SECONDS = 10.0", side)
-        # About three runner reads, each retried at most once, plus the cascade's read budget,
-        # stay inside the placement step's two minutes.
-        self.assertLess(3 * 10.0 + cascade.READ_BUDGET_SECONDS, 120)
+        self.assertIn("SIDE_RETRY_CAP_SECONDS = 5.0", side)
+        # Two tokens (ROUTE_TOKEN, then ROUTE_TOKEN_FALLBACK) of about three reads, each retried at most once,
+        # plus the cascade's read budget, stay well inside the placement step's two minutes.
+        self.assertLess(2 * 3 * 5.0 + cascade.READ_BUDGET_SECONDS, 90)
         users = [path.name for path in (ROOT / "scripts").rglob("*.py") if "retry_cap=" in path.read_text(errors="ignore")
                  and path.name not in ("pr_runner_pool.py",)]
         self.assertEqual(users, ["side_lane_placement.py"])
