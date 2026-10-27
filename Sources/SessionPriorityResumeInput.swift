@@ -4,7 +4,9 @@ import Foundation
 /// The shell input that resumes a Claude session with a session priority target applied.
 ///
 /// The effort rides on `CLAUDE_CODE_EFFORT_LEVEL` in the command's launch environment, because
-/// Claude Code's `/effort` would write the level into the user's settings file. The model rides
+/// Claude Code's `/effort` would write the level into the user's settings file. Next to it,
+/// `CMUX_SESSION_PRIORITY_EFFORT` holds the same level, so the resumed Claude's recorded launch
+/// reads as cmux's, not the user's (``SessionPriorityManualSignal/launchEnvironmentEffort``). The model rides
 /// on a `--model` argument that replaces any the launch recorded. Everything else the launch
 /// recorded, the account's `CLAUDE_CONFIG_DIR` included, is replayed unchanged.
 ///
@@ -51,7 +53,8 @@ struct SessionPriorityResumeInput {
     }
 
     /// `cd <dir> && env -u <cleared keys> <resume command>`, where the resume command replays the
-    /// launch with `CLAUDE_CODE_EFFORT_LEVEL=<level>` and `--model <model>`, or `nil` when the
+    /// launch with `CLAUDE_CODE_EFFORT_LEVEL=<level>` (marked by `CMUX_SESSION_PRIORITY_EFFORT`)
+    /// and `--model <model>`, or `nil` when the
     /// session cannot be resumed with the target.
     ///
     /// A target component needs the launch capture to ride on: without one the resume would run
@@ -62,7 +65,9 @@ struct SessionPriorityResumeInput {
         }
         if let effort = target.effort {
             var environment = launchCommand.environment ?? [:]
-            environment["CLAUDE_CODE_EFFORT_LEVEL"] = effort.rawValue
+            environment[ClaudeEffortLevel.environmentKey] = effort.rawValue
+            // Marks the level as cmux's, so it is not read back as the user's own.
+            environment[ClaudeEffortLevel.sessionPriorityMarkerKey] = effort.rawValue
             launchCommand.environment = environment
         }
         if let model = target.model {

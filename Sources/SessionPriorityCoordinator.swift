@@ -289,6 +289,7 @@ final class SessionPriorityCoordinator {
         let manualSignal = SessionPriorityManualSignals.detect(
             userFlag: workspace.sessionPriorityState.isManual,
             launchArguments: arguments,
+            launchEnvironment: snapshot.launchCommand?.environment ?? [:],
             workspaceEnvironment: workspace.workspaceEnvironment,
             // The screen of a pane being restarted shows the restart, not the user.
             screenText: awaiting ? nil : undismissedScreenText(panelId: panelId, in: workspace)
