@@ -553,6 +553,10 @@ pub(super) async fn handle_request(
     // The pane's fork through a turn is a session/fork, checked as one from
     // here on (`fork_through.rs`).
     let m = super::fork_through::as_session_fork(hub, m, &mut params).await?;
+    // A request that is not the person's own, naming a session here at the VM
+    // boundary, runs under the Web's rules from here on (`hub/vm_boundary.rs`).
+    let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
+    hub.hold_at_vm_boundary(conn.auth, control, &mut params);
     // Before anything runs or is forwarded to a peer (`remote_guard.rs`).
     if conn.origin != Origin::Local {
         let device = super::remote_guard::full_access_device(hub, conn, &params);
@@ -932,6 +936,11 @@ async fn dispatch_request(
                 env,
                 // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
                 remote: conn.origin.web_class(),
+                vm_boundary: crate::hub::vm_boundary::asked(
+                    conn.auth,
+                    super::remote_guard::control_of(conn.origin, conn.auth, &params),
+                    &params,
+                ),
                 keep_harness_mode: hub.keeps_harness_mode(agent, &params).await,
                 starter: hub.starter_of(conn.origin.web_class(), agent),
                 route,
@@ -952,13 +961,13 @@ async fn dispatch_request(
             if conn.origin.web_class() {
                 let peer = super::remote_guard::settles_as_peer(conn.origin, conn.auth, &params);
                 super::remote_guard::settle_web_session_mode(hub, &s, peer).await?;
-                // A dedicated agent VM (vmHost): a session its owner's peer
-                // daemon starts with no policy runs approve-all; the VM is the
-                // sandbox (hub/remote_sandbox.rs). Web clients still ask.
-                let vm_host = hub.vm_host().await;
+                // The VM boundary its caller asked for (`hub/vm_boundary.rs`): a
+                // session the owner's peer daemon starts with no policy runs
+                // approve-all, as vmHost's did. Web clients still ask.
+                let vm_boundary = s.meta().vm_boundary && hub.takes_vm_boundary().await;
                 if !asked_policy
-                    && crate::hub::vm_host_peer_approves(
-                        vm_host,
+                    && crate::hub::vm_boundary_peer_approves(
+                        vm_boundary,
                         cfg!(target_os = "macos"),
                         super::remote_guard::control_of(conn.origin, conn.auth, &params)
                             == crate::hub::Control::Peer,

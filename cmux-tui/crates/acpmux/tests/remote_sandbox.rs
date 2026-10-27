@@ -21,7 +21,11 @@ const HERMETIC: daemon_env::Process =
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;
-use acpmux::server::{Origin, serve_connection_with};
+use acpmux::server::peer_auth::PeerAuth;
+use acpmux::server::{
+    ConnAuth, Origin, WsAuth, bind_ws, serve_connection_authed, serve_connection_with,
+    serve_ws_with,
+};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -97,6 +101,15 @@ impl Client {
         let (in_tx, in_rx) = mpsc::channel(64);
         let (out_tx, out_rx) = mpsc::channel(4096);
         tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, origin));
+        Client(in_tx, out_rx, 0)
+    }
+
+    /// A connection with `auth` as its proof: `ConnAuth::Device` as `Origin::Peer` is a paired
+    /// machine's `client` credential (`pairing::origin_of`).
+    fn authed(hub: &Arc<Hub>, origin: Origin, auth: ConnAuth) -> Self {
+        let (in_tx, in_rx) = mpsc::channel(64);
+        let (out_tx, out_rx) = mpsc::channel(4096);
+        tokio::spawn(serve_connection_authed(hub.clone(), in_rx, out_tx, origin, auth));
         Client(in_tx, out_rx, 0)
     }
 
@@ -285,8 +298,226 @@ async fn a_guest_written_owner_marker_or_vm_host_never_skips_the_linux_sandbox()
         let mut local = Client::new(&hub, Origin::Local);
         let view = local.call("_acpmux/vm_host", json!({})).await;
         let _ = std::fs::remove_dir_all(&d);
-        assert_eq!(view["result"]["vmHost"], false, "{tag}: {view}");
+        // It takes a caller's boundary, but no caller asked for one: sandboxed.
+        assert_eq!(view["result"]["vmHost"], cfg!(target_os = "linux"), "{tag}: {view}");
         assert_eq!(view["result"]["cmuxVm"], kind.is_some(), "{tag}: shown: {view}");
+    }
+}
+
+/// A `session/new` with this `_meta.acpmux.vmBoundary` (true asks for the VM
+/// boundary), in the `work` folder, with `policy` if given.
+#[cfg(target_os = "linux")]
+fn vm_boundary_new(d: &Path, vm_boundary: Option<Value>, policy: Option<&str>) -> Value {
+    let mut mux = json!({});
+    if let Some(vm_boundary) = vm_boundary {
+        mux["vmBoundary"] = vm_boundary;
+    }
+    let mut p = json!({"cwd": d.join("work"), "mcpServers": [], "_meta": {"acpmux": mux}});
+    if let Some(policy) = policy {
+        p["policy"] = json!(policy);
+    }
+    p
+}
+
+/// A remote chain's Claude Code runs without bwrap only when its caller asked
+/// for the VM boundary over its peer link (`hub/vm_boundary.rs`). With no
+/// bwrap here, the sandboxed spawn is refused, so a reply means it ran
+/// without the sandbox. The same field from a Web connection, the field's
+/// absence, another value, and the machine's own `vmHost: false` all keep
+/// the sandbox; no marker or config value is needed or used.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn only_the_callers_vm_boundary_over_its_peer_link_skips_the_linux_sandbox() {
+    for (tag, origin, sandbox, vm_host, runs) in [
+        ("vmb-peer", Origin::Peer, Some(json!(true)), None, true),
+        ("vmb-peer-vmhost-true", Origin::Peer, Some(json!(true)), Some(true), true),
+        ("vmb-peer-off", Origin::Peer, Some(json!(true)), Some(false), false),
+        ("vmb-peer-none", Origin::Peer, None, None, false),
+        ("vmb-peer-other", Origin::Peer, Some(json!("true")), None, false),
+        ("vmb-web", Origin::Web, Some(json!(true)), None, false),
+    ] {
+        let d = dir(tag);
+        let hub = hub_with(&d, vm_host);
+        hub.set_linux_bwrap_probe_for_tests(d.join("missing-bwrap"));
+        let mut c = Client::new(&hub, origin);
+        let r = c.call("session/new", vm_boundary_new(&d, sandbox, None)).await;
+        let session = r["result"]["sessionId"].as_str().map(str::to_owned);
+        let reply = match &session {
+            Some(s) => {
+                let p = json!({"sessionId": s, "prompt": [{"type": "text", "text": "argv"}]});
+                c.call("session/prompt", p).await
+            }
+            None => r,
+        };
+        let events = match &session {
+            Some(s) => c.call("_acpmux/events", json!({"sessionId": s, "limit": 1000})).await,
+            None => json!({}),
+        };
+        // A Web client never controls an agent that runs unsandboxed (`remote_floor.rs`).
+        let web_prompt = match (&session, runs) {
+            (Some(s), true) => {
+                let mut web = Client::new(&hub, Origin::Web);
+                let p = json!({"sessionId": s, "prompt": [{"type": "text", "text": "argv"}]});
+                web.call("session/prompt", p).await
+            }
+            _ => json!({}),
+        };
+        let _ = std::fs::remove_dir_all(&d);
+        if runs {
+            assert!(reply.get("error").is_none(), "{tag}: {reply}");
+            let events = events["result"]["events"].as_array().unwrap();
+            let marked = events
+                .iter()
+                .any(|e| e["kind"] == "remote_sandbox" && e["msg"]["vmBoundary"] == true);
+            assert!(marked, "{tag}: no vmBoundary record: {events:?}");
+            // Everything but the platform sandbox: its settings and no MCP servers.
+            let argv: String = events
+                .iter()
+                .filter_map(|e| {
+                    e.pointer("/msg/params/update/content/text").and_then(Value::as_str)
+                })
+                .collect();
+            for flag in ["--settings", "--strict-mcp-config", "disableBypassPermissionsMode"] {
+                assert!(argv.contains(flag), "{tag}: no {flag}: {argv}");
+            }
+            let refused = web_prompt.to_string();
+            assert!(refused.contains("remote.unsandboxed_agent"), "{tag}: {refused}");
+        } else {
+            let e = reply.to_string();
+            assert!(e.contains("remote.sandbox_refused"), "{tag}: {e}");
+            assert!(e.contains("bwrap unavailable"), "{tag}: {e}");
+        }
+    }
+}
+
+/// Only the person's own clients control a session at the VM boundary. A paired machine's
+/// `client` credential (served as a peer, `ConnAuth::Device`), and a peer forwarding for one
+/// (`via: device`), are held to the Web's rules for it (`Hub::hold_at_vm_boundary`): no prompt
+/// and no fork. A paired machine never turns vmHost back on either.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_paired_machine_never_controls_forks_or_reenables_the_vm_boundary() {
+    let d = dir("vmb-device");
+    let hub = hub_with(&d, None);
+    hub.set_linux_bwrap_probe_for_tests(d.join("missing-bwrap"));
+    let mut owner = Client::new(&hub, Origin::Peer);
+    let r = owner.call("session/new", vm_boundary_new(&d, Some(json!(true)), None)).await;
+    let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    let prompt = |extra: Value| {
+        let mut p = json!({"sessionId": id, "prompt": [{"type": "text", "text": "argv"}]});
+        if !extra.is_null() {
+            p["_meta"] = extra;
+        }
+        p
+    };
+    let ran = owner.call("session/prompt", prompt(Value::Null)).await;
+    let mut device = Client::authed(&hub, Origin::Peer, ConnAuth::Device);
+    let device_prompt = device.call("session/prompt", prompt(Value::Null)).await;
+    let device_fork = device
+        .call("session/fork", json!({"sessionId": id, "cwd": d.join("work"), "mcpServers": []}))
+        .await;
+    let mut forwarded = Client::new(&hub, Origin::Peer);
+    let forwarded_prompt =
+        forwarded.call("session/prompt", prompt(json!({"acpmux": {"via": "device"}}))).await;
+    let device_on = device.call("_acpmux/vm_host", json!({"on": true})).await;
+    let owner_on = owner.call("_acpmux/vm_host", json!({"on": true})).await;
+    let sessions = hub.sessions().len();
+    let _ = std::fs::remove_dir_all(&d);
+    assert!(ran.get("error").is_none(), "the owner's own prompt: {ran}");
+    for (what, r) in [("device prompt", &device_prompt), ("forwarded prompt", &forwarded_prompt)] {
+        assert!(r.to_string().contains("remote.unsandboxed_agent"), "{what}: {r}");
+    }
+    assert!(device_fork.to_string().contains("remote.unsandboxed_agent"), "fork: {device_fork}");
+    assert_eq!(sessions, 1, "a fork of the boundary session started");
+    assert!(device_on.to_string().contains("vmHost.remote"), "{device_on}");
+    assert!(owner_on.get("error").is_none(), "{owner_on}");
+}
+
+/// Approve-all follows the caller's VM boundary under vmHost's old rule: the
+/// owner's peer daemon's session with no policy runs approve-all; one with a
+/// policy keeps it, and without the boundary it asks. An ACP harness, so no
+/// sandbox decides whether the session starts.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn the_callers_vm_boundary_starts_a_peer_session_with_no_policy_approve_all() {
+    for (tag, sandbox, vm_host, policy, want) in [
+        ("vmb-approve", Some(json!(true)), None, None, "approve-all"),
+        ("vmb-asked", Some(json!(true)), None, Some("ask"), "ask"),
+        ("vmb-none", None, None, None, "ask"),
+        ("vmb-off", Some(json!(true)), Some(false), None, "ask"),
+    ] {
+        let d = dir(tag);
+        let hub = hub_with(&d, vm_host);
+        let mut peer = Client::new(&hub, Origin::Peer);
+        let mut new = vm_boundary_new(&d, sandbox, policy);
+        new["_meta"]["acpmux"]["harness"] = json!("fakeacp");
+        let r = peer.call("session/new", new).await;
+        let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{tag}: {r}"));
+        let mut local = Client::new(&hub, Origin::Local);
+        let list = local.call("_acpmux/sessions", json!({})).await;
+        let _ = std::fs::remove_dir_all(&d);
+        let row = list["result"]["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["sessionId"] == id)
+            .cloned()
+            .unwrap_or_else(|| panic!("{tag}: {list}"));
+        assert_eq!(row["policy"], want, "{tag}: {row}");
+    }
+}
+
+/// The caller decides the VM boundary (`hub/vm_boundary.rs`): a Cloud link's
+/// lease with `vmBoundary` (the Cloud API said this caller owns the VM) makes
+/// each `session/new` the caller's own clients forward there carry it, and the
+/// VM records it on the session. A lease without it never does, and neither
+/// does a `vmBoundary` field the caller's client sent, nor a session a Web
+/// client of the caller starts there (`via: web`).
+#[tokio::test]
+async fn only_a_vm_boundary_lease_starts_the_peers_sessions_at_the_vm_boundary() {
+    for (tag, vm_boundary) in [("lease-vmb", true), ("lease-plain", false)] {
+        let d = dir(tag);
+        let vm = hub(&d);
+        let home = d.join("peer-home");
+        let auth = PeerAuth::create(&home).unwrap();
+        let peer_token =
+            std::fs::read_to_string(acpmux::server::peer_auth::token_path(&home)).unwrap();
+        let l = bind_ws("127.0.0.1:0").await.unwrap();
+        let port = l.local_addr().unwrap().port();
+        let ws = WsAuth { local_app: None, peer: Some(Arc::new(auth)) };
+        tokio::spawn(serve_ws_with(vm.clone(), l, "tok".into(), ws));
+
+        let mac = hub(&d);
+        let mut c = Client::new(&mac, Origin::Local);
+        let mut lease = json!({"name": "cloud-vm", "url": format!("ws://127.0.0.1:{port}"),
+            "token": "tok", "peerToken": peer_token, "wait": true});
+        if vm_boundary {
+            lease["vmBoundary"] = json!(true);
+        }
+        let r = c.call("_acpmux/peer_lease", lease).await;
+        assert!(r.get("error").is_none(), "{tag}: {r}");
+        let new = |name: &str| {
+            json!({"cwd": d.join("work"), "mcpServers": [], "_meta": {"acpmux": {
+                "peer": "cloud-vm", "harness": "fakeacp", "name": name, "vmBoundary": true}}})
+        };
+        let r = c.call("session/new", new("own")).await;
+        assert!(r["result"]["sessionId"].is_string(), "{tag}: {r}");
+        let mut web = Client::new(&mac, Origin::Web);
+        let r = web.call("session/new", new("web")).await;
+        assert!(r["result"]["sessionId"].is_string(), "{tag}: {r}");
+        // A paired machine's `client` credential on the Mac (`ConnAuth::Device`): not the
+        // person's own client, so not at the boundary, if the Mac forwards it at all.
+        let mut device = Client::authed(&mac, Origin::Peer, ConnAuth::Device);
+        let device_new = device.call("session/new", new("device")).await;
+        let started: Vec<_> = vm.sessions().into_iter().map(|s| s.meta()).collect();
+        let _ = std::fs::remove_dir_all(&d);
+        let forwarded = usize::from(device_new["result"]["sessionId"].is_string());
+        assert_eq!(started.len(), 2 + forwarded, "{tag}: {device_new}");
+        for meta in &started {
+            assert!(meta.remote_origin, "{tag}");
+            let want = vm_boundary && meta.name == "own";
+            assert_eq!(meta.vm_boundary, want, "{tag}: {}", meta.name);
+        }
     }
 }
 

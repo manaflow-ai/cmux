@@ -242,6 +242,12 @@ pub struct SessionMeta {
     /// its harness never spawns with a preset's args or system prompt.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub remote_origin: bool,
+    /// A remote-origin session whose caller asked for the VM boundary
+    /// (`hub/vm_boundary.rs`): its Claude Code runs without the platform
+    /// sandbox while this machine takes the boundary. A fork or sub-session
+    /// keeps it, as it keeps `remote_origin`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub vm_boundary: bool,
     /// Per-session env (`session_env.rs`): allowlisted keys set by the unix
     /// socket on session/new or session/fork, applied over the preset env at
     /// every spawn. Never copied to a fork or a handoff.

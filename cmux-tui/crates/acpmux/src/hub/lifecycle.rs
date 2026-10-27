@@ -25,6 +25,7 @@ impl Hub {
             effort,
             adopt,
             remote,
+            vm_boundary,
             env: session_env,
             workspace_id,
             keep_harness_mode,
@@ -152,6 +153,7 @@ impl Hub {
         (meta.session_env, meta.chat_store, meta.adopted_cwd, meta.git_branch, meta.git_head) =
             (session_env, chat_store, adopted_cwd, git.branch, git.head);
         meta.workspace_id = workspace_id;
+        meta.vm_boundary = remote && vm_boundary;
         meta.subsession = subsession;
         meta.lineage = lineage;
         meta.tools
