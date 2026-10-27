@@ -310,8 +310,13 @@ def _count(name: str, hours: float, repo: str, token: str, deadline: float, open
             since = (datetime.fromtimestamp(clock(), timezone.utc) - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
             return sum(1 for a in artifacts if a.get("expired") is False and a.get("created_at", "") >= since)
         except urllib.error.HTTPError as e:
-            status, headers, body = e.code, {k.lower(): v for k, v in e.headers.items()}, e.read().decode(errors="replace")
-            e.close()
+            status, headers = e.code, {k.lower(): v for k, v in (e.headers or {}).items()}
+            try:
+                body = e.read().decode(errors="replace")
+            except Exception as read_error:  # a truncated error body (IncompleteRead) is still this status
+                body = f"(error body unreadable: {read_error!r})"
+            finally:
+                e.close()
         except (urllib.error.URLError, OSError, ValueError, KeyError) as e:
             status, headers, body = 0, {}, str(e)
         reason = f"HTTP {status}: {body.strip()[:200]}" if status else body

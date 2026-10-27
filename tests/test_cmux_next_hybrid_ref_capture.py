@@ -300,6 +300,28 @@ class Have(unittest.TestCase):
         self.assertIn("HTTP 403", str(result))
         self.assertEqual(sleeps, [])
 
+    def test_a_truncated_error_body_is_still_retried(self) -> None:
+        import http.client
+        import urllib.error
+
+        class Truncated(io.BytesIO):
+            def read(self, *a):
+                raise http.client.IncompleteRead(b"par")
+
+        replies = iter([lambda req: urllib.error.HTTPError(req.full_url, 502, "x", {}, Truncated()),
+                        lambda req: FakeResponse(json.dumps({"artifacts": []}).encode()),
+                        lambda req: FakeResponse(json.dumps({"artifacts": []}).encode())])
+        sleeps = []
+
+        def opener(request, timeout):
+            reply = next(replies)(request)
+            if isinstance(reply, Exception):
+                raise reply
+            return reply
+
+        result = cap.have("k" * 64, "o/r", "t", 600, opener=opener, sleep=sleeps.append, clock=lambda: self.NOW)
+        self.assertEqual((result, sleeps), ((0, 0), [15.0]))
+
     def test_a_forbidden_lookup_is_not_retried(self) -> None:
         result, sleeps, _ = self.run_have([(403, {}, '{"message":"Resource not accessible by integration"}')])
         self.assertIsInstance(result, cap.LookupFailed)
@@ -352,6 +374,9 @@ class Workflow(unittest.TestCase):
         self.assertIn("actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs", capture["run"],
                       "timed from the job's own start, not from a later step")
         self.assertIn('if [[ -z "$started" ]]', capture["run"], "an unknown start skips the capture")
+        self.assertIn('[[ -n "$started" ]] || started="$DECIDE_STARTED"', capture["run"],
+                      "a failed jobs read (a rate limit that outlasted the lookup) falls back to the decide step's start")
+        self.assertEqual(capture["env"]["DECIDE_STARTED"], "${{ steps.hybrid-ref.outputs.started }}")
         self.assertIn("hybrid_ref_capture.py have --key", decide["run"], "the lookup that retries a rate limit")
         self.assertEqual(upload["with"]["retention-days"], 14, "the manifest lives as long as the store keeps the packs")
         self.assertIn("steps.hybrid-ref.outputs.capture == 'true'", capture["if"])
@@ -398,6 +423,7 @@ class Workflow(unittest.TestCase):
                  None: ("true", "true", "1")}
         for have_output, (capture, compile_, rc) in cases.items():
             got = self.decide(have_output)
+            self.assertRegex(got["started"], r"^\d{10}$", "written before the lookup, even when it fails")
             self.assertEqual((got["capture"], got["compile"], got["rc"]), (capture, compile_, rc), have_output)
             self.assertEqual(got["key"], "k" * 64)
 

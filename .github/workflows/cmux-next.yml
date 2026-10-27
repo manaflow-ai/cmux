@@ -4520,6 +4520,9 @@ jobs:
             CMUX_NEXT_SWIFT_COMPILATION_MODE=${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'singlefile' }}
         run: |
           set -euo pipefail
+          # This step runs early in the job (before the lookup's waits): the capture step's fallback
+          # for the job's start when its own jobs read fails (a rate limit that outlasts this lookup).
+          echo "started=$(date +%s)" >> "$GITHUB_OUTPUT"
           if [[ "$CMUX_NEXT_RUNNER" != glaeda-* ]]; then echo "capture=false" >> "$GITHUB_OUTPUT"; exit 0; fi
           key="$(python3 -I scripts/cmux-next/hybrid_ref_capture.py key .)"
           # Readable complete captures of the key (unexpired, under 13 days old: the store keeps the
@@ -4942,16 +4945,19 @@ jobs:
           DERIVED_DATA: ${{ steps.compile-cmux-next-dev-release.outputs.derived_data }}
           DEV_DAILY_SHA: ${{ inputs.dev_daily_sha || github.sha }}
           KEY: ${{ steps.hybrid-ref.outputs.key }}
+          DECIDE_STARTED: ${{ steps.hybrid-ref.outputs.started }}
           SNAPSHOT: ${{ steps.compile-cmux-next-dev-release.outputs.snapshot }}
         run: |
           set -euo pipefail
           trap 'rm -rf -- "$SNAPSHOT"' EXIT
           # This job holds the push compile slot and has a 60 minute limit. The capture (8 minutes at
           # most) and its manifest upload (2) start only while the job, timed from its own start, is
-          # under 40 minutes; an unknown start skips it. A skipped capture is taken by the next landing.
+          # under 40 minutes; with no jobs read the decide step's start stands in, and an unknown
+          # start skips it. A skipped capture is taken by the next landing.
           started="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100" \
             --jq '.jobs[] | select(.runner_name == env.RUNNER_NAME and .status == "in_progress") | .started_at' | head -1)" || started=""
           started="$(date -j -u -f %Y-%m-%dT%H:%M:%SZ "$started" +%s 2>/dev/null)" || started=""
+          [[ -n "$started" ]] || started="$DECIDE_STARTED"
           if [[ -z "$started" ]] || (( $(date +%s) - started > 40 * 60 )); then
             echo "::notice::REF capture skipped: the job started ${started:+$(( ($(date +%s) - started) / 60 )) minutes ago}${started:-at an unknown time}"
             exit 0
