@@ -34,8 +34,7 @@ export type SummaryPullRequest = {
   closedAt?: number;
   /// The chat opened it (`gh pr create`, `glaeda-gh post pr`); false for one it only touched or named.
   opened: boolean;
-  /// The chat changed it after opening it (for example, edit, comment, review, merge or close).
-  /// A pull request is a Change when this is true or `opened` is true.
+  /// Opened or mutated pull requests belong in Changes.
   changed?: boolean;
   /// Only named, never acted on as a pull request: it may be an issue.
   mentioned?: boolean;
@@ -52,6 +51,8 @@ const ISSUE_CALL = /\bgh\s+issue\s+([a-z][\w-]*)(?=\s|$)([^\n;&|]*)/g;
 /// Writes sent through glaeda's broker are mutations even though they do not use `gh pr`.
 const BROKER_CALL =
   /\bglaeda-gh\s+(?:[a-z][\w-]*\s+)*(pr-(?:comment|edit|close|reopen|merge|review|approve|request-changes|update-branch)|issue-(?:comment|edit|close|reopen|create|lock|unlock|delete|pin|unpin|transfer))(?=\s|$)([^\n;&|]*)/g;
+const EXECUTED_PR_COMMAND =
+  /^\s*(?:(?:[A-Za-z_]\w*=\S*|env|command|nohup|time)\s+)*(?:[\w./~-]*\/)?(?:gh|glaeda-gh|gh-merge-green)(?:\s|$)/;
 /// One call that acts on a single pull request: a `gh pr` verb, `gh-merge-green`, or `glaeda-gh`
 /// with a `pr` argument (`wait pr`, `status pr`, `checks pr`), up to the end of the call.
 const CALL =
@@ -180,11 +181,7 @@ function toolFindings(tool: Tool): Finding[] {
   const plain = bare(command);
   const calls = plain
     .split(/[\n;&|]+/)
-    .filter(
-      (part) =>
-        /^\s*(?:[\w./~-]*\/)?(?:gh|glaeda-gh|gh-merge-green)(?:\s|$)/.test(part) &&
-        !/(?:^|\s)(?:--help|-h)(?=\s|$)/.test(part),
-    )
+    .filter((part) => EXECUTED_PR_COMMAND.test(part) && !/(?:^|\s)(?:--help|-h)(?=\s|$)/.test(part))
     .join("\n");
   const found: Finding[] = [];
   if (CREATE.test(calls)) {
@@ -408,6 +405,7 @@ export function transcriptPullRequests(
   ) => {
     if (number <= 0) return;
     if (!kind && how === "mentioned" && found.has(issueUrlOf(repo, number))) kind = "issue";
+    if (kind === "issue" && !found.get(urlOf(repo, number))?.kind) found.delete(urlOf(repo, number));
     const url = kind === "issue" ? issueUrlOf(repo, number) : urlOf(repo, number);
     const pr = found.get(url);
     if (!pr) {

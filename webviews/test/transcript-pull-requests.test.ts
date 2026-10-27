@@ -284,7 +284,8 @@ test("git activity, help, comments and quoted commands do not infer PR mutations
 
 test("brokered comment writes produce one mutation and no Source", () => {
   for (const kind of ["pr", "issue"]) {
-    const rows = [assistant("I will update acme/uploader#41.", 0), activity([shell(`glaeda-gh post ${kind}-comment acme/uploader#41 --body-file -`)], 1)];
+    const rows = toolsRows(shell(`glaeda-gh post ${kind}-comment acme/uploader#41 --body-file -`));
+    rows.unshift(assistant("I will update acme/uploader#41.", 0));
     rows.push(assistant("Updated acme/uploader#41.", 2));
     const findings = transcriptPullRequests(rows, { folder: "acme/uploader", replies: true });
     expect(findings).toHaveLength(1);
