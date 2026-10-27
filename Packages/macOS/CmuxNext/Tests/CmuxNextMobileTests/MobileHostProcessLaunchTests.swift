@@ -40,6 +40,31 @@ import Testing
         #expect(!child.send(Data("late\n".utf8)), "a line reached a stopped hostd")
     }
 
+    /// A line sent once hostd no longer reads its stdin, before its exit is reaped, is refused (EPIPE) and
+    /// does not end this process with SIGPIPE. The stand-in closes its stdin, says so, and stays up, so the
+    /// write deterministically meets a pipe with no reader while the exit status is still unknown.
+    @Test func aLineToAHostdThatClosedItsStdinIsRefusedWithoutSIGPIPE() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-mobile-pipe-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let script = directory.appendingPathComponent("cmux-mobile-host")
+        try """
+        #!/bin/sh
+        exec 0<&-
+        echo closed
+        exec sleep 30
+        """.write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        let child = MobileHostProcess()
+        try await child.start(launch(script.path), environment: [:], log: nil)
+        var lines = child.lines.makeAsyncIterator()
+        #expect(await lines.next() == "closed")
+        #expect(!child.send(Data("drop\n".utf8)), "a line reached a hostd that reads no stdin")
+        // SIGKILL: a child spawned from a libdispatch thread on Linux inherits its blocked SIGTERM.
+        _ = kill(try #require(child.pid), SIGKILL)
+        _ = await child.waitForExit()
+    }
+
     @Test func aMissingHostdThrowsFromStart() async throws {
         let child = MobileHostProcess()
         let missing = try launch("/no/such/cmux-mobile-host")

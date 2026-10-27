@@ -18,24 +18,34 @@ public actor UnixSocketLane: MobileByteLane {
         case connectFailed(path: String, detail: String)
     }
 
-    private enum Readiness {
+    /// What a read or write that would block waits for.
+    enum Readiness {
         case readable, writable
     }
 
     private let socket: LaneDescriptor
+    /// Told each time a read or write starts waiting for readiness (tests act while it waits); nil in the app.
+    private let waitStarted: (@Sendable (Readiness) -> Void)?
     private let queue = DispatchQueue(label: "cmux.next.mobile.unix-lane", qos: .userInitiated)
     /// The readiness waits in flight, by id: ``close()`` cancels them, which wakes their callers.
     private var waits: [UInt64: any DispatchSourceProtocol] = [:]
     private var lastWait: UInt64 = 0
 
-    private init(socket: LaneDescriptor) {
+    private init(socket: LaneDescriptor, waitStarted: (@Sendable (Readiness) -> Void)?) {
         self.socket = socket
+        self.waitStarted = waitStarted
     }
 
     /// Connects to `path`. A Unix stream connect on Linux ends in the call (`unix_stream_connect`: a
     /// non-blocking socket whose listener's queue is full gets EAGAIN, never EINPROGRESS), so the wedged
     /// daemon that `deadline` bounds on macOS is a typed failure here at once.
     public static func connect(path: String, deadline: Duration = .seconds(2)) async throws -> UnixSocketLane {
+        try await connect(path: path, deadline: deadline, waitStarted: nil)
+    }
+
+    /// ``connect(path:deadline:)`` with `waitStarted` told each time a read or write starts waiting.
+    static func connect(path: String, deadline: Duration = .seconds(2),
+                        waitStarted: (@Sendable (Readiness) -> Void)?) async throws -> UnixSocketLane {
         guard let address = UnixSocketAddress(path: path) else {
             throw Failure.connectFailed(path: path, detail: "the path does not fit sun_path")
         }
@@ -47,7 +57,7 @@ public actor UnixSocketLane: MobileByteLane {
             _ = Glibc.close(fd)
             throw Failure.connectFailed(path: path, detail: describe(code))
         }
-        return UnixSocketLane(socket: LaneDescriptor(fd))
+        return UnixSocketLane(socket: LaneDescriptor(fd), waitStarted: waitStarted)
     }
 
     public func read(maximumBytes: Int) async throws -> Data? {
@@ -119,6 +129,7 @@ public actor UnixSocketLane: MobileByteLane {
                 ready.resume(returning: ())
             }
             source.activate()
+            waitStarted?(readiness)
         }
         waits[id] = nil
     }

@@ -1,5 +1,8 @@
 public import Foundation
 import CmuxNextCompat
+#if canImport(Glibc)
+import Glibc
+#endif
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError
 import func CmuxSafeConcurrency.withOnceContinuation
@@ -45,7 +48,7 @@ public final class MobileHostProcess: Sendable {
         process.standardOutput = output
         process.standardError = Self.logHandle(log) ?? FileHandle.nullDevice
         // A write after hostd exited must fail with EPIPE, not raise SIGPIPE in the app. Linux has no
-        // per-pipe F_SETNOSIGPIPE: there the process's SIGPIPE disposition (ChildSignalDefaults) does it.
+        // per-pipe F_SETNOSIGPIPE: there send() blocks the signal around its write (writeWithoutSIGPIPE).
         #if canImport(Darwin)
         _ = fcntl(input.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
         #endif
@@ -93,13 +96,42 @@ public final class MobileHostProcess: Sendable {
         state.withLock { state in
             guard state.exitStatus == nil, let input = state.input else { return false }
             do {
+                #if canImport(Darwin)
                 try input.write(contentsOf: line)
+                #else
+                try Self.writeWithoutSIGPIPE { try input.blockingWrite(contentsOf: line) }
+                #endif
                 return true
             } catch {
                 return false
             }
         }
     }
+
+    #if !canImport(Darwin)
+    /// Runs `write` with SIGPIPE blocked on this thread and takes back the SIGPIPE it raised, so a write to a
+    /// pipe whose reader is gone fails with EPIPE and does not end the process. The kernel sends a write's
+    /// SIGPIPE to the writing thread, where the block holds it pending (OpenSSL's and libcurl's sigpipe
+    /// guard). A SIGPIPE pending before the write is not the write's and stays pending.
+    private static func writeWithoutSIGPIPE(_ write: () throws -> Void) rethrows {
+        var pipeSignal = sigset_t()
+        _ = unsafe sigemptyset(&pipeSignal)
+        _ = unsafe sigaddset(&pipeSignal, SIGPIPE)
+        var pending = sigset_t()
+        _ = unsafe sigpending(&pending)
+        let pendingBefore = unsafe sigismember(&pending, SIGPIPE) == 1
+        var previousMask = sigset_t()
+        _ = unsafe pthread_sigmask(SIG_BLOCK, &pipeSignal, &previousMask)
+        defer {
+            if !pendingBefore {
+                var noWait = timespec()
+                while unsafe sigtimedwait(&pipeSignal, nil, &noWait) < 0, errno == EINTR {}
+            }
+            _ = unsafe pthread_sigmask(SIG_SETMASK, &previousMask, nil)
+        }
+        try write()
+    }
+    #endif
 
     public var pid: Int32? { state.withLock { $0.process?.processIdentifier } }
 
@@ -138,7 +170,7 @@ public final class MobileHostProcess: Sendable {
         let size = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? NSNumber)?.intValue ?? 0
         if size > 1 << 20 { try? FileManager.default.removeItem(atPath: path) }
         if !FileManager.default.fileExists(atPath: path) {
-            FileManager.default.createFile(atPath: path, contents: nil, attributes: [.posixPermissions: 0o600])
+            _ = FileManager.default.createFile(atPath: path, contents: nil, attributes: [.posixPermissions: 0o600])
         }
         guard let handle = FileHandle(forWritingAtPath: path) else { return nil }
         _ = try? handle.seekToEnd()

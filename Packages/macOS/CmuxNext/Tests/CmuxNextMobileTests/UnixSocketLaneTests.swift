@@ -32,7 +32,7 @@ import Testing
 
         func stop() {
             _ = close(fd)
-            unlink(path)
+            _ = unsafe unlink(path)
         }
     }
 
@@ -45,13 +45,15 @@ import Testing
         defer { _ = close(peer) }
 
         let hello = Array("hello".utf8)
-        #expect(write(peer, hello, hello.count) == hello.count)
+        // SAFETY: write reads hello.count bytes of the array it borrows for the call.
+        #expect(unsafe write(peer, hello, hello.count) == hello.count)
         #expect(try await lane.read(maximumBytes: 64) == Data(hello))
 
         try await lane.write(Data("ping".utf8))
         let size = 16
         var buffer = [UInt8](repeating: 0, count: size)
-        let count = read(peer, &buffer, size)
+        // SAFETY: read fills at most size bytes, the buffer's length.
+        let count = unsafe read(peer, &buffer, size)
         #expect(count == 4 && Array(buffer.prefix(4)) == Array("ping".utf8))
 
         _ = shutdown(peer, Int32(SHUT_WR))
@@ -70,6 +72,81 @@ import Testing
         await lane.close()
         #expect(await reader.value == nil)
     }
+
+    #if !canImport(Network)
+    /// The Linux lane with its readiness waits reported, and its accepted peer.
+    struct WatchedLane {
+        let listener: Listener
+        let lane: UnixSocketLane
+        let peer: Int32
+        let waits: AsyncStream<UnixSocketLane.Readiness>
+
+        init() async throws {
+            listener = try Listener()
+            let (waits, started) = AsyncStream.makeStream(of: UnixSocketLane.Readiness.self)
+            self.waits = waits
+            lane = try await UnixSocketLane.connect(path: listener.path, waitStarted: { started.yield($0) })
+            peer = listener.acceptPeer()
+            try #require(peer >= 0)
+        }
+
+        func stop() {
+            _ = close(peer)
+            listener.stop()
+        }
+    }
+
+    /// A read that found nothing waits on its read source; the peer's bytes wake it.
+    @Test func aWaitingReadIsWokenByThePeersBytes() async throws {
+        let watched = try await WatchedLane()
+        defer { watched.stop() }
+        var waits = watched.waits.makeAsyncIterator()
+        let lane = watched.lane
+        let reader = Task { try await lane.read(maximumBytes: 64) }
+        #expect(await waits.next() == .readable)
+        let hello = Array("hello".utf8)
+        // SAFETY: write reads hello.count bytes of the array it borrows for the call.
+        #expect(unsafe write(watched.peer, hello, hello.count) == hello.count)
+        #expect(try await reader.value == Data(hello))
+        await lane.close()
+    }
+
+    /// A write larger than the socket buffer gets EAGAIN, waits for writable while the peer drains, and every
+    /// byte arrives in order.
+    @Test func aWriteLargerThanTheBufferWaitsForWritableAndSendsEveryByte() async throws {
+        let watched = try await WatchedLane()
+        defer { watched.stop() }
+        var waits = watched.waits.makeAsyncIterator()
+        let lane = watched.lane
+        let payload = Data((0..<(8 << 20)).map { UInt8(truncatingIfNeeded: $0 &* 31 &+ $0 >> 13) })
+        let writer = Task { try await lane.write(payload) }
+        #expect(await waits.next() == .writable)
+        var received = [UInt8]()
+        received.reserveCapacity(payload.count)
+        var chunk = [UInt8](repeating: 0, count: 1 << 16)
+        while received.count < payload.count {
+            // SAFETY: read fills at most chunk.count bytes, the chunk's length.
+            let count = unsafe read(watched.peer, &chunk, chunk.count)
+            try #require(count > 0)
+            received.append(contentsOf: chunk.prefix(count))
+        }
+        try await writer.value
+        #expect(Data(received) == payload)
+        await lane.close()
+    }
+
+    /// A close() while the read waits cancels its source, which wakes it with no data.
+    @Test func aCloseWakesAReadThatIsWaiting() async throws {
+        let watched = try await WatchedLane()
+        defer { watched.stop() }
+        var waits = watched.waits.makeAsyncIterator()
+        let lane = watched.lane
+        let reader = Task { try await lane.read(maximumBytes: 64) }
+        #expect(await waits.next() == .readable)
+        await lane.close()
+        #expect(try await reader.value == nil)
+    }
+    #endif
 
     @Test func aPathNobodyListensOnIsATypedFailure() async {
         let path = "/tmp/ul-missing-\(UUID().uuidString.prefix(8)).sock"
