@@ -20,7 +20,7 @@ namespace {
 using ColorFn = void (*)(void* context, int event, int browser_id, int64_t token, unsigned int color,
                          const void* data);
 using ChooserFn = void (*)(void* context, int event, int browser_id, int64_t token, const void* data);
-using LockFn = void (*)(void* context, int event, int browser_id, int escape_locked);
+using LockFn = void (*)(void* context, int event, int browser_id, int detail);
 
 struct AppHandlers {
   AppHandler<ColorFn> color;
@@ -65,9 +65,9 @@ void MediaClose(void*, int64_t token) {
   if (app.fn) app.fn(app.context, CMUX_SHIM_DESKTOP_MEDIA_CLOSE, 0, token, nullptr);
 }
 
-void Lock(int event, int browser_id, int escape_locked) {
+void Lock(int event, int browser_id, int detail) {
   const auto& app = app_handlers().lock;
-  if (app.fn) app.fn(app.context, event, browser_id, escape_locked);
+  if (app.fn) app.fn(app.context, event, browser_id, detail);
 }
 void PointerLockRequested(void*, int browser_id) {
   Lock(CMUX_SHIM_POINTER_LOCK_REQUESTED, browser_id, 0);

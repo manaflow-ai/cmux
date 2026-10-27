@@ -294,8 +294,7 @@ impl HostedReader {
             pty.journal_host_reconnect_gap(&reconnect_mux);
             reconnect_mux
                 .reconcile_deferred_cell_pixel_ack(surface.id, replacement_snapshot.cell_pixels);
-            surface.publish_pending_directory();
-            surface.publish_pending_progress();
+            surface.post_pending_publications();
             reconnect_mux.emit_terminal_title(pty.event_surface_id, title.into());
             reconnect_mux.emit_terminal_resized(
                 pty.event_surface_id,

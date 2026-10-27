@@ -58,7 +58,7 @@ pub(crate) fn session_dir(id: &str) -> Option<PathBuf> {
 pub(crate) fn remove_session(id: &str) {
     let Some(dir) = session_dir(id) else { return };
     // Never follows a symlink: `remove_dir_all` removes the link, not what it names.
-    match std::fs::remove_dir_all(&dir) {
+    match cmux_blocking::fs::remove_dir_all(&dir) {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => tracing::warn!(session = id, "uploads not deleted: {e}"),
@@ -80,7 +80,7 @@ pub(crate) fn sweep(root: &Path, now_ms: u64, max_age: Duration) -> usize {
     let cutoff = now_ms.saturating_sub(u64::try_from(max_age.as_millis()).unwrap_or(u64::MAX));
     let real_dirs =
         |dir: &Path| {
-            std::fs::read_dir(dir).into_iter().flatten().flatten().filter(|entry| {
+            cmux_blocking::fs::read_dir(dir).into_iter().flatten().flatten().filter(|entry| {
                 entry.file_type().is_ok_and(|kind| kind.is_dir() && !kind.is_symlink())
             })
         };
@@ -88,12 +88,17 @@ pub(crate) fn sweep(root: &Path, now_ms: u64, max_age: Duration) -> usize {
     for session in real_dirs(root) {
         for upload in real_dirs(&session.path()) {
             let old = upload.file_name().to_str().and_then(made_at).is_some_and(|at| at < cutoff);
-            if old && std::fs::remove_dir_all(upload.path()).is_ok() {
+            if old && cmux_blocking::fs::remove_dir_all(upload.path()).is_ok() {
                 removed += 1;
             }
         }
         // Only an empty folder goes (`remove_dir` refuses any other).
-        let _ = std::fs::remove_dir(session.path());
+        #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+        let _ = cmux_blocking::scoped_blocking_call(
+            "fs::remove_dir",
+            cmux_blocking::BlockingKind::Fs,
+            || std::fs::remove_dir(session.path()),
+        );
     }
     removed
 }
@@ -273,7 +278,13 @@ fn chunk(params: &Value) -> Result<Value, RpcError> {
     }
     file.seek(SeekFrom::End(0)).map_err(|e| RpcError::internal(e.to_string()))?;
     file.write_all(&bytes).map_err(|e| RpcError::internal(format!("cannot append upload: {e}")))?;
-    file.sync_data().map_err(|e| RpcError::internal(format!("cannot sync upload: {e}")))?;
+    #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+    let synced = cmux_blocking::scoped_blocking_call(
+        "fs::sync_data",
+        cmux_blocking::BlockingKind::Fs,
+        || file.sync_data(),
+    );
+    synced.map_err(|e| RpcError::internal(format!("cannot sync upload: {e}")))?;
     Ok(json!({"offset": next}))
 }
 
@@ -307,7 +318,7 @@ fn finish(session: &str, params: &Value) -> Result<Value, RpcError> {
     {
         return Err(RpcError::invalid_params("upload metadata does not match"));
     }
-    let current = std::fs::metadata(&part)
+    let current = cmux_blocking::fs::metadata(&part)
         .map_err(|e| RpcError::invalid_params(format!("unknown upload: {e}")))?
         .len();
     if current != size {
@@ -317,9 +328,9 @@ fn finish(session: &str, params: &Value) -> Result<Value, RpcError> {
     }
     let dir = part.parent().ok_or_else(|| RpcError::internal("upload has no folder"))?;
     let path = dir.join(name);
-    std::fs::rename(&part, &path)
+    cmux_blocking::fs::rename(&part, &path)
         .map_err(|e| RpcError::internal(format!("cannot finish upload: {e}")))?;
-    let _ = std::fs::remove_file(meta);
+    let _ = cmux_blocking::fs::remove_file(meta);
     Ok(json!({"path": path.to_string_lossy()}))
 }
 
@@ -442,10 +453,10 @@ pub fn cancel(id: &str, params: &Value) -> Result<Value, RpcError> {
         .and_then(upload_id)
         .ok_or_else(|| RpcError::invalid_params("uploadId is required"))?;
     if let Some(part) = part_path(id, &upload) {
-        let _ = std::fs::remove_file(part);
+        let _ = cmux_blocking::fs::remove_file(part);
     }
     if let Some(meta) = meta_path(id, &upload) {
-        let _ = std::fs::remove_file(meta);
+        let _ = cmux_blocking::fs::remove_file(meta);
     }
     Ok(json!({}))
 }
