@@ -8,6 +8,8 @@
 import { expect, test } from "bun:test";
 import { sessionPullRequests, sessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
 import {
+  markTranscriptSourceVersion,
+  transcriptSourceRowKey,
   transcriptPullRequestKey,
   transcriptPullRequests,
   transcriptSummaryVersion,
@@ -317,4 +319,180 @@ test("sessionSummary reuses its producer revision across 50 streamed chunks", ()
     expect(sessionSummary(rows.sorted(), "acme/app")).toBe(first);
   }
   expect(visits).toBe(0);
+});
+
+test("sources include fetched URLs, files read and MCP tools", () => {
+  const rows = [
+    activity(
+      [
+        tool("Read config", "read", "completed", { locations: [{ path: "config/app.json" }] }),
+        tool("Fetch docs", "fetch", "completed", { inputSummary: JSON.stringify({ url: "https://example.com/docs" }) }),
+        tool("mcp__github__get_issue", "other", "completed", {
+          inputSummary: JSON.stringify({ owner: "acme", number: 7 }),
+        }),
+      ],
+      1,
+    ),
+  ];
+  expect(sessionSummary(rows, "acme/app").sources).toEqual([
+    { label: "config/app.json", kind: "file" },
+    { url: "https://example.com/docs", label: "example.com/docs", kind: "url" },
+    { label: "github · get issue", kind: "mcp" },
+  ]);
+});
+
+test("update-branch is a Change and JSON titles preserve apostrophes", () => {
+  const rows = [
+    activity(
+      [
+        shell("gh pr update-branch 41 -R acme/uploader"),
+        shell("gh pr view 42 -R acme/uploader --json title", '{"title":"Leo\'s retry"}'),
+      ],
+      1,
+    ),
+  ];
+  expect(transcriptPullRequests(rows).map((pr) => [pr.number, pr.changed, pr.title])).toEqual([
+    [41, true, undefined],
+    [42, undefined, "Leo's retry"],
+  ]);
+});
+
+test("gh issue view references become issue Sources, never pull request URLs", () => {
+  const rows = [activity([shell("gh issue view 7 -R acme/uploader --json title", '{"title":"Scratch output"}')], 1)];
+  const issue = transcriptPullRequests(rows, { folder: "acme/uploader", replies: true })[0]!;
+  expect(issue).toMatchObject({
+    url: "https://github.com/acme/uploader/issues/7",
+    kind: "issue",
+    mentioned: true,
+  });
+  expect(sessionSummary(rows, "acme/uploader").sources).toEqual([
+    { url: "https://github.com/acme/uploader/issues/7", label: "Scratch output", kind: "issue" },
+  ]);
+});
+
+test("issue URLs in settled replies remain issue Sources", () => {
+  const rows = [assistant("See https://github.com/acme/uploader/issues/8", 1)];
+  expect(transcriptPullRequests(rows, { replies: true })).toMatchObject([
+    { url: "https://github.com/acme/uploader/issues/8", kind: "issue", mentioned: true },
+  ]);
+});
+
+test("settled assistant URLs become Sources while streaming prose is ignored", () => {
+  const settled = assistant("Read https://example.com/guide", 2);
+  const streaming = { ...assistant("Read https://example.com/live", 3), streaming: true };
+  expect(sessionSummary([settled]).sources).toEqual([
+    { url: "https://example.com/guide", label: "example.com/guide", kind: "url" },
+  ]);
+  expect(sessionSummary([streaming]).sources).toEqual([]);
+});
+
+test("cached Sources do not reread settled replies for each snapshot", () => {
+  let textReads = 0;
+  const rows = Array.from({ length: 2000 }, (_, index) => {
+    const row = { id: `reply-${index}`, version: 1, at: index, kind: "assistant" } as Record<string, unknown>;
+    Object.defineProperty(row, "text", { get: () => (textReads++, "steady") });
+    return row;
+  });
+  markTranscriptSourceVersion(rows as unknown as Rows, Symbol());
+  sessionSummary(rows as unknown as Rows);
+  textReads = 0;
+  sessionSummary(rows as unknown as Rows);
+  expect(textReads).toBe(0);
+});
+
+test("streaming reply references stay out of Sources without rescanning settled replies", () => {
+  let settledReads = 0;
+  const settled = Array.from({ length: 100 }, (_, index) => {
+    const row = assistant(`settled status ${index}`, index + 1);
+    Object.defineProperty(row, "text", {
+      configurable: true,
+      get: () => {
+        settledReads += 1;
+        return `settled status ${index}`;
+      },
+    });
+    return row;
+  });
+  const streaming = assistant("acme/app#7", 200);
+  streaming.streaming = true;
+  const rows = [...settled, streaming];
+  markTranscriptSourceVersion(rows, Symbol("settled"));
+
+  expect(sessionSummary(rows, "acme/app").sources).toEqual([]);
+  expect(settledReads).toBeGreaterThan(0);
+
+  settledReads = 0;
+  streaming.text = "acme/app#71";
+  expect(sessionSummary(rows, "acme/app").sources).toEqual([]);
+  expect(settledReads).toBe(0);
+});
+
+test("pending and failed tools do not enter Sources or advance the settled source key", () => {
+  const pending = tool("Read pending", "read", "in_progress", {
+    output: "https://example.com/pending",
+    locations: [{ path: "/tmp/pending.txt" }],
+  });
+  const failed = tool("Read failed", "read", "failed", {
+    output: "https://example.com/failed",
+    exitCode: 1,
+    locations: [{ path: "/tmp/failed.txt" }],
+  });
+  const row = activity([pending, failed], 1);
+  expect(sessionSummary([row], "acme/app").sources).toEqual([]);
+  const before = transcriptSourceRowKey(row);
+  pending.tool!.output = "https://example.com/changed-while-streaming";
+  pending.tool!.status = "in_progress";
+  expect(transcriptSourceRowKey(row)).toBe(before);
+  pending.tool!.status = "completed";
+  pending.tool!.exitCode = 0;
+  expect(transcriptSourceRowKey(row)).not.toBe(before);
+});
+
+test("Outputs fail closed when the session has no project folder", () => {
+  const rows = [
+    activity(
+      [
+        tool("Write scratch", "edit", "completed", {
+          diffs: [{ path: "/tmp/m1076.txt", newText: "scratch" }],
+        }),
+      ],
+      1,
+    ),
+  ];
+  expect(sessionSummary(rows).outputs).toEqual([]);
+});
+
+test("ambiguous shorthand Sources use neutral labels and redirect-safe URLs", () => {
+  for (const row of [activity([shell("echo acme/app#7")], 1), assistant("See acme/app#7 and #8", 1)]) {
+    const sources = sessionSummary([row], "acme/app").sources;
+    expect(sources[0]).toEqual({ url: "https://github.com/acme/app/issues/7", label: "acme/app#7", kind: "url" });
+  }
+  const explicit = sessionSummary([assistant("See https://github.com/acme/app/pull/9", 1)], "acme/app").sources;
+  expect(explicit[0]).toMatchObject({ url: "https://github.com/acme/app/pull/9", kind: "pullRequest" });
+});
+
+test("known PR evidence stays a PR when later referenced by shorthand", () => {
+  const rows = [activity([shell("gh pr view 7 -R acme/app")], 1), assistant("See acme/app#7", 0)];
+  expect(sessionSummary(rows, "acme/app").sources).toEqual([
+    { url: "https://github.com/acme/app/pull/7", label: "acme/app #7", kind: "pullRequest" },
+  ]);
+});
+
+test("without cwd only project-relative Outputs survive, including canonical-path checks", () => {
+  const rows = [
+    activity(
+      [
+        tool("Write files", "edit", "completed", {
+          diffs: [
+            { path: "src/main.ts", newText: "export {}" },
+            { path: "scratch.txt", canonical: "/tmp/scratch.txt", newText: "scratch" },
+            { path: "/tmp/m1076.txt", newText: "scratch" },
+            { path: "../outside.txt", newText: "scratch" },
+          ],
+        }),
+      ],
+      1,
+    ),
+  ];
+  expect(sessionSummary(rows).outputs.map((file) => file.path)).toEqual(["src/main.ts"]);
 });
