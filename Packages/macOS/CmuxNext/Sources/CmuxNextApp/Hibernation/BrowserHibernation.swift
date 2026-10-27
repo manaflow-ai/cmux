@@ -90,6 +90,9 @@ final class BrowserHibernation {
     /// Remote desktop and remote browser tabs (`BrowserStreamedPage`) hibernate to their last frame
     /// (feature `memoryDiscardRemoteTabs`, set by the App); off, they count as pages that cannot restore.
     var discardsStreamedPages = false
+    /// A hidden Chromium page whose out-of-process frame crashed is discarded (``subframeDidCrash(_:)``, feature
+    /// `memoryDiscardCrashedSubframes`, set by the App before `start()`); off, it keeps its sad frame.
+    var discardsCrashedSubframes = false
     var frozenGrowth = FrozenGrowthRule()
     let growthDeadline: MainDeadline
     /// Tab `key`'s opener group (its openers and the tabs they opened), itself included; injected by the App.
@@ -718,6 +721,16 @@ final class BrowserHibernation {
         }
         prepare(key, for: .external)
         return nil
+    }
+
+    /// A frame of page `key` crashed in another renderer (``BrowserSubframeCrashReporting``): a hidden page is
+    /// discarded with reason external, as by Hibernate Tab, so it shows again reloaded whole and its renderers'
+    /// memory goes; a shown page keeps its sad frame. Chrome's DiscardPageWithCrashedSubframePolicy
+    /// (chrome/browser/performance_manager/policies/discard_page_with_crashed_subframe_policy.cc).
+    func subframeDidCrash(_ key: String) {
+        guard discardsCrashedSubframes, setting.isEnabled, let cache, cache.lifecycle.phase(key) == .mountedHidden else { return }
+        cache.trace(key, "discard (\(DiscardReason.external.rawValue), crashed subframe)")
+        _ = hibernateNow(key)
     }
 
     /// Probes the page, captures its history and snapshot, then hibernates it if it is still hidden

@@ -38,5 +38,9 @@ extension CEFRuntime {
                                            code: Int(exit.status), source: .process))
         let kind = CEFHelperExitMetric.ProcessType(processType: exit.processType, isExtension: exit.isExtension)
         if kind != .renderer { helperExits.record(kind, reason) } // a page renderer counts in `rendererEnded`
+        // CEF tells a browser only of its main frame's renderer: each tab checks for its out-of-process frames.
+        if kind == .renderer, let client = exit.rendererClientID {
+            for tab in tabsByBrowser.values { tab.rendererEnded(client: client, pid: exit.pid) }
+        }
     }
 }

@@ -98,9 +98,13 @@ extension BrowserHibernation {
     /// a stand-in's move): with `recentlyAudibleProtection` its sound is followed from now on, shown
     /// or hidden, through its one audible bit (`BrowserAudibleReporting`), as Chrome's page node
     /// follows its audio from creation. A page that plays nothing (a hibernated placeholder, an app
-    /// page) drops the old page's watch. A Chromium page follows its tab's node (``followVisibility(_:_:)``).
+    /// page) drops the old page's watch. A Chromium page follows its tab's node (``followVisibility(_:_:)``) and
+    /// reports its crashed subframes (``subframeDidCrash(_:)``).
     func pageDidMount(_ key: String, _ page: any BrowserTab) {
         followVisibility(key, page)
+        if discardsCrashedSubframes, let page = page as? any BrowserSubframeCrashReporting {
+            page.onSubframeCrash = { [weak self] in self?.subframeDidCrash(key) }
+        }
         guard let audible else { return }
         guard let speaker = page as? any BrowserAudibleReporting else { return audible.unwatch(key) }
         audible.watch(key, speaker) { [weak speaker] in speaker?.isAudible == true }

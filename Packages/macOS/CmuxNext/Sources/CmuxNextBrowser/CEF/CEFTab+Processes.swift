@@ -1,7 +1,7 @@
 public import CmuxNextWakeups
 public import Foundation
 
-extension CEFTab: BrowserProcessReporting {
+extension CEFTab: BrowserProcessReporting, BrowserSubframeCrashReporting {
     /// Renderer client ids hosting this tab's frames (main frame, out-of-process iframes; one per site).
     public var contentProcesses: BrowserContentProcesses {
         guard let browserID, let shim = runtime.shim else { return .none }
@@ -44,6 +44,32 @@ extension CEFTab: BrowserProcessReporting {
     func rendererTerminated(_ exit: BrowserProcessExit) {
         guard showProcessExit(exit) else { return }
         runtime.recordRendererExit(exit, tab: self)
+    }
+
+    /// Renderer `client` (process `pid`) ended abnormally (``CEFRuntime/childExited(_:)``). When it hosted a
+    /// frame of this page but not its main frame (whose end is ``rendererTerminated(_:)``, the sad tab), a
+    /// subframe crashed: ``onSubframeCrash`` runs. Chrome finds the same from the frame nodes of the dead
+    /// process (chrome/browser/performance_manager/policies/discard_page_with_crashed_subframe_policy.cc).
+    func rendererEnded(client: Int32, pid: pid_t) {
+        guard let onSubframeCrash else { return }
+        let hosted = frameRenderers.contains(client)
+        noteFrameRenderers()
+        guard hosted || frameRenderers.contains(client), let main = rendererPID,
+              Self.isSubframeCrash(main: main, ended: pid, pageExited: state.processExit != nil, closed: isClosed) else { return }
+        onSubframeCrash()
+    }
+
+    /// Whether a renderer `ended` that hosted a frame of a page is a subframe's crash: the page is open, its
+    /// own renderer, `main`, is another process, and Chromium did not report the page's own end.
+    nonisolated static func isSubframeCrash(main: pid_t, ended: pid_t, pageExited: Bool, closed: Bool) -> Bool {
+        !closed && !pageExited && main > 0 && main != ended
+    }
+
+    /// Reads which renderers host this page's frames into ``frameRenderers`` while ``onSubframeCrash`` is set;
+    /// in process only (with the Chromium Host on, the shim call is a reply over the wire).
+    func noteFrameRenderers() {
+        let reads = onSubframeCrash != nil && runtime.hostStart == nil && !isClosed
+        frameRenderers = if reads, case .chromiumRendererClients(let ids) = contentProcesses { Set(ids) } else { [] }
     }
 
     /// The Chromium Host ended with this page's browser in it (`CEFRuntime.hostEnded`): the sad tab
