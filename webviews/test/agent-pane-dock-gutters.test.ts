@@ -256,10 +256,17 @@ await requireBrowserLane("agent-pane-dock-gutters.test.ts", async () => {
         try {
           expect(await page.locator(".acpmux-dock > .acpmux-pr-dock").count()).toBe(0);
           const links = page.locator(".acpmux-scroll .acpmux-pr-dock").first();
-          await links.scrollIntoViewIfNeeded();
-          const box = (await links.boundingBox())!;
-          expect(await links.locator(".acpmux-pr-dock__bar").count()).toBeGreaterThan(0);
-          const moved = await wheelAt(page, box.x + 8, box.y + box.height / 2, -300);
+          const link = links.locator(".acpmux-pr-dock__bar").first();
+          await link.scrollIntoViewIfNeeded();
+          const box = (await link.boundingBox())!;
+          const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+          expect(
+            await link.evaluate(
+              (node, point) => document.elementFromPoint(point.x, point.y)?.closest("a") === node,
+              point,
+            ),
+          ).toBe(true);
+          const moved = await wheelAt(page, point.x, point.y, -300);
           expect(moved).toBeLessThan(-100);
         } finally {
           await page.close();
