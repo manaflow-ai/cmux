@@ -970,6 +970,19 @@ impl ChildAgent {
         }
     }
 
+    /// `fail_pending` while this agent's link is still broken or stopped: a reattach clears those
+    /// under the same lock, so a late notice of an old link never fails the open requests of the
+    /// link that replaced it (review 2 of #26059).
+    pub async fn fail_pending_if_unheard(&self) {
+        let mut p = self.pending.lock().await;
+        if !self.is_broken() && !self.is_stopped() {
+            return;
+        }
+        for (_, tx) in p.map.drain() {
+            let _ = tx.send(Err(RpcError::internal("agent process closed")));
+        }
+    }
+
     /// Whether [`Self::retire`] ran.
     pub fn is_retired(&self) -> bool {
         *self.retired.lock().unwrap_or_else(|e| e.into_inner())
@@ -1527,8 +1540,12 @@ impl ChildAgent {
             h.replay_to.store(u64::MAX, Ordering::SeqCst);
             *current = link.clone();
         }
-        h.broken.store(false, Ordering::SeqCst);
-        h.stopped.store(false, Ordering::SeqCst);
+        {
+            // Under the requests' lock: `fail_pending_if_unheard` sees the link whole or not.
+            let _pending = self.pending.lock().await;
+            h.broken.store(false, Ordering::SeqCst);
+            h.stopped.store(false, Ordering::SeqCst);
+        }
         self.start_reader(link);
         Ok(())
     }
