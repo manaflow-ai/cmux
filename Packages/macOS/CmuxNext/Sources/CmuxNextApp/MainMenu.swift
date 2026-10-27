@@ -14,7 +14,7 @@ enum MainMenu {
     /// window (chrome/browser/ui/cocoa/main_menu_builder.mm). The step's record (`debug.startup`) and
     /// `launch.startup_task` signpost carry its cost against the 2 ms the design allows it.
     /// `decidedKey`: whether the key router decided a key-down (`ActionMenuBar` skips its menu search).
-    static func install(registry: ActionRegistry, blocking: BlockingDetector, decidedKey: @escaping @MainActor (NSEvent) -> Bool,
+    static func install(registry: ActionRegistry, blocking: BlockingDetector, decidedKey: @escaping @MainActor (NSEvent) -> Bool = { _ in false },
                         on startup: StartupScheduler) {
         startup.post(.critical, "MainMenu.make", on: .main) {
             NSApp.mainMenu = MainMenu.make(registry: registry, blocking: blocking, decidedKey: decidedKey)
