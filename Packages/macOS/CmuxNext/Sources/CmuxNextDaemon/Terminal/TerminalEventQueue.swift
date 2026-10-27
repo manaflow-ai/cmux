@@ -14,6 +14,9 @@ import Foundation
 /// app buffering without limit; the view reattaches from a fresh replay.
 /// Replays never block (a 10 MiB replay must not wedge the attach
 /// handshake). Consecutive plain output chunks are merged on the way out.
+///
+/// Live output that goes straight to the view's lane (``TerminalEchoRouter``)
+/// parks the same reader on the lane's capacity instead (``waitForLane(_:)``).
 final class TerminalEventQueue: Sendable {
     let highWater: Int
     let lowWater: Int
@@ -39,10 +42,15 @@ final class TerminalEventQueue: Sendable {
         var armed = false
         /// The reader waits on `readerWake`; whoever clears this signals it exactly once.
         var readerParked = false
+        /// The view's lane is above its capacity: the reader waits until the lane wakes it (``releaseLane(closing:)``).
+        var laneHeld = false
+        /// The link detached: the lane never holds the reader again.
+        var laneClosed = false
 
-        /// Whether the reader must wait now (armed, not finished, above `highWater`); marks it parked if so.
+        /// Whether the reader must wait now (not finished, and the lane holds it or the queue is armed and above
+        /// `highWater`); marks it parked if so.
         mutating func parkReader(above highWater: Int) -> Bool {
-            readerParked = armed && !finished && outputBytes > highWater
+            readerParked = !finished && (laneHeld || (armed && outputBytes > highWater))
             return readerParked
         }
 
@@ -94,17 +102,49 @@ final class TerminalEventQueue: Sendable {
 
     /// Reader thread. May block while the consumer is behind.
     func push(_ event: TerminalChannelEvent) {
-        let (waiter, blocked) = state.withLock { state -> (OnceContinuation<TerminalChannelEvent?, OnceContinuationError>?, Bool) in
-            guard !state.finished else { return (nil, false) }
-            if let waiter = state.waiter.take() { return (waiter, false) }
-            state.items.append(event)
-            state.outputBytes += Self.outputSize(event)
-            return (nil, state.parkReader(above: highWater))
-        }
-        waiter?.resume(returning: event)
-        guard blocked else { return }
+        pushWithoutWaiting(event)
+        waitWhileFull()
+    }
+
+    /// Reader thread: waits while the consumer is behind (armed and above `highWater`). Returns at once otherwise.
+    func waitWhileFull() {
+        guard state.withLock({ $0.parkReader(above: highWater) }) else { return }
         onReaderBlocked?()
-        var parked = blocked
+        parkReader()
+    }
+
+    /// Reader thread: hands one live chunk to the view's lane (`enqueue`, given the lane's wake) and, when the
+    /// lane says it is above its capacity, waits until the lane wakes it, the stream ends or the link detaches
+    /// (``releaseLane()``). `enqueue` returns whether the reader must wait; the lane calls the wake exactly once
+    /// when it returned true.
+    func waitForLane(_ enqueue: (_ wake: @escaping @Sendable () -> Void) -> Bool) {
+        let holds = state.withLock { state -> Bool in
+            state.laneHeld = !state.laneClosed
+            return state.laneHeld
+        }
+        guard enqueue({ [self] in releaseLane() }), holds else {
+            state.withLock { $0.laneHeld = false }
+            return
+        }
+        guard state.withLock({ $0.parkReader(above: highWater) }) else { return }
+        onReaderBlocked?()
+        parkReader()
+    }
+
+    /// Any thread: the lane drained below its capacity or closed, or (`closing`) the link detached and the lane
+    /// never holds the reader again; a reader waiting for the lane goes on.
+    func releaseLane(closing: Bool = false) {
+        let release = state.withLock { state -> Bool in
+            state.laneHeld = false
+            if closing { state.laneClosed = true }
+            return state.releaseReader()
+        }
+        if release { readerWake.signal() }
+    }
+
+    /// Waits on `readerWake` until nothing holds the reader; ``State/parkReader(above:)`` marked it parked.
+    private func parkReader() {
+        var parked = true
         while parked {
             // The designed backpressure that makes the daemon drop a slow view: a checked wait, only on the attach
             // connection's dedicated reader thread (LineTransport), never the main thread or a pool thread.

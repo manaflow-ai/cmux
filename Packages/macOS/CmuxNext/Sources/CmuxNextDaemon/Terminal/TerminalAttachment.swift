@@ -6,9 +6,11 @@ import os
 
 /// One attached terminal view on its own connection (v12 has no stream
 /// cancel, and heavy output must not delay tree mutations on the control
-/// connection). Output flows through a bounded `TerminalEventQueue`; after
-/// the attach handshake every command here is fire-and-forget, so a consumer
-/// that stops draining can never deadlock against a blocked reader.
+/// connection). Events flow through a bounded `TerminalEventQueue`; live
+/// output goes from the reader thread straight to the view's lane once one is
+/// set (``setOutputSink(_:)``, ``TerminalEchoRouter``). After the attach
+/// handshake every command here is fire-and-forget, so a consumer that stops
+/// draining can never deadlock against a blocked reader.
 public actor TerminalAttachment: TerminalByteChannel {
     public struct Target: Sendable, Hashable {
         public var surface: SurfaceID
@@ -52,12 +54,10 @@ public actor TerminalAttachment: TerminalByteChannel {
         init(_ surface: SurfaceID) { value = Mutex(surface) }
     }
 
-    /// Snapshot order of this stream; only the reader thread touches it.
-    private final class SequencerBox: Sendable {
-        let value = Mutex(TerminalSnapshotSequencer())
-    }
     private nonisolated let transport: LineTransport
     private nonisolated let queue: TerminalEventQueue
+    /// Snapshot order, and whether live output goes straight to the view's lane.
+    private nonisolated let router: TerminalEchoRouter
     private nonisolated let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon.attach")
 
     /// Written by the attach handshake, then read by every command. Guarded
@@ -137,6 +137,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         resolvedSurface = SurfaceBox(surface)
         let queue = TerminalEventQueue(recorder: transport.recorder)
         self.queue = queue
+        router = TerminalEchoRouter(queue: queue)
         events = AsyncStream(unfolding: { await queue.next() }, onCancel: { queue.cancel() })
     }
 
@@ -149,7 +150,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         let queue = queue
         let control = control
         let resolvedSurface = resolvedSurface
-        let sequencer = SequencerBox()
+        let router = router
         let decoder = transport.decoder
         transport.start(
             onEvent: { name, line, _ in
@@ -158,20 +159,10 @@ public actor TerminalAttachment: TerminalByteChannel {
                     resolvedSurface.value.withLock { $0 = named }
                     surface = named
                 }
-                guard let decoded = Self.decodeAttachLine(name: name, line: line, surface: surface, decoder: decoder),
-                      let event = sequencer.value.withLock({ $0.admit(decoded) })
-                else { return }
-                if case .sizeState(let state, let selfParticipant) = event {
+                guard let decoded = Self.decodeAttachLine(name: name, line: line, surface: surface, decoder: decoder) else { return }
+                router.receive(decoded) { state, selfParticipant in
                     // Pushed under the same lock that orders generations (see admitSizeState).
                     Self.admitSizeState(state, selfParticipant: selfParticipant, control: control, queue: queue)
-                    return
-                }
-                if case .closed = event {
-                    queue.finish(event)
-                } else {
-                    if case .output = event { TypingLatencyProbe.shared.outputDecoded(flow: decoded.flow) }
-                    queue.push(event)
-                    if let flow = decoded.flow { queue.pushWithoutWaiting(.inputEcho(flow: flow)) } // rides behind its chunk
                 }
             },
             onClose: { reason in
@@ -283,6 +274,19 @@ public actor TerminalAttachment: TerminalByteChannel {
         sendResize(CellSize(cols: cols, rows: rows))
     }
 
+    // MARK: Live output
+
+    /// Any thread: live output goes from the reader thread straight to `sink` (the view's output lane), in
+    /// order with the events still on ``events``: a sink takes output only once the consumer resumed the
+    /// ``TerminalChannelEvent/outputResume(_:)`` marker behind every event queued before it. Nil: output stays
+    /// on ``events``.
+    public nonisolated func setOutputSink(_ sink: TerminalEchoSink?) {
+        router.setSink(sink)
+    }
+
+    /// Whether the next output chunk goes straight to the sink (tests, diagnostics).
+    public nonisolated var routesOutputToSink: Bool { router.routesToLane }
+
     // MARK: Geometry and lifetime
 
     /// Makes this view the geometry owner: only the owner resizes the PTY.
@@ -383,6 +387,8 @@ public actor TerminalAttachment: TerminalByteChannel {
             return .some(control.lease)
         }
         guard case .some(let lease) = lease else { return }
+        // Output stays on the stream from here, and a reader waiting for the lane reads on to its end.
+        router.close()
         if let lease { fireAndForget(DetachAttachedViewRequest(surface: surface, lease: lease)) }
         transport.close()
     }

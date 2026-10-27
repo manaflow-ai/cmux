@@ -41,6 +41,19 @@ nonisolated final class TerminalOutputLane: Sendable {
     private struct Backlog {
         var bytes = 0
         var waiters: [OnceContinuation<Void, OnceContinuationError>] = []
+        /// Attach readers waiting for room (``enqueueEcho(_:flow:wake:)``); each is called once.
+        var wakes: [@Sendable () -> Void] = []
+
+        typealias Released = (waiters: [OnceContinuation<Void, OnceContinuationError>], wakes: [@Sendable () -> Void])
+
+        /// Takes every waiter and wake; the caller releases them outside the lock.
+        mutating func release() -> Released {
+            defer {
+                waiters = []
+                wakes = []
+            }
+            return (waiters, wakes)
+        }
     }
 
     private let backlog = Mutex(Backlog())
@@ -116,6 +129,23 @@ nonisolated final class TerminalOutputLane: Sendable {
         queue.async { [self] in
             guard !closing.load(ordering: .relaxed) else { return }
             probe.mark(.outputParsed, flow: flow)
+        }
+    }
+
+    /// An attach link's reader hands a live chunk straight here (``TerminalEchoLane``), with no stream, task or
+    /// pool thread between the socket and the parser: the chunk is queued at once, and the echo of key press
+    /// `flow` it carries marks its received and parsed hops. Returns true when the backlog is now above
+    /// `highWater`: the reader then waits until the lane calls `wake`, once, when it drains to `highWater` or
+    /// closes. Returns false otherwise and never calls `wake`. Never blocks (the reader's thread).
+    func enqueueEcho(_ data: Data, flow: UInt64?, wake: @escaping @Sendable () -> Void) -> Bool {
+        outputReceived()
+        ExpectedActivity.shared.note(.terminalOutput)
+        processOutput(data)
+        if let flow { echoReceived(flow) }
+        return backlog.withLock { backlog -> Bool in
+            guard backlog.bytes > highWater, !closing.load(ordering: .relaxed) else { return false }
+            backlog.wakes.append(wake)
+            return true
         }
     }
 
@@ -299,23 +329,37 @@ nonisolated final class TerminalOutputLane: Sendable {
     func close() {
         closing.store(true, ordering: .relaxed)
         echoStage?.close()
-        let waiters = backlog.withLock { backlog -> [OnceContinuation<Void, OnceContinuationError>] in
-            defer { backlog.waiters = [] }
-            return backlog.waiters
-        }
+        let (waiters, wakes) = backlog.withLock { $0.release() }
         waiters.forEach { $0.resume(returning: ()) }
+        wakes.forEach { $0() }
         // The reviewed fence before ghostty_surface_free (BlockingAllowance.surfaceTeardown): queued chunks are
         // skipped once `closing` is set, so this waits for at most the one chunk being parsed.
         allowBlocking(.surfaceTeardown) { queue.blockingSync {} }
     }
 
     private func parsed(_ count: Int) {
-        let waiters = backlog.withLock { backlog -> [OnceContinuation<Void, OnceContinuationError>] in
+        let (waiters, wakes) = backlog.withLock { backlog -> Backlog.Released in
             backlog.bytes -= count
-            guard backlog.bytes <= highWater, !backlog.waiters.isEmpty else { return [] }
-            defer { backlog.waiters = [] }
-            return backlog.waiters
+            guard backlog.bytes <= highWater else { return ([], []) }
+            return backlog.release()
         }
         waiters.forEach { $0.resume(returning: ()) }
+        wakes.forEach { $0() }
     }
+}
+
+/// A surface's output lane as an attach link's reader feeds it (``TerminalIO/setOutputLane(_:)``): live
+/// output goes from the reader thread straight to the lane, with no stream or task between them.
+public nonisolated struct TerminalEchoLane: Sendable {
+    let lane: TerminalOutputLane
+
+    /// Queues one live chunk, and the echo of key press `flow` it carries. True: the lane is above its
+    /// capacity, and calls `wake` once when it has room again or closes; the reader waits until then.
+    /// False: it never calls `wake`. Never blocks.
+    public func enqueue(_ data: Data, flow: UInt64?, wake: @escaping @Sendable () -> Void) -> Bool {
+        lane.enqueueEcho(data, flow: flow, wake: wake)
+    }
+
+    /// Whether both name the same lane.
+    func names(_ other: TerminalOutputLane?) -> Bool { lane === other }
 }

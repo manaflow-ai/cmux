@@ -122,6 +122,7 @@ private nonisolated final class RouteLink: TerminalAttachLink {
     func sendTakeOver(reporting size: CellSize, setLatest: Bool) { log.link("takeOver \(size.cols)x\(size.rows)") }
     func sendHidden(_ hidden: Bool) { log.link(hidden ? "hide" : "unhide") }
     func sendSnapshotRequest(reason: SnapshotRequestReason) { log.link("snapshot \(reason.rawValue)") }
+    func setOutputSink(_ sink: TerminalEchoSink?) {}
     func detachNow() { feed.finish() }
 }
 

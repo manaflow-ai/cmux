@@ -78,6 +78,7 @@ nonisolated private final class FakeLink: TerminalAttachLink {
     func sendTakeOver(reporting size: CellSize, setLatest: Bool) { log.yield("takeOver \(size.cols)x\(size.rows)") }
     func sendHidden(_ hidden: Bool) { log.yield(hidden ? "hide" : "unhide") }
     func sendSnapshotRequest(reason: SnapshotRequestReason) {}
+    func setOutputSink(_ sink: TerminalEchoSink?) {}
     func detachNow() {
         log.yield("detach")
         feed.finish()

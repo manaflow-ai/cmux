@@ -17,6 +17,9 @@ public nonisolated protocol TerminalAttachLink: AnyObject, Sendable {
     func sendHidden(_ hidden: Bool)
     /// Asks for a fresh READY + history on this attach.
     func sendSnapshotRequest(reason: SnapshotRequestReason)
+    /// Live output goes from the link's reader straight to `sink`, in order with `events` (each change waits
+    /// for an ``TerminalChannelEvent/outputResume(_:)`` marker); nil keeps it on `events`.
+    func setOutputSink(_ sink: TerminalEchoSink?)
     /// Detaches and closes the connection; its `events` then finish.
     /// Idempotent.
     func detachNow()
@@ -24,7 +27,9 @@ public nonisolated protocol TerminalAttachLink: AnyObject, Sendable {
 
 /// Runs a ``TerminalAttachMachine`` against real attachments: one reducer
 /// under one lock, one effect applier, and one pump per open link feeding a
-/// bounded ``TerminalStepQueue``.
+/// bounded ``TerminalStepQueue``. Live output skips the pump once the view
+/// names its lane (``setOutputSink(_:)``): the link's reader hands it to the
+/// lane, behind every step the view has not applied yet.
 ///
 /// Effects are applied outside the lock but strictly in the order the
 /// reducer produced them: whichever caller finds the applier idle drains the
@@ -51,6 +56,9 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
         var applying = false
         /// One task per attach attempt: opens the link, then pumps it.
         var tasks: [Int: Task<Void, Never>] = [:]
+        /// The view's output lane (``setOutputSink(_:)``), and the links being pumped, which carry it.
+        var sink: TerminalEchoSink?
+        var pumped: [Int: LinkRef] = [:]
     }
 
     private let core: Mutex<Core>
@@ -118,6 +126,17 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
 
     /// The view stopped consuming.
     public func cancelSteps() { queue.cancel() }
+
+    /// Any thread: live output of every link this driver pumps, and of each it opens later, goes from the
+    /// link's reader straight to `sink` (the view's output lane), in order with ``nextStep()``: the view
+    /// resumes each ``TerminalStreamPlan/Step/outputResume(_:)`` once it applied the steps before it. Nil keeps
+    /// output on the steps. Set under the reducer's lock, so a link opening meanwhile never keeps an older sink.
+    public func setOutputSink(_ sink: TerminalEchoSink?) {
+        core.withLock { core in
+            core.sink = sink
+            core.pumped.values.forEach { $0.link.setOutputSink(sink) }
+        }
+    }
 
     // MARK: Events
 
@@ -233,6 +252,10 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     private static func run(owner: Owner, opener: Opener, attempt: Int, size: CellSize,
                             cursorDefault: TerminalCursorDefault) async {
         guard let ref = await open(owner: owner, opener: opener, attempt: attempt, size: size) else { return }
+        owner.value?.core.withLock { core in
+            core.pumped[attempt] = ref
+            ref.link.setOutputSink(core.sink)
+        }
         var ended: TerminalChannelCloseReason = .connectionLost("attach stream ended")
         stream: for await event in ref.link.events {
             guard let queue = owner.value?.queue else { break stream }
@@ -253,7 +276,7 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
                 case .replay: owner.value?.send(.replayDelivered(ref))
                 // A link's first READY is its replay; later ones are no-ops there.
                 case .snapshot(let frame) where frame.phase == .ready: owner.value?.send(.replayDelivered(ref))
-                case .grid, .output, .inputEcho, .snapshot, .exited, .status, .sizing: break
+                case .grid, .output, .inputEcho, .outputResume, .snapshot, .exited, .status, .sizing: break
                 }
             }
             if case .closed(let reason) = event {
@@ -305,7 +328,10 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     }
 
     private func finishTask(_ attempt: Int) {
-        _ = core.withLock { $0.tasks.removeValue(forKey: attempt) }
+        core.withLock { core in
+            core.tasks.removeValue(forKey: attempt)
+            core.pumped.removeValue(forKey: attempt)
+        }
     }
 }
 

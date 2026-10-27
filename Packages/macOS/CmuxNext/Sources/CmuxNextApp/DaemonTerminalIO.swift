@@ -58,6 +58,8 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     private let surface: UInt64
     /// The app's grid sender (`AppServices.resizes`): next frame, one in flight, a final grid now.
     private let resizes: ResizeCoordinator
+    /// Told after each step this view maps, and each live chunk its lane takes (nil in Release).
+    private let screenChanged: (@Sendable () -> Void)?
     /// The id of the terminal still being created whose keys go to the daemon by id, nil otherwise.
     var creatingTerminalID: String? { creatingInput?.terminalID }
 
@@ -129,6 +131,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         self.creatingInput = creatingInput
         self.burstTrace = burstTrace
         self.surface = surface
+        self.screenChanged = screenChanged
         events = AsyncStream(unfolding: {
             await driver.nextStep().map { step in
                 let event = Self.event(for: step)
@@ -213,6 +216,19 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
             }
             return .next
         }
+    }
+
+    /// Live output goes from the attach link's reader thread straight to `lane` (``TerminalAttachDriver/setOutputSink(_:)``),
+    /// with the marks the stream's output step makes: the burst trace's first output and the oracle's screen change.
+    func setOutputLane(_ lane: TerminalEchoLane?) {
+        driver.setOutputSink(lane.map { lane in
+            TerminalEchoSink { [burstTrace, surface, screenChanged] data, flow, wake in
+                burstTrace?.output(surface: surface)
+                let full = lane.enqueue(data, flow: flow, wake: wake)
+                screenChanged?()
+                return full
+            }
+        })
     }
 
     /// Focus takes geometry back after another client sized the terminal,
@@ -335,6 +351,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         case .snapshot(let frame): .snapshot(frame.data, phase: snapshotPhase(frame))
         case .output(let data): .output(data)
         case .inputEcho(let flow): .inputEcho(flow: flow)
+        case .outputResume(let marker): .outputResume(TerminalOutputResume { marker.resume() })
         case .exited: .exited
         case .status(let status): .status(Self.connection(status))
         case .sizing(let notice): .sizedFor(notice.map(Self.sizedFor))

@@ -282,6 +282,7 @@ public final class TerminalSession {
         closeCancels.forEach { $0.cancel() }
         closeCancels = []
         input.finish()
+        nameOutputLane(nil)
         surfaceView.removeFromSuperview()
     }
 
@@ -299,6 +300,11 @@ public final class TerminalSession {
         Task.detached(priority: .high) { [weak session] in
             var lane: TerminalOutputLane?
             for await event in events {
+                // Every earlier event is applied or queued on the lane: live output may go straight there again.
+                if case .outputResume(let resume) = event {
+                    resume.resume()
+                    continue
+                }
                 if let lane, await lane.takeOffMain(event) { continue }
                 guard let session else { return }
                 lane = await session.handle(event)
@@ -307,10 +313,22 @@ public final class TerminalSession {
     }
 
     /// Handles one event on the main actor. Returns the lane later output may go to off the main
-    /// actor (``consume(_:for:)``).
+    /// actor (``consume(_:for:)``), and names it to the IO, whose reader may then feed it directly.
     private func handle(_ event: TerminalIOEvent) async -> TerminalOutputLane? {
         await apply(event)
-        return surfaceHasContent ? surfaceView.lane : nil
+        let lane = surfaceHasContent ? surfaceView.lane : nil
+        nameOutputLane(lane)
+        return lane
+    }
+
+    /// The lane the IO feeds live output to (``TerminalIO/setOutputLane(_:)``).
+    private var namedOutputLane: TerminalEchoLane?
+
+    /// Tells the IO when the lane for live output changes (a first content, a swapped surface, a close).
+    private func nameOutputLane(_ lane: TerminalOutputLane?) {
+        guard !(namedOutputLane?.names(lane) ?? (lane == nil)) else { return }
+        namedOutputLane = lane.map(TerminalEchoLane.init(lane:))
+        io.setOutputLane(namedOutputLane)
     }
 
     private func apply(_ event: TerminalIOEvent) async {
@@ -354,6 +372,7 @@ public final class TerminalSession {
             frameHold.contentQueued()
             TerminalTimings.contentApplied()
         case .inputEcho(let flow): surfaceView.lane?.echoReceived(flow)
+        case .outputResume(let resume): resume.resume() // consume(_:for:) takes it off the main actor first
         case .resize(let columns, let rows):
             guard columns > 0, rows > 0 else { return }
             await applyCanonicalGrid(TerminalGridSize(columns: columns, rows: rows))
