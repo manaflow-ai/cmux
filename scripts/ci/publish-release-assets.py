@@ -25,7 +25,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit
 
 
 # A rate-limited 403/429 (GitHub rejects it before processing) is retried
@@ -214,14 +214,41 @@ class Asset:
                 and remote.get("size") == self.size and remote.get("digest") == self.digest)
 
 
+class _SameHostAuthRedirect(urllib.request.HTTPRedirectHandler):
+    """Follow a redirect, but send the token only to the host it was meant for: the asset API
+    redirects to a storage host that must not see it."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new is not None and urlsplit(newurl).hostname != urlsplit(req.full_url).hostname:
+            new.remove_header("Authorization")
+        return new
+
+
+_OPENER = urllib.request.build_opener(_SameHostAuthRedirect)
+
+
+def client_from_env(repo: str) -> "GitHub":
+    """GH_APP_TOKEN (the release App, a separate actor) first when the job minted one, GH_TOKEN
+    (github.token) as its fallback."""
+    app, token = os.environ.get("GH_APP_TOKEN", ""), os.environ.get("GH_TOKEN", "")
+    return GitHub(repo, app or token, fallback=token if app else "")
+
+
 class GitHub:
     def __init__(self, repo: str, token: str, *, api_url: str = "https://api.github.com",
-                 upload_url: str = "https://uploads.github.com"):
+                 upload_url: str = "https://uploads.github.com", fallback: str = ""):
         if not re.fullmatch(r"[\w.-]+/[\w.-]+", repo):
             raise ValueError("Expected --repo owner/name")
         if not token or any(char in token for char in '\r\n"\\'):
             raise ValueError("GH_TOKEN must contain a valid token")
+        if any(char in fallback for char in '\r\n"\\'):
+            raise ValueError("GH_TOKEN must be a valid token")
         self.repo, self.token = repo, token
+        # With a fallback, token is the release App's: a refusal of it (401, 403, 429) switches
+        # to the fallback (github.token) for the rest of the run.
+        self.fallback = fallback if fallback != token else ""
+        self._token_lock = threading.Lock()  # upload workers share this client
         self.api_url, self.upload_url = api_url, upload_url
 
     def request(self, method: str, url: str, *, file: Path | None = None,
@@ -238,10 +265,16 @@ class GitHub:
         single = bool(file) or method in {"POST", "PATCH"}
         attempts = 3
         attempt = 0
+        switched = False
         while True:
+            used = self.token
             try:
                 return self._request(method, url, file=file, body=body, content_type=content_type)
             except RequestError as error:
+                # A refused request did nothing on GitHub's side, so it is safe to send again.
+                if not switched and self._fall_back(used, error.status, error):
+                    switched = True
+                    continue
                 # A rate-limited refusal is retried until the budget runs out (backoff raises then);
                 # it does not use up one of the attempts.
                 if error.rate_limited:
@@ -251,6 +284,20 @@ class GitHub:
                     raise
                 backoff(attempt, error)
                 attempt += 1
+
+    def _fall_back(self, used: str, status: int, error: Exception) -> bool:
+        """After `used` was refused: whether to send the call again (now with the fallback)."""
+        if status not in (401, 403, 429):
+            return False  # only a refusal of the token is sent again
+        with self._token_lock:
+            if self.token != used:
+                return True  # another worker already switched to the fallback
+            if not self.fallback:
+                return False
+            print(f"GitHub refused the release App token ({error}); using github.token from here on",
+                  file=sys.stderr, flush=True)
+            self.token, self.fallback = self.fallback, ""
+            return True
 
     def _request(self, method: str, url: str, *, file: Path | None = None,
                  body: bytes | None = None, content_type: str | None = None):
@@ -410,25 +457,31 @@ class GitHub:
         url = remote.get("url") or remote.get("browser_download_url")
         if not isinstance(url, str) or not url.startswith("https://"):
             raise RequestError("release asset has no safe download URL")
-        request = urllib.request.Request(
-            url,
-            headers={
-                "Authorization": f"Bearer {self.token}",
-                "Accept": "application/octet-stream",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
-        )
+        switched = False
         attempt = 0
         while True:
+            used = self.token
+            request = urllib.request.Request(
+                url,
+                headers={
+                    "Authorization": f"Bearer {used}",
+                    "Accept": "application/octet-stream",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+            )
             digest = hashlib.sha256()
             size = 0
             try:
-                with urllib.request.urlopen(request, timeout=600) as response:
+                with _OPENER.open(request, timeout=600) as response:
                     for chunk in iter(lambda: response.read(1024 * 1024), b""):
                         size += len(chunk)
                         digest.update(chunk)
                 break
             except urllib.error.HTTPError as error:
+                # A refused App token is sent once more with the fallback (github.token).
+                if not switched and self._fall_back(used, error.code, error):
+                    switched = True
+                    continue
                 # A rate-limited download backs off like any other request (until the budget ends).
                 body = error.read().decode(errors="replace") if error.fp else ""
                 headers = {name.lower(): value for name, value in (error.headers or {}).items()}
@@ -637,7 +690,7 @@ def main() -> int:
     args = parser.parse_args()
     # Hash and validate every local file before any remote mutation.
     phases = plan(args.immutable, args.optional_immutable, args.alias, args.feed, replace_feeds=args.replace_feeds)
-    client = GitHub(args.repo, os.environ.get("GH_TOKEN", ""))
+    client = client_from_env(args.repo)
     release_id = args.release_id if args.release_id is not None else client.release_id(args.tag)
     publish(client, release_id, phases)
     if args.github_output:

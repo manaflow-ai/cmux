@@ -207,7 +207,10 @@ public nonisolated struct SettingsPageLayout: Sendable {
         CategorySpec(
             id: "notifications", title: section(.notifications), symbol: "bell",
             groups: [
-                group("settings.group.banners"), group("settings.group.dismissal"), group("settings.group.attention"),
+                // Sounds: per-event sounds, volume, timing and the burst cooldown
+                // (NotificationSoundSettingsSchema); its per-level maps stay off the page.
+                group("settings.group.banners"), group("settings.group.sounds"), group("settings.group.dismissal"),
+                group("settings.group.attention"),
                 group("settings.group.feedMirror"), group("settings.group.githubInbox"),
             ],
             actions: [.notifications], aliases: [.notifications]),
@@ -261,10 +264,12 @@ public nonisolated struct SettingsPageLayout: Sendable {
             id: "server", title: SettingsText.keyed("settings.category.server", "Server"), symbol: "server.rack",
             groups: [], lead: [.server]),
         // This Mac and the person's other devices on the device hub: names, fingerprints, Mac
-        // Screen access, relays and the access history (docs/device-hub). DEV builds only for now.
+        // Screen access, relays and the access history (docs/device-hub). Every build: NIGHTLY and
+        // Release use the built-in hub (DeviceHubSettings.resolvedBaseURL), and Mac Screen's
+        // sharing switch, permissions and relays live only here.
         CategorySpec(
             id: "devices", title: SettingsText.keyed("settings.category.devices", "Devices"), symbol: "laptopcomputer",
-            groups: [], lead: [.devices], devOnly: true),
+            groups: [], lead: [.devices]),
         CategorySpec(
             id: "advanced", title: section(.advanced), symbol: "curlybraces", groups: [],
             lead: [.advancedInfo], trail: [.advancedActions], actions: [.advanced], aliases: [.advanced]),

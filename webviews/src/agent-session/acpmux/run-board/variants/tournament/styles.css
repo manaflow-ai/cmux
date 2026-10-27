@@ -6,7 +6,7 @@
   min-height: 100%;
   color: var(--tournament-ink);
   background: var(--cmux-surface-background, transparent);
-  font-family: var(--font-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+  font-family: var(--font-ui);
 }
 
 .tournament-run-board *, .tournament-run-board *::before, .tournament-run-board *::after { box-sizing: border-box; }
@@ -14,23 +14,23 @@
 .tournament-header { display: flex; align-items: end; justify-content: space-between; gap: 24px; }
 .tournament-eyebrow, .tournament-pane-kicker, .tournament-rail-kicker { color: var(--tournament-muted); font-size: var(--text-caption); font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
 .tournament-header h1 { margin: 7px 0 5px; font-size: var(--text-heading); font-weight: 550; letter-spacing: -.04em; }
-.tournament-header p { max-width: 720px; margin: 0; color: var(--tournament-muted); font-size: var(--text-detail); line-height: 1.5; }
-.tournament-capture-receipt { max-width: 360px; color: var(--tournament-muted); font-size: var(--text-caption); line-height: 1.45; text-align: right; }
+.tournament-header p { max-width: 720px; margin: 0; color: var(--tournament-muted); font-size: var(--text-detail); line-height: 1.5; letter-spacing: var(--text-detail--letter-spacing); }
+.tournament-capture-receipt { max-width: 360px; color: var(--tournament-muted); font-size: var(--text-caption); line-height: 1.45; text-align: right; letter-spacing: var(--text-caption--letter-spacing); }
 .tournament-rails { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(280px, .8fr); gap: 14px; margin: 22px 0 18px; }
 .tournament-judge, .tournament-placement { min-width: 0; padding: 14px 16px; border: 1px solid var(--tournament-line); border-radius: 9px; background: var(--tournament-soft); }
 .tournament-judge-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .tournament-judge h2, .tournament-placement h2 { margin: 5px 0 10px; font-size: var(--text-title); font-weight: 570; letter-spacing: -.02em; }
-.tournament-judge-heading span { color: var(--tournament-muted); font-size: var(--text-caption); }
-.tournament-judge table { width: 100%; border-collapse: collapse; font-size: var(--text-caption); }
+.tournament-judge-heading span { color: var(--tournament-muted); font-size: var(--text-caption); letter-spacing: var(--text-caption--letter-spacing); }
+.tournament-judge table { width: 100%; border-collapse: collapse; font-size: var(--text-caption); letter-spacing: var(--text-caption--letter-spacing); }
 .tournament-judge caption { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .tournament-judge th, .tournament-judge td { padding: 6px 5px; border-top: 1px solid var(--tournament-line); color: var(--tournament-muted); text-align: right; }
 .tournament-judge th:first-child, .tournament-judge td:first-child { text-align: left; }
 .tournament-judge thead th { border-top: 0; font-weight: 550; }
 .tournament-judge tbody th { color: var(--tournament-ink); font-weight: 570; }
-.tournament-judge tbody td strong { color: var(--tournament-ink); font-size: var(--text-caption); }
-.tournament-judge-note, .tournament-placement p { margin: 10px 0 0; color: var(--tournament-muted); font-size: var(--text-caption); line-height: 1.45; }
+.tournament-judge tbody td strong { color: var(--tournament-ink); font-size: var(--text-caption); letter-spacing: var(--text-caption--letter-spacing); }
+.tournament-judge-note, .tournament-placement p { margin: 10px 0 0; color: var(--tournament-muted); font-size: var(--text-caption); line-height: 1.45; letter-spacing: var(--text-caption--letter-spacing); }
 .tournament-placement dl { margin: 0; }
-.tournament-placement dl > div { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-top: 1px solid var(--tournament-line); font-size: var(--text-caption); }
+.tournament-placement dl > div { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-top: 1px solid var(--tournament-line); font-size: var(--text-caption); letter-spacing: var(--text-caption--letter-spacing); }
 .tournament-placement dt { color: var(--tournament-muted); }
 .tournament-placement dd { margin: 0; color: var(--tournament-ink); font-weight: 550; text-align: right; }
 .tournament-panes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
@@ -38,14 +38,14 @@
 .tournament-pane-heading { display: flex; align-items: end; justify-content: space-between; gap: 14px; min-height: 67px; padding: 14px 17px 12px; border-bottom: 1px solid var(--tournament-line); }
 .tournament-pane-heading h2 { margin: 5px 0 0; font-size: var(--text-title); font-weight: 570; letter-spacing: -.03em; }
 .tournament-pane-heading h2 small { margin-left: 5px; color: var(--tournament-muted); font-size: var(--text-caption); font-weight: 550; letter-spacing: 0; }
-.tournament-pane-heading p { margin: 0; color: var(--tournament-muted); font-size: var(--text-caption); text-align: right; }
+.tournament-pane-heading p { margin: 0; color: var(--tournament-muted); font-size: var(--text-caption); text-align: right; letter-spacing: var(--text-caption--letter-spacing); }
 .tournament-pane > .compare-run-board, .tournament-pane > .timeline-board { min-width: 0; padding: 22px 17px 26px; }
 .tournament-pane > .compare-run-board .compare-run-header, .tournament-pane > .timeline-board .timeline-header { max-width: none; }
 .tournament-pane > .compare-run-board .compare-run-intent, .tournament-pane > .compare-run-board .compare-replay-banner, .tournament-pane > .compare-run-board .compare-api-error, .tournament-pane > .compare-run-board .compare-matrix-section, .tournament-pane > .compare-run-board .compare-review { max-width: none; }
 .tournament-pane > .compare-run-board .compare-run-intent { margin-top: 20px; }
 .tournament-pane > .timeline-board .timeline-review-grid { grid-template-columns: minmax(0, 1fr); }
 .tournament-pane > .timeline-board .timeline-stream { border-right: 0; border-bottom: 1px solid var(--page-separator); }
-.tournament-footer { display: flex; justify-content: space-between; gap: 14px; margin-top: 14px; color: var(--tournament-muted); font-size: var(--text-caption); }
+.tournament-footer { display: flex; justify-content: space-between; gap: 14px; margin-top: 14px; color: var(--tournament-muted); font-size: var(--text-caption); letter-spacing: var(--text-caption--letter-spacing); }
 
 @media (max-width: 1050px) {
   .tournament-shell { padding-inline: 16px; }

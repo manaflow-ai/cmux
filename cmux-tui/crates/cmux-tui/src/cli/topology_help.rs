@@ -74,8 +74,12 @@ svg:sha256-<hex> asset); --clear-icon removes it. --pinned true
 saves a group so it stays when its workspaces close; false unpins it.
 
 SELECTORS
-  <selector> is an id (ws_…, pane_…, tab_…, term_…), current, or an exact
-  name. Prefix name: to a name that looks like an id or a command word.
+  <selector> is an id (ws_…, pane_…, tab_…, term_…), caller, current, or an
+  exact name. Prefix name: to a name that looks like an id or a command word.
+  caller is the object this command runs in: the cmux terminal or agent chat
+  it was started from (`cmux identify` reports it). current is that same
+  object when cmux knows the caller, and the focused one otherwise (a shell
+  outside cmux, or --socket/--session, where caller is refused).
 ";
 
 pub(super) const PANE_HELP: &str = "\
@@ -106,8 +110,12 @@ to a pane that already exists, use `cmux tab create terminal --pane <selector>`
 instead of splitting again.
 
 SELECTORS
-  <selector> is an id (ws_…, pane_…, tab_…, term_…), current, or an exact
-  name. Prefix name: to a name that looks like an id or a command word.
+  <selector> is an id (ws_…, pane_…, tab_…, term_…), caller, current, or an
+  exact name. Prefix name: to a name that looks like an id or a command word.
+  caller is the object this command runs in: the cmux terminal or agent chat
+  it was started from (`cmux identify` reports it). current is that same
+  object when cmux knows the caller, and the focused one otherwise (a shell
+  outside cmux, or --socket/--session, where caller is refused).
 ";
 
 pub(super) const TAB_HELP: &str = "\
@@ -154,8 +162,12 @@ or a custom #RRGGBB. A group icon is one emoji, an SF Symbol name, or a stored
 image:sha256-<hex> or svg:sha256-<hex> asset; --clear-icon removes it.
 
 SELECTORS
-  <selector> is an id (ws_…, pane_…, tab_…, term_…), current, or an exact
-  name. Prefix name: to a name that looks like an id or a command word.
+  <selector> is an id (ws_…, pane_…, tab_…, term_…), caller, current, or an
+  exact name. Prefix name: to a name that looks like an id or a command word.
+  caller is the object this command runs in: the cmux terminal or agent chat
+  it was started from (`cmux identify` reports it). current is that same
+  object when cmux knows the caller, and the focused one otherwise (a shell
+  outside cmux, or --socket/--session, where caller is refused).
 ";
 
 pub(super) const TERMINAL_HELP: &str = "\
@@ -204,8 +216,12 @@ the message. A passed --timeout exits 124 with the output so far. An agent
 that waits on a dialog is refused unless --force.
 
 SELECTORS
-  <selector> is an id (ws_…, pane_…, tab_…, term_…), current, or an exact
-  name. Prefix name: to a name that looks like an id or a command word.
+  <selector> is an id (ws_…, pane_…, tab_…, term_…), caller, current, or an
+  exact name. Prefix name: to a name that looks like an id or a command word.
+  caller is the object this command runs in: the cmux terminal or agent chat
+  it was started from (`cmux identify` reports it). current is that same
+  object when cmux knows the caller, and the focused one otherwise (a shell
+  outside cmux, or --socket/--session, where caller is refused).
 ";
 
 /// `cmux <scope> rename --help` for the scopes whose resources have names.
@@ -227,6 +243,11 @@ pub(super) fn rename_help(topic: &str) -> String {
 
 const SELECTORS: &str = "
 SELECTORS
-  <selector> is an id (ws_…, screen_…, pane_…, tab_…), current, or an exact
-  name. Prefix name: to a name that looks like an id or a command word.
+  <selector> is an id (ws_…, screen_…, pane_…, tab_…), caller, current, or
+  an exact name. Prefix name: to a name that looks like an id or a command
+  word.
+  caller is the object this command runs in: the cmux terminal or agent chat
+  it was started from (`cmux identify` reports it). current is that same
+  object when cmux knows the caller, and the focused one otherwise (a shell
+  outside cmux, or --socket/--session, where caller is refused).
 ";

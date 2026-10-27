@@ -2,14 +2,21 @@
 # Chief fast evals: deterministic cases (tests/eval_*.rs) and model cases
 # (evals/cases/*.json through examples/chief_eval.rs). Prints one table and
 # writes artifacts under $OUT (default artifacts/chief-evals/<time>).
-# Usage: run.sh [--only PREFIX] [--no-model] [chief_eval flags...]
+# Usage: run.sh [--only PREFIX] [--no-model] [--out DIR] [chief_eval flags...]
 set -uo pipefail
 ulimit -n 8192 2>/dev/null || ulimit -n "$(ulimit -Hn)"
 cd "$(dirname "$0")/.."
 out=${OUT:-$PWD/../../../artifacts/chief-evals/$(date -u +%Y%m%dT%H%M%SZ)}
-mkdir -p "$out"
 model=1; args=()
-for a in "$@"; do [ "$a" = --no-model ] && model=0 || args+=("$a"); done
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --no-model) model=0 ;;
+    --out) out=${2:?--out needs a directory}; shift ;;
+    *) args+=("$1") ;;
+  esac
+  shift
+done
+mkdir -p "$out"
 status=0
 tests=$(ls tests/eval_*.rs 2>/dev/null | sed -E 's#tests/(.*)\.rs#--test \1#')
 if [ -n "$tests" ]; then

@@ -168,6 +168,14 @@ macro_rules! home_rule {
   When the user asks, type into a terminal (`cmux terminal <term_…> write
   --text …`) and name in your reply the terminal you typed into (its tab id
   and title). `chief workspace` reads the block again after you act.
+- Agent chats the user started: when the user asks you to message, nudge
+  or steer one, `agents_chat_send` (target: its acpmux session, a chat
+  tab's `extra.conversation.agent_session.session` in `agents_snapshot`)
+  starts a turn there as your message, a chat no tab has shown yet
+  included; `agents_chat_state`, `agents_wait` and `agents_chat_read`
+  follow it. A receipt whose state is `held` waits for the user's release
+  (`cmux agent message release`): say so, never that it was sent. Your
+  subagents stay `tell`.
 - Browser: drive pages in the column right of your chat with `cmux
   browser right <verb> --agent \"<your name>\"` (navigate URL, snapshot
   --interactive, click, fill, type, press, scroll, state, screenshot --out
@@ -631,6 +639,8 @@ fn without_stop_lines(view: &str) -> String {
 /// Tool descriptions of section 9's `spawn` and `tell`.
 pub const SPAWN_DESCRIPTION: &str = "Start one subagent per task, in parallel, in the background, in `cwd`; answers their ids at once and, for each, the cmux workspace that shows its chat, its sidebar group and where it is, or that it has none and why. Start each task with a line `Title: <2-5 words>` (its workspace name) and optionally `Group: <sidebar group>`; without them both come from the task. Tell the user only that. Each subagent sees the view, its task, the user's profile and the cmux rules (git and landing, links, processes, sign-ins): a task never restates them. Each one's report reaches you as a message \"[id] report\" when it finishes. Never wait or poll for them. place: cloud runs them on the cloud VM peer (code and tests; Mac builds go to the fleet), local on this Mac (its app, UI, screenshots, computer use); by default, the `control cloud` setting. This is how a background agent starts: never `acpmux new` or a headless `claude -p`.";
 pub const SPAWN_CWD_DESCRIPTION: &str = "The most specific directory the work is in, on the machine you run on (~ is its home), for example ~/fun/repo: never ~ itself, / or a private folder such as ~/Downloads or ~/Documents, where they would read the user's private files and macOS would ask the user for access; those run in the subagents' own folder. The answer says when it does not exist there.";
+/// The `cloud_workspace` tool's description (cloud_workspace.rs, #25596).
+pub const CLOUD_WORKSPACE_DESCRIPTION: &str = "Start a cmux Cloud workspace for a task: a Cloud machine (a Linux VM) named after `title` and a workspace on it, which shows in the person's sidebar under that machine and is ready for terminals and agents. A machine is billed and on a paid plan cmux makes it at once without asking, so call it only when the person asked for a Cloud workspace, VM or machine for this task, or said yes when you asked. A machine of that name, or one still being made, is answered and never made twice; a create the server is still making answers queued, and the same title later says whether it is up. machine: open another workspace on an existing machine instead. Answers its machine:<id>, which `cmux cloud exec --target` and the other `cmux cloud` verbs take. A cloud.plan.required error means a paid plan: the paid-plans skill.";
 /// A subagent's `peers` tool (acp-chief-issues.md #11).
 pub const PEERS_DESCRIPTION: &str =
     "List the other subagents of Chief: id, title, state and workspace. Tell one with `tell`.";

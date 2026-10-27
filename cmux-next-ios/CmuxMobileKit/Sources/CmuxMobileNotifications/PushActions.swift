@@ -101,6 +101,11 @@ public struct PushActions: Sendable {
         defaults?.set(on, forKey: requireFaceIDKey)
     }
 
+    /// With the choice shared by the app (`PushSharedPreference`).
+    public init(preference: PushSharedPreference) {
+        self.init(requireFaceID: preference.requireFaceID)
+    }
+
     /// The App Group's shared defaults.
     public static func sharedDefaults(_ group: PushAppGroup?) -> UserDefaults? {
         group.flatMap { UserDefaults(suiteName: $0.identifier) }
@@ -205,5 +210,63 @@ public struct PushActions: Sendable {
                 textInputButtonTitle: String(localized: "Send"), textInputPlaceholder: String(localized: "Reply")
             )
         }
+    }
+}
+
+/// Settings → Require Face ID, shared with the content extension. The push
+/// keychain group holds it in every build (the CI App Store profiles grant
+/// the keychain group but no App Group); a build with the App Group also
+/// keeps it in the group's defaults, which an older app wrote.
+public struct PushSharedPreference {
+    public static let requireFaceIDAccount = "preference.requireFaceID"
+
+    public var keychain: (any PushSecretStore)?
+    public var defaults: UserDefaults?
+
+    public init(keychain: (any PushSecretStore)?, defaults: UserDefaults?) {
+        self.keychain = keychain
+        self.defaults = defaults
+    }
+
+    /// This build's: the push keychain group, and the App Group's defaults when it has one.
+    public static func live(group: PushAppGroup?) -> PushSharedPreference {
+        PushSharedPreference(keychain: PushKeychainStore.current(), defaults: PushActions.sharedDefaults(group))
+    }
+
+    public var requireFaceID: Bool {
+        if let data = try? keychain?.read(Self.requireFaceIDAccount), let byte = data.first { return byte == 1 }
+        return defaults?.bool(forKey: PushActions.requireFaceIDKey) ?? false
+    }
+
+    public func setRequireFaceID(_ on: Bool) {
+        try? keychain?.write(Data([on ? 1 : 0]), account: Self.requireFaceIDAccount)
+        defaults?.set(on, forKey: PushActions.requireFaceIDKey)
+    }
+}
+
+/// Which stores a Require Face ID call writes. `AppLockController.init` runs in
+/// `RootView.body`, so the same value arrives on every body pass: a write then
+/// (a `UserDefaults.standard` write wakes `@AppStorage` readers, which run the
+/// body again) loops the first frame forever. Only a change writes.
+public struct PushFaceIDSync: Sendable, Equatable {
+    /// The app's own defaults' value.
+    public private(set) var local: Bool
+    /// The value last written to the stores the extension reads; nil before the first write.
+    public private(set) var shared: Bool?
+
+    public struct Writes: Sendable, Equatable {
+        public var local: Bool
+        public var shared: Bool
+    }
+
+    public init(local: Bool) {
+        self.local = local
+    }
+
+    public mutating func set(_ on: Bool) -> Writes {
+        let writes = Writes(local: on != local, shared: on != shared)
+        local = on
+        shared = on
+        return writes
     }
 }
