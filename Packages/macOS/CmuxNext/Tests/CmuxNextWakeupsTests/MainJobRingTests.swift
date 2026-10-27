@@ -63,14 +63,15 @@ struct MainJobRingTests {
         let work = ring.timed { ticks.set(10_250) }
         work()
         let job = try #require(ring.read().jobs.first)
-        #expect((job.kind, job.enqueuedNanos, job.runNanos) == (.mainDelivery, 10_000, 250))
+        #expect((job.kind, job.enqueuedNanos, job.runNanos) == (MainJobRing.Kind.mainDelivery, UInt64(10_000), UInt64(250)))
     }
 
     @MainActor @Test func aFrozenRingLeavesADeliveryAsItIs() {
         let ticks = Ticks()
         let ring = MainJobRing(capacity: 4) { ticks.read() }
         ring.freeze()
-        ring.timed { ticks.set(42) }()
+        let work = ring.timed { ticks.set(42) }
+        work()
         #expect(ticks.read() == 42)
         #expect(ring.read().jobs.isEmpty)
     }

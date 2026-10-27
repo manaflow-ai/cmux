@@ -32,9 +32,9 @@ public struct MainDelivery: Sendable {
     /// `work`, timed by the launch's main-job census when one is armed (Debug and bench builds; p08-startup-080).
     private static func censused(_ work: @escaping @MainActor @Sendable () -> Void) -> @MainActor @Sendable () -> Void {
         #if DEBUG || CMUX_BENCH_HOOKS
-        MainJobRing.installed()?.timed(work) ?? work
+        return MainJobRing.installed()?.timed(work) ?? work
         #else
-        work
+        return work
         #endif
     }
 }

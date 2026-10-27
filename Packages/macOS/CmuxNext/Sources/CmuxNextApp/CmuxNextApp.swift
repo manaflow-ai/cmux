@@ -26,10 +26,6 @@ public struct CmuxNextApp {
         // CMUX_TRACE_STARTUP: the startup trace's ring, before the first mark (unset: one getenv, no ring).
         let startupTrace = DebugTimings.makeStartupTrace()
         DebugTimings.markLaunch("main_start")
-        #if DEBUG || CMUX_BENCH_HOOKS
-        // CMUX_NEXT_MAIN_JOB_CENSUS=1 (startup-queue.py mainjobs): every main job and turn until startup completes (p08-startup-080).
-        let mainJobs = MainJobCensus.armed(environment: ProcessInfo.processInfo.environment, processStartNanos: DebugTimings.processStartUptimeNanos)
-        #endif
         announceBenchHooksBuild()
         // First, while the process has one thread: install the delegating
         // default malloc zone Chromium expects (Chromium's
@@ -39,6 +35,11 @@ public struct CmuxNextApp {
         // Without this, a free() on another thread in that moment crashed
         // with "No zone found" (browser-isolation.md, allocator zone race).
         _ = cmux_early_malloc_zone_registration()
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // CMUX_NEXT_MAIN_JOB_CENSUS=1 (startup-queue.py mainjobs): every main job and turn until startup completes
+        // (p08-startup-080). Its hook goes in while the process still has one thread, before any main-actor job.
+        let mainJobs = MainJobCensus.armed(environment: ProcessInfo.processInfo.environment, processStartNanos: DebugTimings.processStartUptimeNanos)
+        #endif
         // Before any socket or pipe exists (ChildSignalDefaults); the open-file limit before CefInitialize
         // (OpenFileLimit: launchd's 256 stopped the app at 80-100 Chromium tabs).
         ChildSignalDefaults.installAppSignalPolicy(); let openFiles = OpenFileLimit().raise()
