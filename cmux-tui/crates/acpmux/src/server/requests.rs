@@ -507,6 +507,43 @@ const ARCHIVED_TAG: &str = "archived";
 // The tag that marks a side chat, valued with its chat's session (`hub/btw.rs`).
 use crate::hub::SIDE_TAG;
 
+/// An agent a remote device drives (its caller session's turn, or its last one, is a Web turn,
+/// `hub/remote_floor.rs`) sends no files: not through `acpmux send --attach` from its shell, now
+/// or queued (`--no-wait`), nor by uploading one, as `send_message` may not either
+/// (`hub/subsession_send.rs`); nor does it cancel an upload. Refused before anything is saved,
+/// sent, deleted or forwarded.
+fn caller_sends_no_files(
+    hub: &Arc<Hub>,
+    conn: &Conn,
+    m: &str,
+    params: &Value,
+) -> Result<(), RpcError> {
+    let Some(caller) = conn.caller() else { return Ok(()) };
+    let blocks = match m {
+        method::SESSION_PROMPT => params.get("prompt"),
+        method::MUX_SEND_QUEUE => params.pointer("/request/prompt"),
+        _ => None,
+    };
+    let files = blocks
+        .and_then(Value::as_array)
+        .is_some_and(|b| crate::attach::any(b) || crate::prompt_uploads::any(b));
+    let upload = matches!(
+        m,
+        method::MUX_FILE_PUT
+            | method::MUX_FILE_PUT_BEGIN
+            | method::MUX_FILE_PUT_CHUNK
+            | method::MUX_FILE_PUT_FINISH
+            | method::MUX_FILE_PUT_CANCEL
+    );
+    if !(files || upload) {
+        return Ok(());
+    }
+    match hub.resolve(caller) {
+        Ok(caller) => hub.subsession_attach_check(&caller),
+        Err(_) => Ok(()),
+    }
+}
+
 pub(super) async fn handle_request(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
@@ -522,6 +559,7 @@ pub(super) async fn handle_request(
         super::remote_guard::check(hub, conn.origin, conn.auth, device.as_deref(), m, &mut params)
             .await?;
     }
+    caller_sends_no_files(hub, conn, m, &params)?;
     // Only the person allows or widens what runs without asking (`hub/person.rs`): one
     // check, before the request runs or reaches a peer. Held to the Web's rules: a Web
     // connection, or a peer forwarding for its own Web client (`via: web`); a peer
@@ -646,6 +684,15 @@ async fn dispatch_request(
         method::MUX_APPROVERS_SET | method::MUX_APPROVERS => {
             Err(crate::hub::person::person_required("changing or reading trusted approvers"))
         }
+        method::MUX_MAC_APPROVER_SET if conn.is_person() => hub.person.macs.set_own(&params),
+        method::MUX_MAC_APPROVER_SET => {
+            Err(crate::hub::person::person_required("setting this Mac's approver key"))
+        }
+        // This machine's own: never a remote connection's (a peer's included).
+        method::MUX_MAC_APPROVERS if conn.origin.web_class() => Err(RpcError::invalid_params(
+            "the enrolled Macs are read only on this machine, over its unix socket or app",
+        )),
+        method::MUX_MAC_APPROVERS => Ok(hub.person.macs.view(&params)),
         method::MUX_WORKSPACE_ROOTS_SET if conn.is_person() => {
             hub.person.set_workspace_roots(&params)
         }
@@ -1002,6 +1049,13 @@ async fn dispatch_request(
             // A remote web client may not hide text, directly or through a peer daemon.
             let web = super::remote_guard::control_of(conn.origin, conn.auth, &params)
                 == crate::hub::Control::Web;
+            // The uploads this prompt names as its own (`attach::blocks_for` uploaded them for it
+            // alone): a refusal before the session sees it deletes them, so none is left behind.
+            let mut owned = crate::attach::OwnedUploads(if web {
+                Vec::new()
+            } else {
+                crate::prompt_uploads::owned(&s.id, &blocks).await
+            });
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
             let provenance = crate::hub::Hub::prompt_provenance(&params, conn.origin)?;
             // A person's prompt (`author.rs`): the hub stamps who sent it, also for a peer's.
@@ -1080,6 +1134,8 @@ async fn dispatch_request(
                 (blocks, saved) =
                     received.await.map_err(|e| RpcError::internal(e.to_string()))??;
             }
+            // From here the prompt's own uploads go only if the session refuses it.
+            let saved = crate::attach::Saved::with_owned(saved, &s.id, owned.take());
             let opts = crate::hub::PromptOptions {
                 prompt_id,
                 on_accepted: match &saved {
@@ -1809,6 +1865,17 @@ async fn dispatch_request(
             crate::hub::subagent_transcript::handle(hub, &params).await
         }
         method::MUX_SHUTDOWN => {
+            // The person's own daemon is never stopped by a test runner or a client from a
+            // runner's `_work` or a temp folder (`exe_path::shutdown_refusal`). Only the daemon's
+            // own environment can allow those; nothing a client sends does.
+            let allow = crate::daemon::exe_path::allowed_by_env();
+            if let Some(why) =
+                crate::daemon::exe_path::peer_shutdown_refusal(conn.peer.as_ref(), allow)
+            {
+                tracing::warn!("{why}");
+                return Err(RpcError::new(-32000, why)
+                    .with_data(json!({"reason": "shutdown.refused_client"})));
+            }
             // `endAgents: true` (the app's Quit Everything) ends agents that
             // run under agent hosts; otherwise they keep running for the next
             // daemon.

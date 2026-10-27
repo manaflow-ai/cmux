@@ -4,6 +4,40 @@ use super::exit_reason::explains_exit;
 use super::*;
 use std::sync::atomic::Ordering;
 
+/// What the agent of `session` is sent for `blocks`: model-sized copies of its large images
+/// (`model_copies.rs`), then [`acp_prompt_blocks`]. No copy is made, or kept, for a turn a remote
+/// device controls: it is read from this machine's disk as the prompt's sender, who was local.
+pub(super) async fn agent_blocks(
+    hub: &Hub,
+    session: &Session,
+    blocks: &[Value],
+) -> Result<Vec<Value>, RpcError> {
+    let web = || session.turn().is_some_and(|t| t.control == Control::Web);
+    if web() {
+        return acp_prompt_blocks(session, blocks);
+    }
+    let family = session.meta().family;
+    let copied = crate::model_copies::add(&session.id, family.as_deref(), blocks).await;
+    // Tests only: a Stop or a remote device comes while the copies are made.
+    #[cfg(test)]
+    {
+        let seam = hub.copy_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if let Some((arrived, release)) = seam {
+            let _ = arrived.send(());
+            let _ = release.await;
+        }
+    }
+    #[cfg(not(test))]
+    let _ = hub;
+    acp_prompt_blocks(session, if web() { blocks } else { &copied })
+}
+
+/// A prompt not written to its agent: a Stop came while its model-sized copies were made.
+pub(super) fn stopped_before_prompt() -> RpcError {
+    RpcError::new(-32000, "the turn was stopped before this prompt reached the agent")
+        .with_data(json!({"reason": "stopped"}))
+}
+
 /// ACP v1 does not define a `document` content block. Claude's translator can
 /// turn our internal document block into Anthropic's native document. Strict
 /// ACP adapters (including Codex) instead get a stable workspace file and a
@@ -469,12 +503,39 @@ impl Hub {
                 json!({"prompt": short_text(&text, 200), "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str(), "trustGate": trust_gate}),
             )
             .seq;
+        // The prompt as the agent gets it, before the checks below: making its model-sized copies
+        // may take a moment, in which a Stop or a remote device may come (`model_copies.rs`).
+        let cancels = session.cancels.load(Ordering::SeqCst);
+        let wire = agent_blocks(self, session, &blocks).await;
+        let stopped = session.cancels.load(Ordering::SeqCst) != cancels
+            || session.stops.load(Ordering::SeqCst) != stops;
         let control = {
             let mut turn = session.turn.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(t) = turn.as_mut() {
                 t.turn_seq = turn_seq;
             }
             turn.as_ref().map_or(control, |t| t.control)
+        };
+        let wire = match wire {
+            // A remote device took the turn meanwhile: the prompt goes without copies.
+            Ok(_) if control == Control::Web => acp_prompt_blocks(session, &blocks),
+            wire => wire,
+        };
+        let wire = match wire {
+            Ok(wire) if !stopped => wire,
+            Ok(_) => {
+                let e = stopped_before_prompt();
+                self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
+                self.forum_turn_end(session, &told, false);
+                drop(guard);
+                return Err(e);
+            }
+            Err(e) => {
+                self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
+                self.forum_turn_end(session, &told, false);
+                drop(guard);
+                return Err(e);
+            }
         };
         // The remote floor fired before the prompt went out (a mode write
         // in the gap): the prompt is not sent. After this point the floor's
@@ -507,7 +568,7 @@ impl Hub {
         let mut result = super::steer_end::agent_prompt_hook(
             session,
             &child,
-            json!({"sessionId": agent_sid, "prompt": acp_prompt_blocks(session, &blocks)?}),
+            json!({"sessionId": agent_sid, "prompt": wire}),
             &turn_id,
             false,
             || {
@@ -524,8 +585,10 @@ impl Hub {
             // A pool launcher that dies on the prompt (its proxy is down)
             // moves the session too, not only a usage or auth limit.
             // A stopped session's agent closed because of the stop: no failover starts it again.
+            // Nor does one MDM's off ended (review 3 of #26034).
             if (is_limit_error(&e.message) || e.message.starts_with("agent process closed"))
                 && session.stops.load(Ordering::SeqCst) == stops
+                && !child.ended_on_purpose()
                 && let Some(to) = self.fallback_profile(session).await
             {
                 let from = session.meta().harness;
@@ -608,20 +671,29 @@ impl Hub {
                         // Its start read the chat ready: the turn runs on.
                         self.set_status(session, SessionStatus::Running);
                         if let Some(sid2) = session.meta().agent_session_id {
+                            // A Stop while its copies were made: not written (as the first).
+                            let cancels = session.cancels.load(Ordering::SeqCst);
+                            let wire = agent_blocks(self, session, &blocks).await?;
+                            let stopped = session.cancels.load(Ordering::SeqCst) != cancels
+                                || session.stops.load(Ordering::SeqCst) != stops;
                             // Like the first prompt: Stop's and a stalled turn's forced end
                             // (`cancel.rs`, `stalled_turn.rs`) end it too.
-                            result = super::steer_end::agent_prompt_hook(
-                                session,
-                                &child2,
-                                json!({"sessionId": sid2, "prompt": acp_prompt_blocks(session, &blocks)?}),
-                                &turn_id,
-                                false,
-                                || {
-                                    drop(family_gate);
-                                    self.watch_stalled_turn(session, None)
-                                },
-                            )
-                            .await;
+                            result = if stopped {
+                                Err(stopped_before_prompt())
+                            } else {
+                                super::steer_end::agent_prompt_hook(
+                                    session,
+                                    &child2,
+                                    json!({"sessionId": sid2, "prompt": wire}),
+                                    &turn_id,
+                                    false,
+                                    || {
+                                        drop(family_gate);
+                                        self.watch_stalled_turn(session, None)
+                                    },
+                                )
+                                .await
+                            };
                         }
                     }
                     (Err(e2), _) => result = Err(e2),
@@ -686,6 +758,15 @@ impl Hub {
         // A model switch (`detach_child`) ended this turn already: its failure is not the queue's.
         let detached = self.take_turn(session, turn_id).is_none_or(|t| t.turn_id != turn_id);
         session.queue_moved.notify_waiters();
+        // Debug builds only: `ACPMUX_TEST_FINISH_HOLD_MS` holds a turn's end once its turn is
+        // taken, as a slow end does (`tests/durable_agents.rs`). Bounded; release builds have no
+        // seam.
+        #[cfg(debug_assertions)]
+        if let Some(ms) =
+            std::env::var("ACPMUX_TEST_FINISH_HOLD_MS").ok().and_then(|v| v.parse::<u64>().ok())
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(ms.min(10_000))).await;
+        }
         // A turn Claude answered is in its store: a respawn resumes it.
         if result.is_ok() {
             let was_unstored = std::mem::take(&mut session.meta.lock().unwrap().claude_unstored);
@@ -840,12 +921,16 @@ impl Hub {
             // waiting on nothing.
             let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
             let asking = !state.pending.is_empty() || self.secrets.waiting_in(&session.id);
+            // An agent MDM's off ended leaves the chat idle; read under the lock its end marks it
+            // under (`end_managed_full_access`, reviews 2 and 3 of #26034).
+            let ended = child.ended_on_purpose();
             self.set_status(
                 session,
-                match (alive, asking) {
-                    (false, _) => SessionStatus::Disconnected,
-                    (true, true) => SessionStatus::Waiting,
-                    (true, false) => SessionStatus::Ready,
+                match (ended, alive, asking) {
+                    (true, _, _) => SessionStatus::Idle,
+                    (false, false, _) => SessionStatus::Disconnected,
+                    (false, true, true) => SessionStatus::Waiting,
+                    (false, true, false) => SessionStatus::Ready,
                 },
             );
             drop(state);
@@ -1080,11 +1165,11 @@ impl Hub {
         self.save_meta(session);
         // MDM forced full access off while this switch waited on the harness (after both checks
         // above). The mode is written before this reads the off, and the push writes the off
-        // before it returns, so a switch the push overtook ends here; one that finished first is
-        // an agent already in full access when MDM turned it off (#23322 b).
+        // before its teardown reads modes (`end_every_managed_full_access`): either way the
+        // agent ends.
         if self.managed_off_runs_full_access(session) {
             let _spawning = session.spawn_lock.lock().await;
-            self.stop_full_access_agent(session).await;
+            self.end_if_runs_full_access(session, true).await;
             return Err(super::start_mode::full_access_off());
         }
         Ok(res)
