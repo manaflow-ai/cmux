@@ -21,9 +21,20 @@ daemon (`shutdown-daemon` with `end_terminals`); it never signals a
 terminal host. Measurement only: it scans /proc (Linux) or libproc
 (macOS) for this daemon's own process tree.
 
+Percentiles (p50, p90, p99) are scripts/perf-lab/perf_stats.py's pct. With
+--out DIR (the perf lab's story runner) the report goes to DIR/scale.json and
+every step's numbers to DIR as cmux-perf-result/v1 (perf_result.py) in story daemon-scale
+(daemon_bench_lab.py names the build and host), per step count N:
+daemon.scale.N.<create|echo|topology_read|topology_write> (ms, raw samples),
+daemon.scale.N.create_rate (per_s) and per role (daemon, hosts, shells)
+daemon.scale.N.ROLE.<memory_each (bytes: Linux PSS, macOS footprint)|threads
+(count)|cpu (percent)|wakeups (per_s)>. A step that failed or stopped short of
+N terminals records nothing, and a failed step or a harness error exits 1.
+
 Usage:
   bench-scale.py --bin target/release/cmux-tui --counts 100,1000,5000,10000 \
       --busy-fraction 0.05 --out result.json
+  bench-scale.py --bin ... --sha SHA --build-config release --out DIR
 """
 
 import argparse
@@ -31,6 +42,7 @@ import base64
 import concurrent.futures
 import ctypes
 import ctypes.util
+import importlib.util
 import json
 import math
 import os
@@ -38,15 +50,47 @@ import platform
 import random
 import shutil
 import socket
-import statistics
 import subprocess
 import sys
 import tempfile
 import threading
 import time
 
+_spec = importlib.util.spec_from_file_location(
+    "daemon_bench_lab", os.path.join(os.path.dirname(os.path.abspath(__file__)), "daemon_bench_lab.py"))
+lab = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(lab)
+
 IS_LINUX = sys.platform.startswith("linux")
 IS_MAC = sys.platform == "darwin"
+STORY = "daemon-scale"
+METRIC_PREFIX = "daemon.scale"
+
+
+def latency_summary(lat, digits=3):
+    """samples, p50_ms, p90_ms, p99_ms and max_ms of raw latencies (perf_stats.pct)."""
+    return {"samples": len(lat), **{f"p{round(q * 100)}_ms": round(lab.pct(lat, q), digits) for q in (0.50, 0.90, 0.99)},
+            "max_ms": round(max(lat), digits)}
+
+
+def lab_series(result):
+    """result-v1 series of a report's steps (module docstring). A step that failed (`error`: creation stopped, or the
+    daemon exited) or did not reach its count records nothing: its numbers are not those of `target` terminals."""
+    series = []
+    for step in result["steps"]:
+        if step.get("error") or step.get("terminals") != step["target"]:
+            continue
+        prefix = f"{METRIC_PREFIX}.{step['target']}"
+        for name, samples in sorted((step.get("samples_ms") or {}).items()):
+            series.append(lab.Series(f"{prefix}.{name}", "ms", "lower", list(samples)))
+        if step.get("create_rate_per_s") is not None:
+            series.append(lab.Series(f"{prefix}.create_rate", "per_s", "higher", [step["create_rate_per_s"]]))
+        for role, totals in sorted((step.get("roles") or {}).items()):
+            for metric, key, unit in (("memory_each", "pss_per", "bytes"), ("threads", "threads", "count"),
+                                      ("cpu", "cpu_pct_window", "percent"), ("wakeups", "wakeups_per_s", "per_s")):
+                if totals.get(key) is not None:
+                    series.append(lab.Series(f"{prefix}.{role}.{metric}", unit, "lower", [totals[key]]))
+    return series
 
 
 def log(*parts):
@@ -319,6 +363,7 @@ class Bench:
         self.session = f"scale{os.getpid()}"
         self.daemon = None
         self.terminals = []  # list of dicts: surface, busy
+        self.step_samples = {}  # the current step's raw latencies (ms) by result-v1 metric part
         self.workspaces = []
         self.result = {
             "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -651,11 +696,10 @@ class Bench:
             finally:
                 att.close()
         ctl.close()
+        self.step_samples["echo"] = lat
         if not lat:
             return {"samples": 0, "errors": errors}
-        lat.sort()
-        q = lambda p: lat[min(len(lat) - 1, int(p * len(lat)))]  # noqa: E731
-        return {"samples": len(lat), "errors": errors, "p50_ms": round(q(0.50), 3), "p90_ms": round(q(0.90), 3), "p99_ms": round(q(0.99), 3), "max_ms": round(lat[-1], 3)}
+        return {**latency_summary(lat), "errors": errors}
 
     # -- topology latency under output load
 
@@ -684,15 +728,10 @@ class Bench:
                     log("topology sample error", r.get("error"))
             time.sleep(0.01)
         c.close()
-
-        def summary(lat):
-            if not lat:
-                return {"samples": 0}
-            lat.sort()
-            q = lambda p: lat[min(len(lat) - 1, int(p * len(lat)))]  # noqa: E731
-            return {"samples": len(lat), "p50_ms": round(q(0.50), 3), "p90_ms": round(q(0.90), 3), "p99_ms": round(q(0.99), 3), "max_ms": round(lat[-1], 3)}
-
-        return {"errors": errors, "read": summary(reads), "write": summary(writes)}
+        self.step_samples["topology_read"] = reads
+        self.step_samples["topology_write"] = writes
+        return {"errors": errors, "read": latency_summary(reads) if reads else {"samples": 0},
+                "write": latency_summary(writes) if writes else {"samples": 0}}
 
     # -- guard
 
@@ -730,6 +769,7 @@ class Bench:
                 log(why)
                 break
             need = target - len(self.terminals)
+            self.step_samples = {}
             log(f"step {target}: creating {need}")
             pre = self.raw_stats()
             t0 = time.time()
@@ -737,10 +777,11 @@ class Bench:
             create_s = time.time() - t0
             step = {"target": target, "created": made, "create_seconds": round(create_s, 2), "create_rate_per_s": round(made / create_s, 1) if create_s > 0 else None, "terminals": len(self.terminals)}
             step["create_window"] = self.stats_window(pre, self.raw_stats())
-            lat = sorted(getattr(self, "create_latencies_ms", []))
+            lat = list(getattr(self, "create_latencies_ms", []))
+            self.step_samples["create"] = lat
             if lat:
-                q = lambda f: lat[min(len(lat) - 1, int(f * len(lat)))]
-                step["create_latency"] = {"n": len(lat), "p50_ms": round(q(0.5), 1), "p90_ms": round(q(0.9), 1), "p99_ms": round(q(0.99), 1), "max_ms": round(lat[-1], 1), "mean_ms": round(sum(lat) / len(lat), 1)}
+                summary = latency_summary(lat, digits=1)
+                step["create_latency"] = {"n": summary.pop("samples"), **summary, "mean_ms": round(sum(lat) / len(lat), 1)}
             if err:
                 step["error"] = err
                 log("creation stopped:", err)
@@ -796,6 +837,8 @@ class Bench:
                     }
             except Exception as e:  # noqa: BLE001
                 step["server_stats"] = {"error": repr(e)}
+            step["samples_ms"] = {name: [round(v, 4) for v in values]
+                                  for name, values in self.step_samples.items() if values}
             self.result["steps"].append(step)
             log(json.dumps({k: step.get(k) for k in ("target", "terminals", "create_rate_per_s", "create_latency", "latency", "topology")}))
             for role, t in roles.items():
@@ -813,7 +856,7 @@ class Bench:
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--bin", required=True)
+    p.add_argument("--bin", help="the cmux-tui daemon binary (default: the --app bundle's cmux-tui)")
     p.add_argument("--counts", default="100,1000")
     p.add_argument("--mode", choices=["durable", "ephemeral"], default="durable")
     p.add_argument("--shell", nargs="+", default=["/bin/sh"])
@@ -829,26 +872,47 @@ def main():
     p.add_argument("--latency-terminals", type=int, default=20)
     p.add_argument("--latency-samples", type=int, default=100)
     p.add_argument("--topology-samples", type=int, default=200)
-    p.add_argument("--out")
+    p.add_argument("--out", help="the report FILE.json, or a folder for result-v1 and the report")
     p.add_argument("--root-dir", default="/tmp", help="parent of the daemon state, home and socket (tmpfs removes fsync cost)")
     p.add_argument("--keep-root", action="store_true")
+    p.add_argument("--app", help=lab.APP_HELP)
+    p.add_argument("--tag", help=lab.TAG_HELP)
+    lab.add_arguments(p, STORY)
     args = p.parse_args()
+    args.bin, out, measured = lab.prepare(p, args, "scale.json")
+    args.out = out.report
     bench = Bench(args)
+    harness_error = False
     try:
         bench.run()
+        if out.results and bench.daemon and bench.daemon.poll() is None:
+            tree = bench.tree()
+            lab.validate_host(out.results, tree["daemon"] + tree["hosts"])
     except Exception as e:  # noqa: BLE001
         bench.result["stopped"] = {"reason": f"harness error: {e!r}", "daemon_log": bench.tail_log() if bench.daemon else ""}
         log("harness error", repr(e))
+        harness_error = True
     finally:
         try:
             bench.stop()
         finally:
             bench.result["finished_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            if measured:
+                path = lab.write(out.results, args.story, lab_series(bench.result), measured)
+                bench.result["results"] = str(path) if path else None
+                log("result-v1", path)
             bench.flush()
             if not args.keep_root:
                 shutil.rmtree(bench.root, ignore_errors=True)
     print(json.dumps({"stopped": bench.result.get("stopped"), "steps": len(bench.result["steps"])}))
+    return run_status(bench.result, harness_error)
+
+
+def run_status(result, harness_error):
+    """The exit status: 1 after a harness error or a failed step, 0 when every step ran (a guard stop is not a
+    failure: the steps before it are complete)."""
+    return 1 if harness_error or any(step.get("error") for step in result["steps"]) else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

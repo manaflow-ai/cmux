@@ -138,7 +138,7 @@ mod linux {
                 if std::env::var(ENV).is_ok_and(|v| v == "0") {
                     return None;
                 }
-                let own = std::fs::read_to_string("/proc/self/cgroup").ok()?;
+                let own = cmux_blocking::fs::read_to_string("/proc/self/cgroup").ok()?;
                 in_user_service(&own).then(|| unified(&own).map(str::to_owned)).flatten()
             })
             .as_deref()
@@ -177,10 +177,14 @@ mod linux {
     }
 
     async fn try_place(unit: &str, host: u32) -> Result<(), String> {
-        let busctl = BUSCTL
-            .iter()
-            .find(|p| std::path::Path::new(p).is_file())
-            .ok_or_else(|| format!("no busctl in {BUSCTL:?}"))?;
+        let mut found = None;
+        for path in BUSCTL {
+            if tokio::fs::metadata(path).await.is_ok_and(|m| m.is_file()) {
+                found = Some(path);
+                break;
+            }
+        }
+        let busctl = found.ok_or_else(|| format!("no busctl in {BUSCTL:?}"))?;
         // SAFETY: getuid has no preconditions.
         let uid = unsafe { libc::getuid() };
         let env = busctl_env(

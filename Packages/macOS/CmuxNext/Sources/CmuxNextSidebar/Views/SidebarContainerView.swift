@@ -145,8 +145,9 @@ public final class SidebarContainerView: NSView {
     ///   - model: What the sidebar shows.
     ///   - deadlines: The app's one deadline placer. Its ``MainDeadlineScheduler/work`` is the app's main-thread
     ///     scheduler: the presentation observation flushes and the rows' and headers' Debug Settings looks follow
-    ///     through it, once per frame. The hover pacing, the width motion's watchdog, the list's spring-load hover
-    ///     and the Priority view's minute tick are deadlines on it.
+    ///     through it, once per frame, and the list and the rail draw through it while they show. The hover pacing,
+    ///     the width motion's watchdog, the list's spring-load hover and the Priority view's minute tick are
+    ///     deadlines on it.
     ///   - appEvents: The app's one fan-out of app-wide notices (`AppServices.appEvents`): the list ends a pointer
     ///     gesture when the app resigns active.
     ///   - newRows: Told which rows the list draws, so a new workspace's `create.workspace` interval ends there.
@@ -155,7 +156,7 @@ public final class SidebarContainerView: NSView {
         self.model = model
         hoverRefresh = MainDeadline(owner: "Sidebar.hoverRefresh", workClass: .visible, scheduler: deadlines)
         widthMotionWatchdog = MainDeadline(owner: "Sidebar.widthMotionWatchdog", workClass: .visible, scheduler: deadlines)
-        sidebarView = SidebarView(model: model, newRows: newRows)
+        sidebarView = SidebarView(model: model, mainWork: mainWork, newRows: newRows)
         handle = SidebarResizeHandle()
         targetWidth = model.displayWidth
         targetCollapseMotion = SidebarTunables.collapseMotion.value
@@ -190,7 +191,7 @@ public final class SidebarContainerView: NSView {
         syncHandleVisibility()
         handle.restingLineWidth = Metrics.sidebarBorderWidth
         handle.onDrag = { [weak self] phase in self?.handleDrag(phase) }
-        mountRail()
+        mountRail(on: mainWork)
         sidebarView.list.appEvents = appEvents
         sidebarView.list.deadlines = deadlines
         sidebarView.priorityPanelView.follow(deadlines, visibility: sidebarView.list.visibility)
