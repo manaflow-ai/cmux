@@ -103,7 +103,8 @@ pub(super) trait TraceTargets {
         deadline: Instant,
         admit: &mut dyn FnMut() -> bool,
     ) -> Vec<HostCall>;
-    /// Connects to acpmux; `None` when it does not run (it is never started).
+    /// Connects to acpmux; `None` when it does not run (it is never started,
+    /// as on a platform without agent sessions).
     fn connect_acpmux(&self) -> Option<AcpmuxCall<'_>>;
 }
 
@@ -467,6 +468,7 @@ impl TraceTargets for LiveTargets<'_> {
         Vec::new()
     }
 
+    #[cfg(unix)]
     fn connect_acpmux(&self) -> Option<AcpmuxCall<'_>> {
         use super::agent_session_attach::agent_session_link::AcpmuxLink;
         let socket = self.mux.control_clients.agent_sessions.socket()?;
@@ -478,6 +480,14 @@ impl TraceTargets for LiveTargets<'_> {
                     .ok_or_else(|| "acpmux sent a malformed trace answer".to_owned())
             })
         }))
+    }
+
+    /// Agent sessions (`agent_session_attach`) are unix-only, so this daemon
+    /// never starts or links acpmux here: there is no acpmux process to
+    /// trace, the same answer as a unix daemon whose acpmux never started.
+    #[cfg(not(unix))]
+    fn connect_acpmux(&self) -> Option<AcpmuxCall<'_>> {
+        None
     }
 }
 
@@ -536,8 +546,10 @@ pub(super) fn forward_to_holder(
 }
 
 /// acpmux's trace method (`acpmux/src/trace_control.rs`).
+#[cfg(unix)]
 const ACPMUX_TRACE_METHOD: &str = "_acpmux/trace";
 
+#[cfg(unix)]
 fn acpmux_params(op: ControlOp) -> Value {
     match op {
         ControlOp::Start { categories } => json!({"op": "start", "categories": categories}),

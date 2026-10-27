@@ -258,10 +258,21 @@ pub(crate) fn install_daemon_features() -> cmux_features::Snapshot {
 /// shared rule (`cmux_features::sources::daemon_snapshot`, acpmux's too) on the
 /// channel of the app this owner belongs to.
 pub(crate) fn daemon_features() -> cmux_features::Snapshot {
-    let env = |name: &str| std::env::var(name).ok();
-    let exe = std::env::current_exe().ok();
-    let kind = crate::app_identity::AppIdentity::detect(env, exe.as_deref())
-        .map(|identity| identity.build().kind());
+    #[cfg(unix)]
+    let kind = {
+        let env = |name: &str| std::env::var(name).ok();
+        let exe = std::env::current_exe().ok();
+        crate::app_identity::AppIdentity::detect(env, exe.as_deref())
+            .map(|identity| identity.build().kind())
+    };
+    // App identity (`app_identity`: a macOS app bundle, or the bundle id and
+    // tag a cmux app sets in its terminals) is unix-only, so no cmux app owns
+    // this daemon here. `None` is `daemon_snapshot`'s "outside any cmux app":
+    // an unbundled build's channel (dev when built for debug, else release).
+    // CMUX_ENABLE_FEATURES / CMUX_DISABLE_FEATURES, managed policy and the
+    // signed document's DisabledFeatures still apply on top.
+    #[cfg(not(unix))]
+    let kind = None;
     cmux_features::sources::daemon_snapshot(kind)
 }
 
