@@ -96,6 +96,39 @@ final class Term: NSView {
 """})
         self.assertEqual(verdicts[("Term.swift", "mouseMoved")], "coalesced")
 
+    def test_a_drag_on_a_pointer_frame_drag_is_coalesced(self) -> None:
+        verdicts = self.scan({"CmuxNextA/Row.swift": """
+final class Row: NSView {
+    private(set) lazy var dragMoves = PointerFrameDrag(owner: "Row.drag", view: self) { [weak self] point in self?.move(point) }
+    override func mouseDragged(with event: NSEvent) {
+        guard let start else { return }
+        if didDrag { return dragMoves.dragged(event) }
+        didDrag = onDragged?(start, event.locationInWindow) == true
+    }
+}
+"""})
+        self.assertEqual(verdicts[("Row.swift", "mouseDragged")], "coalesced")
+
+    def test_a_closure_forward_counts_when_every_closure_stored_in_it_posts(self) -> None:
+        menu = """
+final class Menu: NSView {
+    private(set) lazy var hoverMoves = PointerFrameHover(owner: "Menu.hover", view: self) { _ in }
+    func build(_ row: MenuRow) {
+        row.onMove = { [weak self] event in self?.hoverMoves.moved(event) }
+    }
+}
+final class MenuRow: NSView {
+    var onMove: ((NSEvent) -> Void)?
+    override func mouseMoved(with event: NSEvent) {
+        onMove?(event)
+    }
+}
+"""
+        self.assertEqual(self.scan({"CmuxNextA/Menu.swift": menu})[("Menu.swift", "mouseMoved")], "coalesced")
+        other = "final class Other { func wire(_ row: MenuRow) { row.onMove = { event in highlight(event) } } }\n"
+        verdicts = self.scan({"CmuxNextA/Menu.swift": menu, "CmuxNextA/Other.swift": other})
+        self.assertEqual(verdicts[("Menu.swift", "mouseMoved")], "", "one closure stored in it acts on every event")
+
     def test_a_native_note_needs_a_reason(self) -> None:
         verdicts = self.scan({"CmuxNextA/Page.swift": """
 final class Page: WKWebView {

@@ -76,6 +76,12 @@ extension ShellWindow: HoverFrameInputHosting {
     var hoverFrameInput: FrameInputCoalescers? { (windowController as? WindowController)?.services.hoverFrameInput }
 }
 
+/// Its reorder drags (tab strip, sidebar rows and spaces, extension buttons) move once per frame on the app's
+/// coalescers (feature `pointerFrameDrags`), read on each press (``PointerFrameDrag``).
+extension ShellWindow: DragFrameInputHosting {
+    var dragFrameInput: FrameInputCoalescers? { (windowController as? WindowController)?.services.dragFrameInput }
+}
+
 /// Its find pills hold the app's input tap `findPillOpen` flag while their field edits, so a key-down
 /// asks no responder whether a pill takes it (`FindPillView.forwardArrowKeyDownToEditingPill`).
 extension ShellWindow: InputTapHosting {

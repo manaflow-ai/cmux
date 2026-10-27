@@ -2,6 +2,7 @@ import AppKit
 import CmuxAgentBrands
 import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextInput
 import CmuxNextWakeups
 import Observation
 import QuartzCore
@@ -122,13 +123,18 @@ class SidebarItemRowView: NSView {
 
     nonisolated override var isFlipped: Bool { true }
     nonisolated override var wantsUpdateLayer: Bool { true }
-    /// A drag from a press (window points): true once the region drags.
-    var onDragged: ((NSPoint, NSEvent) -> Bool)?
+    /// A drag from a press to a point (window points): true once the region drags.
+    var onDragged: ((NSPoint, NSPoint) -> Bool)?
     var onDragEnded: (() -> Void)?
     /// Every press, before it acts: a drag an earlier press left held ends (its release went elsewhere).
     var onPressBegan: (() -> Void)?
     private var pressLocation: NSPoint?
     private var didDrag = false
+    /// The running drag's moves, once per frame on the window's drag frames (the press past the threshold acts at once).
+    private(set) lazy var dragMoves = PointerFrameDrag(owner: "SidebarItemRowView.drag", view: self) { [weak self] point in
+        guard let self, let start = self.pressLocation else { return }
+        _ = onDragged?(start, point)
+    }
     /// The press's modifiers, which the release acts with (Option opens a workspace).
     private var pressModifiers: NSEvent.ModifierFlags = []
 
@@ -405,6 +411,7 @@ class SidebarItemRowView: NSView {
         guard pill.frame.contains(point) else { return super.mouseDown(with: event) }
         isPressed = true
         pressLocation = event.locationInWindow
+        dragMoves.began()
         pressModifiers = event.modifierFlags
         didDrag = false
         activatedOnPress = activatesOnPress && !isEditing
@@ -416,9 +423,10 @@ class SidebarItemRowView: NSView {
     }
 
     /// Past the drag threshold the region reorders in place (R77).
-    // local-monitor-allow: a drag is delivered unbuffered until its mouse-up (p06-scheduler.md section E, FrameInputCoalescer); past the threshold the region reorders in place
     override func mouseDragged(with event: NSEvent) {
-        guard let pressLocation, onDragged?(pressLocation, event) == true else { return super.mouseDragged(with: event) }
+        guard let pressLocation else { return super.mouseDragged(with: event) }
+        if didDrag { return dragMoves.dragged(event) }
+        guard onDragged?(pressLocation, event.locationInWindow) == true else { return super.mouseDragged(with: event) }
         didDrag = true
         isPressed = false
     }
@@ -427,6 +435,7 @@ class SidebarItemRowView: NSView {
     /// button: a press that became a drag (or left the item first) never runs it. Acting
     /// on the press made a tab under a launcher the user only meant to move.
     override func mouseUp(with event: NSEvent) {
+        dragMoves.ended() // the frame's pending point lands before the drop
         let dragged = didDrag
         let activated = activatedOnPress
         if dragged { onDragEnded?() }

@@ -158,6 +158,10 @@ final class SidebarListView: NSView {
     /// window, outside every window); true takes it over.
     var onDragHandoff: ((SidebarDragHandoff) -> Bool)?
     let tabRowDrag = SidebarTabRowDrag()
+    /// A row drag's moves (`updateDrag`), once per frame on the window's drag frames; the lift past the threshold acts at once.
+    private(set) lazy var dragMoves = PointerFrameDrag(owner: "SidebarListView.drag", view: self) { [weak self] point in
+        self?.updateDrag(windowPoint: point)
+    }
     /// Hover time before an external tab drag over a row selects it.
     var springLoadDelay: Duration = .milliseconds(500)
     /// The app's one deadline placer (the container injects `AppServices.mainDeadlines`). The spring-load hover is a

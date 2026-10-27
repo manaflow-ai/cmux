@@ -13,6 +13,7 @@ extension SidebarListViewComponents {
         // A drag or press whose release never came here (the app or window lost focus mid-drag, a menu took the
         // mouse-up) ends now: its rows come back where they were, and this press starts clean.
         endPointerGesture()
+        dragMoves.began()
         hoverCards.dismiss(.click)
         if inlineRename.isActive { inlineRename.end(commit: true) }
         // A click in the list closes the group editor, like a click outside it.
@@ -86,7 +87,6 @@ extension SidebarListViewComponents {
         self.press = press
         onPressRow?((press.clickOnRelease ?? press.deferredClick).map(SidebarRowKey.workspace))
     }
-    // local-monitor-allow: a drag is delivered unbuffered until its mouse-up (p06-scheduler.md section E, FrameInputCoalescer); each move moves the lifted row on its spring
     override func mouseDragged(with event: NSEvent) {
         guard let press, !press.cancelled else { return }
         if case let .tab(workspace, tab) = press.key {
@@ -99,9 +99,10 @@ extension SidebarListViewComponents {
             beginDrag(press)
             guard drag != nil else { return }
         }
-        updateDrag(windowPoint: event.locationInWindow)
+        dragMoves.dragged(event)
     }
     override func mouseUp(with event: NSEvent) {
+        dragMoves.ended() // the frame's pending point lands before the drop
         defer { press = nil }
         if drag != nil {
             finishDrag()

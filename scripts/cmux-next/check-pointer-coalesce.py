@@ -7,10 +7,11 @@ mouse input once per frame (`third_party/blink/renderer/platform/widget/input/ma
 `IsRafAlignedEvent`); cmux's equivalent is the window's FrameInputCoalescer. A hit passes when:
 
   coalesced  its body, or a function of its target it calls (two levels deep), posts to the coalescer:
-             a property of a coalescer type (`PointerFrameConsumer`, `PointerFrameHover`,
-             `FrameInputCoalescer`, or a type of the target that holds one of those) with `.post(`, `.moved(` or
-             `.crossed(`; a consumer or coalescer made in place (`.consumer(owner:`, `.coalescer(for:`); or a
-             keyed post (`.post(.pointerMove|.drag|.scroll`)
+             a property of a coalescer type (`PointerFrameConsumer`, `PointerFrameHover`, `PointerFrameDrag`,
+             `FrameInputCoalescer`, or a type of the target that holds one of those) with `.post(`, `.moved(`,
+             `.crossed(` or `.dragged(`; a consumer or coalescer made in place (`.consumer(owner:`,
+             `.coalescer(for:`); or a keyed post (`.post(.pointerMove|.drag|.scroll`). A closure property it
+             calls (`onMove?(event)`) counts when every `.onMove = { ... }` of its target posts.
   native     the override carries `// input-coalesce: native (<why>)`, on its line or in the comment
              block right above it: a forward into an engine that coalesces itself (WebKit, Chromium's
              renderer, AppKit's dragging session) or work with nothing per event to coalesce. The reason
@@ -39,9 +40,12 @@ OVERRIDE = re.compile(
     r"|(?:public|open|package)\s+override\s+func\s+" + POINTER_EVENTS + r"\("
 )
 NATIVE = re.compile(r"//\s*input-coalesce:\s*native\b(.*)")
-COALESCER_TYPES = frozenset({"PointerFrameConsumer", "PointerFrameHover", "FrameInputCoalescer"})
+COALESCER_TYPES = frozenset({"PointerFrameConsumer", "PointerFrameHover", "PointerFrameDrag", "FrameInputCoalescer"})
 IN_PLACE = re.compile(r"\.consumer\(\s*owner:|\.coalescer\(\s*for:|\.post\(\s*\.(?:pointerMove|drag|scroll)\b")
-CALL = re.compile(r"(?<![.\w])(?:self\.)?([a-z_]\w*)\s*\(")
+# A call of a function or of a closure property: `route(event)`, `self.route(event)`, `onMove?(event)`.
+CALL = re.compile(r"(?<![.\w])(?:self\??\.)?([a-z_]\w*)\s*\??\s*\(")
+# A closure stored into a property: `row.onMove = { [weak self] event in ... }`.
+CLOSURE_SET = re.compile(r"\.([a-z_]\w*)\s*=\s*\{")
 FUNC = re.compile(r"\bfunc\s+(\w+)\s*(?:<[^>]*>)?\s*\(")
 TYPE_DECL = re.compile(r"\b(?:class|struct|actor|enum)\s+(\w+)")
 # Between a declaration's name and its body no other declaration starts (a protocol requirement has none).
@@ -131,6 +135,7 @@ class Target:
         self.sources: list[Source] = []
         self.coalescers: set[str] = set()
         self.functions: dict[str, list[str]] = {}
+        self.closures: dict[str, list[str]] = {}
 
     def add(self, source: Source) -> None:
         self.sources.append(source)
@@ -138,6 +143,10 @@ class Target:
             body = source.body_at(m.end())
             if body is not None:
                 self.functions.setdefault(m.group(1), []).append(body)
+        for m in CLOSURE_SET.finditer(source.code):
+            open_at = m.end() - 1
+            if open_at in source.close:
+                self.closures.setdefault(m.group(1), []).append(source.code[open_at + 1:source.close[open_at]])
 
     def index(self) -> None:
         """Finds the target's coalescer types (the shared ones and a type of its own that holds one, a
@@ -162,7 +171,7 @@ class Target:
             # A local bound to one: `if let frames = state.dragFrames, frames.post(event)`.
             names.update(m.group(1) for m in re.finditer(
                 r"\blet\s+(\w+)\s*=\s*(?:self\.)?(?:\w+\??\.)*(?:" + alternation(self.coalescers) + r")\b(?!\s*[.(])", body))
-            m = re.search(r"\b(" + alternation(names) + r")\s*\??\s*\.\s*(post|moved|crossed)\s*\(", body)
+            m = re.search(r"\b(" + alternation(names) + r")\s*\??\s*\.\s*(post|moved|crossed|dragged)\s*\(", body)
             if m:
                 return f"{m.group(1)}.{m.group(2)}"
         if depth == 0:
@@ -170,13 +179,18 @@ class Target:
         seen = set() if seen is None else seen
         for m in CALL.finditer(body):
             name = m.group(1)
-            if name in KEYWORDS or name in seen or name not in self.functions:
+            if name in KEYWORDS or name in seen or (name not in self.functions and name not in self.closures):
                 continue
             seen.add(name)
-            for helper in self.functions[name]:
+            for helper in self.functions.get(name, []):
                 via = self.posts(helper, depth - 1, seen)
                 if via:
                     return f"{name}() -> {via}"
+            # A closure property forwards only when every closure its target stores in it posts.
+            closures = self.closures.get(name, [])
+            vias = [self.posts(closure, depth - 1, set(seen)) for closure in closures]
+            if vias and all(vias):
+                return f"{name} closure -> {vias[0]}"
         return ""
 
 

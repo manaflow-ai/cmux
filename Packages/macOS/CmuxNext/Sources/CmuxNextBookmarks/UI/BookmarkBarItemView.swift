@@ -89,6 +89,7 @@ final class BookmarkBarItemView: NSView {
         needsDisplay = true
     }
 
+    // input-coalesce: native (a drag-session starter: past 4 pt AppKit's dragging session takes the moves)
     override func mouseDragged(with event: NSEvent) {
         guard let down = downEvent else { return }
         let distance = hypot(event.locationInWindow.x - down.locationInWindow.x, event.locationInWindow.y - down.locationInWindow.y)

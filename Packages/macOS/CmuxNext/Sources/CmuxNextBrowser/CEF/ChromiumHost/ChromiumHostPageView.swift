@@ -401,10 +401,13 @@ extension ChromiumHostPageView {
     public override func rightMouseUp(with event: NSEvent) { mouse(event, phase: 2, button: 2) }
     public override func otherMouseDown(with event: NSEvent) { otherMouse(event, phase: 1) }
     public override func otherMouseUp(with event: NSEvent) { otherMouse(event, phase: 2) }
-    public override func otherMouseDragged(with event: NSEvent) { otherMouse(event, phase: 0) }
-    public override func mouseMoved(with event: NSEvent) { mouse(event, phase: 0, button: 0) }
-    public override func mouseDragged(with event: NSEvent) { mouse(event, phase: 0, button: 0) }
-    public override func rightMouseDragged(with event: NSEvent) { mouse(event, phase: 0, button: 2) }
+    // Moves and drags go to the host at once, as a browser process forwards them: Chromium's renderer aligns
+    // them to its own frame (main_thread_event_queue.cc), and on back-pressure the wire keeps only the latest
+    // in its slot (ChromiumHostConnection).
+    public override func otherMouseDragged(with event: NSEvent) { otherMouse(event, phase: 0) } // input-coalesce: native (the renderer aligns it, p04-input-038)
+    public override func mouseMoved(with event: NSEvent) { mouse(event, phase: 0, button: 0) } // input-coalesce: native (the renderer aligns it, p04-input-038)
+    public override func mouseDragged(with event: NSEvent) { mouse(event, phase: 0, button: 0) } // input-coalesce: native (the renderer aligns it, p04-input-038)
+    public override func rightMouseDragged(with event: NSEvent) { mouse(event, phase: 0, button: 2) } // input-coalesce: native (the renderer aligns it, p04-input-038)
     public override func mouseExited(with event: NSEvent) { mouse(event, phase: 3, button: 0) }
 
     public override func scrollWheel(with event: NSEvent) {
