@@ -182,7 +182,6 @@ impl Translator {
                 }
                 match codex_auth_file::read() {
                     Ok(Some(file)) => {
-                        auth.previous_account_id = Some(file.account_id.clone());
                         auth.file = Some(file.clone());
                         return vec![AuthGate::refresh_response(id, &file)];
                     }
