@@ -1779,10 +1779,10 @@ class FastTierStartsWarm(unittest.TestCase):
         self.assertNotIn("setup-cmux-tui-rust", yaml.safe_dump(build), "nothing restores a Mac cargo seed")
         self.assertLess(tier, steps.index(saves[0]))
         self.assertIn(FAST_CACHE_MANIFEST, steps[record]["run"])
-        # The seed runs once per pool the fast tier lands on, from the due job's matrix:
-        # the key holds the workspace path, so a Blacksmith seed (/Users/runner/_work) never
-        # warms a hosted macos-26 fast tier (/Users/runner/work). Every PR fast tier sampled
-        # on 2026-10-20 ran hosted and built CmuxNext cold (20 to 28 minutes).
+        # The seed runs once per pool the fast tier restores a seed on, from the due job's matrix:
+        # the key holds the workspace path, so each pool needs its own seed. Only Blacksmith
+        # restores one: no GitHub-hosted pool (Leo, 2026-10-27: "THE GITHUB HOSTED MACS / ARE
+        # THE SLOWEST THINGS"), and the owned minis keep their builds on their own SSD.
         self.assertEqual(build["strategy"]["matrix"], {"include": "${{ fromJSON(needs.due.outputs.pools) }}"})
         self.assertIs(build["strategy"].get("fail-fast"), False)
         self.assertIn("matrix.runner", str(build["runs-on"]))
@@ -1793,8 +1793,7 @@ class FastTierStartsWarm(unittest.TestCase):
         # 6 vCPU, not 12: the 12 vCPU label runs about five jobs at once and the
         # cascade fills it first, so a seed pinned there sat queued (run 39351410275).
         self.assertEqual(pools["blacksmith"]["runner"], "blacksmith-6vcpu-macos-26")
-        self.assertEqual(pools["hosted"]["runner"], "macos-26", "next_macos_cascade.py HOSTED")
-        self.assertEqual(pools["hosted"]["workspace"], "/Users/runner/work/cmux/cmux")
+        self.assertEqual(set(pools), {"blacksmith"}, "no GitHub-hosted seed pool")
         self.assertEqual(pools["blacksmith"]["workspace"], "/Users/runner/_work/cmux/cmux")
 
     def test_seed_key_matches_the_fast_tier_key_for_one_tree(self):
@@ -1874,11 +1873,12 @@ class FastTierStartsWarm(unittest.TestCase):
                          "due=true", "pointers are not archives")
 
     def test_each_pool_is_due_on_its_own_seeds(self):
-        """A fresh Blacksmith seed does not make the hosted pool's seed fresh: their keys differ."""
+        """A fresh seed at one workspace path does not make another path's pool fresh: their keys differ."""
         import hashlib
         place = lambda path: hashlib.sha256(path.encode()).hexdigest()[:12]
         hosted, blacksmith = "/Users/runner/work/cmux/cmux", "/Users/runner/_work/cmux/cmux"
-        pools = [{"pool": "hosted", "runner": "macos-26", "workspace": hosted},
+        # Two paths, as two pools would have them; "other" is a fixture, not a live pool.
+        pools = [{"pool": "other", "runner": "blacksmith-12vcpu-macos-26", "workspace": hosted},
                  {"pool": "blacksmith", "runner": "blacksmith-6vcpu-macos-26", "workspace": blacksmith}]
         swift = lambda modified, path: {
             "key": f"v1/macOS-ARM64/objects/cmux-next-fast-v3-swift-macOS-ARM64-0123456789abcdef-fedcba9876543210-{place(path)}-abc.tar.zst",
@@ -1897,11 +1897,11 @@ class FastTierStartsWarm(unittest.TestCase):
                 self.assertIn(entry, pools, "a due pool keeps its runner and workspace")
             return [entry["pool"] for entry in chosen]
 
-        self.assertEqual(due([]), ["hosted", "blacksmith"])
-        self.assertEqual(due([swift("2026-10-19T21:50:00Z", blacksmith)]), ["hosted"])
+        self.assertEqual(due([]), ["other", "blacksmith"])
+        self.assertEqual(due([swift("2026-10-19T21:50:00Z", blacksmith)]), ["other"])
         self.assertEqual(due([swift("2026-10-19T21:50:00Z", hosted)]), ["blacksmith"])
         self.assertEqual(due([swift("2026-10-19T21:50:00Z", hosted), swift("2026-10-19T21:40:00Z", blacksmith)]), [])
-        self.assertEqual(due([swift("2026-10-19T21:00:00Z", hosted), swift("2026-10-19T21:40:00Z", blacksmith)]), ["hosted"])
+        self.assertEqual(due([swift("2026-10-19T21:00:00Z", hosted), swift("2026-10-19T21:40:00Z", blacksmith)]), ["other"])
 
     def test_receipt_names_the_seed_a_prefix_restore_picked(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1992,11 +1992,7 @@ FAST_TIER_RUNNER_WITHOUT_FAST_LANE = (
     "&& needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) "
     "&& contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' fast-tier ') "
     "&& 'blacksmith-6vcpu-macos-26' || "
-    # Hosted macos-26 takes the overflow while Blacksmith is full or stalled.
-    "(github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) "
-    "&& needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) "
-    "&& contains(needs.macos-placement.outputs.hosted_jobs, ' fast-tier ') "
-    "&& needs.macos-placement.outputs.hosted_runner || "
+    # No GitHub-hosted overflow: a job Blacksmith cannot take now waits on the owned label.
     "(github.run_attempt == 1 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) && needs.macos-placement.outputs.runner || "
     "github.repository_owner != 'manaflow-ai' && 'macos-26' || (" + FAST_TIER_FORK_CLAUSE
     + "vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) "
@@ -2071,7 +2067,9 @@ class ReservedLaneLabels(unittest.TestCase):
         self.assertEqual(evaluate(runs_on, context(fast)), fast)
         # Busy or unread: the cascade's slot, else the side route; never the reserved label.
         self.assertEqual(evaluate(runs_on, context(blacksmith_6_jobs=" fast-tier ")), "blacksmith-6vcpu-macos-26")
-        self.assertEqual(evaluate(runs_on, context(hosted_jobs=" fast-tier ", hosted_runner="macos-26")), "macos-26")
+        # An old placement's hosted reading is never read (Leo, 2026-10-27: no GitHub-hosted Mac).
+        self.assertEqual(evaluate(runs_on, context(hosted_jobs=" fast-tier ", hosted_runner="macos-26")),
+                         "glaeda-side-std-xcode-26.6")
         self.assertEqual(evaluate(runs_on, context()), "glaeda-side-std-xcode-26.6")
         # The rescue's overflow attempt never goes back to the fast label.
         self.assertEqual(evaluate(runs_on, context(fast, attempt=2, actor="github-actions[bot]",
