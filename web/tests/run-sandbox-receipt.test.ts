@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { RunSnapshotRow } from "../services/runs/view";
 import { toRunEventView, toRunSnapshotView } from "../services/runs/view";
-import { redactReceiptValue, SANDBOX_SCRUBBED_FROM_KEY, sandboxPayloadDigest, sandboxReceiptFor, sandboxReply, SANDBOX_REPLY_MAX_CHARS } from "../services/runs/sandbox";
+import { redactReceiptValue, SANDBOX_SCRUBBED_FROM_KEY, sandboxPayloadDigest, sandboxReceiptFor, sandboxReply, sandboxRunsAllowed, SANDBOX_REPLY_MAX_CHARS } from "../services/runs/sandbox";
 
 // A sandboxed Run's receipt (hq#3367): what it ran, how it ended, what it cost, and whether its
 // VM is gone. It never carries provider handles, lease tokens or token-shaped output.
@@ -89,6 +89,12 @@ describe("sandbox receipt", () => {
       cost: { vmSeconds: 120 },
       cleanup: "destroyed",
     });
+  });
+
+  test("the launcher's error is the receipt's error when the journal has none", () => {
+    const base = snapshot();
+    const failed = { ...base, run: { ...base.run, status: "failed", receipt: { reply: null, exitCode: null, signal: null, timedOut: false, bootMs: null, error: "provider refused" } } } as RunSnapshotRow;
+    expect(sandboxReceiptFor(failed)?.error).toBe("provider refused");
   });
 
   test("cleanup reads pending while an attempt still holds a VM or a VM row is still up", () => {
@@ -353,5 +359,16 @@ describe("sandbox journal events", () => {
     expect(sandboxPayloadDigest({ a: 1 })).not.toBe(sandboxPayloadDigest({ a: 2 }));
     const view = toRunEventView(event({ text: "ran on [redacted]", [SANDBOX_SCRUBBED_FROM_KEY]: sandboxPayloadDigest({ text: "ran on vm-1" }) }), "sandboxed");
     expect(view.payload).toEqual({ text: "ran on [redacted]" });
+  });
+});
+
+describe("sandbox preview gate", () => {
+  test("local dev allows everyone; a deployment allows only the accounts it names", () => {
+    expect(sandboxRunsAllowed("user-1", {})).toBe(true);
+    expect(sandboxRunsAllowed("user-1", { VERCEL: "1" })).toBe(false);
+    expect(sandboxRunsAllowed("user-1", { VERCEL: "1", CMUX_RUN_SANDBOX_USER_IDS: "" })).toBe(false);
+    expect(sandboxRunsAllowed("user-1", { VERCEL: "1", CMUX_RUN_SANDBOX_USER_IDS: "user-2, user-1" })).toBe(true);
+    expect(sandboxRunsAllowed("user-1", { VERCEL_ENV: "production", CMUX_RUN_SANDBOX_USER_IDS: "user-2" })).toBe(false);
+    expect(sandboxRunsAllowed("user-1", { VERCEL: "1", CMUX_RUN_SANDBOX_USER_IDS: "*" })).toBe(true);
   });
 });
