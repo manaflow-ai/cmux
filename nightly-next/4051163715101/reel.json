@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "build": "4051163715101",
+  "notes": "notes/4051163715101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 25482,
+      "title": "cmux NEXT: a Sandboxed send's state and bridge client (sandboxRun.ts)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26158,
+      "title": "acpmux: Linux sandbox G2: remote-started Claude Code runs sandboxed on Linux hosts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26118,
+      "title": "cmux-next: prevent agent pane blink during native split motion",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25910,
+      "title": "cmux NEXT: an automatic update never relaunches over a modal, sheet, menu or IME composition; a quit lands the typed draft",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26035,
+      "title": "acpmux: a pooled agent an off passed by while it was claimed is neither restored nor handed out (#23322, review 69)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26165,
+      "title": "runs: the rest of the sandboxed Run receipt's tests (redaction cases, cleanup scrub, fenced outcome)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26184,
+      "title": "acpmux: host protocol 2: a host logs a receipt once a fenced line is written to its harness, so a hosted line settles when its harness has it (#23322 a3 fence, transport part 3; reviews 81 to 85)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26169,
+      "title": "r2-cache.sh: restore archives from the site's LAN cache host first, then the bucket",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26140,
+      "title": "cloud: apply .cmux/machine.toml with apply-machine-config and new-machine --machine-config",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25496,
+      "title": "cmux NEXT agent pane: the rest of the sandbox native tests (split from #25480)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26164,
+      "title": "runs: a sandboxed Run's result receipt, redacted and never naming a provider handle",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
