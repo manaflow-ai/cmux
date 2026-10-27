@@ -104,7 +104,12 @@ enum SessionTransferControl {
             .async("session.transfer.complete") { [transfer = services.sessionTransfer] call in
                 let surfaces = call.params["surfaces"]?.arrayValue?.compactMap(\.stringValue) ?? []
                 guard !surfaces.isEmpty else { throw ControlError.invalidParams("surfaces is required") }
-                try await transfer.complete(surfaces: surfaces)
+                // `idle_only`: close none if one runs a program now (code `terminal_busy`).
+                do {
+                    try await transfer.complete(surfaces: surfaces, idleOnly: call.params["idle_only"]?.boolValue == true)
+                } catch SessionTransferService.Failure.terminalBusy(let reason) {
+                    throw controlError(SessionTransferService.Failure.terminalBusy(reason))
+                }
                 return ["closed": JSONValue(surfaces.count)]
             }.withDeadline(.fixed(.seconds(30))),
         ]
@@ -123,7 +128,7 @@ private nonisolated func controlError(_ error: Error) -> ControlError {
     case SessionTransferService.Failure.chatFolderMissing: "unavailable"
     case SessionTransferService.Failure.chatInChats: "unavailable"
     case SessionTransferService.Failure.sourceAgentsStopped: "unavailable"
-    case SessionTransferService.Failure.terminalBusy: "unavailable"
+    case SessionTransferService.Failure.terminalBusy: SessionTransferService.busyCode
     default: "internal_error"
     }
     return ControlError(code: code, message: SessionTransferService.message(for: error))

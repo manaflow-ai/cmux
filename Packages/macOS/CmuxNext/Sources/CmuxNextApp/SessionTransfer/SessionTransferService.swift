@@ -59,10 +59,23 @@ final class SessionTransferService {
         return ["moved": .array(moved), "failed": .array(failed)]
     }
 
-    func complete(surfaces: [String]) async throws {
+    /// Closes `surfaces` and ends their terminals. With `idleOnly` (a taker that offered only
+    /// idle terminals), first asks each its foreground program and closes none when one is no
+    /// longer idle at its shell (``Failure/terminalBusy(_:)``, the control code ``busyCode``).
+    func complete(surfaces: [String], idleOnly: Bool = false) async throws {
         guard let services, let connection = services.daemon.connection else { throw Failure.unavailable }
         let ids = surfaces.compactMap { UInt64($0).map(SurfaceID.init(rawValue:)) }
         guard ids.count == surfaces.count else { throw Failure.invalidSurfaces }
+        if idleOnly {
+            let programs = await foregroundPrograms(surfaces)
+            for surface in surfaces {
+                // Missing: no answer, which is not idle. `.some(nil)`: its shell only.
+                guard let program = programs[surface] else { throw Failure.terminalBusy(SessionMoveSelection.becameUnknown) }
+                if let program {
+                    throw Failure.terminalBusy(program.isEmpty ? SessionMoveSelection.becameUnknown : SessionMoveSelection.becameBusy(program))
+                }
+            }
+        }
         try await connection.closeTabs(ids, endTerminals: true)
     }
 
@@ -153,9 +166,22 @@ final class SessionTransferService {
                 throw Failure.terminalBusy(refusal)
             }
         }
-        _ = try await create(item)
-        try await completeOnPeer(item: item, peer: peer)
+        let created = try await create(item)
+        guard item.kind == .terminal, idleTerminalsOnly else { return try await completeOnPeer(item: item, peer: peer) }
+        do {
+            // The source checks again as it closes (`idle_only`): the terminal may have started a
+            // program while the shell here opened. Refused, the new shell here closes again.
+            try await completeOnPeer(item: item, peer: peer, idleOnly: true)
+        } catch ControlPeerClient.Failure.peer(let control) where control.code == Self.busyCode {
+            if let connection = services?.daemon.connection {
+                _ = try? await connection.closeWorkspace(WorkspaceKey(rawValue: created), endTerminals: true)
+            }
+            throw Failure.terminalBusy(control.message)
+        }
     }
+
+    /// The `session.transfer.complete` error code for an `idle_only` terminal that is not idle.
+    nonisolated static let busyCode = "terminal_busy"
 
     /// Opens records read from classic's files (scripts/cmux-next/classic-to-next.py):
     /// `agent` {harness, session, cwd?, name?} becomes an agent chat resumed by its
@@ -250,10 +276,11 @@ final class SessionTransferService {
         return listed.workspaces.first(where: { $0.key?.rawValue == workspace })?.screens.first?.layout.paneIDs.first
     }
 
-    func completeOnPeer(item: SessionTransferItem, peer: SessionTransferPeer) async throws {
+    func completeOnPeer(item: SessionTransferItem, peer: SessionTransferPeer, idleOnly: Bool = false) async throws {
         do {
-            _ = try await ControlPeerClient.request(path: peer.path, method: "session.transfer.complete",
-                                                    params: ["surfaces": .array([.string(item.sourceSurface)])])
+            var params: [String: TransferJSONValue] = ["surfaces": .array([.string(item.sourceSurface)])]
+            if idleOnly { params["idle_only"] = .bool(true) }
+            _ = try await ControlPeerClient.request(path: peer.path, method: "session.transfer.complete", params: params)
         } catch let error as ControlPeerClient.Failure where Self.isMissingTransferMethod(error) {
             // Classic builds expose the normal v2 close method instead of the
             // additive transfer acknowledgement method.
