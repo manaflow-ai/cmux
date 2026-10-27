@@ -574,10 +574,12 @@ public final class LiveCoordinator {
     /// listed Mac while something names it (a Feed answer or a notification of
     /// that build, `touch`, or a link it still holds until idle), so an ask
     /// from that build is still answered on it.
+    /// A Mac whose pairing code is held is one too, while the code is.
     private func dialableMacs(_ team: Team) -> [MacDevice] {
         let own = team.macs.filter { !othersMacs.contains($0.id) }
         let listed = Set(MacRoster(own).visible.map(\.id))
-        return own.filter { listed.contains($0.id) || lastShown[$0.id] != nil }
+        let invited = pairing?.invites.pending()?.mac
+        return own.filter { listed.contains($0.id) || lastShown[$0.id] != nil || $0.id == invited }
     }
 
     /// The focused Mac changed: the last one stays linked while it is recent
@@ -610,7 +612,8 @@ public final class LiveCoordinator {
             live.isOnline = true
             return live
         }
-        let decision = linkPolicy.decide(macs: ranked, focused: focusedMacID, showing: showing, lastShown: lastShown, now: now)
+        let decision = linkPolicy.decide(macs: ranked, focused: focusedMacID, showing: showing, lastShown: lastShown, now: now,
+                                         pinned: pairing?.invites.pending()?.mac)
         for mac in macs where decision.linked.contains(mac.id) {
             let session = session(for: mac)
             session.name = mac.name
