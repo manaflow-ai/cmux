@@ -22,7 +22,11 @@
 //! complete after the last, so a pass a crash cut short is done again (`compacted_seq`).
 
 use super::*;
+use compact_archive::Archive;
 use std::borrow::Cow;
+
+#[path = "compact_archive.rs"]
+mod compact_archive;
 
 /// The record of a log's compaction, beside its segments.
 pub const MARKER: &str = "compacted.json";
@@ -126,22 +130,18 @@ impl LocalStore {
                 (true, archive.map(|a| a.join(id).join(format!("{}", now_ms()))))
             }
         };
-        // The nearest folder above the pass's that was there before it: every one from the pass's
-        // up to it is synced before any segment is replaced.
-        let mut existed = None;
-        if let Some(archive) = &archive {
-            if archive.exists() {
-                anyhow::bail!("archive folder {} already exists", archive.display());
+        let archive = match &archive {
+            Some(pass) => {
+                let kept = Archive::create(pass)?;
+                let meta = self.dir(id).join("session.json");
+                if meta.exists() {
+                    // A copy: the chat's own file may be written again in place.
+                    kept.keep(&meta, false, true)?;
+                }
+                Some(kept)
             }
-            existed = archive.ancestors().skip(1).find(|dir| dir.is_dir()).map(Path::to_path_buf);
-            archive_dirs(archive)?;
-            let meta = self.dir(id).join("session.json");
-            if meta.exists() {
-                let to = archive.join("session.json");
-                std::fs::copy(&meta, &to)?;
-                File::open(&to)?.sync_all()?;
-            }
-        }
+            None => None,
+        };
         let mut staged = Staged { stats: Compaction::default(), last_seq: 0, segments: Vec::new() };
         let mut line = Vec::new();
         let mut timing = Timing::default();
@@ -183,25 +183,14 @@ impl LocalStore {
                 drop_cache(&out);
             }
             drop_cache(&file);
-            if let (Some(archive), Some(name)) = (&archive, path.file_name()) {
-                let to = archive.join("events").join(name);
-                if std::fs::hard_link(&path, &to).is_err() {
-                    std::fs::copy(&path, &to)?;
-                    File::open(&to)?.sync_all()?;
-                }
+            if let Some(archive) = &archive {
+                archive.keep(&path, true, false)?;
             }
         }
-        // The copies are on disk before any segment is replaced, and so is every folder that
-        // names them: each one from the pass's up to the first that was there before the pass,
-        // whose entry for the first one it made is synced too.
+        // The copies, and every folder that names them, are on disk before any segment is
+        // replaced.
         if let Some(archive) = &archive {
-            sync_directory(&archive.join("events"))?;
-            for dir in archive.ancestors().filter(|dir| !dir.as_os_str().is_empty()) {
-                sync_directory(dir)?;
-                if existed.as_deref() == Some(dir) {
-                    break;
-                }
-            }
+            archive.sync()?;
         }
         Ok(Some(staged))
     }
@@ -253,29 +242,6 @@ impl LocalStore {
         write_atomic(&self.marker(id), &serde_json::to_vec_pretty(&marker)?)?;
         Ok(true)
     }
-}
-
-/// Makes a pass's archive folder and its `events`, owner-only as the chat's own folder is, with
-/// every missing folder above them owner-only too. An archive is a copy kept for a person, not
-/// state the daemon reads back: the folders above it are whatever the person chose (huge-blue's
-/// `~/archive` is group-writable), so they are not held to a state folder's rules.
-#[cfg(unix)]
-fn archive_dirs(pass: &Path) -> Result<()> {
-    use std::os::unix::fs::DirBuilderExt;
-    if let Some(parent) = pass.parent() {
-        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(parent)?;
-    }
-    // Not recursive: a folder that is there already is another pass's, and is refused.
-    std::fs::DirBuilder::new().mode(0o700).create(pass)?;
-    std::fs::DirBuilder::new().mode(0o700).create(pass.join("events"))?;
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn archive_dirs(pass: &Path) -> Result<()> {
-    std::fs::create_dir_all(pass.parent().unwrap_or(pass))?;
-    crate::config::private_state_dir(pass)?;
-    crate::config::private_state_dir(&pass.join("events"))
 }
 
 /// Which of Claude's raw `stream_event` lines a request's timing reads, as the tap keeps them

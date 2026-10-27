@@ -291,3 +291,29 @@ fn an_archive_under_a_group_writable_folder_is_kept_owner_only() {
     }
     assert!(pass.join("events/000001.ndjson").exists());
 }
+
+/// Another account that may write a folder above the archive puts a link where the chat's folder
+/// goes: the pass refuses, and nothing is written where the link points.
+#[cfg(unix)]
+#[test]
+fn an_archive_folder_replaced_by_a_link_is_refused() {
+    use std::os::unix::fs::PermissionsExt;
+    let (home, store) = Home::new();
+    chat(&store, "c1");
+    let archive = home.0.join("archive");
+    let elsewhere = home.0.join("elsewhere");
+    std::fs::create_dir_all(&archive).unwrap();
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    std::fs::set_permissions(&archive, std::fs::Permissions::from_mode(0o775)).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, archive.join("c1")).unwrap();
+    let mode = CompactMode::Write { archive: Some(&archive) };
+    assert!(store.stage_compaction("c1", mode).is_err());
+    assert_eq!(std::fs::read_dir(&elsewhere).unwrap().count(), 0, "nothing went through the link");
+    // A chat folder another account made (writable by others) is refused too.
+    std::fs::remove_file(archive.join("c1")).unwrap();
+    std::fs::create_dir(archive.join("c1")).unwrap();
+    std::fs::set_permissions(archive.join("c1"), std::fs::Permissions::from_mode(0o777)).unwrap();
+    assert!(store.stage_compaction("c1", mode).is_err());
+    assert_eq!(std::fs::read_dir(archive.join("c1")).unwrap().count(), 0);
+    assert!(log(&store, "c1").len() == 15, "the log is as it was");
+}
