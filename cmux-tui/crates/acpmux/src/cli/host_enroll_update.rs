@@ -49,11 +49,12 @@ pub(super) fn probe_script() -> String {
     let home = hosts::REMOTE_HOME;
     let off = hosts::NO_AUTO_UPDATE;
     let cloud = hosts::CLOUD_VM_MARK;
+    let cloud_dir = cloud.rsplit_once('/').map_or("/", |(dir, _)| dir);
     let service = hosts::UPDATE_SERVICE;
     let timer = hosts::UPDATE_TIMER;
     format!(
         r#"echo {MARK}begin; au_o=$(uname -s) && echo "{MARK}os=$au_o"
-if [ -e {cloud} ]; then echo {MARK}cloud; elif [ -e "${{cloud%/*}}" ] && [ ! -x "${{cloud%/*}}" ]; then echo {MARK}cloud-unknown; fi; [ ! -e {home}/{off} ] || echo {MARK}off
+if [ -e {cloud} ]; then echo {MARK}cloud; elif [ -e {cloud_dir} ] && [ ! -x {cloud_dir} ]; then echo {MARK}cloud-unknown; fi; [ ! -e {home}/{off} ] || echo {MARK}off
 if au_e=$(systemctl --user show-environment 2>/dev/null); then echo {MARK}systemd; set -f; au_ok=1
 au_m=; au_i=$IFS; IFS='
 '; for au_v in $au_e; do case "$au_v" in XDG_CONFIG_HOME=*) au_m=${{au_v#XDG_CONFIG_HOME=}} ;; esac; done; IFS=$au_i
@@ -92,23 +93,23 @@ $(au_lines "${{XDG_DATA_DIRS:-/usr/local/share:/usr/share}}" : /systemd/user)
 $au_r/systemd/generator.late"
 for au_f in acpmux-update.service acpmux-update.timer; do
 au_s=$(systemctl --user show "$au_f" -p LoadState --value 2>/dev/null) || au_s=error
-if [ -e "$au_d/$au_f" ]; then au_there=1; else au_all=; fi
+if [ -e "$au_d/$au_f" ] || [ -L "$au_d/$au_f" ]; then au_there=1; else au_all=; fi
 case "$au_s" in not-found) ;; *) au_there=1
 [ "$au_s" = loaded ] && [ "$(systemctl --user show "$au_f" -p FragmentPath --value 2>/dev/null)" = "$au_d/$au_f" ] || au_own= ;; esac
 au_x=$(systemctl --user show "$au_f" -p DropInPaths --value 2>/dev/null) || au_x=error
 for au_y in $au_x; do case "$au_y" in */"${{au_f##*.}}".d/*) ! au_mine "$au_y" && ! au_mine "${{au_y%/*}}" ;; *) false ;; esac || {{ au_there=1; au_own=; }}; done
 au_i=$IFS; IFS='
 '; for au_p in $au_paths; do [ -n "$au_p" ] || continue
-[ ! -e "$au_p/$au_f" ] || [ "$au_p/$au_f" -ef "$au_d/$au_f" ] || {{ au_there=1; au_own=; }}
+[ ! -e "$au_p/$au_f" ] && [ ! -L "$au_p/$au_f" ] || [ "$au_p/$au_f" -ef "$au_d/$au_f" ] || {{ au_there=1; au_own=; }}
 for au_n in "$au_f.d" "acpmux-.${{au_f##*.}}.d"; do [ ! -d "$au_p/$au_n" ] || {{ au_there=1; au_own=; }}; done
 au_w="$au_p/${{au_f##*.}}.d"; [ ! -d "$au_w" ] || ! au_mine "$au_w" || {{ au_there=1; au_own=; }}
 set +f; set -- "$au_w"/*; set -f
 for au_z in "$@"; do [ ! -e "$au_z" ] || ! au_mine "$au_z" || {{ au_there=1; au_own=; }}; done; done; IFS=$au_i
 done
 if [ -n "$au_there" ]; then
-[ ! -e "$au_d/acpmux-update.service" ] || {{ [ -f "$au_d/acpmux-update.service" ] && [ ! -L "$au_d/acpmux-update.service" ] && cmp -s - "$au_d/acpmux-update.service"; }} <<'ACPMUX_UPDATE_SERVICE' || au_own=
+[ ! -e "$au_d/acpmux-update.service" ] && [ ! -L "$au_d/acpmux-update.service" ] || {{ [ -f "$au_d/acpmux-update.service" ] && [ ! -L "$au_d/acpmux-update.service" ] && cmp -s - "$au_d/acpmux-update.service"; }} <<'ACPMUX_UPDATE_SERVICE' || au_own=
 {service}ACPMUX_UPDATE_SERVICE
-[ ! -e "$au_d/acpmux-update.timer" ] || {{ [ -f "$au_d/acpmux-update.timer" ] && [ ! -L "$au_d/acpmux-update.timer" ] && cmp -s - "$au_d/acpmux-update.timer"; }} <<'ACPMUX_UPDATE_TIMER' || au_own=
+[ ! -e "$au_d/acpmux-update.timer" ] && [ ! -L "$au_d/acpmux-update.timer" ] || {{ [ -f "$au_d/acpmux-update.timer" ] && [ ! -L "$au_d/acpmux-update.timer" ] && cmp -s - "$au_d/acpmux-update.timer"; }} <<'ACPMUX_UPDATE_TIMER' || au_own=
 {timer}ACPMUX_UPDATE_TIMER
 if [ -z "$au_own" ]; then echo {MARK}foreign
 elif [ -n "$au_all" ] && [ "$(systemctl --user is-enabled acpmux-update.timer 2>/dev/null)" = enabled ] && systemctl --user is-active --quiet acpmux-update.timer; then echo {MARK}timer

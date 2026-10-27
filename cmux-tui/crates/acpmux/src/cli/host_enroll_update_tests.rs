@@ -339,6 +339,8 @@ mod probe_in_a_shell {
         no_sed: bool,
         /// ~/.config/systemd/user/acpmux-update.service is a FIFO.
         fifo: bool,
+        /// A dangling symlink of this unit's name in ~/.config/systemd/user.
+        dangling: Option<&'static str>,
         /// The files in ~/.config/systemd/user: acpmux's text, another's, or none.
         service: Option<&'static str>,
         timer: Option<&'static str>,
@@ -365,6 +367,7 @@ mod probe_in_a_shell {
         full_unit_in: None,
         no_sed: false,
         fifo: false,
+        dangling: None,
         service: Some(hosts::UPDATE_SERVICE),
         timer: Some(hosts::UPDATE_TIMER),
         drop_in_dir: None,
@@ -387,6 +390,7 @@ mod probe_in_a_shell {
         full_unit_in: None,
         no_sed: false,
         fifo: false,
+        dangling: None,
         service: None,
         timer: None,
         drop_in_dir: None,
@@ -449,6 +453,9 @@ mod probe_in_a_shell {
                 fs::write(bin.join(tool), "#!/bin/sh\nexit 127\n").unwrap();
                 fs::set_permissions(bin.join(tool), fs::Permissions::from_mode(0o755)).unwrap();
             }
+        }
+        if let Some(name) = u.dangling {
+            std::os::unix::fs::symlink(root.join("nowhere"), units.join(name)).unwrap();
         }
         if u.fifo {
             let fifo = units.join("acpmux-update.service");
@@ -515,7 +522,9 @@ esac
         };
         let out = sh.output().unwrap();
         read_only(0o644, 0o755);
-        let written = units.join("acpmux-update.service").exists() && u.service.is_none();
+        let service = units.join("acpmux-update.service");
+        let written =
+            u.service.is_none() && fs::symlink_metadata(&service).is_ok_and(|m| m.is_file());
         fs::remove_dir_all(&root).unwrap();
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
         (String::from_utf8_lossy(&out.stdout).into_owned(), written)
@@ -659,11 +668,40 @@ esac
         assert_eq!(kind(&probe(Units { no_sed: true, ..OWN })), "timer");
     }
 
+    /// The Cloud VM mark's directory is there but cannot be searched: the
+    /// probe says so (run with the mark moved under the test's root).
+    #[test]
+    fn an_unreadable_cloud_mark_directory_is_said() {
+        let dir = std::env::temp_dir().join(format!("acpmux-cloud-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o000)).unwrap();
+        let script = probe_script().replace("/etc/cmux", &dir.display().to_string());
+        let found = parse(&run(NONE, &script).0);
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::remove_dir_all(&dir).unwrap();
+        assert!(found.cloud_unknown && !found.cloud, "{found:?}");
+        assert!(probe_script().contains("[ -e /etc/cmux ] && [ ! -x /etc/cmux ]"));
+    }
+
     /// A unit that is not a regular file (a FIFO, which `cmp` would wait on
     /// for ever) is foreign, and read without blocking.
     #[test]
     fn a_unit_that_is_not_a_regular_file_is_foreign() {
         assert_eq!(kind(&probe(Units { fifo: true, service: None, ..OWN })), "foreign");
+    }
+
+    /// A symlink of a unit's name that points nowhere (`-e` is false for it):
+    /// foreign, and the install writes nothing over it.
+    #[test]
+    fn a_dangling_unit_link_is_foreign() {
+        for name in ["acpmux-update.service", "acpmux-update.timer"] {
+            for u in [NONE, Units { loaded: false, service: None, timer: None, ..OWN }] {
+                assert_eq!(kind(&probe(Units { dangling: Some(name), ..u })), "foreign", "{name}");
+            }
+            let (out, written) =
+                run(Units { dangling: Some(name), ..NONE }, &guarded_install_script());
+            assert!(parse(&out).foreign && !written, "{name}: {out}");
+        }
     }
 
     /// The manager's `UnitPath` is space-separated: a path with spaces in it
