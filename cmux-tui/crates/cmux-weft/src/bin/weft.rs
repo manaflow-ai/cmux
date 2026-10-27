@@ -172,7 +172,7 @@ async fn admin(args: &Args) -> anyhow::Result<()> {
             client.create_tailnet(&tailnet, args.flag("--require-approval")).await?;
         }
         "set-policy" => {
-            let text = std::fs::read_to_string(args.arg(3, "policy file")?)?;
+            let text = tokio::fs::read_to_string(args.arg(3, "policy file")?).await?;
             let if_version = args.one("--if-version").map(|version| version.parse()).transpose()?;
             let version = client.set_policy(&tailnet, &text, if_version).await?;
             print(serde_json::json!({"version": version}));

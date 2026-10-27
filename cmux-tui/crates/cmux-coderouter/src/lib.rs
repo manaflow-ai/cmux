@@ -347,29 +347,38 @@ pub type AdminConnections = tokio::sync::mpsc::Receiver<std::io::Result<AdminCon
 /// do), also while it still waits on router.lock.
 #[cfg(unix)]
 pub async fn serve(home: impl AsRef<Path>) -> anyhow::Result<()> {
-    serve_with_admin(home, |socket_path| {
-        let admin = UnixListener::bind(socket_path)?;
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(socket_path, std::fs::Permissions::from_mode(0o600))?;
-        }
-        let (tx, rx) = tokio::sync::mpsc::channel(16);
-        tokio::spawn(async move {
-            loop {
-                let accepted = admin.accept().await.map(|(stream, _)| {
-                    let peer = free_tier::ProviderPeer::of_unix(&stream);
-                    let (read, write) = stream.into_split();
-                    (Box::new(read) as _, Box::new(write) as _, peer)
-                });
-                let failed = accepted.is_err();
-                if tx.send(accepted).await.is_err() || failed {
-                    break;
-                }
+    serve_with_admin(home, bind_unix_admin).await
+}
+
+/// [`serve`]'s admin socket: a unix socket only this user may connect to,
+/// each accepted connection handed to the router with its peer.
+#[cfg(unix)]
+fn bind_unix_admin(socket_path: &Path) -> anyhow::Result<AdminConnections> {
+    let admin = UnixListener::bind(socket_path)?;
+    {
+        use std::os::unix::fs::PermissionsExt;
+        // `bind_admin` is sync: the chmod is a counted ScopedBlockingCall.
+        cmux_blocking::scoped_blocking_call(
+            "fs::set_permissions",
+            cmux_blocking::BlockingKind::Fs,
+            || std::fs::set_permissions(socket_path, std::fs::Permissions::from_mode(0o600)),
+        )?;
+    }
+    let (tx, rx) = tokio::sync::mpsc::channel(16);
+    tokio::spawn(async move {
+        loop {
+            let accepted = admin.accept().await.map(|(stream, _)| {
+                let peer = free_tier::ProviderPeer::of_unix(&stream);
+                let (read, write) = stream.into_split();
+                (Box::new(read) as _, Box::new(write) as _, peer)
+            });
+            let failed = accepted.is_err();
+            if tx.send(accepted).await.is_err() || failed {
+                break;
             }
-        });
-        Ok(rx)
-    })
-    .await
+        }
+    });
+    Ok(rx)
 }
 
 /// The router with its admin socket bound by `bind_admin` (given the socket
@@ -500,11 +509,14 @@ async fn serve_owned(
     // One router per home: a second one waits here until the first exits
     // (`shutdown`, or its last owner gone), so it never takes the
     // socket from a router that still holds a bearer.
-    let lock = std::fs::OpenOptions::new()
+    let lock = tokio::fs::OpenOptions::new()
         .create(true)
         .truncate(false)
         .write(true)
-        .open(router_dir.join("router.lock"))?;
+        .open(router_dir.join("router.lock"))
+        .await?
+        .into_std()
+        .await;
     // Bounded: a router that never lets go (hung) must not collect waiters.
     // The wait runs on a plain thread, not the blocking pool: a router that
     // stops during it (no owner left) returns from main without waiting
@@ -939,5 +951,49 @@ mod relay_error_tests {
         assert!(transient.headers().get("x-should-retry").is_none());
         // The hosted router's own retry advice reaches the harness.
         assert!(FORWARD_RESPONSE_HEADERS.contains(&"x-should-retry"));
+    }
+}
+
+#[cfg(all(test, unix))]
+mod serve_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+    use std::time::{Duration, Instant};
+
+    async fn wait_for(path: &Path) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !path.exists() {
+            assert!(Instant::now() < deadline, "{} never appeared", path.display());
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
+    /// The router's start with no blocking std file call on a worker: the
+    /// admin socket is still private, and router.lock (opened by tokio, then
+    /// locked on its own thread) still keeps a second router out until the
+    /// first one ends.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_admin_socket_is_private_and_router_lock_admits_one_router() {
+        let home = tempfile::tempdir().unwrap();
+        let socket = admin_socket_path(home.path());
+        let first_home = home.path().to_owned();
+        let first = tokio::spawn(async move { serve_owned(&first_home, bind_unix_admin).await });
+        wait_for(&socket).await;
+        let mode = std::fs::metadata(&socket).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600, "admin socket mode {mode:o}");
+        assert!(home.path().join("router").join("router.lock").is_file());
+
+        std::fs::remove_file(&socket).unwrap();
+        let second_home = home.path().to_owned();
+        let second = tokio::spawn(async move { serve_owned(&second_home, bind_unix_admin).await });
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(!socket.exists(), "a second router bound its socket while the first held the lock");
+        assert!(!second.is_finished());
+
+        first.abort();
+        assert!(first.await.unwrap_err().is_cancelled());
+        wait_for(&socket).await;
+        second.abort();
+        let _ = second.await;
     }
 }
