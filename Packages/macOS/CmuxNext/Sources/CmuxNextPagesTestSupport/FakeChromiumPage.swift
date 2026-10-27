@@ -24,6 +24,8 @@ public final class FakeChromiumPage: PageChromiumPage {
     public var onEvent: ((PageChromiumEvent) -> Void)?
     /// The answerer the host sets for the page's dynamic paths.
     public var resources: (@MainActor (URL) async -> PageChromiumResponse)?
+    /// The page channel event the page script fires; nil (the default) stands for an engine with no page channel.
+    public var pageHostEvent: String?
     /// The holes the host last asked for, in ``contentView``'s coordinates.
     public var occlusionRects: [CGRect] = []
     /// The window ``isPageWindow(_:)`` answers for (a test's child window over the page); nil: none.

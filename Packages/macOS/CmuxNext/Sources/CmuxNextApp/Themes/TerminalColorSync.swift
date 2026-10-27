@@ -65,13 +65,17 @@ extension AppServices {
     /// with before it connects: its first answers to OSC 10/11/12 queries match the screen, and each connect sends
     /// them again. With feature `drainCauseSplit`, its program and agent changes apply in budgeted tasks of the
     /// app's scheduler (p06-scheduler-223, `DrainTail`).
-    func startLocalDaemon(after launch: LaunchRead<DaemonLaunchStart>) {
+    /// The prompts subscribe to the store's side events first: side events keep no backlog, and the first events
+    /// of a trusted subscribe are the daemon's pending pairings, so a prompt started after the connect misses them.
+    func startLocalDaemon(after launch: LaunchRead<DaemonLaunchStart>) -> DaemonPrompts {
+        let prompts = DaemonPrompts.start(self)
         terminalColors.apply()
         if features.isEnabled(.drainCauseSplit) { daemon.store.drainTailScheduler = mainWork }
         let now = launch.valueNow(orPostTo: mainWork, class: .visible, owner: "daemon.startLocal") { [weak self] landed in
             self?.startLocalDaemon(landed)
         }
         if let now { startLocalDaemon(now) } else { daemon.launchSnapshot.expectTake() }
+        return prompts
     }
 
     private func startLocalDaemon(_ landed: DaemonLaunchStart) {
