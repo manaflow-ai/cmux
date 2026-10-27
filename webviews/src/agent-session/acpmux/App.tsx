@@ -2135,6 +2135,8 @@ export function VirtualTranscript({
     onFollowingChange?.(next);
     setFollowing(next);
   };
+  const followRef = useRef(follow);
+  followRef.current = follow;
   const transcriptMounted = useRef(true);
   const scrollPacer = useRef<ReturnType<typeof createScrollPacer> | undefined>(undefined);
   scrollPacer.current ??= createScrollPacer((frame: ScrollFrame) => {
@@ -2653,11 +2655,11 @@ export function VirtualTranscript({
   /// Before the offset is written where rows lay out (a row's place), not where a lift draws them:
   /// the view stops following, and the commit that follows (from an event or a layout effect,
   /// before the frame paints) drops the lift without moving the offset by it.
-  const unlift = () => {
+  const unlift = useCallback(() => {
     if (!appliedLift.current) return;
     appliedLift.current = 0;
-    follow(false);
-  };
+    followRef.current(false);
+  }, []);
   const [, roomTaken] = useReducer((count: number) => count + 1, 0);
   /// Gives the room under the last row the stack's height again, at once, before Jump to latest
   /// follows again (`room` below).
@@ -2971,7 +2973,7 @@ export function VirtualTranscript({
       scrollPacer.current?.cancel();
       setScrollAt(nextTop, delta || nextTop - scrollRef.current.top);
     },
-    [layout, rows],
+    [layout, rows, unlift],
   );
   useLayoutEffect(() => {
     const id = pendingFocus.current;
@@ -3721,6 +3723,7 @@ export function VirtualTranscript({
   };
   useEffect(() => {
     const node = ref.current;
+    const followIntent = (next: boolean) => followRef.current(next);
     let dragging = false;
     const reader = (event?: Event) => {
       if (event?.type === "pointerdown") dragging = true;
@@ -3733,11 +3736,11 @@ export function VirtualTranscript({
         event !== undefined &&
         ((event.type === "wheel" && (event as WheelEvent).deltaY < 0) ||
           (event.type === "keydown" && ["ArrowUp", "PageUp", "Home"].includes((event as KeyboardEvent).key)));
-      if (movingUp) follow(false);
+      if (movingUp) followIntent(false);
       if (jumpTarget.current !== undefined) {
         stopJump();
         scrolledTo.current = { top: node?.scrollTop ?? 0, atLatest: false };
-        follow(false);
+        followIntent(false);
       }
     };
     // A long scrollbar drag/touch gesture remains reader input after its initial press expires.
