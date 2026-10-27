@@ -1130,6 +1130,7 @@ impl Hub {
                 }
                 return;
             };
+            state.settled.remember(&id, None, &json!({"outcome": "cancelled"}));
             if let Some(group) = state.finish_item(&session.id, &id, true) {
                 self.append(session, "mux", "permission_group", json!({"group": group}));
             }

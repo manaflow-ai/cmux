@@ -40,7 +40,7 @@ pub enum Inbound {
         params: Option<Value>,
         /// The hosted agent entry that carried this message, when durable.
         host_seq: Option<u64>,
-        /// The hosted child generation that carried this message.
+        /// The host incarnation or direct child generation that owns this message.
         host_incarnation: Option<String>,
     },
     /// `agent` is the [`ChildAgent::generation`] it came from: the hub drops what an agent
@@ -52,7 +52,7 @@ pub enum Inbound {
         agent: u64,
         /// The hosted agent entry that carried this message, when durable.
         host_seq: Option<u64>,
-        /// The hosted child generation that carried this message.
+        /// The host incarnation or direct child generation that owns this message.
         host_incarnation: Option<String>,
         /// A hosted cancellation is acknowledged only after its durable
         /// withdrawal marker is stored. The reader owns the receiver.
@@ -503,6 +503,12 @@ pub fn process_state(params: &Value) -> bool {
 }
 
 impl ChildAgent {
+    /// Direct children have no durable host record, but requests must still
+    /// belong to one process generation when a replacement reuses their ids.
+    fn direct_incarnation(&self) -> String {
+        format!("direct:{}", self.generation)
+    }
+
     /// Ends every process in the agent's job (Windows; killpg on Unix).
     #[cfg(windows)]
     fn kill_job(&self) {
@@ -790,7 +796,7 @@ impl ChildAgent {
                                         method,
                                         params,
                                         host_seq: None,
-                                        host_incarnation: None,
+                                        host_incarnation: Some(agent_for_exit.direct_incarnation()),
                                     })
                                     .await;
                             }
@@ -801,7 +807,7 @@ impl ChildAgent {
                                         params,
                                         agent: agent_for_exit.generation,
                                         host_seq: None,
-                                        host_incarnation: None,
+                                        host_incarnation: Some(agent_for_exit.direct_incarnation()),
                                         persisted: None,
                                     })
                                     .await;
@@ -820,7 +826,7 @@ impl ChildAgent {
                                     params,
                                     agent: agent_for_exit.generation,
                                     host_seq: None,
-                                    host_incarnation: None,
+                                    host_incarnation: Some(agent_for_exit.direct_incarnation()),
                                     persisted: None,
                                 })
                                 .await;
@@ -1124,7 +1130,7 @@ impl ChildAgent {
                             method,
                             params,
                             host_seq: None,
-                            host_incarnation: None,
+                            host_incarnation: Some(self.direct_incarnation()),
                         })
                         .await;
                 }
@@ -1135,7 +1141,7 @@ impl ChildAgent {
                             method,
                             params,
                             host_seq: None,
-                            host_incarnation: None,
+                            host_incarnation: Some(self.direct_incarnation()),
                             persisted: None,
                             agent: self.generation,
                         })
@@ -1750,6 +1756,52 @@ pub(crate) fn spawn_error(what: &str, e: std::io::Error) -> anyhow::Error {
 #[cfg(all(test, unix))]
 mod spawn_error_tests {
     use super::*;
+
+    #[tokio::test]
+    async fn direct_children_give_withdrawals_distinct_request_owners() -> anyhow::Result<()> {
+        let ask = Message::request(7, crate::rpc::method::SESSION_REQUEST_PERMISSION, Value::Null);
+        let cancel = Message::notification(
+            crate::rpc::method::CANCEL_REQUEST,
+            serde_json::json!({"requestId": 7}),
+        );
+        let script = format!(
+            "import sys; print({:?}, flush=True); print({:?}, flush=True); sys.stdin.read()",
+            ask.to_line().trim(),
+            cancel.to_line().trim()
+        );
+        let profile: HarnessProfile = serde_json::from_value(serde_json::json!({
+            "argv": ["python3", "-c", script]
+        }))?;
+        let mut owners = Vec::new();
+        for _ in 0..2 {
+            let (inbound, mut rx) = mpsc::channel(8);
+            let agent = ChildAgent::spawn(
+                "direct",
+                &profile,
+                &std::env::temp_dir(),
+                inbound,
+                Arc::new(|_, _, _| true),
+            )
+            .await?;
+            let messages = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                (rx.recv().await, rx.recv().await)
+            })
+            .await;
+            agent.kill().await;
+            let (
+                Some(Inbound::Request { host_incarnation: request, .. }),
+                Some(Inbound::Notification { host_incarnation: cancel, .. }),
+            ) = messages?
+            else {
+                anyhow::bail!("the direct child did not ask and withdraw its request");
+            };
+            assert!(request.is_some(), "a direct request needs its child's identity");
+            assert_eq!(request, cancel, "a withdrawal must carry its request's owner");
+            owners.push(request);
+        }
+        assert_ne!(owners[0], owners[1], "a replacement child reused its predecessor's owner");
+        Ok(())
+    }
 
     #[test]
     fn out_of_descriptors_says_it_is_the_daemon_and_what_to_do() {

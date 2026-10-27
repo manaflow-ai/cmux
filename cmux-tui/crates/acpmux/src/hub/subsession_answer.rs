@@ -328,6 +328,35 @@ mod tests {
         assert!(session.permissions.lock().unwrap_or_else(|e| e.into_inner()).pending.is_empty());
     }
 
+    #[tokio::test]
+    async fn a_withdrawal_immediately_reports_its_settled_outcome() {
+        let (hub, session, _conn) = hub_with_session().await;
+        let (id, _rx) = pending(&session, false);
+        {
+            let mut state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(entry) = state.pending.get_mut(&id) {
+                entry.agent_request = Some(json!(7));
+            }
+        }
+        hub.withdraw_permission(&session, None, &json!(7));
+        let error = hub
+            .respond_permission(
+                &session,
+                &id,
+                Some("go".to_owned()),
+                None,
+                None,
+                Answerer::default(),
+                Control::Local,
+            )
+            .await
+            .expect_err("the withdrawal won before this answer");
+        assert_eq!(
+            error.data,
+            Some(json!({"answeredBy": null, "outcome": {"outcome": "cancelled"}})),
+        );
+    }
+
     /// The withdrawal record is replayed for the same host incarnation, so a
     /// daemon restart cannot re-show the card.
     #[tokio::test]
