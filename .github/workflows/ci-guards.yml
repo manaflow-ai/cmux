@@ -1301,6 +1301,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_live_appcast_build.py
 
+      - name: Validate the classic failure incident under parallel runs
+        if: ${{ matrix.group == 'release-notary' }}
+        run: node --test tests/nightly_failure_issue.test.mjs
+
       - name: Validate the Linux DEV signer (stock rcodesign, fake-rcodesign fixture)
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_rcodesign_sign_bundle_dev.py

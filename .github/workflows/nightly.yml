@@ -100,7 +100,7 @@ concurrency:
   # a pending tip is never replaced by the next push (Leo, 2026-10-24: "it is
   # unacceptable to have nightlies >30min out of date"). Ordering is kept at
   # publication, not here: the run-derived Sparkle build number grows with the
-  # run, the release-publish-<tag> job groups serialize the feed writers, and
+  # run, the classic publishers serialize their feed writes, and
   # the publish step refuses a source older than the published one
   # (auto-resume-nightly-notarization.yml's ancestry and RC version checks;
   # nightly-next's cross-feed floor check refuses a build not above main's).
@@ -3353,9 +3353,12 @@ jobs:
               --cache-control "no-cache, no-store, must-revalidate"
           done
 
-  # Keep one open issue per failed publication boundary. A stale channel tag
-  # leaves the assets, release metadata, and feeds available, so the incident
-  # must say that explicitly instead of claiming installs stopped updating.
+  # Keep one open issue per channel. A stale channel tag leaves the assets,
+  # release metadata, and feeds available, so the incident must say that
+  # explicitly instead of claiming installs stopped updating. Push runs build in
+  # parallel, so reports and closes race: scripts/ci/nightly_failure_issue.mjs
+  # records each failed commit, closes only on a publication that covers every
+  # one, and settles the races and duplicates.
   report-nightly-failure:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, build-sign-notarize-nightly, verify-signed-nightly, publish-nightly, generate-nightly-deltas, republish-nightly-deltas]
     if: always() && needs.decide.outputs.should_publish == 'true' && (contains(needs.*.result, 'failure') || needs.publish-nightly.outputs.tag_status == 'stale')
@@ -3364,6 +3367,15 @@ jobs:
       contents: read
       issues: write
     steps:
+      - name: Checkout the failure incident script
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: scripts/ci/nightly_failure_issue.mjs
+          sparse-checkout-cone-mode: false
+
       - name: Open or update the nightly failure issue
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
@@ -3373,13 +3385,13 @@ jobs:
           CHANNEL_APP_NAME: ${{ needs.decide.outputs.app_name }}
           REF_NAME: ${{ github.ref_name }}
           TAG_STATUS: ${{ needs.publish-nightly.outputs.tag_status }}
+          CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
         with:
           script: |
             const { owner, repo } = context.repo;
             const channel = process.env.CHANNEL;
             const appName = process.env.CHANNEL_APP_NAME;
             const refName = process.env.REF_NAME;
-            const label = `${channel}-failure`;
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
             const results = JSON.parse(process.env.RESULTS);
             const failed = Object.entries(results).filter(([, v]) => v.result === 'failure').map(([k]) => k);
@@ -3388,19 +3400,13 @@ jobs:
               ? `${appName} published, tag marker stale for ${process.env.HEAD_SHA} (${refName}). Assets, release metadata, and appcasts are available; only the channel completion marker failed to advance.`
               : `${appName} run ${runUrl} failed on ${process.env.HEAD_SHA} (${refName}) in: ${failed.join(', ')}.`;
             const failedLine = failed.length > 0 ? `Failed jobs: ${failed.join(', ')}.` : 'The tag marker update failed after publication completed.';
-            const body = `${publicationLine}\n\n${failedLine}\n\nThe next successful publication will update this incident. Run: ${runUrl}`;
-            try {
-              await github.rest.issues.getLabel({ owner, repo, name: label });
-            } catch (error) {
-              if (error.status !== 404) throw error;
-              await github.rest.issues.createLabel({ owner, repo, name: label, color: 'b60205', description: `${appName} publish failing` });
-            }
-            const open = await github.rest.issues.listForRepo({ owner, repo, labels: label, state: 'open', per_page: 1 });
-            if (open.data.length > 0) {
-              await github.rest.issues.createComment({ owner, repo, issue_number: open.data[0].number, body });
-            } else {
-              await github.rest.issues.create({ owner, repo, title: `${appName} build is failing on ${refName}`, labels: [label], body });
-            }
+            const body = `${publicationLine}\n\n${failedLine}\n\nA publication that includes this commit closes this incident. Run: ${runUrl}`;
+            const incident = await import(`${process.env.GITHUB_WORKSPACE}/scripts/ci/nightly_failure_issue.mjs`);
+            await incident.report({
+              github, owner, repo, channel, appName, ref: refName, sha: process.env.HEAD_SHA, body, log: core.info,
+              // A stale tag is this commit's own incident even though it published.
+              releaseTag: tagStale ? null : process.env.CHANNEL_RELEASE_TAG,
+            });
 
   close-nightly-failure-issue:
     needs: [decide, publish-nightly, generate-nightly-deltas, republish-nightly-deltas]
@@ -3410,18 +3416,28 @@ jobs:
       contents: read
       issues: write
     steps:
+      - name: Checkout the failure incident script
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: scripts/ci/nightly_failure_issue.mjs
+          sparse-checkout-cone-mode: false
+
       - name: Close the nightly failure issue
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           HEAD_SHA: ${{ needs.decide.outputs.head_sha }}
           CHANNEL: ${{ needs.decide.outputs.channel }}
           CHANNEL_APP_NAME: ${{ needs.decide.outputs.app_name }}
+          REF_NAME: ${{ github.ref_name }}
         with:
           script: |
             const { owner, repo } = context.repo;
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
-            const open = await github.rest.issues.listForRepo({ owner, repo, labels: `${process.env.CHANNEL}-failure`, state: 'open', per_page: 10 });
-            for (const issue of open.data) {
-              await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body: `${process.env.CHANNEL_APP_NAME} publish succeeded again on ${process.env.HEAD_SHA}: ${runUrl}` });
-              await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: 'closed' });
-            }
+            const incident = await import(`${process.env.GITHUB_WORKSPACE}/scripts/ci/nightly_failure_issue.mjs`);
+            await incident.close({
+              github, owner, repo, channel: process.env.CHANNEL, appName: process.env.CHANNEL_APP_NAME,
+              ref: process.env.REF_NAME, sha: process.env.HEAD_SHA, runUrl, log: core.info,
+            });

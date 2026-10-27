@@ -648,8 +648,8 @@ assert 'if branch == "nightly-next":' in auto and "nightly-next-continues-on-its
 assert "eligible=false" in auto and "source-branch-is-not-published" in auto
 assert "published: ${{ steps.publication-result.outputs.published }}" in auto
 assert "needs.publish.outputs.published == 'true'" in auto
-assert "const label = `${process.env.CHANNEL}-failure`;" in auto
-assert "Notarization continuation accepted and published ${process.env.SOURCE_HEAD_SHA}" in auto
+# The continuation closes only failures its commit includes (scripts/ci/nightly_failure_issue.mjs).
+assert "await incident.close({" in auto and "sha: process.env.SOURCE_HEAD_SHA" in auto
 assert "if (!(issue.body || '').toLowerCase().includes(process.env.SOURCE_HEAD_SHA.toLowerCase())) continue;" not in auto
 assert "--draft=false" in auto
 assert "prune_nightly_release_assets.py" in auto
@@ -845,9 +845,9 @@ if ! awk '
   /^  [a-zA-Z0-9_-]+:/ { job="" }
   job == "report" && /contains\(needs\.\*\.result, .failure.\)/ { saw_report_gate=1 }
   job == "report" && /issues: write/ { saw_report_perm=1 }
-  job == "report" && /\$\{channel\}-failure/ { saw_report_label=1 }
+  job == "report" && /incident\.report\(/ { saw_report_label=1 }
   job == "close" && /needs\.publish-nightly\.result == .success./ { saw_close_gate=1 }
-  job == "close" && /state: .closed./ { saw_close=1 }
+  job == "close" && /incident\.close\(/ { saw_close=1 }
   END { exit !(saw_report_gate && saw_report_perm && saw_report_label && saw_close_gate && saw_close) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: a failing main nightly must open a nightly-failure issue and a successful publish must close it"
