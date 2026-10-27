@@ -3,8 +3,8 @@ import AppKit
 import CmuxNextSettings
 
 /// `debug.sidebar_wheel`: scroll events at a point over a main window,
-/// dispatched the way the window server hands them to the app (the window's
-/// `sendEvent`, then its hit test and `scrollWheel`), so a proof can page the
+/// dispatched the way the window server hands them to the app (the app's
+/// `sendEvent` and input tap, then hit test and `scrollWheel`), so a proof can page the
 /// sidebar's spaces with a mouse wheel or a trackpad gesture without
 /// fronting the app or moving the pointer. Events posted to a background
 /// app from outside never reach it.
@@ -49,11 +49,12 @@ import CmuxNextSettings
                 event.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
             }
             guard let nsEvent = NSEvent(cgEvent: event) else { continue }
-            // The window's own dispatch when the event names it; otherwise the
-            // view under the point, as that dispatch would pick.
+            // As agent input, the app's dispatch (its input tap feeds the space paging, SidebarSwipeFeed) when
+            // the event names the window; otherwise the view under the point, as that dispatch would pick.
             if nsEvent.window === window {
-                window.sendEvent(nsEvent)
-                routes.insert("window")
+                SyntheticInput.register([nsEvent])
+                NSApp.sendEvent(nsEvent)
+                routes.insert("app")
             } else if let hit {
                 hit.scrollWheel(with: nsEvent)
                 routes.insert("hit")

@@ -1,6 +1,5 @@
 public import AppKit
 public import CmuxNextDesign
-public import CmuxNextInput
 public import CmuxNextResources
 import CmuxNextCompat
 import CmuxNextIcons
@@ -103,12 +102,6 @@ public final class SidebarView: NSView {
     var shownAppContributions: Set<String> = []
     /// The `sidebar.*` settings this sidebar draws from (tests give their own).
     let design: DesignSettings
-    /// The app's one input tap (the App injects it): the list hears the app's left presses and releases there,
-    /// so a press whose release went elsewhere ends (`SidebarListView+PointerEnd`).
-    public var inputTap: InputEventTap? {
-        get { list.inputTap }
-        set { list.inputTap = newValue }
-    }
     /// The row feed of this sidebar's rows (the App injects it with feature `sidebarRowsNearViewport` on): only
     /// the rows the list draws on screen stay armed. Nil observes every row.
     public var rowFeed: SidebarRowFeed? {
