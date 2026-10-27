@@ -12,6 +12,7 @@ CI gate. Refuses (exit 1) unless all three hold for the exact build of fleet job
       commit in some results.jsonl under DIR (run.py's output; default artifacts/journeys), the
       newest line per journey counting, with passing app, daemon and frame evidence, its check
       frames on disk, and a clip on disk that shows at least 2 different frames of the journey's action;
+      and no failed attempt of that journey on JOB in DIR (a later pass does not undo a failure);
   (c) QA: the independent QA agent's verdict file (default artifacts/journeys/qa/<JOB>.json) names
       JOB ("build_job") and its commit, names its QA agent ("qa_agent", not the author), says
       "verdict": "ship", lists what it tried, and has no open bug: none of high or worse severity,
@@ -76,7 +77,8 @@ def check_fixes(repo, sha, fixes):
     return rows, refusals
 
 
-def newest_results(results_dir, job):
+def newest_results(results_dir, job, failed=None):
+    """The newest result line per journey for JOB; `failed` (a dict) gets every failed attempt per journey."""
     newest = {}
     for path in sorted(Path(results_dir).rglob("results.jsonl")):
         for raw in path.read_text().splitlines():
@@ -87,6 +89,8 @@ def newest_results(results_dir, job):
             if line.get("build_job") != job:
                 continue
             line["_file"] = str(path)
+            if failed is not None and line.get("status") == "fail":
+                failed.setdefault(line["id"], []).append(line)
             if line["id"] not in newest or str(line.get("run_at")) >= str(newest[line["id"]].get("run_at")):
                 newest[line["id"]] = line
     return newest
@@ -97,7 +101,8 @@ def check_journeys(results_dir, job, sha):
     if problems:
         return [], [f"journeys: the journey files do not validate: {p}" for p in problems]
     p0 = [s for s in specs if s["priority"] == "P0"]
-    newest = newest_results(results_dir, job)
+    failed = {}
+    newest = newest_results(results_dir, job, failed)
     rows, refusals = [], []
     for spec in p0:
         line = newest.get(spec["id"])
@@ -125,6 +130,12 @@ def check_journeys(results_dir, job, sha):
                 # Results from before run.py counted action frames have neither field: they refuse too.
                 status, reason = "fail", (f"its clip shows {action_frames} frame(s) of the action ({action_distinct} different; "
                                           f"needs {journeys.MIN_ACTION_FRAMES}): rerun it with this run.py")
+            elif failed.get(spec["id"]):
+                # A rerun that passes does not undo a failure: an intermittent P0 failure is a bug a person hits too.
+                # A failure that was the harness's own fault is moved out of --results, with the reason, by the lead.
+                first = failed[spec["id"]][0]
+                status, reason = "flaky", (f"{len(failed[spec['id']])} failed attempt(s) on this build, e.g. {first.get('run_at')} "
+                                           f"in {first.get('_file')}: {str(first.get('reason'))[:200]}")
         rows.append((spec["id"], status, reason, line.get("clip")))
         if status != "pass":
             refusals.append(f"journeys: P0 {spec['id']} is {status}: {reason}")

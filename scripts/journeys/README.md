@@ -244,7 +244,10 @@ It refuses (exit 1) and prints the build report unless:
 2. every P0 journey's newest result for JOB (any `results.jsonl` under `artifacts/journeys`,
    `--results`) is `pass` on the build's commit, with passing app, daemon and frame evidence,
    its check frames on disk, and a clip on disk with at least 2 different frames of its action
-   (results written before `run.py` counted action frames refuse: rerun them);
+   (results written before `run.py` counted action frames refuse: rerun them); and no attempt
+   of that journey on JOB under `--results` failed: a rerun that passes does not undo a failure
+   (the gate reports it as `flaky`). Move a failure that was the harness's own fault out of
+   `--results`, and say why in the build report;
 3. the independent QA verdict file `artifacts/journeys/qa/<JOB>.json` (`--qa`) says ship for
    this exact build.
 
