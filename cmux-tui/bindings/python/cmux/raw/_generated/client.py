@@ -243,8 +243,8 @@ class GeneratedClientMixin:
     def client_focus(self, client_id: str) -> ClientFocusResult:
         return self._invoke_command('client-focus', ClientFocusRequest(client_id=client_id))
 
-    def client_hello(self, *, install_id: Union[str, MissingType] = MISSING, page: Union[str, None, MissingType] = MISSING, proof: Union[str, MissingType] = MISSING, role: Union[str, MissingType] = MISSING) -> ClientHelloResult:
-        return self._invoke_command('client-hello', ClientHelloRequest(install_id=install_id, page=page, proof=proof, role=role))
+    def client_hello(self, *, features: Union[ClientHelloFeatures, None, MissingType] = MISSING, install_id: Union[str, MissingType] = MISSING, page: Union[str, None, MissingType] = MISSING, proof: Union[str, MissingType] = MISSING, role: Union[str, MissingType] = MISSING) -> ClientHelloResult:
+        return self._invoke_command('client-hello', ClientHelloRequest(features=features, install_id=install_id, page=page, proof=proof, role=role))
 
     def close_pane(self, pane: Id, *, end_terminals: Union[bool, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('close-pane', ClosePaneRequest(pane=pane, end_terminals=end_terminals))

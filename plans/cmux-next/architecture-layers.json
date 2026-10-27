@@ -118,6 +118,7 @@
     "CmuxNextAppPermissions": {"layer": "ui"},
     "CmuxNextLaunch": {"layer": "ui", "note": "launch-only types (p08-startup task 073): ui because the saved window picture views and its Design dependency are AppKit; never depends on CmuxNextApp"},
     "CmuxNextTestExitTrace": {"layer": "core"},
+    "CmuxNextTestSupport": {"layer": "core", "note": "PerfResultWriter, the in-process benches' result-v1 writer (p12-perf-process 217); Foundation only, test targets only"},
     "CmuxNextSignposts": {"layer": "core"},
     "CmuxNextSignpostsC": {"layer": "core", "note": "C: os_signpost macros for the key and stall signposts, no heap allocation (p09-observability 007); libSystem only"},
     "CmuxNextSharedRegionC": {"layer": "core", "note": "C: shm_open for the Chromium host control channel's sealed payload regions (p01-process 020); libSystem only"},

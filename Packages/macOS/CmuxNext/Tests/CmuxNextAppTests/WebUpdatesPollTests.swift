@@ -24,7 +24,7 @@ import Testing
         let reads: AsyncStream<Void>
         let readCount = ReadCount()
 
-        init(energy: EnergyPolicySource = EnergyPolicySource()) throws {
+        init(energy: EnergyPolicySource = EnergyPolicySource(), checksHeld: Bool = false) throws {
             root = try WebUpdateStoreTests.scratch()
             let (reads, read) = AsyncStream.makeStream(of: Void.self)
             self.reads = reads
@@ -32,7 +32,7 @@ import Testing
             let store = WebUpdateStore(base: root.appending(path: "store", directoryHint: .isDirectory))
             updater = WebUpdater(
                 store: store, app: .init(abi: 2, webBuiltAt: 1_700_000_000), keys: .keys(WebUpdatePointerTests.keys),
-                energy: energy, clock: clock,
+                energy: energy, clock: clock, checksHeld: checksHeld,
                 fetch: { request in
                     readCount.add()
                     read.yield()
@@ -101,6 +101,35 @@ import Testing
         // A window going away drops the booked check.
         rig.updater.noteShown(false)
         #expect(rig.clock.sleeperCount == 0)
+    }
+
+    /// Startup holds the network (p08-startup-077, Chrome's AfterStartupTaskUtils): no channel
+    /// follow, show or activation reads the pointer or books a read before ``WebUpdater/startChecks()``,
+    /// which reads it once at once and books the next an interval out.
+    @Test func noPointerIsReadBeforeStartupCompletes() async throws {
+        let rig = try Rig(checksHeld: true)
+        rig.updater.follow(.everyMerge)
+        rig.updater.noteShown(false)
+        rig.updater.noteShown(true)
+        rig.updater.noteActivation(stale: 0)
+        rig.updater.noteBackground()
+        rig.updater.noteActivation(stale: 0)
+        #expect(rig.clock.sleeperCount == 0, "a held updater booked a check")
+        // test-deadline: a bound on a wait that must find nothing, not a settle
+        #expect(await rig.readStarts(within: .milliseconds(300)) == false, "a held updater read the pointer")
+        #expect(rig.readCount.count == 0)
+        #expect(rig.updater.lastCheck == nil)
+
+        rig.updater.startChecks()
+        #expect(!rig.updater.checksHeld)
+        await rig.nextRead()
+        try await rig.clock.waitForSleeper()
+        #expect(rig.readCount.count == 1)
+        #expect(rig.clock.sleepRequests.last?.deadline.offset == .seconds(60))
+        // A second start books nothing more.
+        rig.updater.startChecks()
+        #expect(rig.clock.sleeperCount == 1)
+        rig.updater.noteShown(false)
     }
 
     /// cmux coming to the front while no window shows neither books a check (a recent last check)

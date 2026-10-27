@@ -12937,6 +12937,126 @@
      "constraints": [
       "Step 2 only: the proved install id."
      ]
+    },
+    "features": {
+     "type": {
+      "kind": "ref",
+      "name": "ClientHelloFeatureReport"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "constraints": [
+      "A role main hello with features, once the daemon installed its own: what it reconciled (step 2 again, with the proved app's kill switches)."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "ClientHelloFeatures": {
+   "kind": "object",
+   "fields": {
+    "hash": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "constraints": [
+      "FNV-1a 64 of name=1 or name=0 per value in registry order, 16 hex digits; equal to the daemon's skips the comparison."
+     ]
+    },
+    "values": {
+     "type": {
+      "kind": "map",
+      "values": {
+       "kind": "scalar",
+       "name": "boolean"
+      }
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "The app's value of each of its daemon and both features, by registry name; at most 512."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "ClientHelloFeaturePending": {
+   "kind": "object",
+   "fields": {
+    "name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "app": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "daemon": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "The value the daemon keeps for its session."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "ClientHelloFeatureReport": {
+   "kind": "object",
+   "fields": {
+    "hash": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "The daemon's values hash after the hello."
+     ]
+    },
+    "applied": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "The process=daemon kill switches the hello turned off now (a verified app only)."
+     ]
+    },
+    "pending": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ClientHelloFeaturePending"
+      }
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "Every other difference; the daemon keeps its value until it restarts."
+     ]
     }
    },
    "additional_properties": false
@@ -35924,6 +36044,17 @@
       "nullable": false,
       "constraints": [
        "Step 2, required: the install-key proof over the step 1 nonce (client_hello.refused otherwise)."
+      ]
+     },
+     "features": {
+      "type": {
+       "kind": "ref",
+       "name": "ClientHelloFeatures"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "constraints": [
+       "Step 1, role main only: the app's daemon features (client_hello.bad_request {field: features} otherwise)."
       ]
      }
     },

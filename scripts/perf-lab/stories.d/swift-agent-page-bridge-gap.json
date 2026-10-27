@@ -1,0 +1,17 @@
+{
+  "id": "swift-agent-page-bridge-gap",
+  "tier": "builder",
+  "description": "AgentPageProviderBridgeGapBench: main-thread time to publish 1,024 agent host events before the page subscribes, and the replay window until the page has them all.",
+  "command": ["scripts/perf-lab/stories/swift_benches.py", "run", "--story", "swift-agent-page-bridge-gap", "--filter", "AgentPageProviderBridgeGapBench", "--env", "CMUX_SWIFT_TEST_SUITE_TIMEOUT_SECONDS=901"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "swift\\.agent_page\\.(publish_main|replay_window)", "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 900,
+  "needs": ["file:Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AgentPageProviderBridgeGapBench.swift", "file:Packages/macOS/CmuxNext/Tests/CmuxNextTestSupport/PerfResultWriter.swift"],
+  "owner": "Performance Lead",
+  "component": "AgentPane>Bridge"
+}

@@ -222,6 +222,29 @@ export function reduceActivity(state: ActivityState, action: any): ActivityState
   return next;
 }
 
+/** The page name its saved state carries (pages/shared/pageState.ts). */
+export const AGENT_ACTIVITY_PAGE = "agent-activity";
+
+const LAYOUTS: readonly ActivityState["layout"][] = ["split", "timeline", "grid"];
+
+/** What the page keeps across a discard: its own filter and layout. The host owns the selection. */
+export type ActivityInputs = Pick<ActivityState, "filter" | "layout">;
+
+export function activityInputs(state: ActivityState): ActivityInputs {
+  return { filter: state.filter, layout: state.layout };
+}
+
+/** The valid fields of the inputs a discarded document saved; the rest keep their defaults. */
+export function restoredActivityInputs(state: unknown): Partial<ActivityInputs> {
+  if (!state || typeof state !== "object") return {};
+  const saved = state as Record<string, unknown>;
+  const layout = LAYOUTS.find((known) => known === saved.layout);
+  return {
+    ...(typeof saved.filter === "string" && saved.filter ? { filter: saved.filter } : {}),
+    ...(layout ? { layout } : {}),
+  };
+}
+
 export const initialActivityState = (): ActivityState => ({
   sessionsByMachine: {},
   machineNames: {},
