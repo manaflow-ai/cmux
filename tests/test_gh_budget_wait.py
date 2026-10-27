@@ -273,12 +273,13 @@ class WorkflowTests(unittest.TestCase):
             self.assertTrue(any("actions/checkout" in str(s.get("uses", "")) for s in steps[:at]), name)
             later_gh = [i for i, s in enumerate(steps)
                         if "github.token" in str(s.get("env", {})) or "release-tag-token" in str(s.get("env", {}))]
-            # Only prepare's reuse probe (before any checkout; a refusal prepares here) and the
+            # Only prepare's reuse probe (before any checkout; a refusal prepares here), the nightly
+            # product lookup (no gh: a bounded REST lookup whose every refusal is a miss) and the
             # unsigned-resume restore (a hand-run recovery, not the publish path) come first.
             early = [i for i in later_gh if i < at]
             for i in early:
                 resume = "nightly_next_unsigned_run != ''" in str(steps[i].get("if", ""))
-                self.assertTrue(steps[i].get("id") == "reuse" or resume, (name, steps[i].get("name")))
+                self.assertTrue(steps[i].get("id") in ("reuse", "nightly-product") or resume, (name, steps[i].get("name")))
 
     def test_publish_path_timeouts_leave_room_for_the_wait(self) -> None:
         for name in PUBLISH_PATH:

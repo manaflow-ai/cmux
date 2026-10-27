@@ -49,7 +49,9 @@ class PublishRetries(unittest.TestCase):
             first, last = tries[0], tries[-1]
             self.assertIsNone(first.get("if"), f"{job_name}: the first try always runs")
             for earlier, later, index in zip(tries, tries[1:], range(1, len(tries))):
-                self.assertEqual(earlier.get("with"), later.get("with"), f"{job_name}: every try attests the same subjects")
+                # Only the first try's token differs (the release App's when it minted).
+                same = lambda step: {k: v for k, v in step.get("with", {}).items() if k != "github-token"}
+                self.assertEqual(same(earlier), same(later), f"{job_name}: every try attests the same subjects")
                 self.assertTrue(earlier.get("continue-on-error"), f"{job_name}: a try before the last must not fail the job")
                 step_id = earlier.get("id")
                 self.assertTrue(step_id, f"{job_name}: an attestation try before the last needs an id")

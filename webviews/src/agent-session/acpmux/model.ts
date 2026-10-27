@@ -1,4 +1,5 @@
 import type { VideoInfo } from "./composer/videoAttachments";
+import type { HarnessIconSpec } from "../shared/harnessIcons";
 import type { ChatUnavailable } from "./chatUnavailable";
 import type { ChatPresence, Participant } from "./multiplayer/participants";
 import { editedPaths } from "./toolPaths";
@@ -728,8 +729,11 @@ export type AcpmuxSnapshot = {
     pickable?: boolean;
     /** acpmux's family for the harness (`_acpmux/harnesses` `family`): joins it to a catalog harness. */
     family?: string;
-    /** `_acpmux/harnesses` `icon`: a brand id, or a file the host serves. */
+    /** `_acpmux/harnesses` `icon`: the profile's own icon value (a brand id, an emoji, an SF
+     * Symbol name or a file path). Draw `iconSpec`, not this. */
     icon?: string;
+    /** `_acpmux/harnesses` `iconSpec`: the one icon acpmux resolved for the harness. */
+    iconSpec?: HarnessIconSpec;
     /** `_acpmux/harnesses` `start`: the model and effort acpmux starts a new chat here on (the
      * person's saved pick, else the catalog's default; acpmux start_defaults.rs). */
     start?: { model?: string; effort?: string; modelSource?: StartSource; effortSource?: StartSource };

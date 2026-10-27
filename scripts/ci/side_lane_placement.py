@@ -101,6 +101,7 @@ def _picker():
 
 
 pool = _picker()
+SIDE_RETRY_CAP_SECONDS = 5.0
 
 
 def _cascade():
@@ -494,12 +495,16 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     runners = None
     repo = env.get("GITHUB_REPOSITORY", "")
     # The routing App first, then cmux-bot (ROUTE_TOKEN_FALLBACK) when the first read is refused.
+    # One retry for the whole read, shared by both tokens, after at most 5 s, on a refusal that
+    # names a Retry-After: it adds at most one wait and one 15 s request (20 s) to today's reads,
+    # however many reads and tokens those take.
+    retries = pool.RetryBudget(1)
     for name in ("ROUTE_TOKEN", "ROUTE_TOKEN_FALLBACK"):
         token = env.get(name, "")
         if not (token and repo):
             continue
         try:
-            runners = pool.GitHub(token, repo).runners()
+            runners = pool.GitHub(token, repo, retry_cap=SIDE_RETRY_CAP_SECONDS, retries=retries).runners()
             break
         except Exception as error:  # noqa: BLE001 - fail open: keep today's route
             print(f"::warning title=side-lane placement::could not list runners with {name} ({error})")
