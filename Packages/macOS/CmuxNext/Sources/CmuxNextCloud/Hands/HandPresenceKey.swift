@@ -24,6 +24,8 @@ public enum HandPresenceError: Error, Equatable, Sendable {
 /// root injects it: ``EnclaveUserPresence`` on macOS (Secure Enclave, Touch ID or the login password);
 /// ``NoUserPresence`` where there is no Secure Enclave (Linux), which refuses as a Mac without one does.
 public protocol UserPresence: Sendable {
+    /// Whether this device can make and use a presence key at all (on macOS, whether it has a Secure Enclave).
+    var isAvailable: Bool { get }
     /// A new presence key: the wrapped key blob this device alone can use, and its public point (X9.63).
     func makeKey() throws(HandPresenceError) -> (blob: Data, publicKeyX963: Data)
     /// Asks for presence with `prompt`'s reason, then signs `message` with the key `blob`: raw `r || s`,
@@ -34,6 +36,8 @@ public protocol UserPresence: Sendable {
 /// No presence on this device: every key and signature is refused with ``HandPresenceError/unavailable``.
 public struct NoUserPresence: UserPresence {
     public init() {}
+
+    public var isAvailable: Bool { false }
 
     public func makeKey() throws(HandPresenceError) -> (blob: Data, publicKeyX963: Data) {
         throw .unavailable
@@ -63,6 +67,9 @@ public struct HandPresenceKeyStore: Sendable {
         self.directory = directory
         self.presence = presence
     }
+
+    /// Whether `presence` can make and use a key on this device.
+    public var isAvailable: Bool { presence.isAvailable }
 
     func file(for user: String) -> URL {
         let digest = SHA256.hash(data: Data(user.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()

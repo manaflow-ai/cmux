@@ -262,6 +262,9 @@ public final class HandsService {
         do { return try await identity.proofContext() } catch MacInstallIdentity.Failure.signedOut { throw Failure.notLinked(texts.notLinked) }
     }
 
+    /// Whether this device can make and use a presence key (the injected presence answers, not CryptoKit).
+    var isPresenceAvailable: Bool { presence.isAvailable }
+
     func note(_ line: String) {
         log.append(line)
         if log.count > Self.logLimit { log.removeFirst(log.count - Self.logLimit) }

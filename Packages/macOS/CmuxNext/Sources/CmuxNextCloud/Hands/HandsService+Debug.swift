@@ -1,8 +1,3 @@
-#if canImport(CryptoKit)
-import CryptoKit
-#else
-import Crypto
-#endif
 public import Foundation
 
 /// `debug.hands` (the App's control socket, debug builds and proofs): the service's state as JSON
@@ -46,7 +41,7 @@ extension HandsService {
                                   "level": Self.orNull($0.level?.rawValue), "online": $0.online, "pending": Self.orNull($0.pendingApprovals)] as [String: Any] },
             "pending": pending.values.sorted { $0.at < $1.at }.map { ["key": $0.key, "hand": $0.hand, "id": $0.id, "summary": $0.summary] as [String: Any] },
             "prompt": Self.orNull(prompt?.reason),
-            "secure_enclave": SecureEnclave.isAvailable,
+            "secure_enclave": isPresenceAvailable,
             "result": Self.orNull(result),
             "log": log,
         ]

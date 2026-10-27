@@ -13,6 +13,7 @@ import Testing
         let key = P256.Signing.PrivateKey()
         private let log = Mutex<[Signed]>([])
         var signed: [Signed] { log.withLock { $0 } }
+        var isAvailable: Bool { true }
 
         struct Signed: Equatable {
             var message: String, blob: Data, reason: String
@@ -38,6 +39,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         let store = HandPresenceKeyStore(directory: root, presence: NoUserPresence())
 
+        #expect(!store.isAvailable)
         #expect(throws: HandPresenceError.unavailable) { try store.recordOrCreate(for: "user-1") }
         #expect(store.record(for: "user-1") == nil)
     }
@@ -48,6 +50,7 @@ import Testing
         let presence = SoftwarePresence()
         let store = HandPresenceKeyStore(directory: root, presence: presence)
 
+        #expect(store.isAvailable)
         let made = try store.recordOrCreate(for: "user-1")
         let again = try store.recordOrCreate(for: "user-1")
         let point = presence.key.publicKey.x963Representation

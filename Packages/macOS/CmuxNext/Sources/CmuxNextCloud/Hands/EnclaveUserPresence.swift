@@ -12,6 +12,8 @@ import Security
 public struct EnclaveUserPresence: UserPresence {
     public init() {}
 
+    public var isAvailable: Bool { SecureEnclave.isAvailable }
+
     static func accessControl() throws(HandPresenceError) -> SecAccessControl {
         var error: Unmanaged<CFError>?
         guard let access = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
