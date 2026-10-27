@@ -258,7 +258,7 @@ mark {
   align-items: flex-start;
   gap: 12px;
   justify-content: space-between;
-  padding: 10px 12px;
+  padding: 8px 12px;
   border: 1px solid var(--border-strong);
   border-radius: 10px;
   background: var(--input-bg);
