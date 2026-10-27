@@ -7,7 +7,8 @@ import Foundation
 /// A local daemon that speaks lines and, once granted, REQUEST frames, by the grant rule of cmux-tui
 /// capabilities.rs: frames at its own revision, after the client echoes them. Like frame_dispatch.rs, it closes
 /// the connection on a frame its table does not route and answers `method_not_framed` to a method it serves
-/// only as a line.
+/// only as a line. It holds a `session.events` open unanswered and tells the test (``sessionOpens``), which
+/// answers it and writes the stream's items itself (``send(_:connection:)``).
 final class WireDaemon: Sendable {
     struct Script: Sendable {
         /// The framed IPC capabilities `identify` offers.
@@ -33,15 +34,31 @@ final class WireDaemon: Sendable {
         var capabilities: [String] = []
     }
 
+    /// A `session.events` open as the daemon read it: its request id, `stream_id` and `stream`.
+    struct SessionOpen: Sendable {
+        var connection: Int
+        var requestID: String
+        var streamID: String
+        var stream: UInt16?
+    }
+
     let path = "/tmp/cnd-hs-\(UUID().uuidString.prefix(8).lowercased()).sock"
     let seen = Mutex<[Seen]>([])
     /// Frames answered `method_not_framed` or closed as bad messages.
     let refusedFrames = Mutex(0)
+    /// Each `session.events` open, in order; the daemon writes no reply to it.
+    let sessionOpens: AsyncStream<SessionOpen>
+    private let sessionOpened: AsyncStream<SessionOpen>.Continuation
+    /// The descriptor of each open connection, by index.
+    private let clients = Mutex<[Int: Int32]>([:])
     private let listener: Int32
     private let script: Script
 
     init(_ script: Script) throws {
         self.script = script
+        let (opens, opened) = AsyncStream<SessionOpen>.makeStream()
+        sessionOpens = opens
+        sessionOpened = opened
         let listener = socket(AF_UNIX, SOCK_STREAM, 0)
         self.listener = listener
         var address = sockaddr_un()
@@ -74,7 +91,15 @@ final class WireDaemon: Sendable {
         thread.start()
     }
 
+    /// Writes `bytes` (lines with their newlines, or frames) to connection `connection`; false when it is closed.
+    @discardableResult
+    func send(_ bytes: [UInt8], connection: Int) -> Bool {
+        guard let client = clients.withLock({ $0[connection] }) else { return false }
+        return Self.write(Data(bytes), to: client, newline: false)
+    }
+
     func stop() {
+        sessionOpened.finish()
         shutdown(listener, SHUT_RDWR)
         close(listener)
         unlink(path)
@@ -92,7 +117,11 @@ final class WireDaemon: Sendable {
     }
 
     private func serve(_ client: Int32, connection: Int) {
-        defer { close(client) }
+        clients.withLock { $0[connection] = client }
+        defer {
+            clients.withLock { $0[connection] = nil }
+            close(client)
+        }
         var on: Int32 = 1
         setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
         var session = Session()
@@ -128,13 +157,21 @@ final class WireDaemon: Sendable {
     private func handle(_ message: Message, session: inout Session, connection: Int, client: Int32) -> Bool {
         switch message {
         case .line(let bytes):
+            // A v1 command names `cmd`, a cmux.protocol/2 request its `operation`.
             guard let request = try? JSONSerialization.jsonObject(with: Data(bytes)) as? [String: Any],
-                  let cmd = request["cmd"] as? String else { return false }
+                  let cmd = request["cmd"] as? String ?? request["operation"] as? String else { return false }
             var seen = Seen(connection: connection, cmd: cmd, framed: false)
             seen.revisions = request["revisions"] as? Bool == true
             seen.apiRevision = (request["api_revision"] as? NSNumber)?.uint32Value
             seen.capabilities = request["capabilities"] as? [String] ?? []
             self.seen.withLock { $0.append(seen) }
+            if cmd == "session.events" {
+                let params = request["params"] as? [String: Any] ?? [:]
+                sessionOpened.yield(SessionOpen(connection: connection, requestID: request["id"] as? String ?? "",
+                                                streamID: params["stream_id"] as? String ?? "",
+                                                stream: (params["stream"] as? NSNumber)?.uint16Value))
+                return true
+            }
             let reply: [String: Any]
             if let data = answer(cmd, request: request, session: &session) {
                 reply = ["id": request["id"] ?? NSNull(), "ok": true, "data": data]

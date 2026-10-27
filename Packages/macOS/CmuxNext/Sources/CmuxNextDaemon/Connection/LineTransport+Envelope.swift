@@ -19,7 +19,7 @@ extension LineTransport {
     /// opens it, ``endControlSequence(streamID:)`` if that fails. With `mintingFrameStream`, it also takes
     /// a client stream id for it (``mintFrameStream()``) and returns it, for the open's `stream`: the
     /// stream's EVENT frames on that id are then its items, routed by header alone
-    /// (``routeFrame(_:onEvent:)``, p05-ipc-145). Nil when it took none.
+    /// (``routeStreamItem(_:onEvent:)``, p05-ipc-145). Nil when it took none.
     @discardableResult
     func routeOnControlSequence(streamID: String, mintingFrameStream: Bool = false) -> UInt16? {
         state.withLock { state -> UInt16? in
@@ -43,31 +43,6 @@ extension LineTransport {
 
     /// Gives back a client stream id from ``mintFrameStream()`` whose stream ended.
     func releaseFrameStream(_ id: UInt16) { _ = state.withLock { $0.frameStreams.release(id) } }
-
-    /// Lets the reader accept frames (`ipc-frames-v2`). Call before the request that grants them: a JSON
-    /// line never starts with the frame magic 0xFF, so lines read the same either way.
-    func negotiateFrames() { framesNegotiated.store(true, ordering: .releasing) }
-
-    /// Routes one frame by its header alone, on the reader thread: an EVENT frame on the client stream
-    /// of a control stream is that stream's item, counted with the stream-0 events and handed to
-    /// `onEvent` as the stream line it carries, with no envelope scan or decode (Mojo routes a message
-    /// by its header's interface id, mojo/public/cpp/bindings/lib/multiplex_router.cc `Accept`). Every
-    /// other frame has no consumer on this connection yet and is dropped.
-    func routeFrame(_ frame: Frame, onEvent: CausedEventHandler) {
-        let index = state.withLock { state -> UInt64? in
-            guard frame.header.kind == Self.eventFrameKind, state.controlFrameStreams[frame.header.stream] != nil else {
-                return nil
-            }
-            state.eventCount += 1
-            return state.eventCount
-        }
-        guard let index else {
-            recorder?.lineRead(.ignored)
-            return
-        }
-        recorder?.lineRead(.streamItem)
-        onEvent(Self.streamEvent, Data(frame.payload), index, nil)
-    }
 
     /// Where one `cmux.protocol/2` stream line goes (`route`).
     enum StreamRoute {
@@ -183,6 +158,9 @@ struct FrameStreamIDs: Sendable {
     /// Frees `id`; false when it was not held.
     @discardableResult
     mutating func release(_ id: UInt16) -> Bool { held.remove(id) != nil }
+
+    /// Whether `id` is held.
+    func holds(_ id: UInt16) -> Bool { held.contains(id) }
 
     private mutating func advance() { next = next == UInt16.max ? 1 : next + 1 }
 }

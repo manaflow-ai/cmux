@@ -21,9 +21,9 @@ extension DaemonConnection {
               identity?.supports(DaemonCapability.stateResources.rawValue) == true else { return }
         let id = SessionEventsWire.newStreamID()
         sessionStream = id
-        // With the stream grant, the stream takes a client stream id before the request names it
+        // With streams and frames granted, the stream takes a client stream id before the request names it
         // (p05-ipc-145): its items then come as EVENT frames on that id, routed by header alone.
-        let minted = streamsGranted ? admittedConnection?.transport : nil
+        let minted = admittedConnection?.transport.takingFramedStreams
         let frameStream = minted?.routeOnControlSequence(streamID: id, mintingFrameStream: true)
         var routed = minted
         do {
@@ -69,20 +69,17 @@ extension DaemonConnection {
     }
 }
 
-extension DaemonConnection {
-    /// The daemon granted this connection client stream ids (`attach-streams-v1`): the daemon offers
-    /// it and this connection echoed it in `set-client-info`.
-    var streamsGranted: Bool {
-        configuration.handshakeCapabilities.contains(SessionEventsWire.streamsCapability)
-            && identity?.supports(SessionEventsWire.streamsCapability) == true
+extension LineTransport {
+    /// This transport when its handshake was granted client streams and frames (``DaemonWireGrants``): a
+    /// stream opened on a client stream id then gets its items as EVENT frames. Nil otherwise.
+    var takingFramedStreams: LineTransport? {
+        let grants = wireGrants
+        return grants.streams && grants.frames ? self : nil
     }
 }
 
 /// Wire shapes of the `session.events` stream request.
 enum SessionEventsWire {
-    /// The grant of client stream ids (cmux-tui spec/events.md "Attach streams").
-    static let streamsCapability = "attach-streams-v1"
-
     /// A fresh `stream_<32 hex>` id.
     static func newStreamID() -> String {
         "stream_" + UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
