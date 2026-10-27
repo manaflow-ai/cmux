@@ -93,9 +93,9 @@ def git(repo: Path, *args: str) -> str:
 
 
 class Fixture:
-    def __init__(self, root: Path, map_doc: Optional[dict] = None) -> None:
+    def __init__(self, root: Path, map_doc: Optional[dict] = None, files: Optional[Dict[str, str]] = None) -> None:
         self.repo = root / "repo"
-        for rel, text in FILES.items():
+        for rel, text in (files or FILES).items():
             path = self.repo / rel
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text, encoding="utf-8")
@@ -106,6 +106,7 @@ class Fixture:
         git(self.repo, "commit", "-q", "-m", "c0")
         sel.read_toml.cache_clear()
         sel.is_package.cache_clear()
+        sel.root_package_sources.cache_clear()
         self.smap = sel.load_map(self.map_path)
         self.graph = sel.load_cargo_graph(self.repo, self.smap.cargo_roots)
         self.cases = sel.load_cases(self.repo / "tests/oracle/corpus")
@@ -249,6 +250,64 @@ class SelectTest(unittest.TestCase):
                 proc = self.fx.cli(bad)
                 self.assertEqual(proc.returncode, 2)
                 self.assertIn("repo-relative", proc.stderr)
+
+
+# The workspace root is itself a package that a linked crate depends on (cmux-tui's source-watch package, through
+# cmux-build-identity's `path = "../.."`): it owns its manifest and its targets' dirs, not the whole workspace dir.
+ROOT_PACKAGE_FILES: Dict[str, str] = {
+    **FILES,
+    "rust/Cargo.toml": ('[package]\nname = "source-watch"\nbuild = "build-support/watch-build.rs"\n'
+                        '[lib]\npath = "build-support/watch.rs"\n'
+                        '[workspace]\nmembers = ["crates/*"]\n[workspace.dependencies]\nwsdep = { path = "crates/wsdep" }\n'),
+    "rust/build-support/watch.rs": "\n",
+    "rust/build-support/watch-build.rs": "fn main() {}\n",
+    "rust/crates/core/Cargo.toml": '[package]\nname = "core"\n[dependencies]\nsource-watch = { path = "../.." }\n',
+    "rust/frontends/web/src/App.tsx": "export {}\n",
+    "rust/README.md": "# rust\n",
+    "rust/crates/README.md": "# crates\n",
+}
+ROOT_PACKAGE_MAP = {**MAP, "ignore": MAP["ignore"] + [{"id": "frontends", "paths": ["rust/frontends/**"], "reason": "web"}]}
+
+
+@unittest.skipUnless(HAS_TOML, "tomllib (Python 3.11+)")
+class WorkspaceRootPackageTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.fx = Fixture(Path(self.tmp.name), ROOT_PACKAGE_MAP, ROOT_PACKAGE_FILES)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_root_package_is_linked(self) -> None:
+        self.assertEqual(self.fx.graph.linked_by["rust"], ("app", "daemon"))
+
+    def test_frontends_and_prose_under_the_root_select_nothing(self) -> None:
+        for path, rule in (("rust/frontends/web/src/App.tsx", "frontends"), ("rust/README.md", "prose"),
+                           ("rust/crates/README.md", "prose")):
+            with self.subTest(path=path):
+                doc = self.fx.select([path])
+                self.assertEqual((doc["status"], doc["runs"]), ("none", []))
+                self.assertEqual(verdict(doc, path)["because"][0]["rule"], rule)
+
+    def test_root_package_sources_still_select_their_users(self) -> None:
+        for path in ("rust/build-support/watch.rs", "rust/build-support/watch-build.rs"):
+            with self.subTest(path=path):
+                because = verdict(self.fx.select([path]), path)["because"]
+                self.assertEqual([b["rule"] for b in because], ["cargo"])
+                self.assertIn("rust is linked by app, daemon", because[0]["reason"])
+        manifest = verdict(self.fx.select(["rust/Cargo.toml"]), "rust/Cargo.toml")["because"]
+        self.assertIn("cargo", [b["rule"] for b in manifest])
+
+    def test_check_names_an_ignore_rule_the_cargo_graph_always_overrides(self) -> None:
+        clean = self.fx.cli("check")
+        self.assertEqual(clean.returncode, 0, clean.stderr)
+        shadowed = {**ROOT_PACKAGE_MAP,
+                    "ignore": ROOT_PACKAGE_MAP["ignore"] + [{"id": "core-src", "paths": ["rust/crates/core/src/**"],
+                                                             "reason": "r"}]}
+        self.fx.map_path.write_text(json.dumps(shadowed))
+        proc = self.fx.cli("check")
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("ignore core-src: the cargo graph selects every tracked path it matches", proc.stderr)
 
 
 class RangeTest(unittest.TestCase):

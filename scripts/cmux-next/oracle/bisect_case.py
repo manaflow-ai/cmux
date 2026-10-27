@@ -71,6 +71,7 @@ DIFF_BAD_INPUT, DIFF_REFUSED, DIFF_INTERNAL = 2, 3, 4
 CULPRIT, NOT_REPRODUCIBLE, NOT_DETERMINISTIC, INCONCLUSIVE = "culprit", "not-reproducible", "not-deterministic", "inconclusive"
 EXIT = {CULPRIT: 0, NOT_REPRODUCIBLE: 1, NOT_DETERMINISTIC: 3, INCONCLUSIVE: 3}
 
+STEP_ERROR = "bisect step error:"
 FIRST_BAD = re.compile(r"^([0-9a-f]{40}) is the first bad commit$", re.M)
 SHA_LINE = re.compile(r"^([0-9a-f]{40})\b", re.M)
 
@@ -253,8 +254,10 @@ def run_git_bisect(config: Config, bad: str, first_parent: bool) -> Tuple[str, L
         if "could be any of" in proc.stdout:
             tail = proc.stdout.split("could be any of", 1)[1]
             return "", sorted(set(SHA_LINE.findall(tail))), "skipped commits leave several candidates"
+        errors = [line[len(STEP_ERROR):].strip() for line in proc.stdout.splitlines() if line.startswith(STEP_ERROR)]
         stopped = [r for r in read_steps(config.out) if r["verdict"] == STOP]
-        why = stopped[-1]["reason"] if stopped else f"git bisect run exited {proc.returncode}"
+        why = (f"a step failed: {errors[-1]}" if errors else stopped[-1]["reason"] if stopped
+               else f"git bisect run exited {proc.returncode}")
         return "", [], f"the bisection stopped: {why}"
     finally:
         if added:
@@ -329,7 +332,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if len(argv) != 2:
             print("bisect: step takes the state file", file=sys.stderr)
             return GIT_EXIT[STOP]
-        return cmd_step(Path(argv[1]))
+        # An uncaught exception exits 1, which `git bisect run` reads as BAD: a broken step must abandon the run.
+        try:
+            return cmd_step(Path(argv[1]))
+        except Exception as error:  # noqa: BLE001 - every failure of the step is the oracle failing
+            print(f"{STEP_ERROR} {type(error).__name__}: {error}")
+            return GIT_EXIT[STOP]
     diff_args: List[str] = []
     if "--" in argv:
         split = argv.index("--")

@@ -38,6 +38,29 @@ FAKE_ORACLE = textwrap.dedent('''
     assert args[0] == "diff", args
     opt = {args[i]: args[i + 1] for i in range(1, len(args) - 1) if args[i].startswith("--")}
     out = Path(opt["--out"])
+    def real_queued_diff_head_not_built(base, head, out):
+        """The real oracle.py diff on the VM when the head's build fails: linux_run.sh dies before a run dir."""
+        import argparse, types
+        sys.path.insert(0, ORACLE_DIR)
+        import oracle
+        base_dir = out / "base-run"
+        base_dir.mkdir()
+        (base_dir / "receipt.json").write_text("{}")
+        def popen(command, **kw):
+            built = command[3] == base
+            text = f"{base_dir}\\n" if built else f"linux_run: build of {command[3]} gave no binary\\n"
+            return types.SimpleNamespace(communicate=lambda: (text, None), returncode=0 if built else 1)
+        oracle.subprocess.Popen = popen
+        oracle.resolve_commit = lambda ref: ref
+        oracle.queued_run_args = lambda args: []
+        oracle.read_receipt = lambda directory: {"arm_exercised": None}
+        oracle.merge_runs = lambda dirs, require_complete: (None, [])
+        args = argparse.Namespace(suite=[opt["--suite"]], fresh=False, run_id=None)
+        sides = tuple(oracle.Side(label, None, None, {}, ref, None) for label, ref in (("base", base), ("head", head)))
+        try:
+            return oracle.queued_diff(args, sides, [], out)
+        except oracle.UsageError as error:
+            print(error); return 2
     def show(sha, name):
         p = subprocess.run(["git", "show", f"{sha}:{name}"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
         return p.stdout.strip() if p.returncode == 0 else None
@@ -46,8 +69,12 @@ FAKE_ORACLE = textwrap.dedent('''
         f.write(head + "\\n")
     if show(head, "broken.txt") is not None:
         print("build failed"); sys.exit(3)
+    if show(head, "nobuild.txt") is not None:
+        sys.exit(real_queued_diff_head_not_built(base, head, out))
     if show(head, "crash.txt") is not None:
         print("bad input"); sys.exit(2)
+    if show(head, "weird.txt") is not None:
+        (out / "comparison.json").write_text("[]"); sys.exit(1)
     a, b = show(base, "value.txt"), show(head, "value.txt")
     nondet = show(base, "nondet.txt") is not None
     flaky = show(head, "flaky.txt") is not None
@@ -89,14 +116,14 @@ class Batch:
             (self.repo / "n.txt").write_text(f"{i}\n")
             for name in (markers or {}).get(i, ()):
                 (self.repo / name).write_text("x\n")
-            for name in ("broken.txt", "flaky.txt", "crash.txt"):
+            for name in ("broken.txt", "flaky.txt", "crash.txt", "nobuild.txt", "weird.txt"):
                 if name not in (markers or {}).get(i, ()) and (self.repo / name).exists():
                     (self.repo / name).unlink()
             git(self.repo, "add", "-A")
             git(self.repo, "commit", "-q", "-m", f"c{i}")
             self.shas.append(git(self.repo, "rev-parse", "HEAD").strip())
         self.oracle = root / "fake_oracle.py"
-        self.oracle.write_text(FAKE_ORACLE)
+        self.oracle.write_text(f"ORACLE_DIR = {str(HERE)!r}\n" + FAKE_ORACLE)
 
     def run(self, *extra: str, out: str = "out", good: Optional[str] = None, bad: Optional[str] = None) -> tuple:
         target = self.root / out
@@ -225,6 +252,27 @@ class BisectTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 3, proc.stderr)
         self.assertEqual(result["status"], "inconclusive")
         self.assertIn("stopped: oracle diff exited 2", result["reason"])
+
+    def test_commit_that_does_not_build_is_skipped_by_the_real_queued_diff(self) -> None:
+        # nobuild.txt runs oracle.py's own queued_diff with a head whose linux_run.sh build dies (no run dir).
+        b = self.batch(["v0"] * 6 + ["v1"] * 4, markers={i: ["nobuild.txt"] for i in (3, 4, 5)})
+        proc, result = b.run()
+        self.assertEqual((proc.returncode, result["status"], result["culprit"]["sha"]), (0, "culprit", b.shas[6]),
+                         proc.stderr)
+        skipped = [s for s in result["steps"] if s["verdict"] == "skip"]
+        self.assertTrue(skipped)
+        self.assertEqual({s["exit"] for s in skipped}, {3})
+        adjacent = self.batch(["v0"] * 6 + ["v1"] * 4, markers={6: ["nobuild.txt"]})
+        proc, result = adjacent.run()
+        self.assertEqual((proc.returncode, result["status"]), (3, "inconclusive"), proc.stderr)
+        self.assertEqual({c["sha"] for c in result["candidates"]}, {adjacent.shas[5], adjacent.shas[6]})
+
+    def test_step_that_raises_stops_instead_of_blaming_the_commit(self) -> None:
+        # weird.txt writes a comparison.json that is not an object: judging it raises inside the step.
+        b = self.batch(["v0"] * 6 + ["v1"] * 2, markers={i: ["weird.txt"] for i in range(2, 7)})
+        proc, result = b.run()
+        self.assertEqual((proc.returncode, result["status"], result["culprit"]), (3, "inconclusive", None), proc.stderr)
+        self.assertIn("a step failed: AttributeError", result["reason"])
 
     def test_bad_end_untestable(self) -> None:
         b = self.batch(["v0", "v1"], markers={2: ["broken.txt"]})

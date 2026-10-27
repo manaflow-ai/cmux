@@ -19,7 +19,9 @@ Map (tests/oracle/suite-map.json, schema cmux-oracle-suite-map-v1):
               Rust packages its binaries are built from (their normal and build path dependencies are the product).
     cargo     {"scope": [glob], "not_linked": [dir name], "reason"}: a path under scope belongs to the package of its
               nearest Cargo.toml; it selects every product whose closure holds that package. A package no product
-              links, or a path under one of its not_linked dirs (tests, benches, examples), selects nothing.
+              links, or a path under one of its not_linked dirs (tests, benches, examples), selects nothing. A
+              package that is also its workspace's root owns only its manifest, src/, and the dirs of its lib, bins
+              and build script; the rest of the workspace dir goes to the rules, ignore rules and unmapped policy.
     rules     [{"id", "paths": [glob], "except": [glob], "products": [p] or ["all"], "suites": [s], "cases":
               [suite/case glob], "reason"}]: every rule whose paths match applies. `suites` narrows the products'
               suites; `cases` narrows them to single cases.
@@ -254,7 +256,8 @@ class CargoGraph:
         parts = path.split("/")[:-1]
         while parts:
             directory = "/".join(parts)
-            if directory in self.linked_by or is_package(repo / directory / "Cargo.toml"):
+            manifest = repo / directory / "Cargo.toml"
+            if (directory in self.linked_by or is_package(manifest)) and owns(manifest, path[len(directory) + 1:]):
                 return directory
             if directory in scope_dirs:
                 return None
@@ -280,6 +283,31 @@ def is_package(manifest: Path) -> bool:
         return True
     document = read_toml(manifest)
     return bool(document and isinstance(document.get("package"), dict))
+
+
+@functools.lru_cache(maxsize=None)
+def root_package_sources(manifest: Path) -> Optional[Tuple[str, ...]]:
+    """What a package that is also its workspace's root owns: its manifest and the dirs of its linked targets.
+
+    None for any other package, which owns its whole directory. A workspace root's directory holds the other
+    members, frontends, scripts and docs; only the targets Cargo builds into a dependent (the lib, bins and the build
+    script, at their `path` or Cargo's default src/ and build.rs) are the package (cmux-tui's source-watch package).
+    """
+    document = read_toml(manifest) if tomllib is not None else None
+    if not document or not isinstance(document.get("workspace"), dict):
+        return None
+    targets = [t for t in [document.get("lib")] + list(document.get("bin") or []) if isinstance(t, dict)]
+    paths = [t["path"] for t in targets if isinstance(t.get("path"), str)]
+    build = (document.get("package") or {}).get("build")
+    paths.append(build if isinstance(build, str) else "build.rs")
+    owned = {"Cargo.toml", "src"} | {p.split("/", 1)[0] if "/" in p else p for p in paths}
+    return tuple(sorted(owned))
+
+
+def owns(manifest: Path, rel: str) -> bool:
+    """Whether the package of `manifest` owns the file at `rel` (relative to the package dir)."""
+    sources = root_package_sources(manifest)
+    return sources is None or any(rel == s or rel.startswith(s + "/") for s in sources)
 
 
 def workspace_root(package_dir: Path, stop: Path) -> Optional[Path]:
@@ -430,30 +458,37 @@ def scope_dirs(smap: SuiteMap) -> List[str]:
     return sorted({p.split("*", 1)[0].rstrip("/") for p in smap.cargo_scope.paths})
 
 
+def cargo_hit(smap: SuiteMap, graph: CargoGraph, repo: Path, path: str) -> Optional[Hit]:
+    """The Cargo graph's verdict on a path under cargo.scope: a hit with targets, one without (not linked), or None."""
+    if not smap.cargo_scope or not smap.cargo_scope.matches(path):
+        return None
+    if not graph.available:
+        cargo_products = sorted(p for p, roots in smap.cargo_roots.items() if roots)
+        return Hit("cargo", f"{smap.cargo_reason} ({graph.note})",
+                   tuple((p, s, None) for p in cargo_products for s in smap.products[p]))
+    package = graph.package_of(repo, path, scope_dirs(smap))
+    if package is None:
+        return None
+    inner = path[len(package) + 1:].split("/", 1)[0]
+    users = graph.linked_by.get(package, ())
+    if inner in smap.cargo_not_linked and "/" in path[len(package) + 1:]:
+        return Hit("cargo", f"{package}/{inner}/ is not linked into a product binary", ())
+    if users:
+        return Hit("cargo", f"{package} is linked by {', '.join(users)}: {smap.cargo_reason}",
+                   tuple((p, s, None) for p in users for s in smap.products[p]))
+    return Hit("cargo", f"no product's cargo_roots link {package}", ())
+
+
 def classify(smap: SuiteMap, graph: CargoGraph, repo: Path, path: str) -> PathVerdict:
     hits: List[Hit] = []
     builtin = corpus_hit(smap, path)
     if builtin is not None:
         hits.append(builtin)
     hits.extend(rule_hit(smap, rule) for rule in smap.rules if rule.paths.matches(path))
+    cargo = cargo_hit(smap, graph, repo, path)
     quiet: List[Hit] = []
-    if smap.cargo_scope and smap.cargo_scope.matches(path):
-        cargo_products = sorted(p for p, roots in smap.cargo_roots.items() if roots)
-        if not graph.available:
-            hits.append(Hit("cargo", f"{smap.cargo_reason} ({graph.note})",
-                            tuple((p, s, None) for p in cargo_products for s in smap.products[p])))
-        else:
-            package = graph.package_of(repo, path, scope_dirs(smap))
-            if package is not None:
-                inner = path[len(package) + 1:].split("/", 1)[0]
-                users = graph.linked_by.get(package, ())
-                if inner in smap.cargo_not_linked and "/" in path[len(package) + 1:]:
-                    quiet.append(Hit("cargo", f"{package}/{inner}/ is not linked into a product binary", ()))
-                elif users:
-                    hits.append(Hit("cargo", f"{package} is linked by {', '.join(users)}: {smap.cargo_reason}",
-                                    tuple((p, s, None) for p in users for s in smap.products[p])))
-                else:
-                    quiet.append(Hit("cargo", f"no product's cargo_roots link {package}", ()))
+    if cargo is not None:
+        (hits if cargo.targets else quiet).append(cargo)
     if hits:
         return PathVerdict(path, "selected", hits)
     if quiet:
@@ -650,6 +685,10 @@ def check(smap: SuiteMap, graph: CargoGraph, repo: Path, corpus: Path, cases: Ma
     for rule in smap.ignore:
         stale(f"ignore {rule.id} paths", rule.paths.paths)
         stale(f"ignore {rule.id} except", rule.paths.excluded)
+        matched = [f for f in files if rule.paths.matches(f)]
+        if graph.available and matched and all((cargo_hit(smap, graph, repo, f) or Hit("", "", ())).targets
+                                               for f in matched):
+            problems.append(f"ignore {rule.id}: the cargo graph selects every tracked path it matches, so it never applies")
     if smap.cargo_scope:
         stale("cargo.scope", smap.cargo_scope.paths)
     if graph.available:

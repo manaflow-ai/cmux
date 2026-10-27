@@ -77,7 +77,8 @@ run format baselines.py (016) reads (a `cases` list, the case name without its s
 `baselines.py rebaseline` on it.
 
 `diff` exit codes: 0 no unexplained divergence, 1 divergences, 2 bad input, 3 refused (host
-mismatch, an incomplete or mismatched shard set, nothing compared), 4 diff.py internal error.
+mismatch, an incomplete or mismatched shard set, nothing compared, a queued side that did not
+build or run), 4 diff.py internal error.
 
 Sibling interfaces this file calls:
     diff.py A_DIR B_DIR --out divergence.json [--expected FILE] [--case GLOB]       (014)
@@ -1918,7 +1919,10 @@ def queued_diff(args: argparse.Namespace, sides: Tuple[Side, Side], expected: Li
         lines = [line.strip() for line in stdout.splitlines() if line.strip()]
         run_dir = Path(lines[-1]) if lines else None
         if run_dir is None or not (run_dir / "receipt.json").is_file():
-            raise UsageError(f"the {side.label} run of {side.ref} wrote no receipt (linux_run.sh exit {code})")
+            # A side that did not build or run is a refused diff, not bad input: bisect_case.py skips that commit.
+            print(f"refused: the {side.label} run of {side.ref} wrote no receipt (linux_run.sh exit {code})",
+                  file=sys.stderr)
+            return EXIT_REFUSED
         print(f"{side.label}: {side.ref} run {run_dir} (oracle.py run exit {code})")
         if read_receipt(run_dir)["arm_exercised"] is False:
             print(f"arm-not-exercised: {side.switch}={side.arm}")
