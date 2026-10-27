@@ -2,21 +2,24 @@
 //! its live typing and draft items. The cursor is {generation: conversation
 //! id, revision: conversation rev}; the owner raises rev by exactly one per
 //! committed op, so a missed rev is detected and ends the stream with `gap`.
+//! The stream is a drain on the mux's work lanes, not a thread
+//! (subscription_pump.rs, p05-ipc-146).
 
 use crate::panic_free::JsonFields;
 use std::sync::Arc;
-use std::sync::mpsc::RecvTimeoutError;
+use std::sync::mpsc::TryRecvError;
 
 use serde_json::{Value, json};
 
 use super::{EventsStart, owner_error};
 use crate::conversation_store::ConversationEvent;
 use crate::resource_router::ParsedResourceRequest;
+use crate::server::attach_lifecycle::attach_pump::Turn;
+use crate::server::subscription_pump::{SubscriptionDrain, SubscriptionPump, TURN_BUDGET};
 use crate::server::{
-    MessageWriter, Mux, MuxEvent, ResourceError, ResourceOperation, register_resource_outbound,
-    resource_stream_end, resource_stream_id, send_resource_stream_item,
+    MessageWriter, Mux, MuxEvent, ResourceError, ResourceOperation, queue_resource_stream_item,
+    register_resource_outbound, resource_stream_end, resource_stream_id,
 };
-use crate::stream_interrupt::StreamInterrupt;
 
 const OPERATION: ResourceOperation = ResourceOperation::ConversationEvents;
 const RECOVERY: &str = "reopen conversation.events with the last cursor";
@@ -127,18 +130,19 @@ fn cursor(conversation: &str, rev: u64) -> Value {
     json!({"generation": conversation, "revision": rev.to_string()})
 }
 
+/// Starts the stream's drain on the mux's work lanes (subscription_pump.rs):
+/// an event, room on the stream or its close wakes it.
 pub(super) fn start(mux: Arc<Mux>, client: u64, writer: MessageWriter, start: EventsStart) {
     let stream_id = start.stream_id.clone();
     let outbound = start.outbound.clone();
-    let (worker_mux, worker_writer) = (mux.clone(), writer.clone());
-    let spawned = cmux_threads::spawn(
-        "mux-resource-conversation-events",
-        crate::thread_qos::ThreadType::Interactive.qos(),
-        move || {
-            run(&worker_mux, client, &worker_writer, start);
-        },
-    );
-    if spawned.is_err() {
+    let pump = SubscriptionPump::new(&mux);
+    writer.register_interrupt(pump.stop());
+    outbound.register_interrupt(pump.stop());
+    outbound.on_space(pump.hook());
+    start.events.on_ready(pump.hook());
+    let drain =
+        Drain { mux: mux.clone(), client, writer: writer.clone(), stream: start, sequence: 1 };
+    if pump.start(Box::new(drain)).is_err() {
         let _ = mux.control_clients.take_resource_stream(client, &stream_id);
         let error = ResourceError::operation_failed(
             OPERATION.wire_name(),
@@ -156,81 +160,99 @@ pub(super) fn start(mux: Arc<Mux>, client: u64, writer: MessageWriter, start: Ev
     }
 }
 
-pub(super) fn run(mux: &Arc<Mux>, client: u64, writer: &MessageWriter, mut stream: EventsStart) {
-    let mut sequence = 1_u64;
-    if let Some(item) = stream.initial.take() {
-        let at = cursor(&stream.conversation, stream.rev);
-        if stream.cancelled()
-            || !send_resource_stream_item(
-                writer,
-                &stream.outbound,
-                &stream.stream_id,
-                sequence,
-                &at,
-                item,
-            )
-        {
-            mux.control_clients.finish_resource_stream(
-                client,
-                &stream.stream_id,
-                stream.outbound.id,
-            );
-            return;
+/// One `conversation.events` stream on its pump's sequence. Dropped, it
+/// ends its registration (the stream id and its worker permit).
+struct Drain {
+    mux: Arc<Mux>,
+    client: u64,
+    writer: MessageWriter,
+    stream: EventsStart,
+    /// The next item's stream sequence.
+    sequence: u64,
+}
+
+impl SubscriptionDrain for Drain {
+    fn turn(&mut self) -> Turn {
+        for _ in 0..TURN_BUDGET {
+            if self.stream.stopped(&self.writer) {
+                return Turn::Done;
+            }
+            if !self.writer.sink.stream_has_room(&self.stream.outbound) {
+                return Turn::Idle;
+            }
+            match self.step() {
+                Some(true) => {}
+                Some(false) => return Turn::Done,
+                None => return Turn::Idle,
+            }
         }
-        sequence += 1;
+        Turn::Yield
     }
-    let interrupt = StreamInterrupt::new();
-    writer.register_interrupt(&interrupt);
-    stream.outbound.register_interrupt(&interrupt);
-    stream.events.wake_on(&interrupt);
-    loop {
-        if stream.stopped(writer) {
-            break;
+}
+
+impl Drop for Drain {
+    fn drop(&mut self) {
+        self.mux.control_clients.finish_resource_stream(
+            self.client,
+            &self.stream.stream_id,
+            self.stream.outbound.id,
+        );
+    }
+}
+
+impl Drain {
+    /// Handles the next item: `Some(true)` to look again, `Some(false)`
+    /// when the stream ended, `None` when nothing is ready.
+    fn step(&mut self) -> Option<bool> {
+        if let Some(item) = self.stream.initial.take() {
+            return Some(!self.stream.cancelled() && self.send(item));
         }
-        let event = match stream.events.recv_until_interrupted(&interrupt) {
+        let event = match self.stream.events.try_recv() {
             Ok(MuxEvent::Conversation(event)) => event,
-            Ok(_) | Err(RecvTimeoutError::Timeout) => continue,
-            Err(RecvTimeoutError::Disconnected) => {
+            Ok(_) => return Some(true),
+            Err(TryRecvError::Empty) => return None,
+            Err(TryRecvError::Disconnected) => {
                 // The mailbox closes only when it overflowed (or the mux is
                 // gone): the stream missed changes.
-                end_with_gap(writer, &stream);
-                break;
+                end_with_gap(&self.writer, &self.stream);
+                return Some(false);
             }
         };
-        if !still_member(mux, client, &stream, &event) {
+        if !still_member(&self.mux, self.client, &self.stream, &event) {
             let end = resource_stream_end(
-                &stream.stream_id,
+                &self.stream.stream_id,
                 "closed",
-                Some(cursor(&stream.conversation, stream.rev)),
+                Some(cursor(&self.stream.conversation, self.stream.rev)),
                 Some("the connection no longer takes part in the conversation"),
                 None,
             );
-            let _ = writer.send_terminal(&end, &stream.outbound);
-            break;
+            let _ = self.writer.send_terminal(&end, &self.stream.outbound);
+            return Some(false);
         }
-        match step(&stream.conversation, &mut stream.rev, &event) {
-            Step::Skip => {}
+        match step(&self.stream.conversation, &mut self.stream.rev, &event) {
+            Step::Skip => Some(true),
             Step::Gap => {
-                end_with_gap(writer, &stream);
-                break;
+                end_with_gap(&self.writer, &self.stream);
+                Some(false)
             }
-            Step::Item(item) => {
-                let at = cursor(&stream.conversation, stream.rev);
-                if !send_resource_stream_item(
-                    writer,
-                    &stream.outbound,
-                    &stream.stream_id,
-                    sequence,
-                    &at,
-                    item,
-                ) {
-                    break;
-                }
-                sequence += 1;
-            }
+            Step::Item(item) => Some(self.send(item)),
         }
     }
-    mux.control_clients.finish_resource_stream(client, &stream.stream_id, stream.outbound.id);
+
+    /// Queues `item` at the stream's current cursor; false ends the stream.
+    fn send(&mut self, item: Value) -> bool {
+        let at = cursor(&self.stream.conversation, self.stream.rev);
+        let sent = queue_resource_stream_item(
+            &self.writer,
+            &self.stream.outbound,
+            &self.stream.stream_id,
+            self.sequence,
+            &at,
+            item,
+        );
+        self.sequence += 1;
+        sent
+    }
 }
 
 /// Whether the stream's principal still reads the conversation: the

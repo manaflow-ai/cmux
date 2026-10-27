@@ -217,6 +217,8 @@ mod host_close;
 mod host_death_tests;
 mod idle_close;
 mod journal;
+mod journal_epoch;
+pub(crate) use journal_epoch::JournalWatch;
 mod journal_maintenance;
 mod journal_plugin_host;
 mod journal_retention;
@@ -708,8 +710,7 @@ pub struct Mux {
     journal_hook_runtime: Arc<crate::journal_hooks::JournalHookRuntime>,
     /// Wake-only signal for durable journal subscribers. Consumers always
     /// reread SQLite by cursor, so missed or coalesced notifications are safe.
-    journal_event_epoch: Mutex<u64>,
-    journal_event_changed: Condvar,
+    journal_event_epoch: journal_epoch::JournalEpoch,
     /// True once a skipped terminal-host reconnect checkpoint has been logged.
     /// A machine resume reconnects every hosted terminal at once, so
     /// per-terminal reporting would emit N warnings for one underlying

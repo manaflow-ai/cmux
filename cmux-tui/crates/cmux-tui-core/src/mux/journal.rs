@@ -14,9 +14,7 @@ impl Mux {
 
     pub(crate) fn publish_journal_event(&self) {
         self.journal_kernel.notify_commit();
-        let mut epoch = self.journal_event_epoch.lock().recover_poison();
-        *epoch = epoch.wrapping_add(1);
-        self.journal_event_changed.notify_all();
+        self.journal_event_epoch.publish();
     }
 
     /// Test-only: output goes to the output store, never the journal.
@@ -349,17 +347,23 @@ impl Mux {
     }
 
     pub(crate) fn journal_event_epoch(&self) -> u64 {
-        *self.journal_event_epoch.lock().recover_poison()
+        self.journal_event_epoch.current()
     }
 
     #[cfg(test)]
     pub(crate) fn wait_for_journal_event(&self, epoch: u64, timeout: Duration) -> u64 {
-        let current = self.journal_event_epoch.lock().unwrap();
-        if *current != epoch {
-            return *current;
-        }
-        let (current, _) = self.journal_event_changed.wait_timeout(current, timeout).unwrap();
-        *current
+        self.journal_event_epoch.wait_timeout(epoch, timeout)
+    }
+
+    /// Runs `watcher` after each journal commit until the watch drops: a
+    /// drain on a sequence watches instead of a thread waiting
+    /// (p05-ipc-146). The watcher runs on the committing thread, so it
+    /// only posts.
+    pub(crate) fn watch_journal_events(
+        &self,
+        watcher: impl Fn() + Send + Sync + 'static,
+    ) -> JournalWatch {
+        self.journal_event_epoch.watch(watcher)
     }
 
     /// Like `wait_for_journal_event`, with no timeout: returns the new
@@ -369,12 +373,7 @@ impl Mux {
         epoch: u64,
         interrupt: &crate::stream_interrupt::StreamInterrupt,
     ) -> u64 {
-        let mut current = self.journal_event_epoch.lock().recover_poison();
-        while *current == epoch && !interrupt.is_fired() {
-            current = cmux_threads::checked::sync::wait(&self.journal_event_changed, current)
-                .recover_poison();
-        }
-        *current
+        self.journal_event_epoch.wait_until_interrupted(epoch, interrupt)
     }
 
     /// Like `wait_for_shared_journal`, with no timeout.
@@ -395,11 +394,7 @@ impl Mux {
         let mux = Arc::downgrade(self);
         interrupt.on_fire(move || {
             if let Some(mux) = mux.upgrade() {
-                {
-                    let _epoch =
-                        mux.journal_event_epoch.lock().unwrap_or_else(|error| error.into_inner());
-                    mux.journal_event_changed.notify_all();
-                }
+                mux.journal_event_epoch.notify_waiters();
                 mux.journal_kernel.notify_waiters();
             }
         });
