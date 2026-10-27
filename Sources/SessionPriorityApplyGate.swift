@@ -24,8 +24,9 @@ struct SessionPriorityApplyGate {
         var workspaceMarkedManual = false
         /// The queued target is still what the workspace's tier and difficulty ask for.
         var targetIsCurrent = true
-        /// Claude ended its turn with background work still running (background Bash commands,
-        /// Monitors, async Agents): the restart would kill it.
+        /// Claude ended its last turn with background work still running (background Bash
+        /// commands, Monitors, async Agents) and has not started a turn since: the restart would
+        /// kill it.
         var backgroundWorkPending = false
         /// The pane is the focused pane of the key window: the user's next keystrokes would land
         /// in the restarted shell.
@@ -84,15 +85,17 @@ struct SessionPriorityApplyGate {
     }
 
     /// Checks, in order: account switch, a manual change (on screen or the workspace flag), a
-    /// changed target, running turn, background work, recent input, the focused pane, the
+    /// changed target, background work, running turn, recent input, the focused pane, the
     /// running-turn hint, the screen (only Claude's empty prompt passes), and the foreground.
     static func evaluate(_ facts: Facts) -> Verdict {
         if facts.accountSwitchInFlight { return .hold(.accountSwitchInFlight) }
         // Restarting now would replace the user's own effort with the target's.
         if facts.screenShowsManualChange || facts.workspaceMarkedManual { return .hold(.manualChange) }
         if !facts.targetIsCurrent { return .hold(.targetChanged) }
-        if facts.responseRunning { return .hold(.responding) }
+        // Ahead of a running turn: a hook after the turn's end (a `SubagentStop`) can report the
+        // pane running again while its background work goes on.
         if facts.backgroundWorkPending { return .hold(.backgroundWork) }
+        if facts.responseRunning { return .hold(.responding) }
         if facts.receivedInputRecently { return .hold(.recentInput) }
         if facts.paneIsFocused { return .hold(.focused) }
         // Claude keeps its input box empty while it works, so this outranks the screen.

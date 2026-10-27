@@ -104,7 +104,8 @@ extension SessionPriorityCoordinator {
             screenShowsManualChange: screenShowsManualChange,
             workspaceMarkedManual: workspace.sessionPriorityState.isManual,
             targetIsCurrent: currentTarget(of: workspace) == target,
-            backgroundWorkPending: Self.claudeBackgroundWorkPending(panelId: panelId, in: workspace),
+            backgroundWorkPending: Self.claudeBackgroundWorkPending(panelId: panelId, in: workspace)
+                || state.hasPendingBackgroundWork(panelId: panelId),
             paneIsFocused: Self.isFocusedPaneOfKeyWindow(panelId: panelId, workspaceId: workspace.id)
         ))
     }
@@ -125,6 +126,9 @@ extension SessionPriorityCoordinator {
     /// Whether the pane's Claude ended its last turn with background work still running, as
     /// its journal lifecycle reports it: the same `pending_work` an account switch holds back
     /// for (`ClaudeAccountAutoSwitchRequest`), projected onto the sidebar's lifecycle state.
+    /// The gate also reads the coordinator's own record of that turn end
+    /// (``SessionPriorityCoordinatorState/hasPendingBackgroundWork(panelId:)``), which a later
+    /// `SubagentStop` projected as running does not clear.
     static func claudeBackgroundWorkPending(panelId: UUID, in workspace: Workspace) -> Bool {
         workspace.agentLifecycleStatesByPanelId[panelId]?[Workspace.claudeAgentLifecycleKey] == .backgroundWorkPending
     }

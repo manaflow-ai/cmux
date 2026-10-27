@@ -76,6 +76,11 @@ struct SessionPriorityCoordinatorState: Equatable {
     /// When each pane's Claude last ended a turn, where the restart gate's quiet window starts.
     /// Kept while off, so turning the feature on right after a turn end still waits.
     private(set) var lastTurnEndedAtMs: [UUID: Int64] = [:]
+    /// Panes whose Claude ended its last turn with background work still running (the turn end
+    /// or idle prompt reported `pending_work`), until its next turn starts, a turn end or idle
+    /// prompt without it, or its session ends. Later hooks such as a `SubagentStop` do not end
+    /// it. Kept while off.
+    private(set) var backgroundWorkPanelIds: Set<UUID> = []
     /// When cmux last set aside the user's own `/effort` and `/model` on each pane: its last
     /// restart of the pane, or "Adjust Claude Effort Automatically" on its workspace. Only a
     /// change the transcript records later counts. Kept while off.
@@ -111,9 +116,26 @@ struct SessionPriorityCoordinatorState: Equatable {
         return true
     }
 
-    /// The pane's Claude ended a turn at `nowMs`.
-    mutating func noteTurnEnded(panelId: UUID, nowMs: Int64) {
+    /// The pane's Claude ended a turn, or showed its idle prompt, at `nowMs`, with or without
+    /// background work still running.
+    mutating func noteTurnEnded(panelId: UUID, nowMs: Int64, pendingWork: Bool = false) {
         lastTurnEndedAtMs[panelId] = nowMs
+        if pendingWork {
+            backgroundWorkPanelIds.insert(panelId)
+        } else {
+            backgroundWorkPanelIds.remove(panelId)
+        }
+    }
+
+    /// The pane's Claude started a turn: background work its last turn end reported no longer
+    /// holds the pane; the running turn does.
+    mutating func noteTurnStarted(panelId: UUID) {
+        backgroundWorkPanelIds.remove(panelId)
+    }
+
+    /// Whether the pane's Claude ended its last turn with background work still running.
+    func hasPendingBackgroundWork(panelId: UUID) -> Bool {
+        backgroundWorkPanelIds.contains(panelId)
     }
 
     /// The transcript records a `/effort` or `/model` the user ran after the pane's dismissal
@@ -254,9 +276,11 @@ struct SessionPriorityCoordinatorState: Equatable {
         return false
     }
 
-    /// The pane's Claude session ended. A pane being restarted ignores it: that is the replaced
-    /// Claude. Otherwise the record goes, with its manual signal; only the last attempt stays.
+    /// The pane's Claude session ended, and with it any background work it reported. A pane being
+    /// restarted keeps its record: that is the replaced Claude. Otherwise the record goes, with its
+    /// manual signal; only the last attempt stays.
     mutating func noteSessionEnded(panelId: UUID) {
+        backgroundWorkPanelIds.remove(panelId)
         guard let record = records[panelId], record.awaitingSessionStartUntilMs == nil else { return }
         records[panelId] = record.lastAttempt.map { PaneRecord(lastAttempt: $0) }
     }
@@ -335,6 +359,7 @@ struct SessionPriorityCoordinatorState: Equatable {
     mutating func retainPanes(_ panelIds: Set<UUID>) {
         records = records.filter { panelIds.contains($0.key) }
         lastTurnEndedAtMs = lastTurnEndedAtMs.filter { panelIds.contains($0.key) }
+        backgroundWorkPanelIds.formIntersection(panelIds)
         manualDismissedAtMs = manualDismissedAtMs.filter { panelIds.contains($0.key) }
     }
 

@@ -113,9 +113,12 @@ final class SessionPriorityCoordinator {
         guard draft.source == "claude", !draft.isSubagent, draft.unattributedReason == nil,
               let panelId = draft.surfaceId.flatMap(UUID.init(uuidString:)) else { return }
         switch draft.kind {
+        case .turnStarted:
+            state.noteTurnStarted(panelId: panelId)
         case .turnCompleted, .idleObserved:
-            // The quiet window runs from here, also for a turn end seen while off.
-            state.noteTurnEnded(panelId: panelId, nowMs: Self.nowMs())
+            // The quiet window and a background-work hold run from here, also for a turn end seen
+            // while off.
+            state.noteTurnEnded(panelId: panelId, nowMs: Self.nowMs(), pendingWork: draft.pendingWork)
             guard isEnabled else { return }
             // Between turns: a pane held or refused earlier may be tried again.
             state.noteRetryDue(panelId: panelId)
@@ -128,8 +131,9 @@ final class SessionPriorityCoordinator {
             // The pass refreshes the agent index first, so it reads the launch this recorded.
             requestReconcile()
         case .sessionEnded:
-            guard state.records[panelId] != nil else { return }
+            let hadRecord = state.records[panelId] != nil
             state.noteSessionEnded(panelId: panelId)
+            guard hadRecord else { return }
             requestReconcile()
         default:
             return
