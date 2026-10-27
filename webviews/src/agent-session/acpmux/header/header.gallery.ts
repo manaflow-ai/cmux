@@ -28,6 +28,24 @@ const inTabRowConnected: Play = async (ctx) => {
     throw new Error("The chat header repeated the composer location");
 };
 
+const sessionInfo =
+  (placement: "overlay" | "push", open: boolean): Play =>
+  async (ctx) => {
+    const { setTabRow } = await import("./tabRow");
+    const { setHeaderState } = await import("./headerState");
+    const { setChatDisplay } = await import("../chatDisplay");
+    const { setInspectorOpen } = await import("../inspector/inspectorState");
+    setTabRow({ height: 28, trailingInset: 0 });
+    setHeaderState({ inspector: true });
+    setChatDisplay({ "agentPane.display.inspector.placement": placement });
+    setInspectorOpen(open);
+    await ctx.waitFor(() =>
+      open
+        ? ctx.document.querySelector(`.acpmux-chat-inspector[data-placement="${placement}"][data-presence="shown"]`)
+        : !ctx.document.querySelector(".acpmux-chat-inspector"),
+    );
+  };
+
 export default agentPaneEntry({
   id: "agent-pane.header",
   title: "Header",
@@ -63,6 +81,26 @@ export default agentPaneEntry({
       note: "The header shares the pane's tab row: the connection warning leads the tools.",
       snapshot: chat(finished, { connection: "disconnected" }),
       play: inTabRow,
+    },
+    "session-info-overlay-closed": {
+      note: "Session Info closed, floating placement. The tools remain at the pane's trailing edge.",
+      snapshot: chat(finished),
+      play: sessionInfo("overlay", false),
+    },
+    "session-info-overlay-open": {
+      note: "Session Info floats below the tools. Each tool stays visible on the same transparent row.",
+      snapshot: chat(finished),
+      play: sessionInfo("overlay", true),
+    },
+    "session-info-push-closed": {
+      note: "Session Info closed with Push always selected. The header reserves the same tool strip.",
+      snapshot: chat(finished),
+      play: sessionInfo("push", false),
+    },
+    "session-info-push-open": {
+      note: "Push always narrows the conversation below the header; the tools keep their full-width alignment.",
+      snapshot: chat(finished),
+      play: sessionInfo("push", true),
     },
     failed: {
       note: "A long failure detail must not move the header tools.",
