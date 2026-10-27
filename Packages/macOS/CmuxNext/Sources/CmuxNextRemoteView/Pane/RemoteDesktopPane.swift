@@ -118,6 +118,7 @@ public final class RemoteDesktopPane {
         let gate = RemoteFrameGate()
         delivery = gate
         awaitsOwnContent = true
+        presenter.armFrameShown()
         let deliver: @Sendable (RemoteDecodedFrame) -> Void = { [weak self] frame in
             guard gate.deliver(frame, to: presenter), firstFrame.consume() else { return }
             Task { @MainActor in self?.apply(.frameShown) }

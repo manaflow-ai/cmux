@@ -35,7 +35,7 @@ final class MetalFramePresenter: RemoteFramePresenter {
         guard mailbox.post(frame) else { return }
         Task { [renderer, mailbox, weak self] in
             guard let shown = await renderer.drawNewest(from: mailbox) else { return }
-            await self?.rendered(shown)
+            await self?.rendered(shown.frame)
         }
     }
 

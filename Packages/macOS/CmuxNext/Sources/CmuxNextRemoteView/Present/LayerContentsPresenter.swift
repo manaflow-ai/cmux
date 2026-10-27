@@ -1,54 +1,74 @@
 import AppKit
-import CoreVideo
-import IOSurface
+import Metal
+import QuartzCore
 
-/// Variant A: the decoded IOSurface becomes the layer's contents. Zero copy;
-/// the window server converts NV12 to RGB when it composites. A frame posts
-/// to the mailbox; the first post schedules one main-actor drain that shows
-/// the newest frame.
+/// Variant A: the decoded IOSurface presented off the main thread. A frame
+/// posts to the mailbox; the first post schedules one draw on the render
+/// queue (`MetalYUVRenderer`: the surface's planes as Metal textures, no
+/// copy), which presents with `presentsWithTransaction = false`, so a frame
+/// reaches the screen with no main-thread turn. Main hears only of a new
+/// frame size and of the first frame after `armFrameShown()`; `shownFrame`
+/// reads the mailbox. Chrome presents the same way, from the GPU thread and
+/// never the browser's UI thread (gpu/ipc/service/image_transport_surface_overlay_mac.h).
+/// The render queue's draw holds the layer, so a pane torn down mid-draw
+/// never frees it under the renderer.
 @MainActor
 final class LayerContentsPresenter: RemoteFramePresenter {
     let kind = RemotePresenterKind.layerContents
-    let layer = CALayer()
+    private let metalLayer = CAMetalLayer()
+    var layer: CALayer { metalLayer }
     var onFrameSize: ((CGSize) -> Void)?
     var onFrameShown: (() -> Void)?
     private nonisolated let mailbox = LatestFrameMailbox<RemoteDecodedFrame>()
+    private nonisolated let renderer: MetalYUVRenderer
     private var frameSize: CGSize = .zero
-    private(set) var shownFrame: RemoteDecodedFrame?
+    /// Main-thread turns this presenter took (size changes and answered arms), for tests.
+    private(set) var mainTurns = 0
 
-    init() {
-        layer.contentsGravity = .topLeft
-        layer.isOpaque = true
-        layer.actions = RemoteLayerActions.none
+    /// Nil where Metal is missing.
+    init?() {
+        metalLayer.pixelFormat = .bgra8Unorm
+        metalLayer.framebufferOnly = true
+        metalLayer.maximumDrawableCount = 2
+        metalLayer.isOpaque = true
+        metalLayer.presentsWithTransaction = false
+        metalLayer.actions = RemoteLayerActions.none
+        guard let renderer = MetalYUVRenderer(layer: SharedMetalLayer(metalLayer)) else { return nil }
+        self.renderer = renderer
     }
 
     nonisolated func present(_ frame: RemoteDecodedFrame) {
         guard mailbox.post(frame) else { return }
-        Task { @MainActor [weak self] in self?.drain() }
+        Task { [renderer, mailbox, weak self] in
+            guard let shown = await renderer.drawNewest(from: mailbox),
+                  shown.noticeAsked || shown.replaced?.pixelSize != shown.frame.pixelSize else { return }
+            await self?.shownChanged()
+        }
     }
 
     nonisolated var discardedFrames: Int { mailbox.discardedCount }
 
+    var shownFrame: RemoteDecodedFrame? { mailbox.lastShown }
+
     func setBackingScale(_ scale: CGFloat) {
-        layer.contentsScale = scale
+        metalLayer.contentsScale = scale
     }
 
-    private func drain() {
-        guard let frame = mailbox.take() else { return }
-        guard let surface = CVPixelBufferGetIOSurface(frame.pixelBuffer)?.takeUnretainedValue() else { return }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        layer.contents = surface
-        CATransaction.commit()
-        shownFrame = frame
-        reportSize(frame.pixelSize)
+    /// The next shown frame calls `onFrameShown`, and `onFrameSize` with its size even when it is the
+    /// size before (a restarted owner may have shown something else meanwhile).
+    func armFrameShown() {
+        frameSize = .zero
+        mailbox.armShownNotice()
+    }
+
+    /// A new frame size, or the first frame since an arm: the newest shown frame's size wins.
+    private func shownChanged() {
+        mainTurns += 1
+        if let size = mailbox.lastShown?.pixelSize, size != frameSize {
+            frameSize = size
+            onFrameSize?(size)
+        }
         onFrameShown?()
-    }
-
-    private func reportSize(_ size: CGSize) {
-        guard size != frameSize else { return }
-        frameSize = size
-        onFrameSize?(size)
     }
 }
 

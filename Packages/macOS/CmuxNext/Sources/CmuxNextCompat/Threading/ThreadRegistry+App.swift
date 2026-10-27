@@ -60,6 +60,8 @@ extension ThreadRegistry {
         ThreadDeclaration("cmux.remote-view.mock-host", qos: .userInitiated),
         ThreadDeclaration("cmux.next.mobile.unix-lane", qos: .userInitiated),
         ThreadDeclaration("com.cmuxterm.next.phone-process.stdin", policy: .perItem),
+        // The live phone screen's frame callbacks: closed list, as the remote view's render queue (p03-rendering-114).
+        ThreadDeclaration("cmux.phone.screen.frames", qos: .userInteractive),
         ThreadDeclaration("cmux.screen.capture", qos: .userInteractive),
         // Browser.
         ThreadDeclaration("com.cmuxterm.next.browser-host.provider.write", qos: .userInitiated),

@@ -22,6 +22,12 @@ public final class PhoneTabView: NSView {
     private var liveUDID: String?
     /// This tab's watch of that simulator's frames.
     private var liveWatch: SimulatorKitHID.ScreenWatch?
+    /// A simulator whose surface presenter A cannot draw: it shows still frames.
+    private var liveUnsupported: String?
+    /// SimulatorKit calls this tab's frame callbacks here, off main; each only hands the frame to the
+    /// screen's presenter, which draws on its own render queue.
+    // qos-allow: closed list (threading-model.md): the live phone screen's frames wait on this queue, Chrome's kDisplayCritical
+    private let liveFrames = DispatchQueue.checkedSerial(label: "cmux.phone.screen.frames", qos: .userInteractive)
     /// The Android phone streaming into ``screen`` now, if any.
     private var androidStream: (id: PhoneDeviceID, stream: AndroidScreenStream)?
     /// Where and when a touch on a still frame began (sent as one tap or swipe when it ends).
@@ -175,17 +181,27 @@ extension PhoneTabView {
     /// Streams a booted simulator into the screen while the tab is visible. False when it cannot.
     func startLiveIfPossible(_ device: PhoneDevice) -> Bool {
         if device.mode.isAndroid { return startAndroidStream(device) }
-        guard device.mode == .simulator, screen.isOnScreen, let live = service.live else { return false }
+        guard device.mode == .simulator, screen.isOnScreen, let live = service.live, liveUnsupported != device.id.raw else { return false }
         if liveUDID == device.id.raw { return true }
         stopLive()
+        // SimulatorKit hands each frame to the screen's presenter off main: no frame takes a main
+        // turn (p03-rendering-114).
+        let frames = screen.startLive()
         do {
-            liveWatch = try live.startScreen(device.id.raw) { [weak self] surface in self?.screen.show(surface: surface) }
+            liveWatch = try live.startScreen(device.id.raw, on: liveFrames) { surface in _ = frames.frame(surface) }
             liveUDID = device.id.raw
-            return true
         } catch {
+            screen.endLive()
             show(error)
             return false
         }
+        // A surface presenter A cannot draw (a pixel format it does not read): still frames instead.
+        if let surface = live.currentSurface(device.id.raw), !PhoneLiveFrames.canDraw(surface) {
+            liveUnsupported = device.id.raw
+            stopLive()
+            return false
+        }
+        return true
     }
 
     /// A still frame (Android, or iOS without SimulatorKit) takes the whole gesture at once when it ends.
@@ -214,7 +230,9 @@ extension PhoneTabView {
             screen.endVideo()
         }
         guard liveUDID != nil else { return }
+        // Unregister, then close the session's gate: a callback SimulatorKit had already queued presents nothing.
         if let liveWatch { service.live?.stopScreen(liveWatch) }
+        screen.endLive()
         liveWatch = nil
         liveUDID = nil
     }

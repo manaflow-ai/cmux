@@ -2,19 +2,24 @@ public import AppKit
 import AVFoundation
 import CmuxNextInput
 import CmuxNextInputCore
+import CmuxNextRemoteView
 import CmuxNextWakeups
-import IOSurface
 
 /// The phone's screen inside a phone tab. It shows either the simulator's
-/// own IOSurface (live: each SimulatorKit frame only marks the layer's
-/// contents changed, no copy) or a still image. Mouse down, drag and up are
-/// touches; typed keys go to the phone while it has focus. It reports when it
-/// can be seen, so the tab stops frames while hidden.
+/// own IOSurface (live: remote view presenter A draws each SimulatorKit frame
+/// on its render queue, no copy and no main-thread turn) or a still image.
+/// Mouse down, drag and up are touches; typed keys go to the phone while it
+/// has focus. It reports when it can be seen, so the tab stops frames while hidden.
 @MainActor
 public final class PhoneScreenView: NSView {
     private let content = CALayer()
-    /// The layer's private `setContentsChanged`, resolved on the first repeated frame (nil when it lacks it).
-    private lazy var markContentsChanged: (() -> Void)? = privateAction(content, "setContentsChanged")
+    /// Presenter A, made at the first live screen and kept (its Metal pipeline is built once); its
+    /// layer covers `content` while a live screen streams.
+    private var presenter: (any RemoteFramePresenter)?
+    /// The live session's gate while one streams.
+    private var liveGate: RemoteFrameGate?
+    /// Main-thread turns the live screen took (its first frame and each size change), for tests.
+    private(set) var liveMainTurns = 0
     /// Hardware-decoded H.264 frames (Android live screens), shown over `content` while streaming.
     private var video: AVSampleBufferDisplayLayer?
     private var contentSize: CGSize = .zero
@@ -49,25 +54,51 @@ public final class PhoneScreenView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("not used") }
 
-    /// Shows a live surface. Call again with the same surface for every frame.
-    func show(surface: IOSurface) {
-        let size = CGSize(width: IOSurfaceGetWidth(surface), height: IOSurfaceGetHeight(surface))
+    /// Starts a live screen drawn off main: hand the returned sink every SimulatorKit frame, on any
+    /// thread. Only the session's first frame and a new size come back to this view.
+    func startLive() -> PhoneLiveFrames {
+        endLive()
+        let presenter = self.presenter ?? makePresenter()
+        let gate = RemoteFrameGate()
+        liveGate = gate
+        presenter.armFrameShown()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        if content.contents as AnyObject? !== surface {
-            content.contents = surface
-        } else if let markContentsChanged {
-            // Core Animation re-reads an IOSurface it already shows only when told its contents changed.
-            markContentsChanged()
-        } else {
-            content.contents = nil
-            content.contents = surface
-        }
+        presenter.layer.frame = content.bounds
+        content.addSublayer(presenter.layer)
         CATransaction.commit()
-        if size != contentSize {
-            contentSize = size
-            needsLayout = true
-        }
+        return PhoneLiveFrames(gate: gate, presenter: presenter)
+    }
+
+    /// Ends the live screen: once this returns no frame of the session reaches the presenter, and
+    /// its layer leaves the tree.
+    func endLive() {
+        guard let liveGate else { return }
+        self.liveGate = nil
+        liveGate.close()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        presenter?.layer.removeFromSuperlayer()
+        CATransaction.commit()
+    }
+
+    private func makePresenter() -> any RemoteFramePresenter {
+        let made = RemoteFramePresenters().make(.layerContents)
+        made.onFrameSize = { [weak self] size in self?.liveSizeChanged(size) }
+        made.onFrameShown = { [weak self] in self?.liveFrameShown() }
+        presenter = made
+        return made
+    }
+
+    private func liveSizeChanged(_ size: CGSize) {
+        guard liveGate != nil, size != contentSize else { return }
+        contentSize = size
+        needsLayout = true
+    }
+
+    private func liveFrameShown() {
+        guard liveGate != nil else { return }
+        liveMainTurns += 1
     }
 
     /// Shows one compressed video frame (Android live screens); the layer decodes it.
@@ -119,6 +150,7 @@ public final class PhoneScreenView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         content.frame = mapping.drawnRect == .zero ? bounds : mapping.drawnRect
+        if liveGate != nil { presenter?.layer.frame = content.bounds }
         video?.frame = content.frame
         CATransaction.commit()
     }
@@ -237,5 +269,6 @@ public final class PhoneScreenView: NSView {
     func close() {
         occlusion?.cancel()
         occlusion = nil
+        endLive()
     }
 }

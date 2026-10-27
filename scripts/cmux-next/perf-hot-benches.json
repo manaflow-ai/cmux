@@ -87,6 +87,11 @@
         "key.scroll_frame"
       ]
     },
+    "phone-surface-present": {
+      "what": "one simulator frame on the live phone screen (PhoneLiveFrames.frame, on the tab's frame queue): a pixel buffer over the IOSurface (no copy) and one post to presenter A's mailbox, which draws on its render queue; no main-thread turn (p03-rendering-114)",
+      "bench": "swift test --filter PhoneLiveScreenOffMainTests (main turns per 120 frames), then a live phone tab at 60 fps on the fleet: main turns from the phone screen <= 1/s",
+      "owner": "PL-rendering"
+    },
     "drag-frame": {
       "what": "one tab, pane or column drag frame (ghost, autoscroll, hit test)",
       "bench": "scripts/cmux-next/drag-lag-live.py",

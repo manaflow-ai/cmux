@@ -489,11 +489,11 @@ import Testing
 
     /// The layer-contents presenter, counting what the pipeline hands it.
     final class RecordingPresenter: RemoteFramePresenter {
-        private nonisolated let shown: LayerContentsPresenter
+        private nonisolated let shown: any RemoteFramePresenter
         private nonisolated let count = Mutex(0)
 
         init() {
-            shown = LayerContentsPresenter()
+            shown = RemoteFramePresenters().make(.layerContents)
         }
 
         var kind: RemotePresenterKind { shown.kind }
@@ -513,6 +513,7 @@ import Testing
         }
 
         func setBackingScale(_ scale: CGFloat) { shown.setBackingScale(scale) }
+        func armFrameShown() { shown.armFrameShown() }
         nonisolated var discardedFrames: Int { shown.discardedFrames }
         var shownFrame: RemoteDecodedFrame? { shown.shownFrame }
         /// Frames handed to the presenter.

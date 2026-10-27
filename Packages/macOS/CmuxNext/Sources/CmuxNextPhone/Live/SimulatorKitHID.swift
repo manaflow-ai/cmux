@@ -17,8 +17,10 @@ public final class SimulatorKitHID: SimulatorHIDSending {
     private let clock: any Clock<Duration>
     private var transports: [String: SimulatorHIDTransport] = [:]
     private var screens: [String: SimulatorScreenSource] = [:]
-    /// Who watches each simulator's frames (the Mac's phone tab, a phone streaming it).
+    /// Who watches each simulator's frames on main (a phone streaming it).
     private var watchers: [String: [UUID: @MainActor (IOSurface) -> Void]] = [:]
+    /// Watchers whose frames go straight to their own queue (the Mac's phone tab), one registration each.
+    private var queueScreens: [UUID: (udid: String, source: SimulatorScreenSource)] = [:]
 
     /// - Parameters:
     ///   - developerDirectory: the active Xcode's Developer folder (`xcode-select -p`).
@@ -61,7 +63,7 @@ public final class SimulatorKitHID: SimulatorHIDSending {
         let device = try runtime.device(udid)
         let scale = privateObject(device, "deviceType").flatMap { privateNumber($0, "mainScreenScale") } ?? 0
         // The live surface is in the displayed orientation; the device type's size is portrait only.
-        if let surface = screens[udid]?.surface, scale > 0 {
+        if let surface = currentSurface(udid), scale > 0 {
             return CGSize(width: Double(IOSurfaceGetWidth(surface)) / scale, height: Double(IOSurfaceGetHeight(surface)) / scale)
         }
         guard scale > 0, let pixels = privateObject(device, "deviceType").flatMap({ privateSize($0, "mainScreenSize") }) else {
@@ -142,8 +144,21 @@ public final class SimulatorKitHID: SimulatorHIDSending {
         return watch
     }
 
+    /// Starts frames for `udid` on `queue`: SimulatorKit calls `onFrame` there for every frame and
+    /// surface change; the surface shown now goes to it once, here, before this returns. No frame
+    /// takes a main-thread turn (p03-rendering-114). Call ``stopScreen(_:)`` when the watcher is done;
+    /// a frame already queued may still arrive after it.
+    func startScreen(_ udid: String, on queue: DispatchQueue, onFrame: @escaping @Sendable (IOSurface) -> Void) throws -> ScreenWatch {
+        let watch = ScreenWatch(udid: udid, id: UUID())
+        let source = try SimulatorScreenSource(device: runtime.device(udid), queue: queue, onFrame: onFrame)
+        try source.start()
+        queueScreens[watch.id] = (udid, source)
+        return watch
+    }
+
     /// Ends `watch`; with no watcher left no frame work happens until one starts.
     func stopScreen(_ watch: ScreenWatch) {
+        if let queued = queueScreens.removeValue(forKey: watch.id) { return queued.source.stop() }
         watchers[watch.udid]?[watch.id] = nil
         guard watchers[watch.udid]?.isEmpty ?? true else { return }
         watchers[watch.udid] = nil
@@ -152,7 +167,7 @@ public final class SimulatorKitHID: SimulatorHIDSending {
 
     /// The simulator's screen now (nil while nobody watches it).
     func currentSurface(_ udid: String) -> IOSurface? {
-        screens[udid]?.surface
+        screens[udid]?.surface ?? queueScreens.values.first { $0.udid == udid }?.source.surface
     }
 
     /// Sends one touch at once (the tab's mouse events, already paced by the person).
@@ -177,5 +192,9 @@ public final class SimulatorKitHID: SimulatorHIDSending {
         transports.removeValue(forKey: udid)?.close()
         watchers[udid] = nil
         screens.removeValue(forKey: udid)?.stop()
+        for (id, queued) in queueScreens where queued.udid == udid {
+            queued.source.stop()
+            queueScreens[id] = nil
+        }
     }
 }

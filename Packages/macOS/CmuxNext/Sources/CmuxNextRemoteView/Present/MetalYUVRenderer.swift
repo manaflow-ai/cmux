@@ -15,7 +15,7 @@ nonisolated struct SharedMetalLayer: @unchecked Sendable { // crash-allow: main 
 }
 
 /// Draws one NV12 frame into a `CAMetalLayer` drawable with a YUV to RGB
-/// shader (BT.709, 1:1 pixels). The actor runs on its own serial render
+/// shader (BT.709, 1:1 pixels), or one four-channel RGB frame with a copy shader. The actor runs on its own serial render
 /// queue, off the main thread and off the cooperative pool: `nextDrawable`
 /// may wait there for one of the two drawables. Its texture cache and the
 /// layer's drawable size are touched only there.
@@ -30,12 +30,14 @@ actor MetalYUVRenderer {
     private let shared: SharedMetalLayer
     private let commandQueue: any MTLCommandQueue
     private let pipeline: any MTLRenderPipelineState
+    private let rgbPipeline: any MTLRenderPipelineState
     private let textureCache: CVMetalTextureCache
 
     init?(layer shared: SharedMetalLayer) {
         guard let device = shared.layer.device ?? MTLCreateSystemDefaultDevice(),
               let commandQueue = device.makeCommandQueue(),
-              let pipeline = Self.makePipeline(device: device) else { return nil }
+              let pipeline = Self.makePipeline(device: device),
+              let rgbPipeline = Self.makePipeline(device: device, fragment: "rv_fragment_rgb") else { return nil }
         var cache: CVMetalTextureCache?
         // SAFETY: Core Video writes one +1 cache to the local `cache`, live for the call;
         // the nil attribute dictionaries are not read.
@@ -45,29 +47,60 @@ actor MetalYUVRenderer {
         self.shared = shared
         self.commandQueue = commandQueue
         self.pipeline = pipeline
+        self.rgbPipeline = rgbPipeline
         textureCache = cache
     }
 
-    /// Takes the mailbox's newest frame and draws it. Returns the frame when
-    /// it is on its way to the screen, nil when there was none or it could
-    /// not be drawn.
-    func drawNewest(from mailbox: LatestFrameMailbox<RemoteDecodedFrame>) -> RemoteDecodedFrame? {
+    /// Takes the mailbox's newest frame, draws it and records it shown in the mailbox in this turn
+    /// (so records keep draw order). Returns the record when the frame is on its way to the screen,
+    /// nil when there was none or it could not be drawn.
+    func drawNewest(from mailbox: LatestFrameMailbox<RemoteDecodedFrame>) -> LatestFrameMailbox<RemoteDecodedFrame>.Shown? {
         guard let frame = mailbox.take(), render(frame) else { return nil }
-        return frame
+        return mailbox.recordShown(frame)
     }
 
     /// Draws `frame` and presents it at the next refresh. Returns false when
     /// the frame could not be drawn (no drawable within the layer's timeout,
     /// or a plane that does not map to a texture).
     private func render(_ frame: RemoteDecodedFrame) -> Bool {
-        let layer = shared.layer
         let buffer = frame.pixelBuffer
-        let width = CVPixelBufferGetWidth(buffer)
-        let height = CVPixelBufferGetHeight(buffer)
-        guard CVPixelBufferGetPlaneCount(buffer) == 2,
-              let luma = texture(buffer, plane: 0, format: .r8Unorm),
-              let chroma = texture(buffer, plane: 1, format: .rg8Unorm) else { return false }
-        let size = CGSize(width: width, height: height)
+        if CVPixelBufferGetPlaneCount(buffer) == 2 {
+            guard let luma = texture(buffer, plane: 0, format: .r8Unorm),
+                  let chroma = texture(buffer, plane: 1, format: .rg8Unorm) else { return false }
+            let fullRange: Float = CVPixelBufferGetPixelFormatType(buffer) == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange ? 1 : 0
+            return draw(buffer, pipeline: pipeline, textures: [luma, chroma], fullRange: fullRange)
+        }
+        // A four-channel RGB frame (a simulator's framebuffer, a host that sends RGB): one texture, a copy shader.
+        guard let format = Self.rgbTextureFormat(CVPixelBufferGetPixelFormatType(buffer)),
+              let rgb = texture(buffer, plane: 0, format: format) else { return false }
+        return draw(buffer, pipeline: rgbPipeline, textures: [rgb], fullRange: 0)
+    }
+
+    /// The Metal format that reads a one-plane buffer of `pixelFormat`, nil for one this renderer
+    /// does not draw.
+    nonisolated static func rgbTextureFormat(_ pixelFormat: OSType) -> MTLPixelFormat? {
+        switch pixelFormat {
+        case kCVPixelFormatType_32BGRA: .bgra8Unorm
+        case kCVPixelFormatType_32RGBA: .rgba8Unorm
+        case kCVPixelFormatType_ARGB2101010LEPacked: .bgr10a2Unorm
+        case kCVPixelFormatType_64RGBAHalf: .rgba16Float
+        default: nil
+        }
+    }
+
+    /// Whether this renderer draws buffers of `pixelFormat`: NV12 (video or full range) or one-plane RGB.
+    nonisolated static func draws(pixelFormat: OSType) -> Bool {
+        pixelFormat == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+            || pixelFormat == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+            || rgbTextureFormat(pixelFormat) != nil
+    }
+
+    /// Draws `textures` (fragment textures 0, 1, ...) with `pipeline` into the next drawable, sized
+    /// to `buffer`, and presents it at the next refresh.
+    private func draw(_ buffer: CVPixelBuffer, pipeline: any MTLRenderPipelineState, textures: [CVMetalTexture],
+                      fullRange: Float) -> Bool {
+        let layer = shared.layer
+        let size = CGSize(width: CVPixelBufferGetWidth(buffer), height: CVPixelBufferGetHeight(buffer))
         if layer.drawableSize != size {
             // An explicit transaction: this thread has no run loop to commit an implicit one.
             CATransaction.begin()
@@ -81,19 +114,18 @@ actor MetalYUVRenderer {
         pass.colorAttachments[0].texture = drawable.texture
         pass.colorAttachments[0].loadAction = .dontCare
         pass.colorAttachments[0].storeAction = .store
-        guard let encoder = commands.makeRenderCommandEncoder(descriptor: pass),
-              let lumaTexture = CVMetalTextureGetTexture(luma),
-              let chromaTexture = CVMetalTextureGetTexture(chroma) else { return false }
-        var fullRange: Float = CVPixelBufferGetPixelFormatType(buffer) == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange ? 1 : 0
+        let metalTextures = textures.compactMap { CVMetalTextureGetTexture($0) }
+        guard metalTextures.count == textures.count,
+              let encoder = commands.makeRenderCommandEncoder(descriptor: pass) else { return false }
         encoder.setRenderPipelineState(pipeline)
-        encoder.setFragmentTexture(lumaTexture, index: 0)
-        encoder.setFragmentTexture(chromaTexture, index: 1)
-        // SAFETY: Metal copies length (one Float) bytes from the local `fullRange` during the call.
-        unsafe encoder.setFragmentBytes(&fullRange, length: MemoryLayout<Float>.size, index: 0)
+        for (index, texture) in metalTextures.enumerated() { encoder.setFragmentTexture(texture, index: index) }
+        var range = fullRange
+        // SAFETY: Metal copies length (one Float) bytes from the local `range` during the call.
+        unsafe encoder.setFragmentBytes(&range, length: MemoryLayout<Float>.size, index: 0)
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
         encoder.endEncoding()
         // The cache textures must outlive the GPU's reads: the completed handler holds them.
-        let retained = [RemoteFrameBuffer(luma), RemoteFrameBuffer(chroma)]
+        let retained = textures.map { RemoteFrameBuffer($0) }
         commands.addCompletedHandler { _ in withExtendedLifetime(retained) {} }
         commands.present(drawable)
         commands.commit()
@@ -102,18 +134,20 @@ actor MetalYUVRenderer {
 
     private func texture(_ buffer: CVPixelBuffer, plane: Int, format: MTLPixelFormat) -> CVMetalTexture? {
         var texture: CVMetalTexture?
+        // A non-planar buffer has no planes: its one image is the whole buffer.
+        let planar = CVPixelBufferIsPlanar(buffer)
+        let width = planar ? CVPixelBufferGetWidthOfPlane(buffer, plane) : CVPixelBufferGetWidth(buffer)
+        let height = planar ? CVPixelBufferGetHeightOfPlane(buffer, plane) : CVPixelBufferGetHeight(buffer)
         // SAFETY: Core Video writes one +1 texture to the local `texture`, live for the call.
         let status = unsafe CVMetalTextureCacheCreateTextureFromImage(
-            kCFAllocatorDefault, textureCache, buffer, nil, format,
-            CVPixelBufferGetWidthOfPlane(buffer, plane), CVPixelBufferGetHeightOfPlane(buffer, plane),
-            plane, &texture)
+            kCFAllocatorDefault, textureCache, buffer, nil, format, width, height, plane, &texture)
         return status == kCVReturnSuccess ? texture : nil
     }
 
-    nonisolated static func makePipeline(device: any MTLDevice) -> (any MTLRenderPipelineState)? {
+    nonisolated static func makePipeline(device: any MTLDevice, fragment name: String = "rv_fragment") -> (any MTLRenderPipelineState)? {
         guard let library = try? device.makeLibrary(source: shaderSource, options: nil),
               let vertex = library.makeFunction(name: "rv_vertex"),
-              let fragment = library.makeFunction(name: "rv_fragment") else { return nil }
+              let fragment = library.makeFunction(name: name) else { return nil }
         let descriptor = MTLRenderPipelineDescriptor()
         descriptor.vertexFunction = vertex
         descriptor.fragmentFunction = fragment
@@ -152,6 +186,10 @@ actor MetalYUVRenderer {
                             y - 0.1873 * c.x - 0.4681 * c.y,
                             y + 1.8556 * c.x);
         return float4(saturate(rgb), 1.0);
+    }
+    fragment float4 rv_fragment_rgb(VOut in [[stage_in]], texture2d<float> rgb [[texture(0)]]) {
+        constexpr sampler nearest(filter::nearest, address::clamp_to_edge);
+        return float4(rgb.sample(nearest, in.uv).rgb, 1.0);
     }
     """
 }

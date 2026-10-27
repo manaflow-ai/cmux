@@ -42,6 +42,7 @@ public final class RemoteBrowserPane {
         let gate = RemoteFrameGate()
         delivery = gate
         awaitsFirstFrame = true
+        presenter.armFrameShown()
         let pipeline = RemoteDecodePipeline(source: source) { frame in _ = gate.deliver(frame, to: presenter) }
         pipelineTask = Task.detached(priority: .userInitiated) { await pipeline.run() }
     }
