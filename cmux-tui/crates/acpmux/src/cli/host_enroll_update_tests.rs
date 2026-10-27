@@ -21,6 +21,8 @@ struct Host {
     starts: bool,
     /// The probe stops before `checked` (else a systemd host's says it).
     unchecked: bool,
+    /// The user's manager does not linger.
+    no_linger: bool,
 }
 
 impl Host {
@@ -33,6 +35,7 @@ impl Host {
             locked: false,
             starts: true,
             unchecked: false,
+            no_linger: false,
         }
     }
 }
@@ -56,6 +59,9 @@ impl Remote for Host {
         let mut words: Vec<String> = self.found.iter().map(|w| format!("{MARK}{w}")).collect();
         if self.installed.get() && self.install_out.is_empty() && self.starts {
             words.push(format!("{MARK}timer"));
+        }
+        if self.found.contains(&"systemd") && !self.no_linger {
+            words.push(format!("{MARK}linger"));
         }
         if self.found.contains(&"systemd") && !self.unchecked {
             words.push(format!("{MARK}checked"));
@@ -193,6 +199,23 @@ fn a_drop_in_found_under_the_lock_stops_the_install() {
     let script = guarded_install_script();
     assert!(script.starts_with("au_probe() {"), "{script}");
     assert!(script.contains(&hosts::install_script()), "{script}");
+}
+
+/// A timer on a manager that does not linger stops at logout: said, and
+/// `--fix` asks for lingering in the guarded install.
+#[test]
+fn a_manager_that_does_not_linger_is_said() {
+    let mut host = Host::new(&["os=Linux", "systemd", "timer"]);
+    host.no_linger = true;
+    let r = update(&host, false, None);
+    assert_eq!(r.state, StepState::Warn, "{r:?}");
+    assert!(r.detail.contains("does not linger"), "{r:?}");
+    assert!(r.fix.as_deref().unwrap().contains("--fix to turn on lingering"), "{r:?}");
+    let mut host = Host::new(&["os=Linux", "systemd"]);
+    host.install_out = "ACPMUX_AU=begin\nACPMUX_AU=nolinger";
+    let r = update(&host, true, None);
+    assert!(r.detail.contains("enable-linger was refused"), "{r:?}");
+    assert!(guarded_install_script().contains(hosts::SYSTEMD_LINGERING));
 }
 
 /// acpmux-update.timer is installed on Linux only, and not where the Cloud
@@ -341,6 +364,11 @@ mod probe_in_a_shell {
         fifo: bool,
         /// A dangling symlink of this unit's name in ~/.config/systemd/user.
         dangling: Option<&'static str>,
+        /// `Linger` is not yes, and `enable-linger` is refused.
+        no_linger: bool,
+        /// The analyzed unit path (`unit`) or the directory above it
+        /// (`above`) cannot be searched.
+        sealed: Option<&'static str>,
         /// The files in ~/.config/systemd/user: acpmux's text, another's, or none.
         service: Option<&'static str>,
         timer: Option<&'static str>,
@@ -368,6 +396,8 @@ mod probe_in_a_shell {
         no_sed: false,
         fifo: false,
         dangling: None,
+        no_linger: false,
+        sealed: None,
         service: Some(hosts::UPDATE_SERVICE),
         timer: Some(hosts::UPDATE_TIMER),
         drop_in_dir: None,
@@ -391,6 +421,8 @@ mod probe_in_a_shell {
         no_sed: false,
         fifo: false,
         dangling: None,
+        no_linger: false,
+        sealed: None,
         service: None,
         timer: None,
         drop_in_dir: None,
@@ -454,6 +486,15 @@ mod probe_in_a_shell {
                 fs::set_permissions(bin.join(tool), fs::Permissions::from_mode(0o755)).unwrap();
             }
         }
+        let loginctl = bin.join("loginctl");
+        let linger = if u.no_linger {
+            "echo no;; enable-linger) exit 1"
+        } else {
+            "echo yes;; enable-linger) exit 0"
+        };
+        fs::write(&loginctl, format!("#!/bin/sh\ncase \"$1\" in show-user) {linger};; esac\n"))
+            .unwrap();
+        fs::set_permissions(&loginctl, fs::Permissions::from_mode(0o755)).unwrap();
         if let Some(name) = u.dangling {
             std::os::unix::fs::symlink(root.join("nowhere"), units.join(name)).unwrap();
         }
@@ -478,8 +519,18 @@ mod probe_in_a_shell {
             None => extra.display().to_string(),
         };
         let analyze = bin.join("systemd-analyze");
-        let analyzed =
-            if u.no_analyze { "exit 1".to_owned() } else { format!("echo {}", extra.display()) };
+        let listed = match u.sealed {
+            Some("unit") => format!("{}\n{}", extra.display(), extra.join("sealed").display()),
+            Some(_) => {
+                format!("{}\n{}", extra.display(), extra.join("above/inner/units").display())
+            }
+            None => extra.display().to_string(),
+        };
+        let analyzed = if u.no_analyze {
+            "exit 1".to_owned()
+        } else {
+            format!("printf '%s\\n' '{}'", listed.replace('\n', "' '"))
+        };
         fs::write(&analyze, format!("#!/bin/sh\n{analyzed}\n")).unwrap();
         fs::set_permissions(&analyze, fs::Permissions::from_mode(0o755)).unwrap();
         let frag = if u.frag == "own" { units.display().to_string() } else { u.frag.into() };
@@ -520,7 +571,19 @@ esac
             Some(other) => sh.env("XDG_CONFIG_HOME", other),
             None => &mut sh,
         };
+        let sealed = match u.sealed {
+            Some("unit") => Some(extra.join("sealed")),
+            Some(_) => Some(extra.join("above")),
+            None => None,
+        };
+        if let Some(dir) = &sealed {
+            fs::create_dir_all(dir.join("inner")).unwrap();
+            mode(dir, 0o000).unwrap();
+        }
         let out = sh.output().unwrap();
+        if let Some(dir) = &sealed {
+            mode(dir, 0o755).unwrap();
+        }
         read_only(0o644, 0o755);
         let service = units.join("acpmux-update.service");
         let written =
@@ -688,6 +751,31 @@ esac
     #[test]
     fn a_unit_that_is_not_a_regular_file_is_foreign() {
         assert_eq!(kind(&probe(Units { fifo: true, service: None, ..OWN })), "foreign");
+    }
+
+    /// A unit path this user cannot search, or one under a directory they
+    /// cannot search: what is in it is not known, so nothing is installed.
+    #[test]
+    fn a_unit_path_that_cannot_be_searched_is_never_checked() {
+        for sealed in ["unit", "above"] {
+            for u in [OWN, NONE] {
+                let found = probe(Units { sealed: Some(sealed), ..u });
+                assert!(found.systemd && !found.checked, "{sealed}: {found:?}");
+            }
+            let (out, written) =
+                run(Units { sealed: Some(sealed), ..NONE }, &guarded_install_script());
+            assert!(parse(&out).unchecked && !written, "{sealed}: {out}");
+        }
+    }
+
+    /// Lingering is read; the guarded install asks for it, and writes nothing
+    /// when it is refused.
+    #[test]
+    fn the_install_needs_a_lingering_manager() {
+        assert!(probe(OWN).linger);
+        assert!(!probe(Units { no_linger: true, ..OWN }).linger);
+        let (out, written) = run(Units { no_linger: true, ..NONE }, &guarded_install_script());
+        assert!(parse(&out).nolinger && !written, "{out}");
     }
 
     /// A symlink of a unit's name that points nowhere (`-e` is false for it):

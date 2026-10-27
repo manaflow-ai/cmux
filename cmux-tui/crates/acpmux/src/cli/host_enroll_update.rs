@@ -32,7 +32,10 @@ const MARK: &str = "ACPMUX_AU=";
 /// that exists counts as foreign, and a list with two spaces or a tab in a
 /// row is not read) and the defaults. A unit file of either name in any of
 /// them but `~/.config/systemd/user` is foreign too (a reload would load it
-/// over acpmux's). They are
+/// over acpmux's). A unit path this user cannot search, or one under a
+/// directory they cannot search, is not read: the probe is not `checked`.
+/// `linger` says the user's manager outlives the ssh session (`loginctl`),
+/// which a timer needs. They are
 /// acpmux's own only when each file there holds acpmux's own text, each unit
 /// the manager knows loads from there, and no drop-in exists for either;
 /// any other is someone else's (`foreign`), which runs what it likes. An
@@ -100,6 +103,9 @@ au_x=$(systemctl --user show "$au_f" -p DropInPaths --value 2>/dev/null) || au_x
 for au_y in $au_x; do case "$au_y" in */"${{au_f##*.}}".d/*) ! au_mine "$au_y" && ! au_mine "${{au_y%/*}}" ;; *) false ;; esac || {{ au_there=1; au_own=; }}; done
 au_i=$IFS; IFS='
 '; for au_p in $au_paths; do [ -n "$au_p" ] || continue
+au_t=$au_p; while [ -n "$au_t" ] && [ ! -e "$au_t" ]; do au_v=${{au_t%/*}}; [ "$au_v" != "$au_t" ] || {{ au_ok=; break; }}; au_t=$au_v; done
+[ -z "$au_t" ] || [ ! -d "$au_t" ] || [ -x "$au_t" ] || au_ok=
+[ ! -d "$au_p" ] || [ -x "$au_p" ] || au_ok=
 [ ! -e "$au_p/$au_f" ] && [ ! -L "$au_p/$au_f" ] || [ "$au_p/$au_f" -ef "$au_d/$au_f" ] || {{ au_there=1; au_own=; }}
 for au_n in "$au_f.d" "acpmux-.${{au_f##*.}}.d"; do [ ! -d "$au_p/$au_n" ] || {{ au_there=1; au_own=; }}; done
 au_w="$au_p/${{au_f##*.}}.d"; [ ! -d "$au_w" ] || ! au_mine "$au_w" || {{ au_there=1; au_own=; }}
@@ -115,6 +121,7 @@ if [ -z "$au_own" ]; then echo {MARK}foreign
 elif [ -n "$au_all" ] && [ "$(systemctl --user is-enabled acpmux-update.timer 2>/dev/null)" = enabled ] && systemctl --user is-active --quiet acpmux-update.timer; then echo {MARK}timer
 else echo {MARK}stopped; fi
 fi
+[ "$(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null)" != yes ] || echo {MARK}linger
 set +f; [ -z "$au_ok" ] || echo {MARK}checked
 fi"#
     )
@@ -122,12 +129,15 @@ fi"#
 
 /// [`hosts::install_script`], run only when [`probe_script`], run again
 /// under the update lock, read everything (`checked`, its last line) and found no unit or
-/// drop-in acpmux did not write and no other `XDG_CONFIG_HOME` (else it
-/// prints `foreign`, `xdg` or `unchecked` and writes nothing).
+/// drop-in acpmux did not write and no other `XDG_CONFIG_HOME`, once the
+/// user's manager lingers (asked for when it does not, as `host setup` does);
+/// else it prints `foreign`, `xdg`, `unchecked` or `nolinger` and writes
+/// nothing.
 pub(super) fn guarded_install_script() -> String {
     format!(
-        "au_probe() {{\n{probe}\n}}\nau_o=$(au_probe); echo {MARK}begin\ncase \"$au_o\" in *{MARK}foreign*) echo {MARK}foreign ;; *{MARK}xdg*) echo {MARK}xdg ;; *\"\n{MARK}checked\")\n{install}\n;; *) echo {MARK}unchecked ;; esac",
+        "au_probe() {{\n{probe}\n}}\nau_o=$(au_probe); echo {MARK}begin\ncase \"$au_o\" in *{MARK}foreign*) echo {MARK}foreign ;; *{MARK}xdg*) echo {MARK}xdg ;; *\"\n{MARK}checked\")\nif {linger}; then\n{install}\nelse echo {MARK}nolinger; fi\n;; *) echo {MARK}unchecked ;; esac",
         probe = probe_script(),
+        linger = hosts::SYSTEMD_LINGERING,
         install = hosts::install_script(),
     )
 }
@@ -154,6 +164,10 @@ pub(super) struct Found {
     pub checked: bool,
     /// The probe under the update lock did not: nothing was installed.
     pub unchecked: bool,
+    /// The user's manager lingers, so it outlives the ssh session.
+    pub linger: bool,
+    /// Lingering is off and could not be turned on: nothing was installed.
+    pub nolinger: bool,
 }
 
 /// The words after the script's own (last) `begin` line; `checked` counts
@@ -177,6 +191,8 @@ pub(super) fn parse(stdout: &str) -> Found {
             "xdg" => found.xdg = true,
             "checked" => {}
             "unchecked" => found.unchecked = true,
+            "linger" => found.linger = true,
+            "nolinger" => found.nolinger = true,
             other => {
                 if let Some(os) = other.strip_prefix("os=") {
                     os.clone_into(&mut found.os);
@@ -264,8 +280,11 @@ pub(super) fn update(r: &dyn Remote, fix: bool, cmux_own: Option<&str>) -> StepR
     if found.xdg {
         return xdg();
     }
-    if found.timer {
+    if found.timer && found.linger {
         return ok(EVERY);
+    }
+    if found.timer {
+        return no_linger(host, fix);
     }
     if !fix {
         let (detail, verb) = if found.stopped {
@@ -298,6 +317,9 @@ fn install(r: &dyn Remote, host: &str) -> StepResult {
     if again.unchecked {
         return unread(host);
     }
+    if again.nolinger {
+        return no_linger(host, true);
+    }
     if let Some(why) = hosts::take_auto_update_off(&out).1 {
         return warn(why, None);
     }
@@ -305,7 +327,7 @@ fn install(r: &dyn Remote, host: &str) -> StepResult {
         Ok(after)
             if after.ok && {
                 let a = parse(&after.stdout);
-                a.checked && a.timer
+                a.checked && a.timer && a.linger
             } =>
         {
             StepResult::new(
@@ -327,6 +349,21 @@ fn unread(host: &str) -> StepResult {
         ),
         Some(host),
     )
+}
+
+/// The user's manager does not linger, so the timer would stop at logout.
+fn no_linger(host: &str, asked: bool) -> StepResult {
+    let detail = if asked {
+        "this user's systemd manager does not linger and loginctl enable-linger was refused, so acpmux-update.timer would stop at logout; cmux moves it to the app's build each time it connects"
+    } else {
+        "this user's systemd manager does not linger, so acpmux-update.timer stops at logout"
+    };
+    let result = StepResult::new(Step::Update, StepState::Warn, detail);
+    if asked {
+        result.with_fix(format!("Run loginctl enable-linger on {host} (or ask its administrator), then check again with --fix."))
+    } else {
+        result.with_fix(format!("Check again with --fix to turn on lingering for {host}."))
+    }
 }
 
 /// Another `XDG_CONFIG_HOME`: nothing is written.

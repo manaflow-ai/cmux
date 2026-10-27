@@ -495,7 +495,7 @@ const SYSTEMD_MANAGER: &str = "systemctl --user show-environment >/dev/null 2>&1
 /// Whether the user's systemd manager outlives this ssh session: lingering,
 /// asked for when it is not (refused, the detached start, which survives a
 /// logout, is kept). Asked only once the unit is known to be used.
-const SYSTEMD_LINGERING: &str = r#"{ [ "$(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null)" = yes ] || loginctl enable-linger >/dev/null 2>&1; }"#;
+pub(crate) const SYSTEMD_LINGERING: &str = r#"{ [ "$(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null)" = yes ] || loginctl enable-linger >/dev/null 2>&1; }"#;
 
 /// Fails (exit 4) when the daemon still answers after its shutdown (a live
 /// daemon's status carries its `pid`; a stopped one's only `"running":
