@@ -98,12 +98,12 @@ struct AgentPaneUploadSendTicketTests {
         socket.close(code: 1000, reason: "", error: nil)
     }
 
-    @Test func uploadStatusCoversPendingBeginAndEmitsOneTerminalState() throws {
+    @Test func uploadStatusCoversPendingBeginAndEmitsOneTerminalState() async throws {
         let model = AgentPaneModel(host: NoHost(), sessionId: "s-1", transport: AgentPaneTransport())
         let coordinator = AgentPaneUploadCoordinator(model: model)
         var events = [AgentPageEvent](); coordinator.publish = { events.append($0); return true }
-        coordinator.start("t", size: 4, upload: "hold")
-        let pending = try #require(coordinator.query("cmux.agent.uploads.status", params: ["token": "t"]))
+        #expect(coordinator.start("t", size: 4, upload: "hold", sessionId: "s-1", connection: 0, context: 9))
+        let pending = try await #require(coordinator.query("cmux.agent.uploads.status", context: 9, params: ["token": "t"]))
         #expect(((pending["value"] as? [String: Any])?["uploadId"] as? String) == nil)
         coordinator.terminal("t", state: "cancelled")
         coordinator.terminal("t", state: "failed")

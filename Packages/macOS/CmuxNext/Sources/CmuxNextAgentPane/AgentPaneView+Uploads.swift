@@ -1,7 +1,7 @@
 import CmuxNextPages
 import Foundation
 
-@MainActor private final class NativeUploadResult {
+@MainActor final class NativeUploadResult {
     let value: [String: Any]
     init(_ value: [String: Any]) { self.value = value }
 }
@@ -12,8 +12,11 @@ import Foundation
         var uploadId: String?
         var state = "uploading"
         var error: [String: Any]?
+        var sessionId: String
+        var connection: Int
+        var context: Int
     }
-    let model: AgentPaneModel
+    weak var model: AgentPaneModel?
     var active: [String: Task<NativeUploadResult, Never>] = [:]
     var uploadTokens: [String: String] = [:]
     var records: [String: Record] = [:]
@@ -21,9 +24,11 @@ import Foundation
 
     init(model: AgentPaneModel) { self.model = model }
 
-    func start(_ token: String, size: Int, upload: String) {
-        records[token] = Record(size: size)
+    func start(_ token: String, size: Int, upload: String, sessionId: String, connection: Int, context: Int) -> Bool {
+        guard records[token] == nil else { return false }
+        records[token] = Record(size: size, sessionId: sessionId, connection: connection, context: context)
         uploadTokens[upload] = token
+        return true
     }
 
     func assigned(_ token: String, uploadId: String) {
@@ -42,19 +47,21 @@ import Foundation
         if let json = JSONValue(foundation: value) { _ = publish?(AgentPageEvent(kind: "uploads.state", value: json)) }
     }
 
-    func query(_ op: String, params: [String: Any]) -> [String: Any]? {
+    func query(_ op: String, context: Int, params: [String: Any]) async -> [String: Any]? {
         guard let token = params["token"] as? String, !token.isEmpty else {
             return AgentPaneReply.failure(code: "upload_invalid", message: "Missing upload token")
         }
-        guard let record = records[token] else {
+        guard let record = records[token], record.context == context,
+              let model, record.sessionId == model.sessionId, record.connection == model.transport.connection else {
             return AgentPaneReply.failure(code: "upload_unknown", message: "Unknown upload token")
         }
-        if op == "cmux.agent.uploads.cancel" {
-            active[token]?.cancel()
-            if record.state == "uploading" { terminal(token, state: "cancelled") }
+        if op == "cmux.agent.uploads.cancel", let task = active[token] {
+            task.cancel()
+            _ = await task.value
         }
         var value: [String: Any] = ["token": token, "state": records[token]?.state ?? record.state, "size": record.size]
         if let id = records[token]?.uploadId { value["uploadId"] = id }
+        if let error = records[token]?.error { value["error"] = error }
         return AgentPaneReply.success(value)
     }
 }
@@ -98,7 +105,10 @@ extension AgentPaneView {
             guard model.transport.holdSendTicket(ticket, upload: upload, sessionId: sessionId, promptId: promptId) else {
                 return AgentPaneReply.failure(code: "transport.gesture_required", message: "Send again to authorize this upload")
             }
-            coordinator.start(token, size: size, upload: upload)
+            guard coordinator.start(token, size: size, upload: upload, sessionId: sessionId, connection: connection, context: context) else {
+                _ = model.transport.gestures.releaseUpload(upload)
+                return AgentPaneReply.failure(code: "upload_in_progress", message: "An upload with this token is already active")
+            }
             let task = Task { @MainActor () -> NativeUploadResult in
                 defer { _ = model.transport.gestures.releaseUpload(upload) }
                 var uploadId: String?
@@ -142,7 +152,7 @@ extension AgentPaneView {
                     return NativeUploadResult(AgentPaneReply.success(result))
                 } catch {
                     if let id = uploadId {
-                        model.transport.cancelUpload(connection: connection, sessionId: sessionId, uploadId: id)
+                        await model.transport.cancelUpload(connection: connection, sessionId: sessionId, uploadId: id)
                     }
                     let cancelled = error is CancellationError
                     coordinator.terminal(token, state: cancelled ? "cancelled" : "failed",
@@ -166,6 +176,6 @@ extension AgentPaneView {
             model.nativeUploadCoordinator = value
             return value
         }()
-        return { op, params in coordinator.query(op, params: params) }
+        return { op, context, params in await coordinator.query(op, context: context, params: params) }
     }
 }

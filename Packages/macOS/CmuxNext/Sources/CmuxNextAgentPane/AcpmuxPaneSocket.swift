@@ -442,7 +442,12 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         reply?(["_cmuxCancelled": true])
     }
 
-    /// Cleanup never waits for the daemon's cancellation response.
+    /// The foreground cancellation waits for the daemon ACK; caller cancellation does not cancel this cleanup.
+    func cancelUploadAndWait(sessionId: String, uploadId: String) async {
+        _ = try? await callHost("_acpmux/file_put_cancel", params: ["sessionId": sessionId, "uploadId": uploadId])
+    }
+
+    /// Cleanup never waits for the daemon's cancellation response (used by late begin replies).
     func cancelUpload(sessionId: String, uploadId: String) {
         let id = ids.hostID()
         let frame: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": "_acpmux/file_put_cancel",

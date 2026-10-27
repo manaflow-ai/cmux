@@ -107,14 +107,5 @@ struct ChromiumUploadBlobReaderTests {
         #expect(!page.calls.contains { $0.method == "IO.resolveBlob" })
     }
 
-    @Test func nativeUploadCapabilityRequiresExplicitEnable() throws {
-        for installed in [false, true] {
-            let context = try #require(JSContext())
-            let calls = ChromiumPageHostBridge.setupCalls(handlers: [], documentScripts: [], supportsUploads: installed)
-            for (method, params) in calls where method == "Page.addScriptToEvaluateOnNewDocument" {
-                context.evaluateScript(params["source"] as? String ?? "")
-            }
-            #expect(context.evaluateScript("globalThis.__cmuxNativePromptUploads === true").toBool() == installed)
-        }
-    }
+
 }

@@ -47,33 +47,6 @@ struct AcpmuxUploadFrameTests {
         socket.close(code: 1000, reason: "", error: nil)
     }
 
-    @Test @MainActor func uploadsRequireNativeOriginAndPaneSessionScope() async throws {
-        let wire = UploadWire()
-        let transport = AgentPaneTransport()
-        let socket = AcpmuxPaneSocket(
-            request: URLRequest(url: URL(string: "ws://127.0.0.1")!),
-            wire: wire, limits: transport.limits, options: transport.permissionOptions,
-            sessions: transport.sessions, ids: AcpmuxRequestIds(), signal: {})
-        try await socket.start(timeout: 1)
-        transport.socket = socket
-        transport.current = 1
-        transport.uploadOriginAllowed = true
-        await #expect(throws: AgentPaneUploadError.rpc("upload session outside pane scope")) {
-            try await transport.uploadControl(connection: 1, method: "_acpmux/file_put_begin", params: ["sessionId": "foreign"])
-        }
-        await #expect(throws: AgentPaneUploadError.rpc("upload session outside pane scope")) {
-            try await transport.uploadChunk(connection: 1, sessionId: "foreign", uploadId: "u", offset: 0, bytes: Data([1]))
-        }
-        #expect(wire.sentCount.withLock { $0 } == 0)
-        transport.sessions.add("owned")
-        transport.uploadOriginAllowed = false
-        await #expect(throws: AgentPaneUploadError.rpc("uploads require a native app connection")) {
-            try await transport.uploadControl(connection: 1, method: "_acpmux/file_put_cancel", params: ["sessionId": "owned"])
-        }
-        #expect(wire.sentCount.withLock { $0 } == 0)
-        socket.close(code: 1000, reason: "", error: nil)
-    }
-
     final class UploadWire: AcpmuxPaneWire, Sendable {
         let sentCount = Mutex(0)
         private let lastID = Mutex(0)

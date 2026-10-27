@@ -27,7 +27,7 @@ public final class ChromiumPageHostBridge: PageHostBridge {
     nonisolated public static let maximumPayloadBytes = 4 << 20
 
     public typealias UploadHandler = @MainActor (_ page: any PageChromiumPage, _ context: Int, _ params: [String: Any], _ chunks: AsyncThrowingStream<Data, any Error>) async -> [String: Any]?
-    public typealias UploadQueryHandler = @MainActor (_ op: String, _ params: [String: Any]) async -> [String: Any]?
+    public typealias UploadQueryHandler = @MainActor (_ op: String, _ context: Int, _ params: [String: Any]) async -> [String: Any]?
     /// Set by the pane host. The page passes only an upload token; the host reads the Blob in its context.
     public var uploadHandler: UploadHandler?
     public var uploadQueryHandler: UploadQueryHandler?
@@ -182,7 +182,7 @@ public final class ChromiumPageHostBridge: PageHostBridge {
            let callID = body["id"] as? NSNumber {
             let result: [String: Any]?
             if let descriptor, PageHostTrust.isTrusted(request, page: descriptor) {
-                result = await uploadQueryHandler(op, body["params"] as? [String: Any] ?? [:])
+                result = await uploadQueryHandler(op, context, body["params"] as? [String: Any] ?? [:])
             } else { result = ["ok": false, "error": ["code": "page.untrusted", "userMessage": "The page is not trusted", "retryable": false]] }
             guard self.handler != nil else { return }
             let reply: [String: Any]
