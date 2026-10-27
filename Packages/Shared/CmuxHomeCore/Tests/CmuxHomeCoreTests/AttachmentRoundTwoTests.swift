@@ -418,6 +418,38 @@ func minimumAlpha(_ url: URL) throws -> UInt8 {
         #expect(!fm.fileExists(atPath: stale.path))
     }
 
+    /// p14-energy-067b: the prune deadline fires while a prepare runs, so
+    /// the pass skips; that prepare then fails and arms nothing. The
+    /// deadline arms itself again, and the later pass deletes the stale
+    /// blob. `preparing` stands for the in-flight prepare, so the deadline
+    /// fires inside it on every run.
+    @MainActor @Test func aPruneSkippedByARunningPrepareStaysDue() async throws {
+        let root = try temporaryDirectory()
+        let fm = FileManager.default
+        let clock = ManualClock()
+        let store = HomeStore(source: MockHomeSource(options: .immediate), blobCacheDirectory: root, clock: clock)
+        store.start()
+        defer { store.stop() }
+        _ = try await store.prepareAttachment(data: Data("grew the cache".utf8), typeIdentifier: UTType.plainText.identifier)
+        await waitUntil { clock.pendingSleepers == 1 }
+
+        let stale = root.appendingPathComponent("stale", isDirectory: true)
+        try fm.createDirectory(at: stale, withIntermediateDirectories: true)
+        try fm.setAttributes([.modificationDate: Date().addingTimeInterval(-10 * 86_400)], ofItemAtPath: stale.path)
+        // A second prepare is running when the deadline fires.
+        store.preparing += 1
+        let sleepsBefore = clock.tolerances.count
+        clock.advance(by: HomeStore.blobCachePruneInterval)
+        await waitUntil { clock.tolerances.count > sleepsBefore && clock.pendingSleepers == 1 }
+        #expect(fm.fileExists(atPath: stale.path), "the pass skips while a prepare runs")
+        // That prepare throws: it never calls scheduleBlobCachePrune.
+        store.preparing -= 1
+
+        clock.advance(by: HomeStore.blobCachePruneInterval)
+        await waitUntil { !fm.fileExists(atPath: stale.path) }
+        #expect(!fm.fileExists(atPath: stale.path))
+    }
+
     /// p14-energy-067b: a store that prepares nothing never wakes to prune
     /// (it pruned at `start`; only a prepare grows the cache). The periodic
     /// prune loop kept a 6 h sleeper armed for the store's whole life.

@@ -15,10 +15,16 @@ extension HomeStore {
         // task-owner: the one prune due after the cache grew; `stop` cancels it
         pruneDeadline = Task { [weak self] in
             // wakeup-allow: deadline one prune `blobCachePruneInterval` after a prepare grew the cache; armed
-            // again only by the next prepare after it ran
+            // again only by the next prepare after it ran, or by this task when a prepare made it skip
             do { try await clock.sleep(for: interval, tolerance: HomeWakeLeeway(delay: interval).tolerance) } catch { return }
             guard let self, !self.stopped else { return }
             self.pruneDeadline = nil
+            // A running prepare makes the pass skip and may fail without arming
+            // another one: the prune stays due.
+            guard self.preparing == 0 else {
+                self.scheduleBlobCachePrune()
+                return
+            }
             await self.pruneBlobCache()
         }
     }
