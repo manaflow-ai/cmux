@@ -1682,12 +1682,15 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextRemoteViewSessions",
                 "CmuxNextScreenshots",
                 "CmuxNextSessionTransfer",
+                "CmuxNextSettings",
+                "CmuxNextSidebar",
                 "CmuxNextSignposts",
                 "CmuxNextStash",
                 "CmuxNextTabs",
                 "CmuxNextTasks",
                 "CmuxNextTerminalGeometry",
                 "CmuxNextTestExitTrace",
+                "CmuxNextUpdater",
                 "CmuxNextVSCodeServer",
                 "CmuxNextWakeups",
                 "CmuxNextWakeupsTestSupport",
@@ -1699,6 +1702,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                 // MacInstallTeamAuthTests signs team challenges with the install key.
                 .product(name: "CmuxInstallAuthCore", package: "CmuxInstallAuthCore"),
+                .product(name: "CmuxTheme", package: "CmuxTheme"),
                 // UpdateLoadingIndicatorTests feeds Sparkle's update states.
                 .product(name: "CmuxUpdater", package: "CmuxUpdater"),
                 .product(name: "CmuxVNC", package: "CmuxVNC"),
