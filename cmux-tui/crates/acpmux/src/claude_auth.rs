@@ -329,3 +329,33 @@ fn compose(agent: &Found, terminal: &Found, shell: Option<&str>, original: &str)
     out.push_str(&format!(" (Claude said: {})", original.trim()));
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Dogfood 2026-10-26: Claude Code's 401 ("Failed to authenticate") reached the person as
+    /// raw API text instead of the sign-in explanation.
+    #[test]
+    fn a_rejected_credential_is_a_sign_in_failure() {
+        let said = r#"Failed to authenticate. API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}"#;
+        assert!(is_sign_in_failure(said));
+        assert!(is_sign_in_failure("Not logged in · Please run /login"));
+        assert!(!is_sign_in_failure("API Error: 529 overloaded_error"));
+    }
+
+    /// A rejected ANTHROPIC_API_KEY wins over `claude /login`, so the fix names the key, not a
+    /// login that would not help.
+    #[test]
+    fn a_rejected_env_api_key_says_to_remove_it() {
+        let agent = Found {
+            home: PathBuf::from("/h/.claude"),
+            sources: vec!["an API key (ANTHROPIC_API_KEY)".to_owned()],
+            env_keys: vec!["ANTHROPIC_API_KEY".to_owned()],
+            ..Found::default()
+        };
+        let text = compose(&agent, &agent, Some("/bin/zsh"), "Failed to authenticate. API Error: 401");
+        assert!(text.contains("remove ANTHROPIC_API_KEY from ~/.zshrc"), "{text}");
+        assert!(!text.contains("Run `claude /login`"), "{text}");
+    }
+}
