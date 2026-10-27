@@ -42,6 +42,8 @@ public final class ChiefPetController {
     private(set) var presenting = false
     /// Whether cmux is the active app: the card shows over cmux only.
     private let appIsActive: @MainActor () -> Bool
+    /// The fan-out the activation subscriptions are on: a subscription holds its fan-out weakly, so the controller keeps it.
+    private let appEvents: AppEvents
     /// The app-activation subscriptions on the app's one ``AppEvents``, kept for the controller's life.
     private var activationObservers: [EventSubscription] = []
     /// Follows `home.chiefPetEnabled` and `home.chiefPetMascot` (``start(on:enabled:mascot:)``).
@@ -67,6 +69,7 @@ public final class ChiefPetController {
         self.actions = actions
         self.clock = clock
         self.appIsActive = appIsActive
+        self.appEvents = appEvents
         // timer-class-allow: the card's fold runs on the injected clock ChiefPetNoticeTests steps; one deadline per arrival
         toast = DemandTimer(owner: "chiefPet.toast", clock: clock)
         // Switching to another app takes the card down at once; coming back shows it if its time is not up.

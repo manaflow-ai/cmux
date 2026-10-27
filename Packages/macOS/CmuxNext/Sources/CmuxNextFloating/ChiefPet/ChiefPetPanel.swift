@@ -35,6 +35,8 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
     var visibleFrame: () -> CGRect? = { nil }
     /// The pet was pulled back on its screen after a screen change (the bubble and reply box take their side again).
     var onKeptOnScreen: (() -> Void)?
+    /// The fan-out the screen subscription is on: a subscription holds its fan-out weakly, so the panel keeps it.
+    private let appEvents: AppEvents
     /// The didChangeScreenParameters subscription on the app's ``AppEvents``, kept for the panel's life.
     private var screenObserver: EventSubscription?
 
@@ -43,6 +45,7 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
     public init(mascot: ChiefPetMascot = .initial, defaults: UserDefaults = .standard, appEvents: AppEvents = AppEvents(center: .default)) {
         placement = ChiefPetPlacement(defaults: defaults)
         pet = ChiefPetView(image: mascot.image)
+        self.appEvents = appEvents
         super.init(
             contentRect: NSRect(origin: .zero, size: Self.petSize),
             styleMask: [.borderless, .nonactivatingPanel],

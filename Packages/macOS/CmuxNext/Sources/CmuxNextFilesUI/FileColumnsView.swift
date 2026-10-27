@@ -93,8 +93,9 @@ final class FileColumnsView: NSObject, FileContentView, NSBrowserDelegate {
         loading.insert(path)
         let url = node.entry.url
         let hidden = showsHidden
-        // The listing reads off main; its column fills in one visible task. The off-main task holds only
-        // Sendable values; the view and the node stay in a main-actor closure.
+        // The listing reads off main; its column fills in one userBlocking task, the completion of the
+        // person's click on the folder (p06-scheduler rule 2). The off-main task holds only Sendable
+        // values; the view and the node stay in a main-actor closure.
         let land: @MainActor @Sendable ([FileEntry]) -> Void = { [weak self] entries in
             self?.listed(entries, of: node, at: path, hidden: hidden)
         }
@@ -102,7 +103,7 @@ final class FileColumnsView: NSObject, FileContentView, NSBrowserDelegate {
         // task-owner: one folder listing off main; ends when its column reloads
         Task { @concurrent in
             let entries = (try? await lister.list(url)) ?? []
-            mainWork.postFromAnyThread(.visible, owner: "FileColumns.listed") { land(entries) }
+            mainWork.postFromAnyThread(.userBlocking, owner: "FileColumns.listed") { land(entries) }
         }
         return []
     }
