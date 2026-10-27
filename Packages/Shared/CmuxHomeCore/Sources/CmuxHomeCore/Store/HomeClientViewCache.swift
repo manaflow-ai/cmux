@@ -31,6 +31,12 @@ final class HomeClientViewCache {
     /// The newest state handed to the cache actor (``writeNow()``), awaited by ``flush()``.
     private var lastWrite: Task<Void, Never>?
     private var writesSuppressed = false
+    /// The conversations whose client state changed before the cache's snapshot was restored: those edits win over
+    /// the snapshot's copy (``restore(_:_:)``). Nil once restored.
+    private var editsBeforeRestore: EditsBeforeRestore? = EditsBeforeRestore()
+    /// Nothing is written before the restore: the store's cache is read elsewhere and arrives later (the Mac's launch
+    /// read), and a write before it would replace the file with a store that never showed it.
+    private let holdsWritesUntilRestored: Bool
     /// Something changed since the last successful write (or the restore).
     private var dirty = false
     /// The last write handed to the cache actor did not reach disk.
@@ -42,10 +48,14 @@ final class HomeClientViewCache {
     /// A coalesced write is waiting for its delay.
     var hasPendingWrite: Bool { pendingWrite != nil }
 
-    init(cache: HomeCache?, writeDelay: Duration, clock: any Clock<Duration>) {
+    /// A store primed from a snapshot read elsewhere (`holdsWritesUntilRestored`) has not had it yet.
+    private var waitsForRestore: Bool { holdsWritesUntilRestored && editsBeforeRestore != nil }
+
+    init(cache: HomeCache?, writeDelay: Duration, clock: any Clock<Duration>, holdsWritesUntilRestored: Bool = false) {
         self.cache = cache
         self.writeDelay = writeDelay
         self.clock = clock
+        self.holdsWritesUntilRestored = holdsWritesUntilRestored
     }
 
     /// Keeps the compose field's text; empty text clears it.
@@ -53,6 +63,7 @@ final class HomeClientViewCache {
         let value: String? = text.isEmpty ? nil : text
         guard drafts[id] != value else { return }
         drafts[id] = value
+        editsBeforeRestore?.drafts.insert(id)
         scheduleWrite()
     }
 
@@ -61,6 +72,7 @@ final class HomeClientViewCache {
         let value: [HomeCachedDraftAttachment]? = attachments.isEmpty ? nil : attachments
         guard draftAttachments[id] != value else { return }
         draftAttachments[id] = value
+        editsBeforeRestore?.attachments.insert(id)
         scheduleWrite()
     }
 
@@ -68,18 +80,32 @@ final class HomeClientViewCache {
     func setScrollAnchor(_ anchor: HomeScrollAnchor?, for id: ConversationID) {
         guard scrollAnchors[id] != anchor else { return }
         scrollAnchors[id] = anchor
+        editsBeforeRestore?.scroll.insert(id)
         scheduleWrite()
     }
 
-    /// Runs `body` (a restore) with writes suppressed, after taking the
-    /// snapshot's client state.
-    func restore(_ snapshot: HomeCacheSnapshot, _ body: () -> Void) {
-        writesSuppressed = true
-        defer { writesSuppressed = false }
-        drafts = snapshot.drafts
-        draftAttachments = snapshot.draftAttachments ?? [:]
-        scrollAnchors = snapshot.scroll
-        body()
+    /// Takes the snapshot's client state, keeping each edit made before it (newer than the
+    /// file), and runs `body` (the store's restore of the rest) with writes suppressed. Once;
+    /// with no snapshot (an empty cache) only ends the wait for it. Edits made before it are
+    /// then written with what the snapshot held.
+    func restore(_ snapshot: HomeCacheSnapshot?, _ body: (HomeCacheSnapshot) -> Void) {
+        guard let edits = editsBeforeRestore else { return }
+        editsBeforeRestore = nil
+        if let snapshot {
+            writesSuppressed = true
+            defer { writesSuppressed = false }
+            var restoredDrafts = snapshot.drafts
+            for id in edits.drafts { restoredDrafts[id] = drafts[id] }
+            drafts = restoredDrafts
+            var restoredAttachments = snapshot.draftAttachments ?? [:]
+            for id in edits.attachments { restoredAttachments[id] = draftAttachments[id] }
+            draftAttachments = restoredAttachments
+            var restoredScroll = snapshot.scroll
+            for id in edits.scroll { restoredScroll[id] = scrollAnchors[id] }
+            scrollAnchors = restoredScroll
+            body(snapshot)
+        }
+        if dirty || !edits.isEmpty { scheduleWrite() }
     }
 
     /// Notes a change to what the cache holds and writes it soon
@@ -87,7 +113,7 @@ final class HomeClientViewCache {
     func scheduleWrite() {
         guard cache != nil, !writesSuppressed else { return }
         dirty = true
-        guard pendingWrite == nil else { return }
+        guard pendingWrite == nil, !waitsForRestore else { return }
         guard writeDelay > .zero else { return writeNow() }
         let clock = clock
         let delay = writeDelay
@@ -144,7 +170,7 @@ final class HomeClientViewCache {
     /// The state to write and its number, nil when nothing changed; clears `dirty` (a failed
     /// write sets it again).
     private func takeState() -> (state: HomeCacheState, sequence: UInt64)? {
-        guard dirty else { return nil }
+        guard dirty, !waitsForRestore else { return nil }
         dirty = false
         var state = ownerState()
         state.drafts = drafts
@@ -152,5 +178,13 @@ final class HomeClientViewCache {
         state.scroll = scrollAnchors
         sequence &+= 1
         return (state, sequence)
+    }
+
+    /// The conversations whose draft, attachments or scroll anchor changed before the restore.
+    private struct EditsBeforeRestore {
+        var drafts: Set<ConversationID> = []
+        var attachments: Set<ConversationID> = []
+        var scroll: Set<ConversationID> = []
+        var isEmpty: Bool { drafts.isEmpty && attachments.isEmpty && scroll.isEmpty }
     }
 }

@@ -3,6 +3,7 @@ import CmuxNextWakeups
 import Darwin
 import Foundation
 @testable import CmuxNextLayout
+import CmuxNextTestSupport
 import Testing
 
 /// A pane drag replayed through the real layout path (CMUX_DRAG_BENCH=1;
@@ -13,7 +14,8 @@ import Testing
 /// display. Per move it records wall time and main-thread CPU time; a move over
 /// 8.33 ms is a dropped 120 Hz frame. `intents` counts the layout intents the
 /// gesture emitted for the daemon (the app sends one daemon command per
-/// intent, at most one in flight per gesture).
+/// intent, at most one in flight per gesture). With CMUX_PERF_RESULT_DIR each gesture's per-move wall and
+/// main-thread CPU times are result-v1 (lab story swift-layout-drag).
 @MainActor
 @Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_DRAG_BENCH"] == "1"))
 struct LayoutDragBench {
@@ -115,8 +117,13 @@ struct LayoutDragBench {
         return sample
     }
 
-    private func report(_ name: String, _ samples: [Sample], intents: Int, ended: Int, rounds: Int) {
+    private func report(_ name: String, _ samples: [Sample], intents: Int, ended: Int, rounds: Int) throws {
         let wall = samples.flatMap(\.wall), cpu = samples.flatMap(\.cpu)
+        if let results = try PerfResultWriter() {
+            try results.record("swift.layout_drag.\(name).frame", unit: .ms, samples: wall.map { $0 * 1000 })
+            try results.record("swift.layout_drag.\(name).main_cpu", unit: .ms, samples: cpu.map { $0 * 1000 })
+            try results.record("swift.layout_drag.\(name).live_intents", unit: .count, samples: [intents])
+        }
         let dropped = wall.filter { $0 > Self.frameBudget }.count
         let ms = { (value: Double) in String(format: "%.3f", value * 1000) }
         let perSecond = Double(intents) / (Double(rounds) * Double(Self.moves) / 120)
@@ -125,7 +132,7 @@ struct LayoutDragBench {
             + " dropped=\(dropped) live_intents=\(intents) live_intents_per_s=\(String(format: "%.1f", perSecond)) ended_intents=\(ended)")
     }
 
-    @Test func dividerAndColumnEdgeDrags() async {
+    @Test func dividerAndColumnEdgeDrags() async throws {
         for (name, kind) in [("split", DividerHandleView.Kind.split("x")), ("column", .columnEdge(ColumnID("c0")))] {
             var samples: [Sample] = []
             var intents = 0, ended = 0
@@ -145,7 +152,7 @@ struct LayoutDragBench {
                 intents += harness.changed
                 ended += harness.ended
             }
-            report(name, samples, intents: intents, ended: ended, rounds: Self.rounds)
+            try report(name, samples, intents: intents, ended: ended, rounds: Self.rounds)
         }
     }
 }

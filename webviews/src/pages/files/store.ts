@@ -2,6 +2,7 @@
 // expanded and which row is selected. Folders list on first expand and again on refresh. React reads
 // it through `useSyncExternalStore`.
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { restoredPageInputs } from "../shared/pageState";
 import {
   CLIPBOARD_WRITE,
   FilesOps,
@@ -42,6 +43,12 @@ export interface FilesSnapshot {
   expanded: ReadonlySet<string>;
   selected?: string;
 }
+
+/** The page name its saved state carries (pageState.ts). */
+export const FILES_PAGE = "files";
+
+/** What the page keeps across a discard: the open folders and the selected row (the scroll is the page state's). */
+export type FilesInputs = Omit<FilesViewState, "scroll">;
 
 export const joinPath = (folder: string, name: string) => (folder ? `${folder}/${name}` : name);
 export const parentPath = (path: string) => path.slice(0, Math.max(0, path.lastIndexOf("/")));
@@ -84,8 +91,10 @@ export class FilesStore {
     } catch (error) {
       return this.fail(isPageError(error) ? error.message : String(error));
     }
-    // A discarded page's tree comes back: its open folders list again, its row stays selected.
-    const saved = filesViewStateOf(this.root.viewState);
+    // A discarded page's tree comes back: its open folders list again, its row stays selected. The
+    // host's answer to its discard-time ask wins over what the page saved when it hid.
+    const saved =
+      filesViewStateOf(this.root.viewState) ?? filesViewStateOf(restoredPageInputs(this.client, FILES_PAGE));
     if (saved) {
       for (const path of saved.expanded) this.expanded.add(path);
       this.selected = saved.selected;
@@ -104,6 +113,12 @@ export class FilesStore {
       ...(this.selected !== undefined ? { selected: this.selected } : {}),
       scroll,
     };
+  }
+
+  /** What the page keeps when it hides (pageState.ts `keep`); `filesViewStateOf` reads it back. */
+  pageInputs(): FilesInputs {
+    const { expanded, selected } = this.viewState(0);
+    return selected === undefined ? { expanded } : { expanded, selected };
   }
 
   /** The scroll a discarded page of this tab was at, once; null when there is none. */

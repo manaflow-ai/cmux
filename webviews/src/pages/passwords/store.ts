@@ -4,6 +4,7 @@
 // and the page only learns that they finished. React reads it through `useSyncExternalStore`.
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
+import { restoredPageInputs } from "../shared/pageState";
 import type { SortMode } from "./model";
 import {
   PasswordCodes,
@@ -38,6 +39,28 @@ export interface PasswordsSnapshot {
   notice?: Notice;
 }
 
+/** The page name its saved state carries (pageState.ts). */
+export const PASSWORDS_PAGE = "passwords";
+
+const SORT_MODES: readonly SortMode[] = ["site", "recent", "mostUsed"];
+
+/** What the page keeps across a discard: the search and the sort, never a password. */
+export interface PasswordsInputs {
+  text: string;
+  sort: SortMode;
+}
+
+/** The valid fields of the inputs a discarded document saved; the rest keep their defaults. */
+export function restoredPasswordsInputs(state: unknown): Partial<PasswordsInputs> {
+  if (!state || typeof state !== "object") return {};
+  const saved = state as Record<string, unknown>;
+  const inputs: Partial<PasswordsInputs> = {};
+  if (typeof saved.text === "string") inputs.text = saved.text;
+  const sort = SORT_MODES.find((mode) => mode === saved.sort);
+  if (sort) inputs.sort = sort;
+  return inputs;
+}
+
 export interface PasswordsStoreOptions {
   newKey?: () => string;
 }
@@ -69,10 +92,17 @@ export class PasswordsStore {
       exceptions: [],
       text: "",
       sort: "site",
+      ...restoredPasswordsInputs(restoredPageInputs(client, PASSWORDS_PAGE)),
     };
   }
 
   getSnapshot = (): PasswordsSnapshot => this.snapshot;
+
+  /** What the page keeps when it hides (pageState.ts `keep`); `restoredPasswordsInputs` reads it back. */
+  pageInputs(): PasswordsInputs {
+    const { text, sort } = this.snapshot;
+    return { text, sort };
+  }
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);

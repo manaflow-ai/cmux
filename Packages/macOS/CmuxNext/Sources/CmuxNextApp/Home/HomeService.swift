@@ -123,10 +123,12 @@ final class HomeService {
     /// The Home list rows (`home-inbox`) the Messages list maps: local from the Chief home, Cloud from the build daemon.
     @ObservationIgnored let homeInbox = HomeInboxSource(owners: ["local"])
     @ObservationIgnored let homeCloudInbox = HomeInboxSource(owners: ["cloud"])
-    /// The Home list's last state beyond the conversations, for the next launch's first frame
-    /// (HomeService+LaunchList), kept beside the conversations' cache of the same Chief owner.
-    @ObservationIgnored private(set) lazy var sidebarLaunch = HomeSidebarLaunchCache.standard(owner: chief.home.session,
-                                                                                               caches: homeCaches)
+    /// The Home list's two caches and their launch read (HomeService+LaunchList, p08-startup-076), of this Chief owner.
+    /// A folder of this service's own (no app caches folder: tests) is new, so there is nothing to read in it.
+    @ObservationIgnored private(set) lazy var listLaunch = HomeListLaunch(
+        read: services.environment.homeCachesDirectory == nil
+            ? .some(HomeListLaunchRead.nothingToRead(owner: chief.home.session, caches: homeCaches)) : services.environment.homeListRead,
+        owner: chief.home.session, caches: homeCaches, work: services.work, mainWork: services.mainWork)
     /// The folder of this service's Home caches: the app's (`AppEnvironment.homeCachesDirectory`), else
     /// a temporary folder of its own, so the drafts of one `AppServices` never reach another's.
     @ObservationIgnored private lazy var homeCaches: URL = services.environment.homeCachesDirectory
@@ -148,7 +150,7 @@ final class HomeService {
     @ObservationIgnored private(set) lazy var homeStore = HomeStore(
         source: homeRouter,
         blobCacheDirectory: homeCaches.appending(path: "cmux-home-blobs", directoryHint: .isDirectory),
-        cache: HomeCache.standard(owner: chief.home.session, caches: homeCaches))
+        cache: listLaunch.read.conversations, waitsForPrime: true)
     @ObservationIgnored var cloudLink: Task<Void, Never>?
     /// Team members and Chiefs for the Home page's New Message and New Chief.
     @ObservationIgnored private(set) lazy var directory = HomeDirectory(
@@ -229,9 +231,8 @@ final class HomeService {
         watchReplies()
         chief.start(work: services.work)
         startCloud()
-        // task-owner: lives as long as the service; event-driven (Observation)
-        homeStore.start()
-        keepHomeListForLaunch()
+        // task-owner: lives as long as the service; event-driven (Observation). After the list's seed: its cache is read.
+        listLaunch.whenRead { [weak self] _ in self?.homeStore.start(); self?.keepHomeListForLaunch() }
         watchChiefOwner()
     }
 

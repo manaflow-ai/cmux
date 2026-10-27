@@ -67,7 +67,7 @@ struct PageWebKitAbsenceTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let agentRoot = try #require(Self.agentRoot)
         let hosting = FakeChromiumHosting()
-        let groups = WebProcessGroups()
+        let groups = WebProcessGroups(pagesPerProcess: 8)
         let host = WebUIHost(chromium: hosting, openPanel: nil, memory: QuietMemoryRegistry(), deadlines: LifecycleDeadlineRig.never,
                              processGroups: groups)
         let options = PageEngineOptions(chromiumAgentChat: true, sharesWebKitProcess: true)

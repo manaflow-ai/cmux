@@ -471,8 +471,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
         faviconTask?.cancel()
         dismissPrompts()
         pageWaiters.pageEnded()
-        if let browserID {
-            runtime.shim?.close(browserID)
+        // With no wire (the host ended), no BEFORE_CLOSE comes for the browser: the tab leaves its pane now.
+        if let browserID, let shim = runtime.shim {
+            shim.close(browserID)
         } else {
             host.removed(self)
         }
