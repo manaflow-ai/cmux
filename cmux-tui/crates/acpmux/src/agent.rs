@@ -72,6 +72,11 @@ pub enum Inbound {
     /// (`ReplayHold` in `hub/lifecycle.rs`). Queued through the agent's own sender, behind
     /// everything its reader already queued.
     ReplayDone { agent: u64 },
+    /// The reader of this generation's host link stopped: an entry could not be logged, or the
+    /// link closed (the host died, or another owner took it), so what the host reports from there
+    /// is not heard until a reattach. The hub's full-access bound treats such an agent as unheard
+    /// (#23322).
+    LinkBroken { agent: u64 },
 }
 
 /// Tests only: the agent generation `ChildAgent::replay_pending` reports as replaying.
@@ -127,6 +132,10 @@ struct Hosted {
     /// not known (from a reattach or an adoption until it is learned, or for good when the host did
     /// not say).
     replay_to: std::sync::atomic::AtomicU64,
+    /// The reader of the current link stopped otherwise (the link closed, or an acknowledgement
+    /// failed while its socket still looked open): the agent is not heard through this link
+    /// (`is_alive`, review 68 of #23322); a reattach clears it.
+    stopped: std::sync::atomic::AtomicBool,
 }
 
 impl Hosted {
@@ -951,6 +960,15 @@ impl ChildAgent {
         self.ended_on_purpose.load(Ordering::SeqCst)
     }
 
+    /// Fails every request still waiting on this agent: it was ended, and no exit may be read for
+    /// it (a host whose reader stopped, #23322 review 65). A request already answered is not here.
+    pub async fn fail_pending(&self) {
+        let mut p = self.pending.lock().await;
+        for (_, tx) in p.map.drain() {
+            let _ = tx.send(Err(RpcError::internal(AGENT_CLOSED)));
+        }
+    }
+
     /// Whether [`Self::retire`] ran.
     pub fn is_retired(&self) -> bool {
         *self.retired.lock().unwrap_or_else(|e| e.into_inner())
@@ -1083,6 +1101,7 @@ impl ChildAgent {
         if let Some(h) = &self.hosted {
             return !h.exit_seen.load(Ordering::SeqCst)
                 && !h.broken.load(Ordering::SeqCst)
+                && !h.stopped.load(Ordering::SeqCst)
                 && !h.link().is_closed();
         }
         let mut guard = self.child.lock().await;
@@ -1503,6 +1522,7 @@ impl ChildAgent {
             *current = link.clone();
         }
         h.broken.store(false, Ordering::SeqCst);
+        h.stopped.store(false, Ordering::SeqCst);
         self.start_reader(link);
         Ok(())
     }
@@ -1618,6 +1638,7 @@ impl ChildAgent {
                 logged: tokio::sync::watch::channel(resume_after).0,
                 broken: std::sync::atomic::AtomicBool::new(false),
                 replay_to: std::sync::atomic::AtomicU64::new(0),
+                stopped: std::sync::atomic::AtomicBool::new(false),
                 exited: std::sync::atomic::AtomicBool::new(false),
                 exit_seen: std::sync::atomic::AtomicBool::new(false),
                 exit: tokio::sync::Notify::new(),
@@ -1654,6 +1675,8 @@ impl ChildAgent {
                     // Open requests stay open; the next request reattaches.
                     tracing::warn!(agent = %reader.name, "agent host entry {h} not logged; acks stop");
                     hosted.broken.store(true, Ordering::SeqCst);
+                    let _ =
+                        hosted.inbound.send(Inbound::LinkBroken { agent: reader.generation }).await;
                     return;
                 }
                 hosted.logged.send_replace(h);
@@ -1677,11 +1700,16 @@ impl ChildAgent {
             if hosted.detached.load(Ordering::SeqCst) || !Arc::ptr_eq(&hosted.link(), &link) {
                 return;
             }
-            // The host died or another owner took it.
-            let mut p = reader.pending.lock().await;
-            for (_, tx) in p.map.drain() {
-                let _ = tx.send(Err(RpcError::internal(AGENT_CLOSED)));
+            // The host died or another owner took it, or an acknowledgement failed: the link is
+            // not heard from here, before anything is told.
+            hosted.stopped.store(true, Ordering::SeqCst);
+            {
+                let mut p = reader.pending.lock().await;
+                for (_, tx) in p.map.drain() {
+                    let _ = tx.send(Err(RpcError::internal(AGENT_CLOSED)));
+                }
             }
+            let _ = hosted.inbound.send(Inbound::LinkBroken { agent: reader.generation }).await;
         });
     }
 
