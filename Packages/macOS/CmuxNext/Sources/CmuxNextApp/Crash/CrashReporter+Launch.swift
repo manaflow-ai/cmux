@@ -38,16 +38,34 @@ extension CrashReporter {
     /// process start, and its crash path's `run.crashkeys`. `blackbox.txt` goes only while this Mac has the
     /// hang-reports consent record (`HangReportsController.consentKey`), read when the event is sent. Nil on a
     /// first launch or without a marker; nothing is read until a crash event asks.
+    ///
+    /// After an unclean exit, the event also gets the `FATAL` line Chromium wrote before it aborted the app
+    /// (tag `cef.fatal`, p09-observability-084): read from the app's Chromium log only when that run ran
+    /// `CefInitialize` in process and wrote it (``ChromiumFatalLog/app(previous:endedUncleanly:launched:storage:)``,
+    /// with `now` this launch), then scrubbed with the event's other tags.
     static func previousRunEvidence(marker: AppRunMarker?, bundleID: String?,
-                                    home: URL = FileManager.default.homeDirectoryForCurrentUser) -> PreviousRunCrashEvidence? {
+                                    home: URL = FileManager.default.homeDirectoryForCurrentUser,
+                                    now: Date = Date()) -> PreviousRunCrashEvidence? {
         guard let marker, let run = marker.previousRun else { return nil }
         let consentKey = HangReportsController.consentKey
+        let files = PreviousRunCrashEvidence.Run(
+            pid: UInt32(bitPattern: run.pid), processStartUnixMicros: run.processStart,
+            traceDirectory: TraceBlackBoxFileSteps.appDirectory(bundleID: bundleID, home: home).path,
+            crashPathKeysFile: marker.previousCrashKeysFile.path)
+        let cefLog = ChromiumFatalLog.app(previous: run, endedUncleanly: marker.previousExit != nil, launched: now)
         return PreviousRunCrashEvidence(
-            run: PreviousRunCrashEvidence.Run(
-                pid: UInt32(bitPattern: run.pid), processStartUnixMicros: run.processStart,
-                traceDirectory: TraceBlackBoxFileSteps.appDirectory(bundleID: bundleID, home: home).path,
-                crashPathKeysFile: marker.previousCrashKeysFile.path),
+            processStartUnixMicros: run.processStart,
+            read: { blackBox in Self.previousRunFiles(files, cefLog: cefLog, blackBox: blackBox) },
             hangReportsOptIn: { UserDefaults.standard.object(forKey: consentKey) is Date })
+    }
+
+    /// The previous run's files (``PreviousRunCrashEvidence/read(_:blackBox:)``) and, from `cefLog`, its
+    /// `cef.fatal` tag. Blocking file work, on the queue Sentry sends from.
+    nonisolated static func previousRunFiles(_ run: PreviousRunCrashEvidence.Run, cefLog: ChromiumFatalLog?,
+                                             blackBox: Bool) -> PreviousRunCrashEvidence.Files {
+        var files = PreviousRunCrashEvidence.read(run, blackBox: blackBox)
+        if let line = cefLog?.read() { files.tags[CEFFatalLine.tag] = line.tagValue }
+        return files
     }
 }
 
