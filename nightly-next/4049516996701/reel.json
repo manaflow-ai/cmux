@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "build": "4049516996701",
+  "notes": "notes/4049516996701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 26121,
+      "title": "[cx-01ae9f] Fix Chief control icons and Retina sharpness",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26106,
+      "title": "fork-trust: keep failed starts on the selected harness",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26090,
+      "title": "nightly-next: keep the /next/ feed's newest Nightly item beside a new build",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
