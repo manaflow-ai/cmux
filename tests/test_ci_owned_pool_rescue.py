@@ -3441,6 +3441,18 @@ class Budget(unittest.TestCase):
         self.assertTrue(paced)
         self.assertLessEqual(api.calls.count("jobs"), 4)
 
+    def test_a_different_read_tokens_401_mints_nothing_and_falls_back_as_before(self):
+        def answers(request):
+            return (401, {}, b"") if request.get_header("Authorization") == "Bearer route" else (200, {}, b"{}")
+        seen, patch = self.serve(answers)
+        minted = []
+        with patch:
+            api = rescue.GitHub("bot", "o/r", read_token="route")
+            api.mint = lambda: minted.append(1) or "new"
+            api.run(1)
+        self.assertEqual(minted, [])
+        self.assertEqual([headers["Authorization"] for _, _, headers in seen], ["Bearer route", "Bearer bot"])
+
     def test_concurrent_401s_mint_one_token(self):
         def answers(request):
             return (401, {}, b"") if request.get_header("Authorization") == "Bearer old" else (200, {}, b"{}")

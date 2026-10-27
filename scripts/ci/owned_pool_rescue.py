@@ -1076,6 +1076,10 @@ class GitHub:
         # Set by main() with BOT_APP_ID and BOT_APP_KEY: a new token before the hour is up.
         self.mint: Callable[[], str] | None = None
         self._minted_at = time.monotonic()
+        # Bumped when reads move to another token's pool: a budget reading of the old pool is dropped.
+        self._pool = 0
+        # Every Authorization the minted App (GH_TOKEN) has used: only its 401s mint a new token.
+        self._app_auths = {self.headers["Authorization"]}
 
     def _count(self, path: str, outcome: str) -> None:
         with self._lock:
@@ -1102,9 +1106,13 @@ class GitHub:
             if time.monotonic() - read_at < BUDGET_READ_SECONDS:
                 return remaining, reset
             self._budget = (time.monotonic(), remaining, reset)  # one reader at a time
+            pool, headers = self._pool, dict(self.read_headers)
         try:
             self._fresh_token()
-            request = urllib.request.Request(f"{API}/rate_limit", headers=self.read_headers)
+            with self._lock:
+                if pool == self._pool:
+                    headers = dict(self.read_headers)
+            request = urllib.request.Request(f"{API}/rate_limit", headers=headers)
             with urllib.request.urlopen(request, timeout=20) as response:
                 core = (json.loads(response.read() or b"{}").get("resources") or {}).get("core") or {}
             remaining, reset = int(core["remaining"]), float(core["reset"])
@@ -1112,7 +1120,8 @@ class GitHub:
             print(f"could not read the API budget ({error})", flush=True)
             remaining, reset = None, None
         with self._lock:
-            self._budget = (time.monotonic(), *self._merged(remaining, reset))
+            if pool == self._pool:
+                self._budget = (time.monotonic(), *self._merged(remaining, reset))
             return self._budget[1], self._budget[2]
 
     def _note_budget(self, seen: Mapping[str, str] | None) -> None:
@@ -1165,10 +1174,13 @@ class GitHub:
                 self._minted_at = time.monotonic() - TOKEN_REFRESH_SECONDS + 60
                 return
             old = self.headers["Authorization"]
-            # In place: request() tells the two token's headers apart by identity.
+            # In place: request() tells the two token's headers apart by identity. Only the App's
+            # token (GH_TOKEN) is replaced, in whichever header set carries it; a different
+            # READ_TOKEN is left alone.
             for headers in (self.headers, self.read_headers):
                 if headers["Authorization"] == old:
                     headers["Authorization"] = f"Bearer {token}"
+            self._app_auths.add(f"Bearer {token}")
             self._minted_at = time.monotonic()
         print("minted a new cmux-bot installation token", flush=True)
 
@@ -1250,7 +1262,10 @@ class GitHub:
                 self._limits.tries = 0
                 self._count(path, "not modified")
                 return json.loads(cached[1]) if cached[1] else None
-            if error.code == 401 and self.mint is not None and not refreshed:
+            if (error.code == 401 and self.mint is not None and not refreshed
+                    and sent["Authorization"] in self._app_auths):
+                # Only the minted App's own token (GH_TOKEN, current or just replaced); a different
+                # READ_TOKEN keeps the fallback to GITHUB_TOKEN below.
                 # The token expired before its refresh (a 401 is not charged): mint one, unless another
                 # thread already replaced the token this request carried, and send it again once.
                 self._fresh_token(stale=sent["Authorization"])
@@ -1276,6 +1291,7 @@ class GitHub:
             with self._lock:
                 self.read_headers = self.headers
                 self._budget = (-1e9, None, None)  # another token's pool: read it afresh
+                self._pool += 1
             return self.request(method, path, refreshed=refreshed)
         return json.loads(body) if body else None
 
@@ -1724,7 +1740,8 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                 log(f"look {looks}: {look.reason}; waiting for the rest of the run to finish")
                 wait = IDLE_POLL_SECONDS
                 if getattr(api, "pace", None) is not None:
-                    wait = min(api.pace(wait), max(wait, (deadline - now()).total_seconds() + 1))
+                    # Never sleeps past the deadline's look by more than a second.
+                    wait = min(api.pace(wait), max(1.0, (deadline - now()).total_seconds() + 1))
                 sleep(wait)
                 continue
             log(f"look {looks}: {look.reason}")
@@ -1761,7 +1778,7 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
         pace = getattr(api, "pace", None)
         if pace is not None:
             # A spent budget waits for its reset, but never past the deadline's look.
-            interval = min(pace(interval), max(interval, (deadline - now()).total_seconds() + 1))
+            interval = min(pace(interval), max(1.0, (deadline - now()).total_seconds() + 1))
         sleep(interval)
 
 
