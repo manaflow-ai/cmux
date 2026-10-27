@@ -2402,6 +2402,12 @@ def skip_superseded_delivery(
             pool = [*runs, *[r for rs in listed.values() for r in rs]]
             fresh_runs = [github.run(other["id"]) for other in newer_head_runs(current, pool)[:REPLACEMENT_JOB_READS]]
             fresh_jobs = {other["id"]: complete_jobs(github.jobs(other["id"])) for other in fresh_runs}
+            # Each replacement once more after its jobs: one cancelled, failed or re-run meanwhile does not count.
+            for other in fresh_runs:
+                again = github.run(other["id"])
+                if (again.get("run_attempt"), again.get("status"), again.get("conclusion")) != (
+                        other.get("run_attempt"), other.get("status"), other.get("conclusion")):
+                    fresh_jobs[other["id"]] = None
         except RateLimited:
             raise
         except RuntimeError as error:
