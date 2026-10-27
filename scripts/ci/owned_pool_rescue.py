@@ -965,7 +965,7 @@ class AnnotationsCapped(Exception):
 CANCEL_SENT = "owned-pool rescue: cancel sent, re-run to follow:"
 CANCEL_SETTLED = "owned-pool rescue: cancel settled:"
 CANCEL_MARK = re.compile(r"owned-pool rescue: (cancel sent, re-run to follow|cancel settled): run (\d+) attempt (\d+)"
-                         r"(?= |$)( of every job)?")
+                         r"(?=\s|$)( of every job)?")
 # CANCEL_SENT's tail when the re-run to follow is of every job (rescue()'s failed_only off), not its failed ones.
 EVERY_JOB = " of every job"
 # A rescue job's life: a sweeper's SWEEP_SECONDS and its rescue grace, within ci-owned-pool-rescue.yml's
@@ -3074,6 +3074,9 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
         outcome, reason = watch(client, target, budget_seconds=max(effective_seconds, remaining),
                                 now=clock, sleep=sleep, log=log, deadline=deadline,
                                 floor_seconds=effective_seconds)
+        if outcome == "resume":
+            # A rescue stopped between its cancel and its re-run while this watch waited: finish its re-run.
+            return settle(outcome, reason)[3]
     if target.refusals_only and outcome != "refused":
         return f"stopped: {reason}; attempt {target.attempt} stays on the minis (refusals only)"
     refusal_jobs: list[Mapping[str, Any]] | None = None
@@ -3150,6 +3153,9 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
         seen = {}
         outcome, reason = watch(client, target, budget_seconds=effective_seconds, now=clock, sleep=sleep, log=log,
                                 deadline=deadline, seen=seen)
+        if outcome == "resume":
+            # The next attempt was cancelled by a rescue that stopped before its re-run: finish that re-run.
+            return settle(outcome, reason)[3]
         outcome, reason, held = hold_for_destination(
             client, target, outcome, reason, budget_seconds=effective_seconds, floor_seconds=None,
             deadline=deadline, now=clock, sleep=sleep, log=log, seen=seen)

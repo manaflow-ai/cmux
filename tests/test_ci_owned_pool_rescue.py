@@ -1482,6 +1482,34 @@ class StrandedCancel(unittest.TestCase):
                                               f"{rescue.CANCEL_SENT} run 6 attempt 10"]),
                          {(5, 1): "sent all", (6, 10): "sent"})
 
+    def test_a_rewatch_that_finds_a_stopped_rescue_resumes_its_re_run(self):
+        # The refusals-only rewatch after a queue alarm, and the E2E watch of the next attempt, can also find a run a
+        # rescue cancelled and stopped before re-running: both finish that re-run, as the first watch does.
+        for case in ("refusals only", "next attempt"):
+            clock = Clock()
+            api = CancelledAPI(clock)
+            looks = iter([("rescue", "queue alarm"), ("resume", "all")])
+            resumed = []
+
+            def resume_rerun(api, target, *, now, sleep, log, every_job):
+                resumed.append((target.attempt, every_job))
+                return "re-ran it"
+            target = rescue.Target(RUN_ID, 1, HEAD, 0, e2e=True, path=DEV_DAILY, refusals_only=case == "refusals only")
+            with unittest.mock.patch.object(rescue, "watch", lambda *args, **kwargs: next(looks)), \
+                    unittest.mock.patch.object(rescue, "resume_rerun", resume_rerun), \
+                    unittest.mock.patch.object(rescue, "hold_for_destination",
+                                               lambda client, target, outcome, reason, **_: (outcome, reason, "")), \
+                    unittest.mock.patch.object(rescue, "rescue",
+                                               lambda *args, **kwargs: f"re-ran every job of run {RUN_ID}"):
+                result = rescue.follow(api, target, seconds=30, queue_rounds="0", now=clock.now, sleep=clock.sleep,
+                                       log=lambda _: None)
+            self.assertEqual(result, "done", case)
+            self.assertEqual(resumed, [(1 if case == "refusals only" else 2, True)], case)
+        # A mark logged with Windows line endings still counts.
+        self.assertEqual(rescue.cancel_marks([f"{rescue.CANCEL_SETTLED} run 5 attempt 1\r\n",
+                                              f"{rescue.CANCEL_SENT} run 6 attempt 2{rescue.EVERY_JOB}\r\n"]),
+                         {(5, 1): "settled", (6, 2): "sent all"})
+
     def test_a_janitor_cancel_by_the_same_bot_stays_cancelled(self):
         # The queue janitor cancels as cmux-bot too (a superseded DEV run that never started, an orphan): no rescue
         # sent a cancel of this run's attempt, or it settled that cancel (re-ran it, or left it for a moved head).
