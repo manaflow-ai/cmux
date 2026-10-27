@@ -11,7 +11,7 @@ nonisolated enum SidebarRegionDragSubject: Hashable, Sendable {
 /// already applied, and the drop sends one layout op for that order.
 /// The rule is "take the place of what is under the pointer": over its own
 /// (moved) slot nothing changes, so the order never flips back and forth.
-nonisolated enum SidebarRegionReorder {
+public nonisolated enum SidebarRegionReorder {
     /// `sections` with `subject` moved to the slot under `point` in
     /// `display` (the layout of `sections`), or nil when nothing moves.
     static func move(_ subject: SidebarRegionDragSubject, at point: CGPoint, display: SidebarRegionLayout,
@@ -75,6 +75,32 @@ nonisolated enum SidebarRegionReorder {
                 .compactMap { section in rest.firstIndex { $0.id == section.id } }.first
             return .sectionMove(id, region: region, index: next ?? rest.count)
         }
+    }
+
+    /// Expands an item move made from a projected (filtered) document back to
+    /// the stored document. The sidebar keeps preview-only rows in storage,
+    /// while `SidebarModel.layout` omits them when the preview is disabled.
+    /// An index from the projected list therefore needs to be anchored to a
+    /// visible item before it is sent to the legacy layout owner.
+    public static func translateHiddenItemIndex(_ op: SidebarLayoutOp, from projected: SidebarLayoutDocument,
+                                               to stored: SidebarLayoutDocument) -> SidebarLayoutOp {
+        guard case let .itemMove(id, section, index) = op,
+              let visible = projected.section(section),
+              let full = stored.section(section) else { return op }
+        let visibleRest = visible.items.filter { $0.id != id }
+        let fullRest = full.items.filter { $0.id != id }
+        guard visibleRest.count != fullRest.count else { return op }
+
+        let translated: Int
+        if visibleRest.indices.contains(index),
+           let position = fullRest.firstIndex(where: { $0.id == visibleRest[index].id }) {
+            translated = position
+        } else if let last = visibleRest.last, let position = fullRest.firstIndex(where: { $0.id == last.id }) {
+            translated = position + 1
+        } else {
+            translated = fullRest.count
+        }
+        return .itemMove(id, section: section, index: min(translated, fullRest.count))
     }
 
     /// The item a row shows, with its section.

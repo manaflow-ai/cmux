@@ -174,6 +174,8 @@ public final class SidebarModel {
     /// The section layout to draw (plans/cmux-next/sidebar-sections.md):
     /// the App fills it with the store's document plus pending intents.
     public var layout: SidebarLayoutDocument = .defaults
+    /// References hidden from list rows after the document arranges machine and group items.
+    @ObservationIgnored public var hiddenItemRefs: Set<LayoutItemRef> = []
     /// How layout items draw, by item id. Built-ins without an entry draw
     /// their own title and symbol.
     public var itemInfo: [LayoutItemID: SidebarItemInfo] = [:]
@@ -421,7 +423,7 @@ public final class SidebarModel {
         SidebarPerfCounters.add(.sectionSets) // each set arranges and compares every row
         // The sidebar document places every item: links in machine lists, Pinned and custom groups in their own list sections.
         let shown = docDrag.flatMap { drag in SidebarDocStore.current?.shown.map { $0.arrange(new, drag: drag) } } ?? new
-        sections = Self.folding(shown, collapsedSections) // the setter skips an unchanged list
+        sections = Self.folding(Self.hidingItems(hiddenItemRefs, in: shown), collapsedSections) // the setter skips an unchanged list
     }
 
     /// Row content of listed workspaces (status, title, unread, progress, icon), written in place with no structural

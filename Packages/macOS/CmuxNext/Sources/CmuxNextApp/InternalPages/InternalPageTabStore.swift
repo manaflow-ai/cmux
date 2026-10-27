@@ -44,6 +44,10 @@ final class InternalPageTabStore {
     /// Store page tabs a live tree has listed; gone from it, they closed.
     @ObservationIgnored private var seenLive: Set<String> = []
 
+    static func isPreviewPage(_ page: String?) -> Bool {
+        page == InternalPageID.appStore.rawValue || page == InternalPageID.changelog.rawValue
+    }
+
     /// Whether `daemon` keeps a page tab's route (`page-tab-route-v1`).
     func keepsRoutes(_ daemon: DaemonService) -> Bool {
         daemon.supports(DaemonCapability.pageTabRoute.rawValue)

@@ -475,3 +475,10 @@ the gap, no row left out of place after drop or cancel).
 - 2026-10-26: https://github.com/manaflow-ai/cmux/issues/25776: a new window (Cmd-Shift-N) lists only its own groups, as in cmux classic. A Pinned or custom-section group whose open workspaces another window lists is not drawn here as an empty header (`SidebarDocProjection.arrange`), and the window filter drops a nested parent or a group with links whose workspaces list elsewhere (`SidebarSection.filter`). A group with no open workspace still lists everywhere. No look change.
 - 2026-10-26: sidebar-breadcrumb (claude-sr2 relaying Leo): Debug `sidebar.rowTitle` and `sidebar.rowTitleSingleChat` (target row "Row name"); default rows unchanged. `sidebar.rowTitlePreview` adds sample rows for the `sidebar-row-title` tour.
 - 2026-10-27: (this commit) custom harness icons (user 12922, msg 12922: "for custom acp stuff make sure ppl can set custom Icons"): a workspace row whose agent chat runs a custom harness draws that harness's own icon (emoji, image, monogram as is; SF Symbol tinted like the marks) where the agent mark goes (`SidebarWorkspace.agentIcon`, `WorkspaceRowView.agentIconImage`), at the mark's size. Rows of known agents unchanged. `HarnessIconSurfacesTests`.
+
+## Preview surface visibility (2026-10-27)
+
+A user requested “remove app store for now” and “Remove what's new?”. App Store and What's New
+follow the existing, default-off Preview Features setting. Hiding App Store covers band rows,
+machine rows and group members, without deleting their stored placement. The sidebar keeps its
+existing colors, glass, row geometry and drag behavior.

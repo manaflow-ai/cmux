@@ -246,7 +246,7 @@ final class SidebarBridge {
         // snapshot laid over again) sets no sections: no arrange and compare of every row in the main thread's frame.
         let elsewhere = model.docDrag.flatMap { drag in SidebarDocStore.current?.shown?.bandGroupsListedElsewhere(drag: drag) }
         rows.show(sections, creating: (creating, NewWorkspacePlacements.home(services.machines)), unlessShown: hadDocDrag == (model.docDrag != nil),
-                  elsewhere: elsewhere)
+                  elsewhere: elsewhere, showAppStore: services.settings?.snapshot.previewFeatures == true)
         selectionHold.flush()
         organizationQueue.drain(loaded: usesPersonalOrganization, local: services.machines.local, run: handle, refuse: refuseOrganization)
         groupFlow.openPendingEditor()

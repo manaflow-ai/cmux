@@ -37,6 +37,10 @@ final class SidebarRows {
     /// The band groups another window lists (`SidebarDocProjection.bandGroupsListedElsewhere`) as last shown:
     /// a move of a workspace to another window changes them with no row of this one (#25776).
     private var elsewhere: Set<String>?
+    /// Preview-only App Store rows are kept in the stored document but are
+    /// removed from every rendered placement, including machine and group
+    /// projections that do not come from `layout.sections`.
+    private var showAppStore = true
 
     #if DEBUG
     /// The rows `debug.sidebar_nested_fixture` shows instead of the live ones (nested-groups prototype captures).
@@ -66,7 +70,8 @@ final class SidebarRows {
     /// The layout window `windowID` draws: `visibleLayout` without the band's
     /// workspaces another window owns, so a new window starts clean. Only on
     /// the sidebar document, whose band moves anchor on a drawn neighbour; the
-    /// older owner's index ops count the stored layout, so it draws it whole.
+    /// older owner's index ops count the stored layout; the bridge translates
+    /// visible item indexes back to stored indexes before sending edits.
     static func visibleLayout(_ document: SidebarLayoutDocument, window windowID: String, machines: MachineRegistry,
                               registry: WindowRegistry, showAppStore: Bool = true) -> SidebarLayoutDocument {
         guard SidebarDocWiring.isActive else { return visibleLayout(document, showAppStore: showAppStore) }
@@ -79,10 +84,12 @@ final class SidebarRows {
     /// are what the rows show already (patches included), so a structural pass that lists nothing new sets no sections
     /// (sidebar churn: at 400 workspaces each set arranged and compared every row). A changed `elsewhere` shows again.
     func show(_ live: [SidebarRowSection]? = nil, creating: (rows: [PendingWorkspaceRows.Row], home: String?)? = nil, unlessShown: Bool = false,
-              elsewhere: Set<String>? = nil) {
+              elsewhere: Set<String>? = nil, showAppStore: Bool? = nil) {
+        let sameVisibility = showAppStore == nil || showAppStore == self.showAppStore
+        if let showAppStore { self.showAppStore = showAppStore }
         let sameElsewhere = elsewhere == nil || elsewhere == self.elsewhere
         if let elsewhere { self.elsewhere = elsewhere }
-        if unlessShown, let live, let creating, live == self.live, creating == self.creating, sameElsewhere { return }
+        if unlessShown, let live, let creating, live == self.live, creating == self.creating, sameElsewhere, sameVisibility { return }
         if let live { self.live = live }
         if let creating { self.creating = creating }
         #if DEBUG
@@ -99,6 +106,7 @@ final class SidebarRows {
             sections[s].nodes[n] = .group(shown)
         }
         // Manual order only (Leo 2026-10-20): a row state shows as a badge; attention order is the Priority view's.
+        model.hiddenItemRefs = self.showAppStore ? [] : [.app("cmux/app-store"), .builtIn(.appStore)]
         model.setSections(sections)
     }
 

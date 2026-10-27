@@ -224,6 +224,11 @@ extension SidebarBridge {
     }
 
     func applyLayoutOp(_ op: SidebarLayoutOp) {
-        PinCommands(context: AppActionContext(services: services)).userBandEdit(op)
+        // `model.layout` is the projected document shown by this window. A
+        // preview-disabled projection omits rows that remain in the stored
+        // legacy document, so expand item indexes before sending the op.
+        let stored = services.sidebarLayout.document
+        let translated = SidebarRegionReorder.translateHiddenItemIndex(op, from: model.layout, to: stored)
+        PinCommands(context: AppActionContext(services: services)).userBandEdit(translated)
     }
 }
