@@ -1392,14 +1392,22 @@ every task that changes behavior or performance and is not repeated per row.
 - Acceptance: thread count per manual surface = 1 (test).
 - Test phase: zig build test; thread count with 20 terminals about 20 lower.
 - Size M.
-- Fork branch: manaflow-ai/ghostty-next `cp/p03-rendering-086`, commit `d6b9e5348` (on ghostty-next main `9ce9b7d08`). `termio.Thread`
+- Fork branch: manaflow-ai/ghostty-next `cp/p03-rendering-086`, commits `d6b9e5348` and fixer `d67a29181` (on ghostty-next main `9ce9b7d08`). `termio.Thread`
   has two modes: `.own` (exec: its own loop and thread, as before) and `.hosted` (manual: no loop, no stop handle,
   no thread). The renderer thread takes a `LoopGuest` before it starts; it attaches the termio mailbox wakeup and
   the three termio timers (resize coalesce, synchronized-output reset, selection scroll) to its own loop, and
-  detaches after the loop stops. If the renderer fails to start, the loop still runs for the guest, so a full
-  mailbox never blocks its producer. Chromium: sequences on a shared thread, not a thread per client
+  detaches after the loop stops. If the renderer fails to start, the loop still runs for the guest until the
+  surface stops it. Chromium: sequences on a shared thread, not a thread per client
   (`base/task/sequenced_task_runner.h`). The hosted handlers follow the renderer QoS (lower when hidden).
   The ghostty-next gitlink is not moved: the integrator lane (task 079) lands the branch and bumps the pin.
+- Fixer commit on the same fork branch (after review). The renderer thread can wait for a GPU frame, so a hosted
+  termio mailbox never blocks its producer: the renderer mailbox's never-block queue is now
+  `datastruct/overflow_queue.zig`, and the termio mailbox uses it in `.hosted` mode (`.own` keeps the blocking
+  send). In the overflow, resize, selection scroll and inspector are latest-wins, and adjacent `scroll_viewport`
+  and `scroll_wheel` messages fold into one (Mojo pipes never block the sender; Blink coalesces queued wheel
+  events). `Surface.init` starts its threads through `startThreads` with an injected spawner; the test counts one
+  spawn (renderer), no IO thread, a set guest, and a focus report drained by the real renderer guest hosting.
+  New renderer.Thread tests cover the guest enter/exit order and the failed-renderer fallback.
 
 #### p03-rendering-087 Shared atlas and command queue
 - Files: `ghostty-next/src/renderer/generic.zig`, `src/renderer/Metal.zig`, `src/font/SharedGrid.zig`.
