@@ -12,7 +12,7 @@ public import CmuxNextDesignTokens
 public protocol PaneHeaderBandHosting: PaneContentChrome {
     /// Opens the band at `height` points; 0 removes it.
     func setPaneHeaderBandHeight(_ height: CGFloat)
-    /// The band in this view's coordinates, laid out first (the pane's first placement, tests).
+    /// The band in this view's coordinates where its next layout pass places it (the pane's first placement, tests).
     var paneHeaderBandRect: CGRect { get }
     /// Called at the end of each of this view's layout passes with the band in this view's
     /// coordinates, the passes inside the header's own animation included, so a strip framed

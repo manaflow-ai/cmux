@@ -20,8 +20,8 @@ extension BrowserChromeView {
         // invalidate: the toolbar row's height in the layout changed (`toolbarRowHeight`).
         needsLayout = true
         Motion.overlays.animateTimed(hidden ? .disappear : .appear, in: self, {
-            self.syncHeaderBand(animated: true)
-            // sync-layout: inside the animation group, so the rows' frames animate to the new toolbar height.
+            // sync-layout: inside the animation group, so the rows' frames animate to the new toolbar height,
+            // and the pane's strip on the band with them (`reportHeaderBandLayout`).
             self.layoutSubtreeIfNeeded()
         }, completion: {
             if self.isToolbarHidden {

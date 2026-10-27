@@ -20,7 +20,7 @@ nonisolated struct BrowserChromeRowMetrics: Equatable, Sendable {
 }
 
 /// The rows of a browser pane, top-down: toolbar, accessory bar (the
-/// bookmarks bar), the band the pane pins its tab strip to, and the page.
+/// bookmarks bar), the band the pane frames its tab strip on, and the page.
 /// With the toolbar at the bottom the same rows are mirrored, the page on top.
 nonisolated struct BrowserChromeLayout: Equatable, Sendable {
     struct Input: Equatable, Sendable {
@@ -66,12 +66,6 @@ nonisolated struct BrowserChromeLayout: Equatable, Sendable {
             content = row(0, max(0, height - header))
             progressLine = row(toolbarTop, progress)
         }
-    }
-
-    /// The band's distance from the toolbar's edge of the view (the pane's
-    /// strip pins to it): the toolbar and the accessory bar.
-    static func bandOffset(toolbarHeight: CGFloat, accessoryHeight: CGFloat) -> CGFloat {
-        max(0, toolbarHeight) + max(0, accessoryHeight)
     }
 }
 

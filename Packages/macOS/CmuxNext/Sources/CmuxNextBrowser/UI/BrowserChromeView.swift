@@ -243,7 +243,6 @@ public final class BrowserChromeView: NSView {
         addSubview(toolbar)
         addSubview(separator)
         addSubview(accessoryBar)
-        installHeaderBand()
         addSubview(progressLine)
         pageStatus.install(in: self) { [weak self] in self?.tab }
         addSubview(promptBar)
@@ -293,14 +292,13 @@ public final class BrowserChromeView: NSView {
         extensionSlot.spacing = OmnibarStyle.buttonSpacing
         rowMetrics = BrowserChromeRowMetrics(toolbarHeight: OmnibarStyle.toolbarHeight(scale: scale),
                                              progressThickness: BrowserMetrics.progressThickness)
-        syncHeaderBand(animated: false)
     }
 
     /// The rows' frames for the view's size and state now.
     var chromeLayout: BrowserChromeLayout {
         BrowserChromeLayout(BrowserChromeLayout.Input(
             size: bounds.size, position: toolbarPosition, toolbarHeight: toolbarRowHeight, accessoryHeight: shownAccessoryHeight,
-            bandHeight: headerBand.height?.constant ?? 0, progressThickness: rowMetrics.progressThickness
+            bandHeight: headerBand.height, progressThickness: rowMetrics.progressThickness
         ))
     }
 
@@ -424,7 +422,7 @@ public final class BrowserChromeView: NSView {
         pageStatus.layout(over: contentContainer.frame)
         updateOcclusion()
         syncPageOverlays()
-        reportHeaderBandLayout()
+        reportHeaderBandLayout(mapping.map(rows.band))
     }
 
     /// Child-window pages draw above this view; tell them where the find

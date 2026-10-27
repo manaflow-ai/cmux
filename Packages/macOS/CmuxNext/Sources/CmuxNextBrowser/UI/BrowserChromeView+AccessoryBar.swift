@@ -22,7 +22,6 @@ extension BrowserChromeView {
         }
         accessoryHeight = view == nil ? 0 : height
         applyAccessoryHeight()
-        syncHeaderBand(animated: false)
     }
 
     /// Zero while page content is fullscreen (the toolbar is hidden too).

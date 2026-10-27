@@ -6,27 +6,25 @@ public import CmuxNextDesign
 extension BrowserChromeView: PaneHeaderBandHosting {
     public func setPaneHeaderBandHeight(_ height: CGFloat) {
         let height = max(0, height)
-        guard let constraint = headerBand.height, constraint.constant != height else { return }
-        constraint.constant = height
+        guard headerBand.height != height else { return }
+        headerBand.height = height
+        // invalidate: the band's row in the layout changed (`chromeLayout`).
         needsLayout = true
     }
 
-    /// Lays out first: a browser outside a window (a tab switched away)
-    /// gets no layout pass of its own, so the guide's frame would be stale.
-    public var paneHeaderBandRect: CGRect {
-        // sync-layout: the getter returns the guide's laid-out frame.
-        layoutSubtreeIfNeeded()
-        return headerBand.guide.frame
-    }
+    /// The band's row of `chromeLayout`, the same frame computation `layout()` places the rows
+    /// from, so it is current before this view's next layout pass (a browser outside a window).
+    public var paneHeaderBandRect: CGRect { chromeFrameMapping.map(chromeLayout.band) }
 
     public var onPaneHeaderBandLayout: ((CGRect) -> Void)? {
         get { headerBand.onLayout }
         set { headerBand.onLayout = newValue }
     }
 
-    /// The end of a layout pass (`layout()`): the guide's frame is final, the pane frames its strip there.
-    func reportHeaderBandLayout() {
-        headerBand.onLayout?(headerBand.guide.frame)
+    /// The end of a layout pass (`layout()`): `band` is the band's row of that pass, so the pane
+    /// frames its strip in the same pass and animation group as the rows (a toolbar hide included).
+    func reportHeaderBandLayout(_ band: CGRect) {
+        headerBand.onLayout?(band)
     }
 
     public var onPaneHeaderBandRelease: (() -> Void)? {
@@ -42,43 +40,6 @@ extension BrowserChromeView: PaneHeaderBandHosting {
     public var paneHeaderAccessibilityElements: [Any] { [toolbar, accessoryBar] }
 
     public var paneContentAccessibilityElements: [Any] { [contentContainer] }
-
-    /// The empty band between the toolbar rows and the page (under them, or
-    /// above them with the toolbar at the bottom); 0 high until a pane opens it.
-    /// The rows are framed (`BrowserChromeLayout`); the guide's offset from the
-    /// toolbar's edge animates with the rows (`syncHeaderBand`), and each layout
-    /// pass reports its frame to the pane (`onPaneHeaderBandLayout`).
-    func installHeaderBand() {
-        let guide = headerBand.guide
-        addLayoutGuide(guide)
-        let height = guide.heightAnchor.constraint(equalToConstant: 0)
-        headerBand.height = height
-        headerBand.top = guide.topAnchor.constraint(equalTo: topAnchor)
-        headerBand.bottom = guide.bottomAnchor.constraint(equalTo: bottomAnchor)
-        NSLayoutConstraint.activate([
-            guide.leadingAnchor.constraint(equalTo: leadingAnchor),
-            guide.trailingAnchor.constraint(equalTo: trailingAnchor),
-            height,
-        ])
-        syncHeaderBand(animated: false)
-    }
-
-    /// Puts the band after the toolbar and accessory rows, from the toolbar's
-    /// edge. `animated`: inside the toolbar's hide or show animation, so a
-    /// strip framed on the band moves with the rows.
-    func syncHeaderBand(animated: Bool) {
-        guard let top = headerBand.top, let bottom = headerBand.bottom else { return }
-        let atTop = toolbarPosition == .top
-        let (active, inactive) = atTop ? (top, bottom) : (bottom, top)
-        if inactive.isActive { inactive.isActive = false }
-        let offset = BrowserChromeLayout.bandOffset(toolbarHeight: toolbarRowHeight, accessoryHeight: shownAccessoryHeight)
-        let constant = atTop ? offset : -offset
-        if active.constant != constant {
-            // Outside a window no display runs the animation, so the constant is set directly.
-            (animated && window != nil ? Motion.animator(active, in: self) : active).constant = constant
-        }
-        if !active.isActive { active.isActive = true }
-    }
 
     /// The pane stops framing its strip on the band before this view leaves
     /// its superview or window, on every path (v4 review): the pane's own
@@ -106,13 +67,11 @@ extension BrowserChromeView: PaneHeaderBandHosting {
     }
 }
 
-/// The band's guide, its constraints and the pane's callbacks.
+/// The band's height (a row of `BrowserChromeLayout`, placed with the others in `layout()`) and
+/// the pane's callbacks.
 final class BrowserHeaderBand {
-    let guide = NSLayoutGuide()
-    var height: NSLayoutConstraint?
-    /// The guide's offset from the view's top (toolbar on top) or bottom (toolbar at the bottom).
-    var top: NSLayoutConstraint?
-    var bottom: NSLayoutConstraint?
+    /// 0 until a pane opens the band.
+    var height: CGFloat = 0
     var onLayout: ((CGRect) -> Void)?
     var onRelease: (() -> Void)?
     var onReattach: (() -> Void)?
