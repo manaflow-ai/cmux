@@ -33,10 +33,13 @@ from pathlib import Path
 # declared `required: true`, maybe empty otherwise, empty on any other event), and workflow_run's values
 # only for workflow_run.
 IDENTITY = re.compile(
-    r"github\.(?:run_id|run_number|sha)|github\.event\.workflow_run\.(?:id|head_sha)|[\w.-]*\.head_sha|"
+    r"github\.(?:run_id|run_number|sha)|github\.event\.workflow_run\.(?:id|head_sha)|"
+    r"github\.event\.pull_request\.head\.sha|[\w-]+\.outputs\.[\w-]*head_sha|"
     r"(?:needs\.[\w-]+\.outputs|inputs|github\.event\.inputs)\.[\w-]*(?:sha|build|build_number|run_id)")
 INPUT = re.compile(r"(?:inputs|github\.event\.inputs)\.([\w-]+)")
 INPUT_EVENTS = frozenset({"workflow_dispatch", "workflow_call"})
+PR_EVENTS = frozenset({"pull_request", "pull_request_target"})
+UNREAD = "(unread)"  # triggers that could not be read: no event-specific value is assumed
 PR_ONLY_CANCEL = "${{ github.event_name == 'pull_request' }}"
 
 # What an expression can evaluate to: an identity (always truthy), a constant truthy value, or a falsy one.
@@ -64,8 +67,9 @@ def _tokens(expr: str) -> list[tuple[str, str]]:
 
 
 class _Parser:
-    def __init__(self, expr: str, required: frozenset[str] = frozenset(), event: str | None = None):
-        self.tokens, self.at, self.required, self.event = _tokens(expr), 0, required, event
+    def __init__(self, expr: str, inputs: dict[str, tuple[bool, bool]] | None = None, event: str | None = None):
+        # inputs: name -> (required, boolean) for this event; None when the caller knows no declarations.
+        self.tokens, self.at, self.inputs, self.event = _tokens(expr), 0, inputs, event
 
     def peek(self) -> tuple[str, str] | None:
         return self.tokens[self.at] if self.at < len(self.tokens) else None
@@ -144,8 +148,13 @@ class _Parser:
         if name is not None:
             if self.event is not None and self.event not in INPUT_EVENTS:
                 return {FALSY}
-            return {VARY} if name.group(1) in self.required else {VARY, FALSY}
+            required, boolean = (self.inputs or {}).get(name.group(1), (False, False))
+            if boolean:
+                return {CONST, FALSY}
+            return {VARY} if required else {VARY, FALSY}
         if value.startswith("github.event.workflow_run.") and self.event not in (None, "workflow_run"):
+            return {FALSY}
+        if value.startswith("github.event.pull_request.") and self.event not in (None, *PR_EVENTS):
             return {FALSY}
         return {VARY}
 
@@ -179,31 +188,54 @@ class _Parser:
         return kinds
 
 
-def required_inputs(text: str) -> frozenset[str]:
-    """Names of the workflow's inputs declared `required: true` (workflow_dispatch and workflow_call)."""
-    names, lines = set(), text.splitlines()
+def _key(line: str) -> str:
+    return line.strip().lstrip("- ").split(":", 1)[0].strip().strip("'\"")
+
+
+def declared_inputs(text: str) -> dict[str, dict[str, tuple[bool, bool]]]:
+    """Per event (workflow_dispatch, workflow_call): input name -> (required: true, type: boolean)."""
+    out: dict[str, dict[str, tuple[bool, bool]]] = {}
+    lines = text.splitlines()
     for index, line in enumerate(lines):
         block = re.match(r"(\s+)inputs:\s*(?:#.*)?$", line)
         if not block:
             continue
-        base, child, current = len(block.group(1)), None, None
+        base = len(block.group(1))
+        event = next((_key(prev) for prev in reversed(lines[:index])
+                      if prev.strip() and not prev.lstrip().startswith("#")
+                      and len(prev) - len(prev.lstrip(" ")) < base), "")
+        if event not in INPUT_EVENTS:
+            continue
+        found, child, current = out.setdefault(event, {}), None, None
         for follow in lines[index + 1:]:
             if not follow.strip() or follow.lstrip().startswith("#"):
                 continue
             indent = len(follow) - len(follow.lstrip(" "))
             if indent <= base:
                 break
-            if child is None:
-                child = indent
+            child = child or indent
             if indent == child:
-                current = follow.strip().split(":", 1)[0].strip("'\"")
-            elif current and re.fullmatch(r"\s*required:\s*true\s*(?:#.*)?", follow):
-                names.add(current)
-    return frozenset(names)
+                current = _key(follow)
+                found[current] = (False, False)
+            elif current:
+                required, boolean = found[current]
+                if re.fullmatch(r"\s*required:\s*true\s*(?:#.*)?", follow):
+                    required = True
+                if re.fullmatch(r"\s*type:\s*['\"]?boolean['\"]?\s*(?:#.*)?", follow):
+                    boolean = True
+                found[current] = (required, boolean)
+    return out
+
+
+def required_inputs(text: str) -> frozenset[str]:
+    """Inputs required on every input event the workflow declares (kept for callers of the older API)."""
+    declared = declared_inputs(text)
+    sets = [{n for n, (req, _) in found.items() if req} for found in declared.values()]
+    return frozenset(set.intersection(*sets)) if sets else frozenset()
 
 
 def triggers(text: str) -> frozenset[str]:
-    """The workflow's trigger events (`on:` as a name, a list or a mapping); empty when unread."""
+    """The workflow's trigger events (`on:` as a name, a list or a mapping); {UNREAD} when unread."""
     lines = text.splitlines()
     for index, line in enumerate(lines):
         match = re.match(r"""(?:on|'on'|"on"|true):\s*(.*?)\s*(?:#.*)?$""", line)
@@ -211,37 +243,47 @@ def triggers(text: str) -> frozenset[str]:
             continue
         rest = match.group(1)
         if rest:
-            return frozenset(n.strip().strip("'\"") for n in rest.strip("[]").split(",") if n.strip())
+            events = {n.strip().strip("'\"") for n in rest.strip("[]").split(",") if n.strip()}
+            return frozenset(events) if all(re.fullmatch(r"[\w-]+", e) for e in events) else frozenset({UNREAD})
         events, child = set(), None
         for follow in lines[index + 1:]:
             if not follow.strip() or follow.lstrip().startswith("#"):
                 continue
             indent = len(follow) - len(follow.lstrip(" "))
-            if indent == 0:
+            if indent == 0 and not follow.startswith("-"):
                 break
-            child = child or indent
+            child = indent if child is None else child
             if indent == child:
-                events.add(follow.strip().lstrip("- ").split(":", 1)[0].strip("'\""))
-        return frozenset(events)
-    return frozenset()
+                events.add(_key(follow))
+        return frozenset(events) if events and all(re.fullmatch(r"[\w-]+", e) for e in events) else frozenset({UNREAD})
+    return frozenset({UNREAD})
 
 
-def _shared_for(part: str, required: frozenset[str], event: str | None) -> bool:
+def _shared_for(part: str, inputs: dict[str, tuple[bool, bool]] | None, event: str | None) -> bool:
     try:
-        kinds = _Parser(part, required, event).parse()
+        kinds = _Parser(part, inputs, event).parse()
     except _Unreadable:
         return True
     return bool(kinds - {VARY})
 
 
-def can_be_shared(group: str, required: frozenset[str] = frozenset(),
+def can_be_shared(group: str, required: frozenset[str] | dict[str, dict[str, tuple[bool, bool]]] = frozenset(),
                   events: frozenset[str] = frozenset()) -> bool:
     """Whether two runs carrying different work can get the same group string: for some trigger event,
     every `${{ }}` part of it can evaluate to something other than a per-run or per-payload identity.
-    `required` names the inputs the workflow requires; `events` its triggers (empty: any event, with
-    event-specific values taken as set). An expression this reader cannot parse counts as shared."""
+    `required` is declared_inputs() (or a set of input names required on every event); `events` the
+    triggers (empty: any event, with event-specific values taken as set). An expression this reader
+    cannot parse counts as shared."""
     parts = re.findall(r"\$\{\{(.*?)\}\}", group, flags=re.S)
-    return any(all(_shared_for(part, required, event) for part in parts) for event in (sorted(events) or [None]))
+    for event in sorted(events) or [None]:
+        if isinstance(required, dict):
+            inputs = required.get(event or "", {}) if event else {
+                n: v for found in required.values() for n, v in found.items()}
+        else:
+            inputs = {name: (True, False) for name in required}
+        if all(_shared_for(part, inputs, event) for part in parts):
+            return True
+    return False
 
 
 def _scalar(value: str) -> str:
@@ -310,7 +352,7 @@ def findings(path: Path, allowed_shared: dict[tuple[str, str], str]) -> list[str
     """What is wrong with one delivery workflow; allowed_shared maps (file name, owner) to its reason."""
     problems = []
     text = path.read_text(encoding="utf-8")
-    required, events = required_inputs(text), triggers(text)
+    required, events = declared_inputs(text), triggers(text)
     for owner, block in concurrency_blocks(text):
         where = f"{path.name} {'job ' + owner if owner else 'top-level'}"
         if "unreadable" in block or "group" not in block:
@@ -347,6 +389,6 @@ def stale_allowances(workflows: list[Path], allowed_shared: dict[tuple[str, str]
         path = by_name.get(name)
         text = path.read_text(encoding="utf-8") if path else ""
         block = dict(concurrency_blocks(text)).get(owner)
-        if not block or "group" not in block or not can_be_shared(block["group"], required_inputs(text), triggers(text)):
+        if not block or "group" not in block or not can_be_shared(block["group"], declared_inputs(text), triggers(text)):
             stale.append(f"ALLOWED_SHARED names {name} {owner or 'top-level'}, which has no shared group: drop it")
     return stale

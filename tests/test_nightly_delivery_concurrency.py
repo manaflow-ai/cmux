@@ -206,6 +206,31 @@ jobs:
         assert any("job publish: group 'fixed'" in p for p in found) and len(found) == 1, found
 
 
+def test_the_check_reads_triggers_and_inputs_per_event() -> None:
+    import tempfile
+
+    def check(text: str) -> list[str]:
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "nightly-sample.yml"
+            path.write_text(text, encoding="utf-8")
+            return findings(path, {})
+
+    job = "jobs:\n  a:\n    runs-on: x\n    concurrency:\n      group: {group}\n"
+    # Required for workflow_call, optional for workflow_dispatch: a dispatch can leave it empty.
+    mixed = ("on:\n  workflow_call:\n    inputs:\n      build:\n        required: true\n"
+             "  workflow_dispatch:\n    inputs:\n      build:\n        required: false\n")
+    assert check(mixed + job.format(group="release-${{ inputs.build }}"))
+    assert not check(mixed.replace("required: false", "required: true") + job.format(group="release-${{ inputs.build }}"))
+    # A boolean input is a control, not an identity, whatever its name.
+    boolean = "on:\n  workflow_dispatch:\n    inputs:\n      force_build:\n        type: boolean\n"
+    assert check(boolean + job.format(group="release-${{ inputs.force_build || github.run_id }}"))
+    # An indentless trigger list is read; workflow_run's id is empty on push.
+    assert check("on:\n- push\n- workflow_dispatch\n" + job.format(group="r-${{ github.event.workflow_run.id }}"))
+    # The usual PR-or-push SHA is keyed on both events.
+    assert not check("on:\n  pull_request:\n  push:\n"
+                     + job.format(group="c-${{ github.event.pull_request.head.sha || github.sha }}"))
+
+
 def test_newest_wins_jobs_take_no_concurrency_group() -> None:
     for name, jobs in NO_CONCURRENCY_GROUP.items():
         document = load(WORKFLOWS / name)
@@ -288,6 +313,7 @@ if __name__ == "__main__":
     test_delivery_groups_are_keyed_per_run_or_payload()
     test_the_shared_group_check_tells_keyed_groups_from_fixed_ones()
     test_the_check_reads_every_concurrency_form_in_a_workflow()
+    test_the_check_reads_triggers_and_inputs_per_event()
     test_newest_wins_jobs_take_no_concurrency_group()
     test_delivery_coalescers_have_fixed_backstops_and_non_cancelling_groups()
     test_nightly_push_runs_never_share_a_build_group()
