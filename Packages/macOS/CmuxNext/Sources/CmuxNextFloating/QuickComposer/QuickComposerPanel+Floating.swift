@@ -56,10 +56,14 @@ extension QuickComposerPanel {
 
     /// Moves and resizes to `target` on the overlays gate (never `setFrame(_:display:animate:)`,
     /// whose animation blocks the main thread); hidden (the chat moved to a tab), at once: a late
-    /// animation would size the next composer. The page keeps its size and top edge until the
-    /// frame lands, then resizes once (chrome-parity p03-rendering-105).
+    /// animation would size the next composer. With ``holdsContentInMotion`` the page keeps its
+    /// size and top edge until the frame lands, then resizes once (chrome-parity p03-rendering-105);
+    /// without it the page follows the panel's size on every frame.
     private func animateFrame(to target: CGRect) {
         guard isVisible else { return setFrameNow(target) }
+        guard holdsContentInMotion else {
+            return Motion.overlays.animateTimed(.panel, in: contentView) { animator().setFrame(target, display: true) }
+        }
         holdContentSize()
         Motion.overlays.animateTimed(.panel, in: contentView, { animator().setFrame(target, display: true) },
                                      completion: { [weak self] in self?.releaseContentSize() })

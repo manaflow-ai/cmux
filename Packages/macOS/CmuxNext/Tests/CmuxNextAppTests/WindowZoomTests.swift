@@ -109,14 +109,33 @@ import Testing
         #expect(!windows.isFrameAnimating(window), "a late completion after the close reopened a hold")
     }
 
-    /// The zoom itself holds its window from the press to its landing, and no longer.
+    /// Feature `windowFrameAnimationHoldsContent` on: the zoom itself holds its window from the
+    /// press to its landing, and no longer.
     @Test(.enabled(if: NSScreen.main != nil, "zooming needs a screen: run on a GUI host")) func aZoomHoldsItsWindowsContentUntilItLands() throws {
         let (window, start) = try shownWindow()
         defer { window.close() }
+        window.zoomHoldsContent = true
         window.zoom(nil)
         #expect(Motion.holdsContentResize(window), "the zoom's steps resize the terminals")
         runUntil { !Motion.holdsContentResize(window) }
         #expect(!Motion.holdsContentResize(window), "the zoom held its window's grids after it landed")
+        #expect(window.frame.width > start.width, "the zoom did not land")
+    }
+
+    /// Feature `windowFrameAnimationHoldsContent` off (its default): a zoom holds nothing, so each
+    /// step's terminal grid goes to the daemon on the next frame, as before the hold existed.
+    @Test(.enabled(if: NSScreen.main != nil, "zooming needs a screen: run on a GUI host")) func withTheHoldOffAZoomResizesTerminalsLive() throws {
+        let (window, start) = try shownWindow()
+        defer { window.close() }
+        #expect(!window.zoomHoldsContent, "the hold is on by default")
+        let coordinator = ResizeCoordinator()
+        let terminal = Terminal()
+        window.zoom(nil)
+        #expect(!Motion.holdsContentResize(window), "the zoom held its window's grids with the feature off")
+        coordinator.submit(terminal, size: CellSize(cols: 130, rows: 40), window: window)
+        while coordinator.tick() {}
+        #expect(terminal.applied == [CellSize(cols: 130, rows: 40)], "a mid-zoom grid waited for the landing: \(terminal.applied)")
+        runUntil { window.frame.width > start.width + 1 && window.isZoomed }
         #expect(window.frame.width > start.width, "the zoom did not land")
     }
 }

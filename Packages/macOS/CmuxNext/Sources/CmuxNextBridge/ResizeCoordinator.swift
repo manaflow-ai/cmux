@@ -32,9 +32,9 @@ public final class ResizeCoordinator {
     private var targets: [ObjectIdentifier: any ResizeTarget] = [:]
     private var windows: [ObjectIdentifier: WeakWindow] = [:]
     private var waited: [ObjectIdentifier: Int] = [:]
-    /// Whether sizes in a window wait: its full screen enter or exit, or a frame
-    /// animation cmux started on it (a Zoom, the floating chat's fold;
-    /// `Motion.holdsContentResize(_:)`). AppKit animates a snapshot to the
+    /// Whether sizes in a window wait: its full screen enter or exit, or, with the
+    /// feature `windowFrameAnimationHoldsContent`, a frame animation cmux started on
+    /// it (a Zoom, the floating chat's fold; `Motion.holdsContentResize(_:)`). AppKit animates a snapshot to the
     /// final size in full screen, and steps the frame in a Zoom; each
     /// in-between size the daemon applied was a PTY reflow and a rebuilt
     /// screen for nothing, on the main thread the animation needs

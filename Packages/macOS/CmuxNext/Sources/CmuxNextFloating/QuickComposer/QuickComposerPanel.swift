@@ -18,12 +18,17 @@ public final class QuickComposerPanel: NSPanel, QuickComposerWindow, NSWindowDel
     var expandedHeight: CGFloat?
     let frames = FloatingChatFrames(defaults: .standard)
     let grip = FloatingChatGrip()
+    /// Whether the page keeps its size until a frame animation lands (feature
+    /// `windowFrameAnimationHoldsContent`); false, it follows the panel's size on every frame.
+    let holdsContentInMotion: Bool
     /// The page held at its size while the frame animates (`QuickComposerPanel+Floating`).
     var frameHold = FloatingChatFrameHold()
     /// The page the panel shows (`present`), nil before the first.
     var hostedContent: NSView? { surface.contentView.subviews.first }
 
-    public init() {
+    /// - Parameter holdsContentInMotion: The app's feature `windowFrameAnimationHoldsContent`.
+    public init(holdsContentInMotion: Bool = false) {
+        self.holdsContentInMotion = holdsContentInMotion
         super.init(
             contentRect: NSRect(origin: .zero, size: Self.size),
             styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],

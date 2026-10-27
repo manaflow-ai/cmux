@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextFloating
 
 extension AppServices {
@@ -18,7 +19,7 @@ extension AppServices {
                 chat.model.onListProjects = { query in await projects.listProjects(query) }
                 return chat
             },
-            makeWindow: { QuickComposerPanel() },
+            makeWindow: { [features = self.features] in QuickComposerPanel(holdsContentInMotion: features.isEnabled(.windowFrameAnimationHoldsContent)) },
             openInWindow: { [weak self] session in self?.openQuickChat(session: session) ?? false },
             startInBackground: { [weak self] start in await self?.startQuickChatInBackground(start) ?? false }, context: { [weak self] in await FloatingChatContext.focused(in: self) },
             mainWork: mainWork
