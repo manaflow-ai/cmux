@@ -834,10 +834,12 @@ impl DaemonServices {
         let path = mux_socket.as_ref().ok_or_else(|| {
             ServicesError::Unavailable("mux control socket is not configured".into())
         })?;
-        let socket = connect_owned_unix_socket(path).await?;
+        let (reader, writer) =
+            tokio::time::timeout(MUX_BRIDGE_HELLO_TIMEOUT, open_mux_bridge(path))
+                .await
+                .map_err(|_| ServicesError::Remote("mux bridge hello timed out".into()))??;
         let stream = Arc::new(stream);
         send_opened(&stream, Lane::Interactive).await?;
-        let (reader, writer) = socket.into_split();
         pump_mux_server_with_budget(stream, reader, writer, upload_budget).await
     }
 
@@ -855,6 +857,73 @@ impl DaemonServices {
             .await?;
         Ok(())
     }
+}
+
+/// The daemon capability that says it takes [`BRIDGE_HELLO_LINE`].
+#[cfg(unix)]
+const BRIDGE_HELLO_CAPABILITY: &str = "bridge-hello-v1";
+
+/// The remote end's first line on the local mux socket: it reads the
+/// daemon's frames by header (`bridge-frames-v1`), so the daemon may grant
+/// the far client frames, never descriptors (cmux-tui-core
+/// server/client_hello.rs; spec/transports.md "Framed IPC grants").
+#[cfg(unix)]
+const BRIDGE_HELLO_LINE: &[u8] = b"{\"cmd\":\"bridge-hello\",\"features\":[\"bridge-frames-v1\"]}\n";
+
+/// Longest `identify` or `bridge-hello` reply the remote end reads.
+#[cfg(unix)]
+const MAX_BRIDGE_HELLO_REPLY_BYTES: usize = 1024 * 1024;
+
+#[cfg(unix)]
+const MUX_BRIDGE_HELLO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Connects the remote end of the mux bridge to the local daemon and says
+/// it is a bridge that reads frames. A daemon that predates `bridge-hello`
+/// would take it as the connection's first line and close the far client's
+/// hello window, so an `identify` on its own connection asks first.
+#[cfg(unix)]
+async fn open_mux_bridge(
+    path: &std::path::Path,
+) -> Result<
+    (BufReader<tokio::net::unix::OwnedReadHalf>, tokio::net::unix::OwnedWriteHalf),
+    ServicesError,
+> {
+    let takes_hello = {
+        let (reader, mut writer) = connect_owned_unix_socket(path).await?.into_split();
+        writer.write_all(b"{\"id\":1,\"cmd\":\"identify\"}\n").await?;
+        let identify = read_bridge_hello_reply(&mut BufReader::new(reader)).await?;
+        identify
+            .pointer("/data/capabilities")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|capabilities| {
+                capabilities.iter().any(|name| name.as_str() == Some(BRIDGE_HELLO_CAPABILITY))
+            })
+    };
+    let (reader, mut writer) = connect_owned_unix_socket(path).await?.into_split();
+    let mut reader = BufReader::new(reader);
+    if takes_hello {
+        writer.write_all(BRIDGE_HELLO_LINE).await?;
+        // A refusal (a phone host's lane, an unverified peer) leaves the
+        // connection a plain bridge: the far client gets streams only.
+        read_bridge_hello_reply(&mut reader).await?;
+    }
+    Ok((reader, writer))
+}
+
+#[cfg(unix)]
+async fn read_bridge_hello_reply<R>(reader: &mut R) -> Result<serde_json::Value, ServicesError>
+where
+    R: tokio::io::AsyncBufRead + Unpin,
+{
+    let mut line = Vec::new();
+    let size = reader.take(MAX_BRIDGE_HELLO_REPLY_BYTES as u64 + 1).read_until(b'\n', &mut line).await?;
+    if size == 0 {
+        return Err(ServicesError::Remote("mux closed before the bridge hello reply".into()));
+    }
+    if size > MAX_BRIDGE_HELLO_REPLY_BYTES || line.last() != Some(&b'\n') {
+        return Err(ServicesError::Remote("mux bridge hello reply exceeds size limit".into()));
+    }
+    Ok(serde_json::from_slice(&line)?)
 }
 
 /// Validated `terminal-bytes-v1` open metadata.
@@ -1645,6 +1714,10 @@ impl From<crate::mux_input::MuxInputError> for ServicesError {
     }
 }
 
+#[cfg(all(test, unix))]
+#[path = "services_bridge_tests.rs"]
+mod bridge_tests;
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -1667,7 +1740,7 @@ mod tests {
     use crate::service::{ServiceMultiplexer, SessionEndpoint};
     use crate::session::ReceivedFrame;
 
-    struct TestEndpoint {
+    pub(super) struct TestEndpoint {
         outgoing: mpsc::Sender<ReceivedFrame>,
         incoming: Mutex<mpsc::Receiver<ReceivedFrame>>,
         sequence: AtomicU64,
@@ -1705,7 +1778,7 @@ mod tests {
         }
     }
 
-    fn endpoint_pair() -> (Arc<TestEndpoint>, Arc<TestEndpoint>) {
+    pub(super) fn endpoint_pair() -> (Arc<TestEndpoint>, Arc<TestEndpoint>) {
         let (left_tx, left_rx) = mpsc::channel(64);
         let (right_tx, right_rx) = mpsc::channel(64);
         let (left_generation, _) = watch::channel(0);
@@ -3029,7 +3102,7 @@ mod tests {
             let input = input.clone();
             let flood = flood.clone();
             tokio::spawn(async move {
-                let (mut socket, _) = mux_listener.accept().await.unwrap();
+                let mut socket = bridge_tests::accept_bridge(&mux_listener, true).await;
                 let mut received = vec![0_u8; input.len()];
                 socket.read_exact(&mut received).await.unwrap();
                 assert_eq!(received, input);
