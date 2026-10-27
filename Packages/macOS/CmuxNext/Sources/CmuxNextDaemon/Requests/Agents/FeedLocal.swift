@@ -101,4 +101,8 @@ public struct FeedLocalListRequest: DaemonRequest {
         self.terminalId = terminalId
         self.unread = unread
     }
+
+    enum CodingKeys: String, CodingKey {
+        case state, terminalId = "terminal_id", unread
+    }
 }

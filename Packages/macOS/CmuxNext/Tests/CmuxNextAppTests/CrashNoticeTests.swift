@@ -36,6 +36,15 @@ struct CrashNoticeTests {
         #expect(!LaunchRecovery.watchesForLoop(previous: try Self.previous(signal: nil)))
     }
 
+    /// The feature safe-mode crash streak counts every run that ended without a clean exit or a requested
+    /// quit, as Chrome's clean-exit beacon does: a crash, and a kill with no handler running.
+    @Test func everyUncleanEndCountsTowardTheFeatureCrashStreak() throws {
+        #expect(LaunchRecovery.countsTowardCrashStreak(previous: try Self.previous(signal: "\(SIGSEGV)\n")))
+        #expect(LaunchRecovery.countsTowardCrashStreak(previous: try Self.previous(signal: nil)))
+        #expect(!LaunchRecovery.countsTowardCrashStreak(previous: try Self.previous(signal: "\(SIGTERM)\n")))
+        #expect(!LaunchRecovery.countsTowardCrashStreak(previous: nil), "a normal quit removes the marker")
+    }
+
     /// What the next launch reads from the files a previous run left:
     /// `run.json` still there (no quit removed it), `run.signal` and
     /// `run.exception`.

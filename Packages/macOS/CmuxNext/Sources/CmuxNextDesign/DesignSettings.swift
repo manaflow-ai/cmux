@@ -115,6 +115,16 @@ public final class DesignSettings {
     /// Feature `frameRateClasses`, set once at launch by the composition root: looping indicators
     /// ask the render server for their own rate (``MotionPolicy/pacesLoops``).
     public var loopsFollowFrameRate = false
+    /// Energy Saver is on (`EnergyPolicy.isSaver`): ambient motion loops hold still
+    /// (``MotionPolicy/energySaver``). The composition root writes it from the app's
+    /// `EnergyPolicySource`; it stays false while feature `energySaver` is off. Raises
+    /// ``AppearanceSignals/Signal/motion`` like the speed, so hosts outside Observation follow.
+    public var energySaver = false {
+        didSet {
+            guard energySaver != oldValue else { return }
+            signals.designChanged([.motion])
+        }
+    }
     /// `ui.paneAnimations`: pane layout changes spring when true (see
     /// `Motion.animatesPaneLayout`); on by default.
     public var paneAnimations = true

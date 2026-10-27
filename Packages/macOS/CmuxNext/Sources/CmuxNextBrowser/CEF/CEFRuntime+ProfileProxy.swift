@@ -33,13 +33,7 @@ extension CEFRuntime {
         let key = storage.contextKey(for: profile, machineKey: nil, offTheRecord: false)
         let proxy = profileProxies[profile]
         let stored: CEFShimAnswer<Int32> = if changed {
-            sendAsync { shim in
-                key.withCString { path in
-                    (proxy?.chromiumServer ?? "").withCString { server in
-                        (proxy?.chromiumBypassList ?? "").withCString { bypass in shim.setContextProxyServer(path, server, bypass) }
-                    }
-                }
-            }
+            sendAsync { shim in shim.setContextProxyServer(key, proxy?.chromiumServer ?? "", proxy?.chromiumBypassList ?? "") }
         } else {
             .now(1)
         }
@@ -94,9 +88,14 @@ extension CEFRuntime {
             guard pending == 0, let self else { return }
             // A newer proxy of the profile (its own check) supersedes this one's side effects.
             let current = profileProxyChecks[profile] === check
+            // No answer (a failure, the deadline, the host gone): the host may not hold the proxy.
+            let unanswered = storedAnswer == nil || (state != nil && stateAnswer == nil)
             check.gate = profileProxyGate(profile, stored: storedAnswer ?? 0, state: state == nil ? nil : stateAnswer ?? -1,
                                           changed: changed && current)
-            if check.gate == .refused, current { profileProxyChecks[profile] = nil }
+            if check.gate == .refused, current {
+                profileProxyChecks[profile] = nil
+                if unanswered { unappliedProfileProxies.insert(profile) }
+            }
             let waiters = check.waiters
             check.waiters.removeAll()
             for waiter in waiters { waiter(check.gate == .open) }

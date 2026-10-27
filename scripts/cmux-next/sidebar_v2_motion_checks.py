@@ -4,11 +4,21 @@ Shared by sidebar-v2-drag-record.py (live) and the proof page builder
 (offline over motion.json). Each frame is {t, lift, work_ms, views:
 {key: [x, y, w, h, opacity?]}, revision?, settling?} from
 `debug.sidebar_rows {"motion": "stop"}`.
+
+The drag work percentiles and the cadence (the median frame gap) are scripts/perf-lab/perf_stats.py's pct (linear interpolation, the one the perf lab judges
+with), loaded by file path so the module also imports under `python3 -I`.
 """
-import statistics
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # its siblings, also under `python3 -I`
+from bench_launch import PERF_LAB, load_by_path  # noqa: E402
+
+perf_stats = load_by_path("perf_stats", os.path.join(PERF_LAB, "perf_stats.py"))
 
 JUMP_PT = 8.0
 SETTLE_PT = 1.0
+WORK_P95_MS = 4.0  # the `work` check: the main-thread drag update p95 stays under it (stories.d/sidebar-drag.json refers to it)
 
 
 def rect(view):
@@ -43,6 +53,12 @@ def y_step(frames, i, ya, yb):
     return min(doc, screen, lagged)
 
 
+def drag_work(frames):
+    """The main-thread drag update time of each frame that did one (work_ms > 0), in frame order: the samples of the
+    `work` check and of the recorder's result-v1 series."""
+    return [f["work_ms"] for f in frames if f["work_ms"] > 0]
+
+
 def analyse(frames, dragged, dropped_key=None, refused=False, hz=120):
     worst, worst_at, jumps, block_worst, raw_worst = 0.0, None, [], 0.0, 0.0
     scroll_worst = 0.0
@@ -68,10 +84,11 @@ def analyse(frames, dragged, dropped_key=None, refused=False, hz=120):
                 worst, worst_at = step, (key, round(b["t"] - frames[0]["t"], 3))
             if step > JUMP_PT:
                 jumps.append({"key": key, "t": round(b["t"] - frames[0]["t"], 3), "step": round(step, 1)})
-    work = sorted(f["work_ms"] for f in frames if f["work_ms"] > 0)
-    p95 = work[int(len(work) * 0.95)] if work else 0
+    work = drag_work(frames)
+    p95 = perf_stats.pct(work, 0.95) if work else 0
+    p99 = perf_stats.pct(work, 0.99) if work else 0
     gaps = [b["t"] - a["t"] for a, b in zip(frames, frames[1:])]
-    cadence = statistics.median(gaps) * 1000 if gaps else 0
+    cadence = perf_stats.pct(gaps, 0.5) * 1000 if gaps else 0  # the median
     lifted = [f for f in frames if f["lift"]]
     if lifted and not dropped_key:
         # The dropped item: a key that shows after the drop and not at the start, else the dragged row itself.
@@ -161,12 +178,13 @@ def analyse(frames, dragged, dropped_key=None, refused=False, hz=120):
     result = {"frames": len(frames), "cadence_ms": round(cadence, 2), "max_step_pt": round(worst, 1), "raw_max_step_pt": round(raw_worst, 1), "max_step_at": worst_at, "jumps": jumps[:20],
               "jump_count": len(jumps), "block_height_max_step_pt": round(block_worst, 1),
               "scroll_max_step_outside_drag_pt": round(scroll_worst, 1), "drag_work_p95_ms": round(p95, 2),
+              "drag_work_p99_ms": round(p99, 2),
               "frame_gaps_over_1_5x": sum(1 for g in gaps if g > 1.5 / hz), "settle": settle, "echo": echo, "refused": refused,
               "dragged": sorted(dragged)}
     # Nothing recorded, no lifted card or no dropped item to follow is a failed proof, not a pass.
     recorded = len(frames) >= 10 and bool(lifted)
     result["recorded"] = recorded
-    result["ok"] = bool(recorded and not jumps and block_worst <= JUMP_PT and p95 < 4 and settle is not None and settle["ok"]
+    result["ok"] = bool(recorded and not jumps and block_worst <= JUMP_PT and p95 < WORK_P95_MS and settle is not None and settle["ok"]
                         and (echo is None or echo["ok"]))
     return result
 

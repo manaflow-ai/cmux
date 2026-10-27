@@ -63,35 +63,43 @@ extension CEFRuntime {
     func whenAnswered<Value: CEFHostReplyValue>(_ sent: CEFShimAnswer<Value>, label: String,
                                                 timeout: Duration = CEFRuntime.siteReplyTimeout,
                                                 then: @escaping (Value?) -> Void) {
+        whenSettled(sent, label: label, timeout: timeout) { then(try? $0.get()) }
+    }
+
+    /// As ``whenAnswered(_:label:timeout:then:)``, with why no answer came, for a caller that must
+    /// tell an answer that cannot come (``CEFHostReplyError/hostGone``, ``CEFHostReplyError/unsent``)
+    /// from a passed deadline (``CEFHostReplyError/timedOut(_:_:)``: the host may still apply the op,
+    /// as a mojo message still runs after its caller stopped waiting).
+    func whenSettled<Value: CEFHostReplyValue>(_ sent: CEFShimAnswer<Value>, label: String,
+                                               timeout: Duration = CEFRuntime.siteReplyTimeout,
+                                               then: @escaping (Result<Value, CEFHostReplyError>) -> Void) {
         switch sent {
         case .now(let value):
-            then(value)
+            then(.success(value))
         case .unsent:
-            then(nil)
+            then(.failure(.unsent))
         case .later(let token):
-            guard let replies = hostStart?.replies else { return then(nil) }
+            guard let replies = hostStart?.replies else { return then(.failure(.unsent)) }
             replies.onReply(token, label: label, timeout: timeout, deadlines: waitDeadlines) { [logger] reply in
                 if case .failure(let error) = reply {
                     logger.notice("Chromium Host \(label, privacy: .public): \(String(describing: error), privacy: .public)")
                 }
-                then(try? Self.decode(reply.get()))
+                then(Self.decoded(reply))
             }
         }
-    }
-
-    /// The host exited (task 091 calls this in the exit turn): every reply still awaited fails with
-    /// `hostGone`, and every profile proxy is handed to the next host again before a page of its
-    /// profile opens. A host's verdict on a proxy says nothing about the host after it, whose
-    /// Chromium context starts without the proxy (#24432 fails closed).
-    func hostGone() {
-        hostStart?.replies.failAll(.hostGone)
-        profileProxyChecks.removeAll()
-        unappliedProfileProxies.formUnion(profileProxies.keys)
     }
 
     private static func tabError(_ error: CEFHostReplyError) -> BrowserTabError {
         if case .timedOut(let what, let limit) = error { return .timedOut("Chromium Host \(what) (\(limit))") }
         return .closed
+    }
+
+    private static func decoded<Value: CEFHostReplyValue>(_ reply: Result<[UInt8], CEFHostReplyError>) -> Result<Value, CEFHostReplyError> {
+        do throws(CEFHostReplyError) {
+            return .success(try decode(reply.get()))
+        } catch {
+            return .failure(error)
+        }
     }
 
     /// One value from a REPLY body: the op's result and nothing after it.

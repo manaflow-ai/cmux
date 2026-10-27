@@ -164,6 +164,8 @@ public nonisolated enum ActionCatalog {
         PaletteKeyActionCatalog.self,
         ImportActionCatalog.self,
         HangReportsActionCatalog.self,
+        EnergyActionCatalog.self,
+        MemorySaverActionCatalog.self,
     ]
 
     private static func makeAll() -> [ActionDescriptor] {
@@ -208,6 +210,36 @@ extension ActionRegistry {
                                 causes: ObservationCauses) -> ActionRegistry {
         let registry = standard(runTiming: runTiming, turnObserver: turnObserver)
         registry.causes = causes
+        return registry
+    }
+
+    /// ``standard(runTiming:turnObserver:causes:)`` on the app's one main-thread scheduler: handler
+    /// runs take their origin's cause in its ``MainWorkScheduler/causes``, and a person's run
+    /// completes as its userBlocking work (``ActionRegistry/mainWork``).
+    public static func standard(runTiming: any ActionRunTiming, turnObserver: (any ActionRunObserver)? = nil,
+                                mainWork: MainWorkScheduler) -> ActionRegistry {
+        let registry = standard(runTiming: runTiming, turnObserver: turnObserver, causes: mainWork.causes)
+        registry.mainWork = mainWork
+        return registry
+    }
+
+    /// ``standard(runTiming:turnObserver:mainWork:)`` seeded with the catalog `launch` built off the main
+    /// thread: the App's registry, whose read of the catalog ``ActionCatalogLaunch/descriptors()`` times.
+    ///
+    /// - Parameters:
+    ///   - launch: The launch's catalog build.
+    ///   - runTiming: Times every run (the App passes ``SignpostActionRunTiming``).
+    ///   - turnObserver: Hears the end of every outermost perform turn, or nil.
+    ///   - mainWork: The app's one main-thread scheduler (``ActionRegistry/mainWork``), or nil (tests).
+    @MainActor
+    public static func standard(launch: ActionCatalogLaunch, runTiming: any ActionRunTiming,
+                                turnObserver: (any ActionRunObserver)? = nil, mainWork: MainWorkScheduler? = nil) -> ActionRegistry {
+        let registry = ActionRegistry(catalog: launch.descriptors(), aliases: ActionCatalog.legacyAliases, runTiming: runTiming,
+                                      turnObserver: turnObserver)
+        if let mainWork {
+            registry.causes = mainWork.causes
+            registry.mainWork = mainWork
+        }
         return registry
     }
 }

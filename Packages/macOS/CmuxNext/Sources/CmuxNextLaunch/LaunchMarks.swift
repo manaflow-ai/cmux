@@ -1,4 +1,4 @@
-import Darwin
+public import CmuxNextTrace
 public import Foundation
 
 /// The launch marks of this process (`debug.timings`' `launch_ms_since_process_start`): each name once, in
@@ -13,16 +13,16 @@ public struct LaunchMarks: Sendable {
 
     public init() {}
 
-    /// Sends every later first mark to `trace` too, after a `process_start` mark at `processStart`. Call it
-    /// before the first mark.
-    public mutating func attach(_ trace: StartupTrace, processStart: Date) {
+    /// Sends every later first mark to `trace` too, after a `process_start` mark at `processStart`'s trace-clock
+    /// time. Call it before the first mark.
+    public mutating func attach(_ trace: StartupTrace, processStart: LaunchClock.Instant) {
         self.trace = trace
-        trace.mark("process_start", at: Self.uptimeNanos(of: processStart))
+        trace.mark("process_start", at: processStart.uptimeNanos)
     }
 
     /// Records `name` at `date` unless it was recorded before. Returns its milliseconds since `processStart`
-    /// the first time, nil after; the caller sends the first record to the trace with ``forward(_:at:)``,
-    /// outside its lock.
+    /// the first time, nil after; the caller sends the first record to the trace with
+    /// ``forward(_:at:to:pairedWith:)``, outside its lock.
     public mutating func record(_ name: String, at date: Date, processStart: Date) -> Double? {
         guard !all.contains(where: { $0.name == name }) else { return nil }
         let ms = date.timeIntervalSince(processStart) * 1_000
@@ -30,14 +30,24 @@ public struct LaunchMarks: Sendable {
         return ms
     }
 
-    /// Sends a first mark to `trace` (nil: no trace attached).
-    public static func forward(_ name: String, at date: Date, to trace: StartupTrace?) {
-        trace?.mark(name, at: uptimeNanos(of: date))
+    /// Sends a first mark to `trace` (nil: no trace attached), on the trace clock through `pairing`
+    /// (``uptimeNanos(of:pairedWith:)``).
+    public static func forward(_ name: String, at date: Date, to trace: StartupTrace?, pairedWith pairing: LaunchClock.Instant) {
+        trace?.mark(name, at: uptimeNanos(of: date, pairedWith: pairing))
     }
 
-    /// `date` in `CLOCK_UPTIME_RAW` nanoseconds: now, less how long ago `date` was.
-    public static func uptimeNanos(of date: Date) -> UInt64 {
-        let now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
-        return now - min(now, UInt64(max(0, Date().timeIntervalSince(date)) * 1e9))
+    /// `date` on the trace clock (``TraceClock``, `CLOCK_UPTIME_RAW` nanoseconds): `pairing`'s uptime moved by
+    /// how far `date` is from `pairing`'s wall time, before or after it; a time before uptime 0 is 0.
+    ///
+    /// Every mark of a launch takes the same `pairing`, read once (the process start,
+    /// ``LaunchClock/processStart()``), as Chrome's `StartupTimeToTimeTicks` reads its `time_base` and
+    /// `trace_ticks_base` once into statics (components/startup_metric_utils/common/startup_metric_utils.cc).
+    /// So a mark's trace-clock time depends only on its date and that one read: a wall-clock step after the
+    /// pairing does not move a mark, whenever it is converted.
+    public static func uptimeNanos(of date: Date, pairedWith pairing: LaunchClock.Instant) -> UInt64 {
+        let pairedDate = Date(timeIntervalSince1970: TimeInterval(pairing.wallNanos) / 1e9)
+        let uptimeNanos = Double(pairing.uptimeNanos) + (date.timeIntervalSince(pairedDate) * 1e9).rounded()
+        guard uptimeNanos > 0 else { return 0 }
+        return uptimeNanos < 0x1p64 ? UInt64(uptimeNanos) : .max
     }
 }

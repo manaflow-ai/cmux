@@ -94,9 +94,11 @@ def host_block():
     return {**block, **host}
 
 
-def record_series(app, story, series, unit="ms", better="lower", engine="none", log=print):
-    """Writes each {metric: samples} of `series` as one result through ``app.record``. Returns {metric: path or the
-    reason it was not written}."""
+def record_series(app, story, series, unit="ms", better="lower", engine="none", log=print, targets=None):
+    """Writes each {metric: samples} of `series` as one result through ``app.record``, with the targets.json row of
+    {metric: target id} `targets` as its target_ref (a dashboard target tile reads only results that name it).
+    Returns {metric: path or the reason it was not written}."""
+    targets = targets or {}
     written = {}
     for metric, samples in series.items():
         samples = [s for s in samples if s is not None]
@@ -104,7 +106,8 @@ def record_series(app, story, series, unit="ms", better="lower", engine="none", 
             written[metric] = "no samples"
             continue
         try:
-            written[metric] = str(app.record(story, metric, unit, samples, better=better, engine=engine))
+            written[metric] = str(app.record(story, metric, unit, samples, better=better, engine=engine,
+                                             target_ref=targets.get(metric)))
         except Exception as error:  # RecordError or perf_result.ResultError: nothing was written
             written[metric] = f"not recorded: {error}"
             log(f"bench: {story}/{metric} not recorded: {error}")

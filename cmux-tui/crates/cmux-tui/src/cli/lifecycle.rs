@@ -1,6 +1,9 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::time::{Duration, Instant};
 
+use cmux_ipc::client::{
+    ClientRequest, IdentifyRequest, ReloadConfigRequest, ServerStatsRequest, ShutdownDaemonRequest,
+};
 use cmux_tui_core::platform::transport;
 use serde_json::{Value, json};
 
@@ -179,7 +182,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     };
     let mut connection = BufReader::new(stream);
     let deadline = Instant::now() + Duration::from_secs(10);
-    let identity = match exchange(&mut connection, json!({"id":1,"cmd":"identify"}), deadline) {
+    let identity = match exchange(&mut connection, IdentifyRequest::default().line(1), deadline) {
         Ok(identity) => identity,
         // A timeout is a busy session, not a foreign one: say so, or the
         // reader restarts a healthy session with another build.
@@ -285,13 +288,9 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             global.output,
         ),
         ServerAction::Stats => {
-            let supports_stats = identity
-                .get("capabilities")
-                .and_then(Value::as_array)
-                .is_some_and(|capabilities| {
-                    capabilities.iter().any(|capability| capability == "server-stats-v1")
-                });
-            match exchange(&mut connection, json!({"id":2,"cmd":"server-stats"}), deadline) {
+            let supports_stats = ServerStatsRequest::CAPABILITY
+                .is_none_or(|capability| advertises(&identity, capability));
+            match exchange(&mut connection, ServerStatsRequest::default().line(2), deadline) {
                 Ok(stats) => print_success(stats, global.output),
                 Err(ExchangeError::Rejected(_error)) if !supports_stats => local_error(
                     "server.stats_unsupported",
@@ -316,7 +315,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         }
         ServerAction::ReloadConfig => {
             let result =
-                match exchange(&mut connection, json!({"id":2,"cmd":"reload-config"}), deadline) {
+                match exchange(&mut connection, ReloadConfigRequest::default().line(2), deadline) {
                     Ok(result) => result,
                     Err(ExchangeError::Rejected(_)) => {
                         return local_error(
@@ -355,9 +354,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         }
         ServerAction::Stop { force, end_terminals, .. } => {
             if end_terminals
-                && !identity["capabilities"]
-                    .as_array()
-                    .is_some_and(|values| values.iter().any(|value| value == "terminal-reap-v1"))
+                && !advertises(&identity, ShutdownDaemonRequest::END_TERMINALS_CAPABILITY)
             {
                 return local_error(
                     "server.end_terminals_unsupported",
@@ -373,11 +370,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             // Ending hosts waits for each one to exit, so allow more time.
             let deadline =
                 if end_terminals { Instant::now() + Duration::from_secs(120) } else { deadline };
-            if force
-                && !identity["capabilities"].as_array().is_some_and(|values| {
-                    values.iter().any(|value| value == "daemon-handoff-force-v1")
-                })
-            {
+            if force && !advertises(&identity, ShutdownDaemonRequest::FORCE_CAPABILITY) {
                 return local_error(
                     "server.force_unsupported",
                     &refused_with_fix(
@@ -391,14 +384,14 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             }
             let result = match exchange(
                 &mut connection,
-                json!({
-                    "id":2,
-                    "cmd":"shutdown-daemon",
-                    "pid":pid,
-                    "generation":generation,
-                    "force":force,
-                    "end_terminals":end_terminals,
-                }),
+                ShutdownDaemonRequest {
+                    pid,
+                    generation: generation.to_owned(),
+                    force: Some(force),
+                    end_terminals: Some(end_terminals),
+                    keep_layout: None,
+                }
+                .line(2),
                 deadline,
             ) {
                 Ok(result) => result,
@@ -540,9 +533,17 @@ impl StopWait<'_> {
             };
             let mut connection = BufReader::new(stream);
             let mut id = 0_u64;
+            // A restoring owner parks a connection unread, so its reads time
+            // out until the restore ends; it drops a parked connection only
+            // at its park cap (`server/restoring.rs`). A connection closed
+            // before any of its reads timed out was read by a serving owner
+            // that ended it without an answer (its request thread died): the
+            // lifecycle exchange reports that at once, and the stop does not
+            // reconnect for its whole bound.
+            let mut parked = false;
             loop {
                 id += 1;
-                let request = json!({"id": format!("stop-wait-{id}"), "cmd": "identify"});
+                let request = IdentifyRequest::default().line(format!("stop-wait-{id}"));
                 let sent = writeln!(connection.get_mut(), "{request}")
                     .and_then(|()| connection.get_mut().flush());
                 if sent.is_err() {
@@ -562,10 +563,11 @@ impl StopWait<'_> {
                             }
                             _ => return Ok(()),
                         },
-                        Err(ExchangeError::Timeout) => {}
-                        Err(ExchangeError::Closed | ExchangeError::Transport) => {
+                        Err(ExchangeError::Timeout) => parked = true,
+                        Err(ExchangeError::Closed | ExchangeError::Transport) if parked => {
                             continue 'connect;
                         }
+                        Err(ExchangeError::Closed | ExchangeError::Transport) => return Ok(()),
                         // A refused or malformed identify: the lifecycle
                         // exchange reports it with its own codes.
                         Err(_) => return Ok(()),
@@ -855,6 +857,14 @@ enum ExchangeError {
     Rejected(String),
 }
 
+/// Whether the daemon's `identify` reply lists `capability`.
+fn advertises(identity: &Value, capability: &str) -> bool {
+    identity
+        .get("capabilities")
+        .and_then(Value::as_array)
+        .is_some_and(|capabilities| capabilities.iter().any(|value| value == capability))
+}
+
 fn exchange(
     connection: &mut BufReader<Box<dyn transport::Stream>>,
     request: Value,
@@ -1077,6 +1087,57 @@ mod tests {
 
     use super::*;
 
+    /// A socket whose owner accepts and at once closes every connection (a
+    /// daemon whose request thread died: it reads `identify` and ends the
+    /// connection without a reply). That is no owner that parks its
+    /// connections while it restores (those stay open until 32 newer ones
+    /// arrive), so `server stop` must report it at once, not reconnect for
+    /// its whole restore wait: the suite's tests whose fixture ran `server
+    /// stop` on such a daemon waited the 120 s nextest timeout.
+    #[test]
+    fn stop_wait_does_not_wait_out_an_owner_that_closes_every_connection() {
+        let dir = std::env::temp_dir().join(format!("cmux-stop-wait-close-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let socket = dir.join("s.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let stop_accepting = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let accepting = stop_accepting.clone();
+        let owner = std::thread::spawn(move || {
+            while !accepting.load(std::sync::atomic::Ordering::Acquire) {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        stream.set_nonblocking(false).unwrap();
+                        let mut line = [0u8; 256];
+                        let _ = stream.read(&mut line);
+                        drop(stream);
+                    }
+                    Err(_) => std::thread::sleep(Duration::from_millis(5)),
+                }
+            }
+        });
+        let stop = StopWait {
+            socket: &socket,
+            socket_is_derived: false,
+            session: Some("close-every-connection"),
+            limit: Duration::from_secs(30),
+            retry_flags: (false, true),
+            output: OutputMode::Quiet,
+        };
+        let started = Instant::now();
+        let waited = stop.wait_for_restore();
+        let elapsed = started.elapsed();
+        stop_accepting.store(true, std::sync::atomic::Ordering::Release);
+        owner.join().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(waited, Ok(()), "the lifecycle exchange reports the owner");
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "the stop waited {elapsed:?} for an owner that closes"
+        );
+    }
+
     #[test]
     fn rejects_invalid_session_names_before_socket_resolution() {
         assert!(!valid_session_name(""));
@@ -1296,7 +1357,7 @@ mod tests {
         let mut connection = BufReader::new(stream);
         let error = exchange(
             &mut connection,
-            json!({"id":2,"cmd":"server-stats"}),
+            ServerStatsRequest::default().line(2),
             Instant::now() + Duration::from_secs(1),
         )
         .expect_err("rejected response");

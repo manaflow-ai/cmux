@@ -3,19 +3,22 @@ public import Dispatch
 /// How much a person waits for one piece of blocking work: Chrome's `base::TaskPriority`
 /// (base/task/task_traits.h), for modules that cannot import CmuxNextWakeups.
 ///
-/// The same four levels and the same QoS as CmuxNextWakeups' `WorkPriority`; its ``MayBlockRunner``
-/// conformance maps them one to one.
+/// The same four levels as CmuxNextWakeups' `WorkPriority`; its ``MayBlockRunner`` conformance maps them one to
+/// one, so a lane item runs at `WorkPriority.qos`. ``qos`` here is the QoS of a ``ChildProcessLauncher`` spawn.
 public enum MayBlockPriority: Int, Sendable, Comparable, CaseIterable {
     /// Nobody waits for it (indexing, cache cleanup); QoS `.background`.
     case idle
     /// A person does not wait for it now (saves, automation); QoS `.utility`.
     case bestEffort
-    /// Its result shows on screen soon (an icon, a file a page shows); QoS `.default`.
+    /// Its result shows on screen soon (an icon, a file a page shows); a spawn at QoS `.default`.
     case userVisible
     /// A person waits for it right now (the result of a key, a click or an open); QoS `.userInitiated`.
     case userBlocking
 
-    /// The GCD quality of service a lane runs this level's work at, never `.userInteractive`.
+    /// The GCD quality of service a ``ChildProcessLauncher`` spawns children of this level at, never
+    /// `.userInteractive`. ``userVisible`` stays `.default`, as CmuxNextWakeups' `WorkPriority.processQoS`: a child's
+    /// priority follows what it shows (Chrome's `RenderProcessHostImpl::UpdateProcessPriority`), not the thread
+    /// pool's `kDefault` mapping, so a person's `!` command from an agent pane never competes with user-blocking work.
     public var qos: DispatchQoS {
         switch self {
         case .userBlocking: .userInitiated
@@ -64,7 +67,7 @@ public struct MayBlockCallSite: Sendable {
 /// requirements take it as a ``MayBlockCallSite``.
 ///
 /// ```swift
-/// let bytes = try await runner.runFiles(.userVisible) { try read(url) }
+/// let bytes = try await runner.runFiles(.userVisible) { permit in try Data(blockingContentsOf: url, permit) }
 /// let addresses = try await runner.runHostResolution(.userVisible) { resolve(host) }  // blockingGetaddrinfo inside
 /// runner.postFiles(.bestEffort, shutdown: .blockShutdown) { try? save(snapshot) }
 /// ```
@@ -125,5 +128,45 @@ extension MayBlockRunner {
     public func postFiles(_ priority: MayBlockPriority, shutdown: MayBlockShutdown,
                           fileID: StaticString = #fileID, line: UInt = #line, _ body: @escaping @Sendable () -> Void) {
         postFiles(priority, shutdown: shutdown, site: MayBlockCallSite(fileID: fileID, line: line), body)
+    }
+}
+
+/// The permit forms: the body gets the lane's ``BlockingPermit`` for the seams it calls
+/// (`runner.runFiles(.userVisible) { permit in try Data(blockingContentsOf: url, permit) }`).
+extension MayBlockRunner {
+    /// ``runFiles(_:shutdown:site:_:)`` at the caller's site, whose body gets the lane's ``BlockingPermit``.
+    public func runFiles<T: Sendable>(_ priority: MayBlockPriority, shutdown: MayBlockShutdown = .skipOnShutdown,
+                                      fileID: StaticString = #fileID, line: UInt = #line,
+                                      _ body: @escaping @Sendable (borrowing BlockingPermit) throws -> T) async throws -> T {
+        try await runFiles(priority, shutdown: shutdown, site: MayBlockCallSite(fileID: fileID, line: line)) {
+            try body(BlockingPermit(issuer: .lane))
+        }
+    }
+
+    /// ``runSystem(_:shutdown:site:_:)`` at the caller's site, whose body gets the lane's ``BlockingPermit``.
+    public func runSystem<T: Sendable>(_ priority: MayBlockPriority, shutdown: MayBlockShutdown = .skipOnShutdown,
+                                       fileID: StaticString = #fileID, line: UInt = #line,
+                                       _ body: @escaping @Sendable (borrowing BlockingPermit) throws -> T) async throws -> T {
+        try await runSystem(priority, shutdown: shutdown, site: MayBlockCallSite(fileID: fileID, line: line)) {
+            try body(BlockingPermit(issuer: .lane))
+        }
+    }
+
+    /// ``runHostResolution(_:shutdown:site:_:)`` at the caller's site, whose body gets the lane's ``BlockingPermit``.
+    public func runHostResolution<T: Sendable>(_ priority: MayBlockPriority, shutdown: MayBlockShutdown = .skipOnShutdown,
+                                               fileID: StaticString = #fileID, line: UInt = #line,
+                                               _ body: @escaping @Sendable (borrowing BlockingPermit) throws -> T) async throws -> T {
+        try await runHostResolution(priority, shutdown: shutdown, site: MayBlockCallSite(fileID: fileID, line: line)) {
+            try body(BlockingPermit(issuer: .lane))
+        }
+    }
+
+    /// ``postFiles(_:shutdown:site:_:)`` at the caller's site, whose body gets the lane's ``BlockingPermit``.
+    public func postFiles(_ priority: MayBlockPriority, shutdown: MayBlockShutdown,
+                          fileID: StaticString = #fileID, line: UInt = #line,
+                          _ body: @escaping @Sendable (borrowing BlockingPermit) -> Void) {
+        postFiles(priority, shutdown: shutdown, site: MayBlockCallSite(fileID: fileID, line: line)) {
+            body(BlockingPermit(issuer: .lane))
+        }
     }
 }

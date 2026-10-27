@@ -2,16 +2,20 @@ public import AppKit
 public import SwiftUI
 
 /// An `NSHostingView` around `AppSceneView` for AppKit hosts (the sidebar
-/// section provider wants an `NSView` plus a height for a width).
+/// section provider wants an `NSView` plus a height for a width). An app's
+/// page tab puts it in a `VisibilityGatedHostingView` (`AppPanePage`).
+// hosting-gate: opt-out in the sidebar: a section shows while the sidebar does, and the sidebar measures it by intrinsic size.
 public final class AppSceneHostingView: NSHostingView<AnyView> {
     public let model: AppSceneModel
     private let sceneAppearance = AppSceneAppearance(useSidebarBackground: true)
     /// Measures heights for a width without laying out this view.
     private let measurer: NSHostingController<AnyView>
 
-    public init(model: AppSceneModel, bundleDirectory: URL?) {
+    public init(model: AppSceneModel, bundleDirectory: URL?, bundleImages: AppBundleImageCache) {
         self.model = model
-        let root = AnyView(AppSceneThemedRoot(appearance: sceneAppearance) { AppSceneView(model: model, bundleDirectory: bundleDirectory) })
+        let root = AnyView(AppSceneThemedRoot(appearance: sceneAppearance) {
+            AppSceneView(model: model, bundleDirectory: bundleDirectory, bundleImages: bundleImages)
+        })
         measurer = NSHostingController(rootView: root)
         super.init(rootView: root)
         sizingOptions = [.intrinsicContentSize]

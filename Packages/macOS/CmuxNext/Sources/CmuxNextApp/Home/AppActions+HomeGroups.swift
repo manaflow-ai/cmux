@@ -70,6 +70,7 @@ extension AppActions {
             let actions = services.home.groupActions
             let shows = invocation.origin == .user
             // task-owner: the action run; a capturing caller (socket, CLI) awaits it through the registry.
+            // main-hop-allow: the action's userBlocking rest (p06 rule 2): it awaits the main-actor HomeGroupActions; post has no userBlocking class
             registry.track(result: Task { @MainActor in
                 switch await actions.create(named: members, title: title, replies: replies) {
                 case .created(let id):
@@ -132,9 +133,10 @@ extension AppActions {
     }
 
     /// The conversation Home shows, without showing it: classic Home's discarded page still names
-    /// the one it showed (`TopPageHost.homeSelection`).
+    /// the one it showed (`TopPageHost.homeSelection`), and so does the docked Home's discarded tab
+    /// (``HomeDockTab/shownConversation(_:)``).
     static func shownConversation(_ services: AppServices) -> ConversationID? {
-        guard services.home.dock.isClassic else { return HomeDockTab.view(services)?.messages?.shown }
+        guard services.home.dock.isClassic else { return HomeDockTab.shownConversation(services) }
         return services.windows.active?.topPages.homeSelection
     }
 

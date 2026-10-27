@@ -129,6 +129,8 @@ nonisolated enum CEFHostReplyError: Error, Equatable, Sendable {
     case cancelled
     /// A second wait on the same token took it over.
     case superseded
+    /// Nothing went to a host for this answer (no host attached, or the call sent no op): none can come.
+    case unsent
 }
 
 /// A reply that is one value: the op's result with no out-parameters.
@@ -139,6 +141,13 @@ nonisolated protocol CEFHostReplyValue: Sendable {
 nonisolated extension Int32: CEFHostReplyValue {
     init(reply fields: inout CEFHostReplyFields) throws(CEFHostReplyError) {
         self = try fields.int32()
+    }
+}
+
+/// An `unsigned int` result (a CAContextID).
+nonisolated extension UInt32: CEFHostReplyValue {
+    init(reply fields: inout CEFHostReplyFields) throws(CEFHostReplyError) {
+        self = try fields.uint32()
     }
 }
 

@@ -1,3 +1,5 @@
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 @testable import CmuxNextBrowser
 import Foundation
 import Testing
@@ -16,12 +18,16 @@ import Testing
     /// Runs one reveal whose callback gets `bytes` (nil: the shim's NULL), as the shim calls it.
     private func reveal(_ bytes: [UInt8]?) async throws -> (found: Bool, copies: [[UInt8]]) {
         let copies = Copies()
-        let found = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Bool, any Error>) in
-            let box = PasswordRevealBox(copy: { copies.seen.append(Array($0)) }, continuation: continuation)
-            let context = Unmanaged.passRetained(box).toOpaque()
-            guard let bytes else { return cefPasswordRevealCallback(context, nil, 0) }
+        let found = try await withOnceThrowingContinuation { (continuation: OnceContinuation<Bool, any Error>) in
+            // SAFETY: the box calls `copy` only with the callback's live buffer (PasswordRevealBox.finish).
+            let box = unsafe PasswordRevealBox(copy: { unsafe copies.seen.append(Array($0)) }, continuation: continuation)
+            // SAFETY: the +1 retain is the callback's context; PasswordRevealBox.take takes it back once.
+            let context = unsafe Unmanaged.passRetained(box).toOpaque()
+            // SAFETY: `context` is the box retained above, passed once, as the shim passes it.
+            guard let bytes else { return unsafe cefPasswordRevealCallback(context, nil, 0) }
             bytes.withUnsafeBytes { raw in
-                cefPasswordRevealCallback(context, raw.baseAddress?.assumingMemoryBound(to: CChar.self), raw.count)
+                // SAFETY: `raw` holds `raw.count` bytes for this call, as the shim's buffer does during its callback.
+                unsafe cefPasswordRevealCallback(context, raw.baseAddress?.assumingMemoryBound(to: CChar.self), raw.count)
             }
         }
         return (found, copies.seen)

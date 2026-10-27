@@ -17,7 +17,7 @@ struct BrowserHibernationPressureTests {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         let registry = ManualMemoryLevelRegistry()
-        let hibernation = BrowserHibernation(cache: services.cache, memory: registry)
+        let hibernation = BrowserHibernation(cache: services.cache, memory: registry, deadlines: services.mainDeadlines)
         hibernation.start()
         #expect(registry.liveCount == 1)
         registry.send(.warning)
@@ -44,7 +44,7 @@ struct BrowserHibernationPressureTests {
         let pressure = MemoryPressureEvents(source: kernel)
         let slices = HeldSlices()
         let coordinator = MemoryCoordinator(pressure: pressure, slicer: slices)
-        let hibernation = BrowserHibernation(cache: services.cache, memory: coordinator)
+        let hibernation = BrowserHibernation(cache: services.cache, memory: coordinator, deadlines: services.mainDeadlines)
         hibernation.start()
 
         kernel.send(.critical)

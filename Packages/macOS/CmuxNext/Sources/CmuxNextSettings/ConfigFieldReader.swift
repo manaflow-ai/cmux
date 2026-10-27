@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 import CoreGraphics
 
 /// Reads typed fields of one cmux.json object and records a diagnostic for

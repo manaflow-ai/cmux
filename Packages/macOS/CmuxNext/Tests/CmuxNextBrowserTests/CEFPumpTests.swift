@@ -1,5 +1,6 @@
 @testable import CmuxNextBrowser
 import CmuxNextCompat
+import CmuxNextMetrics
 @testable import CmuxNextSignposts
 @testable import CmuxNextTrace
 import CmuxNextWakeups
@@ -162,8 +163,12 @@ import Testing
 
     @Test func recordWorkRunCountsTheSliceAsLong() {
         var stats = CEFPumpStats()
-        #expect(!stats.recordWorkRun(elapsed: CEFPumpSchedule.timeSlice / 2))
-        #expect(stats.recordWorkRun(elapsed: CEFPumpSchedule.timeSlice))
+        let metrics = Metrics(runtime: TraceRuntime(role: .app)) // no store: records nothing
+        // recordWorkRun is mutating; #expect's expansion would call it on an immutable copy.
+        let halfSliceIsLong = stats.recordWorkRun(elapsed: CEFPumpSchedule.timeSlice / 2, metrics: metrics)
+        #expect(!halfSliceIsLong)
+        let fullSliceIsLong = stats.recordWorkRun(elapsed: CEFPumpSchedule.timeSlice, metrics: metrics)
+        #expect(fullSliceIsLong)
         #expect(stats.workRuns == 2)
         #expect(stats.longWorkRuns == 1)
         #expect(stats.workSeconds == CEFPumpSchedule.timeSlice * 1.5)

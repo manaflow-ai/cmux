@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// Where a notification came from; `notifications.sources.<source>` can
 /// override the defaults per source.

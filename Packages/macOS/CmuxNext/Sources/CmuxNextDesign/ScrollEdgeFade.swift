@@ -1,5 +1,4 @@
 public import AppKit
-import CmuxNextCompat
 
 /// Which edges of a scrolling list have content hidden beyond them.
 public nonisolated struct ScrollEdges: OptionSet, Hashable, Sendable {
@@ -52,17 +51,17 @@ public nonisolated struct ScrollEdges: OptionSet, Hashable, Sendable {
 /// matches every theme (light, dark, room, workspace) and translucent
 /// windows with no color of its own. The mask sits on this plain view
 /// because AppKit owns the scroll view's and clip view's layer masks
-/// (macOS 26 scroll-edge pockets replace them). It updates from the clip
-/// view's bounds and frame notifications and the document's frame
-/// notifications (no polling); an edge's band fades in or out with the
+/// (macOS 26 scroll-edge pockets replace them). It updates from its scroll
+/// view's ``ScrollGeometryClipView`` hooks (a scroll, a clip or document
+/// resize), as Chromium's `views::ScrollView` updates its overflow indicators
+/// from `ScrollToOffset` and `Layout` (ui/views/controls/scroll_view.cc): no
+/// notifications, no polling. An edge's band fades in or out with the
 /// Motion `hover` token (a short crossfade under Reduce Motion, per the
 /// Motion policy).
-public final class ScrollEdgeFadeView: NSView {
+public final class ScrollEdgeFadeView: NSView, ScrollGeometryClient {
     public let scrollView: NSScrollView
     public private(set) var edges: ScrollEdges = []
     private let fadeMask = CAGradientLayer()
-    private var observers: [MainActorObservation] = []
-    private weak var observedDocument: NSView?
     /// The layer size and fade fraction the mask geometry was last set for; a scroll that finds
     /// either changed (a tunable edit, a resize with no layout yet) sets the geometry again.
     private var maskedSize: CGSize = .zero
@@ -87,19 +86,15 @@ public final class ScrollEdgeFadeView: NSView {
         scrollView.autoresizingMask = [.width, .height]
         addSubview(scrollView)
         fadeMask.colors = Self.colors(for: [])
-        let clip = scrollView.contentView
-        clip.postsBoundsChangedNotifications = true
-        clip.postsFrameChangedNotifications = true
-        let center = NotificationCenter.default
-        // A scroll (the clip's bounds) changes only which edges hide content; the mask's geometry
-        // follows this view's own size, so a scroll frame touches the mask only when an edge flips.
-        observers.append(MainActorObservation(NSView.boundsDidChangeNotification, object: clip, center: center) { [weak self] in
-            self?.updateEdges()
-        })
-        observers.append(MainActorObservation(NSView.frameDidChangeNotification, object: clip, center: center) { [weak self] in
-            self?.updateFade()
-        })
+        ScrollGeometryClipView.install(in: scrollView).addClient(self)
         updateFade(animated: false)
+    }
+
+    /// A scroll changes only which edges hide content; the mask's geometry follows this view's own
+    /// size, so a scroll frame touches the mask only when an edge flips. A clip or document resize
+    /// re-reads everything.
+    public func scrollGeometryDidChange(_ change: ScrollGeometryChange) {
+        if change.contains(.resized) { updateFade() } else { updateEdges() }
     }
 
     @available(*, unavailable)
@@ -158,7 +153,6 @@ public final class ScrollEdgeFadeView: NSView {
     /// Re-reads the scroll position.
     public func updateFade(animated: Bool = true) {
         guard let layer else { return }
-        observeDocument(scrollView.documentView)
         let next = Self.hiddenEdges(of: scrollView)
         let shown = shownRect(in: layer.bounds, topDown: Self.rendersTopDown(layer))
         let fade = Self.fadeFraction(height: shown.height)
@@ -182,7 +176,6 @@ public final class ScrollEdgeFadeView: NSView {
     func updateEdges() {
         guard let layer, layer.mask === fadeMask, layer.bounds.size == maskedSize,
               Self.fadeFraction(height: shownRect(in: layer.bounds, topDown: true).height) == maskedFraction else { return updateFade() }
-        observeDocument(scrollView.documentView)
         setEdges(Self.hiddenEdges(of: scrollView), animated: true)
     }
 
@@ -203,14 +196,5 @@ public final class ScrollEdgeFadeView: NSView {
         edges = next
         // The band's opacity fades; geometry above never animates.
         Motion.feedback.transaction(animated ? .hover : nil) { fadeMask.colors = Self.colors(for: next) }
-    }
-
-    private func observeDocument(_ document: NSView?) {
-        guard let document, document !== observedDocument else { return }
-        observedDocument = document
-        document.postsFrameChangedNotifications = true
-        observers.append(MainActorObservation(NSView.frameDidChangeNotification, object: document) { [weak self] in
-            self?.updateFade()
-        })
     }
 }

@@ -32,6 +32,7 @@ final class BrowserPromptDialogs {
         bar.isHidden = true
         if shown?.prompt == ObjectIdentifier(prompt) { return }
         dismissShown()
+        // visibility-walk-allow: a tab dialog attaches to the view AppKit shows; a hidden tab's dialog presents when the chrome renders its prompt on show
         guard view.window != nil, !view.isHiddenOrHasHiddenAncestor else { return }
         let key = ObjectIdentifier(prompt)
         let id = center.present(spec, in: .tab(view)) { [weak self, weak prompt] answer in

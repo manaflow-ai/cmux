@@ -11,12 +11,11 @@ public import Foundation
 /// again (reopen, archive and restore, delete and restore, a relaunch or a crash) gets them back.
 /// The page writes its chat's chips once they settle (`chat.draftAttachments`) and reads them when
 /// the chat shows (`chat.draftAttachments.get`); sending or removing the last chip forgets them.
+/// The App's one store reaches each page's provider by init (``AgentPaneChatStores``).
 @MainActor
 public final class AgentPaneDraftAttachments {
     public static let directoryName = "agent-draft-attachments"
     nonisolated static let listName = "draft.json"
-    /// The app's store; nil keeps no chips (a test host, the gallery).
-    public static var shared: AgentPaneDraftAttachments?
     /// The most recently written chats are kept.
     nonisolated static let limit = 100
     /// One chat's files: a composer full of images (10 of at most 5 MB, `attachments.ts`) fits.

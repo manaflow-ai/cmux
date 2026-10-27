@@ -52,4 +52,8 @@ public struct UndoLayoutRequest: DaemonRequest {
         self.revision = revision
         self.confirmClose = confirmClose
     }
+
+    enum CodingKeys: String, CodingKey {
+        case pane, revision, confirmClose = "confirm_close"
+    }
 }

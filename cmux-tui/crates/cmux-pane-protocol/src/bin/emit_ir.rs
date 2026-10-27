@@ -63,7 +63,7 @@ fn main() -> ExitCode {
     for (relative, text) in files {
         let path = root.join(relative);
         if check {
-            if std::fs::read_to_string(&path).ok().as_deref() != Some(text.as_str()) {
+            if cmux_blocking::fs::read_to_string(&path).ok().as_deref() != Some(text.as_str()) {
                 eprintln!("drift: {} differs from the generated file", path.display());
                 drift = true;
             }
@@ -81,9 +81,9 @@ fn main() -> ExitCode {
 
 fn write(path: &Path, text: &str) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
+        cmux_blocking::fs::create_dir_all(parent)?;
     }
-    std::fs::write(path, text)
+    cmux_blocking::fs::write(path, text)
 }
 
 fn usage() -> ExitCode {

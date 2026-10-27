@@ -29,7 +29,7 @@ extension MobileIrxHost {
         let wake = endpointWake
         let clock = clock
         endpointTask = Task { [weak self] in
-            // wakeup-allow: each failed activation waits in RetryWake (capped backoff, then relay-state events only)
+            // wakeup-allow: backoff: each failed activation waits in RetryWake (capped backoff, then relay-state events only)
             while !Task.isCancelled {
                 guard let self, let cache = await self.cachedState else { return }
                 do {
@@ -95,7 +95,7 @@ extension MobileIrxHost {
         let judgment = admission.judgment()
         acceptTask = Task { [weak self] in
             var accepted = false
-            // wakeup-allow: awaits the next inbound connection; nil ends the loop (restart is paced by acceptRetry)
+            // wakeup-allow: bounded: awaits the next inbound connection; nil ends the loop (restart is paced by acceptRetry)
             while !Task.isCancelled {
                 guard let inbound = await supervisor.acceptNextInbound() else {
                     await self?.acceptLoopEnded(acceptedAny: accepted)
@@ -134,6 +134,7 @@ extension MobileIrxHost {
             phase = .failed("relay endpoint unavailable")
             return
         }
+        // timer-class-allow: MobileIrxHost is an actor; an off-main deadline is DemandTimer's own use, nothing runs on main
         let timer = DemandTimer(owner: "MobileIrxHost.acceptRestart", clock: clock)
         acceptRestart = timer
         timer.schedule(after: delay) { [weak self] in await self?.restartAfterAcceptEnded(timer) }
@@ -191,6 +192,7 @@ extension MobileIrxHost {
         expiryTimer?.cancel()
         expiryTimer = nil
         guard let deadline = admission?.nextExpiration else { return }
+        // timer-class-allow: MobileIrxHost is an actor; an off-main deadline is DemandTimer's own use, nothing runs on main
         let timer = DemandTimer(owner: "MobileIrxHost.expiry")
         expiryTimer = timer
         timer.schedule(after: max(.zero, ContinuousClock.now.duration(to: deadline))) { [weak self] in

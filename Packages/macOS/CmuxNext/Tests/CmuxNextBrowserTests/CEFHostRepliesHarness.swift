@@ -25,12 +25,27 @@ import Testing
     static func hostRuntime() async throws -> (CEFRuntime, CEFHostStart) {
         let runtime = try inProcessRuntime()
         let host = CEFHostStart(supervisor: OneSpyHost(), open: { _ in
-            do { return .success(try CEFRemoteShim.make(symbol: HostRepliesSpy.symbol, expected: HostRepliesSpy.abi)) } catch { return .failure(.shim(error)) }
+            do throws(CEFShimLibrary.LoadError) { return .success(try CEFRemoteShim.make(symbol: HostRepliesSpy.symbol, expected: HostRepliesSpy.abi)) } catch { return .failure(.shim(error)) }
         })
         guard case .success = await host.attached() else { throw BrowserTabError.closed }
         runtime.hostStart = host
         #expect(HostRepliesSpy.replySink?.context != nil, "the attach gave the remote shim no reply sink")
         return (runtime, host)
+    }
+
+    /// A `CEFHostStart` attached to a test's spy dylib, `symbol`, whose wire entry points are
+    /// ``SpyRemoteWire``'s; `symbol` gives every other function, `cmux_remote_shim_last_reply_token`
+    /// included. Async replies resolve in its ``CEFHostStart/replies``, as the attached host's do.
+    static func attachedHost(over symbol: @escaping @Sendable (String) -> UnsafeMutableRawPointer?) async throws -> CEFHostStart {
+        let host = CEFHostStart(supervisor: OneSpyHost(), open: { _ in
+            do throws(CEFShimLibrary.LoadError) {
+                return .success(try CEFRemoteShim.make(symbol: SpyRemoteWire.symbol(over: symbol), expected: SpyRemoteWire.abi))
+            } catch {
+                return .failure(.shim(error))
+            }
+        })
+        guard case .success = await host.attached() else { throw BrowserTabError.closed }
+        return host
     }
 
     /// Moves `runtime`'s main deadline queue (the callbacks' reply deadlines) onto a rig the test fires.
@@ -104,13 +119,13 @@ import Testing
 }
 
 /// A timer the queue arms and parks; the rig fires the queue itself.
-final class ReplyIdleWakeUpTimer: MainWakeUpTimer {
+nonisolated final class ReplyIdleWakeUpTimer: MainWakeUpTimer {
     func arm(at date: UInt64, tolerance: UInt64, now: UInt64) {}
     func park() {}
 }
 
 /// The rig's uptime in ns: the queue reads it from any thread, only the test's main actor moves it.
-final class ReplyTestUptime: Sendable {
+nonisolated final class ReplyTestUptime: Sendable {
     private let value = Atomic<UInt64>(0)
 
     var now: UInt64 { value.load(ordering: .relaxed) }
@@ -125,6 +140,50 @@ final class ReplyTestUptime: Sendable {
     func attachment() async throws(ChromiumHostAttachError) -> ChromiumHostAttachment {
         ChromiumHostAttachment(controlFD: -1, remoteShim: URL(filePath: "/nonexistent/libcmux_cef_shim_remote.dylib"),
                                frameworkLocales: ["en.lproj"])
+    }
+
+    func observeHostEnds(_ ended: @escaping @MainActor () -> Void) {}
+}
+
+/// The remote shim's wire entry points over a test's spy dylib (``HostRepliesHarness/attachedHost(over:)``):
+/// the ABI id, an attach that says hello at once, a detach, a set_reply that keeps nothing and a set_ended
+/// that keeps the end callback (``endWire(of:reason:)``).
+nonisolated enum SpyRemoteWire {
+    static let abi = "spy-remote-wire-abi"
+    // crash-allow: a C string made once and never freed, read only
+    nonisolated(unsafe) private static let abiCString = strdup(abi)
+    // crash-allow: test-only spy state, written and read on the main thread (the remote shim's wire entry points run there);
+    // every attach hands the same C function, so a test's own reply table names its end by its token
+    nonisolated(unsafe) private static var endedFn: CEFRemoteShim.EndedFn?
+
+    /// The control channel ended under the remote shim (`reason`, a `cmux_remote_end_reason`), as its reader
+    /// reports a host that closed its end: the end callback runs for `replies`, the table the attach handed it.
+    @MainActor static func endWire(of replies: CEFHostReplies, reason: Int32 = 1) throws {
+        let ended = try #require(endedFn, "no attach handed the remote shim an end callback")
+        ended(try replies.replySinkToken().context, reason)
+    }
+
+    static func symbol(over spy: @escaping @Sendable (String) -> UnsafeMutableRawPointer?) -> @Sendable (String) -> UnsafeMutableRawPointer? {
+        { name in
+            let abiID: @convention(c) () -> UnsafePointer<CChar>? = { UnsafePointer(SpyRemoteWire.abiCString) }
+            let attach: CEFRemoteShim.AttachFn = { _, _, _, context, hello in
+                hello?(context, 1, nil)
+                return 1
+            }
+            let detach: CEFRemoteShim.DetachFn = {}
+            let setReply: CEFRemoteShim.SetReplyFn = { _, _ in }
+            let setEnded: CEFRemoteShim.SetEndedFn = { _, ended in
+                if let ended { SpyRemoteWire.endedFn = ended }
+            }
+            return switch name {
+            case "cmux_shim_abi_id": unsafeBitCast(abiID, to: UnsafeMutableRawPointer.self)
+            case "cmux_remote_shim_attach": unsafeBitCast(attach, to: UnsafeMutableRawPointer.self)
+            case "cmux_remote_shim_detach": unsafeBitCast(detach, to: UnsafeMutableRawPointer.self)
+            case "cmux_remote_shim_set_reply": unsafeBitCast(setReply, to: UnsafeMutableRawPointer.self)
+            case "cmux_remote_shim_set_ended": unsafeBitCast(setEnded, to: UnsafeMutableRawPointer.self)
+            default: spy(name)
+            }
+        }
     }
 }
 
