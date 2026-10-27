@@ -79,7 +79,7 @@ import Testing
         "{\"report\":{\"name\":\"\(name)\",\"host\":\"\(host)\",\"ok\":\(ok),\"steps\":[\(steps.joined(separator: ","))]}}"
     }
 
-    static let okSteps = ["reach", "install", "daemon", "harness", "peer", "peer-back", "identity"].map { step($0, "ok") }
+    static let okSteps = ["reach", "install", "daemon", "update", "harness", "peer", "peer-back", "identity"].map { step($0, "ok") }
 
     let host = FakeHost()
     let model: AddMachineModel
@@ -152,10 +152,18 @@ import Testing
         list.start()
         list.apply(HostStepResult(step: .reach, state: .ok))
         list.apply(HostStepResult(step: HostStep(rawValue: "firewall"), state: .warn, detail: "port 22 filtered"))
-        #expect(list.rows.map(\.step.rawValue) == ["reach", "firewall", "install", "daemon", "harness", "peer", "peer-back", "identity"])
+        #expect(list.rows.map(\.step.rawValue) == ["reach", "firewall", "install", "daemon", "update", "harness", "peer", "peer-back", "identity"])
         #expect(list.row(HostStep(rawValue: "firewall"))?.status == .done(.warn))
         #expect(AddMachineStrings.step(HostStep(rawValue: "firewall")) == "firewall")
         #expect(list.row(.install)?.status == .running)
+    }
+
+    /// The `update` step (acpmux `host_enroll_update.rs`) has its own row, right after the daemon's.
+    @Test func theUpdateStepHasItsOwnRow() {
+        #expect(HostLine.parse(Self.step("update", "fixed", "installed acpmux-update.timer"))
+            == .step(HostStepResult(step: .update, state: .fixed, detail: "installed acpmux-update.timer")))
+        #expect(HostStep.known.firstIndex(of: .update) == HostStep.known.firstIndex(of: .daemon).map { $0 + 1 })
+        #expect(AddMachineStrings.step(.update) == "Keep it up to date")
     }
 
     @Test func theReportSkipsWhatItDidNotRunAndAStopFailsTheRunningStep() {

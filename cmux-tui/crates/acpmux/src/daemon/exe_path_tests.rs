@@ -120,3 +120,62 @@ fn a_test_home_under_a_temp_folder_is_not_the_persons() {
     let got = verdict(Path::new(exe), &home, &home, Path::new(TMP), false);
     assert_eq!(got, Verdict::Stable);
 }
+
+fn stop(peer: &str, home: &str, allow: bool) -> Option<String> {
+    shutdown_refusal(
+        Path::new(peer),
+        Path::new(home),
+        Path::new("/Users/cmux/.acpmux"),
+        Path::new(TMP),
+        allow,
+    )
+}
+
+/// cmux12s, 2026-10-26: `cmux-next swift test` (no `ACPMUX_HOME`) handed the mini's own
+/// `~/.acpmux` daemon off from Xcode's `swiftpm-testing-helper`.
+#[test]
+fn a_test_runner_never_stops_the_persons_daemon() {
+    let helper = "/Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/libexec/swift/pm/swiftpm-testing-helper";
+    let refused = stop(helper, "/Users/cmux/.acpmux", false).expect("refused");
+    assert!(refused.contains("a test runner"), "{refused}");
+    assert!(stop(helper, "/Users/cmux/.acpmux", true).is_some());
+    assert!(
+        stop(
+            "/Applications/Xcode.app/Contents/Developer/usr/bin/xctest",
+            "/Users/cmux/.acpmux",
+            false
+        )
+        .is_some()
+    );
+    // Its own home (a CI job's): stopped as asked.
+    assert_eq!(
+        stop(helper, "/Users/cmux/actions-runner-glaeda-11/_work/_temp/acpmux-home", false),
+        None
+    );
+    assert_eq!(stop(helper, "/Users/cmux/.acpmux/builds/com.cmuxterm.app.debug.x", false), None);
+}
+
+#[test]
+fn a_client_from_a_runner_checkout_or_temp_does_not_stop_the_persons_daemon_unless_allowed() {
+    for peer in [
+        "/Users/cmux/actions-runner-glaeda-2/_work/cmux/cmux/cmux-tui/target/hosted/tree/1e704e95/acpmux",
+        "/tmp/abr-1/app/bin/acpmux",
+        "/var/folders/xc/abc/T/a/acpmux",
+    ] {
+        assert!(stop(peer, "/Users/cmux/.acpmux", false).is_some(), "{peer}");
+        assert_eq!(stop(peer, "/Users/cmux/.acpmux", true), None, "{peer}");
+    }
+}
+
+#[test]
+fn installed_clients_and_apps_stop_the_persons_daemon() {
+    for peer in [
+        "/Users/cmux/.local/bin/acpmux",
+        "/Applications/cmux NEXT.app/Contents/MacOS/cmux NEXT",
+        "/private/var/folders/xc/abc/T/AppTranslocation/1234/d/cmux.app/Contents/Resources/bin/acpmux",
+        // A build tree only warns when it starts a daemon; stopping one is a developer's own call.
+        "/Users/me/src/cmux/cmux-tui/target/debug/acpmux",
+    ] {
+        assert_eq!(stop(peer, "/Users/cmux/.acpmux", false), None, "{peer}");
+    }
+}

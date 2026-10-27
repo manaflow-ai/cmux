@@ -164,7 +164,7 @@ Five everyday commands, three groups for the rest:
 | `attach [NAME] [--plain]` | TUI on one session, or a plain text stream. |
 | `web [--no-open] [--show-token] [--rotate-token]` | Print the dashboard URL and open it; the printed URL leaves out its token unless `--show-token` (the browser it opens and `--json` get it whole); `--rotate-token` replaces the token first. |
 | `host setup HOST [--no-auto-update]` / `host update [--all] [--if-idle] [--keep-newer] [--binary-dir DIR]` / `host self-update` / `host hold [NAME] [--reason TEXT] [--until TIME] [--release]` / `host add NAME [URL]` / `host ls` / `host status [NAME]` / `host rm NAME` | Remote daemons. `setup` installs over ssh; URL is `ssh://host`, `ws://…`, or `wss://…` (default `ssh://NAME`: the machine's one daemon as your ssh config reaches it). `ls` names an `ssh://` entry with a user or another port as not the canonical endpoint. `status` (also the hidden `peer status` alias) asks each host's health live: reachable, round trip, disk, load, live sessions, build. |
-| `host enroll HOST [--harness ID]… [--reverse]` / `host doctor NAME\|HOST [--fix] [--reverse]` | Add a machine step by step (reach, install, daemon, harness, peer, peer-back, identity), one JSON line per step with `--json`; `peer-back` (this machine as the host's peer) runs only with `--reverse`; `doctor` changes nothing without `--fix`. |
+| `host enroll HOST [--harness ID]… [--reverse]` / `host doctor NAME\|HOST [--fix] [--reverse]` | Add a machine step by step (reach, install, daemon, update, harness, peer, peer-back, identity), one JSON line per step with `--json`; `peer-back` (this machine as the host's peer) runs only with `--reverse`; `doctor` changes nothing without `--fix`. |
 | `session info\|cancel\|stop\|rename\|fork\|set\|allow\|deny\|export\|import\|tail NAME …` | Everything about one session. |
 | `daemon run\|status\|shutdown\|stop\|config\|harnesses\|reload\|models\|schema` | The daemon itself. |
 | `capabilities [--json]` | The protocol capability ids this build serves (`acpmux-v1`, `queue-edit-v1`, ...), with no daemon running. |
@@ -920,8 +920,8 @@ A machine that is not yours to update now (reserved for someone else, or someone
 `acpmux host hold NAME --reason TEXT [--until 2026-10-28T23:59:59Z]` (in `~/.acpmux/update-holds.json`,
 by peer name or ssh host). `host update`, `--all` and the app's update queue then answer `held` for it
 without reaching it, so its daemon is never restarted; `--release` (or the `--until` time) ends the hold.
-A Linux host that runs `acpmux.service` also gets `acpmux-update.timer` from `host setup` and
-`host update`: every 15 minutes it runs `acpmux host self-update`, which downloads the newest
+A Linux host that runs `acpmux.service` also gets `acpmux-update.timer` from `host setup`,
+`host update` and `host enroll` (its `update` step, which `host doctor` reports): every 15 minutes it runs `acpmux host self-update`, which downloads the newest
 daemon-tested feat-cmux-next build (`cmux-tui/channels/feat-cmux-next.json` on files.cmux.com)
 when the installed binary differs, checks its sha256 and updates the daemon the same way, rollback
 included. A build pushed by hand is replaced by the channel's at the next run;
@@ -1046,6 +1046,24 @@ here or on any peer, and it acks within a second whatever the target is doing:
    a direct send did.
 5. **Status.** `acpmux send --status ID` (`_acpmux/send_status {deliveryId, waitMs?}`) reads it.
    Delivered, held and failed deliveries are kept for a day.
+
+**A relay for targets no peer reaches (`sendRelay`).** A host may have no peer that reaches the
+target, such as an agent VM that cannot dial back to the machine that drives it. A relay command,
+e.g. one that hands the message to a broker the driving machine keeps a connection to, still
+delivers it:
+
+```json
+{"sendRelay": {"argv": ["my-relay", "send"]}}
+```
+
+When a send (with or without `--no-wait`) is refused because its target names no session here and
+no peer lists it, the CLI runs `my-relay send SESSION -` with the message on stdin and
+`ACPMUX_FROM` set to the sender it would have named (`--from`, `ACPMUX_FROM`, or the session it
+runs in), prints the command's stdout (say, its delivery id) and exits with its status, so a
+refusal there is this send's failure. `--json` prints
+`{"target", "status": "relayed"|"refused", "relayed", "exit", "output"}`. A target here or on a
+peer, a peer that is down included, is never relayed, and the relay carries text only: a send with
+`--attach` to such a target is refused. Unset (the default), nothing changes.
 
 Before this, a `--no-wait` send to a peer waited for the peer's whole turn: the forwarded
 `session/prompt` answers only when the target's turn (or a steer's step) ends, and the peer's
