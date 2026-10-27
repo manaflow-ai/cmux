@@ -274,6 +274,15 @@ final class LinkOpener {
         outbound?.made(surface)
         let services = source.services, store = source.daemon.store
         let intent = focus ? source.workspace?.beginFocusIntent() : nil
+        // The window's keys wait for the moved tab, as for the creation that made it (cx-wb5.76): that creation's
+        // hold ends once its tab has the focus where it was made, before this move takes the tab to its new pane,
+        // and a key typed in between went to the window, which has no responder then (Home's dock: the first keys
+        // typed into a new terminal were lost, dogfood v2.1 2026-10-27). Every exit below resolves the ticket.
+        let window = source.view.window
+        let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent)
+        let release: @MainActor (Bool) -> Void = { [weak services, weak window] landed in
+            services?.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window)
+        }
         // R-wait: the wait for the store to list the tab is a FirstValueWait and the move is TabMoves' callback, both
         // on main in the run's class (userBlocking for a person's link, p06 rule 2) and scopes. The tracked task runs
         // off main and only waits for their last step.
@@ -293,6 +302,7 @@ final class LinkOpener {
             end.run {
                 guard let tab = found, let source, let anchor = store.pane(holding: tab) else {
                     outbound?.finish(moved: false)
+                    release(false)
                     return finish("link open: the new tab did not open")
                 }
                 let ended: @MainActor (Bool) -> Void = { moved in
@@ -301,9 +311,12 @@ final class LinkOpener {
                         guard moved else {
                             source.select(StripTabID(tab.id))
                             if focus { source.focusContent() }
+                            release(false)
                             return finish("link open: the move to the right failed (see the app log)")
                         }
                         if let intent { source.workspace?.expectFocus(on: surface, target: target, awayFrom: source.paneKey, generation: intent) }
+                        // The keys go on once that focus landed and the moved terminal has the keyboard.
+                        release(intent != nil)
                         guard case .besideColumn = destination else { return finish(nil) }
                         let id = tab.id
                         step.yield { await AgentBesidePlacement.revealMoved(id, from: anchor, services: services); return nil }
