@@ -115,7 +115,7 @@ public nonisolated final class CredentialVault: Sendable {
     /// The newest `limit` audit lines, oldest first.
     func audit(limit: Int) throws -> [AuditRecord] {
         try lock.withLock { _ in
-            guard let data = try? Data(contentsOf: auditURL) else { return [] }
+            guard let data = try? Data(blockingContentsOf: auditURL) else { return [] }
             let lines = data.split(separator: UInt8(ascii: "\n")).suffix(max(0, limit))
             return lines.compactMap { try? JSONDecoder().decode(AuditRecord.self, from: Data($0)) }
         }
@@ -246,7 +246,7 @@ public nonisolated final class CredentialVault: Sendable {
     private func readIndex() throws -> [String: Entry] {
         let data: Data
         do {
-            data = try Data(contentsOf: indexURL)
+            data = try Data(blockingContentsOf: indexURL)
         } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
             return [:]
         }
@@ -264,15 +264,15 @@ public nonisolated final class CredentialVault: Sendable {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         do {
             try ensureFolder()
-            try encoder.encode(IndexFile(secrets: secrets)).write(to: indexURL, options: [.atomic])
-            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: indexURL.path)
+            try encoder.encode(IndexFile(secrets: secrets)).blockingWrite(to: indexURL, options: [.atomic])
+            try FileManager.checked.setAttributes([.posixPermissions: 0o600], ofItemAtPath: indexURL.path)
         } catch {
             throw Failure.index(indexURL.path)
         }
     }
 
     private func ensureFolder() throws {
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try FileManager.checked.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
     }
 
     /// Appends one line (owner-only file); a log that grew past twice ``auditKeep`` is cut back to
@@ -281,20 +281,20 @@ public nonisolated final class CredentialVault: Sendable {
         guard var line = try? JSONEncoder().encode(record) else { return }
         line.append(UInt8(ascii: "\n"))
         try? ensureFolder()
-        let manager = FileManager.default
+        let manager = FileManager.checked
         if !manager.fileExists(atPath: auditURL.path) {
             manager.createFile(atPath: auditURL.path, contents: nil, attributes: [.posixPermissions: 0o600])
         }
         guard let handle = try? FileHandle(forWritingTo: auditURL) else { return }
         defer { try? handle.close() }
-        guard (try? handle.seekToEnd()) != nil, (try? handle.write(contentsOf: line)) != nil else { return }
+        guard (try? handle.seekToEnd()) != nil, (try? handle.blockingWrite(contentsOf: line)) != nil else { return }
         guard let size = try? handle.offset(), size > 256 * Self.auditKeep,
-              let data = try? Data(contentsOf: auditURL) else { return }
+              let data = try? Data(blockingContentsOf: auditURL) else { return }
         let lines = data.split(separator: UInt8(ascii: "\n"))
         guard lines.count > 2 * Self.auditKeep else { return }
         var kept = Data(lines.suffix(Self.auditKeep).joined(separator: [UInt8(ascii: "\n")]))
         kept.append(UInt8(ascii: "\n"))
-        try? kept.write(to: auditURL, options: [.atomic])
+        try? kept.blockingWrite(to: auditURL, options: [.atomic])
         try? manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: auditURL.path)
     }
 }

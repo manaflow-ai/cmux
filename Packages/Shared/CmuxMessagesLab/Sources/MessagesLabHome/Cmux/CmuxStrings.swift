@@ -108,6 +108,14 @@ enum CmuxStrings {
     }
 
     /// A reply's thread root is not delivered yet (my send still going): the thread view closes.
+    static var secretHeld: String {
+        String(localized: "home.send.secretHeld", defaultValue: "This message holds what looks like an API key or token. Move it to the Credential Vault, or press Return again to send it as it is.",
+               table: "CmuxHome", bundle: .module)
+    }
+    static func secretMoved(_ names: [String]) -> String {
+        String(format: String(localized: "home.send.secretMoved", defaultValue: "Moved to the Credential Vault as %@. The message now names it instead.",
+                              table: "CmuxHome", bundle: .module), names.joined(separator: ", "))
+    }
     static var threadRootNotReady: String {
         String(localized: "home.thread.rootNotReady", defaultValue: "You can reply in this thread once its first message is delivered.",
                table: "CmuxHome", bundle: .module)

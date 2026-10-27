@@ -63,6 +63,12 @@ nonisolated enum CredentialVaultStrings {
     static var entryPrivacy: String {
         text("credentialVault.entry.privacy", "The value goes to your Keychain. Agents use it by name and never see it.")
     }
+    static var entryFromMessage: String {
+        text("credentialVault.entry.fromMessage", "Your message holds this key. Save it here and the message names it instead.")
+    }
+    static var entryPasteTitle: String { text("credentialVault.entry.pasteTitle", "Move a Key to the Credential Vault") }
+    static var entryNameLabel: String { text("credentialVault.entry.nameLabel", "Name") }
+    static var homeChat: String { text("credentialVault.caller.homeChat", "you, from a chat message") }
     static var entryValueLabel: String { text("credentialVault.entry.valueLabel", "Value") }
     static var entryAgentsCheck: String { text("credentialVault.entry.agentsCheck", "Agents may use it") }
     static var entrySave: String { text("credentialVault.entry.save", "Save") }

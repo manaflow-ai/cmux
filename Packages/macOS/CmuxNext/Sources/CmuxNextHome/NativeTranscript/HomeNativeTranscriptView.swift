@@ -89,6 +89,11 @@ public final class HomeNativeTranscriptView: NSView {
         get { transcript.fileHost }
         set { transcript.fileHost = newValue }
     }
+    /// Moves an API key or token found in a send to the Credential Vault (MessagesLabHomeView.secretHost).
+    public var secretHost: HomeSecretHost? {
+        get { transcript.secretHost }
+        set { transcript.secretHost = newValue }
+    }
     /// The host's shared stop action.
     public var onStop: () -> Void = {} {
         didSet { transcript.onStop = { [weak self] in self?.onStop() } }

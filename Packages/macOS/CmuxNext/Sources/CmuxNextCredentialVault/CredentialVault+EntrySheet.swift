@@ -12,26 +12,42 @@ extension CredentialVault {
     public static let entryValueField = "value"
     public static let entryAgentsField = "agents"
     public static let entrySaveButton = "save"
+    public static let entryNameField = "name"
+
+    /// The sheet for a key the person pasted into a message, under `suggestedName` until they rename it.
+    public static func pasteRequest(suggestedName: String, value: String) -> EntryRequest {
+        EntryRequest(name: suggestedName, reason: nil, requester: CredentialVaultStrings.homeChat, replaces: false, pasted: value)
+    }
 
     public static func entrySheet(_ request: EntryRequest) -> CmuxDialogSpec {
-        var lines = [CredentialVaultStrings.entryAsks(request.requester, request.name)]
+        let pasted = !request.pasted.isEmpty
+        var lines = [pasted ? CredentialVaultStrings.entryFromMessage : CredentialVaultStrings.entryAsks(request.requester, request.name)]
         if let reason = request.reason, !reason.isEmpty { lines.append(CredentialVaultStrings.entryReason(reason)) }
         lines.append(CredentialVaultStrings.entryPrivacy)
+        var fields: [CmuxDialogField] = []
+        // A pasted key's name is the person's to choose (a guess from its shape); an agent's request names it.
+        if pasted { fields.append(.text(id: entryNameField, label: CredentialVaultStrings.entryNameLabel, initial: request.name, placeholder: nil, secure: false)) }
+        fields += [.text(id: entryValueField, label: CredentialVaultStrings.entryValueLabel, initial: request.pasted, placeholder: nil, secure: true),
+                   .check(id: entryAgentsField, title: CredentialVaultStrings.entryAgentsCheck, on: true)]
         return CmuxDialogSpec(
-            title: request.replaces ? CredentialVaultStrings.entryReplaceTitle(request.name) : CredentialVaultStrings.entryTitle(request.name),
+            title: pasted ? CredentialVaultStrings.entryPasteTitle
+                : request.replaces ? CredentialVaultStrings.entryReplaceTitle(request.name) : CredentialVaultStrings.entryTitle(request.name),
             lines: lines,
-            fields: [.text(id: entryValueField, label: CredentialVaultStrings.entryValueLabel, initial: "", placeholder: nil, secure: true),
-                     .check(id: entryAgentsField, title: CredentialVaultStrings.entryAgentsCheck, on: true)],
+            fields: fields,
             buttons: [.cancel(CredentialVaultStrings.entryCancel),
                       CmuxDialogButton(id: entrySaveButton, title: CredentialVaultStrings.entrySave, role: .default)],
             identifier: entrySheetIdentifier)
     }
 
-    /// The person's value and scope; nil when they cancelled, closed it or left the field empty.
-    public static func entryAnswer(_ answer: CmuxDialogAnswer) -> EntryAnswer? {
+    /// The person's name, value and scope; nil when they cancelled, closed it, left the value empty
+    /// or typed a name the vault does not take.
+    public static func entryAnswer(_ answer: CmuxDialogAnswer, request: EntryRequest) -> EntryAnswer? {
         guard !answer.isDismissal, answer.button == entrySaveButton,
               let value = answer.text(entryValueField), !value.isEmpty else { return nil }
-        return EntryAnswer(value: value, scope: answer.isOn(entryAgentsField) ? [.user, .agents] : [.user])
+        let name = request.pasted.isEmpty ? request.name
+            : (answer.text(entryNameField) ?? request.name).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isValidName(name) else { return nil }
+        return EntryAnswer(name: name, value: value, scope: answer.isOn(entryAgentsField) ? [.user, .agents] : [.user])
     }
 
     /// Asks on `window`. Ends with nil when the asking task is cancelled (the request's connection
@@ -49,7 +65,7 @@ extension CredentialVault {
         } onCancel: {
             Task { @MainActor in if let id = shown.id { _ = CmuxDialogCenter.shared.dismiss(id) } }
         }
-        return entryAnswer(result)
+        return entryAnswer(result, request: request)
     }
 
     /// The sheet's dialog id, for a dismissal when the request ends first.

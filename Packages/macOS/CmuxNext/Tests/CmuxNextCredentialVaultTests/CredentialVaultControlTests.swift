@@ -150,7 +150,7 @@ import Testing
     }
 
     @Test func theChiefAsksThePersonOnTheSheetAndNeverHearsTheValue() async throws {
-        let f = try fixture(answer: CredentialVault.EntryAnswer(value: Self.secret, scope: [.user, .agents]))
+        let f = try fixture(answer: CredentialVault.EntryAnswer(name: "OPENAI_API_KEY", value: Self.secret, scope: [.user, .agents]))
         let answer = try await call(f, "vault.request", ["name": "OPENAI_API_KEY", "reason": "run the eval", "caller": Self.chief]).get()
         #expect(answer.objectValue?["stored"] == "OPENAI_API_KEY")
         #expect(!"\(answer)".contains(Self.secret))
@@ -176,19 +176,46 @@ import Testing
     }
 
     @Test func theSheetHidesTheValueAndItsAnswerCarriesTheScope() {
-        let spec = CredentialVault.entrySheet(.init(name: "GH_TOKEN", reason: "open the PR", requester: "the Chief", replaces: false))
+        let request = CredentialVault.EntryRequest(name: "GH_TOKEN", reason: "open the PR", requester: "the Chief", replaces: false)
+        let spec = CredentialVault.entrySheet(request)
         #expect(spec.identifier == CredentialVault.entrySheetIdentifier)
-        #expect(spec.fields.contains(.text(id: CredentialVault.entryValueField, label: CredentialVaultStrings.entryValueLabel, initial: "", placeholder: nil, secure: true)))
+        #expect(spec.fields.contains(.text(id: CredentialVault.entryValueField, label: CredentialVaultStrings.entryValueLabel, initial: "",
+                                           placeholder: nil, secure: true)))
+        #expect(!spec.fields.contains { $0.id == CredentialVault.entryNameField }, "an agent's request names the secret")
         let field = CredentialVault.entryValueField, agents = CredentialVault.entryAgentsField, save = CredentialVault.entrySaveButton
         let saved = CmuxDialogAnswer(button: save, role: .default, values: [field: .text("ghp_x1234"), agents: .bool(false)])
-        #expect(CredentialVault.entryAnswer(saved) == .init(value: "ghp_x1234", scope: [.user]))
+        #expect(CredentialVault.entryAnswer(saved, request: request) == .init(name: "GH_TOKEN", value: "ghp_x1234", scope: [.user]))
         let both = CmuxDialogAnswer(button: save, role: .default, values: [field: .text("ghp_x1234"), agents: .bool(true)])
-        #expect(CredentialVault.entryAnswer(both) == .init(value: "ghp_x1234", scope: [.user, .agents]))
+        #expect(CredentialVault.entryAnswer(both, request: request) == .init(name: "GH_TOKEN", value: "ghp_x1234", scope: [.user, .agents]))
         let empty = CmuxDialogAnswer(button: save, role: .default, values: [field: .text("")])
-        #expect(CredentialVault.entryAnswer(empty) == nil)
+        #expect(CredentialVault.entryAnswer(empty, request: request) == nil)
         let cancelled = CmuxDialogAnswer(button: "cancel", role: .cancel, values: [field: .text("ghp_x1234")])
-        #expect(CredentialVault.entryAnswer(cancelled) == nil)
+        #expect(CredentialVault.entryAnswer(cancelled, request: request) == nil)
         let closed = CmuxDialogAnswer(button: save, role: .default, values: [field: .text("ghp_x1234")], isDismissal: true)
-        #expect(CredentialVault.entryAnswer(closed) == nil)
+        #expect(CredentialVault.entryAnswer(closed, request: request) == nil)
+    }
+
+    @Test func aPastedKeyIsFilledInHiddenAndThePersonNamesIt() async throws {
+        let pasted = "sk-proj-abcdefghijklmnopqrstuvwxyz0123"
+        let request = CredentialVault.pasteRequest(suggestedName: "OPENAI_API_KEY", value: pasted)
+        let spec = CredentialVault.entrySheet(request)
+        #expect(spec.fields.contains(.text(id: CredentialVault.entryValueField, label: CredentialVaultStrings.entryValueLabel, initial: pasted,
+                                           placeholder: nil, secure: true)), "the key shows only in the hidden field")
+        #expect(!spec.lines.joined().contains(pasted) && !spec.title.contains(pasted))
+        let renamed = CmuxDialogAnswer(button: CredentialVault.entrySaveButton, role: .default,
+                                       values: [CredentialVault.entryNameField: .text(" WORK_OPENAI "), CredentialVault.entryValueField: .text(pasted),
+                                                CredentialVault.entryAgentsField: .bool(true)])
+        let answer = try #require(CredentialVault.entryAnswer(renamed, request: request))
+        #expect(answer.name == "WORK_OPENAI")
+        let badName = CmuxDialogAnswer(button: CredentialVault.entrySaveButton, role: .default,
+                                       values: [CredentialVault.entryNameField: .text("work key"), CredentialVault.entryValueField: .text(pasted)])
+        #expect(CredentialVault.entryAnswer(badName, request: request) == nil)
+
+        let f = try fixture()
+        #expect(await f.vault.storePasted(answer) == "WORK_OPENAI")
+        #expect(try f.secrets.value(for: "WORK_OPENAI") == pasted)
+        let record = try await call(f, "vault.audit", [:]).get().objectValue?["records"]?.arrayValue?.last?.objectValue
+        #expect(record?["event"] == "paste")
+        #expect(!(try files(f)).contains(pasted))
     }
 }

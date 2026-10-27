@@ -24,24 +24,40 @@ extension CredentialVault {
         /// Who asks, in the person's words ("the Chief", "agent session X").
         public var requester: String
         public var replaces: Bool
+        /// A key the person pasted in a message (the Home composer): the sheet shows it filled in
+        /// and lets them rename it. Empty for a request from an agent.
+        public var pasted: String
 
-        public init(name: String, reason: String?, requester: String, replaces: Bool) {
+        public init(name: String, reason: String?, requester: String, replaces: Bool, pasted: String = "") {
             self.name = name
             self.reason = reason
             self.requester = requester
             self.replaces = replaces
+            self.pasted = pasted
         }
     }
 
     /// The person's answer: the value and who may use it.
     public struct EntryAnswer: Equatable, Sendable {
+        /// The name it goes under (the request's, or the person's for a pasted key).
+        public var name: String
         public var value: String
         public var scope: [Consumer]
 
-        public init(value: String, scope: [Consumer]) {
+        public init(name: String, value: String, scope: [Consumer]) {
+            self.name = name
             self.value = value
             self.scope = scope
         }
+    }
+
+    /// Stores what the person saved from a pasted key, off the caller's actor (the Keychain
+    /// blocks); the name it went under, nil when the vault refused it.
+    public func storePasted(_ answer: EntryAnswer) async -> String? {
+        let person = Caller(consumer: .user, label: CredentialVaultStrings.homeChat)
+        return await Task.detached(priority: .userInitiated) {
+            (try? self.set(answer.name, value: answer.value, scope: answer.scope, note: nil, by: person, event: "paste")).map { _ in answer.name }
+        }.value
     }
 
     /// Shows the secure entry sheet and answers what the person saved (nil: cancelled or closed).
