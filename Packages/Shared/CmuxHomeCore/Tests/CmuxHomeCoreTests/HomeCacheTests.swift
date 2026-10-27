@@ -128,6 +128,31 @@ import CmuxHomeCoreTestSupport
         #expect(store.rows.isEmpty, "start read the cache the launch read found empty")
     }
 
+    /// A draft and a scroll anchor set while the Mac's launch read runs (p08-startup-076): the snapshot that lands
+    /// after keeps them, and the store wrote nothing before it, so the file never lost its conversations to a store
+    /// that had not shown them yet.
+    @Test func editsBeforeThePrimeAreKeptAndNothingIsWrittenBeforeIt() async throws {
+        let cache = Self.cache()
+        let (rows, _) = await lastLaunch(cache)
+        let snapshot = try #require(cache.load())
+        var offline = MockHomeSource.Options.immediate
+        offline.startsOnline = false
+        let store = HomeStore(source: MockHomeSource(options: offline), cache: cache, cacheWriteDelay: .zero, waitsForPrime: true)
+        let anchor = HomeScrollAnchor(message: MessageID("msg_3"), offset: 7)
+        store.setDraft("typed while the read ran", for: Self.austin)
+        store.setScrollAnchor(anchor, for: Self.austin)
+        await store.flushCache()
+        #expect(try #require(cache.load()) == snapshot, "a write before the prime replaced the cache")
+        store.primeFromCache(snapshot)
+        #expect(store.rows.map(\.title) == rows)
+        #expect(store.draft(for: Self.austin) == "typed while the read ran", "the snapshot's copy replaced the typed draft")
+        #expect(store.scrollAnchor(for: Self.austin) == anchor)
+        await store.flushCache()
+        let written = try #require(cache.load())
+        #expect(Set(written.conversations.map(\.id)) == Set(snapshot.conversations.map(\.id)), "the write after the prime lost the conversations")
+        #expect(written.drafts[Self.austin] == "typed while the read ran", "the draft typed before the prime was not written")
+    }
+
     /// The app's quit writes the batch at once: a draft typed in the last
     /// quarter second before Quit was lost (the batch waited 250 ms).
     @Test func aFlushWritesTheCoalescedBatchAtOnce() async throws {

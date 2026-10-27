@@ -96,8 +96,8 @@ final class CloudService {
 
     /// The app's main-thread scheduler, passed by the composition root: every Cloud machine's event batches run on it (one budget).
     @ObservationIgnored private let mainWork: MainWorkScheduler
-    /// This Mac's install id as the launch's read has it (``localDeviceID()``); nil: read at first use (tests).
-    @ObservationIgnored private let deviceID: CloudDeviceIDSource?
+    /// This Mac's install id (``localDeviceID()``): the launch's read has it, a failed read is read again off main.
+    @ObservationIgnored private let deviceID: CloudLocalDeviceID
 
     /// - Parameter auth: The app's sign-in (`AppServices.cloudAuth`); its configuration is this service's.
     /// - Parameter mainWork: The app's ``MainWorkScheduler`` (AppServices passes the one it was built with).
@@ -120,7 +120,7 @@ final class CloudService {
         configuration = auth.configuration
         self.auth = auth
         paths = CloudPaths.standard(bundleID: configuration.bundleID)
-        self.deviceID = deviceID
+        self.deviceID = CloudLocalDeviceID(paths: paths, launch: deviceID, work: work, mainWork: mainWork)
         let auth = auth
         api = CloudAPIClient(
             configuration: configuration,
@@ -180,14 +180,10 @@ final class CloudService {
     }
 
     static var deviceName: String { MacName().linkDeviceName() }
-    /// This Mac's install id, kept once known (no file I/O per focus move); the launch's read has it (p08-startup-076), else read once (tests).
+    /// This Mac's install id, kept once known (no file I/O per focus move): the launch's read has it (p08-startup-076).
     func localDeviceID() throws(CloudDeviceIDError) -> String {
-        if let cachedDeviceID { return cachedDeviceID }
-        let id = try (deviceID?.result(for: paths) ?? paths.deviceIDResult()).get()
-        cachedDeviceID = id
-        return id
+        try deviceID.id()
     }
-    @ObservationIgnored private var cachedDeviceID: String?
 
     var isSignedIn: Bool { auth.isSignedIn }
 

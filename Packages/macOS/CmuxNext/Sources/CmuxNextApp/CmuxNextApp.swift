@@ -88,10 +88,6 @@ public struct CmuxNextApp {
         let ledgerThenSettings = work.sequence("launch.ledger-then-settings")
         environment.incognitoLeftovers = IncognitoWorkspaceLedger.startLaunchRead(
             at: IncognitoWorkspaceLedger.standardURL(bundleIdentifier: Bundle.main.bundleIdentifier), in: ledgerThenSettings)
-        // This Mac's install id, before the settings read: the windows built when it lands find it read (p08-startup-076).
-        let cloudPaths = CloudPaths.standard(bundleID: Bundle.main.bundleIdentifier)
-        let deviceID = LaunchRead(in: ledgerThenSettings, dropped: .failure(.notReadYet)) { cloudPaths.deviceIDResult() }
-        environment.cloudDeviceID = CloudDeviceIDSource(paths: cloudPaths) { deviceID.value }
         // The Labs page's local feature choices (DEV and NIGHTLY), first in that sequence: the launch's features take
         // them when this read has ended by the time they resolve (components/flags_ui, applied at start).
         if Feature.Channel(environment.build.kind).allowsLocalOverrides {
@@ -106,6 +102,11 @@ public struct CmuxNextApp {
                 environment.featureTunableOverrides = LaunchRead(in: ledgerThenSettings, dropped: [:]) { TunableFile.boolValues(tunables, keys: keys) }
             }
         }
+        // This Mac's install id, after the feature choices (the launch's features do not wait for it) and before the
+        // settings read: the windows built when that lands find it read (p08-startup-076).
+        let cloudPaths = CloudPaths.standard(bundleID: Bundle.main.bundleIdentifier)
+        let deviceID = LaunchRead(in: ledgerThenSettings, dropped: .failure(.notReadYet)) { cloudPaths.deviceIDResult() }
+        environment.cloudDeviceID = CloudDeviceIDSource(paths: cloudPaths) { deviceID.value }
         // cmux-next.json (made on first launch) read and merged with the managed layers on the files lane, next:
         // the launch steps that need it run when it lands, never waiting for it on main (p08-startup 025).
         let settingsRead = SettingsController.startLaunchRead(on: work, in: ledgerThenSettings)

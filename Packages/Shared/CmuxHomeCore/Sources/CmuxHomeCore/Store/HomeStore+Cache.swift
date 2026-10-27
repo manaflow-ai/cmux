@@ -34,14 +34,15 @@ extension HomeStore {
     /// The cache's conversations and sends in `rows` now, before `start()` connects, from `snapshot`:
     /// a ``HomeCache/load()`` made on another thread (the Mac's launch read), so a view built before the
     /// store starts (the Home list at launch) draws its first frame complete and no file is read here.
-    /// Once per store: a later `start()` does not read the cache again. Call it before `start()`, so the
-    /// cache's copy never replaces owner state or a draft typed since.
+    /// Once per store: a later `start()` does not read the cache again. A draft, attachment list or scroll
+    /// anchor set before it is kept over the snapshot's; a store made with `waitsForPrime` writes nothing
+    /// before it, so the file is never replaced by a store that has not shown it.
     ///
     /// - Parameter snapshot: What the cache held; nil when it held nothing (the store starts empty).
     public func primeFromCache(_ snapshot: HomeCacheSnapshot?) {
         guard !stopped, !cacheRestored else { return }
         cacheRestored = true
-        if let snapshot { restore(snapshot) }
+        restore(snapshot)
     }
 
     /// Writes the coalesced cache batch now and waits until it is on disk (the app's quit save
@@ -55,14 +56,13 @@ extension HomeStore {
     func restoreCache() {
         guard !cacheRestored else { return }
         cacheRestored = true
-        guard let snapshot = cache?.load() else { return }
-        restore(snapshot)
+        restore(cache?.load())
     }
 
-    /// Seeds the mirror, the log and the client's view state from `snapshot`. The callers mark the
-    /// cache restored first (once per store).
-    private func restore(_ snapshot: HomeCacheSnapshot) {
-        viewCache.restore(snapshot) {
+    /// Seeds the mirror, the log and the client's view state from `snapshot` (nil: the cache held
+    /// nothing). The callers mark the cache restored first (once per store).
+    private func restore(_ snapshot: HomeCacheSnapshot?) {
+        viewCache.restore(snapshot) { snapshot in
             mirror.seed(snapshot)
             seeded = Set(mirror.conversations.keys)
             me = mirror.me

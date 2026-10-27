@@ -41,9 +41,11 @@ import Testing
         launch.whenRead { _ in ran.append("start") }
         #expect(ContinuousClock.now - asked < .milliseconds(50), "asking for the read waited for it")
         #expect(ran.isEmpty, "a step ran before the read ended")
+        #expect(!launch.isLanded, "the list may draw before the read ended")
         gate.signal()
         Self.spinMainRunLoop { ran.count == 2 }
         #expect(ran == ["seed acct_slow", "start"])
+        #expect(launch.isLanded, "the list still draws the theme background after the landing")
         launch.whenRead { _ in ran.append("late") }
         #expect(ran.last == "late", "a step asked after the landing runs in its own turn")
     }
@@ -55,6 +57,16 @@ import Testing
         var ran = false
         Self.launch(read, caches: caches, work: work).whenRead { _ in ran = true }
         #expect(ran)
+    }
+
+    /// A Home of its own new caches folder (a test's AppServices) has nothing to read: it lands in the asking turn.
+    @Test func aFolderWithNothingToReadLandsInItsTurn() {
+        let caches = Self.caches(), work = BackgroundWork()
+        let launch = Self.launch(HomeListLaunchRead.nothingToRead(owner: Self.owner, caches: caches), caches: caches, work: work)
+        var seeded: HomeListLaunchRead.Value?
+        launch.whenRead { seeded = $0 }
+        #expect(seeded != nil && seeded?.conversations == nil && seeded?.sidebar == nil)
+        #expect(launch.isLanded)
     }
 
     /// The app's read is taken only for the owner and folder it read; another Home starts its own.

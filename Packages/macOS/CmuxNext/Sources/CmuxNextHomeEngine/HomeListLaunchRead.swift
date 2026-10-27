@@ -37,7 +37,8 @@ public nonisolated struct HomeListLaunchRead: Sendable {
     public let conversations: HomeCache
     /// The list's launch cache the read read: the Home list writes through this one, so an unchanged list is not written.
     public let sidebar: HomeSidebarLaunchCache
-    private let read: LaunchRead<Value>
+    /// The read on the files lane; nil for a folder with nothing to read (``nothingToRead(owner:caches:)``).
+    private let read: LaunchRead<Value>?
 
     /// Starts the read of `owner`'s two files under `caches` on `work`'s files lane.
     ///
@@ -54,6 +55,26 @@ public nonisolated struct HomeListLaunchRead: Sendable {
         }
     }
 
+    /// The read of a folder made for one service only, which holds no file yet (a test's `AppServices`): it has
+    /// ended, empty, so the list lands in the turn it is asked for and no lane reads a folder that is known empty.
+    ///
+    /// - Parameters:
+    ///   - owner: The Chief owner (`ChiefHome.session`).
+    ///   - caches: The new folder of the Home caches.
+    /// - Returns: The ended read.
+    public static func nothingToRead(owner: String, caches: URL) -> HomeListLaunchRead {
+        HomeListLaunchRead(owner: owner, caches: caches, conversations: HomeCache.standard(owner: owner, caches: caches),
+                           sidebar: HomeSidebarLaunchCache.standard(owner: owner, caches: caches), read: nil)
+    }
+
+    private init(owner: String, caches: URL, conversations: HomeCache, sidebar: HomeSidebarLaunchCache, read: LaunchRead<Value>?) {
+        self.owner = owner
+        self.caches = caches
+        self.conversations = conversations
+        self.sidebar = sidebar
+        self.read = read
+    }
+
     /// Starts `body` on `work`'s files lane as the read of `conversations` and `sidebar` (tests pass one that is held).
     ///
     /// - Parameters:
@@ -65,11 +86,8 @@ public nonisolated struct HomeListLaunchRead: Sendable {
     ///   - body: The blocking read; it runs on a lane thread. Quit before it started gives an empty ``Value``.
     public init(owner: String, caches: URL, conversations: HomeCache, sidebar: HomeSidebarLaunchCache, on work: BackgroundWork,
                 _ body: @escaping @Sendable () -> Value) {
-        self.owner = owner
-        self.caches = caches
-        self.conversations = conversations
-        self.sidebar = sidebar
-        read = LaunchRead(on: work, dropped: Value(), body)
+        self.init(owner: owner, caches: caches, conversations: conversations, sidebar: sidebar,
+                  read: LaunchRead(on: work, dropped: Value(), body))
     }
 
     /// Whether this is the read of `owner`'s files under `caches`.
@@ -78,8 +96,11 @@ public nonisolated struct HomeListLaunchRead: Sendable {
     }
 
     /// What the files held once the read ended; nil while it runs.
-    public var value: Value? { read.value }
+    public var value: Value? {
+        guard let read else { return Value() }
+        return read.value
+    }
 
     /// What the files held, once the read ended (the caller suspends; no thread waits).
-    public func finished() async -> Value { await read.finished() }
+    public func finished() async -> Value { await read?.finished() ?? Value() }
 }
