@@ -31,6 +31,7 @@ package nonisolated final class WebAuthSessionHandler: NSObject, Sendable, ASWeb
         super.init()
         // The one consumer runs the calls in order. It holds the stream, not
         // the handler, and ends when the handler goes (deinit finishes the stream).
+        // main-hop-allow: the one FIFO consumer of macOS's sign-in begin and cancel calls (human rate, from any thread); each runs whole on the main actor in arrival order, which a per-call post across classes would not keep
         Task { @MainActor in
             for await call in stream { call() }
         }
