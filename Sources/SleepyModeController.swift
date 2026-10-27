@@ -61,13 +61,12 @@ final class SleepyModeController {
     private var hasSystemAssertion = false
     private var hasDisplayAssertion = false
 
-    /// Drives Amphetamine Mode: periodically re-evaluates whether the Mac should
-    /// stay awake for a working agent. See `reconcilePowerAssertions()`.
+    /// Safety-net poll that runs only while an agent-driven hold is active.
+    /// See `setReconcileTimerRunning(_:)`.
     private var reconcileTimer: Timer?
     private let reconcileInterval: TimeInterval = 5
 
     private init() {
-        startReconcileLoop()
         observeKeepAwakeSetting()
     }
 
@@ -224,12 +223,12 @@ final class SleepyModeController {
         } else {
             endPowerAssertions()
         }
+        setReconcileTimerRunning(agentWorking)
     }
 
     /// Reconcile the instant the setting is toggled, so enabling the feature
-    /// while an agent is already working takes effect immediately rather than on
-    /// the next poll. Re-arms after each change (the Observation callback fires
-    /// once per tracked mutation).
+    /// while an agent is already working takes effect immediately. Re-arms after
+    /// each change (the Observation callback fires once per tracked mutation).
     private func observeKeepAwakeSetting() {
         withObservationTracking {
             _ = store.keepAwakeWhileAgentsActive
@@ -242,13 +241,14 @@ final class SleepyModeController {
         }
     }
 
-    private func startReconcileLoop() {
-        // Safety-net poll. Primary reconciliation is event-driven — on the
-        // setting toggle (observeKeepAwakeSetting) and on agent activity changes
-        // (Workspace.updatePanelShellActivityState) — but the timer catches
-        // anything those miss (e.g. a workspace closing). 5s latency is trivial
-        // vs. OS idle-sleep timers (minutes).
+    /// Activity changes and the setting toggle reconcile immediately, but closing
+    /// a workspace mid-command emits no activity event, so an agent-driven hold
+    /// polls until it is released. Nothing polls while no agent hold is active.
+    private func setReconcileTimerRunning(_ running: Bool) {
+        guard running != (reconcileTimer != nil) else { return }
         reconcileTimer?.invalidate()
+        reconcileTimer = nil
+        guard running else { return }
         let timer = Timer(timeInterval: reconcileInterval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.reconcilePowerAssertions()

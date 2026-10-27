@@ -6453,8 +6453,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         )
 #endif
         // Amphetamine Mode: an agent going busy/idle is exactly when the Mac's
-        // keep-awake state may need to flip, so reconcile now instead of waiting
-        // for the next poll (issue #7537). Cheap: a no-op when the feature is off.
+        // keep-awake state may need to flip, so reconcile here (issue #7537).
+        // Cheap: skips the workspace scan when the feature is off.
         SleepyModeController.shared.reconcilePowerAssertions()
     }
 
