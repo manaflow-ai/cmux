@@ -252,6 +252,9 @@ enum RoomDefaultsUpdates {
         nonisolated deinit { signal.finish() }
     }
 
+    /// Whether a run for `id` has not finished yet (its write may not have reached the mirror).
+    static func inFlight(_ id: ProfileID) -> Bool { tails[id] != nil }
+
     static func apply(_ patch: RoomDefaultsArguments.Patch, to id: ProfileID, _ context: AppActionContext) {
         let previous = tails[id]?.done
         // Nothing is ever yielded; the stream only ends, so one slot is plenty.

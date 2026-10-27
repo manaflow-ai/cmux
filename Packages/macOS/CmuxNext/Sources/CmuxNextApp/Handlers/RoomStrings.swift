@@ -79,12 +79,21 @@ enum RoomConfirmation {
     }
 
     /// Clear Space Terminal Defaults…: asked while the space has defaults; one with none
-    /// has nothing at stake and runs at once.
+    /// has nothing at stake and runs at once. The app's mirror lags a reply, so a space it shows
+    /// without defaults still asks while a defaults run for it is in flight, and asks the daemon
+    /// (whose defaults the clear acts on) before running unasked; a daemon that does not answer asks.
     @MainActor
-    static func clearDefaultsPrompt(_ invocation: ActionInvocation, _ context: AppActionContext) -> DestructiveConfirmation.Prompt? {
-        guard let room = try? context.room(invocation), let defaults = room.defaults, !defaults.isEmpty else { return nil }
-        return DestructiveConfirmation.Prompt(title: RoomStrings.clearDefaultsTitle(room.name), body: RoomStrings.clearDefaultsBody,
-                                              button: RoomStrings.clearDefaults)
+    static func clearDefaultsPrompt(_ invocation: ActionInvocation, _ context: AppActionContext) async -> DestructiveConfirmation.Prompt? {
+        guard let room = try? context.room(invocation) else { return nil }
+        let prompt = DestructiveConfirmation.Prompt(title: RoomStrings.clearDefaultsTitle(room.name), body: RoomStrings.clearDefaultsBody,
+                                                    button: RoomStrings.clearDefaults)
+        if let defaults = room.defaults, !defaults.isEmpty { return prompt }
+        if RoomDefaultsUpdates.inFlight(room.id) { return prompt }
+        guard let connection = context.services.machines.local.connection else { return nil }
+        let id = room.id
+        guard let personal = try? await connection.listPersonal() else { return prompt }
+        let held = personal.profiles.first(where: { $0.id == id })?.defaults
+        return (held?.isEmpty ?? true) ? nil : prompt
     }
 
     static let toastID = "space-deleted"

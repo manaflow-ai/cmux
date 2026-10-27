@@ -84,7 +84,7 @@ enum DestructiveConfirmation {
         case "space.delete":
             return await RoomConfirmation.prompt(invocation, context)
         case "space.clearDefaults":
-            return RoomConfirmation.clearDefaultsPrompt(invocation, context)
+            return await RoomConfirmation.clearDefaultsPrompt(invocation, context)
         case "remote.install":
             return await RemoteConfirmation.prompt(for: id, invocation, context)
         case "updates.rollback": // palette, menu and the pulled-build banner's Roll Back
