@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CmuxNextPagesTestSupport
 import Foundation
 import Testing
@@ -24,6 +25,9 @@ struct AgentPaneGestureGrantTests {
         let field = Field()
         var judged: [NSEvent.EventType] = []
         var pageWindow: NSWindow?
+        var gestureNode: VisibilityNode?
+        /// The router's child-window questions to this pane.
+        var asked = 0
 
         override init(frame: NSRect) {
             super.init(frame: frame)
@@ -37,7 +41,8 @@ struct AgentPaneGestureGrantTests {
         func judge(_ event: NSEvent, eventWindow: NSWindow?) { judged.append(event.type) }
 
         func ownsChildWindow(_ eventWindow: NSWindow) -> Bool {
-            !isHiddenOrHasHiddenAncestor && eventWindow === pageWindow
+            asked += 1
+            return eventWindow === pageWindow
         }
     }
 
@@ -174,7 +179,9 @@ struct AgentPaneGestureGrantTests {
             harness.router.attach(pane, to: harness.window)
             pane.pageWindow = harness.childWindow(over: frame)
         }
-        hidden.isHidden = true
+        let tab = VisibilityNode(root: "pane", own: .visible)
+        hidden.gestureNode = VisibilityNode("tab:hidden", own: .hidden, parent: tab)
+        shown.gestureNode = VisibilityNode("tab:shown", own: .visible, parent: tab)
         let shownPage = try #require(shown.pageWindow)
         let hiddenPage = try #require(hidden.pageWindow)
 
@@ -185,6 +192,44 @@ struct AgentPaneGestureGrantTests {
 
         harness.dispatch(try harness.mouse(.leftMouseDown, at: CGPoint(x: 150, y: 100), in: hiddenPage))
         #expect(hidden.judged.isEmpty && shown.judged.count == 2, "a hidden tab's page window granted a press")
+    }
+
+    /// p06-scheduler-220: 40 hidden tabs and the shown one share one pane's place, each with its page
+    /// window there. A press in the shown page asks one pane, not 41: a hidden tab node is skipped in O(1).
+    @Test func fortyHiddenTabsAndOneShownAskOnePanePerPress() throws {
+        let harness = Harness(count: 0)
+        defer { harness.close() }
+        let frame = NSRect(x: 100, y: 100, width: 300, height: 200)
+        let pane = VisibilityNode(root: "pane", own: .visible)
+        var tabs: [Pane] = []
+        var nodes: [VisibilityNode] = []
+        for index in 0..<41 {
+            let tab = Pane(frame: frame)
+            let node = VisibilityNode("tab:\(index)", own: index == 40 ? .visible : .hidden, parent: pane)
+            tab.gestureNode = node
+            nodes.append(node)
+            harness.window.contentView?.addSubview(tab)
+            harness.router.attach(tab, to: harness.window)
+            tab.pageWindow = harness.childWindow(over: frame)
+            tabs.append(tab)
+        }
+        let shown = tabs[40]
+        let shownPage = try #require(shown.pageWindow)
+
+        harness.dispatch(try harness.key(.keyDown, in: shownPage))
+        #expect(shown.judged == [.keyDown])
+        #expect(tabs.reduce(0) { $0 + $1.asked } == 1, "a key-down asked \(tabs.reduce(0) { $0 + $1.asked }) panes")
+        #expect(tabs.reduce(0) { $0 + $1.judged.count } == 1)
+
+        // Selecting tab 0: its node shows and the old one hides, and the next press follows.
+        nodes[40].set(.hidden)
+        nodes[0].set(.visible)
+        let page0 = try #require(tabs[0].pageWindow)
+        harness.dispatch(try harness.mouse(.leftMouseDown, at: CGPoint(x: 150, y: 100), in: page0))
+        #expect(tabs[0].judged == [.leftMouseDown])
+        #expect(shown.judged == [.keyDown], "the tab hidden since took the press")
+        harness.dispatch(try harness.key(.keyDown, in: shownPage))
+        #expect(shown.judged == [.keyDown], "a hidden tab's page window granted a press")
     }
 
     @Test func anotherWindowsPressesAreNotHeard() throws {
@@ -246,17 +291,7 @@ struct AgentPaneGestureGrantTests {
             pageWindows.forEach { $0.close() }
             window.close()
         }
-        for _ in 0..<2 {
-            let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file),
-                                                  webUI: .agentPaneTestHost(chromium: FakeChromiumHosting()), gestures: .testing()))
-            view.frame = root.bounds
-            root.addSubview(view)
-            view.layoutSubtreeIfNeeded()
-            views.append(view)
-        }
-        let deadline = Date().addingTimeInterval(5)
-        while !views.allSatisfy({ $0.debugShowsChromium }), Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
-        try #require(views.allSatisfy({ $0.debugShowsChromium }))
+        try await addChromiumPanes(to: [root, root], page: file, into: &views)
         for view in views {
             let page = try #require(view.chromiumPage as? FakeChromiumPage)
             let child = NSWindow(contentRect: window.convertToScreen(root.bounds), styleMask: [.borderless], backing: .buffered, defer: false)
@@ -272,6 +307,63 @@ struct AgentPaneGestureGrantTests {
         #expect(!shown.ownsChildWindow(pageWindows[0]), "a pane owned another tab's page window at the same place")
         #expect(!hidden.ownsChildWindow(pageWindows[1]), "a hidden pane owned the shown tab's page window")
         #expect(!hidden.ownsChildWindow(pageWindows[0]), "a hidden pane owned its own page window")
+    }
+
+    /// A screen that is not active is a hidden view, but its panes' tab nodes stay visible (pane nodes
+    /// do not follow screen hiding yet, p06-scheduler-023), and a Chromium page window is matched by
+    /// parent and place (`CEFTab.isPageWindow`). A pane on a hidden screen at the shown pane's rect,
+    /// with a visible node, must not own the shown pane's page window: the router would grant it the
+    /// press first.
+    @Test func aPaneOnAHiddenScreenWithAVisibleNodeDoesNotOwnTheShownPanesPageWindow() async throws {
+        _ = NSApplication.shared
+        let file = try #require(AgentPageTestRoot.page)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        window.contentView = root
+        let screens = (0..<2).map { _ in NSView(frame: root.bounds) }
+        screens.forEach { root.addSubview($0) }
+        var views: [AgentPaneView] = []
+        let pageWindow = NSWindow(contentRect: window.convertToScreen(root.bounds), styleMask: [.borderless], backing: .buffered, defer: false)
+        pageWindow.isReleasedWhenClosed = false
+        defer {
+            views.forEach { $0.close() }
+            pageWindow.close()
+            window.close()
+        }
+        try await addChromiumPanes(to: screens, page: file, into: &views)
+        window.addChildWindow(pageWindow, ordered: .above)
+        for (index, view) in views.enumerated() {
+            view.followAppearance(DesignSettings.shared.signals, node: VisibilityNode(root: "pane:\(index)", own: .visible))
+            // Both pages sit at the same rect over the same parent: a page window matched by place is both's.
+            let page = try #require(view.chromiumPage as? FakeChromiumPage)
+            page.pageWindow = pageWindow
+        }
+        let hidden = views[0], shown = views[1]
+        screens[0].isHidden = true
+        #expect(hidden.gestureNode?.effective == .visible, "the case needs the hidden screen's pane node to stay visible")
+
+        #expect(shown.ownsChildWindow(pageWindow))
+        #expect(!hidden.ownsChildWindow(pageWindow), "a pane on a hidden screen owned the shown pane's page window")
+    }
+
+    /// One agent pane per container, at its bounds, with a fake Chromium host; returns once every
+    /// pane's page shows in Chromium. Appends to `views` as it makes them, so the caller closes each.
+    private func addChromiumPanes(to containers: [NSView], page file: URL, into views: inout [AgentPaneView]) async throws {
+        var made: [AgentPaneView] = []
+        for container in containers {
+            let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file),
+                                                  webUI: .agentPaneTestHost(chromium: FakeChromiumHosting()), gestures: .testing()))
+            views.append(view)
+            made.append(view)
+            view.frame = container.bounds
+            container.addSubview(view)
+            view.layoutSubtreeIfNeeded()
+        }
+        let deadline = Date().addingTimeInterval(5)
+        while !made.allSatisfy({ $0.debugShowsChromium }), Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        try #require(made.allSatisfy({ $0.debugShowsChromium }))
     }
 
     private actor NoHost: AgentPaneHostProviding {
