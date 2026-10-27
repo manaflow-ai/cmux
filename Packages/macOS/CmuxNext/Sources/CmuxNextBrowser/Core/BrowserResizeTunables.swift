@@ -63,6 +63,13 @@ public nonisolated struct BrowserResizeTunables {
         TunableStore.shared.settledOverride(dragResize.key).flatMap(BrowserDragResize.init(tunableValue:)) ?? dragResize.defaultValue
     }
 
+    /// `dragResize` was the toggle `browserResize.holdDuringDrag` (cmux#25842): off is `live`, on `hold`.
+    public static func registerRenames(_ store: TunableStore) {
+        store.registerRename(from: "browserResize.holdDuringDrag", to: dragResize.key) { old in
+            (old as? Bool).map { $0 ? BrowserDragResize.hold.rawValue : BrowserDragResize.live.rawValue }
+        }
+    }
+
     public static var all: [TunableDescriptor] {
         [pageBackdrop.descriptor, layerHosting.descriptor, syncDeadline.descriptor, liveResizeDeadline.descriptor, dragResize.descriptor]
     }

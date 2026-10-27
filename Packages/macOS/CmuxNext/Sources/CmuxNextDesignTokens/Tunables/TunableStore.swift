@@ -29,6 +29,9 @@ public nonisolated final class TunableStore: Observable, Sendable {
         /// a subscript argument is a new object (and, the first time, a runtime type lookup) per
         /// call, 5-10 ms cold on a read path such as a tab switch (cx-8w027.25).
         package var keyPaths: [String: KeyPath<TunableStore, Int> & Sendable] = [:]
+        /// Keys a tunable had before (`registerRename`): the old key's file value, mapped, when the file
+        /// has no value under the new key.
+        package var renames: [String: Rename] = [:]
 
         package init(loading: Bool = false, overrides: [String: TunableValue] = [:], descriptors: [String: TunableDescriptor] = [:], revision: Int = 0, keyPaths: [String: KeyPath<TunableStore, Int> & Sendable] = [:]) {
             self.loading = loading
@@ -37,6 +40,11 @@ public nonisolated final class TunableStore: Observable, Sendable {
             self.revision = revision
             self.keyPaths = keyPaths
         }
+    }
+
+    package struct Rename: Sendable {
+        package let key: String
+        package let map: @Sendable (Any) -> Any?
     }
 
     private let registrar = ObservationRegistrar()
@@ -86,6 +94,12 @@ public nonisolated final class TunableStore: Observable, Sendable {
         }
     }
 
+    /// A tunable that was called `old`: a file that still holds `old` (and not `new`) gives `new` the
+    /// value `map` makes of the old one (nil drops it). The next write keeps only `new`.
+    public func registerRename(from old: String, to new: String, map: @escaping @Sendable (Any) -> Any?) {
+        state.withLock { $0.renames[old] = Rename(key: new, map: map) }
+    }
+
     public var descriptors: [TunableDescriptor] {
         state.withLock { Array($0.descriptors.values) }
     }
@@ -98,11 +112,12 @@ public nonisolated final class TunableStore: Observable, Sendable {
     /// applies its values on the main actor (observers are told there),
     /// then writes every later change back, coalesced, off the main actor.
     public func activate(file: URL?) {
-        active.store(true, ordering: .relaxed)
-        guard let file else { return }
+        // `active` last (releasing): a reader that sees it also sees the file and the pending read.
+        guard let file else { return active.store(true, ordering: .releasing) }
         self.file.withLock { $0 = file }
         writer.withLock { $0 = TunableFileWriter(url: file) }
         state.withLock { $0.loading = true }
+        active.store(true, ordering: .releasing)
         Task.detached(priority: .userInitiated) { [weak self] in
             let raw = TunableFile.readRaw(file)
             guard let self else { return }
@@ -123,13 +138,17 @@ public nonisolated final class TunableStore: Observable, Sendable {
     /// The override for `key` as the file holds it, also before `activate`'s read lands: while that
     /// read is pending, the file is read here (blocking). For a setting read once at a launch step
     /// that cannot wait for the main actor's load (Chromium's launch switches, `CEFRuntime`).
+    /// The value read is applied to the store at once (the load's later merge keeps it, as it keeps
+    /// any change made since launch), so what the caller launched with is what the store reports;
+    /// a `set` that lands during the read wins, and the caller gets that value.
     public func settledOverride(_ key: String) -> TunableValue? {
-        guard active.load(ordering: .relaxed) else { return nil }
+        guard active.load(ordering: .acquiring) else { return nil }
         let pending = state.withLock { state -> Bool in state.loading && state.overrides[key] == nil }
         guard pending, let url = file.withLock({ $0 }) else { return state.withLock { $0.overrides[key] } }
         // concurrency-allow: one small Debug Settings file, read once when Chromium starts and only while the
         // store's own read of it is still pending (DEV and NIGHTLY)
-        return validate(TunableFile.readRaw(url))[key]
+        if let value = validate(TunableFile.readRaw(url))[key] { merge([key: value]) }
+        return state.withLock { $0.overrides[key] }
     }
 
     /// Every override, by key.
@@ -174,9 +193,13 @@ public nonisolated final class TunableStore: Observable, Sendable {
     }
 
     /// The file's values that fit their descriptors, clamped.
-    private func validate(_ values: [String: Any]) -> [String: TunableValue] {
+    private func validate(_ raw: [String: Any]) -> [String: TunableValue] {
         state.withLock { state in
-            values.reduce(into: [String: TunableValue]()) { result, entry in
+            var values = raw
+            for (old, rename) in state.renames where values[rename.key] == nil {
+                if let value = values[old].flatMap(rename.map) { values[rename.key] = value }
+            }
+            return values.reduce(into: [String: TunableValue]()) { result, entry in
                 guard let descriptor = state.descriptors[entry.key],
                       let value = TunableFile.value(entry.value, as: descriptor.kind),
                       let clamped = descriptor.clamp(value) else { return }

@@ -19,6 +19,36 @@ struct BrowserDragResizeLaunchTests {
         #expect(store.settledOverride(BrowserResizeTunables.dragResize.key) == .choice("synced"))
     }
 
+    /// What Chromium launched with is what the store reports, also after its own read of the file lands.
+    @Test func theLaunchValueIsTheStoresValue() throws {
+        let file = try Self.file(#"{"browserResize.dragResize": "synced"}"#)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let store = TunableStore()
+        store.register(BrowserResizeTunables.all)
+        store.activate(file: file)
+        #expect(store.settledOverride(BrowserResizeTunables.dragResize.key) == .choice("synced"))
+        #expect(store.override(BrowserResizeTunables.dragResize.key) == .choice("synced"))
+    }
+
+    /// A file from before the three modes: `holdDuringDrag` off is `live`, on is `hold`; the new key wins.
+    @Test(arguments: [(#""browserResize.holdDuringDrag": false"#, "live"), (#""browserResize.holdDuringDrag": true"#, "hold"),
+                      (#""browserResize.holdDuringDrag": false, "browserResize.dragResize": "synced""#, "synced")])
+    func theOldToggleMapsToAMode(values: String, expected: String) throws {
+        let file = try Self.file("{\(values)}")
+        defer { try? FileManager.default.removeItem(at: file) }
+        let store = TunableStore()
+        store.register(BrowserResizeTunables.all)
+        BrowserResizeTunables.registerRenames(store)
+        store.activate(file: file)
+        #expect(store.settledOverride(BrowserResizeTunables.dragResize.key) == .choice(expected))
+    }
+
+    private static func file(_ values: String) throws -> URL {
+        let file = URL(fileURLWithPath: NSTemporaryDirectory()).appending(path: "drag-resize-\(UUID().uuidString).json")
+        try Data(("{\"version\": 1, \"values\": " + values + "}").utf8).write(to: file)
+        return file
+    }
+
     @Test func noFileNoOverride() {
         let store = TunableStore()
         store.register(BrowserResizeTunables.all)
