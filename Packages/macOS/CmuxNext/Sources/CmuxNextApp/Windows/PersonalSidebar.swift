@@ -109,8 +109,10 @@ enum PersonalSidebar {
                                                                                          within: sections.count) {
             // Its neighbour is not listed here: where the others go.
             if newRowsFirst { SidebarDocSections.insertFirst([workspace], into: &sections, machineSections: sections.count) } else {
-                let last = sections.lastIndex { $0.group == nil }
-                if let last { sections[last] = SidebarSection(group: nil, workspaces: sections[last].workspaces + [workspace]) } else {
+                // Last of all, below a trailing group too.
+                if let last = sections.indices.last, sections[last].group == nil {
+                    sections[last] = SidebarSection(group: nil, workspaces: sections[last].workspaces + [workspace])
+                } else {
                     sections.append(SidebarSection(group: nil, workspaces: [workspace]))
                 }
             }

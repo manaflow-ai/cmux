@@ -201,7 +201,7 @@ public final class SidebarDocSections {
         }
         flush()
         // The trailing loose run of unplaced rows is the machine's own too (band groups sit before it).
-        let trailing = !first && !unanchored.isEmpty ? sections.count - 1 : nil
+        var trailing = !first && !unanchored.isEmpty ? sections.count - 1 : nil
         for (workspace, anchor) in waiting {
             if Self.insert(workspace, beside: anchor, into: &sections, within: own) { continue }
             if let trailing, Self.insert(workspace, beside: anchor, into: &sections, within: trailing + 1, from: trailing) { continue }
@@ -210,10 +210,12 @@ public final class SidebarDocSections {
                 let before = sections.count
                 Self.insertFirst([workspace], into: &sections, machineSections: own)
                 own += sections.count - before
-            } else if let last = trailing ?? sections.indices.last(where: { sections[$0].group == nil }) {
+            } else if let last = trailing {
                 sections[last] = CmuxNextDaemon.SidebarSection(group: nil, workspaces: sections[last].workspaces + [workspace])
             } else {
+                // Last of all, below every group, as the unanchored ones go.
                 sections.append(CmuxNextDaemon.SidebarSection(group: nil, workspaces: [workspace]))
+                trailing = sections.count - 1
             }
         }
         if sections.isEmpty { sections.append(CmuxNextDaemon.SidebarSection(group: nil, workspaces: [])) }
