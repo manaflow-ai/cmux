@@ -567,8 +567,11 @@ dependencies = [
 name = "cmux-panic-log"
 version = "0.1.0"
 dependencies = [
+ "cmux-trace",
  "libc",
  "serde_json",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]
@@ -614,6 +617,13 @@ dependencies = [
 
 [[package]]
 name = "cmux-threads"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "cmux-trace"
 version = "0.1.0"
 dependencies = [
  "libc",
