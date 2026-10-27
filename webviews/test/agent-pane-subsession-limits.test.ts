@@ -200,6 +200,7 @@ test("a limit change a lag dropped reaches the summary when the pane catches up"
     // 8 → 12 while the client lagged: it reads the missed record, and keeps it.
     daemon.drop(record([changed(12)], 2));
     await until(() => snapshot.summary.subsessionLimits?.maxRunning === 12, "the missed limit");
+    // fixed-wait: nothing more may arrive; no event marks that a late reply did not.
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(snapshot.summary.subsessionLimits.maxRunning).toBe(12);
   } finally {
@@ -262,6 +263,7 @@ async function stepOverReattach(chat: string, history: Recorded[]) {
     expect(daemon.limitAsks.filter((ask) => "maxRunning" in ask)).toEqual([{ sessionId: chat, maxRunning: 21 }]);
     expect(daemon.limitAsks.length).toBeGreaterThanOrEqual(3);
     await until(() => snapshot.summary?.subsessionLimits?.maxRunning === 21, "the limit after the re-attach");
+    // fixed-wait: nothing more may arrive; no event marks that a late reply did not.
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(snapshot.summary.subsessionLimits.maxRunning).toBe(21);
   } finally {
@@ -271,6 +273,7 @@ async function stepOverReattach(chat: string, history: Recorded[]) {
 
 test("a read a re-attach overtook is read again, so the step builds on the limit acpmux holds", async () => {
   const chat = "0190a000-0000-7000-8000-0000000000f8";
+  // fixed-wait: the helper checks, after a short settle, that no late reply takes the limit back.
   await stepOverReattach(chat, record([["mux", "user_message", { text: "start the agents" }]], 1, chat));
 });
 
@@ -278,6 +281,7 @@ test("a kept tail's old limit, replayed as the chat is opened again, is never st
   // The log holds an old change to 5; opening the chat again draws its kept tail, whose replay
   // passes that record before the attach answers.
   const chat = "0190a000-0000-7000-8000-0000000000f9";
+  // fixed-wait: the helper checks, after a short settle, that no late reply takes the limit back.
   await stepOverReattach(
     chat,
     record([["mux", "user_message", { text: "start the agents" }], changed(5)], 1, chat),
