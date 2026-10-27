@@ -7,7 +7,7 @@ import Testing
 /// Sleepy Mode's scene costs the main thread nothing per frame (every-action sweep, m27
 /// other-main-work: `SleepySceneView.drawSky` held main 20-38 ms per frame, ten frames a
 /// second, while the scene showed and agents kept working). The sky's loops run in the render
-/// server; the main thread only updates the clock once a second.
+/// server; the main thread only updates the clock once a minute.
 @MainActor @Suite(.serialized) struct SleepySceneCostTests {
     /// Runs the main run loop for `seconds`.
     private func spin(_ seconds: TimeInterval) {

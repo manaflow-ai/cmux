@@ -1,3 +1,4 @@
+import CmuxNextTestSupport
 import CmuxNextWakeups
 import Foundation
 @testable import CmuxNextActions
@@ -8,7 +9,8 @@ import Testing
 /// ``ActionBudgetMonitor/record(_:_:start:end:inputAgeMilliseconds:outcome:)`` with no reader),
 /// and the hand-off of one batch to the reporter (one copy of ``ActionBudgetMonitor/batchSize``
 /// runs and one yield, after a commit). A measurement, not a gate: run it in a Release build on
-/// each macOS major and quote the line.
+/// each macOS major and quote the line. With CMUX_PERF_RESULT_DIR it also writes each number as
+/// result-v1 (lab story swift-action-budget).
 ///
 /// ```
 /// CMUX_ACTION_BUDGET_BENCH=1 swift test -c release --filter ActionBudgetMonitorBench
@@ -28,7 +30,7 @@ struct ActionBudgetMonitorBench {
         return Double(ActionBudgetMonitor.now() - start) / Double(runs)
     }
 
-    @Test func alwaysOnCostPerRunAndPerBatch() async {
+    @Test func alwaysOnCostPerRunAndPerBatch() async throws {
         let ids: [ActionID] = ["splitRight", "palette.toggleWorkspacePin", "newTab", "closeTab"]
 
         var clockSink: UInt64 = 0
@@ -71,6 +73,14 @@ struct ActionBudgetMonitorBench {
                           ProcessInfo.processInfo.operatingSystemVersionString, Self.runs, perRun, clockNanos, perRun + 2 * clockNanos,
                           perBatch, batched.batchSize, withBatches - perRun, batched.droppedRunCount, clockSink & 1)
         print(line)
+        if let results = try PerfResultWriter() {
+            try results.record("swift.action_budget.record_ns", unit: .ns, samples: [perRun])
+            try results.record("swift.action_budget.clock_read_ns", unit: .ns, samples: [clockNanos])
+            try results.record("swift.action_budget.always_on_ns", unit: .ns, samples: [perRun + 2 * clockNanos])
+            try results.record("swift.action_budget.batch_handoff_ns", unit: .ns, samples: [perBatch])
+            try results.record("swift.action_budget.span_ns", unit: .ns, samples: [withSpan])
+            try results.record("swift.action_budget.dropped_runs", unit: .count, samples: [batched.droppedRunCount])
+        }
         #expect(bare.runCount == UInt64(2 * Self.runs))
     }
 }
