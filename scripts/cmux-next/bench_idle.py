@@ -35,6 +35,14 @@ terminal hosts, and each Chromium helper over --measure seconds after
                    user's draw of occluded windows
                    (CMUX_NEXT_BENCH_SHIPPING_DRAW=1; a Debug automation launch
                    draws them otherwise), for every scenario of the run.
+  hidden-printing  runs last: --printing-terminals terminals (default 10),
+                   each shown as it opens and sent PRINT_LOOP (a line every
+                   50 ms) by its own tab target, then a new workspace hides
+                   them (p03-rendering-088: a hidden surface's renderer wakes
+                   nothing). Skipped unless that many distinct tabs took the
+                   loop and their workspace no longer shows. Not idle, so
+                   reported, never judged: compare its CPU and wakeups between
+                   two builds. The loops never stop, hence last.
   tabs-10          runs alone (--fresh --scenarios tabs-10 --engine chromium|webkit): 10
                    static tab_pages `engine` pages over 3 workspaces (4, 3, 3; a new workspace is action
                    newTab), each opened with openBrowser.<engine> and selected, so the
@@ -100,6 +108,7 @@ Usage:
       [--settle 20] [--scenarios terminals,chromium-static,chromium-hidden,minimized,mixed-hidden]
       [--url URL] [--out DIR] [--label NAME] [--no-fail] [--keep-running]
   scripts/cmux-next/bench-idle.sh <tag> --scenarios app-hidden,covered-window
+  scripts/cmux-next/bench-idle.sh <tag> --scenarios hidden-printing [--printing-terminals 10]
   scripts/cmux-next/bench-idle.sh <tag> --fresh --scenarios tabs-10 --engine chromium|webkit
 
 Writes artifacts/cmux-next-bench/<sha>-idle-<label>.json; exits 1 when a
@@ -645,10 +654,11 @@ def prepare(scenario, control, args, app_pid, bundle, pages=None):
         return build_tabs10(control, pages, args.engine)
     refused = refused_reply
 
-    def run_action(name, **action_args):
+    def run_action(name, target=None, focus=None, **action_args):
         # A loaded machine can miss the app's 2 s control deadline; retry.
+        params = action_request(name, action_args, target, focus)
         for _ in range(3):
-            response = control.action(name, timeout=60, **action_args)
+            response = control.call("action.run", params, timeout=60)
             if (response.get("error") or {}).get("code") != "timeout":
                 return response
             time.sleep(5)  # test script: back off before retrying the action
@@ -696,6 +706,84 @@ def prepare(scenario, control, args, app_pid, bundle, pages=None):
         return refused(show_all(control, hidden=True))
     if scenario == COVERED_WINDOW:
         return cover_window(control, run_action)
+    if scenario == HIDDEN_PRINTING:
+        return hide_printing_terminals(control, run_action, args.printing_terminals)
+    return None
+
+
+def action_request(name, action_args=None, target=None, focus=None):
+    """action.run's params: `target` aims the action at one object (`tab:<id>`), `focus` True lets it change the
+    view (a socket run without it may not select what it makes: ActionInvocation.allowsViewChange)."""
+    params = {"action": name}
+    if action_args:
+        params["args"] = action_args
+    if target:
+        params["target"] = target
+    if focus is not None:
+        params["focus"] = focus
+    return params
+
+
+def topology_of(control):
+    """snapshot.get's topology, or {} when it cannot be read."""
+    topology = (read_result(control, "snapshot.get") or {}).get("topology")
+    return topology if isinstance(topology, dict) else {}
+
+
+def daemon_terminal_tabs(topology):
+    """{tab id: workspace id} of the topology's terminal tabs that the daemon made (a `terminal` id: not the
+    provisional tab of a create still in flight)."""
+    tabs = {}
+    for workspace in topology.get("workspaces") or []:
+        for screen in workspace.get("screens") or []:
+            for pane in screen.get("panes") or []:
+                for tab in pane.get("tabs") or []:
+                    if tab.get("kind") == "terminal" and tab.get("id") and tab.get("terminal"):
+                        tabs[tab["id"]] = workspace.get("id")
+    return tabs
+
+
+def shown_workspaces(topology):
+    """The workspaces a window shows."""
+    return {window.get("workspace") for window in topology.get("windows") or [] if window.get("workspace")}
+
+
+def new_terminal_tab(control, known):
+    """(tab id, workspace id) of a daemon terminal tab not in `known`, waited for up to PRINTING_TAB_WAIT_S, or
+    None."""
+    found = []
+
+    def appeared():
+        found[:] = [item for item in daemon_terminal_tabs(topology_of(control)).items() if item[0] not in known]
+        return bool(found)
+    return found[0] if wait_for(appeared, PRINTING_TAB_WAIT_S) else None
+
+
+def hide_printing_terminals(control, run_action, count):
+    """hidden-printing's setup: `count` new terminals, each shown as it opens (so it has a renderer) and sent
+    PRINT_LOOP by its own `tab:<id>` target, then a new workspace shows and hides them. Returns a skip reason or
+    None; the scenario is measured only when `count` distinct tabs took the loop and none of them shows."""
+    known = set(daemon_terminal_tabs(topology_of(control)))
+    printing = {}
+    for index in range(count):
+        reason = refused_reply(run_action("newSurface", focus=True))
+        if reason:
+            return f"printing terminal {index + 1}: newSurface: {reason}"
+        made = new_terminal_tab(control, known)
+        if made is None:
+            return f"printing terminal {index + 1}: no new terminal tab in {PRINTING_TAB_WAIT_S} s"
+        tab, workspace = made
+        known.add(tab)
+        reason = refused_reply(run_action("terminal.sendText", target=f"tab:{tab}", focus=False, text=PRINT_LOOP))
+        if reason:
+            return f"printing terminal {index + 1}: terminal.sendText: {reason}"
+        printing[tab] = workspace
+    reason = refused_reply(run_action("newTab", focus=True))
+    if reason:
+        return f"new workspace: {reason}"
+    hosts = set(printing.values())
+    if not wait_for(lambda: not hosts & shown_workspaces(topology_of(control)), PRINTING_TAB_WAIT_S):
+        return f"the printing workspace still shows {PRINTING_TAB_WAIT_S} s after newTab"
     return None
 
 
@@ -771,6 +859,11 @@ MIXED_HIDDEN = ("mixed-hidden-visible", "mixed-hidden-app-hidden")
 # The phases measured with the app hidden: Show/Hide All Windows hides it before and shows it again after.
 APP_HIDDEN = ("mixed-hidden-app-hidden", "app-hidden")
 COVERED_WINDOW = "covered-window"
+HIDDEN_PRINTING = "hidden-printing"
+# hidden-printing's command in each terminal: a line every 50 ms, as an agent's status output prints.
+PRINT_LOOP = "while :; do date; sleep 0.05; done\r"
+# Seconds hidden-printing waits for each new terminal tab, and for its workspace to hide.
+PRINTING_TAB_WAIT_S = 15
 # The scenarios of p03-rendering-097's occlusion family, judged on the main thread's wakes.
 OCCLUSION_SCENARIOS = ("app-hidden", COVERED_WINDOW)
 OCCLUSION_FEATURE = "windowOcclusionFamily"
@@ -797,6 +890,17 @@ def scenario_list(text):
     return names
 
 
+def scenario_order_error(scenarios):
+    """Why `scenarios` can not run in this order, or None. Each scenario builds on the last one's tabs: tabs-10's
+    10 pages are its whole session, and hidden-printing's loops never stop, so a scenario after it would be judged
+    with that load still running."""
+    if TABS10 in scenarios and scenarios != [TABS10]:
+        return f"{TABS10} runs alone (--scenarios {TABS10})"
+    if HIDDEN_PRINTING in scenarios and scenarios[-1] != HIDDEN_PRINTING:
+        return f"{HIDDEN_PRINTING} runs last (its terminals keep printing)"
+    return None
+
+
 def refused_reply(response):
     """The error of a control reply, or None when it succeeded."""
     if response.get("ok") is False or "error" in response:
@@ -808,7 +912,7 @@ def criteria(scenario, result, args):
     """The --max-* limits of the legacy scenarios. tabs-10 is judged by its result-v1 references (targets.json,
     idle-budget.json) and judge_tabs10, not by these flags."""
     failures = []
-    if scenario == TABS10 or "processes" not in result:
+    if scenario in (TABS10, HIDDEN_PRINTING) or "processes" not in result:
         return failures
     for row in result["processes"]:
         if row.get("partial"):
@@ -959,6 +1063,8 @@ def main():
                         help="mixed-hidden, app-hidden, covered-window: main run-loop wakes/s (default 0.5)")
     parser.add_argument("--hidden-tabs", type=int, default=10, help="mixed-hidden: Chromium tabs (default 10)")
     parser.add_argument("--hidden-terminals", type=int, default=5, help="mixed-hidden: terminals (default 5)")
+    parser.add_argument("--printing-terminals", type=int, default=10,
+                        help="hidden-printing: printing terminals (default 10)")
     parser.add_argument("--no-fail", action="store_true")
     parser.add_argument("--keep-running", action="store_true")
     parser.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
@@ -969,9 +1075,9 @@ def main():
                         help="start from an empty daemon session for this tag (removes the tag's saved tabs)")
     args = parser.parse_args()
     scenarios = scenario_list(args.scenarios)
-    if TABS10 in scenarios and scenarios != [TABS10]:
-        # Each scenario builds on the last one's tabs; tabs-10's 10 pages are its whole session.
-        parser.error(f"{TABS10} runs alone (--scenarios {TABS10})")
+    order_error = scenario_order_error(scenarios)
+    if order_error:
+        parser.error(order_error)
 
     tag = args.tag
     bundle = args.app or os.path.expanduser(f"~/Library/Developer/Xcode/DerivedData/cmux-{tag}/Build/Products/Debug/cmux DEV {tag}.app")

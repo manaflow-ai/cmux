@@ -2,40 +2,40 @@ import CmuxNextCompat
 public import Foundation
 
 /// Where design mode cards are written as files for the Home composer (``BrowserDesignModeCardFiles``):
-/// one folder per launch under `root`, one folder per card in it. The launch cleanup of what earlier
-/// launches left (a crash) runs when it is convenient and never takes this launch's cards.
+/// one folder per card under `root`, this launch's own folder under `base`. Each launch writes only
+/// into its own folder, so the cleanup of what earlier launches left (``removeEarlierLaunches()``) can
+/// run at any time without touching a card this launch is attaching.
 public nonisolated struct BrowserDesignModeTempFiles: Sendable {
     /// The folder every launch's folder lives in.
+    public let base: URL
+    /// This launch's folder: every card folder it writes lives here.
     public let root: URL
-    /// This launch's folder; its card folders live here.
-    public let run: URL
 
-    /// - Parameters:
-    ///   - root: The folder every launch's folder lives in.
-    ///   - run: The name of this launch's folder in `root`.
-    public init(root: URL, run: String = UUID().uuidString) {
-        self.root = root
-        self.run = root.appendingPathComponent(run, isDirectory: true)
+    /// The files of launch `launch` (a name unique to this process, such as a UUID) under `base`.
+    public init(base: URL, launch: String) {
+        self.base = base
+        root = base.appendingPathComponent(launch, isDirectory: true)
     }
 
     /// A new, unique folder for one card (not created yet; the writer makes it).
-    public func newFolder() -> URL { run.appendingPathComponent(UUID().uuidString, isDirectory: true) }
+    public func newFolder() -> URL { root.appendingPathComponent(UUID().uuidString, isDirectory: true) }
 
-    /// Removes one card's folder; a folder outside this launch's folder is left alone.
+    /// Removes one card's folder; a folder outside ``root`` is left alone.
     public func remove(_ folder: URL) {
-        let base = run.standardizedFileURL.path + "/"
+        let base = root.standardizedFileURL.path + "/"
         guard folder.standardizedFileURL.path.hasPrefix(base) else { return }
         try? FileManager.default.removeItem(at: folder)
     }
 
-    /// Removes every card folder of this launch (at quit).
-    public func removeAll() { try? FileManager.default.removeItem(at: run) }
+    /// Removes this launch's card folders (at quit).
+    public func removeAll() { try? FileManager.default.removeItem(at: root) }
 
-    /// Removes what earlier launches left in `root` (after a crash): everything but this launch's folder.
-    /// Disk I/O: call it off the main thread (the launch posts it on the files lane).
-    public func removeEarlierRuns() {
-        guard let entries = try? FileManager.checked.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) else { return }
-        for entry in entries where entry.lastPathComponent != run.lastPathComponent {
+    /// Removes everything in ``base`` except this launch's ``root``: the folders a crash or a killed
+    /// launch left (at launch, on a files lane; safe while this launch writes cards).
+    public func removeEarlierLaunches() {
+        let own = root.standardizedFileURL.path
+        guard let entries = try? FileManager.checked.contentsOfDirectory(at: base, includingPropertiesForKeys: nil) else { return }
+        for entry in entries where entry.standardizedFileURL.path != own {
             try? FileManager.checked.removeItem(at: entry)
         }
     }
