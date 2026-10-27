@@ -22,8 +22,7 @@ final class TabGroupChipCell {
             let elevation = PopupStyle.elevation2
             pill.shadowRadius = elevation.layerRadius
             pill.shadowOffset = elevation.layerOffset(flipped: true)
-            // Cast from the pill's outline (`layoutLayers`) at the elevation's strength, the strength an
-            // opaque fill cast before. A group with no color has a clear pill, and its outline lifts it.
+            // The strength a lift always had: an opaque pill casts it from its outline (`castPillShadow`).
             Motion.tabs.set(pill, "shadowOpacity", to: isLifted ? Float(elevation.alpha) : Float(0), fade: .lift)
             // A lift that starts or ends while a strip move springs the pill casts from each frame's outline.
             followPillShadow()
@@ -143,8 +142,24 @@ final class TabGroupChipCell {
 
     /// The pill casts from the outline of each frame while a move springs its size and a shadow shows.
     func followPillShadow() {
+        guard castsFromOutline else { return }
         let radius = pill.cornerRadius
         pill.followShadowPath { ShadowOutline(size: $0, cornerRadius: radius).path }
+    }
+
+    /// A colored group's pill is opaque (`GroupTint.chipFill`) and hides its icon, name and count: its
+    /// outline is the shape its content cast. A hover or press blend keeps it so.
+    private var castsFromOutline: Bool { group.tint != GroupTint.none }
+
+    /// The lift shadow casts from the pill's outline, not from its name, count and icon offscreen.
+    private func castPillShadow() {
+        guard castsFromOutline else {
+            // shadow: alpha-derived: a group with no color has a clear pill, so its lift is the shape of its
+            // icon, name and count (none for a dot), as before; only that chip, and only while dragged, draws offscreen.
+            pill.castFromContent()
+            return
+        }
+        pill.cast(shadowPath: ShadowOutline(size: pill.bounds.size, cornerRadius: pill.cornerRadius))
     }
 
     private func contentChanged() {
@@ -182,8 +197,7 @@ final class TabGroupChipCell {
         pill.frame = pixel(CGRect(x: m.groupChipOuterInset, y: (bounds.height - side) / 2, width: width, height: side))
         pill.cornerRadius = isDot ? side / 2 : max(0, m.cornerRadius - Metrics.space1)
         pill.opacity = width > 0 ? 1 : 0
-        // The lift shadow casts from the pill's outline, not from its name, count and icon offscreen.
-        pill.cast(shadowPath: ShadowOutline(size: pill.bounds.size, cornerRadius: pill.cornerRadius))
+        castPillShadow()
 
         let lineHeight = ceil(font.ascender - font.descender + font.leading)
         let textY = pixel((side - lineHeight) / 2)

@@ -95,6 +95,34 @@ extension PaneSublayerParityTests {
         }
     }
 
+    /// Focus arrives at a pane while Cmd-D still springs its chrome (a click on the way): the focus glow
+    /// that starts to show casts from its springing outline, not from its band at rest.
+    @Test func aFocusGlowThatShowsMidSpringFollowsIt() async throws {
+        try await Render.withMotion {
+            let split = Render.Split(renderServer: true)
+            defer { split.close() }
+            try #require(split.window.screen != nil, "the window is on no screen: nothing animates")
+            split.split()
+            let a = try split.host("a")
+            try #require(a.isOnRenderSpring, "Cmd-D is not on the render server")
+            let glow = a.chrome.glowLayer
+            try #require(glow.animation(forKey: CALayer.shadowPathFollowKey) == nil, "a's focus glow already shows")
+
+            var focusRing = FocusRingSettings()
+            focusRing.style = .glow
+            a.chrome.update(showsRing: true, dim: 0, focusRing: focusRing, border: PaneOverlayView.Border(shows: false),
+                            attention: nil, attentionSettings: AttentionSettings(), focused: true, animated: true)
+            let follow = try #require(glow.animation(forKey: CALayer.shadowPathFollowKey) as? CAKeyframeAnimation,
+                                      "the glow that shows mid-spring casts from its band at rest")
+            #expect(follow.keyPath == "shadowPath" && (follow.values?.count ?? 0) > 2)
+            a.stopRenderMoves()
+            #expect(glow.animation(forKey: CALayer.shadowPathFollowKey) == nil, "the take-back left the glow following")
+            a.chrome.update(showsRing: true, dim: 0, focusRing: focusRing, border: PaneOverlayView.Border(shows: false),
+                            attention: nil, attentionSettings: AttentionSettings(), focused: true, animated: false)
+            #expect(glow.animation(forKey: CALayer.shadowPathFollowKey) == nil, "an update at rest follows a spring that ended")
+        }
+    }
+
     /// A strip of two columns beside a docked column, the second column split in two rows: a Cmd-Shift-D
     /// in the column the dock covers part of.
     static let dockedSplit = ScreenLayout.columns([

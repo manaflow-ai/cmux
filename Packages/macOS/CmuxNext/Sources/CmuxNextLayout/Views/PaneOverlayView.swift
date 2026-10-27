@@ -70,6 +70,9 @@ final class PaneOverlayView: NSView {
     /// What the exclusion mask covers while this overlay rides its host's spring (``rideMask(from:velocity:)``),
     /// in this view's coordinates: its rest bounds and its bounds where the ride starts. Nil at rest.
     var maskRideOuter: CGRect?
+    /// The chrome rides its host's render-server spring (``followRideShadows()`` to ``rideEnded()``): a glow
+    /// that starts to show on the way casts from its springing outline too.
+    var ridesRenderSpring = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -250,6 +253,8 @@ final class PaneOverlayView: NSView {
         isFocusedPane = focused
         applyAttention(mark, readByEntry: readByEntry, animated: animated)
         applyColors()
+        // Focus or a mark that arrives mid-spring (a click during Cmd-D) glows on the presented border.
+        if ridesRenderSpring { followRideShadows() }
     }
 
     /// Whether the ring flashes on this pane: focus just arrived, the screen asked for the flash

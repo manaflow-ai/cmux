@@ -56,8 +56,10 @@ extension PaneOverlayView {
 
     /// The chrome rides a render-server spring (`PaneOverlayView+RenderSpring`), which Core Animation
     /// does not apply to a shadow path: the glowing rings' outlines follow their springing sizes
-    /// frame by frame instead, so their glow stays on the presented border.
+    /// frame by frame instead, so their glow stays on the presented border. Each `update` until the ride
+    /// ends (``ridesRenderSpring``) does it again, for a glow that starts to show on the way.
     func followRideShadows() {
+        ridesRenderSpring = true
         for (glowing, shownBy) in [(attentionLayer, attentionLayer), (glowLayer, glowLayer.superlayer ?? glowLayer)] {
             // A glow that does not show (another ring style, no mark) has no outline to follow.
             guard shownBy.opacity > 0 || (shownBy.presentation()?.opacity ?? 0) > 0 else {

@@ -66,7 +66,7 @@ extension CALayer {
     /// Casts the layer's shadow from the path `build` makes, with no implicit animation. `key` is the
     /// values the path is made of: the path is built and set only when they changed, so a layout that
     /// keeps them costs one comparison. A nil path casts nothing (an empty path, never a shadow derived
-    /// from content). Set the layer's `shadowPath` only through here.
+    /// from content). Set the layer's `shadowPath` only through here or ``castFromContent()``.
     public func cast(shadowPathFor key: [CGFloat], _ build: () -> CGPath?) {
         if shadowPath != nil, (value(forKey: Self.shadowPathKey) as? [CGFloat]) == key { return }
         let path: CGPath = build() ?? CGMutablePath()
@@ -110,6 +110,18 @@ extension CALayer {
             let begin = fade.beginTime > 0 ? convertTime(fade.beginTime, to: nil) : now
             return begin + fade.duration / Double(max(fade.speed, .ulpOfOne)) > now
         }
+    }
+
+    /// Casts the layer's shadow from its content's alpha again: no `shadowPath`, no follow. Only for a
+    /// layer whose shape is its content, marked `// shadow: alpha-derived <why>` where it is called.
+    public func castFromContent() {
+        stopFollowingShadowPath()
+        guard shadowPath != nil else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        shadowPath = nil
+        setValue(nil, forKey: Self.shadowPathKey)
+        CATransaction.commit()
     }
 
     /// Ends ``followShadowPath(now:_:)``'s keyframes: the model path shows.

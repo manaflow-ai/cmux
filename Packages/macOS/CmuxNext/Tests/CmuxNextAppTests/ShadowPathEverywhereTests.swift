@@ -56,16 +56,29 @@ import Testing
         #expect(chip.pill.shadowPath?.boundingBoxOfPath.size == chip.pill.bounds.size)
     }
 
-    /// A group with no color has a clear pill (`GroupTint.none`); its lift still casts, from the outline.
-    @Test func aLiftedChipWithNoColorStillCasts() throws {
-        let chip = TabGroupChipCell(group: TabGroupItem(id: "g", name: "Frontend", tint: .none), memberCount: 3)
-        chip.frame = CGRect(x: 0, y: 0, width: chip.slotWidth, height: 32)
-        chip.isLifted = true
-        #expect(chip.pill.shadowOpacity > 0, "a clear pill lifts with no shadow")
-        let path = try #require(chip.pill.shadowPath)
-        #expect(path.boundingBoxOfPath.size == chip.pill.bounds.size)
-        chip.isHovered = true
-        #expect(chip.pill.shadowOpacity == Float(PopupStyle.elevation2.alpha), "a fill change moved the lift's strength")
+    /// A group with no color has a clear pill (`GroupTint.none`): its lift keeps the look it had, the shape of
+    /// its name, count and icon (`// shadow: alpha-derived`), never an outline the clear pill would show as a blob.
+    @Test func aLiftedChipWithNoColorCastsItsGlyphsAsBefore() throws {
+        try withMotion {
+            let motion = try #require(MotionMove.tween(.tabMove, in: Motion.tabs), "tab motion is off")
+            let chip = TabGroupChipCell(group: TabGroupItem(id: "g", name: "Frontend", tint: .none), memberCount: 3)
+            let full = CGRect(x: 0, y: 0, width: chip.slotWidth, height: 32)
+            chip.frame = full
+            chip.isLifted = true
+            #expect(chip.pill.shadowOpacity == Float(PopupStyle.elevation2.alpha), "the lift's strength moved")
+            #expect(chip.pill.shadowPath == nil, "a clear pill casts from its outline")
+            chip.isHovered = true
+            #expect(chip.pill.shadowPath == nil, "a hovered clear pill casts from its outline")
+            #expect(chip.move(to: CGRect(x: 0, y: 0, width: full.width - 30, height: 32), alpha: 1,
+                              with: TabStripMove(generation: 1, motion: motion, closing: nil), scroll: 0))
+            #expect(chip.pill.animation(forKey: CALayer.shadowPathFollowKey) == nil, "a clear pill follows an outline")
+
+            // A color picked while lifted: the opaque pill hides its glyphs and casts from its outline.
+            chip.update(group: TabGroupItem(id: "g", name: "Frontend", colorToken: .blue), memberCount: 3)
+            #expect(chip.pill.shadowPath?.boundingBoxOfPath.size == chip.pill.bounds.size)
+            chip.update(group: TabGroupItem(id: "g", name: "Frontend", tint: .none), memberCount: 3)
+            #expect(chip.pill.shadowPath == nil, "the color went away and the outline stayed")
+        }
     }
 
     /// Runs `body` with tab motion on (master switch, every category, Reduce Motion off), then puts

@@ -47,6 +47,7 @@ extension PaneOverlayView {
 
     /// The host's spring landed (or was taken back to the CPU): the mask covers the rest bounds again.
     func rideEnded() {
+        ridesRenderSpring = false
         endMaskRide()
         layoutLayers()
     }
