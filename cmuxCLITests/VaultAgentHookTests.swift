@@ -58,6 +58,36 @@ struct VaultAgentHookTests {
         )
     }
 
+    @Test func vaultAgentSessionEndLeavesTheResumeBinding() throws {
+        let context = try makeHookContext(name: "vault-agent-session-end")
+        defer { context.cleanup() }
+
+        let sessionId = "vault-agent-ended-session"
+        let launchEnvironment = agentLaunchEnvironment(
+            context: context,
+            kind: "myagent",
+            executable: "/usr/local/bin/myagent"
+        )
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
+
+        for subcommand in ["session-start", "session-end"] {
+            let result = runAgentHook(
+                context: context,
+                agent: "myagent",
+                subcommand: subcommand,
+                standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)"}"#,
+                extraEnvironment: launchEnvironment
+            )
+            #expect(result.status == 0, Comment(rawValue: "\(subcommand): \(result.stderr)"))
+        }
+        let commands = context.state.snapshot()
+        #expect(commands.contains { $0.hasPrefix("clear_agent_pid ") }, "session-end must still run, saw \(commands)")
+        #expect(
+            !commands.contains { $0.contains("surface.resume.") },
+            "Vault restores this agent from its own binding, so session-end must not clear it"
+        )
+    }
+
     @Test func vaultAgentTargetsInstallNothing() throws {
         let context = try makeHookContext(name: "vault-agent-install")
         defer { context.cleanup() }

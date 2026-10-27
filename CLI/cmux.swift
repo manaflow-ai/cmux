@@ -39156,7 +39156,8 @@ export default {
                         )
                     }
                 }
-                if !clearAgentSurfaceResumeBinding(
+                // Agents declared in cmux.json keep the binding Vault restores them from.
+                if Self.agentDef(named: def.name) != nil, !clearAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: consumed.workspaceId,
                     surfaceId: consumed.surfaceId,
