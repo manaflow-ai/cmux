@@ -173,7 +173,7 @@ export const handleUpstashChiefJob = async (request: Request, env: Env): Promise
     },
     {
       url: c.url,
-      qstashClient: workflows(c),
+      qstashClient: qstash(c),
       receiver: new Receiver({ currentSigningKey: c.current, nextSigningKey: c.next }),
       initialPayloadParser: (body) => {
         const job = parseJob(body)
