@@ -80,6 +80,19 @@ class NightlyTrustedRouting(unittest.TestCase):
         self.assertEqual(select(**{'github.run_attempt': 2}), 'macos-26')
         self.assertEqual(select(**{'github.run_attempt': 2, 'github.ref': 'refs/heads/main'}), 'blacksmith-12vcpu-macos-26')
 
+    def test_prepare_retries_overflow_to_hosted_except_unsigned_resume(self):
+        def prepare(**changes):
+            source = DOC['jobs']['prepare-nightly-variant-primary']['runs-on'].removeprefix('${{').removesuffix('}}')
+            context = {'github.repository_owner': 'manaflow-ai', 'github.repository': 'manaflow-ai/cmux',
+                       'github.event_name': 'push', 'github.ref': 'refs/heads/nightly-next', 'github.run_attempt': 1,
+                       'vars.CI_PR_POOL_OWNED': '1', 'vars.CI_SIDE_LANE_RUNNER': 'glaeda-side-std-xcode-26.6',
+                       'vars.MACOS_RUNNER_26': 'blacksmith-12vcpu-macos-26', **changes}
+            return evaluate(parse_expression(source), context)
+        self.assertEqual(prepare(), 'glaeda-side-std-xcode-26.6')
+        self.assertEqual(prepare(**{'github.run_attempt': 2}), 'macos-26')
+        self.assertEqual(prepare(**{'github.run_attempt': 2, 'github.ref': 'refs/heads/main'}), 'blacksmith-12vcpu-macos-26')
+        self.assertEqual(prepare(**{'github.run_attempt': 2, 'inputs.nightly_next_unsigned_run': '123'}), 'blacksmith-12vcpu-macos-26')
+
     def test_dispatch_fast_retries_rc_and_disabled_owned_use_blacksmith_pool(self):
         cases = [
             {'github.event_name': 'workflow_dispatch'},
