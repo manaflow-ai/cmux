@@ -43,6 +43,8 @@ struct Daemon {
     socket: PathBuf,
     session: String,
     host_kind: Option<&'static str>,
+    /// A Cloud VM's records (debug-only `CMUX_TEST_CLOUD_ETC`).
+    cloud_etc: Option<PathBuf>,
 }
 
 impl Daemon {
@@ -61,6 +63,24 @@ impl Daemon {
         host_kind: Option<&'static str>,
         acpmux_config: Option<Value>,
     ) -> Self {
+        Self::start_in(name, host_kind, acpmux_config, None)
+    }
+
+    /// A Cloud VM (an image stamp) whose own `vm-kind` record reads `kind`.
+    fn start_cloud(name: &str, kind: &str) -> Self {
+        let config = json!({
+            "harnesses": {"fake": {"argv": ["python3", FAKE_AGENT], "family": "fake"}},
+            "defaultHarness": "fake",
+        });
+        Self::start_in(name, None, Some(config), Some(kind))
+    }
+
+    fn start_in(
+        name: &str,
+        host_kind: Option<&'static str>,
+        acpmux_config: Option<Value>,
+        vm_kind: Option<&str>,
+    ) -> Self {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let dir =
             PathBuf::from("/tmp").join(format!("cmux-asx-{name}-{}-{stamp}", std::process::id()));
@@ -71,8 +91,25 @@ impl Daemon {
         if let Some(config) = acpmux_config {
             fs::write(dir.join("acpmux/config.json"), config.to_string()).unwrap();
         }
-        let daemon =
-            Self { socket: dir.join("mux.sock"), session: format!("asx-{name}"), dir, host_kind };
+        let cloud_etc = vm_kind.map(|kind| {
+            let etc = dir.join("etc-cmux");
+            fs::create_dir_all(&etc).unwrap();
+            fs::set_permissions(&etc, fs::Permissions::from_mode(0o755)).unwrap();
+            for (file, text) in
+                [("image-stamp", "test\n".to_owned()), ("vm-kind", format!("{kind}\n"))]
+            {
+                fs::write(etc.join(file), text).unwrap();
+                fs::set_permissions(etc.join(file), fs::Permissions::from_mode(0o644)).unwrap();
+            }
+            etc
+        });
+        let daemon = Self {
+            socket: dir.join("mux.sock"),
+            session: format!("asx-{name}"),
+            dir,
+            host_kind,
+            cloud_etc,
+        };
         let mut child = daemon
             .server("ensure")
             .arg("--install-key-stdin")
@@ -103,9 +140,14 @@ impl Daemon {
             .env("CMUX_TUI_CONFIG", self.dir.join("config.json"))
             .env_remove("ACPMUX_SOCKET")
             .env_remove("CMUX_AGENT_START_HOST")
+            .env_remove("CMUX_TEST_CLOUD_ETC")
+            .env_remove("CMUX_VM_ID")
             .stdin(Stdio::null());
         if let Some(kind) = self.host_kind {
             command.env("CMUX_AGENT_START_HOST", kind);
+        }
+        if let Some(etc) = &self.cloud_etc {
+            command.env("CMUX_TEST_CLOUD_ETC", etc);
         }
         command
     }
@@ -171,6 +213,13 @@ impl Daemon {
         let work = self.dir.join("work");
         self.rpc(json!({"id": 4, "cmd": "agent-session-start", "surface": surface,
                         "cwd": work.to_str().unwrap()}))
+    }
+
+    /// A start with the caller's `vm_kind` (the Cloud API's answer it read).
+    fn start_chat_as(&self, surface: u64, vm_kind: &str) -> Value {
+        let work = self.dir.join("work");
+        self.rpc(json!({"id": 6, "cmd": "agent-session-start", "surface": surface,
+                        "cwd": work.to_str().unwrap(), "vm_kind": vm_kind}))
     }
 
     fn start_chat_with(&self, surface: u64, harness: &str) -> Value {
@@ -303,6 +352,38 @@ fn agent_session_start_passes_the_host_gate_on_an_ssh_host() {
     // answered for this new folder.
     let reply = daemon.start_chat(surface);
     assert_eq!(reply["error_code"], "agent_session.untrusted_folder", "{reply}");
+}
+
+/// The guest's own `owner` record never allows a start on a Cloud VM (its
+/// agents keep sudo): only the caller's `vm_kind: "owner"`, the Cloud API's
+/// answer for it, does, and team evidence refuses even then. A machine that
+/// is not a Cloud VM needs no word.
+#[test]
+fn a_cloud_vm_start_needs_the_callers_owner_word_not_the_vms_record() {
+    let owner = Daemon::start_cloud("vmowner", "owner");
+    let surface = owner.own_agent_tab();
+    let reply = owner.start_chat(surface);
+    assert_eq!(reply["error_code"], "agent_session.host_unverified", "{reply}");
+    for other in ["team", "Owner", "", "owner "] {
+        let reply = owner.start_chat_as(surface, other);
+        assert_eq!(reply["error_code"], "agent_session.host_unverified", "{other:?}: {reply}");
+    }
+    // Past the host gate the next check is the folder's trust.
+    let reply = owner.start_chat_as(surface, "owner");
+    assert_eq!(reply["error_code"], "agent_session.untrusted_folder", "{reply}");
+
+    let team = Daemon::start_cloud("vmteam", "team");
+    let surface = team.own_agent_tab();
+    let reply = team.start_chat_as(surface, "owner");
+    assert_eq!(reply["error_code"], "agent_session.team_vm_blocked", "{reply}");
+
+    let ssh = Daemon::start("vmssh", None);
+    let surface = ssh.own_agent_tab();
+    let reply = ssh.start_chat_as(surface, "owner");
+    assert_eq!(reply["error_code"], "agent_session.untrusted_folder", "{reply}");
+    let identity = owner.rpc(json!({"id": 1, "cmd": "identify"}));
+    let capabilities = identity["data"]["capabilities"].to_string();
+    assert!(capabilities.contains("agent-session-start-vm-kind-v1"), "{identity}");
 }
 
 #[test]

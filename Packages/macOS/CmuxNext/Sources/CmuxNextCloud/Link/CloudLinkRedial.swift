@@ -10,3 +10,13 @@ public final class CloudLinkRedial {
 
     nonisolated init() {}
 }
+
+/// Whether a Cloud machine's running link's attach answer said the signed-in caller owns the
+/// machine (``CloudAttachEndpoint/callerOwnsVM``): set when that link comes up, false once it
+/// ends, never saved past it (``CloudMachineLink/callerOwnsVM``).
+@MainActor @Observable
+public final class CloudLinkOwnership {
+    public internal(set) var callerOwnsVM = false
+
+    nonisolated init() {}
+}

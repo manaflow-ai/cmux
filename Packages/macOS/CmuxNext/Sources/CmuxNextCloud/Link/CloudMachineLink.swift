@@ -16,6 +16,8 @@ public actor CloudMachineLink {
     public nonisolated let machineID: String
     /// Whether the running link redials, from its later snapshots.
     public nonisolated let redial = CloudLinkRedial()
+    /// ``callerOwnsVM`` for the main actor (Settings > Machines' row), on the same link.
+    public nonisolated let ownership = CloudLinkOwnership()
     private let api: CloudAPIClient
     private let hub: CloudTunnelHub
     private let paths: CloudPaths
@@ -27,6 +29,9 @@ public actor CloudMachineLink {
     private var stopped = false
     private var suspended = false
     private var generation = 0
+    /// The running link's attach answer said the signed-in caller owns the machine; false once
+    /// that link ends (``callerOwnsVM``).
+    private var linkOwnsVM = false
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.link")
 
     public init(machineID: String, api: CloudAPIClient, hub: CloudTunnelHub, paths: CloudPaths, binary: URL, deviceName: String) {
@@ -68,7 +73,16 @@ public actor CloudMachineLink {
         child?.terminate()
         child = nil
         socket = nil
+        setOwnsVM(false)
         clearRedial()
+    }
+
+    /// The running link's ``callerOwnsVM``, here and on ``ownership``.
+    private func setOwnsVM(_ owns: Bool) {
+        linkOwnsVM = owns
+        let ownership = ownership
+        // task-owner: one main-actor hop
+        Task { @MainActor in ownership.callerOwnsVM = owns }
     }
 
     /// Parks the link while its machine is paused. Unlike `stop`, parking is
@@ -99,6 +113,14 @@ public actor CloudMachineLink {
         endpoint.callerOwnsVM ? ["--vm-kind", "owner"] : []
     }
 
+    /// Whether the running link's attach answer said the signed-in caller owns the machine
+    /// (``CloudAttachEndpoint/callerOwnsVM``): an app-started chat there sends `vm_kind: "owner"`
+    /// (cmux-tui `agent-session-start`). False while no link runs; never saved past the link.
+    public var callerOwnsVM: Bool {
+        guard socket != nil, child?.isRunning == true else { return false }
+        return linkOwnsVM
+    }
+
     /// PID of the running link process, for diagnostics.
     public var pid: Int32? { child?.pid }
 
@@ -107,6 +129,7 @@ public actor CloudMachineLink {
         child?.terminate()
         child = nil
         socket = nil
+        setOwnsVM(false)
         try paths.prepare()
         let deviceFingerprint = paths.loadLinkDeviceFingerprint(machineID: machineID)
         // Lifecycle transitions can run during every await. A stale start
@@ -167,8 +190,12 @@ public actor CloudMachineLink {
             let path = try await socketTask.value
             try checkGeneration(generation)
             self.socket = path
-            let redial = redial
-            await MainActor.run { redial.isRedialing = false }
+            let (redial, ownership, owns) = (redial, ownership, endpoint.callerOwnsVM)
+            linkOwnsVM = owns
+            await MainActor.run {
+                redial.isRedialing = false
+                ownership.callerOwnsVM = owns
+            }
             watchSnapshots(child)
             logger.info("link up for \(self.machineID, privacy: .public) pid \(child.pid ?? 0)")
             return path

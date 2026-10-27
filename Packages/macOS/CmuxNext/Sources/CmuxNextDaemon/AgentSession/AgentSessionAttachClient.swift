@@ -66,6 +66,8 @@ public actor AgentSessionAttachClient {
     private var servesTrust = false
     /// The connected daemon serves `agent-session-start-keyed-reason-v1`.
     private var servesKeyedReason = false
+    /// The connected daemon serves `agent-session-start-vm-kind-v1`.
+    private var servesVMKind = false
     /// The connected daemon serves `agent-session-children-v1`.
     private var servesChildren = false
     /// The connected daemon serves `agent-session-presence-v1`.
@@ -106,7 +108,12 @@ public actor AgentSessionAttachClient {
     /// With `personKey` the daemon starts only when its acpmux holds that key, else it refuses with
     /// `agent_session.needs_keyed_start` and its facts in ``AgentSessionAttachError/details``. A
     /// daemon without `agent-session-start-keyed-reason-v1` gets no such param (it would refuse it).
-    public func start(cwd: String, harness: String?, homeConfirmed: Bool = false, personKey: PersonKey? = nil) async throws -> String {
+    ///
+    /// `callerOwnsVM`: the Cloud API answered `vmKind: "owner"` for this app on the link in use
+    /// (`CloudAttachEndpoint.callerOwnsVM`); sent as `vm_kind: "owner"` only to a daemon with
+    /// `agent-session-start-vm-kind-v1`.
+    public func start(cwd: String, harness: String?, homeConfirmed: Bool = false, personKey: PersonKey? = nil,
+                      callerOwnsVM: Bool = false) async throws -> String {
         guard mode == .attach else {
             throw AgentSessionAttachError(code: Self.startUnsupported, message: "a read-only agent session cannot start a chat")
         }
@@ -114,6 +121,20 @@ public actor AgentSessionAttachClient {
         guard servesStart else {
             throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not serve agent session start")
         }
+        let params = Self.startParams(cwd: cwd, harness: harness, homeConfirmed: homeConfirmed, personKey: personKey,
+                                      servesKeyedReason: servesKeyedReason, callerOwnsVM: callerOwnsVM, servesVMKind: servesVMKind)
+        let data = try await call("agent-session-start", params)
+        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let session = object["session"] as? String, !session.isEmpty else {
+            throw AgentSessionAttachError(code: "agent_session.refused", message: "agent-session-start answered no session")
+        }
+        return session
+    }
+
+    /// The params of ``start(cwd:harness:homeConfirmed:personKey:callerOwnsVM:)``: a param a daemon
+    /// does not advertise is never sent (its `deny_unknown_fields` would refuse the start).
+    static func startParams(cwd: String, harness: String?, homeConfirmed: Bool, personKey: PersonKey?,
+                            servesKeyedReason: Bool, callerOwnsVM: Bool, servesVMKind: Bool) -> [String: any Sendable] {
         var params: [String: any Sendable] = ["cwd": cwd]
         if let harness { params["harness"] = harness }
         if homeConfirmed { params["home_confirmed"] = true }
@@ -121,12 +142,8 @@ public actor AgentSessionAttachClient {
             params["require_person_key"] = true
             if let instance = personKey.instance { params["person_instance"] = instance }
         }
-        let data = try await call("agent-session-start", params)
-        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let session = object["session"] as? String, !session.isEmpty else {
-            throw AgentSessionAttachError(code: "agent_session.refused", message: "agent-session-start answered no session")
-        }
-        return session
+        if callerOwnsVM, servesVMKind { params["vm_kind"] = "owner" }
+        return params
     }
 
     /// `agent-session-trust` (`agent-session-trust-v1`): the trust of `cwd` on the daemon's machine
@@ -292,6 +309,7 @@ public actor AgentSessionAttachClient {
             servesStart = identity.supports(DaemonCapability.agentSessionStart.rawValue)
             servesTrust = identity.supports(DaemonCapability.agentSessionTrust.rawValue)
             servesKeyedReason = identity.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue)
+            servesVMKind = identity.supports(DaemonCapability.agentSessionStartVMKind.rawValue)
             servesChildren = identity.supports(DaemonCapability.agentSessionChildren.rawValue)
             servesPresence = identity.supports(DaemonCapability.agentSessionPresence.rawValue)
             _ = try await DaemonConnection.perform(

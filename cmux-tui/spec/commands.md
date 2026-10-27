@@ -9474,13 +9474,18 @@ it runs; otherwise `agent_session.untrusted_folder` (the daemon never answers
 the trust question; the person answers it on the machine or through
 `agent-session-trust`). There is no command, env, policy, mode,
 peer, preset or MCP server param; an unknown param is
-`agent_session.bad_request`. The daemon's machine decides first, from its
-own identity read at each start and never from the request: on a Cloud VM, a
-team VM (kind `team` in the root-owned `/etc/cmux/vm-kind` that cmux-host
-writes at a team enroll, or the team files root `/srv/team`, root:`cmux-ssh`)
-answers `agent_session.team_vm_blocked`, and a VM with no readable kind or a
-kind other than `owner` answers `agent_session.host_unverified`; Macs, SSH
-hosts and owner VMs (kind `owner`, written at a machine bind) go on. The session starts with permission policy `ask`
+`agent_session.bad_request`. The machine kind decides first, read again at
+each start: a team VM (kind `team` in the root-owned `/etc/cmux/vm-kind` that
+cmux-host writes at a team enroll, or the team files root `/srv/team`,
+root:`cmux-ssh`) answers `agent_session.team_vm_blocked`; Macs and SSH hosts
+go on; any other Cloud VM goes on only with `vm_kind: "owner"` and otherwise
+answers `agent_session.host_unverified`. `vm_kind`
+(`agent-session-start-vm-kind-v1`) is the Cloud API's `vmKind` for the
+caller, as the caller read it on its link to this machine (attach-endpoint);
+only the exact string `owner` counts, any other value is no word. The VM's own
+kind `owner` (written at a machine bind) never allows a start by itself: the
+agents there keep sudo and can write it. A chat move in
+(`agent-transfer-receive`) and `agent-session-trust` still take it. The session starts with permission policy `ask`
 whatever the daemon default is. It must then be in a mode that acpmux's
 remote table (`_acpmux/web_modes`) says asks before acting: a family that
 table refuses (Codex, opencode) is refused, and a session that starts in a
