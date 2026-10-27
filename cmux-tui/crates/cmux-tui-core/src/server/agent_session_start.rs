@@ -186,7 +186,7 @@ pub(super) struct StartParams {
     /// as the caller read it. Only the exact `owner` lets a start run on a
     /// Cloud VM; any other value, `null` included, refuses the start. The
     /// outer `None` is an absent field (a caller from before the param).
-    #[serde(default, deserialize_with = "super::present_nullable")]
+    #[serde(default, deserialize_with = "crate::server::present_nullable")]
     vm_kind: Option<Option<String>>,
 }
 
