@@ -4,15 +4,22 @@ import CmuxNextAgentPermissions
 import CmuxNextCompat
 
 /// Takes the person to a grant after they pressed Continue on the card:
-/// the System Settings list for kinds with a list, macOS's one prompt for
-/// camera, microphone and automation. Computer use kinds first turn
-/// Computer Use on when it is off, so the helper that needs the grant runs.
+/// the Computer Use window for the grants the helper holds, the System
+/// Settings list for Full Disk Access, macOS's one prompt for camera,
+/// microphone and automation. Computer use kinds first turn Computer Use
+/// on when it is off, so the helper that needs the grant runs.
 @MainActor
 final class SystemPermissionOpener: PermissionSettingsOpening {
     private let setup: ComputerUseSetup
+    /// Opens (or brings forward) the Computer Use window.
+    private let showComputerUse: @MainActor () -> Void
+    private let openURL: @MainActor (URL) -> Void
 
-    init(setup: ComputerUseSetup) {
+    init(setup: ComputerUseSetup, showComputerUse: @escaping @MainActor () -> Void,
+         openURL: @escaping @MainActor (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }) {
         self.setup = setup
+        self.showComputerUse = showComputerUse
+        self.openURL = openURL
     }
 
     func open(_ kind: PermissionKind, target: String?) {
@@ -25,9 +32,12 @@ final class SystemPermissionOpener: PermissionSettingsOpening {
             guard let target else { return }
             // task-owner: one macOS prompt, off the main actor (the call blocks until the person answers).
             Task { _ = await SystemPermissionProbe.automation(of: target, ask: true) }
-        case .fullDiskAccess, .accessibility, .screenRecording, .computerUse:
+        // The window guides both helper grants in order, with the drag panel docked to System Settings.
+        case .accessibility, .screenRecording, .computerUse:
+            showComputerUse()
+        case .fullDiskAccess:
             guard let url = kind.settingsURL else { return }
-            NSWorkspace.shared.openInBackground(url)
+            openURL(url)
         }
     }
 }
