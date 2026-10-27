@@ -149,6 +149,19 @@ the same run: a stuck owned job's rescue cancels them with it, and a refused
 one's waits for them until the watch ends. The re-run of failed and
 cancelled jobs keeps the modes that passed and puts everything on Blacksmith.
 
+A DEV daily or nightly run whose owned job GitHub timed out is a machine
+fault too (feed_timeouts()): a job's timeout-minutes counts the time in its
+runner's setup (glaeda's capacity wait) and a slow mini's checkout, so a
+healthy job on a busy or slow mini is cancelled with "The job has exceeded the
+maximum execution time" (DEV run 40466210697, 2026-10-27: verify's checkout
+took 12 minutes and tip-dmg-build waited 19 in setup, then both timed out and
+the watch stopped with "the run finished"). GitHub concludes such a job and
+its run `cancelled`, as if someone had cancelled them. Once the run finished,
+an owned job that ran on a runner, concluded cancelled, and lasted its
+workflow's timeout-minutes counts as refused: its failed and cancelled jobs
+are re-run, and attempt 2 takes Blacksmith. A started DEV or nightly build is
+never left cancelled for a slow runner.
+
 Side-lane workflows (SIDE_WORKFLOW_PATHS) have no picker. On attempt 1 of a
 trusted run (a same-repository pull request, or a push, schedule or
 workflow_dispatch, whose code is this repository's own branch; see
@@ -666,6 +679,63 @@ def job_budget(job: Mapping[str, Any], budget_seconds: int, *, deadline: dt.date
     left = int((deadline - since).total_seconds()) - END_MARGIN_SECONDS
     floor = budget_seconds if floor_seconds is None else min(floor_seconds, budget_seconds)
     return max(floor, min(budget_seconds, left))
+
+
+# Workflows whose owned jobs timing out are re-run (feed_timeouts()): they build a feed, which a started
+# build must not be left cancelled for (the rulebook: never for a slow runner).
+FEED_TIMEOUT_PATHS = frozenset({CMUX_NEXT_DEV_DAILY_WORKFLOW_PATH, NIGHTLY_WORKFLOW_PATH})
+# GitHub's default job timeout-minutes.
+DEFAULT_TIMEOUT_MINUTES = 360
+# GitHub cancels a timed-out job within seconds of its limit; a job cancelled this much short of it was not timed out.
+TIMEOUT_SLACK_SECONDS = 30
+
+
+def timed_out(workflow_text: str, jobs: Sequence[Mapping[str, Any]],
+              attempt_started: dt.datetime | None = None) -> list[str]:
+    """Names of this attempt's owned jobs GitHub timed out: on a runner, with steps, concluded `cancelled`
+    (what GitHub records for a job past its timeout-minutes), and lasting at least that limit. A job's
+    timeout-minutes comes from the workflow file at the run's head, matched by its rendered name; a name
+    matching no job, or one whose limit is an expression, never counts. A run someone cancelled ends its jobs
+    short of their limits, so they never count."""
+    document = owned_pool_sources._load(workflow_text)
+    spec = {str(key): job for key, job in (document.get("jobs") or {}).items() if isinstance(job, Mapping)}
+    patterns = {key: _job_name_pattern(key, job) for key, job in spec.items()}
+    found: list[str] = []
+    for job in jobs:
+        if not (job_pool(job) and job.get("status") == "completed" and job.get("conclusion") == "cancelled"
+                and job.get("runner_name") and job.get("steps") and not carried(job, attempt_started)):
+            continue
+        keys = [key for key, pattern in patterns.items() if pattern.fullmatch(str(job.get("name") or ""))]
+        limits = [spec[key].get("timeout-minutes", DEFAULT_TIMEOUT_MINUTES) for key in keys]
+        if not limits or not all(isinstance(limit, (int, float)) and not isinstance(limit, bool) for limit in limits):
+            continue
+        started, completed = parse_time(job.get("started_at")), parse_time(job.get("completed_at"))
+        if started is None or completed is None:
+            continue
+        if (completed - started).total_seconds() >= min(limits) * 60 - TIMEOUT_SLACK_SECONDS:
+            found.append(str(job.get("name") or job.get("id")))
+    return sorted(found)
+
+
+def feed_timeouts(api: "GitHub", target: "Target", jobs: Sequence[Mapping[str, Any]],
+                  sleep: Callable[[float], None], log: Callable[[str], None]) -> list[str]:
+    """timed_out() for a finished DEV daily or nightly run (FEED_TIMEOUT_PATHS), else []. Reads the workflow
+    file only when an owned job of the run was cancelled on a runner."""
+    if target.path not in FEED_TIMEOUT_PATHS or not any(
+            job_pool(job) and job.get("conclusion") == "cancelled" and job.get("runner_name") for job in jobs):
+        return []
+    try:
+        text = read(lambda: api.workflow_file(target.path, target.head_sha), sleep, log)
+        if not text:
+            log(f"{target.path} is not at {target.head_sha[:12]}; no cancelled job is put down to a timeout")
+            return []
+        return timed_out(text, jobs, target.attempt_started_at)
+    except Aborted:
+        raise
+    except Exception as error:  # noqa: BLE001 - an unreadable file, or no PyYAML, only counts no timeout
+        log(f"could not read {target.path}'s timeouts at {target.head_sha[:12]} ({type(error).__name__}: "
+            f"{error}); no cancelled job is put down to a timeout")
+        return []
 
 
 def refused(job: Mapping[str, Any]) -> bool:
@@ -1318,7 +1388,9 @@ class Target:
 
     @property
     def watch_limit(self) -> int:
-        if self.late_owned_jobs:
+        # Every nightly is watched until its run finishes, within this limit: its app build's 90-minute timeout
+        # can only be seen once it fires (feed_timeouts()).
+        if self.nightly:
             return NIGHTLY_WATCH_LIMIT_SECONDS
         if self.side:
             return SIDE_WATCH_LIMIT_SECONDS
@@ -1509,7 +1581,14 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
             # A job no runner acquired looks like one a cancelled run left queued (unacquired()).
             stranded = finished and run.get("conclusion") not in (None, "cancelled")
             if finished and not any(refused(job) or stranded and unacquired(job) for job in jobs):
-                return "stop", "the run finished"
+                late = feed_timeouts(api, target, jobs, sleep, log)
+                if not late:
+                    return "stop", "the run finished"
+                pool = next((job_pool(job) for job in jobs if str(job.get("name")) in late and job_pool(job)), "")
+                reason = (f"{', '.join(late)} timed out on {pool} (its timeout counts a slow or busy owned "
+                          "runner's setup and checkout); a started feed build is never left cancelled")
+                log(f"look {looks}: {reason}")
+                return "refused", reason
             seen_at = now()
             for job in jobs:
                 if job_pool(job) and waiting_for_runner(job):
@@ -1551,12 +1630,13 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                         and all(accepted(job, seen_at) for job in owned)):
                     # The fleet took the retry; later attempts never come back to it.
                     return "stop", "the fleet accepted the retry"
-                if target.side and not target.late_owned_jobs and owned \
+                if target.side and not target.nightly and owned \
                         and all(accepted(job, seen_at) for job in owned):
                     # A side lane's jobs are all created by now, and none can be refused any more.
                     # Not nightly-next's: prepare-nightly-variant takes the side label only once
                     # build-nightly-app has finished, and its runner can refuse it then
-                    # (run 40144317744), so that watch lasts until the run finishes.
+                    # (run 40144317744), so that watch lasts until the run finishes. Main's neither: an
+                    # accepted app build can still time out, which feed_timeouts() re-runs.
                     return "stop", "the fleet accepted the side-lane jobs"
         if now() >= deadline:
             if target.nightly:

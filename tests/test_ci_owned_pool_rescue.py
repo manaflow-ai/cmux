@@ -2087,13 +2087,15 @@ class Nightly(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("no job of the run asked for a persistent pool", summary)
 
-    def test_the_watch_ends_once_a_trusted_mini_takes_the_build(self):
+    def test_a_build_a_trusted_mini_takes_is_watched_until_the_run_finishes(self):
+        # An accepted app build can still time out (FeedTimeouts), so main's watch lasts like nightly-next's.
         clock = Clock()
         api = NightlyAPI(clock, nightly_run(started_at=30))
         code, summary = run_main(api, clock, payload=nightly_event())
         self.assertEqual(code, 0)
         self.assertIn("main's nightly build", summary)
-        self.assertIn("the fleet accepted", summary)
+        self.assertNotIn("the fleet accepted", summary)
+        self.assertIn("stopped: watch limit reached", summary)
         self.assertNotIn("cancel", api.calls)
 
     def test_a_next_build_a_mini_takes_is_watched_until_the_run_finishes(self):
@@ -3057,6 +3059,178 @@ class Tokens(unittest.TestCase):
             "${{ steps.cmux-bot-token.outputs.token || steps.read-token.outputs.token }}",
         )
         self.assertEqual(watch["env"]["GH_TOKEN"], "${{ steps.cmux-bot-token.outputs.token || github.token }}")
+
+
+DEV_DAILY_TEXT = """
+jobs:
+  runner:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 5
+  verify:
+    name: Verify signed cmux NEXT DEV
+    needs: runner
+    runs-on: ${{ needs.runner.outputs.label }}
+    timeout-minutes: 15
+  tip-dmg-build:
+    name: Build the unsigned cmux NEXT DEV tip DMG
+    needs: runner
+    runs-on: ${{ needs.runner.outputs.dmg_label }}
+    timeout-minutes: 20
+  dynamic:
+    name: Dynamic limit
+    runs-on: ${{ needs.runner.outputs.label }}
+    timeout-minutes: ${{ fromJSON(vars.LIMIT) }}
+"""
+
+
+def cancelled_owned_job(name, *, lasted, labels=(LIGHT,), runner="cmux-mini-1-glaeda"):
+    """An owned job concluded cancelled after `lasted` seconds on a runner (GitHub's timeout records this)."""
+    found = job(name, status="completed", labels=labels, created=40, runner=runner)
+    found.update(conclusion="cancelled", started_at=stamp(41), completed_at=stamp(41 + lasted), steps=[
+        {"name": "Set up job", "status": "completed", "conclusion": "success"},
+        {"name": "Set up runner", "status": "completed", "conclusion": "success"},
+        {"name": "Checkout trusted verification scripts", "status": "completed", "conclusion": "cancelled"}])
+    return found
+
+
+class FeedTimeouts(unittest.TestCase):
+    """A DEV daily or nightly owned job GitHub timed out is re-run, never left cancelled (DEV run 40466210697)."""
+
+    def dev_event(self):
+        return e2e_event(path=rescue.CMUX_NEXT_DEV_DAILY_WORKFLOW_PATH)
+
+    def dev_run(self, *, lasted, done_at=None):
+        done_at = done_at if done_at is not None else 41 + lasted
+
+        def jobs(seconds):
+            found = [e2e_runner()(seconds)]
+            if seconds >= done_at:
+                found.append(cancelled_owned_job("Verify signed cmux NEXT DEV", lasted=lasted))
+            elif seconds >= 40:
+                # Past its setup, in a slow checkout (verify's took 12 minutes on the mini).
+                found.append(setup_job(past_setup=True))
+            return found
+        return jobs, (lambda seconds: seconds >= done_at)
+
+    def test_timed_out_names_only_jobs_that_lasted_their_limit(self):
+        jobs = [
+            cancelled_owned_job("Verify signed cmux NEXT DEV", lasted=15 * 60 + 2),
+            cancelled_owned_job("Build the unsigned cmux NEXT DEV tip DMG", lasted=20 * 60 - 10),
+            # Cancelled by someone well short of its limit.
+            cancelled_owned_job("Build the unsigned cmux NEXT DEV tip DMG", lasted=8 * 60),
+            # Its limit is an expression: unknown, so never counted.
+            cancelled_owned_job("Dynamic limit", lasted=999 * 60),
+            # Not an owned job, and a job with no runner: neither is this rescue's.
+            cancelled_owned_job("Verify signed cmux NEXT DEV", lasted=30 * 60, labels=(BLACKSMITH,)),
+            cancelled_owned_job("Verify signed cmux NEXT DEV", lasted=30 * 60, runner=""),
+            # A name the workflow does not have.
+            cancelled_owned_job("Something else", lasted=30 * 60),
+        ]
+        self.assertEqual(rescue.timed_out(DEV_DAILY_TEXT, jobs),
+                         ["Build the unsigned cmux NEXT DEV tip DMG", "Verify signed cmux NEXT DEV"])
+        failed = cancelled_owned_job("Verify signed cmux NEXT DEV", lasted=16 * 60)
+        failed["conclusion"] = "failure"
+        self.assertEqual(rescue.timed_out(DEV_DAILY_TEXT, [failed]), [])
+
+    def test_a_timed_out_dev_daily_job_reruns_its_failed_jobs(self):
+        jobs, finished = self.dev_run(lasted=15 * 60 + 5)
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True, finished=finished, conclusion="cancelled", workflow=DEV_DAILY_TEXT)
+        code, summary = run_main(api, clock, payload=self.dev_event())
+        self.assertEqual(code, 0)
+        self.assertNotIn("cancel", api.calls)
+        self.assertEqual(api.calls[-1], "rerun-failed", summary)
+        self.assertIn("timed out", summary)
+        self.assertIn(f"workflow:{rescue.CMUX_NEXT_DEV_DAILY_WORKFLOW_PATH}@{HEAD}", api.calls)
+
+    def test_a_dev_daily_run_someone_cancelled_is_left_alone(self):
+        jobs, finished = self.dev_run(lasted=4 * 60)
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True, finished=finished, conclusion="cancelled", workflow=DEV_DAILY_TEXT)
+        code, summary = run_main(api, clock, payload=self.dev_event())
+        self.assertEqual(code, 0)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertNotIn("rerun", api.calls)
+        self.assertIn("stopped: the run finished", summary)
+
+    def test_an_e2e_timeout_is_not_a_feed_timeout(self):
+        jobs, finished = self.dev_run(lasted=15 * 60 + 5)
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True, finished=finished, conclusion="cancelled", workflow=DEV_DAILY_TEXT)
+        code, summary = run_main(api, clock, payload=e2e_event())
+        self.assertEqual(code, 0)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertFalse(any(call.startswith("workflow:") for call in api.calls))
+        self.assertIn("stopped: the run finished", summary)
+
+    def test_no_yaml_parser_counts_no_timeout(self):
+        jobs, finished = self.dev_run(lasted=15 * 60 + 5)
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True, finished=finished, conclusion="cancelled", workflow=DEV_DAILY_TEXT)
+        with unittest.mock.patch.object(rescue.owned_pool_sources, "_load", side_effect=ModuleNotFoundError("yaml")):
+            code, summary = run_main(api, clock, payload=self.dev_event())
+        self.assertEqual(code, 0)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertIn("no cancelled job is put down to a timeout", summary)
+        self.assertIn("stopped: the run finished", summary)
+
+    def test_main_nightly_is_watched_past_an_accepted_build_until_it_times_out(self):
+        text = "jobs:\n  build-nightly-app:\n    runs-on: x\n    timeout-minutes: 90\n"
+        timeout_at = 41 + 90 * 60
+
+        def jobs(seconds):
+            found = [job("decide", status="completed", labels=[BLACKSMITH])]
+            if seconds >= timeout_at:
+                found.append(cancelled_owned_job("build-nightly-app", lasted=90 * 60, labels=(TRUSTED,)))
+            else:
+                app = job("build-nightly-app", labels=[TRUSTED], created=15, status="in_progress",
+                          runner="cmux15-glaeda")
+                app["started_at"] = stamp(41)
+                found.append(app)
+            return found
+        clock = Clock()
+        api = NightlyAPI(clock, jobs, finished=lambda s: s >= timeout_at, conclusion="cancelled", workflow=text)
+        code, summary = run_main(api, clock, payload=nightly_event())
+        self.assertEqual(code, 0)
+        self.assertNotIn("cancel", api.calls)
+        self.assertEqual(api.calls[-1], "rerun-failed", summary)
+        self.assertIn("timed out", summary)
+
+    def test_a_superseded_timed_out_nightly_is_not_rerun(self):
+        text = "jobs:\n  build-nightly-app:\n    runs-on: x\n    timeout-minutes: 90\n"
+        done = 41 + 90 * 60
+
+        def jobs(seconds):
+            found = [job("decide", status="completed", labels=[BLACKSMITH])]
+            found.append(cancelled_owned_job("build-nightly-app", lasted=90 * 60, labels=(TRUSTED,))
+                         if seconds >= done else job("build-nightly-app", labels=[TRUSTED], created=15,
+                                                     status="in_progress", runner="cmux15-glaeda"))
+            return found
+        clock = Clock()
+        api = NightlyAPI(clock, jobs, finished=lambda s: s >= done, conclusion="cancelled", workflow=text,
+                         newer=[RUN_ID + 3], head="b" * 40, pushes=[RUN_ID + 3])
+        code, summary = run_main(api, clock, payload=nightly_event())
+        self.assertEqual(code, 0)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertNotIn("rerun", api.calls)
+
+    def test_a_timed_out_nightly_app_build_reruns_its_failed_jobs(self):
+        text = "jobs:\n  build-nightly-app:\n    runs-on: x\n    timeout-minutes: 90\n"
+
+        def jobs(seconds):
+            found = [job("decide", status="completed", labels=[BLACKSMITH])]
+            if seconds >= 41 + 90 * 60:
+                found.append(cancelled_owned_job("build-nightly-app", lasted=90 * 60, labels=(TRUSTED,)))
+            else:
+                found.append(job("build-nightly-app", labels=[TRUSTED], created=15, status="in_progress",
+                                 runner="cmux15-glaeda"))
+            return found
+        clock = Clock()
+        api = NightlyAPI(clock, jobs, finished=lambda s: s >= 41 + 90 * 60, conclusion="cancelled", workflow=text)
+        code, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertEqual(code, 0)
+        self.assertNotIn("cancel", api.calls)
+        self.assertEqual(api.calls[-1], "rerun-failed", summary)
 
 
 class Workflow(unittest.TestCase):
