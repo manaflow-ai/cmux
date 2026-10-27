@@ -131,13 +131,20 @@ extension TypingLatencyProbe {
         return mark == .contents ? recorded.compactMap { $0.finished?.flow } : []
     }
 
-    /// The oldest press open on `surface` whose echo was parsed: the frame Ghostty draws for `surface` now
-    /// shows it (`ghostty.render`'s flow, ``GhosttyTraceHook``). Nil while none, the probe is off or the
-    /// keystroke-timing gate is closed.
-    public func echoFlow(on surface: SurfaceKey) -> UInt64? {
-        guard isSampling else { return nil }
-        return state.withLock { state in
-            state.open.first(where: { $0.surface == surface && $0.has(.outputParsed) })?.flow
+    /// The presses open on `surface` whose echo was parsed and that no earlier frame drew, oldest first: the frame
+    /// Ghostty begins for `surface` now draws them (``GhosttyTraceHook``), and each press is drawn by its first
+    /// such frame only. Past ``FrameEchoes/capacity`` a press is still taken as drawn, so no later frame claims
+    /// it. Empty while none, the probe is off or the keystroke-timing gate is closed.
+    public func drawEchoes(on surface: SurfaceKey) -> FrameEchoes {
+        guard isSampling else { return FrameEchoes() }
+        return state.withLock { state -> FrameEchoes in
+            var echoes = FrameEchoes()
+            for index in state.open.indices where state.open[index].surface == surface
+                && state.open[index].has(.outputParsed) && !state.open[index].drawn {
+                state.open[index].drawn = true
+                echoes.append(state.open[index].flow)
+            }
+            return echoes
         }
     }
 }

@@ -1,34 +1,52 @@
 import CmuxNextCompat
+import CmuxNextWakeups
 
-/// The key press whose echo each of a surface's frames draws (p09-observability-102), so the frame's later
+/// The key presses whose echo each of a surface's frames draws (p09-observability-102), so the frame's later
 /// hook calls on other threads (its end on the renderer, its GPU completion on Metal's thread, its handoff)
-/// mark the echo's `key.echo.renderer`, `key.echo.gpu_done` and `key.echo.contents` handoffs with the flow the
+/// mark the `key.echo.renderer`, `key.echo.gpu_done` and `key.echo.contents` handoffs of every press the
 /// renderer took at the frame's begin. Fixed slots and atomics: a hook call never locks or allocates.
 nonisolated extension GhosttyTraceHook.Surface {
-    /// Frames whose echo flow a surface keeps at once (``frameFlows``): more than its swap chain has in flight.
+    /// Frames whose echo flows a surface keeps at once (``frameFlows``): more than its swap chain has in flight.
     /// A power of two, so a frame's slot is its seq's low bits.
     static let frameFlowCapacity = 4
 
-    /// The key press whose echo frame `seq` draws: slot `seq % frameFlowCapacity`, which a later frame overwrites.
+    /// The key presses whose echo frame `seq` draws: slot `seq % frameFlowCapacity`, which a later frame
+    /// overwrites. `tag` is the frame's seq + 1, 0 while the renderer rewrites the flows.
     nonisolated final class FrameFlow: Sendable {
-        let seq = Atomic<UInt64>(0)
-        let flow = Atomic<UInt64>(0)
+        /// One flow of the frame, 0 for none.
+        nonisolated final class Cell: Sendable {
+            let flow = Atomic<UInt64>(0)
+        }
+
+        let tag = Atomic<UInt64>(0)
+        let cells: [Cell] = (0..<TypingLatencyProbe.FrameEchoes.capacity).map { _ in Cell() }
     }
 
-    /// Frame `seq` draws the echo of key press `flow` (0: none, which leaves the slot as it is). The renderer
-    /// thread, at the frame's begin.
-    func noteFrame(seq: UInt64, flow: UInt64) {
-        guard flow != 0 else { return }
+    /// Frame `seq` draws the echoes of `echoes` (none leaves the slot as it is). The renderer thread, at the
+    /// frame's begin; the only writer of the surface's slots.
+    func noteFrame(seq: UInt64, echoes: TypingLatencyProbe.FrameEchoes) {
+        guard echoes.count > 0 else { return }
         let slot = frameFlows[Self.slotIndex(seq)]
-        slot.flow.store(flow, ordering: .relaxed)
-        slot.seq.store(seq, ordering: .releasing)
+        // A reader that sees any of the new flows sees the slot as rewritten (``frameEchoes(seq:)`` checks the tag
+        // again), so it never pairs an older frame's seq with this frame's flows.
+        slot.tag.store(0, ordering: .releasing)
+        for index in slot.cells.indices {
+            slot.cells[index].flow.store(echoes.flows[index], ordering: .releasing)
+        }
+        slot.tag.store(seq &+ 1, ordering: .releasing)
     }
 
-    /// The key press whose echo frame `seq` draws, 0 for none (or a frame whose slot a later one took).
-    func frameFlow(seq: UInt64) -> UInt64 {
+    /// The key presses whose echo frame `seq` draws, oldest first; none for a frame that draws no echo, or whose
+    /// slot a later frame took.
+    func frameEchoes(seq: UInt64) -> TypingLatencyProbe.FrameEchoes {
         let slot = frameFlows[Self.slotIndex(seq)]
-        guard slot.seq.load(ordering: .acquiring) == seq else { return 0 }
-        return slot.flow.load(ordering: .relaxed)
+        guard slot.tag.load(ordering: .acquiring) == seq &+ 1 else { return TypingLatencyProbe.FrameEchoes() }
+        var echoes = TypingLatencyProbe.FrameEchoes()
+        for cell in slot.cells {
+            echoes.append(cell.flow.load(ordering: .acquiring))
+        }
+        guard slot.tag.load(ordering: .acquiring) == seq &+ 1 else { return TypingLatencyProbe.FrameEchoes() }
+        return echoes
     }
 
     /// Frame `seq`'s slot in ``frameFlows``.

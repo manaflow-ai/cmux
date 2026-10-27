@@ -201,14 +201,14 @@ nothing), so a mark is one load while flows are off.
 |---|---|---|
 | `host_pty_read` | `terminal-host-pty`, publishing the read (`publish_pty_frame`) | the host's client writer |
 | `host_client_write` | the host's client writer, writing the frame | the daemon's host frames thread (`host_frames.rs`) |
-| `daemon_frames` | the frames thread, queueing it for the surface | `surface-<id>-host` (`apply_output`) |
-| `surface_parse` | the surface, queueing it for each attach viewer (`mark_attach_output`) | `mux-attach-out` / `mux-snapshot-attach-out` |
+| `daemon_frames` | the frames thread, before the frame is in the surface's queue | `surface-<id>-host` (`apply_output`) |
+| `surface_parse` | the surface, after its `daemon.output.attach` hop, queueing it for each attach viewer (`mark_attach_output`) | `mux-attach-out` / `mux-snapshot-attach-out` |
 | `attach_encode` | the attach-out thread, handing the encoded event to its connection | `mux-line-out` |
 | `line_out` | `mux-line-out`, writing it | the app's attach reader (`LineTransport`, from the line's `flow`) |
 | `app_transport_read` | the attach reader, before its decode (`app.output.decoded`) | the session's event loop (`TerminalAttachment.events`) |
 | `main_actor` | the event loop, toward the lane's router (no main hop since G4) | the lane (`TerminalOutputLane.echoReceived`) |
 | `output_lane` | the router, queueing the echo's chunk (the `inputEcho` marker goes just before it) | the lane's queue, before the parse |
-| `renderer` | the lane, after the parse | the renderer thread, at the begin of the frame that draws it (hook) |
+| `renderer` | the lane, after the parse and before its `app.output.parsed` mark | the renderer thread, at the begin of the first frame that draws it (hook; one frame names every echo it draws) |
 | `gpu_done` | the renderer, at the frame's end | the Metal completion handler, after `frame.gpu_done` |
 | `contents` | the frame's handoff to its layer (hook) | main, at the end of the run-loop turn that commits it |
 

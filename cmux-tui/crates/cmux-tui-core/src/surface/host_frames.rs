@@ -326,11 +326,11 @@ fn read_stream(
             }
             continue;
         }
+        // The flow out goes before the frame is visible: the surface's reader may take it at once.
+        cmux_flow_trace::queued(Handoff::DaemonFrames, flow, Terminal::Unknown);
         state.queued_payload += frame.payload.len();
         state.frames.push_back(HostFrame::Frame(frame));
         queue.changed.notify_all();
-        drop(state);
-        cmux_flow_trace::queued(Handoff::DaemonFrames, flow, Terminal::Unknown);
     }
     control_responses.end_clipboard_reads();
     let mut state = queue.state.lock().unwrap();

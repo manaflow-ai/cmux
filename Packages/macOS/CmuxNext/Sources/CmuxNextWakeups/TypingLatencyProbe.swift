@@ -85,6 +85,8 @@ public final class TypingLatencyProbe: Sendable {
         /// The `key.echo_frame` sample (``keyDown(eventTimestamp:)``): its echo's frame records the histogram.
         /// Cleared when its echo comes too late or a newer press on its surface overtakes it.
         var echoSampled = false
+        /// A frame began that draws this press's parsed echo (``drawEchoes(on:)``): no later frame takes it.
+        var drawn = false
 
         func has(_ mark: Mark) -> Bool { marks[mark.rawValue] != nil }
 

@@ -64,6 +64,37 @@ struct GhosttyTraceHookEchoHandoffTests {
         #expect(handoffs(log, 0).isEmpty, "a frame with no echo marked a handoff")
     }
 
+    /// Two echoes parsed before one frame (fast typing): that frame draws both, so each press gets the renderer's,
+    /// the GPU completion's and main's handoffs; a frame that begins before the first one's handoff takes neither
+    /// again.
+    @Test func everyEchoAFrameDrawsGetsItsHandoffs() throws {
+        let log = GhosttyTraceHookTests.RecordLog()
+        let trace = log.runtime()
+        let probe = TypingLatencyProbe(path: nil, trace: trace)
+        probe.startFlows()
+        defer { probe.stopFlows() }
+        let rig = GhosttyTraceHookTests.Rig(trace: trace, probe: probe)
+        rig.hook.refreshDemand()
+
+        let first = try parsedPress(probe, on: rig.key)
+        let second = try parsedPress(probe, on: rig.key)
+        #expect(first != second)
+        rig.call(.frameBegin, seq: 1)
+        rig.call(.frameEnd, seq: 1)
+        rig.call(.frameBegin, seq: 2)  // draws no new echo
+        rig.call(.frameEnd, seq: 2)
+        rig.call(.contentsHandoff, seq: 1)
+        rig.call(.gpuDone, seq: 1)
+        rig.call(.gpuDone, seq: 2)
+        probe.turnDidEnd()
+
+        for flow in [first, second] {
+            #expect(handoffs(log, flow) == ["key.echo.renderer<", "key.echo.gpu_done>", "key.echo.contents>",
+                                            "key.echo.gpu_done<", "key.echo.contents<"], "flow \(flow)")
+        }
+        #expect(handoffs(log, 0).isEmpty)
+    }
+
     @Test func withKeyFlowsOffAFrameMarksNoHandoff() throws {
         let log = GhosttyTraceHookTests.RecordLog()
         let trace = log.runtime()

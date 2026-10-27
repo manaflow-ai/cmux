@@ -152,6 +152,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         let resolvedSurface = resolvedSurface
         let sequencer = SequencerBox()
         let decoder = transport.decoder
+        let probe = transport.probe
         transport.start(
             onEvent: { name, line, _ in
                 var surface = resolvedSurface.value.withLock { $0 }
@@ -170,9 +171,7 @@ public actor TerminalAttachment: TerminalByteChannel {
                 if case .closed = event {
                     queue.finish(event)
                 } else {
-                    if case .output = event { TypingLatencyProbe.shared.outputDecoded(flow: decoded.flow) }
-                    if let flow = decoded.flow { queue.pushWithoutWaiting(.inputEcho(flow: flow)) } // just before its chunk
-                    queue.push(event)
+                    Self.enqueue(event, echoing: decoded.flow, on: queue, probe: probe)
                 }
             },
             onClose: { reason in

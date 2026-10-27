@@ -167,9 +167,10 @@ nonisolated final class TerminalOutputLane: Sendable {
             unsafe feed(surface, data)
             echoStage?.outputParsed(armedBefore: armedBefore)
             if echo != 0 {
-                probe.mark(.outputParsed, flow: echo)
-                // The parse woke the renderer thread, which draws the echo's frame.
+                // The parse woke the renderer thread, which draws the echo's frame. The flow out goes first:
+                // the renderer takes the press as soon as its parse is marked (``TypingLatencyProbe/drawEchoes(on:)``).
                 probe.queued(.renderer, flow: echo, surface: surfaceTraceID)
+                probe.mark(.outputParsed, flow: echo)
             }
             if let keyFlows { probe.mark(.outputParsed, surface: keyFlows) }
             #if DEBUG || CMUX_BENCH_HOOKS

@@ -2895,13 +2895,17 @@ FLOW_HOPS = [
     ("app.key.dispatch",), ("app.key.terminal",), ("app.io_write",), ("app.send",),
     ("daemon.send.write",), ("host.pty.write", "daemon.pty.write"), ("daemon.send.written",),
     ("host.pty.read", "holder.pty.read"), *_echo("host_pty_read"), *_echo("host_client_write"), *_echo("daemon_frames"),
-    ("daemon.output.host", "daemon.output.holder"), *_echo("surface_parse"), *_echo("attach_encode"),
-    ("daemon.output.attach",), *_echo("line_out"),
-    # Three handoffs' taking threads write their own hop before the `.taken` mark, so it sits between the two: the
-    # transport reader's decode, the Metal completion handler's gpu_done, main's setContents.
+    # The surface's reader marks daemon.output.attach as it queues the output to the attach viewers, before the
+    # surface parse's handoff (PtySurface::mark_attach_output); the attach-out and line-out threads come after it.
+    ("daemon.output.host", "daemon.output.holder"), ("daemon.output.attach",), *_echo("surface_parse"),
+    *_echo("attach_encode"), *_echo("line_out"),
+    # Four handoffs' hops sit between their two marks: the transport reader's decode, the Metal completion handler's
+    # gpu_done and main's setContents, which the taking thread writes before its `.taken` mark; and the lane's
+    # parse, which the lane writes after its `.queued` mark (the renderer takes the press once the parse is marked,
+    # so the flow out goes first, TerminalOutputLane.processOutput).
     ("key.echo.app_transport_read.queued",), ("app.output.decoded",), ("key.echo.app_transport_read.taken",),
     *_echo("main_actor"), ("app.output.received",), *_echo("output_lane"),
-    ("app.output.parsed",), *_echo("renderer"), ("ghostty.render",),
+    ("key.echo.renderer.queued",), ("app.output.parsed",), ("key.echo.renderer.taken",), ("ghostty.render",),
     ("key.echo.gpu_done.queued",), ("frame.gpu_done",), ("key.echo.gpu_done.taken",),
     ("key.echo.contents.queued",), ("app.frame.contents",), ("key.echo.contents.taken",),
     ("app.frame.commit",), ("frame.present_estimate",),
@@ -2942,18 +2946,18 @@ CLOCK_CAUSES = {
     **_echo_causes("daemon_frames", ("key.echo.host_client_write.taken",)),
     "daemon.output.host": ("key.echo.daemon_frames.taken",),
     "daemon.output.holder": ("key.echo.daemon_frames.taken",),
-    **_echo_causes("surface_parse", ("daemon.output.host", "daemon.output.holder")),
+    "daemon.output.attach": ("daemon.output.host", "daemon.output.holder"),
+    **_echo_causes("surface_parse", ("daemon.output.attach",)),
     **_echo_causes("attach_encode", ("key.echo.surface_parse.taken",)),
-    "daemon.output.attach": ("key.echo.attach_encode.taken",),
-    **_echo_causes("line_out", ("daemon.output.attach",)),
+    **_echo_causes("line_out", ("key.echo.attach_encode.taken",)),
     "key.echo.app_transport_read.queued": ("key.echo.line_out.taken",),
     "app.output.decoded": ("key.echo.app_transport_read.queued",),
     "key.echo.app_transport_read.taken": ("app.output.decoded",),
     **_echo_causes("main_actor", ("key.echo.app_transport_read.taken",)),
     "app.output.received": ("key.echo.main_actor.taken",),
     **_echo_causes("output_lane", ("app.output.received",)),
-    "app.output.parsed": ("key.echo.output_lane.taken",),
-    **_echo_causes("renderer", ("app.output.parsed",)),
+    **_echo_causes("renderer", ("key.echo.output_lane.taken",)),
+    "app.output.parsed": ("key.echo.renderer.queued",),
     "ghostty.render": ("key.echo.renderer.queued",),
     "key.echo.gpu_done.queued": ("ghostty.render",),
     "frame.gpu_done": ("key.echo.gpu_done.queued",),
@@ -6393,12 +6397,16 @@ def flow_press_records(flow, base, gpu_done_at=None, legacy=("host.pty.write",),
              (FLOW_DAEMON_PID, 45, "daemon_frames", "s", 1), (FLOW_DAEMON_PID, 46, "daemon_frames", "f", 2)]
     for pid, us, short, phase, thread in steps:
         echo(pid, us, short, phase, thread)
+    # The daemon's order as its code writes it: the surface's reader marks the attach hop, then queues the output
+    # to the attach-out thread, which queues the encoded event to the line-out thread; that one takes it and queues
+    # its write in the same turn (PtySurface::mark_attach_output, MessageWriter, line_connection::mark_echo_items).
     hop(FLOW_DAEMON_PID, 47, "daemon.output.host")
-    for us, short in ((48, "surface_parse"), (50, "attach_encode")):
-        echo(FLOW_DAEMON_PID, us, short, "s", 2)
-        echo(FLOW_DAEMON_PID, us + 1, short, "f", 2)
-    hop(FLOW_DAEMON_PID, 52, "daemon.output.attach")
-    echo(FLOW_DAEMON_PID, 53, "line_out", "s", 2)
+    hop(FLOW_DAEMON_PID, 48, "daemon.output.attach")
+    echo(FLOW_DAEMON_PID, 49, "surface_parse", "s", 2)
+    echo(FLOW_DAEMON_PID, 50, "surface_parse", "f", 1)
+    echo(FLOW_DAEMON_PID, 51, "attach_encode", "s", 1)
+    echo(FLOW_DAEMON_PID, 52, "attach_encode", "f", 0)
+    echo(FLOW_DAEMON_PID, 52, "line_out", "s", 0)
     echo(FLOW_APP_PID, 54, "line_out", "f", 2)
     echo(FLOW_APP_PID, 55, "app_transport_read", "s", 2)
     app(56, "app.output.decoded", 2)
@@ -6408,9 +6416,10 @@ def flow_press_records(flow, base, gpu_done_at=None, legacy=("host.pty.write",),
     app(60, "app.output.received")
     echo(FLOW_APP_PID, 61, "output_lane", "s", 0)
     echo(FLOW_APP_PID, 62, "output_lane", "f", 0)
-    app(63, "app.output.parsed")
-    echo(FLOW_APP_PID, 64, "renderer", "s", 0)
-    echo(FLOW_APP_PID, 65, "renderer", "f", 1)
+    # The renderer may take the press before the lane writes its parse hop: both follow the flow out.
+    echo(FLOW_APP_PID, 63, "renderer", "s", 0)
+    echo(FLOW_APP_PID, 64, "renderer", "f", 1)
+    app(64.5, "app.output.parsed")
     key(FLOW_APP_PID, 1, 65.5, "ghostty.render", "B", 0x5, 0)
     key(FLOW_APP_PID, 1, 70, "ghostty.render", "E", 0x5, 0)
     echo(FLOW_APP_PID, 70.5, "gpu_done", "s", 1)
@@ -6483,7 +6492,7 @@ def check_exact_flows():
         assert (at(p1, "frame.gpu_done"), at(p2, "frame.gpu_done")) == (1097.0, 1105.0)
         # A cmux-flow-trace hop's time is its `f` record's, not the `s` 0.3 us after it.
         assert at(p1, "host.pty.read") == 1040.0 and at(p2, "host.pty.read") == 1070.0
-        assert at(p1, "host.pty.write") == 1015.0 and at(p1, "daemon.output.attach") == 1052.0
+        assert at(p1, "host.pty.write") == 1015.0 and at(p1, "daemon.output.attach") == 1048.0
         assert at(p1, "app.key.dispatch") == 1000.0 and at(p1, "frame.present_estimate") == 1112.0
         assert at(p2, "frame.present_estimate") == 1120.0
         assert by[p1]["terminal"] == FLOW_TERMINAL[:16], by[p1]["terminal"]
@@ -6539,6 +6548,100 @@ def check_mixed_flows():
         assert len(render) == 1 and render[0]["dur"] == 4.5, render
         text = summary_text(summary)
         assert "Trace rings: 3 read" in text and "1 with every echo hop, 1 placed by windows" in text, text
+
+
+# One echo's records in the order the code writes them, each thread's in its own order and every handoff's flow out
+# before the next thread can see the item (p09-observability-102): the host's PTY thread and client writer
+# (host_start.rs publish_pty_frame, host_serve.rs), the daemon's frames thread (host_frames.rs read_stream: the flow
+# out before the push), the surface's reader (hosted_reader/output.rs, then PtySurface::mark_attach_output: the
+# attach hop, then its handoff), attach-out (attach_tap.rs, MessageWriter), line-out (line_connection.rs
+# mark_echo_items), the app's attach reader (LineTransport.markEchoArrived, then the decode), the session loop
+# (TerminalAttachment.next), the lane (TerminalOutputLane: the renderer's flow out before the parse mark), the
+# renderer (GhosttyTraceHook frameBegin, frameEnd), the handoff, Metal's completion and main's run-loop end.
+ECHO_CODE_ORDER = (
+    "app.key.dispatch", "app.key.terminal", "app.io_write", "app.send", "daemon.send.write", "host.pty.write",
+    "daemon.send.written", "host.pty.read",
+    "key.echo.host_pty_read.queued", "key.echo.host_pty_read.taken", "key.echo.host_client_write.queued",
+    "key.echo.host_client_write.taken", "key.echo.daemon_frames.queued", "key.echo.daemon_frames.taken",
+    "daemon.output.host", "daemon.output.attach", "key.echo.surface_parse.queued", "key.echo.surface_parse.taken",
+    "key.echo.attach_encode.queued", "key.echo.attach_encode.taken", "key.echo.line_out.queued",
+    "key.echo.line_out.taken", "key.echo.app_transport_read.queued", "app.output.decoded",
+    "key.echo.app_transport_read.taken", "key.echo.main_actor.queued", "key.echo.main_actor.taken",
+    "app.output.received", "key.echo.output_lane.queued", "key.echo.output_lane.taken", "key.echo.renderer.queued",
+    "app.output.parsed", "key.echo.renderer.taken", "ghostty.render", "key.echo.gpu_done.queued", "ghostty.render.end",
+    "key.echo.contents.queued", "app.frame.contents", "frame.gpu_done", "key.echo.gpu_done.taken",
+    "key.echo.contents.taken", "app.frame.commit", "frame.present_estimate",
+)
+
+
+# Each handoff's (queueing, taking) process.
+ECHO_HANDOFF_PIDS = {
+    "key.echo.host_pty_read": (FLOW_HOST_PID, FLOW_HOST_PID),
+    "key.echo.host_client_write": (FLOW_HOST_PID, FLOW_DAEMON_PID),
+    **{f"key.echo.{short}": (FLOW_DAEMON_PID, FLOW_DAEMON_PID)
+       for short in ("daemon_frames", "surface_parse", "attach_encode")},
+    "key.echo.line_out": (FLOW_DAEMON_PID, FLOW_APP_PID),
+    **{name: (FLOW_APP_PID, FLOW_APP_PID) for name in ECHO_HANDOFFS[6:]},
+}
+
+
+def echo_code_order_records(flow, base, order):
+    """{pid: [record]} of one press whose records are written in `order` (ECHO_CODE_ORDER's names), 1 us apart from
+    base (ns), each on the process and thread that writes it."""
+    out = collections.defaultdict(list)
+    codes = {hop: code for code, hop in KEY_FLOW_CODES.items()}
+    renderer = 1
+    for step, name in enumerate(order):
+        t_ns = base + step * 1000
+        add = lambda pid, thread, ring_name, phase, arg0, arg1, flags=0: out[pid].append(
+            (thread, t_ns, FLOW_RING_ID[ring_name], phase, flags, arg0, arg1))
+        if name in codes:
+            add(FLOW_APP_PID, 0, "key.flow", "s" if name == "app.key.dispatch" else "f", codes[name] | (50 << 8), flow)
+        elif name in LEGACY_FLOW_HOPS:
+            pid = FLOW_HOST_PID if name.startswith("host.") else FLOW_DAEMON_PID
+            add(pid, 0, name, "f", FLOW_TERMINAL_KEY, flow)
+        elif name.startswith("key.echo."):
+            handoff, end = name.rsplit(".", 1)
+            add(ECHO_HANDOFF_PIDS[handoff][end == "taken"], renderer if name == "key.echo.renderer.taken" else 0,
+                handoff, "s" if end == "queued" else "f", FLOW_TERMINAL_KEY, flow)
+        elif name == "ghostty.render":
+            add(FLOW_APP_PID, renderer, "ghostty.render", "B", 0x5, 0)
+        elif name == "ghostty.render.end":
+            add(FLOW_APP_PID, renderer, "ghostty.render", "E", 0x5, 0)
+        elif name == "frame.gpu_done":
+            add(FLOW_APP_PID, renderer, "frame.gpu_done", "I", 0x5, 0)
+        elif name == "frame.present_estimate":
+            add(FLOW_APP_PID, 0, "frame.present_estimate", "I", flow, 0, RING_FLAG_ESTIMATED)
+        else:
+            raise AssertionError(f"no writer for {name}")
+    return out
+
+
+def check_echo_code_order():
+    """An echo whose records come in the order the code writes them (ECHO_CODE_ORDER) is complete, has every echo
+    handoff, 0 clock-order violations and no negative per-hop time: CLOCK_CAUSES and FLOW_HOPS follow the code. So
+    does the order a race allows: the renderer taking the press between the lane's flow out and its parse mark. A
+    table that put daemon.output.attach after the attach-out handoff (the code marks it first) breaks it."""
+    racy = list(ECHO_CODE_ORDER)
+    parsed = racy.index("app.output.parsed")
+    racy[parsed], racy[parsed + 1] = racy[parsed + 1], racy[parsed]
+    for order in (ECHO_CODE_ORDER, tuple(racy)):
+        flow = (10 << 32) | 3
+        with tempfile.TemporaryDirectory() as out:
+            by = flows_of(out, flow_recording(out, [echo_code_order_records(flow, 1_000_000, order)]))
+        entry = by[flow]
+        assert entry["complete"] and entry["echo_complete"] and not entry["windowed"], entry["missing"]
+        assert clock_order_violations([entry], []) == [], clock_order_violations([entry], [])
+        backwards = [(hop, step) for hop, step in press_latencies(entry)[0] if step < 0]
+        assert not backwards, backwards
+        hop_ms = flow_percentiles([entry])["hop_ms"]["terminal"]
+        assert all(row["p50"] >= 0 for row in hop_ms.values()), hop_ms
+    kept = CLOCK_CAUSES["daemon.output.attach"]
+    CLOCK_CAUSES["daemon.output.attach"] = ("key.echo.attach_encode.taken",)
+    try:
+        assert [v["hop"] for v in clock_order_violations([entry], [])] == ["daemon.output.attach"]
+    finally:
+        CLOCK_CAUSES["daemon.output.attach"] = kept
 
 
 def check_chromium_join():
@@ -6765,7 +6868,7 @@ SELF_TESTS = [check_real_xctrace_exports, check_parsers_and_merge, check_stage_b
               check_flow_gaps_warn, check_percentiles, check_clock_order_and_percentiles, check_clock_command,
               check_focus_quiet_terminal, check_launch_trace, check_input_latency_slices,
               check_input_tables_match_the_swift, check_ring_reads_the_golden_file, check_ring_parse,
-              check_exact_flows, check_mixed_flows, check_chromium_join, check_key_flow_codes_match_the_swift,
+              check_exact_flows, check_echo_code_order, check_mixed_flows, check_chromium_join, check_key_flow_codes_match_the_swift,
               check_flow_hop_names_match_the_rust, check_release_trace]
 
 
