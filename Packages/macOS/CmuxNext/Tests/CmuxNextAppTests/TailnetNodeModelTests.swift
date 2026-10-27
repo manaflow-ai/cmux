@@ -215,7 +215,8 @@ import Testing
 
 @MainActor private final class Counter { var count = 0 }
 
-private final class Flag: @unchecked Sendable {
+// NSLock protects every access; stream termination can arrive off the main actor.
+private nonisolated final class Flag: @unchecked Sendable {
     private let lock = NSLock()
     private var value = false
     func set() { lock.withLock { value = true } }
