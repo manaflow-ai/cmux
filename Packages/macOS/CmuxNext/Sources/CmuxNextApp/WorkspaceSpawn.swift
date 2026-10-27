@@ -130,6 +130,7 @@ struct WorkspaceSpawner {
             } catch {
                 shown.abandon()
                 windows.pendingPlacements[key.rawValue] = nil
+                windows.pendingPlacementOrder.removeAll { $0 == key.rawValue }
                 PendingWorkspaceRows.shared.remove(key.rawValue)
                 throw error
             }

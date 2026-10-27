@@ -98,4 +98,41 @@ struct PlacementStaleRowsTests {
         let (written, listed) = try Self.place("k3", drawn: [], store: ["k3", "k1", "k2"], mixedOrder: mixedOrder)
         #expect(written == ["k1", "k2", "k3"], "bottom wrote \(written) against drawn rows \(listed)")
     }
+    @MainActor private final class RowPassCount {
+        var value = 0
+    }
+
+    /// Several daemon creates can arrive together. Pending placement keeps
+    /// request order and refreshes the store-backed rows only once per window.
+    @Test(arguments: [false, true])
+    func aBottomBurstKeepsRegistrationOrderWithOneRowsPass(mixedOrder: Bool) throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let store = services.machines.local.store
+        let identity = try Self.identity(mixedOrder: mixedOrder)
+        store.noteHandshake(identity)
+        store.connectionState = .connected(identity)
+        store.apply(snapshot: Self.tree(["k1"], personal: ["k1"]))
+        let windows = services.windows
+        windows.ordersWindowsIn = false
+        let controller = try #require(windows.openWindow(workspaces: ["k1"]))
+        defer { controller.teardown(); controller.window?.close() }
+        let bridge = controller.sidebar
+        bridge.resync()
+        let newIDs = ["k2", "k3", "k4"]
+        for id in newIDs {
+            NewWorkspacePlacements.expect(id, in: controller.state.id, slot: .bottom(anchor: nil), byDefault: nil, windows: windows)
+        }
+        let stored = ["k4", "k3", "k2", "k1"]
+        store.apply(snapshot: Self.tree(stored, personal: stored))
+        windows.registry.apply { $0.openWindow(id: controller.state.id, workspaceIDs: stored) }
+        let count = RowPassCount()
+        bridge.sameTurn.observe(listsRows: true, { count.value += 1; return count.value }, apply: { _ in })
+        windows.applyPendingPlacements(live: Set(stored))
+        #expect(bridge.model.selectableWorkspaces.map(\.id.rawValue) == ["k1", "k2", "k3", "k4"])
+        #expect(count.value == 1, "the burst refreshed the full rows pass once per pending workspace")
+        #expect(windows.pendingPlacements.isEmpty)
+        #expect(windows.pendingPlacementOrder.isEmpty)
+    }
+
 }

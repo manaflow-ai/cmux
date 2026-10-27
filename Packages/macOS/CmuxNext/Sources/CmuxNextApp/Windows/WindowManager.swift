@@ -53,6 +53,8 @@ final class WindowManager {
     /// Sidebar slots for new workspaces, applied once the daemon reports
     /// them (`applyPendingPlacements`).
     var pendingPlacements: [String: PendingPlacement] = [:]
+    /// Registration order survives a daemon snapshot that reports several creates together.
+    var pendingPlacementOrder: [String] = []
     /// Windows none of whose workspaces a machine reports yet (just created,
     /// or saved with workspaces that are gone or on a Cloud machine still
     /// connecting): kept off screen until their content is installed, so no
