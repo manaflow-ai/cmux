@@ -448,7 +448,15 @@ final class AgentTabStore {
         model.onRunAction = { [weak self] id, arguments in
             guard let self else { return false }
             // On this tab's pane: the New Tab page opens beside the tab that asked.
-            let target = ActionTargetRef(kind: .tab, id: resolve(provisional))
+            // Remote reconnect is the one action whose target is the tab's owning machine. The
+            // page knows only its transcript's failure; resolving the machine here keeps a page
+            // from naming an arbitrary saved peer or another machine's id.
+            let target: ActionTargetRef
+            if id == "machine.reconnect", let machine = daemonForTab(resolve(provisional))?.machineID {
+                target = ActionTargetRef(kind: .machine, id: machine)
+            } else {
+                target = ActionTargetRef(kind: .tab, id: resolve(provisional))
+            }
             return actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(target: target, arguments: arguments.mapValues(ActionValue.string), origin: .user)) ?? false
         }
         wireHeader(model, key: provisional)

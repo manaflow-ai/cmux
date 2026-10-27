@@ -74,7 +74,7 @@ export type TurnActions = {
   switchModel?: () => void;
   /// Ask the pane host to reconnect the remote daemon after a tailnet failure. The failed prompt
   /// remains in this turn, so reconnecting does not discard work or send it twice.
-  reconnectHost?: () => void;
+  reconnectHost?: () => void | Promise<unknown>;
   /// cmux's own route for a key, sign-in or capacity failure (CodeRouterOffer.tsx): what the chat's
   /// routes offer of CodeRouter (chatAccounts.ts codeRouterOffer), and the move onto a route, which
   /// acpmux applies at once on an idle chat and resumes the same session. Only on this Mac's acpmux.

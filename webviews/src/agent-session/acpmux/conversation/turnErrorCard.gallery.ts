@@ -45,11 +45,11 @@ export default agentPaneEntry({
     },
     tailscale: {
       note: "A chat on another machine that the tailnet no longer reaches.",
-      snapshot: failed("peer build-box unreachable: dial tcp build-box.tail0e5a.ts.net:4717: i/o timeout", undefined, {
+      snapshot: failed("peer remote-worker unreachable: dial tcp remote-worker.tail0e5a.ts.net:4717: i/o timeout", undefined, {
         summary: {
-          ...failed("peer build-box unreachable: dial tcp build-box.tail0e5a.ts.net:4717: i/o timeout").summary!,
-          host: "build-box",
-          peer: "build-box",
+          ...failed("peer remote-worker unreachable: dial tcp remote-worker.tail0e5a.ts.net:4717: i/o timeout").summary!,
+          host: "remote-worker",
+          peer: "remote-worker",
           hostKind: "cloud",
         },
       }),

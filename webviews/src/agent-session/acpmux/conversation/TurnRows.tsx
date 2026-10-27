@@ -411,7 +411,7 @@ function TurnFailure({
   /// route, asks to sign in; cx-w10a).
   reauthenticate?: () => void;
   /// Reconnects the pane's remote daemon after a tailnet failure, preserving this failed turn.
-  reconnectHost?: () => void;
+  reconnectHost?: () => void | Promise<unknown>;
   retry?: () => void;
   /// A Retry is in flight: its button waits.
   retrying?: boolean;
@@ -423,6 +423,8 @@ function TurnFailure({
   const [detailsOpen, setDetailsOpen] = useState(false);
   // One click sends one /compact: the button stays disabled until that send settles.
   const [compacting, setCompacting] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
+  const [reconnectNote, setReconnectNote] = useState(false);
   const kind = failureKind(message, route, code);
   const sentence = failureCopy(t, message, route, code);
   const arm = experimentArm(turnErrorCard);
@@ -451,6 +453,16 @@ function TurnFailure({
   const offerLeads = codeRouter !== undefined && offerArm === "primary";
   const offerFilled =
     offerLeads || (codeRouter !== undefined && offerArm === "button" && !offersSwitch && !offersRetry);
+  const reconnectFirst = reconnect !== undefined && !offerLeads && !switchFirst && !compactFirst && !signInFirst;
+  const runReconnect = reconnect
+    ? () => {
+        setReconnecting(true);
+        setReconnectNote(false);
+        void Promise.resolve(reconnect())
+          .catch(() => setReconnectNote(true))
+          .finally(() => setReconnecting(false));
+      }
+    : undefined;
   const switchButton = offersSwitch && (
     <button
       type="button"
@@ -485,8 +497,9 @@ function TurnFailure({
         {reconnect && (
           <button
             type="button"
-            className={`cv-turn-auth-action${!offerLeads && !switchFirst ? " cv-turn-error__primary" : ""}`}
-            onClick={reconnect}
+            className={`cv-turn-auth-action${reconnectFirst ? " cv-turn-error__primary" : ""}`}
+            disabled={reconnecting}
+            onClick={runReconnect}
           >
             {t("unavailable.reconnect")}
           </button>
@@ -516,7 +529,7 @@ function TurnFailure({
         {offersRetry && (
           <button
             type="button"
-            className={`cv-turn-auth-action${switchFirst || offerLeads || compactFirst || signInFirst ? "" : " cv-turn-error__primary"}`}
+            className={`cv-turn-auth-action${switchFirst || offerLeads || compactFirst || signInFirst || reconnectFirst ? "" : " cv-turn-error__primary"}`}
             disabled={retrying}
             onClick={retry}
           >
@@ -531,6 +544,7 @@ function TurnFailure({
             className={`cv-turn-auth-action${offerFilled ? " cv-turn-error__primary" : ""}`}
           />
         )}
+        {reconnectNote && <output className="cv-turn-error__note text-detail text-dim">{t("retry.failed")}</output>}
         {retryNote && <output className="cv-turn-error__note text-detail text-dim">{t(retryNote)}</output>}
         {message && (
           <details className="cv-turn-error__details" onToggle={(event) => setDetailsOpen(event.currentTarget.open)}>

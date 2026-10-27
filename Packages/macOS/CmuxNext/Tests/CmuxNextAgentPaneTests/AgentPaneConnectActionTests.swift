@@ -3,9 +3,9 @@ import CmuxNextActions
 import Testing
 @testable import CmuxNextAgentPane
 
-/// The location row's connect choices (``AgentPaneModel/runAction(_:)``): SSH…, New Cloud Machine
-/// and Open Cloud… (the Cloud page at its storefront, `#/get`, which lists the plan's sizes) run their
-/// app action on the person's fresh gesture in the pane, never on page script alone.
+/// The location row's connect choices (``AgentPaneModel/runAction(_:)``): SSH…, New Cloud Machine,
+/// Open Cloud… (the Cloud page at its storefront, `#/get`, which lists the plan's sizes), and the
+/// machine reconnect recovery action run on the person's fresh gesture in the pane, never on page script alone.
 @MainActor
 struct AgentPaneConnectActionTests {
     private actor NoHost: AgentPaneHostProviding {
@@ -32,6 +32,16 @@ struct AgentPaneConnectActionTests {
         model.transport.gestures.record()
         #expect(await model.respond(to: .runAction("newCloudMachine"))["ok"] as? Bool == true)
         #expect(arguments == [[:]])
+    }
+
+    @Test func machineReconnectRunsOnAGesture() async {
+        let model = AgentPaneModel(host: NoHost())
+        var ran: [String] = []
+        model.onRunAction = { id, args in ran.append(id); #expect(args.isEmpty); return true }
+        #expect(await model.respond(to: .runAction("machine.reconnect"))["ok"] as? Bool != true)
+        model.transport.gestures.record()
+        #expect(await model.respond(to: .runAction("machine.reconnect"))["ok"] as? Bool == true)
+        #expect(ran == ["machine.reconnect"])
     }
 
     /// Connect Phone… opens the Mobile Pairing page, on the person's gesture only.

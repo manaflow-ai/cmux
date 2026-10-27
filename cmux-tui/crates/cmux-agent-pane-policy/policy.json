@@ -16,7 +16,7 @@
     "_acpmux/subagent_stop", "_acpmux/agent_pair_resume", "_acpmux/app_reply", "_acpmux/watch_take_over",
     "_acpmux/process/list", "_acpmux/process/tail", "_acpmux/process/kill", "_acpmux/process/background",
     "_acpmux/route/list", "_acpmux/chat/route.set", "_acpmux/forum/rules", "_acpmux/set_tools",
-    "_acpmux/mcp/reconnect", "_acpmux/peer_reconnect"
+    "_acpmux/mcp/reconnect"
   ],
   "notifications": ["session/cancel"],
   "maximum_frame_bytes": 33554432,
@@ -108,7 +108,6 @@
     "_acpmux/route/list": {"params": ["sessionId"], "acpmux": []},
     "_acpmux/chat/route.set": {"params": ["sessionId", "routeId", "when"], "acpmux": []},
     "_acpmux/mcp/reconnect": {"params": ["sessionId", "server"], "acpmux": []},
-    "_acpmux/peer_reconnect": {"params": ["name", "wait"], "acpmux": []},
     "acp.session.fork": {"params": ["sessionId", "throughSeq"], "acpmux": []},
     "acp.trust.get": {"params": ["cwd", "sessionId"], "acpmux": []},
     "acp.trust.set": {"params": ["cwd", "level", "sessionId"], "acpmux": []},
