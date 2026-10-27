@@ -74,10 +74,11 @@ import Observation
             guard let self, self.available else { return nil }
             return current()
         }
+        let retryingRetiredHolder = await registry.hasPendingCleanup(for: scope)
         let broker = try await registry.broker(for: scope, currentScope: { await availability() },
             executable: resolved.executable, executablePrefix: resolved.prefix,
             codexExecutable: resolved.codex, home: home(for: scope))
-        cleanupByScope.removeValue(forKey: scope)
+        if retryingRetiredHolder { cleanupByScope.removeValue(forKey: scope) }
         try check(scope)
         scopes.insert(scope)
         let vm = target(scope, machineID)
