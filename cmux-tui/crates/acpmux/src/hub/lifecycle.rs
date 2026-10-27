@@ -1,5 +1,6 @@
 //! Part of `Hub`; see `hub/mod.rs`.
 
+use super::full_access_bound::FullAccessEnd;
 use super::*;
 
 use super::adoption::{Adoption, adopted_in, start_folder};
@@ -530,6 +531,13 @@ impl Hub {
         if self.shutting_down() {
             return Err(super::shutdown::shutting_down_error());
         }
+        // MDM forces full access off (#23322): an agent still in it, live or left by a restart,
+        // ends here and is never reached again; the start below asks, or refuses a pinned profile.
+        // A host whose end failed may still run in it: the chat is refused until it ends (review 51).
+        // Under the start's one read of the off (`off`).
+        if self.end_if_runs_full_access(session, off.off()).await == FullAccessEnd::StillRunning {
+            return Err(super::start_mode::full_access_off());
+        }
         let live = session.child.lock().await.clone();
         if let Some(child) = live
             && child.is_alive().await
@@ -578,6 +586,19 @@ impl Hub {
         let current = self.opencode_ask_now(session, profile).await;
         let profile = current.as_ref().unwrap_or(profile);
         self.record_spawn_inputs(session, profile).await;
+        // What the agent runs is this argv, not the creation's (`FullAccessView::of_session`). On
+        // disk before the agent starts: a daemon that dies while it starts leaves a host the next
+        // one judges by this argv (review 44 of #23322). Not left to the folder check's save, which
+        // a slow git read skips.
+        let argv_changed = {
+            let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            let changed = m.spawn_argv.as_ref() != Some(&profile.argv);
+            m.spawn_argv = Some(profile.argv.clone());
+            changed
+        };
+        if argv_changed {
+            self.save_meta(session);
+        }
         *session.launch_env.lock().unwrap_or_else(|e| e.into_inner()) = Some(profile.env.clone());
         let moves = super::processes::backgrounds_work(profile.kind);
         session.backgrounds_work.store(moves, Ordering::SeqCst);
@@ -1414,6 +1435,7 @@ impl Hub {
         if session.status() != SessionStatus::Closed
             && session.stops.load(Ordering::SeqCst) == stops
             && let Ok(_idle) = session.spawn_lock.try_lock()
+            && !self.managed_off_runs_full_access(&self.off_latch(), session)
             && let Some(child) = session.child.lock().await.as_ref()
             && child.is_alive().await
         {

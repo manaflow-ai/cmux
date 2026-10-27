@@ -1356,7 +1356,6 @@
       "type" : "boolean"
     },
     "browser.hibernation" : {
-      "default" : "moderate",
       "description" : "Frees memory; history and position are kept. Also accepts a number from 1 to 1440 in a raw profile.",
       "enum" : [
         "moderate",
@@ -3670,6 +3669,12 @@
       "title" : "Hide Bands Until Hover",
       "type" : "string"
     },
+    "sidebar.noFade" : {
+      "default" : false,
+      "description" : "The sidebar's edges stop fading and the whole list shows. It also hides the bottom profile and search bar. Off, the edges fade and the bar shows.",
+      "title" : "Show Whole Sidebar Without Fade",
+      "type" : "boolean"
+    },
     "sidebar.nowPlaying.enabled" : {
       "default" : false,
       "description" : "A player for what is playing, at the bottom of the sidebar.",
@@ -3778,7 +3783,7 @@
       "type" : "boolean"
     },
     "sidebar.showWorkspaceTabs" : {
-      "default" : false,
+      "default" : true,
       "description" : "Lists tabs beneath each workspace in the sidebar.",
       "title" : "Show Workspace Tabs",
       "type" : "boolean"
@@ -4748,7 +4753,7 @@
       "type" : "number"
     },
     "updates.installOnQuit" : {
-      "default" : true,
+      "default" : false,
       "description" : "A downloaded update installs as cmux quits. Terminals keep running.",
       "title" : "Install Updates When Quitting",
       "type" : "boolean"

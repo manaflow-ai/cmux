@@ -963,6 +963,7 @@ impl Hub {
                                     self.person.approver_spends(
                                         &session.id,
                                         permission_id,
+                                        &p.request,
                                         o,
                                         n,
                                         answers.as_ref(),
@@ -1113,6 +1114,7 @@ impl Hub {
                         && self.person.approver_proves(
                             &session.id,
                             permission_id,
+                            &p.request,
                             o,
                             nonce,
                             answers,
