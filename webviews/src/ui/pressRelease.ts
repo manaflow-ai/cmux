@@ -3,6 +3,8 @@
 // soon after the press, or without moving, is a plain click and leaves the menu open; a release
 // after dragging away (back on the trigger or anywhere but a row) closes it.
 
+import { frameInput } from "./frameInput";
+
 /** A release this soon after the press is a click, never a pick or a close. */
 export const PRESS_CLICK_MS = 150;
 const SLOP = 4;
@@ -35,20 +37,29 @@ export function trackPressRelease(start: PressStart, handlers: PressReleaseHandl
   const doc = trigger.ownerDocument;
   const startedAt = Date.now();
   let moved = false;
-  const rowAt = (event: PointerEvent) => {
-    const target = doc.elementFromPoint?.(event.clientX, event.clientY);
+  const rowAt = (point: { clientX: number; clientY: number }) => {
+    const target = doc.elementFromPoint?.(point.clientX, point.clientY);
     // Any element: a row's icon (an SVG) picks its row too.
     if (!target || trigger.contains(target)) return null;
     const row = target.closest<HTMLElement>(PRESS_ROW);
     if (!row || row.matches('[aria-disabled="true"], :disabled')) return null;
     return row;
   };
+  const hoverRow = (point: { clientX: number; clientY: number }) => {
+    const row = rowAt(point);
+    if (row) handlers.hover?.(row);
+  };
+  // The hit test runs once per frame, at the newest pointer; the release flushes it first
+  // (ui/frameInput.ts).
+  const win = doc.defaultView;
+  const hovers = handlers.hover && win ? frameInput(win, hoverRow) : undefined;
   const move = (event: PointerEvent) => {
     if (event.pointerId !== start.pointerId) return;
     if (!moved) moved = Math.hypot(event.clientX - start.clientX, event.clientY - start.clientY) >= SLOP;
-    if (!moved) return;
-    const row = rowAt(event);
-    if (row) handlers.hover?.(row);
+    if (!moved || !handlers.hover) return;
+    const point = { clientX: event.clientX, clientY: event.clientY };
+    if (hovers) hovers.push(point);
+    else hoverRow(point);
   };
   const up = (event: PointerEvent) => {
     if (event.pointerId !== start.pointerId) return;
@@ -71,11 +82,13 @@ export function trackPressRelease(start: PressStart, handlers: PressReleaseHandl
     handlers.end?.(false);
   };
   function stop() {
+    hovers?.cancel();
     doc.removeEventListener("pointermove", move, true);
     doc.removeEventListener("pointerup", up, true);
     doc.removeEventListener("pointercancel", cancel, true);
   }
-  doc.addEventListener("pointermove", move, true);
+  // Passive: the press only follows the pointer, it cancels nothing.
+  doc.addEventListener("pointermove", move, { capture: true, passive: true });
   doc.addEventListener("pointerup", up, true);
   doc.addEventListener("pointercancel", cancel, true);
   return stop;

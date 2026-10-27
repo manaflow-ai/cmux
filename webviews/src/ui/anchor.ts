@@ -218,8 +218,9 @@ export function useUiAnchor(
       } as CSSProperties);
     };
     update();
-    window.addEventListener("resize", update);
-    window.addEventListener("scroll", update, true);
+    // Passive: the overlay follows its anchor, it never cancels a scroll.
+    window.addEventListener("resize", update, { passive: true });
+    window.addEventListener("scroll", update, { capture: true, passive: true });
     const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(update);
     observer?.observe(anchor.current!);
     observer?.observe(overlay.current!);

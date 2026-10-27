@@ -298,7 +298,7 @@ export function BranchBasePicker({
       }
       setOpen(false);
     };
-    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("mousedown", onPointerDown, { passive: true });
     return () => document.removeEventListener("mousedown", onPointerDown);
   }, [open]);
 
@@ -324,9 +324,10 @@ export function BranchBasePicker({
       setPopoverStyle(computePopoverStyle(button.getBoundingClientRect()));
     };
     reposition();
-    window.addEventListener("resize", reposition);
-    // Capture phase so scrolling ANY ancestor (not just window) repositions it.
-    window.addEventListener("scroll", reposition, true);
+    window.addEventListener("resize", reposition, { passive: true });
+    // Capture phase so scrolling ANY ancestor (not just window) repositions it. Passive: it only
+    // follows the scroll.
+    window.addEventListener("scroll", reposition, { capture: true, passive: true });
     return () => {
       window.removeEventListener("resize", reposition);
       window.removeEventListener("scroll", reposition, true);

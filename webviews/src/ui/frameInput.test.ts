@@ -9,6 +9,7 @@ import {
   type FrameScheduler,
   type KeyToPaintReport,
 } from "./frameInput";
+import { trackPressRelease } from "./pressRelease";
 
 /** Frames that run only when the test says a frame came. */
 class FakeFrames implements FrameScheduler {
@@ -241,5 +242,40 @@ describe("image viewer wheel frames", () => {
     expect(view).toEqual({ scale: 2, x: -10, y: -20 });
     // At the fitted size a scroll does not pan.
     expect(applyWheel({ scale: 1, x: 0, y: 0 }, { zoom: 0, x: 5, y: 5, point })).toEqual({ scale: 1, x: 0, y: 0 });
+  });
+});
+
+describe("press-drag-release hover", () => {
+  test("a frame's moves make one hit test, and the release hands the held one over first", () => {
+    const dom = new JSDOM('<!doctype html><body><button>Open</button><div role="menuitem">Row</div></body>', {
+      pretendToBeVisual: true,
+    });
+    const doc = dom.window.document;
+    const trigger = doc.querySelector("button")!;
+    const row = doc.querySelector<HTMLElement>('[role="menuitem"]')!;
+    const hits: number[] = [];
+    // jsdom has no layout: every point is over the row.
+    doc.elementFromPoint = (x: number) => {
+      hits.push(x);
+      return row;
+    };
+    const seen: string[] = [];
+    trackPressRelease(
+      { pointerId: 1, clientX: 0, clientY: 0, currentTarget: trigger },
+      { hover: () => seen.push("hover"), pick: () => seen.push("pick"), end: () => seen.push("end") },
+    );
+    const pointer = (type: string, x: number) => {
+      const event = new dom.window.MouseEvent(type, { bubbles: true, clientX: x, clientY: 0 });
+      Object.defineProperty(event, "pointerId", { value: 1 });
+      trigger.dispatchEvent(event);
+    };
+    for (const x of [10, 20, 30, 40]) pointer("pointermove", x);
+    expect(hits).toEqual([]);
+    frameInputQueue(dom.window as unknown as Window).flush();
+    expect(hits).toEqual([40]);
+    expect(seen).toEqual(["hover"]);
+    pointer("pointermove", 50);
+    pointer("pointerup", 50);
+    expect(seen).toEqual(["hover", "hover", "pick", "end"]);
   });
 });
