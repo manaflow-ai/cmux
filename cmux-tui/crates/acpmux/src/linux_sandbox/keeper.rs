@@ -491,7 +491,7 @@ async fn run(options: Options) -> Result<i32> {
     // only sandbox-triggered propagation path is automount. The plan refuses
     // all autofs outside /proc, /sys and /dev, which bwrap replaces. Systemd's
     // binfmt_misc automount under /proc/sys is unaffected. Mount IDs come from
-    // O_PATH + statx in this keeper, never from deepest-path guesses.
+    // O_PATH + /proc/self/fdinfo in this keeper, never from deepest-path guesses.
     let mut mountinfo = Vec::new();
     std::fs::File::open("/proc/self/mountinfo")
         .map_err(|e| format!("cannot read mountinfo: {e}"))?

@@ -143,7 +143,7 @@ fn join_path(base: &Path, suffix: &Path) -> PathBuf {
 }
 
 /// Runs in the keeper before spawning. Missing names use their nearest existing
-/// ancestor's mount ID while the caller retains the entire guarded suffix.
+/// ancestor's mount ID from fdinfo while the caller retains the guarded suffix.
 /// The loop ends at an existing ancestor, an error, or the filesystem root.
 pub(super) fn resolved_mount_id(path: &Path) -> Result<u64, String> {
     let mut ancestor = path;
@@ -161,28 +161,13 @@ pub(super) fn resolved_mount_id(path: &Path) -> Result<u64, String> {
         }
         ancestor = ancestor.parent().ok_or("no existing mount ancestor")?;
     };
-    // SAFETY: zero is valid for statx; the descriptor is live and output writable.
-    let mut stat: libc::statx = unsafe { std::mem::zeroed() };
-    let result = unsafe {
-        libc::statx(
-            fd.as_raw_fd(),
-            c"".as_ptr(),
-            libc::AT_EMPTY_PATH,
-            libc::STATX_MNT_ID,
-            &mut stat,
-        )
-    };
-    if result != 0 {
-        return Err(format!(
-            "cannot obtain mount ID for {}: {}",
-            path.display(),
-            io::Error::last_os_error()
-        ));
-    }
-    if stat.stx_mask & libc::STATX_MNT_ID == 0 {
-        return Err(format!("kernel did not report STATX_MNT_ID for {}", path.display()));
-    }
-    Ok(stat.stx_mnt_id)
+    let info = fs::read_to_string(format!("/proc/self/fdinfo/{}", fd.as_raw_fd()))
+        .map_err(|e| format!("cannot read mount ID for {}: {e}", path.display()))?;
+    let value = info
+        .lines()
+        .find_map(|line| line.strip_prefix("mnt_id:"))
+        .ok_or_else(|| format!("fdinfo has no mnt_id for {}", path.display()))?;
+    value.trim().parse::<u64>().map_err(|e| format!("invalid mount ID for {}: {e}", path.display()))
 }
 
 /// Follow parent IDs, not path depth. A sibling mounted over an ancestor hides
@@ -349,12 +334,12 @@ mod tests {
     }
 
     #[test]
-    fn real_statx_resolves_root_mount_id() {
+    fn real_fdinfo_resolves_root_mount_id() {
         let id = resolved_mount_id(Path::new("/")).unwrap();
         let info = fs::read_to_string("/proc/self/mountinfo").unwrap();
         let mounts = parse_mountinfo(&info).unwrap();
         assert!(mounts.iter().any(|m| m.id == id && m.point == Path::new("/")));
-        eprintln!("passed: statx resolved / to mount ID {id}");
+        eprintln!("passed: fdinfo resolved / to mount ID {id}");
     }
 
     #[test]
