@@ -848,18 +848,30 @@ struct GenerationState {
     next_ping_nonce: u64,
 }
 
+/// A generation worker's input queue: a wait that ends at the next input
+/// or after `timeout`.
+trait WorkerInputs {
+    fn next_input(&mut self, timeout: Duration) -> Result<WorkerInput, RecvTimeoutError>;
+}
+
+impl WorkerInputs for Receiver<WorkerInput> {
+    fn next_input(&mut self, timeout: Duration) -> Result<WorkerInput, RecvTimeoutError> {
+        // wakeup-allow: deadline the worker's next protocol deadline (the cloud-set heartbeat
+        // ping, the idle limit or a pending open's); an input ends it first
+        self.recv_timeout(timeout)
+    }
+}
+
 impl GenerationState {
     fn run(
         &mut self,
         worker_id: u64,
         coordinator: &SyncSender<CoordinatorEvent>,
-        receiver: Receiver<WorkerInput>,
+        mut inputs: impl WorkerInputs,
     ) -> anyhow::Result<()> {
         loop {
             let timeout = self.next_deadline().saturating_duration_since(Instant::now());
-            // wakeup-allow: deadline the next protocol deadline (the cloud-set heartbeat ping, the
-            // idle limit or a pending open's); an input ends it first
-            match receiver.recv_timeout(timeout) {
+            match inputs.next_input(timeout) {
                 Ok(WorkerInput::Cloud(frame)) => {
                     self.last_received = Instant::now();
                     self.handle_cloud(worker_id, coordinator, frame?)?;

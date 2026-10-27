@@ -28,6 +28,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use cmux_process::{Command, Stdio};
+use cmux_tui_core::backoff::Backoff;
 use cmux_tui_core::platform::{self, transport};
 use serde_json::Value;
 
@@ -96,11 +97,25 @@ impl<'a> RestoreProgress<'a> {
     }
 }
 
-/// Probe interval while an owner this process did not start is still
-/// starting. That owner's readiness is announced only to its own parent
-/// (`OWNER_READY_FD_ARG`); the socket has no readiness event, so a second
-/// client re-asks. An owner this process spawns is awaited on its pipe.
-const POLL_INTERVAL: Duration = Duration::from_millis(25);
+/// The first and the longest gap between two probes of an owner this
+/// process cannot watch (the shared backoff). That owner's readiness is
+/// announced only to its own parent (`OWNER_READY_FD_ARG`); the socket has
+/// no readiness event, so a second client re-asks, less often the longer
+/// the owner restores. An owner this process spawns is awaited on its pipe.
+const PROBE_RETRY_FIRST: Duration = Duration::from_millis(25);
+const PROBE_RETRY_MAX: Duration = Duration::from_millis(250);
+
+fn probe_backoff() -> Backoff {
+    Backoff::new(PROBE_RETRY_FIRST, PROBE_RETRY_MAX)
+}
+
+/// Waits the next probe gap, never past `deadline`.
+fn pause_before_probe(retry: &mut Backoff, deadline: Instant) {
+    let left = deadline.saturating_duration_since(Instant::now());
+    // wakeup-allow: backoff the socket has no readiness event for an owner this call cannot
+    // watch; each probe doubles the gap up to PROBE_RETRY_MAX, and the ensure deadline ends them
+    std::thread::sleep(retry.next_delay().min(left));
+}
 
 /// Windows has no readiness pipe: the spawned owner is probed like a
 /// foreign one, and `SpawnedOwner::exited` asks its process handle.
@@ -286,9 +301,10 @@ pub(crate) fn ensure_owner(
     cmux_tui_core::server::prepare_socket_parent(&spec.socket, spec.socket_is_derived)
         .map_err(|error| EnsureError::Spawn(io::Error::other(error)))?;
     let restore_deadline = deadline.max(Instant::now() + RESTORE_DEADLINE);
+    let mut retry = probe_backoff();
     let owner = loop {
         if let Some(ready) =
-            wait_while_starting(spec, expected_session, restore_deadline, progress)?
+            wait_while_starting(spec, expected_session, restore_deadline, progress, &mut retry)?
         {
             return Ok(Ensured::Running(ready));
         }
@@ -310,9 +326,7 @@ pub(crate) fn ensure_owner(
             Attempt::Starting(pid) => {
                 progress.restoring(pid);
                 drop(lock);
-                // wakeup-allow: bounded one probe interval while another client's owner restores;
-                // only inside this ensure call, which `restore_deadline` ends
-                std::thread::sleep(POLL_INTERVAL);
+                pause_before_probe(&mut retry, restore_deadline);
                 continue;
             }
             // The lock is released once the spawn is issued. A redundant
@@ -375,6 +389,7 @@ fn wait_while_starting(
     expected_session: Option<&str>,
     restore_deadline: Instant,
     progress: &RestoreProgress<'_>,
+    retry: &mut Backoff,
 ) -> Result<Option<ReadyOwner>, EnsureError> {
     loop {
         match attempt(spec, expected_session, attempt_deadline(restore_deadline))? {
@@ -385,9 +400,7 @@ fn wait_while_starting(
         if Instant::now() >= restore_deadline {
             return Err(EnsureError::RestoreTimeout);
         }
-        // wakeup-allow: bounded the socket has no readiness event for an owner another client
-        // started; only inside this ensure call, which `restore_deadline` ends
-        std::thread::sleep(POLL_INTERVAL);
+        pause_before_probe(retry, restore_deadline);
     }
 }
 
@@ -406,6 +419,7 @@ fn wait_until_ready(
     progress: &RestoreProgress<'_>,
 ) -> Result<Option<ReadyOwner>, EnsureError> {
     let mut seen_alive = false;
+    let mut retry = probe_backoff();
     loop {
         match attempt(spec, expected_session, attempt_deadline(restore_deadline))? {
             Attempt::Ready(ready) => return Ok(Some(ready)),
@@ -429,9 +443,8 @@ fn wait_until_ready(
         if !seen_alive && now >= contact_deadline {
             return Ok(None);
         }
-        // wakeup-allow: bounded the socket has no readiness event for an owner this call cannot
-        // watch; only inside this ensure call, which the contact or restore deadline ends
-        std::thread::sleep(POLL_INTERVAL);
+        let next_deadline = if seen_alive { restore_deadline } else { contact_deadline };
+        pause_before_probe(&mut retry, next_deadline);
     }
 }
 
@@ -864,6 +877,9 @@ fn reap_on_exit(state: &OwnerProcessState, pid: u32) {
         let _ = process.wait();
     }
 }
+
+#[cfg(test)]
+mod probe_backoff_tests;
 
 #[cfg(test)]
 mod tests {

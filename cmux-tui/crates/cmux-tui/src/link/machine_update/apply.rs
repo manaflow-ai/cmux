@@ -28,6 +28,7 @@ use std::os::unix::io::AsRawFd as _;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use cmux_tui_core::backoff::Backoff;
 use serde_json::json;
 use sha2::{Digest as _, Sha256};
 
@@ -40,6 +41,14 @@ const STOP_TIMEOUT: Duration = Duration::from_secs(60);
 const SERVE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 /// A daemon must keep serving this long to count.
 const SETTLE: Duration = Duration::from_secs(5);
+/// The first and the longest gap between two serve checks (the shared
+/// backoff): a new daemon answers only after it replays its journal.
+const SERVE_RETRY_FIRST: Duration = Duration::from_millis(250);
+const SERVE_RETRY_MAX: Duration = Duration::from_secs(5);
+/// The first and the longest gap between two signal-0 checks when the
+/// daemon's exit event cannot be set up.
+const STOP_RETRY_FIRST: Duration = Duration::from_millis(50);
+const STOP_RETRY_MAX: Duration = Duration::from_secs(2);
 const INSTALL_SUFFIX: &str = "/.cmux/bin/cmux-tui";
 const RESULT_PREFIX: &str = ".cmux-tui.update-";
 /// The folder's update lock: a second update while one runs is `busy`.
@@ -300,6 +309,7 @@ fn restore(args: &Args, previous: &Path, why: &str) -> (&'static str, String) {
 fn serving(wanted: impl Fn(&str) -> bool, old_pid: i32) -> bool {
     let Some(socket) = socket() else { return false };
     let deadline = Instant::now() + SERVE_TIMEOUT;
+    let mut retry = Backoff::new(SERVE_RETRY_FIRST, SERVE_RETRY_MAX);
     while Instant::now() < deadline {
         if let Some(pid) = answering(&socket, &wanted, old_pid) {
             // wakeup-allow: deadline one settle period before the second identify
@@ -308,9 +318,9 @@ fn serving(wanted: impl Fn(&str) -> bool, old_pid: i32) -> bool {
                 return true;
             }
         }
-        // wakeup-allow: bounded the one-shot apply process asks the daemon socket, which has no
-        // listen event for a daemon that is not running yet, until SERVE_TIMEOUT
-        std::thread::sleep(Duration::from_secs(1));
+        // wakeup-allow: backoff the daemon socket has no listen event for a daemon that is not
+        // running yet; each failed check doubles the gap, and SERVE_TIMEOUT ends the checks
+        std::thread::sleep(retry.next_delay());
     }
     false
 }
@@ -334,9 +344,36 @@ fn alive(pid: i32) -> bool {
 
 /// Whether `pid` (not a child of this process) exits within `limit`: an
 /// exit event (`process_exit`: a pidfd, kqueue `NOTE_EXIT`), not a poll.
-/// When the event cannot be set up, one signal-0 check answers.
 fn stopped_within(pid: i32, limit: Duration) -> bool {
-    super::super::process_exit::wait_exit(pid, limit).unwrap_or_else(|_| !alive(pid))
+    stopped_by(limit, |budget| super::super::process_exit::wait_exit(pid, budget), || !alive(pid))
+}
+
+/// `exit_event` waits up to its budget for the exit. When it cannot be set
+/// up (no `pidfd_open` before Linux 5.3, or a seccomp filter denies it) and
+/// `waitid` cannot help (the daemon is not this process's child), `gone` is
+/// asked on the shared backoff for the rest of `limit`.
+fn stopped_by(
+    limit: Duration,
+    exit_event: impl FnOnce(Duration) -> std::io::Result<bool>,
+    gone: impl Fn() -> bool,
+) -> bool {
+    let deadline = Instant::now() + limit;
+    if let Ok(stopped) = exit_event(limit) {
+        return stopped;
+    }
+    let mut retry = Backoff::new(STOP_RETRY_FIRST, STOP_RETRY_MAX);
+    loop {
+        if gone() {
+            return true;
+        }
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return false;
+        }
+        // wakeup-allow: backoff only when the exit event cannot be set up; each check doubles
+        // the gap, and the stop limit ends the checks
+        std::thread::sleep(retry.next_delay().min(left));
+    }
 }
 
 /// A file's SHA-256, lowercase hex.
@@ -352,3 +389,7 @@ fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     std::fs::write(&temporary, bytes)?;
     std::fs::rename(&temporary, path)
 }
+
+#[cfg(test)]
+#[path = "apply_tests.rs"]
+mod tests;

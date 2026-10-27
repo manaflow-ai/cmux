@@ -168,3 +168,35 @@ fn the_idle_limit_and_a_pending_open_come_first_when_earlier() {
         .insert(9, PendingLocalOpen { instance_id: 1, initial_window: 1, deadline: open_deadline });
     assert_eq!(state.next_deadline(), open_deadline);
 }
+
+/// Records each wait the worker asks for; the third one stops the worker.
+#[derive(Default)]
+struct RecordingInputs {
+    waits: Vec<Duration>,
+}
+
+impl WorkerInputs for &mut RecordingInputs {
+    fn next_input(&mut self, timeout: Duration) -> Result<WorkerInput, RecvTimeoutError> {
+        self.waits.push(timeout);
+        if self.waits.len() < 3 {
+            Err(RecvTimeoutError::Timeout)
+        } else {
+            Ok(WorkerInput::Command(WorkerCommand::Stop))
+        }
+    }
+}
+
+#[test]
+fn an_idle_generation_worker_never_waits_less_than_its_next_deadline() {
+    let mut state = idle_state(Duration::from_secs(20));
+    let (coordinator, _events) = mpsc::sync_channel(EVENT_QUEUE_CAPACITY);
+    let mut inputs = RecordingInputs::default();
+    state.run(7, &coordinator, &mut inputs).expect("the stop command ends the worker");
+    assert_eq!(inputs.waits.len(), 3);
+    for wait in inputs.waits {
+        assert!(
+            wait > Duration::from_secs(19),
+            "an idle worker waits for its 20 s heartbeat, not a tick: {wait:?}"
+        );
+    }
+}

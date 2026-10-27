@@ -20,6 +20,7 @@ use std::time::{Duration, Instant};
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use cmux_process::{Child, Command, Stdio};
+use cmux_tui_core::backoff::Backoff;
 use cmux_tui_machine_protocol::BearerToken;
 use zeroize::Zeroize;
 
@@ -27,6 +28,8 @@ use crate::process_diagnostics::BoundedDiagnosticBuffer;
 
 const PROVIDER_WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 const COMMAND_TERMINATION_GRACE: Duration = Duration::from_millis(250);
+/// The first gap between two checks of a group that outlives its child.
+const GROUP_EXIT_RETRY_FIRST: Duration = Duration::from_millis(10);
 const COMMAND_DIAGNOSTIC_BYTES: usize = 16 * 1024;
 const PRIVATE_PATH_ATTEMPTS: usize = 16;
 
@@ -601,10 +604,15 @@ impl ProcessCleanup {
             }
             // Another member of the group has no exit event this process can
             // watch; it gets the rest of the grace, then SIGKILL.
-            while self.group_is_alive() && Instant::now() < deadline {
-                // wakeup-allow: bounded only while a closed provider's group outlives its child,
-                // and only until the termination grace ends
-                thread::sleep(Duration::from_millis(10));
+            let mut retry = Backoff::new(GROUP_EXIT_RETRY_FIRST, COMMAND_TERMINATION_GRACE);
+            while self.group_is_alive() {
+                let left = deadline.saturating_duration_since(Instant::now());
+                if left.is_zero() {
+                    break;
+                }
+                // wakeup-allow: backoff only while a closed provider's group outlives its child;
+                // each check doubles the gap, and the termination grace ends the checks
+                thread::sleep(retry.next_delay().min(left));
             }
             if self.group_is_alive() {
                 self.signal_group(libc::SIGKILL);
@@ -1294,3 +1302,7 @@ mod tests {
         assert!(deadline.timed_out());
     }
 }
+
+#[cfg(test)]
+#[path = "machine_provider_transport_cleanup_tests.rs"]
+mod cleanup_tests;

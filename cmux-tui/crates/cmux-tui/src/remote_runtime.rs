@@ -52,6 +52,7 @@ use cmux_remote::session::SessionLimits;
 use cmux_remote::ssh_bootstrap::{BootstrapError, SshBootstrapConfig, SshBootstrapper};
 use cmux_remote::workspace::WorkspaceService;
 use cmux_remote_protocol::{LanePolicy, SessionId};
+use cmux_tui_core::backoff::Backoff;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::sync::watch;
@@ -64,10 +65,16 @@ const MIN_REMOTE_RUNTIME_WORKERS: usize = 2;
 const MAX_REMOTE_RUNTIME_WORKERS: usize = 4;
 const INITIAL_GROUP_CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 const UNIX_SOCKET_PROBE_TIMEOUT: Duration = Duration::from_millis(250);
-const CLIENT_SOCKET_LOCK_RETRY: Duration = Duration::from_millis(10);
+/// The first and the longest gap between two tries of the client socket
+/// lock (the shared backoff): flock has no async or timed wait.
+const CLIENT_SOCKET_LOCK_RETRY_FIRST: Duration = Duration::from_millis(10);
+const CLIENT_SOCKET_LOCK_RETRY_MAX: Duration = Duration::from_millis(250);
 const DAEMON_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 const DAEMON_AUTH_LEASE_RETRY_TIMEOUT: Duration = Duration::from_secs(5);
-const DAEMON_AUTH_LEASE_RETRY_INTERVAL: Duration = Duration::from_millis(10);
+/// The first and the longest gap between two tries of the auth lease a
+/// handed-off daemon still holds (the shared backoff).
+const DAEMON_AUTH_LEASE_RETRY_FIRST: Duration = Duration::from_millis(10);
+const DAEMON_AUTH_LEASE_RETRY_MAX: Duration = Duration::from_millis(250);
 const STARTUP_THREAD_REAP_TIMEOUT: Duration = Duration::from_millis(250);
 const REMOTE_RUNTIME_SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(250);
 const MAX_DAEMON_SESSION_COMPONENT_BYTES: usize = 120;
@@ -1676,6 +1683,7 @@ async fn acquire_client_socket_lock(
     use std::os::fd::AsRawFd;
 
     let file = open_owner_lock_file(path, "client socket lock")?;
+    let mut retry = Backoff::new(CLIENT_SOCKET_LOCK_RETRY_FIRST, CLIENT_SOCKET_LOCK_RETRY_MAX);
 
     loop {
         if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
@@ -1689,22 +1697,22 @@ async fn acquire_client_socket_lock(
             return Err(error)
                 .with_context(|| format!("could not lock client socket path {}", path.display()));
         }
-        // flock has no async or timed wait. Another client holds this lock
-        // only across its socket's probe and bind, so the retry runs only for
-        // that moment; startup's shutdown (its timeout) ends it.
+        // Another client holds this lock only across its socket's probe and
+        // bind; startup's shutdown (its timeout) ends the retries.
+        let delay = retry.next_delay();
         match shutdown.as_deref_mut() {
             Some(shutdown) => {
                 tokio::select! {
-                    // wakeup-allow: bounded only while another client binds this socket path;
-                    // startup's shutdown ends it first
-                    _ = tokio::time::sleep(CLIENT_SOCKET_LOCK_RETRY) => {}
+                    // wakeup-allow: backoff flock has no timed wait; each try doubles the gap, and
+                    // startup's shutdown ends the tries
+                    _ = tokio::time::sleep(delay) => {}
                     _ = wait_for_shutdown(shutdown) => {
                         return Err(anyhow!("remote client startup was cancelled"));
                     }
                 }
             }
-            // wakeup-allow: bounded only while another client binds this socket path (tests only)
-            None => tokio::time::sleep(CLIENT_SOCKET_LOCK_RETRY).await,
+            // wakeup-allow: backoff flock has no timed wait; each try doubles the gap (tests only)
+            None => tokio::time::sleep(delay).await,
         }
     }
 }
@@ -2513,6 +2521,7 @@ async fn load_daemon_auth_during_handoff(
     retry_timeout: Duration,
 ) -> anyhow::Result<Arc<AuthDatabase>> {
     let deadline = tokio::time::Instant::now() + retry_timeout;
+    let mut retry = Backoff::new(DAEMON_AUTH_LEASE_RETRY_FIRST, DAEMON_AUTH_LEASE_RETRY_MAX);
     loop {
         match AuthDatabase::load_or_create(state_dir, daemon_name.to_owned(), true) {
             Ok(auth) => return Ok(auth),
@@ -2527,11 +2536,9 @@ async fn load_daemon_auth_during_handoff(
                     ));
                 }
                 tokio::select! {
-                    // wakeup-allow: bounded only while the daemon being handed off still holds the
-                    // auth lease, until `retry_timeout`; shutdown ends it first
-                    _ = tokio::time::sleep(
-                        DAEMON_AUTH_LEASE_RETRY_INTERVAL.min(remaining)
-                    ) => {}
+                    // wakeup-allow: backoff the lease has no release event; each try doubles the
+                    // gap, `retry_timeout` ends the tries and shutdown ends them first
+                    _ = tokio::time::sleep(retry.next_delay().min(remaining)) => {}
                     _ = wait_for_shutdown(shutdown) => {
                         return Err(anyhow!("remote daemon startup was cancelled"));
                     }
