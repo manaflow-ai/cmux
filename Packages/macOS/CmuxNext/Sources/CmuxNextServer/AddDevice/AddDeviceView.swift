@@ -86,6 +86,8 @@ public final class AddDeviceView: NSView {
         case .loaded:
             if let problem = model.networkProblem {
                 stack.addArrangedSubview(label(problem, font: Typography.body, color: Palette.danger, width: width))
+                // The ssh config's computers do not need the network.
+                if !model.available.isEmpty { stack.addArrangedSubview(list(model.available, width: width)) }
             } else if model.available.isEmpty {
                 stack.addArrangedSubview(label(AddDeviceStrings.networkEmpty, font: Typography.body, color: Palette.textPrimary, width: width))
             } else {
@@ -137,7 +139,8 @@ public final class AddDeviceView: NSView {
         name.lineBreakMode = .byTruncatingMiddle
         name.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         row.addArrangedSubview(name)
-        let detail = [computer.os, computer.mine ? AddDeviceStrings.yours : nil].compactMap { $0 }.filter { !$0.isEmpty }
+        let detail = (computer.fromSSHConfig ? [AddDeviceStrings.sshConfig]
+            : [computer.os, computer.mine ? AddDeviceStrings.yours : nil].compactMap { $0 }).filter { !$0.isEmpty }
         row.addArrangedSubview(label(detail.joined(separator: " · "), font: Typography.caption, color: Palette.textSecondary, width: nil))
         let spacer = NSView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -203,6 +206,7 @@ public final class AddDeviceView: NSView {
         switch action {
         case .pick: "add"
         case .otherComputer: "otherComputer"
+        case .newCloudMachine: "newCloudMachine"
         case .enterCode: "enterCode"
         case .copyLine: "copyLine"
         case .done: "done"

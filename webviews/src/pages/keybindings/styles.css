@@ -1,5 +1,13 @@
 /* Keyboard Shortcuts page; the shared base (colors, menu) is shared/pageBase.css. No blue:
    selection, hover and the "on" state of a toggle are the foreground at low alpha. */
+/* The recorder's two lights: taken keys in the diff viewer's standard deletion red, a save in its
+   standard addition green (appearance.ts STANDARD_DELETION / STANDARD_ADDITION), softer than the
+   system's danger red and success green. */
+:root {
+  --keys-taken: light-dark(#b42318, #ff8a80); /* theme-fixed: the diff's standard deletion red */
+  --keys-saved: light-dark(#257a3e, #8fd88f); /* theme-fixed: the diff's standard addition green */
+}
+
 .keys-page {
   display: flex;
   flex-direction: column;
@@ -31,24 +39,60 @@
   min-width: 0;
 }
 
+/* The field's frame: the input and, while search by keys records, its badge. */
+.keys-search-field {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  border-radius: 7px;
+  border: 1px solid var(--page-separator);
+}
+
+.keys-search-field:focus-within {
+  border-color: var(--page-text-3);
+}
+
 .keys-search {
   flex: 1;
   min-width: 0;
   font-size: 15px;
   padding: 6px 10px;
-  border-radius: 7px;
-  border: 1px solid var(--page-separator);
+  border: none;
   background: transparent;
   outline: none;
   user-select: text;
 }
 
-.keys-search:focus {
-  border-color: var(--page-text-3);
-}
-
 .keys-search::placeholder {
   color: var(--page-text-3);
+}
+
+/* The field's clear button is a button: it gets the pointer, and it shows whenever the field has
+   text, focused or not (Chromium shows it only on focus or hover; search by keys keeps the focus
+   on the page, not the field). */
+.keys-search::-webkit-search-cancel-button {
+  cursor: pointer;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Search by keys: "Recording Keys" at the field's end; how to leave it on hover. */
+.keys-search-badge {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  margin-right: 4px;
+  padding: 0 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--page-text);
+  background: var(--page-selection);
+  cursor: default;
 }
 
 .keys-filters {
@@ -74,15 +118,24 @@
   background: var(--page-hover);
 }
 
-.keys-toggle.on {
+/* Search by keys: a keyboard icon beside the search field, as tall as the field. */
+.keys-search-row .keys-record {
+  width: 32px;
+  height: auto;
+  border: 1px solid var(--page-separator);
+  border-radius: 7px;
+}
+
+.keys-search-row .keys-record.on {
   color: var(--page-text);
   background: var(--page-selection);
   border-color: var(--page-text-3);
 }
 
-.keys-hint {
-  font-size: 11px;
-  color: var(--page-text-3);
+.keys-toggle.on {
+  color: var(--page-text);
+  background: var(--page-selection);
+  border-color: var(--page-text-3);
 }
 
 .keys-notice {
@@ -203,12 +256,39 @@
 }
 
 .keys-cap {
-  font: 12px -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font: 12px var(--font-ui);
   padding: 1px 6px;
   border-radius: 4px;
   border: 1px solid var(--page-separator);
   border-bottom-width: 2px;
   color: var(--page-text);
+}
+
+/* The keys are the control that records new ones: a hover box like the when cell's, and the
+   pressed look while it records. */
+.keys-key-button {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-height: 24px;
+  margin-left: -4px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  vertical-align: middle;
+  cursor: default;
+}
+
+.keys-key-button:hover {
+  background: var(--page-hover);
+}
+
+.keys-key-button[aria-pressed="true"] {
+  background: var(--page-selection);
+  box-shadow: inset 0 0 0 1px var(--page-text-3);
 }
 
 .keys-placeholder {
@@ -441,4 +521,317 @@
 
 .keys-spacer {
   flex: 1;
+}
+
+/* The recorder over a row's keys while it records (KeybindingsPage `Recorder`): the shared popover
+   glass, centered: "Press ⌫ to delete", the keys as large caps (a click starts over), "or click
+   keys to edit further", a same-keys warning, then Close with its keys. Fills are tints over the
+   glass, never opaque. */
+/* Chromium draws a backdrop blur over the page's own pixels, not in their place, so the text
+   under a see-through page's popup reads crisp through the glass (glass.css, CHROMIUM OVER THE
+   WINDOW GLASS). The recorder carries text over the rows: its underlay is the text floor
+   (desktop.css --surface-text-min), not a menu's, so the rows under it fade out. */
+.ui-popup.keys-recorder {
+  --glass-underlay: var(--surface-text-min, 92%);
+}
+
+/* Chromium only (WebKit's backdrop blurs in place): over an opaque window too, the tint alone
+   lets the crisp rows through, so the recorder lays it over the underlay in every window. Under
+   Reduce Transparency (the system's, or the host's data-reduce-transparency) the underlay is left
+   out, as glass.css leaves out its own: the tint is opaque there, so the popup is the same. */
+@media not (prefers-reduced-transparency: reduce) {
+  @supports not (-webkit-backdrop-filter: none) {
+    :root:not([data-glass-lens], [data-reduce-transparency]) .ui-popup.ui-glass.keys-recorder {
+      background:
+        linear-gradient(var(--glass-tint), var(--glass-tint)),
+        color-mix(in srgb, var(--glass-surface) var(--glass-underlay), transparent);
+    }
+  }
+}
+
+.ui-popup.keys-recorder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  min-width: 240px;
+  max-width: 320px;
+  padding: 12px;
+  text-align: center;
+}
+
+.keys-recorder-hint {
+  font-size: var(--text-body);
+  color: var(--ui-fg-2);
+  letter-spacing: var(--text-body--letter-spacing);
+}
+
+/* "Press ⌫ to delete" leads the recorder: brighter than the other hints, not the full ink. */
+.keys-recorder-delete {
+  color: color-mix(in srgb, var(--ui-fg) 75%, transparent);
+}
+
+.keys-recorder-hint-cap {
+  display: inline-block;
+  margin: 0 4px;
+  padding: 0 4px;
+  border-radius: 4px;
+  font: inherit;
+  color: var(--ui-fg);
+  box-shadow: inset 0 0 0 0.5px var(--ui-line);
+}
+
+/* "Press ⌫ to delete" reads as one line of text: the glyph in the text's own size and ink, no
+   keycap box, as a native menu writes a key. */
+.keys-recorder-hint > .keys-recorder-hint-cap {
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+  box-shadow: none;
+  color: inherit;
+}
+
+.keys-recorder-keys {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ui-fg-2);
+  font: inherit;
+}
+
+.keys-recorder-keys.recorded {
+  color: var(--ui-fg);
+}
+
+/* A refused shortcut (Raycast's "Already used by", in cmux's words): the app's reason as the
+   title in the theme's danger red, and the keys it refused tinted the same. */
+.keys-recorder-refusal {
+  display: block;
+  max-width: 280px;
+  font-size: var(--text-title);
+  font-weight: 600;
+  color: var(--keys-taken);
+  letter-spacing: var(--text-title--letter-spacing);
+}
+
+.keys-recorder-refusal .keys-recorder-owner {
+  font-weight: 700;
+}
+
+.keys-recorder-keys.refused .keys-recorder-cap {
+  color: var(--keys-taken);
+  background: color-mix(in srgb, var(--keys-taken) 18%, transparent);
+}
+
+/* The keys turn red as the taken light shines through (with motion; at once without). */
+:root:not([data-cmux-motion="off"]) .keys-recorder-cap {
+  transition:
+    color var(--cmux-motion-standard, 180ms) ease-out,
+    background-color var(--cmux-motion-standard, 180ms) ease-out;
+}
+
+/* Keys taken while the last save's light is still mounted: it stays hidden, never replays. */
+.keys-recorder-light.off {
+  visibility: hidden;
+}
+
+/* The taken light: the green light's red twin, shining down through the whole glass, and it
+   stays on while the keys are taken (the green one only flashes). */
+.keys-recorder-light.danger {
+  inset: 0;
+  height: auto;
+  opacity: 1;
+  /* Brightest at the rim, through the whole glass, almost gone at the bottom. */
+  background: radial-gradient(
+    150% 130% at 50% 0%,
+    color-mix(in srgb, var(--keys-taken) 16%, transparent) 0%,
+    color-mix(in srgb, var(--keys-taken) 6%, transparent) 45%,
+    color-mix(in srgb, var(--keys-taken) 2%, transparent) 85%,
+    transparent 100%
+  );
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--keys-taken) 45%, transparent);
+}
+
+.keys-recorder-stroke {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.keys-recorder-cap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font: inherit;
+  font-size: var(--text-body);
+  color: inherit;
+  background: var(--ui-hover);
+  box-shadow:
+    inset 0 0 0 0.5px var(--ui-line),
+    inset 0 -1px 0 var(--ui-line);
+    letter-spacing: var(--text-body--letter-spacing);
+}
+
+/* The saved keys' conflicts, one line of text in the primary ink: "ⓘ Conflicts with: A, B". */
+.keys-recorder-conflict {
+  display: block;
+  font-size: var(--text-caption);
+  color: var(--ui-fg);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.keys-recorder-conflict .keys-icon {
+  margin-inline-end: 4px;
+  vertical-align: -2px;
+}
+
+.keys-recorder-conflict-label {
+  margin-inline-end: 4px;
+}
+
+/* The footer: the action on the left, cut to one line with an ellipsis, and a small Close with its
+   keys on the right. */
+.keys-recorder-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  align-self: stretch;
+  min-width: 0;
+  padding-top: 8px;
+  border-top: 0.5px solid var(--ui-line);
+}
+
+.keys-recorder-command {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: start;
+  font-size: var(--text-caption);
+  color: var(--ui-fg-2);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.keys-recorder-button {
+  flex: none;
+  height: 20px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ui-fg-2);
+  font: inherit;
+  font-size: var(--text-caption);
+  white-space: nowrap;
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.keys-recorder-choices {
+  display: inline-flex;
+  flex: none;
+  gap: 4px;
+}
+
+/* The primary choice: the primary ink, no fill (the hover still fills). */
+.keys-recorder-overwrite {
+  color: var(--ui-fg);
+}
+
+.keys-recorder-button:hover {
+  background: var(--ui-hover);
+  color: var(--ui-fg);
+}
+
+/* A button's key boxes read in the button's own ink (grey for Close), not the primary. */
+.keys-recorder-button .keys-recorder-hint-cap {
+  margin: 0 2px;
+  color: inherit;
+}
+
+/* Each key pops in as it goes down; the modifiers held before a key wait at half strength. Only
+   when the person allows motion (the motion gate and Reduce Motion), and it never delays a key:
+   with no motion a cap is there in one frame. */
+.keys-recorder-stroke.held .keys-recorder-cap {
+  opacity: 0.6;
+}
+
+@keyframes keys-cap-in {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"]) .keys-recorder-keys.recorded .keys-recorder-cap {
+    animation: keys-cap-in var(--cmux-motion-micro, 120ms) ease-out;
+  }
+}
+
+/* The confirm light (a save on release): a green glow along the top edge of the glass, as if a
+   light sat under its rim, that rises and fades once per save. The popup holds it (relative) and
+   clips it to its rounded corners. Motion off: no light (the keys at full strength say it). */
+.ui-popup.keys-recorder {
+  position: relative;
+}
+
+.keys-recorder-light {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  /* As the taken light, in green: brightest at the rim, through the whole glass, almost gone at
+     the bottom; it flashes once per save. */
+  background: radial-gradient(
+    150% 130% at 50% 0%,
+    color-mix(in srgb, var(--keys-saved) 16%, transparent) 0%,
+    color-mix(in srgb, var(--keys-saved) 6%, transparent) 45%,
+    color-mix(in srgb, var(--keys-saved) 2%, transparent) 85%,
+    transparent 100%
+  );
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--keys-saved) 45%, transparent);
+}
+
+@keyframes keys-recorder-light {
+  0% {
+    opacity: 0;
+  }
+  35% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* The motion scale's ceiling (desktop.css `--cmux-motion-large`) and 200ms more (Lucas
+   2026-10-24: the save light read too short at the ceiling); a fade, not a move, so Reduce
+   Motion keeps it; motion off: none. */
+:root:not([data-cmux-motion="off"]) .keys-recorder-light {
+  animation: keys-recorder-light calc(var(--cmux-motion-large, 240ms) + 200ms) ease-out;
+}
+
+/* The taken light rises once, then holds. */
+@keyframes keys-recorder-light-on {
+  from {
+    opacity: 0;
+  }
+}
+
+:root:not([data-cmux-motion="off"]) .keys-recorder-light.danger {
+  animation: keys-recorder-light-on var(--cmux-motion-large, 240ms) ease-out;
 }

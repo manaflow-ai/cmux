@@ -288,6 +288,8 @@ impl Brain {
         }
         self.handled = message.seq;
         self.note_main_message(&message);
+        // A reply's parent first, so the log holds what the reply points at.
+        self.note_reply_parent(&message);
         if message.author == self.settings.membership.participant {
             // a455: the Chief learns of a bubble posted in its name that it did not write.
             self.note_host_post(&message);

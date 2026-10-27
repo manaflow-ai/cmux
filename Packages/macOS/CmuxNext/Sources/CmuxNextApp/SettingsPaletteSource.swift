@@ -126,7 +126,7 @@ final class SettingsPaletteSource: PaletteSettingsSource {
     private static func customInput(for descriptor: SettingDescriptor) -> PaletteSettingCustomInput? {
         switch descriptor.kind {
         case .toggle, .choice: nil
-        case .hostList, .folderList, .timeRange, .numberList, .stringMap, .stringList, .orderedChoices, .choiceSet: nil
+        case .hostList, .folderList, .timeRange, .numberList, .stringMap, .soundRules, .stringList, .orderedChoices, .choiceSet: nil
         case .color:
             PaletteSettingCustomInput(placeholder: "#RRGGBB") { descriptor.value(typed: $0) != nil }
         case .number(let number), .choiceOrNumber(_, let number):

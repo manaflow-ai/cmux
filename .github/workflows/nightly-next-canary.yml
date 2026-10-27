@@ -94,8 +94,10 @@ jobs:
           if not items:
               sys.exit(f"no feed item {'for build ' + wanted if wanted else 'with a DMG'}")
           build, url, length = max(items)
-          if not url.startswith("https://github.com/manaflow-ai/cmux/releases/download/nightly-next/"):
-              sys.exit(f"{url} is not a nightly-next release asset")
+          # The release copy, or the feed's own R2 base (publish-nightly-next-r2.py).
+          if not url.startswith(("https://github.com/manaflow-ai/cmux/releases/download/nightly-next/",
+                                 "https://files-next.cmux.com/nightly-next/next/")):
+              sys.exit(f"{url} is not a nightly-next download")
           print(f"build={build}\nurl={url}\nlength={length}")
           PY
           cat "$GITHUB_OUTPUT"
@@ -116,7 +118,7 @@ jobs:
     needs: pick
     if: needs.pick.result == 'success' && needs.pick.outputs.checked != 'true'
     # No secrets: this job inspects the published artifact only.
-    runs-on: macos-26
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 35
     permissions:
       contents: read

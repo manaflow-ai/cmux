@@ -25,19 +25,26 @@ public struct PushSnapshots {
 
     #if os(iOS)
     // AgentSessionDirectory is iOS only; the package's macOS `swift test` builds this file too.
-    public func save(directory: AgentSessionDirectory = .shared, store: PushSnapshotStore? = PushSnapshotStore(group: .current())) {
-        guard let store else { return }
+    /// The App Group resolves and the files are written off the main thread;
+    /// a build without the group saves nothing (the long look shows the push alone).
+    public func save(directory: AgentSessionDirectory = .shared) async {
+        guard let store = PushSnapshotStore(group: await PushAppGroup.resolved()) else { return }
+        var snapshots: [PushSnapshot] = []
         for chat in directory.loadedStores {
             guard let source = chat.source as? AcpmuxSessionSource, !chat.summary.macID.isEmpty else { continue }
             let messages = Self.messages(chat.turns)
             guard !messages.isEmpty else { continue }
-            store.save(PushSnapshot(mac: chat.summary.macID, session: source.sessionID, title: chat.summary.name, messages: messages))
+            snapshots.append(PushSnapshot(mac: chat.summary.macID, session: source.sessionID, title: chat.summary.name, messages: messages))
         }
+        guard !snapshots.isEmpty else { return }
+        let toSave = snapshots
+        await Task.detached(priority: .utility) { for snapshot in toSave { store.save(snapshot) } }.value
     }
     #endif
 
-    /// Sign-out: no account's chats stay on disk.
-    public func removeAll() {
-        PushSnapshotStore(group: .current())?.removeAll()
+    /// Sign-out: no account's chats stay on disk (off the main thread).
+    public func removeAll() async {
+        let group = await PushAppGroup.resolved(timeout: PushAppGroupResolver.cleanupTimeout)
+        await Task.detached(priority: .utility) { PushSnapshotStore(group: group)?.removeAll() }.value
     }
 }
