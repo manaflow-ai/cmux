@@ -31,7 +31,10 @@ impl BoundedOutbound {
     /// Waits for the next item, then takes it and every item ready behind
     /// it in write order into `batch`, until the batch holds
     /// [`WRITE_BATCH_BYTES`] or [`WRITE_BATCH_ITEMS`]. A flush or a chunk
-    /// ends a batch. `false` once the queue is closed and empty. The wait is
+    /// ends a batch. Like [`BoundedOutbound::recv`], it wakes every stream
+    /// the batch gave room (`on_space` hooks), so a subscription pump that
+    /// went idle on a full stream runs again. `false` once the queue is
+    /// closed and empty. The wait is
     /// an idle wait, so a writer that disallows blocking may take it.
     pub(in crate::server) fn recv_batch(&self, batch: &mut Vec<OutboundItem>) -> bool {
         batch.clear();
@@ -47,8 +50,10 @@ impl BoundedOutbound {
                     ends = item.ends_batch();
                     batch.push(item);
                 }
+                let woken = state.take_space_woken();
                 drop(state);
                 self.changed.notify_all();
+                woken.wake();
                 return true;
             }
             if state.closed {

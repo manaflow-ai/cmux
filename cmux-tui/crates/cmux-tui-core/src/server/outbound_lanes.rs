@@ -525,7 +525,7 @@ impl BoundedOutboundState {
         usage.bytes = usage.bytes.saturating_sub(bytes);
         let remove = usage.messages == 0;
         // A producer that stopped at the cap is woken once the lock is
-        // released (`BoundedOutbound::recv`).
+        // released (`BoundedOutbound::recv`, `BoundedOutbound::recv_batch`).
         if was_full && message.stream.space_hook.is_set() {
             self.space_woken.streams.push(message.stream.clone());
         }
