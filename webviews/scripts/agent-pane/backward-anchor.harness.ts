@@ -139,6 +139,8 @@ try {
     missing: number;
     identityMissing: number;
     remounts: number;
+    topReversals: number;
+    thumbReversals: number;
   }[] = [];
   for (let batch = 0; batch < 4; batch++) {
     await page.evaluate(() => {
@@ -335,5 +337,5 @@ try {
   await context.close();
   await browser.close();
   await vite.close();
-  daemon.stop(true);
+  await daemon.stop(true);
 }

@@ -3678,8 +3678,7 @@ export function VirtualTranscript({
       });
     // Entering follow by scrolling (rather than the jump button) also settles the last few
     // pixels. It may not change the mounted range, so no placement effect need run afterward.
-    const resting =
-      scrolledTo.current.atLatest && settleFollowBottom(node, latest, true) ? node.scrollTop : next;
+    const resting = scrolledTo.current.atLatest && settleFollowBottom(node, latest, true) ? node.scrollTop : next;
     scrolledTo.current = { ...scrolledTo.current, top: resting };
     followTrace.update(node, layout.totalHeight, scrolledTo.current.atLatest);
     seenAnchor.current = restingAnchor(resting, scrolledTo.current.atLatest, layout, rows);
