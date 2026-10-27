@@ -261,6 +261,9 @@ jobs:
   # nothing. `label` is set only for an owned pick, so any other answer, a
   # skipped pick or a failure of this job leaves verify on Blacksmith. The
   # routing App key stays in this Linux job; verify holds no secret.
+  # tip-dmg-build, also secret-free, takes `dmg_label`: the same owned pool,
+  # but only when it has two machines free now, so it never queues behind
+  # verify on one mini; otherwise it stays on Blacksmith macOS.
   runner:
     needs: sign
     if: needs.sign.outputs.signed == 'true'
@@ -275,6 +278,8 @@ jobs:
     outputs:
       # An owned label (glaeda-...) or empty.
       label: ${{ steps.pool.outputs.label }}
+      # The owned label for tip-dmg-build too (two machines free), or empty.
+      dmg_label: ${{ steps.pool.outputs.dmg_label }}
     steps:
       # Only main's own dispatch of this workflow (the sign job's condition)
       # is offered an owned Mac, and only on its first attempt.
@@ -329,22 +334,38 @@ jobs:
           PR_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
         run: |
           set -uo pipefail
-          label="$(python3 scripts/ci/e2e_runner_pool.py \
-            --requested auto \
-            --order "$POOL_ORDER" \
-            --max-queued "$POOL_MAX_QUEUED" \
-            --owned "$POOL_OWNED" \
-            --owned-slots "$OWNED_SLOTS" \
-            --pr-xcode-app "$PR_XCODE_APP")" || label=""
+          pick() {
+            python3 scripts/ci/e2e_runner_pool.py \
+              --requested auto \
+              --jobs "$1" \
+              --order "$POOL_ORDER" \
+              --max-queued "$POOL_MAX_QUEUED" \
+              --owned "$POOL_OWNED" \
+              --owned-slots "$OWNED_SLOTS" \
+              --pr-xcode-app "$PR_XCODE_APP"
+          }
+          # Two machines free: verify and tip-dmg-build both take the owned
+          # pool. Otherwise verify alone may take one, and tip-dmg-build
+          # stays on Blacksmith macOS.
+          label="$(pick 2)" || label=""
+          case "$label" in
+            glaeda-*) dmg_label="$label" ;;
+            *)
+              echo "No two owned Macs free now (picker said '${label:-nothing}'); Blacksmith macOS 26 takes tip-dmg-build."
+              dmg_label=""
+              label="$(pick 1)" || label=""
+              ;;
+          esac
           case "$label" in
             glaeda-*) ;;
             *) echo "No owned Mac free now (picker said '${label:-nothing}'); Blacksmith macOS 26 takes verify."; label="" ;;
           esac
           echo "label=$label" >> "$GITHUB_OUTPUT"
-          [ -z "$label" ] || echo "Runner: $label (a re-run takes Blacksmith macOS 26)"
+          echo "dmg_label=$dmg_label" >> "$GITHUB_OUTPUT"
+          [ -z "$label" ] || echo "Runner: $label for verify${dmg_label:+ and tip-dmg-build} (a re-run takes Blacksmith macOS 26)"
 
       # ci-owned-pool-rescue.yml's sweeper watches a run with these markers and
-      # re-runs verify when an owned Mac leaves it queued or refuses it
+      # re-runs verify (and tip-dmg-build) when an owned Mac leaves it queued or refuses it
       # (attempt 2 takes Blacksmith); the queue janitor counts the first one
       # against the pool. Fail-safe: without them the run is only not watched.
       - name: Mark a run on a persistent macOS pool
@@ -362,7 +383,7 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-1-${{ steps.pool.outputs.label }}
+          name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-${{ steps.pool.outputs.dmg_label != '' && '2' || '1' }}-${{ steps.pool.outputs.label }}
           path: ${{ steps.marker.outputs.path }}
           retention-days: 1
 
@@ -780,14 +801,24 @@ jobs:
     # Advisory, as tip is: a red tip-dmg-build never makes the dispatcher
     # re-publish the same source run. A failure still shows red on the job.
     continue-on-error: true
-    needs: [sign]
+    needs: [sign, runner]
+    # The runner job is only a placement: its failure keeps Blacksmith.
     if: ${{ !cancelled() && needs.sign.result == 'success' && needs.sign.outputs.signed == 'true' && needs.sign.outputs.build != '' }}
     # The Mac half of the tip DMG, and all of it that needs a Mac: Apple's
     # codesign check of the Linux signature and hdiutil's ULMO image. No
     # environment and no secrets: tip-dmg signs, notarizes and staples the
     # DMG on Linux. No concurrency group (a group replaces a pending run,
     # which the dev-build rule forbids).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    # Owned Macs first (Leo, 2026-10-24: owned Macs before Blacksmith; the
+    # Blacksmith macOS queue held this job for hours on 2026-10-26): attempt 1
+    # takes the runner job's dmg_label when it named one (two machines free
+    # now, so verify and this job each get one), in a fresh work directory
+    # removed after the job; every re-run, the owned-pool rescue's included,
+    # takes Blacksmith. It runs no bundle code (codesign --verify, ditto and
+    # hdiutil only), so the bundle-code guard's rule 6 (its OWNED_VERIFY_JOBS
+    # exception) does not apply; bundle code added here would fail that rule
+    # on this runs-on.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.run_attempt == 1 && needs.runner.outputs.dmg_label || 'blacksmith-6vcpu-macos-26') }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -807,7 +838,20 @@ jobs:
       TIP_APPCAST: appcast-arm64.xml
       # Builds the feed keeps; tip-deltas gives the newest deltas from the others.
       TIP_KEEP: "3"
+      # An owned Mac carries only the lane's Xcode pin, which its label names.
+      CMUX_CI_XCODE_APP: ${{ github.run_attempt == 1 && needs.runner.outputs.dmg_label != '' && vars.CMUX_CI_XCODE_APP_PR || '' }}
     steps:
+      - name: Clear stale git locks (self-hosted reused workspace)
+        shell: bash
+        run: |
+          # Owned Macs reuse the workspace; a job killed mid-checkout can leave
+          # a stale lock that fails the next checkout.
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          rm -f "$ws/.git/index.lock" 2>/dev/null || true
+          if [ -d "$ws/.git/modules" ]; then
+            find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
+          fi
+
       - name: Checkout trusted feed scripts
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -818,17 +862,29 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
+      # The download, unpack and DMG happen in a new directory, removed in
+      # the always() step below, never in the reused workspace.
+      - name: Make a fresh work directory
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/cmux-next-dev-tip-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          rm -rf "$dir"
+          mkdir -p "$dir"
+          echo "TIP_WORK_DIR=$dir" >> "$GITHUB_ENV"
+
       - name: Download the signed app
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-next-dev-daily-signed
-          path: signed-handoff
+          path: ${{ env.TIP_WORK_DIR }}/signed-handoff
 
       # Never roll the feed back (tip-deltas fetches the delta bases later).
       - name: Read the live tip feed
         id: feed
         run: |
           set -euo pipefail
+          scripts="$PWD/scripts"
+          cd "$TIP_WORK_DIR"
           (cd signed-handoff && shasum -a 256 -c "$APP_ARCHIVE_NAME.sha256")
           [[ "$TIP_BUILD" =~ ^[0-9]+$ ]] || { echo "tip build '$TIP_BUILD' is not a number" >&2; exit 1; }
           status="$(curl --silent --show-error --location --retry 3 --output tip-live.xml --write-out '%{http_code}' \
@@ -839,7 +895,7 @@ jobs:
             exit 0
           fi
           [[ "$status" == 200 ]] || { echo "tip feed returned HTTP $status" >&2; exit 1; }
-          python3 scripts/ci/tip_feed.py previous tip-live.xml --build "$TIP_BUILD" --keep "$TIP_KEEP" > tip-previous.txt
+          python3 "$scripts/ci/tip_feed.py" previous tip-live.xml --build "$TIP_BUILD" --keep "$TIP_KEEP" > tip-previous.txt
           if [[ "$(head -n 1 tip-previous.txt)" != fresh ]]; then
             echo "::notice::the tip feed already has build $(head -n 1 tip-previous.txt | cut -d' ' -f2), not older than $TIP_BUILD; skipping"
             echo "fresh=false" >> "$GITHUB_OUTPUT"
@@ -854,6 +910,7 @@ jobs:
         if: steps.feed.outputs.fresh == 'true'
         run: |
           set -euo pipefail
+          cd "$TIP_WORK_DIR"
           mkdir -p signed tip-unsigned
           /usr/bin/ditto -x -k "signed-handoff/$APP_ARCHIVE_NAME" signed
           # Apple's check of the Linux signature, here and not only in verify:
@@ -863,7 +920,7 @@ jobs:
             echo "codesign reports a sealed resource missing or invalid" >&2
             exit 1
           fi
-          dmg_root="$RUNNER_TEMP/cmux-next-dev-tip/dmg-root"
+          dmg_root="$TIP_WORK_DIR/dmg-root"
           mkdir -p "$dmg_root"
           /usr/bin/ditto "signed/$APP_NAME.app" "$dmg_root/$APP_NAME.app"
           ln -s /Applications "$dmg_root/Applications"
@@ -877,7 +934,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ steps.dmg.outputs.unsigned }}
-          path: tip-unsigned/*
+          path: ${{ env.TIP_WORK_DIR }}/tip-unsigned/*
           compression-level: 0
           if-no-files-found: error
           retention-days: 1
@@ -886,6 +943,11 @@ jobs:
         id: upload
         if: steps.dmg.outputs.unsigned != ''
         run: echo "fresh=true" >> "$GITHUB_OUTPUT"
+
+      - name: Remove the work directory
+        if: always()
+        run: |
+          if [[ -n "${TIP_WORK_DIR:-}" ]]; then rm -rf "$TIP_WORK_DIR"; fi
 
   tip-dmg:
     name: Sign, notarize and staple the cmux NEXT DEV tip DMG
