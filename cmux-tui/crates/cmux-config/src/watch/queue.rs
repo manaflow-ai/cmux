@@ -95,6 +95,7 @@ impl EventReceiver {
 
     /// Waits at most `timeout` for the next event.
     pub fn recv_timeout(&self, timeout: Duration) -> Result<WatchEvent, RecvTimeoutError> {
+        // wakeup-allow: deadline the caller's one burst-end deadline; the queue adds no wake of its own
         self.recv_with(|receiver| receiver.recv_timeout(timeout))
     }
 
