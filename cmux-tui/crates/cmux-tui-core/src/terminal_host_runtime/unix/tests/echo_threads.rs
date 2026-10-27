@@ -105,3 +105,47 @@ fn the_parser_waits_for_its_next_command_on_an_echo_thread_without_a_violation()
     parser.join().expect("the parser's idle wait is not a violation");
     assert!(host.smart.applied_cursor.load(Ordering::Acquire) >= cursor);
 }
+
+/// A client's cell-metric commit waits for the host's parser to apply what
+/// was queued before it (metric_commits.rs), and so do its resize, default
+/// color, Kitty-limit and clear-history commits. They ran on
+/// terminal-host-client-input, an echo thread with blocking disallowed: in
+/// the detector's panic mode (the Debug default) the thread panicked at the
+/// wait, the client got no acknowledgement and its connection stayed open,
+/// so the daemon waited for the reply forever.
+#[test]
+fn a_client_commit_that_waits_for_the_parser_is_acknowledged_in_panic_mode() {
+    cmux_threads::blocking::set_mode(cmux_threads::BlockingMode::Panic);
+    let (host, parser_commands) = exited_host_fixture_with_parser();
+    let initial_colors = host.term.lock().unwrap().color_overrides();
+    let parser = {
+        let host = host.clone();
+        thread::spawn(move || {
+            run_host_parser(host, parser_commands, initial_colors, ParserSignals::new())
+        })
+    };
+    let (server_stream, mut client_stream) = UnixStream::pair().unwrap();
+    client_stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    serve_accepted(&host, server_stream).unwrap();
+    let hello = snapshot_boundary_client_hello(&host, false).unwrap();
+    write_frame(&mut client_stream, &hello).unwrap();
+    for label in ["host hello", "snapshot", "colors"] {
+        read_required_frame(&mut client_stream, label).unwrap();
+    }
+    let mut metrics = Frame::new(MessageKind::SetCellPixelSize, Vec::new());
+    metrics.payload.extend_from_slice(&9u16.to_le_bytes());
+    metrics.payload.extend_from_slice(&18u16.to_le_bytes());
+    metrics.request_id = 7;
+    write_frame(&mut client_stream, &metrics).unwrap();
+    let ack = loop {
+        let frame = read_required_frame(&mut client_stream, "the cell-metric acknowledgement")
+            .expect("the host acknowledges the commit before the read timeout");
+        if frame.kind == MessageKind::CellPixelSizeAck {
+            break frame;
+        }
+    };
+    assert_eq!(ack.request_id, 7);
+    let _ = client_stream.shutdown(std::net::Shutdown::Both);
+    host.parser_commands.send(ParserCommand::Drain).unwrap();
+    parser.join().unwrap();
+}
