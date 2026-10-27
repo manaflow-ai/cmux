@@ -10,10 +10,11 @@ public nonisolated struct DyldImageResolver: ImageResolving {
 
     /// Looks up a loaded image (``ImageResolving``).
     public func image(containing address: UInt64) -> LoadedImage? {
+        guard let word = UInt(exactly: address) else { return nil }
         var info = Dl_info()
         // SAFETY: dladdr only looks the address up in dyld's image list (never dereferences it) and fills `info`,
         // a local; dli_fbase is then the mach header of a loaded image and dli_fname its NUL-terminated path.
-        guard let pointer = unsafe UnsafeRawPointer(bitPattern: UInt(address)), unsafe dladdr(pointer, &info) != 0,
+        guard let pointer = unsafe UnsafeRawPointer(bitPattern: word), unsafe dladdr(pointer, &info) != 0,
               let base = unsafe info.dli_fbase else { return nil }
         // SAFETY: as above; String(cString:) copies the path.
         let path = unsafe info.dli_fname.map { unsafe String(cString: $0) } ?? ""
@@ -58,19 +59,21 @@ public nonisolated struct DyldImageResolver: ImageResolving {
         // SAFETY: as above (the walk).
         var command = unsafe UnsafeRawPointer(header).advanced(by: MemoryLayout<mach_header_64>.size)
         // SAFETY: as above (the walk).
-        var remaining = unsafe Int(header.pointee.sizeofcmds)
+        var remaining = unsafe Int(truncatingIfNeeded: header.pointee.sizeofcmds)
         // SAFETY: as above (the walk).
         let commandCount = unsafe header.pointee.ncmds
         for _ in 0..<commandCount {
             guard remaining >= MemoryLayout<load_command>.size else { return nil }
             // SAFETY: as above (the walk): a load_command's bytes remain.
             let load = unsafe command.load(as: load_command.self)
-            guard Int(load.cmdsize) >= MemoryLayout<load_command>.size, Int(load.cmdsize) <= remaining else { return nil }
-            remaining -= Int(load.cmdsize)
-            if load.cmd == LC_UUID, Int(load.cmdsize) >= MemoryLayout<uuid_command>.size {
+            // A UInt32 widens to Int.
+            let size = Int(truncatingIfNeeded: load.cmdsize)
+            guard size >= MemoryLayout<load_command>.size, size <= remaining else { return nil }
+            remaining -= size
+            if load.cmd == LC_UUID, size >= MemoryLayout<uuid_command>.size {
                 // SAFETY: as above (the walk): the command holds a whole uuid_command.
                 uuid = unsafe UUID(uuid: command.load(as: uuid_command.self).uuid).uuidString
-            } else if load.cmd == LC_SEGMENT_64, Int(load.cmdsize) >= MemoryLayout<segment_command_64>.size {
+            } else if load.cmd == LC_SEGMENT_64, size >= MemoryLayout<segment_command_64>.size {
                 // SAFETY: as above (the walk): the command holds a whole segment_command_64.
                 var segment = unsafe command.load(as: segment_command_64.self)
                 // SAFETY: reads the 16 bytes of `segname`, a tuple in the local copy, only inside the closure.
@@ -78,10 +81,10 @@ public nonisolated struct DyldImageResolver: ImageResolving {
                 if name == "__TEXT" { textSize = segment.vmsize }
             }
             // SAFETY: as above (the walk): the next command starts inside the checked bytes, or the loop ends.
-            command = unsafe command.advanced(by: Int(load.cmdsize))
+            command = unsafe command.advanced(by: size)
         }
         guard let uuid, textSize > 0 else { return nil }
         // SAFETY: the header's address as an integer, the image's load address.
-        return unsafe LoadedImage(path: path, uuid: uuid, base: UInt64(UInt(bitPattern: header)), size: textSize)
+        return unsafe LoadedImage(path: path, uuid: uuid, base: UInt64(truncatingIfNeeded: UInt(bitPattern: header)), size: textSize)
     }
 }

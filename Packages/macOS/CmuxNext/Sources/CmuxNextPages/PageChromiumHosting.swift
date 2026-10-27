@@ -148,6 +148,17 @@ public protocol PageChromiumPage: AnyObject {
     /// `document.execCommand('copy')` with a user gesture, through the fork's `tabEvaluate` on renderer
     /// paths (fork API 29), so it makes no DevTools call there.
     func copySelection()
+    /// Whether ``push(_:)`` reaches the page: the engine has the page push channel (`cmuxPageListen`,
+    /// fork API 39) and the app turned it on (feature `pagePushChannel`).
+    var pushesToPage: Bool { get }
+    /// Hands `text` to the receiver the page's document registered with `cmuxPageListen`, as data: no
+    /// script runs for it and nothing answers, as Chrome's WebUI pages get Mojo messages instead of
+    /// `WebUI::CallJavascriptFunction` scripts (content/browser/webui/web_ui_impl.cc). Pushes arrive in
+    /// call order, and the engine keeps them until the document's receiver registers or a frozen page
+    /// runs again. Call it only while ``pushesToPage``; otherwise it does nothing.
+    ///
+    /// - Parameter text: UTF-8 text, no NUL.
+    func push(_ text: String)
     /// Copies the page as it last drew, fitted inside `maxPixelSize` (never scaled up), with no DevTools
     /// agent: the fork's surface copy (`cmux_browser_capture`, p13-webui-077), as Chrome copies a tab
     /// thumbnail (chrome/browser/ui/thumbnails/thumbnail_tab_helper.cc, `RenderWidgetHostView::CopyFromSurface`).

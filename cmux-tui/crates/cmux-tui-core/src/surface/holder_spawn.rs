@@ -65,6 +65,9 @@ impl Surface {
             env,
         };
         let service = HolderService::for_root(&spawn.host_root)?;
+        if let Some(mux) = spawn.mux.upgrade() {
+            service.use_reaper(&mux.reaper);
+        }
         // A round trip with the holder, which starts the process.
         crate::request_path::note(crate::request_path::BlockingKind::HostWait);
         let terminal = service.spawn(&request, &spawn.seed)?;
@@ -106,6 +109,9 @@ impl Surface {
             return Ok(None);
         };
         let service = HolderService::for_root(&adoption.host_root)?;
+        if let Some(mux) = adoption.mux.upgrade() {
+            service.use_reaper(&mux.reaper);
+        }
         let Some(terminal) = service.reattach(terminal_id.as_bytes())? else { return Ok(None) };
         let mut adoption = adoption;
         // The parser starts at the PTY's size, which the last daemon set.

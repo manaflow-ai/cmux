@@ -24,14 +24,23 @@ import os
 /// side by side. ``PageHostTrust`` checks each message as for WebKit. A reply goes back into the
 /// sender's context (binding), or into the main frame with the sending document's id, so a reply
 /// to a document that has gone resolves nothing in the next one (page channel).
-/// ``evaluate(_:)`` runs scripts in order; the ones queued together go in one `Runtime.evaluate`.
+///
+/// With the page push channel (``PageChromiumPage/pushesToPage``, fork API 39) the router's
+/// envelopes (``push(envelopes:)``) and the replies go to the page as strings
+/// (``PageChromiumPage/push(_:)``) that the page script's receiver parses, the way Chrome's WebUI
+/// pages get Mojo messages instead of `WebUI::CallJavascriptFunction` scripts
+/// (content/browser/webui/web_ui_impl.cc): no script is compiled for them and none answers.
+/// Scripts and pushes leave in one FIFO, in the order they came; the scripts queued together go
+/// in one `Runtime.evaluate` (``evaluate(_:)``), and a push waits for the scripts before it to finish.
 @MainActor
-public final class ChromiumPageHostBridge: PageHostBridge {
+public final class ChromiumPageHostBridge: PageHostPushing {
     public let engine = PageHostEngine.cef
     /// The binding the page script calls.
     nonisolated public static let bindingName = "__cmuxPageHost"
     /// The page function a reply calls.
     nonisolated public static let resolveName = "__cmuxPageHostResolve"
+    /// The page script function a page registers its envelope receiver with, on the push channel.
+    nonisolated public static let listenName = "__cmuxPageHostListen"
     /// Longest message accepted (page calls are small; large data goes through replies and pushes).
     nonisolated public static let maximumPayloadBytes = 4 << 20
     /// The most UTF-16 units the page script joins into one post; a longer call goes alone.
@@ -68,7 +77,29 @@ public final class ChromiumPageHostBridge: PageHostBridge {
     /// Called once, when the first trusted message arrives: the page reached the host.
     public var onFirstMessage: (() -> Void)?
     private var reachedHost = false
-    private var scripts: [String] = []
+
+    /// One thing to send to the page, in order.
+    private enum Outgoing {
+        case script(String)
+        /// A run of the router's envelopes.
+        case envelopes(String)
+        /// A reply push. It names the document it answers, so it never needs dropping: the
+        /// receiver of any other document ignores it.
+        case reply(String)
+
+        var isEnvelopes: Bool {
+            guard case .envelopes = self else { return false }
+            return true
+        }
+
+        var pushText: String? {
+            switch self {
+            case .script: nil
+            case .envelopes(let text), .reply(let text): text
+            }
+        }
+    }
+    private var outgoing: [Outgoing] = []
     private var draining = false
     /// The main-frame document the page last committed: a page channel post is judged while its
     /// stamped sender is this document (``isCommitted(_:)``).
@@ -121,8 +152,10 @@ public final class ChromiumPageHostBridge: PageHostBridge {
         self.handler = handler
     }
 
-    /// Adds the binding again for a new document (a no-op where it is still there).
+    /// A new document committed: the binding goes in again (a no-op where it is still there), and
+    /// envelope runs still queued for the old document are dropped (the router dropped them too).
     public func rebind() {
+        outgoing.removeAll(where: \.isEnvelopes)
         guard let page else { return }
         // task-owner: one idempotent call on a page that may already be gone
         // main-hop-allow: devTools is the page's main-actor async DevTools call (its IPC runs in Chromium); the task only sends it, and nobody reads its answer
@@ -159,7 +192,25 @@ public final class ChromiumPageHostBridge: PageHostBridge {
     }
 
     public func evaluate(_ script: String) {
-        scripts.append(script)
+        send(.script(script))
+    }
+
+    /// Whether the router's envelopes go to the page as data (the page push channel is on).
+    public var pushesEnvelopes: Bool { page?.pushesToPage == true }
+
+    /// One run of the router's envelopes as their JSON array (``PageRouter/receiveManyData(_:)``),
+    /// after everything sent before it. The page script hands it to the page's receiver.
+    public func push(envelopes json: String) {
+        send(.envelopes(json))
+    }
+
+    /// A push with nothing ahead of it goes in this turn; anything else waits its turn in the FIFO.
+    private func send(_ item: Outgoing) {
+        if let text = item.pushText, !draining, outgoing.isEmpty, let page {
+            page.push(text)
+            return
+        }
+        outgoing.append(item)
         guard !draining else { return }
         draining = true
         // task-owner: the bridge's script FIFO; it ends when the queue is empty or the page is gone
@@ -169,29 +220,34 @@ public final class ChromiumPageHostBridge: PageHostBridge {
 
     private func drain() async {
         defer { draining = false }
-        while !scripts.isEmpty {
+        while !outgoing.isEmpty {
             guard let page else {
-                scripts.removeAll()
+                outgoing.removeAll()
                 return
             }
-            // Everything queued so far goes in one round trip (a streaming reply queues one push per
-            // frame); scripts queued while it runs go in the next.
+            if let text = outgoing.first?.pushText {
+                outgoing.removeSubrange(..<1)
+                page.push(text)
+                continue
+            }
+            // Every script queued so far goes in one round trip (a streaming reply queued one push
+            // per frame); scripts queued while it runs go in the next.
             let batch = takeBatch()
             _ = try? await page.devTools("Runtime.evaluate", params: ["expression": Self.batch(batch), "silent": true])
         }
     }
 
-    /// The scripts at the head of the queue, up to ``maximumBatchBytes`` (at least one).
+    /// The scripts at the head of the queue, up to the first push and ``maximumBatchBytes`` (at least one).
     private func takeBatch() -> [String] {
         var bytes = 0
-        var count = 0
-        for script in scripts {
+        var batch: [String] = []
+        for item in outgoing {
+            guard case .script(let script) = item else { break }
             bytes += script.utf8.count
-            if count > 0, bytes > Self.maximumBatchBytes { break }
-            count += 1
+            if !batch.isEmpty, bytes > Self.maximumBatchBytes { break }
+            batch.append(script)
         }
-        let batch = Array(scripts.prefix(count))
-        scripts.removeSubrange(..<batch.count)
+        outgoing.removeSubrange(..<batch.count)
         return batch
     }
 
@@ -208,7 +264,7 @@ public final class ChromiumPageHostBridge: PageHostBridge {
 
     public func uninstall() {
         handler = nil
-        scripts.removeAll()
+        outgoing.removeAll()
         calls.removeAll()
         starts.removeAll()
         earlyPosts.removeAll()
@@ -276,7 +332,7 @@ public final class ChromiumPageHostBridge: PageHostBridge {
             guard handler != nil, let seq = message.seq else { continue }
             noteReached()
             nextCall += 1
-            calls[nextCall] = Call(request: request, seq: seq, document: message.document, context: context)
+            calls[nextCall] = Call(request: request, seq: seq, document: message.doc, context: context)
             start(.call(nextCall))
         }
     }
@@ -308,12 +364,18 @@ public final class ChromiumPageHostBridge: PageHostBridge {
         guard let call = calls.removeValue(forKey: id), let handler else { return }
         let reply = await handler(call.request)
         guard self.handler != nil, let page else { return }
-        let expression = ChromiumPageHostWire.resolveExpression(seq: call.seq, reply: reply, document: call.document)
-        if let context = call.context {
+        // On the push channel the reply follows the envelopes the host sent before it, in the one FIFO;
+        // only the main frame's document has the receiver, so a child frame's reply stays a script.
+        // The push names the sender's document: a document that loaded since ignores it, as a
+        // script for a context that is gone fails.
+        if pushesEnvelopes, call.request.isMainFrame, let doc = call.document {
+            send(.reply(ChromiumPageHostWire.replyPush(seq: call.seq, doc: doc, reply: reply)))
+        } else if let context = call.context {
+            let expression = ChromiumPageHostWire.resolveExpression(seq: call.seq, reply: reply, document: call.document)
             _ = try? await page.devTools("Runtime.evaluate", params: ["expression": expression, "contextId": context, "silent": true])
         } else {
-            // The main frame's world, in order with the pushes; the document id keeps it out of a newer document.
-            evaluate(expression)
+            // The main frame's world, in order with the pushes; the document token keeps it out of a newer document.
+            evaluate(ChromiumPageHostWire.resolveExpression(seq: call.seq, reply: reply, document: call.document))
         }
         answered += 1
     }

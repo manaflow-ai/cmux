@@ -28,6 +28,8 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
     private let hangWork: MainWorkScheduler?
     /// The page posts its calls on the page channel where the runtime has one (feature `pageHostChannel`).
     private let pageChannel: Bool
+    /// The default-off feature `pagePushChannel`: host events and replies go to the page as data.
+    private let pushChannel: Bool
     private var closed = false
 
     /// - Parameters:
@@ -35,11 +37,13 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
     ///   - pageID: The page's id (logs).
     ///   - hangWork: Forward the tab's hang and its end, flushed on this scheduler (feature `pageHangNotice`); nil: never.
     ///   - pageChannel: Post the page's calls on the runtime's page channel (feature `pageHostChannel`); false: the DevTools binding.
-    init(tab: CEFTab, pageID: String, hangWork: MainWorkScheduler? = nil, pageChannel: Bool = false) {
+    ///   - pushChannel: The feature `pagePushChannel`: pushes where the fork has the channel; false: scripts only.
+    init(tab: CEFTab, pageID: String, hangWork: MainWorkScheduler? = nil, pageChannel: Bool = false, pushChannel: Bool = false) {
         self.tab = tab
         self.pageID = pageID
         self.hangWork = hangWork
         self.pageChannel = pageChannel
+        self.pushChannel = pushChannel
     }
 
     var contentView: NSView { tab.contentView }
@@ -151,6 +155,15 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
             throw PageScriptError.exception(text)
         }
         return Self.foundation(value)
+    }
+
+    /// The page push channel, where the app turned it on (`pagePushChannel`) and the fork and shim have it.
+    var pushesToPage: Bool { pushChannel && CEFPagePush(tab: tab).isAvailable }
+
+    /// The tab's page push (``CEFPagePush``, fork API 39): data to the document's receiver, no script.
+    func push(_ text: String) {
+        guard pushChannel else { return }
+        CEFPagePush(tab: tab).send(text)
     }
 
     /// `value` with the types `JSONSerialization` gives (`NSNumber` for a number, so `as? Int`

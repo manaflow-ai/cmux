@@ -31,7 +31,7 @@ nonisolated extension SignpostName {
              .crashDumpWithoutCrashing:
             .crash
         case .controlRequest: .control
-        case .ghosttyRender: .ghostty
+        case .ghosttyRender, .ghosttyLockWait: .ghostty
         case .resizeFrame: .resize
         case .webuiLifecycle, .webuiOpen, .webuiPreload, .webuiScheme, .webuiAgentPaneStep: .webui
         case .burstEvent: .burst

@@ -113,7 +113,8 @@ import {
 import { useDiffComments } from "./diff-viewer/useDiffComments";
 import { InlinePreview, isPreviewAnnotation, previewItemFor, type PreviewCache } from "./diff-viewer/InlinePreview";
 import { useRevealPath } from "./diff-viewer/reveal";
-import { diffViewState, diffViewStateOf, useDiffViewState } from "./diff-viewer/viewState";
+import { diffViewState, savedDiffView, useDiffViewState } from "./diff-viewer/viewState";
+import type { PageStateSession } from "./pages/shared/pageState";
 import {
   registerDiffViewerThemes,
   useDeferredHydration,
@@ -127,9 +128,11 @@ import { fullFilesAvailable, useFileSidesReader, useFullFiles } from "./diff-vie
 type ConfigProps = {
   config: DiffViewerConfig;
   initialStatus: DiffViewerStatus;
+  /** On the shared page host: what the page saves on hide and got back after a discard. */
+  pageState?: PageStateSession;
 };
 
-export function App({ config, initialStatus }: ConfigProps) {
+export function App({ config, initialStatus, pageState }: ConfigProps) {
   const payload = config.payload ?? {};
   const label = useMemo(
     () =>
@@ -737,9 +740,10 @@ export function App({ config, initialStatus }: ConfigProps) {
   const [commitOpen, setCommitOpen] = useState(false);
   const commitOpenRef = useSyncedRef(commitOpen);
   // Before the host discards the hidden page, and back on the next one (diff-viewer/viewState.ts).
-  const savedView = useMemo(() => diffViewStateOf(payload.viewState), [payload.viewState]);
+  const savedView = useMemo(() => savedDiffView(payload.viewState, pageState), [payload.viewState, pageState]);
   useDiffViewState({
     client: diffPageClient(),
+    pageState,
     unsaved: state.draft != null || commitOpen,
     saved: savedView,
     ready: state.streamComplete,
