@@ -36,6 +36,24 @@ extension KeyRouter {
         return CmuxDialogCenter.shared.key(.escape, in: id)
     }
 
+    /// A key that is not a chord and missed the cmux dialog blocking where it landed (the dialog's
+    /// overlay did not have the keyboard): the dialog keyboard answers it (`CmuxDialogKeys`: Return
+    /// presses the default button, Tab moves focus), and the view under the dialog never gets it
+    /// (QA chrome-parity-v2-1: a Return and a typed line under the paste confirm reached the terminal
+    /// it blocks). As for Escape, a page child window's key answers its pane's dialog; a key in the
+    /// window's chrome (the sidebar list) stays the chrome's. Returns whether it consumed the key.
+    func answersBlockingDialog(_ event: NSEvent, in window: NSWindow?) -> Bool {
+        guard let window, CmuxDialogCenter.shared.showsDialog, !Self.isChord(event.modifierFlags) else { return false }
+        let (host, area) = dialogKeyTarget(for: window)
+        guard let id = CmuxDialogCenter.shared.dialogBlockingKeys(in: host, focusedArea: host === window ? nil : area) else { return false }
+        // The dialog has the keyboard (its field or button in the window's top layer): AppKit delivers the key there.
+        if let dialog = CmuxDialogCenter.shared.view(id), let responder = window.firstResponder as? NSView,
+           responder === dialog || responder.isDescendant(of: dialog) { return false }
+        _ = CmuxDialogCenter.shared.key(event, in: id)
+        trace?("dialog: a key that missed the blocking dialog went to its keyboard")
+        return true
+    }
+
     /// The cmux window whose dialogs a key in `window` may answer, and the
     /// focused pane's view when the keyboard is in no view of a tab: a
     /// Chromium page (or DevTools) child window, which the focus follows to

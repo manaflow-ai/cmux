@@ -223,8 +223,8 @@ final class KeyRouter: BrowserKeyRouting {
         // A key-down the dispatcher already decided (sent again: a view's doCommand re-sending a chord, a replayed
         // dispatch) is not decided twice: it goes on to AppKit's dispatch, so its action never runs a second time.
         if decided.contains(event) { return false }
-        // Normal mode (no owner takes typing keys now): a typing key skips every owner below, which would each
-        // pass it on (KeyRouterMode).
+        if Self.isTypingKey(event), answersBlockingDialog(event, in: window) { return true }  // never the view's under it
+        // Normal mode (no owner takes typing keys now): a typing key skips every owner below (KeyRouterMode).
         if modes.isNormal, Self.isTypingKey(event) {
             lastInterception = nil
             trace?("normal mode: a typing key goes to the focused view")
