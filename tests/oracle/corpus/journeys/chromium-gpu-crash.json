@@ -278,7 +278,27 @@
         "maxMs": 10000
       },
       "settleMaxMs": 15000,
-      "note": "Chromium starts a new GPU process (content/browser/gpu/gpu_process_host.cc, GpuProcessHost::OnProcessCrashed; one crash is far below the fallback of gpu_data_manager_impl_private.cc). The page's renderer lives on, so the tab keeps its finished load and is not crashed: a GPU process exit is no page error"
+      "note": "Chromium starts a new GPU process (content/browser/gpu/gpu_process_host.cc, GpuProcessHost::OnProcessCrashed; one crash is far below the fallback of gpu_data_manager_impl_private.cc). chrome://gpucrash/ starts no navigation (NavigationControllerImpl::NavigateWithoutEntry returns none after HandleDebugURL), so the tab keeps its finished load (CEFTab+DebugURLs): a GPU process exit is no page error"
+    },
+    {
+      "id": "gpu-page-location",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/tabs/panes/0/tabs/0/url",
+        "equals": "$WEB/load.html",
+        "maxMs": 5000
+      },
+      "note": "the address stays on the page the tab shows: the debug URL never became the tab's address"
+    },
+    {
+      "id": "gpu-page-not-crashed",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/tabs/panes/0/tabs/0/crashed",
+        "equals": false,
+        "maxMs": 5000
+      },
+      "note": "the page's renderer lives on through the GPU process exit"
     },
     {
       "id": "after-child-exit",
