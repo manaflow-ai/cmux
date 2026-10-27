@@ -48,18 +48,18 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
     case contextProxyState = 165, releaseContext = 166, setNavigationGuard = 167, setAuthCallback = 168
     case prefGet = 169, prefSetBool = 170, prefWatch = 171, bookmarksSync = 172, pageSchemeAdd = 173
     case pageSchemeAddFirstParty = 174, pageSchemeAddFirstPartyDynamic = 175, pageResourceRespond = 176
-    case memoryPressureVote = 177, setCursorEvents = 178, tabSetVisibility = 179, extLoadLaterSupported = 180
-    case extLoadCommandLine = 181, setPopupMenus = 182, browserPopupMenuReply = 183, addDocumentScript = 184
-    case addPageChannel = 185, tabEvaluate = 186, tabSetFrozen = 187, tabSendClick = 188, tabSetColorScheme = 189
-    case pageSchemeSetGroup = 190, tabDiscard = 191, widgetSetGeometry = 192, widgetDismiss = 193
-    case widgetSendInput = 194, browserImeSetComposition = 195, browserImeCommitText = 196
-    case browserImeFinishComposing = 197, browserImeCancelComposition = 198, tabCopySurface = 199
-    case tabSendMouseMove = 200
+    case memoryPressureVote = 177, tabFlushBackForwardCache = 178, setCursorEvents = 179, tabSetVisibility = 180
+    case extLoadLaterSupported = 181, extLoadCommandLine = 182, setPopupMenus = 183, browserPopupMenuReply = 184
+    case addDocumentScript = 185, addPageChannel = 186, tabEvaluate = 187, tabSetFrozen = 188, tabSendClick = 189
+    case tabSetColorScheme = 190, pageSchemeSetGroup = 191, tabDiscard = 192, widgetSetGeometry = 193
+    case widgetDismiss = 194, widgetSendInput = 195, browserImeSetComposition = 196, browserImeCommitText = 197
+    case browserImeFinishComposing = 198, browserImeCancelComposition = 199, tabCopySurface = 200
+    case tabSendMouseMove = 201
 
     /// The SHA-256 of the cmux_cef_shim.h this table was generated from (`CEFShimABI`).
-    static let abiIdentity = "423f0fc54a39bbdefe004c29cbb6e2bcbaa8a3d3623bb8a584a0ee4ad82fb8e9"
+    static let abiIdentity = "ec94696eec9bbb3c6ca8595bc715fd1fde01493bc8e1c7adc8aabf5ad62b6359"
     /// This generation's op ids, classes and wire types; both HELLOs carry it.
-    static let wireIdentity = "d64e28605743f24acd2a0820eb6e42cec93501bb7b433183e0e2f5de92bb4ed1"
+    static let wireIdentity = "0203bbd0fa7bcaa3b223dca530b54ff9f1e1b860d41054b2ada9413f6ddd2460"
     /// Ops of fork API symbols the header does not declare yet (`r.optional` in CEFShimLibrary).
     static let optionalOps: Set<ChromiumHostOp> = [
         .addDocumentScript, .addPageChannel, .tabEvaluate, .tabSetFrozen, .tabSendClick, .tabSetColorScheme,
@@ -376,6 +376,7 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
         Row(.preinit, [.string, .string, .string], [.int32]),
         Row(.preinit, [.string, .string, .string, .string, .string], [.int32]),
         Row(.post, [.int32, .int32, .string, .bytes], [.int32]),
+        Row(.post, [.int32], [.int32]),
         Row(.post, [.int32], [.int32]),
         Row(.local, [], []),
         Row(.post, [.int32, .int32, .int32], [.int32]),

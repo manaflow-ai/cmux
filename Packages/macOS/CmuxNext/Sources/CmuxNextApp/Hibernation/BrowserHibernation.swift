@@ -90,6 +90,10 @@ final class BrowserHibernation {
     /// Remote desktop and remote browser tabs (`BrowserStreamedPage`) hibernate to their last frame
     /// (feature `memoryDiscardRemoteTabs`, set by the App); off, they count as pages that cannot restore.
     var discardsStreamedPages = false
+    /// Which hidden Chromium pages empty their back-forward cache (feature `memoryBackForwardCacheFlush`, set by the App).
+    var backForwardCacheFlush = BackForwardCacheFlushRule()
+    /// The page's back-forward cache flush (a seam for tests; Chromium pages only in the app).
+    var backForwardCache: (any BrowserTab) -> (any BrowserBackForwardCacheFlushing)? = { $0 as? any BrowserBackForwardCacheFlushing }
     var frozenGrowth = FrozenGrowthRule()
     let growthDeadline: MainDeadline
     /// Tab `key`'s opener group (its openers and the tabs they opened), itself included; injected by the App.
@@ -327,10 +331,12 @@ final class BrowserHibernation {
     func pressureDidChange(_ level: MemoryPressureLevel, replans: Bool = true) {
         guard level != pressure else { return }
         if level == .critical, ranksUrgentDiscards { holdPacedDiscards() } else { urgentHoldEnds = nil }
+        let flushes = backForwardCacheFlush.flushes(from: pressure, to: level, hidden: cache?.lifecycle.keys(in: .mountedHidden) ?? [], frozen: frozen)
         pressure = level
         logger.info("memory pressure \(level.rawValue, privacy: .public)")
         updateFollowers()
         refreshNeighbors(replans: false)
+        for key in flushes { flushBackForwardCache(key) }
         guard replans else { return }
         replan()
         refreshMemoryIfNeeded()
@@ -357,6 +363,7 @@ final class BrowserHibernation {
         guard let tab = cache?.browsers[key]?.tab else { return }
         _ = markOffScreen(key, false)
         hiddenAt[key] = now()
+        if backForwardCacheFlush.flushesAtHide(pressure: pressure) { flushBackForwardCache(key) }
         watchActivity(key, tab)
         replan()
     }
@@ -690,6 +697,7 @@ final class BrowserHibernation {
             return
         }
         frozen.insert(key)
+        if backForwardCacheFlush.flushesAtFreeze { flushBackForwardCache(key) }
         noteFrozen(key)
         trackGrowth(key)
     }
@@ -701,6 +709,13 @@ final class BrowserHibernation {
         if let tab = cache?.browsers[key]?.tab { freezer(tab)?.setFrozen(false) }
         if prewarm { prewarmedCount += 1 }
         cache?.trace(key, prewarm ? "prewarmed (thaw)" : "thawed")
+    }
+
+    /// Empties hidden page `key`'s back-forward cache (``backForwardCacheFlush``: at its freeze, when the pressure
+    /// leaves normal, and at its hide above normal); a shown page refuses.
+    private func flushBackForwardCache(_ key: String) {
+        guard let tab = cache?.browsers[key]?.tab, backForwardCache(tab)?.flushBackForwardCache() == true else { return }
+        cache?.trace(key, "back-forward cache flushed")
     }
 
     /// Shows of a page that was still frozen (it thawed on the switch): the cold

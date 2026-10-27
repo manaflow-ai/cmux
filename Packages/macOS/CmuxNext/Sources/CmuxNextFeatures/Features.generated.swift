@@ -834,6 +834,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// A hidden Chromium tab empties its back-forward cache when it freezes, and every hidden tab empties it when memory pressure reaches warning, as Chrome turns the cache off on low memory.
+    public static let memoryBackForwardCacheFlush = Feature(
+        index: 47,
+        name: "memoryBackForwardCacheFlush",
+        owner: "PL-memory",
+        description: "A hidden Chromium tab empties its back-forward cache when it freezes, and every hidden tab empties it when memory pressure reaches warning, as Chrome turns the cache off on low memory.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["memory-hidden"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Decoded window backdrop pictures join the memory coordinator: at most four stay decoded, fewer at memory warning and only the ones windows show at critical; a picture picked again later is read back from its saved copy.
     public static let memoryBackdropImages = Feature(
         index: 48,
@@ -2108,6 +2125,7 @@ nonisolated extension Feature {
         .memoryAcpmuxPressure,
         .memoryAgentAndControlCaches,
         .memoryAppCaches,
+        .memoryBackForwardCacheFlush,
         .memoryBackdropImages,
         .memoryBrowserCaches,
         .memoryDiscardAgentPagesOverBudget,
@@ -2230,6 +2248,7 @@ nonisolated extension Feature {
         .memoryAcpmuxPressure,
         .memoryAgentAndControlCaches,
         .memoryAppCaches,
+        .memoryBackForwardCacheFlush,
         .memoryBackdropImages,
         .memoryBrowserCaches,
         .memoryDiscardAgentPagesOverBudget,
