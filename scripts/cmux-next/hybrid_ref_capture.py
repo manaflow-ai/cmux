@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Capture the Mac DEV Release compile's build rules for the Linux whole-app build (its REF).
+"""Capture the Mac DEV Release compile's build rules for the fleet whole-app build (its REF).
 
-The Linux build of the cmux NEXT DEV app plans its Swift compiles and links from the
+The fleet build of the cmux NEXT DEV app plans its Swift compiles and links from the
 recorded rules of one real Mac build of the same shape (the REF): the SwiftDriver lines,
 Swift Build's build description and the planning files. Until 2026-10-26 the only REF was
-assembled by hand from an old nightly build, so the Linux path stopped as soon as
+assembled by hand from an old nightly build, so the fleet path stopped as soon as
 Package.resolved moved. This records a REF from the per-landing DEV compile itself, at its
 own paths, when the inputs that change build lines have no capture yet.
 
