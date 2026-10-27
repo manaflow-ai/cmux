@@ -92,6 +92,8 @@ pub struct WhoIsNode {
     pub name: String,
     /// The owning user's id (meaningless for tagged nodes).
     pub user: i64,
+    /// Nonzero for a node shared into the tailnet by another owner.
+    pub sharer: i64,
     pub tags: Option<Vec<String>>,
 }
 
