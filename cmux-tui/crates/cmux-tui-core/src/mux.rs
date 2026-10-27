@@ -699,9 +699,12 @@ pub struct Mux {
     journal_ingress: crate::journal_ingress::JournalIngressSender,
     /// Terminal output, outside the journal (output_store.rs).
     pub(crate) output_store: crate::output_store::OutputStore,
-    /// Periodic checkpoint, segment sealing and incremental vacuum worker
-    /// (mux/journal_maintenance.rs); `None` for an in-memory session.
+    /// Dirty-triggered checkpoint, segment sealing and incremental vacuum
+    /// worker (mux/journal_maintenance.rs); `None` for an in-memory session.
     journal_maintenance: Mutex<Option<journal_maintenance::JournalMaintenance>>,
+    /// Arms the maintenance worker's next pass (journal commits and ledger
+    /// writes); it outlives a stopped worker.
+    journal_maintenance_wake: Arc<journal_maintenance::JournalMaintenanceControl>,
     journal_hook_dispatcher_started: AtomicBool,
     journal_hook_runtime: Arc<crate::journal_hooks::JournalHookRuntime>,
     /// Wake-only signal for durable journal subscribers. Consumers always

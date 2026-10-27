@@ -16,6 +16,8 @@ impl Mux {
         let mut epoch = self.journal_event_epoch.lock().unwrap();
         *epoch = epoch.wrapping_add(1);
         self.journal_event_changed.notify_all();
+        drop(epoch);
+        self.journal_maintenance_wake.journal_changed();
     }
 
     /// Test-only: output goes to the output store, never the journal.

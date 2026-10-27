@@ -190,6 +190,15 @@ impl Mux {
         self.terminal_exit_waiters.subscribe(terminal_id)
     }
 
+    /// [`Self::subscribe_terminal_exit`] for a watcher that waits without
+    /// holding the mux: the mux's drop wakes it too.
+    pub(crate) fn subscribe_terminal_exit_detached(
+        &self,
+        terminal_id: &TerminalPublicId,
+    ) -> terminal_exit_waiters::DetachedTerminalExitSubscription {
+        self.terminal_exit_waiters.subscribe_detached(terminal_id)
+    }
+
     #[track_caller]
     pub(super) fn terminal_public_ids_for_hosted(
         registry: &WorkspaceRegistry,

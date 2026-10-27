@@ -65,11 +65,19 @@ also records:
                       (`debug.layout_counters`, Debug builds; null without it)
   window_visible      mixed-hidden-visible: the main window was shown and not
                       minimized when the window began (`debug.window_list`)
+  daemon_threads      the daemon's wakeups per thread name over the window
+                      (thread_wakeups.py: proc_pidinfo thread CPU-time deltas
+                      sampled every 20 ms, so the daemon itself is never woken):
+                      rows {name, threads, wakeups, per_second, cpu_ms}, most
+                      first, `sum_per_s`, and `queue`, the names over 0.05/s
+                      (p06-scheduler.md queue QD: one task each); null with no
+                      daemon or no thread reader
 
 When the build has `debug.wakeups`, the ledger's current rates, active
 frame clients and live display links are recorded too. Pass criteria
 (defaults, per process; tune with flags): no display link at idle; app and
-daemon < 0.5% CPU and < 5 wakeups/s, each terminal host < 0.2% and < 2/s,
+daemon < 0.5% CPU and < 5 wakeups/s, the daemon's threads together <= 0.5
+wakeups/s (--max-daemon-thread-wakeups), each terminal host < 0.2% and < 2/s,
 Chromium helpers < 1% on the static and hidden pages; no hidden workspace
 layout. The mixed-hidden phases (p06-scheduler.md done check 6) also need
 app + daemon <= 1.0 wakeups/s and main thread <= 0.5/s, and fail when either
@@ -124,6 +132,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import PERF_LAB, SHIPPING_DRAW_KEY, BenchApp, load_by_path  # noqa: E402
 from daemon_teardown import end_terminals  # noqa: E402
 from tab_pages import TabPages, chromium_children, chromium_kind, process_table  # noqa: E402  (re-exported: other benches import them here)
+import thread_wakeups  # noqa: E402  (daemon_threads: per-thread wakeups by name, p06-scheduler-228)
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "perf-bench"))
 import procs  # noqa: E402  (the one rusage reader: interrupt wakeups, and the app's WebKit XPC processes)
@@ -268,6 +277,20 @@ def hidden_counters(start, end):
     return {name: delta(name) for name in HIDDEN_COUNTERS}
 
 
+THREAD_SAMPLE_S = thread_wakeups.DEFAULT_INTERVAL_S
+
+
+def daemon_thread_window(daemon_pids, seconds, source=None):
+    """The measurement window itself: samples the daemon's threads (thread_wakeups.sample) for `seconds`, or
+    sleeps them when there is no daemon or no thread reader. {(pid, thread): {name, runs, cpu_ns}} or None."""
+    source = source or thread_wakeups.reader()
+    if not daemon_pids or source is None:
+        time.sleep(seconds)  # test script: the measurement window itself
+        return None
+    threads, _samples = thread_wakeups.sample(source, daemon_pids, seconds, THREAD_SAMPLE_S)
+    return threads
+
+
 def measure(app_pid, bundle, seconds, control):
     kinds = classify(app_pid, bundle)
     # The app's own counters first and its main wakes last: the requests that wake its main thread
@@ -279,14 +302,15 @@ def measure(app_pid, bundle, seconds, control):
     wakes_start = main_wakes(control)
     start = {pid: procs.usage(pid) for pid in kinds}
     t0 = time.monotonic()
-    time.sleep(seconds)  # test script: the measurement window itself
+    threads = daemon_thread_window([pid for pid, kind in kinds.items() if kind == "daemon"], seconds)
     wall = time.monotonic() - t0
     end = {pid: procs.usage(pid) for pid in kinds}
     wakes_end = main_wakes(control)
     kinds.update({pid: kind for pid, kind in classify(app_pid, bundle).items() if pid not in kinds})
     # Started or ended inside the window (a daemon restart shows here): a partial row.
     rows = window_rows(kinds, start, end, wall)
-    diag = {"main_wakeups_per_s": rate(wakes_start, wakes_end, wall), "owners": []}
+    diag = {"main_wakeups_per_s": rate(wakes_start, wakes_end, wall), "owners": [],
+            "daemon_threads": None if threads is None else thread_wakeups.summarize(threads, wall, THREAD_SAMPLE_S)}
     report = read_result(control, "debug.wakeups")
     if report:
         diag["owners"] = owner_wakeups(ledger_start.get("ledger"), report.get("ledger"), wall)
@@ -830,6 +854,11 @@ def criteria(scenario, result, args):
             failures.append(f"{scenario}: {kind} {row['pid']} {cpu}% CPU > {limit_cpu}%")
         if limit_wake is not None and wake > limit_wake:
             failures.append(f"{scenario}: {kind} {row['pid']} {wake} wakeups/s > {limit_wake}")
+    # The daemon's threads together wake at most --max-daemon-thread-wakeups at idle (done check 6, queue QD).
+    threads = result.get("daemon_threads")
+    if threads and threads.get("sum_per_s") is not None and threads["sum_per_s"] > args.max_daemon_thread_wakeups:
+        failures.append(f"{scenario}: daemon threads {threads['sum_per_s']} wakeups/s > "
+                        f"{args.max_daemon_thread_wakeups} (queue: {', '.join(threads['queue']) or 'none'})")
     # An idle app holds no display link (DisplayClock drops a display's link with its last subscriber).
     if result.get("display_links", 0) > 0:
         failures.append(f"{scenario}: {result['display_links']} display links at idle > 0")
@@ -875,6 +904,12 @@ def print_result(scenario, result):
     if result.get("owners"):
         top = ", ".join(f"{e['owner']}={e['per_second']}/s" for e in result["owners"][:6])
         print(f"   owners: {top}")
+    if result.get("daemon_threads"):
+        threads = result["daemon_threads"]
+        top = ", ".join(f"{e['name']}={e['per_second']}/s" for e in threads["threads"][:6] if e["wakeups"])
+        print(f"   daemon threads {threads['sum_per_s']} wakeups/s: {top or 'none woke'}")
+        if threads["queue"]:
+            print(f"   daemon thread queue (> {thread_wakeups.QUEUE_THRESHOLD}/s): {', '.join(threads['queue'])}")
     if result.get("hidden_workspace_layouts") is not None:
         print(f"   hidden workspaces: {result['hidden_workspace_layouts']} layouts, "
               f"{result['hidden_workspace_applies']} applies")
@@ -957,6 +992,8 @@ def main():
                         help="mixed-hidden: app + daemon wakeups/s (default 1.0)")
     parser.add_argument("--max-main-wakeups", type=float, default=0.5,
                         help="mixed-hidden, app-hidden, covered-window: main run-loop wakes/s (default 0.5)")
+    parser.add_argument("--max-daemon-thread-wakeups", type=float, default=0.5,
+                        help="every scenario but tabs-10: the daemon's threads' wakeups/s together (default 0.5)")
     parser.add_argument("--hidden-tabs", type=int, default=10, help="mixed-hidden: Chromium tabs (default 10)")
     parser.add_argument("--hidden-terminals", type=int, default=5, help="mixed-hidden: terminals (default 5)")
     parser.add_argument("--no-fail", action="store_true")

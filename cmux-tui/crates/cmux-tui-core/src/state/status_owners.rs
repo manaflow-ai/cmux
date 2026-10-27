@@ -199,10 +199,10 @@ fn spawn_watch(
     }
 }
 
-/// Watch a terminal owner through the session host's exit subscription. The
-/// wait holds the daemon while it blocks; a terminal ends with its daemon.
-const TERMINAL_WAIT_SLICE: Duration = Duration::from_secs(30);
-
+/// Watch a terminal owner through the mux's exit subscription. The watch
+/// blocks with no timeout and without holding the mux: the terminal's exit,
+/// or the mux's drop, wakes it (it used to wake every 30 s per watched
+/// terminal, p06-scheduler-228).
 #[track_caller]
 fn watch_terminal(mux: &Arc<Mux>, terminal: String) {
     let end = OwnerEnd::Terminal { terminal: terminal.clone() };
@@ -210,24 +210,30 @@ fn watch_terminal(mux: &Arc<Mux>, terminal: String) {
         let Ok(id) = TerminalPublicId::parse(terminal) else { return Watch::Failed };
         let mut backoff = Duration::from_secs(1);
         loop {
-            // A bounded wait, so the watch never keeps a dropped or
-            // shutting-down daemon alive for long.
-            let Some(mux) = weak.upgrade() else { return Watch::Failed };
-            if mux.daemon_shutdown_requested() {
-                return Watch::Failed;
-            }
-            match mux.wait_for_terminal_exit(&id, Some(TERMINAL_WAIT_SLICE)) {
-                Ok(state) if state["state"] == "exited" => return Watch::Ended,
-                Ok(_) => {}
-                // The session host no longer knows the terminal: it is gone.
-                Err(error) if is_gone(&error) => return Watch::Ended,
-                Err(error) => {
-                    eprintln!("cmux-tui: watching terminal {id} failed: {error}; retrying");
-                    drop(mux);
-                    crate::request_path::sleep(backoff);
-                    backoff = (backoff * 2).min(Duration::from_secs(60));
+            let subscription = {
+                let Some(mux) = weak.upgrade() else { return Watch::Failed };
+                if mux.daemon_shutdown_requested() {
+                    return Watch::Failed;
                 }
-            }
+                // Subscribe before the read: an exit in between either shows
+                // in the read or wakes the subscription.
+                let subscription = mux.subscribe_terminal_exit_detached(&id);
+                match mux.terminal_exit_state(&id) {
+                    Ok(state) if state["state"] == "exited" => return Watch::Ended,
+                    Ok(_) => subscription,
+                    // The session host no longer knows the terminal: it is gone.
+                    Err(error) if is_gone(&error) => return Watch::Ended,
+                    Err(error) => {
+                        eprintln!("cmux-tui: watching terminal {id} failed: {error}; retrying");
+                        drop(subscription);
+                        drop(mux);
+                        crate::request_path::sleep(backoff);
+                        backoff = (backoff * 2).min(Duration::from_secs(60));
+                        continue;
+                    }
+                }
+            };
+            subscription.wait();
         }
     });
 }

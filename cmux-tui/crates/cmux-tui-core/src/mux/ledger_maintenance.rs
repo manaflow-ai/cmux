@@ -21,20 +21,23 @@ pub(super) struct LedgerMaintenance {
 }
 
 impl Mux {
+    /// One ledger step; true when rows are left for another pass (retention
+    /// has not drained, a pause, or a failure to retry).
     #[track_caller]
-    pub(super) fn run_ledger_maintenance(&self, state: &mut LedgerMaintenance) {
-        if let Err(error) = self.try_ledger_maintenance(state) {
+    pub(super) fn run_ledger_maintenance(&self, state: &mut LedgerMaintenance) -> bool {
+        self.try_ledger_maintenance(state).unwrap_or_else(|error| {
             eprintln!("cmux-tui: mutation ledger maintenance deferred: {error:#}");
-        }
+            true
+        })
     }
 
     #[track_caller]
-    fn try_ledger_maintenance(&self, state: &mut LedgerMaintenance) -> anyhow::Result<()> {
+    fn try_ledger_maintenance(&self, state: &mut LedgerMaintenance) -> anyhow::Result<bool> {
         let mut drained = false;
         let mut corrupt = false;
         for _ in 0..LEDGER_PRUNE_BATCHES_PER_TICK {
             if self.journal_maintenance_paused() {
-                return Ok(());
+                return Ok(true);
             }
             let prune = self
                 .workspace_registry
@@ -50,7 +53,10 @@ impl Mux {
         let due = corrupt
             || (drained
                 && state.last_scan.is_none_or(|scanned| scanned.elapsed() >= LEDGER_SCAN_INTERVAL));
-        if due { self.scan_and_quarantine_ledgers(state) } else { Ok(()) }
+        if due {
+            self.scan_and_quarantine_ledgers(state)?;
+        }
+        Ok(!drained && !corrupt)
     }
 
     #[track_caller]

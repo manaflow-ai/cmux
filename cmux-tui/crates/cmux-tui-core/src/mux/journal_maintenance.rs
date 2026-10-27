@@ -10,6 +10,10 @@ const JOURNAL_MAINTENANCE_SEAL_BATCHES_PER_TICK: usize = 8;
 /// tick stalls the app's requests (a 12-15 s stall on 2026-10-21 left no
 /// trace of its cause).
 const SLOW_MAINTENANCE_TICK: Duration = Duration::from_millis(500);
+/// With nothing armed, the worker still runs one pass this long after the
+/// last: the hourly ledger scan's cadence, and a bound for ledger rows a
+/// write left without a journal commit.
+const JOURNAL_MAINTENANCE_IDLE_PASS: Duration = Duration::from_secs(60 * 60);
 
 /// How long each step of one maintenance tick took.
 #[derive(Default)]
@@ -64,16 +68,114 @@ fn journal_maintenance_interval() -> Duration {
     JOURNAL_MAINTENANCE_INTERVAL
 }
 
-struct JournalMaintenanceControl {
-    stopped: Mutex<bool>,
+/// When the maintenance worker runs: dirty-triggered, never periodic
+/// (cmux-wake's durability rule; Chromium runs no timer for work that has
+/// nothing to do, base/task/delay_policy.h). The first journal commit (or
+/// frontend projection write) after a pass arms the next pass one interval
+/// later, on cmux-wake's aligned one-shot deadline; a pass that left work (a
+/// ledger still draining, segments still to seal, a failure to retry) arms
+/// its own successor. With nothing armed the next pass is
+/// [`JOURNAL_MAINTENANCE_IDLE_PASS`] away, so an idle session wakes the
+/// worker once an hour instead of every interval (p06-scheduler-228).
+pub(super) struct JournalMaintenanceControl {
+    state: Mutex<MaintenanceWakeState>,
     changed: Condvar,
+    /// A pass is due: set by the first commit after a pass starts, so later
+    /// commits cost one atomic swap and no lock.
+    armed: AtomicBool,
+    interval: Duration,
 }
 
-/// The periodic journal maintenance worker of a persistent session: once per
-/// interval it bounds and scans the mutation ledgers, migrates a legacy
-/// registry to incremental auto-vacuum, takes a checkpoint after enough new
-/// records, seals bounded segments up to the latest checkpoint, and returns
-/// free pages.
+#[derive(Default)]
+struct MaintenanceWakeState {
+    stopped: bool,
+    /// When the next pass runs; `None` while nothing is due.
+    due: Option<Instant>,
+}
+
+impl JournalMaintenanceControl {
+    pub(super) fn shared() -> Arc<Self> {
+        Self::with_interval(journal_maintenance_interval())
+    }
+
+    fn with_interval(interval: Duration) -> Arc<Self> {
+        Arc::new(Self {
+            state: Mutex::new(MaintenanceWakeState::default()),
+            changed: Condvar::new(),
+            armed: AtomicBool::new(false),
+            interval,
+        })
+    }
+
+    /// The journal committed: arm a pass unless one is armed already.
+    pub(super) fn journal_changed(&self) {
+        if !self.armed.swap(true, Ordering::AcqRel) {
+            self.schedule(self.interval);
+        }
+    }
+
+    /// A pass is due `delay` from now, on the aligned deadline grid, unless
+    /// one is due sooner.
+    fn schedule(&self, delay: Duration) {
+        let now = crate::wake::Ticks::now();
+        let wait =
+            crate::wake::deadline(now, delay, crate::wake::Policy::FlexibleNoSooner).wait_from(now);
+        let due = Instant::now() + wait;
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if !state.stopped && state.due.is_none_or(|current| due < current) {
+            state.due = Some(due);
+            self.changed.notify_all();
+        }
+    }
+
+    /// Blocks until a pass is due (true) or the worker stops (false).
+    fn wait_for_pass(&self) -> bool {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        loop {
+            if state.stopped {
+                return false;
+            }
+            let Some(due) = state.due else {
+                state = cmux_threads::checked::sync::wait(&self.changed, state)
+                    .unwrap_or_else(PoisonError::into_inner);
+                continue;
+            };
+            let now = Instant::now();
+            if now >= due {
+                state.due = None;
+                // Commits from here on arm the next pass.
+                self.armed.store(false, Ordering::Release);
+                return true;
+            }
+            // wakeup-allow: deadline the one armed pass (a commit or leftover work set it); stop ends the wait first
+            state = cmux_threads::checked::sync::wait_timeout(&self.changed, state, due - now)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+    }
+
+    fn start(&self) {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).stopped = false;
+    }
+
+    fn stop(&self) {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.stopped = true;
+        state.due = None;
+        self.changed.notify_all();
+    }
+
+    #[cfg(test)]
+    fn due(&self) -> Option<Instant> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).due
+    }
+}
+
+/// The journal maintenance worker of a persistent session: each pass bounds
+/// and scans the mutation ledgers, migrates a legacy registry to
+/// incremental auto-vacuum, takes a checkpoint after enough new records,
+/// seals bounded segments up to the latest checkpoint, and returns free
+/// pages. Passes run only when [`JournalMaintenanceControl`] arms them.
 pub(super) struct JournalMaintenance {
     control: Arc<JournalMaintenanceControl>,
     thread: Option<std::thread::JoinHandle<()>>,
@@ -82,50 +184,36 @@ pub(super) struct JournalMaintenance {
 impl JournalMaintenance {
     #[track_caller]
     fn start(mux: &Arc<Mux>) -> anyhow::Result<Self> {
-        let control = Arc::new(JournalMaintenanceControl {
-            stopped: Mutex::new(false),
-            changed: Condvar::new(),
-        });
+        let control = mux.journal_maintenance_wake.clone();
+        control.start();
         let worker_control = control.clone();
         let weak_mux = Arc::downgrade(mux);
-        let interval = journal_maintenance_interval();
         let thread = cmux_threads::spawn(
             "cmux-journal-maintenance",
             crate::request_qos::UPKEEP_THREAD_QOS,
             move || {
                 let mut ledgers = ledger_maintenance::LedgerMaintenance::default();
-                loop {
-                    let mut stopped =
-                        worker_control.stopped.lock().unwrap_or_else(PoisonError::into_inner);
-                    if *stopped {
-                        return;
-                    }
-                    let (next, timeout) = cmux_threads::checked::sync::wait_timeout(
-                        &worker_control.changed,
-                        stopped,
-                        interval,
-                    )
-                    .unwrap_or_else(PoisonError::into_inner);
-                    stopped = next;
-                    if *stopped {
-                        return;
-                    }
-                    if !timeout.timed_out() {
-                        continue;
-                    }
-                    drop(stopped);
+                while worker_control.wait_for_pass() {
                     let Some(mux) = weak_mux.upgrade() else { return };
                     let _pass = mux.request_qos().enter_upkeep_pass();
-                    mux.run_journal_maintenance(&mut ledgers);
+                    let work_left = mux.run_journal_maintenance(&mut ledgers);
+                    drop(mux);
+                    worker_control.schedule(if work_left {
+                        worker_control.interval
+                    } else {
+                        JOURNAL_MAINTENANCE_IDLE_PASS
+                    });
                 }
             },
         )?;
+        // One pass after start: a legacy registry's migration and the
+        // ledgers' first drain do not wait for a commit.
+        control.schedule(control.interval);
         Ok(Self { control, thread: Some(thread) })
     }
 
     pub(super) fn stop(mut self) {
-        *self.control.stopped.lock().unwrap_or_else(PoisonError::into_inner) = true;
-        self.control.changed.notify_all();
+        self.control.stop();
         if let Some(thread) = self.thread.take() {
             // The last `Arc<Mux>` can drop on the worker itself; it must not
             // join its own thread.
@@ -184,14 +272,17 @@ impl Mux {
             || self.control_clients.daemon_handoff_in_progress()
     }
 
+    /// One maintenance pass; true when it left work for another pass (a
+    /// pause, a ledger still draining, segments still to seal, a migration
+    /// that ended the pass early, or a failure to retry).
     #[track_caller]
-    fn run_journal_maintenance(&self, ledgers: &mut ledger_maintenance::LedgerMaintenance) {
+    fn run_journal_maintenance(&self, ledgers: &mut ledger_maintenance::LedgerMaintenance) -> bool {
         if self.journal_maintenance_paused() {
-            return;
+            return true;
         }
         let mut steps = MaintenanceSteps::default();
-        steps.time("ledgers", || self.run_ledger_maintenance(ledgers));
-        let result = (|| -> anyhow::Result<()> {
+        let ledgers_left = steps.time("ledgers", || self.run_ledger_maintenance(ledgers));
+        let result = (|| -> anyhow::Result<bool> {
             let migration = steps.time("auto_vacuum_migration", || {
                 self.workspace_registry
                     .lock()
@@ -202,7 +293,7 @@ impl Mux {
                 // A legacy registry migration performs one full VACUUM. Keep
                 // that rewrite isolated to this maintenance tick before
                 // attempting checkpoint or sealing work.
-                crate::workspace_registry::AutoVacuumMigration::Converted => return Ok(()),
+                crate::workspace_registry::AutoVacuumMigration::Converted => return Ok(true),
                 crate::workspace_registry::AutoVacuumMigration::Deferred { live_bytes } => {
                     self.note_auto_vacuum_deferred(live_bytes);
                 }
@@ -236,7 +327,7 @@ impl Mux {
                         .unwrap_or_else(PoisonError::into_inner)
                         .incremental_journal_vacuum()
                 })?;
-                return Ok(());
+                return Ok(false);
             }
 
             let target = if pending_seal {
@@ -251,7 +342,7 @@ impl Mux {
                     .source_sequence
             };
             if target == 0 {
-                return Ok(());
+                return Ok(false);
             }
 
             for batch in 0..JOURNAL_MAINTENANCE_SEAL_BATCHES_PER_TICK {
@@ -273,17 +364,21 @@ impl Mux {
                     .unwrap_or_else(PoisonError::into_inner)
                     .incremental_journal_vacuum()
             })?;
-            Ok(())
+            Ok(sealed_through < target)
         })();
         if let Some(report) = steps.slow_report(SLOW_MAINTENANCE_TICK) {
             eprintln!("cmux-tui: {report}");
             self.report_internal_diagnostic(report);
         }
-        if let Err(error) = result {
-            eprintln!("cmux-tui: journal maintenance deferred: {error:#}");
-            self.report_internal_diagnostic(
-                "journal maintenance deferred; checkpoint maintenance will retry",
-            );
+        match result {
+            Ok(journal_left) => ledgers_left || journal_left,
+            Err(error) => {
+                eprintln!("cmux-tui: journal maintenance deferred: {error:#}");
+                self.report_internal_diagnostic(
+                    "journal maintenance deferred; checkpoint maintenance will retry",
+                );
+                true
+            }
         }
     }
 }
@@ -697,5 +792,49 @@ mod maintenance_steps_tests {
             steps.slow_report(SLOW_MAINTENANCE_TICK).as_deref(),
             Some("slow journal maintenance: 12305 ms (4 steps; slowest seal 11000 ms)")
         );
+    }
+}
+
+#[cfg(test)]
+mod maintenance_wake_tests {
+    use super::*;
+
+    #[test]
+    fn nothing_is_due_without_a_commit() {
+        let control = JournalMaintenanceControl::with_interval(Duration::from_secs(30));
+        assert_eq!(control.due(), None, "an idle journal arms no pass");
+    }
+
+    #[test]
+    fn the_first_commit_arms_one_pass_and_later_commits_keep_it() {
+        let control = JournalMaintenanceControl::with_interval(Duration::from_secs(30));
+        let before = Instant::now();
+        control.journal_changed();
+        let due = control.due().expect("a commit arms a pass");
+        assert!(due >= before + Duration::from_secs(30), "the pass waits out the interval");
+        assert!(due <= Instant::now() + Duration::from_secs(32), "within the deadline's leeway");
+        control.journal_changed();
+        assert_eq!(control.due(), Some(due), "a later commit does not move the armed pass");
+    }
+
+    #[test]
+    fn a_pass_disarms_so_the_next_commit_arms_again() {
+        let control = JournalMaintenanceControl::with_interval(Duration::from_millis(20));
+        control.journal_changed();
+        assert!(control.wait_for_pass(), "the armed pass runs");
+        assert_eq!(control.due(), None);
+        control.journal_changed();
+        assert!(control.due().is_some(), "a commit after the pass arms the next one");
+    }
+
+    #[test]
+    fn stop_ends_a_wait_with_nothing_armed() {
+        let control = JournalMaintenanceControl::with_interval(Duration::from_secs(30));
+        let waiter = control.clone();
+        let worker = std::thread::spawn(move || waiter.wait_for_pass());
+        control.stop();
+        assert!(!worker.join().unwrap(), "stop wakes the blocked worker, which runs no pass");
+        control.journal_changed();
+        assert_eq!(control.due(), None, "a stopped worker arms nothing");
     }
 }

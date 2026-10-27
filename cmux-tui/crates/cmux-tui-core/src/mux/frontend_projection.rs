@@ -85,6 +85,8 @@ impl Mux {
             projection,
         )?;
         if !commit.replayed {
+            // A projection write adds a ledger row with no journal commit.
+            self.journal_maintenance_wake.journal_changed();
             self.emit(MuxEvent::FrontendProjectionChanged {
                 frontend: frontend.to_string(),
                 scope: scope.to_string(),
