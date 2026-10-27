@@ -91,4 +91,51 @@ public struct CloudPaths: Sendable {
         try writeSecret(id + "\n", to: deviceIDFile)
         return id
     }
+
+    /// ``loadOrCreateDeviceID()`` as a value a launch read gives the main thread (p08-startup-076). It blocks:
+    /// run it on a `BackgroundWork` files lane.
+    public func deviceIDResult() -> Result<String, CloudDeviceIDError> {
+        do {
+            return .success(try loadOrCreateDeviceID())
+        } catch {
+            return .failure(.unwritable(String(describing: error)))
+        }
+    }
+}
+
+/// Why this Mac's install id (`device-id`) is not known.
+public enum CloudDeviceIDError: Error, Equatable, Sendable {
+    /// Its launch read has not ended yet (or quit dropped it): the main thread never reads the file itself.
+    case notReadYet
+    /// There was no id and a new one could not be written; the file error's description.
+    case unwritable(String)
+}
+
+/// This Mac's install id as the launch's read of it has it (p08-startup-076): `main` reads (or makes) `device-id` on a
+/// launch lane with ``CloudPaths/deviceIDResult()``, and the main thread asks this, which never touches the disk.
+///
+/// ```swift
+/// let read = LaunchRead(in: sequence, dropped: .failure(.notReadYet)) { paths.deviceIDResult() }  // main()
+/// let source = CloudDeviceIDSource(paths: paths) { read.value }
+/// let id = source.result(for: paths)?.get()                                                     // never waits
+/// ```
+public nonisolated struct CloudDeviceIDSource: Sendable {
+    /// The Cloud state whose id the read reads.
+    public let paths: CloudPaths
+    private let ended: @Sendable () -> Result<String, CloudDeviceIDError>?
+
+    /// - Parameters:
+    ///   - paths: The Cloud state whose id the read reads.
+    ///   - ended: The read's result once it ended, else nil; it must not block.
+    public init(paths: CloudPaths, ended: @escaping @Sendable () -> Result<String, CloudDeviceIDError>?) {
+        self.paths = paths
+        self.ended = ended
+    }
+
+    /// The id of `paths` as the read has it: ``CloudDeviceIDError/notReadYet`` while it runs; nil when the read is
+    /// of other paths (the caller reads its own).
+    public func result(for paths: CloudPaths) -> Result<String, CloudDeviceIDError>? {
+        guard paths.root == self.paths.root else { return nil }
+        return ended() ?? .failure(.notReadYet)
+    }
 }

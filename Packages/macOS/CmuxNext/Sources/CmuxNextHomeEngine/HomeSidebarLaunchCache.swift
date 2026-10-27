@@ -43,8 +43,8 @@ public nonisolated struct HomeSidebarLaunchSnapshot: Codable, Equatable, Sendabl
 
 // memory: fixed at most two snapshots of one account's list (the one waiting to be written and the
 // last one written), a few KB of JSON each; a newer save replaces the waiting one.
-/// The launch snapshot's file: read synchronously before the Home list's first frame (a few KB of
-/// JSON, like `HomeCache.load`), written off the main actor after the list changes: one write at a
+/// The launch snapshot's file: read on a launch lane from `main` with the conversations' `HomeCache`
+/// (``HomeListLaunchRead``, a few KB of JSON), written off the main actor after the list changes: one write at a
 /// time, the newest snapshot wins, an unchanged one is not written (no timer: the list's changes
 /// are the only wakeups).
 public nonisolated final class HomeSidebarLaunchCache: Sendable {
@@ -80,10 +80,18 @@ public nonisolated final class HomeSidebarLaunchCache: Sendable {
     }
 
     /// The last snapshot for `account`; nil when there is none, it is another account's, or another version's.
+    /// A blocking read: the app reads the file on a launch lane (``HomeListLaunchRead``) and checks the account there.
     public func load(account: String) -> HomeSidebarLaunchSnapshot? {
-        guard let data = try? Data(contentsOf: url),
+        guard let snapshot = read(), snapshot.account == account else { return nil }
+        return snapshot
+    }
+
+    /// The last snapshot of any account; nil when there is none or it is another version's. It is what is on disk
+    /// now, so a ``save(_:)`` of the same list writes nothing. A checked blocking read: run it off the main thread.
+    public func read() -> HomeSidebarLaunchSnapshot? {
+        guard let data = try? Data(blockingContentsOf: url),
               let snapshot = try? JSONDecoder().blockingDecode(HomeSidebarLaunchSnapshot.self, from: data),
-              snapshot.version == HomeSidebarLaunchSnapshot.currentVersion, snapshot.account == account else { return nil }
+              snapshot.version == HomeSidebarLaunchSnapshot.currentVersion else { return nil }
         state.withLock { $0.written = snapshot }
         return snapshot
     }
