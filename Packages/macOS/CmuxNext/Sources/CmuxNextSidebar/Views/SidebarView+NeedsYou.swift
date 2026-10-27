@@ -8,8 +8,9 @@ extension SidebarView {
     func buildNeedsYou() {
         addSubview(needsYouTray)
         needsYouTray.onOpen = { [weak self] id in
-            SidebarSessionTree.shared.reveal(id)
-            self?.model.click(id)
+            guard let self else { return }
+            SidebarSessionTree.shared.reveal(id, lists: self.model.listsHolding(id))
+            self.model.click(id)
         }
         // After the list's own patch handler: a status tick that patches one row updates the tray too,
         // once per burst (every tick walks every section and the tree order otherwise).
