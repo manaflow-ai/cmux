@@ -294,3 +294,63 @@ pub fn page_request_head(
 
 /// The largest request head the listener reads before it answers 431.
 pub const PAGE_REQUEST_HEAD_MAX_BYTES: usize = crate::server::page_files::REQUEST_HEAD_MAX_BYTES;
+
+/// One daemon session the resource-op sequence fuzzer drives
+/// (cmux-tui/fuzz `resource_ops`, p15-oracle-186): an in-memory mux whose
+/// `cmux.protocol/2` lines go through the parse, envelope validation and
+/// router that the control connection runs once the origin gate admits a
+/// line (server/resource_connection.rs, its transport-independent arm).
+/// Dropping it shuts the mux down, which ends its terminals.
+pub struct ResourceSession {
+    mux: std::sync::Arc<crate::Mux>,
+}
+
+impl ResourceSession {
+    /// A fresh session named `session` whose terminals run `argv` in place
+    /// of a login shell.
+    pub fn new(session: &str, argv: Vec<String>) -> Self {
+        let options = crate::SurfaceOptions { command: Some(argv), ..Default::default() };
+        Self { mux: crate::Mux::new(session, options) }
+    }
+
+    /// The response envelope the daemon sends for `line` from the local
+    /// user. `None` when the line is not a `cmux.protocol/2` message or names
+    /// an operation only a control connection carries (attach, streams,
+    /// client sizing): this session has no connection.
+    pub fn call(&self, line: &str) -> Option<serde_json::Value> {
+        use crate::resource::ResponseEnvelope;
+        use crate::resource_router as router;
+        let envelope = match router::parse_resource_line(line)? {
+            Ok(envelope) => envelope,
+            Err(error) => return Some(router::malformed_resource_response(line, error)),
+        };
+        if router::requires_connection_context(envelope.operation) {
+            return None;
+        }
+        let (id, operation) = (envelope.id.clone(), envelope.operation);
+        let actor = crate::workspace_registry::Actor::local_user();
+        let refused = match router::validate_resource_envelope(envelope, actor) {
+            Ok(request) => match router::handle_parsed_resource_request(&self.mux, request) {
+                Ok(response) => return Some(response),
+                Err(error) => error,
+            },
+            Err(error) => error,
+        };
+        // The connection sends a refusal through the operation's catalog
+        // contract (server/resource_attach.rs `send_resource_response`).
+        let refused = router::validate_operation_error(operation, refused);
+        serde_json::to_value(ResponseEnvelope::failure(id, refused)).ok()
+    }
+
+    /// The `session.snapshot` result and the session journal head, one cut.
+    pub fn snapshot(&self) -> anyhow::Result<(serde_json::Value, u64)> {
+        crate::resource_api::public_session_snapshot_with_journal_head(&self.mux)
+            .map_err(|error| anyhow::anyhow!("session.snapshot: {}: {}", error.code, error.message))
+    }
+}
+
+impl Drop for ResourceSession {
+    fn drop(&mut self) {
+        self.mux.shutdown();
+    }
+}

@@ -414,3 +414,11 @@ path = "fuzz_targets/page_request_head.rs"
 test = false
 doc = false
 bench = false
+
+# p15-oracle-186: typed resource-op sequences through the daemon dispatch.
+[[bin]]
+name = "resource_ops"
+path = "fuzz_targets/resource_ops.rs"
+test = false
+doc = false
+bench = false
