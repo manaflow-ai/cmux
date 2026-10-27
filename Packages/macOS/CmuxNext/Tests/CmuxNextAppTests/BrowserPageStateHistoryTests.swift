@@ -109,7 +109,9 @@ struct BrowserPageStateHistoryTests {
         page.evaluationResult = .bool(false)
         let local = DaemonService(), remote = DaemonService(machineID: "remote")
         let chromium = ChromiumEngineSlot(CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: InputEventTap()))
-        let service = BrowserTabService(daemon: local, chromium: chromium, mainWork: linklessMainWork())
+        let work = linklessMainWork()
+        let service = BrowserTabService(daemon: local, chromium: chromium, mainWork: work, deadlines: MainDeadlineScheduler(work: work),
+                                        appEvents: AppEvents(center: NotificationCenter()))
         let tab = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 7), kind: .browser, url: url.absoluteString,
                                        browserRenderer: "frontend", browserEngine: "chromium"))
         let moved = Moved()
