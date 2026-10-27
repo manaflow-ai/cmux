@@ -337,8 +337,8 @@ impl RequestFrames {
             return Ok(send_not_framed(&connection.writer.replying_to(call), method));
         }
         names_method(body, method).map_err(ConnectionBadMessage::Call)?;
-        let opens =
-            matches!(lane, RequestLane::Open).then(|| self.streams.announce(stream, connection));
+        let opens = matches!(lane, RequestLane::Open)
+            .then(|| self.streams.announce(stream, method, connection));
         let frame_call = Arc::new(FrameCall::opening(stream, call, opens));
         let writer = connection.writer.replying_to(frame_call.clone());
         self.in_flight.insert(call.request_id, frame_call.clone());

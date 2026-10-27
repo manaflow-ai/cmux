@@ -34,6 +34,18 @@ impl Mux {
         *self.tab_changed_after_decorations.lock().unwrap_or_else(|e| e.into_inner()) = hook;
     }
 
+    /// Runs at the start of every terminal spawn, before its PTY exists, on
+    /// the thread that spawns it: a test holds a create there (its terminal
+    /// is still creating) for as long as the hook blocks.
+    #[cfg(test)]
+    pub(crate) fn set_terminal_spawn_start_hook_for_test(
+        &self,
+        hook: Option<Arc<dyn Fn() + Send + Sync>>,
+    ) {
+        *self.terminal_spawn_after_cell_pixel_snapshot.lock().unwrap() =
+            hook.map(|hook| Arc::new(move |_unlocked: bool| hook()) as _);
+    }
+
     #[cfg(test)]
     pub(super) fn last_resource_mutation_metrics(&self) -> ResourceMutationMetrics {
         self.resource_mutation_metrics

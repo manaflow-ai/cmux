@@ -235,7 +235,19 @@ pub(super) fn attach_surface(
     let surface = get_surface(mux, surface_id)?;
     // A framed attach on stream S opens S: its queued INPUT and requests go
     // to this surface once the attach succeeds (server/pending_streams.rs).
+    // An attach that takes over a terminal create's stream (p05-ipc-153)
+    // views that create's terminal only: the keys sent on the stream before
+    // it went to that terminal.
     if let Some(stream) = writer.frame_call().and_then(|call| call.opens()) {
+        if let Some(terminal_id) = stream.took_over_terminal() {
+            anyhow::ensure!(
+                surface
+                    .terminal_host_identity()
+                    .is_some_and(|host| host.terminal_id == terminal_id),
+                "stream_in_use: stream {} carries terminal {terminal_id}'s input",
+                stream.id()
+            );
+        }
         anyhow::ensure!(
             stream.target(surface_id),
             "stream_ended: the stream ended before it opened"

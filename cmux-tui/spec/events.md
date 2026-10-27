@@ -1829,6 +1829,23 @@ message of the endpoint (chromium
   is no `stream-end` then.
 - Without `stream`, `attach-surface` behaves as before: no tag, the
   `overflow` event, no `stream-end`.
+- Input while creating (p05-ipc-153, with `ipc-frames-v2` and
+  `terminal-input-while-creating-v1`): a `split`, `new-tab`, `new-pane` or
+  `new-pane-right` sent as a REQUEST frame on stream S with a minted
+  `terminal_id` opens S as that terminal's input stream. When the daemon
+  takes the create, before its host starts and before its reply, S binds to
+  the id: INPUT frames on S (also those sent right behind the create) join
+  the terminal's creating queue in order, with no reply, and are written
+  once it is live, as `send {terminal_id}` is. A queue the create gives back
+  comes as `terminal-input-unclaimed`; INPUT the daemon cannot queue or
+  write is `input-failed` (`overflow`, `terminal_ended`, `write_failed`).
+  The create's reply never ends S. A failed create ends S with
+  `stream-end{attach_failed}` before its error; a create with no
+  `terminal_id` ends S the same way before its reply. While the terminal is
+  creating or live, S stays in use: another create on S is
+  `stream_in_use`, and `attach-surface {stream: S}` takes S over only for a
+  surface of that terminal (anything else fails, and ends S). The view's
+  items then run after every item sent on S before it.
 
 ### size-state
 

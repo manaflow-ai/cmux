@@ -184,9 +184,14 @@ impl ConnectionSurfaceScheduler {
         // runs (each under its own request's cause), keep the cause the
         // dispatcher captured.
         let cause = pending.cause;
-        let creating_terminal = pending.request.cmd.created_terminal_id().and_then(|terminal_id| {
+        let created_terminal = pending.request.cmd.created_terminal_id();
+        let creating_terminal = created_terminal.clone().and_then(|terminal_id| {
             mux.begin_creating_input(&terminal_id).map(|generation| (terminal_id, generation))
         });
+        // After the id is creating, so the stream's first INPUT finds its queue.
+        if let Some(terminal_id) = &created_terminal {
+            pending.bind_creating_stream(terminal_id);
+        }
         let slot = Arc::new(CreationSlot {
             request: Mutex::new(Some(pending)),
             launched: Mutex::new(None),

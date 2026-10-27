@@ -26,6 +26,15 @@
 //! The caps are a Pending stream's only: a bound stream's INPUT goes to its
 //! PTY's writer as it comes (a bounded terminal input sink is p05-ipc-157).
 //!
+//! A terminal create (`split`, `new-tab`, `new-pane`, `new-pane-right`)
+//! opens a stream too (p05-ipc-153, server/creating_input.rs): when the
+//! daemon takes the create, its stream binds to the terminal id the client
+//! minted for it, before the host starts and before the reply, so the keys
+//! typed into the new pane go as INPUT at once and wait in that terminal's
+//! creating queue. The view's `attach-surface` on the same id takes the
+//! stream over; its items run on the same sequence, so no key passes
+//! another.
+//!
 //! Chrome: an associated endpoint is usable as soon as it is sent, and the
 //! router queues the messages of an endpoint that has no client bound yet,
 //! then dispatches them in order when one attaches
@@ -43,6 +52,7 @@ use cmux_threads::sync::Mutex;
 use cmux_threads::work::{Lane, Priority, will_block};
 use serde_json::{Value, json};
 
+use super::creating_input::{CREATING_STREAM_OPENERS, write_stream_input};
 use super::frame_dispatch::{CallRefusal, FrameCall};
 use super::line_connection::{ConnectionBadMessage, FrameConnection};
 use super::{
@@ -172,6 +182,10 @@ enum EndpointState {
     Overflowed { surface: Option<SurfaceId>, input_bytes: usize },
     /// Its opener succeeded: items run in order on `sequence`.
     Bound { surface: SurfaceId, sequence: Arc<Sequence> },
+    /// Its opener is a terminal create the daemon took: items run in order
+    /// on `sequence`, INPUT for the terminal `terminal_id` names (queued
+    /// while it is creating, written once it is live).
+    Creating { terminal_id: Arc<str>, sequence: Arc<Sequence> },
     /// Its `stream-end` is queued, or its view detached. A request is
     /// answered `stream_ended` after the stream's earlier items: on
     /// `after`, the sequence of a stream that was bound.
@@ -195,6 +209,13 @@ pub(super) struct StreamEndpoint {
     /// behind a PTY write (the same rule as `mux_work::Sequence`'s queue
     /// lock).
     state: Mutex<EndpointState>,
+    /// Its opener is a terminal create: the create's reply is sent even
+    /// when the stream ended first, since the terminal exists.
+    creates: bool,
+    /// The terminal-create stream this `attach-surface` took over: its
+    /// terminal, and the sequence its items run on, which this stream's
+    /// items join.
+    takes_over: Option<CreatingHandoff>,
     /// The outbound stream of the view its opener attached: once it closes
     /// (the view detached or overflowed) the stream ended and its id is
     /// free.
@@ -204,7 +225,12 @@ pub(super) struct StreamEndpoint {
 }
 
 impl StreamEndpoint {
-    fn new(stream: u16, connection: &FrameConnection<'_>) -> StreamEndpoint {
+    fn new(
+        stream: u16,
+        creates: bool,
+        takes_over: Option<CreatingHandoff>,
+        connection: &FrameConnection<'_>,
+    ) -> StreamEndpoint {
         StreamEndpoint {
             stream,
             client: connection.client,
@@ -216,6 +242,8 @@ impl StreamEndpoint {
                 items: VecDeque::new(),
                 held: Held::default(),
             }),
+            creates,
+            takes_over,
             view: OnceLock::new(),
             #[cfg(test)]
             probe: None,
@@ -228,6 +256,12 @@ impl StreamEndpoint {
         let surface = match &*self.state.lock().recover_poison() {
             EndpointState::Pending { .. } | EndpointState::Overflowed { .. } => return true,
             EndpointState::Bound { surface, .. } => *surface,
+            EndpointState::Creating { terminal_id, .. } => {
+                return self
+                    .mux
+                    .upgrade()
+                    .is_some_and(|mux| mux.knows_terminal_input_target(terminal_id));
+            }
             EndpointState::Ended { .. } => return false,
         };
         let (Some(view), Some(mux)) = (self.view.get(), self.mux.upgrade()) else { return false };
@@ -240,6 +274,50 @@ impl StreamEndpoint {
 
     fn view_closed(&self) -> bool {
         self.view.get().is_some_and(|view| !view.is_open())
+    }
+
+    /// What an `attach-surface` on this stream takes over: set while its
+    /// terminal create is bound and its terminal is creating or live.
+    fn creating_handoff(&self) -> Option<CreatingHandoff> {
+        let handoff = match &*self.state.lock().recover_poison() {
+            EndpointState::Creating { terminal_id, sequence } => {
+                CreatingHandoff { terminal_id: terminal_id.clone(), sequence: sequence.clone() }
+            }
+            _ => return None,
+        };
+        self.is_live().then_some(handoff)
+    }
+
+    /// The client-minted stream id.
+    pub(super) fn id(&self) -> u16 {
+        self.stream
+    }
+
+    /// The terminal id of the create stream this `attach-surface` takes
+    /// over: the surface it attaches must be that terminal's.
+    pub(super) fn took_over_terminal(&self) -> Option<&str> {
+        self.takes_over.as_ref().map(|handoff| &*handoff.terminal_id)
+    }
+
+    /// The terminal create that opened this stream was taken and names the
+    /// terminal id `terminal_id`: the stream binds to it now, before the
+    /// create's reply, so its INPUT reaches the terminal's creating queue
+    /// while the host starts. The items it queued run first, in order. A
+    /// stream that overflowed meanwhile stays so; the reply ends it.
+    pub(super) fn bind_creating(self: &Arc<Self>, terminal_id: Arc<str>) {
+        let Some(mux) = self.mux.upgrade() else { return };
+        let mut state = self.state.lock().recover_poison();
+        let EndpointState::Pending { items, .. } = &mut *state else { return };
+        let items = std::mem::take(items);
+        let sequence = Arc::new(Sequence::default());
+        *state = EndpointState::Creating {
+            terminal_id: terminal_id.clone(),
+            sequence: sequence.clone(),
+        };
+        let target = StreamTarget::Terminal(terminal_id);
+        for item in items {
+            self.run_on(&mux, &sequence, target.clone(), item);
+        }
     }
 
     /// The opener's handler started the outbound stream of its view
@@ -258,7 +336,11 @@ impl StreamEndpoint {
                 true
             }
             EndpointState::Bound { .. } => true,
-            EndpointState::Overflowed { .. } | EndpointState::Ended { .. } => false,
+            // A create's stream carries to its terminal, never to a surface
+            // its opener names.
+            EndpointState::Overflowed { .. }
+            | EndpointState::Creating { .. }
+            | EndpointState::Ended { .. } => false,
         };
         #[cfg(test)]
         if let Some(probe) = &self.probe {
@@ -281,19 +363,38 @@ impl StreamEndpoint {
             EndpointState::Pending { surface: Some(surface), items, .. } => {
                 let sent = send();
                 if let (Ok(()), Some(mux)) = (&sent, self.mux.upgrade()) {
-                    let sequence = Arc::new(Sequence::default());
+                    // A take-over runs after every item of the create's
+                    // stream: they share one sequence.
+                    let sequence = match &self.takes_over {
+                        Some(handoff) => handoff.sequence.clone(),
+                        None => Arc::new(Sequence::default()),
+                    };
                     *state = EndpointState::Bound { surface, sequence: sequence.clone() };
                     for item in items {
-                        self.run_on(&mux, &sequence, surface, item);
+                        self.run_on(&mux, &sequence, StreamTarget::Surface(surface), item);
                     }
                 }
                 Some(sent)
+            }
+            // A create that named no terminal id: nothing to bind the stream
+            // to. It ends; the create's reply follows.
+            EndpointState::Pending { items, .. } if self.creates => {
+                self.send_end(StreamEnd::AttachFailed, refused(items), None);
+                drop(state);
+                Some(send())
             }
             // An opener that succeeded without naming its surface (it
             // cannot happen for `attach-surface`): nothing to carry to.
             EndpointState::Pending { surface: None, items, .. } => {
                 self.send_end(StreamEnd::AttachFailed, refused(items), None);
                 None
+            }
+            // The create made its terminal: its reply is sent after the
+            // stream's end.
+            EndpointState::Overflowed { input_bytes, .. } if self.creates => {
+                self.send_end(StreamEnd::Overflow, input_bytes, None);
+                drop(state);
+                Some(send())
             }
             EndpointState::Overflowed { surface, input_bytes } => {
                 let view = self.view.get();
@@ -305,9 +406,12 @@ impl StreamEndpoint {
                 }
                 None
             }
-            // A call has one answer, so its stream is still Pending or
+            // A bound create's stream stays bound to its terminal. Any other
+            // call has one answer, so its stream is still Pending or
             // Overflowed here.
-            answered @ (EndpointState::Bound { .. } | EndpointState::Ended { .. }) => {
+            answered @ (EndpointState::Bound { .. }
+            | EndpointState::Creating { .. }
+            | EndpointState::Ended { .. }) => {
                 *state = answered;
                 drop(state);
                 Some(send())
@@ -324,6 +428,13 @@ impl StreamEndpoint {
             match std::mem::replace(&mut *state, EndpointState::Ended { after: None }) {
                 EndpointState::Pending { items, .. } => (StreamEnd::AttachFailed, refused(items)),
                 EndpointState::Overflowed { input_bytes, .. } => (StreamEnd::Overflow, input_bytes),
+                // The create failed: its creating queue gives back what it
+                // took (`terminal-input-unclaimed`), and an item its
+                // sequence still runs fails with `input-failed`.
+                EndpointState::Creating { sequence, .. } => {
+                    *state = EndpointState::Ended { after: Some(sequence) };
+                    (StreamEnd::AttachFailed, 0)
+                }
                 answered @ (EndpointState::Bound { .. } | EndpointState::Ended { .. }) => {
                     *state = answered;
                     return;
@@ -362,10 +473,18 @@ impl StreamEndpoint {
                 self.refuse_ended(after, item);
             }
             EndpointState::Bound { surface, sequence } => {
-                let (surface, sequence) = (*surface, sequence.clone());
+                let (target, sequence) = (StreamTarget::Surface(*surface), sequence.clone());
                 drop(state);
                 if let Some(mux) = self.mux.upgrade() {
-                    self.run_on(&mux, &sequence, surface, item);
+                    self.run_on(&mux, &sequence, target, item);
+                }
+            }
+            EndpointState::Creating { terminal_id, sequence } => {
+                let (target, sequence) =
+                    (StreamTarget::Terminal(terminal_id.clone()), sequence.clone());
+                drop(state);
+                if let Some(mux) = self.mux.upgrade() {
+                    self.run_on(&mux, &sequence, target, item);
                 }
             }
             EndpointState::Ended { after } => {
@@ -426,7 +545,7 @@ impl StreamEndpoint {
         self: &Arc<Self>,
         mux: &Mux,
         sequence: &Arc<Sequence>,
-        surface: SurfaceId,
+        target: StreamTarget,
         item: StreamItem,
     ) {
         let endpoint = self.clone();
@@ -436,17 +555,32 @@ impl StreamEndpoint {
             sequence,
             Priority::UserBlocking,
             Lane::System,
-            move |mux| endpoint.run(mux, surface, item),
+            move |mux| endpoint.run(mux, target, item),
         );
     }
 
-    fn run(&self, mux: &Weak<Mux>, surface: SurfaceId, item: StreamItem) {
+    fn run(&self, mux: &Weak<Mux>, target: StreamTarget, item: StreamItem) {
         if !self.writer.is_open() {
             return;
         }
-        match item {
-            StreamItem::Input { bytes, flow } => self.write_input(mux, surface, &bytes, flow),
-            StreamItem::Request(request) => {
+        match (item, target) {
+            (StreamItem::Input { bytes, flow }, StreamTarget::Surface(surface)) => {
+                self.write_input(mux, surface, &bytes, flow);
+            }
+            (StreamItem::Input { bytes, .. }, StreamTarget::Terminal(terminal_id)) => {
+                let Some(mux) = mux.upgrade() else { return };
+                let written = will_block(|| {
+                    write_stream_input(&mux, self.client, &self.writer, &terminal_id, &bytes)
+                });
+                if let Err(reason) = written {
+                    let _ = self.writer.send_control(&input_failed_json(
+                        self.stream,
+                        reason,
+                        bytes.len(),
+                    ));
+                }
+            }
+            (StreamItem::Request(request), _) => {
                 if let Some(mux) = mux.upgrade() {
                     self.run_request(&mux, request);
                 }
@@ -456,8 +590,14 @@ impl StreamEndpoint {
 
     fn write_input(&self, mux: &Weak<Mux>, surface: SurfaceId, bytes: &[u8], flow: u64) {
         // The mux is held only to find the surface, not across the write,
-        // which waits while the program does not read.
-        let target = mux.upgrade().and_then(|mux| get_surface(&mux, surface).ok());
+        // which waits while the program does not read. Keys queued for the
+        // terminal while it was creating are written first (a no-op when
+        // no terminal is creating).
+        let target = mux.upgrade().and_then(|mux| {
+            let target = get_surface(&mux, surface).ok()?;
+            will_block(|| mux.wait_for_creating_input_flush(&target));
+            Some(target)
+        });
         let written = target
             .is_some_and(|target| will_block(|| target.write_bytes_flow(bytes, flow)).is_ok());
         if !written {
@@ -509,12 +649,29 @@ impl StreamEndpoint {
     }
 }
 
+/// Where a stream's INPUT goes.
+#[derive(Clone)]
+enum StreamTarget {
+    /// The surface its `attach-surface` attached.
+    Surface(SurfaceId),
+    /// The terminal its create minted the id of.
+    Terminal(Arc<str>),
+}
+
+/// A terminal create's stream, as the `attach-surface` that takes it over
+/// finds it.
+struct CreatingHandoff {
+    terminal_id: Arc<str>,
+    sequence: Arc<Sequence>,
+}
+
 /// Where a REQUEST frame goes, by its header's stream.
 pub(super) enum RequestLane {
     /// Stream 0: the connection's control sequence.
     Control,
-    /// An opener naming a free id: it announces the stream and runs on the
-    /// control sequence.
+    /// An opener naming a free id, or an `attach-surface` naming a terminal
+    /// create's stream: it announces the stream and runs on the control
+    /// sequence.
     Open,
     /// An opener naming an id whose stream is still live: answered
     /// `stream_in_use`, not run.
@@ -544,9 +701,12 @@ impl ClientStreams {
         if stream == 0 {
             return Ok(RequestLane::Control);
         }
-        if STREAM_OPENERS.contains(&method.name) {
-            let live = self.endpoints.get(&stream).is_some_and(|endpoint| endpoint.is_live());
-            return Ok(if live { RequestLane::InUse } else { RequestLane::Open });
+        let attach = STREAM_OPENERS.contains(&method.name);
+        if attach || CREATING_STREAM_OPENERS.contains(&method.name) {
+            let in_use = self.endpoints.get(&stream).is_some_and(|endpoint| {
+                endpoint.is_live() && !(attach && endpoint.creating_handoff().is_some())
+            });
+            return Ok(if in_use { RequestLane::InUse } else { RequestLane::Open });
         }
         if !method.stream_scoped {
             return Err(CallRefusal::NotStreamScoped { stream, method_id: method.id.raw() });
@@ -568,14 +728,21 @@ impl ClientStreams {
         }
     }
 
-    /// Announces `stream` for an opener; an ended stream of the id is
-    /// replaced.
+    /// Announces `stream` for an opener of `method`; an ended stream of the
+    /// id is replaced, and an `attach-surface` takes over the terminal
+    /// create's stream it names.
     pub(super) fn announce(
         &mut self,
         stream: u16,
+        method: &MethodAttrs,
         connection: &FrameConnection<'_>,
     ) -> Arc<StreamEndpoint> {
-        let endpoint = StreamEndpoint::new(stream, connection);
+        let creates = CREATING_STREAM_OPENERS.contains(&method.name);
+        let takes_over = match creates {
+            true => None,
+            false => self.endpoints.get(&stream).and_then(|previous| previous.creating_handoff()),
+        };
+        let endpoint = StreamEndpoint::new(stream, creates, takes_over, connection);
         #[cfg(test)]
         let endpoint = StreamEndpoint { probe: self.probe.clone(), ..endpoint };
         let endpoint = Arc::new(endpoint);
