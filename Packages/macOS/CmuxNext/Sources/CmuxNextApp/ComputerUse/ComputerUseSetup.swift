@@ -304,9 +304,23 @@ extension ComputerUseSetup {
                        helper: helper.state)
             },
             configuration: { helper.configuration },
-            requestPermission: { pane in
-                // task-owner: one private control-pipe write for the person's setup click.
-                Task { await helper.upstream.requestPermission(screenRecording: pane == .screenRecording) }
+            requestPermission: { [weak services] pane in
+                guard let services, let settings = services.settings,
+                      settings.snapshot.computerUse.driver == .upstream,
+                      !services.registry.disabledFeatures.contains(.computerUse) else { return }
+                // task-owner: one setup click; enabling finishes before queuing its grant.
+                Task {
+                    do {
+                        if !settings.snapshot.computerUse.enabled {
+                            try await settings.setSetting(at: ComputerUseSettings.enabledPath, to: .bool(true), by: SettingWriter.currentRun())
+                        }
+                        guard settings.snapshot.computerUse.enabled, settings.snapshot.computerUse.driver == .upstream,
+                              !services.registry.disabledFeatures.contains(.computerUse) else { return }
+                        await helper.upstream.requestPermission(screenRecording: pane == .screenRecording)
+                    } catch {
+                        setupLogger.error("Computer Use could not request permission: \(String(describing: error), privacy: .public)")
+                    }
+                }
             },
             enableSetting: { [weak services] in
                 guard let settings = services?.settings else { return }
