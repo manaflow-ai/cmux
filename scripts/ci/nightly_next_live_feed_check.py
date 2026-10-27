@@ -135,8 +135,11 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--build", type=int, required=True)
     parser.add_argument("--before", help="the feed as read before this write")
     parser.add_argument("--dev-ring", default="off", choices=("on", "off"))
-    parser.add_argument("--attempts", type=int, default=4, help="reads while the edge still serves an older feed")
-    parser.add_argument("--delay", type=float, default=15.0)
+    # The public URL serves the feed uncached (cf-cache-status DYNAMIC) and R2 reads its own write:
+    # in run 40454745365 the DMG answered HEAD 0.2 s after its upload, on the first try. Two short
+    # retries cover an edge hiccup without turning the read-back into a wait.
+    parser.add_argument("--attempts", type=int, default=3, help="reads while the edge still serves an older feed")
+    parser.add_argument("--delay", type=float, default=2.0)
     args = parser.parse_args(argv)
     before = None
     if args.before:
@@ -161,6 +164,11 @@ def main(argv: list[str]) -> int:
         print(f"::warning title=nightly-next feed {args.feed_url}::{warning}")
     for error in errors:
         print(f"::error title=nightly-next feed offers nothing new::{args.feed_url}: {error}")
+    if errors:
+        print(f"{args.feed_url} as read back ({len(live)} items, newest first):")
+        for item in live:
+            print(f"  {item.build}  channel={item.channel or '(untagged)'}  "
+                  f"{'offered' if item.offered else 'NOT offered'} to Nightly  enclosure={item.url} length={item.length}")
     if not errors:
         print(f"{args.feed_url}: newest build {live[0].build} ({live[0].channel}) is live and downloadable; "
               f"the default Nightly app is offered build {newest_offered(live)}")

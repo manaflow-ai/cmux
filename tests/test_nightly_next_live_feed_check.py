@@ -151,6 +151,30 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(errors, [])
 
 
+class MainTests(unittest.TestCase):
+    def test_a_failure_prints_every_item_and_the_retry_is_short(self):
+        import contextlib, io, unittest.mock
+        feed = appcast((2, "cmux-next-dev"), (1, "cmux-next"))
+        out = io.StringIO()
+        with unittest.mock.patch.object(live, "fetch", lambda url: feed), \
+                unittest.mock.patch.object(live, "probe", ok), \
+                unittest.mock.patch.object(live.time, "sleep") as sleep, \
+                contextlib.redirect_stdout(out):
+            code = live.main(["--feed-url", "u", "--build", "2"])
+        self.assertEqual(code, 1)
+        text = out.getvalue()
+        self.assertIn("2  channel=cmux-next-dev  NOT offered to Nightly", text)
+        self.assertIn("1  channel=cmux-next  offered to Nightly", text)
+        self.assertIn("cmux-nightly-next-macos-arm64-2.dmg length=10", text)
+        sleep.assert_not_called()  # the newest build was already live: no retry
+        with unittest.mock.patch.object(live, "fetch", lambda url: appcast((1, "cmux-next"))), \
+                unittest.mock.patch.object(live, "probe", ok), \
+                unittest.mock.patch.object(live.time, "sleep") as sleep, \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(live.main(["--feed-url", "u", "--build", "2"]), 1)
+        self.assertEqual(sum(call.args[0] for call in sleep.call_args_list), 4.0)
+
+
 class WorkflowTests(unittest.TestCase):
     """Both nightly-next feed writers read their feed back right after the write."""
 

@@ -9,6 +9,6 @@ for appcast in $NIGHTLY_FEEDS; do
   before=()
   [ -s "$RUNNER_TEMP/before-$appcast" ] && before=(--before "$RUNNER_TEMP/before-$appcast")
   python3 "$PUBLISH_TOOLING/ci/nightly_next_live_feed_check.py" --feed-url "${CHANNEL_FEED_BASE}/${appcast}" \
-    --build "$NIGHTLY_BUILD" --dev-ring "$DEV_RING" "${before[@]}" || status=1
+    --build "$NIGHTLY_BUILD" --dev-ring "$DEV_RING" ${before[@]+"${before[@]}"} || status=1
 done
 exit "$status"
