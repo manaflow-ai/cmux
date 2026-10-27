@@ -64,12 +64,15 @@ if "CHANNEL_FEED_BASE/appcast-arm64.xml" not in delta or "live_build != NIGHTLY_
     failures.append("republish-nightly-deltas must skip unless the live NEXT appcast still serves this build")
 if "if: steps.current.outputs.current == 'true'" not in notes_publish:
     failures.append("publish-release-notes must skip stale notes after a newer publication")
-for writer in ("publish-release-notes", "republish-nightly-deltas"):
+for writer, group in (("publish-release-notes", "release-notes-"), ("republish-nightly-deltas", "release-deltas-")):
     writer_text = job(writer)
     if "    concurrency:\n" not in writer_text:
         failures.append(f"{writer} must serialize its mutable publication writes")
-    if "group: release-publish-${{ needs.decide.outputs.release_tag }}" not in writer_text:
-        failures.append(f"{writer} must share publish-nightly's channel publication lock")
+    # Its own channel group, never publish-nightly's: a queued writer would replace a waiting publish.
+    if f"group: {group}${{{{ needs.decide.outputs.release_tag }}}}" not in writer_text:
+        failures.append(f"{writer} must serialize in its own {group}<tag> group")
+    if "release-publish-" in writer_text:
+        failures.append(f"{writer} must not share publish-nightly's release-publish group")
     if "cancel-in-progress: false" not in writer_text:
         failures.append(f"{writer} must let an in-flight publication finish")
 if "publish-nightly.result == 'success'" not in notes_publish:

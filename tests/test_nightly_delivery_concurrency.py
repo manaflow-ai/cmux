@@ -27,8 +27,8 @@ SHARED_NIGHTLY_GROUPS = {
     "promote-nightly-next": "nightly-next-promote",
     "await-release-surface-ack": "nightly-next-promote-ack",
     "publish-nightly": "release-publish-",
-    "republish-nightly-deltas": "release-publish-",
-    "publish-release-notes": "release-publish-",
+    "republish-nightly-deltas": "release-deltas-",
+    "publish-release-notes": "release-notes-",
     "publish-nightly-identity-legacy": "nightly-next-legacy-identity-publish",
     # The release's mutable names only; the uploads (publish-nightly-next-github) have no group.
     "publish-nightly-next-github-names": "nightly-next-github-names",
@@ -79,6 +79,40 @@ def test_nightly_builds_and_signers_never_share_an_evicting_group() -> None:
             "job; scope it to github.run_id, or add it to SHARED_NIGHTLY_GROUPS if it builds nothing")
 
 
+# Jobs that publish a build. GitHub keeps one pending job per group and replaces it with the next
+# one queued, so a publish shares its group with no other kind of job: a queued delta or notes job
+# would cancel a waiting publish (2026-10-27 nightly path audit). Publishes stay serialized against
+# each other in their own group.
+PUBLISH_JOBS = {"publish-nightly"}
+
+
+def test_a_publish_never_shares_a_group_with_a_non_publish_job() -> None:
+    import yaml
+
+    jobs = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))["jobs"]
+
+    def group_of(job: dict) -> str:
+        concurrency = job.get("concurrency")
+        if concurrency is None:
+            return ""
+        return concurrency if isinstance(concurrency, str) else str(concurrency.get("group", ""))
+
+    def family(group: str) -> str:
+        return group.split("${{", 1)[0]
+
+    for name in PUBLISH_JOBS:
+        assert name in jobs, f"nightly.yml has no {name} job: update PUBLISH_JOBS"
+        assert group_of(jobs[name]), f"{name} must keep its publication group"
+        assert jobs[name]["concurrency"]["cancel-in-progress"] is False, name
+    publish_families = {family(group_of(jobs[name])) for name in PUBLISH_JOBS}
+    for name, job in jobs.items():
+        if name in PUBLISH_JOBS or not group_of(job):
+            continue
+        assert family(group_of(job)) not in publish_families, (
+            f"nightly.yml {name} shares a publish job's concurrency group {group_of(job)!r}: "
+            "a newly queued job would cancel a waiting publish")
+
+
 def test_delivery_coalescers_have_fixed_backstops_and_non_cancelling_groups() -> None:
     tick = (WORKFLOWS / "nightly-next-tick.yml").read_text(encoding="utf-8")
     assert re.search(r'(?m)^\s+- cron: "7,37 \* \* \* \*"$', tick)
@@ -99,5 +133,6 @@ if __name__ == "__main__":
     test_delivery_workflows_never_cancel_in_progress_work()
     test_a_conditional_group_is_not_run_scoped()
     test_nightly_builds_and_signers_never_share_an_evicting_group()
+    test_a_publish_never_shares_a_group_with_a_non_publish_job()
     test_delivery_coalescers_have_fixed_backstops_and_non_cancelling_groups()
     print("PASS: nightly and DEV delivery never cancel or replace waiting builds")

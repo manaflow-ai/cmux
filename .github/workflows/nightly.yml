@@ -7400,13 +7400,18 @@ jobs:
           retention-days: 3
 
   republish-nightly-deltas:
-    # This job is separate from publish-nightly so the feed can advance first,
-    # but its mutable delta uploads remain serialized per release channel.
+    # This job is separate from publish-nightly so the feed can advance first.
+    # Its delta uploads are serialized per release channel in their own group,
+    # never publish-nightly's: GitHub replaces a group's pending job with a newly
+    # queued one, so a shared group let one run's deltas cancel another run's
+    # waiting publish. The feed write is a compare-and-swap on the bytes read
+    # (write-feed --same-build), and the job skips unless the live feed serves
+    # this build, so it needs no lock with publish-nightly.
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly, generate-nightly-deltas]
     if: always() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.fast_build != 'true' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true'
     environment: ${{ needs.decide.outputs.environment }}
     concurrency:
-      group: release-publish-${{ needs.decide.outputs.release_tag }}
+      group: release-deltas-${{ needs.decide.outputs.release_tag }}
       cancel-in-progress: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
@@ -7758,9 +7763,13 @@ jobs:
           retention-days: 7
 
   publish-release-notes:
+    # Its own group, not publish-nightly's (a queued notes job would replace a
+    # waiting publish). Notes jobs stay serialized against each other, and each
+    # skips unless the live feed serves its build, so a newer build's notes
+    # always run after an older build's.
     needs: [decide, publish-nightly, sign-release-notes, resolve-nightly-cmux-tui-client]
     concurrency:
-      group: release-publish-${{ needs.decide.outputs.release_tag }}
+      group: release-notes-${{ needs.decide.outputs.release_tag }}
       cancel-in-progress: false
     if: "!cancelled() && needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.sign-release-notes.result == 'success'"
     environment: ${{ needs.decide.outputs.environment }}
