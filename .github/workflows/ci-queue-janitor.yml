@@ -22,7 +22,8 @@ name: CI queue janitor
 # job queued with no runner for CI_JANITOR_ORPHAN_MINUTES (default 120) while
 # a newer job on the same labels got one, or a run still queued after a day.
 # These are lost runner assignments, not demand, so no queue threshold gates
-# them; release, tag and merge-queue orphans are only reported.
+# them; release, tag, merge-queue and nightly/DEV/promote orphans
+# (scripts/ci/delivery_workflows.py) are only reported, never cancelled.
 #
 # Sooner than that, category e takes a push or pull request run (never a
 # protected one) whose job has queued with no runner for 30 minutes while a

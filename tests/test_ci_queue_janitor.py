@@ -986,11 +986,10 @@ class OrphanPlanTests(unittest.TestCase):
         decisions = orphan_plan(orphans, exclude=[orphans[0].run["id"]])
         self.assertEqual(decisions, [])
 
-    def test_main_schedule_nightly_and_testflight_orphans_are_cancelled(self):
+    def test_main_schedule_and_testflight_orphans_are_cancelled(self):
         for kwargs in (
             dict(event="schedule", branch="main", name="iOS TestFlight (cmux.app)",
                  path=".github/workflows/ios-appstore-upload.yml"),
-            dict(event="push", branch="main", name="Nightly macOS build", path=".github/workflows/nightly.yml"),
             dict(event="issue_comment", branch="main", name="Claude Code", path=".github/workflows/claude.yml"),
             # ci.yml's run-name carries routing metadata such as release=arm64.
             # Run 40039647633 held main's CI concurrency group for two days
@@ -1002,6 +1001,45 @@ class OrphanPlanTests(unittest.TestCase):
             with self.subTest(**kwargs):
                 decisions = orphan_plan(self.orphans(1, **kwargs))
                 self.assertEqual([d.action for d in decisions], ["cancel"])
+
+    def test_nightly_dev_and_promote_orphans_are_only_reported(self):
+        # Run 40428578701 (cmux NEXT DEV daily, a publish) was cancelled as an orphan on 2026-10-27:
+        # its verify job had waited 126 minutes for a runner. Waiting is not "stuck past its timeout".
+        for kwargs in (
+            dict(event="workflow_dispatch", branch="feat-cmux-next", name="cmux NEXT DEV daily · sign 1",
+                 path=".github/workflows/cmux-next-dev-daily.yml"),
+            # The DEV source build: cmux-next.yml dispatched with dev_daily=true (run 40426912368, the
+            # same sweep, `cmux NEXT DEV Release compile` queued 2h16m).
+            dict(event="workflow_dispatch", branch="feat-cmux-next",
+                 name="cmux NEXT DEV daily · bf4461675b1c6321a8c93ff5310ed46d42a51998",
+                 path=".github/workflows/cmux-next.yml"),
+            dict(event="schedule", branch="main", name="cmux NEXT DEV daily dispatch",
+                 path=".github/workflows/cmux-next-dev-daily-dispatch.yml"),
+            dict(event="push", branch="main", name="Nightly macOS build", path=".github/workflows/nightly.yml"),
+            dict(event="push", branch="nightly-next", name="Nightly macOS build",
+                 path=".github/workflows/nightly.yml"),
+            dict(event="workflow_run", branch="main", name="Nightly sign", path=".github/workflows/nightly-sign.yml"),
+            dict(event="schedule", branch="main", name="nightly-next train",
+                 path=".github/workflows/nightly-next-train.yml"),
+            dict(event="workflow_dispatch", branch="feat-cmux-next", name="cmux-tui nightly",
+                 path=".github/workflows/cmux-tui-nightly.yml"),
+        ):
+            with self.subTest(**kwargs):
+                decisions = orphan_plan(self.orphans(1, **kwargs))
+                self.assertEqual([d.action for d in decisions], ["skip"])
+                self.assertIn("delivery workflow", decisions[0].note)
+        # Any other cmux-next.yml dispatch is still an ordinary orphan.
+        tip_suite = dict(event="workflow_dispatch", branch="feat-cmux-next", path=".github/workflows/cmux-next.yml",
+                         name="cmux-next tip Swift suite · bf4461675b1c6321a8c93ff5310ed46d42a51998")
+        self.assertEqual([d.action for d in orphan_plan(self.orphans(1, **tip_suite))], ["cancel"])
+        # A generic `name` with the DEV title only in `display_title` is still a DEV run.
+        titled = self.orphans(1, event="workflow_dispatch", branch="feat-cmux-next", name="cmux-next",
+                              path=".github/workflows/cmux-next.yml")
+        titled[0].run["display_title"] = "cmux NEXT DEV daily · bf4461675b1c6321a8c93ff5310ed46d42a51998"
+        self.assertEqual([d.action for d in orphan_plan(titled)], ["skip"])
+        for kwargs in (dict(event="workflow_dispatch", branch="feat-cmux-next", name="Cloud VM image promote",
+                            path=".github/workflows/cloud-vm-image-promote.yml"),):
+            self.assertEqual([d.action for d in orphan_plan(self.orphans(1, **kwargs))], ["skip"])
 
     def test_release_merge_queue_and_tag_orphans_are_only_reported(self):
         for kwargs in (
