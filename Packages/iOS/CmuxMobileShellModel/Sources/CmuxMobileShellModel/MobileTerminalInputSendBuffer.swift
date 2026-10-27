@@ -135,7 +135,8 @@ public struct MobileTerminalInputSendBuffer: Equatable, Sendable {
                 sendStatusOperationID: nil
             )
         }
-        let chunk = pendingChunks.removeFirst()
+        guard let chunk = pendingChunks.first else { return nil }
+        pendingChunks.removeFirst()
         pendingByteCount = max(0, pendingByteCount - chunk.text.utf8.count)
         return chunk
     }

@@ -79,6 +79,11 @@ public nonisolated protocol TerminalIO: Sendable {
     /// thread, and sends an ``TerminalIOEvent/outputResume(_:)`` behind the events the session has not
     /// applied yet; the default keeps every chunk on `events`.
     func setOutputLane(_ lane: TerminalEchoLane?)
+
+    /// The session took `bytes` of `.output` (its output lane has them). An IO that bounds the bytes
+    /// its `events` hold (``LocalPTYTerminalIO``: it stops reading the PTY at the bound) reads on once
+    /// enough are taken. The default does nothing: the daemon's terminals bound theirs on the daemon.
+    func outputConsumed(_ bytes: Int)
 }
 
 public extension TerminalIO {
@@ -91,6 +96,7 @@ public extension TerminalIO {
     func resyncRequested() async {}
     nonisolated func inputDrain() -> TerminalInputDrain { .awaiting(self) }
     nonisolated func setOutputLane(_ lane: TerminalEchoLane?) {}
+    nonisolated func outputConsumed(_ bytes: Int) {}
 }
 
 /// Resumes live output to the lane (``TerminalIOEvent/outputResume(_:)``): call ``resume()`` once every

@@ -24,8 +24,8 @@ extension MainThreadWatchdog {
     }
 
     /// A stall just crossed the hang threshold (once per stall): samples the main thread and
-    /// every other thread, opens the hang file, and reports the hang (``onHang``) at most once
-    /// per `hangReportInterval`. Watchdog thread only.
+    /// every other thread, opens the hang file, hands the hang to ``fatalHangs`` (every one) and
+    /// reports it (``onHang``) at most once per `hangReportInterval`. Watchdog thread only.
     func reportHang(beat: UInt64, elapsedNanos: UInt64, now: UInt64, sampler: ThreadStackSampler?, crashKeys: CrashKeySlots?,
                     trace: TraceRuntime?, lastReportNanos: inout UInt64?) {
         let duration = Duration.nanoseconds(Int64(clamping: elapsedNanos))
@@ -33,7 +33,8 @@ extension MainThreadWatchdog {
         let due = lastReportNanos.map { now >= $0 &+ hangIntervalNanos } ?? true
         let sink = due ? onHang : nil
         let recorder = episodes
-        guard sink != nil || recorder != nil else { return }
+        let fatal = fatalHangs
+        guard sink != nil || recorder != nil || fatal != nil else { return }
         // A fresh sample: the stall sample is from the first threshold, this one from the hang.
         // Taken only while the stall still runs: the beat and the phase are read while the main thread
         // is suspended (atomics only).
@@ -51,10 +52,12 @@ extension MainThreadWatchdog {
         let phase = Self.phaseLabel(inCEFPump: cef)
         let others = sampler.map { ThreadStackSampler.sampleOtherThreads(excluding: $0.thread) } ?? []
         recorder?.begin(beat: beat, elapsed: duration, main: addresses, others: others, phase: phase)
+        let hang = Hang(duration: duration, addresses: addresses, otherThreads: others, phase: phase, cef: cef,
+                        attribution: hangAttribution(scope, stillBlocked: stillBlocked, now: now))
+        if stillBlocked { fatal?.began(hang, now &- elapsedNanos) }
         if let sink {
             lastReportNanos = now
-            sink(Hang(duration: duration, addresses: addresses, otherThreads: others, phase: phase, cef: cef,
-                      attribution: hangAttribution(scope, stillBlocked: stillBlocked, now: now)))
+            sink(hang)
         }
     }
 
@@ -105,7 +108,9 @@ extension MainThreadWatchdog {
             break
         case let .progressed(beat, elapsed):
             episodes?.update(beat: beat, duration: .nanoseconds(Int64(clamping: elapsed)), ongoing: true)
+            fatalHangs?.progressed(elapsed)
         case let .ended(beat, lastElapsed):
+            fatalHangs?.ended() // first: the run is not stuck any more, before the episode file is rewritten
             let nanos = closeEpisode(beat: beat, lastElapsedNanos: lastElapsed)
             episodes?.update(beat: beat, duration: .nanoseconds(Int64(clamping: nanos)), ongoing: false)
         }

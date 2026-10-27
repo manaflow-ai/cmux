@@ -18,6 +18,7 @@ import CmuxNextTerminal
 import CmuxNextCompat
 import CmuxNextTrace
 import CmuxNextWakeups
+import CmuxNextWebUpdates
 
 /// Entry point called from the Xcode target's `App/main.swift`.
 public struct CmuxNextApp {
@@ -36,6 +37,9 @@ public struct CmuxNextApp {
         // with "No zone found" (browser-isolation.md, allocator zone race).
         _ = cmux_early_malloc_zone_registration()
         #if DEBUG || CMUX_BENCH_HOOKS
+        // CMUX_NEXT_MAIN_JOB_CENSUS=1 (startup-queue.py mainjobs): every main job and turn until startup completes
+        // (p08-startup-080). Its hook goes in while the process still has one thread, before any main-actor job.
+        let mainJobs = MainJobCensus.armed(environment: ProcessInfo.processInfo.environment, processStartNanos: DebugTimings.processStartUptimeNanos)
         // CMUX_NEXT_GLOBAL_JOB_CENSUS=1 (startup-queue.py globaljobs): every task that starts on the cooperative pool
         // until startup completes (p08-startup-082), its hook in before the launch starts tasks.
         let globalJobs = GlobalJobCensus.armed(environment: ProcessInfo.processInfo.environment, processStartNanos: DebugTimings.processStartUptimeNanos)
@@ -72,6 +76,7 @@ public struct CmuxNextApp {
         var environment = AppEnvironment.current(openFiles: openFiles)
         environment.marksRun = true
         #if DEBUG || CMUX_BENCH_HOOKS
+        environment.mainJobCensus = mainJobs
         environment.globalJobCensus = globalJobs
         #endif
         // Key flows start and stop at run time; CMUX_NEXT_TRACE_FLOWS only starts them at launch.
@@ -125,6 +130,8 @@ public struct CmuxNextApp {
         environment.browserLaunchPictures?.prefetch { DebugTimings.markLaunch($0) }
         environment.windowPictures = WindowPictureStore(state: state, work: work)  // the windows' (p08-startup-057)
         relaunchWake.begin(on: work)
+        // The kept web update's state and digest (NIGHTLY): pages wait for it, never main (p08-startup-077).
+        environment.webUpdates = WebUpdates.startLaunchRead(on: work)
         // The browser source registry (browser-sources.json) the import pickers and the Passwords page read:
         // in memory before them, never read on the thread that asks first (p02-threads-122).
         BrowserSourceRegistryInstall.shared.load(on: work)
@@ -193,6 +200,7 @@ public struct CmuxNextApp {
         }
         DaemonLauncher.captureLoginEnvironment(after: order.startup) // at once only with nothing remembered (p08-startup-034)
         #if DEBUG || CMUX_BENCH_HOOKS
+        mainJobs?.freeze(after: order.startup)
         globalJobs?.freeze(after: order.startup)
         #endif
         LaunchThreadCensus.post(on: order.startup) { LaunchMarkSink.shared.writeValue(name: $0, value: $1) } // Debug/bench: threads at the first frame (p08-startup-068)
