@@ -1,9 +1,11 @@
+import CmuxNextCloudUI
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextDesign
 import CmuxNextMobileHost
 import CmuxNextOnboarding
 import CmuxNextSessionTransfer
+import CmuxNextCloud
 import CmuxNextSettings
 
 #if DEBUG || CMUX_BENCH_HOOKS
@@ -11,7 +13,7 @@ import CmuxNextSettings
 /// same center path a click takes.
 /// - `{}` lists the open dialogs (id, title, lines, origin, scope, visible,
 ///   buttons, field values, frame in window coordinates).
-/// - `{open: "confirm" | "text" | "credentials" | "save" | "choice" | "sessionMove" | "sessionMoveEnd",
+/// - `{open: "confirm" | "text" | "credentials" | "save" | "choice" | "sessionMove" | "sessionMoveEnd" | "cloudCreateBefore" | "cloudWorkspaceEmpty" | "cloudWorkspaceRepository" | "cloudWorkspaceTeam" | "cloudWorkspaceCompact" | "cloudWorkspaceActions" | "cloudCredentials",
 ///   scope: "window" | "app", origin?}`
 ///   shows a fixture (screenshots, latency) and returns its id.
 /// - `{id?, set: {field: string | bool}}`, `{id?, key: "return" | "escape" | "tab" | "shift-tab" | "cmd-<c>"}`,
@@ -25,19 +27,31 @@ enum DebugDialog {
     /// an ssh:// link from another app (it connects to a host a web page chose), and a cmux://session
     /// link's new tab (any page or app can open the link).
     static let userOnly: Set<String> = [ClipboardReadStrings.identifier, AgentPaneView.harnessEnableIdentifier, CloudPresenter.createConfirmIdentifier, CloudPresenter.credentialRecoveryIdentifier,
-                                        DaemonPairingStrings.identifier, IPhoneHostService.pairDialogIdentifier, ExternalLinkGate.sshDialogIdentifier,
+                                        CloudWorkspaceSetupWizard.credentialDialogIdentifier, DaemonPairingStrings.identifier, IPhoneHostService.pairDialogIdentifier, ExternalLinkGate.sshDialogIdentifier,
                                         SessionLinkGate.dialogIdentifier]
 
     static func run(_ params: [String: JSONValue], _ services: AppServices) -> JSONValue {
         let center = CmuxDialogCenter.shared
         var result: [String: JSONValue] = [:]
         if let fixture = params["open"]?.stringValue {
-            guard let spec = fixtures(origin: params["origin"]?.stringValue)[fixture] else {
-                return .object(["error": .string("unknown fixture \(fixture)")])
+            if fixture == "cloudCreateBefore" {
+                // Previous default unnamed-machine approval, through the existing presenter.
+                // An inert completion means this fixture can never create or approve a VM.
+                CloudPresenter.confirm(CloudStrings.createConfirmTitle, CloudStrings.createConfirmApproval,
+                                       button: CloudStrings.createConfirmButton,
+                                       identifier: CloudPresenter.createConfirmIdentifier,
+                                       in: services.windows.active?.window) { _ in }
+                if let id = center.records.last(where: \.visible)?.id {
+                    result["opened"] = .number(Double(id))
+                }
+            } else {
+                guard let spec = fixtures(origin: params["origin"]?.stringValue)[fixture] else {
+                    return .object(["error": .string("unknown fixture \(fixture)")])
+                }
+                let window = services.windows.active?.window
+                let scope: CmuxDialogScope = if params["scope"]?.stringValue != "app", let window { .window(window) } else { .app }
+                result["opened"] = .number(Double(center.present(spec, in: scope) { _ in }))
             }
-            let window = services.windows.active?.window
-            let scope: CmuxDialogScope = if params["scope"]?.stringValue != "app", let window { .window(window) } else { .app }
-            result["opened"] = .number(Double(center.present(spec, in: scope) { _ in }))
         }
         let target = params["id"]?.intValue ?? center.records.last(where: \.visible)?.id
         // Only the user answers a clipboard read (CLIPBOARD-READ-BROKER);
@@ -134,6 +148,37 @@ enum DebugDialog {
                 .check(id: "remember", title: "Don't ask again", on: false),
             ], buttons: [.cancel(), CmuxDialogButton(id: "select", title: "Select", role: .default)],
             identifier: "cmux.dialog.fixture.choice"),
+            // Gallery variants keep the setup surface reviewable without provisioning a VM.
+            "cloudWorkspaceEmpty": CloudWorkspaceSetupWizard.setupDialogSpec(source: .empty),
+            "cloudWorkspaceRepository": CloudWorkspaceSetupWizard.setupDialogSpec(source: .repository, repository: "octo/paint"),
+            "cloudWorkspaceTeam": CloudWorkspaceSetupWizard.setupDialogSpec(availability: .teamMachine, source: .empty),
+            // Gallery-only alternatives: compare the selected labeled form with a compact choice
+            // and with explicit source actions. These fixtures never ship or change production flow.
+            "cloudWorkspaceCompact": CmuxDialogSpec(
+                title: "New Cloud Workspace",
+                lines: ["Choose a starting point. A repository is cloned into ~/work on the new VM."],
+                fields: [
+                    .choice(id: "source", label: nil,
+                            options: [CmuxDialogOption(label: "Empty VM — start a new project", value: "empty"),
+                                      CmuxDialogOption(label: "From repository", value: "repository")],
+                            selected: "empty"),
+                    .text("repository", initial: "octo/paint", label: nil,
+                          placeholder: "owner/repository or GitHub URL"),
+                ],
+                buttons: [.cancel(), CmuxDialogButton(id: "create", title: "Create workspace", role: .default)],
+                identifier: "cmux.dialog.cloud.workspaceCompact"),
+            "cloudWorkspaceActions": CmuxDialogSpec(
+                title: "New Cloud Workspace",
+                lines: ["Choose a starting point. A repository is cloned into ~/work on the new VM."],
+                fields: [.text("repository", initial: "octo/paint", label: "GitHub repository",
+                               placeholder: "owner/repository or GitHub URL")],
+                buttons: [
+                    .cancel(),
+                    CmuxDialogButton(id: "empty", title: "Empty VM", role: .normal),
+                    CmuxDialogButton(id: "repository", title: "From repository", role: .normal),
+                ],
+                identifier: "cmux.dialog.cloud.workspaceActions"),
+            "cloudCredentials": CloudWorkspaceSetupWizard.credentialDialogSpec(machine: "paint", account: "Personal account"),
             // Move Sessions from Another cmux Build (session.moveFromBuild), with no other build running.
             "sessionMove": SessionMoveSelection(peers: [moveFixturePeer]).dialog,
             "sessionMoveEnd": SessionMoveSelection.endTerminalsDialog(for: ["~/code/app"]),
