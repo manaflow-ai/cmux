@@ -215,7 +215,7 @@ import Testing
         }
         let end = Date(timeIntervalSinceNow: 5)
         while !answer.done, Date() < end {
-            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+            runMainLoopPass(for: 0.01)
             await Task.yield()
         }
         await reader.value
