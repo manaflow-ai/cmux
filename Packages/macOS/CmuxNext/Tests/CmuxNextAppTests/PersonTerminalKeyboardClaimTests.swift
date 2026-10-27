@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+import CmuxNextActions
 import CmuxNextFocus
 import CmuxNextFocusUI
 import Foundation
@@ -115,6 +116,50 @@ struct PersonTerminalKeyboardClaimTests {
             h.controller.focus.send(.focusPane(h.panes[1], source: .keyboard))
             let claimedAfterMove = h.window.pendingCreationOwnsKeyboard
             #expect(!claimedAfterMove, "the claim outlived the person's focus move")
+        }
+    }
+
+    /// Automation never ends the person's claim: a script's or the CLI's focus move, or its own intent, in that window
+    /// (review: a script focusing a pane bumped the focus generation and gave the Chief's box the keyboard back).
+    @Test func automationLeavesThePersonsClaimAlone() async throws {
+        try await Self.withWindow { h in
+            let coordinator = h.services.keyRouter.creationInputCoordinator
+            coordinator.holdLimit = .milliseconds(100)
+            let ticket = try #require(coordinator.beginWorkspace(in: h.controller))
+            coordinator.resolve(ticket, workspace: nil, in: h.window)
+            try await PasswordManagerRouteTests.until({ !coordinator.isHolding(in: h.window) }, report: { "the hold never ended" })
+            h.controller.focus.send(.focusPane(h.panes[1], source: .cli))
+            _ = h.controller.focus.beginIntent()
+            let claimed = h.window.pendingCreationOwnsKeyboard
+            #expect(claimed, "a script's focus move ended the person's claim on the keyboard")
+        }
+    }
+
+    /// Another of the person's actions is their next intent: the claim ends.
+    @Test func aPersonsActionEndsTheClaim() async throws {
+        try await Self.withWindow { h in
+            let coordinator = h.services.keyRouter.creationInputCoordinator
+            coordinator.holdLimit = .milliseconds(100)
+            let ticket = try #require(coordinator.beginWorkspace(in: h.controller))
+            coordinator.resolve(ticket, workspace: nil, in: h.window)
+            try await PasswordManagerRouteTests.until({ !coordinator.isHolding(in: h.window) }, report: { "the hold never ended" })
+            _ = h.services.registry.perform("toggleSidebar", invocation: ActionInvocation(origin: .user))
+            let claimed = h.window.pendingCreationOwnsKeyboard
+            #expect(!claimed, "the claim outlived the person's next action")
+        }
+    }
+
+    /// A script's run whose handler performs `newTab` with a default (user) invocation is still the script's: it opens
+    /// no key hold and makes no claim (review: the handler read the handed invocation's origin).
+    @Test func aNestedRunOfAScriptIsNotThePersons() async throws {
+        try await Self.withWindow { h in
+            let request = ActionInvocation(arguments: ["command": .string("/bin/sh"), "name": .string("nested")], origin: .user)
+            let script = ActionRunScope(origin: .script, allowsViewChange: true)
+            _ = ActionRunScope.carrying(script) { h.services.registry.perform("newTab", invocation: request) }
+            let holding = h.services.keyRouter.creationInputCoordinator.isHolding(in: h.window)
+            let claimed = h.window.pendingCreationOwnsKeyboard
+            #expect(!holding, "a script's nested newTab held the person's keys")
+            #expect(!claimed, "a script's nested newTab claimed the person's keyboard")
         }
     }
 }

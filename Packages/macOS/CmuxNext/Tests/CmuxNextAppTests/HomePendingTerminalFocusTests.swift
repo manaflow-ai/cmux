@@ -111,7 +111,8 @@ struct HomePendingTerminalFocusTests {
             let shell = try #require(window.window)
             let host = try #require(shell.contentView)
             // A text field the person typed into, with the keyboard (typed, so focusing it asks no AutoFill service).
-            let field = NSTextField(string: "a draft")
+            // Empty: the person just put the caret there (a draft or none, the field is theirs).
+            let field = NSTextField(string: "")
             field.contentType = .URL
             field.frame = NSRect(x: 10, y: 10, width: 200, height: 24)
             host.addSubview(field)
