@@ -943,12 +943,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // chose Always. The App pushes the power source in (from CmuxNextEnergy), no polling.
         .target(
             name: "CmuxNextKeepAwake",
-            dependencies: ["CmuxNextBridge", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextSettings"],
+            dependencies: ["CmuxNextBridge", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextSettings", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextKeepAwakeTests",
-            dependencies: ["CmuxNextKeepAwake", "CmuxNextSettings"],
+            dependencies: ["CmuxNextKeepAwake", "CmuxNextSettings", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // Energy Saver's power inputs (plans/cmux-next/chrome-parity/p14-energy.md D): Low Power Mode,
@@ -2327,8 +2327,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextMobileHostTests",
-            dependencies: ["CmuxNextMobileHost", "CmuxNextMobile", "CmuxNextAgentPane", "CmuxNextPages", "CmuxNextSettings",
-                           "CmuxNextDaemon", .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
+            dependencies: ["CmuxNextMobileHost", "CmuxNextMobile", "CmuxNextAgentPane", "CmuxNextPages", "CmuxNextSettings", "CmuxNextWakeups",
+                           "CmuxNextCompat", "CmuxNextDaemon", .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
                            .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: uiSwiftSettings
         ),
