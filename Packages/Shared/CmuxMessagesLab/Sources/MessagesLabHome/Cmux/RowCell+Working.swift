@@ -27,6 +27,7 @@ extension RowCell {
         spin.toValue = 2 * Double.pi
         spin.duration = 1
         spin.repeatCount = .infinity
+        spin.isRemovedOnCompletion = false
         spin.beginTime = begin
         typingSpinner.add(spin, forKey: "workingSpin")
     }
