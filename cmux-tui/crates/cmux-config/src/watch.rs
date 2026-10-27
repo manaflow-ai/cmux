@@ -41,6 +41,7 @@ use inotify as backend;
 mod ancestors;
 #[cfg(not(target_os = "linux"))]
 mod portable;
+pub mod queue;
 #[cfg(not(target_os = "linux"))]
 use portable as backend;
 

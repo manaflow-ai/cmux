@@ -10,7 +10,8 @@
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
-use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, sync_channel};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Instant;
@@ -28,15 +29,21 @@ type Ancestors = Arc<super::ancestors::Ancestors>;
 #[cfg(not(target_os = "macos"))]
 type Ancestors = ();
 
-enum Message {
-    Event,
-    Stop,
+/// A wake of the watch thread. One queued wake is enough: the thread reads
+/// every hint's state after its burst, and checks `stopping` after each wake.
+struct Wake;
+
+/// Queues a wake without waiting: on a full queue a wake is already pending.
+/// It runs on notify's event thread, which must never block.
+fn wake(sender: &SyncSender<Wake>) {
+    let _ = sender.try_send(Wake);
 }
 
 pub(super) struct Handle {
     inner: Shared,
     _ancestors: Ancestors,
-    stop: Sender<Message>,
+    stop: SyncSender<Wake>,
+    stopping: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -44,8 +51,9 @@ pub(super) fn start(
     files: Vec<PathBuf>,
     mut on_hint: impl FnMut() + Send + 'static,
 ) -> notify::Result<Handle> {
-    let (sender, receiver) = channel::<Message>();
+    let (sender, receiver) = sync_channel::<Wake>(1);
     let stop = sender.clone();
+    let stopping = Arc::new(AtomicBool::new(false));
     let plan: Arc<Mutex<Plan>> = Arc::default();
     let filter = Arc::clone(&plan);
     let watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
@@ -60,7 +68,7 @@ pub(super) fn start(
             }
         };
         if relevant {
-            let _ = sender.send(Message::Event);
+            wake(&sender);
         }
     })?;
     let inner: Shared = Arc::new(Mutex::new(Some(watcher)));
@@ -68,10 +76,8 @@ pub(super) fn start(
     let ancestors: Ancestors = {
         let sender = stop.clone();
         Arc::new(
-            super::ancestors::Ancestors::start(move || {
-                let _ = sender.send(Message::Event);
-            })
-            .map_err(|error| notify::Error::generic(&error.to_string()))?,
+            super::ancestors::Ancestors::start(move || wake(&sender))
+                .map_err(|error| notify::Error::generic(&error.to_string()))?,
         )
     };
     #[cfg(not(target_os = "macos"))]
@@ -83,19 +89,24 @@ pub(super) fn start(
     let thread_ancestors = Arc::clone(&ancestors);
     #[cfg(not(target_os = "macos"))]
     let thread_ancestors: Ancestors = ();
+    let thread_stopping = Arc::clone(&stopping);
     let thread = std::thread::Builder::new()
         .name("cmux-config-watch".to_string())
         .spawn(move || {
             on_hint();
-            run(&receiver, &shared, &thread_ancestors, &plan, &files, &mut watched, &mut on_hint);
+            let watch = Watch { receiver: &receiver, stopping: &thread_stopping };
+            run(&watch, &shared, &thread_ancestors, &plan, &files, &mut watched, &mut on_hint);
         })
         .map_err(|error| notify::Error::generic(&error.to_string()))?;
-    Ok(Handle { inner, _ancestors: ancestors, stop, thread: Some(thread) })
+    Ok(Handle { inner, _ancestors: ancestors, stop, stopping, thread: Some(thread) })
 }
 
 impl Drop for Handle {
     fn drop(&mut self) {
-        let _ = self.stop.send(Message::Stop);
+        // The flag before the wake: a wake that finds the queue full leaves
+        // one queued, and the thread reads the flag after taking it.
+        self.stopping.store(true, Ordering::Release);
+        wake(&self.stop);
         if let Ok(mut guard) = self.inner.lock() {
             guard.take();
         }
@@ -108,8 +119,20 @@ impl Drop for Handle {
     }
 }
 
+/// The watch thread's queue and its stop flag.
+struct Watch<'a> {
+    receiver: &'a Receiver<Wake>,
+    stopping: &'a AtomicBool,
+}
+
+impl Watch<'_> {
+    fn stopped(&self) -> bool {
+        self.stopping.load(Ordering::Acquire)
+    }
+}
+
 fn run(
-    receiver: &Receiver<Message>,
+    watch: &Watch<'_>,
     shared: &Shared,
     ancestors: &Ancestors,
     plan: &Mutex<Plan>,
@@ -117,7 +140,7 @@ fn run(
     watched: &mut BTreeSet<PathBuf>,
     on_hint: &mut impl FnMut(),
 ) {
-    while let Ok(Message::Event) = receiver.recv() {
+    while watch.receiver.recv().is_ok() && !watch.stopped() {
         // One hint per burst: wait until the events stop for QUIET.
         let started = Instant::now();
         loop {
@@ -125,9 +148,10 @@ fn run(
             if left.is_zero() {
                 break;
             }
-            match receiver.recv_timeout(left) {
-                Ok(Message::Event) => {}
-                Ok(Message::Stop) | Err(RecvTimeoutError::Disconnected) => return,
+            match watch.receiver.recv_timeout(left) {
+                Ok(Wake) if watch.stopped() => return,
+                Ok(Wake) => {}
+                Err(RecvTimeoutError::Disconnected) => return,
                 Err(RecvTimeoutError::Timeout) => break,
             }
         }
