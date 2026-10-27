@@ -46,9 +46,24 @@ These are listed in the `initialize` result, `_meta.acpmux.features`.
 | `promptUploads` | the daemon resolves upload-ref blocks in `session/prompt`, and resumable uploads have no size cap |
 | `uploadResume` | `_acpmux/file_put_status`, finish `sha256`, the `upload.*` reasons and `upload.diskFull` (sections 3, 4) |
 | `uploadFrames` | the daemon takes binary data frames on the app's WebSocket (section 1) |
+| `filePutChunks` | the daemon takes `file_put_begin` / `_chunk` / `_finish` / `_cancel` |
+| `filePut` | the daemon takes the one-shot `_acpmux/file_put` (one file in one request, kept for older clients) |
+| `sendAttach` | the daemon saves a message's inline attachments (`acpmux send --attach`, `send_message`) |
 
 A client sends by reference only to a daemon that lists `promptUploads`. Without it, the client
 keeps the old inline path.
+
+A daemon forwarding to a chat on a peer reads the same flags from the peer's `initialize` and
+refuses, before anything is sent, what the peer would not take:
+
+| call to a peer's chat | the peer must list | otherwise |
+|---|---|---|
+| `session/prompt` with an upload-ref block | `promptUploads` | `upload.unsupported` |
+| `file_put_begin` with `forPrompt: true` | `promptUploads` | `upload.unsupported` |
+| `session/prompt` with inline attachments | `sendAttach` | `attach.unsupported` |
+| `file_put_status`, or `file_put_finish` with `sha256` | `uploadResume` | `filePut.unsupported` |
+| `file_put_begin`, `file_put_chunk`, a binary data frame (sent on as `file_put_chunk`s) | `filePutChunks` (from #25803; before it, `file_put_chunk` needs `filePut`) | `filePut.unsupported` |
+| `_acpmux/file_put` | `filePut` | `filePut.unsupported` |
 
 ## 1. Transport
 
@@ -283,7 +298,11 @@ repeated finish answers the same.
 
 - Allowed only once all `size` bytes have arrived.
 - With `uploadResume`, an optional `sha256` (lowercase hex) is checked, and a mismatch is
-  `upload.corrupt`.
+  `upload.corrupt` with `data: {sha256}` (the hash the daemon computed):
+  - On the first finish, the bytes received are not the sender's: the partial upload is removed,
+    and the sender begins again.
+  - On a repeated finish (the upload already finished), the finished file is checked and left as
+    it is: the mismatch says the sender's hash is not that file's, and nothing is removed.
 
 ### Cancel
 
@@ -316,7 +335,7 @@ repeated finish answers the same.
 | `filePut.name` | not a plain file name |
 | `filePut.remote` | the call came from a Web-controlled connection |
 | `filePut.unsupported` | the chat's peer runs a build without uploads |
-| `upload.corrupt` (with `uploadResume`) | finish `sha256` mismatch; the upload is removed, begin again |
+| `upload.corrupt` (with `uploadResume`) | finish `sha256` mismatch, `data: {sha256}`; on a first finish the partial upload is removed (begin again), on a repeated finish the finished file is left (section 3) |
 
 Today, an unknown upload, a wrong offset, or a finish before all bytes arrived returns a plain
 `invalid_params` error with no `reason`. `uploadResume` gives these `upload.unknown`,
@@ -383,8 +402,10 @@ The daemon that runs the chat replaces each reference before anything reads the 
   "mimeType", "size"}`. It is never base64, so a 2 GB file adds a few hundred bytes to the prompt.
   A follow-up PR adds a model-sized copy of a large image (downscaled to the harness's limit, from
   one table per harness) inline, next to the link to the original.
-- **A context note** lists every file's path, type and size, and says which images are not shown
-  inline. It is a text block marked `_meta.acpmux.context`, which the transcript hides.
+- **A context note** lists each file's path, type and size, and says which images are not shown
+  inline. It is a text block marked `_meta.acpmux.context`, which the transcript hides. It lists
+  as many files as fit the message with the prompt's other blocks; past that it ends with "and N
+  more, each a resource_link in this message", since every file still has its link.
 
 ## 7. Idempotency
 
