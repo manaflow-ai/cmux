@@ -13,6 +13,8 @@ extension TerminalSurfaceView {
         if let trackingArea { removeTrackingArea(trackingArea) }
         let area = NSTrackingArea(
             rect: .zero,
+            // wakeup-allow: bounded mouse reporting and hover links follow the pointer over a terminal behind another app,
+            // as in Ghostty; moves arrive only while the pointer is over this surface's visible rect
             options: [.mouseEnteredAndExited, .mouseMoved, .inVisibleRect, .activeAlways, .cursorUpdate],
             owner: self
         )

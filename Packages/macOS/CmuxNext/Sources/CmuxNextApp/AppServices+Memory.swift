@@ -28,6 +28,7 @@ import CmuxNextSidebar
 import CmuxNextTabs
 import CmuxNextTerminal
 import CmuxNextWakeups
+import Foundation
 
 /// Runs the memory coordinator's release slices on a budgeted frame queue: on a later frame, after input
 /// and visible work, never in the turn that asks (Chrome posts memory release as BEST_EFFORT tasks).
@@ -86,6 +87,7 @@ struct AppMemoryConsumers {
         // registerControlCaches(_:)  // CmuxNextControl: AppControl.start calls it when it makes the service
         registerDaemonCaches()  // CmuxNextDaemon
         registerDesignCaches()  // CmuxNextDesign (p07-memory-053)
+        registerSmallAppStores()  // CmuxNextDesign, CmuxNextTerminal (p07-memory-083)
         registerGlyphMasks()  // CmuxNextDesign (p03-rendering-075)
         registerConversationDiscards()  // CmuxNextHibernation, CmuxNextHome
         registerHiddenFrames()  // CmuxNextHibernation, CmuxNextTerminal
@@ -211,6 +213,16 @@ struct AppMemoryConsumers {
         services.features.isEnabled(.memoryFileHomeCaches) ? services.memoryCoordinator : nil
     }
 
+    /// `webKitSameSiteProcesses` (default off): WebKit tabs share a same-site WebContent process from the Chromium
+    /// renderer limit on (p07-memory-088), or from the limit a bench run forces; nil while the feature is off.
+    var webKitProcessReuse: WebKitProcessReuse? {
+        guard services.features.isEnabled(.webKitSameSiteProcesses) else { return nil }
+        let limit = WebKitProcessReuse.benchRendererLimit(environment: ProcessInfo.processInfo.environment,
+                                                          bundleIdentifier: Bundle.main.bundleIdentifier)
+            ?? SubsystemBudget.forThisMac(gpuResidentAvailable: false).chromiumRendererLimit
+        return WebKitProcessReuse.loading(rendererLimit: limit, work: services.work, mainWork: services.mainWork)
+    }
+
     /// The Files pane's thumbnail pixel bytes, a quarter of the Mac's image cache budget (32 MiB at
     /// 16 GB), whatever the feature state: only the registration waits for `memoryFileHomeCaches`.
     var filesThumbnailBytes: Int {
@@ -321,5 +333,22 @@ struct AppMemoryConsumers {
     private func registerInternalPageDiscards() {
         guard services.features.isEnabled(.memoryDiscardInternalPages), !services.features.isEnabled(.pageLifecycle) else { return }
         services.pages.enableDiscards(ContentDiscardScheduler(kind: .internalPage, memory: services.memoryCoordinator), on: services.cache)
+    }
+
+    /// `memorySmallAppStores` (default off): the glass lens stills are one lossless consumer, the last quit's
+    /// terminal frames one lossy consumer, and the terminals' Kitty image budget halves below normal pressure
+    /// (p07-memory-083). The changelog page's pictures register with each page (`PageFactory.changelogPage`), and the
+    /// launch reads go at the settle (`LaunchSettle.dropLaunchReads`).
+    private func registerSmallAppStores() {
+        guard services.features.isEnabled(.memorySmallAppStores) else { return }
+        let coordinator = services.memoryCoordinator
+        GlassBackdropImages.shared.registerMemoryConsumer(with: coordinator)
+        services.terminalLaunchFrames.registerMemoryConsumer(with: coordinator)
+        let kittyImages = GhosttyImageStorageBudget(
+            fullBytes: SubsystemBudget.forThisMac(gpuResidentAvailable: false).kittyImageBytesPerSurface,
+            riseDeadline: MainDeadline(owner: "GhosttyImageStorageBudget.rise", workClass: .background, scheduler: services.mainDeadlines),
+            riseDelay: MemoryCoordinator.limitRiseDelay) { GhosttyRuntime.shared.setImageStorageBytesPerScreen($0) }
+        kittyImages.follow(coordinator)
+        services.lifetimeFollowers.append(kittyImages)
     }
 }

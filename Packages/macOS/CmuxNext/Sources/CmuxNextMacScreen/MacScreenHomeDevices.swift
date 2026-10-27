@@ -234,8 +234,9 @@ extension MacScreenHomeView {
             detail: L.t("macScreen.home.allowDetail", "Your other devices signed in to this cmux account can ask to see or control this Mac. You approve each device, or choose its access in Settings › Devices."),
             isOn: sharing.isSharing, enabled: !sharing.busy, id: "macScreen.home.allowToggle"
         ) { [weak self] on in
-            // task-owner: one sharing write; the switch follows the hub's record
-            Task { try? await hubHost?.setSharing(on) }
+            // task-owner: one sharing write; the switch follows the hub's record. Off main: the write is the
+            // hub host's own main-actor request.
+            Task { @concurrent in try? await hubHost?.setSharing(on) }
             // The switch shows the hub's record: back to it if the write does not change it.
             self?.syncSwitchesSoon()
         }
