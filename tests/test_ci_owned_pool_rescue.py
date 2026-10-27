@@ -3085,6 +3085,17 @@ class Sweeper(unittest.TestCase):
         # GitHub reports the runner of a job it cancelled unacquired as "" as well as null (run 40453240553).
         self.assertTrue(rescue.unacquired({**lost, "runner_name": ""}))
 
+    def test_the_nightly_slot_label_is_an_owned_pool(self):
+        # glaeda's nightly slot (one runner per mini that takes only nightly jobs): a nightly-next app build
+        # queued there that no runner acquires is re-run like one on the side label.
+        label = "glaeda-nightly-std-xcode-26.6"
+        self.assertEqual(rescue.job_pool({"labels": [label]}), label)
+        for labels in (["glaeda-nightly"], ["glaeda-nightly-std"], ["glaeda-nightlyx-std-xcode-26.6"]):
+            self.assertIsNone(rescue.job_pool({"labels": labels}), labels)
+        self.assertTrue(rescue.unacquired(unacquired_job(labels=(label,))))
+        self.assertIsNone(rescue.started_dev_compile([job("build-nightly-app", status="in_progress", labels=[label])]),
+                          "a nightly slot is not the freshness slot")
+
     def test_a_dev_compile_that_started_after_the_watch_read_is_never_cancelled(self):
         # The watch saw the compile queued on the freshness slot; it started before rescue() cancelled.
         label = "glaeda-dev-std-xcode-26.6"

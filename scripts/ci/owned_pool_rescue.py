@@ -392,7 +392,10 @@ TRUSTED_LABEL = re.compile(r"glaeda-(?:root-)?trusted-(?:xl|std|light)-xcode-[0-
 # The freshness slot's dev role (glaeda#1628, vars.CI_DEV_COMPILE_RUNNER, glaeda-dev-std-xcode-26.6) too:
 # cmux-next.yml's macos-placement puts a feed compile there, and a job there that no runner acquired
 # needs the same re-run as one on any other owned label.
-LANE_LABEL = re.compile(r"glaeda-(?:aws-)?(?:session-|fast-|dev-)(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
+# The nightly slot (glaeda#1684, runner.nightlySlot, glaeda-nightly-std-xcode-26.6) too: one runner per mini
+# that takes only nightly jobs, which nightly-next's build picker offers first (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER).
+LANE_LABEL = re.compile(
+    r"glaeda-(?:aws-)?(?:session-|fast-|dev-|nightly-)(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
 # The freshness slot's own labels, a subset of LANE_LABEL: a job that started there is a DEV feed compile,
 # which nothing automatic cancels (started_dev_compile()).
 DEV_LABEL = re.compile(r"glaeda-(?:aws-)?dev-(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
