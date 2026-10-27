@@ -126,7 +126,8 @@ extension SidebarBridge {
         case .layout(let op):
             applyLayoutOp(op)
         case .dropOnLayoutSection(let ids, let section, let index):
-            PinCommands(context: AppActionContext(services: services)).userDrop(ids.map(\.rawValue), on: section, at: index)
+            let storedIndex = services.sidebarLayout.document.storedInsertionIndex(index, in: section, from: model.layout)
+            PinCommands(context: AppActionContext(services: services)).userDrop(ids.map(\.rawValue), on: section, at: storedIndex)
         case .toggleLayoutSection:
             model.apply(intent)
         case .setIcon, .setGroupPinned, .setGroupIcon, .openGroup, .groupEditorEnded:

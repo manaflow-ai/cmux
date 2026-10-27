@@ -173,3 +173,86 @@ fn send_attach_sends_files_of_any_size_and_number_by_reference() {
     assert_eq!(saved.len(), 1, "{saved:?}");
     assert_eq!(fs::read(&saved[0]).unwrap(), vec![7u8; 8 << 20]);
 }
+
+/// Every upload folder of the daemon that still holds an unfinished `.part`.
+fn parts(dir: &Path) -> Vec<PathBuf> {
+    let entries = |d: &Path| fs::read_dir(d).into_iter().flatten().flatten().map(|e| e.path());
+    let sessions: Vec<_> = entries(&dir.join("uploads")).collect();
+    let folders: Vec<_> = sessions.iter().flat_map(|s| entries(s)).collect();
+    folders.into_iter().filter(|f| f.join(".part").exists()).collect()
+}
+
+/// A multi-GB upload to a peer's chat runs for an hour on a slow link: the sender says what it
+/// is doing on stderr, from the first byte to the last (hb-acpmux's no-cap stop check printed
+/// nothing for 30 minutes, 2026-10-27).
+#[test]
+fn send_attach_says_how_far_its_uploads_are_on_stderr() {
+    let dir = scratch("g");
+    let _shutdown = Shutdown(&dir);
+    let made = cli(&dir, &["run", "-n", "lane", "warm up"]);
+    assert!(made.status.success(), "the session: {}", text(&made));
+    fs::write(dir.join("p/big.bin"), vec![5u8; 20 << 20]).unwrap();
+    let sent = cli(&dir, &["send", "-q", "lane", "this", "--attach", "big.bin"]);
+    assert!(sent.status.success(), "{}", text(&sent));
+    let said = String::from_utf8_lossy(&sent.stderr);
+    assert!(said.contains("uploading 1 file (20.0 MiB) to "), "{}", text(&sent));
+    assert!(said.contains("uploaded 1 file (20.0 MiB) in "), "{}", text(&sent));
+    // Nothing on stdout but the reply.
+    assert!(!String::from_utf8_lossy(&sent.stdout).contains("uploading"), "{}", text(&sent));
+}
+
+/// A sender killed part way through a large upload leaves the bytes it sent; the next send of
+/// the same file to the same chat resumes that upload where it stopped, instead of sending them
+/// again and leaving the partial one behind.
+#[test]
+fn send_attach_resumes_the_upload_a_killed_sender_began() {
+    let dir = scratch("k");
+    let _shutdown = Shutdown(&dir);
+    let made = cli(&dir, &["run", "-n", "lane", "warm up"]);
+    assert!(made.status.success(), "the session: {}", text(&made));
+    let big: Vec<u8> = (0..20usize << 20).map(|i| (i as u8) ^ (i >> 13) as u8).collect();
+    fs::write(dir.join("p/big.bin"), &big).unwrap();
+
+    // The sender stops for good at 8 MiB (a debug build's hook), and is killed there.
+    let mut cmd = daemon_env::command(&dir, daemon_env::Agents::StandIn, &[]);
+    cmd.args(["send", "-q", "lane", "first", "--attach", "big.bin"])
+        .env("ACPMUX_HOME", &dir)
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .env("ACPMUX_TEST_UPLOAD_STALL_AFTER", (8u64 << 20).to_string())
+        .current_dir(dir.join("p"))
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    let mut sender = cmd.spawn().unwrap();
+    let held = |dir: &Path| {
+        parts(dir).iter().map(|f| fs::metadata(f.join(".part")).map_or(0, |m| m.len())).sum::<u64>()
+    };
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while held(&dir) < 8 << 20 && std::time::Instant::now() < deadline {
+        assert!(sender.try_wait().unwrap().is_none(), "the sender ended before it was killed");
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    sender.kill().unwrap();
+    let _ = sender.wait();
+    let left = parts(&dir);
+    assert_eq!(left.len(), 1, "one partial upload: {left:?}");
+    assert_eq!(fs::metadata(left[0].join(".part")).unwrap().len(), 8 << 20);
+
+    let sent = cli(&dir, &["send", "-q", "lane", "again", "--attach", "big.bin"]);
+    assert!(sent.status.success(), "{}", text(&sent));
+    let said = String::from_utf8_lossy(&sent.stderr);
+    assert!(said.contains("resuming big.bin at 8.0 MiB of 20.0 MiB"), "{}", text(&sent));
+    assert!(String::from_utf8_lossy(&sent.stdout).contains("resource_link:big.bin:"));
+    // The one upload, finished in the folder the killed sender began: nothing left behind.
+    let saved = uploads_named(&dir, "big.bin");
+    assert_eq!(saved.len(), 1, "{saved:?}");
+    assert_eq!(saved[0].parent(), Some(left[0].as_path()));
+    assert_eq!(sha(&fs::read(&saved[0]).unwrap()), sha(&big));
+    assert!(parts(&dir).is_empty(), "{:?}", parts(&dir));
+    let named = |ext: &str| {
+        let entries = fs::read_dir(dir.join("run/upload-resume")).unwrap().flatten();
+        entries.filter(|e| e.path().extension().is_some_and(|x| x == ext)).count()
+    };
+    assert_eq!(named("json"), 0, "a finished upload keeps no resume record");
+    // Its lock stays, so a sender that opened it never locks a file nobody else sees.
+    assert_eq!(named("lock"), 1);
+}
