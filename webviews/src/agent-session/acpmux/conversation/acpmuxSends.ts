@@ -67,9 +67,6 @@ export function acpmuxSendCall(tool: Tool, priorFiles?: ReadonlyMap<string, stri
   if (tool.kind !== "execute" || !tool.command) return undefined;
   const send = acpmuxSend(tool.command, undefined, 0, priorFiles);
   if (!send) return undefined;
-  // A failed or in-flight shell event is not a durable recorded producer. Keep the compact target
-  // row, but do not expose bytes that may never have been written or sent.
-  if (tool.status !== "completed") delete send.text;
   // A send moved to the background runs, and ends, there (model.ts `background`).
   const background = tool.background?.state;
   // Failed by its status, a nonzero exit (toolGroups.ts `isFailed`), or its background run, even
