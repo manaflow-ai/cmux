@@ -20,6 +20,7 @@ public final class ThemedSegmentedControl: NSSegmentedControl {
         applyTheme()
     }
 
+    // visibility-walk-allow: two color stores and one invalidation when they change; cheaper than a deferral
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyTheme()

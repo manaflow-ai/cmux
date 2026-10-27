@@ -1,8 +1,8 @@
 import CoreFoundation
 import Foundation
 
-/// C entry for `OnScheduleMessagePumpWork`. `ctx` is the unretained
-/// `CEFRuntime`, which lives for the rest of the process once started.
+/// C entry for `OnScheduleMessagePumpWork`. `ctx` is the `CEFRuntime`'s
+/// ``CallbackRegistry`` token (``CEFRuntime/from(_:)``).
 let cefScheduleCallback: CEFShimLibrary.ScheduleFn = { context, delayMilliseconds in
     // SAFETY: only the context's address is read; CEFRuntime.from and pumpGate(at:) turn it back.
     let address = unsafe UInt(bitPattern: context)
@@ -14,7 +14,7 @@ let cefScheduleCallback: CEFShimLibrary.ScheduleFn = { context, delayMillisecond
 }
 
 /// C entry for the fork's delayed work as absolute run times (`cmux_shim_schedule_delayed_fn`,
-/// p14-energy-046). `ctx` is the unretained `CEFRuntime`, as for ``cefScheduleCallback``.
+/// p14-energy-046). `ctx` is the runtime's token, as for ``cefScheduleCallback``.
 let cefScheduleDelayedCallback: CEFShimLibrary.ScheduleDelayedFn = { context, runTimeNanos, leewayNanos, precise in
     let runTime = CEFPumpSchedule.runTimeNanos(runTimeNanos)
     // SAFETY: as for cefScheduleCallback.

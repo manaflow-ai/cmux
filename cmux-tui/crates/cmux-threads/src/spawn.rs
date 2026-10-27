@@ -18,8 +18,31 @@ where
     F: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
 {
-    let name = name.into();
-    Builder::new().name(name.clone()).spawn(move || {
+    start(Builder::new(), name.into(), qos, f)
+}
+
+/// [`spawn`] with a stack of `stack_size` bytes instead of the platform
+/// default (`std::thread::Builder::stack_size`), for a long-lived thread
+/// whose stack need is known to be small.
+pub fn spawn_with_stack<F, T>(
+    name: impl Into<String>,
+    qos: ThreadQos,
+    stack_size: usize,
+    f: F,
+) -> io::Result<JoinHandle<T>>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    start(Builder::new().stack_size(stack_size), name.into(), qos, f)
+}
+
+fn start<F, T>(builder: Builder, name: String, qos: ThreadQos, f: F) -> io::Result<JoinHandle<T>>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    builder.name(name.clone()).spawn(move || {
         registry::register_current(name, qos);
         let _deregister = Deregister;
         f()
@@ -40,7 +63,7 @@ mod tests {
 
     use crate::{
         LiveQos, QosChange, ThreadInfo, ThreadQos, current, current_slot, refused_changes,
-        set_current, snapshot, spawn, with_qos,
+        set_current, snapshot, spawn, spawn_with_stack, with_qos,
     };
 
     fn row(name: &str) -> Option<ThreadInfo> {
@@ -120,6 +143,35 @@ mod tests {
         }
     }
 
+    /// A row's priority is the kernel's: 20 + nice on Linux, and on macOS a
+    /// UserInteractive thread runs above a Utility one.
+    #[test]
+    fn a_rows_priority_is_the_schedulers() {
+        let read = |name: &'static str, qos| {
+            spawn(name, qos, || (current(), own_row().priority)).unwrap().join().unwrap()
+        };
+        let (utility_live, utility) = read("cmux-threads-test-pri-utility", ThreadQos::Utility);
+        let (_, interactive) =
+            read("cmux-threads-test-pri-interactive", ThreadQos::UserInteractive);
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        {
+            let LiveQos::Nice(nice) = utility_live else { panic!("{utility_live:?}") };
+            assert_eq!(utility, Some(20 + nice));
+            assert!(interactive.is_some());
+        }
+        #[cfg(target_vendor = "apple")]
+        {
+            let _ = utility_live;
+            let (utility, interactive) = (utility.unwrap(), interactive.unwrap());
+            assert!(interactive > utility, "user-interactive {interactive}, utility {utility}");
+        }
+        #[cfg(not(any(target_vendor = "apple", target_os = "linux", target_os = "android")))]
+        {
+            let _ = utility_live;
+            assert_eq!((utility, interactive), (None, None));
+        }
+    }
+
     #[test]
     fn registry_row_is_present_while_running_and_gone_after_join() {
         const NAME: &str = "cmux-threads-test-row";
@@ -141,6 +193,36 @@ mod tests {
 
         finish_tx.send(()).unwrap();
         handle.join().unwrap();
+        assert_eq!(row(NAME), None);
+    }
+
+    #[test]
+    fn a_row_names_the_object_its_thread_works_for() {
+        let (before, after) = spawn("cmux-threads-test-owner", ThreadQos::Utility, || {
+            let before = own_row().owner;
+            current_slot().expect("spawned threads are registered").work_for(42);
+            (before, own_row().owner)
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+        assert_eq!(before, None, "a new row works for no object");
+        assert_eq!(after, Some(42));
+    }
+
+    #[test]
+    fn spawn_with_stack_registers_the_thread_at_its_qos() {
+        const NAME: &str = "cmux-threads-test-stack";
+        let own = spawn_with_stack(NAME, ThreadQos::Utility, 256 * 1024, || {
+            // A frame well inside the requested stack runs.
+            let frame = std::hint::black_box([7_u8; 64 * 1024]);
+            (own_row(), frame.iter().map(|byte| usize::from(*byte)).sum::<usize>())
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+        assert_eq!((own.0.name.as_str(), own.0.declared), (NAME, ThreadQos::Utility));
+        assert_eq!(own.1, 7 * 64 * 1024);
         assert_eq!(row(NAME), None);
     }
 

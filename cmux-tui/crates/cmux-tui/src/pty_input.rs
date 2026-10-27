@@ -12,6 +12,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use cmux_tui_core::server::EchoWatch;
 use cmux_tui_core::{SurfaceId, SurfaceKind};
 use smallvec::SmallVec;
 
@@ -242,6 +243,10 @@ struct QueueState {
     queued_bytes: usize,
     release_reservations: ReleaseReservations,
     in_flight: Option<InFlightInput>,
+    /// The in-flight session mutation, handed to `mux-session-mutation`.
+    session_mutation: Option<PtyInputEvent>,
+    /// The worker returned: `mux-session-mutation` gets no more events.
+    workers_done: bool,
     in_flight_surface_operations: HashMap<PtyInputLane, usize>,
     failed_lanes: HashSet<PtyInputLane>,
     retired_in_flight_lanes: HashSet<PtyInputLane>,
@@ -258,6 +263,8 @@ impl Default for QueueState {
             queued_bytes: 0,
             release_reservations: ReleaseReservations::default(),
             in_flight: None,
+            session_mutation: None,
+            workers_done: false,
             in_flight_surface_operations: HashMap::new(),
             failed_lanes: HashSet::new(),
             retired_in_flight_lanes: HashSet::new(),
@@ -332,6 +339,12 @@ struct InFlightInput {
 struct SharedQueue {
     state: Mutex<QueueState>,
     changed: Condvar,
+    /// Watches each local input write at 100 ms (the owner mux's request
+    /// watchdog); `None` with no local mux.
+    hangs: Option<EchoWatch>,
+    /// Wakes `mux-session-mutation` (its own: `changed.notify_one` is for
+    /// the worker).
+    session_mutation_ready: Condvar,
     #[cfg(test)]
     after_operation_before_cleanup: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
@@ -353,6 +366,7 @@ impl SharedQueue {
 pub struct PtyInputDispatcher {
     sender: PtyInputSender,
     worker: Option<JoinHandle<()>>,
+    session_mutations: Option<JoinHandle<()>>,
 }
 
 #[derive(Clone)]
@@ -371,19 +385,33 @@ struct PtyMutationIdentity {
 }
 
 impl PtyInputDispatcher {
+    #[cfg(test)]
     pub fn spawn(
         on_failure: impl Fn(PtyOperationFailure) + Send + Sync + 'static,
     ) -> anyhow::Result<Self> {
-        let queue = Arc::new(SharedQueue::default());
+        Self::spawn_watched(on_failure, None)
+    }
+
+    /// [`Self::spawn`], with each local input write a hang scope of `hangs`
+    /// (the write only: never the wait for the next event, a remote send or
+    /// a mutation).
+    pub fn spawn_watched(
+        on_failure: impl Fn(PtyOperationFailure) + Send + Sync + 'static,
+        hangs: Option<EchoWatch>,
+    ) -> anyhow::Result<Self> {
+        let queue = Arc::new(SharedQueue { hangs, ..SharedQueue::default() });
         let worker_queue = queue.clone();
         let on_failure = Arc::new(on_failure);
         let worker_failure = on_failure.clone();
+        let session_mutations = session_mutation::spawn(queue.clone(), on_failure.clone())?;
         let worker = cmux_tui_core::echo_thread::spawn("mux-pty-input", move || {
+            let _done = session_mutation::WorkerDone(worker_queue.clone());
             worker(worker_queue, worker_failure);
         })?;
         Ok(Self {
             sender: PtyInputSender { queue, on_failure, session_generation: 1 },
             worker: Some(worker),
+            session_mutations: Some(session_mutations),
         })
     }
 
@@ -457,8 +485,11 @@ impl PtyInputDispatcher {
         for failure in canceled {
             (self.sender.on_failure)(failure);
         }
-        if drained && let Some(worker) = self.worker.take() {
-            let _ = worker.join();
+        if drained {
+            for thread in [self.worker.take(), self.session_mutations.take()].into_iter().flatten()
+            {
+                let _ = thread.join();
+            }
         }
         drained
     }
@@ -893,6 +924,7 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
                     break event;
                 }
                 if state.events.is_empty()
+                    && state.in_flight.is_none()
                     && state.in_flight_surface_operations.is_empty()
                     && state.closed
                 {
@@ -904,6 +936,8 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
 
         if event.concurrent_surface_operation {
             spawn_surface_operation(queue.clone(), on_failure.clone(), event);
+        } else if session_mutation::is_session_mutation(&event) {
+            session_mutation::hand_off(&queue, event);
         } else {
             process_event(queue.clone(), on_failure.clone(), event);
         }
@@ -911,6 +945,12 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
 }
 
 fn dequeue_ready_event(state: &mut QueueState) -> Option<PtyInputEvent> {
+    // The in-flight event is a session mutation on `mux-session-mutation`
+    // (the worker finishes its own events before it dequeues again): it is
+    // the global barrier until it completes.
+    if state.in_flight.is_some() {
+        return None;
+    }
     let mut ready_index = None;
     let mut blocked_queued_lanes = HashSet::new();
     for (index, event) in state.events.iter().enumerate() {
@@ -1033,6 +1073,7 @@ fn process_event(
     } else if let Some(operation) = event.mutation.take() {
         operation()
     } else {
+        let _write = queue.hangs.as_ref().filter(|_| !remote).and_then(EchoWatch::pty_input_write);
         event.surface.write_bytes(&event.bytes)
     };
     #[cfg(test)]
@@ -1379,11 +1420,13 @@ fn prune_lane_to_recovery_releases(
 
 #[cfg(feature = "fuzzing")]
 pub(crate) mod fuzz;
+mod session_mutation;
 
 #[cfg(test)]
 mod tests {
     use {super::*, crate::local_actor::TuiMuxOps};
     mod retire_tests;
+    mod session_mutation_tests;
     use cmux_tui_core::{Mux as TestMux, SurfaceOptions as TestSurfaceOptions};
 
     fn lane(surface_id: SurfaceId) -> PtyInputLane {
@@ -2349,6 +2392,7 @@ mod tests {
                 session_generation: 1,
             },
             worker: None,
+            session_mutations: None,
         };
 
         assert!(!dispatcher.shutdown(Duration::ZERO));
@@ -2463,6 +2507,7 @@ mod tests {
                 session_generation: 1,
             },
             worker: None,
+            session_mutations: None,
         };
 
         assert!(!dispatcher.shutdown(Duration::ZERO));
@@ -2803,5 +2848,37 @@ mod tests {
         oversized.bytes = vec![1; MAX_QUEUED_BYTES + 1].into();
 
         assert_eq!(dispatcher.enqueue(oversized), PtyInputEnqueueResult::Oversized);
+    }
+
+    /// p02-threads task 232: a dispatcher whose local writes are hang
+    /// scopes of the owner mux's watchdog still delivers every write in
+    /// order (the scope is the write only; the core watchdog tests check a
+    /// stalled write is one `mux-pty-input` row).
+    #[test]
+    fn a_watched_dispatcher_delivers_local_writes_in_order() {
+        let mux = TestMux::new("watched-pty-input-test", TestSurfaceOptions::default());
+        let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
+        let mut dispatcher =
+            PtyInputDispatcher::spawn_watched(|_| {}, Some(mux.echo_watch())).unwrap();
+        let (delivered_tx, delivered) = std::sync::mpsc::channel();
+        dispatcher.set_delivered_write_observer(Some(Arc::new(move |_, bytes: &[u8]| {
+            let _ = delivered_tx.send(bytes.to_vec());
+        })));
+        for byte in [b'a', b'b'] {
+            let event = PtyInputEvent::input(
+                surface.id,
+                SurfaceHandle::Local(surface.clone(), mux.clone()),
+                PtyInputBytes::from_slice(&[byte]),
+                PtyInputKind::Ordered,
+            );
+            assert_eq!(dispatcher.enqueue(event), PtyInputEnqueueResult::Accepted);
+        }
+        let mut written = Vec::new();
+        while written.len() < 2 {
+            written.extend(delivered.recv_timeout(Duration::from_secs(5)).unwrap());
+        }
+        assert_eq!(written, b"ab");
+        assert!(dispatcher.shutdown(Duration::from_secs(1)));
+        mux.shutdown();
     }
 }

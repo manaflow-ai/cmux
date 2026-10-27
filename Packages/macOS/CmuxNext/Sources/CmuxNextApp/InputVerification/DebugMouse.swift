@@ -32,13 +32,17 @@ import CmuxNextSettings
 /// gesture measures the scroll, not a hover recompute per event (set the
 /// pointer once with the gesture's first event). `target: "page"`
 /// clicks Chromium's page view instead, or scrolls or moves the pointer over
-/// it (`DebugMouse+Page`).
+/// it, and in host mode clicks it with the `middle`, `back` or `forward`
+/// button, pinches it (`pinch`, `scale`) or smart-magnifies it
+/// (`smart_magnify`) (`DebugMouse+Page`).
 enum DebugMouse {
     static func send(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         if params["target"]?.stringValue == "page" {
             switch params["action"]?.stringValue ?? "click" {
             case "scroll": return scrollPage(params, services: services)
             case "move": return movePage(params, services: services)
+            case "pinch", "smart_magnify": return gesturePage(params, services: services)
+            case "click" where pageButtons[params["button"]?.stringValue ?? ""] != nil: return buttonPage(params, services: services)
             default: return clickPage(params, services: services)
             }
         }

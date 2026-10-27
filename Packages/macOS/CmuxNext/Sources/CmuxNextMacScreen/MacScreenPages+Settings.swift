@@ -1,6 +1,7 @@
 public import CmuxNextActions
 import CmuxNextCompat
 public import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 extension MacScreenPages {
@@ -17,25 +18,29 @@ extension MacScreenPages {
             let writer = Self.systemShortcutsWriter(run: ActionRunScope.current)
             guard let descriptor = SettingsSchema.descriptor(for: MacScreenSettings.systemShortcutsPath) else { return }
             // task-owner: one settings write per menu or switch change
+            // main-hop-allow: the switch shows the value in this turn; setSetting is SettingsController's own main-actor async write
             Task {
                 do { try await settings?.setSetting(descriptor, to: .bool(on), by: writer) } catch is SettingUserOnly {
                     refuse(String(describing: SettingUserOnly(key: descriptor.id, writer: writer)))
                 } catch {}
             }
         }
-        // task-owner: app-lifetime settings observation, made once at launch (AppDelegate); event-driven, holds the tap weakly
-        Task { [weak shortcuts] in
-            for await on in ObservationStream({ settings.snapshot.macScreen.systemShortcuts }) {
+        // Services, not views: the tap follows the setting whatever shows. `visible`: a cmux.json edit or the
+        // CLI changes what the toolbar's menu and the home page's switch show; a person's change flushes as
+        // the rest of their action.
+        settingsFollows = [
+            ServiceObservation(.visible, owner: "MacScreenPages.systemShortcuts", on: mainWork) {
+                settings.snapshot.macScreen.systemShortcuts
+            } apply: { [weak shortcuts] on in
                 shortcuts?.enabled = on
-            }
-        }
+            },
+        ]
         #if DEBUG
-        // task-owner: app-lifetime settings observation, made once at launch (AppDelegate); event-driven, holds the pages weakly
-        Task { [weak self] in
-            for await relayOnly in ObservationStream({ settings.snapshot.macScreenDebug.relayOnly }) {
-                self?.relayOnly = relayOnly
-            }
-        }
+        settingsFollows.append(ServiceObservation(.visible, owner: "MacScreenPages.relayOnly", on: mainWork) {
+            settings.snapshot.macScreenDebug.relayOnly
+        } apply: { [weak self] relayOnly in
+            self?.relayOnly = relayOnly
+        })
         #endif
     }
 

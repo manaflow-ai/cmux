@@ -6,6 +6,9 @@ use super::*;
 
 #[cfg(unix)]
 mod dev_orphan_exit;
+#[cfg(unix)]
+#[path = "server_lifecycle.rs"]
+mod server_lifecycle;
 
 pub(crate) fn run_headless<F>(
     mux: &Arc<Mux>,
@@ -63,6 +66,9 @@ where
     // running (dev_orphan_exit.rs).
     #[cfg(unix)]
     let orphan_exit = dev_orphan_exit::start_for_owner(mux);
+    // Any owner, with leftoverDaemonIdleExit on (server_lifecycle.rs).
+    #[cfg(unix)]
+    let idle_exit = server_lifecycle::start_for_owner(mux, chief_brains.is_some());
     wait_for_stop(|| {
         shutdown_requested() || mux.daemon_shutdown_requested() || remote_runtime_finished()
     });
@@ -83,6 +89,10 @@ where
     #[cfg(unix)]
     if let Some(orphan_exit) = orphan_exit {
         orphan_exit.stop();
+    }
+    #[cfg(unix)]
+    if let Some(idle_exit) = idle_exit {
+        idle_exit.stop();
     }
     Ok(())
 }

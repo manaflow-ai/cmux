@@ -111,7 +111,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     /// The palette, scale and color-space generation (tests).
     var renderGeneration: Int { generation }
     private var scale: CGFloat { document.window?.backingScaleFactor ?? 2 }
-    private let cache = SidebarBitmapCache()
+    let cache = SidebarBitmapCache() // cmux: internal, the host sizes and trims it (Cmux/CmuxSidebarView+Memory.swift)
     let avatars = SidebarAvatarCache() // cmux: internal, the pin drag draws its tile
     private let textCache = SidebarTextCache()
     private let timeFormatter = ConversationTimeFormatter(yesterday: SidebarStrings.yesterday)
@@ -666,7 +666,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         var extraTitle = ""
         init(pinned: [Int], rows: [Int], count: Int, searching: Bool) {
             self.pinned = pinned; self.rows = rows; self.searching = searching
-            rowOf = [Int32](repeating: -1, count: count)
+            rowOf = [Int32](repeating: -1, count: max(0, count))
             for (r, i) in rows.enumerated() { if let slot = rowOf.checkedIndex(i) { rowOf[slot] = Int32(clamping: r) } } // checked
         }
         /// The pinned grid and every other conversation in the snapshot's order.

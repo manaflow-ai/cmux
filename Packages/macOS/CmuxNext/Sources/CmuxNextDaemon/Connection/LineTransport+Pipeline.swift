@@ -1,5 +1,7 @@
 import Foundation
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 extension LineTransport {
     /// What the reader does with a request's response.
@@ -79,7 +81,7 @@ struct PipelinedLine {
 /// while its awaiter is still behind an earlier request's.
 final class ReplySlot: Sendable {
     private enum Phase {
-        case waiting(CheckedContinuation<LineTransport.Response, any Error>?)
+        case waiting(OnceContinuation<LineTransport.Response, any Error>?)
         case done(Result<LineTransport.Response, any Error>)
     }
 
@@ -105,7 +107,7 @@ final class ReplySlot: Sendable {
 
     /// First resolution wins; later ones are ignored.
     func resolve(_ result: Result<LineTransport.Response, any Error>) {
-        let resolved: (waiter: CheckedContinuation<LineTransport.Response, any Error>?, span: LineTransport.RequestSpan?)? =
+        let resolved: (waiter: OnceContinuation<LineTransport.Response, any Error>?, span: LineTransport.RequestSpan?)? =
             state.withLock { state in
                 guard case .waiting(let waiter) = state.phase else { return nil }
                 state.phase = .done(result)
@@ -118,7 +120,7 @@ final class ReplySlot: Sendable {
     }
 
     func value() async throws -> LineTransport.Response {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withOnceThrowingContinuation { (continuation: OnceContinuation<LineTransport.Response, any Error>) in
             let done: Result<LineTransport.Response, any Error>? = state.withLock { state in
                 switch state.phase {
                 case .done(let result): return result

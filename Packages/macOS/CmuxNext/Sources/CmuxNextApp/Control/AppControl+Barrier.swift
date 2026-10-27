@@ -6,6 +6,9 @@ import CmuxNextWakeups
 import CmuxNextDesign
 import CmuxNextOracle
 import CmuxNextSignposts
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 #endif
 
 extension AppControl {
@@ -41,7 +44,7 @@ extension AppControl {
             store: daemon.store,
             sync: { [weak daemon] in await Self.oracleSync(daemon) },
             motionIdle: { await Motion.waitAtRest(windows) },
-            commit: { await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in CommitBoundary().after { _ in done.resume() } } },
+            commit: { _ = try? await withOnceContinuation { (done: OnceContinuation<Void, OnceContinuationError>) in CommitBoundary().after { _ in done.resume(returning: ()) } } },
             motion: { Motion.running(in: windows()) })
         router.register(OracleSettleControl(router: router, facets: services.makeOracleFacets(), sources: sources).methods)
         #endif

@@ -210,7 +210,7 @@ final class HomeNewMessageView: NSView {
         store.start()
         if !text.isEmpty { store.setDraft(text, for: HomeNewMessageComposerSource.conversation) }
         let view = HomeNativeTranscriptView(store: store, conversation: HomeNewMessageComposerSource.conversation, me: me.id,
-                                            openPanel: services.openPanel, mainWork: services.mainWork)
+                                            openPanel: services.openPanel, mainWork: services.mainWork, deadlines: services.mainDeadlines)
         view.composerSpellCheckingEnabled = services.settings?.snapshot.agentPaneComposer.spellChecking ?? false
         // The first message is text: attachments go once the conversation exists (they upload to it).
         view.attachmentPreparer = nil

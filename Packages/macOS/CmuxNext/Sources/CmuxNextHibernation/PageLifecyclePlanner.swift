@@ -75,6 +75,11 @@ package nonisolated struct PageLifecyclePlanner: Sendable {
         case mostRecentlyUsed = "most_recently_used"
         /// `browser.freezeHiddenTabs` is off: hidden pages keep running, and still discard on time.
         case freezeOff = "freeze_off"
+        /// A host call waits for the page's answer, or a call thawed the page less than one recently visible
+        /// window ago: a freeze would stall it (Chrome's freezing policy freezes a page only once no
+        /// `CannotFreezeReason` holds, components/performance_manager/freezing/freezing_policy.cc). A discard
+        /// still takes it on time, so a call that never answers keeps no page alive.
+        case pageCall = "page_call"
 
         // Block discard only.
 
@@ -106,7 +111,7 @@ package nonisolated struct PageLifecyclePlanner: Sendable {
             switch self {
             case .visible, .recentlyVisible, .loading, .inspector, .focused, .fileDrop, .popup, .confirmation,
                  .dictation, .capture, .audible, .webRTC, .connectedDevice, .webLock, .turnRunning, .turnsUnknown,
-                 .mostRecentlyUsed, .freezeOff:
+                 .mostRecentlyUsed, .freezeOff, .pageCall:
                 true
             case .userEdits, .formInteraction, .beforeUnload, .draft, .pinned, .shellCommandRan, .awaitingPerson,
                  .remoteChat, .preload, .unrestorable, .hibernationOff:
@@ -118,7 +123,7 @@ package nonisolated struct PageLifecyclePlanner: Sendable {
         package var blocksDiscard: Bool { !Self.freezeOnly.contains(self) }
 
         /// The reasons that block a freeze and let a discard through.
-        package static let freezeOnly: Set<KeepReason> = [.mostRecentlyUsed, .freezeOff]
+        package static let freezeOnly: Set<KeepReason> = [.mostRecentlyUsed, .freezeOff, .pageCall]
 
         /// The reasons only the planner sets, from the page's facts and the conditions.
         package static let derived: Set<KeepReason> = [.visible, .recentlyVisible, .mostRecentlyUsed, .freezeOff, .hibernationOff]

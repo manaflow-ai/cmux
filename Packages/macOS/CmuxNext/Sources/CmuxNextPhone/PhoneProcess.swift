@@ -1,5 +1,8 @@
 import CmuxNextCompat
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 import Foundation
 
 /// One child process: `xcrun <arguments>`, or `arguments[0]` itself when
@@ -10,7 +13,7 @@ import Foundation
 final class PhoneProcess: PhoneRunningCommand, Sendable {
     private struct State {
         var status: Int32?
-        var waiters: [CheckedContinuation<Int32, Never>] = []
+        var waiters: [OnceContinuation<Int32, OnceContinuationError>] = []
         var stdout = Data()
         var stderr = Data()
         /// False while captured stdout can still deliver bytes; a run ends
@@ -128,19 +131,20 @@ final class PhoneProcess: PhoneRunningCommand, Sendable {
                 if process.isRunning { process.terminate() }
             }
         }
-        return await withCheckedContinuation { waiter in
+        // A wait dropped without a status answers -1, "status unknown".
+        return (try? await withOnceContinuation { (waiter: OnceContinuation<Int32, OnceContinuationError>) in
             let done = state.withLock { state -> Int32? in
                 if let status = state.finished { return status }
                 state.waiters.append(waiter)
                 return nil
             }
             if let done { waiter.resume(returning: done) }
-        }
+        }) ?? -1
     }
 
     /// Applies `change`, then resumes the waiters once the run is finished.
     private func settle(_ change: (inout State) -> Void) {
-        let (waiters, status) = state.withLock { state -> ([CheckedContinuation<Int32, Never>], Int32?) in
+        let (waiters, status) = state.withLock { state -> ([OnceContinuation<Int32, OnceContinuationError>], Int32?) in
             change(&state)
             guard let status = state.finished else { return ([], nil) }
             defer { state.waiters.removeAll() }

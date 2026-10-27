@@ -57,6 +57,7 @@
         // A trigger, compared with the item handed out (not the one emitted last): `refresh` moves it.
         let (first, later) = ObservationStream.current({ [weak model] in ObservationTrigger(model.flatMap(item)) })
         guard let value = first.value else { return nil }
+        // main-hop-allow: Compat sits below CmuxNextWakeups and has no class to post in; a change of one model re-reads only that model's item
         let task = Task { [weak self] in
             for await next in later {
                 guard let self, let value = next.value else { return }

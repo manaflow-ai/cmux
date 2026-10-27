@@ -2,11 +2,12 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextControl
+import CmuxNextDaemonService
 import CmuxNextHibernation
 import CmuxNextInput
+import CmuxNextWakeups
 import CoreGraphics
 import Foundation
-import Observation
 
 /// Restoring a hibernated page: the `restore` effect recreates its engine page from the saved
 /// history, and each wake is timed (`wakeLog`, `debug.surfaces` `wakes`) from the effect to the
@@ -52,6 +53,8 @@ extension BrowserHibernation {
             configuration.restoreState = history
             let make = cache.makeCEFTab
             let tab = cache.tabModel(key)
+            // task-owner: one page restore; the lifecycle's token drops a restore that lands after a close or a newer wake
+            // main-hop-allow: the cache's Chromium configuration and page make are main-actor async; the restore finishes in their resume
             Task { @MainActor [weak self, weak cache] in
                 do {
                     // The remote-localhost store and guard, as for any Chromium page.
@@ -121,19 +124,37 @@ extension BrowserHibernation {
     }
 
     /// Records when the woken page's load ends (finished or failed), bounded: a page that is
-    /// still loading after 15 s records none.
-    private func timeLoad(_ key: String, page: any BrowserTab) {
-        Task { @MainActor [weak self, weak page] in
-            let ended = try? await ControlDeadline.shared.run(method: "hibernation.wake", deadline: .now + .seconds(15)) { @MainActor in
-                for await ended in ObservationStream({ page.map { Self.loadEnded($0.state.phase) } ?? true }) where ended { return true }
-                return false
+    /// still loading after 15 s records none. R-wait: an engine page's keyed phase wait (`PageWaiters`), read
+    /// only on a load-phase change; any other page (a streamed or a cmux page) through an ``ObservedCondition``
+    /// on its phase, with a `MainDeadline` for the bound. The end's time is read where the wait returns, so the
+    /// record's background task adds no queue time to `loaded_ms`.
+    func timeLoad(_ key: String, page: any BrowserTab) {
+        let mainWork = mainWork, deadlines = mainDeadlines, limit = Self.loadTimingLimit
+        let waiting = page as? any BrowserPageWaiting
+        let condition = waiting == nil ? ObservedCondition(owner: "BrowserHibernation.wakeLoad", .background, on: mainWork) : nil
+        // task-owner: one load timing, bounded by 15 s; an engine page's close ends its keyed wait at once
+        Task { @concurrent [weak self, weak page] in
+            // nil: the condition ended, at the load's end or at the bound; the record reads which from the phase.
+            var ended: Bool?
+            if let waiting {
+                ended = await waiting.when(phase: { phase in BrowserHibernation.loadEnded(phase) }, timeout: limit) != nil
+            } else {
+                await condition?.until(timeout: limit, deadlines: deadlines) { [weak page] in
+                    page.map { BrowserHibernation.loadEnded($0.state.phase) } ?? true
+                }
             }
-            guard let self, let page, self.cache?.browsers[key]?.tab === page else { return }
-            self.wakeLog.loaded(key, ended: ended == true)
+            let at = ContinuousClock.now, result = ended
+            await mainWork.apply(.background, owner: "BrowserHibernation.wakeLoaded") { [weak self, weak page] in
+                guard let self, let page, cache?.browsers[key]?.tab === page else { return }
+                wakeLog.loaded(key, ended: result ?? Self.loadEnded(page.state.phase), at: at)
+            }
         }
     }
 
-    private static func loadEnded(_ phase: BrowserLoadPhase) -> Bool {
+    /// How long a woken page's load is timed before it records none.
+    nonisolated static let loadTimingLimit: Duration = .seconds(15)
+
+    private nonisolated static func loadEnded(_ phase: BrowserLoadPhase) -> Bool {
         switch phase {
         case .finished, .failed: true
         case .idle, .provisional, .committed: false

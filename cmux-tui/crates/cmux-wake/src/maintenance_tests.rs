@@ -84,6 +84,10 @@ impl Wait for FakeWait {
         log.wakes.push(woke);
         Wake::Due
     }
+
+    fn watch_power(&mut self, _descriptor: c_int) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 type Runs = Arc<Mutex<Vec<(&'static str, SystemTime)>>>;

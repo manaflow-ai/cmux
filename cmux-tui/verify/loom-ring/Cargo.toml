@@ -1,0 +1,24 @@
+# Loom model of cmux-holder's ring offset protocol (plans/cmux-next/chrome-parity/p10-stability.md,
+# task 119). The test includes cmux-holder/src/ring_protocol.rs through #[path]; with
+# --cfg loom that file takes loom's atomics and fence. Its own workspace and lock, so
+# cmux-holder stays std and libc and the cmux-tui Cargo.lock never changes for loom.
+#
+#   RUSTFLAGS='--cfg loom' cargo test --release --manifest-path cmux-tui/verify/loom-ring/Cargo.toml
+[package]
+name = "cmux-holder-loom-ring"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+members = ["."]
+
+[[test]]
+name = "loom_ring"
+path = "tests/loom_ring.rs"
+
+[dev-dependencies]
+loom = "0.7"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(loom)"] }

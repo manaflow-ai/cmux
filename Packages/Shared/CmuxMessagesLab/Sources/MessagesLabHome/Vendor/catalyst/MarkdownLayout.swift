@@ -355,7 +355,7 @@ enum MarkdownLayoutEngine {
                 blocks(bs, x: x + inner, width: w - inner, depth: depth + 1, listDepth: listDepth)
                 quoteDepth -= 1
                 out.boxes.append(MDBox(rect: CGRect(x: x + 1, y: top + 1, width: 3, height: max(14, y - top - 2)), kind: .quoteBar, region: -1))
-                let kids = Array(out.ax.dropFirst(children0)); out.ax.removeLast(kids.count) // no range subscript
+                let kids = Array(out.ax.dropFirst(children0)); out.ax.removeLast(min(out.ax.count, kids.count)) // no range subscript
                 out.ax.append(MDAXNode(kind: .quote, range: NSRange(location: p0, length: plainLen - p0), frame: CGRect(x: x, y: top, width: w, height: y - top), children: kids))
             case let .list(l):
                 list(l, x: x, width: w, depth: depth, listDepth: listDepth)

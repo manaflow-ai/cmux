@@ -43,9 +43,10 @@
 //! bad request; `ids` are only names acpmux matches against its own rows.
 
 use crate::panic_free::JsonFields;
+use cmux_threads::sync::Mutex;
 use std::path::Path;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -55,7 +56,8 @@ use crate::mux::Mux;
 use crate::server::agent_session_attach::agent_session_link::{AcpmuxLink, LinkError};
 use crate::server::agent_session_attach::agent_session_start;
 use crate::server::responses::send_response;
-use crate::server::{MessageWriter, Response};
+use crate::server::routes::{Route, RouteLine, RouteName};
+use crate::server::{FrameStage, MessageWriter, Response};
 
 pub const AGENT_UPDATE_CAPABILITY: &str = "agent-update-v1";
 pub const AGENT_UPDATE_OWNER_CAPABILITY: &str = "agent-update-owner-v1";
@@ -81,7 +83,6 @@ const UPDATE_CAP: Duration = Duration::from_secs(2 * 60 * 60);
 const RESTART_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 /// Programs that raise rights (acpmux `harness_health/auto.rs` ELEVATING).
 const ELEVATING: [&str; 4] = ["sudo", "doas", "su", "pkexec"];
-const THREAD_STACK_BYTES: usize = 256 * 1024;
 
 /// The binary's acpmux handoff, and whether an apply runs.
 #[derive(Default)]
@@ -214,30 +215,22 @@ impl Failure {
 }
 
 /// The `cmd` names this module answers (server/routes.rs).
-pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
-    &[crate::server::routes::Route {
-        names: &[crate::server::routes::RouteName::OneOf(&[PLAN, APPLY])],
-        stage: crate::server::FrameStage::AgentTransfer,
-        entry: |line| try_handle(line.mux, line.client, line.message, line.writer),
-    }];
+pub(in crate::server) const ROUTES: &[Route] = &[Route {
+    names: &[RouteName::OneOf(&[PLAN, APPLY])],
+    stage: FrameStage::AgentTransfer,
+    entry: handle,
+}];
 
-/// Handles an `agent-update-*` frame of a local connection; `None` for any
-/// other frame. Remote-relay connections never get here.
-pub(in crate::server) fn try_handle(
-    mux: &Arc<Mux>,
-    client: u64,
-    message: &str,
-    writer: &MessageWriter,
-) -> Option<bool> {
-    if !message.contains("\"agent-update-") {
-        return None;
-    }
+/// Answers a [`PLAN`] or [`APPLY`] line (the route found it by name). The
+/// line's one decode is its `Value`, which gives every reply the `id` as
+/// written, a refused one too, and then the typed [`Frame`]. `None` only for
+/// a line with no `Value` (a number past `f64`, a lone surrogate); the
+/// `Command` parse answers it. Remote-relay connections never get here.
+fn handle(line: &RouteLine<'_>) -> Option<bool> {
+    let RouteLine { mux, client, message, writer, .. } = *line;
     let Ok(Value::Object(mut object)) = crate::line_parses::parse::<Value>(message) else {
         return None;
     };
-    if !matches!(object.get("cmd").and_then(Value::as_str), Some(PLAN | APPLY)) {
-        return None;
-    }
     let id = object.remove("id");
     // Trust first: an untrusted client gets one answer whatever it sent.
     if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
@@ -272,25 +265,23 @@ pub(in crate::server) fn try_handle(
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
     let worker_id = id.clone();
-    let spawned = std::thread::Builder::new()
-        .name("mux-agent-update".into())
-        .stack_size(THREAD_STACK_BYTES)
-        .spawn(move || {
-            let result = match verb {
-                Verb::Plan {} => plan(&socket),
-                Verb::Apply(params) => apply(&worker_mux, &socket, params),
+    // The update waits on acpmux (`request_wait.rs`).
+    let posted = mux.post_request_wait(move || {
+        let result = match verb {
+            Verb::Plan {} => plan(&socket),
+            Verb::Apply(params) => apply(&worker_mux, &socket, params),
+        }
+        .map(|mut value| {
+            if expects_owner {
+                value.insert("machine", json!(worker_mux.machine_public_id));
             }
-            .map(|mut value| {
-                if expects_owner {
-                    value.insert("machine", json!(worker_mux.machine_public_id));
-                }
-                value
-            });
-            drop(slot);
-            reply(&worker_writer, worker_id, result);
+            value
         });
-    // A failed spawn drops the closure and with it the slot.
-    if spawned.is_err() {
+        drop(slot);
+        reply(&worker_writer, worker_id, result);
+    });
+    // A refused post drops the closure and with it the slot.
+    if posted.is_err() {
         return Some(reply(writer, id, Err(Failure::Busy)));
     }
     Some(true)

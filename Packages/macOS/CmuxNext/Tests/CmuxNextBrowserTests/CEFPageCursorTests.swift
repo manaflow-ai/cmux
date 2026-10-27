@@ -113,9 +113,60 @@ import Testing
             #expect(!holes.contains { $0.intersects(rect) }, "\(rect) reaches into a hole")
             #expect(!rects.enumerated().contains { $0.offset != index && $0.element.intersects(rect) }, "\(rect) overlaps")
         }
-        let area = rects.reduce(0) { $0 + $1.width * $1.height }
+        let area: CGFloat = rects.reduce(0) { $0 + $1.width * $1.height }
         // 300 x 200, less the grab (6 x 176 above the prompt bar), the prompt bar (300 x 24) and the find bar (110 x 30).
-        #expect(area == 300 * 200 - 6 * 176 - 300 * 24 - 110 * 30)
+        let expected: CGFloat = 300 * 200 - 6 * 176 - 300 * 24 - 110 * 30
+        #expect(area == expected)
+    }
+
+    /// A window that counts the cursor-rect invalidations it is asked for.
+    final class CursorRectCountingWindow: NSWindow {
+        private(set) var cursorRectInvalidations = 0
+
+        override func invalidateCursorRects(for view: NSView) {
+            cursorRectInvalidations += 1
+            super.invalidateCursorRects(for: view)
+        }
+    }
+
+    /// The page cursor lives in `.cursorUpdate` areas over the uncovered pieces (p04-input-090): a divider
+    /// grab moving over the page on each of 20 drag frames swaps the areas and invalidates none of the
+    /// window's cursor rects, where each move rebuilt them before. No cursor: no areas.
+    @Test func aHoleMovingEveryFrameRebuildsNoCursorRects() throws {
+        let window = CursorRectCountingWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200), styleMask: [.borderless],
+                                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
+        window.contentView = container
+        let page = ChromiumHostPageView(frame: container.bounds, inputTarget: .view,
+                                        makeLayerHost: { _ in CALayer() }, pageUpdateCenter: NotificationCenter())
+        container.addSubview(page)
+        page.updateTrackingAreas()
+        #expect(page.cursorAreas.isEmpty, "no page cursor yet")
+
+        page.pageCursor = .builtIn(3)
+        #expect(page.cursorAreas.map(\.rect) == [page.visibleRect])
+        let before = window.cursorRectInvalidations
+        for frame in 1...20 {
+            let grab = CGRect(x: 100 + CGFloat(frame) * 3, y: 0, width: 6, height: 200)
+            page.cursorHoles = [grab]
+            let rects = page.cursorAreas.map(\.rect)
+            #expect(rects == ChromiumHostPageView.uncovered(page.visibleRect, by: [grab]))
+            #expect(!rects.contains { $0.intersects(grab) }, "a cursor area reaches into the grab")
+            #expect(page.cursorAreas.allSatisfy { $0.options.contains(.cursorUpdate) && $0.options.contains(.activeInKeyWindow) })
+        }
+        #expect(window.cursorRectInvalidations == before,
+                "cursor rects invalidated while the grab moved: \(window.cursorRectInvalidations - before)")
+
+        let crash = NSView()
+        #expect(page.setCrashOverlay(crash))
+        #expect(page.cursorAreas.isEmpty, "the crash page covers the whole page")
+        #expect(page.setCrashOverlay(nil))
+        #expect(!page.cursorAreas.isEmpty)
+        page.pageCursor = nil
+        #expect(page.cursorAreas.isEmpty, "no page cursor: AppKit's")
+        #expect(!page.trackingAreas.contains { $0.options.contains(.cursorUpdate) })
     }
 
     /// Host mode: the page view's cursor holes follow its host view's occlusion rects (the find bar and

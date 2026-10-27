@@ -33,6 +33,8 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "crate::mux::CloseReason": "CloseReason",
     "crate::resource_name::NameSource": "NameSource",
     "AgentSessionParams": "AgentSessionSource",
+    # server/client_hello.rs `HelloFeatures::parse` (p12-perf-process-150).
+    "HelloFeatures": "ClientHelloFeatures",
     "ConversationTabSplitParams": "ConversationTabSplit",
     "crate::model::ColumnDock": "ColumnPin",
     "SnapshotHave": "SnapshotRequestHave",
@@ -687,6 +689,8 @@ def _runtime_type_shape(rust_type: str) -> str:
         "f64": "float64",
         "Value": "opaque-json",
         "LayoutRequest": "declarative-layout",
+        # loopback_forward.rs: a base64 string, decoded while the line parses.
+        "Base64Frame": "string",
         "SurfaceId": "uint64",
         "PaneId": "uint64",
         "SplitId": "uint64",

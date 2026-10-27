@@ -10,6 +10,9 @@ import CmuxNextSettings
 import CmuxNextTerminal
 import CmuxNextWakeups
 import os
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Runs a quit (user decision 2026-09-30). `applicationShouldTerminate`
 /// hands every quit here: it takes the origin (`QuitOriginTracker`), reads
@@ -93,26 +96,33 @@ final class QuitCoordinator {
         logger.info("quit origin=\(String(describing: origin), privacy: .public) behavior=\(behavior.rawValue, privacy: .public)")
         // [services]: the quit task pins the app's services until it ends (cx-6so P1b). The rest of the quit a person
         // (or the system) asked for, at user-blocking priority; it drains BackgroundWork itself, so shutdown lets it run on.
-        services.work.task(.userBlocking, shutdown: .continueOnShutdown) { @MainActor [self, services] in
-            // Unsaved documents come first (R96 quit hook). Answering that
-            // question is the quit's one dialog: the sessions are not asked
-            // about after it (#17501).
-            let askedUnsaved = origin == .interactive && !unsaved.unsaved().isEmpty
-            guard await resolveUnsaved(origin) else {
-                isQuitting = false
-                sender.reply(toApplicationShouldTerminate: false)
-                return
-            }
-            let facts = QuitPolicy.needsFacts(origin) && !askedUnsaved ? await QuitFactsReader.read(services) : .none
-            switch QuitPolicy.decide(origin, behavior: behavior, facts: facts, alreadyAsked: askedUnsaved) {
-            case .quit(let choice):
-                await complete(choice, remember: false, sender)
-            case .ask(let prompt):
-                ask(prompt, sender, activate: Self.shouldActivate(origin, isActive: NSApp.isActive,
-                                                                  noActivate: WindowPlacement.noActivate))
-            }
+        // The body is main-actor (decideQuit); the task captures only Sendable values.
+        services.work.task(.userBlocking, shutdown: .continueOnShutdown) { [self, services] in
+            await decideQuit(origin, behavior: behavior, sender)
+            withExtendedLifetime(services) {}
         }
         return .terminateLater
+    }
+
+    /// The rest of `shouldTerminate(_:)`'s quit: the unsaved step, then the policy's answer.
+    private func decideQuit(_ origin: QuitOrigin, behavior: QuitBehavior, _ sender: NSApplication) async {
+        // Unsaved documents come first (R96 quit hook). Answering that
+        // question is the quit's one dialog: the sessions are not asked
+        // about after it (#17501).
+        let askedUnsaved = origin == .interactive && !unsaved.unsaved().isEmpty
+        guard await resolveUnsaved(origin) else {
+            isQuitting = false
+            sender.reply(toApplicationShouldTerminate: false)
+            return
+        }
+        let facts = QuitPolicy.needsFacts(origin) && !askedUnsaved ? await QuitFactsReader.read(services) : .none
+        switch QuitPolicy.decide(origin, behavior: behavior, facts: facts, alreadyAsked: askedUnsaved) {
+        case .quit(let choice):
+            await complete(choice, remember: false, sender)
+        case .ask(let prompt):
+            ask(prompt, sender, activate: Self.shouldActivate(origin, isActive: NSApp.isActive,
+                                                              noActivate: WindowPlacement.noActivate))
+        }
     }
 
     /// The unsaved step for `origin` (`QuitUnsavedStep.resolve`).
@@ -141,8 +151,8 @@ final class QuitCoordinator {
                 sender.reply(toApplicationShouldTerminate: false)
             case .quit(let choice, let remember):
                 // The rest of the person's answer, as above: it drains BackgroundWork itself.
-                self.services.work.task(.userBlocking, shutdown: .continueOnShutdown) { @MainActor [services = self.services] in
-                    await self.complete(choice, remember: remember, sender)
+                self.services.work.task(.userBlocking, shutdown: .continueOnShutdown) { [self, services = self.services] in
+                    await complete(choice, remember: remember, sender)
                     withExtendedLifetime(services) {} // pins the app's services until the quit ends
                 }
             }
@@ -191,7 +201,7 @@ final class QuitCoordinator {
                 // Agent panes on screen draw their last page at the next launch.
                 let agentPages = await services.agentTabs.shownPageImages()
                 await services.agentTabs.launchImages.save(agentPages)
-                let terminalStore = TerminalLaunchFrames.beside(services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
+                let terminalStore = services.terminalLaunchFrames
                 let terminalFrames = await terminalStore.frames(of: services.cache.terminals.mapValues(\.session))
                 await terminalStore.save(images: terminalFrames)  // and terminals their last frame
                 // And browser pages theirs (`browserLaunchPictures`; with it off, the last quit's pictures go).
@@ -202,11 +212,15 @@ final class QuitCoordinator {
                     }
                     await pictures.save(pageShots)
                 }
-                // And each window one picture of all of it, from those (`savedWindowPicture`; off, the last quit's go).
+                // And each window one picture of it (`savedWindowPicture`, `launch.savedPicture`; either off, the last quit's go).
                 if let windowPictures = services.environment.windowPictures {
                     let pages = Dictionary(pageShots.map { ($0.key, $0.picture) }, uniquingKeysWith: { first, _ in first })
-                    await windowPictures.save(services.features.isEnabled(.savedWindowPicture)
-                        ? Self.windowPictureShots(services, terminals: terminalFrames, agents: agentPages, pages: pages) : [])
+                    let savedPicture = services.settings.flatMap { $0.loadCount >= 1 ? $0.snapshot.savedPicture : nil }
+                    await windowPictures.saveAtQuit(featureOn: services.features.isEnabled(.savedWindowPicture), savedPicture: savedPicture) {
+                        // Checked again after the page captures: Secure Input may have begun while they ran.
+                        let secureInput = services.cache.composeSecureInputPages(quitBegan: secureInputPages)
+                        return Self.windowPictureShots(services, terminals: terminalFrames, agents: agentPages, pages: pages, secureInput: secureInput)
+                    }
                 }
                 // Browser tabs reopen at their recorded page (before any
                 // session ends, while the daemon still answers).
@@ -273,9 +287,9 @@ final class QuitCoordinator {
     /// captured twice. Side-by-side windows show panes of other workspaces than `content`'s: they leave none. A
     /// window showing a top page or the empty state leaves one with no pane (`WindowPictureMeta.ContentArea`).
     private static func windowPictureShots(_ services: AppServices, terminals: [String: NSImage], agents: [String: NSImage],
-                                           pages: [String: BrowserLaunchPictures.Picture]) -> [WindowPictureStore.Shot] {
+                                           pages: [String: BrowserLaunchPictures.Picture], secureInput: Set<String>) -> [WindowPictureStore.Shot] {
         let input = services.themeStore.input, build = WindowPictureMeta.build(of: .main)
-        let theme = WindowPictureMeta.themeFingerprint(input: input, app: services.themeStore.appTheme)
+        let theme = WindowPictureMeta.themeFingerprint(input: input, app: services.themeStore.appTheme ?? services.themeStore.tokens.app)
         let background = WindowPictureStore.Color(red: input.background.red, green: input.background.green, blue: input.background.blue)
         return services.windows.controllers.compactMap { controller -> WindowPictureStore.Shot? in
             let state = controller.state, root = controller.root
@@ -288,7 +302,8 @@ final class QuitCoordinator {
                 panes = content.panes.values.compactMap { pane in
                     pane.currentTabKey.map { key in
                         WindowPictureStore.Pane(key: key, area: pane.view.contentHost,
-                                                content: windowPictureContent(key, services, terminals: terminals, agents: agents, pages: pages))
+                                                content: .init(windowPictureSource(key, services, terminals: terminals, agents: agents,
+                                                                                   pages: pages, secureInput: secureInput)))
                     }
                 }
                 screens = content.workspace.screens.map { WindowPictureMeta.Screen(id: $0.id, tree: .init($0.layout), zoomed: $0.zoomedPane?.description) }
@@ -302,30 +317,26 @@ final class QuitCoordinator {
         }
     }
 
-    /// Tab `key`'s pane in its window's picture: a terminal's frame at its surface (filled while it holds Secure
-    /// Input), an agent's page over the pane, a browser page at its page frame (filled with no picture of its own:
-    /// withheld or not captured). AppKit draws the rest (cmux pages).
-    private static func windowPictureContent(_ key: String, _ services: AppServices, terminals: [String: NSImage], agents: [String: NSImage],
-                                             pages: [String: BrowserLaunchPictures.Picture]) -> WindowPictureStore.Pane.Content {
+    /// What tab `key`'s pane shows, for its window's picture (`WindowPictureStore.Pane.Content(_:)` applies the
+    /// privacy fills): a terminal's frame at its surface and whether it holds Secure Input, an agent's page over the
+    /// pane, a browser page's picture at its page frame and whether it is withheld now (checked again: Secure Input
+    /// may have begun while the page captures ran). AppKit draws the rest (cmux pages).
+    private static func windowPictureSource(_ key: String, _ services: AppServices, terminals: [String: NSImage], agents: [String: NSImage],
+                                            pages: [String: BrowserLaunchPictures.Picture], secureInput: Set<String>) -> WindowPictureStore.Pane.Source {
         func cgImage(_ image: NSImage?) -> CGImage? { image?.cgImage(forProposedRect: nil, context: nil, hints: nil) }
         if let session = services.cache.terminals[key]?.session {
-            guard !session.holdsSecureInput else { return .fill(session.surfaceView) }
-            guard let frame = cgImage(terminals[key]) else { return .drawn }
-            return .picture(frame, of: session.surfaceView)
+            return .terminal(surface: session.surfaceView, frame: cgImage(terminals[key]), holdsSecureInput: session.holdsSecureInput)
         }
         if services.agentTabs.existingView(key) != nil, let page = agents[key], let image = cgImage(page) {
-            return .placed(image, at: CGRect(origin: .zero, size: page.size))
+            return .agentPage(image, size: page.size)
         }
-        if let page = services.cache.existingBrowser(key)?.tab {
-            guard let picture = pages[key] else { return .fill(page.contentView) }
-            return .placed(picture.image, at: picture.pageFrame)
-        }
-        return .drawn
+        return services.cache.windowPictureSource(key, picture: pages[key], secureInput: secureInput) ?? .cmuxPage
     }
 
     /// Shows "Some sessions did not end" and waits for the answer.
     private func confirm(_ failures: [EndSessionsFailure]) async -> QuitFailureAnswer {
-        await withCheckedContinuation { continuation in
+        // An alert dropped unanswered quits anyway, as a coordinator gone does (`confirmFailures`).
+        let chosen = try? await withOnceContinuation { (continuation: OnceContinuation<QuitFailureAnswer, OnceContinuationError>) in
             let alert = QuitFailureAlert(failures: failures) { [weak self] answer in
                 self?.failureAlert = nil
                 self?.logger.info("quit end failures answer=\(String(describing: answer), privacy: .public)")
@@ -334,6 +345,7 @@ final class QuitCoordinator {
             failureAlert = alert
             alert.present(in: sheetWindow())
         }
+        return chosen ?? .quitAnyway
     }
 
     /// The active shell window when it can carry a sheet.
