@@ -145,6 +145,17 @@ import Testing
         #expect(await eventually { effects.installs == 1 }, "\(identity.track): Restart to Update did not install")
     }
 
+    /// The update sheet (no sidebar showing the cards) asks the same way: its found step offers
+    /// Update, which only downloads.
+    @Test func theSheetsFoundStepOnlyDownloads() {
+        let (updater, effects) = Self.make(Self.nightly)
+        #expect(UpdateSheetButton.update.title == UpdaterStrings.update && !UpdateSheetButton.update.dismisses)
+        updater.debugIndicatorPhase = .available(version: "2.0.0")
+        UpdateSheetModel(service: updater).perform(.update)
+        #expect(effects.downloads == 1, "the sheet's Update did not download")
+        #expect(!updater.flow.installRequested, "the sheet's Update also asked to relaunch")
+    }
+
     func eventually(_ condition: () -> Bool) async -> Bool {
         let deadline = ContinuousClock.now + .seconds(3)
         while !condition(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(10)) }

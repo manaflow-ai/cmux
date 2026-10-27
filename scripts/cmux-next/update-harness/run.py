@@ -364,7 +364,8 @@ def answer_found_step(a, sock, marks, pid):
         raise SystemExit(f"Update on the found step staged nothing: {json.dumps(rpc(sock, 'updates.status'))[:1500]}")
     steps["staged"] = staged
     # The ready step asks: the app keeps running and installs nothing until Restart to Update.
-    steps["relaunched_without_answer"] = wait_exit(pid, 5) is not None
+    # --click-at-stage clicks at once instead (the staging work's timing), so it only reads.
+    steps["relaunched_without_answer"] = wait_exit(pid, 0 if a.click_at_stage else 5) is not None
     steps["install_started_without_answer"] = bool(first(marks.read(), "install_started", pid=pid))
     if steps["relaunched_without_answer"] or steps["install_started_without_answer"]:
         raise SystemExit("the staged update installed or relaunched before Restart to Update")
