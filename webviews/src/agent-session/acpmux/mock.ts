@@ -775,7 +775,7 @@ export class MockAcpmuxSocket {
               method: "session/update",
               params: {
                 sessionId: target,
-                update: step.update,
+                update: { ...step.update, ...(step.acpmux && { _meta: { acpmux: step.acpmux } }) },
                 ...(step.acpmux && { _meta: { acpmux: step.acpmux } }),
               },
             },
