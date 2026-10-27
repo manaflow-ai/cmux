@@ -64,8 +64,10 @@ public final class HitTestAudit {
     let onlyClassKeys: [UInt]?
     /// The hooks of the last install, kept so a reinstall reuses the blocks it made.
     var hooks: [HookEntry] = []
-    /// The last install or uninstall queued; each waits for the one before it.
-    private var lastWork: Task<Void, Never>?
+    /// An install or uninstall is running (it awaits the scan and the swap off main).
+    private var isChanging = false
+    /// The installs and uninstalls waiting for the running one, first come first.
+    private var waiting: [CheckedContinuation<Void, Never>] = []
     #endif
 
     /// An audit of every loaded view class, timed on `CLOCK_UPTIME_RAW`.
@@ -146,14 +148,20 @@ public final class HitTestAudit {
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS
-    private func serially(_ work: @escaping @MainActor (HitTestAudit) async -> Void) async {
-        let previous = lastWork
-        let task = Task {
-            await previous?.value
-            await work(self)
+    /// Runs `work` after every install and uninstall asked for before it. The running one hands its turn to the
+    /// first waiter when it ends.
+    private func serially(_ work: @MainActor (HitTestAudit) async -> Void) async {
+        if isChanging {
+            await withCheckedContinuation { waiting.append($0) }
+        } else {
+            isChanging = true
         }
-        lastWork = task
-        await task.value
+        await work(self)
+        if waiting.isEmpty {
+            isChanging = false
+        } else {
+            waiting.removeFirst().resume()
+        }
     }
 
     private func installNow() async {
