@@ -186,6 +186,9 @@ export function useFolderTrustAsk(
   const decidedAt = useRef<number | undefined>(undefined);
   // One answer at a time: a second click while the first saves is ignored.
   const saving = useRef(false);
+  // Trust may finish after the pane unmounts (for example, while switching panes). Do not resend
+  // the refused prompt or write state after that lifecycle boundary.
+  const mounted = useRef(true);
   /// Answers saved per folder: a read of that folder that started before one is older than the
   /// answer and is dropped. An answer for another folder leaves the read standing.
   const answers = useRef(new Map<string, number>());
@@ -315,7 +318,13 @@ export function useFolderTrustAsk(
     )
       setAsk(undefined);
   }, [ask, prompts]);
-  useEffect(() => () => clearTimeout(undoTimer.current), []);
+  useEffect(
+    () => () => {
+      mounted.current = false;
+      clearTimeout(undoTimer.current);
+    },
+    [],
+  );
 
   /// Records `level` for `folder` (the chat's folder, its repository, or for Undo the folder the
   /// answer was made for): the chat's folder takes it from there.
@@ -329,11 +338,12 @@ export function useFolderTrustAsk(
       const chatCwd = current.current.cwd;
       const repo = ask?.repo ?? (scope?.cwd === asked.cwd ? scope.repo : undefined);
       const recorded = folder ?? asked.cwd;
-      const stillHere = () => current.current.sessionId === asked.sessionId && current.current.cwd === chatCwd;
+      const stillHere = () =>
+        mounted.current && current.current.sessionId === asked.sessionId && current.current.cwd === chatCwd;
       try {
         await source.set(recorded, level);
         refusedTrust.current.delete(asked.sessionId);
-        askFromRefusal.current = undefined;
+        if (askFromRefusal.current?.sessionId === asked.sessionId) askFromRefusal.current = undefined;
         // In an alternate-cwd refusal, `asked.cwd` is the folder acpmux named while `chatCwd`
         // is the folder whose read is still in flight. Invalidate both generations so that a
         // late answer from the chat's spelling cannot put the question back after Trust.

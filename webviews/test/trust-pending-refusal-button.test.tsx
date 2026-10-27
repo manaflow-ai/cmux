@@ -198,3 +198,60 @@ test("Trust invalidates a pending read for the chat cwd when refusal names anoth
   expect(trustButton()).toBeUndefined();
   expect(shown!.blocked).toBeUndefined();
 });
+
+test("a stale Trust save cannot make a later chat inherit another chat's refusal", async () => {
+  const folderA = "/Users/you/src/save-a";
+  const folderB = "/Users/you/src/save-b";
+  let resolveSave: (() => void) | undefined;
+  const trust: ReturnType<typeof source>["source"] = {
+    get: async () => ({ cwd: folderA, level: "trusted", decided: false, auto: "root" }),
+    set: async (_cwd, _level) =>
+      new Promise<void>((resolve) => {
+        resolveSave = resolve;
+      }),
+  };
+  const show = (sessionId: string, cwd: string) =>
+    act(async () => root.render(<Pane trust={trust} sessionId={sessionId} cwd={cwd} />));
+
+  await show("chat-save-a", folderA);
+  await act(async () => {
+    shown!.refused(pending(`${folderA}-real`), () => undefined);
+  });
+  await act(async () => shown!.trust());
+
+  await show("chat-save-b", folderB);
+  await act(async () => {
+    shown!.refused(pending(`${folderB}-real`), () => undefined);
+  });
+  await act(async () => resolveSave!());
+
+  // The old save belonged to A. B's refusal must not leak into a new chat in B's folder.
+  await show("chat-save-c", folderB);
+  expect(trustButton()).toBeUndefined();
+  expect(shown!.blocked).toBeUndefined();
+});
+
+test("Trust does not resend a refused prompt after the pane unmounts", async () => {
+  const chatCwd = "/Users/you/src/disposed";
+  let resolveSave: (() => void) | undefined;
+  let resent = 0;
+  const trust = {
+    get: async () => ({ cwd: chatCwd, level: "trusted", decided: false, auto: "root" }),
+    set: () =>
+      new Promise<void>((resolve) => {
+        resolveSave = resolve;
+      }),
+  };
+
+  await act(async () => root.render(<Pane trust={trust} sessionId="chat-disposed" cwd={chatCwd} />));
+  await act(async () => {
+    shown!.refused(pending("/Users/you/src/disposed-real"), () => {
+      resent += 1;
+    });
+  });
+  await act(async () => shown!.trust());
+  await act(async () => root.unmount());
+  await act(async () => resolveSave!());
+
+  expect(resent).toBe(0);
+});
