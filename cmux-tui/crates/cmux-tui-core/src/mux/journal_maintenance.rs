@@ -1,6 +1,7 @@
 //! Journal maintenance: hook delivery dispatch, internal diagnostics, reconnect checkpoints, journal checkpoints and segments, the periodic maintenance worker, and their test hooks.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 const JOURNAL_MAINTENANCE_INTERVAL: Duration = Duration::from_secs(30);
 const JOURNAL_MAINTENANCE_CHECKPOINT_RECORDS: u64 = 4_096;
@@ -89,7 +90,9 @@ impl JournalMaintenance {
         let worker_control = control.clone();
         let weak_mux = Arc::downgrade(mux);
         let interval = journal_maintenance_interval();
-        let thread = std::thread::Builder::new().name("cmux-journal-maintenance".into()).spawn(
+        let thread = cmux_threads::spawn(
+            "cmux-journal-maintenance",
+            crate::request_qos::UPKEEP_THREAD_QOS,
             move || {
                 let mut ledgers = ledger_maintenance::LedgerMaintenance::default();
                 loop {
@@ -113,6 +116,7 @@ impl JournalMaintenance {
                     }
                     drop(stopped);
                     let Some(mux) = weak_mux.upgrade() else { return };
+                    let _pass = mux.request_qos().enter_upkeep_pass();
                     mux.run_journal_maintenance(&mut ledgers);
                 }
             },
@@ -419,7 +423,7 @@ impl Mux {
         // frontend has a chance to install its reporter. Recheck under the
         // pending slot lock so a concurrent setter cannot leave this message
         // stranded between the initial lookup and the store.
-        let mut pending = self.pending_diagnostics.lock().unwrap();
+        let mut pending = self.pending_diagnostics.lock().recover_poison();
         if let Some(reporter) = self.diagnostic_reporter.get().cloned() {
             drop(pending);
             reporter(&message);
@@ -458,7 +462,7 @@ impl Mux {
         if self.diagnostic_reporter.set(reporter).is_err() {
             return false;
         }
-        let pending = std::mem::take(&mut *self.pending_diagnostics.lock().unwrap());
+        let pending = std::mem::take(&mut *self.pending_diagnostics.lock().recover_poison());
         for message in pending {
             pending_reporter(&message);
         }
@@ -527,7 +531,9 @@ impl Mux {
                 Err(error) => return Err(error),
             }
         }
-        Err(last_error.expect("checkpoint retry loop must retain its last error"))
+        // Each attempt but the last either returns or keeps its retryable error.
+        Err(last_error
+            .unwrap_or_else(|| anyhow::anyhow!("journal checkpoint capture made no attempt")))
     }
 
     #[track_caller]
@@ -542,34 +548,14 @@ impl Mux {
         let checkpoint = self
             .workspace_registry
             .lock()
-            .unwrap()
+            .recover_poison()
             .journal_checkpoint(selector)?
             .with_context(|| format!("journal checkpoint {selector:?} does not exist"))?;
-        let mut reducer = crate::journal_checkpoint::RestoreReducer::new(&checkpoint)?;
-
-        let database_path = self
-            .workspace_registry
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .session_journal_database_path();
-        if let Some(database_path) = database_path {
-            let reader = crate::workspace_registry::SessionJournalReader::open(&database_path)?;
-            let mut cursor = reader.restore_cursor(checkpoint.source_sequence)?;
-            let head_sequence = loop {
-                let page = cursor.next_page(1024)?;
-                let head = page.head_sequence;
-                let empty = page.records.is_empty();
-                for record in page.records {
-                    reducer.apply(&record)?;
-                }
-                if empty {
-                    break head;
-                }
-            };
-            cursor.finish()?;
-            return reducer.finish(head_sequence);
+        if let Some(reader) = self.journal_kernel.open_reader()? {
+            return crate::journal_checkpoint::restore_preview_on_reader(&checkpoint, reader, None);
         }
 
+        let mut reducer = crate::journal_checkpoint::RestoreReducer::new(&checkpoint)?;
         let mut sequence = checkpoint.source_sequence;
         let mut target_head = None;
         let head_sequence = loop {
@@ -605,7 +591,7 @@ impl Mux {
         let database_path = self
             .workspace_registry
             .lock()
-            .unwrap()
+            .recover_poison()
             .session_journal_database_path()
             .context("journal segment sealing requires a persistent session")?;
         let reader = crate::workspace_registry::SessionJournalReader::open(&database_path)?;

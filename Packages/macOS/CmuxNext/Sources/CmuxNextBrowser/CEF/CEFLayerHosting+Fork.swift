@@ -19,6 +19,8 @@ extension CEFLayerHosting {
         /// The Track A calls the app makes for this fork's pages while the
         /// feature `cefLayerHosting` is on; nil while it is off.
         let trackA: TrackA?
+        /// Feature `cefLayerHostingEveryPage`: every page window hosts (``Policy/hostsEveryPage``).
+        let hostsEveryPage: Bool
         /// `cmux_shim_browser_attach_view` (Track B) from fork API ``CEFLayerHosting/attachViewForkAPI`` while the
         /// feature `cefAttachedPages` is on; nil otherwise.
         let attachView: CEFAttachedPages.Attach?
@@ -40,6 +42,11 @@ extension CEFLayerHosting {
         /// or can present none (its renderer went away): Chromium's first surface activation after a
         /// show. False when the fork cannot tell. Nil without the call.
         let onNextFrame: ((_ browser: Int32, _ presented: @escaping @MainActor () -> Void) -> Bool)?
+        /// The kinds of page window `setLayerHosting` hosts; the feature's default hosts no other
+        /// (``CEFLayerHosting/hosting(override:fork:widget:)``).
+        let hostedWidgets: Set<Widget>
+        /// The kinds of page window whose view `attachView` attaches (``CEFLayerHosting/attaches(fork:widget:)``).
+        let attachedWidgets: Set<Widget>
 
         init(setLayerHosting: @escaping (_ browser: Int32, _ enabled: Bool) -> UInt32,
              setResizeSync: ((_ browser: Int32, _ timeoutMs: Int32) -> Bool)? = nil,
@@ -47,15 +54,20 @@ extension CEFLayerHosting {
              setVisibility: ((_ browser: Int32, _ visibility: PageVisibility) -> Bool)? = nil,
              evictFrame: ((_ browser: Int32) -> Bool)? = nil,
              copyFrame: ((_ browser: Int32, _ done: @escaping @MainActor (IOSurface?) -> Void) -> Bool)? = nil,
-             onNextFrame: ((_ browser: Int32, _ presented: @escaping @MainActor () -> Void) -> Bool)? = nil) {
+             onNextFrame: ((_ browser: Int32, _ presented: @escaping @MainActor () -> Void) -> Bool)? = nil,
+             hostsEveryPage: Bool = false,
+             hostedWidgets: Set<Widget> = [.page], attachedWidgets: Set<Widget> = [.page]) {
             self.setLayerHosting = setLayerHosting
             self.setResizeSync = setResizeSync
             self.trackA = trackA
+            self.hostsEveryPage = hostsEveryPage
             self.attachView = attachView
             self.setVisibility = setVisibility
             self.evictFrame = evictFrame
             self.copyFrame = copyFrame
             self.onNextFrame = onNextFrame
+            self.hostedWidgets = hostedWidgets
+            self.attachedWidgets = attachedWidgets
         }
 
         /// The shim's call; nil without a shim or below fork API 26, where
@@ -74,12 +86,17 @@ extension CEFLayerHosting {
                 setVisibility = nil
                 trackA = policy.trackA
             }
+            hostsEveryPage = policy.hostsEveryPage
             attachView = CEFAttachedPages.shimAttach(shim, apiVersion: apiVersion, enabled: policy.attachesViews)
             // The fork's keep-frame-while-hidden call has no shim export yet: Chromium's own eviction decides.
             evictFrame = nil
             // The fork's frame copy and next-frame calls (p03-rendering-055) come with the same exports.
             copyFrame = nil
             onNextFrame = nil
+            // Fork APIs 26 and 33 host and attach a tab's page window only. A DevTools frontend and a popup
+            // window's tab need the fork's per-widget hosting and attach, which no fork API has yet.
+            hostedWidgets = [.page]
+            attachedWidgets = [.page]
         }
 
         /// A page window `runtime` made in process, with its features' calls.

@@ -157,6 +157,7 @@ final class BrowserDownloadsPopup {
         guard popup.isShown, let content else { return }
         // The button left the screen (another tab, the tab closed): the popup goes with it.
         guard let anchor, let window = anchor.window, !anchor.isHiddenOrHasHiddenAncestor else { return close() }
+        // sync-layout: the hosting view takes the new rows in its layout; its fitting size sizes the popup below.
         content.layoutSubtreeIfNeeded()
         let size = content.fittingSize
         let rect = window.convertToScreen(anchor.convert(CmuxPopoverAnchor.rect(in: anchor), to: nil))
@@ -437,17 +438,16 @@ final class BrowserDownloadRowEventView: NSView, NSDraggingSource {
     var onHover: (Bool) -> Void = { _ in }
     private var downEvent: NSEvent?
     private var dragged = false
-    private var tracking: NSTrackingArea?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeForHover, .inVisibleRect, .assumeInside], owner: self))
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect, .assumeInside], owner: self)
-        addTrackingArea(area)
-        tracking = area
-    }
 
     override func mouseEntered(with event: NSEvent) { onHover(true) }
     override func mouseExited(with event: NSEvent) { onHover(false) }
@@ -457,7 +457,7 @@ final class BrowserDownloadRowEventView: NSView, NSDraggingSource {
         dragged = false
     }
 
-    override func mouseDragged(with event: NSEvent) {
+    override func mouseDragged(with event: NSEvent) { // input-coalesce: native (a slop test, then AppKit's dragging session tracks)
         guard !dragged, let down = downEvent else { return }
         let start = down.locationInWindow, now = event.locationInWindow
         guard hypot(now.x - start.x, now.y - start.y) >= 3, let file = fileProvider() else { return }

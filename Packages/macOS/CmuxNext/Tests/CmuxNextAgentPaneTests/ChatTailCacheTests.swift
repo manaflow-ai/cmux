@@ -126,7 +126,7 @@ struct ChatTailCacheTests {
     @Test func everyPageSharesTheOneStore() async throws {
         defer { AgentPaneTailCache.shared.clear() }
         AgentPaneTailCache.shared.clear()
-        let provider = AgentPageProvider { _ in nil }
+        let provider = AgentPageProvider(mainWork: AgentPaneMainThread.standalone().mainWork) { _ in nil }
 
         _ = Self.value(Self.bridge("chat.tail", ["sessionId": "s-1", "tail": Self.tail(3)]))
         let onPageHost = try await provider.call(

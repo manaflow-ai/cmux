@@ -45,6 +45,8 @@ impl Terminal {
         // getter requires.
         let mut usage: sys::GhosttyTerminalMemoryUsage = unsafe { std::mem::zeroed() };
         usage.size = size_of::<sys::GhosttyTerminalMemoryUsage>();
+        // SAFETY: `self.raw` is this Terminal's live handle; MEMORY_USAGE writes a
+        // GhosttyTerminalMemoryUsage whose `size` is set above.
         check(unsafe {
             sys::ghostty_terminal_get(
                 self.raw,

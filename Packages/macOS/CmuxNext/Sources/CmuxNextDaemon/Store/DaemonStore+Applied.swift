@@ -1,4 +1,7 @@
 import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Transaction echoes and read-your-writes waiters: what runs once the
 /// store holds the daemon's result of a command.
@@ -23,7 +26,12 @@ extension DaemonStore {
     /// snapshot (daemon truth replaces the tree).
     public func whenApplied(_ transaction: ClientTransactionID, reaching sequence: UInt64? = nil,
                             _ body: @escaping @MainActor () -> Void) {
-        // A read-your-writes wait never waits on a script batch's stage: what it needs shows now.
+        // A read-your-writes wait never waits on the drain's tail or a script batch's stage: what it needs shows now.
+        if !confirmedTransactions.contains(transaction), sequence.map({ appliedSequence < $0 }) ?? true {
+            applyAwaitedTail { envelope in
+                envelope.event.clientTransactionID == transaction || sequence.map { envelope.sequence <= $0 } == true
+            }
+        }
         if let stage, stage.holds(through: sequence, echo: transaction) { stage.commitAll() }
         if confirmedTransactions.contains(transaction) { return body() }
         if let sequence, appliedSequence >= sequence { return body() }
@@ -35,8 +43,9 @@ extension DaemonStore {
     /// connection. A create pressed on a create in flight waits on it, so it names the daemon's pane.
     public func applied(_ transaction: ClientTransactionID, connection: DaemonConnection?) async {
         guard let connection, let sequence = await connection.eventSequence() else { return }
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-            whenApplied(transaction, reaching: sequence) { done.resume() }
+        // A waiter dropped unresumed returns too, as one without a connection does.
+        _ = try? await withOnceContinuation { (done: OnceContinuation<Void, OnceContinuationError>) in
+            whenApplied(transaction, reaching: sequence) { done.resume(returning: ()) }
         }
     }
 

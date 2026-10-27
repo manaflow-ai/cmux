@@ -31,12 +31,14 @@ final class TabDragSession: NSObject {
     var drag: Drag?
     /// Ghost of the previous drag still flying home or into its slot.
     var landing: Drag?
-    var resignObserver: MainActorObservation?
+    /// The app's resign-active notice ends the drag (``AppEvents``: one observer for the app).
+    var resignObserver: EventSubscription?
     /// Takes one `motion.drag_frame` interval per ghost tick (``tick(_:elapsed:)``).
     let motionSignposter: Signposter
     /// The windows' frame-aligned pointer input (feature `pointerFrameDrags`): a drag's moves hit-test on a frame
-    /// interval's first move and once more at its frame. Nil: every move hit-tests.
-    let moveFrames: FrameInputCoalescers?
+    /// interval's first move and once more at its frame. Nil: every move hit-tests. Read at each drag's start (tests
+    /// set it between drags: the app's windows build the session before a test can).
+    var moveFrames: FrameInputCoalescers?
     /// Makes a drag's resampler on its start (feature `resampledDrags`): the ghost is drawn at the pointer resampled
     /// at each frame's time. Nil (and without ``moveFrames``): the ghost follows the real pointer.
     let makeResampler: () -> DragResampler?
@@ -129,14 +131,15 @@ final class TabDragSession: NSObject {
         drag.input = services.inputTap.subscribe(class: Self.dragInput, phase: .intercept(order: .dragSession)) { [weak self] event in
             self?.handle(event) ?? .pass
         }
-        // Its moves on the ghost window's coalescer (feature `pointerFrameDrags`), each delivery with its frame's time
-        // for the resampled ghost (feature `resampledDrags`).
+        // Its moves on the ghost window's coalescer, whose frame input runs in the input stage before the ghost's
+        // spring (feature `pointerFrameDrags`), each delivery with its frame's time for the resampled ghost (feature
+        // `resampledDrags`).
         drag.moves = moveFrames?.coalescer(for: ghost.panel).frameTimedConsumer(owner: Self.movesOwner) { [weak self, weak drag] input, frame in
             guard let self, let drag else { return }
             self.deliverMoves(input, at: frame, drag: drag)
         }
         drag.resampler = drag.moves == nil ? nil : makeResampler()
-        resignObserver = MainActorObservation(NSApplication.didResignActiveNotification) { [weak self] in
+        resignObserver = services.appEvents.subscribe(NSApplication.didResignActiveNotification, owner: "TabDragSession.resign") { [weak self] in
             self?.finish(commit: false)
         }
         self.drag = drag
@@ -151,7 +154,7 @@ final class TabDragSession: NSObject {
             guard let self, let drag, self.landing === drag else { return }
             self.finishLanding()
         }
-        // The render server wakes it only for an auto-scroll or a dwell (`wake(_:over:)`).
+        // The render server wakes it only for an auto-scroll or a dwell (`wakeAfterHitTest(_:)`).
         if !rendersOnServer { drag.link?.activate() }
         update(point)
         loadThumbnail(previewTab, into: drag)
@@ -230,10 +233,10 @@ final class TabDragSession: NSObject {
     /// The coalescer owner of a drag's moves.
     static let movesOwner = "TabDragSession.moves"
 
-    /// One pointer move of the drag; every move feeds the release velocity. With ``Drag/moves`` the hit test and the
-    /// ghost follow a frame interval's first move at once and the frame's latest move at its frame (Chromium's
-    /// rAF-aligned input, `third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`); without it
-    /// every move hit-tests.
+    /// One pointer move of the drag; every move feeds the release velocity. With ``Drag/moves`` the ghost, the hit
+    /// test and the autoscroll target follow a frame interval's first move at once and the frame's latest move at its
+    /// frame (Chromium's rAF-aligned input, `third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`,
+    /// `DispatchRafAlignedInput`); without it every move hit-tests.
     func move(_ event: NSEvent) {
         guard let drag else { return }
         let point = Self.screenPoint(of: event)
@@ -254,6 +257,7 @@ final class TabDragSession: NSObject {
     /// `ui/base/prediction/linear_resampling.cc`). A drag that ended before it gets none.
     func deliverMoves(_ input: PointerCoalescedInput, at frame: PointerFrameTime, drag: Drag) { // perf-hot: 2ms drag-frame (each leading or trailing delivery)
         guard self.drag === drag else { return }
+        drag.movedSinceFrame = true
         let real = CGPoint(x: input.latest.location.x, y: input.latest.location.y)
         let shown = drag.resampler?.points(for: input, at: frame).visualPoint
         retarget(real, shown: shown.map { CGPoint(x: $0.x, y: $0.y) }, drag: drag)
@@ -276,14 +280,28 @@ final class TabDragSession: NSObject {
         retarget(point, shown: shown, drag: drag)
     }
 
-    /// One hit test of `drag` at the real `point` (drop target, autoscroll, window order), with the ghost drawn at
-    /// `shown` (nil: at `point`).
-    func retarget(_ point: CGPoint, shown: CGPoint?, drag: Drag) {
+    /// One hit test of `drag` at the real `point`: the drop target, the window order and the autoscroll target
+    /// there, with the ghost drawn at `shown` (nil: at `point`). At most twice per frame for the frame's moves, plus
+    /// once in the frame tick when content moved under a resting pointer or a dwell armed.
+    func retarget(_ point: CGPoint, shown: CGPoint?, drag: Drag) { // perf-hot: 2ms drag-frame (every frame of a drag)
         drag.point = point
         drag.shownPoint = shown
-        if case .workspaces = drag.source.item { return updateWorkspaces(point, drag: drag) }
-        let context = liveContext(drag)
+        drag.hitTests += 1
         let order = windowOrder(for: drag)
+        let window: WindowController?
+        if case .workspaces = drag.source.item {
+            window = updateWorkspaces(point, drag: drag, order: order)
+        } else {
+            window = retargetTab(point, drag: drag, order: order)
+        }
+        resolveAutoscroll(drag, at: point, in: window)
+        present(drag, order: order)
+        wakeAfterHitTest(drag)
+    }
+
+    /// The tab or group drop target at `point`; returns the window under it.
+    private func retargetTab(_ point: CGPoint, drag: Drag, order: [TabDragWindowPick.Candidate]) -> WindowController? {
+        let context = liveContext(drag)
         let hit = hitTest(point, drag: drag, context: context, order: order)
         // The layout adapter's preview is ended by `outline`, so a move from
         // a pane zone to a strip slot animates instead of fading out and in.
@@ -295,8 +313,7 @@ final class TabDragSession: NSObject {
                                                   context: context)
         drag.outcome = drag.resolution.outcome
         TabDragOutline.update(drag) { self.adapters(for: $0, drag: drag).layout }
-        present(drag, order: order)
-        wake(drag, over: hit.window)
+        return hit.window
     }
 
     struct Hit {
@@ -377,6 +394,7 @@ final class TabDragSession: NSObject {
         // (home-chief-pane.md H4). Home's dock takes tabs, so its strip takes drops.
         for pane in controller.onScreenContents.flatMap(\.panes.values) where !pane.isClosedPinnedDockPane {
             let strip = pane.view.stripView
+            // visibility-walk-allow: hit test: a strip takes the drop only where AppKit draws it under the pointer (a pane's node says nothing of a hidden tab bar)
             guard let window = strip.window, !strip.isHiddenOrHasHiddenAncestor else { continue }
             let frame = window.convertToScreen(strip.convert(strip.bounds, to: nil)).insetBy(dx: 0, dy: -Metrics.space4)
             if frame.contains(point) { list.append(strip) }

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 public import CoreGraphics
 import IOSurface
 
@@ -77,7 +78,7 @@ final class CEFHiddenPageSnapshot {
     /// still the page's last picture, so it goes volatile again with no new copy. A hibernation read that
     /// runs keeps it non-volatile; its end makes it volatile (``picture(of:)``).
     func evictAgain(page: ChromiumHostPageView) {
-        if readers == 0 { snapshot?.makeSnapshotVolatile() }
+        if readers == 0 { snapshot?.makeVolatile() }
         drop(page, keeping: snapshot)
     }
 
@@ -94,7 +95,7 @@ final class CEFHiddenPageSnapshot {
             generation &+= 1
             if let page, droppedContextID != 0 { _ = page.show(contextID: droppedContextID) }
             guard let snapshot, snapshotBrowser == browser else { return release() }
-            guard snapshot.reclaimSnapshot() else {
+            guard snapshot.reclaim() else {
                 purged += 1
                 return release()
             }
@@ -132,9 +133,9 @@ final class CEFHiddenPageSnapshot {
     /// page holds no snapshot of that page or the system purged it.
     func picture(of browser: Int32) async -> CGImage? {
         guard phase == .evicted, snapshotBrowser == browser, let snapshot else { return nil }
-        guard snapshot.reclaimSnapshot() else {
+        guard snapshot.reclaim() else {
             // The empty pages go back to volatile, so they never count; the next show draws the background.
-            snapshot.makeSnapshotVolatile()
+            snapshot.makeVolatile()
             purged += 1
             page?.removeSnapshotCover()
             self.snapshot = nil
@@ -143,7 +144,7 @@ final class CEFHiddenPageSnapshot {
         readers += 1
         let picture = await Self.picture(port: IOSurfaceCreateMachPort(snapshot))
         readers -= 1
-        if readers == 0, phase == .evicted, self.snapshot === snapshot { snapshot.makeSnapshotVolatile() }
+        if readers == 0, phase == .evicted, self.snapshot === snapshot { snapshot.makeVolatile() }
         return picture
     }
 
@@ -184,8 +185,12 @@ final class CEFHiddenPageSnapshot {
         guard IOSurfaceLock(surface, .readOnly, nil) == KERN_SUCCESS else { return nil }
         defer { IOSurfaceUnlock(surface, .readOnly, nil) }
         let width = IOSurfaceGetWidth(surface), height = IOSurfaceGetHeight(surface), bytesPerRow = IOSurfaceGetBytesPerRow(surface)
-        let pixels = Data(bytes: IOSurfaceGetBaseAddress(surface), count: bytesPerRow * height)
-        guard width > 0, height > 0, let provider = CGDataProvider(data: pixels as CFData) else { return nil }
+        let (byteCount, overflows) = bytesPerRow.multipliedReportingOverflow(by: height)
+        guard width > 0, height > 0, bytesPerRow >= width * 4, !overflows, byteCount <= IOSurfaceGetAllocSize(surface) else { return nil }
+        // SAFETY: the read-only lock above keeps the base address mapped until the deferred unlock, and the copy
+        // reads `byteCount` bytes, which the guard keeps within the surface's allocation.
+        let pixels = unsafe Data(bytes: IOSurfaceGetBaseAddress(surface), count: byteCount)
+        guard let provider = CGDataProvider(data: pixels as CFData) else { return nil }
         let info = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
         return CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: bytesPerRow,
                        space: space, bitmapInfo: info, provider: provider, decode: nil, shouldInterpolate: false,
@@ -212,7 +217,7 @@ extension CEFLayerHosting {
             }
             let started = copyFrame(browser) { [weak self] surface in
                 // Volatile from the moment the app holds it: outside the footprint while hidden.
-                surface?.makeSnapshotVolatile()
+                surface?.makeVolatile()
                 self?.snapshotCopied(surface, generation: generation)
             }
             if !started { snapshotCopied(nil, generation: generation) }
@@ -262,21 +267,5 @@ extension CEFTab: BrowserHiddenPagePicture {
     public func hiddenPagePicture() async -> CGImage? {
         guard !isClosed, let browserID else { return nil }
         return await host.hostView.layerHosting.hiddenSnapshot.picture(of: browserID)
-    }
-}
-
-extension IOSurface {
-    /// kIOSurfacePurgeable* by value (IOSurfaceTypes.h), as `TerminalFramePurgeability`: the imported
-    /// Swift names differ by SDK.
-    fileprivate func makeSnapshotVolatile() {
-        var old: UInt32 = 0
-        IOSurfaceSetPurgeable(self, 1, &old)
-    }
-
-    /// Non-volatile for a reader; false when the system purged the pages meanwhile.
-    fileprivate func reclaimSnapshot() -> Bool {
-        var old: UInt32 = 0
-        IOSurfaceSetPurgeable(self, 0, &old)
-        return old != 2
     }
 }

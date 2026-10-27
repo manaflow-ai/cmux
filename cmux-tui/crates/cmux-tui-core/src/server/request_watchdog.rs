@@ -51,15 +51,27 @@
 //! process's hang log (cmux-panic-log `hang`, `owner-hangs-<session>.jsonl`
 //! in the headless owner) with its method and its thread's stack, taken
 //! when the tier is reached. A request's first tier is the threshold above;
-//! the other kinds have only the hang tier. The holder link has no `Mux` at
-//! hand, so the owner makes its Mux's watchdog the process's
+//! the other kinds have only the hang tier. Each slow request and each
+//! hang of another kind also goes to the first-sighting feed, whose
+//! consumer keeps the first of each scope and method
+//! (`server-diagnostic-site`, p02-threads-233). The holder link has no
+//! `Mux` at hand, so the owner makes its Mux's watchdog the process's
 //! ([`RequestWatchdog::watch_for_process`]).
+//!
+//! Every kind of scope busy past [`HANG_THRESHOLD_US`] (250 ms) is also counted
+//! once in the daemon's hang ledger (cmux-tui-util `hang_watch`, server-stats
+//! `hangs`, the perf lab's `daemon.hangs_over_250ms`) with its span and
+//! duration: seen busy on a tick, or handed over by its end.
 
+use cmux_threads::sync::Mutex;
+use cmux_tui_util::hang_watch::{
+    HANG_THRESHOLD_US, HangLedger, HangStep, HangsSnapshot, Wake, hang_step, next_wake,
+};
 use std::borrow::Cow;
 use std::cell::Cell;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering, fence};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 use std::thread::Thread;
 use std::time::{Duration, Instant};
 
@@ -88,14 +100,19 @@ const SLOW_REQUEST_RING: usize = 128;
 
 const THREAD_NAME: &str = "mux-request-watchdog";
 
+/// The `kind` of a slow request's `server-diagnostic-site` event.
+const REQUEST_SITE_SCOPE: &str = "request";
+
 /// A busy word: the start in microseconds since the watchdog's epoch plus
-/// one, above three flags. A free slot is 0. `RECORDED`: in
-/// `slow_requests`; `HUNG`: written to the hang log.
+/// one, above four flags. A free slot is 0. `RECORDED`: in
+/// `slow_requests`; `HUNG`: written to the hang log; `OVER`: counted in the
+/// hang ledger.
 const FINISHED: u64 = 1;
 const RECORDED: u64 = 1 << 1;
 const HUNG: u64 = 1 << 2;
-const FLAGS: u64 = FINISHED | RECORDED | HUNG;
-const START_SHIFT: u32 = 3;
+const OVER: u64 = 1 << 3;
+const FLAGS: u64 = FINISHED | RECORDED | HUNG | OVER;
+const START_SHIFT: u32 = 4;
 
 /// A slot's word while its claimer writes the client: start field 0, so the
 /// watcher skips it, but not 0, so no other run claims the slot.
@@ -235,6 +252,9 @@ struct Slot {
     /// End (µs since the epoch) of a run that finished slow; published by
     /// the [`FINISHED`] flag.
     end_us: AtomicU64,
+    /// The hang ledger's sequence of the run once it is [`OVER`]; only the
+    /// watchdog thread writes and reads it.
+    hang_sequence: AtomicU64,
 }
 
 impl Slot {
@@ -245,7 +265,7 @@ impl Slot {
 }
 
 /// Where hang records go; the process's hang log outside tests.
-type HangSink = Box<dyn Fn(serde_json::Value) + Send + Sync>;
+pub(crate) type HangSink = Box<dyn Fn(serde_json::Value) + Send + Sync>;
 
 /// Starts the watchdog thread with `body`; a seam so tests can fail it.
 type SpawnWatchdog = fn(Box<dyn FnOnce() + Send>) -> std::io::Result<Thread>;
@@ -282,6 +302,11 @@ struct Shared {
     hang_sink: HangSink,
     /// Runs written to the hang log.
     hangs: AtomicU64,
+    /// Runs of every kind busy past [`HANG_THRESHOLD_US`] (server-stats `hangs`).
+    hang_ledger: HangLedger,
+    /// Hangs another process reported, for the watchdog thread to write.
+    #[cfg(unix)]
+    reported: reported::ReportedHangs,
     slots: Box<[Slot]>,
     /// Set by the first run that finds it clear; cleared by the watchdog
     /// thread when nothing is left to watch.
@@ -305,10 +330,17 @@ struct Shared {
     /// Tests: held to keep the watchdog thread from scanning.
     #[cfg(test)]
     scan_hold: Mutex<()>,
+    /// Tests: a fake clock (µs since the epoch) in place of `epoch`'s.
+    #[cfg(test)]
+    clock_for_test: Option<Arc<AtomicU64>>,
 }
 
 impl Shared {
     fn now_us(&self) -> u64 {
+        #[cfg(test)]
+        if let Some(clock) = &self.clock_for_test {
+            return clock.load(Ordering::SeqCst);
+        }
         u64::try_from(self.epoch.elapsed().as_micros()).unwrap_or(u64::MAX)
     }
 
@@ -316,18 +348,27 @@ impl Shared {
         duration_us(self.threshold)
     }
 
-    /// `kind`'s hang tier, never before the threshold (the grid's period).
+    /// `kind`'s hang tier, never before the threshold (the grid's period)
+    /// but for an echo item's: a run that ends past it hands its end to the
+    /// watchdog, and a busy one is seen on the first tick after it.
     fn hang_us(&self, kind: WatchKind) -> u64 {
         #[cfg(test)]
-        if let Some(hang) = self.hang_for_test {
+        if let Some(hang) = self.hang_for_test
+            && !kind.is_echo()
+        {
             return duration_us(hang).max(self.threshold_us());
+        }
+        if kind.is_echo() {
+            return duration_us(kind.hang());
         }
         duration_us(kind.hang()).max(self.threshold_us())
     }
 
     /// The first tier of `kind`: a run that ends before it frees its slot.
+    /// Never past [`HANG_THRESHOLD_US`], so the ledger counts every run over it.
     fn first_tier_us(&self, kind: WatchKind) -> u64 {
-        if kind.records_slow() { self.threshold_us() } else { self.hang_us(kind) }
+        let tier = if kind.records_slow() { self.threshold_us() } else { self.hang_us(kind) };
+        tier.min(HANG_THRESHOLD_US)
     }
 
     /// Claim a slot for one run of `method` of `kind` and publish its start.
@@ -411,35 +452,17 @@ impl Shared {
 
     fn run(&self) {
         self.wakeups.fetch_add(1, Ordering::Relaxed);
-        let period = self.threshold_us();
         let mut woke_by_arm = true;
         let mut previous_scan = 0;
         while !self.stopping.load(Ordering::Acquire) {
             #[cfg(test)]
             drop(self.scan_hold.lock().recover_poison());
             let now = self.now_us();
-            let scan = self.scan(now, previous_scan);
+            let wake = self.tick(now, previous_scan, woke_by_arm);
             previous_scan = now;
-            let next_tick = (now / period).saturating_add(1).saturating_mul(period);
-            if woke_by_arm {
-                // The arming run started after the last tick, so it cannot
-                // overrun before the tick one period on: skip the next one.
-                woke_by_arm = false;
-                self.sleep_until(
-                    now.saturating_add(period).div_ceil(period).saturating_mul(period),
-                );
-                continue;
-            }
-            if scan.pending || scan.started_since {
-                self.sleep_until(next_tick);
-                continue;
-            }
-            // Disarm, then look again: a run that started after the scan saw
-            // `armed` set and did not wake this thread.
-            self.armed.store(false, Ordering::SeqCst);
-            if self.any_pending() {
-                self.armed.store(true, Ordering::SeqCst);
-                self.sleep_until(next_tick);
+            woke_by_arm = false;
+            if let Wake::At(tick) = wake {
+                self.sleep_until(tick);
                 continue;
             }
             while !self.armed.load(Ordering::SeqCst) && !self.stopping.load(Ordering::Acquire) {
@@ -448,6 +471,26 @@ impl Shared {
             }
             woke_by_arm = true;
         }
+    }
+
+    /// One look of the watchdog thread at `now` (`since`: the previous look):
+    /// its next wake. Before a `Park` it disarms and looks again: a run that
+    /// started after the scan saw `armed` set and did not wake the thread.
+    fn tick(&self, now: u64, since: u64, after_arm: bool) -> Wake {
+        #[cfg(unix)]
+        self.write_reported();
+        let scan = self.scan(now, since);
+        let period = self.threshold_us();
+        let wake = next_wake(now, period, after_arm, scan.pending || scan.started_since);
+        if wake != Wake::Park {
+            return wake;
+        }
+        self.armed.store(false, Ordering::SeqCst);
+        if !self.any_pending() {
+            return Wake::Park;
+        }
+        self.armed.store(true, Ordering::SeqCst);
+        next_wake(now, period, false, true)
     }
 
     /// Park until the tick at `target_us`; every return from the park is a
@@ -463,12 +506,18 @@ impl Shared {
         }
     }
 
-    /// A run left to watch: one not yet written as a hang (its last tier),
-    /// or one that finished slow.
+    /// A run left to watch: one not yet written as a hang (its last tier) or
+    /// counted in the ledger, or one that finished slow; or a reported hang
+    /// left to write.
     fn any_pending(&self) -> bool {
+        #[cfg(unix)]
+        if self.has_reported() {
+            return true;
+        }
         self.slots.iter().any(|slot| {
             let word = slot.busy.load(Ordering::SeqCst);
-            word_start_us(word).is_some() && word & (FINISHED | HUNG) != HUNG
+            word_start_us(word).is_some()
+                && (word & FINISHED != 0 || word & (HUNG | OVER) != HUNG | OVER)
         })
     }
 
@@ -495,6 +544,15 @@ impl Shared {
             let method = slot.method.load(Ordering::Relaxed);
             let thread = slot.thread.load(Ordering::Relaxed);
             fence(Ordering::Acquire);
+            if hang_step(start, now, false, word & OVER != 0) == HangStep::CountBusy {
+                if !flag(slot, &mut word, OVER) {
+                    // It ended meanwhile: finished for the next scan.
+                    scan.pending = true;
+                    continue;
+                }
+                let sequence = self.hang_ledger.record(kind.hang_span(method), start, None);
+                slot.hang_sequence.store(sequence, Ordering::Relaxed);
+            }
             if kind.records_slow() && word & RECORDED == 0 {
                 if now < start.saturating_add(threshold) {
                     scan.pending = true;
@@ -522,6 +580,8 @@ impl Shared {
                 );
             }
             if word & HUNG != 0 {
+                // An echo item's hang tier is under the ledger's threshold.
+                scan.pending |= word & OVER == 0;
                 continue;
             }
             if now < start.saturating_add(self.hang_us(kind)) || !flag(slot, &mut word, HUNG) {
@@ -556,6 +616,13 @@ impl Shared {
         });
         if run.kind.records_slow() {
             record["client"] = run.client.into();
+        } else {
+            // A request's site was noted at the threshold (`record`); the
+            // other kinds have only this tier (`server-diagnostic-site`).
+            cmux_threads::blocking::note_hang_site(
+                run.kind.name(),
+                run.kind.method_name(run.method),
+            );
         }
         (self.hang_sink)(record);
     }
@@ -597,7 +664,8 @@ impl Shared {
     /// duration, or record it now if no scan saw it running; write it as a
     /// hang if it ran past its hang tier unseen. Then free its slot.
     fn finish(&self, index: usize, slot: &Slot, word: u64, start: u64) {
-        let duration_us = slot.end_us.load(Ordering::Relaxed).saturating_sub(start);
+        let end = slot.end_us.load(Ordering::Relaxed).max(start);
+        let duration_us = end - start;
         let duration_ms = duration_us / 1000;
         let run = Run {
             kind: slot.kind(),
@@ -631,14 +699,25 @@ impl Shared {
             );
         }
         if word & HUNG == 0 && duration_us >= self.hang_us(run.kind) {
-            let end = start.saturating_add(duration_us);
             self.write_hang(run, end, Some(duration_us), CapturedStack::failed(RUN_ENDED));
+        }
+        match hang_step(start, end, true, word & OVER != 0) {
+            HangStep::Settle => {
+                self.hang_ledger.finish(slot.hang_sequence.load(Ordering::Relaxed), end);
+            }
+            HangStep::CountEnded => {
+                self.hang_ledger.record(run.kind.hang_span(run.method), start, Some(end));
+            }
+            HangStep::Wait | HangStep::CountBusy => {}
         }
         slot.busy.store(0, Ordering::Release);
     }
 
     fn record(&self, slot: usize, word: u64, request: SlowRequest) {
         self.total.fetch_add(1, Ordering::Relaxed);
+        // The daemon's first slow run of each method goes to the app's hang
+        // reports (`server-diagnostic-site`; the forwarder keeps the first).
+        cmux_threads::blocking::note_hang_site(REQUEST_SITE_SCOPE, request.method);
         let started = self.epoch + Duration::from_millis(request.started_ms);
         if let Some(trace) = crate::debug_spans::Trace::start("slow-request", started) {
             crate::debug_spans::install(Some(trace));
@@ -716,7 +795,7 @@ impl RequestWatchdog {
 
     /// Tests: every kind's hang tier is `hang`, and records go to `sink`.
     #[cfg(test)]
-    fn for_hang_test(threshold: Duration, hang: Duration, sink: HangSink) -> Self {
+    pub(crate) fn for_hang_test(threshold: Duration, hang: Duration, sink: HangSink) -> Self {
         let capture = Box::new(thread_backtrace::capture);
         let mut watchdog = Self::build(threshold, spawn_watchdog_thread, capture, sink);
         if let Some(shared) = Arc::get_mut(&mut watchdog.shared) {
@@ -744,6 +823,9 @@ impl RequestWatchdog {
                 hang_for_test: None,
                 hang_sink,
                 hangs: AtomicU64::new(0),
+                hang_ledger: HangLedger::default(),
+                #[cfg(unix)]
+                reported: reported::ReportedHangs::default(),
                 slots: (0..SLOT_COUNT).map(|_| Slot::default()).collect(),
                 armed: AtomicBool::new(false),
                 stopping: AtomicBool::new(false),
@@ -759,6 +841,8 @@ impl RequestWatchdog {
                 recent: Mutex::new(VecDeque::with_capacity(SLOW_REQUEST_RING)),
                 #[cfg(test)]
                 scan_hold: Mutex::new(()),
+                #[cfg(test)]
+                clock_for_test: None,
             }),
         }
     }
@@ -778,12 +862,12 @@ impl RequestWatchdog {
 
     fn watch_run(&self, kind: WatchKind, client: u64, method: u32) -> Option<RequestScope<'_>> {
         let (index, word) = self.shared.claim(kind, client, method)?;
-        Some(RequestScope {
-            shared: &self.shared,
-            slot: &self.shared.slots[index],
-            word,
-            ended: Cell::new(false),
-        })
+        Some(RequestScope::new(&self.shared, index, word))
+    }
+
+    /// The echo threads' handle on this watchdog ([`EchoWatch::item`]).
+    pub(crate) fn echo_watch(&self) -> EchoWatch {
+        EchoWatch::new(self.shared.clone())
     }
 
     /// Make this the process's watchdog, for scopes opened with no `Mux` at
@@ -825,6 +909,12 @@ impl RequestWatchdog {
                 .collect(),
         }
     }
+
+    /// The `hangs` section of `server-stats`: runs of every kind busy past
+    /// [`HANG_THRESHOLD_US`] since daemon start, one still busy up to now.
+    pub(crate) fn hangs(&self) -> HangsSnapshot {
+        self.shared.hang_ledger.snapshot(self.shared.now_us())
+    }
 }
 
 impl Drop for RequestWatchdog {
@@ -844,7 +934,11 @@ pub(crate) struct RequestScope<'a> {
     ended: Cell<bool>,
 }
 
-impl RequestScope<'_> {
+impl<'a> RequestScope<'a> {
+    fn new(shared: &'a Arc<Shared>, index: usize, word: u64) -> Self {
+        Self { shared, slot: &shared.slots[index], word, ended: Cell::new(false) }
+    }
+
     /// The run is now doing `method` (a frame reaching its handler).
     pub(crate) fn set_method(&self, method: WatchedMethod) {
         self.slot.method.store(method.0, Ordering::Relaxed);
@@ -888,11 +982,17 @@ impl Drop for RequestScope<'_> {
     }
 }
 
+#[cfg(unix)]
+#[path = "request_watchdog_reported.rs"]
+mod reported;
 #[path = "request_watchdog_scopes.rs"]
 mod scopes;
 use scopes::PROCESS;
+#[cfg(unix)]
+pub(crate) use scopes::process_report_holder_hang;
 #[cfg(debug_assertions)]
 pub(crate) use scopes::spawn_owner_hang_test;
+pub use scopes::{EchoItem, EchoWatch};
 pub(crate) use scopes::{WatchKind, process_enter, process_exit};
 
 #[cfg(test)]
@@ -906,3 +1006,11 @@ mod stack_tests;
 #[cfg(test)]
 #[path = "request_watchdog_hang_tests.rs"]
 mod hang_tests;
+
+#[cfg(test)]
+#[path = "request_watchdog_echo_tests.rs"]
+mod echo_tests;
+
+#[cfg(test)]
+#[path = "request_watchdog_ledger_tests.rs"]
+mod ledger_tests;

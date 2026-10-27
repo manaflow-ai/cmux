@@ -1,11 +1,11 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextHostedChief
 import CmuxNextRemote
 import Foundation
 import Observation
 import os
-import SystemConfiguration
 import CmuxNextWakeups
 
 /// Paired servers in the sidebar (plans/cmux-next/server-reach.md): when the
@@ -30,6 +30,8 @@ final class ServerReachService {
     private let machines: MachineRegistry
     /// The app's main-thread scheduler (from the composition root): every server's event batches run on it.
     private let mainWork: MainWorkScheduler
+    /// The app's notices (`AppServices.appEvents`): activation wakes the servers.
+    private let appEvents: AppEvents
     private let call: Call
     /// The signed-in user's id, or nil when signed out (observed).
     private let signedInUser: @MainActor () -> String?
@@ -38,8 +40,8 @@ final class ServerReachService {
     /// The app's own bundled `cmux` (overlay bridge and link reads).
     private let cli: URL?
     private let local: @MainActor () -> ServerReachPlan.LocalServer?
-    /// This Mac's link (running or not) and its paired installs, or nil (no link).
-    private let linkPeers: @MainActor () async -> ServerReachPlan.LinkPeers?
+    /// This Mac's link (running or not) and its paired installs, or nil (no link): read off the main thread.
+    private let linkPeers: @Sendable () async -> ServerReachPlan.LinkPeers?
     /// Where `cmux link init` writes the link (watched while `link show`
     /// fails, so a later init re-reads by event); nil watches nothing.
     private let linkSetupFile: String?
@@ -47,8 +49,17 @@ final class ServerReachService {
     private var linkWatchers: [any ServerFileWatching] = []
     private var watchedLinkFiles: [String] = []
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.server-reach")
-    private var observers: [Task<Void, Never>] = []
+    /// Sign-in and sign-out, the registry's records, the home daemon's identity: service observations
+    /// (their side effects connect and close servers whether or not anything shows), and the activation notice.
+    private var userWatch: ServiceObservation<String?>?
+    private var recordsWatch: ServiceObservation<[SessionRecord]>?
+    private var identityWatch: ServiceObservation<Bool>?
+    private var activation: EventSubscription?
+    /// The signed-in user the last sign-in change saw; nil before the first and while signed out.
+    private var lastUser: String?
     private var reading: Task<Void, Never>?
+    /// Counts stops: a read that a stop overtook applies nothing.
+    private var epoch = 0
     /// Another read was asked for while one ran: run once more after it.
     private var readAgain = false
     /// Hosts removed in this run, so a stale registry echo does not bring them back.
@@ -57,15 +68,17 @@ final class ServerReachService {
     /// Set while an administrator turned remote hosts off: no server connects.
     private(set) var policyDisabled = false
 
-    init(machines: MachineRegistry, mainWork: MainWorkScheduler, call: @escaping Call, signedInUser: @escaping @MainActor () -> String?, paths: SSHPaths,
+    init(machines: MachineRegistry, mainWork: MainWorkScheduler, appEvents: AppEvents, call: @escaping Call,
+         signedInUser: @escaping @MainActor () -> String?, paths: SSHPaths,
          binary: URL?, local: @escaping @MainActor () -> ServerReachPlan.LocalServer? = { nil },
-         linkPeers: @escaping @MainActor () async -> ServerReachPlan.LinkPeers? = { nil }, cli: URL? = nil,
+         linkPeers: @escaping @Sendable () async -> ServerReachPlan.LinkPeers? = { nil }, cli: URL? = nil,
          linkSetupFile: String? = nil, makeWatcher: @escaping LocalServerSource.MakeWatcher = LocalServerSource.fileWatcher) {
         self.linkSetupFile = linkSetupFile
         self.makeWatcher = makeWatcher
         self.cli = cli
         self.machines = machines
         self.mainWork = mainWork
+        self.appEvents = appEvents
         self.call = call
         self.signedInUser = signedInUser
         self.paths = paths
@@ -74,46 +87,52 @@ final class ServerReachService {
         self.linkPeers = linkPeers
     }
 
+    /// Follows the account, the registry and the home daemon's identity (each applies its current value now), and
+    /// the app's activation.
     func start() {
         let machines = machines, signedInUser = signedInUser
-        observers.append(Task { [weak self] in
-            var previous: String?
-            for await user in ObservationStream({ signedInUser() }) {
-                guard let self else { return }
-                // Servers belong to the account: any change of user closes them.
-                if previous != nil, user != previous {
-                    self.closeAll()
-                }
-                previous = user
-                if user != nil {
-                    self.restore(self.currentRecords())
-                    self.refresh()
-                }
-            }
-        })
-        observers.append(Task { [weak self] in
-            for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
-                self?.refresh()
-                guard let self, !self.policyDisabled else { continue }
-                for server in self.machines.servers where server.autoConnect { server.wake() }
-            }
-        })
-        observers.append(Task { [weak self] in
-            for await records in ObservationStream({ () -> [SessionRecord] in
-                let store = machines.local.store
-                return store.personal.isLoaded && !store.isProvisional ? store.personal.sessions : []
-            }) {
-                self?.restore(records)
-            }
-        })
+        lastUser = nil
+        userWatch = ServiceObservation(.visible, owner: "ServerReach.user", on: mainWork) {
+            signedInUser()
+        } apply: { [weak self] user in
+            self?.signedInUserChanged(user)
+        }
+        activation = appEvents.subscribe(NSApplication.didBecomeActiveNotification, owner: "ServerReach.activation") { [weak self] in
+            self?.appBecameActive()
+        }
+        recordsWatch = ServiceObservation(.visible, owner: "ServerReach.records", on: mainWork) { () -> [SessionRecord] in
+            let store = machines.local.store
+            return store.personal.isLoaded && !store.isProvisional ? store.personal.sessions : []
+        } apply: { [weak self] records in
+            self?.restore(records)
+        }
         // A server on this Mac connects only once the home daemon's identity
         // is known, so the admit check can refuse a route back to it.
-        observers.append(Task { [weak self] in
-            for await known in ObservationStream({ machines.local.identity != nil }) where known {
-                guard let self, !self.policyDisabled else { continue }
-                for server in self.machines.servers where server.autoConnect { server.connect() }
-            }
-        })
+        identityWatch = ServiceObservation(.visible, owner: "ServerReach.identity", on: mainWork) {
+            machines.local.identity != nil
+        } apply: { [weak self] known in
+            guard known, let self, !self.policyDisabled else { return }
+            for server in self.machines.servers where server.autoConnect { server.connect() }
+        }
+    }
+
+    /// Servers belong to the account: any change of user closes them; a signed-in user's are restored and read.
+    private func signedInUserChanged(_ user: String?) {
+        if lastUser != nil, user != lastUser {
+            closeAll()
+        }
+        lastUser = user
+        if user != nil {
+            restore(currentRecords())
+            refresh()
+        }
+    }
+
+    /// The app became active: read again and wake the servers set to connect.
+    private func appBecameActive() {
+        refresh()
+        guard !policyDisabled else { return }
+        for server in machines.servers where server.autoConnect { server.wake() }
     }
 
     /// Turning remote hosts off disconnects every server (they stay listed
@@ -134,9 +153,16 @@ final class ServerReachService {
 
     func stop() {
         watchLink([])
-        for observer in observers { observer.cancel() }
-        observers.removeAll()
+        userWatch?.cancel()
+        userWatch = nil
+        recordsWatch?.cancel()
+        recordsWatch = nil
+        identityWatch?.cancel()
+        identityWatch = nil
+        activation?.cancel()
+        activation = nil
         reading?.cancel()
+        epoch &+= 1
         for server in machines.servers { server.close() }
     }
 
@@ -148,63 +174,127 @@ final class ServerReachService {
             readAgain = true
             return
         }
-        reading = Task { [weak self] in
+        let mainWork = mainWork
+        // The read runs off the main thread (`read()`); its end is one visible task.
+        reading = Task { @concurrent [weak self] in
             await self?.read()
-            guard let self else { return }
-            reading = nil
-            if readAgain {
-                readAgain = false
-                refresh()
+            mainWork.postFromAnyThread(.visible, owner: "ServerReach.readFinished") { [weak self] in self?.readFinished() }
+        }
+    }
+
+    /// A read ended: runs the read asked for meanwhile.
+    private func readFinished() {
+        reading = nil
+        if readAgain {
+            readAgain = false
+            refresh()
+        }
+    }
+
+    /// One read and apply (`refresh` serializes these). A failed read changes nothing. Chrome's PostTaskAndReply
+    /// (base/task/task_runner.h): the directory and the link are read off the main thread, the plan applies in one
+    /// visible task, and the removed servers' home-session records are forgotten off main again.
+    @concurrent nonisolated func read() async {
+        guard let start = await readStart() else { return }
+        let found: Reading
+        do {
+            found = try await fetch(start)
+        } catch {
+            start.logger.error("server reach read failed: \(String(describing: error), privacy: .public)")
+            return
+        }
+        guard !Task.isCancelled else { return }
+        let forgets = await start.mainWork.apply(.visible, owner: "ServerReach.apply") { [weak self] in
+            self?.applyRead(found, start) ?? []
+        }
+        for forget in forgets { await forget.run(start.logger) }
+    }
+
+    /// The start of a read for the signed-in user; nil while signed out.
+    private func readStart() -> ReadStart? {
+        signedInUser().map { ReadStart(user: $0, epoch: epoch, mainWork: mainWork, linkPeers: linkPeers, logger: logger) }
+    }
+
+    /// A read's main part: the link's watches, the plan and its apply, unless a sign-out, an account switch or a
+    /// stop overtook the read. Returns the removed servers' records to forget.
+    private func applyRead(_ found: Reading, _ start: ReadStart) -> [Forget] {
+        guard start.epoch == epoch, signedInUser() == start.user else { return [] }
+        watchLink(found.link?.watchedFiles ?? [linkSetupFile].compactMap { $0 })
+        let plan = ServerReachPlan.make(chiefs: found.chiefs, hosts: found.hosts, local: local(), link: found.link)
+        lastPlan = plan
+        for name in plan.unroutable { logger.error("server \(name, privacy: .public): no route to its chief session") }
+        return apply(plan.desired)
+    }
+
+    /// What one read found, in values that leave the main thread: the directory as the signed-in user and this
+    /// Mac's link.
+    nonisolated struct Reading: Sendable {
+        var chiefs: [CloudChief]
+        var hosts: [PairedServer]
+        var link: ServerReachPlan.LinkPeers?
+    }
+
+    /// One home-session record of a removed server, forgotten off the main thread.
+    nonisolated struct Forget: Sendable {
+        let home: DaemonConnection
+        let sessionID: String
+
+        func run(_ logger: Logger) async {
+            do {
+                _ = try await home.forgetSession(sessionID, force: true)
+            } catch {
+                logger.error("forget-session \(sessionID, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             }
         }
     }
 
-    /// One read and apply (`refresh` serializes these). A failed read changes nothing.
-    func read() async {
-        guard let user = signedInUser() else { return }
-        do {
-            let chiefs = try ServerReachPlan.parseChiefs(
-                try CloudPairingSource.okValue(try await call("v1/read", ["op": "chief.list", "params": [String: Any]()])))
-            let hosts = try await readHosts()
-            // A read that a sign-out or an account switch overtook applies nothing.
-            guard !Task.isCancelled, signedInUser() == user else { return }
-            let link = await linkPeers()
-            watchLink(link?.watchedFiles ?? [linkSetupFile].compactMap { $0 })
-            guard !Task.isCancelled, signedInUser() == user else { return }
-            let plan = ServerReachPlan.make(chiefs: chiefs, hosts: hosts, local: local(), link: link)
-            lastPlan = plan
-            for name in plan.unroutable { logger.error("server \(name, privacy: .public): no route to its chief session") }
-            await apply(plan.desired)
-        } catch {
-            logger.error("server reach read failed: \(String(describing: error), privacy: .public)")
-        }
+    /// What a read takes from the service when it starts: who it reads for, the stops before it, and its seams.
+    nonisolated struct ReadStart: Sendable {
+        let user: String
+        let epoch: Int
+        let mainWork: MainWorkScheduler
+        let linkPeers: @Sendable () async -> ServerReachPlan.LinkPeers?
+        let logger: Logger
     }
 
-    /// Every page of `team.hosts.list` (bounded).
-    private func readHosts() async throws -> [PairedServer] {
+    /// The directory's pages and the link. The feed's calls are main-actor by their type (`CloudChiefs.Call`): each
+    /// reply is parsed on its own turn into values that cross back here.
+    @concurrent nonisolated private func fetch(_ start: ReadStart) async throws -> Reading {
+        let chiefs = try await readChiefs()
         var hosts: [PairedServer] = []
         var cursor: String?
         for _ in 0..<20 {
-            var params: [String: Any] = ["limit": 100]
-            if let cursor { params["cursor"] = cursor }
-            let page = try ServerReachPlan.parseHosts(try CloudPairingSource.okValue(try await call("v1/read", ["op": "team.hosts.list", "params": params])))
+            let page = try await readHosts(after: cursor)
             hosts += page.hosts
-            guard let next = page.next, !next.isEmpty else { return hosts }
+            guard let next = page.next, !next.isEmpty else { return Reading(chiefs: chiefs, hosts: hosts, link: await start.linkPeers()) }
             cursor = next
         }
         // A directory larger than the cap is a partial read: never act on it.
         throw ServerReachPlan.ReadError.tooManyHosts
     }
 
-    /// Adds the servers that should show and removes (and forgets) the rest.
-    func apply(_ desired: [ServerReach]) async {
+    private func readChiefs() async throws -> [CloudChief] {
+        try ServerReachPlan.parseChiefs(try CloudPairingSource.okValue(try await call("v1/read", ["op": "chief.list", "params": [String: Any]()])))
+    }
+
+    /// One page of `team.hosts.list` and its next cursor.
+    private func readHosts(after cursor: String?) async throws -> (hosts: [PairedServer], next: String?) {
+        var params: [String: Any] = ["limit": 100]
+        if let cursor { params["cursor"] = cursor }
+        return try ServerReachPlan.parseHosts(try CloudPairingSource.okValue(try await call("v1/read", ["op": "team.hosts.list", "params": params])))
+    }
+
+    /// Adds the servers that should show and removes the rest; returns the removed servers' home-session records,
+    /// which the caller forgets off main.
+    func apply(_ desired: [ServerReach]) -> [Forget] {
         let change = ServerReachPlan.diff(shown: machines.servers.map(\.reach), desired: desired)
         for reach in change.add {
             removed.remove(reach.hostID)
             add(reach, connect: true)
         }
-        for machineID in change.remove { await remove(machineID) }
+        let forgets = change.remove.compactMap { remove($0) }
         for reach in change.reroute { reroute(reach) }
+        return forgets
     }
 
     /// Replaces a shown server's session with one on its new route; the
@@ -225,10 +315,11 @@ final class ServerReachService {
         guard files != watchedLinkFiles else { return }
         for watcher in linkWatchers { watcher.stop() }
         watchedLinkFiles = files
+        let mainWork = mainWork
         linkWatchers = files.map { file in
             let watcher = makeWatcher(URL(fileURLWithPath: file)) { [weak self] in
-                // task-owner: one main-actor hop per file event; refresh coalesces reads
-                Task { @MainActor in self?.refresh() }
+                // `cmux link` changed the pairing file: one automation task per file event; refresh coalesces reads.
+                mainWork.postFromAnyThread(.automation, owner: "ServerReach.linkFile") { [weak self] in self?.refresh() }
             }
             watcher.start()
             return watcher
@@ -266,10 +357,10 @@ final class ServerReachService {
         }
     }
 
-    /// Closes the server's session and removes it, with its registry record
-    /// and personal organization, from the home session.
-    private func remove(_ machineID: String) async {
-        guard let session = machines.removeServer(machineID) else { return }
+    /// Closes the server's session and removes it; its registry record and personal organization leave the home
+    /// session through the returned forget.
+    private func remove(_ machineID: String) -> Forget? {
+        guard let session = machines.removeServer(machineID) else { return nil }
         removed.insert(session.reach.hostID)
         // Forget only this server's own record: the one whose transport names
         // its host; the daemon's identity counts only when it is that record.
@@ -279,12 +370,8 @@ final class ServerReachService {
         }
         session.close()
         logger.info("server \(session.reach.name, privacy: .public) removed")
-        guard let sessionID, sessionID != machines.local.identity?.sessionID, machines.local.supports(DaemonCapability.profiles.rawValue), let home = machines.local.connection else { return }
-        do {
-            _ = try await home.forgetSession(sessionID, force: true)
-        } catch {
-            logger.error("forget-session \(sessionID, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-        }
+        guard let sessionID, sessionID != machines.local.identity?.sessionID, machines.local.supports(DaemonCapability.profiles.rawValue), let home = machines.local.connection else { return nil }
+        return Forget(home: home, sessionID: sessionID)
     }
 
     /// Sign-out: the servers belong to the account; their records stay for
@@ -300,44 +387,5 @@ final class ServerReachService {
         machines.local.store.personal.sessions.first { record in
             record.transport.flatMap(SSHService.fields).flatMap(ServerReach.init(transportFields:))?.hostID == reach.hostID
         }?.id
-    }
-
-    /// This Mac as a possible placed server: every name it answers to
-    /// (gethostname, LocalHostName, computer name) and the brain's daemon
-    /// socket, when one exists (a stat; nothing is read).
-    static func thisMac() -> ServerReachPlan.LocalServer? {
-        let socket = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cmux/brains/chief/daemon/cmux.sock").path
-        guard FileManager.default.fileExists(atPath: socket) else { return nil }
-        var names: [String] = []
-        var buffer = [CChar](repeating: 0, count: 256)
-        if gethostname(&buffer, buffer.count) == 0 {
-            names.append(String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self))
-        }
-        if let local = SCDynamicStoreCopyLocalHostName(nil) as String? { names.append(local) }
-        if let computer = SCDynamicStoreCopyComputerName(nil, nil) as String? { names.append(computer) }
-        let short = names.compactMap { $0.split(separator: ".").first.map(String.init) }.filter { !$0.isEmpty }
-        return short.isEmpty ? nil : ServerReachPlan.LocalServer(hostNames: short, brainSocket: socket)
-    }
-
-    /// This Mac's link through the bundled CLI (`cmux link show`, `cmux link
-    /// peer list`), running or not: nil when the CLI is missing or `show`
-    /// fails (no link set up here).
-    nonisolated static func readLinkPeers(binary: URL?) async -> ServerReachPlan.LinkPeers? {
-        guard let binary else { return nil }
-        func run(_ arguments: [String]) async -> Data? {
-            guard let result = try? await ProcessRunner.run(executable: binary, arguments: arguments, environment: nil,
-                                                            timeout: .seconds(10), clock: ContinuousClock()),
-                  result.status == 0 else { return nil }
-            return result.stdout
-        }
-        guard let show = await run(["link", "show"]) else { return nil }
-        return ServerReachPlan.linkPeers(show: show, peers: await run(["link", "peer", "list"]))
-    }
-
-    /// The registry transport for `session`: the reach plus whether it connects at launch.
-    static func transport(_ session: ServerMachineSession) -> JSONValue {
-        var fields = session.reach.transportFields.mapValues(JSONValue.string)
-        fields["connect"] = .string(session.autoConnect ? "true" : "false")
-        return .object(fields)
     }
 }

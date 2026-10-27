@@ -16,15 +16,24 @@ description = "C ABI of the cmux remote desktop viewer core: cmux.rd/1 bytes in,
 crate-type = ["staticlib", "rlib"]
 
 [dependencies]
+cmux-ffi-guard = { path = "../cmux-ffi-guard" }
 cmux-rd-core = { path = "../cmux-rd-core" }
 cmux-rd-proto = { path = "../cmux-rd-proto" }
 # The remote browser tab client reducer (REMOTE-TAB-R1 Q4: rb client reducers link here).
 cmux-remote-browser = { path = "../cmux-remote-browser" }
 serde_json = "1"
 
+[dev-dependencies]
+cmux-ffi-guard = { path = "../cmux-ffi-guard", features = ["testing"] }
+
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 unused_qualifications = "warn"
+
+[lints.clippy]
+# cmux-tui/clippy.toml disallows std thread spawns and sleep; this package has not opted in.
+disallowed_methods = "allow"
+disallowed_types = "allow"
 
 [profile.release]
 opt-level = 3

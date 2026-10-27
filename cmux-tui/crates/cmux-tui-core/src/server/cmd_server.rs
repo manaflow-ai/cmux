@@ -46,6 +46,25 @@ pub(super) fn daemon_locks(mux: &Arc<Mux>, client: u64) -> anyhow::Result<Value>
     Ok(serde_json::to_value(server_stats::daemon_locks(mux))?)
 }
 
+/// `server-threads`: every registered daemon thread with its declared,
+/// desired and kernel QoS and scheduler priority, the work lanes, and the
+/// process's task role (server/server_stats.rs).
+pub(super) fn server_threads(mux: &Arc<Mux>, client: u64) -> anyhow::Result<Value> {
+    if !mux.control_clients.is_unix(client) {
+        return Err(server_stats::ThreadDiagnosticsRefused::NotLocal.into());
+    }
+    Ok(serde_json::to_value(server_stats::server_threads(mux))?)
+}
+
+/// `server-blocking`: the blocking calls made on threads that disallow
+/// blocking, by call site (server/server_stats.rs).
+pub(super) fn server_blocking(mux: &Arc<Mux>, client: u64) -> anyhow::Result<Value> {
+    if !mux.control_clients.is_unix(client) {
+        return Err(server_stats::ThreadDiagnosticsRefused::NotLocal.into());
+    }
+    Ok(serde_json::to_value(server_stats::server_blocking(mux))?)
+}
+
 /// `trace-start`, `trace-stop` and `trace-status` (server/trace_control.rs):
 /// owner only, refused before `call` reads a parameter.
 pub(super) fn trace_control(
@@ -79,6 +98,8 @@ pub(super) fn identify(
 ) -> anyhow::Result<Value> {
     let (registry_id, generation) = mux.registry_identity();
     let (build_id, cli_path) = super::daemon_build::identify_build_fields();
+    let capabilities = identify_capabilities_for(mux, client);
+    let frames_offered = capabilities.contains(&super::line_connection::IPC_FRAMES_CAPABILITY);
     let mut identity = json!({
         "app": "cmux-tui",
         // The npm/PyPI release (the crate version in the app and local builds).
@@ -88,7 +109,7 @@ pub(super) fn identify(
         "cli_path": cli_path,
         "ghostty_commit": stamped_ghostty_commit(),
         "protocol": PROTOCOL_VERSION,
-        "capabilities": identify_capabilities_for(mux, client),
+        "capabilities": capabilities,
         "session": mux.session,
         "pid": std::process::id(),
         "session_id": registry_id,
@@ -112,6 +133,15 @@ pub(super) fn identify(
         // How this daemon was installed and how to update it, for a client's refusal text.
         identity.insert("install", json!(channel.as_str()));
         identity.insert("update_command", json!(channel.update_command()));
+        // The stream frame cut (bench-daemon-latency.py --bulk-interference).
+        identity.insert("bulk_frame_max", json!(mux.bulk_frame_max()));
+        // What a client checks before it sends REQUEST frames: the schema
+        // its method table must come from, and the methods this daemon
+        // answers on frames (server/frame_dispatch.rs).
+        if frames_offered {
+            identity.insert("sdk_schema_digest", json!(super::frame_dispatch::sdk_schema_digest()));
+            identity.insert("framed_methods", json!(super::frame_dispatch::framed_method_ids()));
+        }
     }
     if machine_metadata {
         identity.insert("machine_id", json!(mux.machine_public_id));

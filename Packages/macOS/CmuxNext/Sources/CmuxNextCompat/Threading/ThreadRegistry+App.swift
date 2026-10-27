@@ -47,6 +47,8 @@ extension ThreadRegistry {
         ThreadDeclaration("com.cmuxterm.next.settings.watcher", qos: .utility),
         ThreadDeclaration("cmux.files.fsevents", qos: .utility),
         ThreadDeclaration("cmux.files.tree-fsevents", qos: .utility),
+        // Energy: the power-source notifications and their IOKit reads (CmuxNextEnergy PowerSourceMonitor).
+        ThreadDeclaration("com.cmuxterm.next.energy.power-source", qos: .utility),
         ThreadDeclaration("com.cmuxterm.home.cache", qos: .userInitiated),
         // Remote and mobile. The remote view's render queue is on the closed user-interactive list: a
         // compositor-class motion path (Chrome's kDisplayCritical, base/threading/platform_thread.h).
@@ -66,6 +68,7 @@ extension ThreadRegistry {
         ThreadDeclaration("com.cmuxterm.chromium-host.write", qos: .userInitiated),
         ThreadDeclaration("com.cmuxterm.chromium-host.control", qos: .userInitiated),
         ThreadDeclaration("com.cmuxterm.chromium-host.exit", qos: .userInitiated),
+        ThreadDeclaration("com.cmuxterm.chromium-host.supervisor", qos: .utility),
         ThreadDeclaration("com.cmuxterm.chromium-host.input", qos: .userInteractive),
         ThreadDeclaration("com.cmuxterm.app.next.cef-children", qos: .userInitiated),
         ThreadDeclaration("com.cmuxterm.import-history-sync", qos: .utility),
@@ -83,6 +86,7 @@ extension ThreadRegistry {
         ThreadDeclaration("cmux.agent-activity.socket", qos: .utility),
         ThreadDeclaration("com.cmuxterm.app.next.chief-settle", qos: .utility),
         ThreadDeclaration("com.cmuxterm.app.next.tasks.socket", qos: .userInitiated),
+        ThreadDeclaration("com.cmuxterm.app.next.tasks.directory", qos: .utility),
         ThreadDeclaration("com.cmuxterm.app.next.agent-pane.socket", match: .operationQueue, qos: .userInitiated),
         ThreadDeclaration("com.cmuxterm.next.computer-use.helper-reap", qos: .utility),
         ThreadDeclaration("cua-helper-v2-stdout", qos: .utility),
@@ -94,15 +98,21 @@ extension ThreadRegistry {
         ThreadDeclaration("com.cmuxterm.app.next.run-marker", qos: .utility),
         ThreadDeclaration("com.cmuxterm.app.next.crash-forwarder", qos: .utility),
         ThreadDeclaration("com.cmuxterm.app.next.owner-panic-forwarder", qos: .utility),
+        ThreadDeclaration("com.cmuxterm.app.next.invariant-sink", qos: .utility),
+        ThreadDeclaration("com.cmuxterm.app.next.renderer-stability", qos: .utility),
+        ThreadDeclaration("com.cmuxterm.app.next.sentry-recorder", qos: .utility),
         ThreadDeclaration("com.cmuxterm.next.typing-probe", qos: .utility),
         ThreadDeclaration("com.cmuxterm.app.next.blocking-drain", qos: .utility),
+        ThreadDeclaration("com.cmuxterm.app.next.memory.release-sink", qos: .utility),
         ThreadDeclaration("com.cmux.host-pressure", qos: .utility),
         ThreadDeclaration("debug.window_record", qos: .userInitiated),
         ThreadDeclaration("com.cmuxterm.app.next.hang-reports.store", qos: .utility),
-        // Launch and misc.
+        // Launch and misc. The launch warm-up is on the closed user-interactive list: main reads what it builds
+        // before the first frame (LaunchWarmup).
         ThreadDeclaration("cmux-next resource bundle warm-up", qos: .userInitiated),
-        ThreadDeclaration("cmux-next launch warm-up", qos: .userInitiated),
+        ThreadDeclaration("cmux-next launch warm-up", qos: .userInteractive),
         ThreadDeclaration("cmux.updates.network", qos: .utility),
+        ThreadDeclaration("com.cmuxterm.next.energy.wake-path", qos: .utility),
         ThreadDeclaration("cmux.home.fixture.video", qos: .utility),
         ThreadDeclaration("cmux.home.promised-files", match: .operationQueue, qos: .userInitiated),
         ThreadDeclaration("com.cmuxterm.next.workspace-open", qos: .userInitiated),

@@ -1,7 +1,11 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextPages
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// A native page's content whose keyboard goes to a view inside it (a Mac
 /// Screen tab's input surface), not to the content view itself.
@@ -68,7 +72,7 @@ final class InternalPageView: NSView {
         didSet {
             guard toolbarPosition != oldValue else { return }
             barEdge.activate(toolbarPosition)
-            needsLayout = true
+            needsLayout = true // invalidate: the bar moved to the other edge (the guard above).
         }
     }
     /// The constraints that put `topBar` above or below the content; one set is active.
@@ -148,10 +152,12 @@ final class InternalPageView: NSView {
     /// The view that takes the keyboard when the tab is focused: a native
     /// page's primary input (the docked Home's message box), a React page's
     /// web content itself, so typing reaches the page without a click first,
+    /// a gated page's SwiftUI (``VisibilityGatedHostingView/focusTarget``),
     /// or the view a native page names (``InternalPageFocusing``).
     var focusTarget: NSView {
         if let input = (content as? any PrimaryInputTarget)?.primaryInputView { return input }
         if let page = content as? PageWebView { return page.focusView }
+        if let gate = content as? VisibilityGatedHostingView { return gate.focusTarget }
         return (content as? any InternalPageFocusing)?.focusTarget ?? content
     }
 
@@ -181,7 +187,7 @@ final class InternalPageView: NSView {
             self?.startRestoring { content in
                 await restore(content)
                 // The restored state reached the screen: the page's next frame, then the cover goes.
-                await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in page.afterNextFrame { done.resume() } }
+                _ = try? await withOnceContinuation { (done: OnceContinuation<Void, OnceContinuationError>) in page.afterNextFrame { done.resume(returning: ()) } }
             }
         }
     }
@@ -225,7 +231,7 @@ final class InternalPageView: NSView {
         guard let page = content as? PageWebView, page.hasPainted else { return nil }
         return try? await ControlDeadline.shared.run(method: "pages.discard.picture", deadline: .now + .seconds(2)) { @MainActor in
             if let frame = await page.hideFrame() { return frame }
-            return await page.snapshot()?.cgImage(forProposedRect: nil, context: nil, hints: nil)
+            return await page.snapshot()?.bestCGImage
         }
     }
 
@@ -233,7 +239,7 @@ final class InternalPageView: NSView {
     private func whenLaidOut(_ body: @escaping () -> Void) {
         guard bounds.isEmpty else { return body() }
         afterLayout = body
-        needsLayout = true
+        needsLayout = true // invalidate: `body` waits for the first layout with a size.
     }
 
     override func layout() {

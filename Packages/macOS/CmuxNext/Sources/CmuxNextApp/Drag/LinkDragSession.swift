@@ -5,6 +5,7 @@ import CmuxNextLayout
 import CmuxNextPages
 import CmuxNextCompat
 import CmuxNextTabs
+import CmuxNextWakeups
 
 /// A link dragged out of a chat bubble into the layout (Lawrence 2026-10-20: "drag a link, like a
 /// PR URL, to the right side or anywhere and make a split").
@@ -31,7 +32,11 @@ final class LinkDragSession {
         let ghost: LinkDragGhost
         /// The drag's input tap intercept; cancelled when the drag ends.
         var input: InputSubscription?
-        var resign: MainActorObservation?
+        /// The drag's moves on the ghost window's coalescer (feature `pointerFrameDrags`): a frame interval's first
+        /// move and the frame's latest move a hit test each. Nil while it is off: every move hit-tests.
+        var moves: PointerFrameConsumer?
+        /// The app's resign-active notice ends the drag (``AppEvents``: one observer for the app).
+        var resign: EventSubscription?
         /// The window whose layout shows the preview now, and the plan a release there runs.
         weak var window: WindowController?
         var plan: LinkDropPlan?
@@ -53,10 +58,15 @@ final class LinkDragSession {
         guard let services, drag == nil, !services.dragSession.isDragging,
               let item = LinkDragItem(url, browserEnabled: LinkRouter.shared.routing().browserEnabled) else { return false }
         let drag = Drag(item: item, ghost: LinkDragGhost(title: item.title))
+        drag.moves = services.dragFrameInput?.coalescer(for: drag.ghost.panel).consumer(owner: Self.movesOwner) { [weak self, weak drag] input in
+            // A drag that ended before its frame gets none: its end cancels the consumer.
+            guard let self, let drag, self.drag === drag else { return }
+            self.update(CGPoint(x: input.latest.location.x, y: input.latest.location.y))
+        }
         drag.input = services.inputTap.subscribe(class: TabDragSession.dragInput, phase: .intercept(order: .dragSession)) { [weak self] event in
             self?.handle(event) ?? .pass
         }
-        drag.resign = MainActorObservation(NSApplication.didResignActiveNotification) { [weak self] in
+        drag.resign = services.appEvents.subscribe(NSApplication.didResignActiveNotification, owner: "LinkDragSession.resign") { [weak self] in
             self?.finish(commit: false)
         }
         self.drag = drag
@@ -68,9 +78,16 @@ final class LinkDragSession {
     private func handle(_ event: NSEvent) -> InputEventTap.InterceptResult {
         switch event.type {
         case .leftMouseDragged:
-            update(TabDragSession.screenPoint(of: event))
+            // Once per frame interval's first move and once at its frame, with the coalescer (Chromium's rAF-aligned
+            // input, `third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`), in screen
+            // coordinates: the ghost crosses windows.
+            let point = TabDragSession.screenPoint(of: event)
+            if let moves = drag?.moves { moves.post(TabDragSession.moveRecord(at: point, time: event.timestamp)) } else { update(point) }
             return .consume
         case .leftMouseUp:
+            // The release hit-tests once, at its own point: a move still waiting for its frame is older, so it is
+            // dropped, not hit-tested first.
+            drag?.moves?.cancel()
             update(TabDragSession.screenPoint(of: event))
             finish(commit: true)
             return .consume
@@ -99,8 +116,15 @@ final class LinkDragSession {
         return services.windows.controllers.first { $0.window === window && window != nil }
     }
 
+    /// The coalescer owner of a link drag's moves.
+    static let movesOwner = "LinkDragSession.moves"
+
+    /// Hit tests the session's drags made (tests: at most two per frame with the coalescer).
+    private(set) var hitTests = 0
+
     private func update(_ screenPoint: CGPoint) {
         guard let drag else { return }
+        hitTests += 1
         drag.ghost.move(to: screenPoint)
         let controller = window(at: screenPoint, below: drag.ghost.panel)
         if let old = drag.window, old !== controller { old.content?.layoutView.cancelTabDrag() }
@@ -120,8 +144,11 @@ final class LinkDragSession {
     private func finish(commit: Bool) {
         guard let drag else { return }
         self.drag = nil
+        drag.moves?.cancel()
+        drag.moves = nil
         drag.input?.cancel()
         drag.input = nil
+        drag.resign?.cancel()
         drag.resign = nil
         drag.ghost.close()
         let content = drag.window?.content

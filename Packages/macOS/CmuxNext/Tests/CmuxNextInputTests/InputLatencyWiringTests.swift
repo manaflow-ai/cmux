@@ -228,12 +228,13 @@ struct InputLatencyWiringTests {
         send(wiring, .scrollWheel, phase: .began, pointer: pointer)
         harness.settle()
         #expect(harness.emitted.map(\.target) == [.layout, .layout, .layout, .terminal], "a new gesture is hit-tested again")
-        #expect(harness.emitted.prefix(2).allSatisfy(\.causedFrameUpdate), "a layout scroll moved the layout")
+        #expect(harness.emitted.prefix(2).allSatisfy { $0.causedFrameUpdate }, "a layout scroll moved the layout")
     }
 
     @Test("A frame update is what the dispatch left for the commit, never the target alone; a key closes either way")
     func frameUpdates() throws {
         let unchanged = InputLatencyTrackerTests.Harness()
+        unchanged.tracker.pagesReportPresentation = true  // the page waits for its own frame, as the terminal does
         let still = wiring(unchanged)
         let window = window(content: NSView())
         send(still, .keyDown, window: window, keyWindow: window)

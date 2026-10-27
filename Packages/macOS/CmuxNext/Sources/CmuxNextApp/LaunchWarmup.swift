@@ -12,13 +12,18 @@ import Foundation
 /// (`DaemonLauncher.captureLoginEnvironment(after:)`) and the palette's
 /// string tables (`LaunchFirstOpenWarmups`).
 ///
-/// `ActionCatalog.all` is a lazy global (`swift_once`): if the main thread
-/// reaches it while this thread still builds it, the main thread waits for
-/// the rest of that one build, never longer than building it itself.
+/// The action catalog is built here first (`ActionCatalogLaunch.build`), so
+/// the registry's read on the main thread before the first window finds it
+/// ready; `ActionCatalogLaunch.mainAccess` records how that read went
+/// (`debug.startup`'s `action_catalog_main_wait_ms`), and the
+/// `action_catalog_built` launch mark is when this thread finished it (no
+/// mark when main claimed the build first).
 enum LaunchWarmup {
-    static func start() {
+    static func start(catalog: ActionCatalogLaunch) {
+        // qos-allow: a frame waits for it (userInteractive): main reads the catalog, the menu's symbol and the
+        // display UUIDs before its first frame; below main's QoS a loaded machine ran them after main reached them.
         let thread = Thread {
-            _ = ActionCatalog.all
+            if catalog.build() { DebugTimings.markLaunch("action_catalog_built") }
             // The SF Symbols catalog loads on first lookup (20 ms on the
             // main thread while the palette or the main menu first drew).
             _ = NSImage(systemSymbolName: "command", accessibilityDescription: nil)
@@ -28,7 +33,7 @@ enum LaunchWarmup {
             prewarmDisplayUUIDs()
         }
         thread.name = "cmux-next launch warm-up"
-        thread.qualityOfService = .userInitiated
+        thread.qualityOfService = .userInteractive
         thread.start()
         // Its own thread: the connecting screen's strings can be read before the work above ends.
         Bundle.warmResourceBundlesInBackground()
@@ -38,6 +43,9 @@ enum LaunchWarmup {
 private nonisolated func prewarmDisplayUUIDs() {
     var displays = [CGDirectDisplayID](repeating: 0, count: 16)
     var count: UInt32 = 0
-    guard CGGetActiveDisplayList(UInt32(displays.count), &displays, &count) == .success else { return }
-    for display in displays.prefix(Int(count)) { _ = CGDisplayCreateUUIDFromDisplayID(display)?.takeRetainedValue() }
+    // SAFETY: CGGetActiveDisplayList writes at most displays.count IDs into the array's storage and the count
+    // into a local, both live for the call. CGDisplayCreateUUIDFromDisplayID follows the Create rule (+1),
+    // which takeRetainedValue balances.
+    guard unsafe CGGetActiveDisplayList(UInt32(displays.count), &displays, &count) == .success else { return }
+    for display in displays.prefix(Int(count)) { _ = unsafe CGDisplayCreateUUIDFromDisplayID(display)?.takeRetainedValue() }
 }

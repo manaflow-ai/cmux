@@ -1,0 +1,24 @@
+{
+  "id": "webviews",
+  "tier": "linux",
+  "description": "The webviews benches that need no browser, in bun on Linux: the diff stream of a 2,000-file patch with the app's jump-to-file rows (diff-stream.bench.ts), the settings page's open, search, toggle, write and section-switch gestures over the mock provider (settingsPerf.test.tsx), the agent pane's ordered-rows snapshot and turn view over 192,000 rows (orderedRowsPerf.test.ts), and the icon picker's store work per step over a macOS-sized SF Symbol catalog (icon-picker/model-bench.ts).",
+  "command": ["webviews/scripts/perf-lab-story.sh", "--engine", "none"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "web\\.diff_stream\\.(wall|first_batch|max_yield|app_render)", "unit": "ms", "better": "lower"},
+    {"name": "web\\.settings\\.[A-Za-z0-9.]+\\.(wall|react|first_frame|first_frame_react)", "unit": "ms", "better": "lower"},
+    {"name": "web\\.settings\\.[A-Za-z0-9.]+\\.(components_rendered|setting_rows|settings_list_reads|shown_incomplete|no_first_frame)", "unit": "count", "better": "lower"},
+    {"name": "web\\.ordered_rows\\.(snapshot|turn_view)", "unit": "ms", "better": "lower"},
+    {"name": "web\\.icon_picker\\.(configure|symbol_tab|symbol_keystroke|scroll_step_model|jump|move|all_categories|emoji_keystroke)", "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 300,
+  "needs": ["file:webviews/scripts/perf-result.mjs", "file:webviews/bench/diff-stream.bench.ts",
+            "file:webviews/src/pages/settings/settingsPerf.test.tsx",
+            "file:webviews/src/agent-session/acpmux/orderedRowsPerf.test.ts",
+            "file:webviews/bench/icon-picker/model-bench.ts"],
+  "owner": "Performance Lead",
+  "component": "Webviews>Bench"
+}

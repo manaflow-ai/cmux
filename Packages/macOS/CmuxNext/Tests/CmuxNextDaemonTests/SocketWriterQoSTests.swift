@@ -68,4 +68,31 @@ import Testing
         #expect(count == 2, "the writer delivered nothing within 2 s (errno \(errno))")
         #expect(buffer == Array("k\n".utf8))
     }
+
+    /// A terminal attach's writer drains on its view's input queue (p04-input-058): while that queue runs
+    /// nothing, nothing reaches the socket; once it runs, the bytes do. So a key written from the input queue
+    /// goes to `write(2)` on that serial queue, not after a second hop to a writer queue of its own.
+    @Test func aWriterWithATargetDrainsOnIt() throws {
+        var fds: [Int32] = [-1, -1]
+        try #require(socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0)
+        defer { fds.forEach { Darwin.close($0) } }
+        var timeout = timeval(tv_sec: 2, tv_usec: 0)
+        try #require(setsockopt(fds[1], SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size)) == 0)
+
+        // qos-allow: a test queue standing for the attach input queue, which runs at this class
+        let target = DispatchQueue(label: "com.cmuxterm.next.test.attach-input", qos: .userInteractive)
+        let writer = SocketWriter(fd: fds[0], label: "com.cmuxterm.next.daemon.write",
+                                  qos: DaemonWireStats.Role.terminalAttach.writerQoS, target: target)
+        defer { writer.close() }
+        target.suspend()
+        #expect(writer.write(Data("k\n".utf8)) == nil)
+
+        var ready = pollfd(fd: fds[1], events: Int16(POLLIN), revents: 0)
+        #expect(poll(&ready, 1, 100) == 0, "the writer sent while its target queue ran nothing")
+        target.resume()
+        var buffer = [UInt8](repeating: 0, count: 2)
+        let count = buffer.withUnsafeMutableBytes { Darwin.read(fds[1], $0.baseAddress, 2) }
+        #expect(count == 2, "the writer delivered nothing within 2 s of its target running (errno \(errno))")
+        #expect(buffer == Array("k\n".utf8))
+    }
 }

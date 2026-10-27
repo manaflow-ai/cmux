@@ -68,7 +68,11 @@ final class GlassKeyFix {
     static func images(_ b64: String, w: Int, h: Int) -> (CGImage, CGImage)? {
         guard let z = Data(base64Encoded: b64), let raw = try? (z as NSData).decompressed(using: .zlib) as Data,
               raw.count == w * h * 2 * 2 else { return nil }
-        let a: [UInt16] = raw.withUnsafeBytes { b in (0..<(w * h * 2)).map { UInt16(littleEndian: b.loadUnaligned(fromByteOffset: $0 * 2, as: UInt16.self)) } }
+        // cmux: the little-endian words read byte pair by byte pair, no raw pointer (strict memory safety).
+        var a: [UInt16] = []
+        a.reserveCapacity(w * h * 2)
+        var bytes = raw.makeIterator()
+        while let lo = bytes.next(), let hi = bytes.next() { a.append(UInt16(truncatingIfNeeded: lo) | UInt16(truncatingIfNeeded: hi) << 8) }
         // cmux: built by appending, no index subscripts (crash ratchet): the white map's alphas are its RGBA,
         // the black map's are its alpha over zero colour.
         let n = w * h
@@ -77,12 +81,14 @@ final class GlassKeyFix {
         for wa in a.prefix(n) { wp.append(wa); wp.append(wa); wp.append(wa); wp.append(wa) }
         for ba in a.dropFirst(n).prefix(n) { bp.append(0); bp.append(0); bp.append(0); bp.append(ba) }
         func make(_ p: [UInt16]) -> CGImage? {
-            let d = p.withUnsafeBufferPointer { Data(buffer: $0) }
+            // cmux: the words as little-endian bytes (byteOrder16Little), no raw pointer (strict memory safety).
+            var d = Data(capacity: p.count * 2)
+            for v in p { d.append(UInt8(truncatingIfNeeded: v)); d.append(UInt8(truncatingIfNeeded: v >> 8)) }
             guard let prov = CGDataProvider(data: d as CFData) else { return nil }
-            return CGImage(width: w, height: h, bitsPerComponent: 16, bitsPerPixel: 64, bytesPerRow: w * 8,
-                           space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
-                           bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder16Little.rawValue),
-                           provider: prov, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
+            return CGImage.make(width: w, height: h, bitsPerComponent: 16, bitsPerPixel: 64, bytesPerRow: w * 8,
+                                space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                                bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder16Little.rawValue),
+                                provider: prov, shouldInterpolate: false, intent: .defaultIntent)
         }
         guard let wi = make(wp), let bi = make(bp) else { return nil }
         return (wi, bi)

@@ -49,6 +49,7 @@ enum DebugTabDrag {
             "winner": drag.winner.map { .string(String(describing: $0.proposal.kind)) } ?? .null,
             "highlight": drag.winner.map { rect($0.proposal.highlightFrame) } ?? .null,
             "outcome": .string(String(describing: drag.outcome)),
+            "hit_tests": .number(Double(drag.hitTests)),
         ])
     }
 

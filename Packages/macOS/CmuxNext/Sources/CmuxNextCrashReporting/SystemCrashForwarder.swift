@@ -1,6 +1,7 @@
 public import Foundation
 public import Sentry
 import CmuxNextCompat
+import CmuxNextWakeups
 import os
 
 /// Sends the crash reports macOS writes for this app's helper processes
@@ -44,9 +45,12 @@ public final class SystemCrashForwarder: Sendable {
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.crash-forwarder", qos: .utility)
     private let watcher = Mutex<(any DispatchSourceFileSystemObject)?>(nil)
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "crash")
+    /// The folder watch's record in the launch's arm census (Debug and bench builds, p08-startup-085).
+    private let census: ArmCensusWatch
 
+    /// `file` and `line` name the line that made it in the arm census (leave the defaults).
     public init(directory: URL = SystemCrashForwarder.standardDirectory, stateFile: URL, bundlePath: String,
-                mainExecutable: String?, sends: Bool = true,
+                mainExecutable: String?, sends: Bool = true, file: StaticString = #fileID, line: UInt = #line,
                 // A clean scope: the app's breadcrumbs and contexts do not describe a helper's crash.
                 capture: @escaping @Sendable (Event) -> Void = { SentrySDK.capture(event: $0, scope: Scope()) }) {
         self.directory = directory
@@ -55,16 +59,22 @@ public final class SystemCrashForwarder: Sendable {
         self.mainExecutable = mainExecutable
         self.sends = sends
         self.capture = capture
+        census = ArmCensusWatch(.watcher, owner: "SystemCrashForwarder", file: file, line: line)
     }
 
     /// Sends every helper report written since the last run, now and each
     /// time macOS writes into the report folder, off the main thread (with
     /// `sends` false: marks them done).
     public func start() {
-        queue.async { [self] in
-            forwardNew(now: Date())
-            watch()
-        }
+        queue.async { [self] in forwardAndWatch() }
+    }
+
+    /// ``start()``'s work on the calling thread, which may block on files (a launch lane post,
+    /// ``CrashForwarders/run()``): sends the reports written since the last run, then watches the
+    /// folder on the forwarder's queue. Call it, or ``start()``, once.
+    public func forwardAndWatch() {
+        forwardNew(now: Date())
+        watch()
     }
 
     /// Sends the reports newer than the saved watermark and moves it.
@@ -117,14 +127,19 @@ public final class SystemCrashForwarder: Sendable {
     private func watch() {
         // macOS creates the folder at the first crash report; watch it from now on.
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let descriptor = open(directory.path, O_EVTONLY | O_CLOEXEC)
+        // SAFETY: open reads the NUL-terminated copy of the path made for the call.
+        let descriptor = unsafe open(directory.path, O_EVTONLY | O_CLOEXEC)
         guard descriptor >= 0 else { return }
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: [.write, .rename],
                                                                queue: queue)
-        source.setEventHandler { [weak self] in self?.forwardNew(now: Date()) }
+        source.setEventHandler { [weak self] in
+            self?.census.fired()
+            self?.forwardNew(now: Date())
+        }
         source.setCancelHandler { close(descriptor) }
         watcher.withLock { $0 = source }
         source.resume()
+        census.armed()
     }
 
     private func loadState() -> State? {
