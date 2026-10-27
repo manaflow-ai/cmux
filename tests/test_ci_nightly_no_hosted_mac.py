@@ -123,8 +123,9 @@ class NoHostedMacInNightlies(unittest.TestCase):
             for snapshot in (None, stalled):
                 with self.subTest(variable=variable, snapshot=bool(snapshot)):
                     label = picker.pick(variable, snapshot, now)[0]
-                    self.assertIsNone(HOSTED_MAC.fullmatch(label), label)
-                    self.assertTrue(label.startswith("blacksmith-"), label)
+                    for answer in (label, picker.alternate(variable, label, snapshot, now)):
+                        self.assertIsNone(HOSTED_MAC.fullmatch(answer), answer)
+                        self.assertTrue(answer.startswith("blacksmith-"), answer)
 
 
 if __name__ == "__main__":

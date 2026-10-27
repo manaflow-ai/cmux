@@ -25742,6 +25742,90 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "cloud enroll-machine",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudEnrollMachine",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Enroll Machine as Agent Host",
+      "title_key" : "action.cloudEnrollMachine",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud apply-machine-config",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudApplyMachineConfig",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Apply Machine Config",
+      "title_key" : "action.cloudApplyMachineConfig",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud deliver-secrets",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudDeliverSecrets",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Deliver Secrets to Machine",
+      "title_key" : "action.cloudDeliverSecrets",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "cloud set-idle-pause",
       "context_menu" : "offered",
       "context_menus" : [
@@ -38980,14 +39064,53 @@
               }
             },
             {
+              "enabled_when" : "can_perform",
+              "id" : "cloudEnrollMachine",
+              "kind" : "action",
+              "order" : 15,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : "cloud",
+                "requires" : [
+                  "cloudWorkspace"
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "cloudApplyMachineConfig",
+              "kind" : "action",
+              "order" : 16,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : "cloud",
+                "requires" : [
+                  "cloudWorkspace"
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "cloudDeliverSecrets",
+              "kind" : "action",
+              "order" : 17,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : "cloud",
+                "requires" : [
+                  "cloudWorkspace"
+                ]
+              }
+            },
+            {
               "kind" : "separator",
-              "order" : 15
+              "order" : 18
             },
             {
               "enabled_when" : "can_perform",
               "id" : "palette.cloud.tools",
               "kind" : "action",
-              "order" : 16,
+              "order" : 19,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "cloud",
@@ -41718,14 +41841,40 @@
               }
             },
             {
+              "enabled_when" : "can_perform",
+              "id" : "sidebar.noFade.on",
+              "kind" : "action",
+              "order" : 7,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "sidebar.noFade.off",
+              "kind" : "action",
+              "order" : 8,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
               "kind" : "separator",
-              "order" : 7
+              "order" : 9
             },
             {
               "enabled_when" : "can_perform",
               "id" : "sidebar.layout.reset",
               "kind" : "action",
-              "order" : 8,
+              "order" : 10,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -41918,40 +42067,14 @@
           }
         },
         {
-          "enabled_when" : "can_perform",
-          "id" : "sidebar.noFade.on",
-          "kind" : "action",
-          "order" : 14,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "enabled_when" : "can_perform",
-          "id" : "sidebar.noFade.off",
-          "kind" : "action",
-          "order" : 15,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
           "kind" : "separator",
-          "order" : 16
+          "order" : 14
         },
         {
           "enabled_when" : "can_perform",
           "id" : "toggleSidebar",
           "kind" : "action",
-          "order" : 17,
+          "order" : 15,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -41964,7 +42087,7 @@
           "enabled_when" : "can_perform",
           "id" : "appStore.show",
           "kind" : "action",
-          "order" : 18,
+          "order" : 16,
           "visible_when" : {
             "debug_only" : false,
             "feature" : "apps",

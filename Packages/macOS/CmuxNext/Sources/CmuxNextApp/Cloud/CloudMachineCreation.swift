@@ -29,6 +29,8 @@ final class CloudMachineCreation: Identifiable {
     private(set) var readyAfter: Duration?
     /// How the requested bootstrap started (``CloudMachineRequest/script``); nil without one.
     private(set) var bootstrap: CloudMachineBootstrap.Outcome?
+    /// How the requested machine config's apply started (``CloudMachineRequest/machineConfig``).
+    private(set) var machineConfig: CloudMachineBootstrap.Outcome?
     /// The flow's work for this creation; cancelled on dismiss and retry.
     @ObservationIgnored var task: Task<Void, Never>?
     /// What `cloud new-machine` asked for (size, idle pause); a Retry asks for the same, with
@@ -78,6 +80,10 @@ final class CloudMachineCreation: Identifiable {
 
     func noteBootstrap(_ outcome: CloudMachineBootstrap.Outcome) {
         bootstrap = outcome
+    }
+
+    func noteMachineConfig(_ outcome: CloudMachineBootstrap.Outcome) {
+        machineConfig = outcome
     }
 
     func fail(_ error: any Error) {
@@ -154,6 +160,25 @@ struct CloudCreationFlow {
     let open: @MainActor (CloudMachineSession) async throws -> String
     /// Places the opened workspace (`creation.workspaceID`) in its window.
     let show: @MainActor (String, CloudMachineCreation) -> Void
+    /// Starts the requested bootstrap (``CloudMachineRequest/script``), then applies the requested
+    /// machine config (``CloudMachineRequest/machineConfig``), each only while ``needsScript`` or
+    /// ``needsMachineConfig`` says so, noting the outcomes on the creation. A run calls it after the
+    /// create, and a Retry calls it again while either has not started (``needsBootstrap``), so a
+    /// failed start is tried again with the machine.
+    var bootstrap: @MainActor (CloudMachineCreation, CloudMachineSession) async -> Void = { _, _ in }
+
+    /// A requested bootstrap script that has not started on the machine yet, or whose start failed.
+    static func needsScript(_ creation: CloudMachineCreation) -> Bool {
+        creation.request.script != nil && (creation.bootstrap.map { $0.status == "failed" } ?? true)
+    }
+
+    /// A requested machine config whose apply has not started yet, or whose start failed.
+    static func needsMachineConfig(_ creation: CloudMachineCreation) -> Bool {
+        creation.request.machineConfig != nil && (creation.machineConfig.map { $0.status == "failed" } ?? true)
+    }
+
+    /// Either of the above: the ``bootstrap`` hook has work left.
+    static func needsBootstrap(_ creation: CloudMachineCreation) -> Bool { needsScript(creation) || needsMachineConfig(creation) }
 
     /// Starts a creation and, when a window asked, shows it there at once
     /// (before any await): the click focuses the new work, not the old one.
@@ -183,16 +208,25 @@ struct CloudCreationFlow {
     }
 
     private func run(_ creation: CloudMachineCreation) {
-        let create = create, open = open, show = show, creations = creations
+        let create = create, open = open, show = show, bootstrap = bootstrap, creations = creations
         // task-owner: the creation's one run; cancelled by retry, dismiss or machine removal
         creation.task = Task { @MainActor in
             do {
                 let session: CloudMachineSession
                 if let existing = creation.session {
                     session = existing
+                    if Self.needsBootstrap(creation) {
+                        await bootstrap(creation, session)
+                        try Task.checkCancellation()
+                    }
                 } else {
                     session = try await create(creation)
                     try Task.checkCancellation()
+                    // Before attach: a caller waiting for the machine reads the bootstrap's outcome with it.
+                    if Self.needsBootstrap(creation) {
+                        await bootstrap(creation, session)
+                        try Task.checkCancellation()
+                    }
                     creation.attach(session)
                 }
                 guard await Self.ready(creation) else { return }
