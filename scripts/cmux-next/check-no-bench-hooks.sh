@@ -9,7 +9,8 @@
 # benchOnly feature (schemas/features/features.d/*.json with "benchOnly": true): gen-features.py compiles
 # their handles and registry entries only under DEBUG || CMUX_BENCH_HOOKS, so a tagged debug build
 # (CMUXBuildConfiguration debug, scripts/reload.sh) is the one app that may name them. No app but a bench
-# one may contain the flags test public key (schemas/features/bench-test-signing-key.json).
+# one may contain the flags test public key (schemas/features/bench-test-signing-key.json), and no app may
+# carry an instrumented CEF shim its main executable does not load the runtime of (check-cef-shim-sanitizer.sh).
 set -euo pipefail
 expect=0
 if [[ "${1:-}" == --expect ]]; then expect=1; shift; fi
@@ -18,6 +19,8 @@ app="$1"
 exe_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist" 2>/dev/null || true)"
 exe="$app/Contents/MacOS/$exe_name"
 [[ -n "$exe_name" && -f "$exe" ]] || { echo "error: no main executable in $app" >&2; exit 2; }
+# An instrumented CEF shim (CMUX_CEF_SHIM_SANITIZE) only in an app that loads its sanitizer runtime.
+"$(dirname "${BASH_SOURCE[0]}")/check-cef-shim-sanitizer.sh" "$app" "$exe" || exit 1
 marker="CMUX_BENCH_HOOKS""_BUILD"
 if LC_ALL=C grep -aq "$marker" "$exe"; then
   if (( expect )); then echo "bench hooks: present in $exe_name (bench build)"; exit 0; fi

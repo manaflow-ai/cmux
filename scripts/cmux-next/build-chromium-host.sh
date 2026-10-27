@@ -21,8 +21,9 @@
 # Every source compiles with the wrapper's own flags: `common` below is
 # build-cef-shim.sh's `common`, copied here so the flags live in no file that
 # a shim or pack key hashes. tests/chromium-host-flags.test.sh fails when the
-# two differ. The shim's sources get exactly the shim build's flags; the
-# host's own (ChromiumHost/src) also -Werror.
+# two differ. The shim's sources also get the shim build's `hardening`
+# (copied the same way and checked by the same test), without its warning
+# queue flags or sanitizer; the host's own (ChromiumHost/src) get -Werror.
 #
 # ChromiumHost/src/generated/host_dispatch.inc and client/generated/remote_shim.inc
 # come from scripts/cmux-next/gen-chromium-host-wire.py and are committed
@@ -110,12 +111,17 @@ common=(
   -I"$CEF_DIR"
   -Wno-deprecated-declarations -Wno-undefined-var-template -Werror=unguarded-availability-new
 )
+# build-cef-shim.sh's `hardening`, unchanged (tests/chromium-host-flags.test.sh).
+hardening=(
+  -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST
+  -ftrivial-auto-var-init=pattern -fstack-protector-strong -fno-delete-null-pointer-checks
+)
 mkdir -p "$OUT_DIR/obj"
 objects=()
 # The real shim, as build-cef-shim.sh compiles it (helper_main.mm is the helpers' own executable).
 for src in "$SHIM_SRC"/shim_*.mm; do
   obj="$OUT_DIR/obj/shim_$(basename "$src").o"
-  "$CXX" "${common[@]}" -I"$SHIM_DIR" -I"$SHIM_HEADER_DIR" -DCMUX_CEF_SHIM_ABI_ID="\"$ABI_ID\"" -c "$src" -o "$obj"
+  "$CXX" "${common[@]}" "${hardening[@]}" -I"$SHIM_DIR" -I"$SHIM_HEADER_DIR" -DCMUX_CEF_SHIM_ABI_ID="\"$ABI_ID\"" -c "$src" -o "$obj"
   objects+=("$obj")
 done
 # The host's own sources: the dispatcher, the control channel, main.

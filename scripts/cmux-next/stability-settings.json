@@ -21,6 +21,22 @@
       "target": "*",
       "setting": ".strictMemorySafety()",
       "reason": "Strict memory safety on for every Swift target of the closure, as a warning (Chromium docs/unsafe_buffers.md order: the check on everywhere, old sites marked; scripts/cmux-next/apply-unsafe-fixits.py applies the compiler's unsafe fix-its with a SAFETY-TODO(p10) mark, the Q04 queue). The error flip is p10-stability-079. Not covered by this row: Packages/Shared/CmuxAgentCursor (CmuxAgentCursor, CmuxAgentCursorTests), vendored verbatim from manaflow-ai/cmux-cua, so the lander skips it; p10-stability-078, which owns its unsafe sites, turns the setting on in cmux-cua's manifest and moves CMUX_CUA_PINNED_SHA (scripts/cmux_agent_cursor_vendor.py sync), and 079 waits on it."
+    },
+    {
+      "task": "p10-stability-162",
+      "package": "Packages/macOS/CmuxNext",
+      "target": "CmuxNextMallocZone",
+      "kind": "c",
+      "setting": ".unsafeFlags([\"-Wall\", \"-Wextra\", \"-Wunsafe-buffer-usage\", \"-ftrivial-auto-var-init=pattern\", \"-fstack-protector-strong\", \"-fno-delete-null-pointer-checks\"])",
+      "reason": "The CEF shim's hardening for the in-process C target that registers Chromium's early malloc zone (chromium build/config/compiler/BUILD.gn: pattern-initialized locals, strong stack protector, null checks kept); the warnings are the same queue as the shim's (Q22), fixed by p10-stability-163. C, so no libc++ hardening define."
+    },
+    {
+      "task": "p10-stability-162",
+      "package": "Packages/macOS/CmuxNext",
+      "target": "CmuxNextRemoteLayer",
+      "kind": "c",
+      "setting": ".unsafeFlags([\"-Wall\", \"-Wextra\", \"-Wunsafe-buffer-usage\", \"-ftrivial-auto-var-init=pattern\", \"-fstack-protector-strong\", \"-fno-delete-null-pointer-checks\"])",
+      "reason": "The CEF shim's hardening for the in-process Objective-C target that declares CALayerHost and the remote accessibility element for layer-hosted Chromium pages (chromium build/config/compiler/BUILD.gn); warnings as for CmuxNextMallocZone."
     }
   ]
 }
