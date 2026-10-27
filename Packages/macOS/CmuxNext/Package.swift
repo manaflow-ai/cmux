@@ -1587,6 +1587,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCompat",
                 .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
                 .product(name: "Sentry-Dynamic", package: "sentry-cocoa"),
+                // CrashReporterOptionsTests checks the options against CLISentryRuntimePolicy.
+                .product(name: "CmuxSentryReporting", package: "CmuxSentryTelemetry"),
                 .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport"),
             ],
             swiftSettings: daemonSwiftSettings

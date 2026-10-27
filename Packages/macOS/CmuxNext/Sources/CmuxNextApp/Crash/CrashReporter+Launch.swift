@@ -12,8 +12,10 @@ extension CrashReporter {
     /// version, the user's `sendAnonymousTelemetry` choice in the app's own
     /// defaults (shared with the main app's same-channel bundle), and a
     /// forced `DisableTelemetry` from the managed domains, all read once.
+    /// `hangTracking` follows feature `fatalHangReports` (p09-observability-076).
     static func forThisLaunch(
         bundleID: String?,
+        hangTracking: CrashReporter.HangTracking = .sentry,
         info: [String: Any] = Bundle.main.infoDictionary ?? [:],
         defaults: UserDefaults = .standard,
         managed: any ManagedPreferenceReader = ManagedPreferenceLocation.defaultReader(),
@@ -27,7 +29,7 @@ extension CrashReporter {
             isDebugBuild: DevTools.isDebugBuild,
             telemetryOptIn: CrashReportingPolicy.telemetryOptIn(in: defaults),
             managedDisablesTelemetry: forced,
-            processEnvironment: environment))
+            processEnvironment: environment), hangTracking: hangTracking)
     }
 }
 
@@ -57,9 +59,12 @@ struct AppCrashReporting: Sendable {
     ///   - features: The features the app runs with, put on the Sentry scope right after it starts
     ///     (`DebugSettingsService.start` keeps them current as live Debug toggles change, `CrashReporter.followFeatures`).
     ///   - afterStartup: How Sentry starts and when its paused part resumes (feature `sentryHandlersFirst`).
+    ///   - hangTracking: Who reports main-thread hangs: ``CrashReporter/HangTracking/watchdog`` with feature
+    ///     `fatalHangReports`, which turns Sentry's app-hang tracker off.
     init(environment: AppEnvironment, features: CrashFeatureScope? = nil,
-         afterStartup: AfterStartup = AfterStartup(handlersFirst: false, startup: nil)) {
-        reporter = CrashReporter.forThisLaunch(bundleID: environment.launch.bundleID)
+         afterStartup: AfterStartup = AfterStartup(handlersFirst: false, startup: nil),
+         hangTracking: CrashReporter.HangTracking = .sentry) {
+        reporter = CrashReporter.forThisLaunch(bundleID: environment.launch.bundleID, hangTracking: hangTracking)
         let bundleVersion = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
         guard environment.marksRun else {
             // No Sentry in this process: the running build still decides when a notFatalUntil site traps.
