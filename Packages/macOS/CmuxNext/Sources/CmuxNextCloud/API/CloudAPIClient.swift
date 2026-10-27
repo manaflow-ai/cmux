@@ -12,7 +12,7 @@ public struct CloudAPIClient: Sendable {
 
     public let baseURL: URL
     let backendIsLocalOnly: Bool
-    let tokens: Tokens
+    private(set) var tokens: Tokens
     private(set) var teamID: TeamID
     let session: URLSession
     let appVersion: String
@@ -375,18 +375,17 @@ public struct CloudAPIClient: Sendable {
     /// plus a minute for the calls themselves, so the caller always gets an answer. The poll stops
     /// at the receipt, at the first error, or at that deadline (`timedOut`); the server destroys
     /// the VM either way. `idempotencyKey` names this one send: a create whose answer was lost is
-    /// sent once more under it, which returns the same Run, never a second paid one, and only while
-    /// `sameAccount` says the account that sent the first is still the one signed in (the server
-    /// scopes the key per account; pin the team with ``pinningTeam(_:)``). Answers the final
+    /// sent once more under it, with the first's own credentials (the server scopes the key per
+    /// account, so a switch of account between the two can't make a second Run; pin the team with
+    /// ``pinningTeam(_:)``), which returns the same Run, never a second paid one. Answers the final
     /// snapshot (`{run, attempts, artifacts, receipt}`) as JSON.
     public func runSandbox(task: String, agent: String? = nil, timeoutMs: Int = 600_000, idempotencyKey: String = UUID().uuidString,
                            teardown: Duration = .seconds(180), callsMargin: Duration = .seconds(60),
-                           sameAccount: @escaping @Sendable () async -> Bool = { true },
                            now: @escaping @Sendable () -> ContinuousClock.Instant = { .now }) async throws -> [String: Any] {
         let bound = Duration.milliseconds(timeoutMs) + teardown + callsMargin
         let data = try await SandboxDeadline.race(bound) {
             try await self.sandboxSnapshot(task: task, agent: agent, timeoutMs: timeoutMs, key: idempotencyKey,
-                                           deadline: now() + .milliseconds(timeoutMs) + teardown, sameAccount: sameAccount, now: now)
+                                           deadline: now() + .milliseconds(timeoutMs) + teardown, now: now)
         }
         guard let snapshot = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw CloudAPIError.decoding("/api/runs: no snapshot")
@@ -394,17 +393,20 @@ public struct CloudAPIClient: Sendable {
         return snapshot
     }
 
-    private func sandboxSnapshot(task: String, agent: String?, timeoutMs: Int, key: String, deadline: ContinuousClock.Instant,
-                                 sameAccount: @Sendable () async -> Bool, now: @Sendable () -> ContinuousClock.Instant) async throws -> Data {
-        let create = { try await self.createSandboxRun(task: task, agent: agent, timeoutMs: timeoutMs, idempotencyKey: key) }
+    private func sandboxSnapshot(task: String, agent: String?, timeoutMs: Int, key: String,
+                                 deadline: ContinuousClock.Instant, now: @Sendable () -> ContinuousClock.Instant) async throws -> Data {
+        // The create and its retry go with one account's credentials, read once.
+        let credentials: (access: String, refresh: String)
+        do { credentials = try await tokens() } catch { throw CloudAPIError.notSignedIn }
+        var pinned = self
+        pinned.tokens = { credentials }
+        let create = { try await pinned.createSandboxRun(task: task, agent: agent, timeoutMs: timeoutMs, idempotencyKey: key) }
         let createdData: Data
         do {
             createdData = try await create()
         } catch CloudAPIError.transport, CloudAPIError.timedOut {
             // The first create may have made the Run: whatever the retry says, the outcome stays
-            // uncertain (`timedOut`, never a refusal the caller could take as "nothing runs"). Another
-            // account signed in meanwhile: its key would start a second Run, so no retry.
-            guard await sameAccount() else { throw CloudAPIError.timedOut("/api/runs") }
+            // uncertain (`timedOut`, never a refusal the caller could take as "nothing runs").
             do { createdData = try await create() } catch { throw CloudAPIError.timedOut("/api/runs") }
         }
         let created = try JSONSerialization.jsonObject(with: createdData) as? [String: Any]
