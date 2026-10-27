@@ -1,7 +1,8 @@
 import Foundation
 
 // Typed raw protocol v12 commands live under Requests/, one domain per folder.
-// Field names are camelCase and become snake_case on the wire. Sources:
+// Each field goes on the wire as its `CodingKeys` spell it (the schema's
+// snake_case names); `WireCoding` does not rename keys. Sources:
 // cmux-tui/spec/commands.md and the server's `Command` enum
 // (crates/cmux-tui-core/src/server.rs). A command a daemon may not serve declares
 // it in `requiredCapability`, which the daemon advertises in `identify` when it
@@ -9,8 +10,8 @@ import Foundation
 // still gated by their callers instead.
 
 /// One raw protocol v12 command. Conformers encode only their own fields;
-/// the envelope adds `id` and `cmd`. Property names are converted to
-/// snake_case on the wire (`mutationID` -> `mutation_id`).
+/// the envelope adds `id` and `cmd`. Keys go on the wire exactly as the
+/// conformer's `CodingKeys` spell them (`mutationID = "mutation_id"`).
 public protocol DaemonRequest: Encodable, Sendable {
     associatedtype Response: Decodable & Sendable
     /// The wire command name and the daemon's method id for it, e.g.

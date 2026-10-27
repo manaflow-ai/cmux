@@ -84,8 +84,15 @@ public final class MockBrowserTab: BrowserTab {
     public let id: BrowserTabID
     public let engineKind: BrowserEngineKind
     public let profileID: BrowserProfileID
-    public let presentation: BrowserPresentation = .inView
+    /// `.childWindow` stands in for a page drawn in its own window (a Chromium page).
+    @ObservationIgnored public var presentation: BrowserPresentation = .inView
+    /// What the page paints behind its document (``BrowserTab/pageBackgroundColor``); nil: see-through.
+    @ObservationIgnored public var pageBackgroundColor: CGColor?
     public var completesNavigationsImmediately: Bool
+    /// The page's first content frame (``simulateFirstContentFrame()``, `MockBrowserTab+FirstContent`).
+    @ObservationIgnored let firstContentFrame = BrowserFirstContentFrame()
+    /// A view shows in the page's place (``BrowserPageCovering``).
+    @ObservationIgnored public var isPageCovered = false
 
     public var state: BrowserTabState { machine.state }
     public var favicon: NSImage?
@@ -247,8 +254,8 @@ public final class MockBrowserTab: BrowserTab {
         guard !isClosed else { throw BrowserTabError.closed }
         snapshotCount += 1
         let size = 4
-        let context = CGContext(
-            data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: 0,
+        let context = CGContext.ownedBitmap(
+            width: size, height: size,
             space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         )
@@ -303,6 +310,7 @@ public final class MockBrowserTab: BrowserTab {
         for prompt in pendingPrompts { prompt.respond(prompt.dismissalResponse) }
         pendingPrompts.removeAll()
         pageWaiters.pageEnded()
+        firstContentFrame.closed()
     }
 
     // MARK: Private

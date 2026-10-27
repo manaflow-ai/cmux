@@ -164,7 +164,7 @@ public struct URLSessionAppChannelDownloader: AppChannelDownloading {
         let task = session.downloadTask(with: url)
         try Task.checkCancellation()
         try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            try await withOnceThrowingContinuation { (continuation: OnceContinuation<Void, any Error>) in
                 delegate.setContinuation(continuation)
                 task.resume()
             }
@@ -176,7 +176,7 @@ public struct URLSessionAppChannelDownloader: AppChannelDownloading {
 
 final class DownloadDelegate: NSObject, URLSessionDownloadDelegate, Sendable {
     private struct State: Sendable {
-        var continuation: CheckedContinuation<Void, any Error>?
+        var continuation: OnceContinuation<Void, any Error>?
         var moveError: (any Error)?
         /// Set when the task completes before the continuation is installed (a cancel that
         /// raced the start), so ``setContinuation(_:)`` can resume it immediately.
@@ -192,7 +192,7 @@ final class DownloadDelegate: NSObject, URLSessionDownloadDelegate, Sendable {
         self.progress = progress
     }
 
-    func setContinuation(_ continuation: CheckedContinuation<Void, any Error>) {
+    func setContinuation(_ continuation: OnceContinuation<Void, any Error>) {
         let early: Result<Void, any Error>? = state.withLock { state in
             if let completion = state.completion { return completion }
             state.continuation = continuation
@@ -229,7 +229,7 @@ final class DownloadDelegate: NSObject, URLSessionDownloadDelegate, Sendable {
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?) {
-        let (continuation, result): (CheckedContinuation<Void, any Error>?, Result<Void, any Error>) = state.withLock { state in
+        let (continuation, result): (OnceContinuation<Void, any Error>?, Result<Void, any Error>) = state.withLock { state in
             let result: Result<Void, any Error>
             if let failure = error ?? state.moveError {
                 result = .failure(failure)

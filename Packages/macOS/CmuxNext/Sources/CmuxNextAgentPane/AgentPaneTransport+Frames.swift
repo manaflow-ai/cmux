@@ -1,6 +1,9 @@
 import Foundation
 import os
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// One page frame through the relay: the off-main checks and the main-actor decisions.
 extension AgentPaneTransport {
@@ -229,6 +232,7 @@ extension AgentPaneTransport {
     }
 
     private func finishFirst() {
+        guard !pending.isEmpty else { return }
         let entry = pending.removeFirst()
         entry.reply(entry.firstError)
     }
@@ -399,15 +403,15 @@ extension AgentPaneTransport {
         return .sent
     }
 
-    /// Asks the user to confirm a mode that does not ask (the native sheet); false without one.
+    /// Asks the user to confirm a mode that does not ask (the native sheet); false without one or unanswered.
     func confirm(_ asked: AgentPaneModeConfirmation) async -> Bool {
         guard let requestModeConfirmation else { return false }
         let gate = confirmationGate
         guard gate.open() else { return false }
         defer { gate.close() }
-        return await withCheckedContinuation { continuation in
+        return (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
             requestModeConfirmation(asked) { continuation.resume(returning: $0) }
-        }
+        }) ?? false
     }
 
     /// Records what a sent frame starts, or opens by the user's gesture. An attach alone adds

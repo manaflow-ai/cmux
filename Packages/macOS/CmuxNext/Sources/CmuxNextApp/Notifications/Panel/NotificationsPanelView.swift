@@ -191,9 +191,11 @@ final class NotificationsPanelView: NSView {
         empty.isHidden = !rows.isEmpty || !loaded
         markAllRead.isEnabled = rows.contains { $0.row.unread }
         clearAll.isEnabled = !rows.isEmpty
+        // sync-layout: the rows wrap at the list's width; the list's fitting height below reads them.
         list.layoutSubtreeIfNeeded()
         let content = rows.isEmpty ? (loaded ? empty.fittingSize.height : 0) : list.fittingSize.height
         listHeight?.constant = min(ceil(content), Self.maxListHeight)
+        // sync-layout: the caller's `select` scrolls a row into view in the document laid out at this height.
         layoutSubtreeIfNeeded()
         return fittingSize.height
     }

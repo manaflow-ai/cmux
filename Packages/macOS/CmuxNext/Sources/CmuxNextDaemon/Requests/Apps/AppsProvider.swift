@@ -37,7 +37,7 @@ public struct AppsProviderResultRequest: DaemonRequest {
     }
 
     enum CodingKeys: String, CodingKey {
-        case requestID, ok
+        case requestID = "request_id", ok
     }
 }
 

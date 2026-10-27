@@ -3,9 +3,10 @@
 // route comes from the URL fragment (#/settings/<section>?focus=<key>).
 import { createRoot } from "react-dom/client";
 import { SettingsPage } from "./components/SettingsPage";
+import { createSectionLoader, type SectionLoader } from "./lazySections";
 import type { SettingsClient } from "./ops";
 import { parseLocation } from "./router";
-import { ensureSection } from "./sectionQueries";
+import { ensureSection, shownRouteSection } from "./sectionQueries";
 import { SettingsStore } from "./store";
 import { setLocale, t } from "./strings";
 import { holdPaintUntil } from "../shared/paintGate";
@@ -14,8 +15,13 @@ import { PARKED_NAME } from "../shared/pageClient";
 /** A pooled document the host has not claimed yet (pageClient.ts). */
 const parked = () => (globalThis as Record<string, unknown>)[PARKED_NAME] === true;
 
-/** Renders the page and starts its store; the returned function unmounts both. */
-export async function mountSettingsPage(root: HTMLElement, client: SettingsClient): Promise<() => void> {
+/** Renders the page and starts its store; the returned function unmounts both. `sections` is the
+ * page's section code (the built page's chunks unless a test passes its own). */
+export async function mountSettingsPage(
+  root: HTMLElement,
+  client: SettingsClient,
+  sections: SectionLoader = createSectionLoader(),
+): Promise<() => void> {
   setLocale(document.documentElement.lang || navigator.language);
   // The one look (refined.css over layout.css): section nav, grouped cards, the app drawn as an
   // illustration in the Theme preview (Lucas #21120; the only look, Lawrence 2026-10-16).
@@ -23,17 +29,23 @@ export async function mountSettingsPage(root: HTMLElement, client: SettingsClien
   document.title = t("settingsPage.title");
   const store = new SettingsStore(client);
   const reactRoot = createRoot(root);
-  reactRoot.render(<SettingsPage store={store} />);
+  reactRoot.render(<SettingsPage store={store} sections={sections} />);
   const started = store.start();
   // The host shows the page once its first screen is in: the user's values (no control drawn
-  // disabled with its default), the host's lists (no card added after the first frame) and the
-  // reads of the section the route opens on (its route's loader draws nothing before them). The
-  // route is read when the host claims the page, which may route it first.
-  const opening = () =>
-    ensureSection(store.queryClient, store, parseLocation(location.hash.replace(/^#/, "") || "/").section);
-  holdPaintUntil(() => Promise.all([started, opening()]), parked());
+  // disabled with its default), the host's lists (no card added after the first frame), and the
+  // code and reads of the section the route opens on, as this build shows it (its route's loader
+  // draws nothing before them). The route is read when the host claims the page, which may route it first. The other
+  // sections' code loads after that, while the page is idle (lazySections.ts).
+  const opening = async () => {
+    const routed = parseLocation(location.hash.replace(/^#/, "") || "/").section;
+    const section = await shownRouteSection(store.queryClient, routed);
+    await Promise.all([sections.load(section), ensureSection(store.queryClient, store, section)]);
+  };
+  const firstScreen = () => Promise.all([started, opening()]).finally(() => sections.loadRestWhenIdle());
+  holdPaintUntil(firstScreen, parked());
   await started;
   return () => {
+    sections.dispose();
     reactRoot.unmount();
     store.dispose();
   };

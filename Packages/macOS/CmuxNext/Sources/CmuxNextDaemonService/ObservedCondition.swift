@@ -1,4 +1,7 @@
-import CmuxNextWakeups
+public import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// One wait on the main actor until a condition over observable state holds
 /// (plans/cmux-next/chrome-parity/p06-scheduler.md, recipe R-wait): a `ServiceObservation` reads the
@@ -20,7 +23,7 @@ public final class ObservedCondition {
     private let owner: String
     private let workClass: BudgetedWorkClass
     private let work: MainWorkScheduler
-    private var continuation: CheckedContinuation<Void, Never>?
+    private var continuation: OnceContinuation<Void, OnceContinuationError>?
     private var watch: ServiceObservation<Bool>?
     private var limit: MainDeadline?
     private var ended = false
@@ -45,7 +48,8 @@ public final class ObservedCondition {
         guard !ended, !condition() else { return end() }
         let work = work, owner = owner
         await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            // A dropped wait returns as an ended one does.
+            _ = try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
                 self.continuation = continuation
                 guard !Task.isCancelled else { return end() }
                 if let timeout, let deadlines {
@@ -71,7 +75,7 @@ public final class ObservedCondition {
         limit = nil
         watch?.cancel()
         watch = nil
-        continuation?.resume()
+        continuation?.resume(returning: ())
         continuation = nil
     }
 }

@@ -69,17 +69,8 @@ final class TabGhostRenderer: DropOverlayRenderer {
         icon.image = DropOverlayGlyph.image(.workspaceNew)
         label.font = Typography.bodyEmphasized
         label.lineBreakMode = .byTruncatingTail
-        let stack = NSStackView(views: [icon, label])
-        stack.orientation = .horizontal
-        stack.spacing = Metrics.space3
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        let content = pill.contentView
-        content.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: Metrics.tabContentLeadingInset),
-            stack.trailingAnchor.constraint(lessThanOrEqualTo: content.trailingAnchor, constant: -Metrics.space4),
-            stack.centerYAnchor.constraint(equalTo: content.centerYAnchor),
-        ])
+        pill.contentView.addSubview(icon)
+        pill.contentView.addSubview(label)
         view.addSubview(pill)
     }
 
@@ -99,6 +90,10 @@ final class TabGhostRenderer: DropOverlayRenderer {
         label.font = Typography.bodyEmphasized
         if label.stringValue != frame.label { label.stringValue = frame.label }
         label.isHidden = !frame.showsLabel || frame.label.isEmpty
+        // The glyph then the label from where a tab's content starts, at least `space4` from the trailing side.
+        DropOverlayRenderers.placeRow([icon, label], flexible: label, spacing: Metrics.space3,
+                                      insets: ChipLayout.Insets(top: 0, leading: Metrics.tabContentLeadingInset, bottom: 0, trailing: Metrics.space4),
+                                      in: CGRect(origin: .zero, size: rect.size), centered: false, direction: view.userInterfaceLayoutDirection)
     }
 
     func applyTheme() {

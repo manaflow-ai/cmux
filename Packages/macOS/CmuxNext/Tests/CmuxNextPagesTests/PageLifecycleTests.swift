@@ -386,7 +386,7 @@ struct PageLifecycleTests {
         try Data("<!doctype html><title>Page</title>".utf8).write(to: root.appendingPathComponent("index.html"))
         let host = WebUIHost(chromium: nil, openPanel: nil,
                              memory: QuietMemoryRegistry(),
-                             clock: PageTestClock.never)
+                             deadlines: LifecycleDeadlineRig.never)
         host.lifecycle = lifecycle
         let descriptor = PageDescriptor(id: "test.page-lifecycle", resource: "page-lifecycle", processGroup: .viewer, namespaces: [])
         let view = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [])))
@@ -480,7 +480,7 @@ struct PageLifecycleTests {
         // planner's, an owner's, or no reason at all.
         for reason in ["focused", "loading", "inspector", "confirmation", "popup", "file_drop", "dictation", "audible",
                        "web_rtc", "connected_device", "web_lock", "recently_visible", "most_recently_used",
-                       "hibernation_off", "turn_running", "pinned", "nonsense"] {
+                       "hibernation_off", "turn_running", "page_call", "pinned", "nonsense"] {
             let refused = await keepAlive(reason, true)
             #expect(refused["code"]?.stringValue == "cmux.protocol.invalid_params", "\(reason)")
         }
@@ -651,7 +651,7 @@ struct PageLifecycleTests {
         try Data("<!doctype html><title>Page</title>".utf8).write(to: root.appendingPathComponent("index.html"))
         let host = WebUIHost(chromium: nil, openPanel: nil,
                              memory: QuietMemoryRegistry(),
-                             clock: PageTestClock.never)
+                             deadlines: LifecycleDeadlineRig.never)
         host.lifecycle = lifecycle
         let descriptor = PageDescriptor(id: "test.page-keep-alive", resource: "page-keep-alive", processGroup: .viewer, namespaces: [])
         let view = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [])))

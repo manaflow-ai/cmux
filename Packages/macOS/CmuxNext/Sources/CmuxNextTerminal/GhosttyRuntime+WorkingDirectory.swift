@@ -27,19 +27,16 @@ public nonisolated struct GhosttyWorkingDirectoryInheritance: Equatable, Sendabl
         self.split = split
     }
 
+    /// The keys of `config`, a live handle the caller holds for the call.
     init(config: ghostty_config_t) {
         var window = true, tab = true, split = true
-        _ = Self.get(config, &window, key: "window-inherit-working-directory")
-        _ = Self.get(config, &tab, key: "tab-inherit-working-directory")
-        _ = Self.get(config, &split, key: "split-inherit-working-directory")
+        // SAFETY: the caller's live config; the three keys are C bools.
+        _ = unsafe GhosttyRuntime.configGet(config, &window, key: "window-inherit-working-directory")
+        // SAFETY: as above.
+        _ = unsafe GhosttyRuntime.configGet(config, &tab, key: "tab-inherit-working-directory")
+        // SAFETY: as above.
+        _ = unsafe GhosttyRuntime.configGet(config, &split, key: "split-inherit-working-directory")
         self.init(window: window, tab: tab, split: split)
-    }
-
-    /// `ghostty_config_get` for one key, callable off the main actor.
-    private static func get<T: BitwiseCopyable>(_ config: ghostty_config_t, _ value: inout T, key: String) -> Bool {
-        withUnsafeMutablePointer(to: &value) { pointer in
-            key.withCString { ghostty_config_get(config, pointer, $0, UInt(key.utf8.count)) }
-        }
     }
 
     /// Whether a new terminal of `kind` inherits the focused terminal's folder.
@@ -63,6 +60,7 @@ extension GhosttyRuntime {
     /// The inherit keys of the applied config; Ghostty's defaults when none loaded.
     public var workingDirectoryInheritance: GhosttyWorkingDirectoryInheritance {
         guard let config else { return GhosttyWorkingDirectoryInheritance() }
-        return GhosttyWorkingDirectoryInheritance(config: config)
+        // SAFETY: `config` is the live applied config (GhosttyRuntime's note), held for this call.
+        return unsafe GhosttyWorkingDirectoryInheritance(config: config)
     }
 }

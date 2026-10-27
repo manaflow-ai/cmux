@@ -162,7 +162,7 @@ extension WindowRootView {
             }
         }
         applySidebarRail()
-        needsLayout = true
+        needsLayout = true // invalidate: the callers moved the gutter, the right panel or the titlebar inset.
         updateMainPaneShade()
     }
 

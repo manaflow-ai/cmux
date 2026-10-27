@@ -13,6 +13,9 @@ import CmuxNextSignposts
 import CmuxNextTerminal
 import CmuxNextWakeups
 import Observation
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Owns every terminal surface and browser page in the process
 /// (architecture.md 4). Surfaces are keyed by tab, not by pane: a tab moved
@@ -22,6 +25,7 @@ import Observation
 /// plus an LRU of recently hidden ones (`WarmSetBudget`); older hidden surfaces are destroyed and re-attach
 /// from the daemon replay when shown. Previews of destroyed surfaces stay in an image LRU sized by
 /// ``ImageCacheShares`` from the Mac's memory.
+// memory: fixed an owner, not a cache: its maps hold the live surfaces and pages of open tabs (bounded by the warm set, `ledger`, and hibernation); each picture store is its own memory consumer (`previews`, `internalPagePictures`, `pageThumbnails`: PreviewImageCache; `lastFrames`: TerminalLastFrames)
 final class TabContentCache {
     private let daemon: DaemonService
     /// Given to every terminal session this cache makes: the modifier watch (``TerminalModifierWatch``), and the scheduler its host follows its models through.
@@ -30,10 +34,10 @@ final class TabContentCache {
     /// `terminalPointerFrames`); nil: each pointer event reaches Ghostty at once.
     let terminalPointerFrames: FrameInputCoalescers?
     let mainWork: MainWorkScheduler
-    var terminals: [String: TerminalEntry] = [:]
+    var terminals: [String: TerminalEntry] = [:] { didSet { pageRequests.services?.crashKeys?.noteTerminals(terminals.count) } }
     var browsers: [String: BrowserEntry] = [:] {
         didSet {
-            guard browsers.count != oldValue.count else { return }
+            pageRequests.services?.crashKeys?.noteBrowsers(in: browsers.values.lazy.map { $0.tab }); guard browsers.count != oldValue.count else { return }
             pageRequests.media.tabsChanged()
             if browsers.count < oldValue.count { tabRenderers.keep(only: Set(browsers.keys)) }
         }
@@ -147,6 +151,8 @@ final class TabContentCache {
     /// The launch read every browser tab's page waits for before an engine makes it (the browser
     /// profiles, p08-startup-028); nil: none.
     var enginesAwait: LaunchReadEvent?
+    /// The browser pages' pictures from the last quit, drawn over their panes at launch (feature `browserLaunchPictures`; nil while off).
+    var launchPictures: BrowserLaunchPictures?
     /// Agent marks of tabs (`TabContentCache+AgentDriven`); kept across hibernation and restarts of the page.
     var agentMarks = TabAgentMarks()
     /// Creates a Chromium page (asynchronous; a seam for tests).
@@ -196,14 +202,19 @@ final class TabContentCache {
     ///   - terminalModifiers: The terminals' one modifier watch on the app's input tap; tests without a tap pass none.
     ///   - terminalPointerFrames: The windows' pointer coalescers while `terminalPointerFrames` is on; nil otherwise.
     ///   - mainWork: The app's main-thread scheduler, for every terminal session it makes.
+    ///   - deadlines: The app's one `MainDeadline` placer on `mainWork` (`AppServices.mainDeadlines`), for its WebKit tabs.
+    ///   - appEvents: The app's one ``AppEvents`` (`AppServices.appEvents`), for its WebKit tabs' app-wide notices.
     ///   - imageCaches: The picture stores' full sizes: this Mac's budget shares with `memoryImageCaches` on, the
     ///     fixed sizes from before it otherwise (the default, which tests get).
     ///   - gpuResidency: The app's GPU memory release (``gpuResidency``); tests get none.
+    ///   - webKitProcessReuse: Same-site WebKit tab processes above the renderer limit (`webKitSameSiteProcesses`);
+    ///     nil, the default, gives every WebKit tab its own process.
     init(daemon: DaemonService, chromium: ChromiumEngineSlot, fileInput: any WebFileInputAnswering,
          afterFrame: @escaping (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) },
          resizes: ResizeCoordinator = ResizeCoordinator(), terminalModifiers: TerminalModifierWatch? = nil,
-         terminalPointerFrames: FrameInputCoalescers? = nil, mainWork: MainWorkScheduler,
-         imageCaches: ImageCacheShares = .legacy, gpuResidency: (any TerminalGPUResidency)? = nil) {
+         terminalPointerFrames: FrameInputCoalescers? = nil, mainWork: MainWorkScheduler, deadlines: MainDeadlineScheduler,
+         appEvents: AppEvents, imageCaches: ImageCacheShares = .legacy, gpuResidency: (any TerminalGPUResidency)? = nil,
+         webKitProcessReuse: WebKitProcessReuse? = nil) {
         self.imageCaches = imageCaches
         previews = PreviewImageCache(fullCapacityBytes: imageCaches.previewBytes, contents: .rebuildable)
         internalPagePictures = PreviewImageCache(fullCapacityBytes: imageCaches.internalPagePictureBytes, contents: .onlyCopy)
@@ -212,9 +223,10 @@ final class TabContentCache {
         self.terminalPointerFrames = terminalPointerFrames
         self.gpuResidency = gpuResidency
         normalWarmCapacity = SubsystemBudget.forThisMac(gpuResidentAvailable: gpuResidency != nil).warmTerminalSurfaces
-        webKit = WebKitEngine(fileInput: fileInput, stores: chromium.stores, energy: mainWork.energy, waitDeadlines: chromium.waitDeadlines)
+        webKit = WebKitEngine(fileInput: fileInput, stores: chromium.stores, energy: mainWork.energy, waitDeadlines: chromium.waitDeadlines,
+                              deadlines: deadlines, appEvents: appEvents, processReuse: webKitProcessReuse)
         self.afterFrame = afterFrame
-        browserTabs = BrowserTabService(daemon: daemon, chromium: chromium)
+        browserTabs = BrowserTabService(daemon: daemon, chromium: chromium, mainWork: mainWork)
         wireNotices()
         _ = ledger.setCapacity(normalWarmCapacity)  // no surface yet: closes nothing
         warmBudgetDidChange(to: normalWarmCapacity)
@@ -366,7 +378,7 @@ final class TabContentCache {
     /// Returns once no launch read holds browser pages: at once when none does (callers that need a page now).
     func enginesReady() async {
         guard let read = enginesAwait, !read.isSignaled else { return }
-        await withCheckedContinuation { done in read.post { done.resume() } }
+        _ = try? await withOnceContinuation { (done: OnceContinuation<Void, OnceContinuationError>) in read.post { done.resume(returning: ()) } }
     }
 
     /// The URL a browser record may open here. A record from a remote
@@ -465,6 +477,7 @@ final class TabContentCache {
         }
         if agentDrivenTabs.contains(key) { page.markAgentDriven() } else if page.isAgentDriven { agentDrivenTabs.insert(key) }
         pageRequests.proxiedTabs.adopt(store: (page as? CEFTab)?.machineStore, key: key)
+        if page.engineKind == .cef { chromium.built?.mergeEvents(of: page, following: node(for: key)) } // page events by its node
         browsers[key] = entry
         (page as? CEFTab)?.publishRenderers(as: key, into: tabRenderers) { [weak self] in self?.browsers[key]?.tab === $0 }
         hibernation?.pageDidMount(key, page)

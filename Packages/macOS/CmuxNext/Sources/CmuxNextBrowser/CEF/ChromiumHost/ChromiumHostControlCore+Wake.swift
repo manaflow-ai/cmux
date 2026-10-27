@@ -9,12 +9,15 @@ nonisolated extension ChromiumHostControlCore {
     static func wake(_ wakeWrite: Int32) {
         guard wakeWrite >= 0 else { return }
         var byte: UInt8 = 1
-        _ = Darwin.write(wakeWrite, &byte, 1)
+        // SAFETY: write reads the one byte `byte` holds during the call.
+        _ = unsafe Darwin.write(wakeWrite, &byte, 1)
     }
 
     static func drainWakePipe(_ wakeRead: Int32) {
         var bytes = [UInt8](repeating: 0, count: 64)
-        while bytes.withUnsafeMutableBytes({ Darwin.read(wakeRead, $0.baseAddress, $0.count) }) > 0 {}
+        let room = bytes.count
+        // SAFETY: read writes at most `room` bytes, the array's size, into its buffer during the call.
+        while unsafe Darwin.read(wakeRead, &bytes, room) > 0 {}
     }
 
     /// Milliseconds until `deadline`, rounded up, at least 0.

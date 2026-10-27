@@ -22,6 +22,14 @@ nonisolated enum ChromiumPageTextAccessory {
 
     private typealias Getter = @convention(c) (AnyObject, Selector) -> Int
 
+    /// The answer of a text input client cmux implements itself (host mode's
+    /// ``ChromiumHostPageView``, task p01-process-230): `.invisible` on a cmux
+    /// page, the system's placement on a web page, the rule ``install(hides:)``
+    /// gives Chromium's own view.
+    static func placement(showsCmuxPage: Bool) -> NSTextCursorAccessoryPlacement {
+        showsCmuxPage ? .invisible : .unspecified
+    }
+
     /// The classes that already carry the answer: a second install is a no-op.
     private static let installed = Mutex<Set<ObjectIdentifier>>([])
 
@@ -35,8 +43,11 @@ nonisolated enum ChromiumPageTextAccessory {
     static func install(on viewClass: AnyClass, hides: @escaping @MainActor (NSView) -> Bool) -> Bool {
         let id = ObjectIdentifier(viewClass)
         guard installed.withLock({ $0.insert(id).inserted }) else { return false }
-        let existing = class_getInstanceMethod(viewClass, selector)
-        let earlier: Getter? = existing.map { unsafeBitCast(method_getImplementation($0), to: Getter.self) }
+        // SAFETY: the Method of a live class (classes are never unloaded); nil when it has none.
+        let existing = unsafe class_getInstanceMethod(viewClass, selector)
+        // SAFETY: the method is `-(NSTextCursorAccessoryPlacement)preferredTextAccessoryPlacement`, whose IMP has
+        // the C type `Getter` (self, _cmd) -> NSInteger.
+        let earlier: Getter? = unsafe existing.map { unsafe unsafeBitCast(method_getImplementation($0), to: Getter.self) }
         let sel = Self.selector
         let answer: @convention(block) (NSView) -> Int = { view in
             // AppKit asks on the main thread; anywhere else keeps the earlier answer.
@@ -46,10 +57,12 @@ nonisolated enum ChromiumPageTextAccessory {
             return earlier?(view, sel) ?? NSTextCursorAccessoryPlacement.unspecified.rawValue
         }
         let imp = imp_implementationWithBlock(answer)
-        if let existing, let types = method_getTypeEncoding(existing) {
-            _ = class_replaceMethod(viewClass, sel, imp, types)
+        // SAFETY: `imp` is a block IMP of the getter's type (NSView) -> NSInteger; the type encoding is the
+        // existing method's (a static runtime string) or "q@:", the same signature.
+        if let existing = unsafe existing, let types = unsafe method_getTypeEncoding(existing) {
+            _ = unsafe class_replaceMethod(viewClass, sel, imp, types)
         } else {
-            _ = class_replaceMethod(viewClass, sel, imp, "q@:")
+            _ = unsafe class_replaceMethod(viewClass, sel, imp, "q@:")
         }
         return true
     }

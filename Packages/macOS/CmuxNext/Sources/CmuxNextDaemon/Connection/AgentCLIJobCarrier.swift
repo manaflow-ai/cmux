@@ -37,6 +37,11 @@ public nonisolated struct AgentCLIJobCarrier: Sendable {
         let expectedSessionID: ResourceID
         let cli: String
         let idempotencyKey: String
+
+        enum CodingKeys: String, CodingKey {
+            case expectedMachineID = "expected_machine_id", expectedSessionID = "expected_session_id", cli
+            case idempotencyKey = "idempotency_key"
+        }
     }
 
     /// Reads family evidence on this captured transport before an explicit update.

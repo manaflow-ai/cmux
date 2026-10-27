@@ -4,6 +4,9 @@ import CmuxNextDaemon
 import CmuxNextWakeups
 import Foundation
 import OSLog
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The user's keybindings.json in the binding table (cx-9ce.17): the home
 /// daemon owns the file (`keybindings-v1`, cmux-config); this reads it when
@@ -117,10 +120,11 @@ final class KeybindingsFileService {
             }
             guard let service = self else { return }
             let loaded = entries
-            await withCheckedContinuation { (loadedIn: CheckedContinuation<Void, Never>) in
+            // A job the scheduler dropped loaded nothing; the read ends all the same.
+            _ = try? await withOnceContinuation { (loadedIn: OnceContinuation<Void, OnceContinuationError>) in
                 mainWork.postFromAnyThread(.visible, owner: "KeybindingsFile.load") {
                     service.load(loaded)
-                    loadedIn.resume()
+                    loadedIn.resume(returning: ())
                 }
             }
         }

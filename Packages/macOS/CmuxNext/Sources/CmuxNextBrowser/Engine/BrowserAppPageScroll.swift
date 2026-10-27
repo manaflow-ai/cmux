@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 import CmuxNextSignposts
 
 /// The scroll position of a cmux page in a browser tab (`BrowserAppPage`) across a hibernation:
@@ -148,7 +149,7 @@ public final class BrowserAppPageScroll {
             if let scroll = next as? NSScrollView {
                 found.append(scroll)
             } else {
-                queue.append(contentsOf: next.subviews)
+                queue.append(contentsOf: next.subviewsIncludingGated)
             }
         }
         return found

@@ -1,0 +1,15 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "sidebarSlideHoldsContent",
+  "owner": "PL-motion-core",
+  "description": "While the sidebar slides open or closed, the panes beside it keep the wider of their starting and final width, ride the moving edge clipped at the far one, and lay out once when the slide lands; off, every pane resizes on every frame.",
+  "defaults": { "dev": true, "nightly": true, "release": true },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["anim-perf", "sidebar"],
+  "sticky": false,
+  "runtimeMutable": false,
+  "replaces": ["sidebar.slideHoldsContent"]
+}

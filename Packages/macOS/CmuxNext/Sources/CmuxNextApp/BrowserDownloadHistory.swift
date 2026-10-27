@@ -67,6 +67,7 @@ final class BrowserDownloadHistory {
         let storage = storage, logger = logger
         let data = try? JSONEncoder().encode(Document(downloads: rows))
         let previous = lastWrite
+        // priority-allow: only tests await lastWrite (waitForPendingWrites); no person waits for a save
         lastWrite = Task.detached(priority: .utility) {
             await previous?.value
             do {

@@ -11,7 +11,7 @@ import Testing
 @MainActor @Suite(.serialized) struct TerminalHiddenResizeTests {
     @Test func layoutChangesOfAHiddenTerminalSizeNothingUntilItIsShownThenOnce() async throws {
         _ = NSApplication.shared
-        _ = GhosttyRuntime.shared
+        GhosttyRuntime.startedForTests()
         let io = GridRecordingTerminalIO()
         let session = TerminalSession(io: io, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         try #require(session.surfaceView.surface != nil, "libghostty created no surface")

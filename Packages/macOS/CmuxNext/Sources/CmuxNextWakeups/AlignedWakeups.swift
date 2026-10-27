@@ -2,7 +2,7 @@
 /// section E), so close deadlines share the queue's one wake.
 ///
 /// The placements are the resolved form of `TimerAlignment` (p06-scheduler-011): `MainDeadline` maps
-/// `.whenHidden(node)` to ``Placement/hidden`` while the node is hidden and not exempt for media or capture,
+/// `.whenHidden(node)` to ``Placement/hidden`` while the node is hidden and not exempt for media,
 /// and to ``Placement/flexible`` otherwise; this type only places. They are Chrome's:
 /// - ``Placement/flexible``, the default: no sooner than its time, snapped up to the next 8 ms tick
 ///   (32 ms in Energy Saver), with that leeway (`kAlignWakeUps` and `kDefaultLeeway`,

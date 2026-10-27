@@ -142,6 +142,9 @@ public final class ActionRegistry {
     /// Wraps every handler run with its invocation. The App routes the run
     /// to the machine that owns the invocation's explicit target.
     @ObservationIgnored public var invocationScope: (@MainActor (ActionInvocation, () -> Void) -> Void)?
+    /// Captures the App's task locals of the run on this task (its daemon command scope), which an
+    /// ``ActionCompletion`` binds again in the tasks the run posts or starts. Nil: none.
+    @ObservationIgnored public var runLocals: (@MainActor () -> (any ActionRunLocals)?)?
     /// Each handler run's changes take its origin's cause here (``ActionOrigin/observationCause``); nil: the cause where it ran.
     @ObservationIgnored public var causes: ObservationCauses?
     /// Where an effect's completion runs, under its run's cause; a person's as userBlocking work (``settle(_:of:_:)``). Nil: where its remote half resumed.
@@ -333,7 +336,7 @@ public final class ActionRegistry {
         placeholders.remove(id)
         guard let index = indexByID[id] else { return }
         actions.remove(at: index)
-        indexByID = Dictionary(uniqueKeysWithValues: actions.enumerated().map { ($1.id, $0) })
+        indexByID = Dictionary(actions.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
         shortcutIndex = nil
     }
 

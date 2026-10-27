@@ -86,6 +86,8 @@ public final class AgentPaneLaunchImages {
     public init(directory: URL?, reader: LaunchFileReader = LaunchFileReader(), clock: any Clock<Duration> = ContinuousClock()) {
         self.directory = directory
         self.reader = reader
+        // timer-class-allow: armed in the app's main before NSApplication.run (prefetch(on:keep:mark:)), before the
+        // composition root makes its deadline scheduler; one 30 s fire per launch that drops unclaimed pages
         discard = DemandTimer(owner: "agent-pane.launch-images.keep", clock: clock)
     }
 
@@ -121,6 +123,12 @@ public final class AgentPaneLaunchImages {
         return Task { _ = await read.finished() }
     }
 
+    /// The launch settled (`LaunchSettle`) and no pane draws a launch page any more: the decoded pages no pane
+    /// took go now, not at the keep deadline, and no read starts later. Held frames stay: they are not launch reads.
+    public func dropLaunchRead() {
+        dropRead()
+    }
+
     /// Drops the read's results that no pane took, and the deadline that would drop them.
     private func dropRead() {
         read = nil
@@ -153,9 +161,20 @@ public final class AgentPaneLaunchImages {
     /// limit's share of ``maximumFiles`` the oldest held frame goes; at the critical limit none is kept.
     public func hold(_ key: String, _ frame: CGImage, size: NSSize, appearance: NSAppearance.Name?) async {
         guard size.width > 0 else { return }
-        let data = await Task.detached(priority: .utility) { frame.pageImageData() }.value
+        let data = await Task.detached(priority: Task.currentPriority) { frame.pageImageData() }.value
         removeHeld(key)
         guard let data, heldLimit > 0 else { return }
+        held[key] = HeldFrame(data: data, size: size, appearance: appearance, order: nextHeldOrder)
+        nextHeldOrder += 1
+        heldBytes += data.count
+        while held.count > heldLimit { dropOldestHeld() }
+    }
+
+    /// Holds `data`, tab `key`'s frame encoded already (the picture its page took as it hid, kept by the
+    /// page lifecycle), as ``hold(_:_:size:appearance:)`` holds one.
+    public func hold(_ key: String, encoded data: Data, size: NSSize, appearance: NSAppearance.Name?) {
+        removeHeld(key)
+        guard size.width > 0, heldLimit > 0 else { return }
         held[key] = HeldFrame(data: data, size: size, appearance: appearance, order: nextHeldOrder)
         nextHeldOrder += 1
         heldBytes += data.count
@@ -201,7 +220,7 @@ public final class AgentPaneLaunchImages {
             let scale = max(1, min(3, Int((CGFloat(cgImage.width) / image.size.width).rounded())))
             frames[Self.fileName(key, scale: scale, ext: cgImage.pageImageExtension)] = cgImage
         }
-        await Task.detached(priority: .utility) { Self.write(frames.compactMapValues { $0.pageImageData() }, to: directory) }.value
+        await Task.detached(priority: Task.currentPriority) { Self.write(frames.compactMapValues { $0.pageImageData() }, to: directory) }.value
     }
 
     /// Every saved page in `directory`, decoded, with its point size, by tab key: for each key the first

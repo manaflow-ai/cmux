@@ -107,8 +107,8 @@ import Testing
         #expect(result(packed: 2 | Self.hostMinted << 32) == nil, "a minted tab on a result that opens no tab")
         #expect(result(packed: 1 | Int64(bitPattern: 0x8000_0000_0000_0000)) == nil, "a minted id that is no browser id")
         #expect(result(placement: "/p/Profile-A") == nil, "a placement with no store separator")
-        #expect(CEFShimEvent(kind: 55, browser: 7, request: 70, a: 0, b: 1, s1: "", s2: ";s") == .unknown(kind: 55))
-        let decoded = CEFShimEvent(kind: 55, browser: 7, request: 70, a: 3, b: 1, s1: "https://p/", s2: ";s")
+        #expect(CEFShimEvent(kind: 61, browser: 7, request: 70, a: 0, b: 1, s1: "", s2: ";s") == .unknown(kind: 61))
+        let decoded = CEFShimEvent(kind: 61, browser: 7, request: 70, a: 3, b: 1, s1: "https://p/", s2: ";s")
         #expect(decoded == result().map(CEFShimEvent.windowRequestResult))
     }
 

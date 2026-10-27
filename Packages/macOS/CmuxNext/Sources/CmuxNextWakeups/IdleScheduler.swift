@@ -287,7 +287,7 @@ public final class IdleScheduler {
             stats.tasks += 1
             let idleDeadline = IdleDeadline(deadlineNanos: deadline, didTimeout: false, uptimeNanos: uptimeNanos)
             budget.run(.idle, owner: task.owner) {
-                budget.board.notePostedFrom(site)
+                budget.noteIdleTask(postedFrom: site, deadlineNanos: deadline)
                 body?(idleDeadline)
             }
         }

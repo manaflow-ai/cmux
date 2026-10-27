@@ -73,7 +73,8 @@ public nonisolated struct InputLatencySampling: Equatable, Sendable {
             return .open(.drag, target: .latched)
         case .scrollWheel:
             return decideScroll(scrollPhase)
-        case .keyUp, .flagsChanged, .mouseMoved, .magnify, .rotate, .swipe, .smartMagnify, .pressure:
+        case .keyUp, .flagsChanged, .mouseMoved, .magnify, .rotate, .swipe, .smartMagnify, .pressure,
+             .mouseEntered, .mouseExited:
             return .skip
         }
     }

@@ -143,7 +143,7 @@ final class NotificationCenterService {
     func startFeedHandoff(_ services: AppServices) {
         guard feedDriver == nil else { return }
         let feed = services.feed
-        let principal = FeedInstallPrincipal(identity: services.cloud.installIdentity, baseURL: feed.apiBaseURL)
+        let principal = FeedInstallPrincipal(identity: services.cloud.installIdentity, baseURL: feed.apiBaseURL, work: services.work, mainWork: services.mainWork)
         let driver = makeFeedDriver(services, principal: principal)
         feedDriver = driver
         // The install id comes with the first install token: at launch and at each sign-in.

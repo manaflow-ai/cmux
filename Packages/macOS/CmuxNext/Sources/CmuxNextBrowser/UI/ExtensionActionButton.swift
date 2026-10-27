@@ -11,7 +11,8 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
     var onRun: (() -> Void)?
     var onMenu: ((CGPoint) -> Void)?
     /// Drag to reorder (pinned order): whether a drag may start, then the
-    /// horizontal offset while dragging and when released.
+    /// horizontal offset while dragging and when released (0 when the button
+    /// leaves its window mid-drag).
     var canDrag: (() -> Bool)?
     var onDragMoved: ((CGFloat) -> Void)?
     var onDragEnded: ((CGFloat) -> Void)?
@@ -27,7 +28,6 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
     init(actionID: String) {
         self.actionID = actionID
         super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
         isBordered = false
         bezelStyle = .regularSquare
         imagePosition = .imageOnly
@@ -36,13 +36,15 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
         target = self
         action = #selector(run)
         setAccessibilityIdentifier(ExtensionActionToolbar.Identifier.action(actionID))
-        // The toolbar's button size (BrowserToolbarLayout counts on it).
-        NSLayoutConstraint.activate([
-            density.bind(widthAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.buttonSize },
-            density.bind(heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.buttonSize },
-        ])
+        // The toolbar's button size (BrowserToolbarLayout counts on it), a fixed square: frame layout
+        // reads `intrinsicContentSize`, the toolbar's stack view keeps it exactly.
+        for orientation in [NSLayoutConstraint.Orientation.horizontal, .vertical] {
+            setContentHuggingPriority(.required, for: orientation)
+            setContentCompressionResistancePriority(.required, for: orientation)
+        }
         density.update { [weak self] in
             guard let self else { return }
+            if side != OmnibarStyle.buttonSize { side = OmnibarStyle.buttonSize; invalidateIntrinsicContentSize() }
             layer?.cornerRadius = OmnibarStyle.buttonCornerRadius
             // The icon is sized for the density.
             if let shown { applyIcon(shown) }
@@ -54,6 +56,10 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// The toolbar's button size, read in the density binding so a density change applies.
+    private var side: CGFloat = 0
+    override var intrinsicContentSize: NSSize { NSSize(width: side, height: side) }
 
     func update(_ action: CEFExtensionAction) {
         // Every store change renders every button: decode only an icon that changed.
@@ -83,29 +89,48 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
 
     @objc private func run() { onRun?() }
 
-    /// A click runs the action; a horizontal drag past 3 pt reorders the
-    /// pinned buttons.
-    override func mouseDown(with event: NSEvent) {
-        guard isEnabled, let window else { return super.mouseDown(with: event) }
-        let start = event.locationInWindow
+    /// The press under way: where it began and whether it became a reorder drag.
+    private struct Press {
+        let start: NSPoint
         var dragging = false
+    }
+
+    /// Set from the press's mouse-down to its mouse-up; AppKit sends both, and every drag between,
+    /// to this view.
+    private var press: Press?
+
+    /// The horizontal travel past which a press may become a reorder drag.
+    static let dragThreshold: CGFloat = 3
+
+    /// A click runs the action; a horizontal drag past ``dragThreshold`` reorders the pinned buttons.
+    /// The press ends in `mouseUp(with:)`; no modal loop holds the run loop (Chromium's
+    /// `views::Button` presses in OnMousePressed and clicks in OnMouseReleased, ui/views/controls/button/button.cc).
+    override func mouseDown(with event: NSEvent) {
+        guard isEnabled, window != nil else { return super.mouseDown(with: event) }
+        press = Press(start: event.locationInWindow)
         isHighlighted = true
-        while let next = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
-            let dx = next.locationInWindow.x - start.x
-            if next.type == .leftMouseUp {
-                isHighlighted = false
-                if dragging {
-                    onDragEnded?(dx)
-                } else if bounds.contains(convert(next.locationInWindow, from: nil)) {
-                    onRun?()
-                }
-                return
-            }
-            if !dragging, abs(dx) > 3, canDrag?() == true {
-                dragging = true
-                isHighlighted = false
-            }
-            if dragging { onDragMoved?(dx) }
+    }
+
+    // local-monitor-allow: a drag is delivered unbuffered until its mouse-up (p06-scheduler.md section E, FrameInputCoalescer); each move only offsets the pinned buttons
+    override func mouseDragged(with event: NSEvent) {
+        guard var press else { return super.mouseDragged(with: event) }
+        let dx = event.locationInWindow.x - press.start.x
+        if !press.dragging, abs(dx) > Self.dragThreshold, canDrag?() == true {
+            press.dragging = true
+            isHighlighted = false
+        }
+        self.press = press
+        if press.dragging { onDragMoved?(dx) }
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard let press else { return super.mouseUp(with: event) }
+        self.press = nil
+        isHighlighted = false
+        if press.dragging {
+            onDragEnded?(event.locationInWindow.x - press.start.x)
+        } else if bounds.contains(convert(event.locationInWindow, from: nil)) {
+            onRun?()
         }
     }
 
@@ -127,11 +152,13 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
         }
     }
 
+    // visibility-walk-allow: hover is a hit test: a view hidden or shown under a still pointer gets no exit or enter, so PointerHover reads the pointer again (input state, no view work)
     override func viewDidHide() {
         super.viewDidHide()
         hover?.refresh()
     }
 
+    // visibility-walk-allow: hover is a hit test: a view hidden or shown under a still pointer gets no exit or enter, so PointerHover reads the pointer again (input state, no view work)
     override func viewDidUnhide() {
         super.viewDidUnhide()
         hover?.refresh()
@@ -139,9 +166,17 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // Out of the window, the press's mouse-up never comes here: end the press. A reorder drag
+        // ends at offset 0, its start index, so the toolbar clears the shifts and moves nothing.
+        if window == nil, let press {
+            self.press = nil
+            isHighlighted = false
+            if press.dragging { onDragEnded?(0) }
+        }
         hover?.refresh()
     }
 
+    // visibility-walk-allow: the hover fill is one layer color store in the theme scope, no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateFill()

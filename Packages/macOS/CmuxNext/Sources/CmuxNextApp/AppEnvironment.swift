@@ -2,8 +2,11 @@ import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextHomeEngine
+import CmuxNextLaunch
 import CmuxNextTerminal
+import CmuxNextWebUpdates
 import Foundation
 
 /// How this process was launched. Identity (bundle, tag, control socket)
@@ -51,10 +54,46 @@ struct AppEnvironment: Sendable {
     /// only the real app process sets it; without it nothing is read or
     /// written (tests that build `AppServices`).
     var sidebarSnapshotFile: SidebarSnapshotFile?
+    /// That file's launch read, started in `main` before the settings read in one sequence, so it has ended when
+    /// `AppServices` is made; nil makes `AppServices` start its own.
+    var sidebarSnapshot: LaunchRead<SidebarSnapshotDocument>?
+    /// The run marker's launch read (`AppRunMarker.startLaunchRead`), started in `main` with ``marksRun``, before the
+    /// settings read in one sequence; nil leaves no marker (tests that build `AppServices`).
+    var runMarker: LaunchRead<AppRunMarker.Launch>?
     /// The incognito workspaces the last run left (`IncognitoWorkspaceLedger`), read on a launch lane from
     /// `main`: the launch window's check never reads the file on the main thread. Only the real app process
     /// starts it; without it the ledger starts its own as `AppServices` is built (tests that build `AppServices`).
     var incognitoLeftovers: LaunchRead<IncognitoWorkspaceLedger.Leftovers>?
+    /// The browser pages' pictures from the last quit (`BrowserLaunchPictures`), read on a launch lane from `main`.
+    /// Only the real app process makes it; without it no picture is read or written (tests that build `AppServices`).
+    var browserLaunchPictures: BrowserLaunchPictures?
+    /// One picture per window from the last quit (`WindowPictureStore`, feature `savedWindowPicture`). Only the real
+    /// app process makes it; without it no window picture is written (tests that build `AppServices`).
+    var windowPictures: WindowPictureStore?
+    /// The kept web update (`WebUpdates`, NIGHTLY): its state and verified tree, read on a launch lane from `main`.
+    /// Nil where the bundle takes no web updates and in tests that build `AppServices`.
+    var webUpdates: LaunchRead<WebUpdates.Launch?>?
+    /// The daemon's launch snapshot, read and decoded on the files lane from `main` (p08-startup-074): the local
+    /// daemon's start takes it over. Without it (tests that build `AppServices`) the start posts its own read.
+    var launchSnapshot: LaunchSnapshotPrefetch?
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The launch's main-job census (`CMUX_NEXT_MAIN_JOB_CENSUS=1`, p08-startup-080): `debug.startup.main_jobs` reads it.
+    /// Only the real app process arms it.
+    var mainJobCensus: MainJobCensus?
+    /// The launch's global-job census (`CMUX_NEXT_GLOBAL_JOB_CENSUS=1`, p08-startup-082): `debug.startup.global_jobs`
+    /// reads it. Only the real app process arms it.
+    var globalJobCensus: GlobalJobCensus?
+    #endif
+    /// The Labs page's local feature choices and their file (``FeatureLocalOverrides``), read on a launch lane from
+    /// `main` before the settings read, so `AppServices` resolves its features with them. DEV and NIGHTLY only; nil in
+    /// Release and in tests that build `AppServices`.
+    var featureLocalOverridesFile: URL?
+    var featureLocalOverrides: LaunchRead<FeatureLocalOverrides>?
+    /// The Debug tunables features replace (``Feature/replaces``), as the build's debug-tunables.json holds them,
+    /// read on a launch lane from `main` beside ``featureLocalOverrides``: their features' local overrides
+    /// (``FeatureLaunchLocalOverrides``). Only where launch activates the tunable store
+    /// (``DebugSettingsService/launchFile(launch:environment:)``); nil in Release and in tests that build `AppServices`.
+    var featureTunableOverrides: LaunchRead<[String: Bool]>?
     /// This Mac's layout templates (`LayoutTemplateRepository`): only the real app process sets
     /// it; without it templates live in memory only (tests that build `AppServices`).
     var layoutTemplatesFile: URL?

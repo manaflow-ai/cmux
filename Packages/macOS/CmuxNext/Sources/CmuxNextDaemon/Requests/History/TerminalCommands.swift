@@ -52,6 +52,10 @@ public struct ListTerminalCommandsRequest: DaemonRequest {
         self.afterID = afterID
         self.limit = limit
     }
+
+    enum CodingKeys: String, CodingKey {
+        case afterID = "after_id", limit
+    }
 }
 
 /// `delete-terminal-commands`: exactly one of `ids`, `started_since_ms` or

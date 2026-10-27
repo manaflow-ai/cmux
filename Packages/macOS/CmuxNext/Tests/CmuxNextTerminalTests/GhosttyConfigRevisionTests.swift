@@ -98,7 +98,7 @@ import Testing
     @Test("a config change bumps the revision once, then runs the handlers in the order added")
     func aChangeBumpsOnceThenRunsHandlersInOrder() throws {
         _ = NSApplication.shared
-        let runtime = GhosttyRuntime.shared
+        let runtime = GhosttyRuntime.startedForTests()
         let applied = try #require(runtime.config, "libghostty did not initialize")
         let calls = HandlerCalls()
         let before = runtime.configRevision.value
@@ -115,7 +115,7 @@ import Testing
     @Test("a soft reload runs the surfaces' theme hook and no config change handler")
     func aSoftReloadRunsNoConfigChangeHandler() throws {
         _ = NSApplication.shared
-        let runtime = GhosttyRuntime.shared
+        let runtime = GhosttyRuntime.startedForTests()
         try #require(runtime.app != nil && runtime.config != nil, "libghostty did not initialize")
         let calls = HandlerCalls()
         runtime.addConfigChangeHandler { [weak calls, runtime] in calls?.record("service", revision: runtime.configRevision.value) }

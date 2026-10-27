@@ -49,7 +49,9 @@ public nonisolated struct LocalRouterClient: Sendable {
         let folder = shortFolder(uid: uid)
         if (path as NSString).deletingLastPathComponent == folder {
             var info = stat()
-            guard lstat(folder, &info) == 0, info.st_mode & S_IFMT == S_IFDIR, info.st_uid == uid, info.st_mode & 0o077 == 0 else {
+            // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat
+            // into `info`, a local.
+            guard unsafe lstat(folder, &info) == 0, info.st_mode & S_IFMT == S_IFDIR, info.st_uid == uid, info.st_mode & 0o077 == 0 else {
                 throw Failure.untrustedSocketFolder(folder)
             }
         }

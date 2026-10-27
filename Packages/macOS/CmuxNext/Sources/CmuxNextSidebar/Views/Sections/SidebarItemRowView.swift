@@ -2,6 +2,7 @@ import AppKit
 import CmuxAgentBrands
 import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextWakeups
 import Observation
 import QuartzCore
 
@@ -48,6 +49,9 @@ class SidebarItemRowView: NSView {
     var onRemove: (() -> Void)?
     var removeButton: SidebarIconButton?
     var wiggleSize: CGSize = .zero
+    /// The edit-mode wiggle's loop: off while the item is hidden or its window occluded.
+    let wiggleLoops = LoopVisibility("sidebar.item.wiggle")
+    private var wiggleNode: VisibilityNode { wiggleLoops.node }
 
     private(set) var info = SidebarItemInfo(title: "", symbol: "circle")
     private(set) var style = Style.builtIn
@@ -95,6 +99,7 @@ class SidebarItemRowView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay // updateLayer sets colors only
         for decoration in [pill, chip] {
             decoration.actions = ["backgroundColor": NSNull(), "bounds": NSNull(), "position": NSNull(),
                                   "borderColor": NSNull(), "borderWidth": NSNull()]
@@ -383,6 +388,7 @@ class SidebarItemRowView: NSView {
     /// The drawn title or caption (tests).
     var titleText: String { title.stringValue }
 
+    // visibility-walk-allow: only invalidates; AppKit draws a hidden view when it shows, so the repaint already waits for it
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true
@@ -410,6 +416,7 @@ class SidebarItemRowView: NSView {
     }
 
     /// Past the drag threshold the region reorders in place (R77).
+    // local-monitor-allow: a drag is delivered unbuffered until its mouse-up (p06-scheduler.md section E, FrameInputCoalescer); past the threshold the region reorders in place
     override func mouseDragged(with event: NSEvent) {
         guard let pressLocation, onDragged?(pressLocation, event) == true else { return super.mouseDragged(with: event) }
         didDrag = true
@@ -458,6 +465,7 @@ class SidebarItemRowView: NSView {
     /// navigation), Tab reaches the item and Space or Return presses it; the
     /// system focus ring follows its pill.
     override var acceptsFirstResponder: Bool { NSApp.isFullKeyboardAccessEnabled || SidebarArrowWalk.isMovingFocus }
+    // visibility-walk-allow: AppKit's key-view loop asks the view itself (Full Keyboard Access); a hidden view never takes the focus
     override var canBecomeKeyView: Bool { acceptsFirstResponder && !isHiddenOrHasHiddenAncestor }
     /// The item has keyboard focus (its glyph draws at full strength).
     private(set) var isKeyFocused = false { didSet { if isKeyFocused != oldValue { needsDisplay = true } } }
@@ -468,6 +476,17 @@ class SidebarItemRowView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         keyRepaint.track()
+        wiggleLoops.place(in: window)
+    }
+
+    override func viewDidHide() {
+        super.viewDidHide()
+        wiggleNode.set(.hidden)
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        wiggleNode.set(.visible)
     }
 
     override func becomeFirstResponder() -> Bool {

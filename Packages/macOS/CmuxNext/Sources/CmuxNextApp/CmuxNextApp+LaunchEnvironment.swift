@@ -43,7 +43,8 @@ extension CmuxNextApp {
         let path = arguments[flag + 1]
         guard !path.isEmpty, !path.hasPrefix("--") else { return }
         environmentGuard.write("CmuxNextApp.applyConfigFileArgument") {
-            setenv(CmuxConfigFile.overrideKey, path, 1)
+            // SAFETY: setenv copies the NUL-terminated copies of the name and value Swift makes for the call.
+            unsafe setenv(CmuxConfigFile.overrideKey, path, 1)
         }
     }
 #endif

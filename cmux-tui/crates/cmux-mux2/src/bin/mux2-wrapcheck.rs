@@ -8,6 +8,8 @@
 //! adversarial corpus. Prints one JSON line per case; exits 1 on any
 //! difference.
 
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
+
 use ghostty_vt::{Callbacks, Terminal};
 
 struct Rng(u64);

@@ -32,7 +32,9 @@ final class CEFWindowRequests {
     /// installed (the host would have to wait on cmux inside its navigation): cmux pushes its policy,
     /// first at the end of this turn, after `cmux_shim_initialize` was sent.
     func install(on shim: CEFShimLibrary, hostMode: Bool) {
-        shim.setWindowRequestHandler(hostMode ? nil : cefWindowRequestCallback)
+        // SAFETY: a C function of `cmux_shim_window_request_fn`; its context is the runtime's token
+        // (`cmux_shim_initialize`'s), which CEFRuntime.from resolves in the registry.
+        unsafe shim.setWindowRequestHandler(hostMode ? nil : cefWindowRequestCallback)
         pushesPolicy = hostMode
         policyMayHaveChanged()
     }

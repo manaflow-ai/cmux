@@ -17,7 +17,7 @@ enum TopPages {
     @discardableResult
     static func show(_ route: TopPageRoute, services: AppServices, in state: WindowState? = nil) -> String? {
         guard ActionRunScope.viewChangeAllowed(),
-              let controller = state.flatMap({ services.windows.controller(for: $0.id) }) ?? services.windows.active else { return nil }
+              let controller = state.flatMap({ services.windows.controllerBuildingIfWaiting(for: $0.id) }) ?? services.windows.active else { return nil }
         guard controller.topPages.view(for: route, in: controller) != nil else { return nil }
         let origin = controller.trailOrigin
         if controller.state.page != route {
@@ -130,6 +130,7 @@ extension TopHomePageView: PageDiscardable {
     func applyPendingListScroll() {
         guard let origin = pendingListScroll, !rows.isEmpty else { return }
         pendingListScroll = nil
+        // sync-layout: the scroll below reads the list's laid-out height; before it, the origin clamps to the top.
         list.layoutSubtreeIfNeeded()
         list.scroll(to: origin)
     }

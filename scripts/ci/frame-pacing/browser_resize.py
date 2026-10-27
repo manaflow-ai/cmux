@@ -14,7 +14,9 @@ CEFHostView+MotionSample.swift). The judge lines the two clocks up and reports, 
   the page was laid out at a different width than its host.
 
 A last drag runs under `debug.window_record` for before/after frames (it perturbs timing,
-so it is not measured). Report only: no threshold fails a run.
+so it is not measured). Report only: no threshold fails a run. Percentiles come from the perf
+lab's perf_stats (lab_rows.py), and `rows` gives the lab story `frame_pacing.golden` every lag
+it measured as raw samples.
 """
 
 from __future__ import annotations
@@ -22,6 +24,8 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
+
+from lab_rows import Row, perf_stats
 
 PROBE_PAGE = """<!doctype html><meta charset="utf-8"><title>Resize probe</title>
 <style>
@@ -88,11 +92,6 @@ def drive(driver, out: Path) -> None:
     driver.save("browser_resize", {"drags": drags, "opened": opened, "record": record, "recorded_drag": recorded})
 
 
-def _percentile(values: list[float], p: float) -> float:
-    ordered = sorted(values)
-    return ordered[min(len(ordered) - 1, int(round((len(ordered) - 1) * p)))] if ordered else 0.0
-
-
 def _changes(series: list[tuple[float, float]]) -> list[tuple[float, float]]:
     """(time, value) at each change of value, the first sample included."""
     out: list[tuple[float, float]] = []
@@ -138,15 +137,21 @@ def judge_drag(trace: dict, refresh: float) -> dict:
             if shown and abs(shown[-1] - width) > 0.5:
                 stale += 1
     moving = sum(1 for a, b in zip(host, host[1:]) if abs(b[1] - a[1]) > 0.5)
+    # perf_stats.pct is None for no values: a drag with no lag measured reports 0 frames.
     return {
         "frames": len(samples),
         "host_moving_frames": moving,
-        "host_lag": {"p50": _percentile(host_lags, 0.5), "max": max(host_lags, default=0)},
-        "window_lag": {"p50": _percentile(window_lags, 0.5), "max": max(window_lags, default=0)},
-        "layout_lag": {"p50": round(_percentile(layout_lags, 0.5), 2), "p95": round(_percentile(layout_lags, 0.95), 2),
+        "host_lag": {"p50": perf_stats.pct(host_lags, 0.5) or 0.0, "max": max(host_lags, default=0)},
+        "window_lag": {"p50": perf_stats.pct(window_lags, 0.5) or 0.0, "max": max(window_lags, default=0)},
+        "layout_lag": {"p50": round(perf_stats.pct(layout_lags, 0.5) or 0.0, 2),
+                       "p95": round(perf_stats.pct(layout_lags, 0.95) or 0.0, 2),
                        "max": round(max(layout_lags, default=0.0), 2), "measured": len(layout_lags)},
         "stale_frames": stale,
         "page_frames": len(page),
+        # The raw lags, for result-v1 (`rows`).
+        "host_lags": host_lags,
+        "window_lags": window_lags,
+        "layout_lags": [round(lag, 3) for lag in layout_lags],
     }
 
 
@@ -181,3 +186,18 @@ def markdown_row(verdict: dict) -> str:
             f"(p50/p95/max), stale in {verdict['stale_frames']} of {verdict['moving_frames']} moving frames; "
             f"host trails window ≤{verdict['host_lag_max']} and page window trails host ≤{verdict['window_lag_max']} frames "
             "(reported only) |")
+
+
+def rows(verdict: dict, base: str = "golden.browser_resize") -> list[Row]:
+    """result-v1 rows of a measured verdict: every frame lag of every measured drag (host behind the window, page
+    window behind the host, page layout behind the host, in display frames), and the stale frames of each drag."""
+    measured = [drag for drag in verdict.get("drags") or [] if "error" not in drag]
+    found = []
+    for key, metric in (("host_lags", "host_lag_frames"), ("window_lags", "window_lag_frames"),
+                        ("layout_lags", "layout_lag_frames")):
+        samples = tuple(lag for drag in measured for lag in drag.get(key) or [])
+        if samples:
+            found.append(Row(f"{base}.{metric}", "unitless" if key == "layout_lags" else "count", "lower", samples))
+    if measured:
+        found.append(Row(f"{base}.stale_frames", "count", "lower", tuple(drag["stale_frames"] for drag in measured)))
+    return found

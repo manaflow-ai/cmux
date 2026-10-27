@@ -667,6 +667,16 @@ post-replay actions with their own journal outcomes. A partially supported
 record fails with a compatibility error or becomes an explicit degraded
 projection. It is never silently discarded.
 
+The v1 reducer has one degraded projection. A required record with resource
+changes and also `state_upsert` or `state_delete` changes (for example a
+workspace create with its sidebar item and placement) applies its resource
+changes and moves the cursor. It does not reduce the state changes into
+`extra.state`, so `extra` keeps the checkpoint's value. The preview counts
+these changes in `state.journal_replay.state_changes_not_reduced`. Then
+`fully_reducible` is false, even when `unsupported_required_record_count` is
+0. A state change with no `value` on a `state_upsert` makes the whole record
+unsupported.
+
 Create and inspect checkpoints, preview a reduction, then seal a covered
 prefix:
 

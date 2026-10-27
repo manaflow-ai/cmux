@@ -46,12 +46,10 @@ enum HomeDockOpens {
     /// A tab made in Home's dock while no window shows Home: it moves to a column right of the
     /// dock, and the focus stays where it is.
     static func moveOffscreen(_ surface: SurfaceID, from pane: PaneModel, services: AppServices) {
-        let daemon = services.daemon(for: pane), handle = pane.handle
-        services.registry.track(Task {
-            let moved = await daemon.request("move-tab-to-column") { connection -> Void in
-                _ = try await connection.moveTabToColumn(surface, target: .pane(handle), keepFocus: true)
-            } != nil
-            return moved ? nil : "home dock: the move beside it failed (see the app log)"
-        })
+        let handle = pane.handle
+        // The daemon's send path: the move runs on the connection, logs a failure and reports it to a capturing caller.
+        services.daemon(for: pane).send("home dock: move beside it") { connection in
+            _ = try await connection.moveTabToColumn(surface, target: .pane(handle), keepFocus: true)
+        }
     }
 }

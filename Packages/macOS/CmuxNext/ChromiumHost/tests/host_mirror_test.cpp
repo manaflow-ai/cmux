@@ -296,6 +296,7 @@ struct Views : cmux_host::PageViews {
   int view = 0;
   void* Open(uint64_t) override { return &view; }
   void Close(uint64_t) override {}
+  void Place(uint64_t, const cmux_host::PageGeometry&) override {}
 };
 
 struct Event {

@@ -7,8 +7,8 @@ import Testing
 
 /// `DaemonWireStats`: the app side of the daemon wire, counted lock-free (p05-ipc-004). The fake
 /// daemon tests are the red baselines of later tasks: 095 (one connection per app) turns
-/// `connectionsOpenedTotal == 3` into 1, 090 (one parse per message) turns `decodesPerLine` toward
-/// 1, and 113 (terminal output in a shared ring) turns `outputBytesCopiedApp > 0` into 0.
+/// `connectionsOpenedTotal == 3` into 1, 090 made the transport route a line without parsing it (one
+/// parse per reply), and 113 (terminal output in a shared ring) turns `outputBytesCopiedApp > 0` into 0.
 @Suite(.timeLimit(.minutes(1)))
 struct DaemonWireStatsTests {
     static let mebibyte = 1 << 20
@@ -39,10 +39,10 @@ struct DaemonWireStatsTests {
         #expect(snapshot.connectionsOpened[.control] == 1)
         #expect(snapshot.connectionsOpened[.terminalAttach] == 2)
         #expect(snapshot.bridgeSpawnsTotal == 0)
-        // Per terminal: the splitter copies each output line in and out (each line at least the
-        // base64 of its chunk), the decode copies the payload out of the line, and merges copy again.
+        // Per terminal: the reader copies each output line in, out, and into its Data (each line at
+        // least the base64 of its chunk), the decode copies the payload out of the line, and merges copy again.
         let base64Bytes = FakeWireDaemon.chunks(for: Self.mebibyte) * FakeWireDaemon.base64Bytes(of: FakeWireDaemon.chunkBytes)
-        #expect(snapshot.outputBytesCopiedApp >= UInt64(2 * (2 * base64Bytes + Self.mebibyte)))
+        #expect(snapshot.outputBytesCopiedApp >= UInt64(2 * (3 * base64Bytes + Self.mebibyte)))
         #expect(snapshot.framesRead[.event] == UInt64(2 * FakeWireDaemon.chunks(for: Self.mebibyte)))
         // The daemon sends one line that is not JSON before each identify reply.
         #expect(snapshot.framesRead[.ignored] == 3)
@@ -70,13 +70,14 @@ struct DaemonWireStatsTests {
         await relay.close()
     }
 
-    /// Decodes are counted where they happen, one per parse. On one attach connection:
-    /// - a line that is not JSON: the envelope's try (1),
-    /// - `identify`: envelope and reply (2),
-    /// - `set-client-info`: envelope only; the attach never reads its data (1),
-    /// - `attach-surface`: envelope and reply (2),
-    /// - `colors-changed`: envelope, surface scope and colors (3),
-    /// - one `output`: envelope and payload (2).
+    /// Decodes are counted where they happen, one per parse. The transport routes each line by fields it
+    /// reads from the bytes (p05-ipc-090), so on one attach connection:
+    /// - a line that is not JSON: the envelope's try, once the scan gave it up (1),
+    /// - `identify`: the reply (1),
+    /// - `set-client-info`: none; the attach never reads its data (0),
+    /// - `attach-surface`: the reply (1),
+    /// - `colors-changed`: surface scope and colors (2),
+    /// - one `output`: the payload (1).
     @Test func anAttachCountsEachDecodeWhereItHappens() async throws {
         let stats = DaemonWireStats()
         let daemon = try FakeWireDaemon(outputBytesPerAttach: 1000, colorsBeforeOutput: true)
@@ -96,10 +97,10 @@ struct DaemonWireStatsTests {
         #expect(snapshot.framesRead[.ignored] == 1)
         #expect(snapshot.framesRead[.reply] == 3)
         #expect(snapshot.framesRead[.event] == 2)
-        #expect(snapshot.jsonDecodes == 11)
-        // The splitter copies every byte in and every line out (lines without their newline), the
-        // decode copies the 1000 payload bytes out; one chunk is never merged.
-        #expect(snapshot.outputBytesCopiedApp == snapshot.bytesRead + (snapshot.bytesRead - snapshot.linesRead) + 1000)
+        #expect(snapshot.jsonDecodes == 6)
+        // The reader copies every byte in and every line out, then into its Data (lines without their
+        // newline); the decode copies the 1000 payload bytes out; one chunk is never merged.
+        #expect(snapshot.outputBytesCopiedApp == snapshot.bytesRead + 2 * (snapshot.bytesRead - snapshot.linesRead) + 1000)
         attachment.detachNow()
     }
 
@@ -246,7 +247,7 @@ struct DaemonWireStatsTests {
         transport.start(onEvent: { _, _, _ in }, onClose: { _ in })
         let line = { (id: UInt64) in Data("{\"id\":\(id),\"cmd\":\"\(cmd)\"}".utf8) }
         await #expect(throws: DaemonError.self) {
-            _ = try await transport.request(cmd: cmd, timeout: .milliseconds(20), line)
+            _ = try await transport.request(cmd: DaemonCommandName(wire: cmd), timeout: .milliseconds(20), line)
         }
         try transport.sendNoReply(cmd: cmd, line)
         transport.close()
@@ -324,7 +325,7 @@ struct DaemonWireStatsTests {
             transport.start(onEvent: { _, _, _ in }, onClose: { _ in })
             defer { transport.close() }
             let line = { (id: UInt64) in Data("{\"id\":\(id),\"cmd\":\"identify\"}".utf8) }
-            for _ in 0..<20 { _ = try await transport.request(cmd: IdentifyRequest.command, timeout: .seconds(5), line) }
+            for _ in 0..<20 { _ = try await transport.request(cmd: IdentifyRequest.commandName, timeout: .seconds(5), line) }
             var counts: [Int] = []
             for _ in 0..<20 {
                 let counted = WireMallocProbe.allocations {
@@ -332,7 +333,7 @@ struct DaemonWireStatsTests {
                 }
                 counts.append(try #require(counted))
                 // Its reply comes before this one's (one connection, FIFO), so nothing is pending after.
-                _ = try await transport.request(cmd: IdentifyRequest.command, timeout: .seconds(5), line)
+                _ = try await transport.request(cmd: IdentifyRequest.commandName, timeout: .seconds(5), line)
             }
             fewest.append(try #require(counts.min()))
         }

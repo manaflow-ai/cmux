@@ -27,6 +27,11 @@ extension PageWebView {
     public func callPageScript(_ body: String, arguments: [String: Any] = [:]) async throws -> Any? {
         // No document yet: WebKit would launch the page's WebContent process to run it.
         if awaitsFirstShow { throw PageScriptError.notStarted }
+        // MQ12 thaws first: a frozen page cannot answer, and it does not freeze until the answer comes.
+        pushes.callStarted()
+        defer { pushes.callEnded() }
+        // The router envelopes waiting for the frame were sent before it.
+        scripts.flush()
         guard let page = chromiumSession?.page else {
             guard let view = webKitPieces?.view else { throw PageScriptError.notStarted }
             return try await view.callAsyncJavaScript(body, arguments: arguments, in: nil, contentWorld: .page)

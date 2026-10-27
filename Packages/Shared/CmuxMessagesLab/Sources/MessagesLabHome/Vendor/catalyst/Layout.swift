@@ -44,7 +44,8 @@ enum RenderScaleScope {
 
     /// Runs `body` in scope `s`, binding no task local where no task runs.
     static func with<T>(_ s: Scope, _ body: () throws -> T) rethrows -> T {
-        if Thread.isMainThread, !withUnsafeCurrentTask(body: { $0 != nil }) {
+        // SAFETY: the task handle is only tested for nil inside the closure, never kept or used after it.
+        if Thread.isMainThread, !withUnsafeCurrentTask(body: { unsafe $0 != nil }) {
             let outer = mainThreadScoped
             mainThreadScoped = s
             defer { mainThreadScoped = outer }
@@ -112,7 +113,7 @@ struct TextLayout: Hashable {
             var w: CGFloat = 0, fit: CGFloat = 0
             if range.length > 0 {
                 let line = CTTypesetterCreateLine(ts, CFRange(location: range.location, length: range.length))
-                w = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+                w = CGFloat(line.typographicWidth)
                 fit = w - CGFloat(CTLineGetTrailingWhitespaceWidth(line))
             }
             lines.append(Line(range: range, width: w, fit: fit))
@@ -697,7 +698,7 @@ enum VectorAsset {
             rest = rest.suffix(from: r.upperBound)
             if tag.hasPrefix("<rect") {
                 let v = ["x", "y", "width", "height"].map { attr(tag, $0).flatMap(Double.init) ?? 0 }
-                shapes.append((CGPath(rect: CGRect(x: v[0], y: v[1], width: v[2], height: v[3]), transform: nil), color(attr(tag, "fill"))))
+                shapes.append((CGPath.rect(CGRect(x: v[0], y: v[1], width: v[2], height: v[3])), color(attr(tag, "fill"))))
             } else if tag.hasPrefix("<path"), let d = attr(tag, "d") {
                 shapes.append((path(d), color(attr(tag, "fill"))))
             }

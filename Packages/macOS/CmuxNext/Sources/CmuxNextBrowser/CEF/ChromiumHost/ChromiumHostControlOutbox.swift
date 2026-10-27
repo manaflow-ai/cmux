@@ -99,9 +99,11 @@ nonisolated struct ChromiumHostControlOutbox: Sendable {
     /// batch: the unwritten bytes of the front entry, then whole entries after
     /// it up to the next one with descriptors or ``batchBytes``. `send` gets
     /// the front entry's descriptors when the batch starts at its first byte.
+    /// `send` gets a view of the outbox's own bytes, valid only during its call.
+    @safe
     mutating func flush(_ send: (UnsafeRawBufferPointer, [Int32]) -> SendOutcome) -> FlushResult {
         while let index = frontIndex() {
-            let (outcome, offered) = sendBatch(from: index, send)
+            let (outcome, offered) = unsafe sendBatch(from: index, send)
             switch outcome {
             case .interrupted:
                 continue
@@ -147,8 +149,9 @@ nonisolated struct ChromiumHostControlOutbox: Sendable {
             end += 1
         }
         if total == front {
-            let outcome = entries[index].bytes.withUnsafeBytes { raw in
-                send(UnsafeRawBufferPointer(rebasing: raw[offset...]), fds)
+            // SAFETY: a view of the front entry's unsent bytes, inside its array, valid for the call.
+            let outcome = unsafe entries[index].bytes.withUnsafeBytes { raw in
+                unsafe send(UnsafeRawBufferPointer(rebasing: raw[offset...]), fds)
             }
             return (outcome, total)
         }
@@ -157,7 +160,8 @@ nonisolated struct ChromiumHostControlOutbox: Sendable {
         for later in (index + 1)..<end where entries[later].live {
             scratch.append(contentsOf: entries[later].bytes)
         }
-        return (scratch.withUnsafeBytes { send($0, fds) }, total)
+        // SAFETY: a view of the whole scratch array, valid for the call.
+        return (unsafe scratch.withUnsafeBytes { unsafe send($0, fds) }, total)
     }
 
     /// Marks `count` bytes from the front written: whole entries leave, and a

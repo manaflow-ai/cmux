@@ -5,7 +5,11 @@
 // hands it to the app's callback and zeroes the shim's copy. Nothing here
 // logs a value. Save and update prompts (API 20, passwords.md 1.1) go to the
 // host's prompt bar: the event carries the origin and username, never the
-// password, which stays inside Chromium from the form to the store.
+// password, which stays inside Chromium from the form to the store. A field's
+// password, address and autocomplete suggestions (fork API 31, tasks
+// p01-process-172 and 061) go to the app as SUGGESTIONS events with the
+// rows' texts as Chromium shows them (a password row: its username and
+// dots), never a password; Chromium fills the form itself on ACCEPT.
 
 #include <string>
 #include <vector>
@@ -136,9 +140,43 @@ void PasswordPromptTrampoline(void*, const char* json) {
   Emit(CMUX_SHIM_PASSWORD_PROMPT, prompt->GetInt("browser_id"), prompt->GetInt("prompt_id"), 0, 0, json);
 }
 
+// Suggestions as data (fork API 31): one handler for every browser while the
+// app draws them (cmux_shim_set_suggestion_events), each callback re-emitted
+// as a CMUX_SHIM_SUGGESTIONS event of its browser (UI thread).
+bool suggestion_events = false;
+
+void SuggestionsShown(void*, int browser_id, const ForkSuggestions* rows) {
+  const std::string json = SuggestionsJSON(rows);
+  if (json.empty()) return;
+  Emit(CMUX_SHIM_SUGGESTIONS, browser_id, CMUX_SHIM_SUGGESTIONS_SHOW, rows->token, 0, json);
+}
+
+void SuggestionSelected(void*, int browser_id, int64_t token, int index) {
+  Emit(CMUX_SHIM_SUGGESTIONS, browser_id, CMUX_SHIM_SUGGESTIONS_SELECT, token, index < 0 ? -1 : index);
+}
+
+void SuggestionsHidden(void*, int browser_id, int64_t token) {
+  Emit(CMUX_SHIM_SUGGESTIONS, browser_id, CMUX_SHIM_SUGGESTIONS_HIDE, token);
+}
+
+void SuggestionAnnounced(void*, int browser_id, const char* text) {
+  if (text && *text) Emit(CMUX_SHIM_SUGGESTIONS, browser_id, CMUX_SHIM_SUGGESTIONS_ANNOUNCE, 0, 0, text);
+}
+
+const ForkSuggestionHandler kSuggestionHandler = {
+    sizeof(ForkSuggestionHandler), &SuggestionsShown, &SuggestionSelected, &SuggestionsHidden, &SuggestionAnnounced,
+    nullptr,
+};
+
 }  // namespace
 
 namespace cmux_shim {
+
+void InstallSuggestionHandler(int browser_id) {
+  if (suggestion_events && fork_api().browser_set_suggestion_handler) {
+    fork_api().browser_set_suggestion_handler(browser_id, &kSuggestionHandler);
+  }
+}
 
 void InstallPasswordPromptHandler() {
   if (fork_api().set_password_prompt_handler) fork_api().set_password_prompt_handler(PasswordPromptTrampoline, nullptr);
@@ -154,6 +192,24 @@ extern "C" {
 
 int cmux_shim_password_prompt_answer(int prompt_id, int action, const char* username) {
   return fork_api().password_prompt_answer ? fork_api().password_prompt_answer(prompt_id, action, username) : 0;
+}
+
+void cmux_shim_set_suggestion_events(int enabled) {
+  const ForkApi& api = fork_api();
+  if (!api.browser_set_suggestion_handler || !api.browser_suggestion_action) return;
+  // A repeated set changes nothing: replacing a handler would close the shown rows.
+  if (suggestion_events == (enabled != 0)) return;
+  suggestion_events = enabled != 0;
+  // Replacing or removing a browser's handler closes its shown rows through
+  // the old hide, so the app hears HIDE for each.
+  for (const auto& entry : browsers()) {
+    api.browser_set_suggestion_handler(entry.first, suggestion_events ? &kSuggestionHandler : nullptr);
+  }
+}
+
+int cmux_shim_browser_suggestion_action(int browser_id, int64_t token, int action, int index) {
+  return fork_api().browser_suggestion_action ? fork_api().browser_suggestion_action(browser_id, token, action, index)
+                                              : 0;
 }
 
 int cmux_shim_set_password_generation_enabled(int enabled) {

@@ -28,7 +28,7 @@ enum DebugAXFrame {
     }
 
     static func run(_ params: [String: JSONValue], services: AppServices) async -> JSONValue {
-        guard let (target, frames) = await MainActor.run(body: { plan(params, services: services) }) else {
+        guard let (target, frames) = plan(params, services: services) else {
             return .object(["error": .string("no window or no frames")])
         }
         // A person ran the debug command and waits for it.
@@ -45,11 +45,13 @@ enum DebugAXFrame {
             for (attribute, value) in calls {
                 let error = (try? await work.run(.userBlocking, mayBlock: .system) { element.set(attribute, from: value) }) ?? .failure
                 // The AX request ran on the main thread before it returned.
-                let immediate = await MainActor.run { sample(services, windowID: target.windowID) }
-                // Then whatever the main actor had queued behind it (layout,
-                // notifications posted with a run-loop delay).
-                await MainActor.run {}
-                let settled = await MainActor.run { sample(services, windowID: target.windowID) }
+                let immediate = sample(services, windowID: target.windowID)
+                // Then whatever the main thread had queued behind it (layout,
+                // notifications posted with a run-loop delay): a posted task
+                // runs on a later turn, after the work posted before it.
+                let settled = await services.mainWork.apply(.automation, owner: "debug.ax_set_frame.settled") {
+                    sample(services, windowID: target.windowID)
+                }
                 if !(immediate.problems.isEmpty && settled.problems.isEmpty) { allInSync = false }
                 steps.append(.object([
                     "set": .string(attribute), "value": rect(value), "ax_error": .number(Double(error.rawValue)),

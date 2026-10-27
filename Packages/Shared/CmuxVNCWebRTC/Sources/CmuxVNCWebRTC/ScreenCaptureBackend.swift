@@ -58,17 +58,28 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     /// and capture the streaming one at its new size (a stream configured for
     /// the old mode can stop delivering frames).
     private func watchDisplays() {
+        // The context is this backend, retained by watchDisplays and released by stop() only
+        // after the callback is removed (on the main thread, where the callbacks run), so a
+        // callback always sees a live backend.
         let callback: CGDisplayReconfigurationCallBack = { _, flags, context in
-            guard !flags.contains(.beginConfigurationFlag), let context else { return }
-            let backend = Unmanaged<ScreenCaptureBackend>.fromOpaque(context).takeUnretainedValue()
+            // SAFETY: Core Graphics hands back the context pointer given at registration.
+            guard !flags.contains(.beginConfigurationFlag), let context = unsafe context else { return }
+            // SAFETY: the context is the +1 backend (ownership above); the unretained read does
+            // not change its count.
+            let backend = unsafe Unmanaged<ScreenCaptureBackend>.fromOpaque(context).takeUnretainedValue()
             backend.recover("displays changed")
         }
         // Registered under the lock, and never after stop(): stop() then always removes it.
         lock.withLock {
-            guard !stopped, reconfiguration == nil else { return }
-            let context = Unmanaged.passRetained(self)
-            reconfiguration = (callback, context)
-            CGDisplayRegisterReconfigurationCallback(callback, context.toOpaque())
+            // SAFETY: reads the stored registration; its context is only released by stop().
+            guard !stopped, unsafe reconfiguration == nil else { return }
+            // SAFETY: the +1 the callback's context holds, released once by stop().
+            let context = unsafe Unmanaged.passRetained(self)
+            // SAFETY: stores the registration stop() removes and releases exactly once.
+            unsafe reconfiguration = (callback, context)
+            // SAFETY: the context pointer is the +1 backend above, live until stop() removes this
+            // callback and only then releases it.
+            _ = unsafe CGDisplayRegisterReconfigurationCallback(callback, context.toOpaque())
         }
     }
 
@@ -156,20 +167,27 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     }
 
     public func stop() {
-        let (stream, reconfiguration) = lock.withLock { () -> (SCStream?, (callback: CGDisplayReconfigurationCallBack, context: Unmanaged<ScreenCaptureBackend>)?) in
+        // SAFETY: takes the registration out under the lock, so exactly one stop() gets it.
+        let (stream, reconfiguration) = unsafe lock.withLock { () -> (SCStream?, (callback: CGDisplayReconfigurationCallBack, context: Unmanaged<ScreenCaptureBackend>)?) in
             defer {
                 self.stream = nil
                 stopped = true
-                self.reconfiguration = nil
+                // SAFETY: clears the field; the value moved out above.
+                unsafe self.reconfiguration = nil
             }
-            return (self.stream, self.reconfiguration)
+            // SAFETY: moves the registration out; nothing else releases it.
+            return (self.stream, unsafe self.reconfiguration)
         }
-        if let reconfiguration {
+        // SAFETY: the registration this stop() took out, the only one to release it.
+        if let reconfiguration = unsafe reconfiguration {
             // On the main thread, where the callbacks run: none is mid-call when
             // the hold it used is released.
             let release = { @Sendable in
-                CGDisplayRemoveReconfigurationCallback(reconfiguration.callback, reconfiguration.context.toOpaque())
-                reconfiguration.context.release()
+                // SAFETY: removes the callback registered with this context; after it no callback
+                // can receive the context.
+                unsafe CGDisplayRemoveReconfigurationCallback(reconfiguration.callback, reconfiguration.context.toOpaque())
+                // SAFETY: releases the +1 watchDisplays took, once, after the callback is gone.
+                unsafe reconfiguration.context.release()
             }
             if Thread.isMainThread { release() } else { DispatchQueue.main.async(execute: release) }
         }
@@ -284,7 +302,9 @@ private struct Poster {
         let utf16 = Array(String(character).utf16)
         for down in [true, false] {
             let event = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: down)
-            event?.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: utf16)
+            // SAFETY: CGEvent copies stringLength = utf16.count UTF-16 units from the array, which
+            // Swift keeps alive for this call only.
+            unsafe event?.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: utf16)
             event?.flags = flags
             post(event)
         }

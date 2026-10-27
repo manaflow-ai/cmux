@@ -11,7 +11,7 @@ public struct TabShortcutHintGeometry {
     public func frames(in strip: TabStripView) -> [(TabID, CGRect)] {
         strip.displayed.compactMap { item in
             guard let cell = strip.cells[item.id], cell.layer.opacity > 0.9 else { return nil }
-            let rect = strip.tabsClip.convert(cell.frame, to: strip)
+            let rect = strip.tabsClip.convert(strip.scroller.shownFrame(cell.layer), to: strip)
             guard strip.bounds.contains(rect), rect.width >= 20 else { return nil }
             return (item.id, rect)
         }

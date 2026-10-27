@@ -3,6 +3,9 @@ package import CmuxNextCompat
 package import CmuxNextWakeups
 package import Foundation
 package import os
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Gives the local model relay (cmux-tui crate cmux-coderouter, started by
 /// the acpmux daemon) the signed-in account's bearer for the hosted cmux
@@ -39,11 +42,12 @@ package import os
         loop?.cancel()
         let router = router
         guard userID != nil else {
-            // task-owner: one clear_upstream; ends with the reply
-            loop = Task { try? await router.clearUpstream() }
+            // task-owner: one clear_upstream; ends with the reply. Off main: only the relay's client.
+            loop = Task { @concurrent in try? await router.clearUpstream() }
             return
         }
         // task-owner: lives while this account is signed in; each pass is one token read and one set_upstream, then a clock wait
+        // main-hop-allow: the lease loop reads the main-actor account (CloudLeaseTokens, the app's CloudAuth) between its awaits; the relay call and the renewal wait run off main
         loop = Task { [weak self] in await self?.run() }
     }
 
@@ -93,11 +97,12 @@ package import os
         let router = router
         let pid = routerPID
         let wake = RenewalWake()
+        // timer-class-allow: off-main: its action only resumes the renewal wait under the wake's lock (a nonisolated closure sleeps on the injected clock); it posts no main-thread job
         let renewal = DemandTimer(owner: "ModelRouterLease.renewal", clock: clock)
-        // task-owner: this wait; cancelled when it ends, ends when the relay exits
-        let watch = Task { if await router.waitUntilGone(pid: pid) { wake.wake() } }
+        // task-owner: this wait; cancelled when it ends, ends when the relay exits. Off main: only the relay's client.
+        let watch = Task { @concurrent in if await router.waitUntilGone(pid: pid) { wake.wake() } }
         await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
                 wake.begin(continuation)
                 renewal.schedule(after: wait) { wake.wake() }
             }
@@ -114,26 +119,26 @@ package import os
 /// a wake before the wait begins resumes it at once.
 private nonisolated final class RenewalWake: Sendable {
     private struct State {
-        var continuation: CheckedContinuation<Void, Never>?
+        var continuation: OnceContinuation<Void, OnceContinuationError>?
         var woken = false
     }
 
     private let state = Mutex(State())
 
-    func begin(_ continuation: CheckedContinuation<Void, Never>) {
+    func begin(_ continuation: OnceContinuation<Void, OnceContinuationError>) {
         let woken = state.withLock { state -> Bool in
             if !state.woken { state.continuation = continuation }
             return state.woken
         }
-        if woken { continuation.resume() }
+        if woken { continuation.resume(returning: ()) }
     }
 
     func wake() {
-        let continuation = state.withLock { state -> CheckedContinuation<Void, Never>? in
+        let continuation = state.withLock { state -> OnceContinuation<Void, OnceContinuationError>? in
             state.woken = true
             defer { state.continuation = nil }
             return state.continuation
         }
-        continuation?.resume()
+        continuation?.resume(returning: ())
     }
 }

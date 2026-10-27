@@ -1,4 +1,6 @@
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 extension BackgroundWork {
     /// A new ``WorkSequence`` on `lane`: its items run in post order, never two at once, each on whichever
@@ -143,12 +145,13 @@ public final class WorkSequence: Sendable, CustomStringConvertible {
         let level = max(priority, WorkPriority(Task.currentPriority))
         let tracedPost = scheduler.postStamp()
         return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
+            try await withOnceThrowingContinuation { (continuation: OnceContinuation<T, any Error>) in
                 guard let job = work.makeJob(id: id, lane: lane, shutdown: shutdown, site: site,
                                              work: { continuation.resume(with: Result { try body() }) },
                                              abandoned: { continuation.resume(throwing: CancellationError()) },
                                              finished: { [self] in finished(id) }) else {
-                    return continuation.resume(throwing: CancellationError())
+                    continuation.resume(throwing: CancellationError())
+                    return
                 }
                 // Checked under the sequence's lock, so a cancel either finds the item or stops it here.
                 add(Item(job: job, priority: level, posted: false, tracedPost: tracedPost), unless: { Task.isCancelled })

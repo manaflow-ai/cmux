@@ -35,6 +35,9 @@ macro_rules! feature_handles {
 }
 
 mod generated;
+/// The daemons' value sources (managed policy, the signed document, the channel).
+#[cfg(feature = "sources")]
+pub mod sources;
 
 pub use generated::feature;
 

@@ -42,6 +42,8 @@ public final class FilesPaneView: NSView {
     private var available: (folder: URL, bytes: Int64?)?
     private var views: [FileViewMode: any FileContentView] = [:]
     private var shown: (any FileContentView)?
+    /// The icon arrivals the shown view has drawn (``FileIconProvider/arrivals``).
+    private var drawnIconArrivals = 0
     private var observation: Task<Void, Never>?
 
     /// Makes a pane over `model` and starts showing it.
@@ -63,10 +65,11 @@ public final class FilesPaneView: NSView {
         observation = Task { [weak self] in
             guard let model = self?.model else { return }
             guard let sidebar = self?.sidebar else { return }
+            guard let icons = self?.icons else { return }
             for await _ in ObservationStream({ [model, sidebar] in
                 _ = (model.entries, model.selection, model.folder, model.viewMode, model.phase, model.canGoBack,
                      model.canGoForward, model.showHidden, model.transferProgress, model.lastError,
-                     sidebar.favorites, sidebar.locations, sidebar.isVisible)
+                     sidebar.favorites, sidebar.locations, sidebar.isVisible, icons.arrivals)
             }) {
                 self?.render()
             }
@@ -117,6 +120,10 @@ public final class FilesPaneView: NSView {
         }
         (view as? FileColumnsView)?.setShowsHidden(model.showHidden)
         view.show(model.entries, of: model.folder, selection: model.selection)
+        if drawnIconArrivals != icons.arrivals {
+            drawnIconArrivals = icons.arrivals
+            view.redrawIcons()
+        }
         sidebarView.view.isHidden = !sidebar.isVisible
         sidebarWidth?.constant = sidebar.isVisible ? 170 : 0
         if sidebar.isVisible { sidebarView.show(FileSidebarRow.rows(for: sidebar, home: home), current: model.folder) }

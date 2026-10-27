@@ -1,4 +1,7 @@
 import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 // HomeStore's attachment upload pipeline: upload passes, the per-conversation
 // send queue, resuming interrupted uploads, and re-uploads after a sweep.
@@ -37,9 +40,10 @@ extension HomeStore {
             job.waitingForReconnect = false
             job.active = true
             let uploaded = job.uploaded
-            job.progress = Dictionary(uniqueKeysWithValues: job.attachments.map {
+            // A file attached twice has one hash, so both copies share one progress value.
+            job.progress = Dictionary(job.attachments.map {
                 ($0.ref.hash, uploaded.contains($0.ref.hash) ? 1.0 : 0.0)
-            })
+            }, uniquingKeysWith: { first, _ in first })
             let attempt = job.attempt
             let passKey = key
             let task = Task { [weak self] () -> HomeRejection? in
@@ -117,7 +121,8 @@ extension HomeStore {
     func waitForTurn(_ key: IdempotencyKey, in conversation: ConversationID) async {
         guard !stopped, let keys = sendQueue[conversation], keys.contains(key), keys.first != key else { return }
         log.setQueued(key, true)
-        await withCheckedContinuation { turnWaiters[key] = $0 }
+        // A waiter replaced or dropped unresumed (abandoned) stops waiting, as the store's stop does.
+        try? await withOnceContinuation { (turn: OnceContinuation<Void, OnceContinuationError>) in turnWaiters[key] = turn }
         log.setQueued(key, false)
     }
 
@@ -140,7 +145,7 @@ extension HomeStore {
         guard var keys = sendQueue[conversation] else { return }
         keys.removeAll(where: gone)
         sendQueue[conversation] = keys.isEmpty ? nil : keys
-        if let first = keys.first, let waiter = turnWaiters.removeValue(forKey: first) { waiter.resume() }
+        if let first = keys.first, let waiter = turnWaiters.removeValue(forKey: first) { waiter.resume(returning: ()) }
     }
 
     /// Uploads again every send whose upload a disconnect interrupted, in

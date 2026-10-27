@@ -15,7 +15,8 @@ extension SidebarBridge {
         cardsObservation?.cancel()
         cards?.cancel()
         let requests = services.cache.pageRequests
-        let nowPlaying = model.followNowPlaying(services.nowPlayingSources, dismissal: requests.nowPlayingCard, settings: { [weak services] in services?.settings }, registry: services.registry)
+        let nowPlaying = model.followNowPlaying(services.nowPlayingSources, dismissal: requests.nowPlayingCard, settings: { [weak services] in services?.settings }, registry: services.registry,
+                                                 queries: services.workspaceQueries)
         // The Priority view (`sidebar.priorityView.*`) ends with the cards.
         let priority = SidebarPriorityFeed(services: services).start(container.sidebarView)
         cards = SidebarCardFeed.start(model: model, updater: services.updater, registry: services.registry, asks: services.machineAsks, on: services.mainWork)

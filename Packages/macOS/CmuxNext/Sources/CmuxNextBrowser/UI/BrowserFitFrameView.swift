@@ -76,7 +76,7 @@ public final class BrowserFitFrameView: NSView {
         self.presented = presented
         tabID = emulation?.tabID
         value = emulation?.fit?.value ?? ""
-        label.stringValue = text
+        if label.stringValue != text { label.stringValue = text }
         note.isHidden = !Self.explains
         if Self.explains, !UserDefaults.standard.bool(forKey: Self.explainedKey) {
             UserDefaults.standard.set(true, forKey: Self.explainedKey) // shown now: never in a later app run
@@ -86,11 +86,11 @@ public final class BrowserFitFrameView: NSView {
             // Set as an attributed title every time it differs (a plain title would drop the muted color).
             choose.title = title
             applyColors()
-            needsLayout = true
+            needsLayout = true // invalidate: another fit's title (the check above)
         }
         if changed {
             applyColors()
-            needsDisplay = true
+            needsDisplay = true // invalidate: the page moved or the fit changed (`changed`)
         }
         layoutBar()
     }
@@ -98,7 +98,7 @@ public final class BrowserFitFrameView: NSView {
     override public func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()
-        needsDisplay = true
+        needsDisplay = true // invalidate: draw(_:) fills with the new appearance's colors
     }
 
     private func applyColors() {
@@ -158,10 +158,16 @@ public final class BrowserFitFrameView: NSView {
 
     // MARK: Commands
 
-    @objc private func showChoices() {
+    /// The explanation goes for good once the person uses the bar.
+    private func dismissNote() {
         Self.explains = false
+        guard !note.isHidden else { return }
         note.isHidden = true
-        needsLayout = true
+        needsLayout = true // invalidate: the explanation's room goes to the status (the guard above)
+    }
+
+    @objc private func showChoices() {
+        dismissNote()
         let menu = NSMenu()
         menu.addItem(.sectionHeader(title: Strings.aspectRatio))
         for aspect in Self.aspects { add(Strings.title(aspect), .fit(aspect), checked: aspect == value, to: menu) }
@@ -187,9 +193,7 @@ public final class BrowserFitFrameView: NSView {
     }
 
     private func run(_ command: BrowserFitCommand) {
-        Self.explains = false
-        note.isHidden = true
-        needsLayout = true
+        dismissNote()
         if case .zoom(let step) = command {
             // Page zoom of the tab this frame belongs to, as its toolbar's zoom does.
             var view = superview

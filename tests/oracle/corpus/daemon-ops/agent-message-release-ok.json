@@ -95,6 +95,32 @@
         "settled"
       ],
       "note": "approves the held delivery of the fixture message"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "agent.message.release",
+        "params": {
+          "message_id": "$step:fx-message#/value/id",
+          "recipient": "oracle",
+          "decision": "approve"
+        },
+        "idempotencyKey": "agent-message-release-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

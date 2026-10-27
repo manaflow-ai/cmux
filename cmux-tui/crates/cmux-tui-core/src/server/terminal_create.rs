@@ -101,17 +101,16 @@ impl PrelaunchRequest {
                 frontend_shell,
             );
         }
-        let Command::NewTab { pane, cwd, env, cols, rows, terminal_id, shell_args, .. } = command
-        else {
+        let Command::NewTab(params) = command else {
             return None;
         };
         Self::build(
-            *pane,
-            terminal_id.as_ref(),
-            cwd.as_ref(),
-            env.as_ref(),
-            shell_args.as_ref(),
-            optional_surface_size(*cols, *rows),
+            params.pane,
+            params.terminal_id.as_ref(),
+            params.cwd.as_ref(),
+            params.env.as_ref(),
+            params.shell_args.as_ref(),
+            optional_surface_size(params.cols, params.rows),
             frontend_shell,
         )
     }
@@ -276,8 +275,10 @@ impl ConnectionSurfaceScheduler {
             Some(mut pending) => {
                 if let Some(terminal_hex) = launched.as_ref() {
                     match &mut pending.request.cmd {
-                        Command::NewTab { terminal_id, .. }
-                        | Command::NewPane { terminal_id, .. } => {
+                        Command::NewTab(params) => {
+                            params.terminal_id = Some(terminal_hex.clone());
+                        }
+                        Command::NewPane { terminal_id, .. } => {
                             *terminal_id = Some(terminal_hex.clone());
                         }
                         Command::Split(params) => params.set_terminal_id(terminal_hex.clone()),

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// Back/forward menus: right-click or long-press the Back or
 /// Forward button for the tab's entries, nearest first (plans/cmux-next/
@@ -10,13 +11,19 @@ extension BrowserChromeView {
     static let backForwardMenuLimit = 16
 
     /// Targets the Back and Forward buttons at this view and gives them
-    /// their entry menus.
+    /// their entry menus, on right-click and on a long press.
     func installBackForwardMenus() {
         backButton.target = self
         forwardButton.target = self
         backButton.menuProvider = { [weak self] in self?.backForwardMenu(forward: false) }
         forwardButton.menuProvider = { [weak self] in self?.backForwardMenu(forward: true) }
         reloadButton.menuProvider = { [weak self] in self.map { BrowserReloadMenu.make(for: $0.tab, in: $0.themeScope.fullStrength) } }
+        // A long press's menu is visible work behind the person's input, on the main thread's one wake-up
+        // queue (`mainWork.wakeUps`), as the titlebar's Back and Forward.
+        let deadlines = MainDeadlineScheduler(work: mainWork)
+        backButton.longPressDeadline = MainDeadline(owner: "browser.chrome.backLongPress", workClass: .visible, scheduler: deadlines)
+        forwardButton.longPressDeadline = MainDeadline(owner: "browser.chrome.forwardLongPress", workClass: .visible, scheduler: deadlines)
+        reloadButton.longPressDeadline = MainDeadline(owner: "browser.chrome.reloadLongPress", workClass: .visible, scheduler: deadlines)
     }
 
     func backForwardMenu(forward: Bool) -> NSMenu? {

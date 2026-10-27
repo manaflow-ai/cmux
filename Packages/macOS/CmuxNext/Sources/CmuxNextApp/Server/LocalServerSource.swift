@@ -1,6 +1,7 @@
 import CmuxNextDaemon
 import CmuxNextServer
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import SystemConfiguration
 
@@ -49,16 +50,22 @@ final class LocalServerSource: ServerSource {
     private let fix: Fix
     private let makeWatcher: MakeWatcher
     private let localFixes: [HealthCheckID: HealthFix]
+    /// The app's main-thread scheduler: each read's and fix's answer is a task on it.
+    private let mainWork: MainWorkScheduler
     private var sink: (@MainActor (ServerSourceEvent) -> Void)?
     private var watchers: [any ServerFileWatching] = []
     private var reading: Task<Void, Never>?
     private var readAgain = false
+    /// Bumped by `stop()`: a read answered after it (from before a restart) applies nothing.
+    private var readGeneration = 0
     private var work: [String: Task<Void, Never>] = [:]
     private var lastSnapshot: ServerSnapshot?
     private var lastUnavailable: String?
 
     init(binary: URL?, hostName: String, watchedFiles: [URL], runCLI: @escaping RunCLI,
-         fix: @escaping Fix, makeWatcher: @escaping MakeWatcher, localFixes: [HealthCheckID: HealthFix] = [:]) {
+         fix: @escaping Fix, makeWatcher: @escaping MakeWatcher, localFixes: [HealthCheckID: HealthFix] = [:],
+         mainWork: MainWorkScheduler) {
+        self.mainWork = mainWork
         self.binary = binary
         self.hostName = hostName
         self.watchedFiles = watchedFiles
@@ -70,15 +77,18 @@ final class LocalServerSource: ServerSource {
 
     /// The App's source: the bundled CLI, the user-mode server's files, and
     /// fixes through the privileged helper.
-    static func app(fixer: ServerHealthFixer = .helper) -> LocalServerSource {
+    static func app(mainWork: MainWorkScheduler, fixer: ServerHealthFixer) -> LocalServerSource {
+        // SAFETY: the encoding pointer is nil, so SCDynamicStoreCopyComputerName writes no caller memory; the
+        // copied string is bridged with its +1.
         LocalServerSource(
             binary: bundledCLI(),
-            hostName: (SCDynamicStoreCopyComputerName(nil, nil) as String?) ?? "",
+            hostName: (unsafe SCDynamicStoreCopyComputerName(nil, nil) as String?) ?? "",
             watchedFiles: watchedFiles(home: FileManager.default.homeDirectoryForCurrentUser),
             runCLI: { executable, arguments in await runProcess(executable, arguments) },
             fix: { await fixer.fix($0) },
             makeWatcher: fileWatcher,
-            localFixes: ServerHealthFixer.localFixes)
+            localFixes: ServerHealthFixer.localFixes,
+            mainWork: mainWork)
     }
 
     /// `Contents/Resources/bin/cmux`, or nil when this build does not carry it.
@@ -101,8 +111,12 @@ final class LocalServerSource: ServerSource {
 
     func start(_ sink: @escaping @MainActor (ServerSourceEvent) -> Void) {
         self.sink = sink
+        let mainWork = mainWork
         watchers = watchedFiles.map { file in
-            makeWatcher(file) { [weak self] in Task { @MainActor in self?.refresh() } }
+            // The server process rewrote its status: one visible read task (refresh coalesces reads).
+            makeWatcher(file) { [weak self] in
+                mainWork.postFromAnyThread(.visible, owner: "LocalServerSource.fileChanged") { [weak self] in self?.refresh() }
+            }
         }
         watchers.forEach { $0.start() }
         refresh()
@@ -111,12 +125,15 @@ final class LocalServerSource: ServerSource {
     func send(_ intent: ServerIntent) {
         switch intent.kind {
         case let .fixCheck(check):
-            let fix = fix
+            let mainWork = mainWork, key = intent.key
             // task-owner: LocalServerSource, one helper request per intent; cancelled by stop().
-            work[intent.key] = Task { @MainActor [weak self] in
-                let reject = await fix(check)
-                self?.work[intent.key] = nil
-                self?.settle(intent.key, reject: reject)
+            // The fix is the person's click: its answer is the rest of their action (userBlocking).
+            work[key] = Task { @concurrent [weak self] in
+                let reject = await self?.runFix(check) ?? nil
+                mainWork.postFromAnyThread(.userBlocking, owner: "LocalServerSource.fixed") { [weak self] in
+                    self?.work[key] = nil
+                    self?.settle(key, reject: reject)
+                }
             }
         case .openHealth:
             settle(intent.key, reject: nil)
@@ -131,11 +148,17 @@ final class LocalServerSource: ServerSource {
         reading?.cancel()
         reading = nil
         readAgain = false
+        readGeneration &+= 1
         for task in work.values { task.cancel() }
         work = [:]
         sink = nil
         lastSnapshot = nil
         lastUnavailable = nil
+    }
+
+    /// Runs `check`'s fix (the helper's own main-actor steps); nil on success, else the refusal.
+    private func runFix(_ check: HealthCheckID) async -> String? {
+        await fix(check)
     }
 
     /// Reads the status again; a read already running reads once more after it.
@@ -146,16 +169,26 @@ final class LocalServerSource: ServerSource {
             return
         }
         let binary = binary, hostName = hostName, runCLI = runCLI, localFixes = localFixes
+        let mainWork = mainWork, generation = readGeneration
         // task-owner: LocalServerSource, one status read at a time; cancelled by stop().
-        reading = Task { @MainActor [weak self] in
+        // The CLI runs off the main thread; its answer is one visible task.
+        reading = Task { @concurrent [weak self] in
             let event = await Self.read(binary: binary, hostName: hostName, runCLI: runCLI, localFixes: localFixes)
-            guard let self, !Task.isCancelled else { return }
-            reading = nil
-            emit(event)
-            if readAgain {
-                readAgain = false
-                refresh()
+            guard !Task.isCancelled else { return }
+            mainWork.postFromAnyThread(.visible, owner: "LocalServerSource.read") { [weak self] in
+                self?.readFinished(event, generation: generation)
             }
+        }
+    }
+
+    /// One read answered: shows it, then runs the read asked for meanwhile.
+    private func readFinished(_ event: ServerSourceEvent, generation: Int) {
+        guard generation == readGeneration else { return }
+        reading = nil
+        emit(event)
+        if readAgain {
+            readAgain = false
+            refresh()
         }
     }
 

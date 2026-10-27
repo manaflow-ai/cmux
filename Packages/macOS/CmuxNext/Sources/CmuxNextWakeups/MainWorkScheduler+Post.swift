@@ -1,4 +1,7 @@
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Where a main-thread task was posted: Chrome's `posted_from` (`FROM_HERE`, base/location.h).
 /// The posting functions take it as `#fileID` and `#line` defaults; the board publishes it with
@@ -124,14 +127,20 @@ extension MainWorkScheduler {
                                              line: UInt = #line, _ body: @escaping @MainActor () throws(E) -> T) async throws(E) -> T {
         startup.checkAwait(workClass.workClass, owner: owner, file: file, line: line)
         let interned = taskOwner(owner)
-        let result: Result<T, E> = await withCheckedContinuation { continuation in
-            post(workClass, owner: interned, site: MainPostSite(file: file, line: line)) {
-                do throws(E) {
-                    continuation.resume(returning: .success(try body()))
-                } catch {
-                    continuation.resume(returning: .failure(error))
+        let result: Result<T, E>
+        do {
+            result = try await withOnceContinuation { (continuation: OnceContinuation<Result<T, E>, OnceContinuationError>) in
+                post(workClass, owner: interned, site: MainPostSite(file: file, line: line)) {
+                    do throws(E) {
+                        continuation.resume(returning: .success(try body()))
+                    } catch {
+                        continuation.resume(returning: .failure(error))
+                    }
                 }
             }
+        } catch {
+            // The class queue was released with the task unrun (abandoned): run it here, on main.
+            return try body()
         }
         return try result.get()
     }
@@ -178,8 +187,15 @@ extension MainWorkScheduler {
 
     /// Queues `body` as `post` (its site, enqueue time and node state: the board's ledger records
     /// its wait from that enqueue time). Nil: the task names its post itself when it runs one
-    /// (``MainFrameBudget/notePost(_:)``, a node queue's pump).
+    /// (``MainFrameBudget/notePost(_:)``, a node queue's pump). While classed work is held behind
+    /// input, it is held behind that work (MainWorkScheduler+Classed.swift).
     func post(_ workClass: BudgetedWorkClass, owner: MainTaskOwner, post: MainTaskPost?, _ body: @escaping @MainActor () -> Void) {
+        if holdClassed(workClass, owner: owner, post: post, followsGate: false, body) { return }
+        enqueue(workClass, owner: owner, post: post, body)
+    }
+
+    /// Appends `body` to its class queue, for the next turn or frame; never runs it inline.
+    func enqueue(_ workClass: BudgetedWorkClass, owner: MainTaskOwner, post: MainTaskPost?, _ body: @escaping @MainActor () -> Void) {
         let queue = classQueue(workClass)
         queue.append(owner: owner, post: post, body)
         if frames.hasLink {
@@ -201,13 +217,21 @@ extension MainWorkScheduler {
         MainRunLoopBlock.perform { [weak self] in self?.arrive(workClass, owner: owner, site: site, enqueueNanos: enqueueNanos, body) }
     }
 
-    /// A task posted off main reached the main thread: this turn is the next turn, so on an idle
-    /// scheduler it runs now (in class order with anything else posted), not one more turn later.
-    /// `enqueueNanos` is nil when the budget's clock is main-actor-only: the wait starts here.
+    /// A task posted off main reached the main thread, in its own run-loop turn: this turn is the
+    /// next turn, so on an idle scheduler it runs now (in class order with anything else posted),
+    /// not one more turn later. `enqueueNanos` is nil when the budget's clock is main-actor-only:
+    /// the wait starts here.
     private func arrive(_ workClass: BudgetedWorkClass, owner: MainTaskOwner, site: MainPostSite, enqueueNanos: UInt64?,
                         _ body: @escaping @MainActor () -> Void) {
+        arrive(workClass, owner: owner, post: MainTaskPost(site: site, enqueueNanos: enqueueNanos ?? budget.nowNanos), body)
+    }
+
+    /// ``arrive(_:owner:site:enqueueNanos:_:)`` with its post made; a classed off-main post calls it
+    /// too (MainWorkScheduler+Classed.swift). Held behind classed work held before it.
+    func arrive(_ workClass: BudgetedWorkClass, owner: MainTaskOwner, post: MainTaskPost, _ body: @escaping @MainActor () -> Void) {
+        if holdClassed(workClass, owner: owner, post: post, followsGate: false, body) { return }
         let queue = classQueue(workClass)
-        queue.append(owner: owner, post: MainTaskPost(site: site, enqueueNanos: enqueueNanos ?? budget.nowNanos), body)
+        queue.append(owner: owner, post: post, body)
         if frames.hasLink {
             if Self.runsOnNextTurn(queue.workClass) { runNow(queue) } else { queue.activate() }
             return

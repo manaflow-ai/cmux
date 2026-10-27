@@ -55,7 +55,7 @@ public struct MoveTabGroupToColumnRequest: DaemonRequest {
         self.transaction = transaction
     }
 
-    enum CodingKeys: String, CodingKey { case group, pane, screen, afterColumn, width, transaction }
+    enum CodingKeys: String, CodingKey { case group, pane, screen, afterColumn = "after_column", width, transaction }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(group, forKey: .group)

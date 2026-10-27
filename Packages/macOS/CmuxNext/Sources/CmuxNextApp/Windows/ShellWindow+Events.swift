@@ -76,6 +76,12 @@ extension ShellWindow: HoverFrameInputHosting {
     var hoverFrameInput: FrameInputCoalescers? { (windowController as? WindowController)?.services.hoverFrameInput }
 }
 
+/// Its find pills hold the app's input tap `findPillOpen` flag while their field edits, so a key-down
+/// asks no responder whether a pill takes it (`FindPillView.forwardArrowKeyDownToEditingPill`).
+extension ShellWindow: InputTapHosting {
+    var inputTap: InputEventTap? { (windowController as? WindowController)?.services.inputTap }
+}
+
 /// Overlays draw in the window's own top layer while no page child window shows (feature `overlayTopLayer`,
 /// p03-rendering-052), read when the overlay host is made. A modal there keeps the keys it had in the panel:
 /// the window routes keys as a panel over itself while ``overlayHasKeyboard`` holds (`KeyRouter.focus(for:)`),
@@ -95,6 +101,10 @@ extension ShellWindow: OverlayTopLayerHosting {
             return host.topLayer.performKeyEquivalent(with: event)
         }
         if let keyRouter, let focus, keyRouter.routeContentKeyEquivalent(event, focus: focus.state) { return true }
+        // A chord the dispatcher decided for a focused terminal or page, or a field in a pane: that surface or pane answers.
+        if let surface = keyRouter?.directKeyEquivalentTarget(for: event, firstResponder: firstResponder) {
+            return surface.performKeyEquivalent(with: event)
+        }
         return super.performKeyEquivalent(with: event)
     }
 

@@ -67,9 +67,7 @@ public nonisolated struct AgentPaneProjectInstructions: Equatable, Sendable {
     /// The chat's folder made canonical: an existing folder inside one of `roots`.
     func folder(roots: [String]) -> Result<String, AgentPaneTransportError> {
         let canonicalRoots = roots.compactMap(AcpmuxPathPolicy.canonical).filter { $0 != "/" }
-        var isDirectory: ObjCBool = false
-        guard let folder = AcpmuxPathPolicy.canonical(cwd),
-              FileManager.default.fileExists(atPath: folder, isDirectory: &isDirectory), isDirectory.boolValue else {
+        guard let folder = AcpmuxPathPolicy.canonical(cwd), AcpmuxPathPolicy.isDirectory(folder) else {
             return .failure(.pathInvalid)
         }
         guard canonicalRoots.contains(where: { AcpmuxPathPolicy.contains(root: $0, path: folder) }) else {

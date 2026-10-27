@@ -11,8 +11,13 @@ bottom, per-frame content growth and per-frame layout/React time, per run and as
 agent_bench_report.py). Run on cmux-lawrence-2 or the fleet, never the laptop.
 
 Usage: agent-stream-e2e.py --tag <tag> --variant before=/dir/with/index.html --variant after=/dir \\
-    [--rows 2000] [--seconds 6] [--chunk-chars 24] [--chunk-ms 12] [--runs 3]
+    [--variant-shared after=/pages/_shared] [--rows 2000] [--seconds 6] [--chunk-chars 24] [--chunk-ms 12] [--runs 3]
        agent-stream-e2e.py --app BUNDLE --engine chromium --story agent-stream --out DIR   (the lab story)
+
+A variant page that imports the shared library (cmux-page://cmux.shared/, build-pages.mjs) loads it from its own
+build's pages/_shared, as the bundle's page loads the bundle's: CMUX_NEXT_PAGE_ROOT_cmux_shared names that folder,
+--variant-shared NAME=DIR or else the page's sibling `pages/_shared` (build-agent-pane-web.sh --out D/agent-pane
+--pages-out D/pages); a variant that names one and has neither is refused.
 
 --engine picks the agent page's engine (chromium: `browser.defaultEngine` Chromium and the `agent.chromium` debug
 tunable on; webkit: the tunable off); without it the app's own settings decide. With --story (it needs --engine and
@@ -38,6 +43,8 @@ def parse(argv=None):
     parser.add_argument("--tag", help="the tag of a DerivedData Debug app (default: read from --app)")
     parser.add_argument("--app", help="the app bundle (default: the DerivedData Debug app of --tag)")
     parser.add_argument("--variant", action="append", default=[], help="name=directory holding index.html")
+    parser.add_argument("--variant-shared", action="append", default=[],
+                        help="name=the pages/_shared folder of the variant's build (default: its sibling pages/_shared)")
     parser.add_argument("--engine", choices=sorted(ENGINE_CONFIG), help="the agent page's engine (default: the app's)")
     parser.add_argument("--story", help="write result-v1 under this stories.d story (needs --engine, no --variant)")
     parser.add_argument("--build-config", choices=["bench", "bench-checks"],
@@ -60,10 +67,42 @@ def parse(argv=None):
         problem = story_problem(opts.story, opts.engine)
         if problem:
             parser.error(problem)
-    for spec in opts.variant:
-        if "=" not in spec:
-            parser.error(f"--variant {spec!r} is not name=directory")
+    for flag, specs in (("--variant", opts.variant), ("--variant-shared", opts.variant_shared)):
+        for spec in specs:
+            if "=" not in spec:
+                parser.error(f"{flag} {spec!r} is not name=directory")
+    names = {spec.split("=", 1)[0] for spec in opts.variant}
+    for spec in opts.variant_shared:
+        if spec.split("=", 1)[0] not in names:
+            parser.error(f"--variant-shared {spec!r} names no --variant")
+    shared = dict(spec.split("=", 1) for spec in opts.variant_shared)
+    opts.shared = {}
+    for name, directory in (spec.split("=", 1) for spec in opts.variant):
+        folder = variant_shared(directory, shared.get(name))
+        if folder is False:
+            parser.error(f"--variant {name}: its page imports {SHARED_ORIGIN} but no pages/_shared was found; "
+                         f"pass --variant-shared {name}=<its build's pages/_shared>")
+        opts.shared[name] = folder
     return opts
+
+
+SHARED_ORIGIN = "cmux-page://cmux.shared/"  # build-pages.mjs SHARED_ORIGIN
+
+
+def variant_shared(directory, given):
+    """The shared folder of a variant's build: `given`, else its sibling pages/_shared; None when its page imports
+    no shared file, False when it does and there is none."""
+    if given:
+        return os.path.abspath(given)
+    try:
+        with open(os.path.join(directory, "index.html"), encoding="utf-8") as handle:
+            names_shared = SHARED_ORIGIN in handle.read()
+    except OSError:
+        return None  # no page there: the app reports it
+    if not names_shared:
+        return None
+    sibling = os.path.join(os.path.dirname(os.path.abspath(directory.rstrip("/"))), "pages", "_shared")
+    return sibling if os.path.isdir(sibling) else False
 
 
 def find_app(opts):
@@ -90,6 +129,8 @@ def run_variant(opts, app, name, directory, scratch):
     env = {}
     if directory:
         env["CMUX_NEXT_PAGE_ROOT_cmux_agent"] = os.path.abspath(directory)
+    if opts.shared.get(name):
+        env["CMUX_NEXT_PAGE_ROOT_cmux_shared"] = opts.shared[name]
     if opts.engine:
         tunables = os.path.join(scratch, f"debug-tunables-{name}.json")
         with open(tunables, "w") as handle:

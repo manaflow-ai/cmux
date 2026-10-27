@@ -7,6 +7,7 @@
 #     --artifact artifacts/webui-bench [--arg=--modes=home,open] [--arg=--engine=webkit] [--arg=--session=stress]
 #     [--arg=--config=bench]
 #   MQ5's hidden-page wakeups (task 037): --arg=--modes=pages10 --arg=--every-page-hidden (freezing off)
+#   Task 052's code cache arm (Debug build on the spike's fork pin): --arg=--modes=open --arg=--page-code-cache
 # --modes (default home,pages10,open,crash,pressure,priority) and --config=<debug|release|bench> (reload.sh's build
 # configuration; bench keeps the debug.* control methods in a Release build) are this script's; every other argument
 # goes to each bench run.

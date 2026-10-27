@@ -25,20 +25,25 @@ enum PictureInPictureHandlers {
         let enabled: @MainActor () -> Bool = { [weak services] in Self.isEnabled(services) }
         registry.bind(actionID, unavailable: { enabled() ? nil : PictureInPictureStrings.off }, invoke: { [weak registry] invocation in
             guard let registry, let page = page(ctx, invocation) else { return }
-            let work = Task { @MainActor () -> String? in
-                // Turned off between the run and this task: nothing floats.
-                guard enabled() else { return PictureInPictureStrings.off }
-                return switch await page.togglePictureInPicture() {
-                case .noVideo?: PictureInPictureStrings.noVideo
-                case .unsupported?: PictureInPictureStrings.unsupported
-                case .entered?, .exited?, nil: nil
+            let awaited = registry.isCapturingWork
+            // The page's answer is awaited off main; its refusal is one task on main: a palette or menu run nobody
+            // waits on shows it, a CLI or MCP run returns it.
+            registry.trackWork(owner: "PictureInPictureHandlers.toggle", on: services.mainWork) {
+                () -> (enabled: Bool, answer: BrowserPictureInPicture?) in
+                // Turned off between the run and this work: nothing floats.
+                guard await enabled() else { return (false, nil) }
+                return (true, await page.togglePictureInPicture())
+            } then: { [weak registry] result in
+                let why: String? = switch result {
+                case .success((false, _)): PictureInPictureStrings.off
+                case .success((true, .noVideo?)): PictureInPictureStrings.noVideo
+                case .success((true, .unsupported?)): PictureInPictureStrings.unsupported
+                case .success((true, .entered?)), .success((true, .exited?)), .success((true, nil)), .failure: nil
                 }
-            }
-            // task-owner: a palette or menu run nobody waits on shows a refusal; a CLI or MCP run returns it.
-            if registry.isCapturingWork {
-                registry.track(Task { await work.value.map { ActionWorkFailure(refusal: .unavailable, reason: $0) } })
-            } else {
-                Task { [weak registry] in if let why = await work.value { registry?.refuse(why) } }
+                guard let why else { return nil }
+                if awaited { return ActionWorkFailure(refusal: .unavailable, reason: why) }
+                registry?.refuse(why)
+                return nil
             }
         })
         // A tab's menu offers it on a page that plays (or played) a video; the media card's menu

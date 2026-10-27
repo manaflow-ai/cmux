@@ -8,6 +8,6 @@ extension TabGroupID {
     @MainActor
     public func chipFrameOnScreen(in strip: TabStripView) -> NSRect? {
         guard let chip = strip.groups.chips[self], let window = strip.window else { return nil }
-        return window.convertToScreen(strip.tabsClip.convert(chip.frame, to: nil))
+        return window.convertToScreen(strip.tabsClip.convert(strip.scroller.shownFrame(chip.layer), to: nil))
     }
 }

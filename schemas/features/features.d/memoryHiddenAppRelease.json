@@ -1,0 +1,13 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "memoryHiddenAppRelease",
+  "owner": "PL-memory",
+  "description": "While no cmux window is visible (app hidden, windows minimized or covered, displays asleep), memory release runs in 8 ms slices back to back between main-thread events, not 2 ms per frame. Input brings back frame slices until a frame passes with no input.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "labs",
+  "process": "app",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false
+}

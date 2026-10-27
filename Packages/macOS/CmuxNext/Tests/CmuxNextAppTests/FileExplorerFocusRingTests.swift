@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -8,7 +9,7 @@ import Testing
 @MainActor @Suite(.serialized)
 struct FileExplorerFocusRingTests {
     @Test func theFindFieldShowsAFocusRing() {
-        let view = FindSectionView(model: FindSectionModel(search: { _, _ in nil }), rootFolder: { URL(fileURLWithPath: "/tmp") },
+        let view = FindSectionView(model: FindSectionModel(search: { _, _ in nil }), mainWork: MainWorkScheduler(budget: MainFrameBudget()), rootFolder: { URL(fileURLWithPath: "/tmp") },
                                    effects: NullFileExplorerEffects())
         #expect(view.field.focusRingType != .none)
     }

@@ -33,7 +33,14 @@ public final class TerminalLastFrame {
 
     /// The frame `session` presents now; nil before its first draw.
     public convenience init?(of session: TerminalSession) {
-        guard let surface = session.surfaceView.presentedFrame else { return nil }
+        self.init(presentedBy: session.surfaceView.frameSource)
+    }
+
+    /// The frame `source`'s renderer presents now, a reference to its IOSurface that outlives the
+    /// surface (Ghostty keeps a released drawable's pixels while another owner holds it); nil before
+    /// its first draw.
+    convenience init?(presentedBy source: some TerminalFrameSource) {
+        guard let surface = source.presentedFrame else { return nil }
         self.init(surface: surface)
     }
 
@@ -62,7 +69,7 @@ public final class TerminalLastFrame {
         guard let surface = pin() else { return nil }
         defer { unpin() }
         let frame = SendableSurface(surface: surface)
-        return await Task.detached(priority: .utility) {
+        return await Task.detached(priority: Task.currentPriority) {
             TerminalSnapshotRenderer.render(frame, maxPixelSize: maxPixelSize)
         }.value
     }

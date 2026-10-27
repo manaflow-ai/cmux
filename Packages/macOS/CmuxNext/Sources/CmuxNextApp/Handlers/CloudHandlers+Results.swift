@@ -4,6 +4,9 @@ import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// What a Cloud action found, for whoever ran it: a person sees `text` in a
 /// sheet titled `title`; a CLI, MCP, script or remote run gets `text` and
@@ -49,6 +52,7 @@ extension CloudHandlers {
         let logger = context.services.cloud.logger
         let captured = context.services.registry.isCapturingWork
         // task-owner: the Cloud work itself; it runs to its end even after a `pending` answer.
+        // main-hop-allow: the action's userBlocking rest (p06 rule 2), tracked for a capturing caller: `work` is main-actor async Cloud code; post has no userBlocking class (task 208)
         let inner: ActionResultWork = Task { @MainActor in
             do {
                 return .success(try await work())
@@ -63,6 +67,7 @@ extension CloudHandlers {
         }
         guard let pendingAfter else { return context.services.registry.track(result: inner) }
         // task-owner: the action run's answer: the work's, or `pending` once the wait ends.
+        // main-hop-allow: the capturing caller's answer (an ActionResultWork): one Deadline race, resumed once on main to return
         let task: ActionResultWork = Task { @MainActor in
             await firstAnswer(inner, within: pendingAfter) ?? .success(pending.merging(["pending": .bool(true)]) { field, _ in field })
         }
@@ -90,9 +95,11 @@ extension CloudHandlers {
         let registry = context.services.registry
         guard registry.isCapturingWork else { return }
         let creations = context.services.cloud.creations
+        let work = context.services.mainWork, deadlines = context.services.mainDeadlines
         // task-owner: the action run; it ends when the create settles or the wait ends.
+        // main-hop-allow: the capturing caller's answer (an ActionResultWork): it reads the main-actor creation and session once settled
         let task: ActionResultWork = Task { @MainActor in
-            let settled: CreatedMachine? = await Deadline(wait).value("CloudHandlers.createdMachine") { await settledCreation(creation, in: creations) } ?? nil
+            let settled = await settledCreation(creation, in: creations, within: wait, work: work, deadlines: deadlines)
             switch settled {
             case .created?, .pending?, nil:
                 guard let session = creation.session else {
@@ -113,10 +120,19 @@ extension CloudHandlers {
     /// answers `pending`: inside `action.run`'s 40 s result deadline.
     static let createdMachineWait: Duration = .seconds(30)
 
-    /// The creation's first state that is not `pending`.
-    private static func settledCreation(_ creation: CloudMachineCreation, in creations: CloudCreations) async -> CreatedMachine? {
-        for await state in ObservationStream({ CreatedMachine(creation, in: creations) }) where state != .pending { return state }
-        return nil
+    /// The creation's first state that is not `pending`, or nil after `limit`: a ``FirstValueWait`` of
+    /// the creation in the automation class (only a capturing caller, an agent or the CLI, waits on it).
+    static func settledCreation(_ creation: CloudMachineCreation, in creations: CloudCreations, within limit: Duration,
+                                work: MainWorkScheduler, deadlines: MainDeadlineScheduler) async -> CreatedMachine? {
+        // A wait dropped unanswered answers as the limit does: still pending.
+        try? await withOnceContinuation { (continuation: OnceContinuation<CreatedMachine?, OnceContinuationError>) in
+            FirstValueWait<CreatedMachine>.start(.automation, owner: "CloudHandlers.createdMachine", within: limit, work: work, deadlines: deadlines) {
+                let state = CreatedMachine(creation, in: creations)
+                return state == .pending ? nil : state
+            } then: { state in
+                continuation.resume(returning: state)
+            }
+        }
     }
 
     static func createdMachineFields(_ session: CloudMachineSession, workspaceID: String?) -> [String: ActionResultValue] {

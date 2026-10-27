@@ -241,6 +241,30 @@ Now (`HibernationPlanner.plan`):
 - Never Hibernate This Site (tab context menu, palette, `tab
   never-hibernate-site`) adds the host to `browser.hibernationExclusions`.
 
+### 3b. cmux pages (chrome-parity p13-webui, 2026-10-26)
+
+cmux's own pages (agent chats, New Tab, Settings, History, Cloud and the other page tabs) have a
+lifecycle of their own, behind feature `pageLifecycle` (off; when on it replaces
+`memoryDiscardInternalPages` for page tabs). Design: [webui-DESIGN.md](webui-DESIGN.md) and
+[chrome-parity/p13-webui.md](chrome-parity/p13-webui.md) section 3.C.
+
+- States: Active, Hidden, Frozen, Discarded (`PageLifecyclePlanner`, CmuxNextHibernation, pure;
+  `PageLifecycle`, CmuxNextPages, performs it). As Chrome's freezing policy
+  (`components/performance_manager/freezing/freezing_policy.cc`), nothing observes a page: the
+  `ContentLifecycle` show and hide of section 1 and the page's own load start and end are O(1) calls.
+- Times: a hidden page may freeze after 10 s (3 s in Energy Saver) once no keep reason holds
+  (Chrome's `CannotFreezeReason`s plus a running agent turn, a draft, focus and the preload); it is
+  discarded after 300 s hidden, 60 s at warning and 10 s at critical pressure, never sooner than the
+  minutes written in `browser.hibernation`, at the browser tabs' pace (section 3a).
+- One deadline: the planner runs on hidden pages only, from one `MainDeadline` in the background
+  class (owner `webui.lifecycle`). A show thaws in its own turn, before the page is revealed.
+- Freeze: Chromium `SetPageFrozen` from fork API 29 (DevTools `Page.setWebLifecycleState` before);
+  WebKit throttles the page and keeps it in its window (029 measured the detach rule).
+- Discard: the page keeps a picture and state taken at hide (it is asked nothing when frozen);
+  Chromium discards in place (`WebContents::Discard`, fork export, 031) and reloads its entry on show.
+- The page router holds a frozen page's events and thaws before it delivers (023); a renderer
+  crash marks every page of its group, and a hidden page reloads only when it shows (039).
+
 ## 4. Not done / open
 
 - Root cause of the user's disappearing page not reproduced on a
