@@ -40,7 +40,7 @@ import Testing
         window.contentView = pane
         window.orderFrontRegardless()
 
-        let page = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), newTab: AgentPaneNewTab(kind: .agent)),
+        let page = try #require(AgentPaneView(mainThread: .standalone(), model: AgentPaneModel(host: NoHost(), newTab: AgentPaneNewTab(kind: .agent)),
                                               work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: .agentTabsTestHost(), gestures: .testing()))
         defer { page.close() }
         let probe = WindowProbe()

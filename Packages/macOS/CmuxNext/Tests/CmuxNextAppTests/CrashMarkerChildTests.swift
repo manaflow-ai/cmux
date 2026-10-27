@@ -1,6 +1,7 @@
 @testable import CmuxNextApp
 import CmuxNextBrowser
 import CmuxNextInput
+import CmuxNextWakeups
 import Darwin
 import Foundation
 import Testing
@@ -140,9 +141,16 @@ enum CrashChild {
     /// disk.
     @MainActor
     static func markRun(_ name: String) async -> AppRunMarker {
-        let marker = AppRunMarker(directory: directory(name, parent: getppid()))
+        let marker = await mark(directory(name, parent: getppid()))
         _ = await marker.flush()
         return marker
+    }
+
+    /// The app's launch in `directory`: the marker's launch read on a files lane, then the marker on the main thread.
+    @MainActor
+    static func mark(_ directory: URL) async -> AppRunMarker {
+        let read = AppRunMarker.startLaunchRead(directory: directory, in: BackgroundWork(label: "test.run-marker").sequence("test.run-marker"))
+        return AppRunMarker(launch: await read.finished())
     }
 
     /// Runaway recursion on the main thread, where the app installs its

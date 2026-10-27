@@ -19,8 +19,12 @@ Mac and reads what the launch recorded. Each hit names its queue and the task te
   mainjobs    Q11, template 081. From `debug.startup`: each main-job enqueuer with a median >= --job-ms total
               or >= --job-count jobs before --first-frame-mark, and each main turn before --until-mark that ran
               outside a StartupScheduler task and the allowlist.
-  globaljobs  Q12, template 083. From `debug.startup`: each caller of utility, background or unprioritized
-              jobs enqueued before --until-mark that is not a BackgroundWork lane job.
+  globaljobs  Q12, template 083. From `debug.startup` and `debug.startup.global_jobs` (task 082; a live run arms
+              the census with CMUX_NEXT_GLOBAL_JOB_CENSUS=1): each caller of utility, background or unprioritized
+              tasks started on the cooperative pool before --until-mark that is not a BackgroundWork lane job. A
+              BackgroundWork.task is listed: it starts at once, outside the launch fence. The census is Swift's global-enqueue hook: GCD blocks (`DispatchQueue.global()`) are not in it. A run
+              whose census was not armed or whose hook did not install is left out with a warning; a task the
+              census counted and did not keep is a warning.
   arms        Q13, template 086. From `debug.startup`: each timer, watcher and observer armed before
               --until-mark, with its median arm and first-fire times.
 
@@ -48,11 +52,17 @@ Input contract. All times are ms since process start (the launch-mark clock, Lau
   debug.startup (tasks 008, 080, 082, 085): {"milestones": {mark: ms}, "interrupted"?: bool,
     "main_jobs": [{"caller", "kind", "priority", "enqueued_ms", "run_ms"}],
     "main_turns": [{"start_ms", "duration_ms", "task": name or null, "allowlisted": bool, "site"}],
-    "global_jobs": [{"caller", "priority": name or number or null, "lane": name or null, "enqueued_ms", "run_ms"}],
+    "global_jobs": [{"caller", "priority": name or number or null, "lane": name or null, "via": name or null,
+                     "enqueued_ms", "run_ms"}],
+    "global_job_census": {"armed", "hook", "dropped_tasks", "untracked_tasks", "pending_tasks", ...},
     "arms": [{"kind", "owner", "site", "armed_ms", "first_fire_ms": ms or null}]}.
     Each census mode needs its arrays in a run (mainjobs: main_jobs and main_turns; globaljobs: global_jobs;
-    arms: arms). A run without them is left out; no run with them exits 2. global_jobs' priority is null when
-    the caller passed none (082); 21 / default / medium (what a Task.detached or a DispatchQueue.global()
+    arms: arms). A run without them is left out; no run with them exits 2. Task 082's census answers its two keys
+    on its own method, `debug.startup.global_jobs` (one record per task, at its first enqueue on the pool; no `lane`,
+    because lane items do not reach the pool; `via` `background_work_task` for a task BackgroundWork.task started,
+    which is still a hit; `run_ms` null: the hook sees the enqueue, not the run); a live globaljobs run
+    merges that reply into debug.startup's (which it may lack). global_jobs' priority is null or 0 when
+    the job has none (082); 21 / default / medium (what a Task.detached or a DispatchQueue.global()
     with no priority runs at) is counted as `default`.
   `launch.interrupted` (a mark, or the result's `interrupted`) means interrupted when present and not false or
   null; a mark at 0 ms counts.
@@ -105,6 +115,10 @@ VALUE_MARKS = frozenset({"launch.temperature", "launch.pageins_run_loop_start", 
 INTERRUPTED = "launch.interrupted"
 # A live launch takes its window as a person's launch does; a noActivate launch is interrupted (task 108).
 LIVE_ENV = {"CMUX_NEXT_NO_ACTIVATE": "0"}
+# What a census mode adds to a live run: the environment that arms its recorder and the method that answers it (task
+# 082's global-job census is off unless armed, so the startup benches measure a launch without it).
+MODE_ENV = {"globaljobs": {"CMUX_NEXT_GLOBAL_JOB_CENSUS": "1"}}
+MODE_METHOD = {"globaljobs": "debug.startup.global_jobs"}
 # Initializer frames (the frame under swift_once names its owner; a C++ or ObjC static initializer).
 STATIC_INIT = ("one-time initialization function for", "static initializer for", "_GLOBAL__sub_I",
                "__cxx_global_var_init", "globalinit_")
@@ -555,8 +569,33 @@ def global_priority(value):
     return GLOBAL_PRIORITIES.get(value.lower() if isinstance(value, str) else value)
 
 
+def global_census_state(runs):
+    """The runs whose global-job census recorded (task 082's `global_job_census`), and why others were left out. A
+    result with no summary (a saved file from before it) is kept; one that says not armed, or a hook that did not
+    install (no task recorded), is not a census. What the census counted and did not keep is a warning."""
+    kept, warnings = [], []
+    for index, run in enumerate(runs):
+        state = run["result"].get("global_job_census")
+        if not isinstance(state, dict):
+            kept.append(run)
+        elif state.get("armed") is False:
+            warnings.append(f"run {index + 1}: the global-job census was not armed (CMUX_NEXT_GLOBAL_JOB_CENSUS=1), "
+                            "left out")
+        elif state.get("hook") not in (None, "installed"):
+            warnings.append(f"run {index + 1}: global-enqueue hook {state.get('hook')}, left out")
+        else:
+            for field, what in (("dropped_tasks", "tasks past the ring"), ("untracked_tasks", "tasks past the id bitmap"),
+                                ("pending_tasks", "tasks still being written")):
+                if number(state.get(field)):
+                    warnings.append(f"run {index + 1}: the census did not keep {state[field]:g} {what}")
+            kept.append(run)
+    return kept, warnings
+
+
 def globaljobs_hits(runs, until_mark):
-    kept, warnings = census_runs(runs, (until_mark,), CENSUS_FIELDS["globaljobs"])
+    armed, refused = global_census_state(runs)
+    kept, warnings = census_runs(armed, (until_mark,), CENSUS_FIELDS["globaljobs"])
+    warnings = refused + warnings
     callers = {}
     for run in kept:
         complete = cutoff(run["marks"], until_mark)
@@ -566,15 +605,18 @@ def globaljobs_hits(runs, until_mark):
             if job.get("lane") or priority is None or (number(job.get("enqueued_ms")) or 0.0) >= complete:
                 continue
             caller = str(job.get("caller", "?"))
-            entry = callers.setdefault(caller, {"runs": 0, "count": 0, "ms": 0.0, "priorities": set()})
+            entry = callers.setdefault(caller, {"runs": 0, "count": 0, "ms": 0.0, "priorities": set(), "via": set()})
             entry["count"] += 1
             entry["ms"] += number(job.get("run_ms")) or 0.0
             entry["priorities"].add(priority)
+            if job.get("via"):
+                entry["via"].add(str(job["via"]))
             entry["runs"] += caller not in seen
             seen.add(caller)
-    hits = [{"caller": caller, "priorities": sorted(entry["priorities"]), "runs": entry["runs"],
-             "count": entry["count"], "total_ms": round(entry["ms"], 2),
-             "summary": f"{'/'.join(sorted(entry['priorities']))} jobs from {caller} outside a lane: "
+    hits = [{"caller": caller, "priorities": sorted(entry["priorities"]), "via": sorted(entry["via"]),
+             "runs": entry["runs"], "count": entry["count"], "total_ms": round(entry["ms"], 2),
+             "summary": f"{'/'.join(sorted(entry['priorities']))} jobs from {caller} outside a lane"
+                        f"{''.join(f' (via {via})' for via in sorted(entry['via']))}: "
                         f"{entry['runs']}/{len(kept)} runs, {entry['count']} jobs before {until_mark}"}
             for caller, entry in callers.items()]
     hits.sort(key=lambda hit: (-hit["runs"], -hit["count"], hit["caller"]))
@@ -628,7 +670,7 @@ def purge():
         raise QueueError(f"cold run refused: `sudo -n purge` failed: {done.stderr.strip() or done.returncode}")
 
 
-def prepare(bench, tag, temperature, scratch, timeout, purge_cache):
+def prepare(bench, tag, temperature, scratch, timeout, purge_cache, env=LIVE_ENV):
     """Cold: no daemon and an empty file cache. Warm: a priming launch leaves the daemon running."""
     if bench.app_pids(tag):
         raise QueueError(f"tag {tag} has an app running; quit it first (each measured launch starts its own app)")
@@ -636,17 +678,20 @@ def prepare(bench, tag, temperature, scratch, timeout, purge_cache):
         bench.stop(bench.tag_pids(tag))
         purge_cache()
     elif not bench.tag_pids(tag):
-        prime = bench.Launch(tag, scratch, extra_env=LIVE_ENV)
+        prime = bench.Launch(tag, scratch, extra_env=env)
         prime.wait_for([FIRST_FRAME, bench.FINAL_MARK], timeout, any_of=True)
         prime.quit()
 
 
-def query(bench, tag, method):
+def query(bench, tag, method, required=True):
+    """`method`'s result; an optional method this build lacks reads as {}."""
     client = bench.app_client(tag)
     try:
         reply = client.call(method)
     finally:
         client.close()
+    if not isinstance(reply.get("result"), dict) and not required:
+        return {}
     if not isinstance(reply.get("result"), dict):
         raise QueueError(f"{method} answered {reply.get('error')!r}: the build needs CMUX_BENCH_HOOKS "
                          "(or Debug), and for debug.blocking `reload.sh --config bench-checks`")
@@ -655,8 +700,10 @@ def query(bench, tag, method):
     return reply["result"]
 
 
-def collect(bench, app, runs, temperature, until_mark, timeout, method, purge_cache=purge):
-    """N launches; each is read with `method` once `until_mark` arrived on the mark pipe, then quit.
+def collect(bench, app, runs, temperature, until_mark, timeout, method, purge_cache=purge, extra_method=None,
+            extra_env=None):
+    """N launches; each is read with `method` once `until_mark` arrived on the mark pipe, then quit. With
+    `extra_method` that method's result is merged in and `method` may be missing; `extra_env` is added to each launch.
 
     At the end it stops only the tag's processes it started (a warm daemon that ran before is left running; a
     cold run stops the daemon before each launch, as cold means) and removes its scratch folders."""
@@ -670,13 +717,16 @@ def collect(bench, app, runs, temperature, until_mark, timeout, method, purge_ca
             scratches.append(scratch)
             with open(os.path.join(scratch, "cmux.json"), "w") as out:
                 out.write("{}\n")
-            prepare(bench, tag, temperature, scratch, timeout, purge_cache)
-            launch = bench.Launch(tag, scratch, extra_env=LIVE_ENV)
+            env = {**LIVE_ENV, **(extra_env or {})}
+            prepare(bench, tag, temperature, scratch, timeout, purge_cache, env)
+            launch = bench.Launch(tag, scratch, extra_env=env)
             try:
                 if not launch.wait_for(until_mark, timeout):
                     raise QueueError(f"run {index + 1}: {until_mark} never arrived within {timeout:g} s "
                                      "(pass --until-mark for a build without it)")
-                result = query(bench, tag, method)
+                result = query(bench, tag, method, required=extra_method is None)
+                if extra_method:
+                    result = {**result, **query(bench, tag, extra_method)}
             finally:
                 launch.quit()
             captured.append({"index": index + 1, "temperature": temperature, "marks": dict(launch.marks),
@@ -744,7 +794,8 @@ def live_inputs(args, env, system):
         return record_profiles(args.app, args.runs, args.temperature, args.out)
     bench = load_bench_startup()
     bench.require_gui_session("startup-queue")
-    runs = collect(bench, args.app, args.runs, args.temperature, args.until_mark, args.timeout, method_of(args.mode))
+    runs = collect(bench, args.app, args.runs, args.temperature, args.until_mark, args.timeout, method_of(args.mode),
+                   extra_method=MODE_METHOD.get(args.mode), extra_env=MODE_ENV.get(args.mode))
     if args.raw:
         with open(args.raw, "w") as out:
             json.dump({"mode": args.mode, "app": os.path.basename(args.app), "runs": runs}, out, indent=1)

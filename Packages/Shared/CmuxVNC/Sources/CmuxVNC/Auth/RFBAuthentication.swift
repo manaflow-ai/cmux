@@ -10,7 +10,8 @@ struct VNCPasswordAuthentication {
 
     func response(challenge: [UInt8]) -> [UInt8]? {
         var key = [UInt8](repeating: 0, count: 8)
-        for (index, byte) in password.utf8.prefix(8).enumerated() { key[index] = Self.reverseBits(byte) }
+        let reversed = password.utf8.prefix(8).map(Self.reverseBits)
+        key.replaceSubrange(0 ..< reversed.count, with: reversed)
         return CipherECB(algorithm: CCAlgorithm(kCCAlgorithmDES), key: key).encrypt(challenge)
     }
 
@@ -45,7 +46,7 @@ struct AppleDHAuthentication {
         let length = prime.count
         guard length > 0, serverPublicKey.count == length, let math = ModularExponentiation(modulus: prime) else { return nil }
         let secret = privateKey ?? Self.randomBytes(length)
-        let generatorBytes = [UInt8(generator >> 8), UInt8(generator & 0xFF)]
+        let generatorBytes = [UInt8(truncatingIfNeeded: generator >> 8), UInt8(truncatingIfNeeded: generator)]
         let clientPublic = math.power(generatorBytes, secret)
         let shared = math.power(serverPublicKey, secret)
         let key = Array(Insecure.MD5.hash(data: Data(shared)))

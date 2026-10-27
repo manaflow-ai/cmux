@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextAgentPane
+@testable import CmuxNextAgentPane
 import CmuxNextWakeups
 import Foundation
 import Testing
@@ -83,7 +83,7 @@ struct FloatingChatTests {
         let controller = QuickComposerController(
             makeChat: { session in
                 rig.made.append(session)
-                return AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: session), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(page), webUI: .agentTabsTestHost(), gestures: .testing())
+                return AgentPaneView(mainThread: .standalone(), model: AgentPaneModel(host: NoHost(), sessionId: session), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(page), webUI: .agentTabsTestHost(), gestures: .testing())
             },
             makeWindow: { rig.window },
             openInWindow: { session in

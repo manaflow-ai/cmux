@@ -27,20 +27,37 @@ public import Foundation
 /// refresh.perform()
 /// ```
 ///
-/// Code that can reach the main-thread scheduler builds the block with a class and an owner
+/// The block's work runs in a ``MainCallbackClass`` (p04-input-080): with one from the app's
+/// main-thread scheduler it runs as a task of its class, and work that is not input or frame waits
+/// behind a person's pending input. The default, ``MainCallbackClass/immediate``, runs it in the
+/// callout with no class; it stays only until the call sites name a class (tasks 081 and 082), and
+/// new code passes one.
+///
+/// ```swift
+/// MainRunLoopBlock.perform(class: mainWork.callbackClass(.frame, owner: "menu.popUp")) { [weak self] in
+///     self?.popUp(menu)
+/// }
+/// ```
+///
+/// Code that can reach the main-thread scheduler can also build the block with a class and an owner
 /// (CmuxNextWakeups' `MainRunLoopBlock(class:owner:on:_:)`). It still runs in the run-loop
 /// callout, and the scheduler's board names it while it runs, so the stall watchdog and
 /// `debug.main_budget` attribute its time (plans/cmux-next/chrome-parity/p06-scheduler.md,
 /// R-delivery).
 public nonisolated struct MainRunLoopBlock: Sendable {
     private let body: @MainActor () -> Void
+    private let workClass: MainCallbackClass
     private let attribution: Attribution?
 
     /// Makes a block that runs `body` on the main actor each time it is performed.
     ///
-    /// - Parameter body: The main-actor work. It runs once per ``perform(mode:)``.
-    public init(_ body: @escaping @MainActor () -> Void) {
+    /// - Parameters:
+    ///   - workClass: The class `body` runs in (default ``MainCallbackClass/immediate``: in the
+    ///     callout, with no class).
+    ///   - body: The main-actor work. It runs once per ``perform(mode:)``.
+    public init(class workClass: MainCallbackClass = .immediate, _ body: @escaping @MainActor () -> Void) {
         self.body = body
+        self.workClass = workClass
         attribution = nil
     }
 
@@ -55,6 +72,7 @@ public nonisolated struct MainRunLoopBlock: Sendable {
     public init(attributedTo attribution: any MainBlockAttribution, file: StaticString = #fileID, line: UInt = #line,
                 _ body: @escaping @MainActor () -> Void) {
         self.body = body
+        workClass = .immediate
         self.attribution = Attribution(by: attribution, file: file, line: line)
     }
 
@@ -67,6 +85,7 @@ public nonisolated struct MainRunLoopBlock: Sendable {
     ///   the default mode and the event-tracking mode of menus and drags).
     public func perform(mode: CFRunLoopMode = .commonModes) {
         let body = body
+        let workClass = workClass
         let attribution = attribution
         // The queue time is read here, on the queuing thread, so the work's wait covers its time in
         // the run loop's queue (Chrome's `PendingTask::queue_time`, set at `PostTask`).
@@ -78,7 +97,7 @@ public nonisolated struct MainRunLoopBlock: Sendable {
                 if let attribution {
                     attribution.by.runAttributed(file: attribution.file, line: attribution.line, queuedNanos: queuedNanos, body)
                 } else {
-                    body()
+                    workClass.run(body)
                 }
             }
         }
@@ -93,9 +112,11 @@ public nonisolated struct MainRunLoopBlock: Sendable {
     ///
     /// - Parameters:
     ///   - mode: The run loop mode to run in (default `.commonModes`).
+    ///   - workClass: The class `body` runs in (default ``MainCallbackClass/immediate``).
     ///   - body: The main-actor work.
-    public static func perform(mode: CFRunLoopMode = .commonModes, _ body: @escaping @MainActor () -> Void) {
-        MainRunLoopBlock(body).perform(mode: mode)
+    public static func perform(mode: CFRunLoopMode = .commonModes, class workClass: MainCallbackClass = .immediate,
+                               _ body: @escaping @MainActor () -> Void) {
+        MainRunLoopBlock(class: workClass, body).perform(mode: mode)
     }
 
     /// What names one block's runs, and where the block was built.
