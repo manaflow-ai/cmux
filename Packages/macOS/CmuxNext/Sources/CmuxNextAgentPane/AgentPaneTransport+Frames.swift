@@ -99,6 +99,11 @@ extension AgentPaneTransport {
             setAcpmuxMeta(["decisionNonce": nonce, field: proof])
         }
 
+        /// Whether the frame's `_meta.acpmux` has `key`.
+        func hasAcpmuxMeta(_ key: String) -> Bool {
+            frame.withLock { ((($0["params"] as? [String: Any])?["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?[key] != nil }
+        }
+
         /// Sets `key` of the frame's `_meta.acpmux`.
         func setAcpmuxMeta(_ key: String, _ value: some Sendable) { setAcpmuxMeta([key: value]) }
 
@@ -444,8 +449,17 @@ extension AgentPaneTransport {
                 gestures.clearTickets(); gestures.dropSeedTicket(); startCredit.clear(); pickCredit.clear()
             }
         }
+        // Whether this answer carries this Mac's signed allow, by its page id (one request at a
+        // time, `ids.begin` above): its reply is read against it (`AcpmuxDecisionContexts.sent`),
+        // so an unsigned one's refusal never offers to enroll.
+        let answer = !facts.isFirst
+            && (facts.method == "_acpmux/permission_respond" || facts.method == "_acpmux/permission_group_respond")
+        if answer, let pageID = facts.pageID {
+            decisions.sent(pageID: pageID, proved: box.hasAcpmuxMeta("approverDecision") || box.hasAcpmuxMeta("approverDecisions"))
+        }
         if let error = await Self.encodeAndSend(box, relayID: relayID, socket: socket) {
             socket.pageFrameNotSent(method: facts.method)
+            if answer, let pageID = facts.pageID { decisions.notSent(pageID: pageID) }
             if let relayID { ids.cancel(relayID) }
             await relay?.withdraw(journaled, relayID: nil, ids: ids)
             if error == .outboundOverflow { socket.close(code: 1008, reason: "outbound overflow", error: error) }
