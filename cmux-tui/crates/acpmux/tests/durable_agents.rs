@@ -2890,6 +2890,114 @@ async fn prove(rpc: &mut Rpc) {
     assert_eq!(proven["person"], true, "{proven}");
 }
 
+/// Review 60 of #23322: a `set_config_option` the harness took without answering its options (a
+/// bare answer) still put it in full access. Under MDM's off that agent ends, whether the off is
+/// pushed while it runs or a later daemon finds its host.
+#[tokio::test]
+async fn a_full_access_option_answered_without_options_ends_under_mdm_off() {
+    // Review 61: an answer whose options are null is bare too.
+    for (bare, restart, tag) in [
+        ("1", false, "mdmbarelive"),
+        ("1", true, "mdmbarerestart"),
+        ("null", false, "mdmnulllive"),
+        ("null", true, "mdmnullrestart"),
+    ] {
+        let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_NO_MODES": "1",
+                          "FAKE_MODE_OPTION": "1", "FAKE_BARE_OPTION_ANSWER": bare}});
+        let (mut daemon, mut rpc) = proven_daemon(tag, fake, &[]).await;
+        let session = new_session(&daemon).await;
+        let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
+        rpc.call("session/prompt", prompt).await;
+        // Review 61: an earlier off found this agent asking, and MDM was unset again since.
+        let settings =
+            json!({"enabled": true, "discovery": false, "roots": [], "managedRoots": []});
+        let mut off = settings.clone();
+        off["allowFullAccess"] = json!(false);
+        off["allowFullAccessManaged"] = json!(true);
+        for push in [off, settings] {
+            let pushed = rpc.call("_acpmux/chat_settings", push).await;
+            assert_eq!(pushed["applied"], true, "{tag}: {pushed}");
+        }
+        let set = json!({"sessionId": session, "configId": "mode", "value": "full-access"});
+        let r = rpc.reply("session/set_config_option", set).await;
+        assert!(r.get("error").is_none(), "{tag}: {r}");
+        let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+        if restart {
+            daemon.sigterm();
+            drop(rpc);
+            assert!(alive(harness_pid), "{tag}: SIGTERM ended the agent");
+            record_mdm_off(&daemon);
+            daemon.start();
+        } else {
+            let off = json!({"enabled": true, "discovery": false, "roots": [], "managedRoots": [],
+                             "allowFullAccess": false, "allowFullAccessManaged": true});
+            let pushed = rpc.call("_acpmux/chat_settings", off).await;
+            assert_eq!(pushed["applied"], true, "{tag}: {pushed}");
+        }
+        assert!(
+            gone_within(harness_pid, Duration::from_secs(10)),
+            "{tag}: the agent a bare answer put in full access ran on under the managed off"
+        );
+    }
+}
+
+/// Review 1 of #26058: a harness's own option report sent just before a bare `set_config_option`
+/// answer (`FAKE_OPTION_REPORT_FIRST`) may be applied after that answer (the inbound loop holds
+/// it, the debug seam `ACPMUX_TEST_UPDATE_DELAY_MS`). It does not hide the full access the answer
+/// took: under MDM's off that agent ends, also once an earlier off read its log back.
+#[tokio::test]
+async fn an_older_option_report_does_not_hide_a_bare_answer_under_mdm_off() {
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_NO_MODES": "1",
+                      "FAKE_MODE_OPTION": "1", "FAKE_BARE_OPTION_ANSWER": "1",
+                      "FAKE_OPTION_REPORT_FIRST": "1"}});
+    let delay = [("ACPMUX_TEST_UPDATE_DELAY_MS", "800")];
+    let (daemon, mut rpc) = proven_daemon("mdmoptorder", fake, &delay).await;
+    let session = new_session(&daemon).await;
+    // An earlier off read this agent's log back and found it asking; MDM was unset since.
+    let settings = json!({"enabled": true, "discovery": false, "roots": [], "managedRoots": []});
+    for push in [mdm_off_push(), settings] {
+        let pushed = rpc.call("_acpmux/chat_settings", push).await;
+        assert_eq!(pushed["applied"], true, "{pushed}");
+    }
+    // The harness reports its asking mode option, then answers bare; the inbound loop applies that
+    // report after the answer.
+    let set = json!({"sessionId": session, "configId": "mode", "value": "full-access"});
+    let r = rpc.reply("session/set_config_option", set).await;
+    assert!(r.get("error").is_none(), "{r}");
+    tokio::time::sleep(Duration::from_millis(4000)).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "an option report older than a bare full-access answer hid it from the managed off"
+    );
+}
+
+/// Review 1 of #26058: with MDM unset, an answer whose options are null is saved as before (the
+/// chat's options become null), so a full-access option the harness reported earlier is not
+/// kept for the next agent to replay.
+#[tokio::test]
+async fn a_null_options_answer_is_saved_as_before() {
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_NO_MODES": "1",
+                      "FAKE_MODE_OPTION": "1", "FAKE_BARE_OPTION_ANSWER": "null"}});
+    let (daemon, mut rpc) = proven_daemon("mdmnullsave", fake, &[]).await;
+    let session = new_session(&daemon).await;
+    let full = json!({"sessionId": session,
+                      "prompt": [{"type": "text", "text": "set-mode-option: full-access"}]});
+    rpc.call("session/prompt", full).await;
+    let set = json!({"sessionId": session, "configId": "mode", "value": "normal"});
+    let r = rpc.reply("session/set_config_option", set).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let saved = daemon.home.join("sessions").join(&session).join("session.json");
+    let meta: Value = serde_json::from_slice(&std::fs::read(&saved).unwrap()).unwrap();
+    let kept = meta["configOptions"].as_array().into_iter().flatten();
+    assert!(
+        !kept.into_iter().any(|o| o["currentValue"] == "full-access"),
+        "a null options answer kept the full-access option the harness reported before: {meta}"
+    );
+}
+
 /// Review 60 of #23322: a host a restart left changed its mode to full access by itself, outside
 /// any turn, while no daemon was attached; its host kept the update for the next daemon, which
 /// first reads it when the host replays. Under MDM's off, a prompt is never answered by that
