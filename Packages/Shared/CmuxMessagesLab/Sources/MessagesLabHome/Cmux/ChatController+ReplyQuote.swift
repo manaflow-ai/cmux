@@ -112,7 +112,7 @@ extension MessagesWindowView {
     /// Shows message `id` (`revealHostMessage`) and flashes `words` in it with the system find
     /// highlight. False when the message is not shown or does not hold the words.
     @MainActor func flashQuote(_ words: String, in id: ID) -> Bool {
-        var targets: [(layer: CALayer, body: CGRect, spec: RowSpec)] = []
+        var targets: [(layer: CALayer, body: CGRect, spec: RowSpec)] = [] // memory: fixed a local list of the rows on screen
         func collect() {
             targets = []
             if threadOpen {

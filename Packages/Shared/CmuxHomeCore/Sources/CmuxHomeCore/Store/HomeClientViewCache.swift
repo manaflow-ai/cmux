@@ -15,7 +15,7 @@ import Foundation
 /// copy-on-write copies of a `HomeCacheState`; the `HomeCache` actor encodes
 /// it and rewrites only the files that changed.
 @MainActor
-final class HomeClientViewCache {
+final class HomeClientViewCache { // memory: fixed the person's drafts, draft attachment refs and scroll anchors, at most one each per conversation: state to keep, not a cache to drop
     /// The client's durable copy, nil for none.
     let cache: HomeCache?
     /// How long writes are coalesced (zero hands each change to the cache actor at once: tests).

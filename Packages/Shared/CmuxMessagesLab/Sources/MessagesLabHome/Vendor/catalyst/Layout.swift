@@ -753,7 +753,7 @@ enum VectorAsset {
 /// Filled off the main thread when pages load; the main thread only reads.
 /// cmux: checked `Sendable` (p10-stability-055): the stores and counters are one lock state (they were
 /// vars under an NSLock in an unchecked class); measuring runs outside the lock, as before.
-final class MeasureCache: Sendable {
+final class MeasureCache: Sendable { // cmux: memory: consumer via MessagesLabMemoryConsumer (CmuxNextHome)
     static let shared = MeasureCache()
     /// `markdown`: the message's format (Message.format). A plain/markdown change under the same
     /// id and text (a host marking a message later, a local echo) is a new measurement.
@@ -929,6 +929,16 @@ final class MeasureCache: Sendable {
     }
 
     var count: Int { state.withLock { $0.byKey.count } }
+
+    /// cmux: the host's memory policy (p07-memory-115, `MessagesLabTranscriptCaches.trim(toFraction: 0)`): every
+    /// measurement goes, freed outside the lock; the next layout measures again (near rows exactly, the rest estimated).
+    func removeAll() {
+        let dropped = state.withLock { s -> ([Key: Value], [Key: Value], [PartKey: Value]) in
+            defer { s.byKey = [:]; s.streamStore = [:]; s.latest = [:] }
+            return (s.byKey, s.streamStore, s.latest)
+        }
+        withExtendedLifetime(dropped) {}
+    }
 
     /// LRU-ish bound: drop measurements for messages outside the window.
     func trim(keeping ids: Set<ID>) {
@@ -1302,6 +1312,7 @@ enum Format {
     /// again (Calendar work was about 1 % of main in a divider drag). Thread safe.
     // cmux: one checked lock for the memo and its day and bundle (they were globals under an NSLock).
     // Lock carve-out: as `timeMemo`.
+    // cmux: memory: fixed at most 4096 labels, for one day and one string bundle
     private struct DayMemo: Sendable {
         var labels: [Date: String] = [:]
         var today: DateInterval?

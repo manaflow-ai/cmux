@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/Shapes.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/Shapes.swift
-@@ -3,23 +3,26 @@
+@@ -3,23 +3,27 @@
  #else
  import AppKit
  #endif
@@ -13,6 +13,7 @@
 -    /// Bubble outlines by size (cells reuse them for the gradient mask).
 -    private static var cache: [Key: CGPath] = [:]
 +    /// Bubble outlines by size (cells reuse them for the gradient mask). cmux: the lock owns them (any thread may ask).
++    // cmux: memory: fixed at most 2001 outlines (emptied when full)
 +    private static let cache = OSAllocatedUnfairLock<[Key: CGPath]>(initialState: [:])
      private struct Key: Hashable { var w: CGFloat; var h: CGFloat; var outgoing: Bool; var tail: Bool; var cw: CGFloat = 0; var ch: CGFloat = 0
          var circularEnds = false }
@@ -33,7 +34,7 @@
          return p
      }
      /// `cornersOf`: the body takes the rounded rect of this size, scaled to `r` (an outgoing text balloon drawn a
-@@ -42,11 +45,11 @@
+@@ -42,11 +46,11 @@
          let path: UIBezierPath
          if circularEnds, r.width > 0, r.height > 0, r.height / 2 < pillLimit * radius {
              let q = min(r.width, r.height) / 2
@@ -48,7 +49,7 @@
          } else {
              path = UIBezierPath(roundedRect: r, cornerRadius: min(radius, r.height / 2))
          }
-@@ -62,6 +65,22 @@
+@@ -62,6 +66,22 @@
  }
  
  extension BubblePath {
@@ -71,7 +72,7 @@
      /// The tail in "outgoing" space, relative to the body's (maxX, maxY): the
      /// caller mirrors it for an incoming bubble. Fitted to real Messages
      /// (the lossless screenshots references/real-messages/state-*.png, 2x;
-@@ -95,7 +114,7 @@
+@@ -95,7 +115,7 @@
  /// away and moved back with linear filtering (a bitmap placed at a fractional position) gives that profile within
  /// 0.03 on every edge with one shift per kind: 2+ lines drawn 0.225 px up and left and moved back right and down,
  /// 1 line drawn 0.14 px down and right and moved back up and left. The summed coverage (the edge place of
@@ -80,17 +81,18 @@
  ///
  /// The cell masks its fill with a precomputed image of that balloon (one per kind, tail and screen scale, built once)
  /// stretched by Core Animation along its flat middle (`contentsCenter`): the caps keep their pixels 1:1 on the
-@@ -107,7 +126,8 @@
+@@ -107,7 +127,9 @@
      private struct Template { let image: CGImage; let center: CGRect }
      /// `narrow`: a balloon narrower than its caps gets its own unstretched image (its width and left phase in device px).
      private struct Key: Hashable { let kind: Int; let tail: Bool; let scale: CGFloat; var narrow: [Int] = []; var circularEnds = false }
 -    private static var cache: [Key: Template] = [:]
 +    /// cmux: the lock owns the templates (row drawing asks on the render queues and the main thread).
++    // cmux: memory: fixed at most 201 templates (when full only the stretchable ones stay: 3 kinds x tail x ends x scale)
 +    private static let cache = OSAllocatedUnfairLock<[Key: Template]>(initialState: [:])
      /// Space around the frame (pt) and below it for the tail (it hangs 5.14 pt below the balloon).
      static let pad: CGFloat = 1, tailDrop: CGFloat = 6
      /// Template frames: 30 pt (1 line), 46 (2 lines), 62 (3 lines; taller rows stretch the middle row).
-@@ -147,7 +167,7 @@
+@@ -147,7 +169,7 @@
      /// view and the highlight, draw the resting balloon's soft edge). false (ctx unchanged): no soft mask for this part
      /// (the caller draws the crisp shape). The caller saves and restores the state around it.
      static func clip(_ ctx: CGContext, frame f: CGRect, row p: PartRow, scale: CGFloat = Fixture.renderScale) -> Bool {
@@ -99,7 +101,7 @@
          // The mask image's first row is the frame's top: in a y-down context the image is drawn flipped about the frame.
          let r = m.frame
          let flipped = ctx.ctm.d < 0
-@@ -159,9 +179,15 @@
+@@ -159,9 +181,15 @@
      }
  
      /// Main thread: inside `withCrispCopy(true)` `clip` returns false (a copy of a just-sent row: RowCell.crispEdge).
@@ -117,7 +119,7 @@
          body()
      }
  
-@@ -179,7 +205,7 @@
+@@ -179,7 +207,7 @@
          let cx = CrashGuard.int((m.center.minX * CGFloat(sw)).rounded(), in: 0...max(0, sw - 1))
          let cy = CrashGuard.int((m.center.minY * CGFloat(sh)).rounded(), in: 0...max(0, sh - 1))
          guard W >= sw - 1, H >= sh - 1,
@@ -126,7 +128,7 @@
                                  space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return nil }
          g.interpolationQuality = .none
          g.setFillColor(gray: 0, alpha: 1)
-@@ -203,15 +229,14 @@
+@@ -203,15 +231,14 @@
      /// `circularEnds`: a 1-line balloon with half-circle ends (BubblePath.make, RowDraw.circularEnds).
      private static func template(_ k: Kind, tail: Bool, scale s: CGFloat, narrow: [Int], frame f: CGRect, circularEnds: Bool) -> Template? {
          let key = Key(kind: k.rawValue, tail: tail, scale: s, narrow: narrow, circularEnds: circularEnds)
@@ -144,7 +146,7 @@
                        space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
          }
          guard let ctx = context(w) else { return nil }
-@@ -259,7 +284,10 @@
+@@ -259,7 +286,10 @@
          let cy = h / 2
          let center = CGRect(x: CGFloat(cx) / CGFloat(w2), y: CGFloat(cy) / CGFloat(h), width: 1 / CGFloat(w2), height: 1 / CGFloat(h))
          let t = Template(image: image, center: center)
@@ -156,7 +158,7 @@
          return t
      }
  }
-@@ -273,7 +301,7 @@
+@@ -273,7 +303,7 @@
              attr.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: NSRange(range, in: s))
          }
          if let l = link, let range = s.range(of: l) {
@@ -165,7 +167,7 @@
                                  .underlineStyle: NSUnderlineStyle.single.rawValue], range: NSRange(range, in: s))
          }
          let line = CTLineCreateWithAttributedString(attr)
-@@ -286,7 +314,7 @@
+@@ -286,7 +316,7 @@
  
      static func width(_ s: String, font: UIFont, kern: CGFloat = 0) -> CGFloat {
          let attr = NSAttributedString(string: s, attributes: [.font: font, .kern: kern])
@@ -174,7 +176,7 @@
      }
  }
  
-@@ -338,8 +366,8 @@
+@@ -338,8 +368,8 @@
          for (stops, fromTop) in [(rim.top, true), (rim.bottom, false)] {
              // no force unwraps ; an empty rim or a failed gradient draws nothing.
              guard let span = stops.last?.0 else { continue }

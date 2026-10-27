@@ -20,6 +20,7 @@ final class HomeTopFadeView: NSView {
     /// progressiveBlur: Gaussian backdrops, weakest to strongest, each masked to end higher up, so the
     /// blur grows toward the top (a variable blur built from the public mask and the backdrops
     /// HeaderBackdropView already uses).
+    // memory: fixed three backdrop layers, made once in build()
     private var blurs: [(layer: CALayer, mask: CAGradientLayer, solidTo: CGFloat, clearAt: CGFloat)] = []
     private(set) var reducedTransparency = false
     /// edgeShadow: rows sit above the cut (scrolled), so the shadow shows.

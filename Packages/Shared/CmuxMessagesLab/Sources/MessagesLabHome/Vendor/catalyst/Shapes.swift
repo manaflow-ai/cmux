@@ -10,6 +10,7 @@ enum BubblePath {
     /// UIKit's rounded rect uses its limited (pill) corner when half the height is under this times the radius.
     static let pillLimit: CGFloat = 1.528665
     /// Bubble outlines by size (cells reuse them for the gradient mask). cmux: the lock owns them (any thread may ask).
+    // cmux: memory: fixed at most 2001 outlines (emptied when full)
     private static let cache = OSAllocatedUnfairLock<[Key: CGPath]>(initialState: [:])
     private struct Key: Hashable { var w: CGFloat; var h: CGFloat; var outgoing: Bool; var tail: Bool; var cw: CGFloat = 0; var ch: CGFloat = 0
         var circularEnds = false }
@@ -127,6 +128,7 @@ enum SoftBalloon {
     /// `narrow`: a balloon narrower than its caps gets its own unstretched image (its width and left phase in device px).
     private struct Key: Hashable { let kind: Int; let tail: Bool; let scale: CGFloat; var narrow: [Int] = []; var circularEnds = false }
     /// cmux: the lock owns the templates (row drawing asks on the render queues and the main thread).
+    // cmux: memory: fixed at most 201 templates (when full only the stretchable ones stay: 3 kinds x tail x ends x scale)
     private static let cache = OSAllocatedUnfairLock<[Key: Template]>(initialState: [:])
     /// Space around the frame (pt) and below it for the tail (it hangs 5.14 pt below the balloon).
     static let pad: CGFloat = 1, tailDrop: CGFloat = 6

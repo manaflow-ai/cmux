@@ -18,7 +18,7 @@ public import Foundation
 /// try await cache.save(snapshot)
 /// let restored = cache.load()
 /// ```
-public actor HomeCache {
+public actor HomeCache { // memory: fixed the index plus one kept tail (windowLimit messages) per open window, copy-on-write values shared with the mirror; a window leaves with its transcript
     /// Messages kept per opened conversation.
     public static let windowLimit = 200
 

@@ -179,7 +179,7 @@
          }
          for i in 0..<n {
              let c = s.character(at: i)
-@@ -684,27 +703,36 @@
+@@ -684,27 +703,38 @@
  
  // MARK: - LRU
  
@@ -189,6 +189,8 @@
 -    private let lock = NSLock()
 +/// cmux: checked `Sendable` (p10-stability-055): Sendable keys and values in one lock state (it was an
 +/// unchecked class over an NSLock; its only user caches `HomeShared` blocks).
++/// cmux: memory: fixed at most `capacity` entries (the layout's 2048 blocks of messages under LongText.minBytes; longer
++/// text is tiled), the older half dropped when full.
 +final class MDLRU<K: Hashable & Sendable, V: Sendable>: Sendable {
 +    private struct State: Sendable {
 +        var map: [K: (V, Int)] = [:]

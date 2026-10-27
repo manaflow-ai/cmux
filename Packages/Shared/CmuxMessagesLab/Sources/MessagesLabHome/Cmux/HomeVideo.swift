@@ -16,6 +16,7 @@ import QuartzCore
 final class HomeVideo {
     let playback = VideoPlayback()
     weak var controller: ChatController?
+    // memory: fixed one badge and mask per video with a player on screen; each goes when its player or row does
     private var badges: [String: CALayer] = [:]
     private var masks: [String: CAShapeLayer] = [:]
 
@@ -50,13 +51,13 @@ final class HomeVideo {
         defer { CATransaction.commit() }
         for key in Set(playback.activeKeys).union(badges.keys) {
             guard let layer = playback.layer(key) else {
-                badges[key]?.removeFromSuperlayer()
+                forget(key)
                 continue
             }
             guard let cell = cells[key], let spec = cell.spec, case let .part(p) = spec.kind else {
                 playback.rowLeft(key)
                 layer.removeFromSuperlayer()
-                badges[key]?.removeFromSuperlayer()
+                forget(key)
                 continue
             }
             // On the row's content, which RowCell.snapRow moves onto the window's device pixels (MessagesLab c1457e5).
@@ -79,6 +80,12 @@ final class HomeVideo {
             badge.isHidden = state == .playing
             badge.opacity = state == .loading ? 0.5 : 1
         }
+    }
+
+    /// The video has no player or left the screen: its badge and mask go (the next play makes new ones).
+    private func forget(_ key: String) {
+        badges.removeValue(forKey: key)?.removeFromSuperlayer()
+        masks.removeValue(forKey: key)
     }
 
     /// RowDrawing's video disc: black at 50% under a white triangle at 85%.

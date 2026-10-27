@@ -263,7 +263,7 @@
 -final class MeasureCache: @unchecked Sendable {
 +/// cmux: checked `Sendable` (p10-stability-055): the stores and counters are one lock state (they were
 +/// vars under an NSLock in an unchecked class); measuring runs outside the lock, as before.
-+final class MeasureCache: Sendable {
++final class MeasureCache: Sendable { // cmux: memory: consumer via MessagesLabMemoryConsumer (CmuxNextHome)
      static let shared = MeasureCache()
      /// `markdown`: the message's format (Message.format). A plain/markdown change under the same
      /// id and text (a host marking a message later, a local echo) is a new measurement.
@@ -369,12 +369,22 @@
      }
  
      /// Text keeps its total line length: lines = ceil(sum of line widths / new column).
-@@ -828,16 +928,16 @@
+@@ -828,16 +928,26 @@
          }
      }
  
 -    var count: Int { lock.lock(); defer { lock.unlock() }; return store.count }
 +    var count: Int { state.withLock { $0.byKey.count } }
++
++    /// cmux: the host's memory policy (p07-memory-115, `MessagesLabTranscriptCaches.trim(toFraction: 0)`): every
++    /// measurement goes, freed outside the lock; the next layout measures again (near rows exactly, the rest estimated).
++    func removeAll() {
++        let dropped = state.withLock { s -> ([Key: Value], [Key: Value], [PartKey: Value]) in
++            defer { s.byKey = [:]; s.streamStore = [:]; s.latest = [:] }
++            return (s.byKey, s.streamStore, s.latest)
++        }
++        withExtendedLifetime(dropped) {}
++    }
  
      /// LRU-ish bound: drop measurements for messages outside the window.
      func trim(keeping ids: Set<ID>) {
@@ -392,7 +402,7 @@
      }
  }
  
-@@ -858,6 +958,8 @@
+@@ -858,6 +968,8 @@
                       previousRow: RowSpec.Kind? = nil, width: CGFloat = Metrics.current.width, exact: Range<Int>? = nil,
                       scale: CGFloat = Fixture.renderScale, threadCounts: [ID: Int]? = nil) -> [RowSpec] {
          let me = s.me
@@ -401,7 +411,7 @@
          var rows: [RowSpec] = []
          var span = (range ?? 0..<loaded.count).clamped(to: 0..<loaded.count) // a range from an older window stays inside
          // The host's streaming bubbles with text (ask 11, HostHooks.swift) follow the newest message as the messages
-@@ -989,6 +1091,19 @@
+@@ -989,6 +1101,19 @@
                  let lastOfGroup = next.map { next in next.senderId != m.senderId || next.date.timeIntervalSince(m.date) >= groupGap
                      || next.retractedAt != nil || next.replyTo != m.replyTo
                      || thread(next, at: idx + 1) != thread(m, at: idx) } ?? true
@@ -421,7 +431,7 @@
                  for (pi, part) in m.parts.enumerated() {
                      // A streaming bubble (past the loaded messages) is always measured: it draws now.
                      let measured = MeasureCache.shared.size(m, pi, width: width, estimate: idx < loaded.count && (exact.map { !$0.contains(idx) } ?? false), scale: scale)
-@@ -1015,7 +1130,9 @@
+@@ -1015,7 +1140,9 @@
                                        tail: lastOfGroup && pi == m.parts.count - 1, reactions: reactions,
                                        myReaction: reactions.firstIndex { $0.senderId == me }, failed: failed,
                                        size: size, text: tl, connectorRoot: pi == 0 ? connector : nil, markdown: measured.markdown,
@@ -432,7 +442,7 @@
                      rows.append(RowSpec(key: "part:\(m.id):\(pi)", kind: .part(row), gap: g, height: size.height,
                                          width: width, estimated: measured.estimated))
                  }
-@@ -1024,7 +1141,8 @@
+@@ -1024,7 +1151,8 @@
                                          gap: 1, height: 14))
                  }
                  if case .failed = m.status {
@@ -442,7 +452,7 @@
                                          gap: 1, height: 14))
                  }
                  if !threadMode, let n = replyCount[m.id], n >= 2, m.replyTo == nil {
-@@ -1043,17 +1161,24 @@
+@@ -1043,17 +1171,24 @@
              }
              prev = m; prevIndex = idx
          }
@@ -472,7 +482,7 @@
          rows = rows.map { var r = $0; r.width = width; return r } // no index writes
          return rows
      }
-@@ -1118,6 +1243,8 @@
+@@ -1118,6 +1253,8 @@
      }
  
      private static func isText(_ p: Part?) -> Bool { if case .text = p { return true } else { return false } }
@@ -481,7 +491,7 @@
  
      /// "Read <time>" under my latest read message; "Delivered" under my
      /// latest delivered message when it is newer.
-@@ -1145,26 +1272,25 @@
+@@ -1145,26 +1282,25 @@
  enum Format {
      private static let timeFormatter: DateFormatter = {
          let f = DateFormatter()
@@ -515,7 +525,7 @@
          d.timeZone = Instant.zone
          d.dateFormat = f
          return d
-@@ -1174,23 +1300,29 @@
+@@ -1174,23 +1310,30 @@
      private static let monthDayYear = formatter("MMM d, yyyy")
      /// `day` per date for the day `now` is in: a width change derives every separator row
      /// again (Calendar work was about 1 % of main in a divider drag). Thread safe.
@@ -525,6 +535,7 @@
 -    private static var dayMemoBundle: ObjectIdentifier?
 +    // cmux: one checked lock for the memo and its day and bundle (they were globals under an NSLock).
 +    // Lock carve-out: as `timeMemo`.
++    // cmux: memory: fixed at most 4096 labels, for one day and one string bundle
 +    private struct DayMemo: Sendable {
 +        var labels: [Date: String] = [:]
 +        var today: DateInterval?
@@ -556,7 +567,7 @@
          return s
      }
      private static func dayUncached(_ d: Date, now: Date) -> String {
-@@ -1213,11 +1345,12 @@
+@@ -1213,11 +1356,12 @@
  /// `String(localized:)` without a bundle reads Bundle.main, so the code never uses it.
  enum MessagesLabLocalization {
      private final class Token {}
@@ -573,7 +584,7 @@
      }
      /// The string for `key` in the user's preferred language (of `bundle`); `english` when the
      /// catalog has no entry. `table`: nil is `Localizable`.
-@@ -1255,7 +1388,8 @@
+@@ -1255,7 +1399,8 @@
          default: return MessagesLabLocalization.string("file.kind.document", "Document")
          }
      }
