@@ -114,9 +114,10 @@ class FakeApp:
         self.killed.append(pid)
         command = self.procs.pop(pid).command
         if "--type=renderer" in command:
-            for page in self.pages.values():
+            # A shown tab shows the crash page; a hidden one only reloads when shown (CEFTab showProcessExit).
+            for tab, page in self.pages.items():
                 if page["engine"] == "cef":
-                    page["gone"] = "1"
+                    page["gone" if self.shown(tab) else "dead_hidden"] = "1"
         elif "--type=gpu-process" in command and self.recover:
             self.spawn(APP, f"{BUNDLE}/Contents/Frameworks/Helper --type=gpu-process")
         elif "--type=utility" in command and self.recover:
@@ -138,10 +139,21 @@ class FakeApp:
                 if pane.get("holder") == pid:
                     pane.update(link="exited", restart_offered=True, status_text="Shell ended")
                     self.procs.pop(pane["shell"], None)
+                    self.procs.pop(pane["login"], None)
 
     # -- the layout
     def focused(self):
         return next(p for p in self.panes if p["focused"])
+
+    def shown(self, tab):
+        return any(p["selected_tab"] == tab for p in self.panes)
+
+    def spawn_shell(self, pane):
+        """holder -> /usr/bin/login -> -zsh, as holder_spawn.rs runs a shell with the account's HOME: login(1) is
+        the PTY child and stays the shell's parent."""
+        holder = self.spawn(1, f"/tmp/cmux-holder --owner {BUNDLE_ID}:chaos@{self.daemon}")
+        login = self.spawn(holder, "/usr/bin/login -flpq lawrence /bin/bash -c exec -l /bin/zsh")
+        pane.update(holder=holder, login=login, shell=self.spawn(login, "-zsh"))
 
     def add_terminal(self):
         for pane in self.panes:
@@ -150,8 +162,7 @@ class FakeApp:
         pane = {"kind": "terminal", "selected_tab": f"t{self.tab_count}", "focused": True, "link": "connected",
                 "terminal_id": f"term{self.tab_count}", "text": ""}
         if self.holder_model:
-            holder = self.spawn(1, f"/tmp/cmux-holder --owner {BUNDLE_ID}:chaos@{self.daemon}")
-            pane.update(holder=holder, shell=self.spawn(holder, "-zsh"))
+            self.spawn_shell(pane)
         else:
             pane["host_pid"] = self.spawn(self.daemon, f"cmux-tui __terminal-host --owner {BUNDLE_ID}:chaos@700")
         self.panes.append(pane)
@@ -160,9 +171,9 @@ class FakeApp:
         found = re.fullmatch(r"echo (cmux-chaos-\d+-)\$\(\(6\*7\)\)", line)
         if found and pane["link"] == "connected":
             pane["text"] += f"\n{line}\n{found.group(1)}42"
-        found = re.fullmatch(r"echo (cmux-chaos-\d+-)\$\$-\$\(ps -o ppid= -p \$\$\)", line)
+        found = re.fullmatch(r"echo (cmux-chaos-\d+-)\$\$", line)
         if found and pane["link"] == "connected":
-            pane["text"] += f"\n{line}\n{found.group(1)}{pane.get('shell', 4242)}- {pane.get('holder', 4243)}"
+            pane["text"] += f"\n{line}\n{found.group(1)}{pane.get('shell', 4242)}"
 
     # -- the socket
     def rpc(self, method, params=None, timeout=60):
@@ -194,7 +205,7 @@ class FakeApp:
             return {}
         if method == "browser.page.eval":
             page = self.pages[params["tab"]]
-            if page["gone"] == "1":
+            if page["gone"] == "1" or page.get("dead_hidden"):
                 return {"error": "gone"}
             return {"value": "alive" if "alive" in params["script"] else crash.PAGE_TITLE}
         if method == "debug.browser.page_status":
@@ -236,7 +247,7 @@ class FakeApp:
             self.tab_count += 1
             tab = f"page{self.tab_count}"
             pane = self.focused()
-            pane.update(kind="browser", selected_tab=tab)
+            pane.update(kind="browser", selected_tab=tab, tabs=pane.get("tabs", []) + [tab])
             pid = 800 if args["engine"] == "webkit" else None
             self.pages[tab] = {"engine": args["engine"], "gone": "0", "page_pid": pid}
             return {"created": [tab]}
@@ -248,13 +259,16 @@ class FakeApp:
         if name == "tab.focus":
             tab = target.removeprefix("tab:")
             for pane in self.panes:
-                pane["focused"] = pane["selected_tab"] == tab
+                pane["focused"] = tab in pane.get("tabs", [pane["selected_tab"]])
+                if pane["focused"]:
+                    pane["selected_tab"] = tab
+            if self.pages.get(tab, {}).pop("dead_hidden", None):  # shown again: it reloads in a new renderer
+                self.spawn(APP, f"{BUNDLE}/Contents/Frameworks/Helper --type=renderer")
             return {}
         if name == "tab.restart":
             pane = next(p for p in self.panes if p["selected_tab"] == target.removeprefix("tab:"))
-            holder = self.spawn(1, f"/tmp/cmux-holder --owner {BUNDLE_ID}:chaos@{self.daemon}")
-            pane.update(link="connected", restart_offered=False, status_text=None, holder=holder,
-                        shell=self.spawn(holder, "-zsh"))
+            pane.update(link="connected", restart_offered=False, status_text=None)
+            self.spawn_shell(pane)
             return {}
         return {"error": f"unknown action {name}"}
 
@@ -329,6 +343,23 @@ class OwnershipTests(unittest.TestCase):
         holders.add_terminal()
         procs = chaos.AppProcesses(APP, BUNDLE_ID, BUNDLE, read_table=holders.table)
         self.assertEqual(procs.holders(), [holders.panes[-1]["holder"]])
+
+    def test_the_holder_of_a_shell_is_found_through_login(self):
+        app = FakeApp(holders=True)
+        app.add_terminal()
+        pane = app.panes[-1]
+        procs = chaos.AppProcesses(APP, BUNDLE_ID, BUNDLE, read_table=app.table)
+        self.assertEqual(app.procs[pane["shell"]].ppid, pane["login"])
+        self.assertEqual(procs.holder_of(pane["shell"]), pane["holder"])
+        self.assertIsNone(procs.holder_of(PERSON))
+        self.assertIsNone(procs.holder_of(4242))
+
+    def test_acpmux_of_another_build_whose_bundle_id_extends_this_ones_is_not_this_builds(self):
+        other = "com.cmuxterm.app.debug.chaos2"
+        self.app.procs[730] = Proc(730, 1, f"/Apps/cmux DEV chaos2.app/Contents/Resources/bin/acpmux serve "
+                                           f"--state ~/Library/Application Support/{other}/acpmux")
+        self.assertEqual(self.procs.acpmux(), [720])
+        self.assertFalse(self.procs.proof(730)[0])
 
 
 class PingVerdictTests(unittest.TestCase):
@@ -438,6 +469,54 @@ class RunTests(unittest.TestCase):
         self.assertEqual(lines[0]["outcome"], "FAIL", lines[0])
         self.assertFalse(lines[0]["main_ping_ok"])
         self.assertGreaterEqual(lines[0]["main_ping_ms"]["max"], 250)
+
+    def test_a_main_thread_stall_in_the_faults_setup_is_not_the_kills(self):
+        # New Agent Chat's first load stalls the main thread before any kill: the fault's verdict starts at the kill.
+        app = FakeApp(agent="none")
+        rpc = app.rpc
+        app.stall_next_ping = False
+
+        def stalling(method, params=None, timeout=60):
+            if method == "action.run" and params.get("action") == "palette.newAgentChat":
+                app.stall_next_ping = True
+            if method == "debug.windows" and app.stall_next_ping:
+                app.stall_next_ping = False
+                time.sleep(0.3)  # 30 ping slots of 10 ms, all before the kill
+            return rpc(method, params, timeout)
+
+        app.rpc = stalling
+        run = make(app, ping_hang_ms=100)
+        original_kill = run.kill
+        run.kill = lambda *a, **kw: (time.sleep(0.35), original_kill(*a, **kw))  # the setup goes on past the stall
+        self.app = app
+        self.assertEqual(run.tour(), {})
+        lines = run.run(["agent-webcontent"], lambda row: None)
+        self.assertEqual(lines[0]["outcome"], "ok", lines[0])
+        self.assertTrue(lines[0]["observed"]["opened_chat"])
+        self.assertTrue(lines[0]["main_ping_ok"])
+        self.assertLess(lines[0]["main_ping_ms"]["max"], 100)
+
+    def test_a_chromium_fault_shows_the_cef_tab_hidden_behind_the_webkit_tab(self):
+        # tour() opens webkit last in the pages' pane, so cef is a background tab until the fault selects it.
+        app = FakeApp()
+        run, _, _, rows, lines = self.run_all(app, only={"chromium-renderer"})
+        self.assertEqual(lines[0]["outcome"], "ok", lines[0])
+        self.assertTrue(lines[0]["observed"]["crash_page"])
+        self.assertTrue(app.shown(run.tabs["cef"]))
+        self.assertEqual(app.focused()["selected_tab"], run.tabs["left"])
+        # An agent page already open: no New Agent Chat selects cef on the way.
+        _, _, _, _, lines = self.run_all(FakeApp(), only={"webkit-webcontent", "agent-webcontent", "chromium-renderer"})
+        self.assertEqual([line["outcome"] for line in lines], ["ok", "ok", "ok"], lines)
+        self.assertFalse(lines[1]["observed"]["opened_chat"])
+
+    def test_acpmux_of_another_build_with_a_longer_bundle_id_does_not_skip_the_fault(self):
+        app = FakeApp()
+        app.procs[730] = Proc(730, 1, "/Apps/cmux DEV chaos2.app/Contents/Resources/bin/acpmux serve "
+                                      "--state ~/Library/Application Support/com.cmuxterm.app.debug.chaos2/acpmux")
+        _, _, _, rows, lines = self.run_all(app, only={"acpmux"})
+        self.assertEqual(lines[0]["outcome"], "ok", lines[0])
+        self.assertEqual(lines[0]["killed"], [720])
+        self.assertNotIn(730, app.killed)
 
     def test_agent_page_opened_by_new_agent_chat_when_none_shows(self):
         app = FakeApp(agent="none")

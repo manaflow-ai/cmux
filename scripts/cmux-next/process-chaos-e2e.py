@@ -18,7 +18,7 @@ every kill and its recovery; its p99 must be <= --ping-p99-ms (250 ms) and no pi
                      showed the crash page (content/browser/gpu/gpu_process_host.cc).
   terminal-host      one terminal's host: the daemon respawns it (a new host pid, the same terminal id, link
                      connected) and a typed echo runs in it.
-  holder             the holder whose child is the left terminal's shell (an app launched with
+  holder             the holder above the left terminal's shell, through login(1) when it runs (an app launched with
                      CMUX_TUI_TERMINAL_HOST_MODEL=holder): the app stays up; each pane of that holder shows the ended
                      state with Restart and Restart brings its shell back, or kept the same shell under a new holder;
                      the other holders run on.
@@ -46,7 +46,9 @@ debug socket (`cmux-debug-*.sock`) of a tagged DEV build (`system.identify` bund
 the same socket and a process run from that bundle). Every signal names an exact pid proved to be this app's: a
 process of its tree, one run from its bundle, a terminal host or holder that names it as its `--owner`, or a
 WebContent the app reports whose responsible process is the app's. It opens one workspace of its own (two
-terminals, and a pane with a Chromium and a WebKit tab on a page it serves on 127.0.0.1).
+terminals, and a pane with a Chromium and a WebKit tab on a page it serves on 127.0.0.1); each page fault first
+selects its page's tab in that pane. Only the pings sent from a kill's start through its recovery count, never the
+ones of the fault's setup (opening an agent chat).
 
 Output: one JSON line per kill on stdout (and appended to --out): {"fault", "expected", "observed", "outcome":
 "ok"|"FAIL"|"skip", "ok", "killed", "app_pid_kept", "main_ping_ms": {n, p50, p95, p99, max, iqr},
@@ -251,18 +253,33 @@ class AppProcesses:
         return crash.chromium_children(self.read_table(), self.app_pid, kind)
 
     def acpmux(self):
+        """The build's acpmux daemons, by the rule proof() signals on: in the app's tree, run from its bundle or
+        naming it as its --owner."""
         table = self.read_table()
         tree = crash.descendants(table, self.app_pid)
         return sorted(p.pid for p in table.values() if re.search(r"/acpmux(\s|$)", p.command)
-                      and (p.pid in tree or self.owned_command(p.command) or self.bundle_id in p.command))
+                      and (p.pid in tree or self.owned_command(p.command)))
 
-    def holders(self):
+    def holders(self, table=None):
         """The build's terminal holders: the standalone holder (argv0 `cmux-holder`) or the one built into
         cmux-tui-host (a `__holder` argument), that names this build as its owner or runs from its bundle. A path
         can hold spaces (`cmux DEV <tag>.app`), so names are matched, never split out of the command line."""
-        return sorted(p.pid for p in self.read_table().values()
+        return sorted(p.pid for p in (table or self.read_table()).values()
                       if re.search(r"(^|/)cmux-holder(\s|$)|\s__holder(\s|$)", p.command)
                       and self.owned_command(p.command))
+
+    def holder_of(self, pid):
+        """The holder above `pid` in the process tree, or None. The shell is not always the holder's child: with the
+        account's HOME the PTY child is login(1), which stays the shell's parent (cmux-tui holder_spawn.rs and
+        login_shell.rs wrap)."""
+        table = self.read_table()
+        holders, seen = set(self.holders(table)), set()
+        while pid in table and pid not in seen:
+            if pid in holders:
+                return pid
+            seen.add(pid)
+            pid = table[pid].ppid
+        return None
 
     def running(self, pid):
         return pid in self.read_table()
@@ -271,17 +288,18 @@ class AppProcesses:
 # ---------------------------------------------------------------- background loops
 class Loop:
     """Runs `step()` on a fixed clock of `every` s on a thread of its own, at least once, until stopped; keeps the
-    results. A step that overruns its slot skips the slots it covered (the next step starts on the next slot), so
-    the clock never drifts with the replies."""
+    results and when each step started. A step that overruns its slot skips the slots it covered (the next step
+    starts on the next slot), so the clock never drifts with the replies."""
 
     def __init__(self, step, every, name):
         self.step, self.every = step, every
-        self.results, self.done = [], threading.Event()
+        self.results, self.starts, self.done = [], [], threading.Event()
         self.thread = threading.Thread(target=self._run, name=name, daemon=True)
 
     def _run(self):
         start = time.monotonic()
         while True:
+            self.starts.append(time.monotonic())
             self.results.append(self.step())
             elapsed = time.monotonic() - start
             slot = (int(elapsed / self.every) + 1) * self.every if self.every > 0 else elapsed
@@ -292,11 +310,13 @@ class Loop:
         self.thread.start()
         return self
 
-    def stop(self, join_s):
-        """The results; the step still running past `join_s` adds a None (no answer)."""
+    def stop(self, join_s, since=None):
+        """The results of the steps started at or after `since` (time.monotonic(); all of them when None); the step
+        still running past `join_s` adds a None (no answer)."""
         self.done.set()
         self.thread.join(join_s)
-        return list(self.results) + ([None] if self.thread.is_alive() else [])
+        results = list(self.results) + ([None] if self.thread.is_alive() else [])
+        return [r for began, r in zip(self.starts, results) if since is None or began >= since]
 
 
 class Typist:
@@ -351,6 +371,7 @@ class Chaos:
         self.patience = patience  # scales every recovery wait (tests)
         self.pinger = self.typist = None
         self.pings_at_kill = None  # the pinger's count when the first kill was sent
+        self.window_start = None  # time.monotonic() when the first kill() began: pings sent before it are setup's
         self.tabs = {}  # role -> tab id: left, right (terminals), cef, webkit (pages)
         self.marker = 0
         self.killed, self.gone = [], []  # this fault's signalled pids; proved pids that exited before their signal
@@ -422,9 +443,9 @@ class Chaos:
         return self.typed(role, "$((6*7))", "42") is not None
 
     def shell_ids(self, role):
-        """The `role` terminal's shell pid and its parent's (its holder or host), as the shell reports them."""
-        found = self.typed(role, "$$-$(ps -o ppid= -p $$)", r"(\d+)-\s*(\d+)")
-        return (int(found.group(1)), int(found.group(2))) if found else None
+        """The `role` terminal's shell pid, as the shell reports it, and the holder above it (None when none is)."""
+        found = self.typed(role, "$$", r"(\d+)")
+        return (int(found.group(1)), self.procs.holder_of(int(found.group(1)))) if found else None
 
     # -- the layout: a workspace of its own
     def split(self, action, existing):
@@ -479,6 +500,8 @@ class Chaos:
         refuses, a Skip on one it found itself. A pid it found itself that exited by itself before its proof, or any
         proved pid that exited before its signal, goes to `gone`; the others are still signalled. With none left to
         signal: a FAIL when the app reported the pid, else a Skip."""
+        if self.window_start is None:
+            self.window_start = time.monotonic()
         proved = []
         for pid in pids:
             owned, why = self.procs.proof(pid, reported_by_app)
@@ -520,7 +543,7 @@ class Chaos:
     def run_fault(self, name):
         row = {"fault": name, "expected": FAULTS[name]}
         started, clock = time.time(), time.monotonic()
-        self.killed, self.gone, self.typist, self.pings_at_kill = [], [], None, None
+        self.killed, self.gone, self.typist, self.pings_at_kill, self.window_start = [], [], None, None, None
         pinger = self.pinger = Loop(self.ping, self.ping_every, "chaos-pinger").start()
         try:
             try:
@@ -530,10 +553,12 @@ class Chaos:
                     crash.wait(lambda: len(pinger.results) >= self.pings_at_kill + PINGS_AFTER_KILL,
                                PINGS_AFTER_KILL * (self.ping_every + self.ping_bound_ms / 1000), 0.01)
             finally:
-                pings = pinger.stop(self.ping_bound_ms / 1000 + 5)
+                # The pings sent from the kill's baseline through its recovery: a stall of the fault's setup (a new
+                # agent chat's first load) is not the kill's.
+                pings = pinger.stop(self.ping_bound_ms / 1000 + 5, since=self.window_start)
             verdict = ping_verdict(pings, self.ping_limit_ms, self.ping_bound_ms, self.ping_every * 1000,
                                    self.ping_hang_ms)
-            verdict["main_ping_after_kill"] = len(pings) - (self.pings_at_kill or 0)
+            verdict["main_ping_after_kill"] = len(pinger.results) - (self.pings_at_kill or 0)
             kept = crash.alive(self.procs.app_pid)
             time.sleep(self.report_settle_s)  # test harness: ReportCrash writes seconds after a death
             reports = [r for r in self.reports(started - 1) if r not in self.seen_reports]
@@ -563,9 +588,15 @@ class Chaos:
         return {"crash_page": shown, "crash_text": lines, "reloaded": bool(back)}
 
     def page(self, role):
+        """The `role` page's tab, made the selected tab of its pane: the cef and webkit tabs share a pane, and a
+        hidden crashed tab only reloads when shown (CEFTab+Processes.swift showProcessExit), so the fault checks
+        what the person sees. typing() then focuses the left terminal; the page stays selected in its own pane."""
         tab = self.tabs.get(role)
         if not tab:
             raise RuntimeError(f"the layout has no {role} tab")
+        self.focus(tab)
+        if not self.wait(lambda: self.pane_of(tab), self.step_s):
+            raise RuntimeError(f"tab.focus did not select the {role} tab in its pane")
         return tab
 
     def fault_webkit_webcontent(self):
@@ -671,9 +702,9 @@ class Chaos:
         if not holders:
             raise Skip("no terminal holder runs (launch the app with CMUX_TUI_TERMINAL_HOST_MODEL=holder)")
         roles = [role for role in ("left", "right") if self.tabs.get(role)]
-        shells = {role: self.shell_ids(role) for role in roles}  # (shell pid, the holder it is a child of)
+        shells = {role: self.shell_ids(role) for role in roles}  # (shell pid, the holder above it)
         if not (shells.get("left") and shells["left"][1] in holders):
-            raise Skip(f"the left terminal's shell is no holder's child (shell and parent {shells.get('left')}, "
+            raise Skip(f"no holder is above the left terminal's shell (shell and holder {shells.get('left')}, "
                        f"holders {holders})")
         victim = shells["left"][1]
         others = [pid for pid in holders if pid != victim]
