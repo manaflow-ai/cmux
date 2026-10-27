@@ -110,7 +110,7 @@ import Testing
         tree.toggle(root)
         tree.toggle(mid)
         tree.toggle(other)
-        tree.reveal(leaf)
+        tree.reveal(leaf, lists: [{ _ in true }])
         #expect(tree.collapsed == [other])
     }
 }
