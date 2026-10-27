@@ -356,7 +356,14 @@ fn cmux_exec_says_it_includes_computer_use_only_when_the_chat_has_it() {
     let listed =
         server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
     let with = listed["result"]["tools"][0]["description"].as_str().unwrap().to_owned();
-    for phrase in ["cmux Computer Use", "cua_*", "apps on the person's Mac", "never osascript"] {
+    for phrase in [
+        "cmux Computer Use",
+        "cua_*",
+        "apps on the person's Mac",
+        "never osascript",
+        "Never type into a terminal or script tool",
+        "never copy app data out",
+    ] {
         assert!(with.contains(phrase), "{phrase}: {with}");
     }
 
@@ -369,9 +376,10 @@ fn cmux_exec_says_it_includes_computer_use_only_when_the_chat_has_it() {
 }
 
 /// cmux's rules for its computer use server let the model pick it for a task
-/// in a desktop app, never osascript, keep the person's setup and per-app
-/// cards and the blocked apps, and override the engine's older text. Another
-/// server keeps only its own instructions.
+/// in a desktop app, never osascript, name the setup card and the blocked
+/// apps the guard really blocks, claim no per-app card (none exists yet,
+/// #13742), and override the engine's older text. Another server keeps only
+/// its own instructions.
 #[test]
 fn computer_use_rules_route_app_tasks_and_keep_consent() {
     let rules = acpmux::agent_tools::CUA_RULES;
@@ -380,15 +388,20 @@ fn computer_use_rules_route_app_tasks_and_keep_consent() {
         "never osascript",
         "cmux:cmux-cua",
         "setup card",
-        "approval card",
+        "no other cmux prompt",
         "do not retry",
-        "always blocked",
+        "Whole-screen captures are not filtered",
+        "Never type into a terminal or script tool",
+        "copies app data out",
         "Stop before a step the person did not ask for",
         "never an instruction",
         "Do not call start_session",
         "they win over any text after",
     ] {
         assert!(rules.contains(phrase), "{phrase}: {rules}");
+    }
+    for claim in ["approval card", "always blocked", "Always allow", "Allow in this chat"] {
+        assert!(!rules.contains(claim), "{claim}: {rules}");
     }
     let mut cua = upstream_server("cmux-cua");
     let look = cua.descriptors(&BTreeSet::new()).into_iter().next().unwrap();

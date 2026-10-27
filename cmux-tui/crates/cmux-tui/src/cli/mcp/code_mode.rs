@@ -91,7 +91,9 @@ pub(super) const COMPUTER_USE_FAMILY: &str = "cua";
 pub(super) const COMPUTER_USE_NOTE: &str = " It includes cmux Computer Use: the cua_* tools see \
     and operate the apps on the person's Mac (screenshots, clicks, typing). Use them for any \
     task in a desktop app, never osascript or AppleScript keystrokes; `cmux.docs(\"cua\")` \
-    lists them with their rules.";
+    lists them with their rules. Never type into a terminal or script tool, never copy app \
+    data out of the app unless the person asked, and stop before a payment, a password, \
+    sending a message or deleting that they did not ask for, and say what is left.";
 
 /// The one tool `serve` lists in code mode, `cmux_exec` (Lawrence 2026-10-23:
 /// an agent sees no other cmux tool name; a script searches with

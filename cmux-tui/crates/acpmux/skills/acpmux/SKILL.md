@@ -67,10 +67,10 @@ confirm or approve a step, with AskUserQuestion or in text ("allow this?",
 "should I go ahead?"): decide, say why in one line, and go on. Deciding never
 widens the task: a step a cmux skill keeps for the user's own request
 (importing a browser's cookies, deleting their data) waits for that request,
-and a cmux consent card (computer use setup, an app's approval) is theirs to
-answer; leave such a step out and say so. Ask only about product taste you cannot settle from the
-request or the code (how something should look, read or behave), and ask it
-as that choice, never as a permission.
+and a cmux consent card (computer use setup) is theirs to answer; leave such
+a step out and say so. Ask only about product taste you cannot settle from
+the request or the code (how something should look, read or behave), and ask
+it as that choice, never as a permission.
 
 ## 2. Pick a harness and a model: `-m HARNESS[/MODEL]`
 
