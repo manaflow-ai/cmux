@@ -116,3 +116,62 @@ fn request_qos_upkeep_pass_holding_a_hot_terminal_runs_user_initiated() {
     assert_eq!(after, base);
     drop(mux);
 }
+
+/// What a request helper reads in its body: its declared class, its work
+/// class and its live class (`qos_class_self` on macOS, nice on Linux).
+type HelperReads = (ThreadQos, Option<ThreadQos>, cmux_threads::LiveQos);
+
+/// Starts a request helper from a creator at the echo class, as a person's
+/// reader is (a plain thread would inherit that class), with `cause` as the
+/// creator's request cause.
+fn helper_reads(enabled: bool, cause: EventCause) -> HelperReads {
+    use super::RequestQos;
+    let creator = cmux_threads::spawn(
+        "mux-helper-creator-test",
+        crate::echo_thread::ECHO_PATH_QOS,
+        move || {
+            let _cause = crate::event_cause::EventCauseScope::enter(cause);
+            RequestQos { enabled }
+                .spawn_helper("mux-helper-test", Some(256 * 1024), || {
+                    let declared = cmux_threads::current_slot().expect("registered").declared();
+                    (declared, cmux_tui_platform::qos::work_qos(), cmux_threads::current())
+                })
+                .expect("spawn the helper")
+                .join()
+                .expect("the helper returns")
+        },
+    );
+    creator.expect("spawn the creator").join().expect("the creator returns")
+}
+
+/// A request's one-shot helper (p05-ipc-080) starts at the dispatcher's
+/// class, never the class it would inherit from its creator, and with the
+/// feature on runs at the class of the request's cause; with it off it
+/// keeps its declared class.
+#[test]
+fn request_qos_helper_starts_at_the_dispatcher_class_and_runs_at_the_cause_class() {
+    use super::REQUEST_HELPER_QOS;
+
+    let (declared, work, live) = helper_reads(false, EventCause::Automation);
+    assert_eq!(declared, REQUEST_HELPER_QOS);
+    assert_eq!(work, None, "the feature is off");
+    #[cfg(target_vendor = "apple")]
+    assert_eq!(live, cmux_threads::LiveQos::Class(REQUEST_HELPER_QOS), "not the echo class");
+    let _ = live;
+
+    let (declared, work, live) = helper_reads(true, EventCause::Automation);
+    assert_eq!(declared, REQUEST_HELPER_QOS);
+    if cmux_threads::reversible(ThreadQos::Utility) {
+        assert_eq!(work, Some(ThreadQos::Utility), "an automation request's class");
+        #[cfg(target_vendor = "apple")]
+        assert_eq!(live, cmux_threads::LiveQos::Class(ThreadQos::Utility));
+    } else {
+        assert_eq!(work, None, "a class the process cannot take back is not entered");
+    }
+    let _ = live;
+
+    let (_, work, _) = helper_reads(true, EventCause::Frontend);
+    assert_eq!(work, Some(ThreadQos::UserInitiated), "a person's request's class");
+    let (_, work, _) = helper_reads(true, EventCause::Program);
+    assert_eq!(work, None, "program work keeps the declared class");
+}

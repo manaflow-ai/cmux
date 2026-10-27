@@ -230,27 +230,32 @@ pub(in crate::server) fn subscribe(
     let event_mux = mux.clone();
     let writer = writer.clone();
     let outbound_stream = writer.start_stream(&subscription_overflow_json())?;
-    std::thread::Builder::new().name("mux-remote-events".into()).spawn(move || {
-        let interrupt = StreamInterrupt::new();
-        writer.register_interrupt(&interrupt);
-        outbound_stream.register_interrupt(&interrupt);
-        events.wake_on(&interrupt);
-        let mut transport_overflow = false;
-        while writer.is_open() && outbound_stream.is_open() {
-            let event = match events.recv_until_interrupted(&interrupt) {
-                Ok(event) => event,
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-            };
-            let Some(value) = remote_event(&event_mux, client, &event) else { continue };
-            if let Err(error) = writer.send_stream_backpressured(&value, &outbound_stream) {
-                transport_overflow = error.kind() == std::io::ErrorKind::WouldBlock;
-                break;
+    crate::thread_qos::spawn_raisable(
+        "mux-remote-events",
+        crate::thread_qos::ThreadType::Utility.qos(),
+        None,
+        move || {
+            let interrupt = StreamInterrupt::new();
+            writer.register_interrupt(&interrupt);
+            outbound_stream.register_interrupt(&interrupt);
+            events.wake_on(&interrupt);
+            let mut transport_overflow = false;
+            while writer.is_open() && outbound_stream.is_open() {
+                let event = match events.recv_until_interrupted(&interrupt) {
+                    Ok(event) => event,
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                };
+                let Some(value) = remote_event(&event_mux, client, &event) else { continue };
+                if let Err(error) = writer.send_stream_backpressured(&value, &outbound_stream) {
+                    transport_overflow = error.kind() == std::io::ErrorKind::WouldBlock;
+                    break;
+                }
             }
-        }
-        if events.overflowed() || transport_overflow {
-            let _ = writer.send_terminal(&subscription_overflow_json(), &outbound_stream);
-        }
-    })?;
+            if events.overflowed() || transport_overflow {
+                let _ = writer.send_terminal(&subscription_overflow_json(), &outbound_stream);
+            }
+        },
+    )?;
     Ok(json!({}))
 }

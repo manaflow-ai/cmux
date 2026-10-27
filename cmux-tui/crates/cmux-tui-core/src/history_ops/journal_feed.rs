@@ -152,9 +152,12 @@ pub(super) fn start(mux: &Arc<Mux>) {
     }
     let weak = Arc::downgrade(mux);
     let kernel = mux.shared_journal_handle();
-    let spawned = std::thread::Builder::new()
-        .name("mux-history-feed".into())
-        .spawn(move || run(&weak, &kernel));
+    let spawned = crate::thread_qos::spawn_raisable(
+        "mux-history-feed",
+        crate::thread_qos::ThreadType::Utility.qos(),
+        None,
+        move || run(&weak, &kernel),
+    );
     if let Err(error) = spawned {
         eprintln!("cmux-tui: history feed did not start: {error}");
         mux.history.release_feed();

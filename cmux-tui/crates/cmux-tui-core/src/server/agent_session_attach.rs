@@ -642,10 +642,8 @@ fn attach(
     let worker_writer = writer.clone();
     let worker_id = id.clone();
     let surface = params.surface;
-    let spawned = std::thread::Builder::new()
-        .name("mux-agent-attach".into())
-        .stack_size(THREAD_STACK_BYTES)
-        .spawn(move || {
+    let spawned =
+        mux.request_qos().spawn_helper("mux-agent-attach", Some(THREAD_STACK_BYTES), move || {
             connect_and_attach(
                 worker_mux,
                 client,
@@ -757,10 +755,8 @@ fn run_on_worker(
     let worker_writer = writer.clone();
     let worker_id = id.clone();
     let worker = attachment.clone();
-    let spawned = std::thread::Builder::new()
-        .name("mux-agent-call".into())
-        .stack_size(THREAD_STACK_BYTES)
-        .spawn(move || {
+    let spawned =
+        mux.request_qos().spawn_helper("mux-agent-call", Some(THREAD_STACK_BYTES), move || {
             let result = call(&worker, command);
             worker.calls.fetch_sub(1, Ordering::AcqRel);
             match result {

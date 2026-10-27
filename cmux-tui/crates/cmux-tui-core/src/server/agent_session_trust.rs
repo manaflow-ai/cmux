@@ -114,10 +114,8 @@ pub(super) fn trust(
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
     let worker_id = id.clone();
-    let spawned = std::thread::Builder::new()
-        .name("mux-agent-trust".into())
-        .stack_size(THREAD_STACK_BYTES)
-        .spawn(move || {
+    let spawned =
+        mux.request_qos().spawn_helper("mux-agent-trust", Some(THREAD_STACK_BYTES), move || {
             let result = run(&worker_mux, &socket, &params);
             drop(slot);
             match result {

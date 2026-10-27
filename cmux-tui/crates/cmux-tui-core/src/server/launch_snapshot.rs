@@ -118,8 +118,11 @@ pub fn start_launch_snapshot_writer_with(
     let thread_writes = writes.clone();
     let shared_events = events.clone();
     let mut thread_events = events.lock().recover_poison().clone();
-    let thread =
-        std::thread::Builder::new().name("mux-launch-snapshot".into()).spawn(move || {
+    let thread = crate::thread_qos::spawn_raisable(
+        "mux-launch-snapshot",
+        crate::thread_qos::ThreadType::Utility.qos(),
+        None,
+        move || {
             // Write once at start, so a relaunch finds the current layout even
             // if nothing changes while this daemon runs.
             let mut dirty_since = Some(Instant::now());
@@ -186,7 +189,8 @@ pub fn start_launch_snapshot_writer_with(
                     }
                 }
             }
-        })?;
+        },
+    )?;
     mux.set_launch_snapshot_path(Some(path.clone()));
     Ok(Some(LaunchSnapshotWriter {
         path,

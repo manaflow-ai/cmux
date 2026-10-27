@@ -79,7 +79,7 @@ pub(super) fn handle_with(
     };
     let line = tool_line(operation, &request.fields);
     let (mux, thread_writer, reply_id) = (mux.clone(), writer.clone(), id.clone());
-    let spawned = std::thread::Builder::new().name("mux-chief-control".into()).spawn(move || {
+    let spawned = mux.request_qos().spawn_helper("mux-chief-control", None, move || {
         let chief = match &route {
             Route::Default(_) => DEFAULT_CHIEF.to_owned(),
             Route::Named(chief) => chief.clone(),

@@ -124,6 +124,56 @@ fn qos_lock_boost_leaves_frontend_and_program_threads_alone() {
     });
 }
 
+/// A thread declared below Default at its start (p05-ipc-080: watchers at
+/// utility, idle workers at background) is raised while it holds a ranked
+/// lock, as a thread a request lowered is: a request that waits for the lock
+/// never waits behind it. A thread declared Default or above is left alone.
+#[test]
+fn qos_lock_boost_raises_a_declared_low_thread_until_its_release() {
+    for declared in [ThreadQos::Background, ThreadQos::Utility] {
+        let probe = cmux_threads::spawn("qos-declared-low-probe", declared, move || {
+            let before = live();
+            let raisable = cmux_threads::reversible(declared);
+            let outer = LockBoost::hold();
+            let held = (boosted(), live());
+            let inner = LockBoost::hold();
+            drop(inner);
+            let after_inner = boosted();
+            drop(outer);
+            (raisable, before, held, after_inner, boosted(), live())
+        })
+        .expect("probe thread");
+        let (raisable, before, held, after_inner, released, after) = probe.join().expect("probe");
+        #[cfg(target_vendor = "apple")]
+        {
+            assert_eq!(before, at(declared), "{declared}: started at its declared class");
+            assert!(raisable, "{declared}: macOS takes every class back");
+        }
+        if raisable {
+            assert_eq!(held, (true, at(LOCK_HOLDER_QOS)), "{declared}: raised while held");
+            assert!(after_inner, "{declared}: an inner release keeps the raise");
+        } else {
+            assert_eq!(held, (false, before), "{declared}: nothing it could not undo");
+        }
+        assert!(!released, "{declared}: the last release ends the raise");
+        assert_eq!(after, before, "{declared}: back to the class it started at");
+    }
+    let (held, before, during) =
+        cmux_threads::spawn("qos-declared-default-probe", ThreadQos::Default, || {
+            let before = live();
+            let boost = LockBoost::hold();
+            let held = boosted();
+            let during = live();
+            drop(boost);
+            (held, before, during)
+        })
+        .expect("probe thread")
+        .join()
+        .expect("probe");
+    assert!(!held, "a Default thread is not raised");
+    assert_eq!(during, before);
+}
+
 #[test]
 fn qos_request_entered_under_a_held_lock_changes_nothing() {
     on_own_thread(|| {

@@ -298,24 +298,31 @@ pub fn start_idle_terminal_reaper(
             let _ = waker.send(ReaperMessage::Wake);
         });
     }
-    let thread = std::thread::Builder::new().name("mux-idle-close".into()).spawn(move || {
-        loop {
-            let Some(owner) = mux.upgrade() else { break };
-            let now = Instant::now();
-            let (_, next) = owner.reap_idle_terminals_until_next(now);
-            drop(owner);
-            let message = match next {
-                None => checked::sync::recv(&messages).map_err(|_| RecvTimeoutError::Disconnected),
-                Some(next) => {
-                    checked::sync::recv_timeout(&messages, next.saturating_duration_since(now))
+    let thread = crate::thread_qos::spawn_raisable(
+        "mux-idle-close",
+        crate::thread_qos::ThreadType::Utility.qos(),
+        None,
+        move || {
+            loop {
+                let Some(owner) = mux.upgrade() else { break };
+                let now = Instant::now();
+                let (_, next) = owner.reap_idle_terminals_until_next(now);
+                drop(owner);
+                let message = match next {
+                    None => {
+                        checked::sync::recv(&messages).map_err(|_| RecvTimeoutError::Disconnected)
+                    }
+                    Some(next) => {
+                        checked::sync::recv_timeout(&messages, next.saturating_duration_since(now))
+                    }
+                };
+                match message {
+                    Ok(ReaperMessage::Wake) | Err(RecvTimeoutError::Timeout) => {}
+                    Ok(ReaperMessage::Stop) | Err(RecvTimeoutError::Disconnected) => break,
                 }
-            };
-            match message {
-                Ok(ReaperMessage::Wake) | Err(RecvTimeoutError::Timeout) => {}
-                Ok(ReaperMessage::Stop) | Err(RecvTimeoutError::Disconnected) => break,
             }
-        }
-    })?;
+        },
+    )?;
     Ok(IdleTerminalReaper { stop: Some(stop), thread: Some(thread) })
 }
 

@@ -611,7 +611,7 @@ pub(super) fn start(
     let worker_writer = writer.clone();
     let worker_id = id.clone();
     let reply = reply.hand_to_worker();
-    let spawned = std::thread::Builder::new().name("mux-cloud-request".into()).spawn(move || {
+    let spawned = mux.request_qos().spawn_helper("mux-cloud-request", None, move || {
         let reply = reply.start();
         let _lock_scope = reply.enter_lock_scope();
         let _permit = permit;

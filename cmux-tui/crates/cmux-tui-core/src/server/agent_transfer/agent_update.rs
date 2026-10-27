@@ -266,10 +266,8 @@ fn handle(line: &RouteLine<'_>) -> Option<bool> {
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
     let worker_id = id.clone();
-    let spawned = std::thread::Builder::new()
-        .name("mux-agent-update".into())
-        .stack_size(THREAD_STACK_BYTES)
-        .spawn(move || {
+    let spawned =
+        mux.request_qos().spawn_helper("mux-agent-update", Some(THREAD_STACK_BYTES), move || {
             let result = match verb {
                 Verb::Plan {} => plan(&socket),
                 Verb::Apply(params) => apply(&worker_mux, &socket, params),

@@ -218,10 +218,12 @@ pub(super) fn start(
     // The start keeps the cause of the frame that asked for it.
     let cause = crate::event_cause::EventCause::current();
     let request_qos = mux.request_qos();
-    let spawned = std::thread::Builder::new()
-        .name("mux-agent-start".into())
-        .stack_size(THREAD_STACK_BYTES)
-        .spawn(move || {
+    // It enters the request's cause, and so its class, itself.
+    let spawned = cmux_threads::spawn_with_stack(
+        "mux-agent-start",
+        crate::request_qos::REQUEST_HELPER_QOS,
+        THREAD_STACK_BYTES,
+        move || {
             let _cause = request_qos.enter(cause);
             // A chat never starts in `/`, above the home folder, or in the
             // home folder unless the person chose it (cx-1bhjj), as on the
@@ -239,7 +241,8 @@ pub(super) fn start(
                     super::refuse_with_data(&worker_writer, worker_id, refusal, data)
                 }
             };
-        });
+        },
+    );
     // A failed spawn drops the closure and with it the slot.
     if spawned.is_err() {
         return refuse(writer, id, Refusal::Limit);

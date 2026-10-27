@@ -64,10 +64,15 @@ impl DeadlineFanoutPool {
             state.next_worker = state.next_worker.wrapping_add(1);
             state.worker_count += 1;
             let inner = self.inner.clone();
-            if std::thread::Builder::new()
-                .name(format!("mux-deadline-{worker_index}"))
-                .spawn(move || deadline_fanout_worker(inner))
-                .is_err()
+            // A request waits on the batch's deadline: the dispatcher's class.
+            if cmux_threads::spawn(
+                format!("mux-deadline-{worker_index}"),
+                crate::thread_qos::ThreadType::Interactive.qos(),
+                move || {
+                    deadline_fanout_worker(inner);
+                },
+            )
+            .is_err()
             {
                 state.worker_count -= 1;
                 if state.worker_count == 0 {

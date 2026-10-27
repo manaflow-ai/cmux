@@ -25,7 +25,9 @@ Refinements over the raw queries (each is stated on its queue):
       browser host, the control socket, Tasks) and LineTransport's own connect are allowlisted
       in ipc-targets.json with their reason, so the census still sees each one.
   Q8  thread name sites in cmux-tui/crates (tests dropped) whose spawned body does not begin with
-      `cmux_tui_platform::qos::set_current`, plus journal writers spawned by name. The body is the
+      `cmux_tui_platform::qos::set_current` (or `cmux_threads::set_current`, `thread_qos::set`, or
+      the `registry::register_current` of `cmux_threads::spawn`, which sets the declared QoS before
+      the closure runs), plus journal writers spawned by name. The body is the
       `.spawn(` of the name's own builder chain (or of the `let` that holds the builder). A
       `.name(var)` of a thread builder counts too: the variable resolves through its `let`, a
       `for` loop over literals, or the arguments callers pass for a parameter; a name the census
@@ -895,7 +897,13 @@ class Census:
         r'|spawn_journal_writer\("'
     )
     Q8_PATHS = (RUST_CRATES, *RUST_NOT_TESTS)
-    Q8_QOS = re.compile(r"\s*(?:cmux_tui_platform::)?qos::set_current\b")
+    # The QoS call a thread body begins with: the spec's `qos::set_current`, cmux-threads'
+    # `set_current`, `thread_qos::set`, or the registration `cmux_threads::spawn` makes before it
+    # runs the closure (registry.rs `register_current` sets the declared QoS).
+    Q8_QOS = re.compile(
+        r"\s*(?:(?:cmux_tui_platform::)?qos::set_current|cmux_threads::set_current|(?:crate::)?thread_qos::set"
+        r"|registry::register_current)\b"
+    )
     Q8_LITERAL_SITE = re.compile(r"\.name\(\s*(?:format!\(\s*)?" + Q8_NAME + r"|spawn_journal_writer\(\s*" + Q8_NAME)
     Q8_VARIABLE = r"&?\s*([a-z_][a-z0-9_]*)\s*(?:\.\s*(?:into|to_string|to_owned|clone)\s*\(\s*\)\s*)?"
     Q8_VARIABLE_SITE = re.compile(r"\.name\(\s*" + Q8_VARIABLE + r"\)")

@@ -263,9 +263,13 @@ pub(super) fn start_session_event_stream(
     let outbound = start.outbound.clone();
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
-    let spawn = std::thread::Builder::new()
-        .name("mux-resource-session-events".into())
-        .spawn(move || run_session_event_stream(&worker_mux, client, &worker_writer, start));
+    let spawn = cmux_threads::spawn(
+        "mux-resource-session-events",
+        crate::thread_qos::ThreadType::Interactive.qos(),
+        move || {
+            run_session_event_stream(&worker_mux, client, &worker_writer, start);
+        },
+    );
     if spawn.is_err() {
         let _ = mux.control_clients.take_resource_stream(client, &stream_id);
         let end = resource_stream_end(

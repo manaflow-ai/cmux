@@ -276,6 +276,35 @@ class ThreadQosTests(Fixture):
             ("listen.rs", 10, "mux-session-journal-writer"),
         ])
 
+    def test_a_registered_spawn_and_the_role_map_set_the_qos(self):
+        # cmux_threads::spawn registers the thread at its declared class before the closure
+        # runs, so every name passed to it is a thread with a QoS (p05-ipc-080).
+        self.write("cmux-tui/crates/cmux-threads/src/spawn.rs", """
+            pub fn spawn(name: impl Into<String>, qos: ThreadQos, f: F) -> io::Result<JoinHandle<T>> {
+                start(Builder::new(), name.into(), qos, f)
+            }
+            fn start(builder: Builder, name: String, qos: ThreadQos, f: F) -> io::Result<JoinHandle<T>> {
+                builder.name(name.clone()).spawn(move || {
+                    registry::register_current(name, qos);
+                    f()
+                })
+            }
+        """)
+        self.write(f"{CORE}/mux/idle_close.rs", """
+            fn start() {
+                cmux_threads::spawn("mux-idle-close", qos, move || serve());
+                std::thread::Builder::new().name("mux-role-set".into()).spawn(move || {
+                    thread_qos::set(ThreadType::Utility);
+                    serve();
+                });
+                std::thread::Builder::new().name("mux-threads-set".into()).spawn(move || {
+                    cmux_threads::set_current(ThreadQos::Utility);
+                });
+                std::thread::Builder::new().name("mux-no-qos".into()).spawn(move || serve());
+            }
+        """)
+        self.assertEqual(self.sites("Q8"), [("idle_close.rs", 10, "mux-no-qos")])
+
 
     def test_names_through_a_variable_count_and_another_builders_spawn_is_not_read(self):
         self.write(f"{CORE}/server/loopback_forward.rs", """

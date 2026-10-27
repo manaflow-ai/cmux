@@ -980,10 +980,14 @@ fn spawn_surface_operation(
     let worker_pending = pending.clone();
     let worker_queue = queue.clone();
     let worker_failure = on_failure.clone();
-    let spawn = std::thread::Builder::new().name("mux-surface-operation".into()).spawn(move || {
-        let event = worker_pending.lock().unwrap().take().unwrap();
-        process_event(worker_queue, worker_failure, event);
-    });
+    let spawn = cmux_threads::spawn(
+        "mux-surface-operation",
+        cmux_tui_core::thread_qos::ThreadType::Interactive.qos(),
+        move || {
+            let event = worker_pending.lock().unwrap().take().unwrap();
+            process_event(worker_queue, worker_failure, event);
+        },
+    );
     if let Err(error) = spawn {
         let event = pending.lock().unwrap().take().unwrap();
         fail_surface_operation_spawn(queue, on_failure, event, error);

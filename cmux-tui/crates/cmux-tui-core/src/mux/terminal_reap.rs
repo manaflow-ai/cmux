@@ -738,42 +738,47 @@ pub fn start_terminal_reaper(mux: &Arc<Mux>) -> std::io::Result<TerminalReaper> 
     let thread_stop = stop.clone();
     let shared_events = events.clone();
     let mut thread_events = events.lock().unwrap().clone();
-    let thread = std::thread::Builder::new().name("mux-terminal-reap".into()).spawn(move || {
-        let mut schedule = ReapSchedule::default();
-        loop {
-            if thread_stop.load(Ordering::Acquire) {
-                break;
-            }
-            let Some(mux) = weak.upgrade() else { break };
-            mux.reap_unplaced_terminals(&mut schedule, Instant::now());
-            // Never hold the mux across the wait: the thread must not keep
-            // the mux alive after its other owners are gone.
-            drop(mux);
-            let wait =
-                schedule.next_deadline().map(|at| at.saturating_duration_since(Instant::now()));
-            match thread_events.wait_event(wait) {
-                Ok(_) | Err(RecvTimeoutError::Timeout) => {
-                    // Coalesce a burst of topology events into one scan. A
-                    // disconnect surfaces at the next wait.
-                    while thread_events.try_recv().is_ok() {}
+    let thread = crate::thread_qos::spawn_raisable(
+        "mux-terminal-reap",
+        crate::thread_qos::ThreadType::Utility.qos(),
+        None,
+        move || {
+            let mut schedule = ReapSchedule::default();
+            loop {
+                if thread_stop.load(Ordering::Acquire) {
+                    break;
                 }
-                Err(RecvTimeoutError::Disconnected) => {
-                    if thread_stop.load(Ordering::Acquire) {
-                        break;
+                let Some(mux) = weak.upgrade() else { break };
+                mux.reap_unplaced_terminals(&mut schedule, Instant::now());
+                // Never hold the mux across the wait: the thread must not keep
+                // the mux alive after its other owners are gone.
+                drop(mux);
+                let wait =
+                    schedule.next_deadline().map(|at| at.saturating_duration_since(Instant::now()));
+                match thread_events.wait_event(wait) {
+                    Ok(_) | Err(RecvTimeoutError::Timeout) => {
+                        // Coalesce a burst of topology events into one scan. A
+                        // disconnect surfaces at the next wait.
+                        while thread_events.try_recv().is_ok() {}
                     }
-                    // The mailbox overflowed: resubscribe, then rescan. The
-                    // loop checks `stop` again before it next waits.
-                    let Some(mux) = weak.upgrade() else { break };
-                    thread_events = mux.subscribe_terminal_reaper();
-                    *shared_events.lock().unwrap() = thread_events.clone();
+                    Err(RecvTimeoutError::Disconnected) => {
+                        if thread_stop.load(Ordering::Acquire) {
+                            break;
+                        }
+                        // The mailbox overflowed: resubscribe, then rescan. The
+                        // loop checks `stop` again before it next waits.
+                        let Some(mux) = weak.upgrade() else { break };
+                        thread_events = mux.subscribe_terminal_reaper();
+                        *shared_events.lock().unwrap() = thread_events.clone();
+                    }
                 }
             }
-        }
-        // Stopped: `identify` no longer advertises a running reaper.
-        if let Some(mux) = weak.upgrade() {
-            mux.terminal_reaper_events.lock().unwrap_or_else(PoisonError::into_inner).take();
-        }
-    });
+            // Stopped: `identify` no longer advertises a running reaper.
+            if let Some(mux) = weak.upgrade() {
+                mux.terminal_reaper_events.lock().unwrap_or_else(PoisonError::into_inner).take();
+            }
+        },
+    );
     let thread = match thread {
         Ok(thread) => thread,
         Err(error) => {

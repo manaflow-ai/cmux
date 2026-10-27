@@ -186,10 +186,8 @@ fn handle(line: &RouteLine<'_>) -> Option<bool> {
     let worker_writer = writer.clone();
     let worker_id = id.clone();
     let owner_echo = matches!(mode, ReadMode::Refresh).then(|| mux.machine_public_id.clone());
-    let spawned = std::thread::Builder::new()
-        .name("mux-agent-inventory".into())
-        .stack_size(256 * 1024)
-        .spawn(move || {
+    let spawned =
+        mux.request_qos().spawn_helper("mux-agent-inventory", Some(256 * 1024), move || {
             let result = read(&socket, mode).map(|mut value| {
                 if let Some(machine) = owner_echo {
                     value.insert("machine", json!(machine));

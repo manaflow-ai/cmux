@@ -112,10 +112,11 @@ fn handle(line: &RouteLine<'_>) -> Option<bool> {
         let failure_watch = watch.clone();
         let worker_id = id.clone();
         let mux_for_refusal = Arc::downgrade(mux);
-        let spawned = std::thread::Builder::new()
-            .name("mux-inventory-watch".into())
-            .stack_size(256 * 1024)
-            .spawn(move || {
+        let spawned = crate::thread_qos::spawn_raisable(
+            "mux-inventory-watch",
+            crate::thread_qos::ThreadType::Utility.qos(),
+            Some(256 * 1024),
+            move || {
                 let result = start(&watch, worker_id.clone());
                 drop(slot);
                 match result {
@@ -133,7 +134,8 @@ fn handle(line: &RouteLine<'_>) -> Option<bool> {
                         );
                     }
                 }
-            });
+            },
+        );
         if spawned.is_err() {
             failure_watch.stop(Failure::Busy, false);
             return Err(Failure::Busy);

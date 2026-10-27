@@ -155,7 +155,7 @@ pub(super) fn serve_remote_entry_with(
     let shutdown = Arc::new(AtomicBool::new(false));
     let thread_shutdown = shutdown.clone();
     let thread_mux = mux.clone();
-    let thread = std::thread::Builder::new().name("mux-remote-entry".into()).spawn(move || {
+    let thread = cmux_threads::spawn("mux-remote-entry", listen::ACCEPT_THREAD_QOS, move || {
         let config = EntryConfig { entry_fs, record_checks };
         accept_loop(&thread_mux, &listener, &thread_shutdown, &verifier, &gate, config);
     })?;
@@ -317,9 +317,8 @@ impl LineAdmission for RemoteAdmission {
 
 /// The refusal of `line`: its `id` when it has one, and no detail.
 pub(super) fn denied(line: &str) -> Value {
-    let id = crate::line_parses::parse::<Value>(line)
-        .ok()
-        .and_then(|frame| frame.get("id").cloned());
+    let id =
+        crate::line_parses::parse::<Value>(line).ok().and_then(|frame| frame.get("id").cloned());
     let mut response = json!({"ok": false, "error": REMOTE_DENIED, "error_code": REMOTE_DENIED});
     if let Some(id) = id {
         response.insert("id", id);

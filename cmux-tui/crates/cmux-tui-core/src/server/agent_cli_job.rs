@@ -152,7 +152,7 @@ fn handle(line: &RouteLine<'_>) -> Option<bool> {
     let socket = mux.control_clients.agent_sessions.socket();
     let output = writer.clone();
     let request_id = id.clone();
-    let spawned = std::thread::Builder::new().name("mux-agent-cli-job".into()).spawn(move || {
+    let spawned = mux.request_qos().spawn_helper("mux-agent-cli-job", None, move || {
         let cli = params.cli;
         let result = owner.create_agent_cli_update_job(&cli, &mutation, || {
             prepare(socket.as_deref().ok_or(Failure::Unavailable)?, &cli)

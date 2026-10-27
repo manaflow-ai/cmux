@@ -895,10 +895,8 @@ fn open(
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
     let worker_id = id.clone();
-    let spawned = std::thread::Builder::new()
-        .name("mux-loopback-open".into())
-        .stack_size(THREAD_STACK_BYTES)
-        .spawn(move || {
+    let spawned =
+        mux.request_qos().spawn_helper("mux-loopback-open", Some(THREAD_STACK_BYTES), move || {
             connect_and_start(
                 worker_mux,
                 client,
@@ -1018,10 +1016,13 @@ fn connect_and_start(
     ] {
         let worker = stream.clone();
         let worker_mux = mux.clone();
-        let spawned = std::thread::Builder::new()
-            .name(name.into())
-            .stack_size(THREAD_STACK_BYTES)
-            .spawn(move || run(worker, worker_mux));
+        // Bulk page bytes: below every request and keystroke.
+        let spawned = crate::thread_qos::spawn_raisable(
+            name,
+            crate::thread_qos::ThreadType::Utility.qos(),
+            Some(THREAD_STACK_BYTES),
+            move || run(worker, worker_mux),
+        );
         if spawned.is_err() {
             stream.fail(forwarder, "internal", true);
             return;

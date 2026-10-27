@@ -59,12 +59,6 @@
       "reason": "Not a Q8 thread: spawn_cloud_reader_with passes the closure the name machine-agent-cloud-reader-{generation}."
     },
     {
-      "queue": "Q8",
-      "file": "cmux-tui/crates/cmux-threads/src/spawn.rs",
-      "key": "<unresolved>",
-      "reason": "Not a Q8 thread: cmux_threads::spawn is the QoS helper itself; it registers the thread and sets its declared QoS before the closure runs."
-    },
-    {
       "queue": "Q11",
       "file": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/ResourceRelay.swift",
       "reason": "The relay forwards a page's runtime-named op unchanged (react-pages.md 1.1) and the daemon validates its params against the catalog, as Chromium routes WebUI chrome.send messages by name (content/browser/webui/web_ui_impl.cc); no generated type can name an op chosen at run time."
@@ -233,17 +227,16 @@
       },
       "Q8": {
         "title": "threads without QoS",
-        "count": 81,
-        "found": 82,
+        "count": 1,
+        "found": 2,
         "raw": "git grep -n -E '\\.name\\((format!\\()?\"(mux-|surface-|terminal-host-(client|client-input|parser)\"|cmux-link-(in|out)\")|spawn_journal_writer\\(\"' -- 'cmux-tui/crates/*.rs' ':!*tests*' ':!*_tests.rs' | wc -l",
-        "raw_count": 80,
+        "raw_count": 3,
         "breakdown": {
           "dropped": {
             "test": 2
           },
           "added": {
-            "a name the census cannot follow": 1,
-            "a name through a variable": 3
+            "a name the census cannot follow": 1
           },
           "same_line": 0
         }

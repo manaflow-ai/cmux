@@ -34,6 +34,8 @@
 
 pub use cmux_threads::QosChange;
 use cmux_threads::ThreadQos;
+/// For a Utility or Background thread that may take a ranked lock.
+pub use cmux_tui_platform::qos::spawn_raisable;
 
 /// What a thread does, which sets the QoS class it runs at.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

@@ -95,3 +95,49 @@ fn set_applies_the_nice_value_on_linux() {
         assert_eq!(read, LiveQos::Nice(target), "{thread_type:?}");
     }
 }
+
+/// The registry rows of the live threads named `name`, waiting (bounded)
+/// until there is one: the thread registers itself as it starts.
+fn rows_named(name: &str) -> Vec<cmux_threads::ThreadInfo> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let rows: Vec<_> =
+            cmux_threads::snapshot().into_iter().filter(|row| row.name == name).collect();
+        if !rows.is_empty() {
+            return rows;
+        }
+        assert!(std::time::Instant::now() < deadline, "no {name} thread row");
+        std::thread::yield_now();
+    }
+}
+
+/// Daemon watchers (p05-ipc-080) start at Utility through `spawn_raisable`
+/// and run there: the kernel reports the class of the running thread
+/// (`pthread_get_qos_class_np`, macOS). Where Utility could not be taken
+/// back for a lock (Linux without the right to lower nice) they start at
+/// Default.
+#[test]
+fn daemon_watchers_run_at_utility() {
+    let mux = crate::Mux::new_for_test("daemon-watchers-qos", crate::SurfaceOptions::default());
+    let terminal_reaper = crate::start_terminal_reaper(&mux).expect("terminal reaper");
+    let idle_reaper = crate::start_idle_terminal_reaper(
+        std::sync::Arc::downgrade(&mux),
+        crate::IDLE_CLOSE_REAP_INTERVAL,
+    )
+    .expect("idle reaper");
+    let class = cmux_tui_platform::qos::raisable_class(ThreadType::Utility.qos());
+    for name in ["mux-terminal-reap", "mux-idle-close"] {
+        for row in rows_named(name) {
+            assert_eq!(row.declared, class, "{name}");
+            #[cfg(target_vendor = "apple")]
+            assert_eq!(row.live, cmux_threads::LiveQos::Class(ThreadQos::Utility), "{name}");
+            #[cfg(any(target_os = "linux", target_os = "android"))]
+            if class == ThreadQos::Utility {
+                assert_eq!(row.live, cmux_threads::LiveQos::Nice(class.linux_nice()), "{name}");
+            }
+            assert_eq!(row.refused_changes, 0, "{name}");
+        }
+    }
+    terminal_reaper.stop();
+    idle_reaper.stop();
+}

@@ -73,9 +73,14 @@ impl Mux {
             self.report_internal_diagnostic("acpmux energy relay not started");
         }
         let mux = Arc::downgrade(self);
-        let spawned = std::thread::Builder::new()
-            .name("mux-agent-chat-notices".into())
-            .spawn(move || watch(&mux, &socket, energy.ok().as_ref()));
+        let spawned = crate::thread_qos::spawn_raisable(
+            "mux-agent-chat-notices",
+            crate::thread_qos::ThreadType::Utility.qos(),
+            None,
+            move || {
+                watch(&mux, &socket, energy.ok().as_ref());
+            },
+        );
         if spawned.is_err() {
             self.report_internal_diagnostic("agent chat notifications not started");
         }
