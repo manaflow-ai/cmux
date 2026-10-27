@@ -672,3 +672,53 @@ async fn a_refused_prompt_leaves_none_of_its_own_uploads_behind() {
     assert!(cancelled.get("error").is_none(), "{cancelled}");
     assert!(!folder(&id).exists(), "cancel left a finished upload");
 }
+
+/// A prompt queued behind a running turn and taken out of the queue unrun deletes the uploads it
+/// named as its own; the one that runs keeps its own.
+#[tokio::test]
+async fn a_withdrawn_queued_prompt_leaves_none_of_its_own_uploads_behind() {
+    let hub = hub();
+    let mut c = client(&hub, Origin::Local);
+    let mut q = client(&hub, Origin::Local);
+    let session = c.new_session("attach-owned-queued").await;
+    let folder = |id: &str| home().join("uploads").join(&session).join(id);
+    let gone_id = upload(&mut c, &session, "gone.png", &png(64 << 10)).await;
+    let kept_id = upload(&mut c, &session, "kept.png", &png(65 << 10)).await;
+    let prompt = |id: &str, text: &str, files: Vec<Value>| {
+        let mut blocks = vec![json!({"type": "text", "text": text})];
+        blocks.extend(files);
+        let p =
+            json!({"sessionId": session, "prompt": blocks, "_meta": {"acpmux": {"promptId": id}}});
+        Message::request(json!(id), method::SESSION_PROMPT, p).to_line()
+    };
+    c.0.send(prompt("busy", "until-cancel", vec![])).await.unwrap();
+    c.0.send(prompt("gone", "never", vec![owned_ref(&gone_id, "gone.png")])).await.unwrap();
+    c.0.send(prompt("kept", "later", vec![owned_ref(&kept_id, "kept.png")])).await.unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        let page =
+            q.call("_acpmux/events", json!({"sessionId": session, "kinds": ["queued"]})).await;
+        if page["result"]["events"].as_array().is_some_and(|e| e.len() == 2) {
+            break;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "never queued: {page}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let removed =
+        q.call(method::MUX_QUEUE_REMOVE, json!({"sessionId": session, "promptId": "gone"})).await;
+    assert_eq!(removed["result"]["removed"], true, "{removed}");
+    q.call(method::SESSION_CANCEL, json!({"sessionId": session})).await;
+    let mut answered = std::collections::HashMap::new();
+    while answered.len() < 3 {
+        let line =
+            tokio::time::timeout(Duration::from_secs(30), c.1.recv()).await.unwrap().unwrap();
+        let v: Value = serde_json::from_str(&line).unwrap();
+        if let Some(id) = v.get("id").and_then(Value::as_str) {
+            answered.insert(id.to_owned(), v);
+        }
+    }
+    assert_eq!(answered["gone"].pointer("/result/_meta/acpmux/withdrawn"), Some(&json!(true)));
+    assert!(answered["kept"].get("error").is_none(), "{}", answered["kept"]);
+    assert!(gone(&folder(&gone_id)).await, "a withdrawn prompt left its own upload");
+    assert!(folder(&kept_id).is_dir(), "a prompt that ran lost its own upload");
+}

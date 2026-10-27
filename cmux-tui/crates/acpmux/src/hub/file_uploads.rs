@@ -765,6 +765,18 @@ pub fn cancel(id: &str, params: &Value) -> Result<Value, RpcError> {
     Ok(json!({}))
 }
 
+/// Deletes upload folders `dirs` (each an [`upload_dir`]) under the sweep's lock and then each
+/// upload's own, the order the sweep and `cancel` take them, so a prompt reading one at that
+/// moment never sees it half gone and no write, status, finish or cancel on it runs between.
+/// Blocking.
+pub(crate) fn remove_uploads(dirs: &[PathBuf]) {
+    let _in_use = IN_USE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    for dir in dirs {
+        let _held = dir.file_name().and_then(|n| n.to_str()).map(hold);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
 /// The folder of upload `upload` of session `session`; None for an id that is not a UUIDv7.
 pub(crate) fn upload_dir(session: &str, upload: &str) -> Option<PathBuf> {
     Some(session_dir(session)?.join(upload_id(upload)?))

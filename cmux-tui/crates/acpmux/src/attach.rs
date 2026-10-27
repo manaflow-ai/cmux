@@ -488,12 +488,14 @@ impl Saved {
         }))
     }
 
-    /// Deletes the files nothing will read: the prompt was a resend the ledger answered with its
-    /// first run's outcome (that run reads its own folder, so a retried delivery keeps one copy),
-    /// it was refused before it reached the session, or it was queued and then left the queue
-    /// unrun (withdrawn, superseded, refused when its turn came). A message an agent pair holds
-    /// keeps them until it is dropped ([`held_dropped`]) or its release is answered
-    /// ([`held_released`]); a resend of one held already keeps none.
+    /// Deletes the files nothing will read, its inline files and the uploads it names as its own
+    /// alike: the prompt was refused before it reached the session, or it was queued and then
+    /// left the queue unrun (withdrawn, superseded, refused when its turn came). A resend the
+    /// ledger answered with its first run's outcome keeps none of its inline files (that run reads
+    /// its own folder, so a retried delivery keeps one copy) and all of its uploads (that run
+    /// reads the same ones). A message an agent pair holds keeps both until it is dropped
+    /// ([`held_dropped`]) or its release is answered ([`held_released`]); a resend of one held
+    /// already keeps none of its own.
     pub async fn settle(mut self, hub: &Arc<crate::hub::Hub>, answer: &Result<Value, RpcError>) {
         let accepted = self.accepted.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let data = answer.as_ref().err().and_then(|e| e.data.as_ref());
@@ -505,22 +507,18 @@ impl Saved {
         let withdrawn = answer.as_ref().ok().and_then(|v| v.pointer("/_meta/acpmux/withdrawn"))
             == Some(&Value::Bool(true));
         let failed = answer.is_err();
-        // Refused before the session answered it, and not held: its own uploads go.
         let answered = self.answered.load(std::sync::atomic::Ordering::SeqCst);
-        let owned = std::mem::take(&mut self.owned);
-        let drop_owned = failed && !answered && held.is_none() && !flag("held");
-        let (hub, session, dir) = (hub.clone(), self.session.clone(), self.dir.take());
+        let resent_held = flag("held");
+        let (hub, session) = (hub.clone(), self.session.clone());
+        let (dir, owned) = (self.dir.take(), std::mem::take(&mut self.owned));
         let _ = tokio::task::spawn_blocking(move || {
-            if drop_owned {
-                remove_uploads(&owned);
-            }
+            let taken = accepted.is_some();
+            // Whether it ran or may still run: its files stay.
             let keep = match accepted {
                 None => match held {
                     Some(prompt_id) => {
-                        if let Some(dir) = dir.clone() {
-                            held_dirs().insert((session.clone(), prompt_id), dir);
-                        }
-                        true
+                        held_dirs().insert((session.clone(), prompt_id), Held { dir, owned });
+                        return;
                     }
                     None => false,
                 },
@@ -529,6 +527,12 @@ impl Saved {
                 Some((true, id)) if failed => hub.ran_prompt(&session, &id),
                 Some(_) => true,
             };
+            // Not taken: a duplicate (answered) or the resend of a held message keeps the uploads
+            // the first one reads; one refused before the session answered it does not.
+            let keep_owned = keep || (!taken && (!failed || answered || resent_held));
+            if !keep_owned {
+                remove_uploads(&owned);
+            }
             if let Some(dir) = dir.filter(|_| !keep) {
                 let _ = std::fs::remove_dir_all(dir);
             }
@@ -537,18 +541,34 @@ impl Saved {
     }
 }
 
-/// The folders of messages an agent pair holds, by receiving session and prompt id, until
-/// [`held_settled`]. One held across a daemon restart is not here: its folder goes with the
-/// uploads age sweep or the chat's deletion.
-fn held_dirs() -> std::sync::MutexGuard<'static, BTreeMap<(String, String), PathBuf>> {
-    static HELD: Mutex<BTreeMap<(String, String), PathBuf>> = Mutex::new(BTreeMap::new());
+/// The files of a message an agent pair holds: its inline files' folder and its own uploads.
+struct Held {
+    dir: Option<PathBuf>,
+    owned: Vec<PathBuf>,
+}
+
+impl Held {
+    /// Deletes them all. Blocking.
+    fn remove(self) {
+        remove_uploads(&self.owned);
+        if let Some(dir) = self.dir {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+    }
+}
+
+/// The files of messages an agent pair holds, by receiving session and prompt id, until
+/// [`held_dropped`] or [`held_released`]. One held across a daemon restart is not here: its files
+/// go with the uploads age sweep or the chat's deletion.
+fn held_dirs() -> std::sync::MutexGuard<'static, BTreeMap<(String, String), Held>> {
+    static HELD: Mutex<BTreeMap<(String, String), Held>> = Mutex::new(BTreeMap::new());
     HELD.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// A message an agent pair held was dropped (`agent_pairs.rs`): its files go.
 pub fn held_dropped(session: &str, prompt_id: &str) {
-    if let Some(dir) = held_dirs().remove(&(session.to_owned(), prompt_id.to_owned())) {
-        remove_soon(dir);
+    if let Some(held) = held_dirs().remove(&(session.to_owned(), prompt_id.to_owned())) {
+        off_runtime(move || held.remove());
     }
 }
 
@@ -556,23 +576,27 @@ pub fn held_dropped(session: &str, prompt_id: &str) {
 /// the queue unrun, withdrawn or refused): its files stay only if the session's log shows it ran.
 pub async fn held_released(hub: &Arc<crate::hub::Hub>, session: &str, prompt_id: &str) {
     let key = (session.to_owned(), prompt_id.to_owned());
-    let Some(dir) = held_dirs().remove(&key) else { return };
+    let Some(held) = held_dirs().remove(&key) else { return };
     let hub = hub.clone();
     let _ = tokio::task::spawn_blocking(move || {
         if !hub.ran_prompt(&key.0, &key.1) {
-            let _ = std::fs::remove_dir_all(dir);
+            held.remove();
         }
     })
     .await;
 }
 
+/// Runs blocking `f` off the runtime when there is one, else here.
+fn off_runtime(f: impl FnOnce() + Send + 'static) {
+    match tokio::runtime::Handle::try_current() {
+        Ok(runtime) => drop(runtime.spawn_blocking(f)),
+        Err(_) => f(),
+    }
+}
+
 /// Deletes folder `dir` off the runtime when there is one.
 fn remove_soon(dir: PathBuf) {
-    let remove = move || drop(std::fs::remove_dir_all(dir));
-    match tokio::runtime::Handle::try_current() {
-        Ok(runtime) => drop(runtime.spawn_blocking(remove)),
-        Err(_) => remove(),
-    }
+    off_runtime(move || drop(std::fs::remove_dir_all(dir)));
 }
 
 impl Drop for Saved {
@@ -584,11 +608,7 @@ impl Drop for Saved {
         // Dropped unanswered (the request went before its answer): the prompt never ran.
         let owned = std::mem::take(&mut self.owned);
         if !owned.is_empty() && !self.answered.load(std::sync::atomic::Ordering::SeqCst) {
-            let remove = move || remove_uploads(&owned);
-            match tokio::runtime::Handle::try_current() {
-                Ok(runtime) => drop(runtime.spawn_blocking(remove)),
-                Err(_) => remove(),
-            }
+            off_runtime(move || remove_uploads(&owned));
         }
     }
 }
@@ -611,20 +631,14 @@ impl Drop for OwnedUploads {
         if owned.is_empty() {
             return;
         }
-        let remove = move || remove_uploads(&owned);
-        match tokio::runtime::Handle::try_current() {
-            Ok(runtime) => drop(runtime.spawn_blocking(remove)),
-            Err(_) => remove(),
-        }
+        off_runtime(move || remove_uploads(&owned));
     }
 }
 
-/// Deletes upload folders `dirs` under the uploads sweep's lock, so a prompt reading one of them
-/// at that moment never sees it half gone. Blocking.
+/// Deletes upload folders `dirs` (`file_uploads::remove_uploads`). Blocking.
 fn remove_uploads(dirs: &[PathBuf]) {
-    let _held = crate::hub::file_uploads::IN_USE.lock().unwrap_or_else(|e| e.into_inner());
-    for dir in dirs {
-        let _ = std::fs::remove_dir_all(dir);
+    if !dirs.is_empty() {
+        crate::hub::file_uploads::remove_uploads(dirs);
     }
 }
 
@@ -718,11 +732,13 @@ mod tests {
             Err(RpcError::new(-32000, "held").with_data(json!({"held": true, "promptId": id})))
         };
         for (id, released) in [("dropped", false), ("released", true)] {
-            let dir = root.join(id);
+            let (dir, own) = (root.join(id), root.join(format!("{id}-upload")));
             std::fs::create_dir_all(&dir).unwrap();
-            let saved = Saved::new("s", Vec::new()).in_dir(dir.clone());
+            std::fs::create_dir_all(&own).unwrap();
+            let saved = Saved::new("s", vec![own.clone()]).in_dir(dir.clone());
             saved.settle(&hub, &held(id)).await;
             assert!(dir.is_dir(), "{id}: kept while held");
+            assert!(own.is_dir(), "{id}: its own upload kept while held");
             if released {
                 // Released, then withdrawn from the queue: its run never came.
                 held_released(&hub, "s", id).await;
@@ -736,6 +752,34 @@ mod tests {
                 }
             }
             assert!(!dir.exists(), "{id}");
+            assert!(!own.exists(), "{id}: its own upload");
+        }
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// A prompt the session took and that then never ran (withdrawn from its queue, or refused
+    /// when its turn came) deletes the uploads it named as its own; one that ran keeps them.
+    #[tokio::test]
+    async fn a_taken_prompt_that_never_ran_leaves_none_of_its_own_uploads() {
+        let root = std::env::temp_dir().join(format!("acpmux-owned-{}", uuid::Uuid::now_v7()));
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+        let hub = crate::hub::Hub::new(cfg, store);
+        let withdrawn = Ok(json!({"_meta": {"acpmux": {"withdrawn": true}}}));
+        let refused = Err(RpcError::new(-32000, "refused when its turn came"));
+        for (id, queued, answer, kept) in [
+            ("withdrawn", true, withdrawn, false),
+            ("refused", true, refused, false),
+            ("ran", false, Ok(json!({"stopReason": "end_turn"})), true),
+        ] {
+            let own = root.join(id);
+            std::fs::create_dir_all(&own).unwrap();
+            let saved = Saved::new("s", vec![own.clone()]);
+            let accepted = saved.watch(None).unwrap();
+            accepted(json!({"queued": queued, "promptId": id}));
+            saved.settle(&hub, &answer).await;
+            assert_eq!(own.is_dir(), kept, "{id}");
         }
         let _ = std::fs::remove_dir_all(root);
     }

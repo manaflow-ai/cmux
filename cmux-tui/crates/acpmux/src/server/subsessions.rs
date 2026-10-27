@@ -179,7 +179,8 @@ async fn handle(
             // Files sent with it, as `send_message` reads them (`attach.rs`): inline, or uploads
             // to the receiver named by reference.
             let file = |b: &Value| {
-                crate::attach::all(std::slice::from_ref(b)) || crate::prompt_uploads::names_upload(b)
+                crate::attach::all(std::slice::from_ref(b))
+                    || crate::prompt_uploads::names_upload(b)
             };
             let attachments = match params.get("attachments") {
                 None | Some(Value::Null) => Vec::new(),
