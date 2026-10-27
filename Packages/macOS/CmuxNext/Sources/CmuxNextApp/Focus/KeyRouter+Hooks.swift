@@ -134,6 +134,9 @@ extension KeyRouter {
     private func menuGate(_ id: ActionID) -> Bool {
         if let event = inputDispatch.event, event.type == .keyDown, decided.contains(event),
            !Self.menuKeyEquivalentAllowedAfterDispatch(registry.keyTier(for: id), eventWasDecided: true) { return false }
+        // A page's keyboard lock takes cmux's chords from the main menu too, not only from the dispatcher
+        // (``keyboardLockTakes(_:facts:)``): the key went to the page, so no menu item runs it after.
+        if !Self.keyboardLockKeeps.contains(id), keyWindowPageLocksKeys?() ?? pageLocksKeysInKeyWindow() { return false }
         let (controller, kind) = keyWindowFocus()
         guard let controller else { return true }
         return Self.allowsMenu(registry.keyTier(for: id), id: id, focus: controller.focus.state, keyWindow: kind)
@@ -154,6 +157,14 @@ extension KeyRouter {
         case .textPanel: tier != .content
         case .content: id.map { allows(tier, id: $0, focus: focus) } ?? allows(tier, focus: focus)
         }
+    }
+
+    /// ``KeyFacts/pageLocksKeys`` of the key window's live facts; false outside a cmux content window.
+    private func pageLocksKeysInKeyWindow() -> Bool {
+        guard let key = NSApp.keyWindow else { return false }
+        let (controller, kind) = focus(for: key)
+        guard let controller, kind == .content else { return false }
+        return facts(in: key, controller: controller).pageLocksKeys
     }
 
     private func keyWindowFocus() -> (WindowController?, KeyWindowKind) {

@@ -41,7 +41,7 @@ import Testing
     }
 
     private static func settle() -> LaunchSettle {
-        LaunchSettle(reveal: LaunchReveal(deadline: .seconds(60)), paneRefs: VisiblePaneRefs(hold: { _ in { _ in } }))
+        LaunchSettle(reveal: LaunchReveal(deadline: .seconds(60)), paneRefs: VisiblePaneRefs(hold: { _ in { _ in } }, mainWork: MainWorkScheduler(budget: MainFrameBudget())))
     }
 
     @Test func theLaunchReadsGoOnceTheLaunchSettledAndNoAgentPageWaits() async throws {

@@ -20127,6 +20127,13 @@
           "1"
         ]
       },
+      "/data/framed_methods": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/data/framed_methods/*": {
+        "ty": "uint16"
+      },
       "/data/generation": {
         "ty": "string",
         "required": true
@@ -20184,6 +20191,10 @@
       "/data/registry_id": {
         "ty": "string",
         "required": true
+      },
+      "/data/sdk_schema_digest": {
+        "ty": "string",
+        "nullable": true
       },
       "/data/session": {
         "ty": "string",
@@ -22817,6 +22828,32 @@
       },
       "/data/dispatch_queue_us/p99": {
         "ty": "uint64",
+        "required": true
+      },
+      "/data/hangs": {
+        "ty": "object"
+      },
+      "/data/hangs/over_250ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/hangs/records": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/hangs/records/*": {
+        "ty": "object"
+      },
+      "/data/hangs/records/*/duration_ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/hangs/records/*/sequence": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/hangs/records/*/span": {
+        "ty": "string",
         "required": true
       },
       "/data/ipc": {
