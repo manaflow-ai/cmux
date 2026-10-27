@@ -170,7 +170,7 @@ fn an_enabled_timer_acpmux_did_not_write_is_not_counted_or_replaced() {
         let r = update(&host, fix);
         assert_eq!(r.state, StepState::Warn, "{r:?}");
         assert!(r.detail.contains("acpmux did not write"), "{r:?}");
-        assert!(r.fix.as_deref().unwrap().starts_with("Remove that timer"), "{r:?}");
+        assert!(r.fix.as_deref().unwrap().starts_with("Remove the acpmux-update units"), "{r:?}");
         assert!(host.fenced.borrow().is_empty(), "nothing written over it");
     }
     let script = probe_script();
@@ -225,6 +225,8 @@ mod probe_in_a_shell {
         /// The files in ~/.config/systemd/user: acpmux's text, another's, or none.
         service: Option<&'static str>,
         timer: Option<&'static str>,
+        /// A drop-in directory on disk, under ~/.config/systemd/user.
+        drop_in_dir: Option<&'static str>,
     }
 
     const OWN: Units = Units {
@@ -235,6 +237,7 @@ mod probe_in_a_shell {
         drop_in: None,
         service: Some(hosts::UPDATE_SERVICE),
         timer: Some(hosts::UPDATE_TIMER),
+        drop_in_dir: None,
     };
     const NONE: Units = Units {
         enabled: "",
@@ -244,6 +247,7 @@ mod probe_in_a_shell {
         drop_in: None,
         service: None,
         timer: None,
+        drop_in_dir: None,
     };
     const OTHER_TEXT: &str = "[Service]\nExecStart=/usr/bin/true\n";
 
@@ -261,6 +265,10 @@ mod probe_in_a_shell {
             if let Some(text) = text {
                 fs::write(units.join(file), text).unwrap();
             }
+        }
+        if let Some(dir) = u.drop_in_dir {
+            fs::create_dir_all(units.join(dir)).unwrap();
+            fs::write(units.join(dir).join("o.conf"), OTHER_TEXT).unwrap();
         }
         let frag = if u.frag == "own" { units.display().to_string() } else { u.frag.into() };
         let fake = format!(
@@ -337,9 +345,19 @@ esac
                 Units { frag: "/etc/systemd/user", service: None, timer: None, ..OWN },
                 // Only on disk, not loaded, with other text.
                 Units { timer: Some(OTHER_TEXT), service: None, loaded: false, ..OWN },
+                // acpmux's own files with a drop-in directory beside them.
+                Units { drop_in_dir: Some("acpmux-update.timer.d"), ..OWN },
             ] {
                 assert_eq!(kind(&probe(Units { enabled, ..u })), "foreign", "{enabled}");
             }
+        }
+        // Only a drop-in, and no unit at all: --fix would write the unit and
+        // systemd would apply the drop-in to it, so nothing is written.
+        for u in [
+            Units { drop_in: Some("acpmux-update.service"), ..NONE },
+            Units { drop_in_dir: Some("acpmux-update.service.d"), ..NONE },
+        ] {
+            assert_eq!(kind(&probe(u)), "foreign");
         }
     }
 }

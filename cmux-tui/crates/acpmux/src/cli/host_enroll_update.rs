@@ -18,10 +18,11 @@ const MARK: &str = "ACPMUX_AU=";
 /// host is a cmux Cloud VM, whether automatic updates were turned off, and
 /// whether a user systemd manager runs, and the timer's units. A unit is
 /// there when the manager knows it (any load state but `not-found`) or its
-/// file is in `~/.config/systemd/user`, enabled or not. They are acpmux's
-/// own only when each file there holds acpmux's own text and each unit the
-/// manager knows loads from there with no drop-in; any other is someone
-/// else's (`foreign`), which runs what it likes. acpmux's own timer is
+/// file is in `~/.config/systemd/user`, enabled or not, or a drop-in for it
+/// exists (one systemd would apply once acpmux writes the unit). They are
+/// acpmux's own only when each file there holds acpmux's own text, each unit
+/// the manager knows loads from there, and no drop-in exists for either;
+/// any other is someone else's (`foreign`), which runs what it likes. acpmux's own timer is
 /// `timer` when enabled and running, `stopped` otherwise (a missing file
 /// too: `--fix` writes it).
 pub(super) fn probe_script() -> String {
@@ -38,8 +39,10 @@ for au_f in acpmux-update.service acpmux-update.timer; do
 au_s=$(systemctl --user show "$au_f" -p LoadState --value 2>/dev/null) || au_s=error
 if [ -e "$au_d/$au_f" ]; then au_there=1; else au_all=; fi
 case "$au_s" in not-found) ;; *) au_there=1
-[ "$au_s" = loaded ] && [ "$(systemctl --user show "$au_f" -p FragmentPath --value 2>/dev/null)" = "$au_d/$au_f" ] || au_own=
-au_x=$(systemctl --user show "$au_f" -p DropInPaths --value 2>/dev/null) || au_own=; [ -z "$au_x" ] || au_own= ;; esac
+[ "$au_s" = loaded ] && [ "$(systemctl --user show "$au_f" -p FragmentPath --value 2>/dev/null)" = "$au_d/$au_f" ] || au_own= ;; esac
+au_x=$(systemctl --user show "$au_f" -p DropInPaths --value 2>/dev/null) || au_x=error; [ -z "$au_x" ] || {{ au_there=1; au_own=; }}
+for au_p in "$au_d" "${{XDG_CONFIG_HOME:-$HOME/.config}}/systemd/user" /etc/systemd/user "$HOME/.local/share/systemd/user" /usr/local/lib/systemd/user /usr/lib/systemd/user /run/systemd/user; do
+[ ! -d "$au_p/$au_f.d" ] || {{ au_there=1; au_own=; }}; done
 done
 if [ -n "$au_there" ]; then
 [ ! -e "$au_d/acpmux-update.service" ] || cmp -s - "$au_d/acpmux-update.service" <<'ACPMUX_UPDATE_SERVICE' || au_own=
@@ -116,6 +119,8 @@ pub(super) fn update(r: &dyn Remote, fix: bool) -> StepResult {
             hosts::NO_AUTO_UPDATE
         ));
     }
+    // A Mac and a Cloud VM never run the timer (cmux moves them on connect),
+    // so a unit there is not read.
     if found.cloud {
         return ok("a cmux Cloud VM: cmux moves it to the app's build each time it connects");
     }
@@ -127,11 +132,11 @@ pub(super) fn update(r: &dyn Remote, fix: bool) -> StepResult {
     }
     if found.foreign {
         return warn(
-            "an acpmux-update.timer acpmux did not write is here, so cmux does not know what it runs, and leaves it alone",
+            "an acpmux-update unit or drop-in acpmux did not write is here, so cmux does not know what it runs, and leaves it alone",
             None,
         )
         .with_fix(format!(
-            "Remove that timer and its service on {host}, then check again with --fix."
+            "Remove the acpmux-update units and drop-ins acpmux did not write on {host}, then check again with --fix."
         ));
     }
     if !found.systemd {
