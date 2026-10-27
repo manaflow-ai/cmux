@@ -45,6 +45,7 @@ public final class FakeChromiumPage: PageChromiumPage {
     public var onCall: (() -> Void)?
     /// Answers a call by its method and params before the defaults (nil: the defaults answer).
     public var answer: ((_ method: String, _ params: [String: any Sendable]) -> String?)?
+    public var asyncAnswer: ((_ method: String, _ params: [String: any Sendable]) async throws -> String?)?
     /// Runs when the host closes the page.
     public var onClose: (() -> Void)?
 
@@ -55,6 +56,7 @@ public final class FakeChromiumPage: PageChromiumPage {
     public func devTools(_ method: String, params: [String: any Sendable]) async throws -> String {
         calls.append((method, params))
         defer { onCall?() }
+        if let answered = try await asyncAnswer?(method, params) { return answered }
         if let answered = answer?(method, params) { return answered }
         if method == "Runtime.evaluate", params["expression"] as? String == "[location.href, window === window.top]" {
             return #"{"result":{"type":"object","value":["\#(senderURL)",\#(senderIsTop)]}}"#

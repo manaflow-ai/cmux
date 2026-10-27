@@ -35,24 +35,39 @@ struct ChromiumUploadBlobReaderTests {
         #expect(page.calls.first?.params["contextId"] as? Int == 9)
     }
 
-    @Test func cancellationDuringReadDiscardsChunkAndReleasesBlob() async throws {
-        let page = FakeChromiumPage()
-        var request: Task<Data?, any Error>?
+    @Test(arguments: ["Runtime.evaluate", "IO.read"])
+    func cancellationEndsHeldDevToolsWithoutAnotherRead(_ heldMethod: String) async throws {
+        let page = FakeChromiumPage(), entered = AsyncStream<Void>.makeStream()
+        var pending: CheckedContinuation<String?, any Error>?
         page.answer = { method, _ in
             switch method {
             case "Runtime.evaluate": return #"{"result":{"objectId":"object"}}"#
             case "IO.resolveBlob": return #"{"uuid":"blob-id"}"#
-            case "IO.read": request?.cancel(); return #"{"data":"bytes","eof":false}"#
-            default: return "{}"
+            default: return #"{"data":"bytes","eof":false}"#
             }
         }
+        page.asyncAnswer = { method, _ in
+            guard method == heldMethod else { return nil }
+            return try await withCheckedThrowingContinuation { pending = $0; entered.continuation.yield() }
+        }
         let reader = ChromiumUploadBlobReader(page: page, context: 9, token: "token")
-        let started = Task { try await reader.next() }
-        request = started
-        await #expect(throws: CancellationError.self) { try await started.value }
-        #expect(try await reader.next() == nil)
-        #expect(page.calls.filter { $0.method == "IO.read" }.count == 1)
-        #expect(page.calls.contains { $0.method == "Runtime.releaseObject" })
+        let request = Task { do { _ = try await reader.next(); return false } catch { return error is CancellationError } }
+        var events = entered.stream.makeAsyncIterator()
+        _ = await events.next()
+        request.cancel()
+        let stopped: Bool? = await PageTestWait.value("cancel held DevTools", seconds: 2) { done in
+            Task { done(await request.value) }
+        }
+        pending?.resume(returning: heldMethod == "Runtime.evaluate" ? #"{"result":{"objectId":"object"}}"# : #"{"data":"bytes","eof":false}"#)
+        _ = await request.value
+        await reader.close()
+        let released: Bool? = await PageTestWait.value("release late Blob", seconds: 2) { done in
+            func check() { if page.calls.contains(where: { $0.method == "Runtime.releaseObject" }) { done(true) } }
+            page.onCall = check
+            check()
+        }
+        #expect(stopped == true && released == true)
+        #expect(page.calls.filter { $0.method == "IO.read" }.count == (heldMethod == "IO.read" ? 1 : 0))
     }
 
     @Test func missingBlobIsRefusedWithoutReadingBytes() async {
