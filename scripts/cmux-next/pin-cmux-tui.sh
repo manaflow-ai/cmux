@@ -410,7 +410,7 @@ github_api() {
 active_publisher_for_key() {
   local key="$1" body candidate fetch_args=() candidates=() missing=() unread=0 deadline left
   local budget="${CMUX_TUI_TREE_RUN_FETCH_SECONDS:-60}" public
-  [[ "$budget" =~ ^[0-9]+$ ]] || budget=60
+  [[ "$budget" =~ ^(0|[1-9][0-9]*)$ ]] || budget=60
   public="${CMUX_TUI_PUBLIC_GIT_URL:-https://github.com/${GITHUB_REPOSITORY:-manaflow-ai/cmux}.git}"
   body="$(github_api GET "actions/workflows/cmux-tui-artifacts.yml/runs?per_page=50" 2>/dev/null)" || {
     echo "note: could not list cmux-tui artifacts runs (rate limit or network): a same-tree run is unknown" >&2; echo unknown; return 0; }
