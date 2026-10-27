@@ -109,6 +109,9 @@ await requireBrowserLane("agent-pane-tool-group-overlap.test.ts", async () => {
       });
       const { port } = vite.httpServer!.address() as { port: number };
       await page.goto(`http://127.0.0.1:${port}${galleryFrame("agent-pane.copy-controls", { variant: "output" })}`);
+      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+      const codeCopy = page.locator(".cv-codeblock").getByRole("button", { name: "Copy code", exact: true });
+      await codeCopy.waitFor();
       const row = page.locator('[data-row-id="copy-tool"]');
       await row.locator("button.cv-tool").click();
       await row.locator(".cv-tool-output-card").waitFor();
@@ -125,7 +128,7 @@ await requireBrowserLane("agent-pane-tool-group-overlap.test.ts", async () => {
         return text.left < copy.right && text.right > copy.left && text.top < copy.bottom && text.bottom > copy.top;
       });
       expect(overlap).toBe(false);
-      expect(await page.getByRole("button", { name: "Copy code", exact: true }).count()).toBe(1);
+      expect(await codeCopy.count()).toBe(1);
     } finally {
       await page.close();
     }
