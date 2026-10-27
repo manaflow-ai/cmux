@@ -73,10 +73,11 @@ public struct MobileHostPairTokens: Sendable {
     }
 }
 
-/// What this Mac's pairing code carries: `cmux-next://pair?mac=&team=&name=&t=&k=`. cmux on iPhone
+/// What this Mac's pairing code carries: `cmux-next://pair?mac=&team=&name=&t=&k=&e=`. cmux on iPhone
 /// opens it (camera or its own scanner), signs in if it must, picks the team and this Mac, and
 /// presents `t` in its `auth`, but only to a host that proved the identity key whose SHA-256 is
-/// `k`, so a host registered under this Mac's id with a stolen token never sees the token.
+/// `k`, so a host registered under this Mac's id with a stolen token never sees the token, and
+/// never after `e` (the token's expiry, Unix seconds), so a photo of an old code sends nothing.
 public struct MobileHostPairInvite: Sendable, Equatable {
     /// The URL scheme cmux on iPhone registers.
     public static let scheme = "cmux-next"
@@ -109,6 +110,7 @@ public struct MobileHostPairInvite: Sendable, Equatable {
             URLQueryItem(name: "mac", value: macDeviceID), URLQueryItem(name: "team", value: teamID),
             URLQueryItem(name: "name", value: String(macName.prefix(64))), URLQueryItem(name: "t", value: token),
             URLQueryItem(name: "k", value: macKeyHash),
+            URLQueryItem(name: "e", value: String(Int(expiresAt.timeIntervalSince1970))),
         ]
         return components.string ?? ""
     }
