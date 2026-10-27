@@ -3412,6 +3412,7 @@
 		C65930020000000000000002 /* SessionPersistencePolicy+CrashStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C65930020000000000000001 /* SessionPersistencePolicy+CrashStorage.swift */; };
 		F6572002A1B2C3D4E5F60718 /* SessionPersistenceResumeBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6572003A1B2C3D4E5F60718 /* SessionPersistenceResumeBindingTests.swift */; };
 		F5000000A1B2C3D4E5F60718 /* SessionPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */; };
+		835511D53125D8DAF273E18A /* SessionPriorityRankTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FDEFC74F9857A479523AE42 /* SessionPriorityRankTests.swift */; };
 		812600000000000000000003 /* SessionRemoteWorkspaceMoshRestoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 812600000000000000000004 /* SessionRemoteWorkspaceMoshRestoreTests.swift */; };
 		E30780000000000000000014 /* SessionRemoteWorkspaceSnapshot+Restore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30780000000000000000013 /* SessionRemoteWorkspaceSnapshot+Restore.swift */; };
 		3042D5DC7CAA74E5701F26EB /* SessionRemoteWorkspaceSnapshot+TuiSSH.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D0FC4CB20C73A387037AF91 /* SessionRemoteWorkspaceSnapshot+TuiSSH.swift */; };
@@ -3935,6 +3936,7 @@
 		F8120F5386FBE726864D340B /* TabManagerBackgroundWorkspaceMountBoundTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 481E6848F8513F27E496F7BE /* TabManagerBackgroundWorkspaceMountBoundTests.swift */; };
 		C0DE71510000000000000001 /* TabManagerBootstrapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE71510000000000000002 /* TabManagerBootstrapTests.swift */; };
 		C0DE64160000000000000001 /* TabManagerNotificationFocusRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE64160000000000000002 /* TabManagerNotificationFocusRegressionTests.swift */; };
+		F67CC13DDFB209B1D90AA307 /* TabManagerSessionPriorityReorderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3BC91CD82EDCDFFB351C368 /* TabManagerSessionPriorityReorderTests.swift */; };
 		2BB56A710BB1FC50367E5BCF /* TabManagerSessionSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */; };
 		C06552030000000000000001 /* TabManagerTitleUpdateStalenessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C06552030000000000000002 /* TabManagerTitleUpdateStalenessTests.swift */; };
 		C06552020000000000000001 /* TabManagerTitleUpdateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C06552020000000000000002 /* TabManagerTitleUpdateTests.swift */; };
@@ -8119,6 +8121,7 @@
 		C65930020000000000000001 /* SessionPersistencePolicy+CrashStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPersistencePolicy+CrashStorage.swift"; sourceTree = "<group>"; };
 		F6572003A1B2C3D4E5F60718 /* SessionPersistenceResumeBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistenceResumeBindingTests.swift; sourceTree = "<group>"; };
 		F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistenceTests.swift; sourceTree = "<group>"; };
+		8FDEFC74F9857A479523AE42 /* SessionPriorityRankTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPriorityRankTests.swift"; sourceTree = "<group>"; };
 		812600000000000000000004 /* SessionRemoteWorkspaceMoshRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRemoteWorkspaceMoshRestoreTests.swift; sourceTree = "<group>"; };
 		E30780000000000000000013 /* SessionRemoteWorkspaceSnapshot+Restore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionRemoteWorkspaceSnapshot+Restore.swift"; sourceTree = "<group>"; };
 		0D0FC4CB20C73A387037AF91 /* SessionRemoteWorkspaceSnapshot+TuiSSH.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTui/SessionRemoteWorkspaceSnapshot+TuiSSH.swift"; sourceTree = "<group>"; };
@@ -8634,6 +8637,7 @@
 		481E6848F8513F27E496F7BE /* TabManagerBackgroundWorkspaceMountBoundTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerBackgroundWorkspaceMountBoundTests.swift; sourceTree = "<group>"; };
 		C0DE71510000000000000002 /* TabManagerBootstrapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerBootstrapTests.swift; sourceTree = "<group>"; };
 		C0DE64160000000000000002 /* TabManagerNotificationFocusRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerNotificationFocusRegressionTests.swift; sourceTree = "<group>"; };
+		B3BC91CD82EDCDFFB351C368 /* TabManagerSessionPriorityReorderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManagerSessionPriorityReorderTests.swift"; sourceTree = "<group>"; };
 		10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerSessionSnapshotTests.swift; sourceTree = "<group>"; };
 		C06552030000000000000002 /* TabManagerTitleUpdateStalenessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerTitleUpdateStalenessTests.swift; sourceTree = "<group>"; };
 		C06552020000000000000002 /* TabManagerTitleUpdateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerTitleUpdateTests.swift; sourceTree = "<group>"; };
@@ -14416,6 +14420,8 @@
 				6DDD761649C5A10246E46333 /* ClaudeAccountAutoSwitchFixture.swift */,
 				4ABB1D139C18458D32DD0BF3 /* ClaudeAccountAutoSwitchSafetyTests.swift */,
 				8EA4B1AF7005BA98331CF84E /* ClaudeAccountAutoSwitchContinueGateTests.swift */,
+				8FDEFC74F9857A479523AE42 /* SessionPriorityRankTests.swift */,
+				B3BC91CD82EDCDFFB351C368 /* TabManagerSessionPriorityReorderTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -19489,6 +19495,7 @@
 				8A3392FE64E0605D942213D1 /* SessionIndexViewTests.swift in Sources */,
 				F6572002A1B2C3D4E5F60718 /* SessionPersistenceResumeBindingTests.swift in Sources */,
 				F5000000A1B2C3D4E5F60718 /* SessionPersistenceTests.swift in Sources */,
+				835511D53125D8DAF273E18A /* SessionPriorityRankTests.swift in Sources */,
 				812600000000000000000003 /* SessionRemoteWorkspaceMoshRestoreTests.swift in Sources */,
 				806600000000000000000002 /* SessionRestorableAgentSnapshotPermissionModeTests.swift in Sources */,
 				3C7EE8952CF38F7F62C9198B /* SessionScrollbackCheckpointTests.swift in Sources */,
@@ -19633,6 +19640,7 @@
 				F8120F5386FBE726864D340B /* TabManagerBackgroundWorkspaceMountBoundTests.swift in Sources */,
 				C0DE71510000000000000001 /* TabManagerBootstrapTests.swift in Sources */,
 				C0DE64160000000000000001 /* TabManagerNotificationFocusRegressionTests.swift in Sources */,
+				F67CC13DDFB209B1D90AA307 /* TabManagerSessionPriorityReorderTests.swift in Sources */,
 				2BB56A710BB1FC50367E5BCF /* TabManagerSessionSnapshotTests.swift in Sources */,
 				C06552030000000000000001 /* TabManagerTitleUpdateStalenessTests.swift in Sources */,
 				C06552020000000000000001 /* TabManagerTitleUpdateTests.swift in Sources */,
