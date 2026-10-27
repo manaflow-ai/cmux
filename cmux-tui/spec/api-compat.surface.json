@@ -4062,6 +4062,50 @@
         "required": true
       }
     },
+    "event:server-diagnostic-site": {
+      "/cause": {
+        "ty": "enum",
+        "values": [
+          "automation",
+          "frontend"
+        ]
+      },
+      "/crate": {
+        "ty": "string"
+      },
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"server-diagnostic-site\""
+        ]
+      },
+      "/family": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "blocking",
+          "hang",
+          "inversion"
+        ]
+      },
+      "/file_hash": {
+        "ty": "string"
+      },
+      "/kind": {
+        "ty": "string",
+        "required": true
+      },
+      "/lane_sync": {
+        "ty": "boolean"
+      },
+      "/line": {
+        "ty": "uint32"
+      },
+      "/method": {
+        "ty": "string"
+      }
+    },
     "event:settings-changed": {
       "/cause": {
         "ty": "enum",

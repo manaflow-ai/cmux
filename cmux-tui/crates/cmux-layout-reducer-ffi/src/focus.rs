@@ -827,6 +827,9 @@ pub unsafe extern "C" fn cmux_focus_send(
     }
     // SAFETY: a live handle, used by one thread; a readable event.
     let (focus, event) = unsafe { (&mut *focus, &*event) };
+    // SAFETY: this function's contract gives `strings_len` readable bytes at `strings`, which is
+    // what `bytes` requires (it refuses a null pointer itself); the slice is used only during this
+    // call.
     let Some(strings) = (unsafe { bytes(strings, strings_len) }) else { return focus.fail() };
     let result = catch_unwind(AssertUnwindSafe(|| {
         // SAFETY: the caller's contract.
@@ -859,6 +862,9 @@ pub unsafe extern "C" fn cmux_focus_set_topology(
     }
     // SAFETY: a live handle, used by one thread; a readable topology.
     let (focus, topology) = unsafe { (&mut *focus, &*topology) };
+    // SAFETY: this function's contract gives `strings_len` readable bytes at `strings`, which is
+    // what `bytes` requires (it refuses a null pointer itself); the slice is used only during this
+    // call.
     let Some(strings) = (unsafe { bytes(strings, strings_len) }) else { return focus.fail() };
     let result = catch_unwind(AssertUnwindSafe(|| {
         // SAFETY: the caller's contract.
@@ -918,6 +924,9 @@ pub unsafe extern "C" fn cmux_focus_changes_view(
     if event.is_null() {
         return 0;
     }
+    // SAFETY: this function's contract gives `strings_len` readable bytes at `strings`, which is
+    // what `bytes` requires (it refuses a null pointer itself); the slice is used only during this
+    // call.
     let Some(strings) = (unsafe { bytes(strings, strings_len) }) else { return 0 };
     catch_unwind(AssertUnwindSafe(|| {
         // SAFETY: the caller's contract.
@@ -948,6 +957,8 @@ pub unsafe extern "C" fn cmux_focus_recent_panes(
     let workspace = if has_workspace == 0 {
         None
     } else {
+        // SAFETY: this function's contract gives `workspace_len` readable bytes at `workspace` when
+        // `has_workspace` is set, which is what `bytes` requires; the text is copied before return.
         match unsafe { bytes(workspace, workspace_len) }.map(std::str::from_utf8) {
             Some(Ok(text)) => Some(text.to_owned()),
             _ => return std::ptr::null(),
@@ -1003,6 +1014,8 @@ pub unsafe extern "C" fn cmux_focus_import_json(
     if focus.is_null() {
         return crate::ERR_NULL;
     }
+    // SAFETY: this function's contract gives `json_len` readable bytes at `json`, which is what
+    // `bytes` requires (it refuses a null pointer itself); the slice is used only during this call.
     let Some(json) = (unsafe { bytes(json, json_len) }) else { return crate::ERR_NULL };
     // SAFETY: a live handle used by one thread.
     let focus = unsafe { &mut *focus };

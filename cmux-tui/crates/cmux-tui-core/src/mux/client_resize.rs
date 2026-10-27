@@ -1,6 +1,7 @@
 //! Client surface resizes: client size resolution and records, control client resizes with reservations and completions, rollback, and size client removal.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 use cmux_threads::work::{Lane, Priority, Shutdown};
 
 impl Mux {
@@ -9,7 +10,7 @@ impl Mux {
         requested: Option<(u16, u16)>,
         default: (u16, u16),
     ) -> (u16, u16) {
-        let mut sizing = self.client_sizing.lock().unwrap();
+        let mut sizing = self.client_sizing.lock().recover_poison();
         if let Some((cols, rows)) = requested {
             let size = clamp_terminal_size(cols, rows);
             sizing.record_explicit_size(size);
@@ -26,7 +27,7 @@ impl Mux {
     /// unsized surface creation.
     pub fn record_client_size(&self, cols: u16, rows: u16) -> (u16, u16) {
         let size = clamp_terminal_size(cols, rows);
-        self.client_sizing.lock().unwrap().record_explicit_size(size);
+        self.client_sizing.lock().recover_poison().record_explicit_size(size);
         size
     }
 
@@ -55,7 +56,7 @@ impl Mux {
         let terminal_runtime = self.surface(id).and_then(|surface| surface.terminal_runtime_id());
         // Serialize the report and its application. Otherwise an older
         // effective size can reach the PTY after a newer shared minimum.
-        let mut sizing = self.client_sizing.lock().unwrap();
+        let mut sizing = self.client_sizing.lock().recover_poison();
         let attached_clients = self.control_clients.attached_client_ids_for_surface(id);
         let result = self.resize_surface_for_client_locked(
             &mut sizing,
@@ -108,7 +109,7 @@ impl Mux {
         // Keep registration, report insertion, and reducer insertion in one
         // critical section. Disconnect and final stream detach remove their
         // leases through this same sizing lock after dropping the registry lock.
-        let mut sizing = self.client_sizing.lock().unwrap();
+        let mut sizing = self.client_sizing.lock().recover_poison();
         let attached = self.control_clients.record_size(client, id, requested.0, requested.1)?;
         let result = self.resize_surface_for_prepared_control_client_locked(
             &mut sizing,
@@ -143,7 +144,7 @@ impl Mux {
     ) -> anyhow::Result<ControlClientResize> {
         let requested = clamp_terminal_size(requested.0, requested.1);
         let terminal_runtime = self.surface(id).and_then(|surface| surface.terminal_runtime_id());
-        let mut sizing = self.client_sizing.lock().unwrap();
+        let mut sizing = self.client_sizing.lock().recover_poison();
         let result = self.resize_surface_for_prepared_control_client_locked(
             &mut sizing,
             PreparedControlClientResize {
@@ -372,7 +373,7 @@ impl Mux {
         if !self.control_clients.contains(client) {
             return;
         }
-        let mut sizing = self.client_sizing.lock().unwrap();
+        let mut sizing = self.client_sizing.lock().recover_poison();
         let current_size =
             sizing.surfaces.get(&id).and_then(|viewers| viewers.get(&client).copied());
         let current_report_order = sizing.report_order.get(&(id, client)).copied();
@@ -524,7 +525,7 @@ impl Mux {
         if !self.control_clients.contains(client) {
             return;
         }
-        let mut sizing = self.client_sizing.lock().unwrap();
+        let mut sizing = self.client_sizing.lock().recover_poison();
         let attached_clients = self.control_clients.attached_client_ids_for_surface(id);
         if sizing.rollback_token(id, Some(&attached_clients)) != rollback_token {
             return;
@@ -598,7 +599,7 @@ impl Mux {
     pub fn remove_surface_size_client(&self, id: SurfaceId, client: u64) {
         // Removal participates in the same ordering as size reports.
         let terminal_runtime = self.surface(id).and_then(|surface| surface.terminal_runtime_id());
-        let mut sizing = self.client_sizing.lock().unwrap();
+        let mut sizing = self.client_sizing.lock().recover_poison();
         let attached_clients = self.control_clients.attached_client_ids_for_surface(id);
         // Final-stream cleanup runs after the registry removes this
         // attachment. Reconstruct the preceding attachment set so an
@@ -660,7 +661,7 @@ impl Mux {
         client: u64,
         attached_surfaces: impl IntoIterator<Item = SurfaceId>,
     ) {
-        let mut sizing = self.client_sizing.lock().unwrap();
+        let mut sizing = self.client_sizing.lock().recover_poison();
         sizing.detached_views.retain(|(viewer, _)| *viewer != client);
         let attached_clients = self.control_clients.attached_client_ids_by_surface();
         // The registry snapshot no longer contains this client. Reconstruct
@@ -767,7 +768,7 @@ impl Mux {
     pub fn client_surface_size(&self, id: SurfaceId, client: u64) -> Option<(u16, u16)> {
         self.client_sizing
             .lock()
-            .unwrap()
+            .recover_poison()
             .surfaces
             .get(&id)
             .and_then(|viewers| viewers.get(&client).copied())

@@ -57,9 +57,9 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
     case tabSendMouseMove = 201
 
     /// The SHA-256 of the cmux_cef_shim.h this table was generated from (`CEFShimABI`).
-    static let abiIdentity = "c39517bb107d4316d161583c8ca6d9050de7656d7325fbe7d6434bbaff886bde"
+    static let abiIdentity = "ae20c1087b83fcd37262f9b48b5932b8ca69b072053ad4bebdfbb7f3d178deac"
     /// This generation's op ids, classes and wire types; both HELLOs carry it.
-    static let wireIdentity = "7171d3b4927f9d48cbcc9b01ef35713890ab293298d2b4e5b0f1ae6135b6614f"
+    static let wireIdentity = "a070858d749eeddebed1a7e38d140511713d1aca77581cba98557b1ff6a34565"
     /// Ops of fork API symbols the header does not declare yet (`r.optional` in CEFShimLibrary).
     static let optionalOps: Set<ChromiumHostOp> = [
         .addDocumentScript, .addPageChannel, .tabEvaluate, .tabSetFrozen, .tabSendClick, .tabSetColorScheme,
@@ -523,8 +523,9 @@ nonisolated enum ChromiumHostEventKind: Int32, CaseIterable, Sendable {
     case localFileHandoff = 38, bookmarksEvent = 39, externalURL = 40, permissionPrompt = 41
     case permissionDismissed = 42, passwordPrompt = 43, beforeUnloadDialog = 44, beforeUnloadDismissed = 45
     case pageResource = 46, pageDragEnter = 47, fileDialog = 48, cursor = 54, dragOperation = 55, tooltip = 57
-    case popupMenu = 58, popupMenuHide = 59, suggestions = 60, pageMessage = 49, evaluateResult = 50
-    case createFailed = 51, widgetContext = 52, widgetGone = 53, wheelAck = 56
+    case popupMenu = 58, popupMenuHide = 59, suggestions = 60, colorChooser = 61, deviceChooser = 62
+    case desktopMedia = 63, pageMessage = 49, evaluateResult = 50, createFailed = 51, widgetContext = 52
+    case widgetGone = 53, wheelAck = 56
 
     /// The mirrors this event refreshes; the host pushes them before the event. `request` is the
     /// event's request (CMUX_SHIM_TAB_EVENT's sub-kind).
