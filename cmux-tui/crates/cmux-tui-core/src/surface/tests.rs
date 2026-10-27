@@ -32,6 +32,7 @@ mod stream_progress;
 use base64::Engine as _;
 use std::sync::mpsc::sync_channel;
 
+use super::spawn::LocalEnd;
 use super::*;
 use crate::MuxEvent;
 

@@ -151,6 +151,7 @@ pub mod agent_transfer;
 mod app_trust;
 pub use app_trust::{FrontendKey, frontend_proof, install_frontend_key, read_frontend_key};
 mod client_hello;
+pub use client_hello::{daemon_features, install_daemon_features};
 mod command_args;
 mod frame_dispatch;
 #[cfg(unix)]
@@ -240,6 +241,7 @@ mod responses;
 mod rows;
 mod screen_json;
 mod server_stats;
+pub(crate) use server_stats::{DIAGNOSTIC_SITES_CAPABILITY, forward_diagnostic_sites};
 mod session_stream;
 mod split_kind;
 mod split_respawn;
@@ -2362,7 +2364,7 @@ use render_service::{
 use render_service::{OutboundByteBudget, RenderGraphicBase64Cache};
 
 mod message_writer;
-use message_writer::{MessageSink, MessageWriter, OutboundStream};
+use message_writer::{MessageSink, MessageWriter, OutboundStream, RoomWaker};
 
 mod request_watchdog;
 #[cfg(unix)]

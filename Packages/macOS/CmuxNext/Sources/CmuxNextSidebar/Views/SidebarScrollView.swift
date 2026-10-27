@@ -26,7 +26,7 @@ final class SidebarScrollView: NSScrollView {
                 case .page(let step): return onWheelPage(step)
                 }
             }
-            super.scrollWheel(with: event)
+            scrollList(with: event)
             return
         }
         let step = tracker.feed(deltaX: Double(event.scrollingDeltaX), deltaY: Double(event.scrollingDeltaY), phase: phase)
@@ -43,7 +43,14 @@ final class SidebarScrollView: NSScrollView {
         }
         // A horizontal gesture never scrolls the list; the list cannot
         // scroll horizontally anyway, and elastic bounce would jitter.
-        if !tracker.isHorizontal { super.scrollWheel(with: event) }
+        if !tracker.isHorizontal { scrollList(with: event) }
+    }
+
+    /// The event goes to the list. When it moves the list up or down, a programmatic scroll's spring stops where
+    /// it shows first; a sideways swipe's end or momentum leaves it running.
+    private func scrollList(with event: NSEvent) {
+        if event.scrollingDeltaY != 0 { stopContentSpring() }
+        super.scrollWheel(with: event)
     }
 
     private static func phase(of event: NSEvent) -> ProfileSwipeTracker.Phase? {
