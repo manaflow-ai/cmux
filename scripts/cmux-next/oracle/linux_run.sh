@@ -27,8 +27,10 @@
 # a run is reused only when oracle.py exited 0 (a run with unexpected results, flakes or infra errors
 # runs again on the next request), and --fresh reruns one anyway. --shuffle without --seed gets a
 # random seed, which is then part of the key. Builds run in RUNNERD_SCRATCH/wt (a `git clone --shared`
-# of this repo that runnerd removes when the job ends) with ghostty-next initialized from the SHA's own
-# gitlink; CMUX_GHOSTTY_SRC is never used. The cargo target dir is runnerd's per-SHA, per-feature cache.
+# of this repo that runnerd removes when the job ends) with the SHA's VT submodule initialized from its own
+# gitlink: ghostty-next, or ghostty for a SHA from before ghostty-next (the cmux-tui tags that
+# gen_upgrades.py builds, p15-oracle-208); CMUX_GHOSTTY_SRC is never used. The cargo target dir is
+# runnerd's per-SHA, per-feature cache.
 # Defaults: profile and feature `oracle` (p15-oracle-201), cargo -j 240. Linux only.
 set -euo pipefail
 
@@ -141,23 +143,25 @@ job_build() {
   # runnerd removes its scratch dir when the job ends, a timeout or a recovery included.
   local JOB_WT="${RUNNERD_SCRATCH:?_build needs the runnerd scratch dir}/wt"
   unset CMUX_GHOSTTY_SRC
-  local common refdir gitlink
+  local common refdir gitlink module=ghostty-next
   common="$(git -C "$REPO" rev-parse --path-format=absolute --git-common-dir)"
   git clone --quiet --shared --no-checkout "$common" "$JOB_WT" >&2
   git -C "$JOB_WT" -c advice.detachedHead=false checkout --quiet --detach "$sha" >&2
-  gitlink="$(git -C "$JOB_WT" rev-parse "HEAD:ghostty-next")"
-  refdir="$common/modules/ghostty-next"
-  git -C "$JOB_WT" submodule init ghostty-next >&2
+  # ghostty-vt-sys builds from ghostty-next; a SHA that predates it builds from ghostty.
+  git -C "$JOB_WT" rev-parse --verify --quiet "HEAD:ghostty-next" >/dev/null || module=ghostty
+  gitlink="$(git -C "$JOB_WT" rev-parse "HEAD:$module")"
+  refdir="$common/modules/$module"
+  git -C "$JOB_WT" submodule init "$module" >&2
   local update=(git -C "$JOB_WT" -c protocol.file.allow=always submodule update --checkout)
   if [[ -d "$refdir" ]]; then
     update+=(--reference "$refdir")
     # The local module copy has most gitlinks already; clone from it without the network when it does.
     if git -C "$refdir" cat-file -e "$gitlink^{commit}" 2>/dev/null; then
-      git -C "$JOB_WT" config "submodule.ghostty-next.url" "$refdir"
+      git -C "$JOB_WT" config "submodule.$module.url" "$refdir"
     fi
   fi
-  "${update[@]}" ghostty-next >&2
-  [[ "$(git -C "$JOB_WT/ghostty-next" rev-parse HEAD)" == "$gitlink" ]] || die "ghostty-next is not at its gitlink $gitlink"
+  "${update[@]}" "$module" >&2
+  [[ "$(git -C "$JOB_WT/$module" rev-parse HEAD)" == "$gitlink" ]] || die "$module is not at its gitlink $gitlink"
   # The seeded fault goes into this job's worktree only; the copy in the job output is what was built.
   # The receipt stores patch_mutants.py's own parse of the header, so validation and the record cannot disagree.
   local mutant_copy="" mutant_json=""
@@ -199,11 +203,11 @@ job_build() {
   [[ -x "$built" ]] || die "cargo finished without $built"
   cp "$built" "$binary"
   git -C "$JOB_WT" ls-tree -r HEAD | awk '$2 == "commit" { print $4 "\t" $3 }' > "$RUNNERD_OUT/gitlinks.tsv"
-  python3 -I - "$RUNNERD_OUT/build.json" "$sha" "$gitlink" "$profile" "$features" "$target" "$state" \
+  python3 -I - "$RUNNERD_OUT/build.json" "$sha" "$module" "$gitlink" "$profile" "$features" "$target" "$state" \
     "$build_ms" "$leaf_ms" "$binary" "$RUNNERD_OUT/gitlinks.tsv" "$(cd "$JOB_WT/cmux-tui" && rustc --version)" \
     "$mutant_copy" "$mutant_json" <<'PY'
 import hashlib, json, os, platform, sys
-(out, sha, gitlink, profile, features, target_dir, state, build_ms, leaf_ms, binary, gitlinks,
+(out, sha, module, gitlink, profile, features, target_dir, state, build_ms, leaf_ms, binary, gitlinks,
  rustc, mutant, mutant_json) = sys.argv[1:]
 def sha256(path):
     digest = hashlib.sha256()
@@ -221,7 +225,8 @@ with open(gitlinks, encoding="utf-8") as handle:
 receipt = {
     "schema": "cmux-oracle-build-v1",
     "sha": sha,
-    "ghosttyNext": gitlink,
+    "ghosttyNext": gitlink if module == "ghostty-next" else None,
+    "vtModule": module,
     "gitlinks": links,
     "profile": profile,
     "features": [f for f in features.split(",") if f],
