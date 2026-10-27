@@ -33,6 +33,19 @@ log="$(mktemp "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/swift-test-log.XXXXXX")" \
   || { echo "::error title=cmux-next swift test::cannot create the test log" >&2; exit 1; }
 exec 3> >(tee "$log")
 tee_pid=$!
+# The crash names itself, in this log, rather than through a file that may never
+# arrive. Swift's backtracer prints a symbolicated stack to stderr in-process on
+# a fatal error; `enable=tty` is the default, so under Actions it was off and a
+# trap left only its one-line message. Run 40330489336 died on signal 6 with
+# "Attempted to read an unowned reference" and nothing to attribute it to, and
+# ReportCrash had written no report for it within the window either (the search
+# of both report directories found 316 reports, all older than the run).
+#
+# symbolicate=full, not the `symbolicate=off` the xcodebuild jobs use: an
+# unsymbolicated stack answers none of the question, and this costs only on a
+# run that has already crashed. interactive=no and timeout=0s so it never waits
+# for a keypress that cannot come; color=no so the log stays readable.
+export SWIFT_BACKTRACE="${SWIFT_BACKTRACE:-enable=yes,interactive=no,timeout=0s,symbolicate=full,color=no,threads=crashed}"
 swift test "$@" >&3 2>&1 &
 test_pid=$!
 # Only this run's processes: on a shared CI Mac other jobs run xctest and
@@ -217,8 +230,12 @@ report_status=$?
 # summary and thousands of unfinished tests; its crash report names the test.
 crash_signal=$(sed -n 's/.*exited with unexpected signal code \([0-9][0-9]*\).*/\1/p' "$log" | head -n 1)
 if [[ -n "$crash_signal" ]]; then
+  # Both report directories, system one first. A test helper on a CI Mac leaves
+  # its report in /Library/Logs/DiagnosticReports, not the $HOME one a login
+  # session gets, so searching $HOME alone reported no crash report for a run
+  # that had plainly died on signal 6 (run 40330489336).
   crashed=$(python3 "$script_dir/ips-crash-summary.py" \
-    "${CMUX_NEXT_CRASH_REPORTS_DIR:-$HOME/Library/Logs/DiagnosticReports}" \
+    "${CMUX_NEXT_CRASH_REPORTS_DIR:-/Library/Logs/DiagnosticReports:$HOME/Library/Logs/DiagnosticReports}" \
     "${CMUX_NEXT_CRASH_OUT:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/swift-test-crash-reports}" \
     "$started_at" "${CMUX_NEXT_CRASH_WAIT_SECONDS:-20}" 2>&1)
   printf '::error title=cmux-next swift test crash::the test helper died on signal %s; crashed thread: %s\n' \
