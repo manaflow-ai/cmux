@@ -422,6 +422,14 @@ export type ExecOptions = {
    * the provider stores, and never logs, traces or persists it.
    */
   readonly stdin?: SecretBytes;
+  /** Ends the provider request: the driver passes it to every request it makes. */
+  readonly signal?: AbortSignal;
+  /**
+   * Gateway only: abort the provider request (through `signal`) when the
+   * calling fiber is interrupted, a timeout included. Without it an
+   * interrupted exec's request runs on to its own end.
+   */
+  readonly cancelOnInterrupt?: boolean;
 };
 
 const REDACTED = "[redacted]";

@@ -81,6 +81,7 @@ final class ComputerUseSetup {
     @ObservationIgnored private let openURL: @MainActor (URL) -> Void
     @ObservationIgnored private let requestGrant: @Sendable (AgentActivitySocketSource.Configuration, ComputerUsePermissionPane) async -> Void
     @ObservationIgnored private let restartHelper: @MainActor () async -> Void
+    @ObservationIgnored private let requestPermission: @MainActor (ComputerUsePermissionPane) -> Void
     @ObservationIgnored private let enableSetting: @MainActor () -> Void
     @ObservationIgnored private let notifications: NotificationCenter
     @ObservationIgnored private let distributed: NotificationCenter
@@ -109,6 +110,7 @@ final class ComputerUseSetup {
              await ComputerUseSetup.socketRequestGrant($0, $1)
          },
          restartHelper: @escaping @MainActor () async -> Void = {},
+         requestPermission: @escaping @MainActor (ComputerUsePermissionPane) -> Void = { _ in },
          enableSetting: @escaping @MainActor () -> Void = {},
          notifications: NotificationCenter = .default,
          distributed: NotificationCenter = DistributedNotificationCenter.default(),
@@ -120,6 +122,7 @@ final class ComputerUseSetup {
         self.openURL = openURL
         self.requestGrant = requestGrant
         self.restartHelper = restartHelper
+        self.requestPermission = requestPermission
         self.enableSetting = enableSetting
         self.notifications = notifications
         self.distributed = distributed
@@ -195,6 +198,7 @@ final class ComputerUseSetup {
     /// Accessibility needs no such request: the toggle is enough, and the
     /// request only raised macOS's "would like to control this computer"
     /// alert on top of the drag panel that already guides the person.
+    /// Under the helper v2, `requestPermission` queues the grant on its control pipe instead.
     func open(_ pane: ComputerUsePermissionPane) {
         if Self.asksHelper(pane, accessibility: permissions.accessibility, phase: phase, driver: driver),
            let configuration = configuration() {
@@ -203,6 +207,7 @@ final class ComputerUseSetup {
             Task { await requestGrant(configuration, pane) }
         }
         guard let url = Self.settingsURL(pane) else { return }
+        requestPermission(pane)
         openURL(url)
     }
 
@@ -388,6 +393,24 @@ extension ComputerUseSetup {
             },
             configuration: { helper.configuration },
             restartHelper: { await helper.restartLegacy() },
+            requestPermission: { [weak services] pane in
+                guard let services, let settings = services.settings,
+                      settings.snapshot.computerUse.driver == .upstream,
+                      !services.registry.disabledFeatures.contains(.computerUse) else { return }
+                // task-owner: one setup click; enabling finishes before queuing its grant.
+                Task {
+                    do {
+                        if !settings.snapshot.computerUse.enabled {
+                            try await settings.setSetting(at: ComputerUseSettings.enabledPath, to: .bool(true), by: SettingWriter.currentRun())
+                        }
+                        guard settings.snapshot.computerUse.enabled, settings.snapshot.computerUse.driver == .upstream,
+                              !services.registry.disabledFeatures.contains(.computerUse) else { return }
+                        await helper.upstream.requestPermission(screenRecording: pane == .screenRecording)
+                    } catch {
+                        setupLogger.error("Computer Use could not request permission: \(String(describing: error), privacy: .public)")
+                    }
+                }
+            },
             enableSetting: { [weak services] in
                 guard let settings = services?.settings else { return }
                 let writer = SettingWriter.currentRun()

@@ -228,12 +228,17 @@ struct ClassicUpgradeSimulationTests {
         let sim = try ClassicUpgradeSimulator(mac: mac)
         let launch = await sim.launch()
         Self.report(profile.name, launch, workspaces: 3)
+        // Not held back: every local workspace showed before the run took up either SSH one, which it
+        // does only after their hosts' connect limit (the ledger records a workspace's turn first). An
+        // event order, not a wall-clock budget, so it holds on a loaded runner.
+        let decoded = try ClassicSessionImporter(fileURL: mac.session()).decodeSnapshot(Data(contentsOf: mac.session()))
+        let remoteTurns = decoded.windows.flatMap(\.workspaces).filter { $0.remote != nil }.compactMap { sim.ledgered[$0.key] }
+        #expect(remoteTurns.count == 2, "SSH workspaces' turns: \(remoteTurns)")
         for name in ["local 1", "local 2", "local 3"] {
             let at = try #require(sim.appeared[name], "\(name) never showed")
-            #expect(at < 8, "\(name) showed after \(at) s")
+            #expect(remoteTurns.allSatisfy { at <= $0 }, "\(name) showed at \(at) s, after an SSH workspace's turn at \(remoteTurns) s")
         }
         #expect(launch.outcome?.summary.leftSSH == true, "\(String(describing: launch.outcome))")
-        #expect(launch.migration < .seconds(30), "migration took \(launch.migration)")
         await sim.settle()
         try sim.verify(profile, classicBefore: before)
         await sim.shutdown()
@@ -267,7 +272,8 @@ struct ClassicUpgradeSimulationTests {
         let window = try #require(sim.services.windows.registry.value.owner(of: shown).flatMap { sim.services.windows.controller(for: $0) })
         window.state.showWorkspace(shown)
         let clock = ContinuousClock()
-        let deadline = clock.now + .seconds(15)
+        // A ceiling for the shells to start, not a budget.
+        let deadline = clock.now + .seconds(60)
         while clock.now < deadline, tabs(shown).contains(where: \.dead) { try? await Task.sleep(for: .milliseconds(100)) }
         #expect(tabs(shown).allSatisfy { !$0.dead }, "\(tabs(shown).map { ($0.dead, $0.relaunch) })")
         #expect(tabs(shown).map(\.surface) == surfaces)

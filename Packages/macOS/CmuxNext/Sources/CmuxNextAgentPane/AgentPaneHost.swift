@@ -457,6 +457,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                 if !environment.isAttached {
                     _ = await AcpmuxPersonKey.enroll(status, environment: environment, mayHandOff: false)
                     await AcpmuxComputerUse.enroll(environment)
+                    AcpmuxMacApprover.register(environment)
                 }
                 do {
                     return try await Self.verifiedEndpoint(environment)
@@ -483,6 +484,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             let stopped = stale ? true : await AcpmuxPersonKey.enroll(status, environment: environment)
             guard stopped else {
                 await AcpmuxComputerUse.enroll(environment)
+                AcpmuxMacApprover.register(environment)
                 return try await Self.verifiedEndpoint(environment)
             }
         } catch AcpmuxStatusClient.Failure.unreachable {
@@ -515,6 +517,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             if let status = await Self.startedStatus(environment), status.serves(home: environment.home) {
                 _ = await AcpmuxPersonKey.enroll(status, environment: environment)
                 await AcpmuxComputerUse.enroll(environment)
+                AcpmuxMacApprover.register(environment)
             }
             return endpoint
         } catch AcpmuxDaemonLauncher.Failure.exited {
@@ -532,6 +535,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                 guard status.serves(home: environment.home) else { throw Self.foreignHome(status, environment) }
                 _ = await AcpmuxPersonKey.enroll(status, environment: environment, mayHandOff: false)
                 await AcpmuxComputerUse.enroll(environment)
+                AcpmuxMacApprover.register(environment)
                 return try await Self.verifiedEndpoint(environment)
             } catch let error as AgentPaneHostError {
                 throw error
