@@ -192,6 +192,104 @@ def published(calls):
     return [c[2]["source_run_id"] for c in calls if c[0] == "dispatch" and c[1] == "cmux-next-dev-daily.yml"]
 
 
+
+# The publisher's own source checks, run as bash against a stub gh: "Resolve the
+# source run" (which runs it accepts) and the source gate (which producer counts).
+def sign_step(name):
+    steps = re.split(r"^      - ", sign_text, flags=re.MULTILINE)
+    step = next((s for s in steps if s.startswith(f"name: {name}\n")), "")
+    body = re.search(r"^        run: \|\n((?:^          .*\n|^\s*\n)+)", step, re.MULTILINE)
+    return "\n".join(line[10:] for line in body.group(1).splitlines()) if body else ""
+
+
+STUB_GH = r"""#!/bin/bash
+# gh api PATH [--jq FILTER]: answer from $STUB_DIR, keyed by the path's kind.
+[ "$1" = api ] || exit 2
+case "$2" in
+  */jobs\?*) file="$STUB_DIR/jobs.json" ;;
+  */git/ref/heads/*) file="$STUB_DIR/ref.json" ;;
+  */compare/*) file="$STUB_DIR/compare.json" ;;
+  */actions/runs/*) file="$STUB_DIR/run.json" ;;
+  *) exit 3 ;;
+esac
+[ -f "$file" ] || { echo "gh: HTTP 502" >&2; exit 1; }
+if [ "$3" = --jq ]; then exec jq -r "$4" "$file"; fi
+cat "$file"
+"""
+
+
+def publisher_checks(run, jobs):
+    """(exit code, eligible output, GITHUB_ENV text) of resolve + gate for one source run."""
+    resolve, gate = sign_step("Resolve the source run"), sign_step("Require a successful app-producing job")
+    if not resolve or not gate:
+        failures.append("could not find the publisher's resolve and gate steps")
+        return None
+    sha = run["head_sha"]
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        (tmp / "gh").write_text(STUB_GH)
+        (tmp / "gh").chmod(0o755)
+        (tmp / "run.json").write_text(json.dumps(run))
+        if jobs is not None:
+            (tmp / "jobs.json").write_text(json.dumps({"jobs": jobs}))
+        (tmp / "ref.json").write_text(json.dumps({"object": {"sha": sha}}))
+        (tmp / "compare.json").write_text(json.dumps({"status": "identical"}))
+        (tmp / "resolve.sh").write_text(resolve + "\n")
+        (tmp / "gate.sh").write_text(gate + "\n")
+        env = {"PATH": f"{tmp}:/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin", "STUB_DIR": str(tmp),
+               "GH_REPO": "o/r", "SOURCE_RUN_ID": "77", "GITHUB_ENV": str(tmp / "env"),
+               "GITHUB_OUTPUT": str(tmp / "out"),
+               "SOURCE_APP_PRODUCER_JOBS": "cmux NEXT DEV Release compile\ncmux app scheme compile (Debug)",
+               "SOURCE_LANDING_PRODUCER_JOB": "cmux NEXT DEV Release compile (landing)"}
+        first = subprocess.run(["bash", str(tmp / "resolve.sh")], capture_output=True, text=True, env=env, timeout=60)
+        if first.returncode != 0:
+            return first.returncode, None, ""
+        for line in (tmp / "env").read_text().splitlines():
+            key, _, value = line.partition("=")
+            env[key] = value
+        second = subprocess.run(["bash", str(tmp / "gate.sh")], capture_output=True, text=True, env=env, timeout=60)
+        out = (tmp / "out").read_text() if (tmp / "out").exists() else ""
+        eligible = re.search(r"^eligible=(\w+)$", out, re.MULTILINE)
+        return second.returncode, eligible.group(1) if eligible else None, (tmp / "env").read_text()
+
+
+if shutil.which("bash") and shutil.which("jq"):
+    S = "a" * 40
+
+    def source(event, status="completed", title=None, branch="feat-cmux-next", path=".github/workflows/cmux-next.yml"):
+        return {"event": event, "status": status, "head_branch": branch, "path": path, "head_sha": S,
+                "head_repository": {"full_name": "o/r"}, "name": "cmux-next",
+                "display_title": title or f"cmux-next · {S}"}
+
+    landing_ok = [{"name": "cmux NEXT DEV Release compile (landing)", "conclusion": "success"}]
+    dev_ok = [{"name": "cmux NEXT DEV Release compile", "conclusion": "success"}]
+    dev_title = f"cmux NEXT DEV daily · {S}"
+    cases = (
+        ("an in-progress push run with a landing compile", source("push", "in_progress"), landing_ok, (0, "true")),
+        ("a finished DEV dispatch run", source("workflow_dispatch", title=dev_title), dev_ok, (0, "true")),
+        ("a DEV dispatch run still running", source("workflow_dispatch", "in_progress", title=dev_title), dev_ok, ("fail", None)),
+        ("a dispatch run not named for its SHA", source("workflow_dispatch"), dev_ok, ("fail", None)),
+        ("a pull request run", source("pull_request"), landing_ok, ("fail", None)),
+        ("a push run of another branch", source("push", branch="main"), landing_ok, ("fail", None)),
+        ("a push run of another workflow", source("push", path=".github/workflows/ci.yml"), landing_ok, ("fail", None)),
+        ("a push run whose only app job is the DEV-run producer", source("push", "in_progress"), dev_ok, ("fail", None)),
+        ("a push run whose jobs came back empty", source("push", "in_progress"), [], ("fail", None)),
+        ("a push run whose jobs read failed", source("push", "in_progress"), None, ("fail", None)),
+        ("a red DEV run without its app", source("workflow_dispatch", title=dev_title),
+         [{"name": "cmux NEXT DEV Release compile", "conclusion": "failure"}], (0, "false")),
+    )
+    for label, run_json, jobs, (want_rc, want_eligible) in cases:
+        result = publisher_checks(run_json, jobs)
+        if result is None:
+            break
+        rc, eligible, env_text = result
+        ok = (rc != 0 if want_rc == "fail" else rc == 0) and eligible == want_eligible
+        check(ok, f"publisher source checks, {label}: expected rc {want_rc} eligible {want_eligible}, got rc {rc} eligible {eligible}")
+        if ok and want_eligible == "true":
+            check(f"SOURCE_SHA={S}" in env_text, f"publisher source checks, {label}: SOURCE_SHA not set: {env_text!r}")
+else:
+    failures.append("bash and jq are required for the publisher source checks")
+
 if not shutil.which("node"):
     sys.exit("FAIL: node is required")
 

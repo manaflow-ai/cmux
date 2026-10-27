@@ -153,6 +153,15 @@ jobs:
             done <<< "$producers"
           done <<< "$jobs"
           if [[ "$eligible" != true ]]; then
+            # A push run is handed over only once its landing compile succeeded
+            # (cmux-next.yml dev-landing-publish, or the dispatcher), so a push
+            # source without one is a read that came back short: fail, so the
+            # dispatcher, which counts only a successful publisher run as
+            # handled, hands it over again.
+            if [[ "$SOURCE_EVENT" == push ]]; then
+              echo "::error::push run $SOURCE_RUN_ID lists no successful '$SOURCE_LANDING_PRODUCER_JOB'; retry the handoff" >&2
+              exit 1
+            fi
             echo "::notice::cmux-next run $SOURCE_RUN_ID has no successful app-producing job; skipping daily publication"
           fi
           echo "eligible=$eligible" >> "$GITHUB_OUTPUT"
