@@ -7465,13 +7465,20 @@ jobs:
           retention-days: 3
 
   republish-nightly-deltas:
-    # This job is separate from publish-nightly so the feed can advance first,
-    # but its mutable delta uploads remain serialized per release channel.
+    # This job is separate from publish-nightly so the feed can advance first.
+    # On nightly-next its delta uploads are serialized in their own group, never
+    # publish-nightly's: GitHub replaces a group's pending job with a newly
+    # queued one, so a shared group let one run's deltas cancel another run's
+    # waiting publish. Its only feed write is a compare-and-swap on the bytes
+    # read (write-feed --same-build: only while the live feed serves this
+    # build), so a newer publish in between makes it a no-op. The classic and
+    # RC tracks replace release feeds with no compare-and-swap, so they keep
+    # publish-nightly's lock.
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly, generate-nightly-deltas]
     if: always() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.fast_build != 'true' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true'
     environment: ${{ needs.decide.outputs.environment }}
     concurrency:
-      group: release-publish-${{ needs.decide.outputs.release_tag }}
+      group: release-${{ needs.decide.outputs.track == 'nightly-next' && 'deltas' || 'publish' }}-${{ needs.decide.outputs.release_tag }}
       cancel-in-progress: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # It holds the publish group, so a hang must not hold it for the default 6 h. nightly-next
@@ -7827,6 +7834,11 @@ jobs:
           retention-days: 7
 
   publish-release-notes:
+    # Still publish-nightly's group: the notes writes (notes/index.json and the
+    # rest) have no compare-and-swap, so only this lock keeps an older build's
+    # checked notes from landing after a newer publish. Leaving it needs that
+    # compare-and-swap first (a late older notes job would otherwise replace a
+    # newer one's pending notes and its writes would win).
     needs: [decide, publish-nightly, sign-release-notes, resolve-nightly-cmux-tui-client]
     concurrency:
       group: release-publish-${{ needs.decide.outputs.release_tag }}
