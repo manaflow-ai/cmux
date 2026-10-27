@@ -108,11 +108,7 @@ describe("the image's cmux-vm-kind-sync", () => {
       }
     };
     holders.push(release);
-    const deadline = Date.now() + 10_000;
-    while (!existsSync(ready)) {
-      if (Date.now() > deadline) throw new Error("the lock holder never took the lock");
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    }
+    await waitFor(ready);
     return release;
   }
 
@@ -206,6 +202,72 @@ describe("the image's cmux-vm-kind-sync", () => {
     expect(readFileSync(kindFile(root), "utf8")).toBe("team\n");
     expect(generation(root)).toMatch(/^[1-9][0-9]{0,8}$/);
     await sync(root, "owner");
+    expect(readFileSync(kindFile(root), "utf8")).toBe("owner\n");
+  });
+
+  /** Waits until `file` exists (10 s at most). */
+  async function waitFor(file: string) {
+    const deadline = Date.now() + 10_000;
+    while (!existsSync(file)) {
+      if (Date.now() > deadline) throw new Error(`${file} never appeared`);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
+
+  test("a sync past its check when the boot's fallback runs ends team, not its stale answer", async () => {
+    // The sync's rename is held (a PATH shim on mv) after its generation
+    // check; the fallback swaps the lock and writes team; then the rename runs.
+    const root = guestRoot();
+    writeFileSync(kindFile(root), "owner\n");
+    writeFileSync(lockFile(root), "7\n");
+    const bin = path.join(root, "sync-bin");
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(
+      path.join(bin, "mv"),
+      `#!/bin/sh
+if [ -n "\${HOLD_DIR:-}" ] && [ ! -e "$HOLD_DIR/held" ]; then
+  : > "$HOLD_DIR/held"
+  i=0
+  while [ ! -e "$HOLD_DIR/release" ] && [ $i -lt 400 ]; do sleep 0.05; i=$((i + 1)); done
+fi
+PATH="\${PATH#*:}" exec mv "$@"
+`,
+    );
+    chmodSync(path.join(bin, "mv"), 0o755);
+    const late = sync(root, "owner", { HOLD_DIR: root });
+    await waitFor(path.join(root, "held"));
+    const fallback = await runChild("/bin/sh", [SYNC], {
+      env: { PATH: process.env.PATH, CMUX_VM_KIND_FILE: kindFile(root), CMUX_VM_KIND_RESET: "team-unlocked" },
+    });
+    expect(fallback.status).toBe(0);
+    expect(readFileSync(kindFile(root), "utf8")).toBe("team\n");
+    writeFileSync(path.join(root, "release"), "");
+    await late;
+    expect(readFileSync(kindFile(root), "utf8")).toBe("team\n");
+    expect(generation(root)).toBe("8");
+  });
+
+  test("a generation file that is not 1 to 9 digits and one newline is corrupt", async () => {
+    for (const raw of ["1\n2", "7 \n", "7\n\n", "7\r\n"]) {
+      const root = guestRoot();
+      writeFileSync(kindFile(root), "owner\n");
+      writeFileSync(lockFile(root), raw);
+      await sync(root, "team");
+      expect({ raw, kind: readFileSync(kindFile(root), "utf8") }).toEqual({ raw, kind: "owner\n" });
+    }
+    for (const raw of ["", "7", "7\n", "007\n"]) {
+      const root = guestRoot();
+      writeFileSync(kindFile(root), "owner\n");
+      writeFileSync(lockFile(root), raw);
+      await sync(root, "team");
+      expect({ raw, kind: readFileSync(kindFile(root), "utf8") }).toEqual({ raw, kind: "team\n" });
+    }
+  });
+
+  test("an answer with several JSON values writes nothing", async () => {
+    const root = guestRoot();
+    writeFileSync(kindFile(root), "owner\n");
+    await sync(root, "team", {}, `printf '{"kind":"owner"}'`);
     expect(readFileSync(kindFile(root), "utf8")).toBe("owner\n");
   });
 

@@ -16,14 +16,19 @@
 # The lock covers only the write, never the fetch, so it is held briefly.
 # Both a reset and a sync wait at most 10 s for it. A sync that cannot take it
 # writes nothing. A reset that cannot finish exits non-zero, and the boot then
-# runs CMUX_VM_KIND_RESET=team-unlocked, which writes `team` and a new
-# generation without the lock (each a rename), so a stuck holder never keeps a
-# clone on its source's record or holds up its boot.
+# runs CMUX_VM_KIND_RESET=team-unlocked, which writes a new generation and
+# then `team` without the lock, so a stuck holder never keeps a clone on its
+# source's record or holds up its boot. A sync that was already past its check
+# can still rename its answer over that `team`, so after its rename it checks
+# again (its lock is still the lock file's, the generation is unchanged) and
+# puts `team` back if not. Every write is a rename; nothing is written in place.
 set -eu
 
 kind_file=${CMUX_VM_KIND_FILE:-/etc/cmux/vm-kind}
 env_file=${CMUX_VM_MODEL_ENV_FILE:-/etc/cmux/model-plane.env}
 lock_file=$kind_file.lock
+nl='
+'
 kind_dir=${kind_file%/*}
 [ "$kind_dir" != "$kind_file" ] || kind_dir=.
 
@@ -34,14 +39,16 @@ lock() {
   flock -w "${CMUX_VM_KIND_LOCK_WAIT:-10}" 9
 }
 
-# The generation without leading zeros (0 for none), or `corrupt`.
+# The generation without leading zeros (0 for no file or an empty one), or
+# `corrupt`: valid is 1 to 9 digits and at most one trailing newline.
 generation() {
-  raw=$(head -c 64 "$lock_file" 2>/dev/null | tr -d '\n')
-  case "$raw" in
-    '') echo 0 ;;
-    *[!0-9]*) echo corrupt ;;
-    ??????????*) echo corrupt ;;
-    *) gen=${raw#"${raw%%[!0]*}"}; echo "${gen:-0}" ;;
+  raw=$(head -c 32 "$lock_file" 2>/dev/null || :; echo x)
+  raw=${raw%x}
+  [ -n "$raw" ] || { echo 0; return; }
+  digits=${raw%"$nl"}
+  case "$digits" in
+    '' | *[!0-9]* | ??????????*) echo corrupt ;;
+    *) gen=${digits#"${digits%%[!0]*}"}; echo "${gen:-0}" ;;
   esac
 }
 
@@ -71,9 +78,8 @@ replace() {
 case "${CMUX_VM_KIND_RESET:-}" in
   team)
     lock
-    # In place: the lock is on this file.
     gen=$(next_generation)
-    printf '%s\n' "$gen" >"$lock_file"
+    replace "$lock_file" "$gen"
     replace "$kind_file" team
     exit 0
     ;;
@@ -98,6 +104,13 @@ started=$(generation)
 [ "$started" != corrupt ] || exit 0
 body=$(curl "$@" "${origin%/}/api/vm/reflection/kind" 2>/dev/null) || exit 0
 kind=$(printf '%s' "$body" | jq -er '.kind | select(. == "owner" or . == "team")' 2>/dev/null) || exit 0
+# One value only: a body with several JSON values gives several lines.
+case "$kind" in owner | team) ;; *) exit 0 ;; esac
 lock || exit 0
 [ "$(generation)" = "$started" ] || exit 0
 replace "$kind_file" "$kind"
+# A reset without the lock may have run since the check: it swaps the lock
+# file and the generation first, then writes `team`. Either way, end `team`.
+if ! [ /dev/fd/9 -ef "$lock_file" ] || [ "$(generation)" != "$started" ]; then
+  replace "$kind_file" team
+fi
