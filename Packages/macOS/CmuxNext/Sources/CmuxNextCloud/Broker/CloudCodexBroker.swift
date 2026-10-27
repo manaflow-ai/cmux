@@ -19,6 +19,7 @@ public actor CloudCodexBroker {
     private var previousModeByMachine: [String: Data?] = [:]
     private var loadedPreviousMode: Set<String> = []
     private var installedAccess: [String: Data] = [:]
+    private var accessRemovalAttempted: Set<String> = []
     private var targets: [String: CloudCodexBrokerTarget] = [:]
     private var targetGenerations: [String: Int] = [:]
     private var pendingRevocations: Set<String> = []
@@ -158,14 +159,17 @@ public actor CloudCodexBroker {
             }
             throw CloudCodexBrokerError.targetOffline
         }
-        if try await target.readFile(Self.accessPath) == installed,
+        let currentAccess = try await target.readFile(Self.accessPath)
+        if (currentAccess == installed || (currentAccess == nil && accessRemovalAttempted.contains(target.machineID))),
            try await target.readFile(Self.modePath) == Data("own\n".utf8) {
-            try await target.removeFile(Self.accessPath)
+            accessRemovalAttempted.insert(target.machineID)
+            if currentAccess != nil { try await target.removeFile(Self.accessPath) }
             if let previous = previousModeByMachine[target.machineID] ?? nil {
                 try await target.writeFile(Self.modePath, previous, 0o600)
             } else { try await target.removeFile(Self.modePath) }
         }
         installedAccess.removeValue(forKey: target.machineID)
+        accessRemovalAttempted.remove(target.machineID)
         previousModeByMachine.removeValue(forKey: target.machineID)
         loadedPreviousMode.remove(target.machineID)
         pendingRevocations.remove(target.machineID)

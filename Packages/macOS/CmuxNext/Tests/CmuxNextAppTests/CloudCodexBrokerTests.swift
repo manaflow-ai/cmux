@@ -16,6 +16,12 @@ struct CloudCodexBrokerTests {
         var removals = 0
         var liveChecks = 0
         func liveUntilDelivery() -> Bool { liveChecks += 1; return liveChecks == 1 }
+        var refuseRestore = false
+        func failRestore(_ fail: Bool) { refuseRestore = fail }
+        func restore(_ path: String, _ data: Data) throws {
+            if refuseRestore, path == CloudCodexBroker.modePath { throw Failure.denied }
+            files[path] = data
+        }
         var refuseRemoval = false
         var heldRenewal = false
         func holdFirstRenewal() -> Bool {
@@ -240,7 +246,7 @@ done
         await recorder.write(CloudCodexBroker.modePath, Data("team\n".utf8))
         let target = CloudCodexBrokerTarget(machineID: "vm-1", capability: {
             .init(ownerVM: true, protocolVersion: 1, codexExternalAccessToken: true)
-        }, makeDirectory: { _ in }, readFile: { await recorder.read($0) }, writeFile: { path, data, _ in await recorder.write(path, data) }, commitFiles: { a, b, c, d in
+        }, makeDirectory: { _ in }, readFile: { await recorder.read($0) }, writeFile: { path, data, _ in try await recorder.restore(path, data) }, commitFiles: { a, b, c, d in
             if interruption == 3 { throw CloudCodexBrokerError.remoteDeliveryFailed }
             if interruption == 1 || interruption == 2 { await gate.pause() }
             await recorder.commit((a, b, c, d))
@@ -310,6 +316,10 @@ done
         await #expect(throws: CloudCodexBrokerError.cancelled) { try await broker.transfer(target: target, confirmed: true) }
         #expect(!(await broker.registeredMachineIDs()).contains(target.machineID))
         await recorder.failRemoval(false)
+        await recorder.failRestore(true)
+        await #expect(throws: Recorder.Failure.denied) { try await broker.revoke(target: target) }
+        #expect(await recorder.files[CloudCodexBroker.accessPath] == nil)
+        await recorder.failRestore(false)
         try await broker.revoke(target: target)
         #expect(await recorder.files[CloudCodexBroker.accessPath] == nil)
         #expect(await recorder.files.count == 1)
