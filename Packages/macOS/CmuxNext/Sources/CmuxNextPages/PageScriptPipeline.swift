@@ -88,8 +88,10 @@ final class PageScriptPipeline {
         }
     }
 
-    private let evaluate: @MainActor (String) -> Void
-    private let render: @Sendable ([JSONValue]) async -> String
+    private let deliver: @MainActor (PageDelivery) -> Void
+    /// The form the next run takes, read on the main actor before it is rendered.
+    private let form: @MainActor () -> PageDeliveryForm
+    private let render: @Sendable ([JSONValue], PageDeliveryForm) async -> PageDelivery
     private var queue: [Item] = []
     private var head = 0
     private var drain: Task<Void, Never>?
@@ -111,13 +113,35 @@ final class PageScriptPipeline {
     private var generation: UInt64 = 0
 
     /// - Parameters:
-    ///   - evaluate: Runs one script in the page.
-    ///   - render: Makes the script of one run of envelopes (``PageRouter/receiveManyScript(_:)``);
-    ///     the drain task calls it, off the main actor by default.
-    init(evaluate: @escaping @MainActor (String) -> Void,
-         render: @escaping @Sendable ([JSONValue]) async -> String) {
-        self.evaluate = evaluate
+    ///   - deliver: Hands one run of envelopes to the page (``PageScriptTarget/deliver(_:)``).
+    ///   - form: The form the next run takes (``PageScriptTarget/deliveryForm``): data on the page push channel.
+    ///   - render: Makes one run in that form (``PageDelivery/render(_:as:)``); the drain task calls it, off
+    ///     the main actor by default.
+    init(deliver: @escaping @MainActor (PageDelivery) -> Void,
+         form: @escaping @MainActor () -> PageDeliveryForm,
+         render: @escaping @Sendable ([JSONValue], PageDeliveryForm) async -> PageDelivery) {
+        self.deliver = deliver
+        self.form = form
         self.render = render
+    }
+
+    /// Runs rendered off the main actor (``render(_:as:)``).
+    convenience init(deliver: @escaping @MainActor (PageDelivery) -> Void, form: @escaping @MainActor () -> PageDeliveryForm) {
+        self.init(deliver: deliver, form: form) { envelopes, form in
+            await PageScriptPipeline.render(envelopes, as: form)
+        }
+    }
+
+    /// Every run as a script, run by `evaluate`.
+    ///
+    /// - Parameters:
+    ///   - evaluate: Runs one script in the page.
+    ///   - render: Makes the script of one run of envelopes (``PageRouter/receiveManyScript(_:)``).
+    convenience init(evaluate: @escaping @MainActor (String) -> Void,
+                     render: @escaping @Sendable ([JSONValue]) async -> String) {
+        self.init(deliver: { delivery in
+            if case .script(let script) = delivery { evaluate(script) }
+        }, form: { .script }, render: { envelopes, _ in .script(await render(envelopes)) })
     }
 
     convenience init(evaluate: @escaping @MainActor (String) -> Void) {
@@ -149,7 +173,7 @@ final class PageScriptPipeline {
         if isIdle, envelope.fits(Self.inlineBudget) {
             // main-actor-ok: bounded by inlineBudget; larger envelopes render off the main actor.
             // MQ12 held queue: the router holds envelopes while the page is hidden (PageRouter+Hold.swift).
-            evaluate(PageRouter.receiveScript(envelope))
+            deliver(PageDelivery.render([envelope], as: form()))
             return
         }
         enqueue(.envelope(envelope, Drop(onDrop)))
@@ -203,6 +227,7 @@ final class PageScriptPipeline {
         guard drain == nil else { return }
         let generation = generation
         // task-owner: drains this page's FIFO; ends when it is empty or on reset()
+        // main-hop-allow: the drain awaits the off-main render of large runs and the gates in FIFO order; its main parts only evaluate the rendered script in order (small runs drain inline in the frame task)
         drain = Task { @MainActor [weak self] in
             await self?.run(generation: generation)
         }
@@ -241,7 +266,7 @@ final class PageScriptPipeline {
             head = end
             // main-actor-ok: bounded by inlineBudget; larger runs render off the main actor.
             // MQ12 held queue: as above.
-            evaluate(PageRouter.receiveManyScript(run.envelopes))
+            deliver(PageDelivery.render(run.envelopes, as: form()))
             compact()
         }
     }
@@ -278,7 +303,7 @@ final class PageScriptPipeline {
                 let run = envelopes(head..<end)
                 head = end
                 inFlightDrops = run.drops
-                let script = await render(run.envelopes)
+                let delivery = await render(run.envelopes, form())
                 if generation != self.generation {
                     // reset() reported them already; each drop is one-shot.
                     for drop in run.drops { drop.call() }
@@ -286,7 +311,7 @@ final class PageScriptPipeline {
                 }
                 inFlightDrops = []
                 // MQ12 held queue: as above.
-                evaluate(script)
+                deliver(delivery)
             } else if case .gate(let gate) = queue[head] {
                 head += 1
                 inFlightGate = gate
@@ -315,6 +340,10 @@ final class PageScriptPipeline {
 
     @concurrent nonisolated static func render(_ envelopes: [JSONValue]) async -> String {
         PageRouter.receiveManyScript(envelopes)
+    }
+
+    @concurrent nonisolated static func render(_ envelopes: [JSONValue], as form: PageDeliveryForm) async -> PageDelivery {
+        PageDelivery.render(envelopes, as: form)
     }
 }
 

@@ -159,10 +159,10 @@ fn echo_flow_a_failed_write_arms_nothing() {
             reader: Box::new(reader),
             writer: Box::new(Failing),
             killer: Box::new(TestChildKiller),
-            wait: Box::new(move || {
+            end: LocalEnd::Wait(Box::new(move || {
                 let _ = end_rx.recv();
                 TerminalEnd::ProcessEnded(TerminalExit::unknown("test ended"))
-            }),
+            })),
             pid: None,
             command: Vec::new(),
             cwd: None,

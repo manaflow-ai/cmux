@@ -88,7 +88,7 @@ nonisolated enum AcpmuxJSONKeys {
                 case .value, .valueOrEnd:
                     if expect == .valueOrEnd, load(i) == 0x5D {
                         i += 1
-                        stack.removeLast()
+                        guard stack.popLast() != nil else { return false }
                         expect = .commaOrEnd
                     } else {
                         switch load(i) {
@@ -103,7 +103,7 @@ nonisolated enum AcpmuxJSONKeys {
                 case .key, .keyOrEnd:
                     if expect == .keyOrEnd, load(i) == 0x7D {
                         i += 1
-                        stack.removeLast()
+                        guard stack.popLast() != nil else { return false }
                         expect = .commaOrEnd
                     } else {
                         guard load(i) == 0x22, let key = string(decode: true) else { return false }
@@ -118,7 +118,7 @@ nonisolated enum AcpmuxJSONKeys {
                     switch (load(i), top == nil) {
                     case (0x2C, false): expect = .key
                     case (0x2C, true): expect = .value
-                    case (0x7D, false), (0x5D, true): stack.removeLast(); expect = .commaOrEnd
+                    case (0x7D, false), (0x5D, true): _ = stack.popLast(); expect = .commaOrEnd
                     default: return false
                     }
                     i += 1

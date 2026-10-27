@@ -50,10 +50,14 @@ struct HomeRenderMemoryConsumerTests {
 
     /// `count` short messages alternating between the Chief and me, laid out and drawn.
     private static func show(_ count: Int, in c: HomeController) async {
-        let messages = (0..<count).map { i in
-            Message(id: MessageID("msg_\(i + 1)"), conversation: conversation, seq: Seq(i + 1),
-                    clientMessageID: IdempotencyKey("key_\(i + 1)"), author: i % 2 == 0 ? chief : me,
-                    parts: [.text("Message \(i + 1): the fleet build finished.")], createdAt: start.addingTimeInterval(Double(i) * 30))
+        let messages: [Message] = (0..<count).map { (i: Int) -> Message in
+            let number = i + 1
+            let author: ParticipantID = i % 2 == 0 ? chief : me
+            let text = "Message \(number): the fleet build finished."
+            let createdAt = start.addingTimeInterval(Double(i) * 30)
+            return Message(id: MessageID("msg_\(number)"), conversation: conversation, seq: Seq(number),
+                           clientMessageID: IdempotencyKey("key_\(number)"), author: author,
+                           parts: [.text(text)], createdAt: createdAt)
         }
         c.update(items: TranscriptWindow(messages: messages).items(pending: [], me: me), summary: nil, typing: [], hasOlder: false)
         await c.bitmapsSettled()
