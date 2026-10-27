@@ -21,8 +21,12 @@ for feed in "$@"; do
   [ -f "$feed" ] || continue
   name="$(basename "$feed")"
   live="${RUNNER_TEMP:-/tmp}/keep-live-$name"
+  # A transfer that fails (curl exits nonzero) counts as unreadable whatever status it saw: a
+  # truncated 200 body would otherwise merge as a feed without its Nightly item.
+  status=0
   code="$(curl -sSL --retry 3 --retry-all-errors -A "cmux-nightly-next-feed/1" -H "Cache-Control: no-cache" \
-    -o "$live" -w '%{http_code}' "${CHANNEL_FEED_BASE:?}/${name}?keep=${GITHUB_RUN_ID:-0}")" || code="${code:-000}"
+    -o "$live" -w '%{http_code}' "${CHANNEL_FEED_BASE:?}/${name}?keep=${GITHUB_RUN_ID:-0}")" || status=$?
+  if [ "$status" != 0 ] && [ "$code" != 404 ]; then code="curl exit $status, HTTP ${code:-000}"; fi
   current=()
   case "$code" in
     200) current=(--current "$live") ;;

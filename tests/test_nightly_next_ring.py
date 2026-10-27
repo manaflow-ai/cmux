@@ -198,7 +198,7 @@ class KeepNightlyScriptTests(unittest.TestCase):
 
     SCRIPT = ROOT / "scripts/ci/nightly-steps/publish-next-feed-keep-nightly.sh"
 
-    def run_script(self, live_code: int, live_text: str = "", ring: str = "on"):
+    def run_script(self, live_code: int, live_text: str = "", ring: str = "on", curl_exit: int | None = None):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "verdicts").mkdir()
@@ -209,7 +209,7 @@ class KeepNightlyScriptTests(unittest.TestCase):
 out=""; while [ $# -gt 0 ]; do [ "$1" = -o ] && {{ out="$2"; shift; }}; shift; done
 [ {live_code} = 200 ] && cp "{root}/live.xml" "$out"
 printf {live_code}
-[ {live_code} -lt 400 ]
+{f"exit {curl_exit}" if curl_exit is not None else f"[ {live_code} -lt 400 ]"}
 """)
             curl.chmod(0o755)
             new = root / "appcast-arm64.xml"
@@ -234,6 +234,12 @@ printf {live_code}
         result, _ = self.run_script(503)
         self.assertEqual(result.returncode, 1)
         self.assertIn("would drop its Nightly item", result.stdout)
+
+    def test_a_truncated_transfer_stops_the_publication_even_with_a_200(self):
+        # curl exits 18 (partial file) after a 200: the body may lack the Nightly item.
+        result, _ = self.run_script(200, feed(item("300", "cmux-next-dev")), curl_exit=18)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("curl exit 18, HTTP 200", result.stdout)
 
     def test_ring_off_leaves_the_feed_alone(self):
         result, out = self.run_script(503, ring="off")
