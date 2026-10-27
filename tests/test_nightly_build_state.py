@@ -156,6 +156,24 @@ class DedicatedBuilder(unittest.TestCase):
                 self.commit({name: f'changed {name}\n'})
                 self.assertEqual(self.build()[0], 'mode=clean')
 
+    def test_an_import_change_makes_it_clean(self):
+        for name, text in (('Sources/a.swift', 'import Foundation\nlet a = 1\n'),
+                           ('Sources/b.swift', '@_exported import Bar\n'),
+                           ('Sources/c.m', '#import <Foundation/Foundation.h>\n'),
+                           ('Sources/a.swift', 'let a = 1\n')):
+            with self.subTest(name=name, text=text):
+                self.build()
+                self.commit({name: text})
+                self.assertEqual(self.build()[0], 'mode=clean')
+        self.build()
+        self.commit({'Sources/a.swift': 'let a = 3\n'})
+        self.assertEqual(self.build()[0], 'mode=incremental')
+
+    def test_a_cef_or_ghosttykit_download_pin_change_makes_it_clean(self):
+        self.build()
+        self.commit({'scripts/cmux-next/cef-manifest.json': '{"v": 2}\n'})
+        self.assertEqual(self.build()[0], 'mode=clean')
+
     def test_every_tenth_build_is_clean(self):
         modes = []
         for index in range(2 * state.CLEAN_EVERY + 2):

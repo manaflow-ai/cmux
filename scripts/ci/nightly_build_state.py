@@ -30,10 +30,13 @@ starts clean (CLEAN_REASONS) when:
 - the key changed: the toolchain (Xcode, SDK, DEVELOPER_DIR) or any lockfile, toolchain
   pin or submodule commit (KEY_PATHS);
 - a file that shapes modules or linking changed since the last built commit
-  (STRUCTURE_PATHS: Package.swift, *.pbxproj, *.xcconfig, *.modulemap, ...). That is the
-  case the 2026-10-18 audit found: objects that were not recompiled after the module
-  graph changed kept stale autolink and force-load data;
-- CLEAN_EVERY builds ran since the last clean one.
+  (STRUCTURE_PATHS: Package.swift, *.pbxproj, *.xcconfig, *.modulemap, ...), or an
+  import or include line was added or removed in a source file. That is the case the
+  2026-10-18 audit found: objects that were not recompiled after an import set changed
+  kept stale autolink and force-load data;
+- the downloads a build embeds by pin (CEF, GhosttyKit) changed: their manifests and
+  scripts are in KEY_PATHS, the GhosttyKit pin is the ghostty submodule commit;
+- CLEAN_EVERY incremental builds ran since the last clean one.
 """
 from __future__ import annotations
 
@@ -48,13 +51,18 @@ import sys
 import time
 
 STATE_ROOT = 'Library/Caches/cmux-nightly-next'
-# Measured over 199 consecutive nightly-next promotions (2026-10-24..27): 10 changed a
-# KEY_PATHS file and 30 a STRUCTURE_PATHS file, so about 1 build in 5.5 starts clean on
-# its own. CLEAN_EVERY bounds the tail: without it 0.82^10, about 14% of runs, would go
-# more than 10 builds (about 3.5 h of promotions) between clean ones.
+# Measured over 199 consecutive nightly-next promotions (2026-10-24..27): 84 changed no
+# KEY_PATHS or STRUCTURE_PATHS file and no import line, so about 58% of builds start clean
+# on their own and a run of more than 10 incremental builds is rare (0.42^10). CLEAN_EVERY
+# bounds that tail anyway: after 10 incremental builds the next one is clean.
 CLEAN_EVERY = 10
 INCREMENTAL_STATE = 'incremental.json'
-KEY_PATHS = re.compile(r'(^|/)(Package\.resolved|Cargo\.lock|build\.zig\.zon|rust-toolchain(\.toml)?|\.xcode-version)$')
+KEY_PATHS = re.compile(r'(^|/)(Package\.resolved|Cargo\.lock|build\.zig\.zon|rust-toolchain(\.toml)?|\.xcode-version'
+                       r'|cef-manifest\.json|ensure-cef\.sh|ensure-remote-browser-host\.sh|download-prebuilt-ghosttykit\.sh)$')
+# An import or include line added or removed in a source file: the import set changes, the audited
+# case for stale autolink and force-load data in objects that were not recompiled.
+IMPORT_SOURCES = ('*.swift', '*.h', '*.m', '*.mm', '*.c', '*.cpp')
+IMPORT_LINE = re.compile(r'^[+-](?![+-]).*\bimport\s|^[+-]\s*#\s*(import|include)\b')
 STRUCTURE_PATHS = re.compile(r'(^|/)(Package\.swift|[^/]+\.pbxproj|[^/]+\.xcconfig|[^/]+\.modulemap'
                              r'|[^/]+\.xcscheme|[^/]+\.entitlements|[^/]+\.xcfilelist)$')
 NOTICES_CACHE = 'notices-crates'
@@ -99,7 +107,20 @@ def structure_changed(workspace: Path, since: str) -> str | None:
         names = git(workspace, 'diff', '--name-only', '--no-renames', since, 'HEAD').splitlines()
     except subprocess.CalledProcessError:
         return None
-    return next((name for name in names if STRUCTURE_PATHS.search(name)), '')
+    changed = next((name for name in names if STRUCTURE_PATHS.search(name)), '')
+    if changed:
+        return changed
+    try:
+        diff = git(workspace, 'diff', '-U0', '--no-renames', since, 'HEAD', '--', *IMPORT_SOURCES)
+    except subprocess.CalledProcessError:
+        return None
+    current = ''
+    for line in diff.splitlines():
+        if line.startswith('+++ b/'):
+            current = line[6:]
+        elif IMPORT_LINE.search(line):
+            return f'an import in {current or "a source file"}'
+    return ''
 
 
 def clean_reason(state: dict, key: str, workspace: Path) -> str:
@@ -116,7 +137,7 @@ def clean_reason(state: dict, key: str, workspace: Path) -> str:
     if changed:
         return f'{changed} changed (module or link structure)'
     if int(state.get('since_clean') or 0) >= CLEAN_EVERY:
-        return f'{CLEAN_EVERY} builds since the last clean one'
+        return f'{CLEAN_EVERY} incremental builds since the last clean one'
     return ''
 
 
