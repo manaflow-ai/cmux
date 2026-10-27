@@ -3309,3 +3309,182 @@ class OpenHeadNeverCancelled(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class Budget(unittest.TestCase):
+    """The cmux-bot pool's budget: conditional and shared reads, the floor, the token's refresh."""
+
+    def serve(self, answers):
+        """urlopen answering each request from `answers(request)`: (code, headers, body)."""
+        seen = []
+
+        class Response(io.BytesIO):
+            def __init__(self, body, headers):
+                super().__init__(body)
+                self.headers = headers
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def urlopen(request, timeout):
+            seen.append((request.get_method(), request.full_url, dict(request.header_items())))
+            code, headers, body = answers(request)
+            if code >= 300:
+                raise rescue.urllib.error.HTTPError(request.full_url, code, "no", headers, io.BytesIO(body))
+            return Response(body, headers)
+        return seen, unittest.mock.patch.object(rescue.urllib.request, "urlopen", urlopen)
+
+    def test_a_repeated_read_is_conditional_and_a_304_returns_the_last_answer(self):
+        def answers(request):
+            if request.get_header("If-none-match") == '"e1"':
+                return 304, {}, b""
+            return 200, {"ETag": '"e1"'}, b'{"jobs": [{"name": "a"}]}'
+        seen, patch = self.serve(answers)
+        clock = [100.0]
+        with patch, unittest.mock.patch.object(rescue.time, "monotonic", lambda: clock[0]):
+            api = rescue.GitHub("bot", "o/r", read_token="bot")
+            first = api.jobs(7, 1)
+            clock[0] += rescue.SHARED_READ_SECONDS + 1
+            second = api.jobs(7, 1)
+        self.assertEqual(first, second)
+        self.assertEqual(len(seen), 2)
+        self.assertEqual(seen[1][2].get("If-none-match"), '"e1"')
+        self.assertEqual(api.counts, {("/actions/runs/{n}/attempts/{n}/jobs", "charged"): 1,
+                                      ("/actions/runs/{n}/attempts/{n}/jobs", "not modified"): 1})
+        self.assertIn("1 charged", api.usage())
+
+    def test_watches_reading_the_same_path_within_seconds_share_one_request(self):
+        seen, patch = self.serve(lambda request: (200, {"ETag": '"x"'}, b'{"status": "queued"}'))
+        clock = [100.0]
+        with patch, unittest.mock.patch.object(rescue.time, "monotonic", lambda: clock[0]):
+            api = rescue.GitHub("bot", "o/r")
+            api.run(9)
+            clock[0] += rescue.SHARED_READ_SECONDS - 1
+            api.run(9)
+            api.run(10)  # another path is its own read
+        self.assertEqual([url.rsplit("/", 1)[-1] for _, url, _ in seen], ["9", "10"])
+        self.assertEqual(api.counts[("/actions/runs/{n}", "shared")], 1)
+
+    def test_writes_are_never_cached(self):
+        seen, patch = self.serve(lambda request: (200, {"ETag": '"x"'}, b""))
+        with patch:
+            api = rescue.GitHub("bot", "o/r")
+            api.cancel(1)
+            api.cancel(1)
+        self.assertEqual(len(seen), 2)
+        self.assertTrue(all("If-none-match" not in headers for _, _, headers in seen))
+
+    def budget_api(self, remaining, reset_in=600.0):
+        now = 1_000_000.0
+        body = json.dumps({"resources": {"core": {"remaining": remaining, "reset": now + reset_in}}}).encode()
+        seen, patch = self.serve(lambda request: (200, {}, body))
+        return seen, patch, now
+
+    def test_the_floor_slows_the_looks_and_a_spent_budget_waits_for_its_reset(self):
+        for remaining, expected in ((4000, 20), (rescue.BUDGET_FLOOR - 1, rescue.IDLE_POLL_SECONDS),
+                                    (rescue.BUDGET_RESERVE - 1, 605)):
+            with self.subTest(remaining=remaining):
+                seen, patch, now = self.budget_api(remaining)
+                with patch, unittest.mock.patch.object(rescue.time, "time", lambda: now):
+                    api = rescue.GitHub("bot", "o/r")
+                    self.assertEqual(api.pace(20), expected)
+                    api.pace(20)  # read once per BUDGET_READ_SECONDS
+                self.assertEqual([url for _, url, _ in seen], [f"{rescue.API}/rate_limit"])
+
+    def test_an_unreadable_budget_never_slows_the_watch(self):
+        seen, patch = self.serve(lambda request: (500, {}, b"{}"))
+        with patch, unittest.mock.patch("sys.stdout", io.StringIO()):
+            self.assertEqual(rescue.GitHub("bot", "o/r").pace(20), 20)
+
+    def test_a_watch_on_a_low_budget_looks_less_often_but_still_at_its_deadline(self):
+        clock = Clock()
+        api = FakeAPI(clock, lambda seconds: [job(rescue.PICKER_JOB, status="in_progress")])
+        api.pace = lambda interval: 3600.0  # spent, an hour to the reset
+        outcome = rescue.watch(api, rescue.target_from_event(event(), "manaflow-ai/cmux"), budget_seconds=90, now=clock.now, sleep=clock.sleep,
+                               log=lambda text: None, deadline=START + dt.timedelta(seconds=600))
+        self.assertEqual(outcome, ("stop", "watch limit reached"))
+        # The first look, then one at the deadline: not a look every IDLE_POLL_SECONDS.
+        self.assertEqual(api.calls.count("jobs"), 2)
+
+    def test_the_sweeper_lists_failed_side_lane_runs_only_above_the_floor(self):
+        for remaining, listings in ((rescue.BUDGET_FLOOR, 1), (rescue.BUDGET_FLOOR - 1, 0)):
+            with self.subTest(remaining=remaining):
+                api = SweepAPI([])
+                api.budget_left = lambda: (remaining, None)
+                api.pace = lambda interval: interval
+                clock = Clock()
+                with unittest.mock.patch.object(rescue, "follow", lambda *a, **k: "stopped"):
+                    rescue.sweep(api, "manaflow-ai/cmux", seconds=90, queue_rounds="0", now=clock.now,
+                                 log=lambda text: None, sweep_seconds=3 * 60, tick_seconds=60, wait=clock.sleep)
+                self.assertEqual(api.failed_listings, listings)
+
+    def test_a_spent_budget_holds_the_sweeper_tick_until_the_reset_within_the_sweep(self):
+        api = SweepAPI([])
+        api.budget_left = lambda: (0, None)
+        api.pace = lambda interval: 1800.0
+        clock, waits = Clock(), []
+
+        def wait(seconds):
+            waits.append(seconds)
+            clock.sleep(seconds)
+        with unittest.mock.patch.object(rescue, "follow", lambda *a, **k: "stopped"):
+            rescue.sweep(api, "manaflow-ai/cmux", seconds=90, queue_rounds="0", now=clock.now,
+                         log=lambda text: None, sweep_seconds=3600, tick_seconds=60, wait=wait)
+        self.assertEqual(waits, [1800.0, 1800.0])
+
+    def test_the_token_is_minted_again_before_its_hour_is_up_for_reads_and_writes(self):
+        seen, patch = self.serve(lambda request: (200, {}, b"{}"))
+        clock = [0.0]
+        with patch, unittest.mock.patch.object(rescue.time, "monotonic", lambda: clock[0]), \
+                unittest.mock.patch("sys.stdout", io.StringIO()):
+            api = rescue.GitHub("old", "o/r", read_token="old")
+            api.mint = lambda: "new"
+            api.run(1)
+            clock[0] += rescue.TOKEN_REFRESH_SECONDS
+            api.run(2)
+            api.cancel(2)
+        self.assertEqual([headers["Authorization"] for _, _, headers in seen],
+                         ["Bearer old", "Bearer new", "Bearer new"])
+
+    def test_a_401_mints_a_token_and_sends_the_read_again_once(self):
+        def answers(request):
+            return (401, {}, b"") if request.get_header("Authorization") == "Bearer old" else (200, {}, b"{}")
+        seen, patch = self.serve(answers)
+        with patch, unittest.mock.patch("sys.stdout", io.StringIO()):
+            api = rescue.GitHub("old", "o/r", read_token="old")
+            api.mint = lambda: "new"
+            api.run(1)
+        self.assertEqual([headers["Authorization"] for _, _, headers in seen], ["Bearer old", "Bearer new"])
+
+    def test_the_app_jwt_is_signed_by_openssl_from_a_key_file_never_on_argv(self):
+        calls = []
+
+        def run(argv, **kwargs):
+            calls.append((argv, kwargs["input"], Path(argv[-1]).read_text()))
+            return unittest.mock.Mock(stdout=b"sig")
+        token = rescue.app_jwt("5486910", "PEM KEY", now=1000, run=run)
+        head, claims, signature = token.split(".")
+        self.assertEqual(json.loads(rescue.base64.urlsafe_b64decode(claims + "==")),
+                         {"iat": 940, "exp": 1540, "iss": 5486910})
+        self.assertEqual(signature, rescue._b64(b"sig"))
+        argv, signed, key = calls[0]
+        self.assertEqual(argv[:4], ["openssl", "dgst", "-sha256", "-sign"])
+        self.assertEqual((signed, key), (f"{head}.{claims}".encode(), "PEM KEY"))
+        self.assertNotIn("PEM KEY", " ".join(argv))
+        self.assertFalse(Path(argv[-1]).exists())
+
+    def test_the_workflow_passes_the_app_key_only_when_the_cmux_bot_mint_worked(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text())
+        steps = workflow["jobs"]["rescue"]["steps"]
+        watch = next(step for step in steps if step.get("run") == "python3 scripts/ci/owned_pool_rescue.py")
+        self.assertEqual(watch["env"]["BOT_APP_KEY"],
+                         "${{ steps.cmux-bot-token.outputs.token && secrets.CMUX_BOT_APP_KEY || '' }}")
+        self.assertEqual(watch["env"]["BOT_APP_ID"],
+                         "${{ steps.cmux-bot-token.outputs.token && vars.CMUX_BOT_APP_ID || '' }}")
+        mint = next(step for step in steps if step.get("id") == "cmux-bot-token")
+        self.assertEqual({key.removeprefix("permission-").replace("-", "_"): value
+                          for key, value in mint["with"].items() if key.startswith("permission-")},
+                         rescue.BOT_PERMISSIONS)
