@@ -43,6 +43,11 @@ pub(crate) struct FloorState {
     /// Under MDM's off, the log of the host a restart left was read back and found no full
     /// access: what this daemon keeps of it is complete from then on (`full_access_bound.rs`).
     pub(super) left_host_read: AtomicBool,
+    /// Values a `set_config_option` took whose answer carried no options: the agent runs them,
+    /// though the chat's options do not say so. Read by the full-access bound
+    /// (`FullAccessView::of_session`); a later answer that reports an option's value replaces it,
+    /// and they go when the agent exits or ends (reviews 60 and 61 of #23322).
+    pub(super) asked_options: StdMutex<Vec<Value>>,
     /// Under MDM's off, the end of this session's agent failed and its host may still run: every
     /// check counts it as full access until the end succeeds or a new host starts (review 51 of
     /// #23322).
