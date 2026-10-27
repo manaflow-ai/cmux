@@ -252,6 +252,21 @@ class BlockingRuleTests(unittest.TestCase):
         self.commit("edits elsewhere and adds seams")
         self.assertEqual(self.refused_ids(), [])
 
+    def test_sites_counts_the_whole_tree_base_debt_included(self):
+        # #25852: `guardrails.py --sites main-blocking` is the debt count a slice of work pays down.
+        self.write(f"{UI}/Added.swift", "func save() {\n    try? data.write(to: url)\n}\n")
+        self.write(f"{SERVICE}/Fine.swift", "func save() {\n    try? data.blockingWrite(to: url)\n}\n")
+        self.commit("adds one more")
+        saved = {k: os.environ.pop(k) for k in list(os.environ) if k.startswith("GIT_")}
+        try:
+            sites = guardrails.tree_sites(self.repo, "HEAD", "main-blocking")
+            at_base = guardrails.tree_sites(self.repo, self.base, "main-blocking")
+        finally:
+            os.environ.update(saved)
+        self.assertEqual(sites, [f"{UI}/Added.swift:2: try? data.write(to: url)",
+                                 f"{UI}/Old.swift:2: try? Data(contentsOf: url)"])
+        self.assertEqual(at_base, [f"{UI}/Old.swift:2: try? Data(contentsOf: url)"])
+
     def test_a_missing_doc_fails_thread_doc_open_and_keeps_the_others(self):
         self.git("rm", "--quiet", "plans/cmux-next/threading-model.md")
         self.write(f"{SERVICE}/Added.swift", 'let q = DispatchQueue(label: "x")\nfunc f() { Thread.sleep(forTimeInterval: 1) }\n')

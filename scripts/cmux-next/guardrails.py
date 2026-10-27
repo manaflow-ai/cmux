@@ -2829,13 +2829,42 @@ def run_push(repo: Path, ranges: list, ratchet: Ratchet | None = None) -> bool:
     return refused or refuse
 
 
+def tree_sites(repo: Path, head: str, rule_id: str) -> list[str]:
+    """Every site RULE_ID finds in HEAD's whole tree (base debt included), as `path:line: text`, sorted.
+
+    The rule judges what HEAD adds over an empty commit, so each count is the debt a slice of work pays down
+    (threading item 1, #25852: `--sites main-blocking` counts the main-thread blocking sites). A warning rule's
+    sites (maybe-main-blocking) count the same way."""
+    env = {**os.environ, "GIT_AUTHOR_NAME": "guardrails", "GIT_AUTHOR_EMAIL": "guardrails@localhost",
+           "GIT_COMMITTER_NAME": "guardrails", "GIT_COMMITTER_EMAIL": "guardrails@localhost"}
+    tree = subprocess.run(["git", "-C", str(repo), "hash-object", "-w", "-t", "tree", "--stdin"], input=b"",
+                          capture_output=True, check=True, env=env).stdout.decode().strip()
+    empty = subprocess.run(["git", "-C", str(repo), "commit-tree", tree, "-m", "guardrails --sites: empty base"],
+                           capture_output=True, check=True, env=env).stdout.decode().strip()
+    refusals, warnings = settle(*measure(repo, empty, git(repo, "rev-parse", head).strip()))
+    sites = [f"{h.path}:{h.number}: {h.text.strip()}" for rule, hits in refusals if rule.id == rule_id for h in hits]
+    sites += [text for rule, text in warnings if rule == rule_id]
+    return sorted(sites)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo")
     parser.add_argument("--base")
     parser.add_argument("--head", default="HEAD")
     parser.add_argument("--list", action="store_true", help="print the rules")
+    parser.add_argument("--sites", metavar="RULE",
+                        help="print every site of RULE in HEAD's whole tree and their count (base debt included)")
     args = parser.parse_args(argv)
+    if args.sites:
+        if args.sites not in {rule.id for rule in RULES}:
+            raise SystemExit(f"guardrails: no rule {args.sites} (--list prints them)")
+        repo = Path(args.repo or git(Path.cwd(), "rev-parse", "--show-toplevel").strip())
+        sites = tree_sites(repo, args.head, args.sites)
+        for site in sites:
+            print(site)
+        print(f"guardrails --sites {args.sites}: {len(sites)} at {git(repo, 'rev-parse', '--short=11', args.head).strip()}")
+        return 0
     if args.list:
         for rule in RULES:
             print(f"{rule.id}: {rule.title}\n  why: {rule.why}\n  do:  {rule.fix}\n  escape: {rule.escape or '-'}")
