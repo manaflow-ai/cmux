@@ -487,7 +487,10 @@ public final class UpdaterService {
             feedURL: testFeedURL ?? identity.feed().url,
             sparkleDisabledReason: reason,
             automaticChecks: reason == nil && bool(UpdateSettings.automaticChecksKey, fallback: true),
-            automaticDownloads: reason == nil && bool(UpdateSettings.automaticallyUpdateKey, fallback: false),
+            // cmux NEXT's own `updates.downloadAutomatically` as applied (network and managed policy
+            // included), not Sparkle's `SUAutomaticallyUpdate`: cmux NEXT stages through its own driver
+            // and turns that key off at every launch, and the legacy NIGHTLY app shares it.
+            automaticDownloads: reason == nil && downloadsFoundUpdates,
             phase: UpdatePhase(state),
             detectedVersion: controller?.model.detectedUpdateVersion,
             probing: isProbing,
