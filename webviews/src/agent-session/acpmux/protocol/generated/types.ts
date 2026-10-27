@@ -390,6 +390,12 @@ export type PermissionGroupItem = {
 } & Record<string, unknown>;
 
 export type PermissionGroupList = {
+  /**
+   * Set when this reader's group allows would be refused, with the
+   * refusal's reason (`permission.person_required`: only the person
+   * allows a group, and a peer's link never is one). A deny still counts.
+   */
+  allowRefused?: (string | null);
   batching: PermissionBatching;
   chatAllowance: ChatAllowance;
   coverage: PermissionCoverage;
