@@ -1536,6 +1536,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [
                 "CmuxNextCompat",
                 "CmuxNextCrashReporting",
+                "CmuxNextTrace",
                 .product(name: "Sentry-Dynamic", package: "sentry-cocoa"),
                 .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport"),
             ],

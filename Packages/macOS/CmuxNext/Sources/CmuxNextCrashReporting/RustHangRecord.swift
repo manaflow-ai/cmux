@@ -1,3 +1,4 @@
+import CmuxNextTrace
 public import Foundation
 public import Sentry
 
@@ -49,8 +50,6 @@ public struct RustHangRecord: Sendable, Equatable {
 
     /// The line schema this reads.
     public static let schema = 1
-    /// Image name prefixes of cmux's own Rust binaries: their frames are in-app.
-    public static let inAppImagePrefixes = ["cmux", "acpmux", "optchat"]
     /// How many in-app frames, innermost first, the fingerprint holds.
     public static let fingerprintFrames = 3
 
@@ -115,9 +114,10 @@ public struct RustHangRecord: Sendable, Equatable {
         return image.address &+ offset
     }
 
-    /// Whether `image` is one of cmux's own binaries.
+    /// Whether `image` is one of cmux's own binaries (`RustProcessImages.cmux`, the list the hang report's
+    /// classifier uses too).
     public static func isInApp(_ image: StackImage) -> Bool {
-        inAppImagePrefixes.contains { image.name.hasPrefix($0) }
+        RustProcessImages.cmux.contains(image.name)
     }
 
     /// The source's hang prefix, the thread's name, then the innermost ``fingerprintFrames`` in-app frames as

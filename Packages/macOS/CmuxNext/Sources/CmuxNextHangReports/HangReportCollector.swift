@@ -65,9 +65,9 @@ public final class HangReportCollector: Sendable {
     }
 
     private let enabled = Atomic<Bool>(false)
-    /// Whether ``setEnabled(_:)`` ran: until the setting is first read, blocking sites are kept (at most
-    /// ``StallAggregate/maxSamples``), so the sites the detector replays at launch are not lost; the
-    /// first `setEnabled(false)` drops them.
+    /// Whether ``setEnabled(_:)`` ran: until the setting is first read, blocking sites and other processes' hangs are
+    /// kept (at most ``StallAggregate/maxSamples``), so what the detector and the Rust diagnostics forwarder replay at
+    /// launch is not lost; the first `setEnabled(false)` drops them.
     private let decided = Atomic<Bool>(false)
     // Lock carve-out: a synchronous count from the main thread's run-loop observer at a stall's
     // end; an actor would add a Task and a hop per stall.
@@ -133,17 +133,18 @@ public final class HangReportCollector: Sendable {
     /// kept once as a ``HangSample/Kind/blocking`` sample with its kind, context and frames; a site
     /// already kept adds nothing, and nothing is kept when the wire schema has no blocking samples.
     public func noteBlocking(_ violation: BlockingViolation) {
-        guard let resolveBlocking, acceptsBlocking else { return }
+        guard let resolveBlocking, acceptsUndecided else { return }
         let sample = HangSample.blockingSite(HangSample.Blocking(violation), frames: resolveBlocking(violation.frames))
         // Checked again under the lock the drop of setEnabled(false) takes: a site resolved while
         // reports turned off is not kept after the drop.
         state.withLock { state in
-            guard acceptsBlocking else { return }
+            guard acceptsUndecided else { return }
             state.aggregate.keep(sample)
         }
     }
 
-    private var acceptsBlocking: Bool {
+    /// On, or the setting not read yet: what launch replays (blocking sites, other processes' hang lines) is kept.
+    private var acceptsUndecided: Bool {
         isEnabled || !decided.load(ordering: .relaxed)
     }
 
@@ -193,17 +194,21 @@ public final class HangReportCollector: Sendable {
     /// Rust diagnostics forwarder on its utility queue) whose scope ran `durationMs` past its deadline: kept with the
     /// watched threads' hangs (``StallAggregate/threadHangs``) as a ``HangSample/Source/hangWatch`` sample that names
     /// `thread`, its frames classified here. Nothing when the wire schema has no thread hangs, there is no foreign
-    /// resolver, or the line has no stack (Linux and Windows record none). It takes the black box as
+    /// resolver, or the line has no stack (Linux and Windows record none). On, it takes the black box as
     /// ``noteThreadHang(durationNanos:addresses:thread:)`` does.
+    ///
+    /// Until the setting is first read (``setEnabled(_:)``) it is kept as a blocking site is: the forwarder reads the
+    /// lines other processes wrote while the app was not running at launch, before the setting loads, and the first
+    /// `setEnabled(false)` drops them.
     public func noteProcessHang(durationMs: Int, frames: [ForeignFrame], thread: HangSample.WatchedThread) {
-        guard isEnabled, keepsThreadHangs, let resolveForeign else { return }
-        startBlackBoxCapture()
+        guard acceptsUndecided, keepsThreadHangs, let resolveForeign else { return }
+        if isEnabled { startBlackBoxCapture() }
         let ms = min(max(durationMs, 0), HistogramBucket.maxMs)
         guard !frames.isEmpty, state.withLock({ $0.aggregate.wantsThreadHangSample(durationMs: ms) }) else { return }
         let sample = HangSample.threadHang(thread, durationMs: ms, frames: Array(resolveForeign(frames).prefix(HangSample.maxFrames)))
         state.withLock { state in
             // Reports turned off while the frames were classified: not kept after the drop.
-            guard isEnabled else { return }
+            guard acceptsUndecided else { return }
             state.aggregate.keep(sample)
         }
     }

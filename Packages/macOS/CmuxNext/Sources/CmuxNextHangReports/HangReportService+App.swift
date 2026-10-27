@@ -47,12 +47,11 @@ extension HangReportService {
             fieldData = sources
             captureBlackBox = { await sources.captureBlackBox() }
         }
-        // Another process's frames are classified as MetricKit's are: by name and UUID, with this process's image of
-        // that UUID when one is loaded (the system libraries share the dyld cache).
+        // Another process's frames are classified by name and UUID (ImageClassifier.frame(foreign:loaded:)), with this
+        // process's image of that UUID when one is loaded (the system libraries share the dyld cache).
         let resolveForeign: HangReportCollector.ResolveForeign = { frames in
             frames.map { frame in
-                builder.classifier.frame(metricKitName: frame.image, uuid: frame.uuid, offset: frame.offset,
-                                         loaded: frame.uuid.flatMap { builder.resolver.image(uuid: $0.uppercased()) })
+                builder.classifier.frame(foreign: frame, loaded: frame.uuid.flatMap { builder.resolver.image(uuid: $0.uppercased()) })
             }
         }
         let collector = HangReportCollector(resolve: resolve, resolveBlocking: resolveBlocking, captureBlackBox: captureBlackBox,

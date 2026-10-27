@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextTrace
 import Foundation
 import Sentry
 import Testing
@@ -9,7 +10,7 @@ import Testing
 /// (`instruction_addr` = image address + offset) and whose debug_meta lists every image UUID; each line is sent
 /// once across restarts, and nothing is sent while telemetry is off.
 @Suite struct OwnerPanicForwarderTests {
-    /// Records what the forwarder sends.
+    /// Records what the forwarder sends, and wakes a test waiting for a count.
     final class Recorder: Sendable {
         /// One hang entry handed on: the thread it names and the process that wrote it.
         struct Entry: Sendable, Equatable {
@@ -17,16 +18,51 @@ import Testing
             var source: RustPanicSource
         }
 
-        private let events = Mutex(0)
-        private let hangs = Mutex<[Entry]>([])
+        private struct Wait {
+            let sent: Int
+            let hangs: Int
+            let continuation: CheckedContinuation<Void, Never>
+        }
+
+        private struct Seen {
+            var sent = 0
+            var hangs: [Entry] = []
+            var waits: [Wait] = []
+        }
+
+        private let seen = Mutex(Seen())
 
         /// How many events were captured.
-        var sent: Int { events.withLock { $0 } }
-        var hangEntries: [Entry] { hangs.withLock { $0 } }
+        var sent: Int { seen.withLock { $0.sent } }
+        var hangEntries: [Entry] { seen.withLock { $0.hangs } }
 
-        func capture(_: Event) { events.withLock { $0 += 1 } }
+        func capture(_: Event) { record { $0.sent += 1 } }
         func hang(_ record: RustHangRecord, _ source: RustPanicSource) {
-            hangs.withLock { $0.append(Entry(thread: record.thread, source: source)) }
+            self.record { $0.hangs.append(Entry(thread: record.thread, source: source)) }
+        }
+
+        /// Returns once at least `sent` events were captured and `hangs` entries handed on (the suite's time limit
+        /// bounds the wait).
+        func waitUntil(sent: Int = 0, hangs: Int = 0) async {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                let reached = seen.withLock { seen -> Bool in
+                    guard seen.sent < sent || seen.hangs.count < hangs else { return true }
+                    seen.waits.append(Wait(sent: sent, hangs: hangs, continuation: continuation))
+                    return false
+                }
+                if reached { continuation.resume() }
+            }
+        }
+
+        private func record(_ change: (inout Seen) -> Void) {
+            let ready = seen.withLock { seen -> [CheckedContinuation<Void, Never>] in
+                change(&seen)
+                let sent = seen.sent, hangs = seen.hangs.count
+                let ready = seen.waits.filter { sent >= $0.sent && hangs >= $0.hangs }.map(\.continuation)
+                seen.waits.removeAll { sent >= $0.sent && hangs >= $0.hangs }
+                return ready
+            }
+            for continuation in ready { continuation.resume() }
         }
     }
 
@@ -67,16 +103,26 @@ import Testing
         try handle.write(contentsOf: Data(text.utf8))
     }
 
+    static let hangs = RustDiagnosticsLog.Name.pattern(prefix: "hangs-", suffix: ".jsonl")
+
     static func hangLog(_ dir: URL, source: RustPanicSource = .owner) -> RustDiagnosticsLog {
-        RustDiagnosticsLog(directory: dir.appending(path: "hangs/daemon"), name: .pattern(prefix: "hangs-", suffix: ".jsonl"),
-                           source: source, kind: .hang)
+        RustDiagnosticsLog(directory: dir.appending(path: "trace"), name: hangs, source: source, kind: .hang)
     }
 
-    static func forwarder(_ logs: [RustDiagnosticsLog], dir: URL, sends: Bool = true, recorder: Recorder) -> OwnerPanicForwarder {
-        let forwarder = OwnerPanicForwarder(logs: logs, stateFile: dir.appending(path: "state.json"), sends: sends,
-                                            capture: { recorder.capture($0) })
-        forwarder.setHangEntries { recorder.hang($0, $1) }
-        return forwarder
+    static func forwarder(_ logs: [RustDiagnosticsLog], dir: URL, sends: Bool = true, recorder: Recorder,
+                          attached: Bool = true) -> OwnerPanicForwarder {
+        OwnerPanicForwarder(logs: logs, stateFile: dir.appending(path: "state.json"), sends: sends,
+                            hangEntries: attached ? { recorder.hang($0, $1) } : nil, capture: { recorder.capture($0) })
+    }
+
+    /// The hang log of `logs` that holds `file`, by the log's folder rule.
+    static func hangLog(holding file: URL, in logs: [RustDiagnosticsLog]) -> RustDiagnosticsLog? {
+        let folder = file.deletingLastPathComponent()
+        return logs.first { log in
+            guard log.kind == .hang, log.name.matches(file.lastPathComponent) else { return false }
+            guard let perProcess = log.perProcessFolders else { return folder.path == log.directory.path }
+            return folder.deletingLastPathComponent().path == log.directory.path && perProcess.matches(folder.lastPathComponent)
+        }
     }
 
     @Test func theFixtureLineGivesFramesAndDebugMetaListingEveryUUID() throws {
@@ -199,23 +245,122 @@ import Testing
         #expect(forwarder.forwardNew().isEmpty, "the rest is marked read")
     }
 
-    @Test func theListCoversEveryShippedRole() {
-        let roots = RustDiagnosticsLog.Roots.app(stateRoot: URL(filePath: "/state"), session: "main", acpmuxHome: URL(filePath: "/acpmux"),
-                                                 bundleID: "com.cmuxterm.app.next", uid: 501)
+    /// Each hang folder is the one its writer passes `cmux_hang_watch::init` (which appends `hangs-<pid>.jsonl` there),
+    /// built here from that writer's rule.
+    @Test func theListCoversEveryShippedRole() throws {
+        let home = URL(filePath: "/Users/u", directoryHint: .isDirectory)
+        let sessions = URL(filePath: "/state/sessions", directoryHint: .isDirectory)
+        let roots = RustDiagnosticsLog.Roots.app(sessionsDirectory: sessions, session: "main", acpmuxHome: URL(filePath: "/acpmux"),
+                                                 bundleID: "com.cmuxterm.app.next", uid: 501, home: home)
         let logs = RustDiagnosticsLog.all(roots)
+        #expect(roots.stateRoot.path == "/state")
+
+        // acpmux `daemon::hang_watch::init(&home())`: `$ACPMUX_HOME/hangs-<pid>.jsonl`, beside its panic log.
+        let acpmux = try #require(Self.hangLog(holding: URL(filePath: "/acpmux/hangs-41.jsonl"), in: logs))
+        #expect(acpmux.source == .acpmux)
+        // cmux-holder `run`: `socket.with_extension("trace")`, the socket `/tmp/cmux-hd-<uid>/<16 hex>.sock`.
+        let socket = URL(filePath: "/tmp/cmux-hd-501/0123456789abcdef.sock")
+        let holderFolder = socket.deletingPathExtension().appendingPathExtension("trace")
+        let holder = try #require(Self.hangLog(holding: holderFolder.appending(path: "hangs-42.jsonl"), in: logs))
+        #expect(holder.source == .holder)
+        #expect(!holder.createsDirectory, "the holder refuses a socket folder that is not its own 0700 one")
+        // The terminal host: `host_trace_dir(record)` = `trace` beside its record, the record in
+        // `terminal_host_root(sessions, session)` = `<sessions>/terminal-hosts-<stable_token(session)>`.
+        #expect(RustDiagnosticsLog.Roots.stableToken("main") == "1f5962a2ce9803c8", "cmux-tui-core codec::stable_token")
+        let record = sessions.appending(path: "terminal-hosts-1f5962a2ce9803c8").appending(path: "00ff.json")
+        let host = try #require(Self.hangLog(holding: record.deletingLastPathComponent().appending(path: "trace/hangs-43.jsonl"), in: logs))
+        #expect(host.source == .terminalHost)
+        // Task 095: every process but the holder writes into the app's trace folder; the black box names the role.
+        let trace = try #require(Self.hangLog(holding: home.appending(path: "Library/Logs/com.cmuxterm.app.next/trace/hangs-44.jsonl"),
+                                              in: logs))
+        #expect(trace.namesProcessByBlackBox)
+        #expect(trace.source == .owner)
+
         let roles: [RustPanicSource] = [.owner, .acpmux, .terminalHost, .holder, .agentHost, .appHost, .browserHost, .mcp,
                                         .cloud, .optchatChief, .diffSidecar, .serverHelper]
         for role in roles {
             #expect(logs.contains { $0.source == role && $0.kind == .panic }, "\(role.process) panics")
-            #expect(logs.contains { $0.source == role && $0.kind == .hang }, "\(role.process) hangs")
         }
-        // Each process's hang file is named by its pid only: no two roles share a hang folder.
-        let hangFolders = logs.filter { $0.kind == .hang }.map(\.directory)
-        #expect(Set(hangFolders).count == hangFolders.count)
-        // The holder's 0700 socket folder and root's log folder are never made by the app.
+        // The holder's 0700 socket folder, the daemon's host folder and root's log folder are never made by the app.
         #expect(logs.filter { [RustPanicSource.holder, .serverHelper].contains($0.source) }.allSatisfy { !$0.createsDirectory })
+        #expect(!host.createsDirectory, "the daemon makes its hosts' folder")
         #expect(logs.contains { $0.name == .exact("owner-panics-main.jsonl") && $0.directory.path == "/state" })
         #expect(RustDiagnosticsLog.Name.pattern(prefix: "hangs-", suffix: ".jsonl").matches("hangs-42.jsonl"))
         #expect(!RustDiagnosticsLog.Name.pattern(prefix: "hangs-", suffix: ".jsonl").matches("hangs-42.jsonl.sent"))
+    }
+
+    /// The trace folder holds several roles' `hangs-<pid>.jsonl`: each line names the process of its pid's black box.
+    @Test func aSharedFolderNamesEachProcessByItsBlackBox() throws {
+        let dir = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let trace = RustDiagnosticsLog(directory: dir.appending(path: "trace"), name: Self.hangs, source: .owner, kind: .hang,
+                                       namesProcessByBlackBox: true)
+        let recorder = Recorder()
+        let forwarder = Self.forwarder([trace], dir: dir, recorder: recorder)
+        #expect(forwarder.forwardNew().isEmpty)
+        try Self.append("", to: trace.directory.appending(path: TraceRingFile.fileName(role: .terminalHost, pid: 4242)))
+        try Self.append(Self.fixtureLine(thread: "host-parser"), to: trace.directory.appending(path: "hangs-4242.jsonl"))
+        try Self.append(Self.stacklessLine, to: trace.directory.appending(path: "hangs-9.jsonl"))
+
+        let sent = forwarder.forwardNew()
+        // Files are read in name order: hangs-4242 before hangs-9.
+        #expect(sent.map { $0.tags?["process"] } == ["cmux-tui-host", "cmux-tui"])
+        #expect(recorder.hangEntries == [Recorder.Entry(thread: "host-parser", source: .terminalHost),
+                                         Recorder.Entry(thread: "holder-poll", source: .owner)])
+    }
+
+    /// kqueue's folder events miss an append to a file that exists: each log file has its own watch.
+    @Test(.timeLimit(.minutes(1))) func aLineAppendedToALiveFileIsForwardedWithoutARead() async throws {
+        let dir = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let log = Self.hangLog(dir)
+        let file = log.directory.appending(path: "hangs-4242.jsonl")
+        let recorder = Recorder()
+        let forwarder = Self.forwarder([log], dir: dir, recorder: recorder)
+        #expect(forwarder.forwardNew().isEmpty, "the first run")
+        try Self.append(Self.fixtureLine(thread: "first"), to: file)
+
+        // start() watches, then reads: the first line, made by the process's first hang.
+        forwarder.start()
+        await recorder.waitUntil(sent: 1)
+        try Self.append(Self.fixtureLine(thread: "second"), to: file)
+        await recorder.waitUntil(sent: 2, hangs: 2)
+        #expect(recorder.hangEntries.map(\.thread) == ["first", "second"])
+    }
+
+    /// A holder's folder that is not there at launch (the first launch after a reboot) is watched from the nearest
+    /// folder above it, and read once it appears.
+    @Test(.timeLimit(.minutes(1))) func aFolderMadeAfterStartIsWatchedAndRead() async throws {
+        let dir = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let holders = RustDiagnosticsLog(directory: dir.appending(path: "hd/sockets"), perProcessFolders: .pattern(prefix: "", suffix: ".trace"),
+                                         name: Self.hangs, source: .holder, kind: .hang, createsDirectory: false)
+        let recorder = Recorder()
+        let forwarder = Self.forwarder([holders], dir: dir, recorder: recorder)
+        #expect(forwarder.forwardNew().isEmpty, "the first run")
+        forwarder.start()
+
+        let folder = holders.directory.appending(path: "0123456789abcdef.trace")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Self.append(Self.stacklessLine, to: folder.appending(path: "hangs-9.jsonl"))
+        await recorder.waitUntil(sent: 1, hangs: 1)
+        #expect(recorder.hangEntries == [Recorder.Entry(thread: "holder-poll", source: .holder)])
+    }
+
+    /// The app attaches the hang-report sink after the forwarder's first read at launch: that backlog still reaches it.
+    @Test(.timeLimit(.minutes(1))) func linesReadBeforeTheSinkAttachesReachIt() async throws {
+        let dir = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let log = Self.hangLog(dir)
+        let recorder = Recorder()
+        let forwarder = Self.forwarder([log], dir: dir, recorder: recorder, attached: false)
+        #expect(forwarder.forwardNew().isEmpty, "the first run")
+        try Self.append(Self.fixtureLine(thread: "while-the-app-was-away"), to: log.directory.appending(path: "hangs-7.jsonl"))
+        #expect(forwarder.forwardNew().count == 1)
+        #expect(recorder.hangEntries.isEmpty)
+
+        forwarder.setHangEntries { recorder.hang($0, $1) }
+        await recorder.waitUntil(hangs: 1)
+        #expect(recorder.hangEntries == [Recorder.Entry(thread: "while-the-app-was-away", source: .owner)])
     }
 }

@@ -1,3 +1,4 @@
+public import CmuxNextTrace
 public import Foundation
 
 /// Which cmux Rust process wrote a panic log, and how its panics are labeled in Sentry.
@@ -66,6 +67,18 @@ public struct RustPanicSource: Sendable, Equatable {
     /// The cmux server's root launchd helper (`cmux-server-helper`).
     public static let serverHelper = RustPanicSource(process: "cmux-server-helper", fingerprintPrefix: "server-helper-panic",
                                                      crashSource: "server_helper_panic_log", label: "cmux-server-helper panic")
+
+    /// The process of a black box of role `ringRole` (`<role>-<pid>.blackbox.cmxtrace`); nil for a role that writes no
+    /// Rust diagnostics log (the app, the Chromium host and the CLI).
+    public init?(ringRole: TraceRing.Role) {
+        switch ringRole {
+        case .daemon: self = .owner
+        case .holder: self = .holder
+        case .terminalHost: self = .terminalHost
+        case .acpmux: self = .acpmux
+        case .app, .chromiumHost, .cli: return nil
+        }
+    }
 
     /// The first fingerprint element of this process's hang events (cmux-hang-watch lines); the hung
     /// thread's name and its top in-app frames follow it.

@@ -71,14 +71,15 @@ struct AppCrashReporting: Sendable {
         self.forwarder = forwarder
         // A panic in an acpmux request task ends only that task: before its log, the 2026-10-14 sort panic
         // reached only daemon.log. The owner's and acpmux's offsets from before the log list carry over.
-        let stateRoot = Self.ownerStateRoot(stateDirectory: environment.daemonStateDirectory)
+        let sessions = Self.ownerSessionsDirectory(stateDirectory: environment.daemonStateDirectory)
+        let stateRoot = sessions.deletingLastPathComponent()
         let acpmuxHome = Self.acpmuxHome(environment: environment)
         let stateDirectory = AppRunMarker.standardDirectory(bundleID: environment.launch.bundleID)
         var legacy = [OwnerPanicForwarder.log(stateRoot: stateRoot, session: environment.daemonSession):
                       stateDirectory.appending(path: "owner-panic-forwarder.json")]
         if let acpmuxHome { legacy[RustPanicSource.acpmuxLog(acpmuxHome: acpmuxHome)] = stateDirectory.appending(path: "acpmux-panic-forwarder.json") }
         let rustDiagnostics = RustDiagnosticsForwarder(
-            logs: RustDiagnosticsLog.all(.app(stateRoot: stateRoot, session: environment.daemonSession, acpmuxHome: acpmuxHome,
+            logs: RustDiagnosticsLog.all(.app(sessionsDirectory: sessions, session: environment.daemonSession, acpmuxHome: acpmuxHome,
                                               bundleID: environment.launch.bundleID)),
             stateFile: stateDirectory.appending(path: "rust-diagnostics-forwarder.json"), legacyStates: legacy, sends: sends)
         rustDiagnostics.start()
@@ -86,8 +87,8 @@ struct AppCrashReporting: Sendable {
         Self.installLayoutPassGuard(reporter: reporter)
     }
 
-    /// Each Rust hang line sent from now on is also a hang-report entry (the collector exists after crash
-    /// reporting starts; its own opt-in decides whether it keeps it).
+    /// Each Rust hang line sent is also a hang-report entry, the lines read before this call too (the collector exists
+    /// after crash reporting starts; its own opt-in decides whether it keeps them).
     func attachHangReports(_ collector: HangReportCollector) {
         rustDiagnostics?.setHangEntries { record, _ in
             let frames = record.frames.map { frame in
@@ -142,12 +143,11 @@ struct AppCrashReporting: Sendable {
                                          environment: ProcessInfo.processInfo.environment)?.home
     }
 
-    /// The owner's state root: the parent of its sessions directory, which
-    /// is the build's `CMUX_TUI_STATE_DIR` (DaemonLauncher.appNames) or cmux-tui's default.
-    static func ownerStateRoot(stateDirectory: URL?) -> URL {
-        let sessions = stateDirectory
+    /// The owner's sessions directory: the build's `CMUX_TUI_STATE_DIR` (DaemonLauncher.appNames) or cmux-tui's
+    /// default. Its parent is the owner's state root.
+    static func ownerSessionsDirectory(stateDirectory: URL?) -> URL {
+        stateDirectory
             ?? FileManager.default.homeDirectoryForCurrentUser
                 .appending(path: "Library/Application Support/cmux-tui/sessions", directoryHint: .isDirectory)
-        return sessions.deletingLastPathComponent()
     }
 }
