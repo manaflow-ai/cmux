@@ -29,7 +29,7 @@ public struct BuiltInButtonActions {
             Entry(configID: "cmux.newCloudMachine", actionID: "newCloudMachine", symbol: "cloud"),
             Entry(configID: "cmux.mobileconnect", actionID: "palette.mobileConnect", symbol: "iphone"),
         ]
-        return Dictionary(uniqueKeysWithValues: list.map { ($0.configID, $0) })
+        return Dictionary(list.map { ($0.configID, $0) }, uniquingKeysWith: { first, _ in first })
     }()
 
     /// Every accepted spelling, as in the old config loader.

@@ -163,7 +163,7 @@ public struct ImportSourceRecord: Sendable, Codable, Equatable, Hashable {
         let kept = { (fences: [String: Date]) -> [String: Date]? in
             let live = fences.filter { fence in allTime.map { fence.value > $0 } ?? true }
             let newest = live.count <= Self.fenceLimit ? live
-                : Dictionary(uniqueKeysWithValues: live.sorted { $0.value > $1.value }.prefix(Self.fenceLimit).map { ($0.key, $0.value) })
+                : Dictionary(live.sorted { $0.value > $1.value }.prefix(Self.fenceLimit).map { ($0.key, $0.value) }, uniquingKeysWith: { first, _ in first })
             return newest.isEmpty ? nil : newest
         }
         let pages = removedPages.map { Dictionary($0.map { (Self.pageKey($0.key), $0.value) }, uniquingKeysWith: max) }

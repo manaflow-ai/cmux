@@ -24,7 +24,7 @@ final class RemoteHoverToolbar: NSView {
     private let stopButton = RemoteChromeButton(title: RemoteViewStrings.stop, symbol: "stop.fill")
     private let dividers = [RemoteChrome.divider(), RemoteChrome.divider(), RemoteChrome.divider()]
     private let upstreamButtons: [RemoteUpstreamKind: RemoteChromeButton] = Dictionary(
-        uniqueKeysWithValues: RemoteUpstreamKind.allCases.map { ($0, RemoteChromeButton(title: "", symbol: RemoteUpstreamIndicator.symbol($0))) }
+        RemoteUpstreamKind.allCases.map { ($0, RemoteChromeButton(title: "", symbol: RemoteUpstreamIndicator.symbol($0))) }, uniquingKeysWith: { first, _ in first }
     )
     private var sessionViews: [NSView] { [dividers[0], toggle, dividers[1], displayButton, qualityButton, stopButton] }
     private var upstreamViews: [NSView] {

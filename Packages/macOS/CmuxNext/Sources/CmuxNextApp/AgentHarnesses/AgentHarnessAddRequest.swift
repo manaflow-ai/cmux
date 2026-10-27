@@ -30,7 +30,7 @@ nonisolated struct AgentHarnessAddRequest: Equatable {
             // The daemon takes args and env only with a command.
             if !args.isEmpty { params["args"] = args }
             // A key names a Keychain item (`cmux harness secret set`); the value never passes here.
-            if !envKeys.isEmpty { params["env"] = Dictionary(uniqueKeysWithValues: envKeys.map { ($0, "keychain:\($0)") }) }
+            if !envKeys.isEmpty { params["env"] = Dictionary(envKeys.map { ($0, "keychain:\($0)") }, uniquingKeysWith: { first, _ in first }) }
         }
         if let protocolName, !protocolName.isEmpty { params["protocol"] = protocolName }
         if let registry, !registry.isEmpty { params["registry"] = registry }

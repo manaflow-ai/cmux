@@ -190,6 +190,9 @@ public final class SocketTasksSource: TasksSource {
             if let key = keysByID.removeValue(forKey: id) {
                 sink?(.settled(key: key, reject: reject))
             }
+        case .badSnapshot:
+            // The mirror keeps its last good state; the next connection asks for a fresh snapshot.
+            lost()
         case .ignored:
             break
         }

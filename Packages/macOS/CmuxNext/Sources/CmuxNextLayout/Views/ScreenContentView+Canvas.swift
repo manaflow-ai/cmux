@@ -163,7 +163,7 @@ extension ScreenContentView {
             ((view as? PaneHostView).flatMap { index[$0.pane] } ?? order.count) * 100_000 + position
         }
         guard ranks != ranks.sorted() else { return }
-        StackingTable(ranks: Dictionary(uniqueKeysWithValues: zip(subviews.map(ObjectIdentifier.init), ranks))).sort(self)
+        StackingTable(ranks: Dictionary(zip(subviews.map(ObjectIdentifier.init), ranks), uniquingKeysWith: { first, _ in first })).sort(self)
     }
 
     // MARK: Trackpad

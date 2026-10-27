@@ -76,7 +76,7 @@ public final class AgentUnsentDrafts {
 
     private func save() {
         guard let file else { return }
-        let saved = Dictionary(uniqueKeysWithValues: drafts.entries.map { ($0.key, $0.value) })
+        let saved = Dictionary(drafts.entries.map { ($0.key, $0.value) }, uniquingKeysWith: { first, _ in first })
         if saved.isEmpty {
             try? FileManager.default.removeItem(at: file)
             return

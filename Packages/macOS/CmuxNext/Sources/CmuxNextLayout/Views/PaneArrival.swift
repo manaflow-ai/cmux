@@ -143,9 +143,9 @@ struct PaneArrival: Equatable {
 
     private static func shown(_ rects: [PaneID: CGRect], in geometry: ScreenGeometry, offset: CGFloat) -> [PaneID: CGRect] {
         let shift = geometry.viewShift(offset: offset)
-        return Dictionary(uniqueKeysWithValues: rects.map { pane, rect in
+        return Dictionary(rects.map { pane, rect in
             (pane, geometry.scrolls(pane: pane) ? rect.offsetBy(dx: shift, dy: 0) : rect)
-        })
+        }, uniquingKeysWith: { first, _ in first })
     }
 
     /// The range strip panes show in beside docked columns (nil without

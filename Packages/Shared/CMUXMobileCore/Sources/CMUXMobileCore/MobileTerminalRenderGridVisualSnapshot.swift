@@ -211,7 +211,8 @@ public struct MobileTerminalRenderGridVisualSnapshot: Equatable, Sendable {
     private static func normalizedStylesByID(
         _ styles: [MobileTerminalRenderGridFrame.Style]
     ) -> [Int: MobileTerminalRenderGridFrame.Style] {
-        Dictionary(uniqueKeysWithValues: styles.map { ($0.id, normalizedStyle($0)) })
+        // A frame may repeat a style id; the last one wins, as in the replay's style map.
+        Dictionary(styles.map { ($0.id, normalizedStyle($0)) }, uniquingKeysWith: { _, last in last })
     }
 
     private static func normalizedStyle(

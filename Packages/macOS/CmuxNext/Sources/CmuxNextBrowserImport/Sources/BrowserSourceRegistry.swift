@@ -52,7 +52,7 @@ public struct BrowserSourceRegistry: Sendable, Codable, Equatable {
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(schemaVersion, forKey: .schemaVersion)
-        try container.encode(Dictionary(uniqueKeysWithValues: engines.map { ($0.key.rawValue, $0.value) }), forKey: .engines)
+        try container.encode(Dictionary(engines.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first }), forKey: .engines)
         try container.encode(browsers, forKey: .browsers)
         try container.encode(nonBrowsers, forKey: .nonBrowsers)
     }

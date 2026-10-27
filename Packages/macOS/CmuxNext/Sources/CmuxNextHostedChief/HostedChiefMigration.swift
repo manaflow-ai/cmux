@@ -125,7 +125,7 @@ public final class HostedChiefMigration {
         guard let wiring else { return ([:], nil) }
         let ledger = HostedChiefLedger(session: wiring.owner.home.session)
         let steps = [HostedChiefLedger.Step.history, .memory, .brain].map { ($0.rawValue, ledger.done($0, chief: chief)) }
-        return (Dictionary(uniqueKeysWithValues: steps), ledger.account)
+        return (Dictionary(steps, uniquingKeysWith: { first, _ in first }), ledger.account)
     }
 
     /// Starts the one-time copy of this Mac's Chief into `hosted` for the

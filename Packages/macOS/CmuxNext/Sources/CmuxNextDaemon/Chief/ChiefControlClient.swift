@@ -246,7 +246,7 @@ public struct ChiefControlClient: Sendable {
     public func setChiefEngine(harness: String? = nil, model: String? = nil, effort: String? = nil,
                                speed: String? = nil, chief: String? = nil) async throws(ChiefControlError) -> ChiefEngineReport {
         let fields = [("harness", harness), ("model", model), ("effort", effort), ("speed", speed)]
-        return try await setChiefEngine(Dictionary(uniqueKeysWithValues: fields.compactMap { key, value in value.map { (key, $0) } }), chief: chief)
+        return try await setChiefEngine(Dictionary(fields.compactMap { key, value in value.map { (key, $0) } }, uniquingKeysWith: { first, _ in first }), chief: chief)
     }
 
     /// The fields `chief.engine.set` takes: the turns' engine, and the reaction classifier (a416).

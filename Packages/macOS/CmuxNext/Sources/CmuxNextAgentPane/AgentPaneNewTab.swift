@@ -91,7 +91,7 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
                 lastAgent: String? = nil, lastPicks: AgentPaneLastPicks? = nil, home: String? = nil,
                 template: String? = nil, widgets: Bool? = nil, pageWidgets: [String]? = nil) {
         self.kind = kind
-        self.hotkeys = Dictionary(uniqueKeysWithValues: hotkeys.map { ($0.key.rawValue, $0.value) })
+        self.hotkeys = Dictionary(hotkeys.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first })
         self.cwd = cwd
         self.location = location
         self.omnibar = omnibar
@@ -241,7 +241,7 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
 
     var reply: [String: Any] {
         func optional(_ pairs: [(String, String?)]) -> [String: Any] {
-            Dictionary(uniqueKeysWithValues: pairs.compactMap { key, value in value.map { (key, $0 as Any) } })
+            Dictionary(pairs.compactMap { key, value in value.map { (key, $0 as Any) } }, uniquingKeysWith: { first, _ in first })
         }
         return [
             "tabs": tabs.map {

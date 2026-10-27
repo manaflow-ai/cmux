@@ -891,7 +891,7 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
         let arranged = ConversationListArrangement.arrange(matching.map {
             ConversationListArrangement.Item(id: $0.id, state: $0.store.listState, lastActivity: lastActivity($0))
         })
-        let byID = Dictionary(uniqueKeysWithValues: matching.map { ($0.id, $0) })
+        let byID = Dictionary(matching.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let pins = arranged.pinned.compactMap { byID[$0] }
         let others = arranged.others.compactMap { byID[$0] }
         guard query.isEmpty, filter == .all else {
@@ -1186,7 +1186,7 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
             showPinLimitAlert()
             return
         }
-        let current = Dictionary(uniqueKeysWithValues: pinned.compactMap { pin in pin.store.listState.pinOrder.map { (pin.id, $0) } })
+        let current = Dictionary(pinned.compactMap { pin in pin.store.listState.pinOrder.map { (pin.id, $0) } }, uniquingKeysWith: { first, _ in first })
         let orders = ConversationListArrangement.pinOrders(pinned: pinned.map(\.id), current: current, moving: entry.id, to: index)
         if !alreadyPinned {
             entry.store.updateListState(.init(pinned: true, pinOrder: orders[entry.id] ?? index)) { [weak self] error in

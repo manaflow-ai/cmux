@@ -20,8 +20,8 @@ public nonisolated struct DebugInputPrewarm: Sendable, Equatable, Codable {
     public var held: Int
 
     public init(counters: IntentPrewarmCounters, held: Int) {
-        started = Dictionary(uniqueKeysWithValues: counters.started.map { ($0.key.rawValue, $0.value) })
-        hits = Dictionary(uniqueKeysWithValues: counters.hits.map { ($0.key.rawValue, $0.value) })
+        started = Dictionary(counters.started.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first })
+        hits = Dictionary(counters.hits.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first })
         evicted = counters.evicted
         cancelledByPressure = counters.cancelledByPressure
         skippedForPower = counters.skippedForPower

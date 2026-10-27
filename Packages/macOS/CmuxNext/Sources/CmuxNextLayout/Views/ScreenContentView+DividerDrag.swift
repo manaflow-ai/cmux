@@ -53,9 +53,9 @@ extension ScreenContentView {
                 guard let column = layout.columns.first(where: { $0.id == columnID }), let stack = baseGeometry.rowStacks[columnID],
                       let upperFrame = stack.frame(of: upper) else { return }
                 let y = local(windowPoint).y + rowOffset(of: kind)
-                let minimums = Dictionary(uniqueKeysWithValues: column.rows.map {
+                let minimums = Dictionary(column.rows.map {
                     ($0.id, SplitGeometry.minimumSize(of: $0.root, style: context.style).height)
-                })
+                }, uniquingKeysWith: { first, _ in first })
                 activeDrag = DividerDragState(kind: kind, transaction: .make(), grabOffset: y - upperFrame.maxY, container: stack.frame,
                                         axis: .vertical, rows: RowDragStart(rows: column.rows, stack: stack, minimums: minimums))
             }
