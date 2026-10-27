@@ -14,7 +14,7 @@ import os
 ///   ``PageHostTrust`` checks them as for WebKit.
 /// - Replies go back into the sender's context only (`__cmuxPageHostResolve(seq, reply)`).
 /// - ``evaluate(_:)`` runs scripts in order; the ones queued together go in one `Runtime.evaluate`.
-public nonisolated enum AgentPageUploadError: Error, Equatable, Sendable { case invalidBlob, backpressure }
+public nonisolated enum AgentPageUploadError: Error, Equatable, Sendable { case invalidBlob }
 
 @MainActor
 public final class ChromiumPageHostBridge: PageHostBridge {
@@ -179,7 +179,10 @@ public final class ChromiumPageHostBridge: PageHostBridge {
                 answered += 1
                 return
             }
-            let reply = await uploadHandler(page, context, params, blobChunks(page: page, context: context, params: params))
+            let reader = ChromiumUploadBlobReader(page: page, context: context, token: params["token"] as? String ?? "")
+            let chunks = AsyncThrowingStream<Data, any Error>(unfolding: { try await reader.next() })
+            let reply = await uploadHandler(page, context, params, chunks)
+            await reader.close()
             guard self.handler != nil else { return }
             let expression = ChromiumPageHostWire.resolveExpression(seq: seq, reply: reply)
             _ = try? await page.devTools("Runtime.evaluate", params: ["expression": expression, "contextId": context, "silent": true])
@@ -192,42 +195,6 @@ public final class ChromiumPageHostBridge: PageHostBridge {
         let expression = ChromiumPageHostWire.resolveExpression(seq: seq, reply: reply)
         _ = try? await page.devTools("Runtime.evaluate", params: ["expression": expression, "contextId": context, "silent": true])
         answered += 1
-    }
-
-    private func blobChunks(page: any PageChromiumPage, context: Int, params: [String: Any]) -> AsyncThrowingStream<Data, any Error> {
-        AsyncThrowingStream(bufferingPolicy: .bufferingOldest(1)) { continuation in
-            Task { @MainActor in
-                do {
-                    guard let token = params["token"] as? String, !token.isEmpty,
-                          let tokenJSON = ChromiumPageHostWire.jsonString(token) as String?,
-                          let lookup = try? await page.devTools("Runtime.evaluate", params: [
-                              "expression": "globalThis.__cmuxUploadBlobs?.get(\(tokenJSON))",
-                              "contextId": context, "returnByValue": false, "silent": true,
-                          ]),
-                          let object = ChromiumPageHostWire.object(lookup),
-                          let result = object["result"] as? [String: Any],
-                          let objectId = (result["objectId"] as? String), !objectId.isEmpty,
-                          let resolved = try? await page.devTools("IO.resolveBlob", params: ["objectId": objectId]),
-                          let resolvedObject = ChromiumPageHostWire.object(resolved),
-                          let uuid = (resolvedObject["uuid"] as? String) ?? (resolvedObject["result"] as? [String: Any])?["uuid"] as? String
-                    else { throw AgentPageUploadError.invalidBlob }
-                    var handle = uuid
-                    defer {
-                        Task { _ = try? await page.devTools("IO.close", params: ["handle": handle]) }
-                    }
-                    while true { // wakeup-allow: each IO.read awaits readiness; EOF or error ends the loop
-                        guard let json = try? await page.devTools("IO.read", params: ["handle": handle, "size": 1 << 20]),
-                              let object = ChromiumPageHostWire.object(json),
-                              let data = object["data"] as? String,
-                              let chunk = Data(base64Encoded: data) ?? (object["base64Encoded"] as? Bool == true ? Data(base64Encoded: data) : Data(data.utf8))
-                        else { throw AgentPageUploadError.invalidBlob }
-                        if !chunk.isEmpty, case .dropped = continuation.yield(chunk) { throw AgentPageUploadError.backpressure }
-                        if object["eof"] as? Bool == true { break }
-                    }
-                    continuation.finish()
-                } catch { continuation.finish(throwing: error) }
-            }
-        }
     }
 
     private func noteReached() {

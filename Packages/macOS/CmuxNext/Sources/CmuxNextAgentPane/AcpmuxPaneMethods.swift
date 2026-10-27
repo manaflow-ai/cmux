@@ -359,6 +359,8 @@ nonisolated enum AcpmuxPaneMethods {
                         dictionary.removeValue(forKey: "_meta")
                         stripped = true
                     }
+                } else if dictionary.removeValue(forKey: "_meta") != nil {
+                    stripped = true
                 }
                 for (key, child) in dictionary where child is [String: Any] || child is [Any] { dictionary[key] = strip(child) }
                 return dictionary

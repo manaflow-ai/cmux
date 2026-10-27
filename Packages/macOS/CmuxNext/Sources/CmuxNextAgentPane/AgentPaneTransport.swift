@@ -280,7 +280,7 @@ import CmuxNextCompat
     }
 
     /// Sends an AMUP frame over the existing LocalApp socket, never through page JSON.
-    public func uploadData(connection id: Int, frame: AcpmuxUploadFrame) async throws {
+    func uploadData(connection id: Int, frame: AcpmuxUploadFrame) async throws {
         guard id == current, let socket else { throw AgentPaneUploadError.rpc("stale upload connection") }
         try await socket.sendHostData(try frame.encoded())
     }

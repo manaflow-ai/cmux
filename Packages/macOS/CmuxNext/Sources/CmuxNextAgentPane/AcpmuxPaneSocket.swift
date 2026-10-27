@@ -403,24 +403,24 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     /// The call never enters the page queue and its params contain metadata only.
     func callHost(_ method: String, params: [String: Any]) async throws -> [String: Any] {
         let id = ids.hostID()
-        var request: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": method, "params": params]
+        let request: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": method, "params": params]
         guard JSONSerialization.isValidJSONObject(request),
               let data = try? JSONSerialization.data(withJSONObject: request, options: [.sortedKeys]),
               let text = String(data: data, encoding: .utf8) else { throw AgentPaneTransportError.invalidFrame }
         return try await withCheckedThrowingContinuation { continuation in
             let callback: @Sendable ([String: Any]) -> Void = { object in
-                Task { @MainActor in
-                    if let error = object["error"] as? [String: Any] {
-                        continuation.resume(throwing: AgentPaneUploadError.rpc(error["message"] as? String ?? "upload refused"))
-                    } else {
-                        continuation.resume(returning: object["result"] as? [String: Any] ?? [:])
-                    }
+                if let error = object["error"] as? [String: Any] {
+                    continuation.resume(throwing: AgentPaneUploadError.rpc(error["message"] as? String ?? "upload refused"))
+                } else {
+                    continuation.resume(returning: object["result"] as? [String: Any] ?? [:])
                 }
             }
             state.withLock { $0.hostReplies[id] = callback }
             if send(text) != nil {
-                state.withLock { $0.hostReplies.removeValue(forKey: id) }
-                continuation.resume(throwing: AgentPaneTransportError.closed)
+                _ = ids.isHost(id)
+                if state.withLock({ $0.hostReplies.removeValue(forKey: id) }) != nil {
+                    continuation.resume(throwing: AgentPaneTransportError.closed)
+                }
             }
         }
     }
@@ -430,7 +430,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     /// Closes the socket (the host's decision): queued inbound frames are dropped on an error.
     func close(code: Int, reason: String, error: AgentPaneTransportError?) {
         let (task, session, wake, first, hostReplies) = state.withLock { state -> (URLSessionWebSocketTask?, URLSession?, Bool, Bool, [@Sendable ([String: Any]) -> Void]) in
-            guard state.closed == nil else { return (nil, nil, false, false) }
+            guard state.closed == nil else { return (nil, nil, false, false, []) }
             state.closed = AgentPaneTransportClose(code: code, reason: reason, error: error)
             if error != nil {
                 state.inbox.removeAll()
@@ -462,7 +462,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         let (opening, session, wake, hostReplies) = state.withLock { state -> (CheckedContinuation<Void, any Error>?, URLSession?, Bool, [@Sendable ([String: Any]) -> Void]) in
             let opening = state.opening
             state.opening = nil
-            guard state.closed == nil else { return (opening, nil, false) }
+            guard state.closed == nil else { return (opening, nil, false, []) }
             state.closed = AgentPaneTransportClose(code: code, reason: reason, error: error)
             state.signaled = true
             let replies = Array(state.hostReplies.values)
