@@ -11,6 +11,7 @@ section 3E). The tool that reads the expectation files is
 | `corpus/<suite>/<case>.json` | Cases (task 012); the linter reads them for stale and budget checks |
 | `blocked/<suite>/<case>.json` | Converted cases that no driver can run yet; no run reads them. The suite's `coverage.json` names what blocks each one |
 | `baselines/` | Reviewed baselines of golden suites (task 016) |
+| `engine-parity.json` | Engine parity (task 113): the WebKit vs Chromium differences that are the engine itself, each with its reason; `oracle.py diff --engine webkit,chromium` explains them and drops the tabs' `engine` |
 | `mutants/<product>/<name>.patch` | Seeded faults that a job applies before its build (task 026, [mutants/README.md](mutants/README.md)) |
 
 Each suite has its own file, so agents that work in parallel do not change the same file.

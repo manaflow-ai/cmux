@@ -406,6 +406,21 @@ class AppSessionTest(unittest.TestCase):
         self.assertEqual(result["status"], "Crash")
         self.assertIn("p15-oracle-046", result["message"])
 
+    def test_the_engine_arm_and_a_case_pin_set_the_launch_default_engine(self) -> None:
+        session = self.session(engine="webkit")
+        session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/c"})
+        session.run_case(case(NEW_WORKSPACE, environment={"engine": "none"}), {"case_id": "actions/c"})
+        session.run_case(case(NEW_WORKSPACE, environment={"engine": "chromium"}), {"case_id": "actions/c"})
+        app = self.apps[0]
+        self.assertEqual([s.engine for s in app.launches], ["webkit", "chromium"])
+        self.assertEqual(app.stops, 1, "a case that needs no engine shares the arm's launch")
+        self.assertEqual(driver_app.launch_config(app.launches[0])["browser"], {"defaultEngine": "webkit"})
+        default = driver_app.launch_config(driver_app.launch_spec(case(NEW_WORKSPACE)))
+        self.assertNotIn("browser", default, "no arm and no pin: the app's own default engine")
+        self.assertEqual(default, driver_app.ORACLE_CONFIG)
+        with self.assertRaises(ValueError):
+            self.session(engine="gecko")
+
     def test_viewport_relaunches_and_a_failed_launch_is_a_dirty_crash(self) -> None:
         session = self.session()
         session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/c"})

@@ -11,8 +11,9 @@ teardown): the bench environment (no activation, the automation socket, a mock a
 no update check), a fixed window frame on the main display, a fresh saved session for the tag, and the tag's
 daemons ended by TagTeardown when the session closes. The app's cmux-next.json is the bench config plus
 `ui.animations.enabled: false` (section 3B: code works with no animation; the motion-on suite is a switch arm)
-and `mcp.enabled: true` (the `mcp` steps). HOME and CMUX_NEXT_ORACLE_ROOT come from normalize.app_environment,
-so the app hashes path text with the prefixes normalize.py rewrites. The build is `--config bench` by default
+and `mcp.enabled: true` (the `mcp` steps), plus `browser.defaultEngine` when the case pins a browser engine or
+the run is an engine arm (oracle.py --engine, the session's `engine`). HOME and CMUX_NEXT_ORACLE_ROOT come from
+normalize.app_environment, so the app hashes path text with the prefixes normalize.py rewrites. The build is `--config bench` by default
 (oracle.py DEFAULT_BUILD): a session refuses an app whose bundle is another config than the run's `--build`, and
 any Release bundle (it has no `debug.oracle.*`). The driver never starts, quits or reads `/Applications/cmux.app`
 or a `com.cmuxterm.app` bundle: bench_launch takes only `cmux DEV <tag>.app`, and the session checks again.
@@ -25,7 +26,7 @@ action.run and key (the turn recorder armed for that step, `debug.oracle.recorde
 `settled` after `debug.oracle.settle` (the action's reply sequence, else `sync`). No sleeps and no polls: every
 wait is one of the app's own barriers, each bounded by the case's ms times the Slow multiplier. resource.call,
 kill, restart, tui.key and advance_clock belong to other drivers and fail the case as a Crash that names them.
-So do the conditions a launch cannot apply yet: environment keys other than viewport, fixture.agent none,
+So do the conditions a launch cannot apply yet: environment keys other than viewport and engine, fixture.agent none,
 fixture.clock virtual, a named fixture handle (no seeding reaches the app) and a key aimed at a pane, tab or page.
 
 Expect: `result` is the action's own value (action.run's `result` member, never the run's sequence or ids).
@@ -98,6 +99,9 @@ DEFAULT_VIEWPORT = (1440, 900)
 # The cmux-next.json of every oracle launch (bench_env.with_config_defaults adds the bench keys under it).
 ORACLE_CONFIG = {"appearance": {"backgroundOpacity": 1}, "ui": {"animations": {"enabled": False}},
                  "mcp": {"enabled": True}}
+# `browser.defaultEngine` values (BrowserDefaultEngine), which are also the case-v1 environment.engine names; `none`
+# (the case needs no engine) leaves the launch's engine as the run set it (oracle.py --engine) or the app default.
+ENGINES = ("webkit", "chromium")
 # The user's app (CLAUDE.md: never quit, kill, relaunch, replace or launch it).
 USER_APP = "/Applications/cmux.app"
 USER_BUNDLE_ID = "com.cmuxterm.app"
@@ -153,9 +157,19 @@ class AppGone(Exception):
 
 @dataclass(frozen=True)
 class LaunchSpec:
-    """What one launch fixes for every case it runs: the window frame (x, y, width, height)."""
+    """What one launch fixes for every case it runs: the window frame (x, y, width, height) and the browser engine
+    new tabs and cmux pages use (an ENGINES value; None keeps the app's default)."""
 
     window: Tuple[int, int, int, int]
+    engine: Optional[str] = None
+
+
+def launch_config(spec: LaunchSpec) -> Dict[str, Any]:
+    """The cmux-next.json of a launch: ORACLE_CONFIG, plus browser.defaultEngine when the launch sets one."""
+    config = json.loads(json.dumps(ORACLE_CONFIG))
+    if spec.engine is not None:
+        config["browser"] = {"defaultEngine": spec.engine}
+    return config
 
 
 @dataclass(frozen=True)
@@ -202,18 +216,20 @@ def run_build(kind: str, requested: str) -> str:
     return build
 
 
-def launch_spec(case: Mapping[str, Any]) -> LaunchSpec:
-    """The launch a case needs. The conditions a launch cannot apply yet fail the case, never pass it."""
+def launch_spec(case: Mapping[str, Any], engine: Optional[str] = None) -> LaunchSpec:
+    """The launch a case needs; `engine` is the run's (oracle.py --engine), which a case's own engine overrides.
+    The conditions a launch cannot apply yet fail the case, never pass it."""
     env = case.get("environment") or {}
-    unsupported = sorted(k for k in env if k != "viewport")
+    unsupported = sorted(k for k in env if k not in ("viewport", "engine"))
     if unsupported:
         raise CaseError("Crash", f"driver_app launches with no {', '.join(unsupported)} (environment); only "
-                                 "viewport is applied")
+                                 "viewport and engine are applied")
     check_conditions(case)
     width, height = DEFAULT_VIEWPORT
     if "viewport" in env:
         width, height = int(env["viewport"]["width"]), int(env["viewport"]["height"])
-    return LaunchSpec(window=(*WINDOW_ORIGIN, width, height))
+    pinned = env.get("engine")
+    return LaunchSpec(window=(*WINDOW_ORIGIN, width, height), engine=pinned if pinned in ENGINES else engine)
 
 
 def other_driver(op: str) -> str:
@@ -374,14 +390,14 @@ class BenchAppPort:
     def __init__(self, app: str, out: Path, env: Mapping[str, str]):
         from bench_launch import BenchApp  # noqa: E402 - scripts/cmux-next/bench_launch.py
 
-        self._make = lambda window: BenchApp(app, out=str(out), env=dict(env), config=dict(ORACLE_CONFIG),
-                                             window=window, screen="0", log_name="app.log")
+        self._make = lambda spec: BenchApp(app, out=str(out), env=dict(env), config=launch_config(spec),
+                                           window=spec.window, screen="0", log_name="app.log")
         self.bench = None
 
     def launch(self, spec: LaunchSpec) -> None:
         from bench_launch import LaunchError
 
-        self.bench = self._make(spec.window)
+        self.bench = self._make(spec)
         try:
             self.bench.launch(timeout=LAUNCH_S)
         except LaunchError as error:  # a SystemExit: never let it end oracle.py
@@ -957,6 +973,9 @@ class AppSession:
             raise ValueError("the app driver needs --binary \"PATH/cmux DEV <tag>.app\" (a --config bench build)")
         if session_ctx.get("switches"):
             raise ValueError("switch arms reach the app in p15-oracle-049; this driver runs the default arms")
+        self.engine = session_ctx.get("engine")
+        if self.engine is not None and self.engine not in ENGINES:
+            raise ValueError(f"engine {self.engine!r}: one of {', '.join(ENGINES)} (browser.defaultEngine)")
         app = os.path.realpath(str(app)).rstrip("/")
         check_not_user_app(app, None)
         tag, bundle, kind, sha = identity(app)
@@ -1024,7 +1043,7 @@ class AppSession:
 
     def run_case(self, case: Dict[str, Any], case_ctx: Dict[str, Any]) -> Dict[str, Any]:
         try:
-            spec = launch_spec(case)
+            spec = launch_spec(case, self.engine)
             self.ensure_launched(spec)
         except CaseError as error:
             refused = {"status": error.status, "message": error.message, "checkpoints": []}
