@@ -254,7 +254,9 @@ test("a write that never answers on a live connection holds no later write", asy
   scope.window = {
     cmuxAcpmuxActions: {
       "chat.writeDraft": (params: Record<string, unknown>) =>
-        calls++ === 0 ? new Promise(() => undefined) : Promise.resolve().then(() => void landed.push(String(params.text))),
+        calls++ === 0
+          ? new Promise(() => undefined)
+          : Promise.resolve().then(() => void landed.push(String(params.text))),
     },
   };
   writePersistedDraft("hung-a", "one");

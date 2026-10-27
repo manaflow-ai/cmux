@@ -77,16 +77,13 @@ function writeTimedOut(sessionId: string, text: string, sent: Promise<unknown>):
     late.outstanding -= 1;
     if (!late.outstanding) lateWrites.delete(sessionId);
   };
-  void Promise.resolve(sent).then(
-    () => {
-      answered();
-      const newer = late.newer;
-      if (newer === undefined || newer === text || pendingDraftWrites.has(sessionId)) return;
-      pendingDraftWrites.set(sessionId, { sessionId, text: newer, sequence: ++draftWriteSequence });
-      flushPendingDraftWrites();
-    },
-    answered,
-  );
+  void Promise.resolve(sent).then(() => {
+    answered();
+    const newer = late.newer;
+    if (newer === undefined || newer === text || pendingDraftWrites.has(sessionId)) return;
+    pendingDraftWrites.set(sessionId, { sessionId, text: newer, sequence: ++draftWriteSequence });
+    flushPendingDraftWrites();
+  }, answered);
 }
 
 /** `write`, or a rejection once it has gone unanswered for `draftWriteLimits.timeoutMs`. */
