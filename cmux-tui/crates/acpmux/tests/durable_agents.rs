@@ -2266,6 +2266,41 @@ async fn an_end_that_could_not_read_the_host_records_is_tried_again() {
     );
 }
 
+/// Review 3 of #26055: a daemon that starts while the host records cannot be read
+/// (`ACPMUX_TEST_HOST_RECORDS_FAIL_FILE`) adopts no host, so what a host a restart left kept in its
+/// buffer is in no log. Under MDM's off that host counts as full access while the records cannot be
+/// read, though its log asks: its end is tried and fails, and once the records can be read again
+/// the next off push ends it.
+#[tokio::test]
+async fn a_host_left_while_the_host_records_cannot_be_read_ends_once_they_can() {
+    let flag = std::env::temp_dir().join(format!("amd-recunknown-{}", std::process::id()));
+    let flag_env = flag.to_string_lossy().into_owned();
+    let env = [("ACPMUX_TEST_HOST_RECORDS_FAIL_FILE", flag_env.as_str())];
+    let mut daemon = Daemon::with_env("mdmrecunknown", "ask", &env);
+    let session = new_session(&daemon).await;
+    let mut rpc = daemon.rpc().await;
+    let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
+    rpc.call("session/prompt", prompt).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    daemon.sigterm();
+    drop(rpc);
+    assert!(alive(harness_pid), "SIGTERM ended the agent");
+    std::fs::write(&flag, "").unwrap();
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    let tried = daemon.events(&session).iter().any(|e| e["kind"] == "full_access_end_failed");
+    std::fs::remove_file(&flag).unwrap();
+    assert!(tried, "a host the records could not show was judged by its log alone");
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "a host left while the records could not be read ran on once they could"
+    );
+}
+
 /// #23322 review: the same, for a harness that declares no modes and moved itself into full access
 /// (`bypassPermissions`) while the daemon allowed it: the next daemon, under MDM's off, reads that
 /// mode back from the log and ends the host instead of adopting it.
