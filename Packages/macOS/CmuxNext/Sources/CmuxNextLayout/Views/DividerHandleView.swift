@@ -83,7 +83,6 @@ final class DividerHandleView: NSView {
     private let line = CALayer()
     private(set) var isHovered = false { didSet { if isHovered != oldValue { applyColors() } } }
     private var isDragging = false { didSet { applyColors() } }
-    private var trackingArea: NSTrackingArea?
 
     init(kind: Kind, axis: SplitAxis) {
         self.kind = kind
@@ -104,6 +103,9 @@ final class DividerHandleView: NSView {
             setAccessibilityLabel(LayoutStrings.rowEdgeAccessibility)
             setAccessibilityIdentifier("cmux.pane.rowEdge.\(column.rawValue).\(row.rawValue)")
         }
+        // The hover area, once: `.inVisibleRect` follows every frame change. The cursor area follows its own
+        // rect from the frame and clip setters (``placeCursorArea()``), so no `updateTrackingAreas` override.
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self))
         applyColors()
     }
 
@@ -178,10 +180,6 @@ final class DividerHandleView: NSView {
         return rect.isNull ? .zero : rect
     }
 
-    /// AppKit's tracking area rebuilds of this handle, cumulative (StripPanContainerTests: a strip pan on
-    /// the motion container makes none).
-    private(set) var trackingAreaUpdates = 0
-
     /// The `.cursorUpdate` area: exactly ``cursorRectInBounds``, as the cursor rect was, so the pointer
     /// crossing the clip edge enters or leaves it and AppKit asks the view under the pointer for its
     /// cursor (a docked pane's, or this handle's resize cursor). Nil while that rect is empty.
@@ -220,16 +218,6 @@ final class DividerHandleView: NSView {
     /// drag or a strip pan rebuilds none of the window's. Mid-spring it leaves the cursor alone.
     override func cursorUpdate(with event: NSEvent) {
         cursor(at: convert(event.locationInWindow, from: nil))?.set()
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        trackingAreaUpdates += 1
-        if let trackingArea { removeTrackingArea(trackingArea) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        trackingArea = area
-        placeCursorArea()
     }
 
     /// The drawn line in the superview's coordinates. It is native UI that
@@ -376,7 +364,7 @@ final class DividerHandleView: NSView {
         onDrag?(.began(event.locationInWindow))
     }
 
-    override func mouseDragged(with event: NSEvent) { // perf-hot: 2ms resize-drag (every drag event)
+    override func mouseDragged(with event: NSEvent) { // perf-hot: 2ms resize-drag (every drag event) // local-monitor-allow: the drag goes to the window's FrameInputCoalescer (frameDrag); only a root with no coalescer (tests) moves per event
         guard isDragging else { return }
         if let frameDrag {
             frameDrag.post(event)
@@ -418,7 +406,7 @@ final class DividerHandleView: NSView {
         resampler = nil
     }
 
-    override func viewDidChangeEffectiveAppearance() {
+    override func viewDidChangeEffectiveAppearance() { // visibility-walk-allow: one line layer's color and corner, no layout or text measure; cheaper than a deferral
         super.viewDidChangeEffectiveAppearance()
         applyColors()
     }

@@ -67,6 +67,7 @@ final class ProfileBarView: NSView {
         marks.autoresizingMask = [.width, .height]
         addSubview(indicator)
         addSubview(marks)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
     }
 
     @available(*, unavailable)
@@ -259,12 +260,6 @@ final class ProfileBarView: NSView {
     }
 
     // MARK: Mouse
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
-    }
 
     // Enter and exit are discrete: the pending moves land first (Chromium's `ShouldFlushQueue`).
     override func mouseEntered(with event: NSEvent) {
