@@ -2,6 +2,7 @@
 //! process knows the password for (`tailscale_loopback`).
 
 use std::io::{BufRead, BufReader, Read};
+use std::time::Duration;
 
 use base64::Engine;
 
@@ -23,27 +24,48 @@ impl LocalApi {
         // reqwest's rustls-no-provider feature requires explicit initialization.
         let _ = rustls::crypto::ring::default_provider().install_default();
         let token = base64::engine::general_purpose::STANDARD.encode(format!(":{cred}"));
+        // This client carries the private LocalAPI password. Never use proxies or redirects.
         let agent = reqwest::blocking::Client::builder()
             .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
+            .connect_timeout(Duration::from_secs(10))
             .build()
             .map_err(|_| Error("could not create LocalAPI client".into()))?;
         Ok(Self { base: format!("http://{addr}"), authorization: format!("Basic {token}"), agent })
     }
 
-    fn get(&self, path: &str) -> Result<reqwest::blocking::Response> {
-        let response = self
+    fn request(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        watch: bool,
+    ) -> Result<reqwest::blocking::Response> {
+        let mut request = self
             .agent
-            .get(format!("{}{path}", self.base))
+            .request(method, format!("{}{path}", self.base))
             .header("Sec-Tailscale", "localapi")
-            .header("Authorization", &self.authorization)
-            .send()
-            .map_err(|error| Error(format!("LocalAPI {path}: {error}")))?;
-        if response.status() != reqwest::StatusCode::OK {
-            let status = response.status();
-            let body = response.text().unwrap_or_default();
-            return Err(Error(format!("LocalAPI {path}: HTTP {status}: {}", body.trim())));
+            .header("Authorization", &self.authorization);
+        if !watch {
+            request = request.timeout(Duration::from_secs(30));
+        }
+        let response = request.send().map_err(|_| Error("LocalAPI request failed".into()))?;
+        if !response.status().is_success() {
+            // Error bodies may contain sign-in links or key material.
+            return Err(Error(format!("LocalAPI: HTTP {}", response.status())));
         }
         Ok(response)
+    }
+
+    fn get(&self, path: &str) -> Result<reqwest::blocking::Response> {
+        self.request(reqwest::Method::GET, path, false)
+    }
+
+    pub(crate) fn logout(&self) -> Result<()> {
+        self.request(reqwest::Method::POST, "/localapi/v0/logout", false).map(|_| ())
+    }
+
+    pub(crate) fn login_interactive(&self) -> Result<()> {
+        self.request(reqwest::Method::POST, "/localapi/v0/login-interactive", false).map(|_| ())
     }
 
     pub(crate) fn whois(&self, addr: &str) -> Result<WhoIs> {
@@ -64,17 +86,25 @@ impl LocalApi {
         {
             return Err(Error("certificate domain is invalid".into()));
         }
-        let mut response = self.get(&format!("/localapi/v0/cert/{domain}?type=pair"))?;
+        let response = self.get(&format!("/localapi/v0/cert/{domain}?type=pair"))?;
         let mut body = Vec::new();
         response
+            .take(65537)
             .read_to_end(&mut body)
             .map_err(|error| Error(format!("LocalAPI certificate: {error}")))?;
+        if body.len() > 65536 {
+            return Err(Error("LocalAPI certificate exceeds PEM limit".into()));
+        }
         Ok(body)
     }
 
     pub(crate) fn watch(&self) -> Result<Watch> {
         let mask = NOTIFY_INITIAL_STATE | NOTIFY_NO_PRIVATE_KEYS;
-        let response = self.get(&format!("/localapi/v0/watch-ipn-bus?mask={mask}"))?;
+        let response = self.request(
+            reqwest::Method::GET,
+            &format!("/localapi/v0/watch-ipn-bus?mask={mask}"),
+            true,
+        )?;
         Ok(Watch { lines: BufReader::new(Box::new(response)) })
     }
 }
