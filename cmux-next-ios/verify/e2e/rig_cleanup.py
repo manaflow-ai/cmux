@@ -111,6 +111,38 @@ class Held(Exception):
     """Another live owner's record names the path."""
 
 
+def group_alive(pgid):
+    """True while a process of group PGID that is not a zombie runs (as the registry's readers count a group)."""
+    if not isinstance(pgid, int) or pgid <= 1:
+        return False
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    try:
+        out = subprocess.run(["ps", "-A", "-o", "pgid=,stat="], capture_output=True, text=True, timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return True
+    return any(f[0] == str(pgid) and not f[1].startswith("Z") for f in (l.split() for l in out.splitlines()) if len(f) == 2)
+
+
+def record_alive(record):
+    """True when a record's owner (pid and start) or a process of its group still runs; also when it names no owner."""
+    pid = record.get("owner_pid")
+    if group_alive(record.get("owner_pgid")):
+        return True
+    if not isinstance(pid, int) or pid <= 0:
+        return True
+    return same_process(pid, record.get("owner_start"))
+
+
+def owned(record, owner_pid, owner_start):
+    """True when RECORD names exactly this owner."""
+    return bool(record) and (record.get("owner_pid"), record.get("owner_start")) == (owner_pid, owner_start)
+
+
 def register(path, owner_pid, owner_start, kind="job", owner_pgid=0, directory=None):
     """Write the record of PATH, owned by OWNER_PID (started at OWNER_START, a number), under the registry lock.
     Raises Held when another owner that still runs holds the path's record, ValueError without a start time.
@@ -121,9 +153,8 @@ def register(path, owner_pid, owner_start, kind="job", owner_pgid=0, directory=N
     directory = directory or registry_dir()
     with RegistryLock(directory):
         held = read_record(path, directory)
-        if held and (held.get("owner_pid"), held.get("owner_start")) != (owner_pid, owner_start) \
-                and isinstance(held.get("owner_pid"), int) and same_process(held["owner_pid"], held.get("owner_start")):
-            raise Held(f"{path} is held by live owner pid {held['owner_pid']}")
+        if held and not owned(held, owner_pid, owner_start) and record_alive(held):
+            raise Held(f"{path} is held by live owner pid {held.get('owner_pid')} (group {held.get('owner_pgid')})")
         _write(path, owner_pid, owner_start, kind, owner_pgid, directory)
     return path
 
@@ -153,12 +184,11 @@ def unregister(path, directory=None):
 
 
 def remove_recorded(path, owner_pid, owner_start, directory=None):
-    """Under the registry lock: when PATH's record still names this owner and the owner is gone, remove PATH and
-    then its record. True when both are gone."""
+    """Under the registry lock: only when PATH's record is there and still names this owner, and the owner is
+    gone, remove PATH and then its record. True when both are gone. A missing or unreadable record keeps PATH."""
     with RegistryLock(directory):
-        held = read_record(path, directory)
-        if held and (held.get("owner_pid"), held.get("owner_start")) != (owner_pid, owner_start):
-            return False  # another run registered it since
+        if not owned(read_record(path, directory), owner_pid, owner_start):
+            return False  # no record proves it ours, or another run registered it since
         if same_process(owner_pid, owner_start):
             return False
         shutil.rmtree(path, ignore_errors=True)
@@ -232,8 +262,8 @@ class RigCleanup:
         self.teardown.install()
 
     def register_rig(self):
-        """The rig dir's record, owned by this script; written before the dir is made. Refuses (SystemExit) while
-        another live run of this rig holds it; a record that cannot be written is logged and the run goes on."""
+        """The rig dir's record, owned by this script; written before the dir is made. A run never starts without
+        it: SystemExit while another live run of this rig holds it, or when it cannot be written."""
         pid = os.getpid()
         self.rig_owner = (pid, process_start(pid))
         try:
@@ -241,8 +271,7 @@ class RigCleanup:
         except Held as held:
             raise SystemExit(f"refusing to start: {held} (another run of this rig)")
         except (OSError, ValueError) as error:
-            self.rig_owner = None
-            self.log(f"teardown: the rig dir's cleanup record was not written: {error}")
+            raise SystemExit(f"refusing to start: the rig dir's cleanup record was not written: {error}")
 
     def _daemons(self):
         """(pid, ACPMUX_HOME) of each `acpmux daemon run` of the rig's bundle now."""
@@ -258,7 +287,9 @@ class RigCleanup:
 
     def register_daemons(self):
         """A record for each acpmux home of the bundle, owned by the daemon that runs in it.
-        Call after launch, and again after a relaunch: it arms end() again."""
+        Call after launch, and again after a relaunch: it arms end() again. A record that cannot be written
+        raises (after launch, so the script's `finally` tears the rig down); a daemon that exited before its
+        start time could be read is logged, and its home is left to the rig dir's record and the reaper."""
         self.done = False
         self.teardown.done = False
         homes = build_homes(self.bundle_id)
@@ -267,13 +298,13 @@ class RigCleanup:
                 self.log(f"teardown: acpmux {pid} runs in {home}, not a home of {self.bundle_id}; not recorded")
                 continue
             start = process_start(pid)
-            if start is None or self.homes.get(home) == (pid, start):
-                continue  # gone already, or recorded
-            try:
-                register(home, pid, start, directory=self.directory)
-                self.homes[home] = (pid, start)
-            except (Held, OSError, ValueError) as error:
-                self.log(f"teardown: acpmux home {home} not recorded: {error}")
+            if start is None:
+                self.log(f"teardown: acpmux {pid} in {home} exited before it could be recorded")
+                continue
+            if self.homes.get(home) == (pid, start):
+                continue
+            register(home, pid, start, directory=self.directory)
+            self.homes[home] = (pid, start)
         return dict(self.homes)
 
     def end(self, remove_rig=True):
@@ -303,9 +334,8 @@ class RigCleanup:
                 self.log(f"teardown: {len(left)} processes of the bundle still run; the rig dir and its record are kept")
             elif getattr(self, "rig_owner", None):
                 with RegistryLock(self.directory):
-                    held = read_record(self.rig, self.directory)
-                    if held and (held.get("owner_pid"), held.get("owner_start")) != self.rig_owner:
-                        self.log(f"teardown: another run holds {self.rig}; kept")
+                    if not owned(read_record(self.rig, self.directory), *self.rig_owner):
+                        self.log(f"teardown: no record of this run names {self.rig}; kept")
                         return
                     shutil.rmtree(self.rig, ignore_errors=True)
                     if not os.path.exists(self.rig):

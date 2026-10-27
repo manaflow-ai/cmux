@@ -223,6 +223,34 @@ class RigCleanupTests(unittest.TestCase):
         self.assertEqual(runs, [self.app_home])
         self.assertTrue(any("not a home of this tag" in line for line in lines))
 
+    def test_a_home_or_rig_without_its_record_is_kept(self):
+        c, _ = self.cleanup_with({})
+        c.register_rig()
+        c.homes[self.app_home] = (self.gone_pid(), 1)  # never recorded
+        os.unlink(rig_cleanup.record_file(self.rig))
+        c.end()
+        self.assertTrue(os.path.isdir(self.app_home))
+        self.assertTrue(os.path.isdir(self.rig))
+
+    def test_a_live_group_holds_a_record(self):
+        sleeper = subprocess.Popen(["sleep", "30"], start_new_session=True)
+        self.addCleanup(sleeper.wait)
+        self.addCleanup(sleeper.kill)
+        rig_cleanup.register(self.rig, self.gone_pid(), 1, owner_pgid=sleeper.pid)
+        with self.assertRaises(rig_cleanup.Held):
+            rig_cleanup.register(self.rig, os.getpid(), rig_cleanup.process_start(os.getpid()))
+
+    def test_a_record_that_cannot_be_written_stops_the_run(self):
+        c, _ = self.cleanup_with({})
+        with mock.patch.object(rig_cleanup, "_write", side_effect=OSError("disk full")):
+            with self.assertRaises(SystemExit):
+                c.register_rig()
+        sleeper = self.sleeper()
+        c, _ = self.cleanup_with({sleeper.pid: self.app_home})
+        with mock.patch.object(rig_cleanup, "_write", side_effect=OSError("disk full")):
+            with self.assertRaises(OSError):
+                c.register_daemons()
+
 
 if __name__ == "__main__":
     unittest.main()
