@@ -106,7 +106,7 @@ final class CloudMachineUpdates {
                     return CloudMoveCLI.Answer(ok: false, errorCode: "machine_unreachable", error: "the machine is not connected")
                 }
                 logger.info("cloud machine \(machineID, privacy: .public): updating cmux-tui to the app's build")
-                return try await cli.machineUpdate(socket: socket, toBundled: true)
+                return try await cli.machineUpdate(socket: socket, toBundled: true, ifOlder: true)
             },
             reconnect: { [weak session] restarted in await session?.reconnectAfterUpdate(restarted: restarted) },
             legacy: { [weak session] build in

@@ -23,6 +23,9 @@ nonisolated struct CloudMoveCLI: Sendable {
         var updated = false
         /// `link machine update`: the build the machine runs after it.
         var build: String?
+        /// `link machine update --if-older`: the machine runs another build that is not older than
+        /// this app's (a newer one, or the same source tree), so it was left alone.
+        var notOlder = false
     }
 
     /// The `cmux` binary (the bundled cmux-tui).
@@ -55,10 +58,12 @@ nonisolated struct CloudMoveCLI: Sendable {
 
     /// `cmux link machine update`: updates the cmux-tui of the machine whose daemon `socket`
     /// reaches to this app's own pinned build, when that machine is outdated (cx-rppd.13).
-    /// `toBundled` (`--to-bundled`, the automatic update): whenever it runs another build than
-    /// this app's. Either way the build is the one pinned beside this binary; nothing here picks it.
-    func machineUpdate(socket: String, toBundled: Bool = false) async throws -> Answer {
-        let flags = toBundled ? ["--to-bundled"] : []
+    /// `toBundled` (`--to-bundled`): whenever it runs another build than this app's; with
+    /// `ifOlder` (`--if-older`, the automatic update) only when that build is older than this
+    /// app's, by the source commit time both report, so a machine on a newer build is never moved
+    /// back. Either way the build is the one pinned beside this binary; nothing here picks it.
+    func machineUpdate(socket: String, toBundled: Bool = false, ifOlder: Bool = false) async throws -> Answer {
+        let flags = toBundled ? ["--to-bundled"] + (ifOlder ? ["--if-older"] : []) : []
         let run = try await parsed(["link", "machine", "update", "--socket", socket] + flags, timeout: max(timeout, Self.machineUpdateTimeout))
         return Self.machineUpdateAnswer(run.answer, object: run.object, status: run.status)
     }
@@ -96,7 +101,8 @@ nonisolated struct CloudMoveCLI: Sendable {
         let answer = Answer(ok: ok, errorCode: object["error_code"] as? String, error: object["error"] as? String,
                             sessionID: object["session_id"] as? String, transferID: object["transfer_id"] as? String,
                             conflicts: object["conflicts"] as? [String] ?? [], side: object["side"] as? String,
-                            updated: object["updated"] as? Bool ?? false, build: object["build"] as? String)
+                            updated: object["updated"] as? Bool ?? false, build: object["build"] as? String,
+                            notOlder: object["not_older"] as? Bool ?? false)
         return (answer, object, result.status)
     }
 }

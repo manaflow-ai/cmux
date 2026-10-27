@@ -163,6 +163,11 @@ struct CloudMachineUpdateTargetTests {
         }
         #expect(outcome(nil, ok: true, updated: true, build: Self.bundled) == .updated(build: Self.bundled))
         #expect(outcome(nil, ok: true) == .current)
+        // `--if-older`: the machine runs a newer build (or the same tree); left alone, not recorded.
+        let notOlder = CloudMoveCLI.Answer(ok: true, updated: false, build: Self.older, notOlder: true)
+        #expect(CloudMachineUpdateTarget.outcome(notOlder, machine: "Leo VM") == .handledElsewhere)
+        #expect(DaemonUpdatePolicy.recorded(.handledElsewhere) == nil)
+        #expect(!CloudMachineUpdateTarget.mayHaveRestarted(notOlder))
         #expect(outcome("machine_update_busy") == .busy)
         #expect(outcome("machine_unreachable") == .busy)
         #expect(outcome("machine_update_unavailable") == .needsBinary(target: CloudMachineUpdateTarget.cloudTarget))
@@ -181,16 +186,33 @@ struct CloudMachineUpdateTargetTests {
         #expect(DaemonUpdatePolicy.recorded(outcome("machine_update_unsupported")) == "unsupported")
     }
 
-    /// A machine that serves every capability this app uses is never moved automatically, whatever
-    /// its build: a Cloud build has no date, and it may be newer than this app's.
-    @Test func aMachineThatServesEverythingIsLeftAlone() async throws {
+    /// A machine that serves every capability this app uses but runs an older build is updated
+    /// too (tidy-yellow-tern, 2026-10-27: on 8b3b1891 it served everything, so no app update ever
+    /// reached it and its ledger had no `cloud:` entry). The CLI's `--if-older` decides older.
+    @Test func aMachineThatServesEverythingOnAnOlderBuildIsUpdated() async throws {
         let machine = FakeCloudMachine(build: Self.older, level: .current,
                                        answers: [CloudMoveCLI.Answer(ok: true, updated: true, build: Self.bundled)])
         let fixture = try CloudUpdateFixture()
         defer { fixture.remove() }
         await fixture.run(machine)
-        #expect(machine.updates == 0)
-        #expect(fixture.states.isEmpty)
+        #expect(machine.updates == 1)
+        #expect(fixture.states == [.updating, .updated(build: Self.bundled)])
+        #expect(fixture.ledger.targets == [CloudMachineUpdateTarget.id("vm-1"): "updated"])
+    }
+
+    /// A machine on a newer build than this app's (`not_older` from `--if-older`) is never moved
+    /// back: nothing changes, nothing is recorded, and its line goes.
+    @Test func aMachineOnANewerBuildIsLeftAlone() async throws {
+        let machine = FakeCloudMachine(build: Self.older, level: .current,
+                                       answers: [CloudMoveCLI.Answer(ok: true, updated: false, build: Self.older, notOlder: true)])
+        let fixture = try CloudUpdateFixture()
+        defer { fixture.remove() }
+        await fixture.run(machine)
+        #expect(machine.updates == 1)
+        #expect(machine.reconnectRestarts == [false], "the connection is left as it is")
+        #expect(fixture.states == [.updating, .cleared])
+        #expect(fixture.ledger.targets.isEmpty)
+        #expect(fixture.notices.isEmpty)
     }
 
     /// A toggle turned off after the policy read the machine: the CLI does not run.

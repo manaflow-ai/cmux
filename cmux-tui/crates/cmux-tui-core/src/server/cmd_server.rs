@@ -7,7 +7,7 @@ use crate::panic_free::JsonFields;
 use anyhow::Context;
 
 use super::PROTOCOL_VERSION;
-use super::daemon_build::{stamped_build_commit, stamped_ghostty_commit};
+use super::daemon_build::{stamped_build_commit, stamped_build_time, stamped_ghostty_commit};
 use super::identify_capabilities;
 use crate::platform;
 
@@ -74,6 +74,9 @@ pub(super) fn identify(
         // How this daemon was installed and how to update it, for a client's refusal text.
         identity.insert("install", json!(channel.as_str()));
         identity.insert("update_command", json!(channel.update_command()));
+        // The source commit's time, so a client that updates this machine
+        // never moves it back to an older build (`link machine update --if-older`).
+        identity.insert("build_time", json!(stamped_build_time()));
     }
     if machine_metadata {
         identity.insert("machine_id", json!(mux.machine_public_id));

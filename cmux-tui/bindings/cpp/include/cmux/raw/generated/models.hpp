@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "ab9b63f6ea5a42684b2e68a16f00c86609765793d0fafdccdc139656f146deef";
+inline constexpr std::string_view kProtocolIrSha256 = "6e6661334b6d20f300c49059740a6892b48e7c6c773fef091543291b5b518022";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -3233,6 +3233,7 @@ struct IdentifyResult {
     Field<std::uint32_t> api_revision{};
     Field<std::string> build_commit{};
     Field<std::string> build_id{};
+    Field<std::uint64_t> build_time{};
     std::optional<std::vector<std::string>> capabilities{};
     Field<std::string> cli_path{};
     Field<std::string> crate_version{};
