@@ -82,8 +82,9 @@ struct NewTabAtLaunchTests {
 
     /// With saved windows and no launch snapshot, the launch window opens under a new id and restore gives
     /// it the frontmost saved window's id (`adoptLaunchWindow`). A workspace claimed for it meanwhile goes
-    /// with it: a claim left on the old id would open a second window under that id.
-    @Test func aClaimOnTheLaunchWindowFollowsItsAdoptedIdentity() throws {
+    /// with it: a claim left on the old id would open a second window under that id. A reconcile before
+    /// the restore keeps the claim: the restore replaces the registry it would have written.
+    @Test func aClaimOnTheLaunchWindowWaitsForTheRestoreAndFollowsItsAdoptedIdentity() throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
@@ -94,6 +95,12 @@ struct NewTabAtLaunchTests {
         let target = services.windows.targetWindow(preferring: services.windows.active?.state.id)
         #expect(target == launch, "New Workspace while connecting targets a second window, not the launch window")
         services.windows.claimNew(workspaceID: Self.created, window: target, frame: CGRect(x: 10, y: 10, width: 800, height: 600))
+
+        // Cmd-N's New Tab page releases its first-tab hold with a reconcile, which can come before the restore.
+        services.daemon.store.apply(snapshot: Self.tree())
+        services.windows.reconcileMembership()
+        #expect(services.windows.registry.value.owner(of: Self.created) == nil, "a reconcile before the restore placed the launch window's claim")
+        #expect(services.windows.pendingClaims[Self.created] == launch, "a reconcile before the restore dropped the launch window's claim")
 
         services.windows.launchWindowAdopted(from: launch, as: "saved-front")
 
