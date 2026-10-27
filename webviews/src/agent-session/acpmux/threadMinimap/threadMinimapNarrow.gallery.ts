@@ -22,7 +22,7 @@ const withGap = (gap: number) => async (ctx: PlayContext) => {
   if (!rail || !row) return;
   const frame = rail.offsetParent?.getBoundingClientRect();
   if (!frame) return;
-  const target = row.getBoundingClientRect().left - frame.left - rail.getBoundingClientRect().width - gap;
+  const target = Math.max(0, row.getBoundingClientRect().left - frame.left - rail.getBoundingClientRect().width - gap);
   rail.style.left = `${target}px`;
 };
 const gapPlay = withGap(4);
