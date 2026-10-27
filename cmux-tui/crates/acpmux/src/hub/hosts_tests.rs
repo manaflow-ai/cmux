@@ -193,7 +193,7 @@ async fn adoption_reads_parse_only_the_records_they_fold() {
 fn work_fields(w: &OpenWork) -> String {
     let permissions: std::collections::BTreeMap<_, _> = w.permissions.iter().collect();
     format!(
-        "{:?} {} {} {:?} {:?} {:?} {:?} {:?} {} {:?} {:?} {} {} {:?} {:?}",
+        "{:?} {} {} {:?} {:?} {:?} {:?} {:?} {} {:?} {:?} {} {} {:?} {:?} {:?} {:?}",
         w.turn.as_ref().map(|t| (t.0, &t.1, &t.2, &t.3, &t.4, t.5)),
         w.turn_at,
         w.heard_at,
@@ -209,6 +209,8 @@ fn work_fields(w: &OpenWork) -> String {
         w.unsandboxed,
         w.doing,
         permissions,
+        w.withdrawn.iter().collect::<std::collections::BTreeSet<_>>(),
+        w.cancelled_permissions.iter().collect::<std::collections::BTreeSet<_>>(),
     )
 }
 
@@ -216,7 +218,13 @@ fn work_fields(w: &OpenWork) -> String {
 /// adopted incarnation and an older one, with the last turn open and with it closed.
 #[tokio::test]
 async fn open_work_from_heads_matches_a_parse_of_every_record() {
-    let open = hosted_log();
+    let mut open = hosted_log();
+    open.push(
+        "mux",
+        "permission_withdrawn",
+        json!({"agentRequestId": 6_000, "incarnation": "inc"}),
+        false,
+    );
     let mut closed = hosted_log();
     let last_start = closed.records.iter().rposition(|r| r.kind == "turn_started").unwrap();
     closed.records.truncate(last_start);
@@ -233,6 +241,8 @@ async fn open_work_from_heads_matches_a_parse_of_every_record() {
             let turn = work.turn.as_ref().map(|t| t.1.as_str());
             assert_eq!(turn, Some(format!("t{TURNS}").as_str()));
             assert_eq!(work.requests.len(), 1, "{:?}", work.requests);
+            assert!(work.cancelled_permissions.contains("6000"));
+            assert_eq!(work.permissions["6000"].2, Some(json!({"outcome": "cancelled"})));
             assert_eq!(work.steers.len(), 1);
             assert!(work.harness_grant, "the answered ask chose allow always");
             assert!(work.doing.open_tools.contains("open"), "{:?}", work.doing);
@@ -290,6 +300,37 @@ async fn a_line_cut_short_never_moves_the_resume_point() {
             whole + 1,
         ));
     }
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A controller's deferred withdrawal cannot stand for an entry of the next host, even if an
+/// older record carried that host's sequence. Both adoption reads must retain the real cursor.
+#[tokio::test]
+async fn a_deferred_withdrawal_never_moves_either_adoption_cursor() {
+    let mut log = Log { records: Vec::new(), host_seq: 0 };
+    log.push("mux", "host_started", json!({"incarnation": "inc"}), false);
+    log.ask(7, false);
+    let real_cursor = log.host_seq;
+    log.push(
+        "mux",
+        "permission_withdrawn",
+        json!({"agentRequestId": 7, "incarnation": "old"}),
+        false,
+    );
+    if let Some(marker) = log.records.last_mut() {
+        marker.host_seq = Some(900);
+    }
+    let (hub, root) = hub_with(1, &log).await;
+    let session = hub.resolve("chat0").unwrap();
+    assert_eq!(hub.last_host_seq(&session, "inc"), real_cursor);
+    assert_eq!(hub.last_host_seq_parsed(&session, "inc"), real_cursor);
+    let all = hub.open_work_reading(&session, "inc", |_, _, _| true);
+    let heads = hub.open_work(&session, "inc");
+    assert_eq!(heads.last_host_seq, real_cursor);
+    assert_eq!(work_fields(&heads), work_fields(&all));
+    assert_eq!(heads.permissions["7"].2, None);
+    assert!(heads.withdrawn.is_empty());
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }

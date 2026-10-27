@@ -38,6 +38,10 @@ pub enum Inbound {
         id: Id,
         method: String,
         params: Option<Value>,
+        /// The hosted agent entry that carried this message, when durable.
+        host_seq: Option<u64>,
+        /// The hosted child generation that carried this message.
+        host_incarnation: Option<String>,
     },
     /// `agent` is the [`ChildAgent::generation`] it came from: the hub drops what an agent
     /// already replaced still had in flight where it would stand for the new one (a hosted
@@ -46,16 +50,19 @@ pub enum Inbound {
         method: String,
         params: Option<Value>,
         agent: u64,
+        /// The hosted agent entry that carried this message, when durable.
+        host_seq: Option<u64>,
+        /// The hosted child generation that carried this message.
+        host_incarnation: Option<String>,
+        /// A hosted cancellation is acknowledged only after its durable
+        /// withdrawal marker is stored. The reader owns the receiver.
+        persisted: Option<oneshot::Sender<bool>>,
     },
     /// One stderr line; `host_seq` names the agent host entry it came from.
     Stderr(String, Option<u64>),
     /// The agent process with this pid exited. The pid tells a late exit of
     /// a replaced process apart from the current one.
-    Exited {
-        pid: Option<u32>,
-        code: Option<i32>,
-        host_seq: Option<u64>,
-    },
+    Exited { pid: Option<u32>, code: Option<i32>, host_seq: Option<u64> },
     /// Answered once every item queued before it was handled. A prompt's answer
     /// bypasses this queue, so a turn sends one before it settles: the agent's
     /// last notifications (the reply text) are applied first.
@@ -64,9 +71,7 @@ pub enum Inbound {
     /// is all in front of this: the session's preview takes that agent's words again
     /// (`ReplayHold` in `hub/lifecycle.rs`). Queued through the agent's own sender, behind
     /// everything its reader already queued.
-    ReplayDone {
-        agent: u64,
-    },
+    ReplayDone { agent: u64 },
 }
 
 /// Logs one wire message. The `u64` is the agent host entry it logs, when
@@ -779,7 +784,15 @@ impl ChildAgent {
                                 }
                             }
                             Message::Request { id, method, params } => {
-                                let _ = inbound.send(Inbound::Request { id, method, params }).await;
+                                let _ = inbound
+                                    .send(Inbound::Request {
+                                        id,
+                                        method,
+                                        params,
+                                        host_seq: None,
+                                        host_incarnation: None,
+                                    })
+                                    .await;
                             }
                             Message::Notification { method, params } => {
                                 let _ = inbound
@@ -787,6 +800,9 @@ impl ChildAgent {
                                         method,
                                         params,
                                         agent: agent_for_exit.generation,
+                                        host_seq: None,
+                                        host_incarnation: None,
+                                        persisted: None,
                                     })
                                     .await;
                             }
@@ -803,6 +819,9 @@ impl ChildAgent {
                                     method,
                                     params,
                                     agent: agent_for_exit.generation,
+                                    host_seq: None,
+                                    host_incarnation: None,
+                                    persisted: None,
                                 })
                                 .await;
                         }
@@ -1098,12 +1117,28 @@ impl ChildAgent {
                     }
                 }
                 Message::Request { id, method, params } => {
-                    let _ = cx.inbound.send(Inbound::Request { id, method, params }).await;
+                    let _ = cx
+                        .inbound
+                        .send(Inbound::Request {
+                            id,
+                            method,
+                            params,
+                            host_seq: None,
+                            host_incarnation: None,
+                        })
+                        .await;
                 }
                 Message::Notification { method, params } => {
                     let _ = cx
                         .inbound
-                        .send(Inbound::Notification { method, params, agent: self.generation })
+                        .send(Inbound::Notification {
+                            method,
+                            params,
+                            host_seq: None,
+                            host_incarnation: None,
+                            persisted: None,
+                            agent: self.generation,
+                        })
                         .await;
                 }
             }
@@ -1545,6 +1580,39 @@ impl ChildAgent {
             },
             Entry::In { msg } => {
                 let Ok(m) = Message::from_value(msg) else { return true };
+                let host_incarnation =
+                    self.hosted.as_ref().map(|host| host.link().record.incarnation.clone());
+                let needs_durable_cancel = matches!(
+                    &m,
+                    Message::Notification { method, params }
+                        if method == crate::rpc::method::CANCEL_REQUEST
+                            && params.as_ref().and_then(|p| p.get("requestId")).is_some()
+                );
+                // Persist a hosted cancellation before logging the raw wire
+                // entry. Otherwise a crash after the raw entry is logged but
+                // before the derived marker would advance the resume cursor
+                // past the only copy of the cancellation.
+                if needs_durable_cancel {
+                    let Message::Notification { method, params } = &m else { return false };
+                    let (done, persisted) = oneshot::channel();
+                    if inbound
+                        .send(Inbound::Notification {
+                            method: method.clone(),
+                            params: params.clone(),
+                            host_seq: Some(h),
+                            host_incarnation: host_incarnation.clone(),
+                            persisted: Some(done),
+                            agent: self.generation,
+                        })
+                        .await
+                        .is_err()
+                    {
+                        return false;
+                    }
+                    if !persisted.await.unwrap_or(false) {
+                        return false;
+                    }
+                }
                 // Dropped as the direct reader drops it; the entry counts as handled.
                 match self.tap_live(&m, || (self.tap)(Direction::In, &m, Some(h))) {
                     None => return true,
@@ -1568,11 +1636,29 @@ impl ChildAgent {
                         }
                     }
                     Message::Request { id, method, params } => {
-                        let _ = inbound.send(Inbound::Request { id, method, params }).await;
+                        let _ = inbound
+                            .send(Inbound::Request {
+                                id,
+                                method,
+                                params,
+                                host_seq: Some(h),
+                                host_incarnation,
+                            })
+                            .await;
                     }
                     Message::Notification { method, params } => {
+                        if needs_durable_cancel {
+                            return true;
+                        }
                         let _ = inbound
-                            .send(Inbound::Notification { method, params, agent: self.generation })
+                            .send(Inbound::Notification {
+                                method,
+                                params,
+                                host_seq: Some(h),
+                                host_incarnation: host_incarnation.clone(),
+                                persisted: None,
+                                agent: self.generation,
+                            })
                             .await;
                     }
                 }
