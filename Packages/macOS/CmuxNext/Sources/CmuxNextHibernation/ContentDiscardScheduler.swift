@@ -32,7 +32,9 @@ package protocol ContentDiscardHost: AnyObject {
 ///
 /// A due item is prepared asynchronously (``ContentDiscardHost/prepareDiscard(_:)``); a show
 /// meanwhile cancels the preparation, and the host's own check (the content lifecycle's token)
-/// refuses a late one.
+/// refuses a late one. An item whose preparation or release fails while it stays hidden is
+/// ``DiscardRule/discardAttempted`` until it shows (``ContentDiscardPlanner/AttemptMarkers``), so the
+/// next item takes its slot.
 ///
 /// The Memory Saver mode (`memory.saver`, handed over by the coordinator) scales each policy's
 /// timeout for the proactive discard (``MemorySaverMode/proactiveTimeout(_:)``); with the mode off
@@ -63,6 +65,8 @@ package final class ContentDiscardScheduler {
     package private(set) var saverMode: MemorySaverMode = .medium
     /// An item was discarded (the memory histograms count it).
     package var onDiscard: () -> Void = {}
+    /// The hidden items whose discard was tried and did not finish since they last showed.
+    package private(set) var discardAttempts = ContentDiscardPlanner.AttemptMarkers()
 
     private let planner = ContentDiscardPlanner()
     private let deadline: DemandTimer
@@ -113,6 +117,7 @@ package final class ContentDiscardScheduler {
     package func contentDidShow(_ key: String) {
         hiddenAt[key] = nil
         exemptions[key] = nil
+        discardAttempts.clear(key)
         preparing.removeValue(forKey: key)?.cancel()
         prepared[key] = nil
         if hiddenAt.isEmpty, preparing.isEmpty { disarm() }
@@ -132,8 +137,16 @@ package final class ContentDiscardScheduler {
     /// The host discarded `key`.
     package func noteDiscarded(_ key: String) {
         hiddenAt[key] = nil
+        discardAttempts.clear(key)
         discardedCount += 1
         onDiscard()
+    }
+
+    /// The host's release of hidden `key` let nothing go (it started moving, or it is in use): it
+    /// stays until it shows.
+    package func noteDiscardFailed(_ key: String) {
+        guard hiddenAt[key] != nil else { return }
+        discardAttempts.mark(key)
     }
 
     package func update(pressure: MemoryPressureLevel) {
@@ -145,7 +158,11 @@ package final class ContentDiscardScheduler {
     /// Starts the preparation of the next due item and arms one deadline for the one after.
     package func replan() {
         guard let host else { return disarm() }
-        hiddenAt = hiddenAt.filter { host.discardPolicy(of: $0.key) != nil }
+        // Content that closed or went has nothing left to discard, and no mark.
+        for key in hiddenAt.keys where host.discardPolicy(of: key) == nil {
+            hiddenAt[key] = nil
+            discardAttempts.clear(key)
+        }
         let current = elapsed()
         let reason: DiscardReason = isUrgent ? .urgent : .proactive
         var next: Double?
@@ -162,8 +179,9 @@ package final class ContentDiscardScheduler {
                 exemptions[key] = kept
                 next = min(next ?? .infinity, max(timeout, Self.drawnRecheck))
             } else {
-                timed.append(ContentDiscardPlanner.TimedCandidate(ContentDiscardPlanner.Candidate(key: key, kind: kind, hiddenFor: hidden),
-                                                                  timeout: timeout))
+                var candidate = ContentDiscardPlanner.Candidate(key: key, kind: kind, hiddenFor: hidden)
+                candidate.discardAttempted = discardAttempts.contains(key)
+                timed.append(ContentDiscardPlanner.TimedCandidate(candidate, timeout: timeout))
             }
         }
         let plan = planner.plan(.fallback, for: reason, pace: reason == .urgent ? Self.urgentPace : Self.proactivePace, timed: timed)
@@ -210,6 +228,9 @@ package final class ContentDiscardScheduler {
                 prepared[key] = state
                 host.commitDiscard(key)
                 prepared[key] = nil
+            } else if host != nil, hiddenAt[key] != nil {
+                // It must stay though still hidden: the next pass gives its slot to the next item.
+                discardAttempts.mark(key)
             }
             replan()
         }
