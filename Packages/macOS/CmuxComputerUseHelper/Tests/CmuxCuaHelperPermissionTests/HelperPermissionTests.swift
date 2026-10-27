@@ -24,8 +24,10 @@ struct HelperPermissionTests {
             controller.start()
         }
         #expect(requested == permission)
-        let reply = try #require(output.fileHandleForReading.read(upToCount: 4096))
-        let fields = try #require(JSONSerialization.jsonObject(with: reply) as? [String: Any])
+        let bytes = try output.fileHandleForReading.read(upToCount: 4096)
+        let reply = try #require(bytes)
+        let object = try JSONSerialization.jsonObject(with: reply)
+        let fields = try #require(object as? [String: Any])
         #expect(fields["of"] as? String == "request_permission")
         #expect(fields["permission"] as? String == permission.rawValue)
         #expect(fields["granted"] as? Bool == false)

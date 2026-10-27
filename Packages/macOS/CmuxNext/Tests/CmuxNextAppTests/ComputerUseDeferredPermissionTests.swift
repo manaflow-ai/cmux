@@ -29,7 +29,8 @@ import Testing
         helper.terminateForQuit()
         let data = await Task.detached { pipe.fileHandleForReading.readDataToEndOfFile() }.value
         let messages = try data.split(separator: 10).map {
-            try #require(JSONSerialization.jsonObject(with: Data($0)) as? [String: Any])
+            let object = try JSONSerialization.jsonObject(with: Data($0))
+            return try #require(object as? [String: Any])
         }
         #expect(messages.first?["type"] as? String == "configure")
         let grants = messages.filter { $0["type"] as? String == "request_permission" }
