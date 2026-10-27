@@ -178,7 +178,9 @@ final class AppControl {
                                                            continuation.resume(returning: DebugInputScrollViews(auditing: NSApp.windows))
                                                        }
                                                    }) ?? DebugInputScrollViews(rows: [])
-                                               }], recorders: [hops.start(input: input)]).method])
+                                               }],
+                                     // `hittest` (p04-input-098): one audit for the app, its hooks installed on request only.
+                                     recorders: [hops.start(input: input), HitTestAuditDebugRecorder(audit: HitTestAudit(input: services.inputTap))]).method])
         router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugDrainCostMethod])
     }
     #endif
