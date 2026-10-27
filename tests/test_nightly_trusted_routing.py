@@ -75,12 +75,14 @@ class NightlyTrustedRouting(unittest.TestCase):
     def test_missing_owned_pool_uses_blacksmith_mac_fallback(self):
         self.assertEqual(select(**{'vars.CI_SIDE_LANE_RUNNER': ''}), 'blacksmith-12vcpu-macos-26')
 
-    def test_retries_use_blacksmith_after_owned_build_attempt(self):
-        self.assertEqual(select(**{'github.run_attempt': 2}), 'blacksmith-12vcpu-macos-26')
+    def test_next_retries_overflow_to_hosted_macos(self):
+        # Blacksmith macOS had ~75 jobs queued (2026-10-26); a NEXT retry goes to hosted macos-26.
+        self.assertEqual(select(**{'github.run_attempt': 2}), 'macos-26')
+        self.assertEqual(select(**{'github.run_attempt': 2, 'github.ref': 'refs/heads/main'}), 'blacksmith-12vcpu-macos-26')
 
     def test_dispatch_fast_retries_rc_and_disabled_owned_use_blacksmith_pool(self):
         cases = [
-            {'github.event_name': 'workflow_dispatch'}, {'github.run_attempt': 2},
+            {'github.event_name': 'workflow_dispatch'},
             {'needs.decide.outputs.fast_build': 'true'}, {'vars.CI_PR_POOL_OWNED': '0'},
             {'github.ref': 'refs/heads/rc/1.2'}, {'github.repository': 'manaflow-ai/another'}, {'github.ref': 'refs/heads/feat-cmux-next'},
         ]
@@ -145,7 +147,7 @@ class NightlyTrustedRouting(unittest.TestCase):
         self.assertEqual(group(), 'nightly-build-app-1')
         self.assertNotEqual(group(**{'github.run_id': '2'}), group())
         self.assertIn('glaeda-side-std-xcode-26.6', select())
-        self.assertEqual(select(**{'github.run_attempt': 2}), 'blacksmith-12vcpu-macos-26')
+        self.assertEqual(select(**{'github.run_attempt': 2}), 'macos-26')
         self.assertEqual(select(**{'vars.CI_SIDE_LANE_RUNNER': ''}), 'blacksmith-12vcpu-macos-26')
         self.assertEqual(group(**{'vars.CI_SIDE_LANE_RUNNER': '', 'github.run_id': '1'}), 'nightly-build-app-1')
         self.assertEqual(group(**{'github.run_attempt': 2}), 'nightly-build-app-1')
