@@ -8,7 +8,8 @@ final class HelperAppTile: NSView, NSDraggingSource {
     private let appURL: URL
     /// The helper's icon, read off the main thread by the App (cmux's own when it has none yet).
     private let appIcon: NSImage
-    private(set) lazy var hover = ChromeHover(self)
+    // wakeup-allow: bounded only while the helper drag panel shows over System Settings with cmux in the background
+    private(set) lazy var hover = ChromeHover(self, tracking: .activeAlways)
 
     init(appURL: URL, icon: NSImage?) {
         self.appURL = appURL
@@ -63,6 +64,7 @@ final class HelperAppTile: NSView, NSDraggingSource {
     }
 
     // input-coalesce: native (the first drag event starts an AppKit dragging session, which must start from that event and then tracks the pointer itself)
+    // local-monitor-allow: begins a drag session, which AppKit starts only from a mouseDragged event; no hover work runs here
     override func mouseDragged(with event: NSEvent) {
         hover.state.pressed = false
         let item = NSDraggingItem(pasteboardWriter: appURL as NSURL)
@@ -76,6 +78,7 @@ final class HelperAppTile: NSView, NSDraggingSource {
         context == .outsideApplication ? [.copy, .link, .generic] : []
     }
 
+    // visibility-walk-allow: repaints its hover fill (ChromeHover) only, no layout
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         hover.refresh(animated: false)

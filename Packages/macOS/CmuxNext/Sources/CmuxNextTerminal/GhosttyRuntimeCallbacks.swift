@@ -199,6 +199,17 @@ nonisolated func ghosttyCloseSurface(_ userdata: UnsafeMutableRawPointer?, _ pro
     MainRunLoopBlock.perform { bridge.requestClose() }
 }
 
+/// `ghostty_surface_vsync_wanted_cb` (ghostty-next p03-rendering-082), set in a surface's config when it runs on
+/// external vsync (``SurfaceBridge/setExternalVSync(in:userdata:)``): on the surface's renderer thread, on each
+/// edge of whether it wants ticks. `userdata` is the surface's bridge, released only after ghostty_surface_free
+/// returns (and never when the view is freed off main), so its ``SurfaceBridge/vsync`` outlives every call. It
+/// takes the pacer's lock briefly and arms its hub subscription (or its linkless deadline); it never waits for main
+/// or calls into Ghostty.
+nonisolated func ghosttySurfaceVSyncWanted(_ userdata: UnsafeMutableRawPointer?, _ wanted: Bool) {
+    // SAFETY: a surface's `vsync_userdata`, its bridge (above).
+    unsafe SurfaceBridge.from(userdata)?.vsync.wantedChanged(wanted)
+}
+
 #if GHOSTTY_EXTERNAL_CURSOR
 /// `ghostty_surface_cursor_cb` (ghostty-next p03-rendering-090), set in a surface's config while its view shows
 /// the cursor itself (``TerminalCursorLayer``): once per move or change of the cursor cell, never per blink, inside
