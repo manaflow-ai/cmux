@@ -72,7 +72,7 @@ import { SubagentFold, subagentsLeft, subagentStops, type SubagentStopReason } f
 import { WORKSPACE_CONTEXT } from "./workspaceContext";
 import { promptSurfaceMeta } from "./surfaces/promptSurface";
 import { BOOKMARKS_KIND, bookmarksHeard } from "./threadMinimap/bookmarks";
-import { type StartMode, startModeChanged } from "./startMode";
+import { type StartMode, fullAccessTicket, rememberFullAccess, startModeChanged } from "./startMode";
 import { highestMode } from "./harnessModes";
 import { sameSessionStart, sessionStartOf } from "./conversation/sessionStart";
 import { reduceAgentPair } from "./conversation/agentPairs";
@@ -5960,13 +5960,17 @@ export class AcpmuxDirectClient {
   /// as acpmux decides it; undefined when it would set none, does not know, or predates the method.
   /// Rejects when it could not be asked (no socket, the request failed): that is no answer.
   async startMode(harness: string, cwd?: string): Promise<StartMode | undefined> {
+    const ticket = fullAccessTicket();
     try {
       const answer = (await this.request("_acpmux/start_mode", cwd ? { harness, cwd } : { harness })) as {
         harness?: unknown;
         modeId?: unknown;
         name?: unknown;
         level?: unknown;
+        fullAccess?: unknown;
       } | null;
+      // Read before any mode check: an answer that names no mode still says full access is managed off.
+      rememberFullAccess(answer?.fullAccess, ticket);
       // Full access on a harness whose modes acpmux has not seen yet (no chat of it since acpmux
       // started: a first Codex chat): acpmux names no mode, and sets the harness's full-access mode
       // once it reports its modes. The chip names that mode now, never nothing.
@@ -5984,7 +5988,12 @@ export class AcpmuxDirectClient {
       // that never reached it, or whose socket closed, answered nothing (startMode.ts keeps what it had).
       // The pane's host refusing to relay it (`data.origin: "native"`, such as a new workspace's home
       // folder outside the roots it relays) is one of those: acpmux never saw the ask.
-      if (error instanceof AcpmuxRpcError && !refusedByHost(error)) return undefined;
+      // Only a daemon that predates the method (method not found) manages nothing; any other
+      // refusal comes from a daemon that may still manage full access, so the mark stays.
+      if (error instanceof AcpmuxRpcError && !refusedByHost(error)) {
+        if (error.code === METHOD_NOT_FOUND) rememberFullAccess(undefined, ticket);
+        return undefined;
+      }
       throw error;
     }
   }
@@ -6844,6 +6853,9 @@ function catalogEntry(harness: any): AcpmuxSnapshot["catalog"][number] {
 function pageShown(): boolean {
   return typeof document === "undefined" || document.visibilityState !== "hidden";
 }
+
+/// JSON-RPC's method-not-found code: a daemon that predates the method.
+const METHOD_NOT_FOUND = -32601;
 
 /// Whether the pane's host refused to relay a request (`data.origin: "native"`): acpmux never saw it.
 function refusedByHost(error: AcpmuxRpcError): boolean {
