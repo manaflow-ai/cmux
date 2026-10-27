@@ -12,6 +12,9 @@ import Darwin
 /// a session that ran for days and then crashed must not read as days old at the next launch. That cleanup
 /// creates `<ring>.dead` (``deadMarkSuffix``) with its own wall clock as the mtime.
 ///
+/// A process's crash-key page (`<role>-<pid>.crashkeys`, ``CrashKeyPage``) goes with its black box, and a page
+/// whose black box is gone goes once its process is dead.
+///
 /// A process is live when `kill(pid, 0)` finds it and its kernel start time is the one in the ring's header
 /// (`process_start_unix_us`), so a reused pid does not keep an old ring. Chrome cleans its metrics directory the
 /// same way, by age and a size cap (`base::GlobalHistogramAllocator`'s upload directory,
@@ -33,6 +36,8 @@ public struct TraceRingCleanup: Sendable {
     static let buildingSuffix = ".tmp"
     /// The suffix of the marker whose mtime is when a cleanup first found a black box's process dead.
     static let deadMarkSuffix = ".dead"
+    /// The file name suffix of a crash-key page (``CrashKeyPage/fileName(role:pid:)``).
+    static let crashKeysSuffix = ".crashkeys"
 
     /// The folder of the ring files.
     public let directory: String
@@ -90,6 +95,13 @@ public struct TraceRingCleanup: Sendable {
         for marker in names where marker.hasSuffix(Self.blackBoxSuffix + Self.deadMarkSuffix) {
             if !present.contains(String(marker.dropLast(Self.deadMarkSuffix.count))) { _ = remove(marker) }
         }
+        // A page whose black box never existed (its adoption failed) or was deleted by hand.
+        for page in names where page.hasSuffix(Self.crashKeysSuffix) {
+            let stem = page.dropLast(Self.crashKeysSuffix.count)
+            guard !present.contains(String(stem) + Self.blackBoxSuffix), let dash = stem.lastIndex(of: "-"),
+                  let pid = Int32(stem[stem.index(after: dash)...]), !isAlive(pid, 0) else { continue }
+            if remove(page) { report.deleted.append(page) }
+        }
         // The cap: the longest-dead rings go first.
         dead.sort { ($0.deadSinceUnixNanos, $0.startUnixNanos, $0.name) < ($1.deadSinceUnixNanos, $1.startUnixNanos, $1.name) }
         var bytes = dead.reduce(0) { $0 + $1.bytes }
@@ -124,10 +136,11 @@ public struct TraceRingCleanup: Sendable {
         }
     }
 
-    /// Deletes black box `name` and its dead marker; true when the ring went.
+    /// Deletes black box `name`, its dead marker and its process's crash-key page; true when the ring went.
     private func delete(_ name: String) -> Bool {
         guard remove(name) else { return false }
         _ = remove(name + Self.deadMarkSuffix)
+        _ = remove(String(name.dropLast(Self.blackBoxSuffix.count)) + Self.crashKeysSuffix)
         return true
     }
 

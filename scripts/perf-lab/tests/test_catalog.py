@@ -340,6 +340,16 @@ class StoryLintTests(FixtureTestCase):
         self.assertProblem(problems, "need file:missing.py names a file that does not exist")
         self.assertFalse(any("debug:debug.cef" in p for p in problems))
 
+    def test_runs_lists_existing_paths_outside_the_command(self) -> None:
+        tree = self.tree([*baseline_stories(), story("ok", runs=["budgets.json"])])
+        self.assertEqual(list(tree.load().problems), [])
+        self.assertEqual(next(s for s in tree.load().stories if s.id == "ok").runs, ("budgets.json",))
+        for runs, fragment in ((["scripts/gone.py"], "runs path scripts/gone.py does not exist"),
+                               (["bench.py"], "runs path bench.py is in the command already"),
+                               ("bench.py", "runs is a list of repository paths")):
+            with self.subTest(runs=runs):
+                self.assertProblem(self.problems([*baseline_stories(), story("x", runs=runs)]), fragment)
+
     def test_unknown_hot_path_fails(self) -> None:
         self.assertProblem(self.problems([*baseline_stories(), story("x", hot_paths=["no-such-path"])]),
                            "hot path 'no-such-path'")

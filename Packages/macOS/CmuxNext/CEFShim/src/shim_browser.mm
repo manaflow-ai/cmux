@@ -4,6 +4,7 @@
 #import <AppKit/AppKit.h>
 
 #include <cstdint>
+#include <cstring>
 
 #include "include/cef_parser.h"
 #include "include/cef_values.h"
@@ -291,6 +292,11 @@ int cmux_shim_browser_set_page_visibility(int browser_id, int visibility) {
 int cmux_shim_tab_set_visibility(int browser_id, int visibility, int capture) {
   if (!fork_api().tab_set_visibility) return 0;
   return fork_api().tab_set_visibility(browser_id, visibility, capture);
+}
+
+int cmux_shim_tab_page_push(int browser_id, const char* text) {
+  if (!text || !fork_api().tab_page_push) return 0;
+  return fork_api().tab_page_push(browser_id, text, strlen(text));
 }
 
 int cmux_shim_print(int browser_id) {

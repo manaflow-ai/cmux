@@ -59,6 +59,9 @@ nonisolated final class ChromiumHostControlChannel: Sendable {
         var coalesced: UInt64 = 0
         var pendingMessages = 0
         var pendingBytes = 0
+        /// ``ChromiumHostControlChannel/request(_:)`` calls waiting for their reply; 0 once the
+        /// channel ended, which resumes each with ``ChromiumHostControlError/hostGone(_:)`` (task 091).
+        var awaitingReplies = 0
     }
 
     private let core: ChromiumHostControlCore

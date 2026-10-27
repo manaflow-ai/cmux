@@ -159,6 +159,9 @@ type VariantBase = {
   play?: Play;
   /** Variant-specific play thresholds, merged over the entry defaults. */
   checks?: PlayChecks;
+  /** Fields over the WebTheme payload every cmux web view gets (WebTheme.swift `payloadJSON`):
+   *  `energy: "saver"` under Energy Saver, `motion: "off"` with animations off. */
+  webTheme?: { energy?: "saver"; motion?: "off" | "reduced" | "full" };
 };
 
 /** The whole agent pane (AcpmuxApp) on the pane bridge, as the app hosts it. */

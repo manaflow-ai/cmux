@@ -24,8 +24,8 @@ public struct FirefoxSessionReader {
     }
 
     public func decompress(_ data: Data) -> Data? {
-        guard data.count > 12, data.prefix(8).elementsEqual(magic) else { return nil }
-        let size = Int(PickleReader.uint32([UInt8](data.prefix(12)), at: 8))
+        guard data.count > 12, data.prefix(8).elementsEqual(magic), let size = PickleReader.uint32(data.dropFirst(8))?.widened
+        else { return nil }
         let block = [UInt8](data.dropFirst(12))
         // One LZ4 block byte yields at most 255 bytes (a match-length byte), so a larger size is a lie
         // that would only allocate.
@@ -48,13 +48,14 @@ public struct FirefoxSessionReader {
                     read.skipped.unsupported += 1
                     continue
                 }
-                // `index` is 1-based; any other number (Int.min included) picks the nearest entry.
+                // `index` is 1-based; any other number (Int.min included) picks the nearest entry, as Firefox
+                // restores it (SessionStore.sys.mjs restoreTab: the index is kept inside the entries).
                 let index = min(max(tab["index"] as? Int ?? entries.count, 1), entries.count) - 1
-                guard let text = entries[index]["url"] as? String, let url = ImportableURL.parse(text) else {
+                guard let entry = entries[checked: index], let text = entry["url"] as? String, let url = ImportableURL.parse(text) else {
                     read.skipped.notImportable += 1
                     continue
                 }
-                let title = (entries[index]["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                let title = (entry["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 read.items.append(ImportedTab(url: url, title: title, window: windowIndex, pinned: tab["pinned"] as? Bool ?? false))
             }
         }

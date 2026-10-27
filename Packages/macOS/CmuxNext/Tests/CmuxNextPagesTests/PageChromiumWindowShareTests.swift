@@ -22,7 +22,7 @@ struct PageChromiumWindowShareTests {
     }
 
     private func makeHost(_ hosting: FakeChromiumHosting, lazy: Bool) -> WebUIHost {
-        WebUIHost(chromium: hosting, openPanel: nil, memory: QuietMemoryRegistry(), clock: PageTestClock.never,
+        WebUIHost(chromium: hosting, openPanel: nil, memory: QuietMemoryRegistry(), deadlines: LifecycleDeadlineRig.never,
                   startsPagesAtFirstShow: lazy)
     }
 

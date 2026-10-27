@@ -89,6 +89,7 @@ import Testing
         }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 600), styleMask: [.borderless], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false // ARC owns it; close() would release it once more
+        _ = WindowVisibilitySource.of(window, read: { _ in .visible }) // never ordered in: the sidebar draws only while shown
         window.contentView = sidebar
         sidebar.frame = NSRect(x: 0, y: 0, width: 240, height: 600)
         let harness = Harness(services: services, model: model, sidebar: sidebar, window: window, url: url)

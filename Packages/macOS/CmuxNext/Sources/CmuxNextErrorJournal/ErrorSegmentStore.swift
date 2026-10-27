@@ -27,7 +27,7 @@ struct ErrorSegmentStore {
         let names = (try? files.contentsOfDirectory(atPath: directory.path)) ?? []
         return names.compactMap { name -> (Int, URL)? in
             guard name.hasPrefix(Self.prefix), name.hasSuffix(Self.suffix),
-                  let number = Int(name.dropFirst(Self.prefix.count).dropLast(Self.suffix.count)) else { return nil }
+                  let number = Int(name.dropFirst(Self.prefix.count).dropLast(Self.suffix.count), radix: 10) else { return nil }
             return (number, directory.appendingPathComponent(name))
         }.sorted { $0.0 < $1.0 }
     }

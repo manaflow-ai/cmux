@@ -4,8 +4,8 @@
 Starts an isolated headless daemon (durable state on the local disk), grows a
 scenario, and measures the client-side round trip (send to reply) of control
 requests on JSON-lines connections. Every latency row (LATENCY below) comes
-from the raw samples: n, p50_ms, p95_ms, p99_ms, max_ms (nearest rank),
-mean_ms as an extra, and samples_ms (left out of the automation rows, which
+from the raw samples: n, p50_ms, p95_ms, p99_ms (scripts/perf-lab/perf_stats.py
+pct, linear interpolation), max_ms, mean_ms as an extra, and samples_ms (left out of the automation rows, which
 are too many). No row is a mean alone. A row the daemon does not serve has
 `skipped` (a note why) and n 0; a row or section that failed has `error`,
 fails the run (exit 1) and keeps every row measured before it.
@@ -127,16 +127,29 @@ build_commit; a daemon without one is named by the script checkout's HEAD and
 the binary's hash; a build_commit other than HEAD is refused. It needs a passed
 run on a macOS host: VM timing is not perf evidence.
 
+--out FILE.json writes the report alone. --out DIR (the perf lab's story
+runner) writes it to DIR/daemon-latency.json and every latency row's raw
+samples to DIR as cmux-perf-result/v1 (perf_result.py) in story daemon-latency
+(daemon_bench_lab.py names the build and host): daemon.latency.SCENARIO.ROW
+(ms), ROW being the report's row path (ops.ping is `ping`, the storm's echo
+`automation_storm.storm.echo`), each part in lower case with `_` for other
+characters. The automation rows keep no samples and record nothing. A failed
+row records nothing: a failed op or CLI row drops its own row, and any other
+section with a failed row or client (a concurrent or automation client, the
+storm's window) records none of its rows.
+
 Usage:
   bench-daemon-latency.py --bin target/release/cmux-tui --out result.json
   bench-daemon-latency.py --bin ... --ops all --scenario scale \\
       --bulk-interference --streams 8 --automation-storm 8 --out r.json [--write-q16]
+  bench-daemon-latency.py --bin ... --sha SHA --build-config release --out DIR
 """
 
 import argparse
 import binascii
 import ctypes
 import hashlib
+import importlib.util
 import itertools
 import json
 import math
@@ -163,6 +176,13 @@ Q16_THRESHOLD_MS = 2.0
 V2_PROTOCOL = "cmux.protocol/2"
 V2_PROBE_OPERATION = "machine.list"  # a read every v2 daemon serves
 SCENARIOS = {"small": (1, 1, 0.0), "scale": (50, 200, 0.05)}
+STORY = "daemon-latency"
+METRIC_PREFIX = "daemon.latency"
+REPORT_NAME = "daemon-latency.json"
+
+_spec = importlib.util.spec_from_file_location("daemon_bench_lab", os.path.join(SCRIPT_DIR, "daemon_bench_lab.py"))
+lab = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(lab)
 
 
 def log(*parts):
@@ -343,22 +363,23 @@ def output_bytes(line):
 
 
 def pick(sorted_vals, q):
-    """Nearest-rank percentile of sorted raw samples."""
+    """Nearest-rank percentile of sorted raw samples: the daemon's own definition (LogLinearHistogram::percentile,
+    the sample of rank ceil(n * q)), used only to compare client samples with its ipc_methods buckets."""
     rank = max(1, math.ceil(q * len(sorted_vals) - 1e-9))
     return sorted_vals[min(len(sorted_vals), rank) - 1]
 
 
 def stats(vals, keep_samples=True):
+    """A LATENCY row of raw samples: percentiles from perf_stats.pct (linear interpolation)."""
     if not vals:
         return {"n": 0}
-    s = sorted(vals)
     row = {
-        "n": len(s),
-        "p50_ms": round(pick(s, 0.5), 3),
-        "p95_ms": round(pick(s, 0.95), 3),
-        "p99_ms": round(pick(s, 0.99), 3),
-        "max_ms": round(s[-1], 3),
-        "mean_ms": round(statistics.fmean(s), 3),
+        "n": len(vals),
+        "p50_ms": round(lab.perf_stats.pct(vals, 0.5), 3),
+        "p95_ms": round(lab.perf_stats.pct(vals, 0.95), 3),
+        "p99_ms": round(lab.perf_stats.pct(vals, 0.99), 3),
+        "max_ms": round(max(vals), 3),
+        "mean_ms": round(statistics.fmean(vals), 3),
     }
     if keep_samples:
         row["samples_ms"] = [round(v, 4) for v in vals]
@@ -1790,6 +1811,40 @@ def rows(res, prefix=""):
             yield from rows(value, prefix if (key in FLAT_SECTIONS and not prefix) else f"{prefix}{key}.")
 
 
+INDEPENDENT_SECTIONS = ("ops", "cli")  # each row is its own measurement: a failed row drops only itself
+
+
+def section_failed(value):
+    """True when a section or row failed: its own `error`, or a client of it that failed (`errors`) or did not cover
+    the window, which also leaves its sibling rows measured under less load than planned."""
+    if not isinstance(value, dict):
+        return False
+    if "error" in value or "errors" in value or value.get("clients_cover_window") is False:
+        return True
+    return any(section_failed(child) for child in value.values())
+
+
+def lab_series(result):
+    """result-v1 series of a report: every latency row that kept its raw samples, per scenario (module docstring).
+    A failed row records nothing; outside INDEPENDENT_SECTIONS its whole section records nothing."""
+    series = []
+    for scenario, res in sorted((result.get("scenarios") or {}).items()):
+        if not isinstance(res, dict) or "error" in res:
+            continue
+        sections = {}
+        for key, value in res.items():
+            if key in INDEPENDENT_SECTIONS and isinstance(value, dict) and "error" not in value:
+                sections[key] = {name: row for name, row in value.items() if not section_failed(row)}
+            elif not section_failed(value):
+                sections[key] = value
+        for metric, row in rows(sections):
+            if row.get("samples_ms"):
+                name = ".".join(lab.metric_part(part) for part in metric.split("."))
+                series.append(lab.Series(f"{METRIC_PREFIX}.{lab.metric_part(scenario)}.{name}", "ms", "lower",
+                                         list(row["samples_ms"])))
+    return series
+
+
 def report(name, res):
     for section, value in res.items():
         if isinstance(value, dict) and isinstance(value.get("error"), str):
@@ -1890,8 +1945,8 @@ def parse_kib(value):
 def parse_args(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--bin", required=True)
-    ap.add_argument("--out", required=True)
+    ap.add_argument("--bin", help="the cmux-tui daemon binary (default: the --app bundle's cmux-tui)")
+    ap.add_argument("--out", required=True, help=f"the report FILE.json, or a folder for result-v1 and {REPORT_NAME}")
     ap.add_argument("--n", type=int, default=300, help="samples per read/write op (default 300)")
     ap.add_argument("--create-n", type=int, default=0, help="samples per create op (default max(10, n/10))")
     ap.add_argument("--cli-n", type=int, default=40)
@@ -1910,6 +1965,9 @@ def parse_args(argv=None):
     ap.add_argument("--storm-seconds", type=float, default=8.0)
     ap.add_argument("--write-q16", nargs="?", const=TARGETS, default=None, metavar="TARGETS",
                     help=f"write runtime.Q16 into ipc-targets.json (default {os.path.relpath(TARGETS, REPO_ROOT)})")
+    ap.add_argument("--app", help=lab.APP_HELP)
+    ap.add_argument("--tag", help=lab.TAG_HELP)
+    lab.add_arguments(ap, STORY)
     args = ap.parse_args(argv)
     wanted = [s for value in (args.scenarios or ["small,scale"]) for s in value.split(",") if s]
     unknown = [s for s in wanted if s not in SCENARIOS]
@@ -1927,7 +1985,8 @@ def parse_args(argv=None):
         ap.error("--write-q16 needs --ops all and --scenario scale (Q16's definition)")
     if args.write_q16 and sys.platform != "darwin":
         ap.error("--write-q16 runs on a macOS fleet host only: VM and Linux timing is not perf evidence")
-    return args
+    args.bin, out, measured = lab.prepare(ap, args, REPORT_NAME)
+    return args, out, measured
 
 
 def write_out(path, result):
@@ -1938,7 +1997,7 @@ def write_out(path, result):
 def main(argv=None):
     """Writes --out whatever happens (a failed section, a failed start, Ctrl-C), then --write-q16
     only when the whole run passed."""
-    args = parse_args(argv)
+    args, out, measured = parse_args(argv)
     b = Bench(args)
     b.result.update(host=host_info(), source=source_info(),
                     args={k: v for k, v in vars(args).items() if k not in ("bin", "out")})
@@ -1948,6 +2007,7 @@ def main(argv=None):
         b.result["daemon"]["binary"] = binary_info(args.bin)
         for name in args.scenarios:
             b.scenario(name, *SCENARIOS[name])
+        lab.validate_host(out.results, [b.daemon.pid])
         status = 0
     except Exception as e:  # noqa: BLE001
         log("FAILED", traceback.format_exc(), b.tail()[-1500:])
@@ -1963,7 +2023,11 @@ def main(argv=None):
                 b.result["q16"] = slow_ops(b.result)
                 print("PERF-DAEMON-Q16 scale " + json.dumps([f"{i['key']}={i['p95_ms']}" for i in b.result["q16"]]),
                       flush=True)
-            write_out(args.out, b.result)
+            if measured:
+                path = lab.write(out.results, args.story, lab_series(b.result), measured)
+                b.result["results"] = str(path) if path else None
+                log("result-v1", path)
+            write_out(out.report, b.result)
     if b.failed:
         status = 1
     if args.write_q16 and status == 0:
@@ -1973,7 +2037,7 @@ def main(argv=None):
         except (OSError, ValueError) as e:
             log("--write-q16 failed:", e)
             b.result["q16_write_error"] = str(e)
-            write_out(args.out, b.result)
+            write_out(out.report, b.result)
             status = 1
     return status
 

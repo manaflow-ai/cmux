@@ -92,9 +92,10 @@ public struct CmxAttachTicketInput {
         var base64 = value
             .replacingOccurrences(of: "-", with: "+")
             .replacingOccurrences(of: "_", with: "/")
-        let padding = base64.count % 4
-        if padding > 0 {
-            base64.append(String(repeating: "=", count: 4 - padding))
+        switch base64.utf8.count % 4 {
+        case 2: base64.append("==")
+        case 3: base64.append("=")
+        default: break // complete, or a remainder of 1 that no padding makes valid
         }
         return Data(base64Encoded: base64)
     }
