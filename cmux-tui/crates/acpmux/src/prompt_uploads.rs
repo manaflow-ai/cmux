@@ -122,8 +122,9 @@ pub fn resolve(session: &str, web: bool, blocks: &mut Vec<Value>) -> Result<(), 
         let mut file = {
             // Marked used and opened as one step against the sweep (`file_uploads::IN_USE`).
             let _held = crate::hub::file_uploads::IN_USE.lock().unwrap_or_else(|e| e.into_inner());
-            crate::hub::file_uploads::touch(&path);
-            crate::hub::file_uploads::open_finished(&path).map_err(unreadable)?
+            let file = crate::hub::file_uploads::open_finished(&path).map_err(unreadable)?;
+            crate::hub::file_uploads::touch(&path).map_err(|e| not_marked(name, &e))?;
+            file
         };
         let len = file.metadata().map_err(unreadable)?.len();
         let mut head = Vec::with_capacity(64);
@@ -198,13 +199,19 @@ fn still_there(blocks: &[Value]) -> Result<(), RpcError> {
             continue;
         }
         let _held = crate::hub::file_uploads::IN_USE.lock().unwrap_or_else(|e| e.into_inner());
-        crate::hub::file_uploads::touch(path);
+        let name = block.get("name").and_then(Value::as_str).unwrap_or("a file");
         if !std::fs::symlink_metadata(path).is_ok_and(|m| m.is_file()) {
-            let name = block.get("name").and_then(Value::as_str).unwrap_or("a file");
             return Err(refused("upload.missing", format!("upload {name} was removed")));
         }
+        crate::hub::file_uploads::touch(path).map_err(|e| not_marked(name, &e))?;
     }
     Ok(())
+}
+
+/// An upload whose use could not be marked (`file_uploads::touch`, a full disk): refused, since
+/// the age sweep would not know the turn needs it.
+fn not_marked(name: &str, e: &anyhow::Error) -> RpcError {
+    refused("upload.unreadable", format!("cannot mark upload {name} in use: {e}"))
 }
 
 fn links_upload(blocks: &[Value]) -> bool {

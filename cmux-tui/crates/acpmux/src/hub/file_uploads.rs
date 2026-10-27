@@ -79,12 +79,12 @@ const USED: &str = ".used";
 
 /// Marks the upload folder of `file` as used now, so the age sweep keeps it for another
 /// `uploadsMaxAgeDays` from its last use, not its upload: a prompt that names it, or a turn that
-/// starts with it. The caller holds [`IN_USE`] across this and its check that the file is there.
-/// Best effort. Blocking.
-pub(crate) fn touch(file: &Path) {
-    if let Some(dir) = file.parent() {
-        let _ = crate::agent_tools::write_private(&dir.join(USED), &[]);
-    }
+/// starts with it. The caller holds [`IN_USE`] across this and its check that the file is there,
+/// and refuses the prompt when the mark cannot be written: the sweep would not know it is in use.
+/// Blocking.
+pub(crate) fn touch(file: &Path) -> anyhow::Result<()> {
+    let dir = file.parent().ok_or_else(|| anyhow::anyhow!("{} has no folder", file.display()))?;
+    crate::agent_tools::write_private(&dir.join(USED), &[])
 }
 
 /// When upload folder `dir` was last used ([`touch`]), in Unix ms; 0 when never.
@@ -639,7 +639,7 @@ mod tests {
             std::fs::create_dir_all(dir).unwrap();
             std::fs::write(dir.join("f.txt"), b"x").unwrap();
         }
-        touch(&used.join("f.txt"));
+        touch(&used.join("f.txt")).unwrap();
         // An old-named link, and a linked session folder: neither is followed.
         let outside = root.with_extension("outside");
         std::fs::create_dir_all(&outside).unwrap();

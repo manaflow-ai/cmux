@@ -294,6 +294,24 @@ async fn a_waiting_prompt_whose_upload_was_swept_is_refused_at_its_turn() {
     assert!(!c.text.contains("resource_link:gone.bin"), "{}", c.text);
 }
 
+/// An upload whose use cannot be marked (its `.used` marker cannot be written, as on a full disk)
+/// is refused: the sweep would not know a turn needs it.
+#[tokio::test]
+async fn an_upload_whose_use_cannot_be_marked_is_refused() {
+    let hub = hub();
+    let mut c = client(&hub, Origin::Local);
+    let session = c.new_session("uploads-unmarked").await;
+    let id = c.upload(&session, "data.bin", b"\x00 bytes").await;
+    // A folder where the marker goes: writing it fails, as it would on a full disk.
+    std::fs::create_dir(home().join("uploads").join(&session).join(&id).join(".used")).unwrap();
+    let link = json!({"type": "resource_link", "uri": format!("acpmux-upload:{id}"),
+        "name": "data.bin",
+        "_meta": {"acpmux": {"upload": {"uploadId": id, "fileName": "data.bin"}}}});
+    let reply = c.call(method::SESSION_PROMPT, prompt(&session, &v7(), "read", vec![link])).await;
+    assert_eq!(reply["error"]["data"]["reason"], "upload.unreadable", "{reply}");
+    assert!(c.user_messages(&session).await.is_empty());
+}
+
 /// An image too large for the model and a file of any other type go by path, never as base64.
 #[tokio::test]
 async fn a_large_image_and_any_other_file_go_by_path() {
