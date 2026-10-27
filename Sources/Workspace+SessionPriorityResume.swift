@@ -87,7 +87,13 @@ extension Workspace {
             return .refused(.noConversationYet)
         }
         // Built before anything changes, so an unresumable session never costs the pane its agent.
-        let resume = SessionPriorityResumeInput(snapshot: snapshot, target: target, workingDirectory: workingDirectory)
+        // The pane keeps the account an earlier switch gave it, even where rc files re-export a key.
+        let resume = SessionPriorityResumeInput(
+            snapshot: snapshot,
+            target: target,
+            workingDirectory: workingDirectory,
+            clearedEnvironmentKeys: terminalPanel(for: panelId)?.claudeAccountEnvironment?.clearedKeys ?? []
+        )
         guard let resumeCommand = resume.posixCommand(), let resumeInput = resume.typedInput() else {
             return .refused(.noClaudeSession)
         }
@@ -142,6 +148,20 @@ extension Workspace {
         ))
     }
 
+    /// The Claude config directory the session's transcript lives under: the recorded
+    /// `CLAUDE_CONFIG_DIR`, or `~/.claude` when it is unset, empty or blank.
+    nonisolated static func sessionPriorityConfigDirectory(
+        launchEnvironment: [String: String]?,
+        homeDirectory: String = NSHomeDirectory()
+    ) -> String {
+        guard let recorded = launchEnvironment?["CLAUDE_CONFIG_DIR"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !recorded.isEmpty else {
+            return (homeDirectory as NSString).appendingPathComponent(".claude")
+        }
+        return ClaudeConfigDirectoryPath.preferredPath(recorded, homeDirectory: homeDirectory)
+    }
+
     /// Whether the session's transcript holds a conversation, read off the main actor. An
     /// unreadable transcript counts as none.
     private static func sessionPriorityHasConversation(
@@ -149,15 +169,20 @@ extension Workspace {
         workingDirectory: String
     ) async -> Bool {
         let sessionID = snapshot.sessionId
-        let configDirectory = snapshot.launchCommand?.environment?["CLAUDE_CONFIG_DIR"]
-            .map { ClaudeConfigDirectoryPath.preferredPath($0) }
-            ?? NSHomeDirectory() + "/.claude"
+        let configDirectory = sessionPriorityConfigDirectory(launchEnvironment: snapshot.launchCommand?.environment)
         return await Task.detached {
-            (try? ClaudeTranscriptConversationLocator.hasConversation(
-                sessionID: sessionID,
-                workingDirectory: workingDirectory,
-                configDirectory: configDirectory
-            )) ?? false
+            do {
+                return try ClaudeTranscriptConversationLocator.hasConversation(
+                    sessionID: sessionID,
+                    workingDirectory: workingDirectory,
+                    configDirectory: configDirectory
+                )
+            } catch {
+#if DEBUG
+                cmuxDebugLog("sessionPriority.apply probe.failed session=\(sessionID.prefix(8)) error=\(error)")
+#endif
+                return false
+            }
         }.value
     }
 

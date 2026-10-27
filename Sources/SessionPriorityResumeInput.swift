@@ -7,10 +7,28 @@ import Foundation
 /// Claude Code's `/effort` would write the level into the user's settings file. The model rides
 /// on a `--model` argument that replaces any the launch recorded. Everything else the launch
 /// recorded, the account's `CLAUDE_CONFIG_DIR` included, is replayed unchanged.
+///
+/// The restarted shell re-runs rc files and direnv, which can export an account key the pane runs
+/// without (an account switch cleared it), so Claude runs under `env -u` for each such key the
+/// recorded launch does not set itself. The pane stays on its account.
 struct SessionPriorityResumeInput {
     let snapshot: SessionRestorableAgentSnapshot
     let target: SessionPriorityTarget
     let workingDirectory: String
+    /// The account keys the pane runs without (``ClaudeAccountPaneEnvironment/clearedKeys``).
+    let clearedEnvironmentKeys: [String]
+
+    init(
+        snapshot: SessionRestorableAgentSnapshot,
+        target: SessionPriorityTarget,
+        workingDirectory: String,
+        clearedEnvironmentKeys: [String] = []
+    ) {
+        self.snapshot = snapshot
+        self.target = target
+        self.workingDirectory = workingDirectory
+        self.clearedEnvironmentKeys = clearedEnvironmentKeys
+    }
 
     /// The input to type into the restarted shell, ending in a newline, or `nil` when the session
     /// cannot be resumed with the target.
@@ -32,8 +50,9 @@ struct SessionPriorityResumeInput {
         )
     }
 
-    /// `cd <dir> && env … CLAUDE_CODE_EFFORT_LEVEL=<level> … claude --resume <id> …`, or `nil`
-    /// when the session cannot be resumed with the target.
+    /// `cd <dir> && env -u <cleared keys> <resume command>`, where the resume command replays the
+    /// launch with `CLAUDE_CODE_EFFORT_LEVEL=<level>` and `--model <model>`, or `nil` when the
+    /// session cannot be resumed with the target.
     ///
     /// A target component needs the launch capture to ride on: without one the resume would run
     /// without it, and the pane would be restarted again for the same target.
@@ -59,7 +78,7 @@ struct SessionPriorityResumeInput {
     }
 
     private func resumeCommand(launchCommand: AgentLaunchCommandSnapshot?) -> String? {
-        guard let command = AgentResumeCommandBuilder.resumeShellCommand(
+        guard let resumeCommand = AgentResumeCommandBuilder.resumeShellCommand(
             kind: snapshot.kind,
             sessionId: snapshot.sessionId,
             launchCommand: launchCommand,
@@ -71,8 +90,21 @@ struct SessionPriorityResumeInput {
         ) else {
             return nil
         }
+        let unsetArguments = unsetEnvironmentKeys(launchEnvironment: launchCommand?.environment)
+            .flatMap { ["-u", $0] }
+        let command = unsetArguments.isEmpty
+            ? resumeCommand
+            : (["env"] + unsetArguments + [resumeCommand]).joined(separator: " ")
         // The builder's own prefix rule: a registration that ignores the cwd gets no `cd`.
         let prefixDirectory = snapshot.registration?.cwd == .ignore ? nil : workingDirectory
         return TerminalStartupWorkingDirectoryPrefix.prefix(command, workingDirectory: prefixDirectory)
+    }
+
+    /// The cleared keys the replayed launch environment does not set, sorted so the command is
+    /// stable. A key the recorded launch sets is the account the session ran under.
+    private func unsetEnvironmentKeys(launchEnvironment: [String: String]?) -> [String] {
+        Set(clearedEnvironmentKeys)
+            .filter { launchEnvironment?[$0]?.isEmpty ?? true }
+            .sorted()
     }
 }
