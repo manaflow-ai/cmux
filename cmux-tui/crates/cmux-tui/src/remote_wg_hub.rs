@@ -89,6 +89,7 @@ fn parse_wg_hub_flags(args: &[String]) -> anyhow::Result<WgHubFlags> {
 pub(super) fn run_wg(args: &[String]) -> anyhow::Result<()> {
     match args.first().map(String::as_str) {
         Some("hub") => {}
+        Some("dial") => return run_wg_dial(&args[1..]),
         Some(action) => return Err(anyhow!(catalog().remote_client.unknown_action("wg", action))),
         None => return Err(anyhow!(catalog().remote_client.wg_hub_help)),
     }
@@ -157,6 +158,72 @@ pub(super) fn run_wg(args: &[String]) -> anyhow::Result<()> {
         result.map_err(|error| {
             anyhow!(catalog().remote_client.wireguard_hub_serve_failed(&error.to_string()))
         })?;
+    }
+    Ok(())
+}
+
+/// `cmux wg dial --hub PATH HOST PORT`: one TCP stream to HOST:PORT through a running hub,
+/// on stdin and stdout, for an ssh `ProxyCommand` (`ssh -o ProxyCommand='cmux wg dial --hub
+/// PATH %h %p' cmux@10.0.0.7`; `cmux cloud enroll-machine` writes such a Host block). HOST is
+/// an address inside the hub's AllowedIPs, as the hub dials nothing else. Exits when either
+/// side ends.
+fn run_wg_dial(args: &[String]) -> anyhow::Result<()> {
+    let [flag, hub, host, port] = args else { return Err(anyhow!(WG_DIAL_USAGE)) };
+    let port = port.parse::<u16>().ok().filter(|port| *port > 0);
+    let (true, Some(port)) = (flag == "--hub", port) else { return Err(anyhow!(WG_DIAL_USAGE)) };
+    let runtime = tokio_runtime()?;
+    // SIGINT, SIGTERM or SIGHUP (ssh going away) ends the bridge even on a quiet connection.
+    let result = runtime.block_on(async {
+        tokio::select! {
+            result = bridge_through_hub(
+                Path::new(hub),
+                host,
+                port,
+                tokio::io::stdin(),
+                tokio::io::stdout(),
+            ) => result,
+            result = crate::wait_for_shutdown_signal_async() => {
+                result.map_err(|error| anyhow!("{error}"))
+            }
+        }
+    });
+    // Tokio reads stdin on a thread that cannot be cancelled: do not wait for its next byte.
+    runtime.shutdown_background();
+    result
+}
+
+const WG_DIAL_USAGE: &str = "USAGE: cmux wg dial --hub PATH HOST PORT";
+
+async fn bridge_through_hub<R, W>(
+    hub: &Path,
+    host: &str,
+    port: u16,
+    mut input: R,
+    mut output: W,
+) -> anyhow::Result<()>
+where
+    R: tokio::io::AsyncRead + Unpin,
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    use tokio::io::{AsyncWriteExt, copy, split};
+    let stream =
+        SocksDialer::new(hub).dial(host, port).await.map_err(|error| anyhow!("{error}"))?;
+    let (mut from_peer, mut to_peer) = split(stream);
+    // The end of the input half-closes the stream and the peer's answer still drains: the
+    // bridge ends when the peer closes (or output fails, e.g. ssh stopped reading), or on an
+    // upload error.
+    let upload = async {
+        copy(&mut input, &mut to_peer).await?;
+        to_peer.shutdown().await?;
+        std::future::pending::<io::Result<()>>().await
+    };
+    let download = async {
+        copy(&mut from_peer, &mut output).await?;
+        output.shutdown().await
+    };
+    tokio::select! {
+        result = upload => result?,
+        result = download => result?,
     }
     Ok(())
 }
@@ -259,6 +326,68 @@ mod tests {
         assert!(parse_wg_hub_flags(&unknown).is_err());
         let not_hub = ["frobnicate"].map(str::to_string);
         assert!(run_wg(&not_hub).is_err());
+    }
+
+    #[test]
+    fn wg_dial_takes_a_hub_a_host_and_a_port() {
+        for bad in [
+            &["dial"][..],
+            &["dial", "--hub", "/tmp/h.sock", "10.0.0.7"],
+            &["dial", "--hub", "/tmp/h.sock", "10.0.0.7", "0"],
+            &["dial", "--hub", "/tmp/h.sock", "10.0.0.7", "ssh"],
+            &["dial", "--socket", "/tmp/h.sock", "10.0.0.7", "22"],
+        ] {
+            let args = bad.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>();
+            assert_eq!(run_wg(&args).unwrap_err().to_string(), WG_DIAL_USAGE, "{bad:?}");
+        }
+    }
+
+    /// The bridge speaks SOCKS5 CONNECT to the hub, then carries bytes both ways: a fake
+    /// hub that echoes gets back what the bridge read from its input.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn wg_dial_bridges_stdio_through_the_hub() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let directory = tempfile::tempdir().unwrap();
+        let hub = directory.path().join("hub.sock");
+        let listener = tokio::net::UnixListener::bind(&hub).unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut greeting = [0u8; 2];
+            stream.read_exact(&mut greeting).await.unwrap();
+            let mut methods = vec![0u8; usize::from(greeting[1])];
+            stream.read_exact(&mut methods).await.unwrap();
+            stream.write_all(&[5, 0]).await.unwrap();
+            let mut request = [0u8; 10];
+            stream.read_exact(&mut request).await.unwrap();
+            assert_eq!(&request[..4], &[5, 1, 0, 1], "CONNECT to an IPv4 literal");
+            assert_eq!(&request[4..], &[10, 0, 0, 7, 0, 22]);
+            stream.write_all(&[5, 0, 0, 1, 0, 0, 0, 0, 0, 0]).await.unwrap();
+            // Read to the client's half-close, then answer: the bridge must still be listening.
+            let mut line = Vec::new();
+            stream.read_to_end(&mut line).await.unwrap();
+            stream.write_all(&line).await.unwrap();
+        });
+        let mut output = Vec::new();
+        bridge_through_hub(&hub, "10.0.0.7", 22, &b"hello"[..], &mut output).await.unwrap();
+        server.await.unwrap();
+        assert_eq!(output, b"hello");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn wg_dial_says_when_no_hub_runs() {
+        let directory = tempfile::tempdir().unwrap();
+        let error = bridge_through_hub(
+            &directory.path().join("none.sock"),
+            "10.0.0.7",
+            22,
+            &b""[..],
+            Vec::new(),
+        )
+        .await
+        .unwrap_err();
+        assert!(error.to_string().contains("is not reachable"), "{error}");
     }
 
     #[cfg(unix)]
