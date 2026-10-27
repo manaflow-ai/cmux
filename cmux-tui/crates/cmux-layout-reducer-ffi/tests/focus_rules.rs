@@ -183,3 +183,38 @@ fn a_child_window_that_becomes_key_is_decided_as_the_swift_rule_did() {
         assert_eq!(response["shouldReclaim"], case["shouldReclaim"], "{}", case["facts"]);
     }
 }
+
+/// QA chrome-parity-v2-2-2 bug 1: the launch window showed the home workspace (Home's page first, the
+/// pane beside it with a terminal and the selected browser tab) before it adopted the saved window
+/// record, whose focused pane, the browser pane, came as `restoredPane` for that shown workspace. It was
+/// dropped, so the first pane (Home) kept the focus and the keys went to Home's message box.
+fn restore_after_the_workspace_shows(before_record: &[Value]) -> FocusState {
+    let topology = json!({"topology": {"_0": {"workspace": "w", "panes": [
+        {"id": "home", "tabs": [{"id": "home-tab", "kind": "page"}], "selected": "home-tab"},
+        {"id": "right", "tabs": [{"id": "term", "kind": "terminal"}, {"id": "web", "kind": "browser"}], "selected": "web"},
+    ]}}});
+    let restored = json!({"restoredPane": {"_0": "right", "workspace": "w"}});
+    let mut state = FocusState::default();
+    let mut effects: Vec<FocusEffect> = Vec::new();
+    for event in std::iter::once(&topology).chain(before_record).chain(std::iter::once(&restored)) {
+        let event: FocusEvent = serde_json::from_value(event.clone()).unwrap();
+        reducer::reduce(&mut state, &event, &mut effects);
+    }
+    state
+}
+
+#[test]
+fn a_record_for_the_shown_workspace_focuses_its_saved_pane() {
+    let browser = json!({"browserPage": {"pane": "right", "tab": "web"}});
+    let state = restore_after_the_workspace_shows(&[]);
+    assert_eq!(json!(state.resolved()), browser, "the saved pane, not the first one");
+    // Home's message box took the keyboard by itself first (a programmatic report): no person's choice.
+    let home_took_it =
+        json!({"responder": {"_0": {"content": {"pane": "home"}}, "source": "programmatic"}});
+    let state = restore_after_the_workspace_shows(&[home_took_it]);
+    assert_eq!(json!(state.resolved()), browser, "a view's own grab does not keep the restore");
+    // The person chose Home after the window opened: that choice stays.
+    let clicked = json!({"focusPane": {"_0": "home", "source": "mouse"}});
+    let state = restore_after_the_workspace_shows(&[clicked]);
+    assert_eq!(json!(state.resolved()), json!({"page": {"pane": "home", "tab": "home-tab"}}));
+}
