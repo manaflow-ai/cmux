@@ -5,8 +5,8 @@
 //! downloads from Cisco, so the library is never bundled in an app, an image
 //! or a release artifact, and never built from source for the product path.
 //!
-//! Integrity: the download goes over HTTPS (the workspace rustls, webpki
-//! roots, certificate verification on),
+//! Integrity: the download goes over HTTPS (the workspace rustls, the platform
+//! trust store, certificate verification on),
 //! and the decompressed library must have the SHA-256 pinned in
 //! [`CiscoBinary`]. Nothing is written when the hash differs.
 //!
@@ -154,7 +154,7 @@ pub fn install_with(
 
 /// GETs `url` from Cisco's server over HTTPS, at most
 /// [`MAX_COMPRESSED_BYTES`]. TLS is the cmux-tui workspace's rustls (ring
-/// provider, TLS 1.2 and 1.3) with the webpki roots and certificate
+/// provider, TLS 1.2 and 1.3) with the platform trust store and certificate
 /// verification on, so the download adds no TLS stack to any lockfile. The
 /// request is one `GET` with `Connection: close` to Cisco's fixed host; the
 /// response must be `200` with an identity body (no redirect, no chunked
@@ -178,7 +178,14 @@ fn download(url: &str) -> Result<Vec<u8>, InstallError> {
         .map_err(|e| fail("connect", &e))?;
     tcp.set_read_timeout(Some(timeout)).map_err(|e| fail("socket", &e))?;
     tcp.set_write_timeout(Some(timeout)).map_err(|e| fail("socket", &e))?;
-    let roots = rustls::RootCertStore { roots: webpki_roots::TLS_SERVER_ROOTS.to_vec() };
+    // The OS trust store, not a compiled-in root list: a bundled list kept
+    // trusting the leaked emSign (eMudhra) roots (manaflow-ai/cmux#25452).
+    let mut roots = rustls::RootCertStore::empty();
+    let native = rustls_native_certs::load_native_certs();
+    let (added, _ignored) = roots.add_parsable_certificates(native.certs);
+    if added == 0 {
+        return Err(fail("roots", &"no platform root certificates"));
+    }
     let config = rustls::ClientConfig::builder_with_provider(Arc::new(
         rustls::crypto::ring::default_provider(),
     ))
