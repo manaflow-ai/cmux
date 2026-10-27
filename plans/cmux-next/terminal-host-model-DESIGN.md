@@ -199,7 +199,8 @@ processes and ~2,000 threads fewer.
    timing in holder mode (`debug_spans::output_marks`, new-terminal-100x `host_model=`).
 3. G5 binary attach frames and the in-band resize marker (with PL-ghostty's decode).
 4. Default on; old `__terminal-host` processes keep their client until none is left (pty-holder 2.2).
-   Built 2026-10-23 (holder item 5): new session-owned terminals run on the holder unless
+   Built 2026-10-23 (holder item 5): new session-owned terminals run on the holder (the
+   `terminalHolder` feature, on on every channel) unless it is disabled or
    `CMUX_TUI_TERMINAL_HOST_MODEL=hosts` (the opt-out, kept for one release; the daemon library's
    own unit tests keep the hosts unless they name the holder). Hosted terminals an older build
    started are adopted as before. Before the flip: a holder of a DEV build, debug build or test

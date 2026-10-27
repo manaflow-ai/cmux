@@ -1,17 +1,35 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextPages
 
 /// The right sidebar's view: a bar of section icons under the window's top
 /// row, the shown section below it, and a grab strip on the edge facing the
 /// content that resizes it. A button runs its section's switch action (the
 /// path the palette, `cmux action run` and MCP take). Section views are made
-/// once per window and kept while hidden. It paints no ground: the window's
-/// shows through, the same under every section.
+/// once per window and kept while hidden; with the app's sidebar section planner
+/// (feature `memoryDiscardSidebarSections`) a hidden one goes when the planner says
+/// and its next show makes it again from its `SidebarSectionState`. It
+/// paints no ground: the window's shows through, the same under every section.
 final class RightSidebarView: NSView {
     private let bar = NSStackView()
     private var buttons: [RightSidebarMode: NSButton] = [:]
     private var views: [RightSidebarMode: NSView] = [:]
+    /// The app's sidebar section planner; nil keeps every section for good.
+    private let planner: (any SidebarSectionPlanner)?
+    /// The sections on the planner's discard, with what each released one showed.
+    private lazy var releases = SidebarSectionReleases<RightSidebarMode, SidebarSectionState>(owner: "rightSidebar", planner: planner) { [weak self] mode in
+        self?.views[mode].map(Self.state(of:))
+    } drop: { [weak self] mode in
+        self?.letGo(mode)
+    } holdsUnsavedInput: { [weak self] mode in
+        self?.views[mode].map(Self.holdsUnsavedInput(_:)) ?? false
+    }
+    /// The panel is collapsed: its shown section is hidden too, and may go as any hidden one does.
+    private var isPanelHidden = false
+    /// The scroll a section made again without its own state goes back to at the next layout.
+    private var pendingScroll: (mode: RightSidebarMode, origin: CGPoint)?
     private(set) var shownMode: RightSidebarMode?
     /// The grab strip on the edge facing the content.
     let resizeHandle = RightSidebarResizeHandle(frame: .zero)
@@ -22,7 +40,7 @@ final class RightSidebarView: NSView {
         didSet {
             guard innerEdge != oldValue else { return }
             resizeHandle.edge = innerEdge
-            needsLayout = true
+            needsLayout = true // invalidate: the sidebar changed sides (the guard above).
         }
     }
     /// A drag on the inner edge: the width it proposes, then nil when it ends.
@@ -39,13 +57,17 @@ final class RightSidebarView: NSView {
     /// - Parameters:
     ///   - modes: The sections with a provider, in bar order.
     ///   - title: A section's button tooltip (its action's title).
-    ///   - icon: A section's button image (``RightSidebarSections/icon(_:)``: made off the main thread at launch).
+    ///   - icon: A section's button image (``RightSidebarSections/icon(_:)``: made off the main thread; nil leaves
+    ///     the button empty until ``setIcons(_:)``).
     ///   - makeSection: Makes a section's view the first time it shows.
     ///   - run: Runs an action (a button's switch action).
+    ///   - planner: The app's sidebar section planner, which lets hidden sections go; nil keeps each for good.
     init(modes: [RightSidebarMode], title: (RightSidebarMode) -> String, icon: (RightSidebarMode) -> NSImage?,
-         makeSection: @escaping @MainActor (RightSidebarMode) -> NSView?, run: @escaping @MainActor (ActionID) -> Void) {
+         makeSection: @escaping @MainActor (RightSidebarMode) -> NSView?, run: @escaping @MainActor (ActionID) -> Void,
+         planner: (any SidebarSectionPlanner)? = nil) {
         self.makeSection = makeSection
         self.run = run
+        self.planner = planner
         super.init(frame: NSRect(x: 0, y: 0, width: RightSidebarModel.width, height: 400))
         bar.orientation = .horizontal
         bar.spacing = Metrics.space2
@@ -77,15 +99,23 @@ final class RightSidebarView: NSView {
 
     nonisolated override var isFlipped: Bool { true }
 
+    /// Puts the section icons on their buttons when they land after the panel was built
+    /// (``RightSidebarSections/whenIconsReady(_:)``).
+    func setIcons(_ icons: [RightSidebarMode: NSImage]) {
+        for (mode, button) in buttons { if let image = icons[mode] { button.image = image } }
+    }
+
     @objc private func pick(_ sender: NSButton) {
         guard let raw = sender.identifier?.rawValue, let mode = RightSidebarMode(rawValue: raw) else { return }
         run(mode.actionID)
     }
 
-    /// Shows `mode`'s section (made now if new); false when the mode has none.
+    /// Shows `mode`'s section (made now if new, or again from its record if it was let go); false when the mode
+    /// has none.
     @discardableResult
     func show(_ mode: RightSidebarMode) -> Bool {
         let view: NSView
+        let isNew = views[mode] == nil
         if let made = views[mode] {
             view = made
         } else {
@@ -93,8 +123,11 @@ final class RightSidebarView: NSView {
             views[mode] = made
             view = made
             addSubview(made, positioned: .below, relativeTo: resizeHandle)
+            if let record = releases.takeRecord(mode) { restore(record, in: made, mode: mode) }
         }
+        isPanelHidden = false
         for (other, shown) in views { shown.isHidden = other != mode }
+        releases.show(mode, hiding: views.keys, isNew: isNew)
         for (other, button) in buttons {
             button.alphaValue = other == mode ? 1 : Self.idleButtonAlpha
             // No pressed-in state to read, so VoiceOver hears the shown section as selected.
@@ -108,6 +141,48 @@ final class RightSidebarView: NSView {
     /// The shown section's view.
     var shownSection: NSView? { shownMode.flatMap { views[$0] } }
 
+    /// `mode`'s section view while it is made (tests and diagnostics).
+    func sectionView(_ mode: RightSidebarMode) -> NSView? { views[mode] }
+
+    /// The panel collapsed (``WindowController/hideRightSidebar()``): its shown section stops showing and counts
+    /// its hidden time from now; the next ``show(_:)`` shows it again, made again if it went meanwhile.
+    func panelDidHide() {
+        guard !isPanelHidden else { return }
+        isPanelHidden = true
+        if let shownMode { releases.hide(shownMode) }
+    }
+
+    /// The planner's release of hidden `mode`: its view goes, its record stays.
+    private func letGo(_ mode: RightSidebarMode) {
+        guard mode != shownMode || isPanelHidden else { return }
+        views.removeValue(forKey: mode)?.removeFromSuperview()
+    }
+
+    /// `view` holds input its record does not keep: a section with its own state says so; another one holds it
+    /// while one of its text fields holds typed text (its record keeps only its scroll).
+    private static func holdsUnsavedInput(_ view: NSView) -> Bool {
+        (view as? SidebarSectionStateKeeping)?.holdsUnsavedInput ?? PageViewState.holdsTypedText(view)
+    }
+
+    /// What `view` shows now: its own state, else its first list's scroll.
+    private static func state(of view: NSView) -> SidebarSectionState {
+        (view as? SidebarSectionStateKeeping)?.sectionState ?? SidebarSectionState(scroll: firstScrollView(in: view)?.documentVisibleRect.origin)
+    }
+
+    /// The first scroll view under `view`, depth first: the list a section without its own state scrolls.
+    private static func firstScrollView(in view: NSView) -> NSScrollView? {
+        if let scroll = view as? NSScrollView { return scroll }
+        for subview in view.subviews { if let found = firstScrollView(in: subview) { return found } }
+        return nil
+    }
+
+    private func restore(_ record: SidebarSectionState, in view: NSView, mode: RightSidebarMode) {
+        if let keeper = view as? SidebarSectionStateKeeping { return keeper.restoreSectionState(record) }
+        guard let origin = record.scroll else { return }
+        pendingScroll = (mode, origin)
+        needsLayout = true // invalidate: the made-again section scrolls back once it has its frame.
+    }
+
     private var contentFrame: NSRect {
         let top = topInset + barHeight
         return NSRect(x: 0, y: top, width: bounds.width, height: max(0, bounds.height - top))
@@ -117,6 +192,15 @@ final class RightSidebarView: NSView {
         super.layout()
         bar.frame = NSRect(x: 0, y: topInset, width: bounds.width, height: barHeight)
         shownSection?.frame = contentFrame
+        if let pending = pendingScroll, pending.mode == shownMode, let section = shownSection {
+            pendingScroll = nil
+            // sync-layout: once per section made again, so its list has its size before it scrolls back.
+            section.layoutSubtreeIfNeeded()
+            if let scroll = Self.firstScrollView(in: section) {
+                scroll.contentView.scroll(to: scroll.contentView.constrainBoundsRect(NSRect(origin: pending.origin, size: scroll.contentView.bounds.size)).origin)
+                scroll.reflectScrolledClipView(scroll.contentView)
+            }
+        }
         let grab = RightSidebarResizeHandle.grabWidth
         resizeHandle.frame = NSRect(x: innerEdge == .minX ? 0 : bounds.width - grab, y: 0, width: grab, height: bounds.height)
     }

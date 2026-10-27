@@ -83,6 +83,17 @@ impl RequestOrigin {
             Self::User => "user",
         }
     }
+
+    /// The scheduling cause of what this request sets off: the verified
+    /// app's own requests are the person's (`user`); everything else is
+    /// automation. Scheduling only: authorization never reads it.
+    pub(crate) const fn event_cause(self) -> crate::event_cause::EventCause {
+        use crate::event_cause::EventCause;
+        match self {
+            Self::User => EventCause::Frontend,
+            Self::Page | Self::Agent | Self::App => EventCause::Automation,
+        }
+    }
 }
 
 /// The role a connection fixes with `client-hello`; `Legacy` without one.
@@ -136,6 +147,10 @@ pub(crate) struct ConnectionOrigin {
     /// spliced lane (`host-size-policy-v1`). Fixed at accept from the
     /// kernel's peer PID, never declared.
     pub(crate) mobile_host: bool,
+    /// The socket peer's user and executable at accept, for the framed IPC
+    /// grant rule (server/capabilities.rs `IpcPeer`). Fixed at accept from
+    /// kernel facts, never declared.
+    pub(crate) peer_process: PeerProcess,
     /// Role main plus a proof (P8: install-key hello on DEV builds, the
     /// app's code signature on signed builds; server/client_hello.rs).
     pub(crate) verified_app: bool,
@@ -378,6 +393,23 @@ pub(crate) enum LocalPeer {
     Terminal(String),
     /// A resolved same-user process outside cmux terminals.
     Other,
+}
+
+/// What the kernel said at accept about the process on the other end of a
+/// Unix connection.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum PeerProcess {
+    /// The kernel reported no euid or no executable, or an euid other than
+    /// the daemon's (root): not proved to be a direct peer.
+    #[default]
+    Unverified,
+    /// A process of the daemon's own user that is not one of cmux's byte
+    /// bridges.
+    SameUser,
+    /// One of cmux's own executables that splice a far client's bytes onto
+    /// the socket (`cmux relay`, `cmux link dial`, the remote daemon's
+    /// dialer): it cannot carry descriptors.
+    ByteBridge,
 }
 
 /// Gate A2 for one operation and origin.

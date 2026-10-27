@@ -8,8 +8,12 @@ pages and calls a process by the same kind. scripts/perf-bench/procs.py reads it
 Pages (`TabPages.url(kind, n)` is `<origin>/<kind>-<n>`):
   static   a heading and a script that runs only at load and on visibilitychange: it POSTs /loaded/<n> and
            /vis/<n>/<state>, so the bench knows the page loaded and whether it is shown (no timer, no rAF)
+  engine   the static page that also POSTs /engine/<n>/<navigator.vendor> at load, so the bench knows which engine
+           drew it: "Google Inc." in Chromium (third_party/blink/renderer/core/frame/navigator_id.cc,
+           NavigatorID::vendor), "Apple Computer, Inc." in WebKit (Source/WebCore/page/NavigatorBase.cpp); a user
+           agent override (device emulation, WebKitEngine's applicationNameForUserAgent) leaves it alone
   plain    no script at all
-  grid     STRESS's page (perf-stress-session.py) without its rAF spinner: a card grid and text, no script
+  grid    STRESS's page (perf-stress-session.py) without its rAF spinner: a card grid and text, no script
   loading  a page whose load never ends (an image request the server holds until close)
   chatty   console.log 4 times a second with the server's marker, POSTing /tick every 4 calls
 
@@ -23,6 +27,7 @@ import itertools
 import re
 import subprocess
 import threading
+import urllib.parse
 from typing import Callable
 
 # ---------------------------------------------------------------------------------------------------------
@@ -30,7 +35,11 @@ from typing import Callable
 
 _TYPE = re.compile(r"\s--type=(\S+)")
 _TYPE_KINDS = {"renderer": "cef-renderer", "gpu-process": "cef-gpu", "utility": "cef-utility"}
-# The executable of a CEF helper app ("<App> Helper (Renderer).app", "<App> Helper.app") or of the Chromium Host app.
+# The Chromium Host: a second executable of the app (embed-cef.sh), "<App>.app/Contents/MacOS/<App> Chromium Host".
+# No " -" before it: a shell whose arguments name the host is not the host.
+_HOST = re.compile(r"^/(?:(?! -).)*\.app/Contents/MacOS/[^/]* Chromium Host$")
+# The executable of a CEF helper app ("<App> Helper (Renderer).app", "<App> Helper.app"), or of the Chromium Host
+# app of older builds ("<App> Chromium Host.app" in Contents/Frameworks).
 _BUNDLE = re.compile(r"/[^/]* (Helper|Chromium Host)[^/]*\.app/")
 
 # browser-idle-cost-live.py's class names of the `process_type_kind` kinds (its report and budget file key on them).
@@ -51,10 +60,13 @@ def process_type_kind(cmd: str) -> str | None:
 
 
 def chromium_kind(cmd: str) -> str | None:
-    """The kind of a Chromium process from its command line, or None when its executable is not in a Helper
-    or Chromium Host app: cef-host (the Chromium Host app's browser process), the `process_type_kind`
+    """The kind of a Chromium process from its command line, or None when its executable is neither the
+    Chromium Host nor in a Helper app: cef-host (the Chromium Host's browser process), the `process_type_kind`
     kinds, or cef-helper for a Helper app started without --type."""
-    bundle = _BUNDLE.search(cmd.split(" --", 1)[0])
+    exe = cmd.split(" --", 1)[0]
+    if _HOST.search(exe):
+        return "cef-host"
+    bundle = _BUNDLE.search(exe)
     if bundle is None:
         return None
     if bundle.group(1) == "Chromium Host":
@@ -99,6 +111,11 @@ PAGES = {
     "static": "<title>static {n}</title><body style='font:16px system-ui'><h1>Static page {n}</h1><p>Nothing runs here.</p>"
               "<script>fetch('/loaded/{n}',{{method:'POST'}});const v=()=>fetch('/vis/{n}/'+document.visibilityState,{{method:'POST'}});"
               "v();document.addEventListener('visibilitychange',v)</script>",
+    "engine": "<title>static {n}</title><body style='font:16px system-ui'><h1>Static page {n}</h1><p>Nothing runs here.</p>"
+              "<script>fetch('/loaded/{n}',{{method:'POST'}});"
+              "fetch('/engine/{n}/'+encodeURIComponent(navigator.vendor),{{method:'POST'}});"
+              "const v=()=>fetch('/vis/{n}/'+document.visibilityState,{{method:'POST'}});"
+              "v();document.addEventListener('visibilitychange',v)</script>",
     "plain": "<!doctype html><title>idle</title><h1>static page</h1><p>no script, no animation</p>",
     "grid": "<!doctype html><meta charset='utf-8'><title>idle {n}</title>" + _GRID_STYLE
             + "<h1>idle page {n}</h1><div class='g'>" + "<div></div>" * 120 + "</div><p>"
@@ -138,7 +155,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
 class TabPages:
     """The page server on 127.0.0.1 (a free port) and what the pages reported: `loaded` (keys that POSTed
-    /loaded/<key>), `visibility` ({n: latest document.visibilityState} of static pages) and `ticks` (the
+    /loaded/<key>), `visibility` ({n: latest document.visibilityState} of static and engine pages), `vendors`
+    ({n: navigator.vendor} of engine pages) and `ticks` (the
     chatty page's console.log calls, in fours). `url()` with no arguments gives the next page of
     `default_kind`, so a TabPages stands in for perf-stress-session.Pages."""
 
@@ -149,6 +167,7 @@ class TabPages:
         self.default_kind = default_kind
         self.loaded: set[str] = set()
         self.visibility: dict[str, str] = {}
+        self.vendors: dict[str, str] = {}
         self.ticks = 0
         self.closing = threading.Event()
         self._next = itertools.count(1)
@@ -177,6 +196,10 @@ class TabPages:
             parts = path.split("/", 3)
             if len(parts) == 4:
                 self.visibility[parts[2]] = parts[3]
+        elif path.startswith("/engine/"):
+            parts = path.split("/", 3)
+            if len(parts) == 4:
+                self.vendors[parts[2]] = urllib.parse.unquote(parts[3])
         elif path.startswith("/loaded/"):
             self.loaded.add(path.removeprefix("/loaded/"))
 

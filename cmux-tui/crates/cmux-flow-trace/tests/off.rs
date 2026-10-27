@@ -1,5 +1,5 @@
 //! CMUX_TRACE_FLOWS unset (this test binary never sets it): `init` starts nothing and a hop does no
-//! allocation; it returns after one load of the unset sink.
+//! allocation; it returns after one relaxed load of the flow switch.
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
@@ -33,6 +33,7 @@ fn a_hop_with_marks_off_allocates_nothing_and_starts_nothing() {
     );
     assert!(!cmux_flow_trace::init());
     assert!(!cmux_flow_trace::enabled());
+    assert!(cmux_trace::status().is_none(), "init started tracing with CMUX_TRACE_FLOWS unset");
     let before = ALLOCATIONS.with(Cell::get);
     for _ in 0..10_000 {
         cmux_flow_trace::hop("daemon.send.write", 7, "00ff");

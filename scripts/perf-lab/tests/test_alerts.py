@@ -58,11 +58,11 @@ class StepDetector:
     def target_miss(self, values, target, better):
         changes = self.change_points(values, {})
         if not changes:
-            return False
+            return None
         split = changes[0].extended_start
         newest, previous = perf_stats.pct(values[split:], 0.5), perf_stats.pct(values[:split], 0.5)
         miss = (lambda v: v > target) if better == "lower" else (lambda v: v < target)
-        return miss(newest) and not miss(previous)
+        return split if miss(newest) and not miss(previous) else None
 
 
 class FakeGitHub:
@@ -254,6 +254,24 @@ class GroupingTests(LabFixture):
         self.assertIsNotNone(rules["edivisive"])
         self.assertIsNone(rules["target_miss"])
         self.assertEqual(len(self.groups()), 1)
+
+    def test_target_miss_tile_range_is_the_missing_segment_not_an_older_step(self) -> None:
+        # Two steps pass the thresholds (newest first, as catapult returns them): 4 -> 6 at index 8 and
+        # 6 -> 9 at index 16. Only the newest segment misses the 8.3 ms target, so the tile's range is
+        # the commits before index 16, never the older step's.
+        class TwoSteps(StepDetector):
+            def change_points(self, values, config):
+                return [alerts.ChangePoint(16, 16, 6.0, 9.0), alerts.ChangePoint(8, 8, 4.0, 6.0)]
+
+            def target_miss(self, values, target, better):
+                return 16
+
+        key = self.add_series(story="terminal-key-to-frame-light", metric="key_to_frame_ms",
+                              values=[4.0] * 8 + [6.0] * 8 + [9.0] * 8, positions=[10 * i for i in range(24)])
+        alerts.detect(self.store, SUBSCRIPTIONS, TwoSteps(), TARGETS, keys=[key])
+        ranges = {(row["rule"], row["start_pos"], row["end_pos"]) for row in self.alerts_rows()}
+        self.assertIn(("target_miss", 151, 160), ranges)
+        self.assertEqual({r for r in ranges if r[0] == "edivisive"}, {("edivisive", 151, 160), ("edivisive", 71, 80)})
 
     def test_group_routes_to_the_owner_of_its_largest_regression(self) -> None:
         self.add_series(story="terminal-key-to-frame-light", metric="key_to_frame_ms",
@@ -449,9 +467,22 @@ class SubscriptionsTests(unittest.TestCase):
             {"name": "x", "kind": "perf-hot", "owner": "A", "match": {"metric": "*"},
              "anomaly_config": {"threshold": 0.2}},
         ]
+        for config in ({"max_window_size": 40.5}, {"max_window_size": 0}, {"min_segment_size": -1},
+                       {"min_segment_size": 6.2}):
+            bad.append({"name": "x", "kind": "perf-hot", "owner": "A", "match": {"metric": "*"},
+                        "anomaly_config": config})
         for entry in bad:
             with self.subTest(entry=entry), self.assertRaises(alerts.AlertsError):
                 alerts.Subscriptions.parse({"build_configs": ["bench"], "subscriptions": [entry]})
+
+    def test_whole_float_counts_become_ints_the_real_detector_takes(self) -> None:
+        entry, = alerts.Subscriptions.parse({"build_configs": ["bench"], "subscriptions": [
+            {"name": "x", "kind": "perf-hot", "owner": "A", "match": {"metric": "*"},
+             "anomaly_config": {"max_window_size": 40.0, "min_segment_size": 6.0, "min_relative_change": 0.1}}]}).entries
+        self.assertEqual(entry.anomaly_config, {"max_window_size": 40, "min_segment_size": 6, "min_relative_change": 0.1})
+        self.assertIsInstance(entry.anomaly_config["max_window_size"], int)
+        change, = alerts.CatapultDetector().change_points(step(100.0, 120.0, 20, 12), entry.anomaly_config)
+        self.assertEqual((change.median_before, change.median_after), (100.0, 120.0))
 
     def test_anomaly_config_override_reaches_the_detector(self) -> None:
         seen = []
@@ -477,6 +508,52 @@ class SubscriptionsTests(unittest.TestCase):
             lab.close()
         self.assertEqual(seen, [(20, {"max_window_size": 20, "min_relative_change": 0.2})])
 
+    def test_row_floor_is_min_absolute_change_and_an_override_only_raises_it(self) -> None:
+        seen = []
+
+        class Recording(StepDetector):
+            def change_points(self, values, config):
+                seen.append(config.get("min_absolute_change"))
+                return []
+
+        with tempfile.TemporaryDirectory() as tmp:
+            lab = store_mod.Store(Path(tmp) / "lab.sqlite", clock=lambda: NOW)
+            lab.migrate()
+            for story in ("floored", "plain"):
+                run = store_mod.Run(run_uuid=f"r-{story}", kind="waterfall", measure_version="1", story=story,
+                                    engine="chromium", macos_major=26, macos_build="b", features_hash="f",
+                                    safe_mode="off", started_at=NOW)
+                lab.insert_run(run, build=store_mod.Build(sha="f" * 40, config="bench", commit_pos=1),
+                               host=HOST, metrics=[store_mod.Metric("panes.split.frame", "ms", "lower", [1.0])])
+
+            def floors(series):
+                return 1.0 if series.story == "floored" else None
+
+            for override, expected in ((None, [1.0, None]), (0.2, [1.0, 0.2]), (3.0, [3.0, 3.0])):
+                config = {} if override is None else {"min_absolute_change": override}
+                subscriptions = alerts.Subscriptions.parse({"build_configs": ["bench"], "subscriptions": [
+                    {"name": "p", "kind": "perf-hot", "owner": "A", "match": {"metric": "panes.*"},
+                     "anomaly_config": config}]})
+                seen.clear()
+                alerts.detect(lab, subscriptions, Recording(), TARGETS, floors=floors)
+                with self.subTest(override=override):
+                    self.assertEqual(sorted(seen, key=str), sorted(expected, key=str))
+            lab.close()
+
+    def test_load_floors_resolves_the_catalog_floor_refs(self) -> None:
+        # stories.d/motion.json cmd_n floor_ref "/rows/cmd_n\\..*/floor"; home-idle.json idle app CPU.
+        budgets = json.loads((alerts.REPO_ROOT / "scripts" / "cmux-next" / "perf-budgets.json").read_text())["rows"]
+        floors = alerts.load_floors()
+
+        def series(story, metric):
+            return alerts.SeriesInfo(1, "k", story, metric, "none", "h", 26, "bench", "ms", "lower")
+
+        self.assertEqual(floors(series("motion", "cmd_n.light.key_to_visible")), budgets["cmd_n\\..*"]["floor"])
+        self.assertEqual(floors(series("home-idle", "idle.light.app_cpu_pct")),
+                         budgets["idle\\..*\\.app_cpu_pct"]["floor"])
+        self.assertIsNone(floors(series("motion", "not.a.catalog.metric")))
+        self.assertIsNone(floors(series("no-such-story", "cmd_n.light.key_to_visible")))
+
 
 class CatapultDetectorTests(unittest.TestCase):
     def test_adapter_maps_catapult_change_points_and_negates_higher_is_better(self) -> None:
@@ -484,7 +561,7 @@ class CatapultDetectorTests(unittest.TestCase):
         fake = types.ModuleType("perf_lab_anomaly")
         fake.find_change_points = lambda series, **config: (calls.append((series, config)) or [
             types.SimpleNamespace(x_value=8, extended_start=7, extended_end=9, median_before=1.0, median_after=2.0)])
-        fake.target_miss = lambda values, target: calls.append((values, target)) or True
+        fake.target_miss = lambda values, target: calls.append((values, target)) or types.SimpleNamespace(x_value=1)
         previous = sys.modules.get("perf_lab_anomaly")
         sys.modules["perf_lab_anomaly"] = fake
         try:
@@ -492,7 +569,7 @@ class CatapultDetectorTests(unittest.TestCase):
             change, = detector.change_points([1.0, 2.0], {"min_segment_size": 6})
             self.assertEqual(change, alerts.ChangePoint(7, 9, 1.0, 2.0))
             self.assertEqual(calls[0], ([(0, 1.0), (1, 2.0)], {"min_segment_size": 6}))
-            self.assertTrue(detector.target_miss([1.0, 0.5], 0.9, "higher"))
+            self.assertEqual(detector.target_miss([1.0, 0.5], 0.9, "higher"), 1)
             self.assertEqual(calls[1], ([-1.0, -0.5], -0.9))
         finally:
             if previous is None:

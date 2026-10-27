@@ -123,6 +123,7 @@ final class AppResourceSource: ResourceSampleSource {
         let entries: [(TabModel, DaemonService)]
         switch target {
         case .tab(let id):
+            // view-observation-allow: locateTab is one MachineTabIndex lookup (p06-scheduler-051), read once per sample; no walk, no observation
             guard let (tab, pane) = services.locateTab(id) else { return resolved }
             entries = [(tab, services.daemon(for: pane))]
             resolved.foreignRendererClients = services.cache.browsers.filter { $0.key != tab.id }.flatMap { _, entry -> [Int32] in
@@ -148,7 +149,7 @@ final class AppResourceSource: ResourceSampleSource {
         for (tab, daemon) in entries {
             switch tab.kind {
             case .pty:
-                let estimate = services.cache.existingTerminal(tab.id)?.session.surfaceView.memoryEstimateBytes ?? 0
+                let estimate = services.cache.existingTerminal(tab.id)?.session.memoryEstimateBytes ?? 0
                 resolved.tabs.append(TabResourceSources(tabID: tab.id, title: tab.displayTitle, kind: .terminal,
                                                         processes: [], estimatedAppBytes: estimate))
                 let key = ObjectIdentifier(daemon)
@@ -168,13 +169,9 @@ final class AppResourceSource: ResourceSampleSource {
                 resolved.daemons[index].terminals.append(TerminalQuery(tabID: tab.id, surface: tab.surface))
             case .browser:
                 let page = services.cache.existingBrowser(tab.id)?.tab
-                let kind: TabResourceKind = switch page?.engineKind {
-                case .cef: .chromium
-                case .webkit: .webkit
-                case nil: tab.browserEngine == "cef" || tab.browserEngine == "chromium" ? .chromium : .webkit
-                }
+                let kind: TabResourceKind = Self.drawsInChromium(tab, page: page) ? .chromium : .webkit
                 var sources = TabResourceSources(tabID: tab.id, title: tab.displayTitle, kind: kind, processes: [])
-                switch (page as? any BrowserProcessReporting)?.contentProcesses ?? .none {
+                switch Self.contentProcesses(of: page) {
                 case .pids(let pids): sources.processes = pids.map { ProcessKey(pid: $0) }
                 case .chromiumRendererClients(let clients): resolved.rendererClients[tab.id] = clients
                 case .none: break
@@ -182,8 +179,7 @@ final class AppResourceSource: ResourceSampleSource {
                 resolved.tabs.append(sources)
             case .conversation where tab.agentSession != nil:
                 // An agent chat's page (its acpmux agent runs apart); none while it hibernates.
-                let view = services.madeAgentTabs.flatMap { $0.views[$0.resolve(tab.id)] }
-                let pid = view.flatMap { WebContentProcess.identifier(of: $0.webView) }
+                let pid = Self.agentChatProcess(tab, in: services)
                 resolved.tabs.append(TabResourceSources(tabID: tab.id, title: tab.displayTitle, kind: .webkit,
                                                         processes: pid.map { [ProcessKey(pid: $0)] } ?? [], available: pid != nil))
             case .remoteTerminal, .conversation, .other:
@@ -193,6 +189,27 @@ final class AppResourceSource: ResourceSampleSource {
             }
         }
         return resolved
+    }
+
+    /// Whether browser tab `tab` draws in Chromium: its page's engine, else the daemon's engine name.
+    static func drawsInChromium(_ tab: TabModel, page: (any BrowserTab)?) -> Bool {
+        switch page?.engineKind {
+        case .cef: true
+        case .webkit: false
+        case nil: tab.browserEngine == "cef" || tab.browserEngine == "chromium"
+        }
+    }
+
+    /// What identifies the processes of a browser tab's page now; `.none` without a page.
+    static func contentProcesses(of page: (any BrowserTab)?) -> BrowserContentProcesses {
+        (page as? any BrowserProcessReporting)?.contentProcesses ?? .none
+    }
+
+    /// The WebContent process of agent chat `tab`'s page; nil while it hibernates, before it loads, or
+    /// while Chromium shows it.
+    static func agentChatProcess(_ tab: TabModel, in services: AppServices) -> Int32? {
+        let view = services.madeAgentTabs.flatMap { $0.views[$0.resolve(tab.id)] }
+        return view.flatMap { AppMemoryModel.webContentProcess(of: $0.page) }
     }
 
     // MARK: Off the main actor

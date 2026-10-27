@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextMobile
+import CmuxNextWakeups
 import Foundation
 import os
 
@@ -23,6 +24,19 @@ extension IPhoneHostService {
     static let allowButton = "allow"
     static let denyButton = "deny"
 
+    /// The phones the signed-in user allowed on this Mac. Settings > Mobile marks them; Remove (or
+    /// ``revokePhone(id:)``) forgets one.
+    var paired: MobileHostPairedDevices? {
+        get { pairing.paired }
+        set { pairing.paired = newValue }
+    }
+
+    /// Pairing requests waiting for the person, and the anti-flood state (Settings > Mobile lists them).
+    var prompts: MobileHostPairPrompts {
+        get { pairing.prompts }
+        set { pairing.prompts = newValue }
+    }
+
     private var pairedFile: MobileHostPairedDevicesFile? {
         dependencies.map { MobileHostPairedDevicesFile(directory: $0.stateDirectory) }
     }
@@ -35,23 +49,21 @@ extension IPhoneHostService {
         }
         if paired?.userID != account?.userID { resetPrompts() }
         paired = account.map { file.load(userID: $0.userID) }
-        if approverSync == nil, let environment = dependencies?.acpmuxEnvironment {
-            approverSync = MobileHostApproverSync(environment: environment)
-        }
+        ensureApproverSync()
         pushPaired()
     }
 
     /// Settings > Mobile: forget a phone. Its live links end now, its next link asks
     /// again, and its Face ID approvals stop counting at once.
     public func revokePhone(id: String) {
-        prompts.forget(id: id)
+        let listChanged = pairing.revoke(id: id)
         showPairDialog()
         if prompts.pending.isEmpty { quietAttention() }
-        guard var list = paired else { return }
-        list.remove(id)
-        savePaired(list)
+        guard listChanged else { return }
+        savePaired()
         let supervisor = supervisor
         // task-owner: one hop to the supervisor actor; dropping a phone with no link is a no-op
+        // main-hop-allow: main's FIFO starts it after the list push above, so the supervisor gets them in order
         Task { await supervisor.drop(phoneDeviceIDs: [id]) }
     }
 
@@ -68,28 +80,25 @@ extension IPhoneHostService {
     }
 
     private func ask(_ request: MobileHostPairRequest) {
-        // A request hostd sent before connections were turned off asks nothing.
-        guard allowed, let list = paired else { return }
-        switch list.decision(for: request) {
-        case .trusted, .denied:
-            // hostd may hold an older list: send the current one again.
-            pushPaired()
-            return
-        case .ask:
-            break
-        }
         // Test-only (DEBUG builds; nil in Release): a tagged rig instance's seeded phone
         // pairs without the person-only prompt (IPhonePairingSeed).
-        if let seed = dependencies?.pairingSeed, seed.trusts(request), var trusted = paired, trusted.userID == account?.userID {
-            Self.logger.info("phone \(request.phoneDeviceID.prefix(8), privacy: .public) paired from the test seed")
-            trusted.approve(request, at: Date())
-            savePaired(trusted)
+        let seed = dependencies?.pairingSeed
+        let asked = pairing.ask(request, allowed: allowed, userID: account?.userID, at: Date()) { seed?.trusts($0) ?? false }
+        switch asked {
+        case .ignored:
+            // A request hostd sent before connections were turned off asks nothing.
             return
+        case .known:
+            // hostd may hold an older list: send the current one again.
+            pushPaired()
+        case .seeded:
+            Self.logger.info("phone \(request.phoneDeviceID.prefix(8), privacy: .public) paired from the test seed")
+            savePaired()
+        case let .prompted(outcome):
+            Self.logger.info("phone \(request.phoneDeviceID.prefix(8), privacy: .public) asks to pair: \(String(describing: outcome), privacy: .public)")
+            if outcome == .ask { announce(request) }
+            showPairDialog()
         }
-        let outcome = prompts.receive(request, at: Date())
-        Self.logger.info("phone \(request.phoneDeviceID.prefix(8), privacy: .public) asks to pair: \(String(describing: outcome), privacy: .public)")
-        if outcome == .ask { announce(request) }
-        showPairDialog()
     }
 
     /// Settings > Mobile's Allow or Don't Allow on a waiting request (the person's own gesture,
@@ -144,27 +153,25 @@ extension IPhoneHostService {
         return .window(window)
     }
 
-    /// A waiting prompt shows when a cmux window becomes main or the app comes forward
-    /// (one pair of observers for the service's life; a pass with nothing waiting does nothing).
+    /// A waiting prompt shows when a cmux window becomes main or the app comes forward (one pair of
+    /// subscriptions on the app's notice fan-out for the service's life; a pass with nothing waiting does
+    /// nothing). The sheet goes up one visible task after the notice, once AppKit finished the activation.
     private func watchForPairWindow() {
-        guard pairWindowWatch.isEmpty else { return }
-        let center = NotificationCenter.default
-        for name in [NSWindow.didBecomeMainNotification, NSApplication.didBecomeActiveNotification] {
-            pairWindowWatch.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                // task-owner: one hop to the main actor per window or app activation; ends at once
-                Task { @MainActor [weak self] in self?.showPairDialog() }
-            })
+        guard pairWindowWatch.isEmpty, let appEvents, let mainWork = deadlines?.work else { return }
+        let show: @MainActor () -> Void = { [weak self] in
+            mainWork.post(.visible, owner: "IPhoneHost.pairWindow") { [weak self] in self?.showPairDialog() }
         }
+        pairWindowWatch = [
+            appEvents.subscribe(NSWindow.didBecomeMainNotification, owner: "IPhoneHost.pairWindow", show),
+            appEvents.subscribe(NSApplication.didBecomeActiveNotification, owner: "IPhoneHost.pairWindow", show),
+        ]
     }
 
     private func decide(_ request: MobileHostPairRequest, allow: Bool) {
-        prompts.answer(id: request.phoneDeviceID, allowed: allow, at: Date())
+        let listChanged = pairing.decide(request, allow: allow, userID: account?.userID, at: Date())
         if prompts.pending.isEmpty { quietAttention() }
         Self.logger.info("phone \(request.phoneDeviceID.prefix(8), privacy: .public) \(allow ? "allowed" : "denied", privacy: .public)")
-        if var list = paired, list.userID == account?.userID {
-            if allow { list.approve(request, at: Date()) } else { list.deny(request) }
-            savePaired(list)
-        }
+        if listChanged { savePaired() }
         showPairDialog()
     }
 
@@ -199,8 +206,9 @@ extension IPhoneHostService {
         showPairDialog()
     }
 
-    private func savePaired(_ list: MobileHostPairedDevices) {
-        paired = list
+    /// Saves the current list, then pushes it to hostd and acpmux.
+    private func savePaired() {
+        guard let list = paired else { return }
         do {
             try pairedFile?.save(list)
         } catch {
@@ -214,6 +222,7 @@ extension IPhoneHostService {
         let list = paired ?? MobileHostPairedDevices(userID: "")
         let supervisor = supervisor
         // task-owner: one hop to the supervisor actor; setDevices is idempotent
+        // main-hop-allow: main's FIFO starts the pushes in call order, so an older list never lands after a newer one
         Task { await supervisor.setDevices(list) }
         guard let directory = dependencies?.stateDirectory,
               let macDevice = try? MobileHostDeviceIdentity(directory: directory).deviceID() else { return }

@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// The motion switches in cmux.json (plans/cmux-next/motion-DESIGN.md):
 /// `ui.animations.enabled`, the master switch (bool, default true: false makes

@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// The Add Device card's panel: the same floating glass card as Add Server and Add Machine
 /// (``AddServerCardPanel``), near the top center of the cmux window, on every Space and over full
@@ -10,9 +11,9 @@ final class AddDeviceCardPanel: NSPanel {
     let content: AddDeviceView
     private let glass: GlassPanelView
 
-    init(model: AddDeviceModel) {
+    init(model: AddDeviceModel, mainWork: MainWorkScheduler) {
         self.model = model
-        content = AddDeviceView(model: model)
+        content = AddDeviceView(model: model, mainWork: mainWork)
         glass = Glass.makePanel(content: content, style: .regular, cornerRadius: 14)
         super.init(contentRect: NSRect(origin: .zero, size: NSSize(width: AddDeviceView.width, height: 240)),
                    styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView], backing: .buffered, defer: true)

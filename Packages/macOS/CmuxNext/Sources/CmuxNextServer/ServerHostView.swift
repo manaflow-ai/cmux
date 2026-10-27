@@ -43,9 +43,11 @@ public final class ServerHostView: NSView {
         self.model = model
         self.surface = surface
         backdrop = OverlaySurfaceView(material: material)
+        // hosting-gate: opt-out a menu bar panel or floating card, not tab content: it exists only while shown, sized by intrinsic size.
         hosting = NSHostingView(rootView: ServerRoot(model: model, surface: surface, appearance: appearanceState, dismiss: dismissBox))
         super.init(frame: .zero)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         backdrop.cornerRadius = ServerMetrics.cornerRadius
         backdrop.frame = bounds
         backdrop.autoresizingMask = [.width, .height]
@@ -81,6 +83,7 @@ public final class ServerHostView: NSView {
         resolveColors()
     }
 
+    // visibility-walk-allow: the glass tint, the wash's layer color and the surface's colors of a menu bar panel or floating card that exists only while it is open; nothing hidden to defer
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         resolveColors()

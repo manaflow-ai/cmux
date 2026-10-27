@@ -1,8 +1,11 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 import CmuxNextBrowser
+import CmuxNextCompat
+import CmuxNextDesign
 import CmuxNextPopups
 import CmuxNextSettings
+import CmuxNextWakeups
 
 /// `debug.popups` (DEBUG builds): the open popup windows (still under the
 /// `panels` key, which scripts read), for checks without screenshots. Per
@@ -18,22 +21,22 @@ import CmuxNextSettings
 /// panel frame, key/visible, parent window), or null.
 @MainActor
 enum DebugPopups {
-    static func report(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
+    static func report(_ params: [String: JSONValue], services: AppServices) async -> JSONValue {
         if params["action"]?.stringValue == "close" {
             services.popups.closeAll()
             services.iconPicker.open?.provider.finish(.cancel)
         }
-        return .object([
-            "panels": .array(services.popups.windows.enumerated().map { index, window in
-                var entry = popup(window, services: services)
-                if let dir = params["snapshot_dir"]?.stringValue, case .object(var fields) = entry {
-                    fields["snapshot"] = snapshot(window, to: URL(fileURLWithPath: dir).appendingPathComponent("popup-\(index).png"))
-                    entry = .object(fields)
-                }
-                return entry
-            }),
-            "icon_picker": iconPicker(services),
-        ])
+        var panels: [JSONValue] = []
+        for (index, window) in services.popups.windows.enumerated() {
+            var entry = popup(window, services: services)
+            if let dir = params["snapshot_dir"]?.stringValue, case .object(var fields) = entry {
+                let url = URL(fileURLWithPath: dir).appendingPathComponent("popup-\(index).png")
+                fields["snapshot"] = await snapshot(window, to: url, on: services.work)
+                entry = .object(fields)
+            }
+            panels.append(entry)
+        }
+        return .object(["panels": .array(panels), "icon_picker": iconPicker(services)])
     }
 
     private static func iconPicker(_ services: AppServices) -> JSONValue {
@@ -92,13 +95,16 @@ enum DebugPopups {
         return out
     }
 
-    /// Writes `window` (and its page window) as a PNG; the path, or null.
-    private static func snapshot(_ window: NSWindow, to url: URL) -> JSONValue {
-        guard let image = window.compositedSnapshot(),
-              let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { return .null }
+    /// Writes `window` (and its page window) as a PNG; the path, or null. The capture runs on the
+    /// system lane of `lanes`, the folder on its files lane, the encode and the write off the main actor.
+    private static func snapshot(_ window: NSWindow, to url: URL, on lanes: BackgroundWork) async -> JSONValue {
+        guard let image = await window.compositedImage(on: lanes) else { return .null }
         do {
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try data.write(to: url)
+            let folder = url.deletingLastPathComponent()
+            try await lanes.run(.userVisible, mayBlock: .files) {
+                try FileManager.checked.createDirectory(at: folder, withIntermediateDirectories: true)
+            }
+            try await NSWindow.encodeSnapshotPNG(image, to: url)
             return .string(url.path)
         } catch {
             return .null

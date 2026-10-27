@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// A new chat's typed text from before it has an acpmux session (cx-z5vd), by tab, in a JSON file
@@ -9,13 +10,16 @@ public final class AgentUnsentDrafts {
     static let maximumCharacters = 1_000_000
 
     let file: URL?
-    private var drafts: [String: String]
+    /// Observed one tab at a time (perf-speed-of-light.md I2): a pane snapshot's title and the oracle's agents
+    /// facet read their own tab's text, so typing in another tab's new chat re-runs neither.
+    private let drafts = ObservedMap<String, String>()
 
     public init(file: URL?) {
         self.file = file
         // concurrency-allow: one read of a small local state file when the tab store is made
         let data = file.flatMap { try? Data(contentsOf: $0) }
-        drafts = data.flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
+        let saved = data.flatMap { try? JSONDecoder().blockingDecode([String: String].self, from: $0) } ?? [:]
+        for (key, text) in saved { drafts[key] = text }
     }
 
     /// The file in the tag's state directory (beside the launch snapshot).
@@ -44,6 +48,9 @@ public final class AgentUnsentDrafts {
     /// Whether tab `key` holds a new chat's typed text (its close earns an undo toast).
     public func hasDraft(_ key: String) -> Bool { drafts[key] != nil }
 
+    /// Tab `key`'s kept text; nil when it holds none.
+    public func draft(for key: String) -> String? { drafts[key] }
+
     /// Keeps `text` as tab `key`'s draft; blank text forgets it.
     public func set(_ text: String, for key: String) {
         let keep = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && text.count <= Self.maximumCharacters
@@ -56,17 +63,25 @@ public final class AgentUnsentDrafts {
     /// The store gave provisional tab `key` its id `real`.
     public func move(_ key: String, to real: String) {
         guard key != real, let text = drafts.removeValue(forKey: key) else { return }
+        drafts.compact { $0 != key }
         drafts[real] = text
         save()
     }
 
+    /// Tab `key` closed: its text goes, with its observed slot (a closed tab has no reader left).
+    public func forget(_ key: String) {
+        set("", for: key)
+        drafts.compact { $0 != key }
+    }
+
     private func save() {
         guard let file else { return }
-        if drafts.isEmpty {
+        let saved = Dictionary(drafts.entries.map { ($0.key, $0.value) }, uniquingKeysWith: { first, _ in first })
+        if saved.isEmpty {
             try? FileManager.default.removeItem(at: file)
             return
         }
         // concurrency-allow: one small atomic write per settled edit of a new chat's text
-        try? JSONEncoder().encode(drafts).write(to: file, options: .atomic)
+        try? JSONEncoder().encode(saved).write(to: file, options: .atomic)
     }
 }

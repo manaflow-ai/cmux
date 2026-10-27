@@ -1,8 +1,10 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 /// The app's native UI ops for React pages (plans/cmux-next/react-pages.md 1.3):
@@ -110,24 +112,56 @@ final class AppPageNativeProvider: PageProvider {
 /// daemon's v2 op `<ns>.<verb>` (decision ONE-CATALOG: the short wire name is the canonical name's
 /// alias). `idempotency_key` moves from params to the v2 envelope; the daemon's refusal codes come
 /// back under `cmux.`. Until the pane-protocol router is in the daemon, this relay is the data path.
+///
+/// While the page is frozen its streams' listeners are paused (``PageRelayStreams``); the relay
+/// channel then closes its daemon connection when idle (``PageRelayIdleClose``).
 @MainActor
 final class DaemonPageRelay: PageProvider {
-    private unowned let services: AppServices
+    /// The process root's local daemon service (AppServices.machines.local), as `services` was before.
+    private unowned let daemon: any PageRelayDaemon
+    /// The page host's channels, shared by every page of the host.
+    let channels: PageRelayChannels
+    private let work: BackgroundWork
+    private let idleDeadline: () -> any PageRelayIdleDeadline
+    private let streams = PageRelayStreams()
 
-    init(services: AppServices) {
-        self.services = services
+    /// The app's relay: the local daemon, the page host's channels, idle closes on the app's deadlines.
+    convenience init(services: AppServices) {
+        let deadlines = services.mainDeadlines
+        self.init(daemon: services.machines.local, channels: services.webUI.relayChannels, work: services.work) {
+            // A close tears down what nobody uses: background class, behind input and visible work.
+            MainDeadline(owner: "PageRelayChannel.idleClose", workClass: .background, scheduler: deadlines)
+        }
+    }
+
+    /// - Parameters:
+    ///   - daemon: The daemon the pages call (the local one in the app).
+    ///   - channels: The page host's relay channels.
+    ///   - work: Where a channel's idle close closes its connection.
+    ///   - idleDeadline: Makes a new channel's idle close deadline.
+    init(daemon: any PageRelayDaemon, channels: PageRelayChannels, work: BackgroundWork,
+         idleDeadline: @escaping () -> any PageRelayIdleDeadline) {
+        self.daemon = daemon
+        self.channels = channels
+        self.work = work
+        self.idleDeadline = idleDeadline
+    }
+
+    /// The relay channel of `page` on the daemon, kept by the page host.
+    private func channel(for page: String) -> PageRelayChannel {
+        PageRelayChannel.of(page: page, daemon: daemon, in: channels, work: work, idle: idleDeadline)
     }
 
     func call(_ op: String, params: CmuxNextSettings.JSONValue, context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {
         guard op.hasPrefix("cmux.") else { throw PageError.unknownOp(op) }
-        guard services.machines.local.connection != nil else {
+        guard daemon.connection != nil else {
             throw PageError.closed
         }
         var members = params.objectValue ?? [:]
         let key = Self.idempotencyKey(members.removeValue(forKey: "idempotency_key")?.stringValue, context: context)
         do {
             // The page relay connection: origin `page`, or the user with a native-sheet token.
-            let result = try await PageRelayChannel.shared(for: services.machines.local, page: context.page).send(
+            let result = try await channel(for: context.page).send(
                 operation: String(op.dropFirst("cmux.".count)), params: try Self.daemonParams(members), idempotencyKey: key,
                 context: context)
             return try Self.pageValue(result)
@@ -143,18 +177,31 @@ final class DaemonPageRelay: PageProvider {
     func subscribe(_ stream: String, filter: CmuxNextSettings.JSONValue, context: PageCallContext,
                    onEvent: @escaping @MainActor (CmuxNextSettings.JSONValue) -> Void) async throws -> PageSubscription {
         guard stream.hasPrefix("cmux.") else { throw PageError.unknownOp(stream) }
-        guard services.machines.local.connection != nil else { throw PageError.closed }
+        guard daemon.connection != nil else { throw PageError.closed }
         let event = stream.dropFirst("cmux.".count).replacingOccurrences(of: ".", with: "-")
         do {
-            let cancel = try await PageRelayChannel.shared(for: services.machines.local, page: context.page).listen(event: event) { payload in
+            let channel = self.channel(for: context.page)
+            let listener = try await channel.listen(event: event) { payload in
                 onEvent((try? Self.pageValue(payload)) ?? .object([:]))
             }
-            return PageSubscription(onCancel: cancel)
+            let stop = streams.add(listener: listener, on: channel) { onEvent(["resync": true]) }
+            return Self.subscription(onCancel: stop)
         } catch is PageRelayChannel.NoSuchEvent {
             throw PageError.unknownOp(stream)
         } catch let error as DaemonError {
             throw Self.pageError(error)
         }
+    }
+
+    /// Frozen: no stream keeps a daemon listen. Thawed: each listens again and resyncs once.
+    func pageWillFreeze() { streams.freeze() }
+    func pageDidThaw() { streams.thaw() }
+
+    /// Daemon page events are change notices the page answers with a fresh read (the relay sends
+    /// `{resync: true}` after an overflow), so a frozen page keeps only the newest and a gap mark
+    /// when older ones dropped. Never `.latest`: that would hide the lost changes.
+    static func subscription(onCancel: @escaping () -> Void) -> PageSubscription {
+        PageSubscription(frozenDelivery: .resync, onCancel: onCancel)
     }
 
     /// The v2 idempotency key: the page's own, else its operation id (decision 31), so a resend
@@ -164,7 +211,7 @@ final class DaemonPageRelay: PageProvider {
     }
 
     static func daemonParams(_ members: [String: CmuxNextSettings.JSONValue]) throws -> [String: CmuxNextDaemon.JSONValue] {
-        try JSONDecoder().decode([String: CmuxNextDaemon.JSONValue].self,
+        try JSONDecoder().blockingDecode([String: CmuxNextDaemon.JSONValue].self,
                                  from: Data(CmuxNextSettings.JSONValue.object(members).compactText.utf8))
     }
 
@@ -206,9 +253,15 @@ final class PolicyGatedPageProvider: PageProvider {
         return try await inner.call(op, params: params, context: context)
     }
 
+    /// Frozen delivery: the wrapped provider's own policy, unchanged (the gate refuses or forwards a
+    /// stream, never changes what it keeps while the page is frozen).
     func subscribe(_ stream: String, filter: CmuxNextSettings.JSONValue, context: PageCallContext,
                    onEvent: @escaping @MainActor (CmuxNextSettings.JSONValue) -> Void) async throws -> PageSubscription {
         if let reason = turnedOff() { throw PageError(code: "cmux.policy.turned_off", message: reason) }
         return try await inner.subscribe(stream, filter: filter, context: context, onEvent: onEvent)
     }
+
+    /// The wrapped provider's streams stop and start with the page.
+    func pageWillFreeze() { inner.pageWillFreeze() }
+    func pageDidThaw() { inner.pageDidThaw() }
 }

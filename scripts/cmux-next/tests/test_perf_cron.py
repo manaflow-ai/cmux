@@ -10,6 +10,11 @@ spec = importlib.util.spec_from_file_location("perf_cron", os.path.join(HERE, ".
 cron = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(cron)
 budgets_mod = cron.load_budgets_module()
+# The suite tests the cron's logic whether or not the checkout has the perf lab's sentinel: only LabSentinelTests
+# points LAB_SENTINEL at a file that exists.
+REPO_LAB_SENTINEL = cron.LAB_SENTINEL
+NO_SENTINEL_DIR = tempfile.TemporaryDirectory()
+cron.LAB_SENTINEL = os.path.join(NO_SENTINEL_DIR.name, "OWNS_MEASUREMENT")
 
 T0 = datetime.datetime(2026, 10, 23, 12, 0, tzinfo=datetime.timezone.utc)
 ALL = [p["name"] for p in cron.PARTS]
@@ -399,6 +404,43 @@ class DisplayTests(OneRunRule):
             state = self.report_tick(d, {"stress": stress, "motion": on_vdisplay}, base)
             self.assertEqual([r["name"] for r in state["regressions"]], ["panes.split.4x2.frame" + B],
                              "a budgets part on the virtual display is compared at its refresh")
+
+    def test_count250_is_the_sum_the_benches_copied_from_debug_hangs(self):
+        report = {"runs": [{"action": "split", "count250": 1}, {"action": "close", "count250": 0}, {"count250": None}],
+                  "nested": {"count250": 2}, "display": {"count250": 9}}
+        self.assertEqual(cron.count250_of(report, budgets_mod), 3, "every bench window's count, not the display's")
+        self.assertIsNone(cron.count250_of({"runs": [{"hangs": 0}]}, budgets_mod), "no bench printed one")
+        self.assertIsNone(cron.count250_of({"count250": True}, budgets_mod), "a bool is not a count")
+        budgets = {"rows": [], "runs": {"panes": {"exit": 0, "count250": 2}, "new_surfaces": {"exit": 0, "count250": 1},
+                                        "anim": {"exit": 0}}}
+        self.assertEqual(cron.count250_of(budgets, budgets_mod), 3, "perf-budgets keeps each bench's sum on its run")
+        gate = {"phases": {"tabs": {"hangs": [], "count250": 1}, "focus": {"hangs": [], "count250": None}}}
+        self.assertEqual(cron.count250_of(gate, budgets_mod), 1, "perf-gate keeps each phase's count")
+
+    def test_count250_says_not_reported_only_where_a_bench_window_reports_it(self):
+        self.assertIn("stress count250 not reported", cron.count250_line("stress", None), "a build without the counter")
+        self.assertIn("motion count250 0", cron.count250_line("motion", 0))
+        for part in ("launch", "sidebar", "home-idle"):
+            self.assertIsNone(cron.count250_line(part, None), f"{part}: no bench window of it reads count250")
+        self.assertIn("sidebar count250 4", cron.count250_line("sidebar", 4), "a count that came back is printed")
+        self.assertEqual(set(cron.COUNT250_PARTS) - set(cron.PART_BY_NAME), set(), "every listed part exists")
+
+    def test_the_build_part_prints_no_count250(self):
+        out = io.StringIO()
+        with tempfile.TemporaryDirectory() as d, mock.patch("sys.stdout", out):
+            self.report_tick(d, {"build": {"built": True}}, {})
+        self.assertNotIn("count250", out.getvalue(), "the build runs no bench")
+
+    def test_count250_is_printed_and_never_a_row(self):
+        stress = {"refresh_ms": 8.33, "runs": [{"action": "close", "count250": 1}, {"action": "close", "count250": 1}],
+                  "summary": [{"action": "close", "layout": "stress", "frames_p50_ms": 8.3, "frames_p95_ms": 8.4, "missed": 0}]}
+        out = io.StringIO()
+        with tempfile.TemporaryDirectory() as d, mock.patch("sys.stdout", out):
+            state = self.report_tick(d, {"stress": stress}, {})
+        self.assertIn("perf-cron report: stress count250 2 (main-thread stalls >= 250 ms in its bench windows; read only)",
+                      out.getvalue())
+        self.assertFalse([n for n in state["last"]["rows"] if "count250" in n], "read only: no row, no target, no gate")
+        self.assertEqual(state["regressions"], [])
 
     def test_an_incomplete_budget_report_does_not_become_a_done_part(self):
         report = {"rows": [{"name": "panes.split.4x2.frame", "p95": 8.4}],
@@ -2489,6 +2531,102 @@ class NotMeasuringTests(unittest.TestCase):
 
     def test_a_busy_fleet_is_not_a_refusal(self):
         self.assertIsNone(cron.not_measuring_reason("f" * 40, 3))
+
+
+def read_outputs(path):
+    with open(path) as f:
+        return dict(line.split("=", 1) for line in f.read().splitlines())
+
+
+class LabSentinelTests(unittest.TestCase):
+    """p12-perf-process task 026: scripts/perf-lab/OWNS_MEASUREMENT stops the cron and xbench, no workflow edit."""
+
+    @staticmethod
+    def refuse(*a, **k):
+        raise AssertionError("no git, GitHub or fleet call while the perf lab owns measurement")
+
+    def test_the_sentinel_is_in_the_scripts_the_plan_job_checks_out(self):
+        # The plan job's sparse checkout is `scripts` (cmux-next-perf-budgets.yml).
+        self.assertEqual(os.path.relpath(REPO_LAB_SENTINEL, cron.ROOT),
+                         os.path.join("scripts", "perf-lab", "OWNS_MEASUREMENT"))
+
+    def test_with_the_sentinel_the_plan_submits_0_parts_and_the_report_saves_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            sentinel = os.path.join(d, "OWNS_MEASUREMENT")
+            open(sentinel, "w").close()
+            state_dir = os.path.join(d, "state")
+            os.makedirs(state_dir)
+            state = cron.empty_state(T0)
+            state["current"] = cron.new_measurement("a" * 40, "tip", ["motion", "diff-viewer"], T0)
+            with open(os.path.join(state_dir, "state.json"), "w") as f:
+                json.dump(state, f)
+            fetched = open(os.path.join(state_dir, "state.json")).read()
+            with mock.patch.object(cron, "LAB_SENTINEL", sentinel), mock.patch.object(cron, "git", self.refuse), \
+                    mock.patch.object(cron, "gh_request", self.refuse), mock.patch.object(cron, "http_json", self.refuse), \
+                    mock.patch.object(urllib.request, "urlopen", self.refuse), \
+                    mock.patch.object(cron, "finish_measurement", self.refuse):
+                out = os.path.join(d, "plan.out")
+                cron.cmd_plan(argparse.Namespace(repo="o/r", dir=state_dir, tip="HEAD", yield_mode="queued", no_mac=False,
+                                                 controller=True, perf_result="", output=out))
+                plan = read_outputs(out)
+                self.assertEqual((plan["action"], plan["part"], plan["linux_part"], plan["frame_pacing"]),
+                                 ("none", "", "", "false"), "0 parts: no Mac part, no Linux part, no frame pacing")
+                self.assertIn(cron.LAB_REASON, plan["reason"])
+                rep = os.path.join(d, "report.out")
+                cron.cmd_report(argparse.Namespace(repo="o/r", dir=state_dir, result=["motion=" + d], run_url="u",
+                                                   finish=True, issues=True, output=rep))
+                report = read_outputs(rep)
+            self.assertEqual((report["changed"], report["next_now"], report["not_measuring"]), ("false", "false", ""),
+                             "nothing saved over the state, no next tick chained, the tick does not fail")
+            self.assertEqual(open(os.path.join(state_dir, "state.json")).read(), fetched,
+                             "the cron goes on from the same state when the sentinel is removed")
+
+    def test_without_the_sentinel_the_plan_runs(self):
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(cron, "LAB_SENTINEL", os.path.join(d, "OWNS_MEASUREMENT")), \
+                mock.patch.object(cron, "plan") as plan:
+            o = argparse.Namespace(repo="o/r", dir=d, output=os.path.join(d, "plan.out"))
+            cron.cmd_plan(o)
+            plan.assert_called_once_with(o)
+            self.assertFalse(os.path.exists(os.path.join(d, cron.LAB_OWNS)))
+
+    def test_xbench_exits_0_with_the_same_message_when_the_sentinel_exists(self):
+        import contextlib, sys, types
+        path = os.path.join(cron.ROOT, "scripts", "perf-bench", "xbench.py")
+        # xbench imports macOS's libproc counters (procs.py): a stub keeps this Linux test independent of them.
+        with mock.patch.dict(sys.modules, {"procs": types.SimpleNamespace()}):
+            xspec = importlib.util.spec_from_file_location("xbench_lab_sentinel", path)
+            xbench = importlib.util.module_from_spec(xspec)
+            xspec.loader.exec_module(xbench)
+        self.assertEqual(xbench.LAB_SENTINEL, REPO_LAB_SENTINEL, "one sentinel for both")
+        self.assertEqual(xbench.LAB_REASON, cron.LAB_REASON)
+        with tempfile.TemporaryDirectory() as d:
+            sentinel = os.path.join(d, "OWNS_MEASUREMENT")
+            open(sentinel, "w").close()
+            printed = io.StringIO()
+            with mock.patch.object(xbench, "LAB_SENTINEL", sentinel), mock.patch.object(xbench, "Run", self.refuse), \
+                    contextlib.redirect_stdout(printed):
+                for argv in (["run", "--out", d], ["report", "--out", d], ["gate", "--results", "r", "--baseline", "b"]):
+                    with self.assertRaises(SystemExit) as ctx:
+                        xbench.main(argv)
+                    self.assertEqual(ctx.exception.code, 0, argv)
+            self.assertIn(f"xbench: {cron.LAB_REASON}", printed.getvalue())
+            with mock.patch.object(xbench, "LAB_SENTINEL", os.path.join(d, "absent")), \
+                    mock.patch.object(xbench, "gate", return_value=1):
+                with self.assertRaises(SystemExit) as ctx:
+                    xbench.main(["gate", "--results", "r", "--baseline", "b"])
+                self.assertEqual(ctx.exception.code, 1, "without the sentinel the gate runs")
+            # The lab's own stories (task 208) run xbench from a checkout that has the sentinel.
+            ran = []
+            with mock.patch.object(xbench, "LAB_SENTINEL", sentinel), \
+                    mock.patch.object(xbench, "gate", return_value=1), \
+                    mock.patch.object(xbench, "Run", lambda args: types.SimpleNamespace(main=lambda: ran.append(args))), \
+                    mock.patch.object(xbench.signal, "signal"):
+                with self.assertRaises(SystemExit) as ctx:
+                    xbench.main(["--perf-lab", "gate", "--results", "r", "--baseline", "b"])
+                self.assertEqual(ctx.exception.code, 1, "--perf-lab runs the gate with the sentinel present")
+                xbench.main(["--perf-lab", "run", "--out", d])
+                self.assertEqual([a.out for a in ran], [d], "--perf-lab measures with the sentinel present")
 
 
 if __name__ == "__main__":

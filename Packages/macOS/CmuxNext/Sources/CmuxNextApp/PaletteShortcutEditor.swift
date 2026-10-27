@@ -46,7 +46,8 @@ final class PaletteShortcutEditor: PaletteShortcutEditing {
 
     private func write(_ body: @escaping @MainActor (SettingsController) async throws -> Void) {
         let settings = settings, logger = logger
-        services.registry.track(Task { @MainActor in
+        // main-hop-allow: the write is SettingsController's own main-actor async write (its file write runs off main); the task only starts it and reports a refusal
+        services.registry.track(Task {
             do {
                 try await body(settings)
                 return nil

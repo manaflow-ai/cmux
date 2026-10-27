@@ -3,6 +3,7 @@
 use super::*;
 
 impl WorkspaceRegistry {
+    #[track_caller]
     pub fn resource_events_after(&self, revision: u64) -> anyhow::Result<ResourceEventPage> {
         query_resource_events_after(&self.connection.get(), &self.generation, revision)
     }

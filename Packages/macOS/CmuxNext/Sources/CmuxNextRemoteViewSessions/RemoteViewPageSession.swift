@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextWakeups
 public import CmuxNextRemoteView
 public import CmuxNextSettings
 
@@ -16,7 +17,7 @@ public final class RemoteViewPageSession {
     public static let mockHost = "mock"
 
     #if DEBUG
-    private let pane: RemoteDesktopPane
+    let pane: RemoteDesktopPane
     private let source: any RemoteViewStreamSource
     /// The real host's source and how to make a new transport; nil for the mock.
     private let rd: (source: RemoteRdDebugSource, make: () -> RemoteRdStreamTransport?)?
@@ -67,8 +68,9 @@ public final class RemoteViewPageSession {
 
     /// An RFB compatibility host: decoded frames, fitted to the pane, on the
     /// layer-contents presenter (the Metal presenter is for YUV video).
-    private init(vncRecord record: RemoteViewTabRecord, port: UInt16, closeTab: @escaping @MainActor () -> Void) {
-        let vnc = RemoteVNCSession(record: record, port: port, demoHost: Self.mockHost)
+    private init(vncRecord record: RemoteViewTabRecord, port: UInt16, work: BackgroundWork, mainWork: MainWorkScheduler,
+                 signIns: RemoteVNCSignIns, closeTab: @escaping @MainActor () -> Void) {
+        let vnc = RemoteVNCSession(record: record, port: port, demoHost: Self.mockHost, work: work, mainWork: mainWork, signIns: signIns)
         self.vnc = vnc
         source = vnc.source
         rd = nil
@@ -112,6 +114,24 @@ public final class RemoteViewPageSession {
 
     public var view: NSView { pane.view }
     public var focusTarget: NSView { pane.view.focusView }
+
+    /// The pane as drawn with its last frame (`RemoteDesktopPane.picture()`): a hidden tab's picture.
+    public func picture() async -> CGImage? { await pane.picture() }
+
+    /// Runs when a resumed stream shows its own content: its first frame, or why it ended.
+    public var onOwnContent: (() -> Void)? {
+        get { pane.onOwnContent }
+        set { pane.onOwnContent = newValue }
+    }
+
+    /// The windows' frame-aligned pointer input for the pane (feature `pointerFrameRemoteInput`).
+    public var pointerFrames: FrameInputCoalescers? {
+        get { pane.pointerFrames }
+        set { pane.pointerFrames = newValue }
+    }
+
+    /// The person stopped the session or it ended: it stays so until the pane's Reconnect.
+    public var isEnded: Bool { rdStopped || pane.state.isEnded }
 
     /// `debug.remote_view` state of this session: the source, the session
     /// state and the decode counters.
@@ -167,15 +187,28 @@ public final class RemoteViewPageSession {
     #else
     public var view: NSView { NSView() }
     public var focusTarget: NSView { view }
+    public func picture() async -> CGImage? { nil }
+    public var onOwnContent: (() -> Void)? {
+        get { nil }
+        set {}
+    }
+    public var pointerFrames: FrameInputCoalescers? {
+        get { nil }
+        set {}
+    }
+    public var isEnded: Bool { false }
     public func resume() {}
     public func pause() {}
     #endif
 
     /// A session for `record`, or nil when this build cannot show it.
-    public static func make(record: RemoteViewTabRecord, closeTab: @escaping @MainActor () -> Void) -> RemoteViewPageSession? {
+    public static func make(record: RemoteViewTabRecord, work: BackgroundWork, mainWork: MainWorkScheduler, vncSignIns: RemoteVNCSignIns,
+                            closeTab: @escaping @MainActor () -> Void) -> RemoteViewPageSession? {
         #if DEBUG
         guard RemoteViewAvailability().isAvailable else { return nil }
-        if let port = record.vncPort { return RemoteViewPageSession(vncRecord: record, port: port, closeTab: closeTab) }
+        if let port = record.vncPort {
+            return RemoteViewPageSession(vncRecord: record, port: port, work: work, mainWork: mainWork, signIns: vncSignIns, closeTab: closeTab)
+        }
         if record.host.lowercased() == mockHost { return RemoteViewPageSession(record: record, closeTab: closeTab) }
         guard RemoteViewTabPolicy().isLoopback(record.host), let host = RemoteViewDebugRdHost(),
               let first = host.transport(for: record) else { return nil }

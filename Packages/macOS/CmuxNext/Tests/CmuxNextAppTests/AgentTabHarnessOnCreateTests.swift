@@ -3,7 +3,9 @@ import CmuxAgentBrands
 import CmuxNextActions
 import CmuxNextBridge
 @testable import CmuxNextDaemon
+import CmuxNextInput
 import CmuxNextTabs
+import CmuxNextWakeups
 import Foundation
 import Testing
 @testable import CmuxNextApp
@@ -26,8 +28,8 @@ struct AgentTabHarnessOnCreateTests {
     }
 
     private static func agentTabs(defaults: UserDefaults = UserDefaults()) -> AgentTabStore {
-        let environment = [AgentPaneSource.devURLVariable: "http://127.0.0.1:9"]
-        let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(), environment: environment, showcase: true,
+        let environment = AgentPageAppTestRoot.environment
+        let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(), work: BackgroundWork(label: "test.agent-pane"), webUI: .agentTabsTestHost(), input: InputEventTap(), environment: environment, showcase: true,
                                   defaults: defaults)
         tabs.localHost = host
         return tabs
@@ -47,7 +49,7 @@ struct AgentTabHarnessOnCreateTests {
     private static func wired(_ tabs: AgentTabStore, _ store: DaemonStore, binds: @escaping (Bind) -> Void) {
         tabs.lookup = { key in store.tab(id: key)?.agentSession.map { ($0, store) } }
         tabs.firstPageNewTab = { _, _ in
-            (AgentPaneNewTab(kind: .agent), NewTabPageHandler(open: { _, _ in }, jump: { _, _ in }, editShortcut: { _ in }))
+            (AgentPaneNewTab(kind: .agent), NewTabPageHandler(open: { _, _ in }, jump: { _, _, _ in }, editShortcut: { _ in }))
         }
         tabs.bind = { _, _, expected, session, harness in
             binds(Bind(expected: expected, session: session, harness: harness))

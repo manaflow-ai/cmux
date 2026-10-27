@@ -31,24 +31,23 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
             let label = state == .on ? Strings.bookmarkEdit : Strings.bookmarkAdd
             setAccessibilityLabel(label)
             needsDisplay = true
+            needsLayout = true // invalidate: another state (the guard above) centers another glyph
         }
     }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         layer?.cornerRadius = OmnibarStyle.chipCornerRadius
         layer?.cornerCurve = .continuous
-        translatesAutoresizingMaskIntoConstraints = false
-        image.translatesAutoresizingMaskIntoConstraints = false
         image.imageScaling = .scaleNone
         addSubview(image)
-        NSLayoutConstraint.activate([
-            widthAnchor.constraint(equalToConstant: ProfileBadgeView.size + 4),
-            heightAnchor.constraint(equalToConstant: ProfileBadgeView.size + 4),
-            image.centerXAnchor.constraint(equalTo: centerXAnchor),
-            image.centerYAnchor.constraint(equalTo: centerYAnchor),
-        ])
+        // The omnibar's badge row keeps the star at its size, as a fixed one.
+        for orientation in [NSLayoutConstraint.Orientation.horizontal, .vertical] {
+            setContentHuggingPriority(.required, for: orientation)
+            setContentCompressionResistancePriority(.required, for: orientation)
+        }
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityIdentifier("cmux.browser.bookmarkStar")
@@ -57,6 +56,27 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    // MARK: Frame layout
+
+    /// The square the star sits in: a profile badge's size and 2 pt around it.
+    static let side = ProfileBadgeView.size + 4
+
+    override var intrinsicContentSize: NSSize { NSSize(width: Self.side, height: Self.side) }
+
+    override var fittingSize: NSSize { intrinsicContentSize }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let oldSize = frame.size
+        super.setFrameSize(newSize)
+        if newSize != oldSize { needsLayout = true } // invalidate: a new size (the check above) centers the star again
+    }
+
+    /// The star centered in the square at its own size.
+    override func layout() {
+        super.layout()
+        image.setAlignmentFrame(ProfileBadgeView.centered(image.intrinsicContentSize, in: bounds))
+    }
 
     override func accessibilityPerformPress() -> Bool {
         onPress?(self)
@@ -67,11 +87,13 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
         onPress?(self)
     }
 
+    // visibility-walk-allow: hover is a hit test: a view hidden or shown under a still pointer gets no exit or enter, so PointerHover reads the pointer again (input state, no view work)
     override func viewDidHide() {
         super.viewDidHide()
         hover?.refresh()
     }
 
+    // visibility-walk-allow: hover is a hit test: a view hidden or shown under a still pointer gets no exit or enter, so PointerHover reads the pointer again (input state, no view work)
     override func viewDidUnhide() {
         super.viewDidUnhide()
         hover?.refresh()

@@ -72,6 +72,7 @@ pub(crate) mod workspace_name_store;
 pub(crate) use workspace_commit_intent::{WorkspaceCommitIntent, WorkspaceCommitReceipt};
 pub(crate) mod relaunch_store;
 mod resource_effect_commit;
+pub(crate) mod resource_identity_queries;
 pub(crate) mod resource_store;
 pub(crate) mod screen_store;
 pub(crate) mod session_journal;
@@ -212,8 +213,13 @@ const RESOURCE_EFFECT_PEPPER_ID_DOMAIN: &[u8] = b"cmux.resource-effect-pepper-id
 const RESOURCE_INPUT_RECEIPT_DOMAIN: &[u8] = b"cmux.resource-input-receipt.v2";
 pub(crate) const WORKSPACE_REGISTRY_FILE: &str = "workspace-registry.sqlite3";
 
+/// A workspace-registry commit transaction, opened by the registry on its
+/// connection (the checked SQLite chokepoint). Extra writes receive it.
+pub(crate) type RegistryTransaction<'conn> = Transaction<'conn>;
+
 /// An extra write that runs inside a workspace-registry commit transaction.
-pub(crate) type RegistryTransactionWrite<'a> = &'a dyn Fn(&Transaction<'_>) -> anyhow::Result<()>;
+pub(crate) type RegistryTransactionWrite<'a> =
+    &'a dyn Fn(&RegistryTransaction<'_>) -> anyhow::Result<()>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnsupportedWorkspaceRegistrySchema {
@@ -299,9 +305,11 @@ impl ResourceEffectPepper {
         key_block[..RESOURCE_EFFECT_PEPPER_BYTES].copy_from_slice(self.0.as_ref());
         let mut inner_pad = [0x36_u8; BLOCK_BYTES];
         let mut outer_pad = [0x5c_u8; BLOCK_BYTES];
-        for index in 0..BLOCK_BYTES {
-            inner_pad[index] ^= key_block[index];
-            outer_pad[index] ^= key_block[index];
+        for ((inner, outer), key) in
+            inner_pad.iter_mut().zip(outer_pad.iter_mut()).zip(key_block.iter())
+        {
+            *inner ^= key;
+            *outer ^= key;
         }
 
         let mut inner = Sha256::new();
@@ -329,13 +337,7 @@ fn update_sha256_part(hasher: &mut Sha256, value: &[u8]) {
 }
 
 fn hex_sha256(digest: [u8; 32]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut encoded = String::with_capacity(64);
-    for byte in digest {
-        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
-        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
-    }
-    encoded
+    hex_bytes(&digest)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -832,9 +834,8 @@ fn pending_session_reset_kind(rest: &str) -> Option<PendingSessionResetKind> {
 }
 
 fn is_canonical_reset_uuid_v4(value: &str) -> bool {
-    let bytes = value.as_bytes();
-    bytes.len() == 36
-        && bytes[8] == b'-'
+    let Ok(bytes) = <&[u8; 36]>::try_from(value.as_bytes()) else { return false };
+    bytes[8] == b'-'
         && bytes[13] == b'-'
         && bytes[18] == b'-'
         && bytes[23] == b'-'
@@ -886,10 +887,11 @@ fn pending_session_reset_dirs(
         let Some(file_name) = file_name.to_str() else {
             continue;
         };
-        if !file_name.starts_with(&prefix) || !file_name.ends_with(suffix) {
+        let Some(rest) =
+            file_name.strip_prefix(prefix.as_str()).and_then(|rest| rest.strip_suffix(suffix))
+        else {
             continue;
-        }
-        let rest = &file_name[prefix.len()..file_name.len() - suffix.len()];
+        };
         let Some(kind) = pending_session_reset_kind(rest) else {
             continue;
         };
@@ -1093,7 +1095,7 @@ fn reset_confirmation_snapshot(
     }
     let digest = hash.finalize();
     Ok(ResetConfirmationSnapshot {
-        confirm_reset: digest[..12].iter().map(|byte| format!("{byte:02x}")).collect(),
+        confirm_reset: digest.iter().take(12).map(|byte| format!("{byte:02x}")).collect(),
         session_fingerprint,
         terminal_host_fingerprint,
         pending_reset_dir_fingerprints,
@@ -1134,11 +1136,11 @@ fn reset_path_token(path: &Path) -> String {
 }
 
 fn hex_bytes(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
+    use std::fmt::Write as _;
     let mut encoded = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
-        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
-        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
+        // Writing to a String cannot fail.
+        let _ = write!(encoded, "{byte:02x}");
     }
     encoded
 }
@@ -1749,7 +1751,7 @@ fn reset_child_file_content_sha256(
             break;
         }
         budget.add_file_bytes(display_path, read as u64)?;
-        hash.update(&buffer[..read]);
+        hash.update(buffer.get(..read).context("read returned more bytes than its buffer holds")?);
     }
     let current = reset_child_stat(parent_fd, name, display_path)?;
     if reset_stat_metadata_fingerprint(&current) != reset_stat_metadata_fingerprint(expected) {
@@ -2311,7 +2313,7 @@ fn reset_file_content_sha256(
             break;
         }
         budget.add_file_bytes(path, read as u64)?;
-        hash.update(&buffer[..read]);
+        hash.update(buffer.get(..read).context("read returned more bytes than its buffer holds")?);
     }
     let current = fs::symlink_metadata(path)
         .with_context(|| format!("inspect reset file {}", path.display()))?;
@@ -2445,6 +2447,7 @@ impl WorkspaceRegistry {
         Ok(())
     }
 
+    #[track_caller]
     pub fn in_memory(session_name: &str) -> anyhow::Result<Self> {
         let connection = Connection::open_in_memory()?;
         Self::initialize(
@@ -2458,6 +2461,7 @@ impl WorkspaceRegistry {
         )
     }
 
+    #[track_caller]
     pub fn open(root: &Path, session_name: &str) -> anyhow::Result<Self> {
         let root = platform::normalize_filesystem_path(root.to_path_buf());
         // Keep short roots in their existing spelling while giving all
@@ -2505,6 +2509,7 @@ impl WorkspaceRegistry {
         )
     }
 
+    #[track_caller]
     fn initialize(
         connection: Connection,
         session_name: String,
@@ -2931,19 +2936,21 @@ impl WorkspaceRegistry {
         self.resource_effect_pepper.input_receipt_hmac(idempotency_key, operation, canonical_fields)
     }
 
+    #[track_caller]
     pub fn snapshot(&self) -> anyhow::Result<RegistrySnapshot> {
-        let revision = current_revision(&self.connection.get())?;
-        let resource_revision = current_resource_revision(&self.connection.get())?;
-        let max_numeric_id = self.connection.get().query_row(
-            "SELECT COALESCE(MAX(numeric_id), 0) FROM workspaces",
-            [],
-            |row| row.get::<_, i64>(0),
-        )?;
+        // One acquisition for the whole read: one `sqlite` note
+        // (`request_path`), one lock hold.
+        let db = self.connection.get();
+        let revision = current_revision(&db)?;
+        let resource_revision = current_resource_revision(&db)?;
+        let max_numeric_id =
+            db.query_row("SELECT COALESCE(MAX(numeric_id), 0) FROM workspaces", [], |row| {
+                row.get::<_, i64>(0)
+            })?;
         let next_numeric_id = u64::try_from(max_numeric_id)
             .context("stored workspace id is negative")?
             .checked_add(1)
             .ok_or_else(|| anyhow::anyhow!("workspace id space exhausted"))?;
-        let db = self.connection.get();
         let mut statement = db.prepare(
             "SELECT w.numeric_id, w.workspace_key, w.name, w.group_key, rw.public_id,
                     w.name_source, w.name_revision
@@ -2992,6 +2999,7 @@ impl WorkspaceRegistry {
     }
 
     /// Read the resource cursor without materializing the workspace graph.
+    #[track_caller]
     pub(crate) fn resource_revision(&self) -> anyhow::Result<u64> {
         current_resource_revision(&self.connection.get())
     }
@@ -3002,6 +3010,7 @@ impl WorkspaceRegistry {
     /// until the recovered effect can publish its complete topology in one
     /// revision. The daemon rehydrates them only during startup so terminal
     /// host adoption can finish that transaction.
+    #[track_caller]
     pub(crate) fn interrupted_resource_workspaces(
         &self,
     ) -> anyhow::Result<Vec<(usize, RegistryWorkspace)>> {
@@ -3087,17 +3096,20 @@ impl WorkspaceRegistry {
     /// The current terminal registry revision alone. Lookups that only need to
     /// stamp their answer read this instead of materializing every terminal
     /// row while holding the registry lock.
+    #[track_caller]
     pub fn terminal_revision(&self) -> anyhow::Result<u64> {
         current_terminal_revision(&self.connection.get())
     }
 
     /// Includes tombstones and is intended for reconciliation and idempotent
     /// close handling, not frontend materialization.
+    #[track_caller]
     pub fn terminal_record(&self, terminal_id: &str) -> anyhow::Result<Option<RegistryTerminal>> {
         validate_terminal_identity("terminal id", terminal_id)?;
         read_terminal(&self.connection.get(), terminal_id)
     }
 
+    #[track_caller]
     pub fn replay_terminal(
         &self,
         mutation: &WorkspaceMutation,
@@ -3114,6 +3126,7 @@ impl WorkspaceRegistry {
     /// a host, then advance it through `adopting`/`running` only after the host
     /// record is durable. A tombstoned id can never be resurrected.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub fn commit_terminal(
         &mut self,
         mutation: &WorkspaceMutation,
@@ -3139,6 +3152,7 @@ impl WorkspaceRegistry {
 
     /// Durably tombstones a terminal before the caller signals its host. This
     /// makes a repeated close safe even if the first success reply was lost.
+    #[track_caller]
     pub fn close_terminal(
         &mut self,
         mutation: &WorkspaceMutation,
@@ -3164,6 +3178,7 @@ impl WorkspaceRegistry {
         Ok(commit)
     }
 
+    #[track_caller]
     pub(crate) fn replay_terminal_close(
         &self,
         mutation: &WorkspaceMutation,
@@ -3178,6 +3193,7 @@ impl WorkspaceRegistry {
     /// identities and incarnations are validated before the first update, and
     /// any later SQLite failure rolls the entire set back. Hosts are signaled
     /// only after this method commits successfully.
+    #[track_caller]
     pub fn close_terminals_atomically(
         &mut self,
         mutation: &WorkspaceMutation,
@@ -3192,6 +3208,7 @@ impl WorkspaceRegistry {
     }
 
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn set_terminal_close_failure(&self, enabled: bool) -> anyhow::Result<()> {
         if enabled {
             self.connection.get().execute_batch(
@@ -3207,6 +3224,7 @@ impl WorkspaceRegistry {
         Ok(())
     }
 
+    #[track_caller]
     pub fn terminal_events_after(
         &self,
         revision: u64,
@@ -3248,6 +3266,7 @@ impl WorkspaceRegistry {
     /// workspace selector. This is what lets a lost-response retry of a
     /// successful close return the original result after the workspace has
     /// become a tombstone.
+    #[track_caller]
     pub fn replay(
         &self,
         mutation: &WorkspaceMutation,
@@ -3290,6 +3309,7 @@ impl WorkspaceRegistry {
     /// a committed command must return its original result even after newer
     /// commands have advanced the registry.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub fn commit(
         &mut self,
         mutation: &WorkspaceMutation,
@@ -3335,6 +3355,7 @@ impl WorkspaceRegistry {
     /// Atomically replace the live ordered registry, including its selected
     /// workspace, and record the mutation plus its public resource event.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub fn commit_with_active_workspace(
         &mut self,
         mutation: &WorkspaceMutation,
@@ -3367,6 +3388,7 @@ impl WorkspaceRegistry {
     /// unchanged (metadata only) or reordered (a group move). A replayed
     /// mutation returns its original result and writes nothing.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub fn commit_workspace_presentation(
         &mut self,
         mutation: &WorkspaceMutation,
@@ -3399,6 +3421,7 @@ impl WorkspaceRegistry {
         )
     }
 
+    #[track_caller]
     pub fn events_after(&self, revision: u64) -> anyhow::Result<Vec<RegistryEvent>> {
         let db = self.connection.get();
         let mut statement = db.prepare(
@@ -3433,6 +3456,7 @@ impl WorkspaceRegistry {
         .collect()
     }
 
+    #[track_caller]
     pub fn get_frontend_projection(
         &self,
         frontend: &str,
@@ -3470,6 +3494,7 @@ impl WorkspaceRegistry {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub fn put_frontend_projection(
         &mut self,
         mutation: &WorkspaceMutation,
@@ -4632,11 +4657,12 @@ fn validate_terminal(terminal: &RegistryTerminal) -> anyhow::Result<()> {
 }
 
 fn validate_terminal_identity(label: &str, value: &str) -> anyhow::Result<()> {
-    if value.len() != 32
-        || !value.bytes().all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
-        || value.as_bytes()[12] != b'4'
-        || !matches!(value.as_bytes()[16], b'8'..=b'b')
-    {
+    let canonical = <&[u8; 32]>::try_from(value.as_bytes()).is_ok_and(|bytes| {
+        bytes.iter().all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+            && bytes[12] == b'4'
+            && matches!(bytes[16], b'8'..=b'b')
+    });
+    if !canonical {
         anyhow::bail!("{label} must be a 32-character lowercase UUIDv4 hex value");
     }
     Ok(())
@@ -5322,6 +5348,12 @@ fn session_storage_component(session: &str) -> String {
     format!("{readable}-{hash:016x}")
 }
 
+/// A random v4 UUID. Code that can answer a randomness failure calls
+/// [`try_new_uuid_v4`].
+#[allow(
+    clippy::expect_used,
+    reason = "INVARIANT: getrandom fails only when the OS CSPRNG is gone; Chrome's base/rand_util_posix.cc CHECKs the same read"
+)]
 pub(crate) fn new_uuid_v4() -> String {
     try_new_uuid_v4().expect("operating system randomness unavailable")
 }

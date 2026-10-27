@@ -1,4 +1,5 @@
 public import CmuxNextAgentActivity
+import CmuxNextCompat
 public import Foundation
 public import Observation
 
@@ -42,7 +43,7 @@ public final class AgentPriorityMarks {
     /// `defaults` nil keeps the marks in memory only (tests).
     public init(defaults: UserDefaults?) {
         self.defaults = defaults
-        let saved = defaults?.data(forKey: Self.key).flatMap { try? JSONDecoder().decode(State.self, from: $0) }
+        let saved = defaults?.data(forKey: Self.key).flatMap { try? JSONDecoder().blockingDecode(State.self, from: $0) }
         state = saved ?? State()
     }
 

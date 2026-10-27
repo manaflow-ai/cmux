@@ -10,7 +10,7 @@ public struct PersonalGroupResult: Decodable, Sendable, Equatable {
 
 public struct CreatePersonalGroupRequest: DaemonRequest {
     public typealias Response = PersonalGroupResult
-    public static let command = "create-personal-group"
+    public static let commandName: DaemonCommandName = "create-personal-group"
     public static let requiredCapability: String? = DaemonCapability.profiles.rawValue
     public var name: String
     public var group: WorkspaceGroupID?
@@ -31,7 +31,7 @@ public struct CreatePersonalGroupRequest: DaemonRequest {
 
 public struct UpdatePersonalGroupRequest: DaemonRequest {
     public typealias Response = PersonalGroupResult
-    public static let command = "update-personal-group"
+    public static let commandName: DaemonCommandName = "update-personal-group"
     public static let requiredCapability: String? = DaemonCapability.profiles.rawValue
     public var group: WorkspaceGroupID
     public var name: String?

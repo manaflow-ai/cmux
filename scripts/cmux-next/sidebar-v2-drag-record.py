@@ -5,6 +5,11 @@ each cross-section drag per display frame and checks it frame by frame.
   nx-remote --needs input --app-from-fleet cmux --tag T --ref SHA \
     -- python3 scripts/cmux-next/sidebar-v2-drag-record.py --out "$NX_ARTIFACTS/rec" --real-pointer
   ... --stress 1000 --trace --scenarios 1,4   (Animation Hitches trace during the drags)
+  python3 scripts/cmux-next/sidebar-v2-drag-record.py --app APP --out DIR   (the perf-lab story runner)
+
+The app (--app, else $NX_APP) launches and stops through bench_launch.BenchApp:
+the bench env, an empty cmux.json, a fresh saved session for the tag, and the
+tag's daemons and terminal hosts ended at the stop.
 
 Each scenario starts `debug.sidebar_rows {"motion": "start"}` (every realized
 row's, block item's and the lifted card's presented frame and opacity per
@@ -28,43 +33,55 @@ Checks per scenario (CHECKS.json and stdout PASS/FAIL):
 - echo: at every model revision change after the drop no view kinks (second
   difference over 1 pt) and no visible view appears or vanishes outside the
   card (the echo changes nothing on screen);
-- work: the main-thread drag update stays under 4 ms (p95).
+- work: the main-thread drag update stays under 4 ms (p95; p99 is reported
+  beside it; scripts/perf-lab/perf_stats.py).
+
+Each checked scenario is also written as cmux-perf-result/v1 next to
+CHECKS.json (story sidebar-drag, or sidebar-drag-stress with --stress;
+`sidebar_drag.<session>.<scenario>.<metric>`, sidebar_drag_bench_report.py); a
+wanted scenario that ran no check writes `failed` 1, and a stopped harness
+writes `sidebar_drag.<session>.harness.failed` 1.
 """
 import argparse, json, os, re, shutil, socket, subprocess, sys, tempfile, threading, time, atexit
 
-from sidebar_v2_motion_checks import analyse
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # its siblings, also under `python3 -I`
+from bench_launch import BenchApp  # noqa: E402
+import sidebar_drag_bench_report as results  # noqa: E402
+from sidebar_v2_motion_checks import analyse, drag_work  # noqa: E402
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS", "/tmp"))
-parser.add_argument("--real-pointer", action="store_true")
-parser.add_argument("--stress", type=int, default=0, help="extra workspaces before the drags (autoscroll, hitches)")
-parser.add_argument("--hz", type=float, default=120)
-parser.add_argument("--scenarios", default="1,2,3,4,5")
-parser.add_argument("--trace", action="store_true", help="record an Animation Hitches trace (xctrace) over the drags")
-parser.add_argument("--ticking", type=int, default=0,
-                    help="of the --stress workspaces, this many get a terminal whose program reports OSC 7501 every 250 ms during the drags (agent load)")
-parser.add_argument("--setup-only", action="store_true", help="after the setup: window snapshot + debug.sidebar_rows dump, no drags")
-opts = parser.parse_args()
-WANTED = set(opts.scenarios.split(","))
+
+def parse(argv=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS", "/tmp"))
+    parser.add_argument("--app", default=os.environ.get("NX_APP"), help="the tagged app bundle (default $NX_APP)")
+    parser.add_argument("--tag")  # the story runner passes it; the bundle carries the tag
+    parser.add_argument("--real-pointer", action="store_true")
+    parser.add_argument("--stress", type=int, default=0, help="extra workspaces before the drags (autoscroll, hitches)")
+    parser.add_argument("--hz", type=float, default=120)
+    parser.add_argument("--scenarios", default="1,2,3,4,5")
+    parser.add_argument("--trace", action="store_true", help="record an Animation Hitches trace (xctrace) over the drags")
+    parser.add_argument("--ticking", type=int, default=0,
+                        help="of the --stress workspaces, this many get a terminal whose program reports OSC 7501 every 250 ms during the drags (agent load)")
+    parser.add_argument("--setup-only", action="store_true", help="after the setup: window snapshot + debug.sidebar_rows dump, no drags")
+    parser.add_argument("--story", help="result-v1 story (default sidebar-drag, sidebar-drag-stress with --stress)")
+    parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
+                        help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
+    opts = parser.parse_args(argv)
+    if not opts.app:
+        parser.error("name the tagged app with --app, or run inside `nx-remote --needs gui --app-from-fleet cmux` (NX_APP)")
+    return opts
+
+
 CUA = os.path.expanduser("~/.local/bin/cua-driver")
 # One cua-driver session for every call: each `cua-driver call` otherwise gets its own implicit session, and a pixel
 # drag then has no screenshot context (job 1014-101119-0fef0c: drag replied {"code": "screenshot_context_missing"}).
 # A fresh label per run, started explicitly: cua-driver refuses a label whose session has ended (hitch6
 # 1014-122551-0acceb: "session has ended; tool call 'list_windows' was rejected").
 CUA_SESSION = f"sbv2-rec-{os.getpid()}-{int(time.time())}"
-APP, TAG, STOP = os.environ.get("NX_APP"), os.environ.get("NX_APP_TAG", ""), os.environ.get("NX_APP_STOP")
-SOCKET = os.environ.get("NX_APP_SOCKET") or f"/tmp/cmux-debug-{TAG}.sock"
-CLI = os.environ.get("NX_APP_CLI") or (APP and os.path.join(APP, "Contents/Resources/bin/cmux"))
-if not APP or not STOP:
-    sys.exit("run inside `nx-remote --needs gui --app-from-fleet cmux` (NX_APP, NX_APP_STOP)")
-if opts.real_pointer and not os.access(CUA, os.X_OK):
-    sys.exit("--real-pointer needs ~/.local/bin/cua-driver (run under nx-remote --needs input)")
-SCRATCH = tempfile.mkdtemp(prefix=f"sbv2-rec-{TAG}-")
-CONFIG, GHOSTTY = os.path.join(SCRATCH, "cmux.json"), os.path.join(SCRATCH, "ghostty")
-open(GHOSTTY, "w").write("")
-open(CONFIG, "w").write("{}")
-os.makedirs(opts.out, exist_ok=True)
+# Set by main(): the options, the scenarios asked for, the launched app (BenchApp) and its socket and CLI.
+opts = WANTED = LAUNCHER = SOCKET = CLI = SCRATCH = None
 CHECKS = {}
+WORK = {}  # scenario -> the drag work samples its `work` check judged (drag_work), for result-v1
 
 
 def rpc(method, params=None, timeout=30):
@@ -247,6 +264,7 @@ def check(name, frames, dragged, dropped_key=None, refused=False):
     """Frame checks over one scenario's motion samples (also run offline: python3 -c 'import ...; check(...)')."""
     result = analyse(frames, dragged, dropped_key, refused, hz=opts.hz)
     CHECKS[name] = result
+    WORK[name] = drag_work(frames)
     print(f"{'PASS' if result['ok'] else 'FAIL'} {name}: {json.dumps(result)}", flush=True)
 
 
@@ -379,14 +397,8 @@ def ptys_in_use():
 
 
 def app_pid():
-    """The tagged app's pid: the process that holds its debug socket (an `open -n` launch's command line need
-    not name the bundle path pgrep looks for), else the newest process running the bundle's binary."""
-    for command in (["lsof", "-t", SOCKET], ["pgrep", "-n", "-f", os.path.join(os.path.realpath(APP), "Contents/MacOS")],
-                    ["pgrep", "-n", "-f", os.path.join(APP, "Contents/MacOS")]):
-        found = [int(pid) for pid in subprocess.run(command, capture_output=True, text=True).stdout.split() if int(pid) != os.getpid()]
-        if found:
-            return found[0]
-    sys.exit(f"FAIL no process for the tagged app (socket {SOCKET}, bundle {APP})")
+    """The tagged app's pid: the process BenchApp started."""
+    return LAUNCHER.process.pid
 
 
 def record(name, path, dragged, dropped_key=None, refused=False, **kwargs):
@@ -405,156 +417,181 @@ def record(name, path, dragged, dropped_key=None, refused=False, **kwargs):
 
 
 def launch():
-    if os.path.exists(SOCKET):
-        os.unlink(SOCKET)
-    env = ["CMUX_NEXT_NO_ACTIVATE=1", "CMUX_NEXT_SOCKET_MODE=automation", "CMUX_NEXT_TEST_WINDOW_SCREEN=last",
-           f"CMUX_NEXT_CONFIG_FILE={CONFIG}", f"CMUX_NEXT_GHOSTTY_CONFIG={GHOSTTY}", "CMUX_NEXT_TEST_WINDOW_FRAME=40,40,1100,820"]
-    subprocess.run(["open", "-n", APP, *[arg for pair in env for arg in ("--env", pair)]], check=True)
-    if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.surfaces") or {}).get("windows"), 120):
-        sys.exit("FAIL the tagged app did not come up")
+    """Starts the app through BenchApp (it refuses a live app of the tag and says why one did not come up); the
+    socket and the CLI are the launch's."""
+    global SOCKET, CLI
+    LAUNCHER.launch(timeout=120)  # ready once debug.windows lists a window
+    SOCKET, CLI = LAUNCHER.socket, LAUNCHER.cli
     time.sleep(1.5)  # test harness: let the window settle
 
 
-launch()
-trace = None
-try:
-    for name in ("Alpha", "Beta", "Gamma", "Delta", "Echo", "Foxtrot"):
-        cli("workspace", "create", "--name", name)
-    wait(lambda: {"Alpha", "Foxtrot"} <= set(rows()), 20)
-    for name in ("Beta", "Gamma"):
-        rpc("debug.toast", {"perform": "palette.toggleWorkspacePin", "target_kind": "workspace", "target_id": row_id(rows().get(name))})
-    time.sleep(1.0)  # test harness: let the pins land
-    # --empty: no terminal per stress workspace (hitch11 started ~790 terminal hosts and used every PTY on the host).
-    ptys_before = ptys_in_use()
-    print("PTYs in use before the stress setup:", ptys_before, flush=True)
-    reply = ""
-    ticking = min(opts.ticking, 60, opts.stress)  # about one PTY each: never more than 60
-    empties = opts.stress - ticking
-    for index in range(empties):
-        reply = cli("workspace", "create", "--empty", "--name", f"S{index:04d}")
-        if index == 0:
-            print("first stress create:", reply[:200], flush=True)
-        if index == 20 and ptys_in_use() - ptys_before > 5:
-            fail_harness(f"stress workspaces still start terminals (PTYs {ptys_before} -> {ptys_in_use()} after 20 creates)")
-    # The ticking ones last: the list is newest first, so they sit at its top, on screen during the drags.
-    newest = re.findall(r"ws_[0-9a-f]+", reply if empties else "")
-    for index in range(ticking):
-        made = cli("workspace", "create", "--name", f"T{index:02d}-tick")
-        newest = re.findall(r"ws_[0-9a-f]+", made) or newest
-    if opts.stress:
-        last = f"T{ticking - 1:02d}-tick" if ticking else f"S{empties - 1:04d}"
-        wait(lambda: last in json.dumps(window().get("rows", [])) or None, 600)
-        print("PTYs in use after the stress setup:", ptys_in_use(), f"({ticking} ticking terminals)", flush=True)
-        # The new workspaces scrolled the list to its end, so Alpha and the Pinned tiles have no on-screen frame (hitch7
-        # failed on a None tile frame): wheel the list back to its top before the drags.
-        # New workspaces go to the list's top (newest first) and the Pinned tiles are a block at the very top of the
-        # list, so at 1000 workspaces Alpha (near the end) and Pinned are never on screen together (setup1
-        # 1014-155557-376478: Pinned block y -14440, Alpha y 1818). Wheel the list to its top until both Pinned tiles
-        # have a frame; scenario 1 then drags the first workspace row under Pinned instead of Alpha.
-        def pinned_block_y():
-            block = next((r for r in window().get("rows", []) if str(r.get("key", "")) == 'block("sec_pinned")'), None)
-            return ((block or {}).get("window_frame") or {}).get("y")
-        def at_top():
-            pinned, y = section_items("sec_pinned"), pinned_block_y()
-            return bool(pinned and all(i.get("window_frame") for i in pinned) and y is not None and y >= 0)
-        # debug.sidebar_wheel posts through the window's sendEvent like the window server does (hitch11: phased debug.mouse
-        # scrolls moved the list once, 2400 pt, then never again). Positive dy moves the list toward its top.
-        # The newest workspace sits right under Pinned: focus it (the list reveals the selected row), then wheel the
-        # last rows (hitch13: 12 trackpad gestures over ~17000 pt jumped both ways and never reached the top).
-        if newest:
-            print("focus newest", newest[0], cli("workspace", newest[0], "focus")[:120], "pinned block y", pinned_block_y(), flush=True)
-            time.sleep(0.5)  # test harness: let the reveal scroll apply
-        before, stuck, sign = pinned_block_y(), 0, 1
-        for attempt in range(80):
-            if at_top():
-                break
-            anchor = next((r for r in window().get("rows", []) if r.get("in_list") and r.get("window_frame")
-                           and 60 <= r["window_frame"]["y"] < 760), None)
-            if not anchor:
-                print("no on-screen list row to wheel over", flush=True)
-                break
-            x, y = center(anchor["window_frame"])
-            # Short gestures (5 x 60 pt) so momentum stays small; the sign flips when the block moved away from 0.
-            trackpad = stuck < 3
-            reply = rpc("debug.sidebar_wheel", {"x": x, "y": y, "dy": (60 if trackpad else 5) * sign, "count": 5, "trackpad": trackpad})
-            time.sleep(0.4)  # test harness: let the scroll (and any momentum) apply
-            after = pinned_block_y()
-            stuck = stuck + 1 if after == before else 0
-            if after is not None and before is not None and after < before:
-                sign = -sign
-            if attempt < 3 or attempt % 10 == 0 or stuck == 3:
-                print("scroll", attempt, "trackpad", trackpad, "pinned block y", before, "->", after, "reply", json.dumps(reply)[:160], flush=True)
-            if stuck >= 6:
-                break
-            before = after
-        print("list at top:", at_top(), "pinned block y:", pinned_block_y(),
-              "pinned frames:", [i.get("window_frame") for i in section_items("sec_pinned")], flush=True)
+def record_results():
+    """The run as cmux-perf-result/v1 in --out (BenchApp.record): each checked scenario, a failure for each wanted
+    one that ran no check and the harness failure (drag_run_series); record_all prints why one was not written."""
     if opts.setup_only:
-        print("snapshot", json.dumps(rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "setup.png"), "webviews": False}, timeout=60))[:300], flush=True)
-        json.dump(rpc("debug.sidebar_rows"), open(os.path.join(opts.out, "setup-rows.json"), "w"), indent=1)
-        sys.exit(0)
-    # The cua-driver session starts after the setup: a 1000-workspace setup outlived its idle TTL (hitch10: "session has ended").
-    if opts.real_pointer or opts.trace:
-        Target.find()
-    if ticking:
-        start_ticks()
-    trace = trace_start()
+        return  # a setup dump measures nothing
+    series = results.drag_run_series(CHECKS, WORK, WANTED, results.drag_session(opts.stress), opts.story)
+    for key, where in results.record_all(LAUNCHER, series).items():
+        if not where.startswith("not recorded"):
+            print(f"result-v1 {key}: {where}", flush=True)
 
-    # 1. A workspace row into Pinned tiles (between the two tiles).
-    alpha, pinned = rows().get("Alpha"), section_items("sec_pinned")
-    if opts.stress:
-        # The first workspace row under Pinned (Alpha is ~1000 rows down; see the setup note above).
-        alpha = next((r for r in window().get("rows", []) if r.get("in_list") and str(r.get("key", "")).startswith("workspace")
-                      and r.get("window_frame") and 40 <= r["window_frame"]["y"] < 760), None)
-        print("scenario 1 source:", (alpha or {}).get("title"), (alpha or {}).get("window_frame"), flush=True)
-    if "1" in WANTED and alpha and alpha.get("window_frame") and len(pinned) >= 2 and pinned[0].get("window_frame"):
-        start, first = center(alpha["window_frame"]), pinned[0]["window_frame"]
-        record("1-row-into-pinned", [start, (start[0], start[1] - 30), (first["x"] + first["width"] * 0.85, first["y"] + first["height"] / 2)],
-               {f"workspace({row_id(alpha)})"})
-    # 2. A tile back into the list (between Delta and Echo).
-    pinned, delta, echo = section_items("sec_pinned"), rows().get("Delta"), rows().get("Echo")
-    if "2" in WANTED and pinned and delta and echo:
-        tile = pinned[0]
-        to = (center(delta["window_frame"])[0], (delta["window_frame"]["y"] + delta["window_frame"]["height"] + echo["window_frame"]["y"]) / 2)
-        record("2-tile-into-list", [center(tile["window_frame"]), to], {f"item:{tile.get('id')}"})
-    # 3. A group into Pinned.
-    if "3" in WANTED:
-        cli("workspace", "group", "create", "--name", "Grp")
-        cli("workspace", "group", "Grp", "add", "--workspace", "Foxtrot")
-        time.sleep(1.0)  # test harness: let the group show
-        group = next((r for r in window().get("rows", []) if str(r.get("key", "")).startswith("group")), None)
-        pinned = section_items("sec_pinned")
-        if group and pinned:
-            last = pinned[-1]["window_frame"]
-            record("3-group-into-pinned", [center(group["window_frame"]), (last["x"] + last["width"] * 0.85, last["y"] + last["height"] / 2)],
-                   {str(group.get("key"))})
-    # 4. A long drag down into the list's bottom edge: autoscroll, then a drop.
-    def on_screen(r):
-        return bool(r.get("window_frame")) and 40 <= r["window_frame"]["y"] < 760
-    # Only rows on screen (hitch11: the first in_list row sat at y -455, so the drag started above the window).
-    listed = [r for r in window().get("rows", []) if r.get("title") and r.get("in_list") and on_screen(r)]
-    if "4" in WANTED and listed:
-        top = listed[0]
-        bottom = max(r["window_frame"]["y"] + r["window_frame"]["height"] for r in listed)
-        edge = min(bottom, 820 - (12 if opts.real_pointer else 30))  # no hold with cua-driver: end inside the autoscroll band
-        record("4-autoscroll-across", [center(top["window_frame"]), (center(top["window_frame"])[0], edge - 4)], {str(top.get("key"))},
-               hold=2.0, seconds=1.6)
-    # 5. A refusal: a row dragged down three rows, Escape before the release: the gap closes, the card flies home.
-    listed = [r for r in window().get("rows", []) if r.get("title") and r.get("in_list") and on_screen(r) and str(r.get("key", "")).startswith("workspace")]
-    if "5" in WANTED and len(listed) >= 4:
-        row, below = listed[0], listed[3]
-        record("5-refusal-springs-back", [center(row["window_frame"]), (center(row["window_frame"])[0], center(below["window_frame"])[1])],
-               {str(row.get("key"))}, dropped_key=str(row.get("key")), refused=True, seconds=1.6, escape_at=1.1)
-finally:
+
+def main(argv=None):
+    global opts, WANTED, LAUNCHER, SCRATCH
+    opts = parse(argv)
+    WANTED = set(opts.scenarios.split(","))
+    if opts.real_pointer and not os.access(CUA, os.X_OK):
+        sys.exit("--real-pointer needs ~/.local/bin/cua-driver (run under nx-remote --needs input)")
+    os.makedirs(opts.out, exist_ok=True)
+    LAUNCHER = BenchApp(opts.app, out=opts.out, config={}, window=(40, 40, 1100, 820), screen="last",
+                        perf_session=results.drag_session(opts.stress), build_config=opts.build_config)
+    SCRATCH = LAUNCHER.scratch
+    trace = None
     try:
-        trace_stop(trace)
-    except Exception as error:  # the checks and the app stop still run
-        TRACE["error"] = repr(error)
-    json.dump({"checks": CHECKS, "trace": TRACE, "real_pointer": opts.real_pointer, "stress": opts.stress}, open(os.path.join(opts.out, "CHECKS.json"), "w"), indent=1)
-    subprocess.run([STOP], check=False)
-    # The terminal hosts outlive the app on purpose: end this tag's hosts too (REPAIR.md PTY row), never pkill.
-    stopper = os.path.expanduser("~/.local/bin/stop_tag_daemon.py")
-    if os.path.exists(stopper):
-        subprocess.run(["python3", stopper, "bundle", APP], check=False)
-    print("PTYs in use at the end:", ptys_in_use(), flush=True)
-sys.exit(0 if CHECKS and all(c["ok"] for c in CHECKS.values()) else 1)
+        launch()  # inside the try: a launch that never answered still stops (LAUNCHER.stop)
+        for name in ("Alpha", "Beta", "Gamma", "Delta", "Echo", "Foxtrot"):
+            cli("workspace", "create", "--name", name)
+        wait(lambda: {"Alpha", "Foxtrot"} <= set(rows()), 20)
+        for name in ("Beta", "Gamma"):
+            rpc("debug.toast", {"perform": "palette.toggleWorkspacePin", "target_kind": "workspace", "target_id": row_id(rows().get(name))})
+        time.sleep(1.0)  # test harness: let the pins land
+        # --empty: no terminal per stress workspace (hitch11 started ~790 terminal hosts and used every PTY on the host).
+        ptys_before = ptys_in_use()
+        print("PTYs in use before the stress setup:", ptys_before, flush=True)
+        reply = ""
+        ticking = min(opts.ticking, 60, opts.stress)  # about one PTY each: never more than 60
+        empties = opts.stress - ticking
+        for index in range(empties):
+            reply = cli("workspace", "create", "--empty", "--name", f"S{index:04d}")
+            if index == 0:
+                print("first stress create:", reply[:200], flush=True)
+            if index == 20 and ptys_in_use() - ptys_before > 5:
+                fail_harness(f"stress workspaces still start terminals (PTYs {ptys_before} -> {ptys_in_use()} after 20 creates)")
+        # The ticking ones last: the list is newest first, so they sit at its top, on screen during the drags.
+        newest = re.findall(r"ws_[0-9a-f]+", reply if empties else "")
+        for index in range(ticking):
+            made = cli("workspace", "create", "--name", f"T{index:02d}-tick")
+            newest = re.findall(r"ws_[0-9a-f]+", made) or newest
+        if opts.stress:
+            last = f"T{ticking - 1:02d}-tick" if ticking else f"S{empties - 1:04d}"
+            wait(lambda: last in json.dumps(window().get("rows", [])) or None, 600)
+            print("PTYs in use after the stress setup:", ptys_in_use(), f"({ticking} ticking terminals)", flush=True)
+            # The new workspaces scrolled the list to its end, so Alpha and the Pinned tiles have no on-screen frame (hitch7
+            # failed on a None tile frame): wheel the list back to its top before the drags.
+            # New workspaces go to the list's top (newest first) and the Pinned tiles are a block at the very top of the
+            # list, so at 1000 workspaces Alpha (near the end) and Pinned are never on screen together (setup1
+            # 1014-155557-376478: Pinned block y -14440, Alpha y 1818). Wheel the list to its top until both Pinned tiles
+            # have a frame; scenario 1 then drags the first workspace row under Pinned instead of Alpha.
+            def pinned_block_y():
+                block = next((r for r in window().get("rows", []) if str(r.get("key", "")) == 'block("sec_pinned")'), None)
+                return ((block or {}).get("window_frame") or {}).get("y")
+            def at_top():
+                pinned, y = section_items("sec_pinned"), pinned_block_y()
+                return bool(pinned and all(i.get("window_frame") for i in pinned) and y is not None and y >= 0)
+            # debug.sidebar_wheel posts through the window's sendEvent like the window server does (hitch11: phased debug.mouse
+            # scrolls moved the list once, 2400 pt, then never again). Positive dy moves the list toward its top.
+            # The newest workspace sits right under Pinned: focus it (the list reveals the selected row), then wheel the
+            # last rows (hitch13: 12 trackpad gestures over ~17000 pt jumped both ways and never reached the top).
+            if newest:
+                print("focus newest", newest[0], cli("workspace", newest[0], "focus")[:120], "pinned block y", pinned_block_y(), flush=True)
+                time.sleep(0.5)  # test harness: let the reveal scroll apply
+            before, stuck, sign = pinned_block_y(), 0, 1
+            for attempt in range(80):
+                if at_top():
+                    break
+                anchor = next((r for r in window().get("rows", []) if r.get("in_list") and r.get("window_frame")
+                               and 60 <= r["window_frame"]["y"] < 760), None)
+                if not anchor:
+                    print("no on-screen list row to wheel over", flush=True)
+                    break
+                x, y = center(anchor["window_frame"])
+                # Short gestures (5 x 60 pt) so momentum stays small; the sign flips when the block moved away from 0.
+                trackpad = stuck < 3
+                reply = rpc("debug.sidebar_wheel", {"x": x, "y": y, "dy": (60 if trackpad else 5) * sign, "count": 5, "trackpad": trackpad})
+                time.sleep(0.4)  # test harness: let the scroll (and any momentum) apply
+                after = pinned_block_y()
+                stuck = stuck + 1 if after == before else 0
+                if after is not None and before is not None and after < before:
+                    sign = -sign
+                if attempt < 3 or attempt % 10 == 0 or stuck == 3:
+                    print("scroll", attempt, "trackpad", trackpad, "pinned block y", before, "->", after, "reply", json.dumps(reply)[:160], flush=True)
+                if stuck >= 6:
+                    break
+                before = after
+            print("list at top:", at_top(), "pinned block y:", pinned_block_y(),
+                  "pinned frames:", [i.get("window_frame") for i in section_items("sec_pinned")], flush=True)
+        if opts.setup_only:
+            print("snapshot", json.dumps(rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "setup.png"), "webviews": False}, timeout=60))[:300], flush=True)
+            json.dump(rpc("debug.sidebar_rows"), open(os.path.join(opts.out, "setup-rows.json"), "w"), indent=1)
+            sys.exit(0)
+        # The cua-driver session starts after the setup: a 1000-workspace setup outlived its idle TTL (hitch10: "session has ended").
+        if opts.real_pointer or opts.trace:
+            Target.find()
+        if ticking:
+            start_ticks()
+        trace = trace_start()
+
+        # 1. A workspace row into Pinned tiles (between the two tiles).
+        alpha, pinned = rows().get("Alpha"), section_items("sec_pinned")
+        if opts.stress:
+            # The first workspace row under Pinned (Alpha is ~1000 rows down; see the setup note above).
+            alpha = next((r for r in window().get("rows", []) if r.get("in_list") and str(r.get("key", "")).startswith("workspace")
+                          and r.get("window_frame") and 40 <= r["window_frame"]["y"] < 760), None)
+            print("scenario 1 source:", (alpha or {}).get("title"), (alpha or {}).get("window_frame"), flush=True)
+        if "1" in WANTED and alpha and alpha.get("window_frame") and len(pinned) >= 2 and pinned[0].get("window_frame"):
+            start, first = center(alpha["window_frame"]), pinned[0]["window_frame"]
+            record("1-row-into-pinned", [start, (start[0], start[1] - 30), (first["x"] + first["width"] * 0.85, first["y"] + first["height"] / 2)],
+                   {f"workspace({row_id(alpha)})"})
+        # 2. A tile back into the list (between Delta and Echo).
+        pinned, delta, echo = section_items("sec_pinned"), rows().get("Delta"), rows().get("Echo")
+        if "2" in WANTED and pinned and delta and echo:
+            tile = pinned[0]
+            to = (center(delta["window_frame"])[0], (delta["window_frame"]["y"] + delta["window_frame"]["height"] + echo["window_frame"]["y"]) / 2)
+            record("2-tile-into-list", [center(tile["window_frame"]), to], {f"item:{tile.get('id')}"})
+        # 3. A group into Pinned.
+        if "3" in WANTED:
+            cli("workspace", "group", "create", "--name", "Grp")
+            cli("workspace", "group", "Grp", "add", "--workspace", "Foxtrot")
+            time.sleep(1.0)  # test harness: let the group show
+            group = next((r for r in window().get("rows", []) if str(r.get("key", "")).startswith("group")), None)
+            pinned = section_items("sec_pinned")
+            if group and pinned:
+                last = pinned[-1]["window_frame"]
+                record("3-group-into-pinned", [center(group["window_frame"]), (last["x"] + last["width"] * 0.85, last["y"] + last["height"] / 2)],
+                       {str(group.get("key"))})
+        # 4. A long drag down into the list's bottom edge: autoscroll, then a drop.
+        def on_screen(r):
+            return bool(r.get("window_frame")) and 40 <= r["window_frame"]["y"] < 760
+        # Only rows on screen (hitch11: the first in_list row sat at y -455, so the drag started above the window).
+        listed = [r for r in window().get("rows", []) if r.get("title") and r.get("in_list") and on_screen(r)]
+        if "4" in WANTED and listed:
+            top = listed[0]
+            bottom = max(r["window_frame"]["y"] + r["window_frame"]["height"] for r in listed)
+            edge = min(bottom, 820 - (12 if opts.real_pointer else 30))  # no hold with cua-driver: end inside the autoscroll band
+            record("4-autoscroll-across", [center(top["window_frame"]), (center(top["window_frame"])[0], edge - 4)], {str(top.get("key"))},
+                   hold=2.0, seconds=1.6)
+        # 5. A refusal: a row dragged down three rows, Escape before the release: the gap closes, the card flies home.
+        listed = [r for r in window().get("rows", []) if r.get("title") and r.get("in_list") and on_screen(r) and str(r.get("key", "")).startswith("workspace")]
+        if "5" in WANTED and len(listed) >= 4:
+            row, below = listed[0], listed[3]
+            record("5-refusal-springs-back", [center(row["window_frame"]), (center(row["window_frame"])[0], center(below["window_frame"])[1])],
+                   {str(row.get("key"))}, dropped_key=str(row.get("key")), refused=True, seconds=1.6, escape_at=1.1)
+    finally:
+        try:
+            trace_stop(trace)
+        except Exception as error:  # the checks and the app stop still run
+            TRACE["error"] = repr(error)
+        json.dump({"checks": CHECKS, "trace": TRACE, "real_pointer": opts.real_pointer, "stress": opts.stress}, open(os.path.join(opts.out, "CHECKS.json"), "w"), indent=1)
+        # debug.quit, then the tag's daemons and the terminal hosts that outlive the app on purpose (tag_teardown.py,
+        # REPAIR.md PTY row): each by its exact PID, never pkill.
+        LAUNCHER.stop()
+        print("PTYs in use at the end:", ptys_in_use(), flush=True)
+        record_results()  # after the stop: the features are the launch's snapshot
+    missing = results.missing_scenarios(CHECKS, WANTED)
+    if missing:
+        print("FAIL scenarios that ran no check:", ", ".join(missing), flush=True)
+    return 0 if CHECKS and all(c["ok"] for c in CHECKS.values()) and not missing else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

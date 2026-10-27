@@ -2,7 +2,7 @@ import Foundation
 
 public struct CloseTabRequest: DaemonRequest {
     public typealias Response = EmptyResponse
-    public static let command = "close-surface"
+    public static let commandName: DaemonCommandName = "close-surface"
     public var surface: SurfaceID
     public init(surface: SurfaceID) { self.surface = surface }
 }
@@ -11,7 +11,7 @@ public struct CloseTabRequest: DaemonRequest {
 /// terminal whose tabs all close and that is not kept. Sent only when true.
 public struct ClosePaneRequest: DaemonRequest {
     public typealias Response = EmptyResponse
-    public static let command = "close-pane"
+    public static let commandName: DaemonCommandName = "close-pane"
     public var pane: PaneID
     public var endTerminals: Bool
     public init(pane: PaneID, endTerminals: Bool = false) {
@@ -19,7 +19,7 @@ public struct ClosePaneRequest: DaemonRequest {
         self.endTerminals = endTerminals
     }
 
-    enum CodingKeys: String, CodingKey { case pane, endTerminals }
+    enum CodingKeys: String, CodingKey { case pane, endTerminals = "end_terminals" }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(pane, forKey: .pane)
@@ -30,7 +30,7 @@ public struct ClosePaneRequest: DaemonRequest {
 /// `endTerminals` as in `ClosePaneRequest`.
 public struct CloseScreenRequest: DaemonRequest {
     public typealias Response = EmptyResponse
-    public static let command = "close-screen"
+    public static let commandName: DaemonCommandName = "close-screen"
     public var screen: ScreenID
     public var endTerminals: Bool
     public init(screen: ScreenID, endTerminals: Bool = false) {
@@ -38,7 +38,7 @@ public struct CloseScreenRequest: DaemonRequest {
         self.endTerminals = endTerminals
     }
 
-    enum CodingKeys: String, CodingKey { case screen, endTerminals }
+    enum CodingKeys: String, CodingKey { case screen, endTerminals = "end_terminals" }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(screen, forKey: .screen)

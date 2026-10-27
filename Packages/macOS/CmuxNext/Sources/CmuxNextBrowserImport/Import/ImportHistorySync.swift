@@ -152,7 +152,7 @@ public actor ImportHistorySync {
         // A Preferences or Cookies write also wakes the folder watch: nothing to read then.
         let stamp = HistoryFileWatch.stamp(watch.file)
         guard stamp != lastRead[key], let record = await store.syncedSources().first(where: { $0.sourceKey == key }) else { return }
-        guard let pages = try? BrowserImporter.readHistory(record.browser.family, file: watch.file, limit: limit),
+        guard let pages = try? BrowserImporter.readHistory(record.browser.family, file: watch.file, limit: limit).items,
               let saved = try? await store.replaceHistory(key, with: pages) else { return }
         lastRead[key] = stamp
         if !saved.changed.isEmpty { await deliver(saved.record.targetProfileID, saved.changed, []) }
@@ -167,7 +167,7 @@ final class HistoryFileWatch: Sendable {
     let file: URL
     private let scope: URL?
     private let onChange: @Sendable () -> Void
-    private let queue = DispatchQueue(label: "com.cmuxterm.import-history-sync")
+    private let queue = DispatchQueue(label: "com.cmuxterm.import-history-sync", qos: .utility)
     /// The open sources by path; nil once cancelled, so a re-arm racing `cancel` opens nothing.
     private let sources = Mutex<[String: any DispatchSourceFileSystemObject]?>([:])
 
@@ -184,12 +184,16 @@ final class HistoryFileWatch: Sendable {
 
     private var paths: [String] { [file.path, file.path + "-wal", file.deletingLastPathComponent().path] }
 
-    /// Size and change time of the database, its `-wal` and `-journal`: equal stamps, nothing to read.
+    /// Size and change time (seconds, nanoseconds) of the database, its `-wal` and `-journal`: equal stamps,
+    /// nothing to read. The fields are kept apart: any time a file system holds is a stamp, with no product
+    /// that a far-future change time could overflow.
     static func stamp(_ file: URL) -> [Int64] {
         [file.path, file.path + "-wal", file.path + "-journal"].flatMap { path -> [Int64] in
             var info = stat()
-            guard stat(path, &info) == 0 else { return [-1, -1] }
-            return [Int64(info.st_size), Int64(info.st_mtimespec.tv_sec) * 1_000_000_000 + Int64(info.st_mtimespec.tv_nsec)]
+            // SAFETY: the path is a NUL-terminated copy Swift keeps alive for the call; stat writes one
+            // `stat` into the local `info`, which outlives it.
+            guard unsafe stat(path, &info) == 0 else { return [-1, -1, -1] }
+            return [info.st_size, Int64(truncatingIfNeeded: info.st_mtimespec.tv_sec), Int64(truncatingIfNeeded: info.st_mtimespec.tv_nsec)]
         }
     }
 
@@ -203,7 +207,8 @@ final class HistoryFileWatch: Sendable {
     /// On `queue`: opens a source for each path that has none (or lost its file).
     private func armMissing() {
         for path in paths where sources.withLock({ $0.map { $0[path] == nil } ?? false }) {
-            let descriptor = open(path, O_EVTONLY)
+            // SAFETY: the path is a NUL-terminated copy Swift keeps alive for the call; open only reads it.
+            let descriptor = unsafe open(path, O_EVTONLY)
             guard descriptor >= 0 else { continue }
             let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: [.write, .extend, .delete, .rename],
                                                                    queue: queue)

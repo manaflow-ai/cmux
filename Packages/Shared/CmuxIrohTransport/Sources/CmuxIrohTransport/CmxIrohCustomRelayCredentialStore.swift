@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 public import Foundation
 
 /// Device-local secure storage for user-provided custom relay tokens.
@@ -20,7 +21,7 @@ public actor CmxIrohCustomRelayCredentialStore {
     private static let recordVersion = 2
     private let secureStore: any CmxIrohSecureCredentialStoring
     private var busyAccounts: Set<String> = []
-    private var accountWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
+    private var accountWaiters: [String: [OnceContinuation<Void, OnceContinuationError>]] = [:]
 
     /// Creates an account-scoped custom relay credential repository.
     public init(
@@ -47,7 +48,7 @@ public actor CmxIrohCustomRelayCredentialStore {
             accountID,
             prefix: "custom-relay-credentials"
         )
-        await acquire(account)
+        try await acquire(account)
         defer { release(account) }
         var credentials = try await storedCredentials(account: account)
         credentials.updateValue(StaticCredential(token: token, relayURL: relayURL), forKey: relayID)
@@ -63,7 +64,7 @@ public actor CmxIrohCustomRelayCredentialStore {
             accountID,
             prefix: "custom-relay-credentials"
         )
-        await acquire(account)
+        try await acquire(account)
         defer { release(account) }
         var credentials = try await storedCredentials(account: account)
         credentials.removeValue(forKey: relayID)
@@ -80,7 +81,7 @@ public actor CmxIrohCustomRelayCredentialStore {
             accountID,
             prefix: "custom-relay-credentials"
         )
-        await acquire(account)
+        try await acquire(account)
         defer { release(account) }
         try await secureStore.delete(account: account)
     }
@@ -100,10 +101,10 @@ public actor CmxIrohCustomRelayCredentialStore {
             accountID,
             prefix: "custom-relay-credentials"
         )
-        await acquire(account)
+        try await acquire(account)
         defer { release(account) }
         let credentials = try await storedCredentials(account: account)
-        let definitions = Dictionary(uniqueKeysWithValues: relays.map { ($0.id, $0) })
+        let definitions = Dictionary(relays.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let retained = credentials.filter { id, credential in
             guard let relay = definitions[id] else { return false }
             return relay.authMode == .staticToken && relay.url == credential.relayURL
@@ -128,7 +129,7 @@ public actor CmxIrohCustomRelayCredentialStore {
             accountID,
             prefix: "custom-relay-credentials"
         )
-        await acquire(account)
+        try await acquire(account)
         defer { release(account) }
         let credentials = try await storedCredentials(account: account)
         var tokens: [String: String] = [:]
@@ -145,17 +146,17 @@ public actor CmxIrohCustomRelayCredentialStore {
             accountID,
             prefix: "custom-relay-credentials"
         )
-        await acquire(account)
+        try await acquire(account)
         defer { release(account) }
         return Set(try await storedCredentials(account: account).keys)
     }
 
-    private func acquire(_ account: String) async {
+    private func acquire(_ account: String) async throws(OnceContinuationError) {
         guard busyAccounts.contains(account) else {
             busyAccounts.insert(account)
             return
         }
-        await withCheckedContinuation { continuation in
+        try await withOnceContinuation { continuation in
             accountWaiters[account, default: []].append(continuation)
         }
     }
@@ -172,7 +173,7 @@ public actor CmxIrohCustomRelayCredentialStore {
         } else {
             accountWaiters[account] = waiters
         }
-        next.resume()
+        next.resume(returning: ())
     }
 
     private func storedCredentials(account: String) async throws -> [String: StaticCredential] {

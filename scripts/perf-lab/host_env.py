@@ -18,6 +18,9 @@ Checks (each failing one adds its own reason code; a probe that cannot be read f
 - `no-gui-session`: the console user (scutil State:/Users/ConsoleUser) is not the bench user. The same rule as
   scripts/cmux-next/bench_launch.py console_user and hq build-fleet console_session.go.
 - `other-cmux-app`: a cmux app bundle's executable runs that is not one of the job's own pids.
+- `powermetrics-running`: a powermetrics process runs that is not one of the job's own pids. pool.json's sudoers
+  command line samples a fixed count, but a sampler from a killed job runs as root until then, and the bench user
+  cannot signal it.
 - `network-egress`: in one NETTOP_WINDOW_S nettop session, an app or daemon pid has a connection to a non-loopback
   address. A full validation needs those pids (`--pid`); without them it refuses `network-egress-no-pids`.
   `--pre-launch` (before the job starts its app) skips nettop instead and says so: `mode: "pre-launch"`,
@@ -176,6 +179,11 @@ def parse_console_user(text):
 
 
 CMUX_APP_EXECUTABLE = re.compile(r"/[^/]*cmux[^/]*\.app/Contents/MacOS/[^/]+$", re.I)
+
+
+def parse_powermetrics(text):
+    """[pid] of `ps -axww -o pid=,comm=` rows whose executable is powermetrics."""
+    return [int(match.group(1)) for match in re.finditer(r"^\s*(\d+)\s+(?:\S*/)?powermetrics\s*$", text, re.M)]
 
 
 def parse_cmux_apps(text):
@@ -371,7 +379,7 @@ class Validation:
             who = console or "nobody (login window)"
             self.refuse("no-gui-session", f"the console user is {who}, not the bench user {self.bench_user}")
 
-    def check_cmux_apps(self):
+    def check_processes(self):
         text = self.text(["/bin/ps", "-axww", "-o", "pid=,comm="])
         if text is None:
             self.refuse("other-cmux-app-unreadable", "ps gave no process list")
@@ -379,6 +387,9 @@ class Validation:
         others = [(pid, path) for pid, path in parse_cmux_apps(text) if pid not in self.own_pids]
         if others:
             self.refuse("other-cmux-app", "; ".join(f"{pid} {path}" for pid, path in others))
+        samplers = [pid for pid in parse_powermetrics(text) if pid not in self.own_pids]
+        if samplers:
+            self.refuse("powermetrics-running", f"powermetrics pid {', '.join(map(str, samplers))} still samples")
 
     def check_egress(self):
         if self.pre_launch:
@@ -430,7 +441,7 @@ class Validation:
 
     def run(self):
         for check in (self.check_thermal, self.check_power, self.check_memory, self.check_spotlight,
-                      self.check_console, self.check_cmux_apps, self.check_load, self.check_egress):
+                      self.check_console, self.check_processes, self.check_load, self.check_egress):
             check()
         hz = self.measured_hz()
         host = self.host(hz)

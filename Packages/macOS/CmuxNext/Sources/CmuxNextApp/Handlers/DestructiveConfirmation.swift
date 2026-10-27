@@ -45,6 +45,8 @@ enum DestructiveConfirmation {
                 services.registry.perform(id, invocation: run)
                 return
             }
+            // task-owner: one question: the process-info reads it needs, then the dialog
+            // main-hop-allow: the person's confirmation, userBlocking (p06 rule 2): it awaits the main-actor process-info reads, then presents the dialog; post has no userBlocking class (task 208)
             Task { @MainActor in
                 guard let prompt = await prompt(for: id, invocation, services) else { return proceed(false) }
                 present(prompt, in: services.windows.active?.window, settings: services.settings) { if $0 { proceed(true) } }
@@ -105,7 +107,7 @@ enum DestructiveConfirmation {
                           button: HomeStrings.deleteChiefButton, returnConfirms: false)
         case "home.leaveConversation":
             // The group's name in the question; a conversation not listed is refused by the action.
-            let id = invocation["conversation"]?.stringValue.map { ConversationID($0) } ?? AppActions.shownPage(services)?.shown
+            let id = invocation["conversation"]?.stringValue.map { ConversationID($0) } ?? AppActions.shownConversation(services)
             guard let id, let info = services.home.groupActions.info(id), info.isGroup else { return nil }
             let prompt = info.leavePrompt
             return Prompt(title: prompt.title, body: prompt.body, button: prompt.button)
@@ -185,6 +187,8 @@ enum DestructiveConfirmation {
 
     private static func turnOff(_ path: [String], _ settings: SettingsController?) {
         guard let settings, let descriptor = SettingsSchema.descriptor(for: path) else { return }
+        // task-owner: one settings write, the person's "Don't ask again"
+        // main-hop-allow: the person's answer, userBlocking (p06 rule 2): it awaits the main-actor settings write; post has no userBlocking class (task 208)
         Task { @MainActor in
             do { try await settings.setSetting(descriptor, to: .bool(false), by: .user) } catch {
                 Logger(subsystem: "com.cmuxterm.app.next", category: "app.close")
