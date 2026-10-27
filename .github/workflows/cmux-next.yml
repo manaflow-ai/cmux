@@ -4516,15 +4516,20 @@ jobs:
           # Readable complete captures of the key (unexpired, under 13 days old: the store keeps the
           # packs 14 days). A rate limit is waited out; a lookup that still fails captures anyway and
           # fails this step, so the run shows it (40428066457 lost its capture to a silent rate limit).
+          # compile=true skips the product reuse so there is a build to capture, unless a capture of
+          # this key came out incomplete in the last day (then only a build that compiles anyway
+          # captures, and a key that never captures whole cannot turn reuse off for every landing).
           if have="$(python3 -I scripts/cmux-next/hybrid_ref_capture.py have --key "$key" --repo "$GITHUB_REPOSITORY" --budget 600)"; then
-            capture=false
-            [[ "$have" == 0 ]] && capture=true
-            echo "REF key $key: readable complete captures $have, capture $capture"
-            printf 'key=%s\ncapture=%s\n' "$key" "$capture" >> "$GITHUB_OUTPUT"
+            complete="$(sed -n 's/^complete=//p' <<< "$have")" incomplete="$(sed -n 's/^recent_incomplete=//p' <<< "$have")"
+            capture=false compile=false
+            [[ "$complete" == 0 ]] && capture=true
+            [[ "$capture" == true && "$incomplete" == 0 ]] && compile=true
+            echo "REF key $key: readable complete captures $complete, incomplete today $incomplete, capture $capture, compile $compile"
+            printf 'key=%s\ncapture=%s\ncompile=%s\n' "$key" "$capture" "$compile" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          printf 'key=%s\ncapture=true\n' "$key" >> "$GITHUB_OUTPUT"
-          echo "::error title=REF capture lookup failed::the capture artifact lookup for REF key $key failed (log above); capturing anyway"
+          printf 'key=%s\ncapture=true\ncompile=false\n' "$key" >> "$GITHUB_OUTPUT"
+          echo "::error title=REF capture lookup failed::the capture artifact lookup for REF key $key failed (log above); a build that compiles still captures"
           exit 1
       # The DEV Release app is reused, not recompiled, when nothing it is built from changed
       # (scripts/ci/dev_release_product_reuse.py): the key is job_input_fingerprint.py
@@ -4543,7 +4548,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           # format(): an unset variable is null, and null == '0' is true (both coerce to the number 0).
-          SKIP_REASON: ${{ inputs.no_reuse == true && 'no_reuse dispatch' || steps.hybrid-ref.outputs.capture == 'true' && 'a REF capture needs a real compile' || format('{0}', vars.CI_NEXT_DEV_PRODUCT_REUSE) == '0' && 'vars.CI_NEXT_DEV_PRODUCT_REUSE is 0' || '' }}
+          SKIP_REASON: ${{ inputs.no_reuse == true && 'no_reuse dispatch' || steps.hybrid-ref.outputs.compile == 'true' && 'a REF capture needs a real compile' || format('{0}', vars.CI_NEXT_DEV_PRODUCT_REUSE) == '0' && 'vars.CI_NEXT_DEV_PRODUCT_REUSE is 0' || '' }}
           # A repository variable the compile step reads changes the product but not this file: key it.
           SWIFT_COMPILATION_MODE: ${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'singlefile' }}
         run: |
@@ -4932,7 +4937,7 @@ jobs:
         timeout-minutes: 2
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: hybrid-ref-capture-${{ steps.hybrid-ref.outputs.key }}${{ steps.hybrid-ref-capture.outputs.complete != 'true' && format('-incomplete-{0}', github.run_id) || '' }}
+          name: ${{ steps.hybrid-ref-capture.outputs.complete != 'true' && 'hybrid-ref-capture-incomplete-' || 'hybrid-ref-capture-' }}${{ steps.hybrid-ref.outputs.key }}
           path: ${{ steps.hybrid-ref-capture.outputs.manifest }}
           if-no-files-found: error
           retention-days: 14

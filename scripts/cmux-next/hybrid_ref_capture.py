@@ -30,11 +30,14 @@ own paths, when the inputs that change build lines have no capture yet.
       manifest goes to this public repository's Actions artifacts.
 
   hybrid_ref_capture.py have --key KEY --repo OWNER/NAME [--budget SECONDS]
-      Prints how many hybrid-ref-capture-KEY artifacts are unexpired and under 13 days old (a
-      capture counts while its packs are readable in the store). A rate limit (403 or 429 that
-      says so) waits for its Retry-After or reset, other transient failures back off, and once
-      the next wait would pass --budget (default 600 s) it exits 1 with the last error, so the
-      caller never reads "no answer" as "a capture exists" (GH_TOKEN: the job's token).
+      Prints complete=N, the hybrid-ref-capture-KEY artifacts that are unexpired and under 13
+      days old (a capture counts while its packs are readable in the store), and
+      recent_incomplete=M, the hybrid-ref-capture-incomplete-KEY ones under a day old (a key
+      whose capture comes out incomplete is compiled for it again once a day, not on every
+      landing). A rate limit (403 or 429 that says so) waits for its Retry-After or reset,
+      other transient failures back off, and once the next wait would pass --budget (default
+      600 s, both lookups) it exits 1 with the last error, so the caller never reads "no
+      answer" as "a capture exists" (GH_TOKEN: the job's token).
 """
 from __future__ import annotations
 
@@ -282,27 +285,39 @@ def retry_wait(status: int, headers, body: str, attempt: int, now: float) -> flo
     return None
 
 
+def incomplete_name(key: str) -> str:
+    """The artifact name of an incomplete capture's manifest (the workflow's upload step)."""
+    return f"hybrid-ref-capture-incomplete-{key}"
+
+
 def have(key: str, repo: str, token: str, budget: float = 600, opener=urllib.request.urlopen,
-         sleep=time.sleep, clock=time.time) -> int:
-    """The readable complete captures of KEY (see the module doc); raises LookupFailed."""
-    url = f"https://api.github.com/repos/{repo}/actions/artifacts?name=hybrid-ref-capture-{key}&per_page=100"
+         sleep=time.sleep, clock=time.time) -> tuple[int, int]:
+    """(complete, recent_incomplete) captures of KEY (see the module doc); raises LookupFailed."""
+    start = clock()
+    complete = _count(f"hybrid-ref-capture-{key}", 13 * 24, repo, token, start + budget, opener, sleep, clock)
+    incomplete = _count(incomplete_name(key), 24, repo, token, start + budget, opener, sleep, clock)
+    return complete, incomplete
+
+
+def _count(name: str, hours: float, repo: str, token: str, deadline: float, opener, sleep, clock) -> int:
+    url = f"https://api.github.com/repos/{repo}/actions/artifacts?name={name}&per_page=100"
     request = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}", "User-Agent": "cmux-hybrid-ref",
                                                    "Accept": "application/vnd.github+json"})
-    start = clock()
     for attempt in range(1000):
         try:
             with opener(request, timeout=30) as response:
                 artifacts = json.load(response)["artifacts"]
-            since = (datetime.fromtimestamp(clock(), timezone.utc) - timedelta(days=13)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            since = (datetime.fromtimestamp(clock(), timezone.utc) - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
             return sum(1 for a in artifacts if a.get("expired") is False and a.get("created_at", "") >= since)
         except urllib.error.HTTPError as e:
             status, headers, body = e.code, {k.lower(): v for k, v in e.headers.items()}, e.read().decode(errors="replace")
+            e.close()
         except (urllib.error.URLError, OSError, ValueError, KeyError) as e:
             status, headers, body = 0, {}, str(e)
         reason = f"HTTP {status}: {body.strip()[:200]}" if status else body
         wait = retry_wait(status, headers, body, attempt, clock())
-        if wait is None or clock() - start + wait > budget:
-            raise LookupFailed(f"artifact lookup for {key[:12]} failed after {attempt + 1} attempt(s): {reason}")
+        if wait is None or clock() + wait > deadline:
+            raise LookupFailed(f"artifact lookup {name[:40]} failed after {attempt + 1} attempt(s): {reason}")
         print(f"hybrid-ref have: {reason}; retrying in {wait:.0f} s", file=sys.stderr)
         sleep(wait)
     raise LookupFailed("unreachable")
@@ -331,7 +346,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if a.cmd == "have":
         try:
-            print(have(a.key, a.repo, os.environ["GH_TOKEN"], a.budget))
+            complete, incomplete = have(a.key, a.repo, os.environ["GH_TOKEN"], a.budget)
+            print(f"complete={complete}\nrecent_incomplete={incomplete}")
         except LookupFailed as e:
             print(f"hybrid_ref_capture: {e}", file=sys.stderr)
             return 1

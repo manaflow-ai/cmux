@@ -275,21 +275,23 @@ class Have(unittest.TestCase):
     def test_counts_only_readable_captures(self) -> None:
         arts = [{"expired": False, "created_at": self.stamp(1)}, {"expired": True, "created_at": self.stamp(1)},
                 {"expired": False, "created_at": self.stamp(13.5)}]
-        result, sleeps, calls = self.run_have([(200, {}, {"artifacts": arts})])
-        self.assertEqual(result, 1)
+        recent = [{"expired": False, "created_at": self.stamp(0.5)}, {"expired": False, "created_at": self.stamp(1.5)}]
+        result, sleeps, calls = self.run_have([(200, {}, {"artifacts": arts}), (200, {}, {"artifacts": recent})])
+        self.assertEqual(result, (1, 1), "13 days for a complete capture, one day for an incomplete one")
         self.assertEqual(sleeps, [])
-        self.assertIn("name=hybrid-ref-capture-" + "k" * 64, calls[0])
+        self.assertIn("name=hybrid-ref-capture-" + "k" * 64 + "&", calls[0])
+        self.assertIn("name=" + cap.incomplete_name("k" * 64) + "&", calls[1])
 
     def test_rate_limit_waits_for_its_reset(self) -> None:
         limited = (403, {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(int(self.NOW) + 120)},
                    '{"message":"API rate limit exceeded for installation."}')
-        result, sleeps, _ = self.run_have([limited, (200, {}, {"artifacts": []})])
-        self.assertEqual(result, 0)
+        result, sleeps, _ = self.run_have([limited, (200, {}, {"artifacts": []}), (200, {}, {"artifacts": []})])
+        self.assertEqual(result, (0, 0))
         self.assertEqual(sleeps, [121.0])
 
     def test_retry_after_and_429(self) -> None:
-        result, sleeps, _ = self.run_have([(429, {"Retry-After": "30"}, ""), (200, {}, {"artifacts": []})])
-        self.assertEqual((result, sleeps), (0, [30.0]))
+        result, sleeps, _ = self.run_have([(200, {}, {"artifacts": []}), (429, {"Retry-After": "30"}, ""), (200, {}, {"artifacts": []})])
+        self.assertEqual((result, sleeps), ((0, 0), [30.0]))
 
     def test_a_reset_past_the_budget_fails_without_waiting(self) -> None:
         limited = (403, {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(int(self.NOW) + 3000)}, "rate limit")
@@ -302,6 +304,13 @@ class Have(unittest.TestCase):
         result, sleeps, _ = self.run_have([(403, {}, '{"message":"Resource not accessible by integration"}')])
         self.assertIsInstance(result, cap.LookupFailed)
         self.assertEqual(sleeps, [])
+
+    def test_the_budget_covers_both_lookups(self) -> None:
+        limited = (403, {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(int(self.NOW) + 400)}, "rate limit")
+        later = (403, {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(int(self.NOW) + 900)}, "rate limit")
+        result, sleeps, _ = self.run_have([limited, (200, {}, {"artifacts": []}), later])
+        self.assertIsInstance(result, cap.LookupFailed, "401 s, then 500 s more would pass 600")
+        self.assertEqual(sleeps, [401.0])
 
     def test_server_errors_back_off_within_the_budget(self) -> None:
         result, sleeps, _ = self.run_have([(502, {}, "bad gateway")] * 20, budget=100)
@@ -362,16 +371,41 @@ class Workflow(unittest.TestCase):
         decide, lookup = self.steps["hybrid-ref"], self.steps["dev-product"]
         self.assertLess(self.order.index("hybrid-ref"), self.order.index("dev-product"))
         self.assertNotIn("steps.dev-product", decide["if"])
-        self.assertIn("steps.hybrid-ref.outputs.capture == 'true' && ", lookup["env"]["SKIP_REASON"])
+        self.assertIn("steps.hybrid-ref.outputs.compile == 'true' && ", lookup["env"]["SKIP_REASON"])
 
-    def test_a_failed_lookup_captures_and_shows(self) -> None:
-        # 40428066457: a rate limit made the lookup exit 1 before it wrote capture, and the run
-        # stayed green with no capture.
-        run = self.steps["hybrid-ref"]["run"]
-        failed = run[run.index("\nfi\n"):]
-        self.assertIn("capture=true", failed)
-        self.assertIn("::error ", failed)
-        self.assertTrue(failed.rstrip().endswith("exit 1"))
+    def decide(self, have_output: str | None) -> dict[str, str]:
+        """Runs the decide step's shell with a fake hybrid_ref_capture.py; returns its outputs."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fake = root / "scripts/cmux-next/hybrid_ref_capture.py"
+            fake.parent.mkdir(parents=True)
+            fake.write_text("import sys\n"
+                            "if sys.argv[1] == 'key': print('k' * 64); sys.exit(0)\n"
+                            + ("sys.exit(1)\n" if have_output is None else f"print({have_output!r})\n"))
+            out = root / "out"
+            proc = subprocess.run(["bash", "-e", "-c", self.steps["hybrid-ref"]["run"]], cwd=root, capture_output=True,
+                                  text=True, env={**os.environ, "CMUX_NEXT_RUNNER": "glaeda-side-std-xcode-26.6",
+                                                  "GITHUB_OUTPUT": str(out), "GITHUB_REPOSITORY": "o/r"})
+            outputs = dict(line.split("=", 1) for line in out.read_text().splitlines())
+            outputs["rc"] = str(proc.returncode)
+            return outputs
+
+    def test_the_decision(self) -> None:
+        cases = {"complete=0\nrecent_incomplete=0": ("true", "true", "0"),
+                 "complete=1\nrecent_incomplete=0": ("false", "false", "0"),
+                 "complete=0\nrecent_incomplete=2": ("true", "false", "0"),
+                 None: ("true", "false", "1")}
+        for have_output, (capture, compile_, rc) in cases.items():
+            got = self.decide(have_output)
+            self.assertEqual((got["capture"], got["compile"], got["rc"]), (capture, compile_, rc), have_output)
+            self.assertEqual(got["key"], "k" * 64)
+
+    def test_an_incomplete_capture_has_its_own_name(self) -> None:
+        upload = next(s for s in self.job["steps"] if s.get("name") == "Upload the REF capture manifest")
+        self.assertEqual(upload["with"]["name"],
+                         "${{ steps.hybrid-ref-capture.outputs.complete != 'true' && 'hybrid-ref-capture-incomplete-' "
+                         "|| 'hybrid-ref-capture-' }}${{ steps.hybrid-ref.outputs.key }}")
+        self.assertEqual(cap.incomplete_name("K"), "hybrid-ref-capture-incomplete-K")
 
     def test_no_new_permission(self) -> None:
         self.assertEqual(self.job["permissions"], {"actions": "read", "contents": "read", "statuses": "write"})
