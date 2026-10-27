@@ -702,6 +702,7 @@ check(delta_steps.index("Download the tip DMG") < delta_steps.index("Check the p
 
 # The Linux appcast (scripts/ci/tip_appcast_linux.py) against openssl and a fake signed archive.
 import base64
+import hashlib
 import plistlib
 import zipfile
 spec = importlib.util.spec_from_file_location("tip_appcast_linux", ROOT / "scripts/ci/tip_appcast_linux.py")
@@ -722,7 +723,8 @@ with tempfile.TemporaryDirectory() as tmp:
     check(tip_appcast.sign_file(scalar.to_bytes(32, "little") + nonce + public, str(dmg)) == (signature, public),
           "the old 96-byte Sparkle key signs the same as its seed")
     def write_archive(build, key):
-        archive = tmp / f"app-{build}-{key[:4]}.zip"
+        # A base64 key can hold '/', which is no file name (run 40442893396 failed on one).
+        archive = tmp / f"app-{build}-{hashlib.sha256(key.encode()).hexdigest()[:8]}.zip"
         with zipfile.ZipFile(archive, "w") as zf:
             zf.writestr("cmux NEXT DEV.app/Contents/Info.plist", plistlib.dumps({
                 "CFBundleVersion": build, "CFBundleShortVersionString": f"1.0.0-tip.{build}", "CFBundleName": "cmux NEXT DEV",
