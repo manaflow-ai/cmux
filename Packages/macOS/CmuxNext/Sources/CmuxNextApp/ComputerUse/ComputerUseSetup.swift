@@ -71,6 +71,7 @@ final class ComputerUseSetup {
     @ObservationIgnored private let read: @Sendable (AgentActivitySocketSource.Configuration) async -> Read
     @ObservationIgnored private let resolveHelper: @Sendable (URL?) async -> URL?
     @ObservationIgnored private let openURL: @MainActor (URL) -> Void
+    @ObservationIgnored private let requestPermission: @MainActor (ComputerUsePermissionPane) -> Void
     @ObservationIgnored private let enableSetting: @MainActor () -> Void
     @ObservationIgnored private let notifications: NotificationCenter
     @ObservationIgnored private let distributed: NotificationCenter
@@ -93,6 +94,7 @@ final class ComputerUseSetup {
          read: @escaping @Sendable (AgentActivitySocketSource.Configuration) async -> Read = { await ComputerUseSetup.socketRead($0) },
          resolveHelper: @escaping @Sendable (URL?) async -> URL? = ComputerUseSetup.signedHelper,
          openURL: @escaping @MainActor (URL) -> Void = { NSWorkspace.shared.openInBackground($0) },
+         requestPermission: @escaping @MainActor (ComputerUsePermissionPane) -> Void = { _ in },
          enableSetting: @escaping @MainActor () -> Void = {},
          notifications: NotificationCenter = .default,
          distributed: NotificationCenter = DistributedNotificationCenter.default(),
@@ -102,6 +104,7 @@ final class ComputerUseSetup {
         self.read = read
         self.resolveHelper = resolveHelper
         self.openURL = openURL
+        self.requestPermission = requestPermission
         self.enableSetting = enableSetting
         self.notifications = notifications
         self.distributed = distributed
@@ -153,6 +156,7 @@ final class ComputerUseSetup {
     /// read on the app's next activation picks up the change.
     func open(_ pane: ComputerUsePermissionPane) {
         guard let url = Self.settingsURL(pane) else { return }
+        requestPermission(pane)
         openURL(url)
     }
 
@@ -300,6 +304,10 @@ extension ComputerUseSetup {
                        helper: helper.state)
             },
             configuration: { helper.configuration },
+            requestPermission: { pane in
+                // task-owner: one private control-pipe write for the person's setup click.
+                Task { await helper.upstream.requestPermission(screenRecording: pane == .screenRecording) }
+            },
             enableSetting: { [weak services] in
                 guard let settings = services?.settings else { return }
                 let writer = SettingWriter.currentRun()

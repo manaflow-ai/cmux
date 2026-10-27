@@ -226,6 +226,14 @@ public final class ComputerUseHelperV2 {
                               "start_sec": Int(stamp.startSeconds), "start_usec": Int(stamp.startMicroseconds)]))
     }
 
+    /// A person's permission button in Computer Use setup. Startup and agent
+    /// tool calls never use this private host channel to request grants.
+    public func requestPermission(screenRecording: Bool) async {
+        guard case .running = state, let child else { return }
+        await child.send(Self.line(["type": "request_permission",
+                                   "permission": screenRecording ? "screen_recording" : "accessibility"]))
+    }
+
     /// Stops the helper: close its stdin (it exits on EOF), then SIGTERM this
     /// exact pid if it is still alive after `exitGrace`.
     func stop() async {
