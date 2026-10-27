@@ -227,6 +227,7 @@ final class ChromeIconButton: NSButton {
     }
 
     /// The hold's drags move nothing; the pressed look follows the pointer in and out, as a tracked press.
+    // input-coalesce: native (a press highlight: one Bool store per event, nothing to coalesce)
     override func mouseDragged(with event: NSEvent) {
         guard isHoldingForMenu else { return super.mouseDragged(with: event) }
         isHighlighted = isInside(event)

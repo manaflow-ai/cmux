@@ -32,6 +32,7 @@ enum ControlSettingsPolicy {
     @MainActor
     static func confirm(_ key: String, value: JSONValue?, owner: any ControlSettingsWriter,
                         connection: ControlConnectionID) async -> Bool {
+        // main-hop-allow: the Task is only the handle a closed connection cancels; it awaits the person's own confirm sheet
         let sheet = Task { @MainActor in await owner.confirmUserOnlyWrite(key: key, value: value) }
         let token = ControlConnectionClosures.shared.add(connection) { sheet.cancel() }
         defer { ControlConnectionClosures.shared.remove(token) }
