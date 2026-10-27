@@ -373,4 +373,24 @@ mod tests {
         assert_eq!(peer_uid(&server).unwrap(), unsafe { libc::geteuid() });
         drop(client);
     }
+
+    /// A reader that claims more bytes than the buffer it was given holds.
+    #[cfg(target_os = "linux")]
+    struct Overreporting;
+
+    #[cfg(target_os = "linux")]
+    impl Read for Overreporting {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            buffer.fill(b'x');
+            Ok(buffer.len() + 1)
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_reader_that_reports_more_than_one_byte_is_invalid_data() {
+        assert_eq!(read_message(&b"{}\nnext"[..]).unwrap().0, b"{}");
+        let error = read_message(Overreporting).err().unwrap();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData, "{error}");
+    }
 }

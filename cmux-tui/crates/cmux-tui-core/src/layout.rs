@@ -1118,6 +1118,44 @@ mod tests {
         }
     }
 
+    /// Every split id once, every ratio strictly between 0 and 1.
+    fn assert_valid_splits(node: &Node, ids: &mut HashSet<SplitId>) {
+        match node {
+            Node::Leaf(_) | Node::Stack { .. } => {}
+            Node::Split { id, ratio, a, b, .. } => {
+                assert!(ids.insert(*id), "split id {id} repeats");
+                assert!(*ratio > 0.0 && *ratio < 1.0, "ratio {ratio}");
+                assert_valid_splits(a, ids);
+                assert_valid_splits(b, ids);
+            }
+        }
+    }
+
+    #[test]
+    fn zellij_default_layout_is_a_valid_tree_at_every_shape_boundary() {
+        assert!(zellij_default_pane_layout(&[]).is_none());
+        for count in [1_u64, 2, 5, 6, 12, 13, 20] {
+            let panes: Vec<PaneId> = (1..=count).collect();
+            let mut next = 100;
+            let node = zellij_default_pane_layout_with_ids(&panes, &mut || {
+                next += 1;
+                next
+            })
+            .unwrap_or_else(|| panic!("{count} panes gave no layout"));
+            assert_eq!(node.pane_ids_vec(), panes, "{count} panes: {node:?}");
+            assert_valid_splits(&node, &mut HashSet::new());
+            match (&node, count) {
+                (Node::Leaf(1), 1) => {}
+                (Node::Split { a, b, .. }, 13..) => {
+                    assert!(matches!(**a, Node::Leaf(1)), "{node:?}");
+                    assert!(matches!(**b, Node::Stack { .. }), "{node:?}");
+                }
+                (Node::Split { .. }, 2..=12) => assert!(node.stack_expanded_pane().is_none()),
+                _ => panic!("{count} panes: unexpected shape {node:?}"),
+            }
+        }
+    }
+
     #[test]
     fn zero_extent_virtual_splits_preserve_empty_rect() {
         for dir in [SplitDir::Right, SplitDir::Down] {

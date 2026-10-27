@@ -154,7 +154,6 @@ pub(crate) fn dispatch(
     mux: &Arc<Mux>,
     request: ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
-    debug_assert!(handles(request.envelope.operation));
     if checkpoint::handles(request.envelope.operation) {
         return checkpoint::dispatch(mux, request);
     }
@@ -305,3 +304,6 @@ fn not_a_repository(operation: &'static str, directory: &Path) -> ResourceError 
 fn git_failed(operation: &'static str, failure: &GitFailure) -> ResourceError {
     ResourceError::operation_failed(operation, failure.reason(), json!({"code":"git_failed"}))
 }
+
+#[cfg(test)]
+mod tests;

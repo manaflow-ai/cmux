@@ -402,3 +402,6 @@ fn pin(
         ledger::commit(mux, &key, operation, &fingerprint, &value, false, &request.actor)
     })
 }
+
+#[cfg(test)]
+mod tests;
