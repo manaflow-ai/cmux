@@ -44,9 +44,11 @@ nonisolated final class CEFChildProcessMonitor: @unchecked Sendable {
                 logger.error("kqueue failed: \(errno)")
                 return
             }
-            var event = kevent(ident: UInt(getpid()), filter: Int16(EVFILT_PROC), flags: UInt16(EV_ADD | EV_CLEAR),
-                               fflags: UInt32(NOTE_FORK), data: 0, udata: nil)
-            guard kevent(fd, &event, 1, nil, 0, nil) == 0 else {
+            // SAFETY: udata is NULL; the kernel never dereferences it.
+            var event = unsafe kevent(ident: UInt(getpid()), filter: Int16(EVFILT_PROC), flags: UInt16(EV_ADD | EV_CLEAR),
+                                      fflags: UInt32(NOTE_FORK), data: 0, udata: nil)
+            // SAFETY: one change read from `event`, no event list.
+            guard unsafe kevent(fd, &event, 1, nil, 0, nil) == 0 else {
                 logger.error("NOTE_FORK watch failed: \(errno)")
                 close(fd)
                 return
@@ -63,7 +65,9 @@ nonisolated final class CEFChildProcessMonitor: @unchecked Sendable {
     private func drain() {
         var events = Array(repeating: Darwin.kevent(), count: 16)
         var zero = timespec(tv_sec: 0, tv_nsec: 0)
-        let count = kevent(kq, nil, 0, &events, Int32(events.count), &zero)
+        let room = Int32(events.count)
+        // SAFETY: the kernel writes at most `room` events into the array's buffer and reads `zero` during the call.
+        let count = unsafe kevent(kq, nil, 0, &events, room, &zero)
         guard count > 0 else { return }
         var needsRescan = false
         for event in events.prefix(Int(count)) {
@@ -87,16 +91,20 @@ nonisolated final class CEFChildProcessMonitor: @unchecked Sendable {
 
     private func rescan() {
         var pids = [pid_t](repeating: 0, count: 256)
-        let bytes = proc_listchildpids(getpid(), &pids, Int32(pids.count * MemoryLayout<pid_t>.stride))
+        let room = Int32(pids.count * MemoryLayout<pid_t>.stride)
+        // SAFETY: the kernel writes at most `room` bytes, the array's size, into its buffer during the call.
+        let bytes = unsafe proc_listchildpids(getpid(), &pids, room)
         guard bytes > 0 else { return }
         // proc_listchildpids returns a count on current macOS (bytes on
         // older ones); take whichever fits the buffer.
         let count = min(Int(bytes), pids.count)
         for pid in pids.prefix(count) where pid > 0 && children[pid] == nil {
-            var event = kevent(ident: UInt(pid), filter: Int16(EVFILT_PROC), flags: UInt16(EV_ADD | EV_CLEAR),
-                               fflags: UInt32(NOTE_EXEC) | UInt32(NOTE_EXIT) | UInt32(NOTE_EXITSTATUS), data: 0, udata: nil)
+            // SAFETY: udata is NULL; the kernel never dereferences it.
+            var event = unsafe kevent(ident: UInt(pid), filter: Int16(EVFILT_PROC), flags: UInt16(EV_ADD | EV_CLEAR),
+                                      fflags: UInt32(NOTE_EXEC) | UInt32(NOTE_EXIT) | UInt32(NOTE_EXITSTATUS), data: 0, udata: nil)
             // Fails when the child already exited (and was reaped).
-            guard kevent(kq, &event, 1, nil, 0, nil) == 0 else { continue }
+            // SAFETY: one change read from `event`, no event list.
+            guard unsafe kevent(kq, &event, 1, nil, 0, nil) == 0 else { continue }
             children[pid] = CEFHelperIdentity.read(pid: pid)
         }
     }
@@ -133,16 +141,19 @@ nonisolated struct CEFHelperIdentity: Equatable, Sendable {
     static func arguments(pid: Int32) -> [String] {
         var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
         var size = 0
-        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return [] }
+        // SAFETY: reads the 3-int name; a NULL old buffer only writes the size it needs into `size`.
+        guard unsafe sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return [] }
         var buffer = [UInt8](repeating: 0, count: size)
-        guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return [] }
+        // SAFETY: `size` is the array's length; the kernel writes at most that many bytes and the length it wrote.
+        guard unsafe sysctl(&mib, 3, &buffer, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return [] }
         return parseProcArgs(Array(buffer.prefix(size)))
     }
 
     static func parseProcArgs(_ buffer: [UInt8]) -> [String] {
         let intSize = MemoryLayout<Int32>.size
         guard buffer.count > intSize else { return [] }
-        let argc = buffer.prefix(intSize).withUnsafeBytes { Int($0.loadUnaligned(as: Int32.self)) }
+        // argc: the first Int32, little-endian (KERN_PROCARGS2 on arm64 and x86_64).
+        let argc = Int(Int32(bitPattern: buffer.prefix(intSize).reversed().reduce(UInt32(0)) { $0 << 8 | UInt32($1) }))
         guard argc > 0 else { return [] }
         var index = intSize
         // Skip the exec path and the NUL padding after it.

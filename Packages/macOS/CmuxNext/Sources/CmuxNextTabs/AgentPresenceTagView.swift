@@ -31,12 +31,17 @@ public final class AgentPresenceTagView: NSView {
 
     public func configure(_ presence: TabPresence?) {
         guard presence != self.presence else { return }
+        // An agent's next activity changes the text, which repaints itself; the fill and ink follow
+        // the agent, and the pane frames the tag to its text (`layoutAgentTag`).
+        let shownKey = self.presence?.colorKey
         self.presence = presence
         isHidden = presence == nil
         label.stringValue = presence?.summary ?? ""
-        label.font = Typography.caption
-        needsDisplay = true
-        needsLayout = true
+        if label.font != Typography.caption {
+            label.font = Typography.caption
+            needsLayout = true // invalidate: a new text size (the check above) changes the label's height
+        }
+        if presence?.colorKey != shownKey { needsDisplay = true }
     }
 
     /// The tag's size for its text, at most `maxWidth` wide.

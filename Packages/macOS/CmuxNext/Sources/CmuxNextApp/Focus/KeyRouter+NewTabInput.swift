@@ -1,6 +1,8 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextFocusUI
 import CmuxNextAgentPane
+import CmuxNextDesign
 import CmuxNextWakeups
 
 /// Owns the short interval between Cmd-T (or Cmd-N's new workspace) and the New Tab field's
@@ -20,7 +22,8 @@ import CmuxNextWakeups
 @MainActor
 final class NewTabInputCoordinator {
     weak var router: KeyRouter?
-    private var buffers: [Int: Entry] = [:]
+    /// The router's typing keys come here only while some window holds keys (``KeyRouterMode/newTabCapture``).
+    private var buffers: [Int: Entry] = [:] { didSet { router?.modes.set(.newTabCapture, !buffers.isEmpty) } }
     /// The longest a key may wait for the New Tab field. Its readiness normally comes within one
     /// page render; past this the field (or whatever has focus) takes the keys directly.
     var holdLimit: Duration = .seconds(2)
@@ -267,8 +270,10 @@ final class NewTabInputCoordinator {
 
     /// The Chromium page window (a child of `window`) that takes `window`'s held keys: the key window
     /// when it is one, else the window of a shown agent page in Chromium whose view has the
-    /// keyboard in its own window (it was focused while the app was not active).
+    /// keyboard in its own window (it was focused while the app was not active). Nil with pages in
+    /// the view tree (``PageSurface/views``): the page view is `window`'s first responder.
     private static func chromiumPageWindow(in window: NSWindow) -> NSWindow? {
+        guard PageSurface.of(window) == .childWindows else { return nil }
         if let key = NSApp.keyWindow, key !== window, key.parent === window { return key }
         guard window.firstResponder === window || window.firstResponder == nil else { return nil }
         return window.childWindows?.first { child in

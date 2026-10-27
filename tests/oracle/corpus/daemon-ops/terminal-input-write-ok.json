@@ -108,6 +108,31 @@
           "text": "line-19\nline-20\nline-21\nline-22\nline-23\nline-24\nline-25\nline-26\nline-27\nline-28\nline-29\nline-30\nline-31\nline-32\nline-33\nline-34\nline-35\nline-36\nline-37\nline-38\nline-39\nline-40\n00000000000000000000000000000000000000000000000000000000000000000000000000000000\n00000"
         }
       }
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "terminal": "$step:fx-workspace#/value/terminal_id"
+      },
+      "args": {
+        "method": "terminal.input.write",
+        "params": {
+          "text": "printf '\\033[H\\033[2J\\033[3J'; i=0; while [ $i -lt 40 ]; do i=$((i+1)); echo line-$i; done; printf '%085d' 0; printf '\\033]2;oracle-filled\\007'; exec cat\r"
+        },
+        "idempotencyKey": "terminal-input-write-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

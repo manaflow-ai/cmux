@@ -6,6 +6,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeEngine
+import CmuxNextWakeups
 import Observation
 
 /// The Home top page, two columns: MessagesLab's conversation list
@@ -54,17 +55,35 @@ final class TopHomePageView: NSView {
     private var opening: ConversationID?
     /// A page built again after a discard: where its list was, applied once the rows are in.
     var pendingListScroll: CGPoint?
-    private var rowsObservation: Task<Void, Never>?
-    private var selectionObservation: Task<Void, Never>?
-    private var chiefObservation: Task<Void, Never>?
-    private var accountObservation: Task<Void, Never>?
-    private var requestsObservation: Task<Void, Never>?
-    private var unreadColorObservation: Task<Void, Never>?
+    /// This page in the visibility tree: its view-only observations read only while it is on screen (p06 section C).
+    let visibility = ViewVisibility("topHome")
+    /// The page's observations (recipe R-obs). Service observations write the Home model, start reads or pick the
+    /// shown conversation, which must happen while the page hides too.
+    private typealias RowFacts = (landed: Bool, all: [InboxRow], archived: Set<String>, owned: [HomeInboxRequest.Response?])
+    private var rowsObservation: ServiceObservation<RowFacts>?
+    private var selectionObservation: ServiceObservation<(pending: ConversationID?, listed: [ConversationID])>?
+    private var chiefObservation: ServiceObservation<String?>?
+    private var accountObservation: ServiceObservation<String?>?
+    /// View observations on ``visibility``.
+    private var requestsObservation: VisibleObservation<Int>?
+    private var unreadColorObservation: VisibleObservation<NSColor?>?
+    /// What the rows observation last acted on (it acts on changes only).
+    private var badgedChiefs: Set<String>?
+    private var listedConversations: Set<ConversationID> = []
+    private var picturedRows: [HomeInboxRequest.Response?]?
+    private var picturedChiefs: Set<String>?
+    private var previousChief: String?
+    /// A conversation shown before the page had a window: the keyboard goes to it when the page gets one.
+    private var focusesOnWindow = false
+    /// False in the turn that builds the page: the observations' first applies fill the list but pick no conversation,
+    /// so a rebuilt page's record (`restoreViewState`, later in that turn) shows its own conversation and nothing
+    /// builds a transcript for the default one first. The page's first posted task picks one if none was restored.
+    private var picksConversation = false
 
     init(services: AppServices, windowKey: @escaping () -> String) {
         self.services = services
         sidebar = services.home.makeSidebarSource()
-        split = HomeSidebarSplitView(sidebar: list, content: transcriptColumn, mainWork: services.mainWork)
+        split = HomeSidebarSplitView(sidebar: list, content: transcriptColumn, mainWork: services.mainWork, caches: services.home.labCaches, page: visibility.node)
         super.init(frame: .zero)
         setAccessibilityIdentifier("cmux.topPage.home")
         split.windowKey = windowKey
@@ -72,26 +91,48 @@ final class TopHomePageView: NSView {
         split.autoresizingMask = [.width, .height]
         addSubview(split)
         wireList(services)
-        observe(services.home)
+        observe(services.home, on: services.mainWork)
+        services.mainWork.post(.visible, owner: "TopHomePage.firstConversation") { [weak self, home = services.home] in
+            guard let self else { return }
+            picksConversation = true
+            showPendingSelection(home)
+            showDefaultConversation(home)
+        }
         // At launch Home starts right after the first frame (its list shows the last launch's until then),
         // and the team and Chiefs read, a Cloud read, waits for that frame too (p08-startup-027).
         services.home.launchFeeds?.need()
-        // task-owner: lives as long as this view; one read of the team and Chiefs
-        Task { [feeds = services.home.launchFeeds] in await feeds?.afterFirstFrame(); await services.home.directory.refresh() }
+        // task-owner: BackgroundWork (quit skips it); one read of the team and Chiefs, awaited off main (recipe R-hop)
+        services.work.task(.userVisible) { [feeds = services.home.launchFeeds, directory = services.home.directory] in
+            await feeds?.afterFirstFrame()
+            await directory.refresh()
+        }
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
-    nonisolated deinit {
-        rowsObservation?.cancel()
-        selectionObservation?.cancel()
-        chiefObservation?.cancel()
-        accountObservation?.cancel()
-        requestsObservation?.cancel()
-        unreadColorObservation?.cancel()
+    // cx-t7hu: not an isolated deinit (its hop traps inside an action's task-local scope); each observation stops itself.
+    nonisolated deinit {}
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        visibility.place(in: window)
+        // A conversation shown before the page had a window takes the keyboard as `show` gives it in a window.
+        guard focusesOnWindow, let window else { return }
+        focusesOnWindow = false
+        if window.firstResponder === window || window.firstResponder == nil { focusPrimaryInput() }
+    }
+
+    var visibilityNode: VisibilityNode { visibility.node }
+
+    override func viewDidHide() {
+        super.viewDidHide()
+        visibilityNode.set(.hidden)
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        visibilityNode.set(.visible)
     }
 
     /// Redraws the list after a pin change (`home.togglePin`).
@@ -126,14 +167,14 @@ final class TopHomePageView: NSView {
             self?.list.update(sidebar.model())
         }
         let home = services.home
-        let registry = services.registry
+        let registry = services.registry, work = services.work
         // Mark as Read: the user's unread mark goes, and the read cursor moves to the newest message.
         list.onMarkRead = { id in
             sidebar.setMarkedUnread(false, id)
             guard let row = home.homeStore.rows.first(where: { $0.id == id }), row.unread > 0 else { return }
-            let store = home.homeStore
-            // task-owner: one op; ends with the owner's answer
-            Task { _ = try? await store.perform(.setReadCursor(conversation: id, seq: row.summary.lastSeq)) }
+            let store = home.homeStore, seq = row.summary.lastSeq
+            // task-owner: BackgroundWork; one op awaited off main (recipe R-hop), it ends with the owner's answer
+            work.task(.userBlocking) { _ = try? await store.perform(.setReadCursor(conversation: id, seq: seq)) }
         }
         list.onMarkUnread = { id in if id != HomeSidebarView.draftRowID { sidebar.setMarkedUnread(true, id) } }
         // Usage…, Archive Chief and Delete Chief… on a Chief's row; Hide or Show Alerts on a DM or group's row, and for a group
@@ -179,10 +220,12 @@ final class TopHomePageView: NSView {
                                     contacts: home.contacts()).people
         }
         list.onStartTeammate = { [weak self] person in
-            // task-owner: one conversation start; ends with the owner's answer
-            Task { [weak self] in
+            // Awaited off main; the opening is the rest of the person's click: one userBlocking task (recipe R-hop).
+            let opened: @MainActor @Sendable (ConversationID) -> Void = { [weak self] id in self?.openWhenListed(id) }
+            let end = registry.completion(on: services.mainWork)
+            end.start {
                 guard case .opened(let id) = await home.startConversation([.contact(person)], title: "") else { return }
-                self?.openWhenListed(id)
+                end.post(owner: "TopHomePage.startTeammate", answering: true) { opened(id) }
             }
         }
         list.onNewMessage = { [weak self] in self?.presentNewMessage() }
@@ -190,128 +233,104 @@ final class TopHomePageView: NSView {
         list.composeMenu = { [weak services] in services.map { HomePageMenus.backgroundMenu(registry: $0.registry) } }
     }
 
-    /// Follows the inbox rows (Observation) and the conversation an action
-    /// asked to show once it is listed.
-    private func observe(_ home: HomeService) {
-        let store = home.homeStore
-        // task-owner: lives as long as this view; event-driven (Observation)
-        let sidebar = sidebar
-        rowsObservation = Task { [weak self] in
-            // The Chiefs listed when their engines (the rows' badges) were last read.
-            var badgedChiefs: Set<String>?
-            var listed: Set<ConversationID> = []
-            // The owner's rows when the Chiefs' pictures were last read: a chief-changed event
-            // (a picture set by a tool or the CLI) reads the rows again, and the pictures with them.
-            var picturedRows: [HomeInboxRequest.Response?]?
-            var picturedChiefs: Set<String>?
-            // Each Chief's pet character is its avatar when it has none of its own: a new pick redraws the list.
-            for await (all, archived, _, _, _, _, owned, _, _, _, _, _) in ObservationStream({
-                (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks, home.chiefFaces,
-                 sidebar.ownerRows, home.directory.chiefHarnesses, home.chiefRoster, home.services.settings?.snapshot.homeChiefPetMascot,
-                 // The team is read after the page opens: its teammates are rows once it lands.
-                 home.directory.teamMembers,
-                 // A rename of a Chief redraws its tile.
-                 home.chiefNames)
-            }) {
-                guard let self else { return }
-                let chiefs = Set(all.flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) })
-                if chiefs != badgedChiefs {
-                    badgedChiefs = chiefs
-                    home.refreshChiefHarnesses()
-                }
-                if owned != picturedRows || chiefs != picturedChiefs {
-                    picturedRows = owned
-                    picturedChiefs = chiefs
-                    home.refreshChiefAvatars()
-                }
-                rows = Self.visible(all, archivedChiefs: archived, me: store.me?.id)
-                // A conversation came or went (a lease arrived, a request was accepted): requests may have changed.
-                if Set(all.map(\.id)) != listed { listed = Set(all.map(\.id)); home.requests.refresh() }
-                list.update(sidebar.model())
-                applyPendingListScroll()
-                if shown == nil, !isComposingNewMessage, let first = defaultConversation(rows: rows, home: home) { show(first) }
-                // The cache's conversation of a Chief home made again (cx-ebm.55).
-                if shownIsGone(store), let chief = Self.chief(home) { replaceGone(with: ConversationID(chief), store: store) }
-            }
+    /// Follows the inbox rows and the conversation an action asked to show once it is listed (recipe R-obs).
+    private func observe(_ home: HomeService, on work: MainWorkScheduler) {
+        let store = home.homeStore, sidebar = sidebar, listLaunch = home.listLaunch
+        rowsObservation = ServiceObservation(.visible, owner: "TopHomePage.rows", on: work) { () -> RowFacts in
+            // Read for their changes: each redraws the list. A Chief's pet character is its avatar when it has none of
+            // its own, the team is read after the page opens (its teammates are rows once it lands), and a rename of a
+            // Chief redraws its tile.
+            _ = (sidebar.query, sidebar.pins, sidebar.unreadMarks, home.chiefFaces, home.directory.chiefHarnesses, home.chiefRoster,
+                 home.services.settings?.snapshot.homeChiefPetMascot, home.directory.teamMembers, home.chiefNames)
+            return (landed: listLaunch.isLanded, all: store.rows, archived: home.directory.archivedChiefs, owned: sidebar.ownerRows)
+        } apply: { [weak self] facts in
+            self?.rowsChanged(facts, home: home)
         }
-        // task-owner: lives as long as this view; event-driven (Observation). The chief placed
-        // on a paired server (G6) replaces the local chief while the page shows the local one.
-        chiefObservation = Task { [weak self] in
-            var previous = Self.chief(home)
-            for await chief in ObservationStream({ Self.chief(home) }) {
-                guard let self, let chief, chief != previous else { continue }
-                if shownIsGone(home.homeStore) {
-                    replaceGone(with: ConversationID(chief), store: home.homeStore)
-                } else if shown == nil || shown?.rawValue == previous {
-                    show(ConversationID(chief))
-                }
-                previous = chief
-            }
+        // The chief placed on a paired server (G6) replaces the local chief while the page shows the local one.
+        previousChief = Self.chief(home)
+        chiefObservation = ServiceObservation(.visible, owner: "TopHomePage.chief", on: work) { Self.chief(home) } apply: { [weak self] chief in
+            self?.chiefChanged(chief, home: home)
         }
         let auth = home.services.cloud.auth
-        // task-owner: lives as long as this view; event-driven (Observation). Another account has its own pins.
-        accountObservation = Task {
-            for await _ in ObservationStream({ auth.user?.id }) { sidebar.reloadPins() }
+        // Another account has its own pins.
+        accountObservation = ServiceObservation(.visible, owner: "TopHomePage.account", on: work) { auth.user?.id } apply: { _ in
+            sidebar.reloadPins()
         }
-        // task-owner: lives as long as this view; event-driven (Observation)
-        requestsObservation = Task { [weak self] in
-            for await count in ObservationStream({ home.requests.items.count }) { self?.list.showRequests(count) }
+        requestsObservation = VisibleObservation(visibility.node, owner: "TopHomePage.requests", on: work) {
+            home.requests.items.count
+        } apply: { [weak self] count in
+            self?.list.showRequests(count)
         }
-        // task-owner: lives as long as this view; event-driven (Observation). The unread dot is
-        // the unread rings' color (`notifications.attention.color`, nil: the notification blue).
-        unreadColorObservation = Task { [weak self] in
-            for await color in ObservationStream({ home.services.settings?.snapshot.attention.color }) {
-                self?.list.unreadDotColor = color?.nsColor
-            }
+        // The unread dot is the unread rings' color (`notifications.attention.color`, nil: the notification blue).
+        unreadColorObservation = VisibleObservation(visibility.node, owner: "TopHomePage.unreadColor", on: work) {
+            home.services.settings?.snapshot.attention.color?.nsColor
+        } apply: { [weak self] color in
+            self?.list.unreadDotColor = color
         }
-        // task-owner: lives as long as this view; event-driven (Observation)
-        selectionObservation = Task { [weak self] in
-            for await pending in ObservationStream({ (home.pendingSelection, store.rows.map(\.id)) }) {
-                guard let self, let id = pending.0, pending.1.contains(id) else { continue }
-                home.pendingSelection = nil
-                show(id)
-                if opening == id {
-                    opening = nil
-                    host?.takeKeyboardOnOpen()
-                }
-            }
+        selectionObservation = ServiceObservation(.visible, owner: "TopHomePage.selection", on: work) {
+            () -> (pending: ConversationID?, listed: [ConversationID]) in (pending: home.pendingSelection, listed: store.rows.map(\.id))
+        } apply: { [weak self] _ in
+            self?.showPendingSelection(home)
         }
     }
 
-    /// The Chief's conversation (the chief placed on a server takes over a
-    /// local one without history: `HomeChiefSource`), else the first listed conversation.
-    private func defaultConversation(rows: [InboxRow], home: HomeService) -> ConversationID? {
-        if let chief = Self.chief(home) { return ConversationID(chief) }
-        return rows.homeLines.lazy.compactMap(\.conversation).first
+    /// Shows the conversation an action asked for once the inbox lists it (with the keyboard when the person started it).
+    private func showPendingSelection(_ home: HomeService) {
+        guard picksConversation, let id = home.pendingSelection, home.homeStore.rows.contains(where: { $0.id == id }) else { return }
+        home.pendingSelection = nil
+        show(id)
+        if opening == id {
+            opening = nil
+            host?.takeKeyboardOnOpen()
+        }
     }
 
-    /// The shown conversation is one the owner's own inbox does not have:
-    /// the cache's conversation of a Chief home made again at the same path
-    /// (cx-ebm.55). Decided only on the owner's inbox, never the cache's copy.
-    private func shownIsGone(_ store: HomeStore) -> Bool {
-        guard let shown else { return false }
-        return store.isInboxCurrent && store.isCacheOnly(shown)
+    /// With nothing shown (and no New Message page), shows the Chief conversation, else the newest one.
+    private func showDefaultConversation(_ home: HomeService) {
+        guard picksConversation, shown == nil, !isComposingNewMessage, let first = defaultConversation(rows: rows, home: home) else { return }
+        show(first)
     }
 
-    /// Shows the live Chief instead of a gone conversation; the text and pictures the user
-    /// put there go with it (after the Chief's own draft), so nothing typed or pasted is lost.
-    private func replaceGone(with chief: ConversationID, store: HomeStore) {
-        guard let gone = shown, gone != chief, store.summary(chief) != nil else { return }
-        let pictures = store.draftAttachments(for: gone)
-        if !pictures.isEmpty {
-            let own = store.draftAttachments(for: chief)
-            store.setDraftAttachments(own + pictures.filter { p in !own.contains { $0.ref.hash == p.ref.hash } }, for: chief)
-            store.setDraftAttachments([], for: gone)
+    /// The inbox rows changed: the Chiefs' engines and pictures are read again when their Chiefs or the owner's rows
+    /// changed, the requests when a conversation came or went, and the list redraws.
+    private func rowsChanged(_ facts: RowFacts, home: HomeService) {
+        // Until the last launch's list is read the page is the theme background; then the seeded list shows in one frame.
+        if split.isHidden == facts.landed { split.isHidden = !facts.landed }
+        guard facts.landed else { return }
+        let store = home.homeStore
+        let chiefs = Set(facts.all.flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) })
+        if chiefs != badgedChiefs {
+            badgedChiefs = chiefs
+            home.refreshChiefHarnesses()
         }
-        let text = store.draft(for: gone) ?? ""
-        if !text.isEmpty {
-            let own = store.draft(for: chief) ?? ""
-            store.setDraft(own.isEmpty ? text : own + "\n" + text, for: chief)
-            store.setDraft("", for: gone)
+        // A chief-changed event (a picture set by a tool or the CLI) reads the owner's rows again, and the pictures with them.
+        if facts.owned != picturedRows || chiefs != picturedChiefs {
+            picturedRows = facts.owned
+            picturedChiefs = chiefs
+            home.refreshChiefAvatars()
         }
-        // Its view says the Chief restarted and that Return sends what was carried.
-        if !text.isEmpty || !pictures.isEmpty { store.noteCarriedDraft(to: chief) }
-        show(chief)
+        rows = Self.visible(facts.all, archivedChiefs: facts.archived, me: store.me?.id)
+        // A conversation came or went (a lease arrived, a request was accepted): requests may have changed.
+        let listed = Set(facts.all.map(\.id))
+        if listed != listedConversations {
+            listedConversations = listed
+            home.requests.refresh()
+        }
+        list.update(sidebar.model())
+        applyPendingListScroll()
+        showDefaultConversation(home)
+        // The cache's conversation of a Chief home made again (cx-ebm.55).
+        if shownIsGone(store), let chief = Self.chief(home) { replaceGone(with: ConversationID(chief), store: store) }
+    }
+
+    private func chiefChanged(_ chief: String?, home: HomeService) {
+        guard let chief, chief != previousChief else { return }
+        if shownIsGone(home.homeStore) {
+            replaceGone(with: ConversationID(chief), store: home.homeStore)
+        } else if shown == nil || shown?.rawValue == previousChief {
+            show(ConversationID(chief))
+        }
+        previousChief = chief
     }
 
     /// Shows `id` in the transcript column and selects it in the list (the
@@ -333,7 +352,11 @@ final class TopHomePageView: NSView {
         transcriptColumn.addSubview(view)
         host = view
         services.home.homeDidOpen(asked: true)
-        if window?.firstResponder === window || window?.firstResponder == nil { focusPrimaryInput() }
+        if let window {
+            if window.firstResponder === window || window.firstResponder == nil { focusPrimaryInput() }
+        } else {
+            focusesOnWindow = true
+        }
     }
 
     /// The person opened `id` (a click on its row or pinned tile, the shown one too; Return in the
@@ -391,7 +414,8 @@ final class TopHomePageView: NSView {
         split.composing = true
         list.setDraftRow(HomeNewMessageDraft.rowTitle)
         list.select(HomeSidebarView.draftRowID)
-        page.needsLayout = true
+        page.needsLayout = true // invalidate: the page shows now; it lays out at the column's size before it takes focus.
+        // sync-layout: the To: field takes focus below, at its frame in the shown page.
         page.layoutSubtreeIfNeeded()
         window?.makeFirstResponder(page.focusTarget)
     }
@@ -399,9 +423,10 @@ final class TopHomePageView: NSView {
     private func makeNewMessage(_ services: AppServices) -> HomeNewMessageView {
         let page = HomeNewMessageView(services: services)
         // The first send made the conversation: the draft ends and the page shows it.
+        let mainWork = services.mainWork
         page.onSent = { [weak self] id in
-            // task-owner: one hop out of the draft store's send before the page goes
-            Task { @MainActor [weak self] in
+            // Out of the draft store's send before the page goes: the rest of the person's send, one userBlocking task.
+            mainWork.post(.userBlocking, owner: "TopHomePage.newMessageSent") { [weak self] in
                 guard let self else { return }
                 endNewMessage()
                 openWhenListed(id)

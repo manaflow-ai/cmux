@@ -162,7 +162,7 @@ import Testing
         relaunched.debugStage(version: Self.version, notes: nil)
         #expect(relaunched.readyCard == nil)
         let registry = ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
-        UpdateHandlers.bind(into: registry, updater: relaunched)
+        UpdateHandlers.bind(into: registry, updater: relaunched, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         #expect(registry.perform("palette.checkForUpdates", invocation: ActionInvocation(origin: .user)))
         #expect(relaunched.readyCard != nil, "Check for Updates did not show the hidden update")
     }

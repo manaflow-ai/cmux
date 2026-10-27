@@ -112,7 +112,7 @@ extension TabStripView {
         if local < band + edge { speed = -(band + edge - local) * gain }
         if local > viewportWidth - edge { speed = (local - (viewportWidth - edge)) * gain }
         guard speed != 0 else { return false }
-        settleScroll()
+        scroller.settle()
         let target = TabScrollMath.clamp(scrollOffset + speed * dt, contentWidth: result.contentWidth, viewportWidth: viewportWidth)
         guard target != scrollOffset else { return false }
         scrollOffset = target
@@ -158,8 +158,20 @@ extension TabStripView {
         relayout(animated: !reduceMotion)
     }
 
+    /// A delivery of the running drag's moves (``dragMoves``): the tab or the group follows the latest point. The
+    /// tear-off was checked on each event (`mouseDragged`), so no point delivered here is past it.
+    func dragMoved(toWindowPoint windowPoint: CGPoint) {
+        let point = convert(windowPoint, from: nil)
+        if drag != nil {
+            updateDrag(at: point, event: nil)
+        } else if groups.drag != nil {
+            updateGroupDrag(at: point, event: nil)
+        }
+    }
+
     /// Escape during an in-strip drag springs the tab back to where it started.
     func cancelDrag() {
+        dragMoves.cancel()
         if groups.drag != nil {
             cancelGroupDrag()
             return
@@ -279,7 +291,7 @@ extension TabStripView {
     /// Where `id`'s cell shows now, its center in window coordinates; nil when it shows nowhere.
     public func tabCenterInWindow(_ id: TabID) -> CGPoint? {
         guard let cell = cells[id] else { return nil }
-        let frame = (cell.layer.presentation() ?? cell.layer).frame
+        let frame = scroller.shownFrame(cell.layer, presented: true)
         return tabsClip.convert(CGPoint(x: frame.midX, y: tabsClip.bounds.midY), to: nil)
     }
 }

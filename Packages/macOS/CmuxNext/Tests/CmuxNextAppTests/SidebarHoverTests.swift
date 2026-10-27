@@ -108,7 +108,7 @@ import Testing
         #expect(harness.frames.coalescer.hasPending)
         harness.frame()
         #expect(harness.hoverChanges == [harness.rows[0].key, harness.rows[7 % harness.rows.count].key])
-        #expect(harness.list.hoverMoves.maxDeliveriesPerFrame == 2)
+        #expect(harness.list.frameInputHover.maxDeliveriesPerFrame == 2)
         #expect(!harness.frames.coalescer.hasPending)
     }
 
@@ -195,7 +195,7 @@ import Testing
         #expect(bar.hovered == 1, "the interval's later moves wait for the frame")
         frames.frame()
         #expect(bar.hovered == 2, "the frame hovered the latest space")
-        #expect(bar.hoverMoves.maxDeliveriesPerFrame == 2)
+        #expect(bar.frameInputHover.maxDeliveriesPerFrame == 2)
 
         try move(to: 0)
         try move(to: 3)

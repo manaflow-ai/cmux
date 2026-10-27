@@ -145,10 +145,10 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
 
     /// What the click carried: Cmd-Option (`browserProfile.openLink` without a profile: the
     /// palette lists them; a plain Cmd-click uses the workspace's profile), Shift-Command (the
-    /// browser the link setting does not pick) and the clicked tab. Read now: the click is the
-    /// current event only during the delegate call.
+    /// browser the link setting does not pick) and the clicked tab. Read now: the click (or the link menu's
+    /// choice) is the action's event only during the delegate call; a CLI or script open has no modifiers.
     private func linkRequest(_ session: TerminalSession) -> (option: Bool, other: Bool, tab: ActionTargetRef?) {
-        let flags = NSApp.currentEvent?.modifierFlags ?? []
+        let flags = services?.inputTap.actionEvent?.modifierFlags ?? []
         return (flags.contains(.option), LinkRouter.isOtherTarget(flags), services.flatMap { target(of: session, in: $0) })
     }
 

@@ -82,7 +82,8 @@ public nonisolated struct AgentPaneTurnUndo: Equatable, Sendable, CustomStringCo
         let name = url.lastPathComponent
         guard !name.isEmpty, name != ".", name != "..", !name.contains("/"),
               let canonicalFolder = AcpmuxPathPolicy.canonical(url.deletingLastPathComponent().path) else { return .cannotUndo }
-        let folder = open(canonicalFolder, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        // SAFETY: open reads the NUL-terminated copy of the path made for the call.
+        let folder = unsafe open(canonicalFolder, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
         guard folder >= 0 else { return .cannotUndo }
         defer { close(folder) }
         // Where the descriptor really is now, not where the string pointed a moment ago.
@@ -123,7 +124,9 @@ public nonisolated struct AgentPaneTurnUndo: Equatable, Sendable, CustomStringCo
 
     static func check(_ folder: Int32, _ name: String, holds expected: Data) -> Check {
         var info = stat()
-        guard fstatat(folder, name, &info, AT_SYMLINK_NOFOLLOW) == 0, (info.st_mode & S_IFMT) == S_IFREG else { return .failed(.cannotUndo) }
+        // SAFETY: fstatat reads the NUL-terminated copy of the name made for the call and writes one struct stat into
+        // `info`, a local.
+        guard unsafe fstatat(folder, name, &info, AT_SYMLINK_NOFOLLOW) == 0, (info.st_mode & S_IFMT) == S_IFREG else { return .failed(.cannotUndo) }
         // A second name keeps the turn's content after the rename: refuse it.
         guard info.st_nlink == 1 else { return .failed(.cannotUndo) }
         // Over the cap is "cannot undo", never "changed": the user did not change it.
@@ -135,14 +138,17 @@ public nonisolated struct AgentPaneTurnUndo: Equatable, Sendable, CustomStringCo
     /// The real path of a descriptor (F_GETPATH).
     static func path(of descriptor: Int32) -> String? {
         var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
-        guard fcntl(descriptor, F_GETPATH, &buffer) == 0 else { return nil }
-        return String(cString: buffer)
+        // SAFETY: F_GETPATH writes at most MAXPATHLEN bytes, the NUL included, into the array's own storage
+        // (MAXPATHLEN long), lent for the call.
+        guard unsafe fcntl(descriptor, F_GETPATH, &buffer) == 0 else { return nil }
+        return String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
     }
 
     /// The file's bytes, opened relative to `folder` without following a symlink; nil when it
     /// cannot be read or is over ``maximumTextBytes``.
     static func contents(_ folder: Int32, _ name: String) -> Data? {
-        let descriptor = openat(folder, name, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        // SAFETY: openat reads the NUL-terminated copy of the name made for the call.
+        let descriptor = unsafe openat(folder, name, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
         guard descriptor >= 0 else { return nil }
         defer { close(descriptor) }
         var data = Data()
@@ -150,7 +156,8 @@ public nonisolated struct AgentPaneTurnUndo: Equatable, Sendable, CustomStringCo
         // A regular file: each read returns data or EOF, so the bounded loop ends by the cap.
         for _ in 0...(maximumTextBytes / buffer.count + 1) {
             // concurrency-allow: only AgentPaneTurnUndo.run (@concurrent) calls this, never the main actor.
-            let count = read(descriptor, &buffer, buffer.count)
+            // SAFETY: read writes at most buffer.count bytes into the array's own storage, lent for the call.
+            let count = unsafe read(descriptor, &buffer, buffer.count)
             if count < 0 { return nil }
             if count == 0 { return data }
             data.append(contentsOf: buffer[0..<count])
@@ -164,15 +171,19 @@ public nonisolated struct AgentPaneTurnUndo: Equatable, Sendable, CustomStringCo
     /// temporary file over it. Any failure removes the temporary file and leaves the original.
     static func replace(_ name: String, in folder: Int32, with bytes: Data, expecting: Data, mode: mode_t) -> Status {
         let temporary = ".cmux-undo-\(UUID().uuidString)"
-        let descriptor = openat(folder, temporary, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, mode)
+        // SAFETY: openat reads the NUL-terminated copy of the name made for the call.
+        let descriptor = unsafe openat(folder, temporary, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, mode)
         guard descriptor >= 0 else { return .cannotUndo }
-        let written = bytes.withUnsafeBytes { raw -> Bool in
+        // SAFETY: `raw` is the data's contiguous storage, valid only inside this closure, which never lets a pointer out.
+        let written = unsafe bytes.withUnsafeBytes { raw -> Bool in
             // An empty text has no buffer and nothing to write.
-            guard let base = raw.baseAddress else { return true }
+            guard let base = unsafe raw.baseAddress else { return true }
             var offset = 0
-            while offset < raw.count {
+            while unsafe offset < raw.count {
                 // concurrency-allow: only AgentPaneTurnUndo.run (@concurrent) calls this, never the main actor.
-                let count = write(descriptor, base + offset, raw.count - offset)
+                // SAFETY: 0 <= offset < raw.count (the loop's condition), so the write covers the raw.count - offset
+                // bytes from base + offset to the buffer's end.
+                let count = unsafe write(descriptor, base + offset, raw.count - offset)
                 if count <= 0 { return false }
                 offset += count
             }
@@ -182,17 +193,19 @@ public nonisolated struct AgentPaneTurnUndo: Equatable, Sendable, CustomStringCo
         let kept = fchmod(descriptor, mode) == 0 && Self.copyMetadata(from: name, in: folder, to: descriptor)
         let synced = fsync(descriptor) == 0
         close(descriptor)
+        // SAFETY (every unlinkat and the renameat below): each reads the NUL-terminated copies of the names made for
+        // the call.
         guard written, kept, synced else {
-            unlinkat(folder, temporary, 0)
+            unsafe unlinkat(folder, temporary, 0)
             return .cannotUndo
         }
         let now = Self.check(folder, name, holds: expecting)
         guard case .regular = now else {
-            unlinkat(folder, temporary, 0)
+            unsafe unlinkat(folder, temporary, 0)
             return now.status
         }
-        guard renameat(folder, temporary, folder, name) == 0 else {
-            unlinkat(folder, temporary, 0)
+        guard unsafe renameat(folder, temporary, folder, name) == 0 else {
+            unsafe unlinkat(folder, temporary, 0)
             return .cannotUndo
         }
         return .reverted
@@ -200,10 +213,12 @@ public nonisolated struct AgentPaneTurnUndo: Equatable, Sendable, CustomStringCo
 
     /// The original's extended attributes and ACL onto the temporary file.
     static func copyMetadata(from name: String, in folder: Int32, to destination: Int32) -> Bool {
-        let source = openat(folder, name, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        // SAFETY: openat reads the NUL-terminated copy of the name made for the call.
+        let source = unsafe openat(folder, name, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
         guard source >= 0 else { return false }
         defer { close(source) }
-        return fcopyfile(source, destination, nil, copyfile_flags_t(COPYFILE_XATTR | COPYFILE_ACL)) == 0
+        // SAFETY: fcopyfile copies between two open descriptors with no state object (nil).
+        return unsafe fcopyfile(source, destination, nil, copyfile_flags_t(COPYFILE_XATTR | COPYFILE_ACL)) == 0
     }
 }
 

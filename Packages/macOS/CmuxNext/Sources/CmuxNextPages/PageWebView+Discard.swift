@@ -171,6 +171,9 @@ extension PageWebView {
         // Before either engine starts: a Chromium page that fell back before reopens in its WebKit
         // view; one with none builds it at a fallback (``fallBackToWebKit(_:detail:)``).
         webKitPieces?.view.navigationDelegate = self
+        // Its browser ended before the discard: the supervisor's answer picks the engine, as it does
+        // for a page that was not discarded.
+        if let chromiumRecovery { return chromiumRecovery.pageShown() }
         if engineDecision.engine == .cef, let chromiumHost {
             startChromium(hosting: chromiumHost)
             return

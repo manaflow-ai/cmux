@@ -17,8 +17,19 @@ final class StatusHeaderRowView: SidebarRowView {
         addSubview(chevron)
     }
 
+    private struct Content: Hashable {
+        var key: SidebarRowKey
+        var childCount: Int
+        var collapsed: Bool
+        var fontSize: CGFloat
+        var iconSize: CGFloat
+    }
+
     func configure(_ row: SidebarRow) {
         guard case let .status(section) = row.key else { return }
+        let content = Content(key: row.key, childCount: row.childCount, collapsed: row.isCollapsed,
+                              fontSize: SidebarStyle.headerFont.pointSize, iconSize: Metrics.smallIconSize)
+        guard needsConfigure(content) else { return }
         name.setString(Strings.statusSection(section))
         count.setString("\(row.childCount)")
         name.setFont(SidebarStyle.headerFont)
@@ -29,6 +40,7 @@ final class StatusHeaderRowView: SidebarRowView {
         setAccessibilityRole(section.collapses ? .disclosureTriangle : .staticText)
         setAccessibilityLabel("\(name.stringValue), \(Strings.groupCount(row.childCount))")
         if section.collapses { setAccessibilityExpanded(!row.isCollapsed) }
+        // invalidate: the content changed (`needsConfigure` above).
         needsLayout = true
     }
 
@@ -42,7 +54,6 @@ final class StatusHeaderRowView: SidebarRowView {
         name.frame = NSRect(x: x, y: (b.height - h) / 2, width: nameWidth, height: h)
         count.frame = NSRect(x: name.frame.maxX + Metrics.space1, y: name.frame.minY, width: ceil(count.intrinsicContentSize.width), height: h)
         chevron.frame = NSRect(x: b.maxX - Metrics.space2 - side, y: (b.height - side) / 2, width: side, height: side)
-        needsDisplay = true
     }
 
     /// Layer colors only: `layerContentsRedrawPolicy` (.onSetNeedsDisplay, SidebarRowView) runs it on needsDisplay, never on a resize.

@@ -101,12 +101,15 @@ extension AVAudioConverter {
         }
         let feed = AnalyzerBufferFeed(input)
         var conversionError: NSError?
-        convert(to: converted, error: &conversionError) { _, outStatus in
+        // SAFETY: the error pointer is a local live for the call; AVAudioConverter stores at most one NSError through
+        // it and keeps no reference. The input block runs synchronously inside convert, and each `outStatus` points
+        // at one status the converter owns for that block call, written once there and not kept.
+        unsafe convert(to: converted, error: &conversionError) { _, outStatus in
             guard let next = feed.take() else {
-                outStatus.pointee = .noDataNow
+                unsafe outStatus.pointee = .noDataNow
                 return nil
             }
-            outStatus.pointee = .haveData
+            unsafe outStatus.pointee = .haveData
             return next
         }
         if let conversionError {

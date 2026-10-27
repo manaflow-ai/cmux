@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 import SwiftUI
 
 /// Hosts the Tasks pane in a tab's content area. The App creates it with a
@@ -8,27 +8,38 @@ import SwiftUI
 /// state (the App passes the user setting `tasks.layout` from cmux.json),
 /// a change switches the layout live. Resolves the
 /// pane colors (chrome tokens and the terminal's ANSI palette) in this
-/// view's theme scope and again on every theme change.
-public final class TasksHostView: NSView {
+/// view's theme scope in `updateLayer`: a theme change marks the view for
+/// display (AppKit on an appearance change, `ThemeRepaint` on a scope
+/// repaint), and AppKit does not display a hidden view, so a pane hidden
+/// during any number of theme changes resolves them once, on show.
+public final class TasksHostView: NSView, VisibilityGatedContent {
     public let model: TasksModel
-    private let appearanceState = TasksAppearance()
+    private let appearanceState: TasksAppearance
+    private let gate: VisibilityGatedHostingView
+    /// How many times the pane's colors were resolved (tests: a hidden pane resolves none until it shows).
+    package private(set) var colorResolves = 0
+
+    /// Its SwiftUI leaves the hierarchy while the tab is hidden (``VisibilityGatedHostingView``).
+    public var visibilityGate: VisibilityGatedHostingView? { gate }
 
     /// The pane's tab title (localized).
     public static var paneTitle: String { TasksStrings.title }
 
     public init(model: TasksModel, layout: @escaping @MainActor () -> TasksLayout) {
+        let appearance = TasksAppearance()
         self.model = model
+        appearanceState = appearance
+        gate = VisibilityGatedHostingView(owner: "TasksHostView") { TasksRoot(model: model, appearance: appearance, layout: layout) }
         super.init(frame: .zero)
         wantsLayer = true
         layerContentsRedrawPolicy = .onSetNeedsDisplay
-        let hosting = NSHostingView(rootView: TasksRoot(model: model, appearance: appearanceState, layout: layout))
-        hosting.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(hosting)
+        gate.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(gate)
         NSLayoutConstraint.activate([
-            hosting.leadingAnchor.constraint(equalTo: leadingAnchor),
-            hosting.trailingAnchor.constraint(equalTo: trailingAnchor),
-            hosting.topAnchor.constraint(equalTo: topAnchor),
-            hosting.bottomAnchor.constraint(equalTo: bottomAnchor),
+            gate.leadingAnchor.constraint(equalTo: leadingAnchor),
+            gate.trailingAnchor.constraint(equalTo: trailingAnchor),
+            gate.topAnchor.constraint(equalTo: topAnchor),
+            gate.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
     }
 
@@ -51,12 +62,8 @@ public final class TasksHostView: NSView {
         resolveColors()
     }
 
-    public override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        resolveColors()
-    }
-
     private func resolveColors() {
+        colorResolves += 1
         let colors = performWithTheme {
             // The glyph knock-out color stays opaque; the page itself
             // paints the pane's fill (`Palette.paneFill`).
@@ -90,9 +97,11 @@ struct TasksRoot: View {
     let model: TasksModel
     let appearance: TasksAppearance
     let layout: @MainActor () -> TasksLayout
+    @Environment(\.hostingBodyCounter) private var bodyCounter
 
     var body: some View {
-        TasksView(model: model, layout: layout())
+        bodyCounter?.record()
+        return TasksView(model: model, layout: layout())
             .environment(\.tasksColors, appearance.colors)
     }
 }
