@@ -294,19 +294,17 @@ import Testing
     }
 
     // Before the fix a host that died before its ready was started again (the first start's
-    // restart) and died the same way.
+    // restart) and died the same way, and its reason never named the code signature check.
     @Test func aHostThatDiesBeforeItsReadyCannotStart() async throws {
         let launcher = FakeLauncher()
-        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher)
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher,
+                                          signatureChecker: ChromiumHostRestartPolicyTests.Checker(.invalid(-67_061)))
         session.open("https://a.example/")
         let host = try await nextLaunch(launcher)
         launcher.end(host, ChromiumHostExit(signal: SIGKILL, status: nil))
-        try await until("ended") {
-            if case .ended = session.phase { return true }
-            return false
-        }
-        guard case .ended(let reason) = session.phase else { return }
-        #expect(reason == "could not start (signal \(SIGKILL)): it ended before Chromium started")
+        let checked = "could not start (signal \(SIGKILL)): it ended before Chromium started; "
+            + "code signature invalid (OSStatus -67061)"
+        try await until("ended with the signature check") { session.phase == .ended(checked) }
         #expect(session.restarts == 0)
         #expect(launcher.count == 1)
     }

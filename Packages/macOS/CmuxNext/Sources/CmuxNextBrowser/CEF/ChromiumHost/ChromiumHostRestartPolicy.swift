@@ -56,15 +56,26 @@ nonisolated struct ChromiumHostRestartPolicy: Sendable {
         self.crashLimit = crashLimit
     }
 
+    /// Whether this end is a host that could not start (``Decision/cannotStart(_:)``). Only for such an end
+    /// does the owner check the host's code signature (a slow read) and give the result to
+    /// ``hostEnded(_:saidHello:cause:signature:)``.
+    static func cannotStart(_ exit: ChromiumHostExit, saidHello: Bool, cause: ChromiumHostEndCause) -> Bool {
+        cause == .crash && (!saidHello || exit.startFailure != nil)
+    }
+
     /// Counts the end of a host and says what happens next.
     ///
     /// - Parameters:
     ///   - exit: How the host ended.
     ///   - saidHello: The host sent `ready` (its Chromium context is initialized) before it ended.
     ///   - cause: Why it ended, as its owner knows it.
-    mutating func hostEnded(_ exit: ChromiumHostExit, saidHello: Bool, cause: ChromiumHostEndCause) -> Decision {
+    ///   - signature: The check of the host's code signature, part of a cannot-start decision.
+    mutating func hostEnded(_ exit: ChromiumHostExit, saidHello: Bool, cause: ChromiumHostEndCause,
+                            signature: ChromiumHostSignatureCheck = .notChecked) -> Decision {
         guard cause == .crash else { return .notCounted }
-        guard saidHello, exit.startFailure == nil else { return .cannotStart(ChromiumHostCannotStart(exit: exit)) }
+        if Self.cannotStart(exit, saidHello: saidHello, cause: cause) {
+            return .cannotStart(ChromiumHostCannotStart(exit: exit, signature: signature))
+        }
         let now = elapsed()
         recentCrashes += 1
         if let lastCrash {
@@ -100,13 +111,6 @@ nonisolated struct ChromiumHostCannotStart: Error, Equatable, Sendable, CustomSt
         let ended = exit.startFailure ?? "could not start (\(exit)): it ended before Chromium started"
         guard let signature = signature.text else { return ended }
         return "\(ended); \(signature)"
-    }
-
-    /// This failure with the signature check of `executable` (a blocking call: run it off the main thread).
-    func checkingSignature(of executable: URL, with checker: any ChromiumHostSignatureChecking) -> ChromiumHostCannotStart {
-        var checked = self
-        checked.signature = checker.check(executable)
-        return checked
     }
 }
 #endif

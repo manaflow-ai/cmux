@@ -24,7 +24,7 @@ nonisolated enum ChromiumHostSignatureCheck: Equatable, Sendable {
 }
 
 /// Checks a Chromium Host executable's code signature. A blocking call: it reads and hashes the
-/// code on disk, so its caller runs it off the main thread (the supervisor's exit queue).
+/// code on disk, so ChromiumHostSession runs it off the main thread (a `@concurrent` function).
 nonisolated protocol ChromiumHostSignatureChecking: Sendable {
     func check(_ executable: URL) -> ChromiumHostSignatureCheck
 }

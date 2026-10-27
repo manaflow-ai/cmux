@@ -17,7 +17,8 @@ import enum CmuxSafeConcurrency.OnceContinuationError
 /// shows nothing until a new host gives its context, and
 /// ``ChromiumHostRestartPolicy`` (Chrome's GPU crash budget) decides whether a
 /// new host starts with the saved page. A host that died before its `ready`
-/// is not restarted: a new one would die the same way. Frames that a host
+/// is not restarted: a new one would die the same way, and the ended reason
+/// says whether the host's code signature is valid. Frames that a host
 /// sent before it ended and that arrive after it ended change nothing.
 ///
 /// Ending on purpose (``close()``) sends `quit` and SIGKILLs a host that has
@@ -75,6 +76,8 @@ public final class ChromiumHostSession {
     let configuration: ChromiumHostConfiguration
     private let launcher: any ChromiumHostLaunching
     private var policy: ChromiumHostRestartPolicy
+    /// Checks the host's code signature when it could not start.
+    private let signatureChecker: any ChromiumHostSignatureChecking
     private let quitLimit: Duration
     /// Told each connection the session opens (tests await its reader's end).
     private let connected: (ChromiumHostConnection) -> Void
@@ -131,6 +134,7 @@ public final class ChromiumHostSession {
 
     init(configuration: ChromiumHostConfiguration, launcher: any ChromiumHostLaunching,
          policy: ChromiumHostRestartPolicy = ChromiumHostRestartPolicy(),
+         signatureChecker: any ChromiumHostSignatureChecking = SecCodeChromiumHostSignatureChecker(),
          quitLimit: Duration = ChromiumHostFrame.quitLimit, idleExit: ChromiumHostIdleExit? = nil,
          standInPicture: @escaping @MainActor () -> CGImage? = { nil },
          inputPresented: @escaping InputPresented = { _, _ in },
@@ -139,6 +143,7 @@ public final class ChromiumHostSession {
         self.configuration = configuration
         self.launcher = launcher
         self.policy = policy
+        self.signatureChecker = signatureChecker
         self.quitLimit = quitLimit
         self.idleExit = idleExit?.after
         self.standInPicture = standInPicture
@@ -328,15 +333,18 @@ public final class ChromiumHostSession {
         if view.window?.firstResponder === view { connection.send(ChromiumHostFrame(.focus, v: [1])) }
         // The page view's NSTextInputClient answers from the state the host pushes (task 044).
         connection.send(ChromiumHostFrame(.textInputWatch, v: [1]))
-        let launcher = launcher
+        let launcher = launcher, executable = configuration.executable, checker = signatureChecker
         tasks.append(
             Task { [weak self] in
                 let exit = await launcher.exit(of: handle.pid)
-                if let self {
-                    self.hostEnded(exit, pid: handle.pid, connection: connection)
-                } else {
-                    launcher.reap(handle.pid)
+                guard let self else { return launcher.reap(handle.pid) }
+                // A host that could not start: macOS kills one whose signature is broken before its first
+                // line runs, so the ended reason says what the check of the signature on disk found.
+                var signature = ChromiumHostSignatureCheck.notChecked
+                if ChromiumHostRestartPolicy.cannotStart(exit, saidHello: self.saidHello, cause: self.endCause) {
+                    signature = await Self.checkSignature(of: executable, with: checker)
                 }
+                self.hostEnded(exit, signature: signature, pid: handle.pid, connection: connection)
             })
         if closeWhenLaunched {
             closeWhenLaunched = false
@@ -385,7 +393,19 @@ public final class ChromiumHostSession {
         }
     }
 
-    private func hostEnded(_ exit: ChromiumHostExit, pid ended: Int32, connection current: ChromiumHostConnection) {
+    /// Why the current host ends, as this session knows it: a quit (close or the idle exit) is cmux's own end
+    /// and spends nothing of the budget.
+    private var endCause: ChromiumHostEndCause { closing ? .quit : .crash }
+
+    /// Reads and hashes the host's code on disk, off the main thread.
+    @concurrent nonisolated private static func checkSignature(
+        of executable: URL, with checker: any ChromiumHostSignatureChecking
+    ) async -> ChromiumHostSignatureCheck {
+        checker.check(executable)
+    }
+
+    private func hostEnded(_ exit: ChromiumHostExit, signature: ChromiumHostSignatureCheck, pid ended: Int32,
+                           connection current: ChromiumHostConnection) {
         launcher.reap(ended)
         guard current === connection else { return }
         current.close()
@@ -407,8 +427,7 @@ public final class ChromiumHostSession {
         idleDeadline?.cancel()
         let endedIdle = idleQuitting
         idleQuitting = false
-        // A quit (close or the idle exit) is cmux's own end: it spends nothing of the budget.
-        switch policy.hostEnded(exit, saidHello: saidHello, cause: closing ? .quit : .crash) {
+        switch policy.hostEnded(exit, saidHello: saidHello, cause: endCause, signature: signature) {
         case .notCounted:
             closing = false
             if endedIdle {

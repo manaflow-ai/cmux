@@ -82,7 +82,7 @@ import Testing
         #expect(failure.description == "could not start (exit \(status)): \(reason)")
     }
 
-    /// A stand-in checker that records what it checked.
+    /// A stand-in checker with a fixed verdict (ChromiumHostSessionTests).
     nonisolated final class Checker: ChromiumHostSignatureChecking, Sendable {
         let result: ChromiumHostSignatureCheck
         init(_ result: ChromiumHostSignatureCheck) { self.result = result }
@@ -90,11 +90,17 @@ import Testing
     }
 
     @Test func theCannotStartReasonNamesTheCodeSignatureCheck() {
-        let failure = ChromiumHostCannotStart(exit: ChromiumHostExit(signal: SIGKILL, status: nil))
-        let host = URL(filePath: "/nonexistent/cmux Chromium Host")
-        #expect(failure.checkingSignature(of: host, with: Checker(.valid)).description
+        var policy = ChromiumHostRestartPolicy(clock: ManualClock())
+        let killed = ChromiumHostExit(signal: SIGKILL, status: nil)
+        #expect(ChromiumHostRestartPolicy.cannotStart(killed, saidHello: false, cause: .crash))
+        #expect(!ChromiumHostRestartPolicy.cannotStart(killed, saidHello: true, cause: .crash))
+        #expect(!ChromiumHostRestartPolicy.cannotStart(killed, saidHello: false, cause: .quit))
+        let valid = policy.hostEnded(killed, saidHello: false, cause: .crash, signature: .valid)
+        #expect(valid == .cannotStart(ChromiumHostCannotStart(exit: killed, signature: .valid)))
+        guard case .cannotStart(let checked) = valid else { return }
+        #expect(checked.description
             == "could not start (signal \(SIGKILL)): it ended before Chromium started; code signature valid")
-        #expect(failure.checkingSignature(of: host, with: Checker(.invalid(-67_061))).description
+        #expect(ChromiumHostCannotStart(exit: killed, signature: .invalid(-67_061)).description
             == "could not start (signal \(SIGKILL)): it ended before Chromium started; code signature invalid (OSStatus -67061)")
     }
 
