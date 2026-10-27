@@ -19,6 +19,8 @@ struct Host {
     locked: bool,
     /// Whether the timer runs once installed.
     starts: bool,
+    /// The probe stops before `checked` (else a systemd host's says it).
+    unchecked: bool,
 }
 
 impl Host {
@@ -30,6 +32,7 @@ impl Host {
             fenced: RefCell::default(),
             locked: false,
             starts: true,
+            unchecked: false,
         }
     }
 }
@@ -51,6 +54,9 @@ impl Remote for Host {
         }
         assert_eq!(script, probe_script(), "only the probe runs outside the lock");
         let mut words: Vec<String> = self.found.iter().map(|w| format!("{MARK}{w}")).collect();
+        if self.found.contains(&"systemd") && !self.unchecked {
+            words.push(format!("{MARK}checked"));
+        }
         if self.installed.get() && self.install_out.is_empty() && self.starts {
             words.push(format!("{MARK}timer"));
         }
@@ -183,6 +189,22 @@ fn a_drop_in_found_under_the_lock_stops_the_install() {
     assert!(script.contains(&hosts::install_script()), "{script}");
 }
 
+/// A probe cut short (no `checked`), first or under the lock: nothing is
+/// written.
+#[test]
+fn a_probe_that_did_not_read_to_the_end_installs_nothing() {
+    let mut host = Host::new(&["os=Linux", "systemd"]);
+    host.unchecked = true;
+    let r = update(&host, true, None);
+    assert_eq!(r.state, StepState::Warn, "{r:?}");
+    assert!(r.detail.starts_with("could not read acpmux-update's units"), "{r:?}");
+    assert!(host.fenced.borrow().is_empty());
+    let mut host = Host::new(&["os=Linux", "systemd"]);
+    host.install_out = "ACPMUX_AU=unchecked";
+    let r = update(&host, true, None);
+    assert!(r.detail.starts_with("could not read acpmux-update's units"), "{r:?}");
+}
+
 #[test]
 fn another_xdg_config_home_is_said_and_nothing_is_written() {
     for fix in [false, true] {
@@ -268,6 +290,10 @@ mod probe_in_a_shell {
         /// A drop-in directory in a unit path only the running manager names
         /// (`UnitPath`); `fails`: reading `UnitPath` fails.
         manager_drop_in_dir: Option<&'static str>,
+        /// That unit path, under the test's root (it may hold spaces).
+        manager_dir: &'static str,
+        /// The user manager does not answer (`show-environment` fails).
+        no_manager: bool,
         /// The files in ~/.config/systemd/user: acpmux's text, another's, or none.
         service: Option<&'static str>,
         timer: Option<&'static str>,
@@ -288,6 +314,8 @@ mod probe_in_a_shell {
         xdg: None,
         manager_xdg: None,
         manager_drop_in_dir: None,
+        manager_dir: "manager-units",
+        no_manager: false,
         service: Some(hosts::UPDATE_SERVICE),
         timer: Some(hosts::UPDATE_TIMER),
         drop_in_dir: None,
@@ -304,6 +332,8 @@ mod probe_in_a_shell {
         xdg: None,
         manager_xdg: None,
         manager_drop_in_dir: None,
+        manager_dir: "manager-units",
+        no_manager: false,
         service: None,
         timer: None,
         drop_in_dir: None,
@@ -360,7 +390,7 @@ mod probe_in_a_shell {
             }
         };
         read_only(0o444, 0o555);
-        let manager = root.join("manager-units");
+        let manager = root.join(u.manager_dir);
         let unit_path = match u.manager_drop_in_dir {
             Some("fails") => "FAIL".to_owned(),
             Some(name) => {
@@ -378,7 +408,7 @@ mod probe_in_a_shell {
             r#"#!/bin/sh
 [ "$1" = --user ] || exit 2; shift
 case "$1" in
-show-environment) [ -z "{manager_xdg}" ] || echo "XDG_CONFIG_HOME={manager_xdg}"; exit 0 ;;
+show-environment) [ {no_manager} = 0 ] || exit 1; [ -z "{manager_xdg}" ] || echo "XDG_CONFIG_HOME={manager_xdg}"; exit 0 ;;
 is-enabled) echo "{enabled}" ;;
 is-active) exit {active} ;;
 show) [ "$2" = -p ] && [ "$3" = UnitPath ] && {{ [ "{unit_path}" = FAIL ] && exit 1; echo "{unit_path}"; exit 0; }}
@@ -397,6 +427,7 @@ esac
             drop_in = u.drop_in.unwrap_or("-"),
             type_dir = type_dir,
             manager_xdg = u.manager_xdg.unwrap_or(""),
+            no_manager = u8::from(u.no_manager),
             unit_path = unit_path,
         );
         let systemctl = bin.join("systemctl");
@@ -419,7 +450,7 @@ esac
     }
 
     fn kind(found: &Found) -> &'static str {
-        assert!(found.systemd, "{found:?}");
+        assert!(found.systemd && found.checked, "{found:?}");
         match (found.timer, found.stopped, found.foreign) {
             (true, false, false) => "timer",
             (false, true, false) => "stopped",
@@ -494,7 +525,37 @@ esac
         }
         for u in [OWN, NONE] {
             assert_eq!(kind(&probe(Units { manager_drop_in_dir: Some("fails"), ..u })), "foreign");
+            // A path with a space (`systemctl show` prints the list
+            // space-separated): a piece that is not absolute, or two that
+            // join into a path there, is not read as two paths.
+            for dir in ["manager units", "manager /units"] {
+                let spaced = Units {
+                    manager_drop_in_dir: Some("acpmux-update.service.d"),
+                    manager_dir: dir,
+                    ..u
+                };
+                assert_eq!(kind(&probe(spaced)), "foreign", "{dir}");
+            }
         }
+        let (out, written) = run(
+            Units {
+                manager_drop_in_dir: Some("acpmux-update.service.d"),
+                manager_dir: "manager /units",
+                ..NONE
+            },
+            &guarded_install_script(),
+        );
+        assert!(parse(&out).foreign && !written, "{out}");
+    }
+
+    /// A user manager that does not answer, under the lock: nothing is read,
+    /// so nothing is written.
+    #[test]
+    fn the_install_writes_nothing_when_the_manager_does_not_answer() {
+        let (out, written) = run(Units { no_manager: true, ..NONE }, &guarded_install_script());
+        assert!(parse(&out).unchecked, "{out}");
+        assert!(!written, "no unit written");
+        assert!(!probe(Units { no_manager: true, ..OWN }).checked);
     }
 
     /// The probe again under the lock also refuses another XDG_CONFIG_HOME.

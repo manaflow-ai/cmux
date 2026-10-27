@@ -28,14 +28,15 @@ const MARK: &str = "ACPMUX_AU=";
 /// system's administrator put it there (a distribution ships them: Fedora's
 /// `10-timeout-abort.conf`), whatever the path says. The paths are
 /// `systemd-analyze`'s, the running manager's `UnitPath` (whose environment
-/// may differ from this shell's; not reading it counts as foreign) and the
-/// defaults. They are
+/// may differ from this shell's; not reading it, or a list whose spaces
+/// could be inside a path, counts as foreign) and the defaults. They are
 /// acpmux's own only when each file there holds acpmux's own text, each unit
 /// the manager knows loads from there, and no drop-in exists for either;
 /// any other is someone else's (`foreign`), which runs what it likes. An
 /// `XDG_CONFIG_HOME` other than `~/.config`, in this shell or the manager,
 /// is `xdg`: systemd reads user units from there, and acpmux writes them only
-/// in `~/.config/systemd/user`. acpmux's own timer is
+/// in `~/.config/systemd/user`. `checked` closes a probe that read the
+/// manager and its units to the end; without it nothing is installed. acpmux's own timer is
 /// `timer` when enabled and running, `stopped` otherwise (a missing file
 /// too: `--fix` writes it).
 pub(super) fn probe_script() -> String {
@@ -46,13 +47,15 @@ pub(super) fn probe_script() -> String {
     let timer = hosts::UPDATE_TIMER;
     format!(
         r#"echo "{MARK}os=$(uname -s)"; [ ! -e {cloud} ] || echo {MARK}cloud; [ ! -e {home}/{off} ] || echo {MARK}off
-if systemctl --user show-environment >/dev/null 2>&1; then echo {MARK}systemd
-au_m=$(systemctl --user show-environment 2>/dev/null | sed -n 's/^XDG_CONFIG_HOME=//p')
+if au_e=$(systemctl --user show-environment 2>/dev/null); then echo {MARK}systemd
+au_m=$(printf '%s\n' "$au_e" | sed -n 's/^XDG_CONFIG_HOME=//p')
 for au_v in "${{XDG_CONFIG_HOME:-}}" "$au_m"; do [ -z "$au_v" ] || [ "$au_v" = "$HOME/.config" ] || echo {MARK}xdg; done
 au_mine() {{ [ -O "$1" ] || [ -w "$1" ] || [ -O "${{1%/*}}" ] || [ -w "${{1%/*}}" ]; }}
 au_d=$HOME/.config/systemd/user; au_there=; au_own=1; au_all=1
 au_c=${{XDG_CONFIG_HOME:-$HOME/.config}}; au_r=${{XDG_RUNTIME_DIR:-/run/user/$(id -u)}}; au_l=${{XDG_DATA_HOME:-$HOME/.local/share}}
 au_u=$(systemctl --user show -p UnitPath --value 2>/dev/null) || {{ au_there=1; au_own=; }}
+set -f; au_q=; for au_e in $au_u; do case "$au_e" in /*) ;; *) au_there=1; au_own= ;; esac
+[ -z "$au_q" ] || [ ! -e "$au_q $au_e" ] || {{ au_there=1; au_own=; }}; au_q=$au_e; done; set +f
 au_paths="$(systemd-analyze --user unit-paths 2>/dev/null)
 $(printf %s "$au_u" | tr ' ' '\n')
 $au_d
@@ -94,17 +97,18 @@ if [ -z "$au_own" ]; then echo {MARK}foreign
 elif [ -n "$au_all" ] && [ "$(systemctl --user is-enabled acpmux-update.timer 2>/dev/null)" = enabled ] && systemctl --user is-active --quiet acpmux-update.timer; then echo {MARK}timer
 else echo {MARK}stopped; fi
 fi
+echo {MARK}checked
 fi"#
     )
 }
 
 /// [`hosts::install_script`], run only when [`probe_script`], run again
-/// under the update lock, finds no unit or drop-in acpmux did not write and
-/// no other `XDG_CONFIG_HOME` (else it prints `foreign` or `xdg` and writes
-/// nothing).
+/// under the update lock, read everything (`checked`) and found no unit or
+/// drop-in acpmux did not write and no other `XDG_CONFIG_HOME` (else it
+/// prints `foreign`, `xdg` or `unchecked` and writes nothing).
 pub(super) fn guarded_install_script() -> String {
     format!(
-        "au_probe() {{\n{probe}\n}}\ncase \"$(au_probe)\" in *{MARK}foreign*) echo {MARK}foreign ;; *{MARK}xdg*) echo {MARK}xdg ;; *)\n{install}\n;; esac",
+        "au_probe() {{\n{probe}\n}}\ncase \"$(au_probe)\" in *{MARK}foreign*) echo {MARK}foreign ;; *{MARK}xdg*) echo {MARK}xdg ;; *{MARK}checked*)\n{install}\n;; *) echo {MARK}unchecked ;; esac",
         probe = probe_script(),
         install = hosts::install_script(),
     )
@@ -125,6 +129,10 @@ pub(super) struct Found {
     pub foreign: bool,
     /// systemd reads user units from another `XDG_CONFIG_HOME`.
     pub xdg: bool,
+    /// The probe read the manager and its units to the end.
+    pub checked: bool,
+    /// The probe under the update lock did not: nothing was installed.
+    pub unchecked: bool,
 }
 
 pub(super) fn parse(stdout: &str) -> Found {
@@ -138,6 +146,8 @@ pub(super) fn parse(stdout: &str) -> Found {
             "stopped" => found.stopped = true,
             "foreign" => found.foreign = true,
             "xdg" => found.xdg = true,
+            "checked" => found.checked = true,
+            "unchecked" => found.unchecked = true,
             other => {
                 if let Some(os) = other.strip_prefix("os=") {
                     os.clone_into(&mut found.os);
@@ -210,6 +220,9 @@ pub(super) fn update(r: &dyn Remote, fix: bool, cmux_own: Option<&str>) -> StepR
     if found.xdg {
         return xdg();
     }
+    if !found.checked {
+        return unread(host);
+    }
     if !fix {
         let (detail, verb) = if found.stopped {
             ("acpmux-update.timer is off or stopped, so it does not update itself", "start")
@@ -238,6 +251,9 @@ fn install(r: &dyn Remote, host: &str) -> StepResult {
     if again.xdg {
         return xdg();
     }
+    if again.unchecked {
+        return unread(host);
+    }
     if let Some(why) = hosts::take_auto_update_off(&out).1 {
         return warn(why, None);
     }
@@ -249,6 +265,17 @@ fn install(r: &dyn Remote, host: &str) -> StepResult {
         ),
         _ => warn("acpmux-update.timer was installed but is not running", Some(host)),
     }
+}
+
+/// The probe did not read the manager and its units to the end: nothing is
+/// written.
+fn unread(host: &str) -> StepResult {
+    warn(
+        format!(
+            "could not read acpmux-update's units on {host} to the end, so nothing was written"
+        ),
+        Some(host),
+    )
 }
 
 /// Another `XDG_CONFIG_HOME`: nothing is written.
