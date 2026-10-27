@@ -221,7 +221,7 @@ done
         func logout() { scope = nil }
     }
 
-    @Test(arguments: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]) func deliversAccessOnlyGrantAndRestoresPriorModeOnRevoke(interruption: Int) async throws {
+    @Test(arguments: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]) func deliversAccessOnlyGrantAndRestoresPriorModeOnRevoke(interruption: Int) async throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -294,6 +294,19 @@ done
             #expect(await recorder.files.keys.contains { $0.contains(".access-") })
             await #expect(throws: Recorder.Failure.denied) { try await broker.revoke(target: target) }
             #expect(await recorder.files.keys.contains { $0.contains(".access-") })
+            await recorder.failRemoval(false)
+            try await broker.revoke(target: target)
+            #expect(await recorder.files.keys.filter { $0.contains(".access-") || $0.contains(".codex-") }.isEmpty)
+            return
+        }
+        if interruption == 12 {
+            await recorder.failCommit(true)
+            await recorder.failRemoval(true)
+            for _ in 0 ..< 2 {
+                await #expect(throws: CloudCodexBrokerError.remoteDeliveryFailed) { try await broker.transfer(target: target, confirmed: true) }
+            }
+            let staged = await recorder.files.keys.filter { $0.contains(".access-") || $0.contains(".codex-") }
+            #expect(staged.count == 4)
             await recorder.failRemoval(false)
             try await broker.revoke(target: target)
             #expect(await recorder.files.keys.filter { $0.contains(".access-") || $0.contains(".codex-") }.isEmpty)
