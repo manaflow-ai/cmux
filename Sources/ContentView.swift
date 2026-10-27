@@ -15788,14 +15788,8 @@ struct SidebarFooterButtons: View {
     // (the monitor is `@Observable`) here localizes the reveal re-render to the
     // footer instead of the whole sidebar body.
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
-    @AppStorage(WorkspacePresentationModeSettings.modeKey)
-    private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     /// Owns the discovery popover so it persists after ⌘ is released.
     @State private var isShortcutPopoverPresented = false
-
-    private var presentationMode: WorkspacePresentationModeSettings.Mode {
-        WorkspacePresentationModeSettings.mode(for: workspacePresentationMode)
-    }
 
     private var billingPlanRefreshID: String? {
         guard let flow = accountFlow, let accountID = flow.currentIdentity?.id else { return nil }
@@ -15807,45 +15801,33 @@ struct SidebarFooterButtons: View {
         return !flow.isWorkingOnAuth && (flow.currentIdentity == nil || flow.hasLoadedBillingPlan)
     }
 
-    private func shows(_ control: SidebarFooterControl) -> Bool {
-        SidebarFooterPresentationPolicy.isVisible(control, presentationMode: presentationMode)
-    }
-
     var body: some View {
         HStack(spacing: 4) {
-            if shows(.account) || shows(.mobileConnect) || shows(.help) || shows(.cloud) {
-                HStack(spacing: 0) {
-                    if shows(.account), CmuxFeatureFlags.shared.isSidebarAccountButtonEnabled {
-                        SidebarAccountMenuButton()
-                    }
-                    if shows(.mobileConnect), CmuxFeatureFlags.shared.isMobileConnectButtonEnabled {
-                        SidebarMobileConnectButton()
-                    }
-                    if shows(.help) {
-                        SidebarHelpMenuButton(onSendFeedback: onSendFeedback)
-                    }
-                    // Right of Help and left of Upgrade, per the footer design.
-                    if shows(.cloud) {
-                        SidebarCloudButton()
-                    }
+            HStack(spacing: 0) {
+                if CmuxFeatureFlags.shared.isSidebarAccountButtonEnabled {
+                    SidebarAccountMenuButton()
                 }
+                if CmuxFeatureFlags.shared.isMobileConnectButtonEnabled {
+                    SidebarMobileConnectButton()
+                }
+                SidebarHelpMenuButton(onSendFeedback: onSendFeedback)
+                // Right of Help and left of Upgrade, per the footer design.
+                SidebarCloudButton()
             }
             // Command-hold reveal: appears immediately before Upgrade. It stays
             // mounted while its popover is open so releasing ⌘ does not dismiss it.
-            if shows(.shortcutDiscovery),
-               (showModifierHoldHints && modifierKeyMonitor.isModifierPressed) || isShortcutPopoverPresented {
+            if (showModifierHoldHints && modifierKeyMonitor.isModifierPressed) || isShortcutPopoverPresented {
                 ShortcutDiscoveryButton(isPopoverPresented: $isShortcutPopoverPresented)
             }
-            if shows(.upgrade),
-               SidebarFooterPresentationPolicy.isUpgradeVisible(
-                   isProActive: accountFlow?.planTier?.includesPro == true,
-                   isProStatusKnown: isProStatusKnownForUpgrade
-               ) {
+            if SidebarFooterPresentationPolicy.isUpgradeVisible(
+                isProActive: accountFlow?.planTier?.includesPro == true,
+                isProStatusKnown: isProStatusKnownForUpgrade
+            ) {
                 SidebarProBadge()
             }
             // The puzzle button opens the extensions browser; it only shows
             // while the experimental Extensions feature is enabled.
-            if shows(.extensions), extensionsExperimentalEnabled {
+            if extensionsExperimentalEnabled {
                 Button {
                     _ = AppDelegate.shared?.openSidebarExtensionBrowser(
                         from: extensionBrowserAnchorView,
@@ -15862,7 +15844,7 @@ struct SidebarFooterButtons: View {
                 .accessibilityIdentifier("SidebarExtensionMenuButton")
                 .background(TitlebarControlAnchorView { extensionBrowserAnchorView = $0 })
             }
-            if shows(.update), let updateActionsHost = AppDelegate.shared {
+            if let updateActionsHost = AppDelegate.shared {
                 UpdatePill(model: updateViewModel, accent: cmuxAccent.color, actions: updateActionsHost).windowHintTarget(updateViewModel.text)
             }
         }
