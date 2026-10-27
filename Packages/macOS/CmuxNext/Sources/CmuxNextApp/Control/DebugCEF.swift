@@ -223,6 +223,14 @@ enum DebugCEF {
         }, reset: { [weak chromium] in chromium?.built?.resetPumpInputCounters() })
     }
 
+    /// `debug.input` section `chromium`: Chromium's own EventLatency and ScrollJank histograms (p04-input-091),
+    /// read through `Browser.getHistograms` on each read only. Builds no engine: before one exists the section
+    /// says `unavailable: no_browser`.
+    static func histogramSource(_ chromium: ChromiumEngineSlot) -> DebugInputSectionSource<ChromiumInputHistograms> {
+        let reader = CEFHistogramReader(engine: chromium)
+        return DebugInputSectionSource(section: .chromium, read: { await reader.read() }, reset: { await reader.reset() })
+    }
+
     /// Per action = the change of each counter over it (scripts/cmux-next/pane-perf-terminal.py --browser).
     private static func trackerReport(_ stats: CEFTrackerStats) -> JSONValue {
         .object([

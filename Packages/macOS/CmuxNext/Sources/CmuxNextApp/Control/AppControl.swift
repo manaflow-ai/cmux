@@ -170,6 +170,7 @@ final class AppControl {
         // The local daemon's wire traffic, decodes, output copies and connections by role.
         if let wireStats = services.wireStats { router.register([DaemonWireControl(stats: wireStats).method]) }
         router.register([DebugInput(sources: [InputTapDebugSource(tap: services.inputTap), DebugCEF.pumpInputSource(services.cache.chromium),
+                                               DebugCEF.histogramSource(services.cache.chromium),
                                                IntentPrewarmDebugSource { [weak services] in services?.cache.hibernation?.intentPrewarm?.service },
                                                ScrollViewAuditSource { [mainWork = services.mainWork] in
                                                    // A job the scheduler dropped audits nothing.
