@@ -103,8 +103,11 @@ jobs:
           if not items:
               sys.exit(f"no feed item {'for build ' + wanted if wanted else 'with a DMG'}")
           build, url, length = max(items)
-          if not url.startswith("https://github.com/manaflow-ai/cmux/releases/download/nightly-next/"):
-              sys.exit(f"{url} is not a nightly-next release asset")
+          # Since #25656 the feed's enclosures point at its own R2 origin; the GitHub
+          # release copy follows later. Both are ours; Gatekeeper and the tickets below check the DMG.
+          if not url.startswith(("https://files-next.cmux.com/nightly-next/next/",
+                                 "https://github.com/manaflow-ai/cmux/releases/download/nightly-next/")):
+              sys.exit(f"{url} is neither the cmux NEXT feed's R2 origin nor a nightly-next release asset")
           print(f"build={build}\nurl={url}\nlength={length}")
           PY
           cat "$GITHUB_OUTPUT"
