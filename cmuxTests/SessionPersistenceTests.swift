@@ -8206,6 +8206,41 @@ extension SessionPersistenceTests {
         XCTAssertFalse(restored.logEntries.contains { $0.source == Workspace.sessionPersistenceOmissionLogSource })
     }
 
+    /// Pruning canvas panes for the snapshot keeps each tabbed pane's
+    /// identity. A pane's `panelId` is its founding panel's UUID (or a fresh
+    /// id after a tab tear-out), not its first tab, so neither reordered tabs
+    /// nor a pruned tab may rewrite it.
+    func testCanvasPanePruningKeepsThePaneIdentity() throws {
+        let founding = try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-0000000000A1"))
+        let second = try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-0000000000A2"))
+        let tornOutPane = try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-0000000000B1"))
+        let tornOutPanel = try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-0000000000B2"))
+        let reordered = SessionCanvasPaneSnapshot(
+            panelId: founding, x: 0, y: 0, width: 400, height: 300,
+            panelIds: [second, founding], selectedPanelId: founding
+        )
+        let tornOut = SessionCanvasPaneSnapshot(
+            panelId: tornOutPane, x: 500, y: 0, width: 400, height: 300,
+            panelIds: [tornOutPanel], selectedPanelId: tornOutPanel
+        )
+
+        let unpruned = try XCTUnwrap(Workspace.canvasPanesKeepingPersistedPanels(
+            [reordered, tornOut],
+            persistedPanelIds: [founding, second, tornOutPanel]
+        ))
+        XCTAssertEqual(unpruned, [reordered, tornOut])
+
+        let pruned = try XCTUnwrap(Workspace.canvasPanesKeepingPersistedPanels(
+            [reordered, tornOut],
+            persistedPanelIds: [second, tornOutPanel]
+        ))
+        XCTAssertEqual(pruned.count, 2)
+        XCTAssertEqual(pruned[0].panelId, founding)
+        XCTAssertEqual(pruned[0].panelIds, [second])
+        XCTAssertEqual(pruned[0].selectedPanelId, second)
+        XCTAssertEqual(pruned[1], tornOut)
+    }
+
     /// Repeated restores of the same omission log one warning, and a zero or
     /// missing count logs none.
     @MainActor
