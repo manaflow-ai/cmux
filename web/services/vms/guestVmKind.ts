@@ -1,10 +1,12 @@
 // Records a new Cloud machine's kind in its /etc/cmux/vm-kind at create.
 //
-// The marker is the one thing on the machine that says whose VM it is: acpmux
-// turns vmHost on by default only when it reads `owner` (cmux-tui acpmux
-// hub/vm_host.rs), the app's "Dedicated agent machine" switch shows only then,
-// and `team` keeps a shared machine's guest in team mode. Two guest-side
-// writers exist (the devbox image's cmux-vm-kind-sync, which asks
+// The record is informational: it says which kind cmux assigned the machine
+// at create (`owner` or `team`), and nothing trusts it as a boundary (the
+// guest's work user has passwordless sudo, so any process on the machine can
+// change it; acpmux's remote sandbox no longer reads it). acpmux reads it for
+// the vmHost default (cmux-tui acpmux hub/vm_host.rs), and the app's
+// "Dedicated agent machine" switch shows only when it says `owner`. Two
+// guest-side writers exist (the devbox image's cmux-vm-kind-sync, which asks
 // /api/vm/reflection/kind, and cmux-host's record_owner_kind at a machine
 // bind), but the devbox image New Machine boots may predate both, so nothing
 // on it writes the file. This writes it from the backend, over the provider's
@@ -15,17 +17,17 @@
 //   `team` for every real team, even one whose only member is the creator
 //   (membership is not a revocation receipt, so the create never writes
 //   `owner` from it). A row with no billing owner gets nothing.
-// - Only when the file is absent: an existing marker is never replaced, and
-//   neither is a symlink or a directory under that name. An image whose sync
-//   runs writes `team` at bake and corrects it itself, so on it this does
-//   nothing and the sync's answer stands.
+// - Only when no record exists (a symlink or a directory under that name
+//   counts as one), so whatever wrote first stands. An image whose sync runs
+//   bakes `team` and corrects it itself, so on it this does nothing.
 // - Idempotent: a second run finds the file and leaves it.
 // - Every attempt first reads the machine's row again and goes on only while
 //   it is the same running machine (same row, provider id, owner and kind);
 //   a deleted, paused or rebound machine ends the work with no exec.
 // - After the create response, retried with a bounded backoff until the
-//   machine's exec answers, for at most GUEST_VM_KIND_BUDGET in all; a failure
-//   is logged and never fails the create.
+//   machine's exec answers, for at most GUEST_VM_KIND_BUDGET in all (the
+//   budget also aborts a provider request in flight); a failure is logged and
+//   never fails the create.
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Schedule from "effect/Schedule";
@@ -41,15 +43,16 @@ export const GUEST_VM_KIND_DIRECTORY = "/etc/cmux";
 /**
  * Writes `kind` to `<directory>/vm-kind` when no file of that name exists.
  *
- * The write is a hard link (`ln -T`, GNU coreutils on every cmux Linux guest)
- * of a finished 0644 temporary file, so a reader never sees a partial file, a
- * marker that appeared meanwhile is kept (link() never replaces), and a
- * directory that appeared there is not written into. `written` is printed only
- * after the path reads back as a regular file holding `kind`. The temporary
- * file is removed on every exit the shell sees; a temporary file a kill left
- * behind (older than a minute, so never a live writer's, the image's sync
- * included) is swept first. Prints `written` or `kept`; any other end is a
- * non-zero exit. Run as root on a guest, so the file is root-owned.
+ * Housekeeping, not protection: the write is a hard link (`ln -T`, GNU
+ * coreutils on every cmux Linux guest) of a finished 0644 temporary file, so a
+ * reader never sees a partial file, a record that appeared meanwhile is kept
+ * (link() never replaces), and a directory that appeared there is not written
+ * into. `written` is printed only after the path reads back as a regular file
+ * holding `kind`. The temporary file is removed on every exit the shell sees,
+ * and one an earlier killed run left behind (older than a minute, so never a
+ * live writer's, the image's sync included) is swept first, on every run.
+ * Prints `written` or `kept`; any other end is a non-zero exit. Run as root on
+ * a guest, where /etc/cmux is root-owned.
  */
 export function guestVmKindCommand(kind: VmGuestKind, directory = GUEST_VM_KIND_DIRECTORY): string {
   if (kind !== "owner" && kind !== "team") throw new Error(`unknown vm kind ${String(kind)}`);
@@ -59,9 +62,9 @@ export function guestVmKindCommand(kind: VmGuestKind, directory = GUEST_VM_KIND_
     `tmp=`,
     `trap 'rm -f "$tmp"' EXIT`,
     `trap 'exit 1' HUP INT TERM`,
+    `[ -d ${dir} ] && find ${dir} -maxdepth 1 -type f -name '.vm-kind.*' -mmin +1 -exec rm -f {} + 2>/dev/null`,
     `if [ -e "$f" ] || [ -L "$f" ]; then echo kept; exit 0; fi`,
     `[ -d ${dir} ] || mkdir -p -m 0755 ${dir} || exit 1`,
-    `find ${dir} -maxdepth 1 -type f -name '.vm-kind.*' -mmin +1 -exec rm -f {} + 2>/dev/null`,
     `tmp=$(mktemp ${shellQuote(`${directory}/.vm-kind.XXXXXX`)}) || exit 1`,
     `printf '${kind}\\n' > "$tmp" && chmod 0644 "$tmp" || exit 1`,
     `if ln -T "$tmp" "$f" 2>/dev/null; then`,
@@ -137,8 +140,10 @@ export function scheduleGuestVmKindRecord(
       providers.exec(row.provider, providerVmId, command, {
         timeoutMs: 10_000,
         providerMetadata: row.providerMetadata,
-        // /etc/cmux is root-owned, and the marker must be too.
+        // /etc/cmux is root-owned.
         asRoot: true,
+        // The budget below ends the provider request too, not only the wait.
+        cancelOnInterrupt: true,
       })
     );
     // The command exits 0 only after `written` or `kept`; anything else (a
