@@ -115,6 +115,9 @@ pub(crate) struct PoolState {
     /// Ready entries run best-effort until claimed; unset, they keep their
     /// priority (`set_pool_priority`).
     priority: OnceLock<GroupPriority>,
+    /// Pooled starts under way (`priority::StartInFlight`): the daemon stays
+    /// at its normal priority while one forks.
+    in_flight: std::sync::atomic::AtomicUsize,
 }
 
 type Spec = (String, Option<String>);
@@ -135,6 +138,7 @@ impl PoolState {
             starting: StdMutex::new(HashMap::new()),
             oversize: StdMutex::new(Default::default()),
             priority: OnceLock::new(),
+            in_flight: Default::default(),
         }
     }
 
@@ -453,6 +457,9 @@ impl Hub {
         let Some(generation) = wanted.start else { return };
         let hub = self.clone();
         tokio::spawn(async move {
+            // Counted, then the daemon at its normal priority: the host forked
+            // below inherits it.
+            let _in_flight = hub.pool_start_in_flight();
             match hub.spawn_pooled(&spec).await {
                 Ok(p) => {
                     // Best-effort before it is in the pool, so no claim finds
@@ -608,11 +615,11 @@ impl Hub {
                         signal_harness(&p.record, libc::SIGCONT);
                         p.parked = false;
                     }
-                    // Served only at its normal priority again.
-                    let p = self.pool_foreground(p).await?;
+                    // In `claimed` while it comes back to its normal priority,
+                    // where `stop_pool` finds it; served only once it is back.
                     let id = p.session_id.clone();
                     lock(&self.pool.claimed).insert(id.clone(), p);
-                    return Some(id);
+                    return self.pool_foreground(&id).await.then_some(id);
                 }
                 Take::Discard(old) => {
                     tracing::info!(harness = %spec.key.harness, "pooled session discarded: its key changed");

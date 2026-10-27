@@ -39,17 +39,28 @@ impl Drop for Group {
     }
 }
 
+/// Whether this test process runs best-effort already (cargo under
+/// `nice -n 10`): a child it starts does too.
+fn inherited() -> bool {
+    is_background(std::process::id()).expect("read this process")
+}
+
 #[test]
 fn process_priority_reads_back_background_after_best_effort_and_not_after_user_visible() {
     let group = Group::start("exec sleep 30");
     let pid = group.pid();
+    let baseline = inherited();
+    assert_eq!(is_background(pid), Ok(baseline), "a child starts at its parent's priority");
     if !reversible() {
         // Linux without root or RLIMIT_NICE: nothing is lowered that could not come back.
         assert_eq!(set_group(pid, ProcessPriority::BestEffort), Err(PriorityError::NotReversible));
-        assert_eq!(is_background(pid), Ok(false));
+        assert_eq!(is_background(pid), Ok(baseline), "unchanged");
         return;
     }
-    assert_eq!(is_background(pid), Ok(false));
+    // macOS: another process cannot take off a policy the child inherited.
+    if cfg!(target_os = "macos") && baseline {
+        return;
+    }
     set_group(pid, ProcessPriority::BestEffort).unwrap();
     assert_eq!(is_background(pid), Ok(true));
     set_group(pid, ProcessPriority::UserVisible).unwrap();
