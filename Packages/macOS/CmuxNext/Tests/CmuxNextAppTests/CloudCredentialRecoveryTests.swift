@@ -6,6 +6,13 @@ import Testing
 
 @MainActor
 struct CloudCredentialRecoveryTests {
+    @Test func credentialRecoveryAvailabilityReturnsAfterSignInAndStaysDisabledForAppServer() {
+        #expect(!CloudCredentialTransferAvailability.isAvailable(linkSource: .legacy, isSignedIn: false))
+        #expect(CloudCredentialTransferAvailability.isAvailable(linkSource: .legacy, isSignedIn: true))
+        #expect(!CloudCredentialTransferAvailability.isAvailable(linkSource: .appServer, isSignedIn: true))
+        #expect(!CloudCredentialTransferAvailability.isAvailable(linkSource: .appServer, isSignedIn: false))
+    }
+
     @Test func restartMustFinishBeforeRetryAndNeverExposesProviderErrors() async throws {
         for (reply, accepted) in [
             (#"{"restarted":1,"after_turn":0,"failed":0,"errors":[]}"#, true),
