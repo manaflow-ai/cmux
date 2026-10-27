@@ -1186,9 +1186,9 @@ jobs:
     # of every event takes Blacksmith Linux at 32 vCPU: no owned-Mac queue
     # (side-std held these jobs 20+ min on 2026-10-26) and no share of the
     # promote mini the Release compile needs. The tests that need macOS
-    # (Keychain, Seatbelt, wakeup counters) run in
-    # cmux-next-daemon-macos-shadow, which gates nothing
-    # (tests/test_cmux_tui_daemon_tests_linux.py). One job, not a matrix:
+    # (Keychain, Seatbelt, wakeup counters) run in their own workflow,
+    # cmux-next-daemon-macos-shadow.yml, which gates nothing and keeps a Mac
+    # wait out of this run (tests/test_cmux_tui_daemon_tests_linux.py). One job, not a matrix:
     # the compile of the test binaries is most of the wall time, and shards
     # would each repeat it. cmux_tui_publisher_testing.py finds this job by
     # its name's "cmux_next_ daemon tests" prefix, so older runs' "(macOS)"
@@ -1385,84 +1385,6 @@ jobs:
             echo "::error::cmux_next_ daemon tests failed after 3 attempts" >&2
             exit "$status"
           fi
-
-  # The daemon tests that need macOS itself, which the Linux gate above cannot
-  # run: acpmux's Keychain and Seatbelt tests (no_keychain, router_no_keychain,
-  # remote_sandbox, remote_sandbox_canary; whole files or tests gated
-  # target_os = "macos", and no other CI job runs them) and idle_wakeups,
-  # whose wakeup counter reads proc_pid_rusage only on macOS (Linux checks CPU
-  # and context switches). A shadow: it gates no promotion, no job needs it,
-  # continue-on-error keeps a red here out of the run's result, and one
-  # concurrency group keeps at most one running and one waiting
-  # (tests/test_cmux_tui_daemon_tests_linux.py). It takes
-  # vars.CI_NEXT_DAEMON_POOL, the Mac pool the gate used to hold, unless that
-  # names the promote pool the Release compile needs; else Blacksmith macOS.
-  # No dispatch runner override: it could name the promote pool.
-  # A pin push never runs it; its route clause only keeps pins off every
-  # shared pool (tests/test_ci_tui_routes_avoid_nightly_label.py).
-  cmux-next-daemon-macos-shadow:
-    name: cmux_next_ macOS-only daemon tests (shadow)
-    needs: [tree-preflight]
-    if: ${{ !cancelled() && needs.tree-preflight.result == 'success' && (github.event_name == 'workflow_dispatch' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.outputs.daemon_tests == 'true') }}
-    continue-on-error: true
-    concurrency:
-      group: cmux-tui-daemon-macos-shadow-${{ github.ref }}
-      cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-') && 'blacksmith-6vcpu-macos-15' || vars.CI_NEXT_DAEMON_POOL != '' && vars.CI_NEXT_DAEMON_POOL != vars.CI_NEXT_PROMOTE_POOL && vars.CI_NEXT_DAEMON_POOL || 'blacksmith-6vcpu-macos-15' }}
-    timeout-minutes: 60
-    env:
-      CARGO_NET_RETRY: "10"
-      CARGO_HTTP_TIMEOUT: "120"
-      CARGO_HTTP_MULTIPLEXING: "false"
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          ref: ${{ github.sha }}
-
-      - name: Use short temporary directory for macOS socket tests
-        run: echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
-
-      - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty-next
-
-      - name: Cache the verified Zig tarball
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ${{ runner.temp }}/cmux-zig-tarballs
-          key: cmux-zig-tarball-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/ci/zig-tarballs.sha256') }}
-
-      - name: Install zig
-        env:
-          GHOSTTY_ZIG_SOURCE: ghostty-next
-          ZIG_TARBALL_CACHE_DIR: ${{ runner.temp }}/cmux-zig-tarballs
-        run: ./scripts/install-zig-ci.sh
-
-      - name: Fetch the ghostty-next Zig packages (retried)
-        run: ./scripts/ci/fetch-ghostty-zig-packages.sh ghostty-next
-
-      - name: Set up pinned Rust
-        uses: ./.github/actions/setup-cmux-tui-rust
-
-      - name: Cache cargo build
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          workspaces: cmux-tui -> target
-          shared-key: cmux-tui-macos
-          cache-all-crates: true
-
-      - name: cargo test the macOS-only daemon tests
-        working-directory: cmux-tui
-        shell: bash
-        run: |
-          set -euo pipefail
-          status=0
-          cargo test --locked -p acpmux --test no_keychain --test router_no_keychain \
-            --test remote_sandbox --test remote_sandbox_canary || status=$?
-          cargo test --locked -p cmux-tui --test idle_wakeups || status=$?
-          exit "$status"
 
   # Failed feat-cmux-next and cmux-tui-pin-* push runs are retried by main's
   # cmux-tui-artifacts-retry.yml after they complete (workflow_run fires only

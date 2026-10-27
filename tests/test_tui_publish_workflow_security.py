@@ -2347,7 +2347,9 @@ def test_cmux_next_daemon_tests_take_blacksmith_linux_and_the_mac_shadow_never_t
     jobs = document["jobs"]
     daemon = jobs["cmux-next-daemon-tests"]["runs-on"]
     assert daemon == "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-32vcpu-ubuntu-2404' }}", daemon
-    shadow = jobs["cmux-next-daemon-macos-shadow"]["runs-on"]
+    assert "cmux-next-daemon-macos-shadow" not in jobs
+    shadow_doc = yaml.load(workflow("cmux-next-daemon-macos-shadow.yml"), Loader=yaml.BaseLoader)
+    shadow = shadow_doc["jobs"]["cmux-next-daemon-macos-shadow"]["runs-on"]
     assert "MACOS_RUNNER_PR" not in shadow and "inputs.macos_runner" not in shadow
     assert "vars.CI_NEXT_DAEMON_POOL != vars.CI_NEXT_PROMOTE_POOL" in shadow
 

@@ -13,8 +13,9 @@ whole workspace, so the gate takes Blacksmith Linux at 32 vCPU on every
 event and attempt, and a Linux pass writes the marker (naming its OS).
 
 The tests that genuinely need macOS (acpmux's Keychain and Seatbelt tests,
-the idle wakeup counter) run in cmux-next-daemon-macos-shadow: it gates
-nothing, no job needs it, and a red there leaves the run green.
+the idle wakeup counter) run in their own workflow,
+cmux-next-daemon-macos-shadow.yml: it gates nothing, and a Mac queue there
+never keeps an artifacts run in progress.
 """
 
 from __future__ import annotations
@@ -39,6 +40,7 @@ from test_ci_tui_routes_avoid_nightly_label import (  # noqa: E402
 )
 
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-artifacts.yml"
+SHADOW_WORKFLOW = ROOT / ".github" / "workflows" / "cmux-next-daemon-macos-shadow.yml"
 LINUX_LABEL = "blacksmith-32vcpu-ubuntu-2404"
 JOB_NAME = "cmux_next_ daemon tests (Linux)"
 SHADOW = "cmux-next-daemon-macos-shadow"
@@ -47,6 +49,10 @@ MAC_ONLY_TESTS = ("no_keychain", "router_no_keychain", "remote_sandbox", "remote
 
 def jobs() -> dict:
     return yaml.load(WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)["jobs"]
+
+
+def shadow_workflow() -> dict:
+    return yaml.load(SHADOW_WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
 
 
 def step(job: dict, name: str) -> dict:
@@ -96,23 +102,26 @@ class DaemonTestsLinuxTests(unittest.TestCase):
         script = (ROOT / "scripts/ci/cmux-tui-mark-daemon-tested.sh").read_text(encoding="utf-8")
         self.assertIn('marker["os"] = os.environ["TESTED_OS"]', script)
 
-    def test_the_macos_shadow_gates_nothing(self) -> None:
-        all_jobs = jobs()
-        shadow = all_jobs[SHADOW]
-        self.assertEqual(shadow["continue-on-error"], "true")
-        self.assertEqual(shadow["concurrency"]["cancel-in-progress"], "false")
+    def test_the_macos_shadow_is_its_own_workflow_and_gates_nothing(self) -> None:
+        # Inside the artifacts run a queued Mac kept the tree owner's run in
+        # progress and stalled the runs deferring to it.
+        self.assertNotIn(SHADOW, jobs())
+        self.assertNotIn(SHADOW, WORKFLOW.read_text(encoding="utf-8").split("\njobs:\n", 1)[1].replace(
+            "cmux-next-daemon-macos-shadow.yml", ""))
+        doc = shadow_workflow()
+        self.assertEqual(set(doc["on"]), {"push", "workflow_dispatch"})
+        self.assertEqual(doc["on"]["push"]["branches"], ["feat-cmux-next"])
+        self.assertEqual(doc["permissions"], {})
+        self.assertEqual(doc["concurrency"]["cancel-in-progress"], "false")
+        shadow = doc["jobs"][SHADOW]
+        self.assertEqual(shadow["permissions"], {"contents": "read"})
         self.assertFalse(shadow["name"].startswith("cmux_next_ daemon tests"))
-        for name, job in all_jobs.items():
-            needs = job.get("needs", [])
-            needs = [needs] if isinstance(needs, str) else needs
-            self.assertNotIn(SHADOW, needs, name)
         run = flat(step(shadow, "cargo test the macOS-only daemon tests")["run"])
         for test in MAC_ONLY_TESTS:
             self.assertIn(f"--test {test}", run)
-        self.assertIn("feat-cmux-next", shadow["if"])
 
-    def test_the_shadow_stays_off_the_promote_pool_and_the_pin_pushes_shared_pools(self) -> None:
-        runs_on = jobs()[SHADOW]["runs-on"]
+    def test_the_shadow_stays_off_the_promote_pool(self) -> None:
+        runs_on = shadow_workflow()["jobs"][SHADOW]["runs-on"]
         for daemon in ("", DAEMON_LABEL, PROMOTE_LABEL, LIGHT_LABEL, SIDE_LABEL):
             for context in contexts(CI_NEXT_DAEMON_POOL=daemon):
                 label = route(runs_on, context)
@@ -120,9 +129,7 @@ class DaemonTestsLinuxTests(unittest.TestCase):
                     self.assertEqual(label, "macos-26")
                     continue
                 self.assertNotEqual(label, PROMOTE_LABEL, (daemon, context))
-                if context["github.ref"].startswith("refs/heads/cmux-tui-pin-"):
-                    self.assertEqual(label, "blacksmith-6vcpu-macos-15")
-                elif daemon and daemon != PROMOTE_LABEL:
+                if daemon and daemon != PROMOTE_LABEL:
                     self.assertEqual(label, daemon)
                 else:
                     self.assertEqual(label, "blacksmith-6vcpu-macos-15")

@@ -215,7 +215,7 @@ def test_pin_pushes_never_share_the_side_lane_or_the_promotion_daemon_pool() -> 
     # main warns then).
     jobs = load("cmux-tui-artifacts.yml")["jobs"]
     routes = {name: job["runs-on"] for name, job in jobs.items() if "runs-on" in job}
-    assert "cmux-next-daemon-tests" in routes and "cmux-next-daemon-macos-shadow" in routes
+    assert "cmux-next-daemon-tests" in routes
     for overrides in _pin_variable_combinations():
         side = overrides["CI_SIDE_LANE_RUNNER"]
         promotion = overrides["CI_NEXT_DAEMON_POOL"] or overrides["CI_NEXT_PROMOTE_POOL"]

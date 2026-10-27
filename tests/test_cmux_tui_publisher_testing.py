@@ -96,9 +96,7 @@ class WiringTests(unittest.TestCase):
     def test_older_runs_macos_job_still_counts_and_the_shadow_does_not(self):
         self.assertTrue(publisher.is_daemon_job("cmux_next_ daemon tests (macOS)"))
         self.assertTrue(testing([job("completed", "success", name="cmux_next_ daemon tests (macOS)")]))
-        shadow = self.WORKFLOW[self.WORKFLOW.index("\n  cmux-next-daemon-macos-shadow:\n"):]
-        shadow_name = shadow[shadow.index("\n    name: ") + len("\n    name: "):].split("\n", 1)[0]
-        self.assertFalse(publisher.is_daemon_job(shadow_name))
+        self.assertFalse(publisher.is_daemon_job("cmux_next_ macOS-only daemon tests (shadow)"))
         self.assertFalse(publisher.is_daemon_job(None))
 
     def test_the_pool_matches_the_daemon_test_job(self):

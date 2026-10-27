@@ -50,7 +50,7 @@ EXEMPT = {
     ("remote-daemon.yml", "remote-daemon-macos-tests"): "Go only; no Xcode",
     ("cmux-tui.yml", "lint"): "Rust only; no Xcode",
     ("cmux-tui.yml", "test"): "Rust only; no Xcode",
-    ("cmux-tui-artifacts.yml", "cmux-next-daemon-macos-shadow"):
+    ("cmux-next-daemon-macos-shadow.yml", "cmux-next-daemon-macos-shadow"):
         "Rust only; no Xcode (the macOS-only daemon tests, a non-blocking shadow "
         "of the Linux promotion gate)",
     ("cmux-tui.yml", "cdp-browser-smoke"): "Rust only; no Xcode",
