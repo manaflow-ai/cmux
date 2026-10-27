@@ -4,6 +4,31 @@ use super::*;
 
 pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> Result<()> {
     match cmd {
+        Command::Retention(args) => {
+            let client = connect(true).await?;
+            let archive = args.archive.map(std::path::absolute).transpose()?;
+            let v = client
+                .request(
+                    method::MUX_RETENTION,
+                    json!({"dryRun": args.dry_run, "archive": archive, "olderThanDays": args.older_than_days, "only": args.only}),
+                )
+                .await?;
+            if json_out {
+                print_json(&v);
+            } else {
+                let mb = |key: &str| v[key].as_u64().unwrap_or(0) as f64 / 1_048_576.0;
+                println!(
+                    "{} closed chats older than {} days: {:.1} MB of {:.1} MB {}",
+                    v["chats"],
+                    v["olderThanDays"],
+                    mb("freedBytes"),
+                    mb("bytesBefore"),
+                    if args.dry_run { "would be freed (dry run)" } else { "freed" }
+                );
+                println!("skipped: {}", v["skipped"]);
+            }
+            Ok(())
+        }
         Command::Cancel { session } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;
