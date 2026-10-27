@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// Where design mode cards are written as files for the Home composer (``BrowserDesignModeCardFiles``):
@@ -33,9 +34,9 @@ public nonisolated struct BrowserDesignModeTempFiles: Sendable {
     /// launch left (at launch, on a files lane; safe while this launch writes cards).
     public func removeEarlierLaunches() {
         let own = root.standardizedFileURL.path
-        guard let entries = try? FileManager.default.contentsOfDirectory(at: base, includingPropertiesForKeys: nil) else { return }
+        guard let entries = try? FileManager.checked.contentsOfDirectory(at: base, includingPropertiesForKeys: nil) else { return }
         for entry in entries where entry.standardizedFileURL.path != own {
-            try? FileManager.default.removeItem(at: entry)
+            try? FileManager.checked.removeItem(at: entry)
         }
     }
 }
