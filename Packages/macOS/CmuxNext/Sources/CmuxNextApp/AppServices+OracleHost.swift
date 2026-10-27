@@ -64,6 +64,8 @@ extension AppServices: OracleHost {
             },
             // The windows front to back, key and main, and each window's state and frame as screen fractions.
             windows.oracleWindowsFacet(events: appEvents),
+            // The active window's sidebar from its SidebarModel's public values (p15-oracle-036).
+            SidebarSnapshot.oracleFacet(self),
             // What Recently Closed lists, from the daemons' mirrored closed history. Each title is hashed after the
             // request's `paths` (the case root and home, as normalize.py gets them) are rewritten.
             OracleHistoryFacet { [weak self] () throws(OracleFacetError) -> [ClosedItem] in

@@ -29,7 +29,7 @@ public nonisolated struct AgentCLIJobCarrier: Sendable {
         return result
     }
 
-    private struct Resolve: DaemonRequest {
+    struct Resolve: DaemonRequest {
         typealias Response = AgentCLIJobResolution
         static let commandName: DaemonCommandName = "agent-cli-update-job-resolve"
         static let requiredCapability: String? = "agent-cli-update-job-resolve-v1"

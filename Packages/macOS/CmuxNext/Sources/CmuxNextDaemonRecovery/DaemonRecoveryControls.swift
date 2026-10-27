@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextCompat
 public import CmuxNextDaemonService
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// Strings of the launch window's connecting and failure screen and the
 /// daemon recovery controls (Resources/Localizable.xcstrings).
@@ -63,11 +64,16 @@ final class DaemonRecoveryControls: NSStackView {
     private let statusLabel = NSTextField(wrappingLabelWithString: "")
     private let retryButton = ThemedBezelButton(title: "", target: nil, action: nil)
     private let restartButton = ThemedBezelButton(title: "", target: nil, action: nil)
-    private var observation: Task<Void, Never>?
+    /// The recovery's state, read only while the window shows (recipe R-obs: a view apply).
+    private var observation: VisibleObservation<(offersRestart: Bool, isRestarting: Bool, failure: String?)>?
     /// The window shows a failure: the controls show only then.
     var isOffered = false { didSet { refresh() } }
 
-    init(recovery: DaemonRecovery) {
+    /// - Parameters:
+    ///   - recovery: The local daemon's recovery.
+    ///   - node: The window's visibility node: a hidden window's controls catch up when it shows.
+    ///   - work: The app's main-thread scheduler.
+    init(recovery: DaemonRecovery, node: VisibilityNode, on work: MainWorkScheduler) {
         self.recovery = recovery
         super.init(frame: .zero)
         orientation = .vertical
@@ -85,13 +91,11 @@ final class DaemonRecoveryControls: NSStackView {
         row.spacing = Metrics.space2
         addArrangedSubview(statusLabel)
         addArrangedSubview(row)
-        refresh()
-        // task-owner: ends after this view is gone (weak self), at the recovery's next change
-        observation = Task { [weak self, recovery] in
-            for await _ in ObservationStream({ (recovery.offersRestart, recovery.isRestarting, recovery.restartFailure) }) {
-                guard let self else { return }
-                self.refresh()
-            }
+        // Its first apply refreshes now; a tuple applies every change (no dedupe), as the loop it replaced did.
+        observation = VisibleObservation(node, owner: "DaemonRecoveryControls", on: work) { [recovery] in
+            (offersRestart: recovery.offersRestart, isRestarting: recovery.isRestarting, failure: recovery.restartFailure)
+        } apply: { [weak self] _ in
+            self?.refresh()
         }
     }
 
@@ -106,6 +110,7 @@ final class DaemonRecoveryControls: NSStackView {
         button.setAccessibilityIdentifier(identifier)
     }
 
+    // visibility-walk-allow: one label color store in the theme scope, no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         performWithTheme { statusLabel.textColor = Palette.textSecondary }
