@@ -1443,16 +1443,19 @@ mod tests {
                     // A normal daemon closes inherited descriptors before it
                     // creates a new session.
                     for fd in 3..1024 {
-                        // SAFETY: this is the single-threaded helper child; no Rust
-                        // object here owns a descriptor at or above 3, and close of
-                        // an unused number only returns EBADF.
+                        // SAFETY: this helper body runs on a libtest test thread. The
+                        // only other thread is libtest's main thread, blocked waiting
+                        // for this test's result; it owns no descriptor at 3 or above
+                        // and neither does any Rust object here. Closing an unused
+                        // number only returns EBADF.
                         unsafe {
                             libc::close(fd);
                         }
                     }
                 }
-                // SAFETY: the helper child runs this before it starts any
-                // thread, so nothing reads the environment concurrently.
+                // SAFETY: this helper body runs on a libtest test thread. The
+                // only other thread is libtest's main thread, blocked waiting
+                // for this test's result; it does not read the environment.
                 "clear-environment" => unsafe {
                     // A daemon can replace its environment after exec. The
                     // scope must retain an independent ownership marker.
@@ -1460,14 +1463,15 @@ mod tests {
                 },
                 "close-fds-and-clear-environment" => {
                     for fd in 3..1024 {
-                        // SAFETY: as in "close-fds": no Rust object in the
-                        // single-threaded helper owns a descriptor at or above 3.
+                        // SAFETY: as in "close-fds": libtest's blocked main thread
+                        // and the Rust objects here own no descriptor at 3 or above.
                         unsafe {
                             libc::close(fd);
                         }
                     }
-                    // SAFETY: the helper child has started no thread, so nothing
-                    // reads the environment concurrently.
+                    // SAFETY: as in "clear-environment": libtest's main thread is
+                    // blocked waiting for this test's result and does not read the
+                    // environment.
                     unsafe {
                         std::env::remove_var("CMUX_TUI_PROCESS_SCOPE");
                     }
