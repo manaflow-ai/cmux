@@ -1,6 +1,7 @@
 public import CmuxNextDaemon
 import Observation
 import CmuxNextCompat
+import CmuxNextWakeups
 
 // memory: fixed one entry per workspace the store lists now (`retain` drops the rest on each publish)
 // and one memo per open window's slot plus closed tabs (`retainMemos`). The values are the ones the
@@ -58,8 +59,10 @@ public final class ControlWorkspaceInfoCache {
     private var nextGeneration: UInt64 = 0
     /// Generations whose tracking fired; written inside the mutation.
     private nonisolated let stale = Mutex<Set<UInt64>>([])
-    /// Runs after an entry went stale: cached entries are not re-read by the
+    /// Runs when an entry goes stale: cached entries are not re-read by the
     /// publisher's own tracking, so their changes must schedule the publish.
+    /// It runs inline in the change's turn, inside the mutation (the new value
+    /// is not stored yet): it only queues work, whose post names its class.
     public var onStale: @MainActor () -> Void = {}
     /// An entry, list or memo whose tracking fired and that no publish has rebuilt yet. Set inside the mutation, so
     /// code later in the same turn sees it before ``onStale`` runs.
@@ -96,6 +99,7 @@ public final class ControlWorkspaceInfoCache {
         }
         if let old = entries[key] { forgetEntry(old) }
         let generation = track()
+        // view-observation-allow: a one-shot invalidation of this entry: a change only marks it stale and the next publish rebuilds it; ServiceObservation would rebuild on every change
         let (info, slots) = withObservationTracking { build(model) } onChange: { [weak self] in
             self?.fired(generation)
         }
@@ -115,9 +119,14 @@ public final class ControlWorkspaceInfoCache {
     /// inside the mutation that fired the tracking.
     private nonisolated func fired(_ generation: UInt64) {
         stale.withLock { _ = $0.insert(generation) }
-        // Runs synchronously inside the mutation; publish after it lands.
-        // task-owner: none needed; a one-shot hop that holds the cache weakly and ends after one publish.
-        Task { @MainActor [weak self] in self?.onStale() }
+        notifyStale()
+    }
+
+    /// Calls ``onStale`` in the change's turn: it only queues the publish, which runs after the change lands, so
+    /// no unclassed main job sits between the change and that classed post.
+    private nonisolated func notifyStale() {
+        // main-hop-allow: models change on main, so this runs inline in the change's turn and only queues the publish, whose post names its class
+        MainDelivery().run { [weak self] in self?.onStale() }
     }
 
     private func forgetEntry(_ entry: Entry) {
@@ -154,6 +163,7 @@ public final class ControlWorkspaceInfoCache {
         let listChanged = list.generation.map { generation in stale.withLock { $0.remove(generation) != nil } } ?? true
         if listChanged {
             let generation = track()
+            // view-observation-allow: a one-shot invalidation of this list, as an entry's
             let models = withObservationTracking(read, onChange: { [weak self] in self?.fired(generation) })
             list.generation = generation
             if !models.elementsEqual(list.models, by: ===) { remap(list, to: models, build: build) }
@@ -323,6 +333,7 @@ public final class ControlWorkspaceInfoCache {
         nextGeneration += 1
         let generation = nextGeneration
         memoGenerations.withLock { _ = $0.live.insert(generation) }
+        // view-observation-allow: a one-shot invalidation of this memo, as an entry's
         let value = withObservationTracking { build() } onChange: { [weak self] in
             guard let self else { return }
             let live = self.memoGenerations.withLock { state in
@@ -330,8 +341,7 @@ public final class ControlWorkspaceInfoCache {
                 state.stale.insert(generation)
                 return true
             }
-            // task-owner: none needed; a one-shot hop that holds the cache weakly and ends after one publish.
-            if live { Task { @MainActor [weak self] in self?.onStale() } }
+            if live { self.notifyStale() }
         }
         memos[slot] = Memo(key: key, value: value, generation: generation)
         return value

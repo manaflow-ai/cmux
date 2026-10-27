@@ -77,6 +77,7 @@ public struct MainDelivery: Sendable {
             // The unclassed form: the main queue's next turn, on no board (timed by the main-job
             // census when one is armed; a classed post is timed by MainRunLoopBlock.perform).
             let work = Self.censused(work)
+            // main-hop-allow: the delivery primitive's own off-main path
             // main-proof: DispatchQueue.main runs its blocks on the main thread
             DispatchQueue.main.async { MainActor.assumeIsolated(work) }
         }
