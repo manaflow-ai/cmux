@@ -133,7 +133,7 @@ public final class ChromiumHostPageView: NSView {
     /// The shown page's pointer lock, keyboard lock and fullscreen (task 229).
     let exclusiveAccess = ChromiumHostExclusiveAccess(cursor: .system)
     /// The page's autofill, password and `<datalist>` suggestions, drawn by cmux (task 061).
-    private(set) lazy var suggestions = ChromiumHostSuggestionList(view: self)
+    lazy var suggestions = ChromiumHostSuggestionList(view: self)
     /// The window's part of the page's visibility (ChromiumHostPageView+Visibility.swift): hidden
     /// out of a window, in a minimized window or a hidden app; occluded in a covered window.
     let windowNode: VisibilityNode

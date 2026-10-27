@@ -189,7 +189,7 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
             : t(snap.text || snap.conflictsOnly ? "keybindings.page.emptySearch" : "keybindings.page.empty")}
         </div>
       ) : (
-        <div className="keys-scroll">
+        <div className="keys-scroll" data-page-scroll="list">
           <table
             id="keys-table"
             className="keys-table"

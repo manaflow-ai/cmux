@@ -268,12 +268,15 @@ impl Command {
     }
 
     /// The child's soft `RLIMIT_NOFILE` (at most its hard limit), set before
-    /// its program runs. Linux: `setrlimit` before the exec. macOS:
-    /// `posix_spawn` cannot set a limit, so the child is `/bin/sh -c
-    /// 'ulimit -S -n N; exec "$@"'` that execs the program in the same
-    /// process (same pid, session and terminal); the program's `argv[0]` is
-    /// then its resolved path, and a [`Command::arg0`] makes the spawn fail
-    /// with `InvalidInput`.
+    /// its program runs and after the child placed its descriptors, so a
+    /// limit below numbers this process has in use still spawns. Linux, and
+    /// a macOS child with a controlling terminal (forked): `setrlimit`
+    /// before the exec, after the open of the stdin path and the dup2s.
+    /// Other macOS children: `posix_spawn` cannot set a limit, so the child
+    /// is `/bin/sh -c 'ulimit -S -n N; exec "$@"'` that execs the program in
+    /// the same process (same pid, session and terminal); the program's
+    /// `argv[0]` is then its resolved path, and a [`Command::arg0`] makes the
+    /// spawn fail with `InvalidInput`.
     #[cfg(unix)]
     pub fn open_file_limit(&mut self, soft: u64) -> &mut Self {
         self.open_file_limit = Some(soft);

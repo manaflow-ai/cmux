@@ -100,6 +100,11 @@ CMUX_REMOTE_EXPORT uint32_t cmux_remote_shim_last_reply_token(void);
 // callback and its ctx (task 018: CEFRemoteShim hands them to CEFHostReplies); NULL drops them
 // (replies_unhandled). The next cmux_remote_shim_configure sets them again.
 CMUX_REMOTE_EXPORT void cmux_remote_shim_set_reply(void* ctx, cmux_remote_reply_fn reply);
+// Main thread. The channel's end goes to `ended(ctx, reason)` from now on, in place of the
+// configured callback and its ctx (task 091: CEFRemoteShim hands it to CEFHostReplies, whose
+// tokens then resolve as hostGone in that turn); NULL drops it. A detach cmux asks for is never
+// reported. The next cmux_remote_shim_configure sets it again.
+CMUX_REMOTE_EXPORT void cmux_remote_shim_set_ended(void* ctx, cmux_remote_ended_fn ended);
 // Main thread. The input ring's writer (ChromiumHostInputRing, tasks 041 and 042) calls it for
 // each frame of an input kind (IsOrderedInput) it writes, in write order (kPing and kStats keep
 // `seq` as their request id): returns the frame's input seq (Header::seq) and puts in

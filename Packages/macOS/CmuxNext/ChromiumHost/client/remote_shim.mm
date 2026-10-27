@@ -239,12 +239,20 @@ class Runtime {
     callbacks_ = callbacks;
     reply_ = callbacks.reply;
     reply_ctx_ = callbacks.ctx;
+    ended_ = callbacks.ended;
+    ended_ctx_ = callbacks.ctx;
   }
 
   void SetReply(void* ctx, cmux_remote_reply_fn reply) {
     CMUX_REMOTE_ASSERT_MAIN();
     reply_ = reply;
     reply_ctx_ = ctx;
+  }
+
+  void SetEnded(void* ctx, cmux_remote_ended_fn ended) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    ended_ = ended;
+    ended_ctx_ = ctx;
   }
 
   int Attach(int fd, void* in_ring, void* out_ring) {
@@ -699,7 +707,7 @@ class Runtime {
       if (generation != generation_) return;
       if (!Apply(message)) {
         Disconnect();
-        if (callbacks_.ended) callbacks_.ended(callbacks_.ctx, CMUX_REMOTE_END_MALFORMED);
+        if (ended_) ended_(ended_ctx_, CMUX_REMOTE_END_MALFORMED);
         return;
       }
     }
@@ -709,7 +717,7 @@ class Runtime {
     CMUX_REMOTE_ASSERT_MAIN();
     if (generation == generation_) {
       Disconnect();
-      if (callbacks_.ended) callbacks_.ended(callbacks_.ctx, EndReason(end));
+      if (ended_) ended_(ended_ctx_, EndReason(end));
     }
     closing_.erase(generation);
   }
@@ -787,6 +795,9 @@ class Runtime {
   // Where REPLY frames go: the configured callback, or cmux_remote_shim_set_reply's.
   cmux_remote_reply_fn reply_ = nullptr;
   void* reply_ctx_ = nullptr;
+  // Where the channel's end goes: the configured callback, or cmux_remote_shim_set_ended's.
+  cmux_remote_ended_fn ended_ = nullptr;
+  void* ended_ctx_ = nullptr;
   Link link_ = Link::kNotYet;
   std::unique_ptr<Channel> channel_;
   // Closed channels whose reader has not reported its end yet, by generation.
@@ -930,6 +941,10 @@ uint32_t cmux_remote_shim_last_reply_token(void) {
 
 void cmux_remote_shim_set_reply(void* ctx, cmux_remote_reply_fn reply) {
   R().SetReply(ctx, reply);
+}
+
+void cmux_remote_shim_set_ended(void* ctx, cmux_remote_ended_fn ended) {
+  R().SetEnded(ctx, ended);
 }
 
 int cmux_remote_shim_set_resize_fence_channel(unsigned int port) {

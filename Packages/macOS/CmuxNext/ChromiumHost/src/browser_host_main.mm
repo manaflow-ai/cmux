@@ -576,11 +576,17 @@ int main(int argc, char* argv[]) {
     for (const std::string& entry : host_switches) switches.push_back(entry.c_str());
     switches.push_back(nullptr);
     auto c_str = [](const std::optional<std::string>& value) { return value ? value->c_str() : nullptr; };
+    // cmux's runtime sends no paths in host mode (CEFRuntimeBoot.chromiumPaths): the app's
+    // bundle and helper come from the spawn's arguments (ChromiumHostConfiguration), so
+    // Chromium never takes this small host bundle as its main bundle.
+    const std::string main_bundle =
+        request.main_bundle_path.empty() ? Arg(args, "main-bundle") : request.main_bundle_path;
+    const std::string subprocess = request.subprocess_path.empty() ? Arg(args, "subprocess") : request.subprocess_path;
     // The framework this host loaded at start; cmux names the same directory.
     // No schedule_fn: the shim then runs without an external pump, and
     // CefRunMessageLoop below is the loop.
-    const int ok = cmux_shim_initialize(framework.c_str(), request.main_bundle_path.c_str(),
-                                        request.subprocess_path.c_str(), request.root_cache_path.c_str(),
+    const int ok = cmux_shim_initialize(framework.c_str(), main_bundle.c_str(),
+                                        subprocess.c_str(), request.root_cache_path.c_str(),
                                         c_str(request.log_file), request.log_severity, c_str(request.locale),
                                         c_str(request.accept_languages), switches.data(), &host, nullptr,
                                         &cmux_host::HostContext::OnShimEvent, nullptr);

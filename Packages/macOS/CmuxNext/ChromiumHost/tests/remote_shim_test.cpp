@@ -1112,11 +1112,20 @@ int main() {
     CHECK(got.size() == 1 && got[0].op == cmux_remote::kOpSetFocus && got[0].ctl_seq == 2 &&
           got[0].after_input == 1);
   }
-  // Its HELLO from another generation of the op table ends it.
+  // Its HELLO from another generation of the op table ends it. cmux_remote_shim_set_ended moves
+  // the end to another sink and its ctx (CEFRemoteShim's, task 091).
   seen.ended = -1;
-  second.Send(Hello("another-wire"));
-  CHECK(PumpUntil([] { return seen.ended >= 0; }));
-  CHECK(seen.ended == CMUX_REMOTE_END_MALFORMED);
+  {
+    static std::vector<std::pair<void*, int>> ends;
+    int end_ctx = 0;
+    cmux_remote_shim_set_ended(&end_ctx, [](void* ctx, int reason) { ends.emplace_back(ctx, reason); });
+    second.Send(Hello("another-wire"));
+    CHECK(PumpUntil([] { return !ends.empty(); }));
+    CHECK(ends.size() == 1 && ends[0].first == &end_ctx && ends[0].second == CMUX_REMOTE_END_MALFORMED);
+    CHECK(seen.ended == -1);
+    CHECK(cmux_remote_shim_attached() == 0);
+    cmux_remote_shim_set_ended(nullptr, &OnEnded);
+  }
   CHECK(seen.ready == 1);
   ::close(second.fd);
   PumpUntil([] { return false; }, std::chrono::milliseconds(100));

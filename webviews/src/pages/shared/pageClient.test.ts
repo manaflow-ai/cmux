@@ -5,6 +5,7 @@ import { describe, expect, test } from "bun:test";
 import {
   BridgePageClient,
   KEEP_ALIVE_OP,
+  LISTEN_NAME,
   PageKeepAlive,
   pageError,
   RECEIVE_MANY_NAME,
@@ -125,6 +126,45 @@ describe("pageClient frame batches", () => {
   test("a value that is not a list is ignored", () => {
     const client = makeClient();
     expect(() => client.receiveMany({ t: "ev" })).not.toThrow();
+  });
+});
+
+describe("pageClient push channel", () => {
+  test("the client registers its receiver once, and runs handed to it reach subscribers in order", async () => {
+    const receivers: ((messages: unknown) => void)[] = [];
+    const target: Record<string, unknown> = {
+      [LISTEN_NAME]: (receiver: (messages: unknown) => void) => {
+        receivers.push(receiver);
+        return true;
+      },
+    };
+    let nextSub = 7;
+    const client = new BridgePageClient(
+      {
+        postMessage: async (body) => {
+          const envelope = body as { t: string; id: number };
+          if (envelope.t === "sub") return { t: "ok", id: envelope.id, value: { sub: nextSub++ } };
+          return { t: "ok", id: envelope.id, value: null };
+        },
+      },
+      target,
+    );
+    expect(receivers).toHaveLength(1);
+    const seen: unknown[] = [];
+    await client.subscribe("cmux.test.a", (data) => seen.push(data));
+    receivers[0]?.([
+      { t: "ev", sub: 7, seq: 1, data: { n: 0 } },
+      { t: "ev", sub: 7, seq: 2, data: { n: 1 } },
+    ]);
+    receivers[0]?.([{ t: "ev", sub: 7, seq: 3, data: { n: 2 } }]);
+    expect(seen).toEqual([{ n: 0 }, { n: 1 }, { n: 2 }]);
+  });
+
+  test("a host without the channel keeps the script globals only", () => {
+    const target: Record<string, unknown> = {};
+    void new BridgePageClient({ postMessage: async () => null }, target);
+    expect(typeof target[RECEIVE_MANY_NAME]).toBe("function");
+    expect(target[LISTEN_NAME]).toBeUndefined();
   });
 });
 

@@ -69,22 +69,26 @@ nonisolated enum DiffTurnPatch {
             // A hunk header cut inside its line has no rows yet; the hunks before it stay.
             lines.removeLast()
         }
-        guard let header = lines.lastIndex(where: { $0.hasPrefix("@@ ") }),
-              let starts = hunkStarts(lines[header]) else { return "" }
-        let body = lines[(header + 1)...].filter { $0.utf8.first != UInt8(ascii: "\\") }
+        // The lines are the session host's (outside input): cut by counts from the front, never by subscript.
+        guard let header = lines.lastIndex(where: { $0.hasPrefix("@@ ") }) else { return "" }
+        let before = lines.prefix(header)
+        let rows = lines.dropFirst(header).dropFirst()
+        guard let headerLine = lines.dropFirst(header).first, let starts = hunkStarts(headerLine) else { return "" }
+        let body = rows.filter { $0.utf8.first != UInt8(ascii: "\\") }
         let old = body.filter { $0.utf8.first != UInt8(ascii: "+") }.count
         let new = body.filter { $0.utf8.first != UInt8(ascii: "-") }.count
-        guard old + new > 0 else { return lines[..<header].map { $0 + "\n" }.joined() }
-        lines[header] = "@@ -\(starts.old),\(old) +\(starts.new),\(new) @@"
-        return lines.map { $0 + "\n" }.joined()
+        guard old + new > 0 else { return before.map { $0 + "\n" }.joined() }
+        let fixed = "@@ -\(starts.old),\(old) +\(starts.new),\(new) @@"
+        return (Array(before) + [fixed] + rows).map { $0 + "\n" }.joined()
     }
 
     /// The old and new start lines of hunk header `line` (`@@ -12,3 +12,4 @@`).
     private static func hunkStarts(_ line: String) -> (old: Int, new: Int)? {
-        let fields = line.split(separator: " ")
-        guard fields.count >= 3, fields[1].hasPrefix("-"), fields[2].hasPrefix("+"),
-              let old = Int(fields[1].dropFirst().split(separator: ",").first ?? ""),
-              let new = Int(fields[2].dropFirst().split(separator: ",").first ?? "") else { return nil }
+        let fields = line.split(separator: " ").dropFirst()
+        guard let oldField = fields.first, let newField = fields.dropFirst().first,
+              oldField.hasPrefix("-"), newField.hasPrefix("+"),
+              let old = Int(oldField.dropFirst().split(separator: ",").first ?? "", radix: 10),
+              let new = Int(newField.dropFirst().split(separator: ",").first ?? "", radix: 10) else { return nil }
         return (old, new)
     }
 

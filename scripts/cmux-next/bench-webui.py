@@ -45,6 +45,13 @@ Modes (each prints `WEBUI-ROW` lines, one per row, and writes OUT/webui-<mode>.j
             darwinbg) within --priority-wait s.
   delivery  D3's delivery rows alone: events and native pushes to frozen pages over --measure s while
             `debug.webui publish` drives one stream per page at 10 Hz and the appearance toggles every second.
+  push      Task 079's A/B (the page push channel, feature `pagePushChannel`, fork API 39): the ten pages open,
+            and over --measure s each gets --push-hz host calls a second (`debug.page ping`, answered
+            `unknown_op`). Rows: the call's round trip (p50 to p99, the delivery into the page plus the same reply
+            path in both arms), page renderer CPU per 1,000 deliveries, and the deliveries the census counted as
+            scripts and as data. Run it with and without `--enable-feature pagePushChannel` on one host and one
+            build; the push channel lands only with a gain beyond the off arm's spread. The run turns
+            `browser.freezeHiddenTabs` off: a frozen page would thaw at each call.
 
 The page census is `debug.webui` (task 001). A build without it (the base of the program) gets `unscored` for the
 census rows and still measures the process rows. Keys read, per row of its `rows` list: `row` (page, spare or
@@ -86,7 +93,7 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
-MODES = ("home", "pages10", "open", "crash", "pressure", "priority", "delivery")
+MODES = ("home", "pages10", "open", "crash", "pressure", "priority", "delivery", "push")
 # D3's ten pages: (page id, the action that opens it, its arguments; "{md}" and "{txt}" are scratch files).
 PAGES10 = [("cmux.settings", "openSettings", {}), ("cmux.history", "history.show", {}),
            ("cmux.cloud", "palette.openCloudPane", {}), ("cmux.apps", "appStore.show", {}),
@@ -99,6 +106,8 @@ GPU_KINDS = ("gpu", "webkit-gpu")  # procs.kind_of names of the CEF and the WebK
 HIDDEN_WAKEUPS_PER_S = 0.2  # MQ5's bound for a hidden page's renderer and the GPU (D2's WebContent bound)
 BACKGROUND_PRI = 4  # `ps -o pri` of a darwinbg task: Chrome backgrounds a hidden renderer so (base/process/process_mac.cc)
 GROUP_CAP = 3  # crash budget per group in 600 s (section 3.C)
+PUSH_FEATURE = "pagePushChannel"  # task 079's default-off feature
+PUSH_FORK_API = 39  # CEFForkFeatures.pagePushForkAPI
 LATENCY_STEP = 0.005  # s between polls of a timed wait (bench-pages.py polls at 10 ms); setup waits poll at 50 ms
 # s after a Cmd-W's start that count as its turn and frames for engine page closes; PageRetirer.delay (500 ms) is later.
 CLOSE_TURN_WINDOW = 0.25
@@ -227,7 +236,9 @@ class Census:
                          "keep_reasons": [r for r in page.get("keep_reasons") or [] if r != "visible"],
                          "renderer_pid": pid, "webkit_pid": page.get("webkit_pid"),
                          "hidden_deliveries": page.get("deliveries_while_hidden"),
-                         "hidden_pushes": page.get("pushes_while_hidden")})
+                         "hidden_pushes": page.get("pushes_while_hidden"),
+                         "script_deliveries": page.get("script_deliveries"),
+                         "data_deliveries": page.get("data_deliveries")})
         for spare in (s for s in reply.get("spares") or [] if isinstance(s, dict)):
             rows.append({"row": "spare", "spare_kind": "preload" if spare.get("spare") == "new_tab" else spare.get("spare"),
                          "state": spare.get("state"), "renderer_pid": next(iter(spare.get("renderer_pids") or []), None),
@@ -686,6 +697,55 @@ class Bench:
         self.settle(self.opts.hide_settle, "pages hide and freeze")
         self.delivery_window(self.census())
 
+    def push(self):
+        """Task 079's A/B: --push-hz host calls per page per second to the ten pages over --measure s."""
+        channel = PUSH_FEATURE in self.opts.enable_feature
+        self.open_pages(PAGES10)
+        self.check_engine("push")
+        before = self.census()
+        renderers = self.page_renderers(before)
+        pages = [page_id for page_id, _, _ in PAGES10]
+        trips = []
+
+        def load(seconds):
+            started = self.clock.monotonic()
+            tick = 0
+            while True:
+                due = started + tick / self.opts.push_hz
+                if due - started >= seconds:
+                    return
+                self.settle(due - self.clock.monotonic(), "push pace", quiet=True)  # bench: the load's own pace
+                for page_id in pages:
+                    reply = self.rpc("debug.page", {"page": page_id, "action": "ping"}, timeout=10)
+                    ok = isinstance(reply, dict) and not reply.get("error") and isinstance(reply.get("ms"), (int, float))
+                    trips.append(round(reply["ms"], 3) if ok else None)
+                tick += 1
+
+        window = self.instance.window(self.opts.measure, during=load, per_pid=True)
+        after = self.census()
+        calls = sum(1 for trip in trips if trip is not None)
+        cpu_s = sum((entry.get("cpu_pct") or 0) / 100 * (window.get("seconds") or self.opts.measure)
+                    for entry in window.get("pids") or [] if isinstance(entry, dict) and entry.get("pid") in renderers)
+        arm = "on" if channel else "off"
+
+        def delivered(key):
+            if before is None or after is None:
+                return None
+            total = lambda census: sum(int(p.get(key) or 0) for p in census.pages())  # noqa: E731
+            return total(after) - total(before) if any(p.get(key) is not None for p in after.pages()) else None
+
+        scripts, data = delivered("script_deliveries"), delivered("data_deliveries")
+        events = (scripts or 0) + (data or 0) if scripts is not None or data is not None else 2 * calls
+        api = self.fork_api()
+        self.add(series(f"push.round_trip_ms.{arm}", trips, note=f"fork api {api}", tier="train"),
+                 row(f"push.renderer_cpu_ms_per_1000.{arm}", round(cpu_s * 1000 / (events / 1000), 3) if events and renderers else None,
+                     unit="ms", tier="train",
+                     note=f"{len(renderers)} page renderers, {events} deliveries" if renderers else "no page renderer"),
+                 row(f"push.script_deliveries.{arm}", scripts, ("==", 0) if channel and api >= PUSH_FORK_API else None,
+                     tier="train", note="" if scripts is not None else "no delivery counts in this build's census"),
+                 row(f"push.data_deliveries.{arm}", data, tier="train"))
+        self.facts.update(push_window=window)
+
     def budget_runs(self):
         reply = self.rpc("debug.action_budget", {"limit": 64})
         recent = reply.get("recent") if isinstance(reply, dict) else None
@@ -1102,7 +1162,7 @@ def launch_config(opts):
     """The app's cmux-next.json for a run. --every-page-hidden turns page freezing off (p13-webui.md section 3.C:
     `browser.freezeHiddenTabs` "off" is a freeze-only keep reason), so its window measures pages that still run."""
     browser = {"defaultEngine": opts.engine}
-    if opts.every_page_hidden:
+    if opts.every_page_hidden or opts.mode == "push":
         browser["freezeHiddenTabs"] = "off"
     return {"browser": browser, "appearance": {"backgroundOpacity": 1}}
 
@@ -1123,6 +1183,7 @@ def parse(argv):
     parser.add_argument("--cold-runs", type=int, default=20, help="Settings opens after its renderer was killed")
     parser.add_argument("--chat-turns", type=int, default=2000, help="turns of the frozen chat (0: no chat row)")
     parser.add_argument("--kills", type=int, default=GROUP_CAP + 1)
+    parser.add_argument("--push-hz", type=float, default=10, help="push: host calls per page per second")
     parser.add_argument("--every-page-hidden", action="store_true",
                         help="pages10: hide all ten pages, then measure page renderer and GPU wakeups (task 037, MQ5)")
     parser.add_argument("--page-code-cache", action="store_true",
@@ -1134,6 +1195,8 @@ def parse(argv):
     for name in ("settle", "measure", "hide_settle", "discard_settle", "open_timeout", "priority_wait"):
         if getattr(opts, name) < 0:
             parser.error(f"--{name.replace('_', '-')} must be >= 0")
+    if opts.push_hz <= 0:
+        parser.error("--push-hz must be > 0")
     if opts.runs < 1 or opts.kills < 1 or opts.cold_runs < 0:
         parser.error("--runs and --kills must be >= 1, --cold-runs >= 0")
     if opts.every_page_hidden and opts.mode != "pages10":
