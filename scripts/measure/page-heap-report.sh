@@ -3,16 +3,19 @@
 # builds a tagged cmux-next app at this checkout, launches it with a scratch HOME and config, measures the
 # JS heap of every live cmux page at Home idle, then opens answered agent chats on the fake ACP agent and
 # measures again after 50 workspace switches between them. Prints one table per phase, PAGE-HEAP and
-# MQ-JSHEAP lines (a page above 20 MB of JS heap, or grown by more than 5 MB over the switches); the JSON
-# report and any heap snapshots land in artifacts/page-heap/.
+# MQ-JSHEAP lines (a page above 20 MB of JS heap, or grown by more than 5 MB over the switches), each with
+# the top retainers of that page's heap snapshot under it; the JSON report and the heap snapshots land in
+# artifacts/page-heap/.
 #
 # --config=debug (default) opens Chromium's DevTools port (CMUX_NEXT_CEF_EXTRA_SWITCHES, DEBUG builds only),
-# so each Chromium page gets Runtime.getHeapUsage and, with --arg=--snapshot, its top retainers. The pages run
-# the same web bundles in every configuration (build-web-bundles.sh). --config=bench (Release optimization)
-# has no DevTools port: pages are then measured by their renderer and WebContent processes.
+# so each Chromium page gets Runtime.getHeapUsage, and each page with an MQ-JSHEAP line a heap snapshot in the
+# last phase (--snapshot flagged; --arg=--snapshot=all snapshots every page, --arg=--snapshot=none none). The
+# pages run the same web bundles in every configuration (build-web-bundles.sh). --config=bench (Release
+# optimization) has no DevTools port: pages are then measured by their renderer and WebContent processes,
+# which debug.webui names by page.
 # Runs alone on the worker because it launches an app:
 #   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/page-heap-report.sh \
-#     --ref <sha> --artifact artifacts/page-heap/report.json [--arg=--snapshot] [--arg=--config=bench]
+#     --ref <sha> --artifact artifacts/page-heap/report.json [--arg=--snapshot=none] [--arg=--config=bench]
 # Every argument but --config=<debug|release|bench> goes to page-heap-report.py.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
@@ -39,4 +42,4 @@ if [[ -z "$app" || ! -d "$app" ]]; then
 fi
 # A fleet step has no LaunchServices session: run the app binary itself (bench_memory.launch).
 CMUX_BENCH_LAUNCH=direct python3 -I scripts/cmux-next/page-heap-report.py --app "$app" --phases home,switches \
-  --switches 50 --out "$out/report.json" ${report_args[@]+"${report_args[@]}"}
+  --switches 50 --snapshot flagged --out "$out/report.json" ${report_args[@]+"${report_args[@]}"}
