@@ -290,7 +290,7 @@ struct AgentPaneSendPickedFolderPromptTests {
         transport.promptJournal = AgentPanePromptJournal(url: url)
         transport.draining = true // An earlier page send still owns the drain.
         let picking = Task { await transport.pick(pane.folder) }
-        #expect(await pane.server.wait { _ in !transport.pendingHost.isEmpty })
+        try await waitForQueuedTrust(transport)
         let saved = await Task.detached { AgentPanePromptJournal(url: url).pendingTrustFolders(daemon: daemon) }.value
         #expect(saved == [pane.folder], "queued consent must already be durable before sendHost runs")
         transport.close(connection: pane.id)
@@ -319,7 +319,7 @@ struct AgentPaneSendPickedFolderPromptTests {
             #expect(await transport.send(connection: first, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#]) == nil)
             transport.draining = true
             let picking = Task { await transport.pick(pane.folder) }
-            #expect(await pane.server.wait { _ in !transport.pendingHost.isEmpty })
+            try await waitForQueuedTrust(transport)
             transport.close(connection: first)
             _ = await picking.value
         } else {
@@ -353,6 +353,14 @@ struct AgentPaneSendPickedFolderPromptTests {
             frame: overflow ? String(repeating: " ", count: 1025) : "{}", reply: nil)
         await transport.sendHost(host, socket: socket, ids: ids)
         try await startAfterDeferredTrust(pane)
+    }
+
+    private func waitForQueuedTrust(_ transport: AgentPaneTransport) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while transport.pendingHost.isEmpty, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(!transport.pendingHost.isEmpty)
     }
 
     private func startAfterDeferredTrust(_ pane: Pane) async throws {
