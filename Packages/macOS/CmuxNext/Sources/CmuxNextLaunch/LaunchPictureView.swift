@@ -9,26 +9,47 @@ public import Foundation
 /// Chrome shows a saved capture of the first restored tab the same way and removes it once the live page paints
 /// (chrome/android/java/src/org/chromium/chrome/browser/paint_preview/StartupPaintPreviewHelper.java).
 ///
-/// The view draws nothing: its layer's contents are the decoded image at the window's backing scale, pinned to
-/// the top-left corner (a window whose height changes keeps its titlebar and sidebar where the picture has them).
+/// The view draws nothing: its picture layer's contents are the decoded image at the picture's own scale (its pixels
+/// per point at the quit), pinned to the top-left corner and never stretched (a window whose height changes keeps
+/// its titlebar and sidebar where the picture has them). The view's own layer carries no pixels: AppKit sets a
+/// backing layer's scale to the window's, and its mask is the regions' (``LaunchPictureRegions``). The picture
+/// layer's mask leaves out ``cut``, the regions whose layout changed since the quit
+/// (``WindowPictureMeta/staleAreas(_:size:)``): the live material shows there until the live view is built.
 /// It takes no key. Hit tests pass through it to whatever is under it, but where ``LaunchPictureInput`` holds the
-/// clicks on the picture (p08-startup-061): there a click on a point the picture still shows is its own.
+/// clicks on the picture (p08-startup-061): there a click on a point the picture still holds is its own, in a cut
+/// area too (its region is not built yet).
 ///
 /// ```swift
-/// let picture = LaunchPictureView(image: front.image, scale: 2)
+/// let picture = LaunchPictureView(image: front.image, scale: front.meta.scale, cut: areas)
 /// picture.frame = window.contentView!.bounds
 /// ```
 public final class LaunchPictureView: NSView {
     /// The picture, `scale` pixels per point.
     public let image: CGImage
     public let scale: CGFloat
+    /// The parts of the picture that never show, in points from its top-left corner, not overlapping.
+    public let cut: [CGRect]
+    /// The layer that shows the picture's pixels, the only sublayer of the view's layer.
+    let pictureLayer = CALayer()
+    private let cutMask = CAShapeLayer()
 
-    public init(image: CGImage, scale: CGFloat) {
+    public init(image: CGImage, scale: CGFloat, cut: [CGRect] = []) {
         self.image = image
         self.scale = scale > 0 ? scale : 1
+        self.cut = cut
         super.init(frame: NSRect(x: 0, y: 0, width: CGFloat(image.width) / self.scale, height: CGFloat(image.height) / self.scale))
         wantsLayer = true
         layerContentsRedrawPolicy = .onSetNeedsDisplay
+        let still: [String: any CAAction] = ["bounds": NSNull(), "position": NSNull(), "frame": NSNull(), "path": NSNull(), "contents": NSNull()]
+        pictureLayer.actions = still
+        cutMask.actions = still
+        cutMask.fillRule = .evenOdd
+        cutMask.fillColor = CGColor(gray: 0, alpha: 1)
+        pictureLayer.contents = image
+        pictureLayer.contentsScale = self.scale
+        pictureLayer.contentsGravity = .topLeft
+        pictureLayer.masksToBounds = true
+        pictureLayer.mask = cut.isEmpty ? nil : cutMask
         needsDisplay = true
         setAccessibilityElement(false)
     }
@@ -39,14 +60,38 @@ public final class LaunchPictureView: NSView {
     override public var wantsUpdateLayer: Bool { true }
     override public var isOpaque: Bool { false }
 
-    /// The picture's pixels as the layer's contents, 1:1 at `scale` and never stretched. On macOS a layer's
-    /// "top" is its maximum y, the window's top in an unflipped view.
     override public func updateLayer() {
+        place()
+    }
+
+    /// A resize moves the picture layer and its cut in the same frame, with no implicit animation.
+    override public func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        place()
+    }
+
+    /// The picture layer over the view's bounds and the cut at its place from the top.
+    private func place() {
         guard let layer else { return }
-        layer.contents = image
-        layer.contentsScale = scale
-        layer.contentsGravity = .topLeft
-        layer.masksToBounds = true
+        if pictureLayer.superlayer !== layer { layer.addSublayer(pictureLayer) }
+        pictureLayer.frame = bounds
+        guard !cut.isEmpty else { return }
+        cutMask.frame = pictureLayer.bounds
+        let shown = CGMutablePath()
+        shown.addRect(pictureLayer.bounds)
+        for area in cut {
+            let placed = Self.layerRect(area, in: pictureLayer.bounds, flipped: isFlipped)
+            if !placed.isEmpty { shown.addRect(placed) }
+        }
+        cutMask.path = shown
+    }
+
+    /// `area`, in points from the picture's top-left corner, in a layer over `bounds`, clipped to it (empty outside
+    /// it): the picture is pinned to the top, which is the layer's maximum y unless it is `flipped`.
+    nonisolated static func layerRect(_ area: CGRect, in bounds: CGRect, flipped: Bool) -> CGRect {
+        let placed = flipped ? area : CGRect(x: area.minX, y: bounds.height - area.maxY, width: area.width, height: area.height)
+        let clipped = placed.offsetBy(dx: bounds.minX, dy: bounds.minY).intersection(bounds)
+        return clipped.isNull ? .zero : clipped
     }
 
     /// Whether a click at a point of the view waits on the picture (``LaunchPictureInput``); nil, the picture takes none.

@@ -77,6 +77,37 @@ public nonisolated struct WindowPictureMeta: Codable, Sendable, Equatable {
         return fields
     }
 
+    /// The parts of the picture a launch leaves out because their layout changed since the quit (`stale`, from
+    /// ``WindowPictureStore/LaunchUse/show(stale:)``), in points from the picture's top-left corner, inside `size` and
+    /// never overlapping; the live window shows there once built. A changed sidebar leaves out the sidebar's region. A
+    /// changed content area leaves out everything beside the sidebar's column: the panes, their tab strips, the
+    /// dividers and the title row all follow the pane tree. Nil when nothing of the picture is still right: both
+    /// changed, or the content changed in a window that showed no sidebar. Chrome's paint preview keeps each frame of
+    /// a capture apart for the same reason, one record per frame placed at its clip rect
+    /// (components/paint_preview/common/proto/paint_preview.proto, `PaintPreviewFrameProto`).
+    ///
+    /// - Parameter size: The picture's size in points (its pixels over its ``scale``).
+    public func staleAreas(_ stale: Set<Region.Kind>, size: CGSize) -> [CGRect]? {
+        let bounds = CGRect(origin: .zero, size: size)
+        var sidebar: CGRect?
+        if let region = regions.first(where: { $0.kind == .sidebar }), !region.frame.intersection(bounds).isEmpty {
+            sidebar = region.frame.intersection(bounds)
+        }
+        switch (stale.contains(.sidebar), stale.contains(.pane)) {
+        case (false, false):
+            return []
+        case (true, true):
+            return nil
+        case (true, false):
+            // A hidden sidebar shows nothing of its rows.
+            return sidebar.map { [$0] } ?? []
+        case (false, true):
+            guard let sidebar else { return nil }
+            return [CGRect(x: 0, y: 0, width: sidebar.minX, height: size.height),
+                    CGRect(x: sidebar.maxX, y: 0, width: size.width - sidebar.maxX, height: size.height)].filter { !$0.isEmpty }
+        }
+    }
+
     /// `bundle`'s version and build (`CFBundleShortVersionString (CFBundleVersion)`): a picture another build drew
     /// may show chrome this one draws differently.
     public static func build(of bundle: Bundle) -> String {

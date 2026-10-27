@@ -179,6 +179,14 @@ class PictureTests(unittest.TestCase):
         self.assertEqual(lm.picture_problems(self.MISMATCH, "not-shown"), [])
         self.assertEqual(lm.picture_problems(self.SHOWN, "any"), [])
 
+    def test_a_shown_picture_cuts_out_exactly_the_changed_regions(self):
+        sidebar = {**self.SHOWN, lm.STALE_PREFIX + "sidebar": 85.0}
+        self.assertEqual(lm.picture_problems(sidebar, "shown", stale=("sidebar",)), [])
+        self.assertIn("cut out no region; expected sidebar", lm.picture_problems(self.SHOWN, "shown", stale=("sidebar",))[0])
+        # An unchanged window whose region is cut: the launch's layout differs from the quit's.
+        self.assertIn("cut out sidebar; expected none", lm.picture_problems(sidebar, "shown")[0])
+        self.assertEqual(lm.picture_problems(sidebar, "any"), [])
+
     def test_the_mismatch_the_app_records_is_a_refusal_for_every_meta_reason(self):
         for reasons in (("frame", "screen", "scale"), ("appearance", "theme"), ("theme",), ("sidebarLayout",), ()):
             with self.subTest(reasons=reasons):
@@ -503,9 +511,15 @@ class RunCaseTests(unittest.TestCase):
 
     def test_workspace_closed_while_closed_checks_the_first_frame(self):
         bench = FakeBench(self.folder)
-        bench.picture_marks = {lm.DECODED_MARK: 40.0, lm.MISMATCH_MARK: 80.0}
+        bench.picture_marks = {lm.DECODED_MARK: 40.0, lm.STALE_PREFIX + "sidebar": 85.0, lm.SHOWN_MARK: 90.0,
+                               lm.REMOVED_MARK: 600.0}
         row, _ = self.run_case("workspace-closed-while-closed", bench)
         self.assertEqual(row["result"], lm.PASS, row["problems"])
+        whole = FakeBench(tempfile.mkdtemp())
+        whole.picture_marks = {lm.DECODED_MARK: 40.0, lm.SHOWN_MARK: 90.0, lm.REMOVED_MARK: 600.0}
+        row, _ = self.run_case("workspace-closed-while-closed", whole)
+        self.assertEqual(row["result"], lm.FAIL)
+        self.assertIn("the picture cut out no region; expected sidebar", row["problems"])
         stale = FakeBench(tempfile.mkdtemp())
         stale.picture_marks = dict(bench.picture_marks)
         stale.provisional = {"Workspace 1": [[1, 1, 1]], lm.SECOND_WORKSPACE: [[1]]}  # the first frame lists it
@@ -620,7 +634,8 @@ class RestoreTraceCaseTests(unittest.TestCase):
 
     def test_workspace_closed_while_closed_makes_its_workspace_and_gives_a_row(self):
         bench = FakeBench(tempfile.mkdtemp())
-        bench.picture_marks = {lm.DECODED_MARK: 40.0, lm.MISMATCH_MARK: 80.0}
+        bench.picture_marks = {lm.DECODED_MARK: 40.0, lm.STALE_PREFIX + "sidebar": 85.0, lm.SHOWN_MARK: 90.0,
+                               lm.REMOVED_MARK: 600.0}
         code, row = self.trace(bench)
         self.assertEqual((code, row["result"]), (0, lm.PASS), row["problems"])
         self.assertNotIn(lm.SECOND_WORKSPACE, bench.workspaces)

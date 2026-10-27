@@ -61,7 +61,8 @@ struct LaunchPictureViewTests {
         #expect(view.frame.size == CGSize(width: 1100, height: 720), "the view is the picture's size in points")
         view.frame = NSRect(x: 0, y: 0, width: 1100, height: 760)
         view.updateLayer()
-        let layer = try #require(view.layer)
+        let layer = view.pictureLayer
+        #expect(layer.superlayer === view.layer, "the picture layer is the view's one layer")
         #expect(layer.contents.map { $0 as AnyObject } === image as AnyObject, "the layer shows the decoded image itself, no redraw")
         #expect(layer.contentsGravity == .topLeft, "a taller window keeps the picture's titlebar at the top, unstretched")
         #expect(layer.contentsScale == 2)

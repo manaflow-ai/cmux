@@ -17,7 +17,7 @@ public import CmuxNextWakeups
 /// The steps, each run once, in this order:
 /// 1. ``start(_:on:mainWork:then:)``: waits for the picture's read (a lane task; the reply is a posted main task)
 ///    at most ``wait`` (a `MainDeadline`). The main thread never waits.
-/// 2. The caller takes the picture and matches its meta; then ``show(_:in:scope:present:startup:build:)``, or
+/// 2. The caller takes the picture and matches its meta; then ``show(_:scale:cut:in:scope:present:startup:build:)``, or
 ///    ``skip()`` for today's path (no picture, none in time, another window's, a mismatch).
 /// 3. ``adopt(root:reveal:)``: the controller was built in the window; the picture goes over its root and its
 ///    regions are handed out. ``buildFinished()`` once the live views behind it are built.
@@ -39,7 +39,7 @@ public final class LaunchPicturePhase {
     /// How long the picture may stay over the live window when a region never reports its first content.
     public static let bound: Duration = .seconds(2)
 
-    /// The window showing the picture, from ``show(_:in:scope:present:startup:build:)`` until the picture left.
+    /// The window showing the picture, from ``show(_:scale:cut:in:scope:present:startup:build:)`` until the picture left.
     public private(set) weak var window: NSWindow?
     /// The picture on screen; nil before it shows and once it left.
     public private(set) var picture: LaunchPictureView?
@@ -93,10 +93,15 @@ public final class LaunchPicturePhase {
     /// and the picture over it, ordered in by `present`. When that frame is committed: the launch's first frame
     /// (`first_window_frame_committed`, `startup`'s first-frame ref), and `build` posted as afterFirstFrame work
     /// (run at once with no scheduler, tests).
-    public func show(_ image: CGImage, in window: NSWindow, scope: ThemeScope, present: () -> Void, startup: StartupScheduler?,
-                     build: @escaping @MainActor @Sendable () -> Void) {
+    ///
+    /// - Parameters:
+    ///   - scale: The picture's pixels per point as the quit drew it (``WindowPictureMeta/scale``); nil takes the
+    ///     window's backing scale.
+    ///   - cut: The parts of the picture that never show (``LaunchPictureView/cut``).
+    public func show(_ image: CGImage, scale: CGFloat? = nil, cut: [CGRect] = [], in window: NSWindow, scope: ThemeScope, present: () -> Void,
+                     startup: StartupScheduler?, build: @escaping @MainActor @Sendable () -> Void) {
         guard picture == nil, !isBuilt else { return }
-        let picture = LaunchPictureView(image: image, scale: window.backingScaleFactor)
+        let picture = LaunchPictureView(image: image, scale: scale ?? window.backingScaleFactor, cut: cut)
         window.install(kind: .main, content: WindowSurfaceView(content: picture), scope: scope)
         (self.window, self.picture) = (window, picture)
         present()

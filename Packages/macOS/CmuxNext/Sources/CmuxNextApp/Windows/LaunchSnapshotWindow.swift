@@ -113,13 +113,14 @@ struct LaunchSnapshotWindow {
         guard let shown = pictures.takeFront(matching: opening, launch: facts), shown.picture.windowID == window.id else {
             return skip(phase, window)
         }
-        // Stand-in until the launch builds stale regions live under the rest of the picture (p08-startup-063's
-        // region refusal): a changed sidebar or pane layout takes today's path for the whole window, as 059 did.
-        guard shown.stale.isEmpty else {
+        // A region whose layout changed since the quit is cut out of the picture: the live window shows there once built.
+        let front = shown.picture, scale = CGFloat(front.meta.scale > 0 ? front.meta.scale : 1)
+        let size = CGSize(width: CGFloat(front.image.width) / scale, height: CGFloat(front.image.height) / scale)
+        guard let cut = front.meta.staleAreas(shown.stale, size: size) else {
             DebugTimings.markLaunch("launch_picture_mismatch")
             return skip(phase, window)
         }
-        let front = shown.picture
+        for kind in shown.stale.map(\.rawValue).sorted() { DebugTimings.markLaunch("launch_picture_stale.\(kind)") }
         let shell = ShellWindow.main(frame: opening.frame)
         shell.setFrame(opening.frame, display: false)  // contentRect grows by the titlebar: the saved frame exactly
         // Before any view reaches the window, as the controller does: its visibility node, its key family.
@@ -131,7 +132,7 @@ struct LaunchSnapshotWindow {
                                        mainWork: services.mainWork) { [weak state] in
             state.map { String(describing: ($0.workspaceID, $0.page, $0.sidebarHidden)) }
         }
-        phase.show(front.image, in: shell, scope: scope, present: {
+        phase.show(front.image, scale: scale, cut: cut, in: shell, scope: scope, present: {
             guard manager.ordersWindowsIn else { return }
             services.background.windowWillAppear(activates: true)
             WindowActivation.show(shell, .present)
@@ -201,12 +202,15 @@ struct LaunchSnapshotWindow {
             return shared.isNull ? 0 : shared.width * shared.height
         }
         let screen = NSScreen.screens.max { overlap($0) < overlap($1) }
+        // The layout and the theme as the quit writes them (`QuitCoordinator.windowPictureShots`), the panes from the
+        // prefetched launch snapshot's model: each region matches unless it changed.
+        let area = WindowPictureMeta.ContentArea(page: state.page?.rawValue, workspaceID: state.workspaceID)
         let shown = state.workspaceID.flatMap { services.machines.workspace(id: $0)?.0 }
-        let layout = WindowPictureMeta.Layout(
-            workspaces: manager.registry.members(of: window.id), shown: state.page.map { "page:\(String(describing: $0))" } ?? state.workspaceID,
+        let layout = area.layout(
+            workspaces: manager.registry.members(of: window.id),
             screens: shown?.screens.map { WindowPictureMeta.Screen(id: $0.id, tree: .init($0.layout), zoomed: $0.zoomedPane?.description) } ?? [])
-        let input = services.themeStore.input
-        let theme = WindowPictureMeta.fingerprint([String(describing: input), String(describing: services.themeStore.appTheme)])
+        let themes = services.themeStore
+        let theme = WindowPictureMeta.themeFingerprint(input: themes.input, app: themes.appTheme ?? themes.tokens.app)
         return WindowPictureMeta(
             window: window.id, profile: state.profileID.rawValue, frame: frame, screen: screen.flatMap(WindowPlacementFallback.displayID(of:)),
             scale: Double(screen?.backingScaleFactor ?? 1), appearance: appearance.name.rawValue, theme: theme,

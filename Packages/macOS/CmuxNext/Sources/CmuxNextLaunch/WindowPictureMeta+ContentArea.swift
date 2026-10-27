@@ -26,6 +26,14 @@ extension WindowPictureMeta {
             }
         }
 
+        /// The content area of a window a launch opens from its saved state (`WindowState.page`, `.workspaceID`): the
+        /// page over the workspace, else the workspace, else the empty state. Its ``layout(workspaces:screens:)`` is the
+        /// one the quit wrote for the same window (``init(page:workspaceID:cloudCreating:contentShown:)``), so only a
+        /// real change refuses a region.
+        public init(page: String?, workspaceID: String?) {
+            self = page.map { .page($0) } ?? workspaceID.map { .workspace($0) } ?? .empty
+        }
+
         /// The picture's layout: the window's `workspaces` in sidebar order, what this area shows, and `screens` only
         /// while it shows a workspace (a page or the empty state has no pane tree).
         public func layout(workspaces: [String], screens: [Screen]) -> Layout {

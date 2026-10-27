@@ -22,7 +22,9 @@ main window's still and the topology as soon as the relaunch answers; ``verdict`
     workspaces closed while the app was closed;
   - the saved picture (`savedWindowPicture` on, the default here): shown, refused or not shown, as the case expects
     (``picture_problems``: the app records a refusal as `launch_picture_mismatch` when a meta field differs,
-    LaunchSnapshotWindow.show, or as `launch_picture_refused.<reason>`); and when it showed, it left within 2 s
+    LaunchSnapshotWindow.show, or as `launch_picture_refused.<reason>`); when it showed, the regions it cut out
+    because their layout changed (`launch_picture_stale.<region>`) are the case's, none in an unchanged one, and it
+    left within 2 s
     (`launch_picture_shown` .. `launch_picture_removed`, LaunchPicturePhase.bound). A picture that shows matched the
     opening window's meta, its layout too, so it shows what the first frame's layout check checked;
   - a second still 2.5 s after the first is not blank either, and the app still runs.
@@ -61,6 +63,9 @@ PICTURE_FEATURE = "savedWindowPicture"
 SHOWN_MARK, REMOVED_MARK, REFUSED_PREFIX = "launch_picture_shown", "launch_picture_removed", "launch_picture_refused."
 # LaunchSnapshotWindow.show: the saved picture's meta differs from the opening window's (any WindowPictureMeta field).
 MISMATCH_MARK = "launch_picture_mismatch"
+# LaunchSnapshotWindow.show: a region whose layout changed since the quit, cut out of the picture shown
+# (WindowPictureMeta.staleAreas): `sidebar` or `pane`.
+STALE_PREFIX = "launch_picture_stale."
 # WindowPictureStore+LaunchRead.swift: the launch read found and decoded the front window's picture.
 DECODED_MARK = "launch_picture_decoded"
 # The refusals a meta mismatch proves (WindowPictureMeta.Field); the others (crashRecovery, incognitoLeftovers) only
@@ -158,9 +163,10 @@ def describe(counter):
     return ", ".join(f"{key!r}" + (f" x{n}" if n > 1 else "") for key, n in sorted(counter.items())) or "none"
 
 
-def picture_problems(marks, expect, reasons=()):
-    """The saved picture against the case's `expect`: `shown`, `refused` (for one of `reasons`, any when empty),
-    `not-shown` or `any`. `marks` is `debug.timings`' launch_ms_since_process_start.
+def picture_problems(marks, expect, reasons=(), stale=()):
+    """The saved picture against the case's `expect`: `shown` (with the regions `stale` cut out and no other),
+    `refused` (for one of `reasons`, any when empty), `not-shown` or `any`. `marks` is `debug.timings`'
+    launch_ms_since_process_start.
 
     `refused` needs a picture that was read (DECODED_MARK; else the case refused nothing, a harness defect) and not
     shown. A meta reason is proven by MISMATCH_MARK or its own refusal mark; crashRecovery and incognitoLeftovers by
@@ -173,7 +179,12 @@ def picture_problems(marks, expect, reasons=()):
         return []
     if expect == "shown":
         why = ", ".join(refused + (["mismatch"] if mismatch else [])) or "none"
-        return [] if shown else [f"the saved picture did not show (refused: {why})"]
+        if not shown:
+            return [f"the saved picture did not show (refused: {why})"]
+        cut = sorted(name[len(STALE_PREFIX):] for name in marks if name.startswith(STALE_PREFIX))
+        if cut != sorted(stale):
+            return [f"the picture cut out {', '.join(cut) or 'no region'}; expected {', '.join(sorted(stale)) or 'none'}"]
+        return []
     if shown:
         return [f"the saved picture showed; expected {expect}" + (f" ({', '.join(reasons)})" if reasons else "")]
     if expect == "not-shown":
@@ -784,6 +795,7 @@ class Case:
     end: object = end_quit  # None: the fresh launch is the one checked
     picture: str = "any"  # shown | refused | not-shown | any (with the picture feature on)
     reasons: tuple = ()
+    stale: tuple = ()  # with picture `shown`: the regions cut out of it (launch_picture_stale.<region>)
     layout: str = "same"
     before: object = None  # on the running app, before it ends
     between: object = None  # while the app is closed, before the relaunch
@@ -814,7 +826,7 @@ CASES = (
     Case("full-screen", "the window was full screen at the quit", picture="not-shown", before=full_screen),
     Case("translucent", "a translucent window (backgroundOpacity 0.6)", config={"appearance": {"backgroundOpacity": 0.6}}),
     Case("workspace-closed-while-closed", f"{SECOND_WORKSPACE} closed through the daemon while the app was closed "
-         "(its saved picture lists it: refused)", picture="refused", reasons=("sidebarLayout",),
+         "(its saved picture lists it: the sidebar is cut out, the content shows)", picture="shown", stale=("sidebar",),
          between=close_second_workspace),
     Case("daemon-cold", "the daemon stopped too: the app starts it on the saved registry", between=stop_daemon),
     Case("daemon-unavailable", "no daemon can start", layout="skip", between=daemon_unavailable,
@@ -911,7 +923,7 @@ def verdict(run, case, first, skip=None):
     problems += [problem for _, problem in live if problem]
     problems += [f"2.5 s after the first frame: {p}" for p in (blank_problem(path) for path, _ in live if path) if p]
     marks = run.marks()
-    problems += picture_problems(marks, expected_picture(case, run.picture), case.reasons)
+    problems += picture_problems(marks, expected_picture(case, run.picture), case.reasons, case.stale)
     problems += stale_problems(marks)
     if case.after:
         try:
@@ -925,6 +937,7 @@ def verdict(run, case, first, skip=None):
             "screenshots": [path for path, _ in shots + live if path], "problems": problems, "skip": skip,
             "first_frame_layout": first_layout,
             "picture": {"expected": expected_picture(case, run.picture), "reasons": list(case.reasons),
+                        "stale": list(case.stale),
                         "marks": {k: v for k, v in marks.items() if k.startswith("launch_picture")}},
             "notes": run.notes}
 
