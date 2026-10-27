@@ -82,7 +82,8 @@ import Testing
         toolbar.update(target: "sample-chat", kind: nil)
         #expect(toolbar.view.items.map(\.id) == ["newSurface", "openBrowser"])
         #expect(toolbar.view.buttons.count == 2)
-        toolbar.view.frame = NSRect(origin: .zero, size: NSSize(width: toolbar.view.intrinsicContentSize.width, height: 36))
+        let height = PaneChromeMetrics.current.resolvedStripHeight(scale: 2)
+        toolbar.view.frame = NSRect(origin: .zero, size: NSSize(width: toolbar.view.intrinsicContentSize.width, height: height))
         toolbar.view.layoutSubtreeIfNeeded()
         #expect(toolbar.view.buttons[0].frame.maxX <= toolbar.view.buttons[1].frame.minX)
         for button in toolbar.view.buttons {
@@ -108,8 +109,9 @@ import Testing
         defer { DesignSettings.shared.density = density }
         let registry = ActionRegistry.standard()
         let target = ActionTargetRef(kind: .pane, id: "sample-pane")
-        let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { registry.makePaneCreationMenu(target: target) }, paneTarget: target)
         let pins = ["splitRight", "splitDown", "openDiffViewer", "file.open"]
+        for action in pins { registry.bind(action, invoke: { _ in }) }
+        let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { registry.makePaneCreationMenu(target: target) }, paneTarget: target)
         toolbar.update(target: "sample-terminal", kind: .terminal, pinned: pins)
         let pane = PaneContentView(stripModel: TabStripModel(tabs: [], selectedID: nil), reveal: LaunchReveal(deadline: .zero))
         pane.toolbar = toolbar
