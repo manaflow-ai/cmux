@@ -66,7 +66,8 @@ if ! awk '
   job && /^      - name: Restore Xcode compilation cache/ { in_cache=1; next }
   in_cache && /^      - name:/ { in_cache=0 }
   in_cache && /path: build-universal\/CompilationCache\.noindex/ { saw_path[job]=1 }
-  in_cache && /key: xcode-compilation-release-/ { saw_key[job]=1 }
+  # The app selects NEXT's isolated prefix or formats this classic prefix.
+  in_cache && /key:/ && /xcode-compilation-release-/ { saw_key[job]=1 }
   in_cache && /steps\.compilation-cache-key\.outputs\.toolchain/ { saw_toolchain[job]=1 }
   # The warmer keys by the tip it builds; the app build by the resolved build_sha it builds.
   job == "refresh" && in_cache && /needs\.decide\.outputs\.head_sha/ { saw_head_sha[job]=1 }
