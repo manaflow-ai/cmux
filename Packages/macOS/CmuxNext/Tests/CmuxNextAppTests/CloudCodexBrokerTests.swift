@@ -30,6 +30,7 @@ struct CloudCodexBrokerTests {
             files.removeValue(forKey: path)
         }
 
+        func read(_ path: String) -> Data? { files[path] }
         func write(_ path: String, _ data: Data) { files[path] = data }
         func commit(_ paths: (String, String, String, String)) {
             commitCount += 1
@@ -101,6 +102,7 @@ while IFS= read -r line; do
   if printf '%s' "$line" | grep -q '"method":"access"'; then
     count=$((count + 1)); expiry=$(($(date +%s) + 123))
     if [ "$count" -gt 1 ]; then expiry=2147483647; fi
+    if [ "$count" = 2 ]; then expiry=1; fi
     echo "{\"id\":$id,\"result\":{\"accessToken\":\"access-$count\",\"chatgptAccountId\":\"acct-1\",\"expiresAt\":$expiry}}"
   fi
 done
@@ -113,7 +115,7 @@ done
                                       codexExecutable: URL(fileURLWithPath: "/bin/false"), home: root.appendingPathComponent("holder"))
         let target = CloudCodexBrokerTarget(machineID: "vm-renew", capability: {
             .init(ownerVM: true, protocolVersion: 1, codexExternalAccessToken: true)
-        }, makeDirectory: { _ in }, readFile: { _ in nil },
+        }, makeDirectory: { _ in }, readFile: { await recorder.read($0) },
                                       writeFile: { path, data, _ in
                                           if path.contains(".access-"), await recorder.holdFirstRenewal() { await gate.pause() }
                                           await recorder.write(path, data)
@@ -162,7 +164,7 @@ done
                                       codexExecutable: URL(fileURLWithPath: "/bin/false"), home: root.appendingPathComponent("holder"))
         let target = CloudCodexBrokerTarget(machineID: "vm-refresh", capability: {
             .init(ownerVM: true, protocolVersion: 1, codexExternalAccessToken: true)
-        }, makeDirectory: { _ in }, readFile: { _ in nil }, writeFile: { path, data, _ in
+        }, makeDirectory: { _ in }, readFile: { await recorder.read($0) }, writeFile: { path, data, _ in
             if path.contains(".access-"), await recorder.holdFirstRenewal() { await gate.pause() }
             await recorder.write(path, data)
         }, commitFiles: { a, b, c, d in await recorder.commit((a, b, c, d)) }, removeFile: { path in try await recorder.remove(path) })
@@ -209,7 +211,7 @@ done
         func logout() { scope = nil }
     }
 
-    @Test(arguments: [0, 1, 2, 3, 4]) func deliversAccessOnlyGrantAndRestoresPriorModeOnRevoke(interruption: Int) async throws {
+    @Test(arguments: [0, 1, 2, 3, 4, 5, 6]) func deliversAccessOnlyGrantAndRestoresPriorModeOnRevoke(interruption: Int) async throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -235,12 +237,14 @@ done
         let gate = Gate()
         let broker = CloudCodexBroker(scope: scope, currentScope: { await account.scope }, executable: fake,
                                       codexExecutable: URL(fileURLWithPath: "/bin/false"), home: root.appendingPathComponent("holder"))
+        await recorder.write(CloudCodexBroker.modePath, Data("team\n".utf8))
         let target = CloudCodexBrokerTarget(machineID: "vm-1", capability: {
             .init(ownerVM: true, protocolVersion: 1, codexExternalAccessToken: true)
-        }, makeDirectory: { _ in }, readFile: { _ in Data("team\n".utf8) }, writeFile: { path, data, _ in await recorder.write(path, data) }, commitFiles: { a, b, c, d in
+        }, makeDirectory: { _ in }, readFile: { await recorder.read($0) }, writeFile: { path, data, _ in await recorder.write(path, data) }, commitFiles: { a, b, c, d in
             if interruption == 3 { throw CloudCodexBrokerError.remoteDeliveryFailed }
-            if interruption > 0 { await gate.pause() }
+            if interruption == 1 || interruption == 2 { await gate.pause() }
             await recorder.commit((a, b, c, d))
+            if interruption == 5 { throw CloudCodexBrokerError.remoteDeliveryFailed }
         }, removeFile: { path in try await recorder.remove(path) }, isLive: {
             if interruption == 4 { return await recorder.liveUntilDelivery() }
             return true
@@ -250,6 +254,12 @@ done
             #expect(await recorder.removals == 0)
             return
         }
+        if interruption == 5 {
+            await #expect(throws: CloudCodexBrokerError.remoteDeliveryFailed) { try await broker.transfer(target: target, confirmed: true) }
+            #expect(await recorder.read(CloudCodexBroker.accessPath) == nil)
+            #expect(await recorder.read(CloudCodexBroker.modePath) == Data("team\n".utf8))
+            return
+        }
         if interruption == 3 {
             await recorder.write(CloudCodexBroker.accessPath, Data("existing-grant".utf8))
             await #expect(throws: CloudCodexBrokerError.remoteDeliveryFailed) { try await broker.transfer(target: target, confirmed: true) }
@@ -257,7 +267,7 @@ done
             return
         }
         let transfer = Task { try await broker.transfer(target: target, confirmed: true) }
-        if interruption > 0 {
+        if interruption == 1 || interruption == 2 {
             await gate.entered()
             if interruption == 1 { await account.logout() } else { transfer.cancel() }
             await gate.open()
@@ -288,6 +298,12 @@ done
         #expect(await recorder2.files[CloudCodexBroker.modePath] == Data("own\n".utf8))
 
         #expect(await recorder.files.count == 2)
+        if interruption == 6 {
+            await recorder.write(CloudCodexBroker.modePath, Data("team\n".utf8))
+            try await broker.revoke(target: target)
+            #expect(await recorder.read(CloudCodexBroker.modePath) == Data("team\n".utf8))
+            return
+        }
         await recorder.failRemoval(true)
         await #expect(throws: Recorder.Failure.denied) { try await broker.revoke(target: target) }
         #expect(await recorder.files[CloudCodexBroker.accessPath] != nil)
@@ -298,6 +314,36 @@ done
         #expect(await recorder.files[CloudCodexBroker.accessPath] == nil)
         #expect(await recorder.files.count == 1)
         #expect(await recorder.files[CloudCodexBroker.modePath] == Data("team\n".utf8))
+    }
+
+    @Test(arguments: [false, true]) func abandonedLoginPreservesExistingMode(cancel: Bool) async throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let fake = root.appendingPathComponent("broker.sh")
+        try #"""
+#!/bin/sh
+while IFS= read -r line; do
+  id=$(printf '%s' "$line" | sed -E 's/.*"id":([0-9]+).*/\1/')
+  echo "{\"id\":$id,\"error\":\"codex_auth_unavailable\"}"
+done
+"""#.write(to: fake, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fake.path)
+        let recorder = Recorder()
+        let scope = CloudCodexBrokerScope(userID: "user", teamID: nil)
+        let broker = CloudCodexBroker(scope: scope, currentScope: { scope }, executable: fake,
+                                      codexExecutable: URL(fileURLWithPath: "/bin/false"), home: root.appendingPathComponent("holder"))
+        await recorder.write(CloudCodexBroker.modePath, Data("team\n".utf8))
+        let target = CloudCodexBrokerTarget(machineID: "vm", capability: {
+            .init(ownerVM: true, protocolVersion: 1, codexExternalAccessToken: true)
+        }, makeDirectory: { _ in }, readFile: { await recorder.read($0) }, writeFile: { _, _, _ in }, commitFiles: { _, _, _, _ in }, removeFile: { try await recorder.remove($0) })
+        await #expect(throws: CloudCodexBrokerError.notAuthenticated) { try await broker.transfer(target: target, confirmed: true) }
+        let pending = Task { try await broker.waitForLoginAndTransfer(target: target, confirmed: true, timeout: cancel ? .seconds(300) : .zero) }
+        if cancel { pending.cancel() }
+        await #expect(throws: (any Error).self) { try await pending.value }
+        #expect(await broker.registeredMachineIDs().isEmpty)
+        #expect(await recorder.removals == 0)
+        #expect(await recorder.read(CloudCodexBroker.modePath) == Data("team\n".utf8))
     }
 
     private func temporaryDirectory() -> URL {

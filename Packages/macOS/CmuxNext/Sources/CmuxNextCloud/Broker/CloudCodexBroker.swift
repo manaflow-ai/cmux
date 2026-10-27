@@ -18,6 +18,7 @@ public actor CloudCodexBroker {
     private var cached: CloudCodexAccessGrant?
     private var previousModeByMachine: [String: Data?] = [:]
     private var loadedPreviousMode: Set<String> = []
+    private var installedAccess: [String: Data] = [:]
     private var targets: [String: CloudCodexBrokerTarget] = [:]
     private var targetGenerations: [String: Int] = [:]
     private var pendingRevocations: Set<String> = []
@@ -60,24 +61,30 @@ public actor CloudCodexBroker {
     /// delivers access-only JSON to this VM. The VM never receives a refresh seed.
     public func waitForLoginAndTransfer(target: CloudCodexBrokerTarget, confirmed: Bool,
                                         timeout: Duration = .seconds(300)) async throws -> CloudCodexAccessGrant {
-        let generation = targetGenerations[target.machineID, default: 0]
-        try await validate(target: target, confirmed: confirmed)
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: timeout)
-        while clock.now < deadline {
-            guard !pendingRevocations.contains(target.machineID), targetGenerations[target.machineID, default: 0] == generation else { throw CloudCodexBrokerError.cancelled }
-            do {
-                return try await transfer(target: target, confirmed: confirmed, forceRefresh: true)
-            } catch CloudCodexBrokerError.notAuthenticated {
-                // wakeup-allow: bounded device-login polling while the private broker completes browser auth.
-                try await clock.sleep(for: .seconds(2))
-            } catch CloudCodexBrokerError.brokerUnavailable {
-                throw CloudCodexBrokerError.brokerUnavailable
-            } catch {
-                throw error
+        do {
+            let generation = targetGenerations[target.machineID, default: 0]
+            try await validate(target: target, confirmed: confirmed)
+            let clock = ContinuousClock()
+            let deadline = clock.now.advanced(by: timeout)
+            while clock.now < deadline {
+                guard !pendingRevocations.contains(target.machineID), targetGenerations[target.machineID, default: 0] == generation else { throw CloudCodexBrokerError.cancelled }
+                do {
+                    return try await transfer(target: target, confirmed: confirmed, forceRefresh: true)
+                } catch CloudCodexBrokerError.notAuthenticated {
+                    // wakeup-allow: bounded device-login polling while the private broker completes browser auth.
+                    try await clock.sleep(for: .seconds(2))
+                } catch CloudCodexBrokerError.brokerUnavailable {
+                    throw CloudCodexBrokerError.brokerUnavailable
+                } catch {
+                    throw error
+                }
             }
+            throw CloudCodexBrokerError.cancelled
+        } catch {
+            let cleanup = Task { try? await self.revoke(target: target) }
+            await cleanup.value
+            throw error
         }
-        throw CloudCodexBrokerError.cancelled
     }
 
     /// Reuses a cached short-lived access grant when possible; otherwise asks
@@ -133,6 +140,13 @@ public actor CloudCodexBroker {
         pendingRevocations.insert(target.machineID)
         await lockTarget(target.machineID)
         defer { unlockTarget(target.machineID) }
+        // A registration awaiting its first grant owns no VM auth files.
+        guard let installed = installedAccess[target.machineID] else {
+            pendingRevocations.remove(target.machineID)
+            stopRenewalIfEmpty()
+            if signOut, targets.isEmpty { _ = try? await request(method: "logout") }
+            return
+        }
         // Stop renewal without waking a paused VM. Its last access token remains
         // usable until provider expiry; file removal requires an online VM.
         guard (try? await target.isLive()) == true else {
@@ -144,11 +158,14 @@ public actor CloudCodexBroker {
             }
             throw CloudCodexBrokerError.targetOffline
         }
-        try await target.removeFile(Self.accessPath)
-        try await target.removeFile(Self.modePath)
-        if let previous = previousModeByMachine[target.machineID] ?? nil {
-            try await target.writeFile(Self.modePath, previous, 0o600)
+        if try await target.readFile(Self.accessPath) == installed,
+           try await target.readFile(Self.modePath) == Data("own\n".utf8) {
+            try await target.removeFile(Self.accessPath)
+            if let previous = previousModeByMachine[target.machineID] ?? nil {
+                try await target.writeFile(Self.modePath, previous, 0o600)
+            } else { try await target.removeFile(Self.modePath) }
         }
+        installedAccess.removeValue(forKey: target.machineID)
         previousModeByMachine.removeValue(forKey: target.machineID)
         loadedPreviousMode.remove(target.machineID)
         pendingRevocations.remove(target.machineID)
@@ -158,6 +175,11 @@ public actor CloudCodexBroker {
             refreshTask = nil
             if signOut { _ = try? await request(method: "logout") }
         }
+    }
+
+    private func stopRenewalIfEmpty() {
+        guard targets.isEmpty else { return }
+        cached = nil; refreshTask?.cancel(); refreshTask = nil
     }
 
     private func validate(target: CloudCodexBrokerTarget, confirmed: Bool) async throws {
@@ -223,6 +245,7 @@ public actor CloudCodexBroker {
             "accessToken": grant.accessToken,
             "chatgptAccountId": grant.chatgptAccountID,
             "expiresAt": Int64(grant.expiresAt.timeIntervalSince1970),
+            "installationID": UUID().uuidString,
         ]
         guard JSONSerialization.isValidJSONObject(object), let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else {
             throw CloudCodexBrokerError.invalidReply
@@ -231,6 +254,8 @@ public actor CloudCodexBroker {
         let stageAccess = "/home/cmux/.config/cmux/codex-broker/.access-\(suffix).json"
         let stageMode = "/home/cmux/.config/cmux/agent-auth/.codex-\(suffix)"
         var committed = false
+        var commitAttempted = false
+        let priorInstallation = installedAccess[target.machineID]
         var stagingAttempted = false
         do {
             try await validate(target: target, confirmed: true)
@@ -255,6 +280,8 @@ public actor CloudCodexBroker {
             try await target.writeFile(stageMode, Data("own\n".utf8), 0o600)
             try await ensureScope()
             guard targets[target.machineID] != nil, targetGenerations[target.machineID] == generation else { throw CloudCodexBrokerError.cancelled }
+            commitAttempted = true
+            installedAccess[target.machineID] = data
             try await target.commitFiles(stageAccess, Self.accessPath, stageMode, Self.modePath)
             committed = true
             try await ensureScope()
@@ -263,6 +290,19 @@ public actor CloudCodexBroker {
             try await ensureScope()
             guard targets[target.machineID] != nil, targetGenerations[target.machineID] == generation else { throw CloudCodexBrokerError.cancelled }
         } catch {
+            if commitAttempted, !committed {
+                // Exec can commit and lose its reply. Reconcile independently
+                // of caller cancellation; a unique installation ID binds it.
+                let reconcile = Task { try await target.readFile(Self.accessPath) }
+                do {
+                    committed = try await reconcile.value == data
+                    if !committed { installedAccess[target.machineID] = priorInstallation }
+                } catch {
+                    targets.removeValue(forKey: target.machineID)
+                    pendingRevocations.insert(target.machineID)
+                    throw CloudCodexBrokerError.remoteDeliveryFailed
+                }
+            }
             if committed || Task.isCancelled || error as? CloudCodexBrokerError == .scopeChanged {
                 targets.removeValue(forKey: target.machineID)
                 targetGenerations[target.machineID, default: 0] += 1
@@ -277,11 +317,14 @@ public actor CloudCodexBroker {
                 }
                 if committed {
                     try await target.removeFile(Self.accessPath)
-                    try await target.removeFile(Self.modePath)
                     if let previous { try await target.writeFile(Self.modePath, previous, 0o600) }
+                    else { try await target.removeFile(Self.modePath) }
                 }
             }
-            do { try await cleanup.value }
+            do {
+                try await cleanup.value
+                if committed { installedAccess.removeValue(forKey: target.machineID) }
+            }
             catch { throw CloudCodexBrokerError.remoteDeliveryFailed }
             throw error as? CloudCodexBrokerError ?? (Task.isCancelled ? .cancelled : .remoteDeliveryFailed)
         }
@@ -329,10 +372,10 @@ public actor CloudCodexBroker {
                 try await Task.sleep(for: .seconds(wait))
                 guard let self else { return }
                 guard await self.currentScope() == expectedScope else { throw CloudCodexBrokerError.scopeChanged }
-                let refreshed = try await self.refreshAccess(schedule: false)
+                let refreshed = try await self.retryRenewal { try await self.refreshAccess(schedule: false) }
                 let targets = await self.targetList()
                 for target in targets {
-                    do { try await self.deliver(refreshed, target: target) }
+                    do { try await self.retryRenewal { try await self.deliver(refreshed, target: target) } }
                     catch CloudCodexBrokerError.scopeChanged { throw CloudCodexBrokerError.scopeChanged }
                     catch { continue }
                 }
@@ -343,6 +386,21 @@ public actor CloudCodexBroker {
                 if let self { await self.finishRefreshTask(cycle: cycle) }
             }
         }
+    }
+
+    private func retryRenewal<T: Sendable>(_ work: @Sendable () async throws -> T) async throws -> T {
+        for attempt in 0...3 {
+            do { return try await work() }
+            catch {
+                guard !Task.isCancelled, attempt < 3,
+                      let failure = error as? CloudCodexBrokerError,
+                      [CloudCodexBrokerError.brokerUnavailable, .remoteDeliveryFailed, .expiredAccess].contains(failure) else { throw error }
+                try await ensureScope()
+                // wakeup-allow: at most three recovery attempts for an active renewal, then stop.
+                try await Task.sleep(for: .seconds(1 << attempt))
+            }
+        }
+        throw CloudCodexBrokerError.brokerUnavailable
     }
 
     private func finishRefreshTask(cycle: Int) {
