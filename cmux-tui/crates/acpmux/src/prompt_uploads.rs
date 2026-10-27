@@ -56,25 +56,27 @@ fn upload_of(block: &Value) -> Option<&Value> {
     named.or(by_uri.then_some(&NONE))
 }
 
-/// The folders of the uploads `blocks` name as the prompt's own (`_meta.acpmux.upload.owned`:
-/// `attach::blocks_for` uploaded them for this prompt alone), in session `session`'s uploads.
-/// Deleted when the prompt is refused (`attach::Saved`), so none is left behind.
+/// The folders of the uploads `blocks` name as the prompt's own: `_meta.acpmux.upload.owned` is
+/// the owner token `file_put_begin` with `forPrompt` gave its sender (`attach::blocks_for`), and
+/// it matches. Deleted when the prompt is refused (`attach::Saved`), so none is left behind; a
+/// reference to anyone else's upload names none. Blocking.
 pub fn owned(session: &str, blocks: &[Value]) -> Vec<std::path::PathBuf> {
-    owned_ids(blocks)
-        .iter()
-        .filter_map(|id| crate::hub::file_uploads::upload_dir(session, id))
+    owned_refs(blocks)
+        .filter_map(|(id, token)| crate::hub::file_uploads::owned_dir(session, id, token))
         .collect()
 }
 
-/// The ids of the uploads `blocks` name as the prompt's own ([`owned`]).
+/// The ids of the uploads `blocks` name with an owner token ([`owned`]).
 pub fn owned_ids(blocks: &[Value]) -> Vec<String> {
-    blocks
-        .iter()
-        .filter_map(upload_of)
-        .filter(|u| u.get("owned") == Some(&Value::Bool(true)))
-        .filter_map(|u| u.get("uploadId").and_then(Value::as_str))
-        .map(str::to_owned)
-        .collect()
+    owned_refs(blocks).map(|(id, _)| id.to_owned()).collect()
+}
+
+/// Each `(uploadId, owner token)` `blocks` name.
+fn owned_refs(blocks: &[Value]) -> impl Iterator<Item = (&str, &str)> {
+    blocks.iter().filter_map(upload_of).filter_map(|u| {
+        let token = u.get("owned").and_then(Value::as_str)?;
+        Some((u.get("uploadId").and_then(Value::as_str)?, token))
+    })
 }
 
 /// Whether `block` names an upload (`send_message` sends files that go by reference so).

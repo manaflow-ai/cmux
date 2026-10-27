@@ -18,13 +18,14 @@ impl Hub {
         deliver: Option<Delivery>,
         prompt_id: Option<String>,
     ) -> Result<Value, RpcError> {
-        // The uploads it names as its own go if it is refused (`attach::OwnedUploads`, `Saved`).
-        let mut owned =
-            crate::attach::OwnedUploads(crate::prompt_uploads::owned(&target.id, &attachments));
         // Never files from an agent a remote device drives, before anything reads them.
         if !attachments.is_empty() {
             self.subsession_attach_check(caller)?;
         }
+        // The uploads it names as its own (by their owner token) go if it is refused
+        // (`attach::OwnedUploads`, `Saved`).
+        let mut owned =
+            crate::attach::OwnedUploads(crate::prompt_uploads::owned(&target.id, &attachments));
         if text.trim().is_empty() {
             return Err(RpcError::invalid_params("text must not be empty"));
         }

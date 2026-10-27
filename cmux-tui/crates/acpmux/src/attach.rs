@@ -186,7 +186,7 @@ pub async fn blocks_for(
             let finish = json!({"sessionId": chat, "uploadId": one.id, "fileName": one.name,
                 "size": one.size});
             if let Err(e) = daemon.request(method::MUX_FILE_PUT_FINISH, finish).await {
-                failure = Some(e.context(format!("cannot attach {}", one.name)));
+                failure = Some(anyhow::anyhow!("cannot attach {}: {e:#}", one.name));
                 break;
             }
         }
@@ -216,6 +216,8 @@ fn inline_blocks(paths: &[PathBuf]) -> anyhow::Result<Vec<Value>> {
 /// A file whose bytes were sent to a chat, not yet finished.
 struct Sent {
     id: String,
+    /// The owner token its begin gave (`file_uploads::begin`); none from an older daemon.
+    owner: Option<String>,
     name: String,
     size: u64,
     /// Its first bytes, which say whether it is an image.
@@ -227,7 +229,11 @@ impl Sent {
     /// daemon deletes it if the prompt is refused before the chat takes it (`Saved`).
     fn block(&self) -> Value {
         let (id, name) = (&self.id, &self.name);
-        let meta = json!({"acpmux": {"upload": {"uploadId": id, "fileName": name, "owned": true}}});
+        let mut upload = json!({"uploadId": id, "fileName": name});
+        if let Some(token) = &self.owner {
+            upload["owned"] = json!(token);
+        }
+        let meta = json!({"acpmux": {"upload": upload}});
         match image_type(&self.head) {
             Some(mime) => json!({"type": "image", "mimeType": mime, "_meta": meta}),
             None => json!({"type": "resource_link", "name": name,
@@ -247,7 +253,8 @@ async fn upload(
 ) -> Result<Sent, (anyhow::Error, Option<Sent>)> {
     let label = path.display();
     let name = safe_name(&path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default());
-    let context = |e: anyhow::Error| e.context(format!("cannot attach {label}"));
+    // With its reason: the CLI prints the outer message only.
+    let context = |e: anyhow::Error| anyhow::anyhow!("cannot attach {label}: {e:#}");
     let mut file = tokio::fs::File::open(path).await.map_err(|e| (context(e.into()), None))?;
     let begin = json!({"sessionId": chat, "fileName": name, "size": size, "forPrompt": true});
     let begun = daemon.request(method::MUX_FILE_PUT_BEGIN, begin).await;
@@ -255,7 +262,8 @@ async fn upload(
     let Some(id) = begun.get("uploadId").and_then(Value::as_str) else {
         return Err((anyhow::anyhow!("the daemon gave no uploadId for {label}"), None));
     };
-    let mut one = Sent { id: id.to_owned(), name, size, head: Vec::new() };
+    let owner = begun.get("ownerToken").and_then(Value::as_str).map(str::to_owned);
+    let mut one = Sent { id: id.to_owned(), owner, name, size, head: Vec::new() };
     let sent = async {
         use tokio::io::AsyncReadExt;
         let mut buf = vec![0u8; crate::hub::file_uploads::CHUNK_BYTES];

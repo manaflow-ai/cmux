@@ -304,7 +304,32 @@ fn begin(session: &str, params: &Value) -> Result<Value, RpcError> {
         .map_err(|e| RpcError::internal(format!("cannot encode upload metadata: {e}")))?;
     crate::agent_tools::write_private(&meta, &metadata)
         .map_err(|e| failed_anyhow("cannot record upload", &meta, &e, None))?;
-    Ok(json!({"uploadId": id, "fileName": name, "size": size}))
+    let mut answer = json!({"uploadId": id, "fileName": name, "size": size});
+    // An upload for one prompt alone (`attach::blocks_for`): a token only its sender learns, which
+    // the prompt's reference carries to have it deleted if the prompt is refused
+    // (`prompt_uploads::owned`). A reference without it deletes nothing.
+    if params.get("forPrompt") == Some(&Value::Bool(true)) {
+        let mut bytes = [0u8; 16];
+        getrandom::fill(&mut bytes)
+            .map_err(|e| RpcError::internal(format!("the OS random generator: {e}")))?;
+        let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+        let owner = parent.join(OWNER);
+        crate::agent_tools::write_private(&owner, token.as_bytes())
+            .map_err(|e| failed_anyhow("cannot record upload", &owner, &e, None))?;
+        answer["ownerToken"] = json!(token);
+    }
+    Ok(answer)
+}
+
+/// The file in an upload's folder that holds its owner token ([`begin`] with `forPrompt`).
+const OWNER: &str = ".owner";
+
+/// The folder of upload `upload` of session `session` when `token` is its owner token: the
+/// sender that began it for one prompt alone. Blocking.
+pub(crate) fn owned_dir(session: &str, upload: &str, token: &str) -> Option<PathBuf> {
+    let dir = upload_dir(session, upload)?;
+    let saved = std::fs::read(dir.join(OWNER)).ok()?;
+    (!token.is_empty() && saved == token.as_bytes()).then_some(dir)
 }
 
 fn chunk(params: &Value) -> Result<Value, RpcError> {

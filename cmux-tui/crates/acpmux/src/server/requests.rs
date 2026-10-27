@@ -507,6 +507,41 @@ const ARCHIVED_TAG: &str = "archived";
 // The tag that marks a side chat, valued with its chat's session (`hub/btw.rs`).
 use crate::hub::SIDE_TAG;
 
+/// An agent a remote device drives (its caller session's turn, or its last one, is a Web turn,
+/// `hub/remote_floor.rs`) sends no files: not through `acpmux send --attach` from its shell, now
+/// or queued (`--no-wait`), nor by uploading one, as `send_message` may not either
+/// (`hub/subsession_send.rs`). Refused before anything is saved, sent or forwarded.
+fn caller_sends_no_files(
+    hub: &Arc<Hub>,
+    conn: &Conn,
+    m: &str,
+    params: &Value,
+) -> Result<(), RpcError> {
+    let Some(caller) = conn.caller() else { return Ok(()) };
+    let blocks = match m {
+        method::SESSION_PROMPT => params.get("prompt"),
+        method::MUX_SEND_QUEUE => params.pointer("/request/prompt"),
+        _ => None,
+    };
+    let files = blocks
+        .and_then(Value::as_array)
+        .is_some_and(|b| crate::attach::any(b) || crate::prompt_uploads::any(b));
+    let upload = matches!(
+        m,
+        method::MUX_FILE_PUT
+            | method::MUX_FILE_PUT_BEGIN
+            | method::MUX_FILE_PUT_CHUNK
+            | method::MUX_FILE_PUT_FINISH
+    );
+    if !(files || upload) {
+        return Ok(());
+    }
+    match hub.resolve(caller) {
+        Ok(caller) => hub.subsession_attach_check(&caller),
+        Err(_) => Ok(()),
+    }
+}
+
 pub(super) async fn handle_request(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
@@ -522,6 +557,7 @@ pub(super) async fn handle_request(
         super::remote_guard::check(hub, conn.origin, conn.auth, device.as_deref(), m, &mut params)
             .await?;
     }
+    caller_sends_no_files(hub, conn, m, &params)?;
     // Only the person allows or widens what runs without asking (`hub/person.rs`): one
     // check, before the request runs or reaches a peer. Held to the Web's rules: a Web
     // connection, or a peer forwarding for its own Web client (`via: web`); a peer
