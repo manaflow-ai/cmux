@@ -392,15 +392,19 @@ def checked_slot(code, match):
 # trap_api (report-only, see the docstring).
 UNIQUE_KEYS = re.compile(r"\buniqueKeysWithValues\s*:")
 REMOVE_END = re.compile(r"\bremove(?:First|Last)\s*\(")
-REPEATING = re.compile(r"(?:(?<![\w.])(?:Array|ContiguousArray|String|Data)\s*(?:<[^()]*>)?"
-                       r"|\[[^\[\]()]+\]|(?<!\w)\.init)\s*\(\s*repeating\s*:|(?<![\w.])repeatElement\s*\(")
+# The opening of a call that may be `(repeating:count:)`: its arguments (up to CALL_LINES lines on) need a top-level
+# `repeating` label to count, so a formatter's wrapped form `Array(\n    repeating: 0,\n    count: n\n)` counts too.
+REPEAT_INIT = re.compile(r"(?:(?<![\w.])(?:Array|ContiguousArray|String|Data)\s*(?:<[^()]*>)?"
+                         r"|\[[^\[\]()]+\]|(?<!\w)\.init)\s*\(")
+REPEAT_ELEMENT = re.compile(r"(?<![\w.])repeatElement\s*\(")
 OFFSET_CALL = re.compile(r"(?<![\w])(?:index|formIndex)\s*\(")
 RECEIVER = re.compile(r"((?:[A-Za-z_]\w*\??\.)*[A-Za-z_]\w*)\??\.\s*$")
 SAFE_COUNT = re.compile(r"(?:(?=[^-]*\d)[\d_\s*+<()]+|(?:[A-Za-z_]\w*(?:\(\))?\??\.)+count"
                         r"|max\(\s*0\s*,.*\)|max\(.*,\s*0\s*\))")
 DECLARED_FUNC = re.compile(r"\bfunc\s+$")
 # A line without one of these words starts no trap_api call (skips swift_code on most lines).
-TRAP_HINT = re.compile(r"uniqueKeysWithValues|remove(?:First|Last)|repeat(?:ing|Element)|[iI]ndex\s*\(")
+TRAP_HINT = re.compile(r"uniqueKeysWithValues|remove(?:First|Last)|repeatElement|[iI]ndex\s*\("
+                       r"|(?:Array|String|Data)\s*(?:<[^()]*>)?\s*\(|\]\s*\(|\.init\s*\(")
 # How many lines above a removal may hold its guard, and how many lines a call's arguments may continue on.
 GUARD_LINES = 3
 CALL_LINES = 3
@@ -480,9 +484,13 @@ def trap_api_hits(lines, index, code=None):
             continue
         if not removal_guarded(lines, index, code, match.start()):
             hits += 1
-    for match in REPEATING.finditer(code):
-        count = labeled(call_arguments(lines, index, code, match.end() if match.group(0).endswith("(")
-                                       else code.index("(", match.start()) + 1), "count")
+    for match in REPEAT_INIT.finditer(code):
+        arguments = call_arguments(lines, index, code, match.end())
+        count = labeled(arguments, "count")
+        if labeled(arguments, "repeating") is not None and count is not None and not SAFE_COUNT.fullmatch(count):
+            hits += 1
+    for match in REPEAT_ELEMENT.finditer(code):
+        count = labeled(call_arguments(lines, index, code, match.end()), "count")
         if count is not None and not SAFE_COUNT.fullmatch(count):
             hits += 1
     for match in OFFSET_CALL.finditer(code):
@@ -882,10 +890,12 @@ def report_line_hits(kind, lines, index, code, dictionaries):
 
 
 def report_counts(repo, exported, kinds, all_modules=False):
-    """{class: {module: hits}} of the report KINDS over package_sources(), each class outside its owner and in
-    its report_scope(). Comment lines and string contents never count (swift_code); a crash-allow does not hide
-    a hit."""
+    """({class: {module: hits}}, {class: [site]}) of the report KINDS over package_sources(), each class outside
+    its owner and in its report_scope(). A site is one line with hits: {"path", "line" (1-based), "class",
+    "module", "hits"}, sorted by path and line. Comment lines and string contents never count (swift_code); a
+    crash-allow does not hide a hit."""
     counts = {kind: {} for kind in kinds}
+    sites = {kind: [] for kind in kinds}
     sources = [rel for rel in package_sources(repo, exported) if os.path.isfile(os.path.join(repo, rel))]
 
     def index_scope(module):
@@ -914,7 +924,11 @@ def report_counts(repo, exported, kinds, all_modules=False):
                 hits = report_line_hits(kind, lines, index, code, dictionaries)
                 if hits:
                     counts[kind][module] = counts[kind].get(module, 0) + hits
-    return counts
+                    sites[kind].append({"path": rel.replace(os.sep, "/"), "line": index + 1, "class": kind,
+                                        "module": module, "hits": hits})
+    for found in sites.values():
+        found.sort(key=lambda site: (site["path"], site["line"]))
+    return counts, sites
 
 
 def load_report_baseline():
@@ -935,16 +949,17 @@ def report_kinds(names):
 
 
 def report(repo, exported, names, all_modules=False):
-    """Prints the report classes NAMES (comma-separated) as JSON, each beside its report-baseline row when the
-    row has the same scope; exit 0 (it judges nothing), 2 for an unknown class."""
+    """Prints the report classes NAMES (comma-separated) as JSON, {class: {"total", "modules": {module: hits},
+    "hits": [{"path", "line", "class", "module", "hits"}]}}, each beside its report-baseline row when the row has
+    the same scope; exit 0 (it judges nothing), 2 for an unknown class."""
     kinds = report_kinds(names)
     if kinds is None:
         return 2
-    counts = report_counts(repo, exported, kinds, all_modules)
+    counts, sites = report_counts(repo, exported, kinds, all_modules)
     baseline = load_report_baseline()
     out = {}
     for kind, modules in counts.items():
-        entry = {"total": sum(modules.values()), "modules": dict(sorted(modules.items()))}
+        entry = {"total": sum(modules.values()), "modules": dict(sorted(modules.items())), "hits": sites[kind]}
         row = baseline.get(kind)
         if row and row.get("scope") == report_scope(kind, all_modules):
             known = row.get("modules", {})
@@ -973,7 +988,7 @@ def update_report_baseline(repo, exported, names, all_modules):
         print(f"crash-ratchet: the report baseline records {', '.join(narrow)} over every module only: pass "
               "--all-modules (the index modules' rows are crash-safety-baseline.json's)", file=sys.stderr)
         return 2
-    counts = report_counts(repo, exported, kinds, all_modules)
+    counts, _ = report_counts(repo, exported, kinds, all_modules)
     data = load_baseline(REPORT_BASELINE) or {}
     held = []
     for kind in kinds:
@@ -1371,7 +1386,7 @@ def main():
     parser.add_argument("--exported-tree", action="store_true",
                         help="REPO holds only tracked files (git archive): scan every file, no git needed")
     parser.add_argument("--report", metavar="CLASS[,CLASS]",
-                        help="print these report classes' counts per module as JSON ("
+                        help="print these report classes' counts per module and hit sites as JSON ("
                         + ", ".join(REPORT_CLASSES) + "); compares nothing")
     parser.add_argument("--all-modules", action="store_true",
                         help="with --report: count " + " and ".join(REPORT_INDEX)

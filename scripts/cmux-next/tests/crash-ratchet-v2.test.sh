@@ -392,12 +392,27 @@ let h = s.index(
     offsetBy: n
 )
 s.formIndex(&i, offsetBy: 2) // crash-allow: the report still counts it
+let w = Array(
+    repeating: 0,
+    count: n
+)
 SWIFT
 printf 'let p = items.removeLast()\n' > "$phone/P.swift"
 g add -A
 out="$(report trap_api)" || fail "--report trap_api failed: $out"
-[[ "$(hits trap_api M <<<"$out")" == 10 ]] || fail "a trap_api pattern was missed (want 10 in M): $out"
+[[ "$(hits trap_api M <<<"$out")" == 11 ]] || fail "a trap_api pattern was missed (want 11 in M): $out"
 [[ "$(hits trap_api Phone <<<"$out")" == 1 ]] || fail "trap_api outside the app's closure was missed: $out"
+# Each hit's site: path, 1-based line of the call's opening, class and module (a wrapped call at its first line).
+python3 - "$out" <<'PY' || fail "the report's hit sites are wrong: $out"
+import json, sys
+sites = {(s["path"], s["line"]): s for s in json.loads(sys.argv[1])["trap_api"]["hits"]}
+a, p = "Packages/macOS/CmuxNext/Sources/M/A.swift", "Packages/iOS/Phone/Sources/Phone/P.swift"
+want = [(a, n) for n in (1, 2, 3, 4, 5, 6, 7, 8, 9, 13, 14)] + [(p, 1)]
+assert sorted(sites) == sorted(want), sorted(sites)
+assert sites[(a, 9)] == {"path": a, "line": 9, "class": "trap_api", "module": "M", "hits": 1}, sites[(a, 9)]
+assert sites[(a, 14)] == {"path": a, "line": 14, "class": "trap_api", "module": "M", "hits": 1}, sites[(a, 14)]
+assert sites[(p, 1)]["module"] == "Phone", sites[(p, 1)]
+PY
 out="$(ratchet)" || fail "trap_api reached the CI compare: $out"
 [[ "$out" != *trap_api* ]] || fail "the CI compare printed trap_api: $out"
 cat > "$app/Sources/M/A.swift" <<'SWIFT'
@@ -422,6 +437,13 @@ let h = s.index(
     limitedBy: s.endIndex
 )
 let i = s.index(after: i)
+let w = Array(
+    repeating: 0,
+    count: rows.count
+)
+let x = String(
+    describing: n
+)
 // let j = Dictionary(uniqueKeysWithValues: pairs)
 let k = "removeFirst() uniqueKeysWithValues:"
 SWIFT
