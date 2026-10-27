@@ -377,7 +377,11 @@ async fn start_keeps_the_source_session_alive_when_the_fork_succeeds() {
     assert_eq!(result["outcome"], "started", "{result}");
 
     let source = hub.resolve(&src).unwrap();
-    assert_ne!(hub.session_summary(&source)["status"], "closed", "the fork never closes its source");
+    assert_ne!(
+        hub.session_summary(&source)["status"],
+        "closed",
+        "the fork never closes its source"
+    );
     assert_eq!(source.meta().last_seq, source_seq, "the source log is untouched by a fork");
     c.request(method::SESSION_PROMPT, prompt(&src, "continue the original", None)).await.unwrap();
     assert_eq!(user_messages(&hub, &src), 2);
@@ -402,10 +406,17 @@ async fn a_failed_fork_keeps_the_source_session_alive() {
         "capsule": {"text": h["capsule"]["text"]},
         "checkpoint": attested("source-failure")
     });
-    assert!(call(&mut c, method::MUX_HANDOFF_START, start).await.is_err(), "a dead target must fail the fork");
+    assert!(
+        call(&mut c, method::MUX_HANDOFF_START, start).await.is_err(),
+        "a dead target must fail the fork"
+    );
 
     let source = hub.resolve(&src).unwrap();
-    assert_ne!(hub.session_summary(&source)["status"], "closed", "a failed fork never closes its source");
+    assert_ne!(
+        hub.session_summary(&source)["status"],
+        "closed",
+        "a failed fork never closes its source"
+    );
     assert_eq!(source.meta().last_seq, source_seq, "a failed fork leaves the source log untouched");
     c.request(method::SESSION_PROMPT, prompt(&src, "continue after failure", None)).await.unwrap();
     assert_eq!(user_messages(&hub, &src), 2);
