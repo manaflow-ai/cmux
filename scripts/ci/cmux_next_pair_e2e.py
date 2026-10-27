@@ -15,7 +15,14 @@ Screens: the Mac's Mobile Pairing page, the phone's Settings > Devices before an
 scanner sheet with the camera off (needs `axe`). On a ref without the feature the Mac shows no
 code: the pairing is skipped and the Devices screen is the "before". The token is never printed:
 `t=` is redacted in every log line and file. Ends the Mac app it started (its own PID) and the
-tag's daemons (tag_teardown.py), and removes the app's state.
+tag's daemons (tag_teardown.py), and removes the app's state and its Keychain items.
+
+Why the dev Cloud and not loopback: the gate the code must not weaken is the account check, and
+that check lives on the Cloud path (the Worker stamps the verified sender's `fromUserId` on every
+signal, and hostd refuses a dial whose `fromUserId` is not the Mac's owner); a loopback seam would
+have to fake that stamp, so it would test around the very check this proves. The account is the
+in-source DEBUG dev credential of the dev Stack project (the one verify/e2e/mac.py uses), not a
+production or personal account and not a secret.
 """
 import argparse, glob, hashlib, json, os, plistlib, re, shutil, socket, subprocess, sys, threading, time
 
