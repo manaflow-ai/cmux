@@ -85,6 +85,19 @@ final class SessionPriorityCoordinator {
         AutomationCatalogSection().sessionPriority.value(in: .standard)
     }
 
+    /// Whether session priority is on, for a trigger or a status read. Finding it off while rows,
+    /// pane records, queued restarts or a pending pass remain means it went off without a
+    /// notification this process saw (a `defaults write` from another process), so the disable
+    /// path runs first.
+    private func isEnabledDroppingStaleState() -> Bool {
+        guard !isEnabled else { return true }
+        if state.hasActiveState {
+            lastSettings = .current()
+            disable()
+        }
+        return false
+    }
+
     /// Plugs into the workspace hooks and the settings. Later calls do nothing.
     func start() {
         guard defaultsObserver == nil else { return }
@@ -119,7 +132,7 @@ final class SessionPriorityCoordinator {
             // The quiet window and a background-work hold run from here, also for a turn end seen
             // while off.
             state.noteTurnEnded(panelId: panelId, nowMs: Self.nowMs(), pendingWork: draft.pendingWork)
-            guard isEnabled else { return }
+            guard isEnabledDroppingStaleState() else { return }
             // Between turns: a pane held or refused earlier may be tried again.
             state.noteRetryDue(panelId: panelId)
             requestReconcile()
@@ -142,13 +155,13 @@ final class SessionPriorityCoordinator {
 
     /// A user move in `tabManager`'s sidebar, possibly one that left the order as it was.
     func userDidReorder(tabManager: TabManager) {
-        guard isEnabled else { return }
+        guard isEnabledDroppingStaleState() else { return }
         requestReconcile(settles: true)
     }
 
     /// A workspace's difficulty or manual flag changed.
     func workspaceStateDidChange(workspaceId: UUID) {
-        guard isEnabled else { return }
+        guard isEnabledDroppingStaleState() else { return }
         requestReconcile()
     }
 
@@ -169,7 +182,7 @@ final class SessionPriorityCoordinator {
     /// "Adjust automatically": the workspace's panes lose the manual signals seen on screen, and
     /// a `/effort` or `/model` the transcript recorded until now no longer counts.
     private func adjustAutomatically(workspaceId: UUID) {
-        guard isEnabled,
+        guard isEnabledDroppingStaleState(),
               let workspace = AppDelegate.shared?.tabManagerFor(tabId: workspaceId)?.workspacesById[workspaceId]
         else { return }
         state.clearStickyManual(panelIds: workspace.orderedPanelIds, nowMs: Self.nowMs())
@@ -239,9 +252,9 @@ final class SessionPriorityCoordinator {
     // MARK: - Reconcile
 
     /// Brings every window's rows and queued restarts in line with the settings and the panes.
-    /// Off (turned off while a pass was pending), it only removes rows.
+    /// Off (turned off while a pass was pending), it only drops what is left.
     private func reconcile() {
-        guard isEnabled else {
+        guard isEnabledDroppingStaleState() else {
             removeRows(also: [])
             return
         }
@@ -353,7 +366,7 @@ final class SessionPriorityCoordinator {
     }
 
     private func nextEntryToApply() -> SessionPriorityApplyQueue.Entry? {
-        guard isEnabled else {
+        guard isEnabledDroppingStaleState() else {
             state.queue.removeAll()
             return nil
         }
@@ -386,7 +399,7 @@ final class SessionPriorityCoordinator {
         if case .hold(let reason) = paneIsFree() {
             result = .held(reason)
         } else if await userChangedEffortInTranscript(panelId: panelId, workspace: workspace) {
-            guard isEnabled else { return }
+            guard isEnabledDroppingStaleState() else { return }
             state.noteManualChangeInTranscript(panelId: panelId)
             log("sessionPriority panel=\(panelId.uuidString.prefix(5)) manual.transcript")
             requestReconcile()
@@ -400,8 +413,8 @@ final class SessionPriorityCoordinator {
             SessionPriorityNotice.notRestarted(target: entry.target, manual: manual)
                 .post(workspaceId: workspace.id, panelId: panelId)
         }
-        // Turned off meanwhile: `disable()` already dropped the pane and its row.
-        guard isEnabled else { return }
+        // Turned off meanwhile: `disable()` dropped, or drops now, the pane and its row.
+        guard isEnabledDroppingStaleState() else { return }
         let nowMs = Self.nowMs()
         if case .timer(let seconds) = state.noteResult(panelId: panelId, result, nowMs: nowMs) {
             armTimer(panelId: panelId, after: .seconds(seconds))
@@ -418,7 +431,7 @@ final class SessionPriorityCoordinator {
 
     /// The workspace's session priority now, for `session_priority.get` and `.set`.
     func snapshot(for workspace: Workspace) -> SessionPrioritySnapshot {
-        guard isEnabled, let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspace.id) else {
+        guard isEnabledDroppingStaleState(), let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspace.id) else {
             return makeSnapshot(workspace, panes: claudePanes(in: workspace), entry: nil, enabled: false)
         }
         let panes = claudePanes(in: tabManager)
@@ -435,7 +448,7 @@ final class SessionPriorityCoordinator {
     /// The window's workspaces that have a Claude pane or are marked manual, in priority order,
     /// for `session_priority.status`.
     func statusSnapshot(tabManager: TabManager) -> [SessionPrioritySnapshot] {
-        let enabled = isEnabled
+        let enabled = isEnabledDroppingStaleState()
         let panes = claudePanes(in: tabManager)
         let settings = Settings.current()
         let plan = enabled

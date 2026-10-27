@@ -86,6 +86,13 @@ struct SessionPriorityCoordinatorState: Equatable {
     /// change the transcript records later counts. Kept while off.
     private(set) var manualDismissedAtMs: [UUID: Int64] = [:]
 
+    /// Whether the coordinator shows rows or holds pane records, queued restarts or a pending
+    /// pass: what ``disable()`` drops. The turn ends, background work and dismissal times kept
+    /// while off do not count.
+    var hasActiveState: Bool {
+        !rowsShown.isEmpty || !records.isEmpty || !queue.isEmpty || reconcileDueAtMs != nil
+    }
+
     /// Forgets every pane record, queued restart and pending pass. Returns the workspaces whose
     /// row to clear.
     mutating func disable() -> Set<UUID> {
