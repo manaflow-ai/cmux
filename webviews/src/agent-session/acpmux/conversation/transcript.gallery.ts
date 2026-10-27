@@ -1390,6 +1390,8 @@ export default agentPaneEntry({
         await ctx.hover({ selector: ".cv-thought" });
         if (!row()!.matches("button") || row()!.getAttribute("aria-expanded") !== "false")
           throw new Error("a finished thought is a closed toggle");
+        if (Math.round(row()!.getBoundingClientRect().height) !== 22)
+          throw new Error("a finished thought uses the compact 22px tool-row rhythm");
         if (ctx.document.querySelector(".cv-thought__text") || ctx.document.body.textContent?.includes("jittered"))
           throw new Error("a folded thought shows none of its text");
         if (row()!.closest("[title]") || row()!.querySelector("[title]")) throw new Error("a thought shows no tooltip");
