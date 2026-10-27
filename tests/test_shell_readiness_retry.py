@@ -109,25 +109,41 @@ def check_late_listener_retries_once(root: Path) -> None:
 
 
 def check_running_cancels_prompt_retries(root: Path) -> None:
-    path = root / "cancel.sock"
-    received: list[str] = []
-    ready = threading.Event()
-    thread = threading.Thread(
-        target=serve,
-        args=(path, ready, received, 0.5),
-        kwargs={"expected_connections": 2, "bind_before_delay": True},
-        daemon=True,
-    )
-    thread.start()
-    assert ready.wait(timeout=2)
-    shell = run_shell(
-        path,
-        "_cmux_report_shell_activity_state prompt\nsleep 0.1\n_cmux_report_shell_activity_state running\nread -r _",
-    )
-    _, stderr = finish_shell(shell, thread)
+    body = """
+_prompt_attempts=0
+_running_reports=0
+_cmux_send_shell_activity_ack() {
+  (( _prompt_attempts++ ))
+  _cmux_report_shell_activity_state running
+  return 1
+}
+_cmux_send_shell_activity_bg() {
+  if [[ "$1" == 'report_shell_state running '* ]]; then
+    (( _running_reports++ ))
+    return 0
+  fi
+  _cmux_shell_activity_ensure_state_file || return 1
+  _CMUX_SHELL_ACTIVITY_SEND_TOKEN=test-prompt
+  print -r -- "$_CMUX_SHELL_ACTIVITY_SEND_TOKEN" >| "$_CMUX_SHELL_ACTIVITY_STATE_FILE"
+  _cmux_shell_activity_send_worker "$1" "$_CMUX_SHELL_ACTIVITY_SEND_TOKEN" "$_CMUX_SHELL_ACTIVITY_STATE_FILE"
+  print -r -- "worker_status=$?"
+  return 0
+}
+_cmux_report_shell_activity_state prompt
+print -r -- "prompt_attempts=$_prompt_attempts"
+print -r -- "running_reports=$_running_reports"
+print -r -- "last_state=$_CMUX_SHELL_ACTIVITY_LAST"
+"""
+    shell = run_shell(root / "cancel.sock", body)
+    stdout, stderr = shell.communicate(timeout=3)
     assert shell.returncode == 0, stderr
-    assert received == [f"report_shell_state running --tab={TAB_ID} --panel={PANEL_ID} --ack --terminal-lifecycle-id={LIFECYCLE_ID}"], received
-    print("PASS running cancels pending prompt retries")
+    assert stdout.splitlines() == [
+        "worker_status=1",
+        "prompt_attempts=1",
+        "running_reports=1",
+        "last_state=running",
+    ], stdout
+    print("PASS running during an in-flight attempt cancels the next prompt retry")
 
 
 def check_saturation_does_not_latch_prompt(root: Path) -> None:
@@ -222,7 +238,7 @@ def main() -> None:
         check_application_rejection_retries_until_ack(root)
         check_stale_lifecycle_is_not_acknowledged(root)
         check_already_current_ack_stops_retries(root)
-    print("6 offline local-socket checks passed")
+    print("6 offline shell-readiness checks passed")
 
 
 if __name__ == "__main__":
