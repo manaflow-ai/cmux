@@ -21,12 +21,14 @@ public nonisolated struct HostStep: RawRepresentable, Hashable, Sendable, Codabl
     public static let install = HostStep(rawValue: "install")
     public static let daemon = HostStep(rawValue: "daemon")
     public static let harness = HostStep(rawValue: "harness")
+    /// How the daemon stays current (a Linux host's acpmux-update.timer).
+    public static let update = HostStep(rawValue: "update")
     public static let peer = HostStep(rawValue: "peer")
     public static let peerBack = HostStep(rawValue: "peer-back")
     public static let identity = HostStep(rawValue: "identity")
 
     /// The steps in the order they run. A newer cmux-tui may send others; they show by their raw name.
-    public static let known: [HostStep] = [.reach, .install, .daemon, .harness, .peer, .peerBack, .identity]
+    public static let known: [HostStep] = [.reach, .install, .daemon, .update, .harness, .peer, .peerBack, .identity]
 }
 
 public nonisolated enum HostStepState: String, Equatable, Sendable, Codable {

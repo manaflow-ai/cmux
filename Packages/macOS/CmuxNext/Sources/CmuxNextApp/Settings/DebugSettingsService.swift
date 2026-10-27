@@ -83,6 +83,7 @@ final class DebugSettingsService: InternalPageProvider {
         guard isAvailable else { return }
         let store = TunableStore.shared
         store.register(TunableCatalog.all)
+        BrowserResizeTunables.registerRenames(store)
         let launch = services.environment.launch
         let url = Self.fileURL(environment: ProcessInfo.processInfo.environment, tag: launch.tag,
                                bundleID: launch.bundleID, build: launch.build)
