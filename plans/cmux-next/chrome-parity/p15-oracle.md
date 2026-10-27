@@ -1352,7 +1352,17 @@ Unchanged from the draft unless noted. Each: Darwin path unchanged; fleet compil
 
 - **120** Compat Platform: Libc, Logger shim, Mutex. **121** Compat AppKit/QuartzCore files to CmuxNextCompatAppKit (in the 119 commit).
 - **122** Compat Threading on Linux (MachO/XPC parts as `canImport` whole files). **123** Compat misc (MacName, OpenFileLimit, ChildSignalDefaults, ObservationStream).
-- **124** Signposts no-op OSSignposter, MetricKit mirror `canImport`. **125** Wakeups display files to CmuxNextWakeupsDisplay (in 119; tell Performance Lead and PL-typing).
+- **124** Signposts no-op OSSignposter, MetricKit mirror `canImport`. **125 (revised)** the display-link seam (FrameLink takes a
+  `FrameRateRange`, frame clocks read `DisplayClock.systemMediaTime()`; MainWorkScheduler, FrameStall and the other frame clocks import
+  only Foundation) and the pure moves of ChatOpenTrace and WindowServerInputEvents to CmuxNextWakeupsDisplay (tell Performance Lead and
+  PL-typing). MainWorkScheduler and FrameStall stay in Wakeups: they are UI-free, and moving MainWorkScheduler up is a cycle. Wakeups is not
+  UI-free after 125: wave 0 builds it only after 304.
+- **302** DisplayPlatform window-handle seam: DisplayClock's resolvers and system-link factory, FrameScheduler.Host, forWindow/forView,
+  newestFrame(for:) and FrameClient's view init take one injected protocol; the NSWindow/NSScreen/CADisplayLink conformance lives in
+  CmuxNextWakeupsDisplay (tell p03-rendering's owner). **303** Input-event seam: SessionInputPending, SessionInputEvents and the
+  FrameInputCoalescer family take value types, not NSEvent/CGEventType; MainJobGate+RunLoop drops AppKit. **304** pure moves of every
+  Wakeups file still importing AppKit, QuartzCore or CoreGraphics (VSyncHub family, Presentation*, Window* families,
+  FrameLink+CoreAnimation, WorkspaceQueries, the 302/303 conformances); test: VM Wakeups has no UI imports.
 - **126** PlatformEvents, FolderChanges (inotify), UnixSocketPeer (SO_PEERCRED), ProcessUsage (/proc); no polling added.
 - **127** Actions `KeyModifiers` value type; action-surfaces export byte-identical. **128** Actions menus/recorder to CmuxNextActionsAppKit (in 119).
 - **129** Daemon transport (MSG_NOSIGNAL, Logger, PlatformEvents). **130** Daemon crypto, `InstallKeyStoring` (0600 file on Linux, injected), CZlib inflate.
