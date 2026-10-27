@@ -105,4 +105,29 @@ import Testing
         column.host.isOnLayoutSpring = false
         #expect(column.page.frame.width == 184, "one layout at the landed size: \(column.page.frame)")
     }
+
+    /// A right-pane close can be reopened before its spring lands. The content keeps the widest
+    /// target announced by that motion, rather than falling back to live resize at the reopened
+    /// target, and releases it only for the final layout.
+    @Test func aRetargetedSpringKeepsTheLargestContentSizeUntilItLands() {
+        let column = Screen(hostFrame: CGRect(x: 0, y: 0, width: 200, height: 300), holdsContent: true)
+        column.host.restSize = CGSize(width: 400, height: 300)
+        column.host.restOffset = .zero
+        column.host.isOnLayoutSpring = true
+        column.host.announceRest()
+        #expect(column.page.frame.width == 384, "the close target was not held: \(column.page.frame)")
+
+        // Reopen before landing, then present two intermediate widths. The page must keep the
+        // close target's painted width through both frames instead of reflowing at each one.
+        column.host.restSize = CGSize(width: 200, height: 300)
+        column.host.announceRest()
+        for width in [260.0, 220.0] as [CGFloat] {
+            column.host.frame = CGRect(x: 0, y: 0, width: width, height: 300)
+            column.host.layoutSubtreeIfNeeded()
+            #expect(column.page.frame.width == 384, "retargeted content resized at \(width): \(column.page.frame)")
+        }
+        column.host.frame = CGRect(x: 0, y: 0, width: 200, height: 300)
+        column.host.isOnLayoutSpring = false
+        #expect(column.page.frame.width == 184, "the hold did not release at landing: \(column.page.frame)")
+    }
 }

@@ -235,7 +235,17 @@ final class PaneHostView: NSView, RestingPlacement {
     func announceRest() {
         guard let change = restSizeChange else { return }
         heldAnchor = content.notifyPaneMotionWillRest(sizeChange: change)
-        if heldContentSize != nil { layoutClip() }
+        if heldContentSize != nil, let restSize {
+            // A close can retarget a running spring to a wider pane, then an early reopen can
+            // retarget it back before the first spring lands. Keep the largest painted content
+            // size seen by this motion so the second target does not reflow the page on every frame.
+            var style = LayoutStyle()
+            style.panePadding = padding
+            let restRect = PaneChromeGeometry.contentRect(forCell: CGRect(origin: .zero, size: restSize), style: style)
+            heldContentSize = CGSize(width: max(heldContentSize!.width, restRect.width),
+                                     height: max(heldContentSize!.height, restRect.height))
+            layoutClip()
+        }
     }
 
     /// The content area at rest (``restSize`` less the padding) minus the content's size now; nil without a
