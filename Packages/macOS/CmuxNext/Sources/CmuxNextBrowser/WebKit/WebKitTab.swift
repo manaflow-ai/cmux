@@ -1,4 +1,7 @@
 public import AppKit
+#if DEBUG || CMUX_BENCH_HOOKS
+import CmuxNextInput
+#endif
 import CmuxNextWakeups
 public import Foundation
 public import Observation
@@ -130,6 +133,9 @@ public final class WebKitTab: NSObject, BrowserTab {
         WebKitPasskeyInstaller.install(self, into: controller)
         WebKitNotificationBridge.install(on: self, into: controller)
         WebKitFirstPaintHandler.install(on: self, into: controller)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        engine.pageInputTiming?.install(into: controller)
+        #endif
         observeWebView()
         if configuration.zoom != 1 {
             setZoom(configuration.zoom)

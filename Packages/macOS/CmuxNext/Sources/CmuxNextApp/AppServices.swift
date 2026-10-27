@@ -834,6 +834,9 @@ final class AppServices {
         let inputDispatch = inputDispatch
         (NSApp as? CmuxApplication)?.inputDispatch = inputDispatch
         (NSApp as? CmuxApplication)?.inputLatency = inputLatency
+        #if DEBUG || CMUX_BENCH_HOOKS
+        cache.webKit.pageInputTiming = WebPageInputTiming(tracker: inputLatency.tracker)  // WebKit pages' presented stage (p04-input-099)
+        #endif
         (registry.dispatchingInputEvent, inputTap.dispatchedEvent) = ({ inputDispatch.event }, { inputDispatch.event })
         registry.isDispatchingKeyDown = { inputDispatch.isKeyDown }
         registry.effectExpectsFrame = { inputDispatch.noteFrameExpected() }
