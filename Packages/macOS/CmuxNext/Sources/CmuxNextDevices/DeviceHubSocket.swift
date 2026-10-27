@@ -123,7 +123,9 @@ public final class DeviceHubSocket: Sendable {
     public func run(_ handler: @escaping @Sendable (Event) async -> Void) async {
         var backoff = self.backoff
         let gate = KeepaliveGate(energy, hold: .systemSleep, random: wakeJitter)
+        // timer-class-allow: run is nonisolated and its caller runs it off main (DeviceHub's socket task); off-main deadlines are DemandTimer's own use
         let keepalive = DemandTimer(owner: "DeviceHubSocket.ping", clock: clock)
+        // timer-class-allow: the reconnect backoff of the same off-main loop
         let retry = DemandTimer(owner: "device-hub.socket", clock: clock)
         gate.follow { edge in if edge == .pause { keepalive.cancel() } }
         defer {

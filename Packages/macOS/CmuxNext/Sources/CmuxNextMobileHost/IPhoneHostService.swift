@@ -4,6 +4,7 @@ import CmuxNextCompat
 public import CmuxNextMobile
 public import Foundation
 public import Observation
+import CmuxNextWakeups
 import os
 
 /// Settings > Mobile: runs the bundled `cmux-mobile-host` (the cmux iPhone host,
@@ -128,65 +129,69 @@ public final class IPhoneHostService {
     /// The frontmost cmux main window, which the pairing prompt attaches to as a sheet.
     @ObservationIgnored public var pairWindow: (@MainActor () -> NSWindow?)?
     /// Observers that show a waiting prompt once a cmux window is on screen.
-    @ObservationIgnored var pairWindowWatch: [any NSObjectProtocol] = []
+    @ObservationIgnored var pairWindowWatch: [EventSubscription] = []
     @ObservationIgnored var approverSync: MobileHostApproverSync?
-    @ObservationIgnored private var followingFolders: Task<Void, Never>?
-    @ObservationIgnored private var followingPicks: Task<Void, Never>?
-    @ObservationIgnored private var pairingWatch: Task<Void, Never>?
+    @ObservationIgnored var followingFolders: ServiceObservation<[String]>?
+    @ObservationIgnored var followingPicks: ServiceObservation<NewChatPicks?>?
+    @ObservationIgnored var pairingWatch: Task<Void, Never>?
     /// The one reconcile in flight; each waits for the previous one.
     @ObservationIgnored private var applying: Task<Void, Never>?
-    @ObservationIgnored private var watching: Task<Void, Never>?
-    @ObservationIgnored private var following: Task<Void, Never>?
-    @ObservationIgnored private var followingAccount: Task<Void, Never>?
+    @ObservationIgnored var watching: Task<Void, Never>?
+    @ObservationIgnored var following: ServiceObservation<Bool>?
+    @ObservationIgnored var followingAccount: ServiceObservation<Account?>?
+    /// Bumped by each phone list read; an older read's answer is dropped.
+    @ObservationIgnored private var listGeneration: UInt64 = 0
+    /// The app's deadline placer and main-thread scheduler (``wire(auth:daemon:acpmuxHost:acpmuxEnvironment:agentTabHost:newChatPicks:chief:surfaceHosts:settings:deadlines:appEvents:bundleID:computerName:processEnvironment:)``).
+    @ObservationIgnored var deadlines: MainDeadlineScheduler?
+    /// The app's one fan-out of app-wide notices: the pairing prompt waits on it for a window.
+    @ObservationIgnored var appEvents: AppEvents?
     /// The user and team hostd runs for now (the toggle on); a name or email change does not restart it.
     @ObservationIgnored private var running: String?
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.iphone")
 
     /// A host that runs nothing until it is wired and an account with the setting on arrives.
-    public init() {
-        let states = supervisor.states
-        // task-owner: lives as long as the app; follows the supervisor's state stream
-        watching = Task { [weak self] in
-            for await next in states {
-                guard let self else { return }
-                let before = self.state
-                self.state = next
-                if next.phase == .removed, before.phase != .removed { self.recordRemoval() }
-                // The list follows what hostd reports: online, and each phone that comes or goes.
-                if next.phase == .online, before.phase != .online || before.phones.map(\.sessionID) != next.phones.map(\.sessionID) {
-                    self.refreshPhones()
-                }
-            }
-        }
-        let pairing = supervisor.pairing
-        // task-owner: lives as long as the app; answers hostd's pairing requests in order
-        pairingWatch = Task { [weak self] in
-            for await event in pairing {
-                self?.pairingEvent(event)
-            }
+    public init() {}
+
+    /// hostd reported a state (``followSupervisor(on:)``).
+    func stateArrived(_ next: MobileHostState) {
+        let before = state
+        state = next
+        if next.phase == .removed, before.phase != .removed { recordRemoval() }
+        // The list follows what hostd reports: online, and each phone that comes or goes.
+        if next.phase == .online, before.phase != .online || before.phones.map(\.sessionID) != next.phones.map(\.sessionID) {
+            refreshPhones()
         }
     }
 
-    /// Reads the account's phones from the mobile service (latest read wins).
+    /// Reads the account's phones from the mobile service (latest read wins). The token and the read run off
+    /// main; the list applies in one visible task.
     public func refreshPhones() {
         listing?.cancel()
-        guard allowed, account != nil, let dependencies else {
+        listGeneration &+= 1
+        guard allowed, account != nil, let dependencies, let mainWork = deadlines?.work else {
             knownPhones = []
             phonesError = nil
             return
         }
-        let directory = MobileHostDeviceDirectory(baseURL: dependencies.baseURL)
+        let directory = MobileHostDeviceDirectory(baseURL: dependencies.baseURL), accessToken = dependencies.accessToken
+        let generation = listGeneration
         // task-owner: stored in `listing`; a newer read cancels it
-        listing = Task { [weak self] in
-            do {
-                let phones = try await directory.phones(token: dependencies.accessToken(false))
-                guard !Task.isCancelled else { return }
-                self?.knownPhones = phones
-                self?.phonesError = nil
-            } catch {
-                guard !Task.isCancelled else { return }
-                self?.phonesError = IPhoneHostStrings.listFailed
-            }
+        listing = Task { @concurrent [weak self] in
+            let read: Result<[MobileHostKnownPhone], any Error>
+            do { read = .success(try await directory.phones(token: accessToken(false))) } catch { read = .failure(error) }
+            guard !Task.isCancelled else { return }
+            mainWork.postFromAnyThread(.visible, owner: "IPhoneHost.phones") { [weak self] in self?.phonesRead(read, generation: generation) }
+        }
+    }
+
+    private func phonesRead(_ read: Result<[MobileHostKnownPhone], any Error>, generation: UInt64) {
+        guard generation == listGeneration else { return }
+        switch read {
+        case .success(let phones):
+            knownPhones = phones
+            phonesError = nil
+        case .failure:
+            phonesError = IPhoneHostStrings.listFailed
         }
     }
 
@@ -226,73 +231,6 @@ public final class IPhoneHostService {
         refreshPhones()
     }
 
-    /// Follows the setting: every writer (the Settings page, `cmux settings`, an
-    /// edit of cmux.json) reaches the host through the settings file.
-    func follow(allowed read: @escaping @MainActor @Sendable () -> Bool) {
-        following?.cancel()
-        // task-owner: lives as long as the app; re-reads the setting on each settings change
-        following = Task { [weak self] in
-            for await value in ObservationStream(read) {
-                self?.setAllowed(value)
-            }
-        }
-    }
-
-    /// Hands acpmux the folders of this Mac's workspaces while iPhone connections are allowed
-    /// for a signed-in account (none otherwise), so a phone's agent chat starts there.
-    func followWorkspaceFolders() {
-        followingFolders?.cancel()
-        // task-owner: lives as long as the app; re-reads the folders on each daemon tree change
-        followingFolders = Task { [weak self] in
-            for await folders in ObservationStream({ [weak self] in
-                guard let self, allowed, account != nil else { return [String]() }
-                return dependencies?.workspaceFolders() ?? []
-            }) {
-                guard let self else { return }
-                if approverSync == nil, !folders.isEmpty, let environment = dependencies?.acpmuxEnvironment {
-                    approverSync = MobileHostApproverSync(environment: environment)
-                }
-                approverSync?.updateWorkspaceRoots(folders)
-            }
-        }
-    }
-
-    /// Hands acpmux the agent and model this Mac's New Tab page picked last while iPhone
-    /// connections are allowed for a signed-in account, so a phone's New Agent Chat starts
-    /// where this Mac's does (the Mac keeps them locally: `newTab.lastAgent`, `newTab.lastPicks`).
-    func followNewChatPicks() {
-        followingPicks?.cancel()
-        // task-owner: lives as long as the app; re-reads the picks on each remembered pick
-        followingPicks = Task { [weak self] in
-            for await picks in ObservationStream({ [weak self] () -> NewChatPicks? in
-                guard let self, allowed, account != nil else { return nil }
-                return dependencies?.newChatPicks()
-            }) {
-                guard let self else { return }
-                guard let picks, !picks.isEmpty else {
-                    // Off, signed out or nothing picked: acpmux forgets what it holds.
-                    approverSync?.updateNewChatPicks(nil)
-                    continue
-                }
-                if approverSync == nil, let environment = dependencies?.acpmuxEnvironment {
-                    approverSync = MobileHostApproverSync(environment: environment)
-                }
-                approverSync?.updateNewChatPicks(picks.params)
-            }
-        }
-    }
-
-    /// Follows the signed-in account (sign-in, sign-out, a user or team switch).
-    func followAccount(_ read: @escaping @MainActor @Sendable () -> Account?) {
-        followingAccount?.cancel()
-        // task-owner: lives as long as the app; re-reads the account on each auth change
-        followingAccount = Task { [weak self] in
-            for await account in ObservationStream(read) {
-                self?.accountChanged(account)
-            }
-        }
-    }
-
     /// hostd reported the removal: remember it (across relaunches) and forget the device id.
     private func recordRemoval() {
         removed = true
@@ -318,7 +256,7 @@ public final class IPhoneHostService {
         removed = false
     }
 
-    private func setAllowed(_ allowed: Bool) {
+    func setAllowed(_ allowed: Bool) {
         guard allowed != self.allowed else { return }
         // Turning the setting on again is the person allowing connections again.
         if allowed, removed { clearRemoval() }
@@ -342,7 +280,7 @@ public final class IPhoneHostService {
         quietAttention()
         let supervisor = supervisor
         // task-owner: teardown hop; the supervisor's stop is idempotent
-        Task { await supervisor.stop() }
+        Task { @concurrent in await supervisor.stop() }
     }
 
     private func reconcile() {
@@ -355,6 +293,7 @@ public final class IPhoneHostService {
         let supervisor = supervisor
         let allowed = allowed
         // task-owner: stored in `applying`; each reconcile awaits the one before it
+        // main-hop-allow: the reconciles chain in order on the supervisor actor; this task only awaits it and the app's main-actor seams
         applying = Task { [weak self, logger] in
             await previous?.value
             guard let want, let dependencies else {

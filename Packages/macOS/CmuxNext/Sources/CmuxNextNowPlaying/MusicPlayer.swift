@@ -53,8 +53,9 @@ public final class MusicPlayer: NowPlayingSource {
         if let avPlayer { return avPlayer }
         let player = AVPlayer()
         player.preventsDisplaySleepDuringVideoPlayback = false
+        // raw-observer-allow: the player's own KVO, no app notice: AVPlayer has no notice for every rate change
         rateObservation = player.observe(\.rate, options: [.new]) { @Sendable [weak self] _, _ in
-            // AVFoundation may report from its own threads: inline on main, a hop otherwise.
+            // main-hop-allow: AVFoundation may report from its own threads: inline on main keeps the player's order
             MainDelivery().run { self?.readPosition() }
         }
         avPlayer = player
@@ -159,8 +160,10 @@ public final class MusicPlayer: NowPlayingSource {
 
     private func observe(_ item: AVPlayerItem, url: URL) {
         let id = ObjectIdentifier(item)
+        // raw-observer-allow: AVPlayerItem.status is KVO only (no notice); one per playing item
         itemObservation = item.observe(\.status, options: [.initial, .new]) { @Sendable [weak self] item, _ in
             let seconds = item.duration.seconds, failed = item.status == .failed
+            // main-hop-allow: AVFoundation may report from its own threads: inline on main keeps the item's order
             MainDelivery().run { self?.itemChanged(id, failed: failed, seconds: seconds.isFinite && seconds > 0 ? seconds : nil) }
         }
         let center = NotificationCenter.default
@@ -206,6 +209,7 @@ public final class MusicPlayer: NowPlayingSource {
         let target = CMTime(seconds: max(0, seconds), preferredTimescale: 600)
         position = max(0, seconds)
         positionDate = Date()
+        // main-hop-allow: the seek's completion thread is not documented; inline on main keeps the player's order
         player.seek(to: target) { [weak self] _ in MainDelivery().run { self?.readPosition() } }
     }
 

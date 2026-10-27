@@ -725,7 +725,7 @@ final class AppServices {
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board, displays: FrameScheduler.appDisplays)
         updater = UpdaterService(work: work)
         chromiumRuntime = ChromiumRuntimeService.make(work: work)
-        mobile = MobileHostService(displayName: { await MacName().displayName() }, work: work)
+        mobile = MobileHostService(displayName: { await MacName().displayName() }, work: work, mainWork: mainWork)
         #if DEBUG || CMUX_BENCH_HOOKS
         registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget, crashKeys: crashKeys),
                                            turnObserver: oracleTurns, mainWork: mainWork)

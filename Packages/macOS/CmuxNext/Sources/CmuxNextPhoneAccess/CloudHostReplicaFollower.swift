@@ -3,6 +3,7 @@ public import CmuxNextDaemon
 public import CmuxNextDaemonService
 public import CmuxNextSettings
 public import Foundation
+public import CmuxNextWakeups
 import os
 
 /// Applies Settings > Accounts > Phone Access > `phone.cloudReplica`
@@ -50,7 +51,7 @@ public final class CloudHostReplicaFollower {
     private let clientVersion: String?
     private let defaults: UserDefaults
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud.replica")
-    private var observation: Task<Void, Never>?
+    private var observation: ServiceObservation<Want?>?
     private var want = Want(connection: nil, daemon: nil, userID: nil, on: false)
     /// The newest lease work; the next waits for it.
     private var work: Task<Void, Never>?
@@ -65,22 +66,22 @@ public final class CloudHostReplicaFollower {
         self.invalidate = invalidate
     }
 
-    /// Follows the setting, the account and the local daemon connection.
+    /// Follows the setting, the account and the local daemon connection on `mainWork`, from the settings'
+    /// first load. `background`: the lease shows nothing on screen; a person's toggle still applies in their turn.
     /// `account`: the signed-in user's id while Cloud may be called, else nil.
-    public func follow(_ settings: SettingsController, local: DaemonService, account: @escaping @MainActor () -> String?) {
+    public func follow(_ settings: SettingsController, local: DaemonService, on mainWork: MainWorkScheduler,
+                       account: @escaping @MainActor () -> String?) {
         observation?.cancel()
-        // task-owner: lives as long as the settings controller; event-driven (Observation)
-        observation = Task { [weak self] in
-            await settings.waitForLoad(atLeast: 1)
-            for await next in ObservationStream({ () -> Want in
-                let supported = local.supports(DaemonCapability.cloudHostReplica.rawValue)
-                return Want(connection: supported ? local.connection : nil, daemon: supported ? local.identity?.pid : nil,
-                            userID: account(), on: settings.snapshot.sessions.publishesCloudReplica)
-            }) {
-                guard let self else { return }
-                self.want = next
-                self.enqueue(renew: false)
-            }
+        observation = ServiceObservation(.background, owner: "CloudHostReplicaFollower.want", on: mainWork) { () -> Want? in
+            // The defaults before the first load are not the person's choice: nothing leases or purges until it.
+            guard settings.loadCount >= 1 else { return nil }
+            let supported = local.supports(DaemonCapability.cloudHostReplica.rawValue)
+            return Want(connection: supported ? local.connection : nil, daemon: supported ? local.identity?.pid : nil,
+                        userID: account(), on: settings.snapshot.sessions.publishesCloudReplica)
+        } apply: { [weak self] next in
+            guard let self, let next else { return }
+            want = next
+            enqueue(renew: false)
         }
     }
 
@@ -101,6 +102,7 @@ public final class CloudHostReplicaFollower {
         let prior = work
         let want = want
         // task-owner: one token read and one cloud-host-replica-set or -clear, after the previous work; ends with the reply
+        // main-hop-allow: leases run one at a time in call order; each awaits the token and the daemon connection
         work = Task { [weak self] in
             _ = await prior?.value
             await self?.apply(want, renew: renew)

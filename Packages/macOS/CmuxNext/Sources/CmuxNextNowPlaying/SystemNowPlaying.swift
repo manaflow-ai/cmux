@@ -39,6 +39,8 @@ public final class SystemNowPlaying: NowPlayingSource {
     @ObservationIgnored private(set) var streaming = false
     /// The one-shot deadline that stops the adapter once no surface has shown Now Playing for ``idleStop``.
     @ObservationIgnored private let idle: MainDeadline
+    /// The app's main-thread scheduler: the artwork drawn off main lands as one of its visible tasks.
+    @ObservationIgnored private let mainWork: MainWorkScheduler
     nonisolated static let idleStop: Duration = .seconds(60)
     nonisolated static let artworkSide = 320
     /// Decodes the shown artwork off the main actor.
@@ -51,21 +53,23 @@ public final class SystemNowPlaying: NowPlayingSource {
 
     /// A source over `adapter` that leaves out reports from `ignored` (cmux's bundle
     /// identifiers), with the browser media controls' titles.
-    public convenience init(adapter: (any SystemNowPlayingAdapter)?, ignoring ignored: Set<String>, idle: MainDeadline) {
+    public convenience init(adapter: (any SystemNowPlayingAdapter)?, ignoring ignored: Set<String>, deadlines: MainDeadlineScheduler) {
         self.init(adapter: adapter, ignoring: ignored,
                   labels: SidebarNowPlaying.Labels(play: BrowserMediaStrings.play, pause: BrowserMediaStrings.pause,
                                                    previous: BrowserMediaStrings.previous, next: BrowserMediaStrings.next),
-                  idle: idle)
+                  deadlines: deadlines)
     }
 
-    /// - Parameter idle: the deadline that stops the adapter ``idleStop`` after the last surface stopped
-    ///   showing Now Playing (nobody sees that stop: give it the `background` class).
+    /// - Parameter deadlines: the app's one deadline placer: the adapter stops ``idleStop`` after the last
+    ///   surface stopped showing Now Playing (a `background` deadline: nobody sees that stop), and the drawn
+    ///   artwork lands as a visible task on its scheduler.
     public init(adapter: (any SystemNowPlayingAdapter)?, ignoring ignored: Set<String>, labels: SidebarNowPlaying.Labels,
-                idle: MainDeadline) {
+                deadlines: MainDeadlineScheduler) {
         self.adapter = adapter
         self.ignored = ignored
         self.labels = labels
-        self.idle = idle
+        idle = MainDeadline(owner: "NowPlaying.adapterIdleStop", workClass: .background, scheduler: deadlines)
+        mainWork = deadlines.work
     }
 
     /// Reads Now Playing for `need` (`followNowPlaying`). Shown starts the adapter, and starts it
@@ -102,8 +106,8 @@ public final class SystemNowPlaying: NowPlayingSource {
     /// cmux's source for other apps: the bundled adapter, leaving out this app's own entries, stopped
     /// ``idleStop`` after the last surface by a deadline on `deadlines` (the app's one placer).
     public static func bundled(deadlines: MainDeadlineScheduler, queries: WorkspaceQueries) -> SystemNowPlaying {
-        let source = SystemNowPlaying(adapter: MediaRemoteAdapterProcess.bundled(), ignoring: Set([Bundle.main.bundleIdentifier].compactMap { $0 }),
-                                      idle: MainDeadline(owner: "NowPlaying.adapterIdleStop", workClass: .background, scheduler: deadlines))
+        let source = SystemNowPlaying(adapter: MediaRemoteAdapterProcess.bundled(deadlines: deadlines), ignoring: Set([Bundle.main.bundleIdentifier].compactMap { $0 }),
+                                      deadlines: deadlines)
         source.queries = queries
         return source
     }
@@ -180,9 +184,11 @@ public final class SystemNowPlaying: NowPlayingSource {
             return
         }
         artwork = (base64, nil)
+        // R-hop: drawn off main; the card's artwork lands as one visible task.
+        let mainWork = mainWork
         artworkTask = Task.detached(priority: .utility) { [weak self] in
             let png = Data(base64Encoded: base64).flatMap { Self.png($0, side: Self.artworkSide) }
-            await MainActor.run { [weak self] in
+            mainWork.postFromAnyThread(.visible, owner: "NowPlaying.systemArtwork") { [weak self] in
                 guard let self, self.artwork?.base64 == base64 else { return }
                 self.artwork = (base64, png)
             }

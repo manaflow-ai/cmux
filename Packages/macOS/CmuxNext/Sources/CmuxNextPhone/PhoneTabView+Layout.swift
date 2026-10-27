@@ -90,6 +90,7 @@ extension PhoneTabView {
 
 
     private func run(_ work: @escaping @MainActor (PhoneService) async throws -> Void) {
+        // main-hop-allow: each button's work is PhoneService's main-actor async call (simctl and adb off main); a failure shows in its resume
         Task { [weak self] in
             guard let self else { return }
             do { try await work(self.service) } catch { self.show(error) }

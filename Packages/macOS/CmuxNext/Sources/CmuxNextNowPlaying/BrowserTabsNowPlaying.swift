@@ -2,7 +2,7 @@ import AppKit
 public import CmuxNextBrowser
 public import CmuxNextSidebar
 public import Observation
-import CmuxNextWakeups
+public import CmuxNextWakeups
 
 /// The sidebar Now Playing card's source (cx-ouoxo): the browser tab that
 /// plays, in either engine, picked the way macOS Now Playing picks it
@@ -29,12 +29,17 @@ public final class BrowserTabsNowPlaying: NowPlayingSource {
     private static let artworkRetryLimit: Duration = .seconds(300)
     /// The artwork URL whose fetches failed, and how many times in a row.
     @ObservationIgnored private var artworkFailures: (url: URL, count: Int)?
-    @ObservationIgnored private let artworkWait = DemandTimer(owner: "now-playing.artwork-retry")
+    /// The retry after a failed artwork fetch, on the app's deadline placer (``follow(sessions:tab:deadlines:)``); none, no retry.
+    @ObservationIgnored private var artworkWait: MainDeadline?
 
     public init() {}
 
     /// Follows these tabs: the media sessions in either engine, and a tab by its id.
-    public func follow(sessions: @escaping () -> [NowPlayingSession], tab: @escaping (BrowserTabID) -> (any BrowserTab)?) {
+    /// `deadlines` places the artwork retry (`visible`: the card shows the artwork); nil never retries.
+    public func follow(sessions: @escaping () -> [NowPlayingSession], tab: @escaping (BrowserTabID) -> (any BrowserTab)?,
+                       deadlines: MainDeadlineScheduler?) {
+        artworkWait?.cancel()
+        artworkWait = deadlines.map { MainDeadline(owner: "now-playing.artwork-retry", workClass: .visible, scheduler: $0) }
         self.sessions = sessions
         browserTab = tab
         generation &+= 1
@@ -113,7 +118,7 @@ public final class BrowserTabsNowPlaying: NowPlayingSource {
         let count = artworkFailures?.url == url ? (artworkFailures?.count ?? 0) + 1 : 1
         artworkFailures = (url, count)
         let delay = min(artworkRetry * (1 << min(count - 1, 16)), Self.artworkRetryLimit)
-        artworkWait.scheduleOnMain(after: delay) { [weak self] in
+        artworkWait?.schedule(after: delay) { [weak self] in
             guard let self, self.artwork?.url == url, self.artwork?.data == nil else { return }
             self.artwork = nil
         }

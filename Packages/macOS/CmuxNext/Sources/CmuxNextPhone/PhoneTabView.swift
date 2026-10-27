@@ -27,24 +27,31 @@ public final class PhoneTabView: NSView {
     /// Where and when a touch on a still frame began (sent as one tap or swipe when it ends).
     private var stillTouch: (point: CGPoint, time: ContinuousClock.Instant)?
     let status = NSTextField(labelWithString: "")
-    private var observation: Task<Void, Never>?
+    /// The app's main-thread scheduler: the device follow and the Android stream's frames run as its tasks.
+    let mainWork: MainWorkScheduler
+    private var observation: VisibleObservation<[Int]>?
     private var frameLoad: Task<Void, Never>?
 
-    /// - Parameter device: the phone to show first; nil picks the service's default.
-    public init(service: PhoneService, device: PhoneDeviceID?) {
+    /// - Parameters:
+    ///   - device: the phone to show first; nil picks the service's default.
+    ///   - node: the tab's visibility node: the controls and the frame follow the service only while it shows
+    ///     (on show they read once), and the screen streams only then.
+    ///   - mainWork: the app's one main-thread scheduler.
+    public init(service: PhoneService, device: PhoneDeviceID?, node: VisibilityNode, mainWork: MainWorkScheduler) {
         self.service = service
         deviceID = device
+        self.mainWork = mainWork
         super.init(frame: .zero)
         notesField.focusRingType = .none
         build()
-        observation = Task { [weak self] in
-            guard let service = self?.service else { return }
-            for await _ in ObservationStream({ (service.changeCount, service.devices.count) }) {
-                guard let self else { return }
-                self.syncControls()
-                self.reloadFrame()
-            }
+        screen.follow(node)
+        observation = VisibleObservation(node, owner: "PhoneTabView.devices", on: mainWork) { [service] in
+            [service.changeCount, service.devices.count]
+        } apply: { [weak self] _ in
+            self?.syncControls()
+            self?.reloadFrame()
         }
+        // main-hop-allow: the task only awaits PhoneService's main-actor reload (simctl and adb run off main); the controls sync in its resume
         Task { [weak self] in await self?.start() }
     }
 
@@ -121,6 +128,7 @@ public final class PhoneTabView: NSView {
         }
         if startLiveIfPossible(device) { return }
         frameLoad?.cancel()
+        // main-hop-allow: the frame is PhoneService's main-actor capture (simctl off main) and its file read is @concurrent; the image shows in its resume
         frameLoad = Task { [weak self, service] in
             do {
                 let url = try await service.frame(device.id)
@@ -133,7 +141,8 @@ public final class PhoneTabView: NSView {
         }
     }
 
-    nonisolated private static func read(_ url: URL) async throws -> Data {
+    /// The frame file's bytes, read off main.
+    @concurrent nonisolated private static func read(_ url: URL) async throws -> Data {
         try Data(contentsOf: url)
     }
 
@@ -200,6 +209,7 @@ extension PhoneTabView {
             let elapsed = ContinuousClock.now - start.time
             let seconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
             let id = device.id
+            // main-hop-allow: the gesture is PhoneService's main-actor async send (adb or simctl off main); a failure shows in its resume
             Task { [weak self] in
                 guard let self else { return }
                 do { try await self.service.touch(from: start.point, to: point, seconds: seconds, on: id) } catch { self.show(error) }
@@ -226,9 +236,10 @@ extension PhoneTabView {
         if androidStream?.id == device.id { return true }
         stopLive()
         let id = device.id
+        // main-hop-allow: the target is PhoneService's main-actor async lookup (adb off main); the stream starts in its resume
         Task { [weak self] in
             guard let self, let target = try? await self.service.androidStreamTarget(id), self.deviceID == id, self.androidStream == nil else { return }
-            let stream = AndroidScreenStream(adb: target.adb, serial: target.serial)
+            let stream = AndroidScreenStream(adb: target.adb, serial: target.serial, mainWork: self.mainWork)
             stream.onSample = { [weak self] sample in self?.screen.show(sample: sample) }
             stream.onError = { [weak self] error in
                 self?.show(error)

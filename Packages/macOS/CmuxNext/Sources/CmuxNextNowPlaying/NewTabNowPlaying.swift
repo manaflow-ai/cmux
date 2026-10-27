@@ -89,6 +89,7 @@ enum NewTabNowPlaying {
         Page(
             setShown: { shown in
                 guard let settings = settings() else { return }
+                // main-hop-allow: the write is SettingsController's own main-actor async write (its file write runs off main); the task only starts it and logs a refusal
                 Task {
                     do {
                         try await settings.setSetting(at: NowPlayingSettings.newTabPath, to: shown ? nil : .bool(false), by: .caller("page"))
