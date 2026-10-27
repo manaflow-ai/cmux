@@ -40,11 +40,11 @@ struct CloudMachineConfigTests {
     }
 
     @Test func aBootstrapStartWaitsForARunningApplyAndNeverRerunsADoneScript() throws {
-        let start = CloudMachineBootstrap.startCommand
+        let start = CloudMachineBootstrap.startCommand(CloudMachineBootstrap.stagingDirectory("ab"))
         let lock = try #require(start.range(of: "flock -w 15 7"))
         let runner = try #require(start.range(of: "flock -n 6"))
         let done = try #require(start.range(of: #""\"state\":\"done\".*"#))
-        let starting = try #require(start.range(of: #"{"state":"starting""#))
+        let starting = try #require(start.range(of: #"printf '{"state":"starting""#))
         let release = try #require(start.range(of: "exec 6<&-"))
         let launch = try #require(start.range(of: "systemd-run"))
         #expect(lock.lowerBound < runner.lowerBound && runner.lowerBound < done.lowerBound && done.lowerBound < starting.lowerBound

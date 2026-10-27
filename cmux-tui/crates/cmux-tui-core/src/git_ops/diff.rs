@@ -6,11 +6,11 @@ use std::fs::{File, OpenOptions};
 use std::io::Read;
 use std::path::{Component, Path};
 
-use cmux_git::diff::{diff_args, untracked_args, Comparison, ScopeError};
+use cmux_git::diff::{Comparison, ScopeError, diff_args, untracked_args};
 use cmux_git::run::GitOutput;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
-use super::{clamp, git_failed, parse, Repository};
+use super::{Repository, clamp, git_failed, parse};
 use crate::resource::ResourceError;
 
 const OPERATION: &str = "git.diff";
