@@ -47,6 +47,8 @@ final class CreationInputCoordinator {
         /// The timestamp of the person's input that asked for it (a click on a New Workspace button): that input's own
         /// end does not end the claim it made.
         let inputTimestamp: TimeInterval?
+        /// The hold of the create that made it: only that create's reply names its workspace.
+        var ticket: CreationInputBuffer.Ticket?
 
         init(generation: UInt64, window: NSWindow, inputTimestamp: TimeInterval?) {
             self.generation = generation
@@ -127,8 +129,11 @@ final class CreationInputCoordinator {
         guard let controller, let window = controller.window, ActionRunScope.viewChangeAllowed() else { return nil }
         let generation = controller.focus.beginIntent()
         let input = router?.registry.dispatchingInputEvent()
-        claims[window.windowNumber] = KeyboardClaim(generation: generation, window: window, inputTimestamp: input?.timestamp)
-        return buffer(in: window).open(generation: generation, newWorkspace: true)
+        let claim = KeyboardClaim(generation: generation, window: window, inputTimestamp: input?.timestamp)
+        claims[window.windowNumber] = claim
+        let ticket = buffer(in: window).open(generation: generation, newWorkspace: true)
+        claim.ticket = ticket
+        return ticket
     }
 
     /// Whether a creation in `window` that the person has not moved on from (no user intent since it was asked for)
@@ -184,7 +189,7 @@ final class CreationInputCoordinator {
     }
 
     private func resolve(_ ticket: CreationInputBuffer.Ticket?, landed: Bool, workspace: String?, in window: NSWindow?) {
-        if let window, let workspace, let claim = claims[window.windowNumber] { claim.workspace = workspace }
+        if let window, let workspace, let ticket, let claim = claims[window.windowNumber], claim.ticket == ticket { claim.workspace = workspace }
         guard let ticket, let window, let buffer = buffers[window.windowNumber] else { return }
         buffer.resolve(ticket, awaitsFocus: landed, workspace: workspace)
         scheduleFlush(in: window)
@@ -279,6 +284,9 @@ final class CreationInputCoordinator {
     /// A focus settle in `window`: the keys may go on (in a new turn, after the focus queue).
     func focusDidSettle(in window: NSWindow?) {
         giveBack()
+        // A claim whose workspace the window shows now ends here, not at a later key (it must not hold again if the
+        // window goes back to Home without the person).
+        if let window, !claims.isEmpty { _ = activeClaim(in: window) }
         guard let window, buffers[window.windowNumber] != nil else { return }
         scheduleFlush(in: window)
     }

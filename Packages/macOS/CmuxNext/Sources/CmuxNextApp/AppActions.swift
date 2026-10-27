@@ -200,7 +200,8 @@ enum AppActions {
             guard let window = services.windows.active else { return }
             if window.sidebar.model.isHidden { window.sidebar.model.toggle() }
             window.sidebar.container.sidebarView.focusList()
-            window.focus.send(.focusTarget(.sidebar(keyboard: true), source: .keyboard))
+            // The run's own input (the person's key, or the CLI): a script's run is not the person's intent.
+            window.focus.send(.focusTarget(.sidebar(keyboard: true), source: .intent))
         }
     }
 }

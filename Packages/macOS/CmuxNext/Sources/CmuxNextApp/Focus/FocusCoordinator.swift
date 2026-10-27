@@ -90,7 +90,7 @@ final class FocusCoordinator {
             observer?(.refusedByRun(event))
             return
         }
-        if let personIntent, event.changesView, event.isPersonsOwn { personIntent(inputDispatch?.event) }
+        if let personIntent, event.isPersonsOwn, event.changesView { personIntent(inputDispatch?.event) }
         // A changed topology goes first: the event (and its effects) see the current panes and tabs.
         if case .topology = event {} else { reducePendingTopologies() }
         queue.append(event)

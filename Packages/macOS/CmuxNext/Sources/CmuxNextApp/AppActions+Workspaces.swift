@@ -125,20 +125,22 @@ extension AppActions {
     /// also brings that window forward and activates the app
     /// (`NewWorkspaceFocus`).
     private static func newWorkspace(_ services: AppServices, _ invocation: ActionInvocation) {
+        // Who asked: the run's own origin (a handler's nested run keeps its outer run's, ActionRouting), not the handed
+        // invocation's, which a nested run builds with the default user origin.
+        let byPerson = (ActionRunScope.current?.origin ?? invocation.origin) == .user
         var spawn = WorkspaceSpawn(invocation)
+        // Only the person's own run opens the New Tab page (and its key hold); automation gets a terminal.
+        if !byPerson { spawn.opensNewTabPage = false }
         // The press's own key or click (or the stamp a gate carried), so its row's create.workspace reports that age.
-        if invocation.origin == .user {
+        if byPerson {
             spawn.inputTimestamp = ActionRegistry.inputTimestamp(of: services.registry.dispatchingInputEvent()) ?? invocation.inputTimestamp
         }
         spawn.followClassicMode(services) // before the key hold below, which waits only for a page
         let focus = NewWorkspaceFocus(invocation)
         let show = focus.shows
-        // Who asked: the run's own origin (a handler's nested run keeps its outer run's, ActionRouting), not the handed
-        // invocation's, which a nested run builds with the default user origin.
-        let byPerson = (ActionRunScope.current?.origin ?? invocation.origin) == .user
         // A person's Cmd-N starts where they work: the focused terminal's folder or the focused
         // agent chat's exact folder, unless `window-inherit-working-directory = false`.
-        if invocation.origin == .user, invocation["machine"] == nil, NewTerminalStart.inherits(.window),
+        if byPerson, invocation["machine"] == nil, NewTerminalStart.inherits(.window),
            let focused = services.windows.active?.focusedPane, focused.daemon === services.daemon {
             spawn.inheritedCwd = NewTerminalStart.inherited(besides: focused.selectedTab, in: focused.pane, services: services)
         }
@@ -194,8 +196,10 @@ extension AppActions {
                 pageMade = true
                 var shown = quiet == nil
                 if let quiet, let made, let target, let controller = windows.controller(for: target), !controller.hasTextInputKeyboard {
+                    // Claimed again, out loud: shown now when the store has it, else when it lists it (reconcile).
+                    windows.quietClaims.remove(made)
                     let shows = ActionRunScope(origin: quiet.origin, allowsViewChange: true)
-                    ActionRunScope.carrying(shows) { windows.claim(workspaceID: made, in: controller.state) }
+                    ActionRunScope.carrying(shows) { windows.claimNew(workspaceID: made, window: target) }
                     shown = true
                 }
                 if shown, focus.activatesApp, let target { focusWindow(windows, target) }
