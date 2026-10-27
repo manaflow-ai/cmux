@@ -17,7 +17,7 @@ type Write = { sessionId: string; text: string };
 const scope = globalThis as Record<string, unknown>;
 const hadWindow = "window" in scope;
 const savedWindow = scope.window;
-const writeTimeoutMs = draftWriteLimits.timeoutMs;
+const writeLimits = { ...draftWriteLimits };
 
 let currentWriter: { release: () => void } | undefined;
 
@@ -61,7 +61,7 @@ afterEach(async () => {
     await tick();
   }
   await settlePendingDraftWrites();
-  draftWriteLimits.timeoutMs = writeTimeoutMs;
+  Object.assign(draftWriteLimits, writeLimits);
   currentWriter = undefined;
   if (hadWindow) scope.window = savedWindow;
   else delete scope.window;
@@ -208,6 +208,8 @@ test("a write that timed out and lands after a newer one is followed by the newe
   const cleared = settlePendingDraftWrites();
   writer.land(1); // the clear lands
   await cleared;
+  // "old" may still land: a web swap waits so the page is there to repair it.
+  expect(composerHold()).toBe("composer.draft-unsaved");
   writer.land(0); // then "old" lands late, over it
   await tick();
   const healed = settlePendingDraftWrites();
@@ -215,6 +217,34 @@ test("a write that timed out and lands after a newer one is followed by the newe
   await healed;
   expect(writer.landed).toEqual(["", "old", ""]);
   expect(hasPendingDraftWrite("late-a")).toBe(false);
+  expect(composerHold()).toBeNull();
+});
+
+test("a late refusal repairs nothing, and a late write holds a web swap only for a while", async () => {
+  draftWriteLimits.timeoutMs = 20;
+  const landed: string[] = [];
+  let refuse: (() => void) | undefined;
+  let calls = 0;
+  scope.window = {
+    cmuxAcpmuxActions: {
+      "chat.writeDraft": (params: Record<string, unknown>) =>
+        calls++ === 0
+          ? new Promise<void>((_, reject) => (refuse = () => reject(new Error("gone"))))
+          : Promise.resolve().then(() => void landed.push(String(params.text))),
+    },
+  };
+  writePersistedDraft("refused-a", "old");
+  await settlePendingDraftWrites(); // times out
+  writePersistedDraft("refused-a", "new");
+  await settlePendingDraftWrites();
+  expect(composerHold()).toBe("composer.draft-unsaved");
+  draftWriteLimits.lateHoldMs = 0; // past the late-write hold: the swap may go
+  expect(composerHold()).toBeNull();
+  refuse?.(); // "old" never landed: "new" is not sent again over another pane's later edit
+  await tick();
+  await settlePendingDraftWrites();
+  expect(landed).toEqual(["new"]);
+  expect(hasPendingDraftWrite("refused-a")).toBe(false);
 });
 
 test("a write that never answers on a live connection holds no later write", async () => {
@@ -233,6 +263,7 @@ test("a write that never answers on a live connection holds no later write", asy
   await settlePendingDraftWrites();
   expect(landed).toEqual(["two"]);
   expect(hasPendingDraftWrite("hung-a")).toBe(false);
+  draftWriteLimits.lateHoldMs = 0; // "one" never answers: the swap waits only for a while
   expect(composerHold()).toBeNull();
 });
 

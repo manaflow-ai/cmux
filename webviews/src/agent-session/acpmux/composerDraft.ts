@@ -40,39 +40,53 @@ const lastQueuedDraft = new Map<string, string>();
 const pendingDraftWrites = new Map<string, { sessionId: string; text: string; sequence: number }>();
 // WEB-SWAP: a web update's reload waits until acpmux holds every draft (pages/shared/webSwap.ts):
 // a reload before a clear lands would bring the old draft back from acpmux. A write that failed or
-// timed out stays queued, and each ask retries it, so the hold ends once acpmux answers again.
+// timed out stays queued, and each ask retries it, so the hold ends once acpmux answers again. A
+// timed-out write that may still land late holds it too (the page repairs that landing), but only
+// for `draftWriteLimits.lateHoldMs`, so a request that never answers cannot hold it forever.
 holdWebSwap(() => {
-  if (!pendingDraftWrites.size && !flushingDraftWrites) return null;
-  if (!flushingDraftWrites) flushPendingDraftWrites();
-  return "composer.draft-unsaved";
+  if (pendingDraftWrites.size || flushingDraftWrites) {
+    if (!flushingDraftWrites) flushPendingDraftWrites();
+    return "composer.draft-unsaved";
+  }
+  return lateWriteMayLand() ? "composer.draft-unsaved" : null;
 });
 
 const WRITE_TIMED_OUT = new Error("chat.writeDraft timed out");
-const noop = () => undefined;
 
-/** How long one draft write may go unanswered before it counts as failed (tests shorten it). */
-export const draftWriteLimits = { timeoutMs: 5_000 };
+/** How long one draft write may go unanswered before it counts as failed, and how long after that
+ * a web swap still waits in case it lands late (tests change them). */
+export const draftWriteLimits = { timeoutMs: 5_000, lateHoldMs: 30_000 };
 
 // A write that timed out may still land later, over a newer draft or a clear. Writes keep going
-// (a write that never answers holds nothing up); when a late one answers, the newest text sent for
-// its session since then goes again, so the newest still lands last. An entry goes once every
-// timed-out write of its session has answered.
-const lateWrites = new Map<string, { outstanding: number; newer?: string }>();
+// (a write that never answers holds nothing up); when a late one lands (answers), the newest text
+// sent for its session since then goes again, so the newest still lands last. A late refusal landed
+// nothing and repairs nothing. An entry goes once every timed-out write of its session has answered.
+const lateWrites = new Map<string, { outstanding: number; newer?: string; since: number }>();
+
+function lateWriteMayLand(now = Date.now()): boolean {
+  for (const late of lateWrites.values()) if (now - late.since < draftWriteLimits.lateHoldMs) return true;
+  return false;
+}
 
 function writeTimedOut(sessionId: string, text: string, sent: Promise<unknown>): void {
-  const late = lateWrites.get(sessionId) ?? { outstanding: 0 };
+  const late = lateWrites.get(sessionId) ?? { outstanding: 0, since: 0 };
   late.outstanding += 1;
+  late.since = Date.now();
   lateWrites.set(sessionId, late);
-  void Promise.resolve(sent)
-    .then(noop, noop)
-    .then(() => {
-      late.outstanding -= 1;
-      if (!late.outstanding) lateWrites.delete(sessionId);
+  const answered = () => {
+    late.outstanding -= 1;
+    if (!late.outstanding) lateWrites.delete(sessionId);
+  };
+  void Promise.resolve(sent).then(
+    () => {
+      answered();
       const newer = late.newer;
       if (newer === undefined || newer === text || pendingDraftWrites.has(sessionId)) return;
       pendingDraftWrites.set(sessionId, { sessionId, text: newer, sequence: ++draftWriteSequence });
       flushPendingDraftWrites();
-    });
+    },
+    answered,
+  );
 }
 
 /** `write`, or a rejection once it has gone unanswered for `draftWriteLimits.timeoutMs`. */
