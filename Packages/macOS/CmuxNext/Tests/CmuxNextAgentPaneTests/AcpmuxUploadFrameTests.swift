@@ -38,7 +38,7 @@ struct AcpmuxUploadFrameTests {
         let completion = Completion(), deadline = DemandTimer(owner: "test.upload.late-begin")
         let cleaned = await withCheckedContinuation { continuation in
             completion.waiting = continuation
-            deadline.schedule(after: .seconds(2)) { completion.finish(false) }
+            deadline.schedule(after: .seconds(2)) { await completion.finish(false) }
             Task { completion.finish(await events.next() != nil) }
             wire.reply(begin: true)
         }
