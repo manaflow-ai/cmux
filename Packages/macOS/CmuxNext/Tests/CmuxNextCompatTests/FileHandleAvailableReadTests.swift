@@ -21,7 +21,8 @@ struct FileHandleAvailableReadTests {
         try pipe.fileHandleForWriting.write(contentsOf: Data("0123456789".utf8))
         try pipe.fileHandleForWriting.close()
         #expect(pipe.fileHandleForReading.readAvailable(upToCount: 4) == .bytes(Data("0123".utf8)))
-        #expect(pipe.fileHandleForReading.readAvailable(upToCount: 0) == .bytes(Data("4".utf8)), "a count below 1 reads 1")
+        // A count below 1 reads 1.
+        #expect(pipe.fileHandleForReading.readAvailable(upToCount: 0) == .bytes(Data("4".utf8)))
         #expect(pipe.fileHandleForReading.readAvailable() == .bytes(Data("56789".utf8)))
     }
 
@@ -68,6 +69,6 @@ struct FileHandleAvailableReadTests {
             }
         }
         #expect(killed, "the child wrote before it was killed")
-        #expect(last == .end(.endOfFile), "the kill closes the pipe's only writer")
+        #expect(last == FileHandle.AvailableRead.end(.endOfFile), "the kill closes the pipe's only writer")
     }
 }
