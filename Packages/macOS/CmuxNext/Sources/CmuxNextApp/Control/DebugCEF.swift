@@ -225,7 +225,7 @@ enum DebugCEF {
 
     /// `debug.input` section `chromium`: Chromium's own EventLatency and ScrollJank histograms (p04-input-091),
     /// read through `Browser.getHistograms` on each read only. Builds no engine: before one exists the section
-    /// says `unavailable: no_browser`.
+    /// says `unavailable: not_started`.
     static func histogramSource(_ chromium: ChromiumEngineSlot) -> DebugInputSectionSource<ChromiumInputHistograms> {
         let reader = CEFHistogramReader(engine: chromium)
         return DebugInputSectionSource(section: .chromium, read: { await reader.read() }, reset: { await reader.reset() })

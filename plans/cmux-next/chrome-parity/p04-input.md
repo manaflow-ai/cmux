@@ -1638,6 +1638,12 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
   edges, ignores unknown histograms; no new timer.
 - Test phase: UNIT(CEFHistogramReaderTests); GUI DC1 chromium-page and agent-pane rows next to the cmux slots.
 - Size M. Depends: 002, 007.
+- Deviation (as built): Browser.getHistograms reads the browser process's StatisticsRecorder and takes no
+  target, so it cannot split browser pages from agent pane pages. The rows have target `chromiumProcess`
+  (both together), not `chromiumPage`/`agentPane`. GUI DC1 compares one surface at a time: a bench sends input
+  to that surface alone between `debug.input reset` and the read. A split needs a per-renderer read (a
+  PL-cef-layer fork item), not this reader. Row stages are Chromium's top-level breakdown in pipeline order;
+  `TotalLatency*` variants and dotted sub-stages are only in `histograms`.
 
 #### p04-input-092 cmux web pages: passive listeners, rAF-coalesced moves, key-to-paint probe
 - Files: `webviews/src/ui/frameInput.ts`, `webviews/src/ui/frameInput.test.ts`, `webviews/src/pages/markdown/tables.ts`,

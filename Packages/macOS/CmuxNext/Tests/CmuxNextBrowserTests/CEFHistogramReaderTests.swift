@@ -50,7 +50,6 @@ import Testing
         #expect(report.rows.count == 1)
         let row = report.rows.first
         #expect(row?.kind == "keyPress")
-        #expect(row?.target == "chromiumPage")
         #expect(row?.presentationSource == "chromium")
         #expect(row?.count == 6)
         var expected = [UInt64](repeating: 0, count: InputLatencyBuckets.bucketCount)
@@ -77,6 +76,43 @@ import Testing
         #expect(row?.count == 5)
         #expect(row?.stages.map(\.stage) == ["GenerationToRendererCompositor"])
         #expect(row?.stages.first?.histogram.count == 4)
+    }
+
+    @Test func rowStagesAreTopLevelInPipelineOrder() async {
+        let chromium = FakeChromium()
+        chromium.set("EventLatency.KeyPressed.TotalLatency", sum: 9_000, buckets: [(8_000, 9_000, 1)])
+        // Alphabetical order puts BeginImplFrame... first; the pipeline puts Generation... first.
+        chromium.set("EventLatency.KeyPressed.BeginImplFrameToSendBeginMainFrame", sum: 1_000, buckets: [(1_000, 1_100, 1)])
+        chromium.set("EventLatency.KeyPressed.GenerationToRendererCompositor", sum: 500, buckets: [(500, 600, 1)])
+        chromium.set("EventLatency.KeyPressed.SubmitCompositorFrameToPresentationCompositorFrame", sum: 4_000, buckets: [(4_000, 4_100, 1)])
+        // A second whole-pipeline total, a sub-stage of a listed stage and a stage cmux does not know: never stages.
+        chromium.set("EventLatency.KeyPressed.TotalLatencyToSwapBegin", sum: 7_000, buckets: [(7_000, 7_100, 1)])
+        chromium.set("EventLatency.KeyPressed.SubmitCompositorFrameToPresentationCompositorFrame.StartDrawToSwapStart",
+                     sum: 2_000, buckets: [(2_000, 2_100, 1)])
+        chromium.set("EventLatency.KeyPressed.SomethingNewToSomethingElse", sum: 100, buckets: [(100, 110, 1)])
+        let report = await chromium.reader.read()
+
+        #expect(report.rows.first?.stages.map(\.stage) == ["GenerationToRendererCompositor", "BeginImplFrameToSendBeginMainFrame",
+                                                            "SubmitCompositorFrameToPresentationCompositorFrame"])
+        // Each is still listed with Chromium's own count and sum.
+        let names = Set(report.histograms.map(\.name))
+        #expect(names.contains("EventLatency.KeyPressed.TotalLatencyToSwapBegin"))
+        #expect(names.contains("EventLatency.KeyPressed.SubmitCompositorFrameToPresentationCompositorFrame.StartDrawToSwapStart"))
+        #expect(names.contains("EventLatency.KeyPressed.SomethingNewToSomethingElse"))
+    }
+
+    @Test func rowsSayTheyCombineEveryChromiumPage() async {
+        let chromium = FakeChromium()
+        chromium.set("EventLatency.KeyPressed.TotalLatency", sum: 9_000, buckets: [(8_000, 9_000, 1)])
+        chromium.set("EventLatency.MousePressed.TotalLatency", sum: 9_000, buckets: [(8_000, 9_000, 1)])
+        let report = await chromium.reader.read()
+
+        // Browser.getHistograms is per process: browser pages and agent pane pages together, so no row
+        // takes the name of one surface's slots.
+        #expect(report.rows.count == 2)
+        #expect(report.rows.allSatisfy { $0.target == "chromiumProcess" })
+        let slotTargets = Set(InputTarget.allCases.map { String(describing: $0) })
+        #expect(report.rows.allSatisfy { !slotTargets.contains($0.target) })
     }
 
     @Test func unknownHistogramsAreLeftOut() async {
@@ -148,6 +184,67 @@ import Testing
         #expect(await reader.read().rows.first?.count == 1)
     }
 
+    @Test func aRestartedHistogramAboveItsBaselineCountsWhole() async {
+        let chromium = FakeChromium()
+        let reader = chromium.reader
+        chromium.set("EventLatency.KeyPressed.TotalLatency", sum: 40_000, buckets: [(7_000, 8_000, 5)])
+        await reader.reset()
+        // A new host with more samples than the baseline, none in the baseline's bucket: it started over.
+        chromium.set("EventLatency.KeyPressed.TotalLatency", sum: 126_000, buckets: [(20_000, 22_000, 6)])
+        let report = await reader.read()
+
+        let histogram = report.histograms.first
+        #expect(histogram?.count == 6)
+        #expect(histogram?.sum == 126_000)
+        #expect(report.rows.first?.count == 6)
+    }
+
+    @Test func aSumBelowItsBaselineStartedOver() {
+        // 7.999 ms and 89.999 ms, then a new host's 7 ms, 7 ms and 80 ms: no bucket count went down, the sum did.
+        let base = CEFChromiumHistogram(name: "EventLatency.KeyPressed.TotalLatency", sum: 97_998, count: 2,
+                                        buckets: [.init(low: 7_000, high: 8_000, count: 1), .init(low: 80_000, high: 90_000, count: 1)])
+        let now = CEFChromiumHistogram(name: base.name, sum: 94_000, count: 3,
+                                       buckets: [.init(low: 7_000, high: 8_000, count: 2), .init(low: 80_000, high: 90_000, count: 1)])
+        #expect(now.subtracting(base) == now)
+    }
+
+    @Test func aFailedResetCountsNothingFromBeforeIt() async {
+        let chromium = FakeChromium()
+        let reader = chromium.reader
+        // Samples from an earlier phase; then every page closed, Chromium still running.
+        chromium.set("EventLatency.KeyPressed.TotalLatency", sum: 40_000, buckets: [(7_000, 8_000, 5)])
+        chromium.failure = .noBrowser
+        await reader.reset()
+        // A page opens and gets input: Chromium answers again.
+        chromium.failure = nil
+        chromium.set("EventLatency.KeyPressed.TotalLatency", sum: 49_000, buckets: [(7_000, 8_000, 5), (8_000, 9_000, 1)])
+        let stale = await reader.read()
+        #expect(stale.unavailable == "reset_no_browser")
+        #expect(stale.rows.isEmpty)
+        #expect(stale.histograms.isEmpty)
+
+        // A reset that reads Chromium starts the window over.
+        await reader.reset()
+        chromium.set("EventLatency.KeyPressed.TotalLatency", sum: 58_000, buckets: [(7_000, 8_000, 5), (8_000, 9_000, 2)])
+        let report = await reader.read()
+        #expect(report.unavailable == nil)
+        #expect(report.rows.first?.count == 1)
+    }
+
+    @Test func aResetBeforeChromiumStartsCountsEverySample() async {
+        let chromium = FakeChromium()
+        let reader = chromium.reader
+        chromium.failure = .notStarted
+        await reader.reset()
+        #expect(await reader.read().unavailable == "not_started")
+        // Chromium starts after the reset: all it records came after it.
+        chromium.failure = nil
+        chromium.set("EventLatency.KeyPressed.TotalLatency", sum: 9_000, buckets: [(8_000, 9_000, 1)])
+        let report = await reader.read()
+        #expect(report.unavailable == nil)
+        #expect(report.rows.first?.count == 1)
+    }
+
     @Test func failuresSayWhy() async {
         let chromium = FakeChromium()
         chromium.failure = .noBrowser
@@ -170,14 +267,22 @@ import Testing
         #expect(row["presentation_source"] as? String == "chromium")
     }
 
-    @Test func eventLatencyNames() {
+    @Test func eventLatencyNames() throws {
         let key = CEFEventLatencyName("EventLatency.KeyPressed.SubmitCompositorFrameToPresentationCompositorFrame.StartDrawToSwapStart")
         #expect(key?.kind == .keyPress)
         #expect(key?.base == "EventLatency.KeyPressed")
         #expect(key?.totalVersion == nil)
+        // A sub-stage: listed, never a row stage.
+        #expect(key?.stageOrder == nil)
         #expect(CEFEventLatencyName("EventLatency.GesturePinchUpdate.Touchpad.TotalLatency")?.totalVersion == 0)
         #expect(CEFEventLatencyName("EventLatency.GestureScrollUpdate.Wheel.TotalLatency2")?.totalVersion == 2)
-        #expect(CEFEventLatencyName("EventLatency.KeyPressed.TotalLatencyToSwapBegin")?.totalVersion == nil)
+        #expect(CEFEventLatencyName("EventLatency.GestureScrollUpdate.Wheel.TotalLatency2")?.stageOrder == nil)
+        let toSwapBegin = CEFEventLatencyName("EventLatency.KeyPressed.TotalLatencyToSwapBegin")
+        #expect(toSwapBegin?.totalVersion == nil)
+        #expect(toSwapBegin?.stageOrder == nil)
+        let generation = try #require(CEFEventLatencyName("EventLatency.KeyPressed.GenerationToRendererCompositor")?.stageOrder)
+        let presentation = try #require(CEFEventLatencyName("EventLatency.KeyPressed.SubmitCompositorFrameToPresentationCompositorFrame")?.stageOrder)
+        #expect(generation < presentation)
         #expect(CEFEventLatencyName("EventLatency.KeyPressed.") == nil)
         #expect(CEFEventLatencyName("Graphics.Smoothness.EventLatency.KeyPressed.TotalLatency") == nil)
     }

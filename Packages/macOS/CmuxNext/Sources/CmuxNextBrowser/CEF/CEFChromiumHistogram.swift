@@ -27,12 +27,12 @@ nonisolated struct CEFChromiumHistogram: Sendable, Equatable, Decodable {
         return .success(reply.histograms)
     }
 
-    /// The samples recorded since `base`. A histogram with fewer samples than its baseline started over
-    /// (a new Chromium host process): all of it is new.
+    /// The samples recorded since `base`. Within one process no bucket count, total count or sum goes down
+    /// (base/metrics/sample_vector.cc only adds), so a histogram where any of them is below its baseline started
+    /// over in a new Chromium host process and all of it is new, even when its total count is back above the baseline's.
     func subtracting(_ base: CEFChromiumHistogram?) -> CEFChromiumHistogram {
-        guard let base, base.count <= count else { return self }
-        var before: [Int64: Int64] = [:]
-        for bucket in base.buckets { before[bucket.low, default: 0] += bucket.count }
+        guard let base, !startedOver(since: base) else { return self }
+        let before = base.countsByLow
         var delta = self
         delta.count = count - base.count
         delta.sum = sum - base.sum
@@ -41,6 +41,20 @@ nonisolated struct CEFChromiumHistogram: Sendable, Equatable, Decodable {
             return added > 0 ? Bucket(low: bucket.low, high: bucket.high, count: added) : nil
         }
         return delta
+    }
+
+    /// Some count or the sum is below `base`'s: this is another process's histogram.
+    private func startedOver(since base: CEFChromiumHistogram) -> Bool {
+        guard count >= base.count, sum >= base.sum else { return true }
+        let now = countsByLow
+        return base.countsByLow.contains { low, before in (now[low] ?? 0) < before }
+    }
+
+    /// Each bucket's count by its lower bound.
+    private var countsByLow: [Int64: Int64] {
+        var counts: [Int64: Int64] = [:]
+        for bucket in buckets { counts[bucket.low, default: 0] += bucket.count }
+        return counts
     }
 
     /// The histogram on cmux's bucket edges. A Chromium bucket counts at its largest value
@@ -71,10 +85,34 @@ nonisolated struct CEFEventLatencyName: Sendable, Equatable {
         "GesturePinchBegin": (.magnify, true), "GesturePinchUpdate": (.magnify, true), "GesturePinchEnd": (.magnify, true),
     ]
 
+    /// Chromium's top-level EventLatency breakdown stages in pipeline order (cc/metrics/compositor_frame_reporter.cc:
+    /// `GetEventLatencyDispatchBreakdownName`, then `GetEventLatencyDispatchToCompositorBreakdownName`, then the
+    /// compositor stages of `GetStageName`). An event takes one path through them, so each stage is the time since
+    /// the one before on that path. A dotted sub-stage (`SubmitCompositorFrameToPresentationCompositorFrame.StartDrawToSwapStart`)
+    /// splits a stage listed here and a `TotalLatency*` variant spans the whole pipeline: neither is a stage.
+    static let pipelineStages: [String] = {
+        let dispatch = ["GenerationToScrollsBlockingTouchDispatchedToRenderer", "TouchRendererHandlingToBrowserMain",
+                        "GenerationToBrowserMain", "GenerationToRendererCompositor", "BrowserMainToRendererCompositor",
+                        "RendererCompositorQueueingDelay", "RendererCompositorProcessing", "RendererCompositorToMain",
+                        "RendererMainProcessing"]
+        let compositorStarts = ["BeginImplFrame", "SendBeginMainFrame", "Commit", "EndCommit", "Activation", "EndActivate",
+                                "SubmitCompositorFrame"]
+        let dispatchToCompositor = compositorStarts.flatMap { start in
+            ["RendererCompositorFinishedTo\(start)", "RendererMainFinishedTo\(start)"]
+        }
+        let compositor = ["BeginImplFrameToSendBeginMainFrame", "SendBeginMainFrameToCommit", "Commit", "EndCommitToActivation",
+                          "Activation", "EndActivateToSubmitCompositorFrame", "ImplFrameDoneToSubmitCompositorFrame",
+                          "SubmitCompositorFrameToPresentationCompositorFrame"]
+        return dispatch + dispatchToCompositor + compositor
+    }()
+
+    private static let pipelineOrder = Dictionary(pipelineStages.enumerated().map { ($0.element, $0.offset) },
+                                                  uniquingKeysWith: { first, _ in first })
+
     var kind: InputEventKind
     /// `EventLatency.<type>[.<device>]`: one Chromium base name.
     var base: String
-    /// `TotalLatency`, `TotalLatency2`, or a stage of the breakdown.
+    /// `TotalLatency`, `TotalLatency2`, `TotalLatencyToSwapBegin`, a breakdown stage or a sub-stage of one.
     var metric: String
 
     /// Nil for a name of another family, a type cmux has no kind for, or a scroll or pinch name
@@ -89,10 +127,15 @@ nonisolated struct CEFEventLatencyName: Sendable, Equatable {
         metric = parts[metricStart...].joined(separator: ".")
     }
 
-    /// The version of a total (`TotalLatency` 0, `TotalLatency2` 2); nil for a stage.
+    /// The version of a total (`TotalLatency` 0, `TotalLatency2` 2); nil for anything else, `TotalLatencyToSwapBegin` too.
     var totalVersion: Int? {
         guard metric.hasPrefix("TotalLatency") else { return nil }
         let suffix = metric.dropFirst("TotalLatency".count)
         return suffix.isEmpty ? 0 : Int(suffix)
+    }
+
+    /// The metric's place in ``pipelineStages``; nil for a total, a sub-stage or a stage cmux does not know.
+    var stageOrder: Int? {
+        Self.pipelineOrder[metric]
     }
 }
