@@ -1702,6 +1702,10 @@ path = "tests/test_gh_budget_wait.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_cancelled_tip.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_gh_app_token.py"
 lane = "linux-guard"
 
