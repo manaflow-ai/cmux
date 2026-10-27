@@ -29,6 +29,74 @@ import Testing
                                             1: BrowserEntryPageState(url: form, state: "scroll=480;input=typed")])
     }
 
+    /// A refused entries restore (here -3, a page state that does not decode) falls back to the
+    /// navigation state the tab also had, and with none to the page's address: the back/forward list
+    /// is not lost and the tab is never left blank.
+    @Test func aRefusedEntriesRestoreFallsBackToTheNavigationStateThenTheURL() throws {
+        let form = try #require(URL(string: "https://example.com/form"))
+        let entries = BrowserSavedSession(entries: [BrowserSavedEntry(url: form, title: "Form", pageState: "bad")], current: 0)
+        let rig = try PageStateRig()
+        defer { rig.close() }
+        PageStateSpy.restoreCode = -3
+        let tab = try rig.attachedTab(restoring: entries, navigationState: "nav-state", loading: form)
+        #expect(PageStateSpy.restoredCurrent == [0], "the entries were offered first")
+        #expect(PageStateSpy.navigationRestores == ["nav-state"], "then the navigation state")
+        #expect(PageStateSpy.loads.isEmpty)
+        #expect(tab.nativePageStates().isEmpty, "a refused restore seeds no page state")
+
+        let bare = try PageStateRig()
+        defer { bare.close() }
+        PageStateSpy.restoreCode = -3
+        _ = try bare.attachedTab(restoring: entries, navigationState: nil, loading: form)
+        #expect(PageStateSpy.navigationRestores.isEmpty)
+        #expect(PageStateSpy.loads == [form.absoluteString], "with no navigation state, the address loads")
+    }
+
+    /// After the Chromium Host ended with the tab's browser, its next browser restores the entries
+    /// and page states the tab kept from the fork's reports (a Reload, here), not only its URL; a
+    /// load of another address before then drops them.
+    @Test func theNextHostsBrowserRestoresTheKeptEntriesWithTheirPageStates() throws {
+        let rig = try PageStateRig()
+        defer { rig.close() }
+        let form = try #require(URL(string: "https://example.com/form"))
+        let tab = try rig.attachedTab(restoring: nil, loading: form)
+        PageStateSpy.entries = ["https://example.com/a", form.absoluteString]
+        PageStateSpy.states = [0: "sa", 1: "scroll=480;input=typed"]
+        tab.pageStateReported(index: 0)
+        tab.pageStateReported(index: 1)
+        tab.readReportedPageStates()
+
+        rig.endHost(tab)
+        PageStateSpy.entries = []
+        PageStateSpy.loads = []
+        tab.reload()
+        try rig.attachNext(tab, browser: 8)
+        #expect(PageStateSpy.restored.map(\.pageState) == ["sa", "scroll=480;input=typed"])
+        #expect(PageStateSpy.restored.map(\.url) == ["https://example.com/a", "https://example.com/form"])
+        #expect(PageStateSpy.restoredCurrent.last == 1)
+        #expect(PageStateSpy.loads.isEmpty, "the restore is the new browser's first navigation")
+        #expect(tab.nativePageStates()[1]?.state == "scroll=480;input=typed", "the restored states stay the tab's")
+
+        PageStateSpy.restored = []
+        rig.endHost(tab)
+        let elsewhere = try #require(URL(string: "https://example.com/elsewhere"))
+        tab.load(elsewhere)
+        try rig.attachNext(tab, browser: 9)
+        #expect(PageStateSpy.restored.isEmpty, "a load elsewhere restores nothing")
+    }
+
+    /// A state past the host's per-entry bound is kept as none, as the host pushes it.
+    @Test func aPageStatePastTheBoundIsKeptAsNone() throws {
+        let rig = try PageStateRig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab(restoring: nil)
+        PageStateSpy.entries = ["https://example.com/log"]
+        PageStateSpy.states = [0: String(repeating: "x", count: CEFTabPageStates.maxStateBytes + 1)]
+        tab.pageStateReported(index: 0)
+        tab.readReportedPageStates()
+        #expect(tab.nativePageStates().isEmpty)
+    }
+
     /// A burst of the fork's reports is one read per entry, in a later turn; each state is kept with
     /// the URL its entry shows, and only a change bumps the revision the history writer watches.
     @Test func reportsAreReadOncePerEntryAndKeptWithTheirURL() throws {
@@ -113,16 +181,33 @@ import Testing
             return tab
         }
 
-        /// A tab that keeps page states, whose browser 7 exists (AFTER_CREATED), restoring `entries`.
-        func attachedTab(restoring entries: BrowserSavedSession?) throws -> CEFTab {
+        /// A tab that keeps page states, whose browser 7 exists (AFTER_CREATED), restoring `entries`
+        /// with `navigationState` as their fallback, at `url`; as `CEFEngine.makeTab` sets it up.
+        func attachedTab(restoring entries: BrowserSavedSession?, navigationState: String? = nil, loading url: URL? = nil) throws -> CEFTab {
             let tab = try unbornTab()
             tab.pageStates.keeps = true
             if let entries, tab.restoresPageStates(entries) { tab.pageStates.pendingEntries = entries }
+            tab.pendingRestore = navigationState
+            if let url { tab.load(url) }
+            try attachNext(tab, browser: 7)
+            return tab
+        }
+
+        /// The Chromium Host ended with `tab`'s browser (`CEFRuntime.hostEnded`): its browsers and
+        /// windows went with it.
+        func endHost(_ tab: CEFTab) {
+            runtime.tabsByBrowser = [:]
+            runtime.pendingWindows = [:]
+            tab.host.hostEnded()
+            tab.hostEnded(BrowserProcessExit(reason: .killed, code: Int(SIGKILL), engine: .cef))
+        }
+
+        /// `tab`'s browser `browser` exists (AFTER_CREATED of its window).
+        func attachNext(_ tab: CEFTab, browser: Int32) throws {
             tab.host.ensureCreated(tab)
             let request = try #require(runtime.pendingWindows.keys.first)
-            runtime.handle(.afterCreated(browser: 7, request: request, window: 1))
-            try #require(tab.browserID == 7)
-            return tab
+            runtime.handle(.afterCreated(browser: browser, request: request, window: 1))
+            try #require(tab.browserID == browser)
         }
 
         func close() {
@@ -147,6 +232,8 @@ private nonisolated enum PageStateSpy {
     nonisolated(unsafe) static var restored: [Record] = [] // crash-allow: as above
     nonisolated(unsafe) static var restoredCurrent: [Int32] = [] // crash-allow: as above
     nonisolated(unsafe) static var loads: [String] = [] // crash-allow: as above
+    nonisolated(unsafe) static var restoreCode: Int32 = 1 // crash-allow: as above
+    nonisolated(unsafe) static var navigationRestores: [String] = [] // crash-allow: as above
 
     static func reset() {
         version = 31
@@ -156,6 +243,8 @@ private nonisolated enum PageStateSpy {
         restored = []
         restoredCurrent = []
         loads = []
+        restoreCode = 1
+        navigationRestores = []
     }
 
     /// The records `cmux_shim_tab_restore_entries` got: three (pointer, length) words pairs each.
@@ -186,6 +275,10 @@ private nonisolated enum PageStateSpy {
         let restoreEntries: @convention(c) (Int32, UnsafeRawPointer?, Int32, Int32) -> Int32 = { _, records, count, current in
             PageStateSpy.restored = PageStateSpy.records(records, count: count)
             PageStateSpy.restoredCurrent.append(current)
+            return PageStateSpy.restoreCode
+        }
+        let restoreNavigation: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32 = { _, state in
+            if let state { PageStateSpy.navigationRestores.append(String(cString: state)) }
             return 1
         }
         let loadURL: @convention(c) (Int32, UnsafePointer<CChar>?) -> Void = { _, url in
@@ -200,6 +293,7 @@ private nonisolated enum PageStateSpy {
         case "cmux_shim_tab_entry_page_state": unsafeBitCast(entryPageState, to: UnsafeMutableRawPointer.self)
         case "cmux_shim_tab_restore_entries": unsafeBitCast(restoreEntries, to: UnsafeMutableRawPointer.self)
         case "cmux_shim_load_url": unsafeBitCast(loadURL, to: UnsafeMutableRawPointer.self)
+        case "cmux_shim_tab_restore_navigation": unsafeBitCast(restoreNavigation, to: UnsafeMutableRawPointer.self)
         default: unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self)
         }
     }

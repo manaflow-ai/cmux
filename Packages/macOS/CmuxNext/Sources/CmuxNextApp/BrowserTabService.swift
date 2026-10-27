@@ -410,9 +410,9 @@ final class BrowserTabService {
                                                            && !self.offTheRecord.isOffTheRecord(page.profileID),
                                                            delay: self.writeBackDelay, sleep: self.sleep) { [weak self] history in
                 guard let tab = self?.tabModel(id) else { return false }
-                // Engine state stays on this Mac, also for a tab that moved to another machine.
+                // Engine state and entry page states stay on this Mac, also for a tab that moved to another machine.
                 let daemon = daemonForTab(tab)
-                return await storeHistory(daemon, tab.surface, daemon.isLocal ? history : history.with(engineState: nil))
+                return await storeHistory(daemon, tab.surface, daemon.isLocal ? history : history.with(engineState: nil).withoutPageStates())
             }
         }
     }

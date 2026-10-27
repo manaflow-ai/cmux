@@ -136,6 +136,10 @@ chromiumHostSuggestions on, then the page dialog rows (chromium_host_native_ui_d
 picker, certificate error, beforeunload and renderer hang, each answered by cmux while the host is never frontmost
 and shows no window, with feature chromiumHostFileDialogs on.
 
+--kill-host runs instead the host crash rows: page_state (chromium_host_page_state.py, p01-process-093) types into a
+Chromium page's field and scrolls it, SIGKILLs the Chromium Host with features chromiumHostRestoreTabs (task 083) and
+chromiumPageStateRestore on, and checks the tab back at its address with its scroll offset and typed text.
+
 --find runs instead the find rows (chromium_host_find.py, p01-process-048): Cmd-F, a typed query, Cmd-G, Cmd-Shift-G
 and Escape through cmux's find pill on a Chromium page in the host (`debug.cef` backend `host`), the pill's match
 count and active match (the oracle's overlays.findBar) and the page scrolled to the active match.
@@ -166,6 +170,7 @@ import chromium_host_display  # noqa: E402
 import chromium_host_find  # noqa: E402
 import chromium_host_native_ui  # noqa: E402
 import chromium_host_native_ui_dialogs  # noqa: E402
+import chromium_host_page_state  # noqa: E402
 
 
 def parse(argv=None):
@@ -184,6 +189,8 @@ def parse(argv=None):
                         help="only the native UI rows (chromium_host_native_ui.py): all, or the comma-separated ROWS "
                              f"({', '.join(chromium_host_native_ui.ROWS + chromium_host_native_ui_dialogs.ROWS)})")
     parser.add_argument("--find", action="store_true", help="only the find rows (chromium_host_find.py)")
+    parser.add_argument("--kill-host", action="store_true",
+                        help="only the host crash rows: page_state (chromium_host_page_state.py, p01-process-093)")
     parser.add_argument("--baseline", action="store_true", help="task p01-process-005: stall 9a, 10-tab idle wakes, census, rows")
     parser.add_argument("--idle-settle-seconds", type=float, default=35.0, help="wait before the 10-tab idle sample")
     parser.add_argument("--tag", help="the lab runner's tag of --app (checked against the bundle's name)")
@@ -554,16 +561,22 @@ def front_pid():
 
 def chromium_host_pid():
     """The pid of the running Chromium Host (`<Product> Chromium Host` in the app's Contents/MacOS), or None."""
+    return next(iter(chromium_host_pids()), None)
+
+
+def chromium_host_pids():
+    """The pids of every running Chromium Host of the app (`<Product> Chromium Host` in its Contents/MacOS)."""
     macos = os.path.join(os.path.abspath(opts.app), "Contents", "MacOS") + "/"
     try:
         listing = subprocess.run(["/bin/ps", "-axo", "pid=,command="], capture_output=True, text=True, timeout=10).stdout
     except subprocess.TimeoutExpired:
-        return None
+        return []
+    pids = []
     for line in listing.splitlines():
         pid, _, command = line.strip().partition(" ")
         if command.startswith(macos) and command[len(macos):].split(" --", 1)[0].endswith(" Chromium Host"):
-            return int(pid)
-    return None
+            pids.append(int(pid))
+    return pids
 
 
 def defaults_snapshot(domain):
@@ -680,6 +693,11 @@ def main():
         find_page = os.path.join(opts.out, "find.html")
         open(find_page, "w").write(chromium_host_find.PAGE)
         url = pathlib.Path(find_page).as_uri()
+    if opts.kill_host:
+        page_state_page = os.path.join(opts.out, "page-state.html")
+        open(page_state_page, "w").write(chromium_host_page_state.PAGE)
+        url = pathlib.Path(page_state_page).as_uri()
+        env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), chromium_host_page_state.FEATURES]))
     if "dragin" in opts.modes.split(","):
         env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), "chromiumHostDragIn"]))
     if opts.host_switches:
@@ -703,7 +721,7 @@ def main():
         RESULT["cef"] = {"fork_api": (cef.get("windows") or {}).get("fork_api"), "unavailable": cef.get("unavailable"),
                          "fallback": cef.get("fallback")}
         DEFAULTS["launch"] = defaults_snapshot(app_bundle_id())
-        modes = [] if opts.native_ui or opts.find else opts.modes.split(",")
+        modes = [] if opts.native_ui or opts.find or opts.kill_host else opts.modes.split(",")
         if opts.native_ui:
             RESULT["modes"]["native_ui"], ok = chromium_host_native_ui.run(
                 rpc, wait, lambda script: page_eval(rpc, script, None), url,
@@ -718,6 +736,11 @@ def main():
                 ok = ok and dialogs_ok
         if opts.find:
             RESULT["modes"]["find"], ok = chromium_host_find.run(rpc, wait, lambda script: page_eval(rpc, script, None), url)
+        if opts.kill_host:
+            RESULT["modes"]["kill_host"] = {}
+            RESULT["modes"]["kill_host"]["page_state"], ok = chromium_host_page_state.run(
+                rpc, wait, lambda script, tab: page_eval(rpc, script, tab), lambda script: page_eval_reply(rpc, script),
+                url, chromium_host_pids, lambda pid: os.kill(pid, signal.SIGKILL), time.monotonic, time.sleep)
         inproc_tab = None
         if "inproc" in modes:
             inproc_tab = run_inproc(rpc, url)

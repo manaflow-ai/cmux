@@ -217,7 +217,7 @@ inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
 inline constexpr int kEventKindCount = 61;
 inline constexpr char kShimAbiID[] = "66d6a8ed7c49959962eb6f67912161b67c27fd0df32a8ce3afad55e4c4b753ec";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "b80be24f7e0381e318bed4def1926475784ef82c8d768582bf96968fee2f12c5";
+inline constexpr char kWireID[] = "203af51e80a5d20171564dc08458739e85b35e67c49dddca72c7f6fa74b2cf45";
 // Exports the header does not declare yet (fork API symbols): the client sends one only to
 // a host whose HELLO lists its symbol.
 struct OptionalExport {
@@ -580,8 +580,8 @@ CMUX_SHIM_EXPORT int cmux_shim_tab_restore_entries(int arg_browser_id, const cmu
   TlvWriter pending_tab_navigation_state;
   pending_tab_navigation_state.I32(arg_browser_id);
   MarkPending(kOpTabNavigationState, op_token, pending_tab_navigation_state, 0x0u);  // tab.navigation_state[browser_id]
-  (void)Post(kOpTabRestoreEntries, op_token, op_w);
-  return 1;
+  const bool op_sent = PostForReply(kOpTabRestoreEntries, op_token, op_w);
+  return op_sent ? 1 : 0;
 }
 
 CMUX_SHIM_EXPORT void cmux_shim_set_new_tab_page_url(const char* arg_url) {

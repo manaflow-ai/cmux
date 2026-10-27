@@ -88,18 +88,43 @@ public struct FrontendBrowserHistory: Codable, Sendable, Equatable {
 
     /// This history with the page states that fit in `maxStoredBytes`: those of the entries
     /// farthest from the current one go first, so the shown page keeps its scroll and form text.
+    /// Two encodes at most, whatever the states' size: the history without them, then the result.
     public func fittingPageStates(maxStoredBytes: Int = Self.maxStoredBytes) -> Self {
+        guard entries.contains(where: { $0.pageState != nil }) else { return self }
+        let bare = withoutPageStates()
+        guard let base = try? JSONEncoder().encode(bare).count else { return bare }
+        // Each state's encoded cost, nearest the current entry first; the rest past the budget go.
         let current = index
-        let byDistance = entries.enumerated().filter { $0.element.pageState != nil }.map(\.offset)
-            .sorted { (($0 - current).magnitude, $0) > (($1 - current).magnitude, $1) }
-        var dropped: Set<Int> = []
-        var history = self
-        for next in byDistance {
-            guard let encoded = try? JSONEncoder().encode(history), encoded.count > maxStoredBytes else { break }
-            dropped.insert(next)
-            history = dropPageStates { dropped.contains($0) }
+        let byNearness = entries.enumerated().compactMap { offset, entry in entry.pageState.map { (offset, $0) } }
+            .sorted { (($0.0 - current).magnitude, $0.0) < (($1.0 - current).magnitude, $1.0) }
+        var bytes = base
+        var kept: Set<Int> = []
+        for (offset, state) in byNearness {
+            let cost = Self.encodedCost(ofPageState: state)
+            guard bytes + cost <= maxStoredBytes else { break }
+            bytes += cost
+            kept.insert(offset)
         }
-        return history
+        let fitted = dropPageStates { !kept.contains($0) }
+        // The estimate is exact for JSONEncoder's escapes; the check keeps the bound if it ever is not.
+        guard let encoded = try? JSONEncoder().encode(fitted), encoded.count <= maxStoredBytes else { return bare }
+        return fitted
+    }
+
+    /// Bytes `state` adds to an entry as `JSONEncoder` writes it: `,"page_state":"…"` with each
+    /// `"`, `\`, `/` escaped in two bytes and other control characters in six (`\u00XX`), the
+    /// common ones (`\n`, `\t`, …) in two.
+    static func encodedCost(ofPageState state: String) -> Int {
+        let key = ",\"page_state\":\"\"".utf8.count
+        var bytes = key
+        for byte in state.utf8 {
+            switch byte {
+            case UInt8(ascii: "\""), UInt8(ascii: "\\"), UInt8(ascii: "/"), 0x08, 0x09, 0x0A, 0x0C, 0x0D: bytes += 2
+            case 0x00 ..< 0x20: bytes += 6
+            default: bytes += 1
+            }
+        }
+        return bytes
     }
 
     /// This history with no page state at the entries `drops` names, by position.

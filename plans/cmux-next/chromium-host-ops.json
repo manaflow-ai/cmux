@@ -1211,7 +1211,7 @@
     },
     {
       "name": "cmux_shim_tab_restore_entries",
-      "class": "post",
+      "class": "async",
       "args": [
         {
           "name": "browser_id",
@@ -1231,15 +1231,17 @@
         }
       ],
       "returns": "int",
-      "result_used_by": [],
+      "result_used_by": [
+        "CmuxNextBrowser/CEF/CEFTab+PageState.swift"
+      ],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [
         "tab.navigation_entries[browser_id]",
         "tab.navigation_state[browser_id]"
       ],
-      "reply_event": null,
-      "reason": "Returns 1 when sent: a caller checks fork_api_version (mirror) >= 31 for support and loads the URL itself without it, as tab_restore_navigation's callers do (task 093)."
+      "reply_event": "wire:REPLY",
+      "reason": "The fork's code (1 restored; 0 unknown browser, -1 committed entries, -2 navigation not dropped, -3 bad entries) is known only in the host, and a refused restore falls back to the navigation state, then the URL (CEFTab+PageState restoreHistory, task 093)."
     },
     {
       "name": "cmux_shim_set_new_tab_page_url",

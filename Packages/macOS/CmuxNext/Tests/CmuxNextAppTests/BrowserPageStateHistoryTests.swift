@@ -1,8 +1,10 @@
 import AppKit
 @testable import CmuxNextApp
-import CmuxNextBrowser
+@testable import CmuxNextBrowser
 import CmuxNextBrowserHistory
-import CmuxNextDaemon
+@testable import CmuxNextDaemon
+import CmuxNextDaemonService
+import CmuxNextInput
 import Foundation
 import Testing
 
@@ -37,6 +39,19 @@ struct BrowserPageStateHistoryTests {
         #expect(history.fittingPageStates(maxStoredBytes: 1).entries.allSatisfy { $0.pageState == nil })
     }
 
+    /// The fit adds up each state's encoded bytes instead of encoding the history once per dropped
+    /// entry: the cost is what the state adds to the encoded record, escapes and all.
+    @Test func aPageStatesCostIsTheBytesItAddsToTheRecord() throws {
+        let bare = FrontendBrowserHistory(entries: [.init(url: "https://example.com/")], index: 0)
+        let bareBytes = try JSONEncoder().encode(bare).count
+        for state in ["AA/+==", "a\"b\\c\nd\t\u{1}é", ""] {
+            var with = bare
+            with.entries[0].pageState = state
+            let added = try JSONEncoder().encode(with).count - bareBytes
+            #expect(FrontendBrowserHistory.encodedCost(ofPageState: state) == added, "\(state.debugDescription)")
+        }
+    }
+
     /// The writer saves each entry's page state on this Mac's daemon after a probe found no private
     /// field; a password field, or a remote daemon, saves none.
     @Test func theWriterSavesPageStatesOnlyUnderTheEngineStateRules() async throws {
@@ -61,6 +76,73 @@ struct BrowserPageStateHistoryTests {
         await remoteWriter.flushNow()
         remoteWriter.cancel()
         #expect(remote.histories.last?.entries.map(\.pageState) == [nil], "a remote daemon gets none")
+    }
+
+    /// A probe that does not answer after a scroll or a form edit alone (only the page states
+    /// changed) writes nothing: the record the daemon holds stays, page states and all.
+    @Test func aFailedProbeAfterAPageStateChangeKeepsTheRecord() async throws {
+        let url = try #require(URL(string: "https://example.com/form"))
+        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: url, origin: .user))
+        tab.navigation = BrowserNavigationList(entries: [BrowserNavigationEntry(url: url, title: "Form")], current: 0)
+        tab.pageStates = [0: BrowserEntryPageState(url: url, state: "scroll=0;input=")]
+        tab.evaluationResult = .bool(false)
+        let sent = Sent()
+        let writer = Self.writer(tab, keepsEngineState: true, sent: sent)
+        await writer.flushNow()
+        #expect(sent.histories.map { $0.entries.map(\.pageState) } == [["scroll=0;input="]])
+
+        tab.pageStates = [0: BrowserEntryPageState(url: url, state: "scroll=480;input=typed")]
+        tab.evaluationResult = .null  // the isolated-world probe did not answer
+        await writer.flushNow()
+        writer.cancel()
+        #expect(sent.histories.count == 1, "a failed probe sends no history without the kept states")
+    }
+
+    /// A tab whose writer started on this Mac's daemon and that later moved to a remote machine
+    /// sends that machine no page state, as no engine state.
+    @Test func aTabMovedToARemoteDaemonSendsItNoPageStates() async throws {
+        let url = try #require(URL(string: "https://example.com/form"))
+        let page = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: url, origin: .user))
+        page.navigation = BrowserNavigationList(entries: [BrowserNavigationEntry(url: url, title: "Form")], current: 0)
+        page.pageStates = [0: BrowserEntryPageState(url: url, state: "scroll=480;input=typed")]
+        page.evaluationResult = .bool(false)
+        let local = DaemonService(), remote = DaemonService(machineID: "remote")
+        let chromium = ChromiumEngineSlot(CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: InputEventTap()))
+        let service = BrowserTabService(daemon: local, chromium: chromium, mainWork: linklessMainWork())
+        let tab = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 7), kind: .browser, url: url.absoluteString,
+                                       browserRenderer: "frontend", browserEngine: "chromium"))
+        let moved = Moved()
+        let stored = Stored()
+        service.daemonForTab = { _ in moved.value ? remote : local }
+        service.tabModel = { $0 == tab.id ? tab : nil }
+        service.writeBackDelay = .seconds(3600)
+        service.update = { _, _, _ in true }
+        service.updateState = { _, _, _ in true }
+        service.fetchHistory = { _, _ in nil }
+        service.storeHistory = { daemon, _, history in
+            stored.sends.append((daemon.isLocal, history))
+            return true
+        }
+        service.track(page, for: tab)
+        // The writer starts in the turn the daemon's (here immediate) history read resumes.
+        for _ in 0 ..< 1000 where service.historyWriters[tab.id] == nil { await Task.yield() }
+        try #require(service.historyWriters[tab.id] != nil, "the history writer starts on this Mac's daemon")
+
+        moved.value = true
+        await service.flushRecords()
+        service.untrack(tab.id)
+        let send = try #require(stored.sends.last)
+        #expect(!send.local, "the send went to the machine the tab moved to")
+        #expect(send.history.entries.allSatisfy { $0.pageState == nil }, "no page_state reaches a remote daemon")
+        #expect(send.history.engineState == nil)
+    }
+
+    final class Moved {
+        var value = false
+    }
+
+    final class Stored {
+        var sends: [(local: Bool, history: FrontendBrowserHistory)] = []
     }
 
     /// A restore takes the entries with their page states only when the record was saved at the

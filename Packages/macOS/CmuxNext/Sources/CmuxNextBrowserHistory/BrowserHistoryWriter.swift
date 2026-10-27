@@ -144,8 +144,10 @@ public final class BrowserHistoryWriter {
                let shown = page.state.url, shown == session.entries[session.current].url,
                Self.keepsFileAccess(list + session.entries.map(\.url), shown: shown) {
                 history = history.with(engineState: Self.engineState(of: page))
-            } else if !probed, !showedPrivateField, let recorded, recorded.with(engineState: nil) == history {
-                // The probe did not run: what the daemon holds for these entries stays.
+            } else if !probed, !showedPrivateField, let recorded,
+                      recorded.with(engineState: nil).withoutPageStates() == history.withoutPageStates() {
+                // The probe did not run: what the daemon holds for these entries stays, its engine
+                // state and page states too (a scroll or form edit alone writes nothing).
                 history = recorded
                 keepsPageStates = true
             }

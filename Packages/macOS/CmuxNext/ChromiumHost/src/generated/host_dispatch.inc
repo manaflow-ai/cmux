@@ -215,7 +215,7 @@ inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
 inline constexpr int kEventKindCount = 61;
 inline constexpr char kShimAbiID[] = "66d6a8ed7c49959962eb6f67912161b67c27fd0df32a8ce3afad55e4c4b753ec";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "b80be24f7e0381e318bed4def1926475784ef82c8d768582bf96968fee2f12c5";
+inline constexpr char kWireID[] = "203af51e80a5d20171564dc08458739e85b35e67c49dddca72c7f6fa74b2cf45";
 inline constexpr int32_t kMaxRecords = 65536;
 inline constexpr int32_t kMaxOutCapacity = 65536;
 
@@ -617,14 +617,15 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       const auto arg_current = r.I32();
       if (!r.ok() || !r.AtEnd()) return false;
       const auto call_result = cmux_shim_tab_restore_entries(ctx.Browser(arg_browser_id), arg_entries.data(), arg_entries_n, arg_current);
-      (void)call_result;
+      TlvWriter reply_w;
+      reply_w.I32(call_result);
       TlvWriter refresh_tab_navigation_entries;
       refresh_tab_navigation_entries.I32(arg_browser_id);
       ctx.RefreshMirror(kOpTabNavigationEntries, refresh_tab_navigation_entries, 0x0u);  // tab.navigation_entries[browser_id]
       TlvWriter refresh_tab_navigation_state;
       refresh_tab_navigation_state.I32(arg_browser_id);
       ctx.RefreshMirror(kOpTabNavigationState, refresh_tab_navigation_state, 0x0u);  // tab.navigation_state[browser_id]
-      ctx.Ack(wire_token);
+      ctx.Reply(wire_token, reply_w);
       Wipe(arg_entries_s);
       return true;
     }

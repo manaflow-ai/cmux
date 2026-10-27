@@ -54,7 +54,7 @@ class BrowserRestoredSession {
     /// submission (a POST), by URL: committed here or saved so (BR-R1).
     /// The saved session carries the flag to the daemon; a hibernation
     /// never starts on such a page.
-    private var formPostURLs: Set<URL> = []
+    private(set) var formPostURLs: Set<URL> = []
     /// The shown document came from a form submission, as its main-frame
     /// commit said (a same-document navigation keeps it).
     private(set) var showsFormSubmission = false

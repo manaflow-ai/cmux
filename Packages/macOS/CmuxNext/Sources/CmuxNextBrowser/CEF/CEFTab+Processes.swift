@@ -52,7 +52,8 @@ extension CEFTab: BrowserProcessReporting {
     /// renderer record, since Chromium reported none.
     func hostEnded(_ exit: BrowserProcessExit) {
         // Unlike `browserDidClose`, the tab stays: its agent session and open questions end, and its
-        // page waits stay for the page the next host loads.
+        // page waits stay for the page the next host loads, with the entries and page states kept here.
+        keepPageStatesForNextHost()
         (browserID, isCreationPending) = (nil, false)
         agentRelay.browserEnded()
         dismissPrompts()
