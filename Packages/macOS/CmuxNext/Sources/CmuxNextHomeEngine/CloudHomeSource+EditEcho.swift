@@ -12,6 +12,7 @@ nonisolated extension CloudHomeSource {
         state.withLock { state in
             guard state.generation == generation else { return }
             var hold = state.editHolds[conversation]
+                // timer-class-allow: an off-main deadline (CloudHomeSource is nonisolated; the hold lives in its locked state and its expiry ends a subscription off main), which R-timer keeps on DemandTimer
                 ?? CloudHomeState.EditHold(deadline: DemandTimer(owner: "App.homeCloud.editEcho", clock: clock))
             hold.inFlight += 1
             hold.deadline.cancel()

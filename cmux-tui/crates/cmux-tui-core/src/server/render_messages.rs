@@ -569,10 +569,13 @@ pub(super) fn encode_browser_attach_update(
     writer: &MessageWriter,
     surface: SurfaceId,
     update: BrowserAttachUpdate,
+    stream: &OutboundStream,
 ) -> EncodedBrowserAttachUpdate {
     [
-        update.frame.map(|frame| writer.encode(&browser_frame_json(surface, &frame))),
-        update.state.map(|state| writer.encode(&browser_state_message(surface, &state, false))),
+        update.frame.map(|frame| writer.encode(&browser_frame_json(surface, &frame), stream)),
+        update
+            .state
+            .map(|state| writer.encode(&browser_state_message(surface, &state, false), stream)),
     ]
 }
 

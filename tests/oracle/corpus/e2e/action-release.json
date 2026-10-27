@@ -1,0 +1,404 @@
+{
+  "$schema": "../../../../schemas/oracle/case-v1.schema.json",
+  "corpusVersion": 1,
+  "id": "action-release",
+  "suite": "e2e",
+  "title": "Home, Search Tabs and Set Tab Icon release main-actor objects inside the action and the app keeps running",
+  "priority": "P0",
+  "surface": "cmux-next-native",
+  "source": {
+    "repo": "manaflow-ai/cmux",
+    "ref": "$RUN",
+    "artifact": "$RUN"
+  },
+  "environment": {
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    }
+  },
+  "fixture": {
+    "seed": "e2e-action-release-v1",
+    "network": "offline",
+    "clock": "fixed",
+    "agent": "mock"
+  },
+  "preconditions": [
+    "private scratch config",
+    "tagged bench build",
+    "no unrelated app instance",
+    "a fresh launch: one window, one workspace, one terminal tab"
+  ],
+  "requires": [
+    "actions",
+    "keys",
+    "gui"
+  ],
+  "platforms": [
+    "mac"
+  ],
+  "steps": [
+    {
+      "id": "launched",
+      "op": "snapshot",
+      "args": {
+        "facets": [
+          "topology",
+          "focus",
+          "sidebar"
+        ]
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "seed-second",
+      "op": "action.run",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "action": "workspace.newAtTop"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/topology/topology/workspaces",
+        "predicate": "changed",
+        "maxMs": 5000
+      },
+      "note": "a second workspace above the launch's, filed without showing it; the script seeds the showcase workspaces with debug.showcase.seed, which is not an action"
+    },
+    {
+      "id": "home-1",
+      "op": "action.run",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "action": "home.show"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/topology/topology/focus/workspace",
+        "predicate": "changed",
+        "maxMs": 5000
+      },
+      "note": "Go to Home takes the workspace's layout view out of the window and so detaches its display-link client; that release trapped in its isolated deinit (cx-t7hu)"
+    },
+    {
+      "id": "back-1",
+      "op": "action.run",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "action": "workspace.selectFirst"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/topology/topology/focus/workspace",
+        "predicate": "changed",
+        "maxMs": 5000
+      },
+      "note": "back to the first workspace, as `cmux workspace first` runs it"
+    },
+    {
+      "id": "home-2",
+      "op": "action.run",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "action": "home.show"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/topology/topology/focus/workspace",
+        "predicate": "changed",
+        "maxMs": 5000
+      },
+      "note": "Go to Home takes the workspace's layout view out of the window and so detaches its display-link client; that release trapped in its isolated deinit (cx-t7hu)"
+    },
+    {
+      "id": "back-2",
+      "op": "action.run",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "action": "workspace.selectFirst"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/topology/topology/focus/workspace",
+        "predicate": "changed",
+        "maxMs": 5000
+      },
+      "note": "back to the first workspace, as `cmux workspace first` runs it"
+    },
+    {
+      "id": "home-3",
+      "op": "action.run",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "action": "home.show"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/topology/topology/focus/workspace",
+        "predicate": "changed",
+        "maxMs": 5000
+      },
+      "note": "Go to Home takes the workspace's layout view out of the window and so detaches its display-link client; that release trapped in its isolated deinit (cx-t7hu)"
+    },
+    {
+      "id": "back-3",
+      "op": "action.run",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "action": "workspace.selectFirst"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "waitFor": {
+        "pointer": "/topology/topology/focus/workspace",
+        "predicate": "changed",
+        "maxMs": 5000
+      },
+      "note": "back to the first workspace, as `cmux workspace first` runs it"
+    },
+    {
+      "id": "after-home-rounds",
+      "op": "snapshot",
+      "args": {
+        "facets": [
+          "topology",
+          "focus",
+          "sidebar",
+          "crashes"
+        ]
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "search-1",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "tab",
+          "search",
+          "--focus"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "Search Tabs opens the palette and waits for a person; the case checks that the app answers"
+      },
+      "note": "each run resets the palette and releases the previous page inside the action (cx-t7hu); --focus because a socket run without focus is refused (TabSearchHandlers)"
+    },
+    {
+      "id": "search-2",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "tab",
+          "search",
+          "--focus"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "Search Tabs opens the palette and waits for a person; the case checks that the app answers"
+      },
+      "note": "each run resets the palette and releases the previous page inside the action (cx-t7hu); --focus because a socket run without focus is refused (TabSearchHandlers)"
+    },
+    {
+      "id": "search-3",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "tab",
+          "search",
+          "--focus"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "Search Tabs opens the palette and waits for a person; the case checks that the app answers"
+      },
+      "note": "each run resets the palette and releases the previous page inside the action (cx-t7hu); --focus because a socket run without focus is refused (TabSearchHandlers)"
+    },
+    {
+      "id": "search-4",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "tab",
+          "search",
+          "--focus"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "Search Tabs opens the palette and waits for a person; the case checks that the app answers"
+      },
+      "note": "each run resets the palette and releases the previous page inside the action (cx-t7hu); --focus because a socket run without focus is refused (TabSearchHandlers)"
+    },
+    {
+      "id": "close-search",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "escape"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "the open palette takes Escape itself; no registry action runs"
+      },
+      "waitFor": {
+        "pointer": "/overlays/palette/open",
+        "equals": false,
+        "maxMs": 5000
+      },
+      "note": "Escape closes Search Tabs"
+    },
+    {
+      "id": "show-first",
+      "op": "action.run",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "action": "workspace.selectFirst"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      }
+    },
+    {
+      "id": "icon-1",
+      "op": "action.run",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "action": "tab.setIcon",
+        "params": {
+          "icon": "star"
+        }
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "note": "each change makes and drops an UndoToastWindow inside the action; its isolated deinit hop trapped every time on the base (cx-bpcj)"
+    },
+    {
+      "id": "icon-2",
+      "op": "action.run",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "action": "tab.setIcon",
+        "params": {
+          "icon": "flame"
+        }
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "note": "each change makes and drops an UndoToastWindow inside the action; its isolated deinit hop trapped every time on the base (cx-bpcj)"
+    },
+    {
+      "id": "icon-3",
+      "op": "action.run",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "action": "tab.setIcon",
+        "params": {
+          "icon": "bolt"
+        }
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "action.done"
+      },
+      "note": "each change makes and drops an UndoToastWindow inside the action; its isolated deinit hop trapped every time on the base (cx-bpcj)"
+    },
+    {
+      "id": "survived",
+      "op": "snapshot",
+      "args": {
+        "facets": [
+          "topology",
+          "focus",
+          "sidebar",
+          "tabs",
+          "crashes"
+        ]
+      },
+      "settleMaxMs": 5000
+    }
+  ],
+  "invariants": [
+    "converted from scripts/cmux-next/action-release-e2e.py, which stays as the live check; tests/oracle/corpus/e2e/coverage.json maps the script to this case and its cited fix",
+    "every step answers: a trap in a released object's deinit ends the app, which is the case's Crash (cx-t7hu, cx-bpcj)",
+    "home-N shows Home and back-N the first workspace: focus.workspace changes at each step",
+    "survived equals after-home-rounds except for the selected tab and Search Tabs' closed palette",
+    "every mutation has one receipt or one typed error (I1)"
+  ],
+  "teardown": [
+    "quit the tagged app the run started",
+    "verify its debug socket is gone",
+    "end the tag's daemons (TagTeardown)"
+  ],
+  "untested": [
+    "the showcase workspaces (debug.showcase.seed is a debug method, not an action): one plain second workspace stands in",
+    "the icon itself: the topology's tab carries no icon (p15-oracle-325), so icon-N checks the ok answer and the app staying up",
+    "traps that depend on allocator state: a passing run is not proof of their absence, as the script says"
+  ]
+}

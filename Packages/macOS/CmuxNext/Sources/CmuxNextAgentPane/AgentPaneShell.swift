@@ -1,5 +1,5 @@
 import CmuxNextCompat
-import CmuxNextWakeups
+public import CmuxNextWakeups
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError
 import func CmuxSafeConcurrency.withOnceContinuation
@@ -15,7 +15,8 @@ public import Foundation
 /// Bounded: at most ``maximumRunning`` commands run per pane, each keeps the last
 /// ``maximumBuffer`` bytes, and finished runs past ``maximumKept`` are dropped oldest first.
 /// Idle, nothing runs: no timer, only a process-exit source (``ChildExitWatch``) and a pipe read per running command.
-/// Deadlines (a read's wait, Stop's escalation, the drain after exit) are one-shot DemandTimers.
+/// Deadlines (a read's wait, Stop's escalation, the drain after exit) are `visible` MainDeadlines on the app's one
+/// placer: the page waits on each, so none is ever held for a hidden pane (p06-scheduler.md rule 6).
 public final class AgentPaneShell {
     public static let maximumRunning = 4
     public static let maximumKept = 16
@@ -63,11 +64,15 @@ public final class AgentPaneShell {
         var outputClosed = false
         var stopping = false
         var waiters: [UUID: OnceContinuation<Void, OnceContinuationError>] = [:]
-        let escalation = DemandTimer(owner: "agent-pane.shell.stop")
-        let drain = DemandTimer(owner: "agent-pane.shell.drain")
+        let escalation: MainDeadline
+        let drain: MainDeadline
         var stopReading: (() -> Void)?
 
-        init(pid: pid_t) { self.pid = pid }
+        init(pid: pid_t, deadlines: MainDeadlineScheduler) {
+            self.pid = pid
+            escalation = MainDeadline(owner: "agent-pane.shell.stop", workClass: .visible, scheduler: deadlines)
+            drain = MainDeadline(owner: "agent-pane.shell.drain", workClass: .visible, scheduler: deadlines)
+        }
 
         var end: Int { base + buffer.count }
         var finished: Bool { exit != nil && outputClosed }
@@ -95,14 +100,24 @@ public final class AgentPaneShell {
     private let shell: String
     private let environment: [String: String]
     private let home: String
+    /// The app's one deadline placer (`AppServices.mainDeadlines`).
+    private let deadlines: MainDeadlineScheduler
     /// Spawns this pane's commands, in order, off the main actor: a command a person started shows soon.
     let launcher = ChildProcessLauncher(label: "com.cmuxterm.next.child-launcher.agent-shell", priority: .userVisible)
 
+    /// - Parameters:
+    ///   - shell: The login shell; one that is not an executable absolute path runs `/bin/zsh`.
+    ///   - environment: The commands' environment.
+    ///   - home: The folder of a command that names none.
+    ///   - deadlines: The app's one deadline placer (`AppServices.mainDeadlines`), for the reads' waits, Stop's
+    ///     escalation and the drain after exit.
     public init(
         shell: String? = ProcessInfo.processInfo.environment["SHELL"],
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        home: String = NSHomeDirectory()
+        home: String = NSHomeDirectory(),
+        deadlines: MainDeadlineScheduler
     ) {
+        self.deadlines = deadlines
         let candidate = shell ?? ""
         self.shell = candidate.hasPrefix("/") && FileManager.default.isExecutableFile(atPath: candidate) ? candidate : "/bin/zsh"
         var environment = environment
@@ -143,7 +158,7 @@ public final class AgentPaneShell {
         }
         Darwin.close(pipe[1])
         let id = UUID().uuidString
-        let run = Run(pid: pid)
+        let run = Run(pid: pid, deadlines: deadlines)
         runs[id] = run
         order.append(id)
         evict()
@@ -192,11 +207,11 @@ public final class AgentPaneShell {
         guard let run = runs[id] else { throw .unknownRun }
         if !run.hasNews(after: after) {
             let token = UUID()
-            let deadline = DemandTimer(owner: "agent-pane.shell.read")
+            let deadline = MainDeadline(owner: "agent-pane.shell.read", workClass: .visible, scheduler: deadlines)
             // Abandoned (the run dropped its waiters) ends the wait as the deadline does: the chunk says what came.
             try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
                 run.waiters[token] = continuation
-                deadline.scheduleOnMain(after: Self.readWait) { [weak run] in
+                deadline.schedule(after: Self.readWait) { [weak run] in
                     run?.waiters.removeValue(forKey: token)?.resume(returning: ())
                 }
             }
@@ -218,7 +233,7 @@ public final class AgentPaneShell {
     /// Sends the next of `signals` after ``stopEscalation`` while the command still runs.
     private func escalate(_ run: Run, group: pid_t, signals: [Int32]) {
         guard let signal = signals.first else { return }
-        run.escalation.scheduleOnMain(after: Self.stopEscalation) { [weak self, weak run] in
+        run.escalation.schedule(after: Self.stopEscalation) { [weak self, weak run] in
             guard let self, let run, run.exit == nil else { return }
             kill(group, signal)
             self.escalate(run, group: group, signals: Array(signals.dropFirst()))
@@ -257,7 +272,7 @@ public final class AgentPaneShell {
             run.exit = status.map(Self.exit(status:)) ?? Exit()
             run.escalation.cancel()
             if !run.outputClosed {
-                run.drain.scheduleOnMain(after: Self.drainAfterExit) { [weak run] in
+                run.drain.schedule(after: Self.drainAfterExit) { [weak run] in
                     guard let run, !run.outputClosed else { return }
                     run.outputClosed = true
                     run.stopReading?()

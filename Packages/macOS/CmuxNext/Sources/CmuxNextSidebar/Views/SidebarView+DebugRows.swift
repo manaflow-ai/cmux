@@ -111,7 +111,7 @@ extension SidebarViewComponents {
             section.items.map { item -> SidebarDebugItem in
                 var frame: CGRect?
                 for region in bandRegions + list.blockRegions {
-                    guard let view = region.itemView(item.id), view.window != nil, !view.isHiddenOrHasHiddenAncestor else { continue }
+                    guard let view = region.itemView(item.id), view.window != nil, !view.isHiddenOrHasHiddenAncestor else { continue } // visibility-walk-allow: a debug.sidebar_rows proof read
                     let inWindow = view.convert(view.bounds, to: nil)
                     frame = CGRect(x: inWindow.minX, y: height - inWindow.maxY, width: inWindow.width, height: inWindow.height)
                 }
@@ -128,7 +128,7 @@ extension SidebarViewComponents {
         let height = window?.contentView?.bounds.height ?? 0
         return model.layout.sections.compactMap { section in
             for region in bandRegions + list.blockRegions {
-                guard let view = region.headerViews[section.id], view.window != nil, !view.isHiddenOrHasHiddenAncestor else { continue }
+                guard let view = region.headerViews[section.id], view.window != nil, !view.isHiddenOrHasHiddenAncestor else { continue } // visibility-walk-allow: a debug.sidebar_rows proof read
                 let inWindow = view.convert(view.bounds, to: nil)
                 return (section.id.rawValue, section.title, CGRect(x: inWindow.minX, y: height - inWindow.maxY, width: inWindow.width, height: inWindow.height))
             }
@@ -148,7 +148,7 @@ extension SidebarViewComponents {
     /// The new-workspace button (+) in window points from the top-left, so a
     /// proof clicks it (`debug.mouse`); nil while it is hidden.
     public func debugNewButtonFrame() -> CGRect? {
-        guard !newButton.isHiddenOrHasHiddenAncestor, newButton.window != nil else { return nil }
+        guard !newButton.isHiddenOrHasHiddenAncestor, newButton.window != nil else { return nil } // visibility-walk-allow: a debug.mouse proof's click target
         let inWindow = newButton.convert(newButton.bounds, to: nil)
         let height = window?.contentView?.bounds.height ?? 0
         return CGRect(x: inWindow.minX, y: height - inWindow.maxY, width: inWindow.width, height: inWindow.height)
@@ -205,7 +205,7 @@ extension SidebarViewComponents {
         func describe(_ view: NSView?) -> String {
             guard let view else { return "none" }
             let tx = (view.layer?.presentation() ?? view.layer)?.value(forKeyPath: "transform.translation.x") as? CGFloat ?? 0
-            return "super=\(view.superview.map { String(describing: type(of: $0)) } ?? "nil") frame=\(view.frame) tx=\(tx) hidden=\(view.isHiddenOrHasHiddenAncestor) alpha=\(view.alphaValue)"
+            return "super=\(view.superview.map { String(describing: type(of: $0)) } ?? "nil") frame=\(view.frame) tx=\(tx) hidden=\(view.isHiddenOrHasHiddenAncestor) alpha=\(view.alphaValue)" // visibility-walk-allow: a debug.sidebar_rows proof read
         }
         info["page"] = describe(scrollView)
         if let neighbor = spacePaging.neighbor {

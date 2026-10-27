@@ -84,12 +84,16 @@ extension HostedChiefCopy {
     }
 
     /// Replaces exact string values and object keys found in `ids` (never text that only contains one).
+    /// A renamed key that lands on a key the object already has replaces it: the renamed entry is the copied one.
     nonisolated private static func mapIDs(_ value: Any, _ ids: [String: String]) -> Any {
         switch value {
         case let text as String: return ids[text] ?? text
         case let list as [Any]: return list.map { mapIDs($0, ids) }
         case let object as [String: Any]:
-            return Dictionary(uniqueKeysWithValues: object.map { (ids[$0.key] ?? $0.key, mapIDs($0.value, ids)) })
+            var mapped: [String: Any] = [:]
+            for (key, item) in object where ids[key] == nil { mapped[key] = mapIDs(item, ids) }
+            for (key, item) in object { if let renamed = ids[key] { mapped[renamed] = mapIDs(item, ids) } }
+            return mapped
         default: return value
         }
     }

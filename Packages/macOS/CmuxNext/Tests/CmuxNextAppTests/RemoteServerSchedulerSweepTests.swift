@@ -101,7 +101,7 @@ import Testing
     private static func settle(until done: () -> Bool, frames rig: MainDeadlineRig? = nil) async {
         let end = ContinuousClock.now.advanced(by: .seconds(5))
         while !done(), ContinuousClock.now < end {
-            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.005))
+            runMainLoopPass(for: 0.005)
             rig?.frame()
             await Task.yield()
         }

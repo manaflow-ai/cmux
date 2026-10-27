@@ -8,7 +8,9 @@ use cmux_threads::blocking::{self, BlockingMode, BlockingSnapshot};
 use cmux_threads::process_role::{self, DarwinBackground, TaskRole};
 use cmux_threads::work::{Lane, LaneStats};
 use cmux_threads::{LiveQos, ThreadInfo};
+use std::collections::HashMap;
 
+use super::client_registry::ConnectionFacts;
 use super::request_spans::{RequestMethod, lock_op_name};
 use super::{MAX_SERVER_CONNECTIONS, Mux};
 use crate::diagnostics::{LockTableSnapshot, SERVER_STATS_SCHEMA, ServerStatsSnapshot};
@@ -178,10 +180,40 @@ struct ThreadRow {
     /// Whether the kernel's value is the desired QoS; `None` when it could
     /// not be read.
     matches: Option<bool>,
+    /// The connection a connection thread (reader or request thread) works
+    /// for; `None` for every other thread.
+    connection: Option<ConnectionRow>,
+}
+
+/// The connection a thread works for (`QosSlot::work_for` with its client
+/// id): the facts its client class comes from, and the class, so the QoS
+/// audit judges the person's connection threads apart from automation's
+/// (p02-threads RUN-4). The facts are `null` once the connection is gone.
+#[derive(Clone, Debug, serde::Serialize)]
+struct ConnectionRow {
+    client: u64,
+    transport: Option<&'static str>,
+    remote_device: Option<bool>,
+    origin: Option<&'static str>,
+    peer_pid: Option<u32>,
+    class: Option<&'static str>,
+}
+
+impl ConnectionRow {
+    fn of(client: u64, facts: Option<&ConnectionFacts>) -> Self {
+        ConnectionRow {
+            client,
+            transport: facts.map(|facts| facts.transport),
+            remote_device: facts.map(|facts| facts.remote_device),
+            origin: facts.map(|facts| facts.origin),
+            peer_pid: facts.and_then(|facts| facts.peer_pid),
+            class: facts.map(|facts| facts.class),
+        }
+    }
 }
 
 impl ThreadRow {
-    fn of(info: ThreadInfo) -> Self {
+    fn of(info: ThreadInfo, connections: &HashMap<u64, ConnectionFacts>) -> Self {
         let (requested_qos, nice, matches) = match info.live {
             LiveQos::Class(qos) => (Some(qos.as_str().to_owned()), None, Some(qos == info.desired)),
             LiveQos::Unspecified => (Some("unspecified".to_owned()), None, Some(false)),
@@ -200,6 +232,9 @@ impl ThreadRow {
             priority: info.priority,
             refused_changes: info.refused_changes,
             matches,
+            connection: info
+                .owner
+                .map(|client| ConnectionRow::of(client, connections.get(&client))),
         }
     }
 }
@@ -251,9 +286,11 @@ fn threads_snapshot(
     role: Option<TaskRole>,
     darwin_bg: Option<DarwinBackground>,
     threads: Vec<ThreadInfo>,
+    connections: &HashMap<u64, ConnectionFacts>,
     lanes: [LaneStats; 3],
 ) -> ServerThreadsSnapshot {
-    let mut threads: Vec<ThreadRow> = threads.into_iter().map(ThreadRow::of).collect();
+    let mut threads: Vec<ThreadRow> =
+        threads.into_iter().map(|info| ThreadRow::of(info, connections)).collect();
     threads.sort_by(|a, b| a.name.cmp(&b.name).then(a.tid.cmp(&b.tid)));
     ServerThreadsSnapshot {
         schema: SERVER_THREADS_SCHEMA,
@@ -274,14 +311,20 @@ fn threads_snapshot(
 }
 
 /// `server-threads`: the registry snapshot (one lock held for its row
-/// reads, as Chromium's `ThreadIdNameManager`), the lanes' counters, the
-/// task role and PRIO_DARWIN_BG, rendered after both locks are released.
+/// reads, as Chromium's `ThreadIdNameManager`), the facts of the
+/// connections its threads work for (the client registry's lock, taken
+/// after the thread registry's is released), the lanes' counters, the task
+/// role and PRIO_DARWIN_BG, rendered after every lock is released.
 pub(super) fn server_threads(mux: &Mux) -> ServerThreadsSnapshot {
+    let threads = cmux_threads::snapshot();
+    let connections =
+        mux.control_clients.connection_facts(threads.iter().filter_map(|info| info.owner));
     threads_snapshot(
         uptime_ms(mux),
         process_role::current(),
         process_role::darwin_background(),
-        cmux_threads::snapshot(),
+        threads,
+        &connections,
         mux.work.stats(),
     )
 }

@@ -79,7 +79,7 @@ mod imp {
     }
 
     pub fn fsync_dir(path: &Path) -> io::Result<()> {
-        std::fs::File::open(path)?.sync_all()
+        cmux_threads::checked::fs::sync_all(&cmux_blocking::fs::open(path)?)
     }
 
     pub fn process_alive(pid: u32) -> bool {

@@ -1,0 +1,23 @@
+{
+  "id": "webviews-chat-load",
+  "tier": "linux",
+  "description": "Chat-load page stage in headless Chromium (perf100, browser_bench.mjs; the WebKit arm is webviews-chat-load-webkit): the shipped agent pane bundle opens 100-, 1,000- and 10,000-turn chats from a real acpmux daemon cold and by switch, and the mock chat; first paint, interactive, received JSON, requests, DOM nodes, daemon CPU, Chromium's script, layout, style and task time and heap, and the scroll to the first message.",
+  "command": ["webviews/scripts/agent-pane/chat-load/run.sh"],
+  "session": "light",
+  "engine": "chromium",
+  "config": "release",
+  "metrics": [
+    {"name": "web\\.chat_load\\.(open|switch|mock)\\.(t[0-9]+|default)\\.(first_paint|interactive|pane_painted|seed|daemon_cpu|script|layout|style|task)", "unit": "ms", "better": "lower"},
+    {"name": "web\\.chat_load\\.(open|switch|mock)\\.(t[0-9]+|default)\\.(utf16_in|requests|dom_nodes|timed_out)", "unit": "count", "better": "lower"},
+    {"name": "web\\.chat_load\\.(open|switch|mock)\\.(t[0-9]+|default)\\.heap", "unit": "bytes", "better": "lower"},
+    {"name": "web\\.chat_load\\.(open|mock)\\.(t[0-9]+|default)\\.scroll\\.wall", "unit": "ms", "better": "lower"},
+    {"name": "web\\.chat_load\\.(open|mock)\\.(t[0-9]+|default)\\.scroll\\.(utf16_in|requests)", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 900,
+  "needs": ["file:webviews/scripts/agent-pane/chat-load/browser_bench.mjs", "file:webviews/scripts/perf-result.mjs",
+            "file:webviews/scripts/agent-pane/bench-perf-series.mjs"],
+  "owner": "PL-acpmux",
+  "component": "Agents>ChatLoad",
+  "not_measurable": "run.sh takes ACPMUX_BIN OUT_DIR, not the runner's --app --tag --out, and the Linux runner builds no acpmux binary and no agent pane bundle at the measured commit; run it by hand with PERF_RESULT_DIR set."
+}

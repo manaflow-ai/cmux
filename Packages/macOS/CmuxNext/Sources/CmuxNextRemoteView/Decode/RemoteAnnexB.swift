@@ -4,9 +4,9 @@ public import Foundation
 /// pulls out the parameter sets (VPS/SPS/PPS) for the format description,
 /// and rewrites the remaining NAL units with 4-byte big-endian lengths
 /// (the form VideoToolbox decodes).
-public struct RemoteAnnexB {
+public nonisolated struct RemoteAnnexB {
     public nonisolated init() {}
-    public struct Parsed: Sendable, Equatable {
+    public nonisolated struct Parsed: Sendable, Equatable {
         /// H.264: [SPS, PPS]. HEVC: [VPS, SPS, PPS]. Empty when the access
         /// unit carries none (every non-key frame).
         public var parameterSets: [[UInt8]] = []
@@ -22,32 +22,26 @@ public struct RemoteAnnexB {
     /// Ranges of the NAL units in `bytes`, start codes removed. Accepts 3- and
     /// 4-byte start codes; trailing zero bytes before a start code belong to
     /// the start code.
+    ///
+    /// One pass over the bytes with the length of the zero run before each:
+    /// a `01` after two or more zeros is a start code, and the unit before it
+    /// ends where that run began. Nothing is indexed, so no input can read
+    /// past the bytes (p10-stability-093).
     public nonisolated func nalRanges(_ bytes: [UInt8]) -> [Range<Int>] {
-        var starts: [(code: Int, nal: Int)] = []
-        var i = 0
-        let n = bytes.count
-        while i + 3 <= n {
-            if bytes[i] == 0, bytes[i + 1] == 0 {
-                if bytes[i + 2] == 1 {
-                    starts.append((i, i + 3))
-                    i += 3
-                    continue
-                }
-                if i + 4 <= n, bytes[i + 2] == 0, bytes[i + 3] == 1 {
-                    starts.append((i, i + 4))
-                    i += 4
-                    continue
-                }
-            }
-            i += 1
-        }
         var ranges: [Range<Int>] = []
-        for (index, start) in starts.enumerated() {
-            let isLast = index + 1 == starts.count
-            var end = isLast ? n : starts[index + 1].code
-            while !isLast, end > start.nal, bytes[end - 1] == 0 { end -= 1 }
-            if end > start.nal { ranges.append(start.nal..<end) }
+        var unitStart: Int?
+        var zeros = 0
+        for (position, byte) in bytes.enumerated() {
+            guard byte == 1, zeros >= 2 else {
+                zeros = byte == 0 ? zeros + 1 : 0
+                continue
+            }
+            // The run began after the unit's start (it was reset there), so the range is not reversed.
+            if let start = unitStart, position - zeros > start { ranges.append(start..<(position - zeros)) }
+            unitStart = position + 1
+            zeros = 0
         }
+        if let start = unitStart, bytes.count > start { ranges.append(start..<bytes.count) }
         return ranges
     }
 
@@ -62,16 +56,17 @@ public struct RemoteAnnexB {
         var sps: [UInt8]?
         var pps: [UInt8]?
         for range in nalRanges(bytes) {
-            let nal = NALType(header: bytes[range.lowerBound], codec: codec)
-            switch nal {
-            case .vps: vps = Array(bytes[range])
-            case .sps: sps = Array(bytes[range])
-            case .pps: pps = Array(bytes[range])
+            let unit = bytes.dropFirst(range.lowerBound).prefix(range.count)
+            guard let header = unit.first else { continue }
+            switch NALType(header: header, codec: codec) {
+            case .vps: vps = Array(unit)
+            case .sps: sps = Array(unit)
+            case .pps: pps = Array(unit)
             case .delimiter: continue
             case let .other(isSlice, isRandomAccess):
                 if isSlice { parsed.sliceCount += 1 }
                 if isRandomAccess { parsed.isRandomAccess = true }
-                appendLengthPrefixed(bytes[range], to: &parsed.lengthPrefixed)
+                appendLengthPrefixed(unit, to: &parsed.lengthPrefixed)
             }
         }
         switch codec {
@@ -84,11 +79,13 @@ public struct RemoteAnnexB {
     }
 
     private nonisolated func appendLengthPrefixed(_ nal: ArraySlice<UInt8>, to out: inout [UInt8]) {
+        // decode-trap-allow: a unit is one rd frame, at most MAX_FRAME_SHARDS (4096) datagrams of at most 1332 bytes
+        // (cmux-rd-proto), so its length fits a u32 by construction, not by checking the peer's bytes.
         let length = UInt32(nal.count)
-        out.append(UInt8(length >> 24))
-        out.append(UInt8((length >> 16) & 0xFF))
-        out.append(UInt8((length >> 8) & 0xFF))
-        out.append(UInt8(length & 0xFF))
+        out.append(UInt8(truncatingIfNeeded: length >> 24))
+        out.append(UInt8(truncatingIfNeeded: length >> 16))
+        out.append(UInt8(truncatingIfNeeded: length >> 8))
+        out.append(UInt8(truncatingIfNeeded: length))
         out.append(contentsOf: nal)
     }
 
