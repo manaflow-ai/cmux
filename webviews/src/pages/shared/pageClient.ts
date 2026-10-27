@@ -503,8 +503,8 @@ export function createPageClient(fallback?: () => PageClient): PageClient | null
     installNativeMenu((request) => client.call(NATIVE_MENU_OP, request));
     // The refactor oracle's page state, in developer builds only (protocol/oracle-state.ts).
     serveOracleState(client);
-    // Edits, form input and a beforeunload handler keep the hidden page from being discarded, for
-    // every page with no page code (pageEdits.ts).
+    // Edits and form input keep the hidden page from being discarded, for every page with no page
+    // code (pageEdits.ts).
     if (typeof document !== "undefined") watchPageEdits(document, window, pageKeepAliveFor(client));
     return client;
   }

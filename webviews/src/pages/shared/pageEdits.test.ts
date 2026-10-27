@@ -1,10 +1,21 @@
-// Every page's automatic keep reasons (p13-webui-089): the first trusted edit, form interaction or
-// beforeunload handler tells the host once, untrusted events count for nothing, and the page's save,
-// a route change or a store's save end the edits.
+// Every page's automatic keep reasons (p13-webui-089): the first trusted edit or form interaction
+// tells the host once, untrusted events count for nothing, and the page's save, a route change or a
+// store's save end the edits. before_unload holds only while the page asks (askBeforeUnload), never
+// for a listener a library adds, and createPageClient installs the watch on every bridged page.
 import { describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { KEEP_ALIVE_OP, PageKeepAlive, pageKeepAliveFor, type PageClient } from "./pageClient";
-import { EDITS_SAVED_EVENT, editReason, watchPageEdits, type EditsWindow } from "./pageEdits";
+import { installNativeMenu, nativeMenu } from "../../ui/nativeMenu";
+import { createFragmentHistory } from "../settings/router";
+import {
+  createPageClient,
+  KEEP_ALIVE_OP,
+  PageKeepAlive,
+  pageKeepAliveFor,
+  RECEIVE_MANY_NAME,
+  RECEIVE_NAME,
+  type PageClient,
+} from "./pageClient";
+import { askBeforeUnload, EDITS_SAVED_EVENT, editReason, watchPageEdits } from "./pageEdits";
 
 type Sent = { reason: string; on: boolean };
 
@@ -56,7 +67,7 @@ class FakeDocument extends DomEventTarget {
 function watched() {
   const { keep, sent } = recording();
   const doc = new FakeDocument();
-  const win = new DomEventTarget() as EditsWindow;
+  const win = new DomEventTarget();
   const stop = watchPageEdits(doc, win, keep);
   return { keep, sent, doc, win, stop };
 }
@@ -112,7 +123,7 @@ describe("watchPageEdits", () => {
   test("one capture-phase input and change listener per document, however many clients", () => {
     const { keep } = recording();
     const doc = new FakeDocument();
-    const win = new DomEventTarget() as EditsWindow;
+    const win = new DomEventTarget();
     const stop = watchPageEdits(doc, win, keep);
     watchPageEdits(doc, win, keep);
     const edits = doc.added.filter((entry) => entry.type === "input" || entry.type === "change");
@@ -156,57 +167,100 @@ describe("watchPageEdits", () => {
     expect(sent.length).toBe(3);
     stop();
   });
+});
 
-  test("a beforeunload listener holds before_unload until the last one is removed", () => {
-    const { win, sent, stop } = watched();
-    const first = () => {};
-    const second = () => {};
-    win.addEventListener("beforeunload", first);
-    win.addEventListener("beforeunload", first); // the same listener twice is one
-    win.addEventListener("beforeunload", second, { capture: true });
-    win.addEventListener("unload", first);
-    win.removeEventListener("beforeunload", first);
-    expect(sent).toEqual([{ reason: "before_unload", on: true }]);
-    win.removeEventListener("beforeunload", second); // not the capture one: still held
-    expect(sent.length).toBe(1);
-    win.removeEventListener("beforeunload", second, true);
-    expect(sent).toEqual([
-      { reason: "before_unload", on: true },
-      { reason: "before_unload", on: false },
-    ]);
-    const controller = new dom.window.AbortController();
-    win.addEventListener("beforeunload", first, { signal: controller.signal });
-    controller.abort("unmounted"); // a reason of its own: no DOMException across realms
-    expect(sent.slice(2)).toEqual([
-      { reason: "before_unload", on: true },
-      { reason: "before_unload", on: false },
-    ]);
-    stop();
-  });
-
-  test("an onbeforeunload function holds before_unload; clearing it ends it", () => {
+describe("askBeforeUnload", () => {
+  test("the page asks on unload and holds before_unload until it lets go", () => {
     const { keep, sent } = recording();
-    let stored: unknown = null;
-    // The engine's accessor lives on the window's prototype chain, as WebKit's does.
-    const proto = Object.create(DomEventTarget.prototype) as object;
-    Object.defineProperty(proto, "onbeforeunload", {
-      configurable: true,
-      get: () => stored,
-      set: (value: unknown) => {
-        stored = value;
-      },
-    });
-    const win = Object.setPrototypeOf(new DomEventTarget(), proto) as EditsWindow;
-    const stop = watchPageEdits(new FakeDocument(), win, keep);
-    win.onbeforeunload = () => "unsaved";
-    expect(typeof stored).toBe("function"); // the engine's own handler is still set
-    win.onbeforeunload = null;
+    const { window: win } = new JSDOM("<!doctype html>");
+    const unload = () => {
+      const event = new win.Event("beforeunload", { cancelable: true });
+      win.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    const release = askBeforeUnload(win, keep);
+    expect(unload()).toBe(true);
+    release();
+    release(); // a second release changes nothing
+    expect(unload()).toBe(false);
     expect(sent).toEqual([
       { reason: "before_unload", on: true },
       { reason: "before_unload", on: false },
     ]);
-    stop();
-    expect(Object.getOwnPropertyDescriptor(win, "onbeforeunload")).toBeUndefined();
+  });
+});
+
+describe("createPageClient", () => {
+  type Sent = { t: string; id: number; op?: string; params?: unknown };
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  test("a bridged page watches its edits once, on the page's own keep-alive; a router asks nothing", async () => {
+    const { window: win } = new JSDOM("<!doctype html><body></body>", { url: "https://cmux.page/settings.html" });
+    const doc = win.document;
+    const edits: ((event: Event) => void)[] = [];
+    type Add = (
+      type: string,
+      listener: EventListenerOrEventListenerObject | null,
+      options?: boolean | AddEventListenerOptions,
+    ) => void;
+    const addToDocument = doc.addEventListener.bind(doc) as Add;
+    doc.addEventListener = ((...[type, listener, options]: Parameters<Add>) => {
+      addToDocument(type, listener, options);
+      if ((type === "input" || type === "change") && typeof listener === "function") edits.push(listener);
+    }) as typeof doc.addEventListener;
+    const envelopes: Sent[] = [];
+    const cmuxPage = {
+      postMessage: async (body: unknown) => {
+        const envelope = body as Sent;
+        envelopes.push(envelope);
+        return { t: "ok", id: envelope.id, value: null };
+      },
+    };
+    const keepAlives = () =>
+      envelopes.filter((envelope) => envelope.t === "call" && envelope.op === KEEP_ALIVE_OP).map((e) => e.params);
+
+    const scope = globalThis as Record<string, unknown>;
+    const keys = ["document", "window", "webkit", RECEIVE_NAME, RECEIVE_MANY_NAME];
+    const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
+    const menu = nativeMenu();
+    scope.document = doc;
+    scope.window = win;
+    scope.webkit = { messageHandlers: { cmuxPage } };
+    try {
+      const client = createPageClient();
+      expect(client).not.toBeNull();
+      expect(createPageClient()).not.toBeNull(); // a second client of the same document
+      expect(edits.length).toBe(2); // one input and change pair
+
+      const field = doc.createElement("textarea");
+      const typed = { type: "input", isTrusted: true, target: field, composedPath: () => [field] };
+      for (let key = 0; key < 5; key += 1) edits[0]!(typed as unknown as Event);
+      await flush();
+      expect(keepAlives()).toEqual([{ reason: "user_edits", on: true }]);
+      pageKeepAliveFor(client).editsSaved();
+      await flush();
+      expect(keepAlives()).toEqual([
+        { reason: "user_edits", on: true },
+        { reason: "user_edits", on: false },
+      ]);
+
+      // The Settings router boots after the client: its history adds a beforeunload listener that
+      // asks only while a blocker is set.
+      const history = createFragmentHistory(win as unknown as Window);
+      win.onbeforeunload = () => undefined;
+      const unload = new win.Event("beforeunload", { cancelable: true });
+      win.dispatchEvent(unload);
+      expect(unload.defaultPrevented).toBe(false);
+      await flush();
+      expect(keepAlives().length).toBe(2);
+      history.destroy();
+    } finally {
+      for (const [key, had, value] of saved) {
+        if (had) scope[key] = value;
+        else delete scope[key];
+      }
+      installNativeMenu(menu);
+    }
   });
 });
 
