@@ -2083,6 +2083,10 @@ path = "tests/test_ci_linux_compile_runners.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_blacksmith_linux_failover.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_tui_daemon_tests_gate.py"
 lane = "linux-guard"
 

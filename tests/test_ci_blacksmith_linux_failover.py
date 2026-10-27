@@ -51,9 +51,9 @@ def failover_for(label: str) -> str:
 # What may come right before a Blacksmith Linux literal without the failover:
 # a variable the switch already points at another Blacksmith size, or a fork pull-request
 # branch, which picks Blacksmith on purpose and is not the fallback.
-SWITCHED = re.compile(
-    r"(?:(?<!&& )vars\.LINUX_RUNNER|!startsWith\(vars\.LINUX_RUNNER, 'blacksmith-'\) && vars\.LINUX_RUNNER) \|\| '$"
-)
+# (`!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER ||` is
+# not one: it ignores the switch's Blacksmith failover value.)
+SWITCHED = re.compile(r"(?<!&& )vars\.LINUX_RUNNER \|\| '$")
 FORK_BRANCH = re.compile(
     r"(?:head\.repo\.full_name != github\.repository"
     r"|!contains\(fromJSON\([\w.]+\), github\.event\.pull_request\.head\.repo\.full_name\)) && '$"
@@ -78,11 +78,14 @@ def covered(value: str) -> bool:
         return True
     if "${{" not in value:
         return LABEL.search(value) is None
-    # A failover target is itself a Blacksmith literal; it is the fallback, not a primary.
-    return all(
-        literal_covered(value[: match.start() + 1], match.group(1))
-        for match in re.finditer(r"'(" + LABEL.pattern + r")'", value)
+    # A failover target is itself a Blacksmith literal; it is the fallback, not a primary,
+    # but at least one primary must remain (a lone failover resolves empty when unset).
+    primaries = [
+        match for match in re.finditer(r"'(" + LABEL.pattern + r")'", value)
         if not value[: match.start() + 1].endswith(FAILOVER_PREFIX[:-len("blacksmith-")])
+    ]
+    return bool(primaries) and all(
+        literal_covered(value[: match.start() + 1], match.group(1)) for match in primaries
     )
 
 
@@ -134,9 +137,16 @@ class BlacksmithLinuxFailoverTest(unittest.TestCase):
         self.assertFalse(
             covered("${{ contains(vars.LINUX_RUNNER, '32vcpu') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}")
         )
-        self.assertTrue(
+        # The switch's failover is a Blacksmith label, so a non-Blacksmith gate alone never moves the job.
+        self.assertFalse(
             covered("${{ !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}")
         )
+        self.assertTrue(
+            covered("${{ !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || "
+                    "vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}")
+        )
+        # A lone failover with no primary resolves empty while the record is unset.
+        self.assertFalse(covered("${{ vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' }}"))
         # A Blacksmith literal inside an earlier branch must fail over too, not only the last one.
         self.assertFalse(covered("${{ a && (vars.X || 'blacksmith-16vcpu-ubuntu-2404') || 'blacksmith-6vcpu-macos-15' }}"))
         fork = "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository"
