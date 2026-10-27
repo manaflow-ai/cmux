@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts/ci'))
@@ -174,8 +175,7 @@ class DedicatedBuilder(unittest.TestCase):
 
     def test_a_malformed_kept_state_falls_back_to_a_clean_build(self):
         state_file = self.home / state.STATE_ROOT / self.RUNNER
-        for text in ('null', '[]', '"x"', '{"built": true, "since_clean": "many"}',
-                     '{"built": true, "since_clean": -1}', '{"built": true, "since_clean": true}', '{'):
+        for text in ('null', '[]', '"x"', '{'):
             with self.subTest(text=text):
                 self.build()
                 files = list(state_file.glob(f'*/{state.INCREMENTAL_STATE}'))
@@ -183,6 +183,52 @@ class DedicatedBuilder(unittest.TestCase):
                 files[0].write_text(text)
                 self.assertEqual(self.build()[:2], ('mode=clean', False))
         self.assertEqual(self.build()[0], 'mode=incremental')
+
+    def test_any_malformed_field_of_a_valid_checkpoint_makes_it_clean(self):
+        self.build()
+        path = next((self.home / state.STATE_ROOT / self.RUNNER).glob(f'*/{state.INCREMENTAL_STATE}'))
+        valid = json.loads(path.read_text())
+        self.assertTrue(state.checkpoint_complete(valid))
+        mutations = [('built', 'false'), ('built', 1), ('built', None), ('since_clean', 'many'),
+                     ('since_clean', -1), ('since_clean', True), ('since_clean', 1.5), ('key', 7), ('sha', None)]
+        mutations += [(field, ...) for field in ('built', 'since_clean', 'key', 'sha')]
+        for field, value in mutations:
+            with self.subTest(field=field, value=value):
+                self.build()
+                path = next((self.home / state.STATE_ROOT / self.RUNNER).glob(f'*/{state.INCREMENTAL_STATE}'))
+                broken = json.loads(path.read_text())
+                if value is ...:
+                    del broken[field]
+                else:
+                    broken[field] = value
+                path.write_text(json.dumps(broken))
+                self.assertEqual(self.build()[:2], ('mode=clean', False))
+
+    def test_a_conditional_compilation_change_makes_it_clean(self):
+        self.commit({'Sources/g.swift': '#if true\nimport Foo\n#endif\nlet g = 1\n',
+                     'Sources/h.m': '#ifdef A\n#import "x.h"\n#endif\n'})
+        for name, text in (('Sources/g.swift', '#if false\nimport Foo\n#endif\nlet g = 1\n'),
+                           ('Sources/h.m', '#ifndef A\n#import "x.h"\n#endif\n')):
+            with self.subTest(name=name):
+                self.build()
+                self.commit({name: text})
+                self.assertEqual(self.build()[0], 'mode=clean')
+
+    def test_a_failed_checkpoint_write_never_fails_the_job_and_the_next_build_is_clean(self):
+        self.build(finish=False)
+        derived = next((self.home / state.STATE_ROOT / self.RUNNER).glob('*/DerivedData'))
+        (self.workspace / 'build-universal').symlink_to(derived, target_is_directory=True)
+        original = Path.write_text
+
+        def refuse(path, *args, **kwargs):
+            if path.name.endswith('.tmp'):
+                raise OSError(28, 'No space left on device')
+            return original(path, *args, **kwargs)
+
+        with mock.patch.object(Path, 'write_text', refuse):
+            self.assertFalse(state.mark_built(self.workspace, self.home, self.RUNNER))
+        (self.workspace / 'build-universal').unlink()
+        self.assertEqual(self.build()[:2], ('mode=clean', False))
 
     def test_mark_built_never_crashes_on_a_malformed_state(self):
         self.build(finish=False)
@@ -204,8 +250,7 @@ class DedicatedBuilder(unittest.TestCase):
             self.commit({'Sources/a.swift': f'let a = {index}\n'})
             modes.append(self.build()[0])
         clean = [index for index, mode in enumerate(modes) if mode == 'mode=clean']
-        self.assertEqual(clean, [0, state.CLEAN_EVERY + 1, 2 * state.CLEAN_EVERY + 2][:len(clean)])
-        self.assertEqual(len(clean), 2)
+        self.assertEqual(clean, [0, state.CLEAN_EVERY, 2 * state.CLEAN_EVERY])
 
     def test_another_identitys_derived_data_is_deleted(self):
         self.build(toolchain='Xcode 26.6')

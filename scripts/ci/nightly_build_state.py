@@ -54,17 +54,20 @@ STATE_ROOT = 'Library/Caches/cmux-nightly-next'
 # Measured over 199 consecutive nightly-next promotions (2026-10-24..27): 84 changed no
 # KEY_PATHS or STRUCTURE_PATHS file and no import line, so about 58% of builds start clean
 # on their own and a run of more than 10 incremental builds is rare (0.42^10). CLEAN_EVERY
-# bounds that tail anyway: after 10 incremental builds the next one is clean.
+# bounds that tail anyway: every 10th build is clean (a clean one, then at most 9 incremental).
 CLEAN_EVERY = 10
 INCREMENTAL_STATE = 'incremental.json'
 KEY_PATHS = re.compile(r'(^|/)(Package\.resolved|Cargo\.lock|build\.zig\.zon|rust-toolchain(\.toml)?|\.xcode-version'
                        r'|cef-manifest\.json|ensure-cef\.sh|ensure-remote-browser-host\.sh|download-prebuilt-ghosttykit\.sh)$')
 # An import or include line added or removed in a source file: the import set changes, the audited
-# case for stale autolink and force-load data in objects that were not recompiled.
+# case for stale autolink and force-load data in objects that were not recompiled. A changed
+# conditional-compilation line (#if, #elseif, #else, #endif, #ifdef, #ifndef, #elif) counts too: it can
+# switch an unchanged import line in or out.
 IMPORT_SOURCES = ('*.swift', '*.h', '*.hh', '*.hpp', '*.hxx', '*.inc', '*.def', '*.m', '*.mm', '*.c', '*.cc',
                   '*.cpp', '*.cxx', '*.modulemap', '*.apinotes')
 IMPORT_LINE = re.compile(r'^[+-](?![+-]).*\bimport\s|^[+-]\s*#\s*(import|include|include_next)\b'
-                         r'|^[+-]\s*@import\b')
+                         r'|^[+-]\s*@import\b'
+                         r'|^[+-](?![+-])\s*#\s*(if|ifdef|ifndef|elif|elseif|else|endif)\b')
 STRUCTURE_PATHS = re.compile(r'(^|/)(Package\.swift|[^/]+\.pbxproj|[^/]+\.xcconfig|[^/]+\.modulemap'
                              r'|[^/]+\.xcscheme|[^/]+\.entitlements|[^/]+\.xcfilelist)$')
 NOTICES_CACHE = 'notices-crates'
@@ -121,16 +124,22 @@ def structure_changed(workspace: Path, since: str) -> str | None:
         if line.startswith('+++ b/'):
             current = line[6:]
         elif IMPORT_LINE.search(line):
-            return f'an import in {current or "a source file"}'
+            return f'an import or a conditional-compilation line in {current or "a source file"}'
     return ''
 
 
-def since_clean(state: dict) -> int | None:
-    """The state's count of incremental builds since a clean one, or None when it is not a count."""
-    value = state.get('since_clean', 0)
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        return None
-    return value
+def checkpoint_complete(state: dict) -> bool:
+    """Whether the kept state has every field, each of its type: key and sha strings, built a bool and
+    since_clean a non-negative count. Anything else is a clean build."""
+    count = state.get('since_clean')
+    return (isinstance(state.get('key'), str) and isinstance(state.get('sha'), str)
+            and isinstance(state.get('built'), bool)
+            and isinstance(count, int) and not isinstance(count, bool) and count >= 0)
+
+
+def since_clean(state: dict) -> int:
+    """The state's count of incremental builds since a clean one (0 when it is not a complete checkpoint)."""
+    return state['since_clean'] if checkpoint_complete(state) else 0
 
 
 def read_state(state_file: Path) -> dict:
@@ -146,7 +155,9 @@ def clean_reason(state: dict, key: str, workspace: Path) -> str:
     """Why this build must start clean, or '' to build incrementally."""
     if not state:
         return 'no earlier build on this builder'
-    if not state.get('built'):
+    if not checkpoint_complete(state):
+        return 'the kept build state is malformed'
+    if state['built'] is not True:
         return 'the last build did not finish'
     if state.get('key') != key:
         return 'the toolchain, a lockfile or a submodule changed'
@@ -155,11 +166,8 @@ def clean_reason(state: dict, key: str, workspace: Path) -> str:
         return 'the last built commit cannot be compared'
     if changed:
         return f'{changed} changed (module or link structure)'
-    count = since_clean(state)
-    if count is None:
-        return 'the kept build state is malformed'
-    if count >= CLEAN_EVERY:
-        return f'{CLEAN_EVERY} incremental builds since the last clean one'
+    if since_clean(state) + 1 >= CLEAN_EVERY:
+        return f'every {CLEAN_EVERY}th build is clean ({CLEAN_EVERY - 1} incremental since the last clean one)'
     return ''
 
 
@@ -185,7 +193,7 @@ def prepare_incremental(workspace: Path, runner_state: Path, identity: str, key:
     derived_data.mkdir(parents=True, exist_ok=True)
     head = git(workspace, 'rev-parse', 'HEAD').strip()
     state = {'key': key, 'sha': head, 'built': False,
-             'since_clean': 0 if reason else (since_clean(state) or 0) + 1}
+             'since_clean': 0 if reason else since_clean(state) + 1}
     kept.mkdir(parents=True, exist_ok=True)
     temporary = state_file.with_suffix('.tmp')
     temporary.write_text(json.dumps(state, sort_keys=True))
@@ -203,12 +211,18 @@ def mark_built(workspace: Path, home: Path, runner: str) -> bool:
     if (home / STATE_ROOT / runner).resolve() not in state_file.parents:
         return False
     state = read_state(state_file)
-    if not state:
+    if not checkpoint_complete(state):
         return False
     state['built'] = True
     temporary = state_file.with_suffix('.tmp')
-    temporary.write_text(json.dumps(state, sort_keys=True))
-    temporary.replace(state_file)
+    # Best effort: a write that fails leaves the checkpoint unfinished, so the next build is clean.
+    try:
+        temporary.write_text(json.dumps(state, sort_keys=True))
+        temporary.replace(state_file)
+    except OSError as error:
+        print(f'::warning title=nightly build state::could not mark the build finished ({error}); '
+              'the next build starts clean')
+        return False
     return True
 
 
