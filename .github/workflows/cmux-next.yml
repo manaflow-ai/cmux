@@ -4492,6 +4492,59 @@ jobs:
       # A feat-cmux-next push's DEV Release app is dev-landing-compile's (one producer of the
       # run's cmux-next-dev-daily-unsigned-<sha>); this job builds it on a push only while
       # vars.CMUX_NEXT_DEV_LANDING_COMPILE is 0.
+      # The Linux whole-app build plans from the rules of one real Mac build of the same shape
+      # (its REF). With CMUX_NEXT_HYBRID_REF_CAPTURE=1 this compile records them, on a mini only,
+      # when the inputs that change build lines (scripts/cmux-next/hybrid_ref_capture.py key)
+      # have no complete capture yet; most landings share a key and skip it.
+      # tests/test_cmux_next_hybrid_ref_capture.py keeps HYBRID_REF_SETTINGS equal to the compile's.
+      - name: Decide the Linux build's REF capture
+        id: hybrid-ref
+        # Before the product lookup: a key with no capture compiles instead of reusing a product
+        # (a reused product compiles nothing, so there would be no build to capture).
+        if: vars.CMUX_NEXT_HYBRID_REF_CAPTURE == '1' && ((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current == 'true' && (format('{0}', vars.CMUX_NEXT_DEV_LANDING_COMPILE) == '0' || github.repository != 'manaflow-ai/cmux')) || (github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && github.ref == 'refs/heads/feat-cmux-next' && ((inputs.same_tree_sha == '' && inputs.dev_daily_sha == github.sha && needs.push-head-preflight.outputs.current == 'true') || (inputs.same_tree_sha != '' && inputs.dev_daily_sha == inputs.same_tree_sha && inputs.same_tree_state == 'ready'))))
+        continue-on-error: true
+        # The lookup waits out a rate limit for at most 10 minutes (hybrid_ref_capture.py have).
+        timeout-minutes: 12
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # The compile step's build-line settings, one NAME=VALUE a line (not as env: only the
+          # compile step may carry them).
+          HYBRID_REF_SETTINGS: |
+            CMUX_NEXT_CONFIGURATION=Release
+            CMUX_NEXT_PRODUCT_NAME=cmux NEXT DEV
+            CMUX_NEXT_BUNDLE_ID=com.cmuxterm.app.debug.next
+            CMUX_NEXT_CODE_SIGN_ENTITLEMENTS=cmux.next-dev.entitlements
+            CMUX_NEXT_AUTH_CALLBACK_SCHEME=cmux-next-dev
+            CMUX_NEXT_TUI_MODE=tree
+            CMUX_NEXT_BROWSER_DATA_IMPORT=compiled-out
+            CMUX_NEXT_SWIFT_COMPILATION_MODE=${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'singlefile' }}
+        run: |
+          set -euo pipefail
+          # This step runs early in the job (before the lookup's waits): the capture step's fallback
+          # for the job's start when its own jobs read fails (a rate limit that outlasts this lookup).
+          echo "started=$(date +%s)" >> "$GITHUB_OUTPUT"
+          if [[ "$CMUX_NEXT_RUNNER" != glaeda-* ]]; then echo "capture=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          key="$(python3 -I scripts/cmux-next/hybrid_ref_capture.py key .)"
+          # Readable complete captures of the key (unexpired, under 13 days old: the store keeps the
+          # packs 14 days). A rate limit is waited out; a lookup that still fails captures anyway and
+          # fails this step, so the run shows it (40428066457 lost its capture to a silent rate limit).
+          # compile=true skips the product reuse so there is a build to capture, unless a capture of
+          # this key came out incomplete in the last day (then only a build that compiles anyway
+          # captures, and a key that never captures whole cannot turn reuse off for every landing).
+          if have="$(python3 -I scripts/cmux-next/hybrid_ref_capture.py have --key "$key" --repo "$GITHUB_REPOSITORY" --budget 600)"; then
+            complete="$(sed -n 's/^complete=//p' <<< "$have")" incomplete="$(sed -n 's/^recent_incomplete=//p' <<< "$have")"
+            capture=false compile=false
+            [[ "$complete" == 0 ]] && capture=true
+            [[ "$capture" == true && "$incomplete" == 0 ]] && compile=true
+            echo "REF key $key: readable complete captures $complete, incomplete today $incomplete, capture $capture, compile $compile"
+            printf 'key=%s\ncapture=%s\ncompile=%s\n' "$key" "$capture" "$compile" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Unknown: capture, and compile so there is a build to capture (a lookup that fails for
+          # 10 minutes is rare; a lost capture costs the Linux build its REF).
+          printf 'key=%s\ncapture=true\ncompile=true\n' "$key" >> "$GITHUB_OUTPUT"
+          echo "::error title=REF capture lookup failed::the capture artifact lookup for REF key $key failed (log above); compiling and capturing anyway"
+          exit 1
       # The DEV Release app is reused, not recompiled, when nothing it is built from changed
       # (scripts/ci/dev_release_product_reuse.py): the key is job_input_fingerprint.py
       # dev-release-product (the tree minus docs, tests and other products, this workflow, Xcode,
@@ -4509,7 +4562,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           # format(): an unset variable is null, and null == '0' is true (both coerce to the number 0).
-          SKIP_REASON: ${{ inputs.no_reuse == true && 'no_reuse dispatch' || format('{0}', vars.CI_NEXT_DEV_PRODUCT_REUSE) == '0' && 'vars.CI_NEXT_DEV_PRODUCT_REUSE is 0' || '' }}
+          SKIP_REASON: ${{ inputs.no_reuse == true && 'no_reuse dispatch' || steps.hybrid-ref.outputs.compile == 'true' && 'a REF capture needs a real compile' || format('{0}', vars.CI_NEXT_DEV_PRODUCT_REUSE) == '0' && 'vars.CI_NEXT_DEV_PRODUCT_REUSE is 0' || '' }}
           # A repository variable the compile step reads changes the product but not this file: key it.
           SWIFT_COMPILATION_MODE: ${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'singlefile' }}
         run: |
@@ -4677,43 +4730,6 @@ jobs:
           retention-days: 3
 
       # A current feat-cmux-next push also produces the Release app consumed by
-      # The Linux whole-app build plans from the rules of one real Mac build of the same shape
-      # (its REF). With CMUX_NEXT_HYBRID_REF_CAPTURE=1 this compile records them, on a mini only,
-      # when the inputs that change build lines (scripts/cmux-next/hybrid_ref_capture.py key)
-      # have no complete capture yet; most landings share a key and skip it.
-      # tests/test_cmux_next_hybrid_ref_capture.py keeps HYBRID_REF_SETTINGS equal to the compile's.
-      - name: Decide the Linux build's REF capture
-        id: hybrid-ref
-        # A reused product compiles nothing, so its capture step finds no build mode and skips.
-        if: vars.CMUX_NEXT_HYBRID_REF_CAPTURE == '1' && steps.dev-product.outcome == 'success'
-        continue-on-error: true
-        timeout-minutes: 1
-        env:
-          GH_TOKEN: ${{ github.token }}
-          # The compile step's build-line settings, one NAME=VALUE a line (not as env: only the
-          # compile step may carry them).
-          HYBRID_REF_SETTINGS: |
-            CMUX_NEXT_CONFIGURATION=Release
-            CMUX_NEXT_PRODUCT_NAME=cmux NEXT DEV
-            CMUX_NEXT_BUNDLE_ID=com.cmuxterm.app.debug.next
-            CMUX_NEXT_CODE_SIGN_ENTITLEMENTS=cmux.next-dev.entitlements
-            CMUX_NEXT_AUTH_CALLBACK_SCHEME=cmux-next-dev
-            CMUX_NEXT_TUI_MODE=tree
-            CMUX_NEXT_BROWSER_DATA_IMPORT=compiled-out
-            CMUX_NEXT_SWIFT_COMPILATION_MODE=${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'singlefile' }}
-        run: |
-          set -euo pipefail
-          if [[ "$CMUX_NEXT_RUNNER" != glaeda-* ]]; then echo "capture=false" >> "$GITHUB_OUTPUT"; exit 0; fi
-          key="$(python3 -I scripts/cmux-next/hybrid_ref_capture.py key .)"
-          # A complete capture counts while its packs are still readable in the store (14 days from
-          # their upload; the manifest artifact keeps the same 14 days).
-          since="$(date -u -v-13d +%Y-%m-%dT%H:%M:%SZ)"
-          have="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=hybrid-ref-capture-$key&per_page=100" \
-            --jq "[.artifacts[] | select(.expired == false and .created_at >= \"$since\")] | length")"
-          capture=false
-          [[ "$have" == 0 ]] && capture=true
-          echo "REF key $key: readable complete captures $have, capture $capture"
-          printf 'key=%s\ncapture=%s\n' "$key" "$capture" >> "$GITHUB_OUTPUT"
       # cmux-next-dev-daily.yml. Keep this separate from the Debug dogfood
       # product: the daily channel has its own stable identity and must never
       # replace the existing PR artifact.
@@ -4929,16 +4945,19 @@ jobs:
           DERIVED_DATA: ${{ steps.compile-cmux-next-dev-release.outputs.derived_data }}
           DEV_DAILY_SHA: ${{ inputs.dev_daily_sha || github.sha }}
           KEY: ${{ steps.hybrid-ref.outputs.key }}
+          DECIDE_STARTED: ${{ steps.hybrid-ref.outputs.started }}
           SNAPSHOT: ${{ steps.compile-cmux-next-dev-release.outputs.snapshot }}
         run: |
           set -euo pipefail
           trap 'rm -rf -- "$SNAPSHOT"' EXIT
           # This job holds the push compile slot and has a 60 minute limit. The capture (8 minutes at
           # most) and its manifest upload (2) start only while the job, timed from its own start, is
-          # under 40 minutes; an unknown start skips it. A skipped capture is taken by the next landing.
+          # under 40 minutes; with no jobs read the decide step's start stands in, and an unknown
+          # start skips it. A skipped capture is taken by the next landing.
           started="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100" \
             --jq '.jobs[] | select(.runner_name == env.RUNNER_NAME and .status == "in_progress") | .started_at' | head -1)" || started=""
           started="$(date -j -u -f %Y-%m-%dT%H:%M:%SZ "$started" +%s 2>/dev/null)" || started=""
+          [[ -n "$started" ]] || started="$DECIDE_STARTED"
           if [[ -z "$started" ]] || (( $(date +%s) - started > 40 * 60 )); then
             echo "::notice::REF capture skipped: the job started ${started:+$(( ($(date +%s) - started) / 60 )) minutes ago}${started:-at an unknown time}"
             exit 0
@@ -4954,7 +4973,7 @@ jobs:
         timeout-minutes: 2
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: hybrid-ref-capture-${{ steps.hybrid-ref.outputs.key }}${{ steps.hybrid-ref-capture.outputs.complete != 'true' && format('-incomplete-{0}', github.run_id) || '' }}
+          name: ${{ steps.hybrid-ref-capture.outputs.complete != 'true' && 'hybrid-ref-capture-incomplete-' || 'hybrid-ref-capture-' }}${{ steps.hybrid-ref.outputs.key }}
           path: ${{ steps.hybrid-ref-capture.outputs.manifest }}
           if-no-files-found: error
           retention-days: 14
