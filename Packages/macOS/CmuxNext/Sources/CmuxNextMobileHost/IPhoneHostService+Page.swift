@@ -1,4 +1,4 @@
-import CmuxNextMobile
+public import CmuxNextMobile
 public import CmuxNextSettings
 import Foundation
 

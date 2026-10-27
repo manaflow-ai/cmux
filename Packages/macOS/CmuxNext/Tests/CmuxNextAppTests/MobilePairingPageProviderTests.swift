@@ -40,8 +40,8 @@ import Testing
 
         _ = try await provider.call(MobilePairingPageProvider.setAllowedOp, params: ["on": true],
                                     context: PageCallContext(page: "cmux.mobile-pairing", userGesture: true))
-        #expect(fake.writes.map(\.0) == [MobileSettings.allowIPhoneConnectionsPath])
-        #expect(fake.writes.map(\.1) == [.bool(true)])
+        #expect(fake.writes.map { $0.0 } == [MobileSettings.allowIPhoneConnectionsPath])
+        #expect(fake.writes.map { $0.1 } == [.bool(true)])
 
         let on = try await provider.call(MobilePairingPageProvider.statusOp, params: .object([:]), context: PageCallContext(page: "cmux.mobile-pairing"))
         #expect(on["allowed"] == .bool(true))
