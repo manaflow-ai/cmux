@@ -260,20 +260,21 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarFooter, .view, 110)])
             ),
             // `sidebar.noFade` (Lawrence 2026-10-26): the whole list shows with no edge fade, and the
-            // profile and search bar hides. Cmd+Shift+P shows the one that applies.
+            // profile and search bar hides. Cmd+Shift+P shows the one that applies. In the sidebar
+            // menu they sit in Options, so the top level keeps at most 12 rows.
             ActionDescriptor(
                 id: "sidebar.noFade.on", title: t("action.sidebar.noFade.on", "Show Whole Sidebar (No Fade)"),
                 keywords: ["sidebar", "fade", "whole", "full", "everything", "edges", "profile", "search", "footer", "show", "hide"],
                 category: .sidebar, symbol: "rectangle.expand.vertical",
                 surfaces: [.palette, .contextMenu],
-                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 120)])
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 135, folder: .options)])
             ),
             ActionDescriptor(
                 id: "sidebar.noFade.off", title: t("action.sidebar.noFade.off", "Restore Sidebar Fade"),
                 keywords: ["sidebar", "fade", "restore", "edges", "profile", "search", "footer", "show", "unhide"],
                 category: .sidebar, symbol: "rectangle.compress.vertical",
                 surfaces: [.palette, .contextMenu],
-                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 125)])
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 136, folder: .options)])
             ),
             // Leo (2026-10-06): Group ▸ in the sidebar's menu picks how the
             // Projects list buckets its loose rows (`sidebar.groupBy`).
