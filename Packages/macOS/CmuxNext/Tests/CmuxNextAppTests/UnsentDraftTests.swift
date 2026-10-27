@@ -1,4 +1,4 @@
-import CmuxNextAgentPane
+@testable import CmuxNextAgentPane
 import Foundation
 import Testing
 @testable import CmuxNextApp

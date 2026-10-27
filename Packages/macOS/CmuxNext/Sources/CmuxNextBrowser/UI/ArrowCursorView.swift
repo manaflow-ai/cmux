@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextCompat
+import CmuxNextDesign
 
 /// A toolbar row that shows the arrow over its whole frame and the I-beam
 /// over the omnibar's text area (`OmnibarPointer`).
@@ -9,7 +10,7 @@ import CmuxNextCompat
 /// (`WindowKeyFamily`), so the toolbar's rects did nothing and the arrow
 /// stayed over the omnibar until a click made the parent key (Lawrence
 /// 2026-10-13). The row also sets the cursor itself on every pointer move
-/// over it, with a tracking area that works in any window state, and again
+/// over it, with a tracking area that works in any window of the active app, and again
 /// after the app handled a move while a child window has the key
 /// (`pointerDidMove`). The rects stay for the key window; subviews with
 /// their own rects (the editing omnibar text) take precedence inside it.
@@ -44,7 +45,7 @@ public class ArrowCursorView: NSView {
         // past the end of the text in a window that was not key).
         guard cursorArea == nil else { return }
         cursorTracker.row = self
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeForHover, .inVisibleRect],
                                   owner: cursorTracker)
         addTrackingArea(area)
         cursorArea = area

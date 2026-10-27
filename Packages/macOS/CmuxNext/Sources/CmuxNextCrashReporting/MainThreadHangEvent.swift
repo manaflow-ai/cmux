@@ -16,6 +16,9 @@ public nonisolated struct MainThreadHangEvent: Sendable {
     /// What the main thread was in when sampled (the watchdog's `Hang.phase`, `cef_pump`), as the
     /// `main_thread_phase` tag; nil sets no tag.
     public let phase: String?
+    /// The watchdog's sample caught the main thread inside the Chromium message pump (its `Hang.cef`): the
+    /// `hang.cef` tag (`true`); false sets no tag.
+    public let cef: Bool
     /// What the main thread ran: the scheduled task's owner, class and posting location and the
     /// run-loop turn so far (the `hang_owner` and `hang_class` tags, the `hang_location` and `turn_ms`
     /// extras); nil sets none.
@@ -43,11 +46,12 @@ public nonisolated struct MainThreadHangEvent: Sendable {
     }
 
     public init(duration: Duration, addresses: [UInt], otherThreads: [(name: String, addresses: [UInt])] = [], phase: String? = nil,
-                attribution: Attribution? = nil) {
+                cef: Bool = false, attribution: Attribution? = nil) {
         self.duration = duration
         self.addresses = addresses
         self.otherThreads = otherThreads
         self.phase = phase
+        self.cef = cef
         self.attribution = attribution
     }
 
@@ -92,6 +96,7 @@ public nonisolated struct MainThreadHangEvent: Sendable {
         event.debugMeta = Self.debugMeta(images)
         event.tags = ["hang_source": "main_thread_watchdog"]
         if let phase { event.tags?["main_thread_phase"] = phase }
+        if cef { event.tags?["hang.cef"] = "true" }
         event.extra = ["hang_ms": Int(duration / .milliseconds(1))]
         if let attribution {
             event.tags?["hang_owner"] = attribution.owner
@@ -211,9 +216,9 @@ extension CrashReporter {
     /// Does nothing when crash reporting is off.
     public nonisolated func reportHang(duration: Duration, addresses: [UInt],
                                        otherThreads: [(name: String, addresses: [UInt])] = [], phase: String? = nil,
-                                       attribution: MainThreadHangEvent.Attribution? = nil) {
+                                       cef: Bool = false, attribution: MainThreadHangEvent.Attribution? = nil) {
         guard isStarted else { return }
         SentrySDK.capture(event: MainThreadHangEvent(duration: duration, addresses: addresses, otherThreads: otherThreads,
-                                                     phase: phase, attribution: attribution).event())
+                                                     phase: phase, cef: cef, attribution: attribution).event())
     }
 }
