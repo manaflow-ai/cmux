@@ -71,7 +71,10 @@ export function animateScrollBy(
     (progress) => {
       const before = node.scrollTop;
       const fraction = previous === 1 ? 1 : (progress - previous) / (1 - previous);
-      node.scrollTop += left() * fraction;
+      const by = left() * fraction;
+      // WebKit floors scrollTop: a tiny negative tail must not become one extra pixel. Rounding
+      // only the final wheel delta preserves fractional layout-anchor offsets and exact end rides.
+      node.scrollTop += progress === 1 && !toEnd ? Math.round(by) : by;
       remaining -= node.scrollTop - before;
       previous = progress;
     },
