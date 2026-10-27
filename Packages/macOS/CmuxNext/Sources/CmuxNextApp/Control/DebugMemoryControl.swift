@@ -9,6 +9,11 @@ import CmuxNextSettings
 /// schemas/debug-memory/debug-memory.schema.json. The analog of Chrome's `chrome://memory-internals`
 /// (`chrome/browser/ui/webui/memory_internals/memory_internals_ui.cc`).
 ///
+/// `spares` lists every spare by pool, each with its process and bytes: the page spares, Chromium's spare
+/// windows (their placeholder's renderer) and Chromium's own spare renderer, a sampled renderer helper that
+/// runs no page the app holds (``MemoryDiagnosticsSnapshot/rendererClientsInUse``), as Chrome's Task Manager
+/// shows its "Spare Renderer" row. With `chromiumOneSpareRenderer`, Home keeps at most one (p07-memory-113).
+///
 /// It owns the pressure history, so `debug.hibernation.pressure` records its overrides in the same one.
 /// A read records nothing: the histograms' footprints come from ``MemoryFootprintEmitter``, as a
 /// `chrome://memory-internals` read adds no sample to Chrome's memory histograms.

@@ -22,6 +22,17 @@ extension AppServices {
         return folder
     }
 
+    /// Chromium's spare policy from the features, before anything can start Chromium: its switches read
+    /// them at start (`CEFRuntime.initialize`), and the first spare window its placeholder's kind.
+    func configureChromiumSpares() {
+        let spareAfterFirstTab = features.isEnabled(.chromiumSpareAfterFirstTab)
+        cache.cef.spareAfterFirstTab = { spareAfterFirstTab }
+        // A spare's placeholder has no renderer where the fork can (p13-webui-019).
+        cache.cef.setRendererlessSpareWindows(features.isEnabled(.rendererlessSpareWindow))
+        // At most one Chromium spare renderer: Chromium's own, or the placeholder's (p07-memory-113).
+        cache.cef.setOneSpareRenderer(features.isEnabled(.chromiumOneSpareRenderer))
+    }
+
     /// Starts the launch preload and the likelihood observers. With the Chromium Host, Chromium's start holds the
     /// main thread only for its shim calls (the host spawns and attaches off main, the start's disk reads run off
     /// main), so once the launch's restore finished, one startup post starts it where ``ChromiumHostLaunchStart``
@@ -56,8 +67,6 @@ extension AppServices {
         // cmux pages follow `browser.defaultEngine` (ChromiumPageHost): with the feature, their profile
         // keeps a spare window too, so a page's key joins a live window (p13-webui-016).
         let pagesSpare = features.isEnabled(.pagesSpareWindow)
-        // Before the first spare: its placeholder has no renderer where the fork can (p13-webui-019).
-        cache.cef.setRendererlessSpareWindows(features.isEnabled(.rendererlessSpareWindow))
         chromiumWarmup.start(defaultIsChromium: { preference.defaultEngine == .chromium },
                              pagesPending: { [weak cache] in cache?.hasPendingPages == true },
                              pagesSpare: { pagesSpare && preference.defaultEngine == .chromium })

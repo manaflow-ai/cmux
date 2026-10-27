@@ -29,6 +29,7 @@ import Testing
         var memoryTerminal = MemoryDiagnosticsSnapshot.Terminal(warmCapacity: 8, surfaces: 2, rendering: 1,
                                                                 hiddenNonvolatileIOSurfaceBytes: nil, lastFrames: 0)
         var memorySpares: [MemoryDiagnosticsSnapshot.Spare] = []
+        var memoryRendererClientsInUse: Set<Int32>?
 
         func workspaceMounts() -> (onScreen: Set<String>, parked: Set<String>) { (onScreen, parked) }
         func contentPhase(_ tabID: String) -> ContentLifecycle<String>.Phase { phases[tabID] ?? .unmounted }

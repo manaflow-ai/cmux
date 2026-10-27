@@ -90,16 +90,22 @@ public nonisolated struct MemoryDiagnosticsSnapshot: Sendable {
     }
 
     public nonisolated struct Spare: Sendable {
-        /// The pool: `new_tab` or `page_host`.
+        /// The pool: `new_tab`, `page_host`, or a Chromium spare window, `chromium_window` (the default
+        /// profile's) or `chromium_pages_window` (the cmux pages profile's). Chromium's own spare renderer
+        /// is no snapshot row: the report finds it among the sampled helpers (``rendererClientsInUse``).
         public var pool: String
         public var processKind: MemoryDiagnosticsProcesses.Kind
         /// The spare's process; nil while it has none or the pool cannot tell.
         public var pid: Int32?
+        /// A Chromium spare's renderer client ids (its placeholder page's), mapped to the helper's pid when
+        /// sampled; empty for a WebKit spare and for a placeholder with no renderer.
+        public var rendererClients: [Int32]
 
-        public init(pool: String, processKind: MemoryDiagnosticsProcesses.Kind, pid: Int32?) {
+        public init(pool: String, processKind: MemoryDiagnosticsProcesses.Kind, pid: Int32?, rendererClients: [Int32] = []) {
             self.pool = pool
             self.processKind = processKind
             self.pid = pid
+            self.rendererClients = rendererClients
         }
     }
 
@@ -115,12 +121,18 @@ public nonisolated struct MemoryDiagnosticsSnapshot: Sendable {
     public var workspaces: [Workspace]
     public var terminal: Terminal
     public var spares: [Spare]
+    /// The renderer client ids of every Chromium page the app holds (tabs, cmux pages, the spare windows'
+    /// placeholders); nil when it was not read. A sampled renderer helper outside it runs no page: the
+    /// report lists it as Chromium's own spare renderer (`chromium_spare_renderer`,
+    /// `SpareRenderProcessHostManager`, which Chrome's Task Manager shows as its "Spare Renderer" row,
+    /// chrome/browser/task_manager/providers/spare_render_process_host_task_provider.cc).
+    public var rendererClientsInUse: Set<Int32>?
     /// The local memory histograms (``MemoryHistograms``).
     public var histograms: MemoryHistograms.Snapshot
 
     public init(report: MemoryReport, kernelLevel: MemoryPressureLevel, override: MemoryPressureLevel?,
                 history: MemoryPressureHistory.Snapshot, tabs: [Tab], workspaces: [Workspace], terminal: Terminal,
-                spares: [Spare], histograms: MemoryHistograms.Snapshot = .empty) {
+                spares: [Spare], rendererClientsInUse: Set<Int32>? = nil, histograms: MemoryHistograms.Snapshot = .empty) {
         self.report = report
         self.kernelLevel = kernelLevel
         self.override = override
@@ -129,6 +141,7 @@ public nonisolated struct MemoryDiagnosticsSnapshot: Sendable {
         self.workspaces = workspaces
         self.terminal = terminal
         self.spares = spares
+        self.rendererClientsInUse = rendererClientsInUse
         self.histograms = histograms
     }
 

@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "chromiumOneSpareRenderer",
+  "owner": "PL-memory",
+  "description": "At most one Chromium spare renderer, as Chrome keeps one: while a spare Chromium window's placeholder still holds a renderer, Chromium's own spare renderer is off and only the default profile keeps a spare window; with renderer-less placeholders Chromium's own spare is the one.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["home-idle"],
+  "sticky": false,
+  "runtimeMutable": false
+}

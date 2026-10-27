@@ -18,6 +18,10 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// The default-off feature `chromiumSpareAfterFirstTab`: pass the fork's spare renderer policy
     /// (`spareRendererAfterFirstTab`).
     var spareAfterFirstTab = false
+    /// Chromium's own spare renderer is off (``spareRendererFeature`` in the one `disable-features`
+    /// entry): the default-off feature `chromiumOneSpareRenderer` while the spare windows' placeholders
+    /// hold a renderer, which is then the one spare (``CEFSpareWindow/keepsChromiumSpare``).
+    var chromiumSpareOff = false
     /// Development builds share one ad hoc identity per tag; the real
     /// keychain would prompt for "Chromium Safe Storage" on every rebuild.
     var useMockKeychain: Bool
@@ -68,16 +72,6 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// content/browser/renderer_host/render_frame_host_manager.cc asks
     /// `DevToolsAgentHost::WasEverAttachedToAnyFrame` for the whole browser instead.
     static let processReusePerRendererDevTools = "cmux-process-reuse-per-renderer-devtools"
-    /// Chrome keeps one spare renderer (live, no site lock, no document) for the profile that
-    /// last took a new process (`content/browser/renderer_host/spare_render_process_host_manager_impl.cc`
-    /// PrepareForFutureRequests). On desktop it has no destroy timer (StartDestroyTimer gets a
-    /// timeout only with Android's kAndroidWarmUpSpareRendererWithTimeout), and
-    /// kKillSpareRenderOnMemoryPressure is disabled by default: memory pressure only refuses a
-    /// new spare. With this fork switch (manaflow-ai/cef `cp/p13-webui-020`) a profile gets a
-    /// spare only after one of its browser tabs starts an http(s) navigation, so the cmux pages
-    /// profile, extension background pages and the spare windows should never make one. The
-    /// spare keeps Chrome desktop's lifetime. Older forks ignore the switch.
-    static let spareRendererAfterFirstTab = "cmux-spare-renderer-after-first-tab"
 
     var arguments: [String] {
         var result: [String] = []
@@ -108,8 +102,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // One entry: the shim merges it into CEF's own list (CEFShim/src/command_line_switches.h),
         // and Chromium passes the list to every child process.
         result.append("enable-features=" + enabledFeatures.joined(separator: ","))
-        if !disabledChromiumFeatures.isEmpty {
-            result.append("disable-features=" + disabledChromiumFeatures.joined(separator: ","))
+        if !disabledFeatures.isEmpty {
+            result.append("disable-features=" + disabledFeatures.joined(separator: ","))
         }
         // Chrome shares a renderer between at most 2 main frames of one site below its process
         // limit (kProcessPerSiteUpToMainFrameThreshold), but Chromium 154 turns that off for the
@@ -176,7 +170,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // run times (p14-energy-046).
         // A feature the app turns off leaves this entry, so the two lists never name one feature.
         let named = [Self.chromePromptOffFeature] + Self.wakeUpAlignmentFeatures + Self.idleSourceOffFeatures
-        let disabled = Set(disabledChromiumFeatures)
+        let disabled = Set(disabledFeatures)
         for feature in named + chromiumFeatures
         where !features.contains(feature) && !disabled.contains(Self.featureName(of: feature)) {
             features.append(feature)
@@ -324,6 +318,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         chromiumFeatures: [String] = [],
         disabledChromiumFeatures: [String] = [],
         spareAfterFirstTab: Bool = false,
+        chromiumSpareOff: Bool = false,
         bundleIdentifier: String?,
         environment: [String: String],
         builtInExtensions: [String] = [],
@@ -355,6 +350,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             chromiumFeatures: chromiumFeatures,
             disabledChromiumFeatures: disabledChromiumFeatures,
             spareAfterFirstTab: spareAfterFirstTab,
+            chromiumSpareOff: chromiumSpareOff,
             useMockKeychain: dev,
             loadExtensions: extensions,
             builtInExtensions: builtInExtensions,

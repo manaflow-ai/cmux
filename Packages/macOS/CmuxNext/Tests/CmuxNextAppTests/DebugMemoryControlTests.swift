@@ -213,6 +213,43 @@ import Testing
         #expect(json["spares"] == [["pool": "new_tab", "process_kind": "webkit_webcontent", "pid": 950, "bytes": 41_000_000]])
     }
 
+    /// p07-memory-113: `spares` lists the Chromium spares by kind with process and bytes: a spare window
+    /// by its placeholder's renderer (null with none), and Chromium's own spare renderer, the sampled
+    /// renderer helper no page the app holds runs in. Extension renderers are no spare.
+    @Test func listsChromiumSparesByKind() async throws {
+        var snapshot = Self.snapshot(
+            tabs: [.init(key: "tab", kind: .browser, engine: .cef, state: .live, visible: true, processes: [.chromiumRendererClient(7)])],
+            spares: [.init(pool: "chromium_window", processKind: .chromiumRenderer, pid: nil, rendererClients: [3]),
+                     .init(pool: "chromium_pages_window", processKind: .chromiumRenderer, pid: nil)])
+        snapshot.rendererClientsInUse = [7, 3]
+        let rows: [MemoryDiagnosticsProcesses.Row] = [
+            .init(kind: .chromiumRenderer, pid: 812, physFootprintBytes: 62_000_000),
+            .init(kind: .chromiumRenderer, pid: 830, physFootprintBytes: 21_000_000),
+            .init(kind: .chromiumRenderer, pid: 840, physFootprintBytes: 24_000_000),
+            .init(kind: .chromiumRenderer, pid: 850, physFootprintBytes: 30_000_000),
+        ]
+        let renderers: [Int32: Int32] = [7: 812, 3: 830, 9: 840]
+        let read = snapshot
+        let json = try await call(router(rows: rows, renderers: renderers) { read })
+        #expect(json["spares"] == [
+            ["pool": "chromium_window", "process_kind": "chromium_renderer", "pid": 830, "bytes": 21_000_000],
+            ["pool": "chromium_pages_window", "process_kind": "chromium_renderer", "pid": nil, "bytes": nil],
+            ["pool": "chromium_spare_renderer", "process_kind": "chromium_renderer", "pid": 840, "bytes": 24_000_000],
+        ])
+        let document = try schema()
+        let pools = document["properties"]?.objectValue?["spares"]?.objectValue?["items"]?.objectValue?["properties"]?
+            .objectValue?["pool"]?.objectValue?["enum"]?.arrayValue?.compactMap(\.stringValue) ?? []
+        for spare in json["spares"]?.arrayValue ?? [] {
+            #expect(pools.contains(spare.objectValue?["pool"]?.stringValue ?? ""), "\(spare) is no schema pool")
+        }
+
+        // A snapshot that did not read the clients in use names no renderer Chromium's spare.
+        snapshot.rendererClientsInUse = nil
+        let unreadSnapshot = snapshot
+        let unread = try await call(router(rows: rows, renderers: renderers) { unreadSnapshot })
+        #expect(unread["spares"]?.arrayValue?.count == 2)
+    }
+
     /// A release router serves `debug.memory` (and drops other debug methods), and the answer has no
     /// URL, title or path even when an ID or a consumer name carries one.
     @Test func releaseServesItWithNoURLTitleOrPath() async throws {

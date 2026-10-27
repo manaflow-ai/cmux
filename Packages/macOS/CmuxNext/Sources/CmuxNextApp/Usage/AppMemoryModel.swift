@@ -72,7 +72,16 @@ struct AppMemoryModel: MemorySnapshotModel {
         if let host = services.pageHostPool.spareHost {
             spares.append(.init(pool: "page_host", processKind: .webkitWebContent, pid: Self.webContentProcess(of: host)))
         }
+        // Chromium's spare windows; their placeholder's renderer, when it has one, gives the pid (p07-memory-113).
+        for window in services.cache.cef.spareWindowRenderers {
+            spares.append(.init(pool: window.pool, processKind: .chromiumRenderer, pid: nil, rendererClients: window.rendererClients))
+        }
         return spares
+    }
+
+    var memoryRendererClientsInUse: Set<Int32>? {
+        let cef = services.cache.cef
+        return cef.isRunning ? cef.rendererClientsInUse : nil
     }
 
     /// The WebContent processes of the live WebKit pages, agent chats and spares, each once: what
