@@ -1,0 +1,323 @@
+{
+  "$schema": "../../../../schemas/oracle/case-v1.schema.json",
+  "corpusVersion": 1,
+  "id": "window-style-preview",
+  "suite": "live",
+  "title": "Window Style rows preview while selected and write only on Return",
+  "priority": "P1",
+  "surface": "cmux-next-native",
+  "source": {
+    "repo": "manaflow-ai/cmux",
+    "ref": "$RUN",
+    "artifact": "$RUN"
+  },
+  "environment": {
+    "engine": "none"
+  },
+  "fixture": {
+    "seed": "live.window-style-preview",
+    "network": "offline",
+    "clock": "fixed",
+    "agent": "mock"
+  },
+  "preconditions": [
+    "a fresh driver_app.py session: bench config, animations off, the mock agent pane",
+    "the launch's first workspace is shown with its terminal focused"
+  ],
+  "requires": [
+    "actions",
+    "gui",
+    "keys"
+  ],
+  "platforms": [
+    "mac"
+  ],
+  "steps": [
+    {
+      "id": "committed",
+      "op": "snapshot",
+      "args": {
+        "facets": [
+          "settings",
+          "overlays"
+        ]
+      }
+    },
+    {
+      "id": "open",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "cmd+shift+p"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "no app reply carries the ActionEffect kind yet (driver_app.py); the settled facets are the check"
+      },
+      "waitFor": {
+        "pointer": "/overlays/palette/open",
+        "maxMs": 10000,
+        "equals": true
+      },
+      "checkpoint": [
+        "before",
+        "turn",
+        "settled"
+      ]
+    },
+    {
+      "id": "query",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "w",
+          "i",
+          "n",
+          "d",
+          "o",
+          "w",
+          "space",
+          "s",
+          "t",
+          "y",
+          "l",
+          "e"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "typed text goes to the focused field or terminal, not to an action"
+      },
+      "waitFor": {
+        "pointer": "/overlays/palette/topIds",
+        "maxMs": 10000,
+        "predicate": "nonEmpty"
+      },
+      "checkpoint": [
+        "settled"
+      ]
+    },
+    {
+      "id": "down-1",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "down"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "no app reply carries the ActionEffect kind yet (driver_app.py); the settled facets are the check"
+      },
+      "checkpoint": [
+        "before",
+        "turn",
+        "settled"
+      ],
+      "note": "the selection moves; a Window Style row previews its style and writes nothing"
+    },
+    {
+      "id": "down-2",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "down"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "no app reply carries the ActionEffect kind yet (driver_app.py); the settled facets are the check"
+      },
+      "checkpoint": [
+        "before",
+        "turn",
+        "settled"
+      ],
+      "note": "the selection moves; a Window Style row previews its style and writes nothing"
+    },
+    {
+      "id": "down-3",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "down"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "no app reply carries the ActionEffect kind yet (driver_app.py); the settled facets are the check"
+      },
+      "checkpoint": [
+        "before",
+        "turn",
+        "settled"
+      ],
+      "note": "the selection moves; a Window Style row previews its style and writes nothing"
+    },
+    {
+      "id": "escape",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "escape"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "no app reply carries the ActionEffect kind yet (driver_app.py); the settled facets are the check"
+      },
+      "waitFor": {
+        "pointer": "/overlays/palette/open",
+        "maxMs": 10000,
+        "equals": false
+      },
+      "checkpoint": [
+        "before",
+        "turn",
+        "settled"
+      ]
+    },
+    {
+      "id": "reopen",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "cmd+shift+p"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "no app reply carries the ActionEffect kind yet (driver_app.py); the settled facets are the check"
+      },
+      "waitFor": {
+        "pointer": "/overlays/palette/open",
+        "maxMs": 10000,
+        "equals": true
+      },
+      "checkpoint": [
+        "before",
+        "turn",
+        "settled"
+      ]
+    },
+    {
+      "id": "query-again",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "w",
+          "i",
+          "n",
+          "d",
+          "o",
+          "w",
+          "space",
+          "s",
+          "t",
+          "y",
+          "l",
+          "e"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "typed text goes to the focused field or terminal, not to an action"
+      },
+      "waitFor": {
+        "pointer": "/overlays/palette/topIds",
+        "maxMs": 10000,
+        "predicate": "nonEmpty"
+      },
+      "checkpoint": [
+        "settled"
+      ]
+    },
+    {
+      "id": "pick",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "down"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "no app reply carries the ActionEffect kind yet (driver_app.py); the settled facets are the check"
+      },
+      "checkpoint": [
+        "before",
+        "turn",
+        "settled"
+      ],
+      "note": "the second row: a Window Style other than the committed default"
+    },
+    {
+      "id": "commit",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "return"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "no app reply carries the ActionEffect kind yet (driver_app.py); the settled facets are the check"
+      },
+      "waitFor": {
+        "pointer": "/settings/effectiveSha256",
+        "maxMs": 10000,
+        "predicate": "changed"
+      },
+      "checkpoint": [
+        "before",
+        "turn",
+        "settled"
+      ],
+      "note": "Return writes appearance.chromeStyle and closes the palette"
+    }
+  ],
+  "invariants": [
+    "converted from scripts/cmux-next/window-style-preview-live.py (p15-oracle-225); the script stays, and scripts/cmux-next/oracle/live-map.json links it to this case",
+    "/settings/effectiveSha256 and /settings/nonDefaultKeys are the same at every checkpoint from `committed` through `escape`: a preview writes nothing",
+    "after `commit` /settings/nonDefaultKeys holds appearance.chromeStyle and the palette is closed"
+  ],
+  "teardown": [
+    "the driver quits the tagged app it launched and ends the tag's daemons (TagTeardown)",
+    "the driver resets the session before the next case (app_reset.py)"
+  ],
+  "untested": [
+    "the previewed style itself (debug.pane_chrome chrome_style): no snapshot-v1 facet holds the window's drawn chrome style",
+    "window captures of each style"
+  ]
+}

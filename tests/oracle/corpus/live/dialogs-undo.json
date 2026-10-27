@@ -1,0 +1,416 @@
+{
+  "$schema": "../../../../schemas/oracle/case-v1.schema.json",
+  "corpusVersion": 1,
+  "id": "dialogs-undo",
+  "suite": "live",
+  "title": "Closing a workspace group or a tab group asks nothing and shows an undo toast",
+  "priority": "P1",
+  "surface": "cmux-next-native",
+  "source": {
+    "repo": "manaflow-ai/cmux",
+    "ref": "$RUN",
+    "artifact": "$RUN"
+  },
+  "environment": {
+    "engine": "none"
+  },
+  "fixture": {
+    "seed": "live.dialogs-undo",
+    "network": "offline",
+    "clock": "fixed",
+    "agent": "mock"
+  },
+  "preconditions": [
+    "a fresh driver_app.py session: bench config, animations off, the mock agent pane",
+    "the launch's first workspace is shown with its terminal focused"
+  ],
+  "requires": [
+    "actions",
+    "gui",
+    "keys"
+  ],
+  "platforms": [
+    "mac"
+  ],
+  "steps": [
+    {
+      "id": "make-group-member",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "the cli reply carries no ActionEffect kind the driver reads (driver_app.py op_cli); the settled facets are the check"
+      },
+      "args": {
+        "argv": [
+          "workspace",
+          "create",
+          "--name",
+          "dlg-g",
+          "--json",
+          "--focus"
+        ]
+      },
+      "waitFor": {
+        "pointer": "/topology/topology/workspaces",
+        "maxMs": 10000,
+        "predicate": "changed"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "a workspace named dlg-g; its reply's value holds workspace_id, pane_id, tab_id and terminal_id"
+    },
+    {
+      "id": "new-group",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "ctrl+cmd+g"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "no app reply carries the ActionEffect kind yet (driver_app.py); the settled facets are the check"
+      },
+      "waitFor": {
+        "pointer": "/sidebar/rows",
+        "maxMs": 10000,
+        "predicate": "changed"
+      },
+      "checkpoint": [
+        "before",
+        "turn",
+        "settled"
+      ],
+      "note": "New Workspace Group with the shown workspace"
+    },
+    {
+      "id": "close-group-open",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "cmd+shift+p"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "no app reply carries the ActionEffect kind yet (driver_app.py); the settled facets are the check"
+      },
+      "waitFor": {
+        "pointer": "/overlays/palette/open",
+        "maxMs": 10000,
+        "equals": true
+      },
+      "checkpoint": [
+        "before",
+        "turn",
+        "settled"
+      ]
+    },
+    {
+      "id": "close-group-query",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "c",
+          "l",
+          "o",
+          "s",
+          "e",
+          "space",
+          "w",
+          "o",
+          "r",
+          "k",
+          "s",
+          "p",
+          "a",
+          "c",
+          "e",
+          "s",
+          "space",
+          "i",
+          "n",
+          "space",
+          "g",
+          "r",
+          "o",
+          "u",
+          "p"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "typed text goes to the focused field or terminal, not to an action"
+      },
+      "waitFor": {
+        "pointer": "/overlays/palette/topIds",
+        "maxMs": 10000,
+        "predicate": "nonEmpty"
+      },
+      "checkpoint": [
+        "settled"
+      ]
+    },
+    {
+      "id": "close-group-return",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "return"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "no app reply carries the ActionEffect kind yet (driver_app.py); the settled facets are the check"
+      },
+      "waitFor": {
+        "pointer": "/topology/topology/workspaces",
+        "maxMs": 10000,
+        "predicate": "changed"
+      },
+      "checkpoint": [
+        "before",
+        "turn",
+        "settled"
+      ],
+      "note": "Close Workspaces in Group asks nothing for idle terminals and shows the workspace-group-closed toast"
+    },
+    {
+      "id": "make-tab-group",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "the cli reply carries no ActionEffect kind the driver reads (driver_app.py op_cli); the settled facets are the check"
+      },
+      "args": {
+        "argv": [
+          "workspace",
+          "create",
+          "--name",
+          "dlg-t",
+          "--json",
+          "--focus"
+        ]
+      },
+      "waitFor": {
+        "pointer": "/topology/topology/workspaces",
+        "maxMs": 10000,
+        "predicate": "changed"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "a workspace named dlg-t; its reply's value holds workspace_id, pane_id, tab_id and terminal_id"
+    },
+    {
+      "id": "tab-group-open",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "cmd+shift+p"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "no app reply carries the ActionEffect kind yet (driver_app.py); the settled facets are the check"
+      },
+      "waitFor": {
+        "pointer": "/overlays/palette/open",
+        "maxMs": 10000,
+        "equals": true
+      },
+      "checkpoint": [
+        "before",
+        "turn",
+        "settled"
+      ]
+    },
+    {
+      "id": "tab-group-query",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "n",
+          "e",
+          "w",
+          "space",
+          "t",
+          "a",
+          "b",
+          "space",
+          "g",
+          "r",
+          "o",
+          "u",
+          "p"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "typed text goes to the focused field or terminal, not to an action"
+      },
+      "waitFor": {
+        "pointer": "/overlays/palette/topIds",
+        "maxMs": 10000,
+        "predicate": "nonEmpty"
+      },
+      "checkpoint": [
+        "settled"
+      ]
+    },
+    {
+      "id": "tab-group-return",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "return"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "no app reply carries the ActionEffect kind yet (driver_app.py); the settled facets are the check"
+      },
+      "checkpoint": [
+        "before",
+        "turn",
+        "settled"
+      ],
+      "note": "New Tab Group from the shown tab (tab groups are in the daemon facet, which waitFor cannot read: the settle barrier is the wait)"
+    },
+    {
+      "id": "close-tab-group-open",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "cmd+shift+p"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "no app reply carries the ActionEffect kind yet (driver_app.py); the settled facets are the check"
+      },
+      "waitFor": {
+        "pointer": "/overlays/palette/open",
+        "maxMs": 10000,
+        "equals": true
+      },
+      "checkpoint": [
+        "before",
+        "turn",
+        "settled"
+      ]
+    },
+    {
+      "id": "close-tab-group-query",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "c",
+          "l",
+          "o",
+          "s",
+          "e",
+          "space",
+          "t",
+          "a",
+          "b",
+          "space",
+          "g",
+          "r",
+          "o",
+          "u",
+          "p"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "typed text goes to the focused field or terminal, not to an action"
+      },
+      "waitFor": {
+        "pointer": "/overlays/palette/topIds",
+        "maxMs": 10000,
+        "predicate": "nonEmpty"
+      },
+      "checkpoint": [
+        "settled"
+      ]
+    },
+    {
+      "id": "close-tab-group-return",
+      "op": "key",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "keys": [
+          "return"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "no app reply carries the ActionEffect kind yet (driver_app.py); the settled facets are the check"
+      },
+      "waitFor": {
+        "pointer": "/topology/tab_count",
+        "maxMs": 10000,
+        "predicate": "changed"
+      },
+      "checkpoint": [
+        "before",
+        "turn",
+        "settled"
+      ],
+      "note": "closing the tab group asks nothing (an idle terminal) and shows the tab-closed toast"
+    }
+  ],
+  "invariants": [
+    "converted from scripts/cmux-next/dialogs-undo-live.py (p15-oracle-225); the script stays, and scripts/cmux-next/oracle/live-map.json links it to this case",
+    "no settled checkpoint has a dialog (/overlays/dialog/specId is null at each)",
+    "after close-group-return and close-tab-group-return the settled overlays stack holds a toast"
+  ],
+  "teardown": [
+    "the driver quits the tagged app it launched and ends the tag's daemons (TagTeardown)",
+    "the driver resets the session before the next case (app_reset.py)"
+  ],
+  "untested": [
+    "Undo of each toast: debug.toast undo has no case step and the toast's button needs a pointer",
+    "Forget Machine: it needs a remote machine record (remote.connect to a host off loopback)",
+    "Cmd-Q with a foreground program quits at once and a relaunch shows the terminal: no app restart step"
+  ]
+}
