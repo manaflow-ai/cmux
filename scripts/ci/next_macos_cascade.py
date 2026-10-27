@@ -183,6 +183,8 @@ class Placement:
     jobs: Mapping[str, tuple[str, ...]]  # Blacksmith label or HOSTED -> the jobs it takes now
     retry_runner: str
     why: str
+    # The labels a feed's compile counts as full (fresh_stalled()); release-compile's re-run route reads them.
+    fresh_stall: tuple[str, ...] = ()
 
 
 def vcpus(label: str) -> int:
@@ -402,6 +404,7 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
         # Without the counts no slot is known free, so the overflow keeps the owned label, and so does
         # every job but a feed's: those take the last resort rather than an owned queue nobody measured.
         fresh = unread_fresh_jobs(env, owned)
+        fresh_stall = fresh_stalled(seen.waits) if seen is not None else ()
         if fresh:
             # A feed's compile that can run on hosted takes it: its queue is the organization's concurrency,
             # never the Blacksmith backlog nobody counted. The others take the last resort.
@@ -409,7 +412,7 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
             small = tuple(job for job in fresh if job not in hosted)
             # The snapshot, read even when the runner groups were refused, still shows a stalled queue: a feed's
             # compile does not join it (2026-10-27 01:11Z: 6 vCPU's oldest job had waited 148 min).
-            if seen is not None and SMALL in fresh_stalled(seen.waits):
+            if SMALL in fresh_stall:
                 why += f"; `{SMALL}`'s oldest queued job has waited {seen.waits[SMALL]:.0f} min"
                 small = ()
             moved = "; ".join(f"{', '.join(jobs)} take `{label}`" for label, jobs in ((HOSTED, hosted), (SMALL, small))
@@ -417,8 +420,8 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
             if moved:
                 return Placement({**empty, HOSTED: hosted, SMALL: small}, "",
                                  f"{why}; a feed's freshness waits on them, so {moved}; the rest stay on the "
-                                 "minis' queue")
-        return Placement(empty, "", f"{why}; no job leaves the minis' queue")
+                                 "minis' queue", fresh_stall)
+        return Placement(empty, "", f"{why}; no job leaves the minis' queue", fresh_stall)
     stall = stalled(live, waiting, seen.waits, seen.age) if seen is not None else ()
     runs = set((env.get("CASCADE_RUNS") or "").split())
     # idle_placement() hands the idle minis to the first JOBS, running or not, and
@@ -438,13 +441,15 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     candidates = ((promoted if promote_busy else []) + leading[max(0, len(owned) - len(rest)):]
                   + rest[len(owned):])
     hosted_free = HOSTED_CAPACITY - seen.hosted if seen is not None else 0
-    placed = cascade(candidates, live, waiting, stall=stall, hosted_free=hosted_free,
-                     fresh=tuple((env.get("FRESH_JOBS") or "").split()),
-                     fresh_stall=fresh_stalled(seen.waits) if seen is not None else ())
+    fresh = tuple((env.get("FRESH_JOBS") or "").split())
+    fresh_stall = fresh_stalled(seen.waits) if seen is not None else ()
+    placed = cascade(candidates, live, waiting, stall=stall, hosted_free=hosted_free, fresh=fresh,
+                     fresh_stall=fresh_stall)
     # The overflow label counts the slots this run's own jobs just took: they fit, so they start, and hold
     # the pool's vCPUs as jobs in flight do.
+    # A run with a feed's compile keeps its overflow off a fresh-stalled label too: the compile's re-run reads it.
     retry = retry_label({**live, **{label: live.get(label, 0) + len(placed.get(label, ())) for label in LABELS}},
-                        waiting, stall)
+                        waiting, (*stall, *(fresh_stall if fresh else ())))
     # A re-run's jobs that no Blacksmith label listed take the overflow label before the owned side label
     # (cmux-next.yml's runs-on), so while an idle mini would take one of them the overflow stays owned.
     rerun_owned = bot_rerun(env) and len(owned) > 0
@@ -471,7 +476,8 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     return Placement(placed, retry, why + (f"; overflow goes to `{retry}`" if retry
                                            else "; an idle mini takes the re-run, so overflow stays on the owned label"
                                            if rerun_owned
-                                           else "; no free Blacksmith slot, so overflow stays on the owned label"))
+                                           else "; no free Blacksmith slot, so overflow stays on the owned label"),
+                     fresh_stall)
 
 
 def unread_fresh_jobs(env: Mapping[str, str], owned: Sequence[str]) -> tuple[str, ...]:
@@ -552,7 +558,7 @@ def delimited(jobs: Sequence[str]) -> str:
 
 
 def write(placement: Placement, env: Mapping[str, str]) -> None:
-    """Outputs blacksmith_12_jobs, blacksmith_6_jobs, hosted_jobs (space-delimited, as owned_jobs),
+    """Outputs blacksmith_12_jobs, blacksmith_6_jobs, hosted_jobs, fresh_stalled (space-delimited, as owned_jobs),
     hosted_runner (HOSTED when hosted_jobs names a job) and free_retry_runner (also as retry_runner)."""
     output = env.get("GITHUB_OUTPUT")
     hosted = placement.jobs.get(HOSTED, ())
@@ -561,6 +567,7 @@ def write(placement: Placement, env: Mapping[str, str]) -> None:
             handle.write(f"blacksmith_12_jobs={delimited(placement.jobs.get(LARGE, ()))}\n"
                          f"blacksmith_6_jobs={delimited(placement.jobs.get(SMALL, ()))}\n"
                          f"hosted_jobs={delimited(hosted)}\n"
+                         f"fresh_stalled={delimited(placement.fresh_stall)}\n"
                          f"hosted_runner={HOSTED if hosted else ''}\n"
                          f"retry_runner={placement.retry_runner}\n"
                          f"free_retry_runner={placement.retry_runner}\n")

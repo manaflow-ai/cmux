@@ -388,6 +388,17 @@ class Place(unittest.TestCase):
         self.assertEqual(cascade.place(push, (), None, None, moving).jobs, none_placed(**{SMALL: ("release-compile",)}))
         self.assertEqual(cascade.place(dev, (), None, None, stuck).jobs,
                          none_placed(**{HOSTED: ("cmux-scheme-compile",)}))
+        # The overflow of a run with a feed's compile skips the fresh-stalled label; other runs' overflow does not.
+        free = {LARGE: 0, SMALL: 2}, {LARGE: 0, SMALL: 1}
+        self.assertEqual(cascade.place(push, ("release-compile",), *free, stuck).retry_runner, "")
+        self.assertEqual(cascade.place(env(CASCADE_RUNS=" fast-tier "), ("fast-tier",), *free, stuck).retry_runner,
+                         SMALL)
+        self.assertEqual(cascade.place(push, (), live, waiting, stuck).fresh_stall, (SMALL,))
+        self.assertEqual(cascade.place(push, (), None, None, stuck).fresh_stall, (SMALL,))
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "out"
+            cascade.write(cascade.place(push, (), live, waiting, stuck), {"GITHUB_OUTPUT": str(output)})
+            self.assertIn(f"fresh_stalled= {SMALL} \n", output.read_text(encoding="utf-8"))
 
     def test_the_placement_names_the_fresh_jobs_on_attempt_1_of_a_feed_run_only(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
@@ -864,6 +875,17 @@ class Rerun(unittest.TestCase):
         context = Wiring().context("2", BOT, large=" release-compile ", runner="")
         context["github"].update(event_name="push", ref="refs/heads/feat-cmux-next", event={})
         context["needs"]["release-compile-fast"] = {"result": "skipped", "outputs": {"verdict": ""}}
+        self.assertEqual(evaluate(jobs["release-compile"]["runs-on"], context), SMALL)
+        # 6 vCPU fresh-stalled (next_macos_cascade.fresh_stalled()): the re-run takes the owned label instead.
+        # (A feat-cmux-next push's re-run lists no release-compile on a Blacksmith label, as above.)
+        context["needs"]["macos-placement"]["outputs"].update(fresh_stalled=f" {SMALL} ", blacksmith_12_jobs="")
+        for key in ("runs-on", "CMUX_NEXT_RUNNER"):
+            expression = jobs["release-compile"]["runs-on"] if key == "runs-on" else jobs["release-compile"]["env"][key]
+            self.assertEqual(evaluate(expression, context), SIDE, key)
+        # The same with the fleet fast check failed with no verdict, and a carried (older) placement keeps 6 vCPU.
+        context["needs"]["release-compile-fast"] = {"result": "failure", "outputs": {"verdict": ""}}
+        self.assertEqual(evaluate(jobs["release-compile"]["runs-on"], context), SIDE)
+        context["needs"]["macos-placement"]["outputs"]["placed_attempt"] = "1"
         self.assertEqual(evaluate(jobs["release-compile"]["runs-on"], context), SMALL)
 
     def test_a_feat_push_rerun_counts_no_idle_mini_for_release_compile(self):
