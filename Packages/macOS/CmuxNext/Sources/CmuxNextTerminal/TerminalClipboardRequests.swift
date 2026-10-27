@@ -190,8 +190,12 @@ final class TerminalClipboardRequests {
     }
 
     /// The dialog for one clipboard request: its question, a preview of the text, Deny on
-    /// Escape. Allow has no key: a Return typed into the terminal as the dialog opens must
-    /// never paste or hand over the clipboard (as in the clipboard-read broker dialog).
+    /// Escape. The person's own paste follows the dialog keyboard (`CmuxDialogKeys`), as
+    /// Ghostty's paste confirmation does: Return presses Allow. A program's OSC 52 request
+    /// gives Allow no key: the program picks the moment that dialog opens, so a Return typed
+    /// for the terminal must never hand the clipboard over (as in the clipboard-read broker
+    /// dialog). No dialog opens with the keyboard on a button (`CmuxDialogView.focusInitial`),
+    /// so a typed Space presses neither.
     static func spec(for kind: TerminalClipboardRequestKind, preview text: String) -> CmuxDialogSpec {
         let title: String
         let message: String
@@ -212,7 +216,8 @@ final class TerminalClipboardRequests {
             title: title, lines: [message], fields: [.preview(preview)],
             buttons: [
                 CmuxDialogButton(id: "deny", title: String(localized: "terminal.clipboard.deny", defaultValue: "Deny", bundle: .module), role: .cancel),
-                CmuxDialogButton(id: "allow", title: String(localized: "terminal.clipboard.allow", defaultValue: "Allow", bundle: .module), role: .normal),
+                CmuxDialogButton(id: "allow", title: String(localized: "terminal.clipboard.allow", defaultValue: "Allow", bundle: .module),
+                                 role: kind == .paste ? .default : .normal),
             ],
             identifier: "cmux.dialog.terminalClipboard")
     }

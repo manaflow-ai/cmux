@@ -83,14 +83,14 @@ public final class CmuxDialogView: NSView {
         return true
     }
 
-    /// Gives the keyboard to the first text field, else the default button,
-    /// else Cancel (a question with no default: a key typed on must not tick
-    /// a check box), else the first control.
+    /// Gives the keyboard to the first text field, else to the dialog itself:
+    /// never to a button or check box the person did not choose, so a key typed
+    /// on as the dialog opens presses nothing (a Space pressed the focused
+    /// button: QA chrome-parity-v2-1, the paste confirm's Deny). The dialog
+    /// answers Return, Escape and Command keys (`CmuxDialogKeys`); Tab moves
+    /// onto the first control, where Space then presses what the person chose.
     public func focusInitial() {
-        let field = focusables.first { $0 is NSTextField }
-        let fallback = buttonViews.first { $0.button.role == .default } ?? buttonViews.first { $0.button.role == .cancel } ?? focusables.first
-        guard let target = field ?? fallback else { return }
-        window?.makeFirstResponder(target)
+        window?.makeFirstResponder(focusables.first { $0 is NSTextField } ?? self)
     }
 
     /// The index in `focusables` of the control with the keyboard.
