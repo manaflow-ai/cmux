@@ -15,9 +15,13 @@ public final class PageHostPool {
         /// once one was made visible (chrome/browser/ui/webui/top_chrome/webui_contents_preload_manager.cc).
         /// A session that never opens Settings, History or Cloud then runs no renderer for them.
         public var preloadOnMakeVisible: Bool
+        /// A claimed page is hidden to WebKit while its tab is (feature `ownPagesHiddenToWebKit`,
+        /// ``PageWebView/hidesWebKitWhenHostHidden``); a page back in the spare slot is not.
+        public var hidesHiddenPagesFromWebKit: Bool
 
-        public init(preloadOnMakeVisible: Bool = false) {
+        public init(preloadOnMakeVisible: Bool = false, hidesHiddenPagesFromWebKit: Bool = false) {
             self.preloadOnMakeVisible = preloadOnMakeVisible
+            self.hidesHiddenPagesFromWebKit = hidesHiddenPagesFromWebKit
         }
     }
 
@@ -127,6 +131,7 @@ public final class PageHostPool {
         host.countsTouches = true
         host.shouldFocusOnAttach = focus
         host.popupHoverFrameInput = hoverFrameInput
+        host.hidesWebKitWhenHostHidden = policy.hidesHiddenPagesFromWebKit
         if let scriptFrames, !host.deliversOnFrames { host.deliverOnFrames(scriptFrames) }
         host.engineDecision = decision
         _ = host.retarget(descriptor: descriptor, routes: routes, route: route,
@@ -148,6 +153,7 @@ public final class PageHostPool {
         }
         if !host.touched, !host.isDiscarded, spare == nil, allowsSpare, let content = target?.contentView {
             host.countsTouches = false
+            host.hidesWebKitWhenHostHidden = false // no tab follows the spare
             park(host, in: content)
             spare = host
             spareReady = false

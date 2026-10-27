@@ -179,7 +179,7 @@ extension PageWebView {
             return
         }
         let webView = webKit.view
-        webView.isHidden = false
+        revealWebKitView(webView)
         traceOpenLoadStarted(.reload)
         webView.load(URLRequest(url: descriptor.url(route: route)))
     }

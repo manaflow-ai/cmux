@@ -219,7 +219,7 @@ extension PageWebView {
         engineDecision = .webKit(reason)
         let engine = webKit
         scriptTarget.bridge = engine.bridge
-        engine.view.isHidden = false
+        revealWebKitView(engine.view)
         // The keyboard this view held while Chromium started goes to the WebKit view.
         if window?.firstResponder === self { window?.makeFirstResponder(engine.view) }
         router.reset()

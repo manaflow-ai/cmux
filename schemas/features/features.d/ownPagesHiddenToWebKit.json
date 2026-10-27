@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "ownPagesHiddenToWebKit",
+  "owner": "Performance Lead",
+  "description": "A cmux page in WebKit (agent chat, Settings, a viewer) is hidden to WebKit while its tab is hidden (parked tab, hidden workspace, minimized window): it reports hidden and WebKit throttles its timers; it shows in the same turn as its tab, with no reload. Pages with sound or a capture stay visible.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["idle-budget"],
+  "sticky": false,
+  "runtimeMutable": false
+}

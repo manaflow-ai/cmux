@@ -48,10 +48,10 @@ final class PageWebKitEngine {
     }
 
     /// Wires the view to `page`: its delegate, keyboard and input hooks, keep reasons, Web Inspector
-    /// hold, the host's hooks and the page bridge. Shown when WebKit shows the page, else hidden
-    /// behind the Chromium page that does.
+    /// hold, the host's hooks and the page bridge. Shown when WebKit shows the page and its host
+    /// shows (``PageWebView/revealWebKitView(_:)``), else hidden behind the Chromium page that does.
     func attach(to page: PageWebView, shown: Bool) {
-        view.isHidden = !shown
+        if shown { page.revealWebKitView(view) } else { view.isHidden = true }
         view.frame = page.bounds
         view.pageZoom = page.pageZoom
         view.navigationDelegate = page

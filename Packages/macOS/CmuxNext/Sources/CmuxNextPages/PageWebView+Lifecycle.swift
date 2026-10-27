@@ -73,7 +73,7 @@ extension PageWebView {
             if let page = chromiumSession?.page, ObjectIdentifier(page) == identity { page.setFrozen(false) }
         case .webKit(let restoring):
             if let restoring { webView.configuration.preferences.setHiddenPageThrottling(restoring) }
-            if chromiumSession == nil { webView.isHidden = false }
+            if chromiumSession == nil { revealWebKitView(webView) }
         }
         pushes.thawed()
     }

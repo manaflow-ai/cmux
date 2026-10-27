@@ -436,7 +436,8 @@ final class AppServices {
     private(set) lazy var newTabSpares = NewTabPreload.app(self)
     /// The spare React page hosts for Settings, History and Cloud.
     private(set) lazy var pageHostPool: PageHostPool = {
-        let pool = PageHostPool(memory: memoryCoordinator, policy: .init(preloadOnMakeVisible: features.isEnabled(.pageRendererAtFirstShow)),
+        let pool = PageHostPool(memory: memoryCoordinator, policy: .init(preloadOnMakeVisible: features.isEnabled(.pageRendererAtFirstShow),
+                                                                         hidesHiddenPagesFromWebKit: features.isEnabled(.ownPagesHiddenToWebKit)),
                                 hoverFrameInput: hoverFrameInput)
         pool.scriptFrames = pageScriptFrame
         return pool
@@ -454,6 +455,7 @@ final class AppServices {
                 keyRouter: keyRouter, work: work, dialogs: .shared,
                 hangWork: features.isEnabled(.pageHangNotice) ? mainWork : nil),
             openPanel: openPanel, memory: memoryCoordinator, registry: .processWide, startsPagesAtFirstShow: features.isEnabled(.pageRendererAtFirstShow),
+            hidesHiddenPagesFromWebKit: features.isEnabled(.ownPagesHiddenToWebKit),
             hoverFrameInput: hoverFrameInput, retirer: PageRetirer(deadlines: mainDeadlines))
         host.scriptFrames = pageScriptFrame
         return host

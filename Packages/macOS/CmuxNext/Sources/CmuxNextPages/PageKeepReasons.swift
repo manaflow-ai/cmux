@@ -39,6 +39,8 @@ package final class PageKeepReasons {
     weak var owner: AnyObject?
     /// The page lifecycle that holds the page (``PageLifecycleTarget/reportsReasonChanges(to:)``).
     weak var lifecycle: PageLifecycle?
+    /// The page view's own follower of ``current`` (a hidden page held visible to WebKit, PageWebView+HostHidden.swift).
+    var onChange: (@MainActor () -> Void)?
 
     package init() {}
 
@@ -81,6 +83,7 @@ package final class PageKeepReasons {
     }
 
     private func changed() {
+        onChange?()
         if let owner { lifecycle?.pageReasonsDidChange(owner) }
     }
 

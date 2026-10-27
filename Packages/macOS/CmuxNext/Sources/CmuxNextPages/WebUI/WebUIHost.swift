@@ -63,6 +63,9 @@ public final class WebUIHost {
     /// A page starts its document, and its renderer, at its first show, not when it opens
     /// (feature `pageRendererAtFirstShow`, PageWebView+FirstShow.swift).
     public let startsPagesAtFirstShow: Bool
+    /// Each page's WebKit view is hidden to WebKit while its tab is hidden (feature
+    /// `ownPagesHiddenToWebKit`, ``PageWebView/hidesWebKitWhenHostHidden``).
+    public let hidesHiddenPagesFromWebKit: Bool
     /// Ends closed pages after the close's turn (``close(_:)``, p13-webui-064); the agent tabs retire
     /// their panes on it too, so the app has one teardown deadline.
     public let retirer: PageRetirer
@@ -91,16 +94,19 @@ public final class WebUIHost {
     ///   - clock: The Chromium deadline's clock.
     ///   - processGroups: The shared WebKit processes (a test passes its own to read the groups).
     ///   - startsPagesAtFirstShow: Pages start their document at their first show (``startsPagesAtFirstShow``).
+    ///   - hidesHiddenPagesFromWebKit: Pages are hidden to WebKit while their tab is (``hidesHiddenPagesFromWebKit``).
     ///   - hoverFrameInput: The frame-aligned pointer input of the pages' popups; nil: each move.
     ///   - retirer: Ends closed pages after the close's turn (the app's is on `AppServices.mainDeadlines`).
     public init(chromium: (any PageChromiumHosting)?, openPanel: MadeAheadOpenPanel?,
                 memory: any MemoryConsumerRegistry, registry: PageRegistry = PageRegistry(),
                 clock: any Clock<Duration> = ContinuousClock(), processGroups: WebProcessGroups = WebProcessGroups(),
-                startsPagesAtFirstShow: Bool = false, hoverFrameInput: FrameInputCoalescers? = nil,
+                startsPagesAtFirstShow: Bool = false, hidesHiddenPagesFromWebKit: Bool = false,
+                hoverFrameInput: FrameInputCoalescers? = nil,
                 retirer: PageRetirer = PageRetirer()) {
         self.chromium = chromium
         self.retirer = retirer
         self.startsPagesAtFirstShow = startsPagesAtFirstShow
+        self.hidesHiddenPagesFromWebKit = hidesHiddenPagesFromWebKit
         self.hoverFrameInput = hoverFrameInput
         self.openPanel = openPanel
         self.registry = registry
@@ -135,6 +141,7 @@ public final class WebUIHost {
         // The view joined processGroups (PageWebView(request:...) passes them on these terms).
         view.crash.sharesWebKitProcess = request.options.sharesWebKitProcess && view.engineDecision.engine == .webKit
         view.popupHoverFrameInput = hoverFrameInput
+        view.hidesWebKitWhenHostHidden = hidesHiddenPagesFromWebKit
         if let scriptFrames { view.deliverOnFrames(scriptFrames) }
         opened.add(view)
         #if DEBUG || CMUX_BENCH_HOOKS

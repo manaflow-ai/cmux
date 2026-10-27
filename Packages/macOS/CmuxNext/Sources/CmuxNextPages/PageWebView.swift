@@ -135,6 +135,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     private(set) var appearanceSignals = DesignSettings.shared.signals
     /// The page's tab in the visibility tree, held while it follows it (``followAppearance(_:node:)``).
     private(set) var visibilityNode: VisibilityNode?
+    /// The WebKit view hidden while the page's host is (PageWebView+HostHidden.swift).
+    let hostHidden = PageHostHiddenState()
     /// Whether the engine was last told the page shows (``setEngineVisible(_:)``): in a window and not
     /// hidden. The router's hidden hold starts from it (``deliverOnFrames(_:)``).
     var engineVisible = false
@@ -328,6 +330,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         router.send = { envelope in scripts.send(envelope) }
         router.sendWithDrop = { envelope, onDrop in scripts.send(envelope, onDrop: onDrop) }
         keepReasons.owner = self
+        keepReasons.onChange = { [weak self] in self?.applyHostVisibility() }
         router.didClose = { [weak self] in
             scripts.reset()
             self?.popupHost?.hide()
@@ -399,6 +402,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         guard signals !== appearanceSignals || node !== visibilityNode else { return }
         appearanceSignals = signals
         visibilityNode = node
+        followHostVisibility()
         observeAppearance()
         applyTheme()
         checkFirstShow() // the tab's node now says whether the page shows
