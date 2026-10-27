@@ -6,10 +6,10 @@ use std::sync::Arc;
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use cmux_remote_protocol::{
-    Lane, MUX_INPUT_V1_FEATURE, ProcessEvent, ProcessId, ProcessReplayRange, RouteId, RpcError,
-    RpcErrorDetails, RpcEvent, RpcRequest, RpcResponse, Service, ServiceControl,
-    TERMINAL_BYTES_VIEWER_SIZE_PRIORITY, TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED,
-    WorkspaceRequest, WorkspaceResponse,
+    BRIDGE_FRAMES_V1_FEATURE, Lane, MUX_INPUT_V1_FEATURE, ProcessEvent, ProcessId,
+    ProcessReplayRange, RouteId, RpcError, RpcErrorDetails, RpcEvent, RpcRequest, RpcResponse,
+    Service, ServiceControl, TERMINAL_BYTES_VIEWER_SIZE_PRIORITY,
+    TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED, WorkspaceRequest, WorkspaceResponse,
 };
 use cmux_tui_core::resource::TerminalPublicId;
 #[cfg(unix)]
@@ -1235,7 +1235,7 @@ async fn send_opened(stream: &ServiceStream, lane: Lane) -> Result<(), ServicesE
         serde_json::to_vec(&serde_json::json!({
             "type": "opened",
             "service": stream.service(),
-            "features": [MUX_INPUT_V1_FEATURE],
+            "features": [MUX_INPUT_V1_FEATURE, BRIDGE_FRAMES_V1_FEATURE],
         }))?
     } else {
         serde_json::to_vec(&ServiceControl::Opened { service: stream.service() })?
@@ -1347,22 +1347,34 @@ where
     let mut line = Vec::new();
     let mut message = 1_u64;
     loop {
-        let size = crate::mux_codec::read_bounded_line_with_limit(
+        // This end advertises `bridge-frames-v1`, so it always cuts frames;
+        // the daemon sends one only on a connection that negotiated them.
+        let Some(kind) = crate::mux_codec::read_bounded_message(
             &mut reader,
             &mut line,
             crate::mux_codec::MAX_MUX_DOWNLOAD_LINE_BYTES,
+            true,
         )
-        .await?;
-        if size == 0 {
+        .await?
+        else {
             return Ok(());
-        }
-        if crate::mux_codec::mux_line_payload_len(&line)
-            > crate::mux_codec::MAX_MUX_DOWNLOAD_LINE_BYTES.saturating_sub(1)
-        {
-            return Err(crate::mux_codec::MuxCodecError::LineTooLarge(line.len()).into());
-        }
-        let Some(lane) = tracker.classify_server_line(&line) else {
-            continue;
+        };
+        let lane = match kind {
+            crate::mux_codec::MuxMessage::Frame(header) => crate::mux_lanes::classify_frame(
+                &header,
+                crate::mux_lanes::FrameDirection::ToClient,
+            )?,
+            crate::mux_codec::MuxMessage::Line => {
+                if crate::mux_codec::mux_line_payload_len(&line)
+                    > crate::mux_codec::MAX_MUX_DOWNLOAD_LINE_BYTES.saturating_sub(1)
+                {
+                    return Err(crate::mux_codec::MuxCodecError::LineTooLarge(line.len()).into());
+                }
+                let Some(lane) = tracker.classify_server_line(&line) else {
+                    continue;
+                };
+                lane
+            }
         };
         if lane == Lane::Tunnel {
             return Err(ServicesError::UnexpectedLane {
@@ -1462,7 +1474,10 @@ where
                     if let Some(line) =
                         assembler.push_retaining(chunk.lane, chunk.payload, budget)?
                     {
-                        tracker.observe_request(line.payload(), line.lane());
+                        // A frame's reply is a frame; only JSON requests are tracked.
+                        if !crate::mux_codec::is_frame(line.payload()) {
+                            tracker.observe_request(line.payload(), line.lane());
+                        }
                         local_writer.write_all(line.payload()).await?;
                     }
                 }
@@ -1622,6 +1637,15 @@ impl From<serde_json::Error> for ServicesError {
 impl From<std::io::Error> for ServicesError {
     fn from(error: std::io::Error) -> Self {
         Self::Io(error)
+    }
+}
+
+impl From<crate::mux_codec::MuxReadError> for ServicesError {
+    fn from(error: crate::mux_codec::MuxReadError) -> Self {
+        match error {
+            crate::mux_codec::MuxReadError::Io(error) => Self::Io(error),
+            crate::mux_codec::MuxReadError::Codec(error) => Self::MuxCodec(error),
+        }
     }
 }
 
@@ -2939,5 +2963,111 @@ mod tests {
             .expect("completed process stream handler should release its slot")
             .unwrap()
             .unwrap();
+    }
+
+    /// Frames of three streams, interleaved, each stream's in order; some
+    /// span several CMXL parts.
+    #[cfg(unix)]
+    fn interleaved_frames(
+        kinds: [cmux_ipc::FrameKind; 2],
+        aux: fn(u64) -> cmux_ipc::Aux,
+    ) -> Vec<u8> {
+        let mut wire = BytesMut::new();
+        for round in 0..30_usize {
+            for stream in 1..=3_u16 {
+                let len = if (round + usize::from(stream)) % 6 == 0 { 100_000 } else { round * 37 };
+                let payload: Bytes =
+                    (0..len).map(|byte| (byte ^ round) as u8 ^ stream as u8).collect();
+                let kind = kinds[(round + usize::from(stream)) % 2];
+                cmux_ipc::Frame::new(kind, stream, aux(round as u64), payload)
+                    .unwrap()
+                    .encode_into(&mut wire);
+            }
+        }
+        wire.to_vec()
+    }
+
+    #[cfg(unix)]
+    fn frames_by_stream(wire: &[u8]) -> BTreeMap<u16, Vec<cmux_ipc::Frame>> {
+        let mut reader = cmux_ipc::FrameReader::new(cmux_ipc::ReaderLimits::default());
+        reader.negotiate_frames();
+        reader.push(wire);
+        reader.mark_eof();
+        let mut streams = BTreeMap::<u16, Vec<cmux_ipc::Frame>>::new();
+        while let Some(message) = reader.next_message().unwrap() {
+            let cmux_ipc::Message::Frame(frame) = message else { panic!("a line appeared") };
+            streams.entry(frame.header().stream()).or_default().push(frame);
+        }
+        streams
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn mux_bridge_carries_frames_of_three_streams_both_ways() {
+        use cmux_ipc::{Aux, FrameKind};
+        use tokio::io::AsyncReadExt;
+
+        let directory = tempdir().unwrap();
+        let daemon_path = directory.path().join("mux.sock");
+        let bridge_path = directory.path().join("bridge.sock");
+        let daemon_listener = tokio::net::UnixListener::bind(&daemon_path).unwrap();
+        let bridge_listener = tokio::net::UnixListener::bind(&bridge_path).unwrap();
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client_mux = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon_mux = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+        let (bridge_shutdown, bridge_shutdown_rx) = oneshot::channel();
+        let bridge = tokio::spawn({
+            let client_mux = client_mux.clone();
+            async move {
+                crate::bridge::serve_mux_bridge(client_mux, &bridge_listener, bridge_shutdown_rx)
+                    .await;
+            }
+        });
+        let daemon_side = tokio::spawn({
+            let daemon_mux = daemon_mux.clone();
+            async move {
+                let incoming = daemon_mux.accept().await.unwrap().unwrap();
+                DaemonServices::serve_mux_control_with_budget(
+                    Some(daemon_path),
+                    incoming.stream,
+                    MuxUploadBudget::new(),
+                )
+                .await
+            }
+        });
+        let mut app = tokio::net::UnixStream::connect(&bridge_path).await.unwrap();
+        let (mut daemon, _) = daemon_listener.accept().await.unwrap();
+
+        let upload = interleaved_frames([FrameKind::Input, FrameKind::Input], Aux::FlowId);
+        let download = interleaved_frames([FrameKind::Output, FrameKind::Event], Aux::Offset);
+        let mut at_daemon = vec![0; upload.len()];
+        let mut at_app = vec![0; download.len()];
+        {
+            let (mut app_reader, mut app_writer) = app.split();
+            let (mut daemon_reader, mut daemon_writer) = daemon.split();
+            let transfer = async {
+                tokio::try_join!(
+                    app_writer.write_all(&upload),
+                    daemon_writer.write_all(&download),
+                    daemon_reader.read_exact(&mut at_daemon),
+                    app_reader.read_exact(&mut at_app),
+                )
+            };
+            tokio::time::timeout(std::time::Duration::from_secs(10), transfer)
+                .await
+                .expect("the bridge stalled")
+                .unwrap();
+        }
+
+        assert_eq!(frames_by_stream(&at_daemon), frames_by_stream(&upload));
+        assert_eq!(frames_by_stream(&at_app), frames_by_stream(&download));
+
+        drop(app);
+        drop(daemon);
+        bridge_shutdown.send(()).unwrap();
+        bridge.await.unwrap();
+        daemon_side.abort();
+        client_mux.shutdown().await;
+        daemon_mux.shutdown().await;
     }
 }

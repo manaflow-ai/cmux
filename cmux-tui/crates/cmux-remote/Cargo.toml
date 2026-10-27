@@ -21,6 +21,8 @@ cmux-stability = ["cmux-blocking/cmux-stability"]
 
 [dependencies]
 cmux-blocking.workspace = true
+# The 16-byte frame header: the SSH bridge passes 0xFF frames by header.
+cmux-ipc.workspace = true
 cmux-panic-log.workspace = true
 cmux-threads.workspace = true
 async-trait.workspace = true

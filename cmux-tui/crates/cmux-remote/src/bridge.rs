@@ -4,11 +4,16 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use cmux_remote_protocol::{MUX_INPUT_V1_FEATURE, RouteId, Service, ServiceControl};
+use cmux_remote_protocol::{
+    BRIDGE_FRAMES_V1_FEATURE, MUX_INPUT_V1_FEATURE, RouteId, Service, ServiceControl,
+};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{Mutex, Semaphore, oneshot, watch};
 
-use crate::mux_codec::{MAX_MUX_DOWNLOAD_LINE_BYTES, MAX_MUX_LINE_BYTES, mux_line_payload_len};
+use crate::mux_codec::{
+    MAX_MUX_DOWNLOAD_LINE_BYTES, MAX_MUX_LINE_BYTES, MuxMessage, MuxReadError, mux_line_payload_len,
+};
+use crate::mux_lanes::FrameDirection;
 use crate::service::{ServiceError, ServiceMultiplexer, ServiceStream};
 use crate::services::ServicesError;
 
@@ -196,7 +201,7 @@ pub async fn serve_mux_bridge(
                         Arc::new(stream),
                         reader,
                         writer,
-                        opened.features.mux_input_v1,
+                        opened.features,
                         opened.buffered,
                     )
                     .await;
@@ -210,6 +215,8 @@ pub async fn serve_mux_bridge(
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct ServiceOpenFeatures {
     pub(crate) mux_input_v1: bool,
+    /// The far end passes cmux-ipc frames through ([`BRIDGE_FRAMES_V1_FEATURE`]).
+    pub(crate) bridge_frames_v1: bool,
 }
 
 pub(crate) struct OpenedStream {
@@ -270,14 +277,18 @@ pub(crate) async fn await_opened(stream: &ServiceStream) -> Result<OpenedStream,
 
 fn decode_opened(payload: &[u8], expected: Service) -> Result<ServiceOpenFeatures, BridgeError> {
     let value = serde_json::from_slice::<serde_json::Value>(payload)?;
-    let mux_input_v1 =
-        value.get("features").and_then(serde_json::Value::as_array).is_some_and(|features| {
-            features.iter().any(|feature| feature.as_str() == Some(MUX_INPUT_V1_FEATURE))
-        });
+    let advertises = |name: &str| {
+        value
+            .get("features")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|features| features.iter().any(|feature| feature.as_str() == Some(name)))
+    };
+    let features = ServiceOpenFeatures {
+        mux_input_v1: advertises(MUX_INPUT_V1_FEATURE),
+        bridge_frames_v1: advertises(BRIDGE_FRAMES_V1_FEATURE),
+    };
     match serde_json::from_value::<ServiceControl>(value)? {
-        ServiceControl::Opened { service } if service == expected => {
-            Ok(ServiceOpenFeatures { mux_input_v1 })
-        }
+        ServiceControl::Opened { service } if service == expected => Ok(features),
         ServiceControl::Rejected { message, .. } => Err(BridgeError::Rejected(message)),
         _ => Err(BridgeError::Rejected("invalid service-open response".into())),
     }
@@ -337,7 +348,7 @@ async fn pump_mux_client_buffered<R, W>(
     remote: Arc<ServiceStream>,
     local_reader: R,
     mut local_writer: W,
-    mux_input_v1: bool,
+    features: ServiceOpenFeatures,
     mut initial: VecDeque<crate::service::StreamChunk>,
 ) -> Result<(), BridgeError>
 where
@@ -352,20 +363,35 @@ where
             let mut line = Vec::new();
             let mut message = 1_u64;
             loop {
-                let size = crate::mux_codec::read_bounded_line(&mut reader, &mut line).await?;
-                if size == 0 {
+                let Some(kind) = crate::mux_codec::read_bounded_message(
+                    &mut reader,
+                    &mut line,
+                    MAX_MUX_LINE_BYTES,
+                    features.bridge_frames_v1,
+                )
+                .await?
+                else {
                     remote.close().await?;
                     break;
-                }
-                if mux_line_payload_len(&line) > MAX_MUX_LINE_BYTES.saturating_sub(1) {
-                    return Err(BridgeError::MuxLineTooLarge(line.len()));
-                }
-                if mux_input_v1 && let Some(input) = crate::mux_input::encode_local_line(&line)? {
-                    remote.send_on(cmux_remote_protocol::Lane::Interactive, input).await?;
-                } else {
-                    let lane = crate::mux_lanes::classify_client_line(&line);
-                    for packet in crate::mux_codec::encode_line(message, &line)? {
-                        remote.send_on(lane, packet).await?;
+                };
+                match kind {
+                    MuxMessage::Frame(header) => {
+                        let lane =
+                            crate::mux_lanes::classify_frame(&header, FrameDirection::ToDaemon)?;
+                        send_mux_message(&remote, lane, message, &line).await?;
+                    }
+                    MuxMessage::Line => {
+                        if mux_line_payload_len(&line) > MAX_MUX_LINE_BYTES.saturating_sub(1) {
+                            return Err(BridgeError::MuxLineTooLarge(line.len()));
+                        }
+                        if features.mux_input_v1
+                            && let Some(input) = crate::mux_input::encode_local_line(&line)?
+                        {
+                            remote.send_on(cmux_remote_protocol::Lane::Interactive, input).await?;
+                        } else {
+                            let lane = crate::mux_lanes::classify_client_line(&line);
+                            send_mux_message(&remote, lane, message, &line).await?;
+                        }
                     }
                 }
                 message = message.checked_add(1).ok_or(BridgeError::MuxMessageIdsExhausted)?;
@@ -402,6 +428,19 @@ where
     tokio::select! {
         result = &mut upload => result?,
         result = &mut download => result?,
+    }
+    Ok(())
+}
+
+/// Sends one line or frame as the CMXL packets of message `message`.
+async fn send_mux_message(
+    remote: &ServiceStream,
+    lane: cmux_remote_protocol::Lane,
+    message: u64,
+    bytes: &[u8],
+) -> Result<(), BridgeError> {
+    for packet in crate::mux_codec::encode_line(message, bytes)? {
+        remote.send_on(lane, packet).await?;
     }
     Ok(())
 }
@@ -482,6 +521,15 @@ impl From<serde_json::Error> for BridgeError {
 impl From<crate::mux_codec::MuxCodecError> for BridgeError {
     fn from(error: crate::mux_codec::MuxCodecError) -> Self {
         Self::MuxCodec(error)
+    }
+}
+
+impl From<MuxReadError> for BridgeError {
+    fn from(error: MuxReadError) -> Self {
+        match error {
+            MuxReadError::Io(error) => Self::Io(error),
+            MuxReadError::Codec(error) => Self::MuxCodec(error),
+        }
     }
 }
 

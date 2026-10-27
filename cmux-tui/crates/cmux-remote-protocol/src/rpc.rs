@@ -5,6 +5,10 @@ use serde::{Deserialize, Serialize};
 
 pub const MUX_INPUT_V1_FEATURE: &str = "mux-input-v1";
 
+/// `mux-control` open feature: both ends of the bridge cut cmux-ipc frames
+/// (0xFF, 16-byte header) beside JSON lines and pass them through by header.
+pub const BRIDGE_FRAMES_V1_FEATURE: &str = "bridge-frames-v1";
+
 /// Optional `terminal-bytes-v1` open metadata key. With the value
 /// [`TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED`], the stream's renderer
 /// negotiates terminal-host viewer-size priority when the host supports it.

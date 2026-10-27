@@ -2,8 +2,11 @@ use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Mutex, PoisonError};
 
+use cmux_ipc::{CallFlags, FrameHeader, FrameKind, PriorityHint};
 use cmux_remote_protocol::Lane;
 use serde::Deserialize;
+
+use crate::mux_codec::MuxCodecError;
 
 const MAX_TRACKED_REQUESTS: usize = 4096;
 
@@ -206,6 +209,57 @@ pub(crate) fn classify_client_line(line: &[u8]) -> Lane {
     }
 }
 
+/// Which way a frame crosses the mux bridge.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FrameDirection {
+    /// From the local client to the remote daemon.
+    ToDaemon,
+    /// From the remote daemon to the local client.
+    ToClient,
+}
+
+/// The lane of one `bridge-frames-v1` frame, read from its header only.
+///
+/// A data stream (stream != 0) is one sequence (p05-ipc.md 3.4), so every
+/// frame of it rides one lane per direction and keeps its order: toward the
+/// daemon the lane of keystrokes (INPUT and the stream's own calls), toward
+/// the client the bulk lane, where terminal `output` events already go. This
+/// is Mojo's rule that a port delivers its messages in sequence order
+/// (mojo/core/ports/message_queue.cc), whatever channel carried them.
+/// Stream 0 calls go by their priority hint, as JSON lines go by command: the
+/// daemon refuses a hint that differs from its method table, and a REPLY
+/// carries its request's hint, so it returns on the request's lane.
+///
+/// RING, RING_ADVANCE, RING_ACK, SHARED_BUFFER and calls with descriptors are
+/// refused: a byte bridge passes no descriptor and no shared memory.
+pub(crate) fn classify_frame(
+    header: &FrameHeader,
+    direction: FrameDirection,
+) -> Result<Lane, MuxCodecError> {
+    let kind = header.kind();
+    let descriptors = header.call().is_some_and(|call| call.flags.contains(CallFlags::FDS));
+    if descriptors
+        || matches!(
+            kind,
+            FrameKind::Ring | FrameKind::RingAdvance | FrameKind::RingAck | FrameKind::SharedBuffer
+        )
+    {
+        return Err(MuxCodecError::FrameNotBridged(kind));
+    }
+    if header.stream() != 0 {
+        return Ok(match direction {
+            FrameDirection::ToDaemon => Lane::Interactive,
+            FrameDirection::ToClient => Lane::Bulk,
+        });
+    }
+    // Only call kinds may use stream 0 once the header is valid.
+    Ok(match header.call().map(|call| call.priority) {
+        Some(PriorityHint::Input) => Lane::Interactive,
+        Some(PriorityHint::Control) | None => Lane::Control,
+        Some(PriorityHint::Bulk | PriorityHint::Background) => Lane::Bulk,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -318,6 +372,81 @@ mod tests {
                 .ok();
             unsafe { System.realloc(pointer, layout, new_size) }
         }
+    }
+
+    fn call(kind: FrameKind, stream: u16, priority: PriorityHint, flags: CallFlags) -> FrameHeader {
+        let call = cmux_ipc::CallAux { request_id: 1, method_id: 0x0101, priority, flags };
+        FrameHeader::new(kind, stream, 0, cmux_ipc::Aux::Call(call)).unwrap()
+    }
+
+    #[test]
+    fn every_frame_of_a_stream_rides_one_lane_per_direction() {
+        for stream in [1, 2, 0xffff] {
+            for kind in [
+                FrameKind::Output,
+                FrameKind::Grid,
+                FrameKind::Event,
+                FrameKind::Snapshot,
+                FrameKind::SnapshotMore,
+                FrameKind::Replay,
+            ] {
+                let header = FrameHeader::new(kind, stream, 0, cmux_ipc::Aux::Offset(9)).unwrap();
+                assert_eq!(classify_frame(&header, FrameDirection::ToClient), Ok(Lane::Bulk));
+            }
+            let input = FrameHeader::new(FrameKind::Input, stream, 0, cmux_ipc::Aux::FlowId(3));
+            let input = input.unwrap();
+            assert_eq!(classify_frame(&input, FrameDirection::ToDaemon), Ok(Lane::Interactive));
+            for priority in PriorityHint::ALL {
+                let flags = CallFlags::empty();
+                let reply = call(FrameKind::TypedEvent, stream, priority, flags);
+                assert_eq!(classify_frame(&reply, FrameDirection::ToClient), Ok(Lane::Bulk));
+                let request = call(FrameKind::Request, stream, priority, flags);
+                assert_eq!(
+                    classify_frame(&request, FrameDirection::ToDaemon),
+                    Ok(Lane::Interactive)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn stream_zero_calls_follow_their_priority_hint_both_ways() {
+        for (priority, lane) in [
+            (PriorityHint::Input, Lane::Interactive),
+            (PriorityHint::Control, Lane::Control),
+            (PriorityHint::Bulk, Lane::Bulk),
+            (PriorityHint::Background, Lane::Bulk),
+        ] {
+            let request = call(FrameKind::Request, 0, priority, CallFlags::empty());
+            let reply = call(FrameKind::Reply, 0, priority, CallFlags::empty());
+            assert_eq!(classify_frame(&request, FrameDirection::ToDaemon), Ok(lane));
+            assert_eq!(classify_frame(&reply, FrameDirection::ToClient), Ok(lane));
+        }
+    }
+
+    #[test]
+    fn descriptors_and_shared_memory_never_cross_the_bridge() {
+        for kind in [FrameKind::Ring, FrameKind::RingAdvance, FrameKind::RingAck] {
+            let header = FrameHeader::new(kind, 1, 0, cmux_ipc::Aux::Offset(0)).unwrap();
+            for direction in [FrameDirection::ToDaemon, FrameDirection::ToClient] {
+                assert_eq!(
+                    classify_frame(&header, direction),
+                    Err(MuxCodecError::FrameNotBridged(kind))
+                );
+            }
+        }
+        let shared =
+            FrameHeader::new(FrameKind::SharedBuffer, 0, 0, cmux_ipc::Aux::SharedBufferSize(4096))
+                .unwrap();
+        assert_eq!(
+            classify_frame(&shared, FrameDirection::ToDaemon),
+            Err(MuxCodecError::FrameNotBridged(FrameKind::SharedBuffer))
+        );
+        let with_fds = call(FrameKind::Request, 0, PriorityHint::Control, CallFlags::FDS);
+        assert_eq!(
+            classify_frame(&with_fds, FrameDirection::ToDaemon),
+            Err(MuxCodecError::FrameNotBridged(FrameKind::Request))
+        );
     }
 
     #[test]
