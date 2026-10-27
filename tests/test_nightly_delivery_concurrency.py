@@ -25,9 +25,10 @@ NO_CONCURRENCY_GROUP: dict[str, tuple[str, ...]] = {
     # passed (runs 40370485774, 40371402817, 40373347803, 40378401600). The
     # newest write wins instead through an R2 lease plus commit record
     # (publish) and a feed compare-and-swap (tip).
-    # sign, runner, verify and the DMG signer too: a pending handoff waiting for any of them would be
-    # evicted by a newer one (2026-10-26: nothing published from 00:13Z for over six hours).
-    "cmux-next-dev-daily.yml": ("sign", "runner", "verify", "publish", "tip-dmg-build", "rcodesign-dmg",
+    # sign, runner, verify and the rcodesign signer build too (#26001 renamed it from rcodesign-dmg):
+    # a pending handoff waiting for any of them would be evicted by a newer one (2026-10-26: nothing
+    # published from 00:13Z for over six hours).
+    "cmux-next-dev-daily.yml": ("sign", "runner", "verify", "publish", "tip-dmg-build", "rcodesign",
                                 "tip-dmg", "tip", "tip-deltas"),
 }
 
