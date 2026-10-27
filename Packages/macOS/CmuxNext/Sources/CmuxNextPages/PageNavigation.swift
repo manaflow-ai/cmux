@@ -48,6 +48,10 @@ public nonisolated struct PageNavigation: Sendable, Equatable {
             (targetFrameURL == nil || targetFrameURL?.absoluteString == "about:blank" ||
              targetFrameURL?.absoluteString == "about:srcdoc")
         if initialSrcdoc { return .allow }
+        if page.id.lowercased() == PageArtifactFrame.pageID,
+           sourceFrameURL?.absoluteString == "about:srcdoc" {
+            return .cancel
+        }
         if PageArtifactFrame.contextRestricted(frame: targetFrameURL, parent: sourceFrameURL) ||
             PageArtifactFrame.navigationRefused(mainFrame: mainFrame, frame: targetFrameURL,
                                                 parent: sourceFrameURL, target: url) {

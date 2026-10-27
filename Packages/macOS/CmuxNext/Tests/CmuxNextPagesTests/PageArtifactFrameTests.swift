@@ -45,6 +45,8 @@ struct PageArtifactFrameTests {
                                       targetFrameURL: srcdoc, sourceFrameURL: pageURL, hook: nil) == .cancel)
         #expect(PageNavigation.policy(for: external, page: page, userClicked: false, mainFrame: false,
                                       targetFrameURL: blank, sourceFrameURL: srcdoc, hook: nil) == .cancel)
+        #expect(PageNavigation.policy(for: external, page: page, userClicked: false, mainFrame: false,
+                                      targetFrameURL: blank, sourceFrameURL: srcdoc, hook: { _ in .allow }) == .cancel)
     }
 
     @Test func ordinaryPageNavigationKeepsExistingPolicy() throws {
