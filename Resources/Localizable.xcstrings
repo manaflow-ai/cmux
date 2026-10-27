@@ -674883,6 +674883,124 @@
           }
         }
       }
+    },
+    "notification.sessionPriority.notRestarted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux restarted this terminal to set Claude effort to %1$@ but could not resume the conversation. Run: %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أعاد cmux تشغيل هذه الطرفية لضبط جهد Claude على %1$@، لكن تعذّر استئناف المحادثة. شغّل: %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hat dieses Terminal neu gestartet, um den Claude-Aufwand auf %1$@ zu setzen, konnte die Unterhaltung aber nicht fortsetzen. Führen Sie aus: %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux reinició esta terminal para establecer el esfuerzo de Claude en %1$@, pero no pudo reanudar la conversación. Ejecuta: %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux a redémarré ce terminal pour régler l’effort de Claude sur %1$@, mais n’a pas pu reprendre la conversation. Exécutez : %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は Claude のエフォートを %1$@ に設定するためにこのターミナルを再起動しましたが、会話を再開できませんでした。次を実行してください: %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 Claude 노력도를 %1$@(으)로 설정하려고 이 터미널을 다시 시작했지만 대화를 재개하지 못했습니다. 실행하세요: %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 已重新启动此终端，将 Claude 投入程度设为 %1$@，但无法继续对话。请运行：%2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 已重新啟動此終端機，將 Claude 投入程度設為 %1$@，但無法繼續對話。請執行：%2$@"
+          }
+        }
+      }
+    },
+    "notification.sessionPriority.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude effort not changed"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم تغيير جهد Claude"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-Aufwand nicht geändert"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esfuerzo de Claude sin cambiar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effort de Claude non modifié"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude のエフォートを変更できませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 노력도 변경 안 됨"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未更改 Claude 投入程度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未變更 Claude 投入程度"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

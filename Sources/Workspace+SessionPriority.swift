@@ -18,8 +18,11 @@ extension Workspace {
         sessionPriorityStateDidChange()
     }
 
-    /// Opts this workspace in or out of automatic effort adjustment.
+    /// Opts this workspace in or out of automatic effort adjustment. Opting in
+    /// ("adjust automatically") also lifts a `/effort` or `/model` cmux saw on
+    /// one of its panes, even when the workspace was not marked manual.
     func setSessionPriorityManual(_ on: Bool) {
+        if !on { SessionPriorityCoordinatorHook.adjustAutomaticallyRequested?(id) }
         guard sessionPriorityState.isManual != on else { return }
         sessionPriorityState.isManual = on
         sessionPriorityStateDidChange()

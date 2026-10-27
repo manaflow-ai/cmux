@@ -1,0 +1,469 @@
+import CMUXAgentLaunch
+import CmuxAgentJournal
+import CmuxFoundation
+import CmuxSettings
+import Foundation
+
+/// One workspace's session priority as cmux sees it now, for the socket and the CLI.
+struct SessionPrioritySnapshot: Equatable, Sendable {
+    /// One Claude pane of the workspace.
+    struct Pane: Equatable, Sendable {
+        var surfaceId: UUID
+        var sessionId: String?
+        /// The effort the pane's Claude was launched with, from its recorded launch environment.
+        var currentEffort: ClaudeEffortLevel?
+        var state: SessionPriorityPaneState
+        /// How the pane's last restart attempt ended, e.g. `held.draft`; `nil` before any.
+        var detail: String?
+    }
+
+    var workspaceId: UUID
+    /// `nil` while session priority is off or the workspace has no Claude pane.
+    var tier: SessionPriorityTier?
+    var difficulty: ClaudeSessionDifficulty
+    var difficultySource: SessionPriorityWorkspaceState.DifficultySource
+    var difficultyOverride: ClaudeSessionDifficulty?
+    var difficultyAuto: ClaudeSessionDifficulty?
+    var isManual: Bool
+    /// Why cmux leaves the workspace alone: the user's flag, else a pane's signal.
+    var manualSignal: SessionPriorityManualSignal?
+    /// What the workspace's tier and difficulty ask for; `nil` while off or manual.
+    var target: SessionPriorityTarget?
+    /// Empty while session priority is off.
+    var panes: [Pane]
+}
+
+/// Gives each Claude pane the effort its workspace's priority asks for, while
+/// `automation.sessionPriority.enabled` is on.
+///
+/// The decisions are pure: ``SessionPriorityPlan`` ranks each window's Claude workspaces,
+/// ``SessionPriorityManualSignals`` and ``SessionPriorityPaneDecision`` decide each pane, and
+/// ``SessionPriorityCoordinatorState`` remembers what was tried. This type reads the live app,
+/// keeps each workspace's sidebar row current, and restarts one pane at a time, app-wide,
+/// between turns through ``Workspace/applySessionPriority(panelId:target:paneIsFree:)``. Off, it
+/// types nothing and shows no row.
+@MainActor
+final class SessionPriorityCoordinator {
+    static let shared = SessionPriorityCoordinator()
+
+    /// How long user moves and settings changes settle before the panes are reconsidered.
+    private static let debounceInterval: Duration = .seconds(2)
+
+    /// The settings the coordinator acts on.
+    struct Settings: Equatable {
+        var enabled: Bool
+        var urgentCount: Int
+        var matrix: String
+
+        static func current() -> Settings {
+            let section = AutomationCatalogSection()
+            return Settings(
+                enabled: section.sessionPriority.value(in: .standard),
+                urgentCount: section.sessionPriorityUrgentCount.value(in: .standard),
+                matrix: section.sessionPriorityMatrix.value(in: .standard)
+            )
+        }
+    }
+
+    /// A pane cmux sees a Claude session in, or one a session priority restart is moving to a
+    /// new Claude.
+    struct ClaudePane {
+        var panelId: UUID
+        var snapshot: SessionRestorableAgentSnapshot?
+    }
+
+    private(set) var state = SessionPriorityCoordinatorState()
+    private var lastSettings: Settings?
+    private var defaultsObserver: (any NSObjectProtocol)?
+    private var debounceTask: Task<Void, Never>?
+    private var reconcileScheduled = false
+    private var drainTask: Task<Void, Never>?
+    /// At most one per pane: a held pane's retry, or a restarted pane's session-start deadline.
+    private var paneTimers: [UUID: Task<Void, Never>] = [:]
+
+    var isEnabled: Bool {
+        AutomationCatalogSection().sessionPriority.value(in: .standard)
+    }
+
+    /// Plugs into the workspace hooks and the settings. Later calls do nothing.
+    func start() {
+        guard defaultsObserver == nil else { return }
+        SessionPriorityCoordinatorHook.userDidReorder = { [weak self] tabManager in
+            self?.userDidReorder(tabManager: tabManager)
+        }
+        SessionPriorityCoordinatorHook.workspaceStateDidChange = { [weak self] workspaceId in
+            self?.workspaceStateDidChange(workspaceId: workspaceId)
+        }
+        SessionPriorityCoordinatorHook.adjustAutomaticallyRequested = { [weak self] workspaceId in
+            self?.adjustAutomatically(workspaceId: workspaceId)
+        }
+        lastSettings = .current()
+        defaultsObserver = NotificationCenter.default.addUserDefaultsObserver { [weak self] in
+            self?.settingsDidChange()
+        }
+        // Once the restored windows settle: rows saved by the last session are rewritten, or
+        // removed while the setting is off.
+        scheduleDebouncedReconcile()
+    }
+
+    // MARK: - Triggers
+
+    /// Observes one live journal event. Cheap for everything but a Claude pane's turn end.
+    func observe(_ draft: AgentJournalEventDraft) {
+        guard draft.source == "claude", !draft.isSubagent, draft.unattributedReason == nil,
+              let panelId = draft.surfaceId.flatMap(UUID.init(uuidString:)) else { return }
+        switch draft.kind {
+        case .turnCompleted, .idleObserved:
+            guard isEnabled else { return }
+            // Between turns: a pane held or refused earlier may be tried again.
+            state.noteRetryDue(panelId: panelId)
+            scheduleReconcile()
+        case .sessionStarted:
+            guard let sessionId = draft.sessionId,
+                  state.noteSessionStarted(panelId: panelId, sessionId: sessionId) else { return }
+            cancelTimer(panelId: panelId)
+            log("sessionPriority panel=\(panelId.uuidString.prefix(5)) sessionStarted")
+            // The resumed Claude's SessionStart recorded its launch: read it before deciding.
+            Task { [weak self] in
+                _ = await SharedLiveAgentIndex.shared.indexRefreshingNow()
+                self?.reconcile()
+            }
+        case .sessionEnded:
+            guard state.records[panelId] != nil else { return }
+            state.noteSessionEnded(panelId: panelId)
+            scheduleReconcile()
+        default:
+            return
+        }
+    }
+
+    /// A user move in `tabManager`'s sidebar, possibly one that left the order as it was.
+    func userDidReorder(tabManager: TabManager) {
+        guard isEnabled else { return }
+        scheduleDebouncedReconcile()
+    }
+
+    /// A workspace's difficulty or manual flag changed.
+    func workspaceStateDidChange(workspaceId: UUID) {
+        guard isEnabled else { return }
+        scheduleReconcile()
+    }
+
+    /// Re-reads the settings and acts only when one of them changed: turning the feature off
+    /// stops everything now, any other change reconsiders the panes after the debounce.
+    func settingsDidChange() {
+        let settings = Settings.current()
+        guard settings != lastSettings else { return }
+        let wasEnabled = lastSettings?.enabled ?? false
+        lastSettings = settings
+        if settings.enabled {
+            scheduleDebouncedReconcile()
+        } else if wasEnabled {
+            disable()
+        }
+    }
+
+    /// "Adjust automatically": the workspace's panes lose the manual signals seen on screen.
+    private func adjustAutomatically(workspaceId: UUID) {
+        guard isEnabled,
+              let workspace = AppDelegate.shared?.tabManagerFor(tabId: workspaceId)?.workspacesById[workspaceId]
+        else { return }
+        state.clearStickyManual(panelIds: workspace.orderedPanelIds)
+        scheduleReconcile()
+    }
+
+    private func disable() {
+        debounceTask?.cancel()
+        debounceTask = nil
+        for timer in paneTimers.values { timer.cancel() }
+        paneTimers = [:]
+        let cleared = state.disable()
+        removeRows(also: cleared)
+        log("sessionPriority disabled rows=\(cleared.count)")
+    }
+
+    // MARK: - Scheduling
+
+    private func scheduleDebouncedReconcile() {
+        debounceTask?.cancel()
+        debounceTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.debounceInterval)
+            guard !Task.isCancelled, let self else { return }
+            // Decide from the launches recorded by now; at start-up the cache may be empty.
+            if self.isEnabled { _ = await SharedLiveAgentIndex.shared.indexRefreshingNow() }
+            guard !Task.isCancelled else { return }
+            self.debounceTask = nil
+            self.reconcile()
+        }
+    }
+
+    /// Reconciles on the next main-actor turn; requests until then share one pass.
+    private func scheduleReconcile() {
+        guard !reconcileScheduled else { return }
+        reconcileScheduled = true
+        Task { [weak self] in
+            guard let self else { return }
+            self.reconcileScheduled = false
+            self.reconcile()
+        }
+    }
+
+    /// Replaces the pane's timer with one that makes the pane's retry due and reconciles after
+    /// `delay`.
+    private func armTimer(panelId: UUID, after delay: Duration) {
+        paneTimers[panelId]?.cancel()
+        paneTimers[panelId] = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled, let self else { return }
+            self.paneTimers[panelId] = nil
+            self.state.noteRetryDue(panelId: panelId)
+            self.reconcile()
+        }
+    }
+
+    private func cancelTimer(panelId: UUID) {
+        paneTimers.removeValue(forKey: panelId)?.cancel()
+    }
+
+    // MARK: - Reconcile
+
+    /// Brings every window's rows and queued restarts in line with the settings and the panes.
+    /// Off, it only removes rows left from the last session.
+    private func reconcile() {
+        guard isEnabled else {
+            removeRows(also: [])
+            return
+        }
+        let settings = Settings.current()
+        let matrix = SessionPriorityMatrix.fromStoredString(settings.matrix)
+        let nowMs = Self.nowMs()
+        var existingPanelIds = Set<UUID>()
+        var shownRows = Set<UUID>()
+        for tabManager in Self.tabManagers() {
+            let panes = claudePanes(in: tabManager)
+            let plan = Self.plan(for: tabManager, panes: panes, urgentCount: settings.urgentCount, matrix: matrix)
+            for workspace in tabManager.tabs {
+                existingPanelIds.formUnion(workspace.panels.keys)
+                guard let entry = plan[workspace.id] else {
+                    Self.removeRow(from: workspace)
+                    continue
+                }
+                let paneStates = (panes[workspace.id] ?? []).map {
+                    reconcilePane($0, in: workspace, entry: entry, nowMs: nowMs)
+                }
+                Self.showRow(
+                    SessionPriorityStatusRow.entry(
+                        tier: entry.tier,
+                        difficulty: entry.difficulty,
+                        difficultySource: entry.difficultySource,
+                        target: entry.target,
+                        paneStates: paneStates
+                    ),
+                    in: workspace
+                )
+                shownRows.insert(workspace.id)
+            }
+        }
+        state.retainPanes(existingPanelIds)
+        for panelId in paneTimers.keys where !existingPanelIds.contains(panelId) {
+            cancelTimer(panelId: panelId)
+        }
+        state.rowsShown = shownRows
+        startDrainIfNeeded()
+    }
+
+    /// Decides one pane and returns its state; a restart it needs is queued.
+    private func reconcilePane(
+        _ pane: ClaudePane,
+        in workspace: Workspace,
+        entry: SessionPriorityPlan.Entry,
+        nowMs: Int64
+    ) -> SessionPriorityPaneState {
+        let panelId = pane.panelId
+        // A restart in progress owns the pane until it returns.
+        if Workspace.isSessionPriorityApplyInFlight(panelId: panelId) { return .applying }
+        let awaiting = state.awaitsSessionStart(panelId: panelId, nowMs: nowMs)
+        guard let snapshot = pane.snapshot else { return state.records[panelId]?.state ?? .applying }
+        state.follow(panelId: panelId, sessionId: snapshot.sessionId)
+        let arguments = snapshot.launchCommand?.arguments ?? []
+        let manualSignal = SessionPriorityManualSignals.detect(
+            userFlag: workspace.sessionPriorityState.isManual,
+            launchArguments: arguments,
+            workspaceEnvironment: workspace.workspaceEnvironment,
+            // The screen of a pane being restarted shows the restart, not the user.
+            screenText: awaiting ? nil : undismissedScreenText(panelId: panelId, in: workspace)
+        )
+        let action = SessionPriorityPaneDecision.decide(
+            target: entry.target,
+            manualSignal: manualSignal,
+            stickyManual: state.records[panelId]?.stickyManual,
+            currentEffort: ClaudeEffortLevel(rawValue: snapshot.launchCommand?.environment?["CLAUDE_CODE_EFFORT_LEVEL"] ?? ""),
+            currentModel: SessionPriorityLaunchArguments.value(ofOption: "--model", in: arguments),
+            awaitingSessionStart: awaiting
+        )
+        let paneState = state.noteDecision(action, panelId: panelId, workspaceId: workspace.id, sessionId: snapshot.sessionId)
+        switch paneState {
+        case .held, .applying:
+            break
+        case .upToDate, .notApplied, .manual:
+            cancelTimer(panelId: panelId)
+        }
+        return paneState
+    }
+
+    /// The pane's screen text when it shows a `/effort` or `/model` result the user did not
+    /// dismiss, else `nil`. The screen is read only while the pane has no sticky signal and the
+    /// workspace is not marked manual; a result found becomes sticky for the session.
+    private func undismissedScreenText(panelId: UUID, in workspace: Workspace) -> String? {
+        guard state.records[panelId]?.stickyManual == nil, !workspace.sessionPriorityState.isManual,
+              let text = workspace.terminalPanel(for: panelId)?.surface.visibleText() else { return nil }
+        let markers = SessionPriorityCoordinatorState.screenMarkerCount(in: text)
+        return state.screenShowsManualMarker(panelId: panelId, markerCount: markers) ? text : nil
+    }
+
+    // MARK: - Restarts
+
+    /// Starts the one task that restarts queued panes, unless it runs already.
+    private func startDrainIfNeeded() {
+        guard drainTask == nil, !state.queue.isEmpty else { return }
+        drainTask = Task { [weak self] in
+            while let self, let entry = self.nextEntryToApply() {
+                await self.apply(entry)
+            }
+            self?.drainTask = nil
+        }
+    }
+
+    private func nextEntryToApply() -> SessionPriorityApplyQueue.Entry? {
+        guard isEnabled else {
+            state.queue.removeAll()
+            return nil
+        }
+        return state.queue.next()
+    }
+
+    /// Restarts one queued pane, wherever it is now, and records how that ended.
+    private func apply(_ entry: SessionPriorityApplyQueue.Entry) async {
+        let panelId = entry.panelId
+        guard let workspace = AppDelegate.shared?.workspaceContainingPanel(
+            panelId: panelId,
+            preferredWorkspaceId: entry.workspaceId
+        )?.workspace,
+            let sessionId = workspace.sessionPriorityClaudeSnapshot(panelId: panelId)?.sessionId,
+            state.shouldAttempt(panelId: panelId, sessionId: sessionId, target: entry.target)
+        else {
+            state.noteSkipped(panelId: panelId, target: entry.target)
+            scheduleReconcile()
+            return
+        }
+        state.noteRestartStarted(panelId: panelId, sessionId: sessionId, target: entry.target, nowMs: Self.nowMs())
+        cancelTimer(panelId: panelId)
+        scheduleReconcile()
+        log("sessionPriority panel=\(panelId.uuidString.prefix(5)) restart effort=\(entry.target.effort?.rawValue ?? "-")")
+        let result = await workspace.applySessionPriority(
+            panelId: panelId,
+            target: entry.target,
+            paneIsFree: { [weak self, weak workspace] in
+                guard let self, let workspace else { return .hold(.unknownScreen) }
+                return self.paneVerdict(panelId: panelId, workspace: workspace)
+            }
+        )
+        // The pane restarted to a bare shell: the user needs the command, setting or not.
+        if case .resumeNotTyped(let manual) = result {
+            SessionPriorityNotice.notRestarted(target: entry.target, command: manual.command)
+                .post(workspaceId: workspace.id, panelId: panelId)
+        }
+        // Turned off meanwhile: `disable()` already dropped the pane and its row.
+        guard isEnabled else { return }
+        let nowMs = Self.nowMs()
+        if case .timer(let seconds) = state.noteResult(panelId: panelId, result, nowMs: nowMs) {
+            armTimer(panelId: panelId, after: .seconds(seconds))
+        }
+        if let until = state.records[panelId]?.awaitingSessionStartUntilMs {
+            // Past the deadline the next reconcile marks the pane not applied.
+            armTimer(panelId: panelId, after: .milliseconds(until - nowMs + 500))
+        }
+        log("sessionPriority panel=\(panelId.uuidString.prefix(5)) result=\(SessionPriorityCoordinatorState.describe(result))")
+        scheduleReconcile()
+    }
+
+    // MARK: - Status
+
+    /// The workspace's session priority now, for `session_priority.get` and `.set`.
+    func snapshot(for workspace: Workspace) -> SessionPrioritySnapshot {
+        guard isEnabled, let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspace.id) else {
+            return makeSnapshot(workspace, panes: claudePanes(in: workspace), entry: nil, enabled: false)
+        }
+        let panes = claudePanes(in: tabManager)
+        let settings = Settings.current()
+        let plan = Self.plan(
+            for: tabManager,
+            panes: panes,
+            urgentCount: settings.urgentCount,
+            matrix: .fromStoredString(settings.matrix)
+        )
+        return makeSnapshot(workspace, panes: panes[workspace.id] ?? [], entry: plan[workspace.id], enabled: true)
+    }
+
+    /// The window's workspaces that have a Claude pane or are marked manual, in priority order,
+    /// for `session_priority.status`.
+    func statusSnapshot(tabManager: TabManager) -> [SessionPrioritySnapshot] {
+        let enabled = isEnabled
+        let panes = claudePanes(in: tabManager)
+        let settings = Settings.current()
+        let plan = enabled
+            ? Self.plan(for: tabManager, panes: panes, urgentCount: settings.urgentCount, matrix: .fromStoredString(settings.matrix))
+            : [:]
+        return tabManager.sessionPriorityEffectiveOrder.compactMap { workspaceId in
+            guard let workspace = tabManager.workspacesById[workspaceId] else { return nil }
+            let workspacePanes = panes[workspaceId] ?? []
+            guard !workspacePanes.isEmpty || workspace.sessionPriorityState.isManual else { return nil }
+            return makeSnapshot(workspace, panes: workspacePanes, entry: plan[workspaceId], enabled: enabled)
+        }
+    }
+
+    private func makeSnapshot(
+        _ workspace: Workspace,
+        panes: [ClaudePane],
+        entry: SessionPriorityPlan.Entry?,
+        enabled: Bool
+    ) -> SessionPrioritySnapshot {
+        let priority = workspace.sessionPriorityState
+        let paneSnapshots: [SessionPrioritySnapshot.Pane] = enabled ? panes.map { pane in
+            let record = state.records[pane.panelId]
+            return SessionPrioritySnapshot.Pane(
+                surfaceId: pane.panelId,
+                sessionId: pane.snapshot?.sessionId ?? record?.sessionId,
+                currentEffort: ClaudeEffortLevel(rawValue: pane.snapshot?.launchCommand?.environment?["CLAUDE_CODE_EFFORT_LEVEL"] ?? ""),
+                state: Workspace.isSessionPriorityApplyInFlight(panelId: pane.panelId) ? .applying : record?.state ?? .upToDate,
+                detail: record?.lastResultDescription
+            )
+        } : []
+        let paneSignal = paneSnapshots.lazy.compactMap { pane -> SessionPriorityManualSignal? in
+            if case .manual(let signal) = pane.state { return signal }
+            return nil
+        }.first
+        return SessionPrioritySnapshot(
+            workspaceId: workspace.id,
+            tier: entry?.tier,
+            difficulty: priority.effectiveDifficulty,
+            difficultySource: priority.difficultySource,
+            difficultyOverride: priority.difficultyOverride,
+            difficultyAuto: priority.autoDifficulty,
+            isManual: priority.isManual,
+            manualSignal: enabled ? (priority.isManual ? .flag : paneSignal) : nil,
+            target: entry?.target,
+            panes: paneSnapshots
+        )
+    }
+
+    static func nowMs() -> Int64 {
+        Int64(Date().timeIntervalSince1970 * 1000)
+    }
+
+    func log(_ message: @autoclosure () -> String) {
+#if DEBUG
+        cmuxDebugLog(message())
+#endif
+    }
+}

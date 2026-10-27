@@ -80,6 +80,56 @@ struct SessionPriorityCoordinatorStateTests {
     }
 
     @Test
+    func heldPaneWaitsForItsOwnRetry() {
+        var state = SessionPriorityCoordinatorState()
+        state.noteRestartStarted(panelId: pane, sessionId: "s1", target: high, nowMs: 0)
+        _ = state.noteResult(panelId: pane, .held(.draft), nowMs: 1_000)
+
+        // The row refresh right after the hold, or another pane's turn end, does not retry it.
+        let refreshed = decide(&state, .restart(high))
+        #expect(refreshed == .held(.draft))
+        #expect(state.queue.isEmpty)
+
+        // Its timer fired, or its Claude ended a turn.
+        state.noteRetryDue(panelId: pane)
+        let retried = decide(&state, .restart(high))
+        let queued = state.queue.next()
+        #expect(retried == .held(.draft))
+        #expect(queued?.target == high)
+    }
+
+    @Test
+    func refusedPaneIsTriedAgainForANewTarget() {
+        var state = SessionPriorityCoordinatorState()
+        state.noteRestartStarted(panelId: pane, sessionId: "s1", target: high, nowMs: 0)
+        _ = state.noteResult(panelId: pane, .refused(.noConversationYet), nowMs: 500)
+
+        _ = decide(&state, .restart(high))
+        #expect(state.queue.isEmpty)
+
+        _ = decide(&state, .restart(low))
+        let queued = state.queue.next()
+        #expect(queued?.target == low)
+    }
+
+    @Test
+    func skippedEntryWaitsForItsRetry() {
+        var state = SessionPriorityCoordinatorState()
+        state.follow(panelId: pane, sessionId: "s1")
+        _ = decide(&state, .restart(high))
+        let drained = state.queue.next()
+
+        // The drain could not reach the pane.
+        state.noteSkipped(panelId: pane, target: high)
+        let refreshed = decide(&state, .restart(high))
+
+        #expect(drained?.panelId == pane)
+        #expect(refreshed == .notApplied(nil))
+        #expect(state.records[pane]?.lastResultDescription == "paneUnavailable")
+        #expect(state.queue.isEmpty)
+    }
+
+    @Test
     func refusalSchedulesNoRetryTimer() {
         var state = SessionPriorityCoordinatorState()
         state.noteRestartStarted(panelId: pane, sessionId: "s1", target: high, nowMs: 0)

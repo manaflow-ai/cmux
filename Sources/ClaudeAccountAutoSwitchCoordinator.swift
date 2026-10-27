@@ -98,6 +98,9 @@ final class ClaudeAccountAutoSwitchCoordinator {
         pendingContinues[panelId]?.gate.userDidInput()
     }
 
+    /// Whether input reached the pane after `afterMs`, for other unattended restarts' gates.
+    func receivedInput(panelId: UUID, afterMs: Int64) -> Bool { ledger.receivedInput(panelId: panelId, after: afterMs) }
+
     /// Feeds the pane's own Claude events to its switch and waiting continue, resets its attempt
     /// count when it finishes a turn, and clears its status row once its session ends.
     private func followSession(_ draft: AgentJournalEventDraft) {

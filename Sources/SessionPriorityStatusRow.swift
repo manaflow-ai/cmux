@@ -86,7 +86,7 @@ enum SessionPriorityStatusRow {
     }
 
     /// Effort and model are technical identifiers, shown as they are. `nil` for an empty target.
-    private static func targetText(_ target: SessionPriorityTarget) -> String? {
+    static func targetText(_ target: SessionPriorityTarget) -> String? {
         switch (target.effort, target.model) {
         case let (effort?, model?): return "\(effort.rawValue) / \(model)"
         case let (effort?, nil): return effort.rawValue

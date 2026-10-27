@@ -112,6 +112,7 @@ final class AgentJournalLifecycleCenter: Sendable {
                     await MainActor.run {
                         AgentAutoResumeCoordinator.shared.observe(canonical.draft)
                         ClaudeAccountAutoSwitchCoordinator.shared.observe(canonical.draft)
+                        SessionPriorityCoordinator.shared.observe(canonical.draft)
                     }
                 }
                 Self.clearInvalidatedNotifications(canonical, decision: decision)

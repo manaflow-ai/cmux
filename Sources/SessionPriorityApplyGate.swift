@@ -28,6 +28,8 @@ struct SessionPriorityApplyGate {
         case notForeground
         case unknownScreen
         case accountSwitchInFlight
+        /// Session priority was turned off while the restart was being prepared.
+        case disabled
     }
 
     /// The gate's answer.

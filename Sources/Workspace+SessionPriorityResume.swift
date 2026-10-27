@@ -13,6 +13,12 @@ extension Workspace {
     /// after it gets no resume typed.
     private static let sessionPriorityProcessExitTimeout: Duration = .seconds(3)
 
+    /// Whether a session priority restart of the pane is in progress.
+    @MainActor
+    static func isSessionPriorityApplyInFlight(panelId: UUID) -> Bool {
+        sessionPriorityApplyInFlightPanelIds.contains(panelId)
+    }
+
     // Mirrors PR1's private `cachedClaudeAgentSnapshot(panelId:)`.
     /// The pane's Claude session from the in-process lifecycle record or the cached agent index.
     /// Reads cached state only, so it may lag a just-started session.
