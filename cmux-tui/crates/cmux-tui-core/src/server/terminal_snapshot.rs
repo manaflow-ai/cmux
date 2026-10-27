@@ -72,8 +72,7 @@ use super::render_messages::snapshot_frames::SnapshotEvent;
 use super::terminal_io_wire::{AttachSurfaceParams, SnapshotRequestParams, wire_usize};
 use super::{
     MarkedClientAttach, MessageWriter, OutboundStream, get_surface, handle_attach_send_error,
-    mark_client_attached, require_pty, rollback_failed_attach, spawn_attach_notification_stream,
-    terminal_colors_json,
+    mark_client_attached, require_pty, rollback_failed_attach, terminal_colors_json,
 };
 use crate::surface::snapshot_attach::{
     DEFAULT_VIEWER_BACKLOG_BYTES, LocalReadySnapshot, SnapshotAdmission, SnapshotImages,
@@ -659,21 +658,7 @@ fn attach(
             surface.snapshot_stream_position().unwrap_or_default()
         }
     };
-    // An attach stream's drain takes the notifications itself.
-    let on_pool = outbound_stream.client_stream.is_some();
-    if !on_pool
-        && let Err(error) = spawn_attach_notification_stream(
-            mux.clone(),
-            surface_id,
-            writer.clone(),
-            lifecycle.clone(),
-            outbound_stream.clone(),
-        )
-    {
-        lifecycle.cancel();
-        rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
-        return Err(error.into());
-    }
+    // The viewer's drain takes the surface's notifications itself.
     mux.control_clients.snapshot_viewers.register(
         client,
         surface_id,
@@ -695,7 +680,6 @@ fn attach(
         tail,
         images_cap,
         digest_at: None,
-        on_pool,
     };
     snapshot_attach_out::start(
         worker,

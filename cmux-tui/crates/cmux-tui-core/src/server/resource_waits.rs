@@ -1,18 +1,26 @@
-//! Resource-protocol waits: the bounded wait workers behind `terminal.wait`
-//! (output pattern or exit) and the generic resource wait, their admission
-//! guard, timeout and cancellation.
+//! Resource-protocol waits: the bounded wait observers behind
+//! `terminal.wait` (output pattern or exit) and the generic resource wait,
+//! their admission guard, timeout and cancellation. Each is a drain on the
+//! sequenced pool, not a thread.
 
 use super::MessageWriter;
 use super::ResourceWaitCancellation;
+use super::ResourceWorkerPermit;
+use super::attach_lifecycle::attach_pump::{AttachDrain, AttachPump, PumpTimer, Turn};
+use super::resource_pump::ReadyWake;
 use super::resource_terminal_surface;
 use super::resource_wait_install_error;
 use super::send_resource_response;
+use super::sequenced_pool::SequencePriority;
 use crate::Mux;
+use crate::mux::{ResourceWaitWake, TerminalExitWatch};
 use crate::panic_free::JsonFields;
 use crate::resource::RequestId as ResourceRequestId;
 use crate::resource::ResourceError;
 use crate::resource::ResourceOperation;
+use crate::resource::TerminalPublicId;
 use crate::resource::WireDecimal;
+use crate::surface::TerminalStreamWatch;
 use regex::Regex;
 use serde_json::Value;
 use serde_json::json;
@@ -84,135 +92,259 @@ fn resource_wait_stopped(canceled: &ResourceWaitCancellation, writer: &MessageWr
     canceled.is_canceled() || !writer.is_open()
 }
 
-fn run_terminal_resource_wait(
-    mux: &Arc<Mux>,
-    writer: &MessageWriter,
-    request: &crate::resource_router::ParsedResourceRequest,
-    canceled: &ResourceWaitCancellation,
-) -> Result<Option<Value>, ResourceError> {
-    let (_, surface) = resource_terminal_surface(mux, &request.selectors)?;
-    let pattern = crate::resource_router::required_string(&request.fields, "pattern")?;
-    let regex = Regex::new(pattern).map_err(|_| {
-        ResourceError::validation_invalid(
-            None,
-            "terminal wait pattern is not a valid regular expression",
-        )
-    })?;
-    let timeout = resource_wait_timeout(request)?;
-    let deadline = timeout
-        .map(|timeout| {
-            Instant::now().checked_add(timeout).ok_or_else(|| {
-                ResourceError::validation_invalid(
-                    Some("timeout_ms"),
-                    "terminal wait timeout exceeds the platform deadline range",
-                )
-            })
-        })
-        .transpose()?;
-    let check = || -> Result<String, ResourceError> {
-        surface
-            .try_with_terminal(|terminal| terminal.viewport_text())
-            .map_err(resource_wait_runtime_error)?
-            .map_err(resource_wait_runtime_error)
-    };
-    loop {
-        if resource_wait_stopped(canceled, writer) {
-            return Ok(None);
+/// What a wait's turn found.
+enum WaitPoll {
+    /// Nothing decided: a wake source or the deadline posts the next turn.
+    Pending,
+    /// The wait ended: its result, or `None` when it was canceled or its
+    /// connection closed (no response).
+    Done(Option<Result<Value, ResourceError>>),
+}
+
+impl WaitPoll {
+    fn of(result: Result<Option<Value>, ResourceError>) -> Self {
+        Self::Done(result.transpose())
+    }
+}
+
+/// What every turn of a wait needs to arm its wakes.
+struct WaitContext<'a> {
+    writer: &'a MessageWriter,
+    canceled: &'a ResourceWaitCancellation,
+    hook: &'a ReadyWake,
+    timer: &'a PumpTimer<'a>,
+}
+
+impl WaitContext<'_> {
+    fn stopped(&self) -> bool {
+        resource_wait_stopped(self.canceled, self.writer)
+    }
+
+    /// A one-shot wake that posts the wait's next turn, notified by
+    /// cancellation and by the connection's close as well; every source
+    /// holds it weakly, so the wait keeps it in its watch.
+    fn wake(&self) -> Arc<ResourceWaitWake> {
+        let wake = Arc::new(ResourceWaitWake::default());
+        let hook = self.hook.clone();
+        wake.on_notify(move || hook());
+        self.canceled.register(&wake);
+        self.writer.register_wait_wakeup(&wake);
+        wake
+    }
+
+    /// A turn at `deadline`, armed once: the only timed wake of a wait.
+    fn arm(&self, deadline: Option<Instant>, armed: &mut bool) {
+        if *armed {
+            return;
         }
+        *armed = true;
+        if let Some(deadline) = deadline {
+            self.timer.wake_after(deadline.saturating_duration_since(Instant::now()));
+        }
+    }
+}
+
+fn wait_deadline(
+    timeout: Option<Duration>,
+    out_of_range: impl FnOnce() -> ResourceError,
+) -> Result<Option<Instant>, ResourceError> {
+    timeout.map(|timeout| Instant::now().checked_add(timeout).ok_or_else(out_of_range)).transpose()
+}
+
+/// `terminal.wait`: the viewport matching a pattern.
+struct OutputWait {
+    surface: Arc<crate::Surface>,
+    regex: Regex,
+    timeout: Option<Duration>,
+    deadline: Option<Instant>,
+    armed: bool,
+    /// The stream-change registration of the last read, replaced each turn.
+    watch: Option<TerminalStreamWatch>,
+}
+
+impl OutputWait {
+    fn new(
+        mux: &Mux,
+        request: &crate::resource_router::ParsedResourceRequest,
+    ) -> Result<Self, ResourceError> {
+        let (_, surface) = resource_terminal_surface(mux, &request.selectors)?;
+        let pattern = crate::resource_router::required_string(&request.fields, "pattern")?;
+        let regex = Regex::new(pattern).map_err(|_| {
+            ResourceError::validation_invalid(
+                None,
+                "terminal wait pattern is not a valid regular expression",
+            )
+        })?;
+        let timeout = resource_wait_timeout(request)?;
+        let deadline = wait_deadline(timeout, || {
+            ResourceError::validation_invalid(
+                Some("timeout_ms"),
+                "terminal wait timeout exceeds the platform deadline range",
+            )
+        })?;
+        Ok(Self { surface, regex, timeout, deadline, armed: false, watch: None })
+    }
+
+    fn poll(&mut self, context: &WaitContext<'_>) -> WaitPoll {
         // Register every wake source before reading terminal state. Output,
-        // cancellation, and connection close therefore share one blocking
-        // primitive without a read/wait gap or an idle polling deadline.
-        let subscription =
-            surface.subscribe_terminal_stream_change().map_err(resource_wait_runtime_error)?;
-        let wake = subscription.wake();
-        canceled.register(&wake);
-        writer.register_wait_wakeup(&wake);
-        if resource_wait_stopped(canceled, writer) {
-            return Ok(None);
+        // cancellation and connection close therefore share one wake without
+        // a read/wait gap or an idle polling deadline.
+        let wake = context.wake();
+        let watch = match self.surface.watch_terminal_stream_change(wake) {
+            Ok(watch) => watch,
+            Err(error) => return WaitPoll::of(Err(resource_wait_runtime_error(error))),
+        };
+        if context.stopped() {
+            return WaitPoll::Done(None);
         }
-        let text = check()?;
-        if regex.is_match(&text) {
-            return Ok(Some(json!({"matched":true,"text":text})));
+        let text = match self
+            .surface
+            .try_with_terminal(|terminal| terminal.viewport_text())
+            .map_err(resource_wait_runtime_error)
+            .and_then(|text| text.map_err(resource_wait_runtime_error))
+        {
+            Ok(text) => text,
+            Err(error) => return WaitPoll::of(Err(error)),
+        };
+        let matched = self.regex.is_match(&text);
+        // A read at or after the deadline is the final one.
+        if matched
+            || self.timeout == Some(Duration::ZERO)
+            || self.deadline.is_some_and(|deadline| Instant::now() >= deadline)
+        {
+            return WaitPoll::of(Ok(Some(json!({"matched":matched,"text":text}))));
         }
-        if timeout == Some(Duration::ZERO) {
-            return Ok(Some(json!({"matched":false,"text":text})));
-        }
+        self.watch = Some(watch);
+        context.arm(self.deadline, &mut self.armed);
+        WaitPoll::Pending
+    }
+}
 
-        if !subscription.wait_until(deadline) {
-            // Close the output/deadline race with one final authoritative
-            // snapshot after the one deadline wake.
-            let text = check()?;
-            return Ok(Some(json!({
-                "matched":regex.is_match(&text),
-                "text":text,
-            })));
+/// `terminal.wait_exit`: the terminal's exit.
+struct ExitWait {
+    terminal_id: TerminalPublicId,
+    timeout: Option<Duration>,
+    deadline: Option<Instant>,
+    armed: bool,
+    /// Set by the first turn: a later turn is the one wake it waits for.
+    watch: Option<TerminalExitWatch>,
+}
+
+impl ExitWait {
+    fn new(
+        mux: &Mux,
+        request: &crate::resource_router::ParsedResourceRequest,
+    ) -> Result<Self, ResourceError> {
+        let terminal_id =
+            crate::resource_router::resolve_terminal_wait_exit_id(mux, &request.selectors)?;
+        let timeout = resource_wait_timeout(request)?;
+        let deadline = wait_deadline(timeout, || {
+            resource_wait_runtime_error(anyhow::anyhow!(
+                "terminal exit timeout exceeds deadline range"
+            ))
+        })?;
+        Ok(Self { terminal_id, timeout, deadline, armed: false, watch: None })
+    }
+
+    fn poll(&mut self, mux: &Arc<Mux>, context: &WaitContext<'_>) -> WaitPoll {
+        if self.watch.is_some() {
+            // An exit, a cancel, a close or the deadline woke it: one
+            // targeted read closes the notification or deadline race.
+            return WaitPoll::of(
+                mux.terminal_exit_state(&self.terminal_id)
+                    .map(Some)
+                    .map_err(resource_wait_runtime_error),
+            );
+        }
+        // Register every wake source before the initial query. A concurrent
+        // exit, connection close or client cleanup cannot strand this wait.
+        let wake = context.wake();
+        let watch = mux.watch_terminal_exit(&self.terminal_id, wake);
+        if context.stopped() {
+            return WaitPoll::Done(None);
+        }
+        let state = match mux.terminal_exit_state(&self.terminal_id) {
+            Ok(state) => state,
+            Err(error) => return WaitPoll::of(Err(resource_wait_runtime_error(error))),
+        };
+        if state.field("state") == "exited" || self.timeout == Some(Duration::ZERO) {
+            return WaitPoll::of(Ok(Some(state)));
+        }
+        self.watch = Some(watch);
+        context.arm(self.deadline, &mut self.armed);
+        WaitPoll::Pending
+    }
+}
+
+enum WaitState {
+    /// Not validated yet: its first turn does, on the pool.
+    Start(Box<crate::resource_router::ParsedResourceRequest>),
+    Output(OutputWait),
+    Exit(ExitWait),
+}
+
+/// A detached terminal wait as an observer on the sequenced pool
+/// (p01-process-204), not a `mux-resource-terminal-wait` thread blocked for
+/// as long as the wait lasts: each turn registers its wakes, reads the
+/// terminal and returns; output, the exit, cancellation, the connection's
+/// close and the one deadline post the next turn.
+struct TerminalWaitDrain {
+    registration: ResourceWaitWorkerGuard,
+    _worker_permit: ResourceWorkerPermit,
+    writer: MessageWriter,
+    operation: ResourceOperation,
+    hook: ReadyWake,
+    state: WaitState,
+}
+
+impl TerminalWaitDrain {
+    fn poll(&mut self, timer: &PumpTimer<'_>) -> WaitPoll {
+        let mux = self.registration.mux.clone();
+        let context = WaitContext {
+            writer: &self.writer,
+            canceled: &self.registration.canceled,
+            hook: &self.hook,
+            timer,
+        };
+        if context.stopped() {
+            return WaitPoll::Done(None);
+        }
+        if let WaitState::Start(request) = &self.state {
+            let state = match self.operation {
+                ResourceOperation::TerminalWait => {
+                    OutputWait::new(&mux, request).map(WaitState::Output)
+                }
+                ResourceOperation::TerminalWaitExit => {
+                    ExitWait::new(&mux, request).map(WaitState::Exit)
+                }
+                operation => {
+                    Err(super::wire_values::unrouted_operation("terminal wait", operation))
+                }
+            };
+            match state {
+                Ok(state) => self.state = state,
+                Err(error) => return WaitPoll::Done(Some(Err(error))),
+            }
+        }
+        match &mut self.state {
+            WaitState::Start(_) => WaitPoll::Done(None),
+            WaitState::Output(wait) => wait.poll(&context),
+            WaitState::Exit(wait) => wait.poll(&mux, &context),
         }
     }
 }
 
-fn run_terminal_resource_wait_exit(
-    mux: &Arc<Mux>,
-    writer: &MessageWriter,
-    request: &crate::resource_router::ParsedResourceRequest,
-    canceled: &ResourceWaitCancellation,
-) -> Result<Option<Value>, ResourceError> {
-    let terminal_id =
-        crate::resource_router::resolve_terminal_wait_exit_id(mux, &request.selectors)?;
-    let timeout = resource_wait_timeout(request)?;
-    let deadline = timeout
-        .map(|timeout| {
-            Instant::now().checked_add(timeout).ok_or_else(|| {
-                resource_wait_runtime_error(anyhow::anyhow!(
-                    "terminal exit timeout exceeds deadline range"
-                ))
-            })
-        })
-        .transpose()?;
-    if resource_wait_stopped(canceled, writer) {
-        return Ok(None);
-    }
-    // Register every wake source before the initial query. A concurrent exit,
-    // connection close, or client cleanup therefore cannot strand this wait.
-    let subscription = mux.subscribe_terminal_exit(&terminal_id);
-    let wake = subscription.wake();
-    canceled.register(&wake);
-    writer.register_wait_wakeup(&wake);
-    if resource_wait_stopped(canceled, writer) {
-        return Ok(None);
-    }
-    let state = mux.terminal_exit_state(&terminal_id).map_err(resource_wait_runtime_error)?;
-    if state.field("state") == "exited" || timeout == Some(Duration::ZERO) {
-        return Ok(Some(state));
-    }
-
-    let _explicit_wake = subscription.wait_until(deadline);
-    if resource_wait_stopped(canceled, writer) {
-        return Ok(None);
-    }
-    mux.terminal_exit_state(&terminal_id).map(Some).map_err(resource_wait_runtime_error)
-}
-
-fn run_resource_wait(
-    mux: &Arc<Mux>,
-    writer: &MessageWriter,
-    request: crate::resource_router::ParsedResourceRequest,
-    canceled: &ResourceWaitCancellation,
-) -> Option<Result<Value, ResourceError>> {
-    if canceled.is_canceled() || !writer.is_open() {
-        return None;
-    }
-    let result = match request.envelope.operation {
-        ResourceOperation::TerminalWait => {
-            run_terminal_resource_wait(mux, writer, &request, canceled)
+impl AttachDrain for TerminalWaitDrain {
+    fn turn(&mut self, timer: &PumpTimer<'_>) -> Turn {
+        let WaitPoll::Done(result) = self.poll(timer) else { return Turn::Idle };
+        if let Some(result) = result
+            && self.registration.claim_completion()
+        {
+            let id = self.registration.request_id.clone();
+            let _ = send_resource_response(&self.writer, id, self.operation, result);
+            self.registration.finish_response_attempt();
         }
-        ResourceOperation::TerminalWaitExit => {
-            run_terminal_resource_wait_exit(mux, writer, &request, canceled)
-        }
-        operation => Err(super::wire_values::unrouted_operation("terminal wait", operation)),
-    };
-    match result {
-        Ok(result) => result.map(Ok),
-        Err(error) => Some(Err(error)),
+        Turn::Done
     }
 }
 
@@ -247,37 +379,26 @@ pub(super) fn start_resource_wait(
             );
         }
     };
-    let worker_writer = writer.clone();
-    let worker_mux = mux.clone();
-    let worker_canceled = canceled.clone();
-    let worker_id = id.clone();
-    let spawn =
-        std::thread::Builder::new().name("mux-resource-terminal-wait".into()).spawn(move || {
-            let _registration = ResourceWaitWorkerGuard {
-                mux: worker_mux.clone(),
-                client,
-                request_id: worker_id.clone(),
-                canceled: worker_canceled.clone(),
-            };
-            let _worker_permit = worker_permit;
-            if let Some(result) =
-                run_resource_wait(&worker_mux, &worker_writer, request, &worker_canceled)
-                && _registration.claim_completion()
-            {
-                let _ = send_resource_response(&worker_writer, worker_id, operation, result);
-                _registration.finish_response_attempt();
-            }
-        });
-    match spawn {
-        Ok(_) => true,
-        Err(error) => {
-            mux.control_clients.finish_resource_wait(client, &id, &canceled);
-            send_resource_response(
-                &writer,
-                id,
-                operation,
-                Err(ResourceError::operation_failed(name, error.to_string(), json!({}))),
-            )
-        }
+    // Off the echo path and off the control workers a `request.cancel` may
+    // wait on while this wait ends.
+    let response_id = id.clone();
+    let pump = AttachPump::new(&mux.sequenced_pool, SequencePriority::Utility);
+    pump.install(Box::new(TerminalWaitDrain {
+        registration: ResourceWaitWorkerGuard { mux, client, request_id: id, canceled },
+        _worker_permit: worker_permit,
+        writer: writer.clone(),
+        operation,
+        hook: Arc::new(pump.hook()),
+        state: WaitState::Start(Box::new(request)),
+    }));
+    // A refused start drops the drain, whose registration releases the wait.
+    match pump.start() {
+        Ok(()) => true,
+        Err(error) => send_resource_response(
+            &writer,
+            response_id,
+            operation,
+            Err(ResourceError::operation_failed(name, error.to_string(), json!({}))),
+        ),
     }
 }

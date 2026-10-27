@@ -528,6 +528,9 @@ impl MessageWriter {
         result
     }
 
+    /// The blocking ordered terminal; producers on the pool use
+    /// [`Self::try_send_ordered_terminal`].
+    #[cfg(test)]
     pub(super) fn send_ordered_terminal<T: Serialize + ?Sized>(
         &self,
         value: &T,
@@ -540,6 +543,29 @@ impl MessageWriter {
             .render_service
             .serialize_control_for(value, stream.client_stream)
             .and_then(|text| self.sink.send_ordered_terminal(text, stream));
+        if result.is_err() {
+            self.close();
+        }
+        result
+    }
+
+    /// [`Self::send_ordered_terminal`] for a drain on the sequenced pool,
+    /// which never waits: `Ok(false)` while the stream or the connection has
+    /// no room for it, and the connection runs `on_room` once an item leaves
+    /// its queue or it closes.
+    pub(super) fn try_send_ordered_terminal<T: Serialize + ?Sized>(
+        &self,
+        value: &T,
+        stream: &OutboundStream,
+        on_room: RoomWaker,
+    ) -> std::io::Result<bool> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let result = self
+            .render_service
+            .serialize_control_for(value, stream.client_stream)
+            .and_then(|text| self.sink.try_send_ordered_terminal(text, stream, on_room));
         if result.is_err() {
             self.close();
         }

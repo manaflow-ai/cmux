@@ -3,6 +3,14 @@
 use super::*;
 use crate::panic_free::RecoverPoison;
 
+/// The durable journal's wake epoch and the ready hooks of the streams that
+/// follow it as drains on the sequenced pool, not as blocked threads.
+#[derive(Default)]
+pub(crate) struct JournalEventEpoch {
+    epoch: u64,
+    hooks: crate::stream_interrupt::ReadyHookSet,
+}
+
 impl Mux {
     pub(crate) fn publish_resource_event(&self) {
         self.publish_journal_event();
@@ -14,9 +22,32 @@ impl Mux {
 
     pub(crate) fn publish_journal_event(&self) {
         self.journal_kernel.notify_commit();
-        let mut epoch = self.journal_event_epoch.lock().recover_poison();
-        *epoch = epoch.wrapping_add(1);
+        let mut state = self.journal_event_epoch.lock().recover_poison();
+        state.epoch = state.epoch.wrapping_add(1);
+        let hooks = state.hooks.live();
+        drop(state);
         self.journal_event_changed.notify_all();
+        crate::stream_interrupt::wake_all(hooks);
+    }
+
+    /// Runs `hook` after each journal event while the returned registration
+    /// lives: a stream that follows the journal as a drain on the sequenced
+    /// pool compares [`Self::journal_event_epoch`] on each turn instead of
+    /// blocking in [`Self::wait_for_journal_event_until_interrupted`].
+    pub(crate) fn on_journal_event(
+        &self,
+        hook: impl Fn() + Send + Sync + 'static,
+    ) -> crate::stream_interrupt::ReadyHookRegistration {
+        self.journal_event_epoch.lock().recover_poison().hooks.add(hook)
+    }
+
+    /// [`Self::on_journal_event`] for the shared journal's ring epoch
+    /// ([`Self::shared_journal_epoch`]).
+    pub(crate) fn on_shared_journal_epoch(
+        &self,
+        hook: impl Fn() + Send + Sync + 'static,
+    ) -> crate::stream_interrupt::ReadyHookRegistration {
+        self.journal_kernel.on_epoch(hook)
     }
 
     /// Test-only: output goes to the output store, never the journal.
@@ -349,17 +380,17 @@ impl Mux {
     }
 
     pub(crate) fn journal_event_epoch(&self) -> u64 {
-        *self.journal_event_epoch.lock().recover_poison()
+        self.journal_event_epoch.lock().recover_poison().epoch
     }
 
     #[cfg(test)]
     pub(crate) fn wait_for_journal_event(&self, epoch: u64, timeout: Duration) -> u64 {
         let current = self.journal_event_epoch.lock().unwrap();
-        if *current != epoch {
-            return *current;
+        if current.epoch != epoch {
+            return current.epoch;
         }
         let (current, _) = self.journal_event_changed.wait_timeout(current, timeout).unwrap();
-        *current
+        current.epoch
     }
 
     /// Like `wait_for_journal_event`, with no timeout: returns the new
@@ -370,20 +401,11 @@ impl Mux {
         interrupt: &crate::stream_interrupt::StreamInterrupt,
     ) -> u64 {
         let mut current = self.journal_event_epoch.lock().recover_poison();
-        while *current == epoch && !interrupt.is_fired() {
+        while current.epoch == epoch && !interrupt.is_fired() {
             current = cmux_threads::checked::sync::wait(&self.journal_event_changed, current)
                 .recover_poison();
         }
-        *current
-    }
-
-    /// Like `wait_for_shared_journal`, with no timeout.
-    pub(crate) fn wait_for_shared_journal_until_interrupted(
-        &self,
-        epoch: u64,
-        interrupt: &crate::stream_interrupt::StreamInterrupt,
-    ) -> u64 {
-        self.journal_kernel.wait_until_interrupted(epoch, interrupt)
+        current.epoch
     }
 
     /// Wakes this mux's journal waiters when `interrupt` fires, so a

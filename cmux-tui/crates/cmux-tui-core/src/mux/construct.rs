@@ -421,7 +421,7 @@ impl Mux {
             journal_maintenance: Mutex::new(None),
             journal_hook_dispatcher_started: AtomicBool::new(false),
             journal_hook_runtime: Arc::new(crate::journal_hooks::JournalHookRuntime::default()),
-            journal_event_epoch: Mutex::new(0),
+            journal_event_epoch: Mutex::new(journal::JournalEventEpoch::default()),
             journal_event_changed: Condvar::new(),
             reconnect_checkpoint_skip_reported: AtomicBool::new(false),
             journal_retention: Default::default(),

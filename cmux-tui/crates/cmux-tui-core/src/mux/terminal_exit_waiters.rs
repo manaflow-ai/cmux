@@ -76,15 +76,36 @@ pub(crate) struct TerminalExitSubscription<'a> {
 
 impl TerminalExitWaiters {
     pub(super) fn subscribe(&self, terminal_id: &TerminalPublicId) -> TerminalExitSubscription<'_> {
-        let waiter_id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let wake = Arc::new(ResourceWaitWake::default());
+        let waiter_id = self.insert(terminal_id, &wake);
+        TerminalExitSubscription { owner: self, terminal_id: terminal_id.clone(), waiter_id, wake }
+    }
+
+    /// Registers `wake` for `terminal_id`'s exit: its waiter id.
+    pub(super) fn insert(
+        &self,
+        terminal_id: &TerminalPublicId,
+        wake: &Arc<ResourceWaitWake>,
+    ) -> u64 {
+        let waiter_id = self.next_id.fetch_add(1, Ordering::Relaxed);
         self.waiters
             .lock()
             .unwrap()
             .entry(terminal_id.clone())
             .or_default()
-            .insert(waiter_id, Arc::downgrade(&wake));
-        TerminalExitSubscription { owner: self, terminal_id: terminal_id.clone(), waiter_id, wake }
+            .insert(waiter_id, Arc::downgrade(wake));
+        waiter_id
+    }
+
+    pub(super) fn remove(&self, terminal_id: &TerminalPublicId, waiter_id: u64) {
+        let mut waiters = self.waiters.lock().unwrap();
+        let remove_terminal = waiters.get_mut(terminal_id).is_some_and(|terminal_waiters| {
+            terminal_waiters.remove(&waiter_id);
+            terminal_waiters.is_empty()
+        });
+        if remove_terminal {
+            waiters.remove(terminal_id);
+        }
     }
 
     pub(super) fn notify(&self, terminal_id: &TerminalPublicId) {
@@ -101,10 +122,6 @@ impl TerminalExitWaiters {
 }
 
 impl TerminalExitSubscription<'_> {
-    pub(crate) fn wake(&self) -> Arc<ResourceWaitWake> {
-        self.wake.clone()
-    }
-
     pub(crate) fn wait_until(&self, deadline: Option<Instant>) -> bool {
         self.wake.wait_until(deadline)
     }
@@ -112,14 +129,23 @@ impl TerminalExitSubscription<'_> {
 
 impl Drop for TerminalExitSubscription<'_> {
     fn drop(&mut self) {
-        let mut waiters = self.owner.waiters.lock().unwrap();
-        let remove_terminal = waiters.get_mut(&self.terminal_id).is_some_and(|terminal_waiters| {
-            terminal_waiters.remove(&self.waiter_id);
-            terminal_waiters.is_empty()
-        });
-        if remove_terminal {
-            waiters.remove(&self.terminal_id);
-        }
+        self.owner.remove(&self.terminal_id, self.waiter_id);
+    }
+}
+
+/// An owned terminal-exit registration for a waiter that runs as a drain on
+/// a sequence, which outlives any borrow: it holds its wake (every source
+/// holds it weakly) and unsubscribes when dropped.
+pub(crate) struct TerminalExitWatch {
+    pub(super) mux: Arc<Mux>,
+    pub(super) terminal_id: TerminalPublicId,
+    pub(super) waiter_id: u64,
+    pub(super) _wake: Arc<ResourceWaitWake>,
+}
+
+impl Drop for TerminalExitWatch {
+    fn drop(&mut self) {
+        self.mux.terminal_exit_waiters.remove(&self.terminal_id, self.waiter_id);
     }
 }
 

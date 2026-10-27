@@ -543,6 +543,20 @@ impl ClientRegistry {
             .remove(stream_id.as_str())
     }
 
+    #[cfg(test)]
+    pub(super) fn resource_stream_registered(
+        &self,
+        client: u64,
+        stream_id: &StreamPublicId,
+    ) -> bool {
+        self.state
+            .lock()
+            .recover_poison()
+            .clients
+            .get(&client)
+            .is_some_and(|record| record.resource_streams.contains_key(stream_id.as_str()))
+    }
+
     pub(super) fn finish_resource_stream(
         &self,
         client: u64,

@@ -56,7 +56,7 @@ use crate::surface::AttachLifecycle;
 
 /// Items one drain task sends before it yields its worker to the other
 /// sequences of its priority.
-const TURN_BUDGET: usize = 64;
+pub(crate) const TURN_BUDGET: usize = 64;
 
 /// What one turn of a drain did.
 #[derive(Debug, PartialEq, Eq)]
@@ -131,10 +131,13 @@ impl AttachPump {
     }
 
     /// Runs the drain's first turn: what queued since the attach was built.
+    /// When the pool refuses it, the pump is dropped unstarted: its drain is
+    /// abandoned, so nothing it holds waits for a turn that never comes.
     pub(crate) fn start(mut self) -> Result<(), PostError> {
-        self.started = true;
         self.inner.scheduled.store(false, Ordering::SeqCst);
-        post(&self.inner)
+        let posted = post(&self.inner);
+        self.started = posted.is_ok();
+        posted
     }
 }
 

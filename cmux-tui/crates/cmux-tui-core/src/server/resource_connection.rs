@@ -33,7 +33,7 @@ use super::start_terminal_resource_attach;
 use crate::panic_free::JsonFields;
 
 use super::MessageWriter;
-use super::OutboundStream;
+
 use super::RequestSpan;
 use super::ResourceWaitCancel;
 use super::activity;
@@ -409,29 +409,6 @@ fn handle_resource_connection_control(
         }
         operation => Err(super::wire_values::unrouted_operation("connection", operation)),
     }
-}
-
-pub(super) fn send_resource_stream_item(
-    writer: &MessageWriter,
-    outbound: &OutboundStream,
-    stream_id: &StreamPublicId,
-    sequence: u64,
-    cursor: &Value,
-    item: Value,
-) -> bool {
-    writer
-        .send_stream_backpressured(
-            &json!({
-                "protocol":"cmux.protocol/2",
-                "type":"stream_item",
-                "stream_id":stream_id,
-                "sequence":sequence.to_string(),
-                "cursor":cursor,
-                "item":writer.project_conversation_tab_item(item),
-            }),
-            outbound,
-        )
-        .is_ok()
 }
 
 fn cancel_resource_stream(

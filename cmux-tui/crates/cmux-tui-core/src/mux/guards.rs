@@ -48,11 +48,18 @@ impl Drop for PendingWorkspaceSurface<'_> {
 pub(crate) struct ResourceWaitWake {
     pub(super) notified: Mutex<bool>,
     pub(super) changed: Condvar,
+    /// The waiter's drain when it runs on a sequence instead of blocking in
+    /// [`Self::wait_until`] (a `terminal.wait` observer).
+    ready: crate::stream_interrupt::ReadyHook,
 }
 
 impl Default for ResourceWaitWake {
     fn default() -> Self {
-        Self { notified: Mutex::new(false), changed: Condvar::new() }
+        Self {
+            notified: Mutex::new(false),
+            changed: Condvar::new(),
+            ready: crate::stream_interrupt::ReadyHook::default(),
+        }
     }
 }
 
@@ -61,6 +68,14 @@ impl ResourceWaitWake {
         let mut notified = self.notified.lock().recover_poison();
         *notified = true;
         self.changed.notify_all();
+        drop(notified);
+        self.ready.wake();
+    }
+
+    /// Runs `hook` at each notify, after the wake's lock is released. False
+    /// when a hook is set already.
+    pub(crate) fn on_notify(&self, hook: impl Fn() + Send + Sync + 'static) -> bool {
+        self.ready.set(hook)
     }
 
     /// Returns true for an explicit wake and false when the deadline expires.

@@ -124,6 +124,52 @@ impl ReadyHook {
     }
 }
 
+/// One consumer's registration in a [`ReadyHookSet`]: the hook runs while
+/// the registration lives, and dropping it unsubscribes.
+pub type ReadyHookRegistration = Arc<dyn Fn() + Send + Sync>;
+
+/// The ready hooks of a source with many consumers (a journal epoch every
+/// stream of the session follows). It has no lock of its own: the source
+/// keeps it in the state its condition variable guards, takes the live hooks
+/// under that lock with [`Self::live`], and runs them after releasing it, as
+/// a [`ReadyHook`] runs. It holds each hook weakly, so a consumer that ends
+/// leaves nothing behind but a dead entry pruned at the next change.
+#[derive(Default)]
+pub struct ReadyHookSet {
+    hooks: Vec<Weak<dyn Fn() + Send + Sync>>,
+}
+
+impl ReadyHookSet {
+    /// Subscribes `hook` while the returned registration lives.
+    pub fn add(&mut self, hook: impl Fn() + Send + Sync + 'static) -> ReadyHookRegistration {
+        let registration: ReadyHookRegistration = Arc::new(hook);
+        self.hooks.retain(|hook| hook.strong_count() > 0);
+        self.hooks.push(Arc::downgrade(&registration));
+        registration
+    }
+
+    /// The hooks to run for a change, with the dead ones pruned. Empty (and
+    /// no allocation) while nobody subscribed.
+    pub fn live(&mut self) -> Vec<ReadyHookRegistration> {
+        let mut live = Vec::new();
+        self.hooks.retain(|hook| match hook.upgrade() {
+            Some(hook) => {
+                live.push(hook);
+                true
+            }
+            None => false,
+        });
+        live
+    }
+}
+
+/// Runs each of `hooks` (after the source released its lock).
+pub fn wake_all(hooks: Vec<ReadyHookRegistration>) {
+    for hook in hooks {
+        hook();
+    }
+}
+
 /// Wakes `changed` under `lock` when `interrupt` fires, holding both weakly.
 pub(crate) fn wake_condvar_on<T: Send + 'static>(
     interrupt: &StreamInterrupt,

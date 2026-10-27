@@ -1,9 +1,9 @@
 //! Resource-protocol surface attach streams: installing a resource stream's
-//! outbound queue, the terminal attach (snapshot, patches, scroll), the browser
-//! attach (state and frames) and the sidebar render attach, their interrupts
-//! and cleanup, and the resource response envelope writer.
+//! outbound queue, preparing the terminal attach (snapshot, patches, scroll),
+//! the browser attach (state and frames) and the sidebar render attach, their
+//! cleanup, and the resource response envelope writer. The streams run as
+//! drains on the sequenced pool (resource_attach_out.rs).
 
-use super::AttachWorkerCommit;
 use super::MarkedClientAttach;
 use super::MessageWriter;
 use super::OutboundStream;
@@ -18,8 +18,6 @@ use super::ResourceWaitInstallError;
 use super::ResourceWorkerPermit;
 use super::browser_cells_for_pixels;
 use super::browser_pixels_for_cells;
-use super::commit_client_attach_and_start_worker;
-use super::detach_committed_attach;
 use super::mark_resource_client_attached;
 use super::render_state_message;
 use super::resource_browser_surface;
@@ -30,12 +28,10 @@ use super::wait_for_initial_browser_resize;
 use crate::BrowserAttachState;
 use crate::BrowserFrameStream;
 use crate::Mux;
-use crate::RenderAttachFrame;
 use crate::RenderAttachStream;
 use crate::SurfaceId;
 use crate::SurfaceKind;
 use crate::SurfaceRenderFrame;
-use crate::panic_free::RecoverPoison;
 use crate::resource::BrowserPublicId;
 use crate::resource::RequestId as ResourceRequestId;
 use crate::resource::ResourceError;
@@ -45,19 +41,20 @@ use crate::resource::StreamPublicId;
 use crate::resource::TerminalPublicId;
 use crate::resource::WireDecimal;
 use crate::sidebar_resource::SidebarRenderAttachment;
-use crate::sidebar_resource::SidebarRenderClientState;
 use crate::sidebar_resource::attach_sidebar_render;
 use crate::sidebar_resource::resolve_sidebar_view;
-use crate::sidebar_resource::sidebar_attach_snapshot;
 use crate::sidebar_resource::sidebar_snapshot;
-use crate::stream_interrupt::StreamInterrupt;
 use crate::surface::AttachLifecycle;
-use cmux_threads::checked::sync as waits;
 use serde_json::Value;
 use serde_json::json;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering;
+
+#[path = "resource_attach_out.rs"]
+mod attach_out;
+pub(super) use attach_out::{
+    start_browser_resource_attach, start_sidebar_resource_attach, start_terminal_resource_attach,
+};
 
 pub(super) struct ResourceSurfaceAttachStart {
     pub(super) stream_id: StreamPublicId,
@@ -367,179 +364,6 @@ fn terminal_resource_scroll(terminal_id: &TerminalPublicId, offset: u64, at_bott
     })
 }
 
-fn send_resource_uncursored_stream_item(
-    writer: &MessageWriter,
-    outbound: &OutboundStream,
-    stream_id: &StreamPublicId,
-    sequence: u64,
-    item: Value,
-) -> bool {
-    writer
-        .send_stream_backpressured(
-            &json!({
-                "protocol":"cmux.protocol/2",
-                "type":"stream_item",
-                "stream_id":stream_id,
-                "sequence":sequence.to_string(),
-                "item":item,
-            }),
-            outbound,
-        )
-        .is_ok()
-}
-
-/// One interrupt for a resource attach loop: its connection writer, its
-/// outbound stream (closed with `canceled`) and its attach lifecycle.
-fn resource_attach_interrupt(
-    writer: &MessageWriter,
-    start: &ResourceSurfaceAttachStart,
-) -> Arc<StreamInterrupt> {
-    let interrupt = StreamInterrupt::new();
-    writer.register_interrupt(&interrupt);
-    start.outbound.register_interrupt(&interrupt);
-    start.lifecycle.register_interrupt(&interrupt);
-    interrupt
-}
-
-fn finish_resource_surface_attach(
-    mux: &Mux,
-    client: u64,
-    writer: &MessageWriter,
-    start: &ResourceSurfaceAttachStart,
-    reason: &str,
-) {
-    if writer.is_open() && start.outbound.is_open() && !start.canceled.load(Ordering::Acquire) {
-        let end = resource_stream_end(&start.stream_id, reason, None, None, None);
-        let _ = writer.send_terminal(&end, &start.outbound);
-    }
-    mux.control_clients.finish_resource_stream(client, &start.stream_id, start.outbound.id);
-    detach_committed_attach(mux, client, start.surface, start.outbound.id);
-}
-
-pub(super) fn start_terminal_resource_attach(
-    mux: Arc<Mux>,
-    client: u64,
-    writer: MessageWriter,
-    start: TerminalResourceAttachStart,
-) {
-    let stream_id = start.common.stream_id.clone();
-    let outbound = start.common.outbound.clone();
-    let surface = start.common.surface;
-    let lifecycle = start.common.lifecycle.clone();
-    let client_changed = start.common.client_changed.clone();
-    let size_rollback = start.common.size_rollback;
-    let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
-    let worker_mux = mux.clone();
-    let worker_writer = writer.clone();
-    let spawn =
-        std::thread::Builder::new().name("mux-resource-terminal-attach".into()).spawn(move || {
-            if waits::recv(&worker_committed).is_err() {
-                return;
-            }
-            let mut sequence = 0u64;
-            if !send_resource_uncursored_stream_item(
-                &worker_writer,
-                &start.common.outbound,
-                &start.common.stream_id,
-                sequence,
-                terminal_resource_snapshot(
-                    &worker_writer.render_service,
-                    &start.terminal_id,
-                    &start.attach.initial,
-                ),
-            ) {
-                finish_resource_surface_attach(
-                    &worker_mux,
-                    client,
-                    &worker_writer,
-                    &start.common,
-                    "gap",
-                );
-                return;
-            }
-            sequence = sequence.saturating_add(1);
-            let mut render_state =
-                RenderClientState::new(worker_writer.render_service.clone(), &start.attach.initial);
-            let interrupt = resource_attach_interrupt(&worker_writer, &start.common);
-            start.attach.stream.wake_on(&interrupt);
-            while worker_writer.is_open()
-                && start.common.outbound.is_open()
-                && !start.common.canceled.load(Ordering::Acquire)
-                && !start.common.lifecycle.is_canceled()
-            {
-                let item = match start.attach.stream.recv_until_interrupted(&interrupt) {
-                    Ok(RenderAttachFrame::Frame(frame)) => {
-                        terminal_resource_patch(&start.terminal_id, &mut render_state, &frame)
-                    }
-                    Ok(RenderAttachFrame::ScrollChanged { offset, at_bottom }) => {
-                        terminal_resource_scroll(&start.terminal_id, offset, at_bottom)
-                    }
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
-                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-                };
-                if !send_resource_uncursored_stream_item(
-                    &worker_writer,
-                    &start.common.outbound,
-                    &start.common.stream_id,
-                    sequence,
-                    item,
-                ) {
-                    break;
-                }
-                sequence = sequence.saturating_add(1);
-            }
-            finish_resource_surface_attach(
-                &worker_mux,
-                client,
-                &worker_writer,
-                &start.common,
-                "closed",
-            );
-        });
-    if let Err(error) = spawn {
-        let end = resource_stream_end(
-            &stream_id,
-            "error",
-            None,
-            Some("open a fresh terminal attachment"),
-            Some((
-                ResourceOperation::TerminalAttach,
-                ResourceError::operation_failed("terminal.attach", error.to_string(), json!({})),
-            )),
-        );
-        let _ = writer.send_terminal(&end, &outbound);
-        lifecycle.cancel();
-        cleanup_resource_stream(&mux, client, &stream_id);
-        rollback_failed_attach(&mux, client, surface, outbound.id, size_rollback);
-        return;
-    }
-    if let Err(error) = commit_client_attach_and_start_worker(
-        &mux,
-        client,
-        surface,
-        outbound.id,
-        AttachWorkerCommit {
-            start: worker_start,
-            lifecycle,
-            changed: client_changed,
-            size_rollback,
-        },
-    ) {
-        let end = resource_stream_end(
-            &stream_id,
-            "error",
-            None,
-            Some("open a fresh terminal attachment"),
-            Some((
-                ResourceOperation::TerminalAttach,
-                ResourceError::operation_failed("terminal.attach", error.to_string(), json!({})),
-            )),
-        );
-        let _ = writer.send_terminal(&end, &outbound);
-        cleanup_resource_stream(&mux, client, &stream_id);
-    }
-}
-
 fn browser_snapshot_for_id(
     mux: &Mux,
     browser_id: &BrowserPublicId,
@@ -644,157 +468,6 @@ pub(super) fn browser_resource_frame(
     })
 }
 
-pub(super) fn start_browser_resource_attach(
-    mux: Arc<Mux>,
-    client: u64,
-    writer: MessageWriter,
-    start: BrowserResourceAttachStart,
-) {
-    let stream_id = start.common.stream_id.clone();
-    let outbound = start.common.outbound.clone();
-    let surface = start.common.surface;
-    let lifecycle = start.common.lifecycle.clone();
-    let client_changed = start.common.client_changed.clone();
-    let size_rollback = start.common.size_rollback;
-    let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
-    let worker_mux = mux.clone();
-    let worker_writer = writer.clone();
-    let spawn =
-        std::thread::Builder::new().name("mux-resource-browser-attach".into()).spawn(move || {
-            if waits::recv(&worker_committed).is_err() {
-                return;
-            }
-            let mut sequence = 0u64;
-            if !send_resource_uncursored_stream_item(
-                &worker_writer,
-                &start.common.outbound,
-                &start.common.stream_id,
-                sequence,
-                start.snapshot,
-            ) {
-                finish_resource_surface_attach(
-                    &worker_mux,
-                    client,
-                    &worker_writer,
-                    &start.common,
-                    "gap",
-                );
-                return;
-            }
-            sequence = sequence.saturating_add(1);
-            if let Some(frame) = start.initial.frame.as_ref() {
-                if !send_resource_uncursored_stream_item(
-                    &worker_writer,
-                    &start.common.outbound,
-                    &start.common.stream_id,
-                    sequence,
-                    browser_resource_frame(frame, start.initial.pointer_frame_seq),
-                ) {
-                    finish_resource_surface_attach(
-                        &worker_mux,
-                        client,
-                        &worker_writer,
-                        &start.common,
-                        "gap",
-                    );
-                    return;
-                }
-                sequence = sequence.saturating_add(1);
-            }
-            let interrupt = resource_attach_interrupt(&worker_writer, &start.common);
-            start.frames.notify.wake_on(&interrupt);
-            while worker_writer.is_open()
-                && start.common.outbound.is_open()
-                && !start.common.canceled.load(Ordering::Acquire)
-                && !start.common.lifecycle.is_canceled()
-            {
-                match start.frames.notify.recv_until_interrupted(&interrupt) {
-                    Ok(()) => {}
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
-                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-                }
-                let update = std::mem::take(&mut *start.frames.slot.lock().recover_poison());
-                let mut items = Vec::with_capacity(2);
-                if let Some(state) = update.state.as_ref() {
-                    items.push(browser_resource_state(state));
-                }
-                if let Some(frame) = update.frame.as_ref() {
-                    items.push(browser_resource_frame(&frame.frame, frame.pointer_frame_seq));
-                }
-                for item in items {
-                    if !send_resource_uncursored_stream_item(
-                        &worker_writer,
-                        &start.common.outbound,
-                        &start.common.stream_id,
-                        sequence,
-                        item,
-                    ) {
-                        finish_resource_surface_attach(
-                            &worker_mux,
-                            client,
-                            &worker_writer,
-                            &start.common,
-                            "gap",
-                        );
-                        return;
-                    }
-                    sequence = sequence.saturating_add(1);
-                }
-            }
-            // Release the frame claim before the detach can resize the page.
-            drop(start.frames);
-            finish_resource_surface_attach(
-                &worker_mux,
-                client,
-                &worker_writer,
-                &start.common,
-                "closed",
-            );
-        });
-    if let Err(error) = spawn {
-        let end = resource_stream_end(
-            &stream_id,
-            "error",
-            None,
-            Some("open a fresh browser attachment"),
-            Some((
-                ResourceOperation::BrowserAttach,
-                ResourceError::operation_failed("browser.attach", error.to_string(), json!({})),
-            )),
-        );
-        let _ = writer.send_terminal(&end, &outbound);
-        lifecycle.cancel();
-        cleanup_resource_stream(&mux, client, &stream_id);
-        rollback_failed_attach(&mux, client, surface, outbound.id, size_rollback);
-        return;
-    }
-    if let Err(error) = commit_client_attach_and_start_worker(
-        &mux,
-        client,
-        surface,
-        outbound.id,
-        AttachWorkerCommit {
-            start: worker_start,
-            lifecycle,
-            changed: client_changed,
-            size_rollback,
-        },
-    ) {
-        let end = resource_stream_end(
-            &stream_id,
-            "error",
-            None,
-            Some("open a fresh browser attachment"),
-            Some((
-                ResourceOperation::BrowserAttach,
-                ResourceError::operation_failed("browser.attach", error.to_string(), json!({})),
-            )),
-        );
-        let _ = writer.send_terminal(&end, &outbound);
-        cleanup_resource_stream(&mux, client, &stream_id);
-    }
-}
-
 pub(super) fn prepare_sidebar_resource_attach(
     mux: &Arc<Mux>,
     client: u64,
@@ -831,102 +504,6 @@ pub(super) fn prepare_sidebar_resource_attach(
             attachment,
         },
     ))
-}
-
-pub(super) fn start_sidebar_resource_attach(
-    mux: Arc<Mux>,
-    client: u64,
-    writer: MessageWriter,
-    start: SidebarResourceAttachStart,
-) {
-    let stream_id = start.stream_id.clone();
-    let outbound = start.outbound.clone();
-    let worker_mux = mux.clone();
-    let worker_writer = writer.clone();
-    let spawn =
-        std::thread::Builder::new().name("mux-resource-sidebar-attach".into()).spawn(move || {
-            let mut sequence = 0u64;
-            if !send_resource_uncursored_stream_item(
-                &worker_writer,
-                &start.outbound,
-                &start.stream_id,
-                sequence,
-                sidebar_attach_snapshot(&start.attachment),
-            ) {
-                worker_mux.control_clients.finish_resource_stream(
-                    client,
-                    &start.stream_id,
-                    start.outbound.id,
-                );
-                return;
-            }
-            sequence = sequence.saturating_add(1);
-            let mut render_state = SidebarRenderClientState::new(&start.attachment.initial);
-            // `canceled` is only set together with closing `outbound`.
-            let interrupt = StreamInterrupt::new();
-            worker_writer.register_interrupt(&interrupt);
-            start.outbound.register_interrupt(&interrupt);
-            start.attachment.stream.wake_on(&interrupt);
-            while worker_writer.is_open()
-                && start.outbound.is_open()
-                && !start.canceled.load(Ordering::Acquire)
-            {
-                let item = match start.attachment.stream.recv_until_interrupted(&interrupt) {
-                    Ok(RenderAttachFrame::Frame(frame)) => {
-                        render_state.patch(&start.attachment.sidebar_view_id, &frame)
-                    }
-                    Ok(RenderAttachFrame::ScrollChanged { offset, at_bottom }) => {
-                        SidebarRenderClientState::scroll(
-                            &start.attachment.sidebar_view_id,
-                            offset,
-                            at_bottom,
-                        )
-                    }
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
-                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-                };
-                if !send_resource_uncursored_stream_item(
-                    &worker_writer,
-                    &start.outbound,
-                    &start.stream_id,
-                    sequence,
-                    item,
-                ) {
-                    break;
-                }
-                sequence = sequence.saturating_add(1);
-            }
-            if worker_writer.is_open()
-                && start.outbound.is_open()
-                && !start.canceled.load(Ordering::Acquire)
-            {
-                let end = resource_stream_end(&start.stream_id, "closed", None, None, None);
-                let _ = worker_writer.send_terminal(&end, &start.outbound);
-            }
-            worker_mux.control_clients.finish_resource_stream(
-                client,
-                &start.stream_id,
-                start.outbound.id,
-            );
-        });
-    if let Err(error) = spawn {
-        let end = resource_stream_end(
-            &stream_id,
-            "error",
-            None,
-            Some("open a fresh sidebar attachment"),
-            Some((
-                ResourceOperation::SidebarViewAttach,
-                ResourceError::operation_failed(
-                    "sidebar_view.attach",
-                    error.to_string(),
-                    json!({}),
-                ),
-            )),
-        );
-        let _ = writer.send_terminal(&end, &outbound);
-        cleanup_resource_stream(&mux, client, &stream_id);
-    }
 }
 
 /// cx-8mla8: an `operation.failed` with reason `internal` gets a Request ID

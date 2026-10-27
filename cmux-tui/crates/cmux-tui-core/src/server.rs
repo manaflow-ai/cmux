@@ -242,7 +242,7 @@ mod rows;
 mod screen_json;
 mod server_stats;
 pub(crate) use server_stats::{DIAGNOSTIC_SITES_CAPABILITY, forward_diagnostic_sites};
-mod session_stream;
+mod resource_pump;
 mod split_kind;
 mod split_respawn;
 mod tab_column;
@@ -2443,10 +2443,6 @@ use disconnect::{
 mod journal_filter;
 #[cfg(test)]
 use journal_filter::JournalStreamFilter;
-#[cfg(test)]
-use journal_stream::run_session_journal_stream;
-#[cfg(test)]
-use session_event_stream::run_session_event_stream;
 
 mod resource_waits;
 use resource_waits::start_resource_wait;
@@ -2481,9 +2477,7 @@ use journal_stream::{
 };
 
 mod resource_connection;
-use resource_connection::{
-    handle_resource_connection_message, resource_stream_end, send_resource_stream_item,
-};
+use resource_connection::{handle_resource_connection_message, resource_stream_end};
 
 mod connection_frame;
 mod request_hang_watch;

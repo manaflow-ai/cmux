@@ -37,15 +37,6 @@ pub(crate) struct ClearHistoryWaitLease<'a> {
     timed_out: bool,
 }
 
-/// One-shot terminal-stream wakeup. Registering before reading the viewport
-/// closes the read/wait race, while cancellation and writer shutdown can wake
-/// the same blocking primitive without a polling deadline.
-pub(crate) struct TerminalStreamSubscription<'a> {
-    progress: &'a TerminalStreamProgress,
-    waiter_id: u64,
-    wake: Arc<ResourceWaitWake>,
-}
-
 impl ClearHistoryWaitLease<'_> {
     pub(crate) fn deadline(&self) -> Instant {
         self.deadline
@@ -108,16 +99,21 @@ impl TerminalStreamProgress {
         self.notify();
     }
 
-    pub(crate) fn subscribe(&self) -> TerminalStreamSubscription<'_> {
+    /// Registers `wake` for the next stream change: its waiter id. A change
+    /// notifies and removes every registered wake.
+    pub(crate) fn add_resource_waiter(&self, wake: &Arc<ResourceWaitWake>) -> u64 {
         let waiter_id = self.next_resource_waiter_id.fetch_add(1, Ordering::Relaxed);
-        let wake = Arc::new(ResourceWaitWake::default());
         let mut state = self.state.lock().unwrap();
-        state.resource_waiters.insert(waiter_id, Arc::downgrade(&wake));
+        state.resource_waiters.insert(waiter_id, Arc::downgrade(wake));
         #[cfg(test)]
         {
             state.resource_subscriptions = state.resource_subscriptions.wrapping_add(1);
         }
-        TerminalStreamSubscription { progress: self, waiter_id, wake }
+        waiter_id
+    }
+
+    pub(crate) fn remove_resource_waiter(&self, waiter_id: u64) {
+        self.state.lock().unwrap().resource_waiters.remove(&waiter_id);
     }
 
     pub(crate) fn begin_clear_history_wait(&self, timeout: Duration) -> ClearHistoryWaitLease<'_> {
@@ -193,21 +189,5 @@ impl TerminalStreamProgress {
     #[cfg(test)]
     pub(super) fn resource_subscription_count(&self) -> u64 {
         self.state.lock().unwrap().resource_subscriptions
-    }
-}
-
-impl TerminalStreamSubscription<'_> {
-    pub(crate) fn wake(&self) -> Arc<ResourceWaitWake> {
-        self.wake.clone()
-    }
-
-    pub(crate) fn wait_until(&self, deadline: Option<Instant>) -> bool {
-        self.wake.wait_until(deadline)
-    }
-}
-
-impl Drop for TerminalStreamSubscription<'_> {
-    fn drop(&mut self) {
-        self.progress.state.lock().unwrap().resource_waiters.remove(&self.waiter_id);
     }
 }

@@ -147,13 +147,18 @@ impl Surface {
         })
     }
 
-    pub(crate) fn subscribe_terminal_stream_change(
-        &self,
-    ) -> ghostty_vt::Result<TerminalStreamSubscription<'_>> {
+    /// Notifies `wake` at the next terminal-stream change, while the returned
+    /// watch lives. Registering before reading the viewport closes the
+    /// read/wait race; cancellation and writer shutdown notify the same wake.
+    pub(crate) fn watch_terminal_stream_change(
+        self: &Arc<Self>,
+        wake: Arc<ResourceWaitWake>,
+    ) -> ghostty_vt::Result<TerminalStreamWatch> {
         let Some(pty) = self.as_pty() else {
             return Err(ghostty_vt::Error::InvalidValue);
         };
-        Ok(pty.stream_progress.subscribe())
+        let waiter_id = pty.stream_progress.add_resource_waiter(&wake);
+        Ok(TerminalStreamWatch { surface: self.clone(), waiter_id, _wake: wake })
     }
 
     /// Wait until PTY output advances beyond `observed`, or until `deadline`.
@@ -249,5 +254,22 @@ impl Surface {
         }
         pty.stream_progress.notify();
         Ok(Some(f(&mut terminal)))
+    }
+}
+
+/// An owned terminal-stream change registration
+/// ([`Surface::watch_terminal_stream_change`]): it holds its wake (every
+/// source holds it weakly) and unsubscribes when dropped.
+pub(crate) struct TerminalStreamWatch {
+    surface: Arc<Surface>,
+    waiter_id: u64,
+    _wake: Arc<ResourceWaitWake>,
+}
+
+impl Drop for TerminalStreamWatch {
+    fn drop(&mut self) {
+        if let Some(pty) = self.surface.as_pty() {
+            pty.stream_progress.remove_resource_waiter(self.waiter_id);
+        }
     }
 }

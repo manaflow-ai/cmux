@@ -415,7 +415,7 @@ fn blocking_flush_writer() -> (
     (writer, outbound, entered_rx, release_tx)
 }
 
-fn pop_json(outbound: &BoundedOutbound) -> Value {
+pub(super) fn pop_json(outbound: &BoundedOutbound) -> Value {
     let deadline = Instant::now() + Duration::from_secs(2);
     loop {
         if let Some(message) = outbound.try_pop() {

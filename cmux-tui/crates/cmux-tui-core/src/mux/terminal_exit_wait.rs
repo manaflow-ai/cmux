@@ -190,6 +190,23 @@ impl Mux {
         self.terminal_exit_waiters.subscribe(terminal_id)
     }
 
+    /// Notifies `wake` when `terminal_id` exits, while the returned watch
+    /// lives: [`Self::subscribe_terminal_exit`] for a waiter that does not
+    /// block on a borrowed subscription (a `terminal.wait_exit` observer).
+    pub(crate) fn watch_terminal_exit(
+        self: &Arc<Self>,
+        terminal_id: &TerminalPublicId,
+        wake: Arc<ResourceWaitWake>,
+    ) -> TerminalExitWatch {
+        let waiter_id = self.terminal_exit_waiters.insert(terminal_id, &wake);
+        TerminalExitWatch {
+            mux: self.clone(),
+            terminal_id: terminal_id.clone(),
+            waiter_id,
+            _wake: wake,
+        }
+    }
+
     #[track_caller]
     pub(super) fn terminal_public_ids_for_hosted(
         registry: &WorkspaceRegistry,

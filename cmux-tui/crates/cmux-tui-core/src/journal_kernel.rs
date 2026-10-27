@@ -1,4 +1,5 @@
 use crate::panic_free::RecoverPoison;
+use crate::stream_interrupt::{ReadyHookRegistration, ReadyHookSet, wake_all};
 use cmux_threads::checked::sync as waits;
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
@@ -194,6 +195,9 @@ struct JournalFanoutState {
     records: VecDeque<Arc<JournalDocument>>,
     record_bytes: usize,
     available: bool,
+    /// Streams that follow the ring as drains on the sequenced pool: run
+    /// after each epoch change, outside this lock.
+    epoch_hooks: ReadyHookSet,
     #[cfg(test)]
     database_reader_count: u64,
 }
@@ -252,6 +256,7 @@ impl JournalKernel {
                     records: VecDeque::new(),
                     record_bytes: 0,
                     available: false,
+                    epoch_hooks: ReadyHookSet::default(),
                     #[cfg(test)]
                     database_reader_count: 0,
                 }),
@@ -274,6 +279,7 @@ impl JournalKernel {
                 records: VecDeque::new(),
                 record_bytes: 0,
                 available: true,
+                epoch_hooks: ReadyHookSet::default(),
                 #[cfg(test)]
                 database_reader_count: 1,
             }),
@@ -360,18 +366,14 @@ impl JournalKernel {
         state.epoch
     }
 
-    /// Like `wait`, with no timeout: returns the new epoch, or `epoch`
-    /// once `interrupt` has fired.
-    pub(crate) fn wait_until_interrupted(
+    /// Runs `hook` after each epoch change while the returned registration
+    /// lives: a consumer that runs as a drain on a sequence compares
+    /// [`Self::epoch`] on each turn instead of waiting in [`Self::wait`].
+    pub(crate) fn on_epoch(
         &self,
-        epoch: u64,
-        interrupt: &crate::stream_interrupt::StreamInterrupt,
-    ) -> u64 {
-        let mut state = self.state.lock().recover_poison();
-        while state.epoch == epoch && !interrupt.is_fired() {
-            state = self.changed.wait(state).recover_poison();
-        }
-        state.epoch
+        hook: impl Fn() + Send + Sync + 'static,
+    ) -> ReadyHookRegistration {
+        self.state.lock().recover_poison().epoch_hooks.add(hook)
     }
 
     /// Wakes every waiter without changing the epoch (an interrupt fired).
@@ -385,7 +387,10 @@ impl JournalKernel {
         // The generation is the wait predicate. Advancing it makes a wake
         // observable even when the signal arrives just before wait() locks.
         state.epoch = state.epoch.wrapping_add(1);
+        let hooks = state.epoch_hooks.live();
+        drop(state);
         self.changed.notify_all();
+        wake_all(hooks);
     }
 
     pub(crate) fn shutdown(&self) {
@@ -635,7 +640,10 @@ fn run_tailer(weak: Weak<JournalKernel>, reader: SessionJournalReader, mut last_
             state.head_sequence = candidate_sequence;
         }
         state.epoch = state.epoch.wrapping_add(1);
+        let hooks = state.epoch_hooks.live();
+        drop(state);
         kernel.changed.notify_all();
+        wake_all(hooks);
     }
 }
 
@@ -787,6 +795,7 @@ mod performance_tests {
                 records: VecDeque::new(),
                 record_bytes: 0,
                 available: true,
+                epoch_hooks: ReadyHookSet::default(),
                 database_reader_count: 0,
             }),
             changed: Condvar::new(),
@@ -840,6 +849,7 @@ mod performance_tests {
                 records,
                 record_bytes,
                 available: true,
+                epoch_hooks: ReadyHookSet::default(),
                 database_reader_count: 0,
             }),
             changed: Condvar::new(),

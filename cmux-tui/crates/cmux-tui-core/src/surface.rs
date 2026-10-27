@@ -41,6 +41,7 @@ pub use color_overrides::apply_terminal_color_overrides;
 pub(crate) use holder_spawn::{HolderAdoption, HolderSpawn};
 pub(crate) use host_launch::HostLaunch;
 pub use host_state::{TerminalHostConnectionState, TerminalHostFallback};
+pub(crate) use terminal_stream::TerminalStreamWatch;
 // Hosted (unix) code and the unit tests are the only callers.
 use clear_history::LOCAL_PASTE_WRITE_TIMEOUT;
 pub use clear_history::{
@@ -91,7 +92,7 @@ pub use render_tap::{
 };
 use render_tap::{RenderHub, RenderTap};
 use spawn::{LocalLaunch, LocalSpawn};
-pub(crate) use stream_progress::{TerminalStreamProgress, TerminalStreamSubscription};
+pub(crate) use stream_progress::TerminalStreamProgress;
 pub use terminal_runtime::PtyTerminalRuntime;
 pub(crate) use terminal_runtime::{ColdFreeze, ScrollbackMemory, TerminalJournalGap, ThawWake};
 use terminal_runtime::{

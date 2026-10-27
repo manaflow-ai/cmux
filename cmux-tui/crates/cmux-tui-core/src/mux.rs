@@ -119,8 +119,8 @@ mod terminal_exit_waiters;
 use terminal_exit_waiters::TerminalExitDetachTracker;
 #[cfg(test)]
 use terminal_exit_waiters::TerminalExitStateQueryGuard;
-pub(crate) use terminal_exit_waiters::TerminalExitSubscription;
 use terminal_exit_waiters::TerminalExitWaiters;
+pub(crate) use terminal_exit_waiters::{TerminalExitSubscription, TerminalExitWatch};
 mod results;
 use results::BrowserSurfaceAttach;
 pub use results::ConfigReloadError;
@@ -708,7 +708,7 @@ pub struct Mux {
     journal_hook_runtime: Arc<crate::journal_hooks::JournalHookRuntime>,
     /// Wake-only signal for durable journal subscribers. Consumers always
     /// reread SQLite by cursor, so missed or coalesced notifications are safe.
-    journal_event_epoch: Mutex<u64>,
+    journal_event_epoch: Mutex<journal::JournalEventEpoch>,
     journal_event_changed: Condvar,
     /// True once a skipped terminal-host reconnect checkpoint has been logged.
     /// A machine resume reconnects every hosted terminal at once, so

@@ -13,7 +13,7 @@
 
 use crate::panic_free::JsonFields;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::time::Instant;
 
 use cmux_conversation::{Op, PartRef, Reject};
@@ -23,7 +23,6 @@ use super::conversations::commit_op;
 use super::{
     MessageWriter, Mux, MuxEvent, OutboundStream, ResourceError, ResourceOperation,
     ResourceWorkerPermit, StreamPublicId, conversation_resource_client, send_resource_response,
-    session_stream,
 };
 use crate::conversation_store::{ConversationEvent, ConversationRejected};
 use crate::resource_router::ParsedResourceRequest;
@@ -351,16 +350,6 @@ pub(super) struct EventsStart {
     events: crate::MuxEventReceiver,
     initial: Option<Value>,
     rev: u64,
-}
-
-impl EventsStart {
-    fn stopped(&self, writer: &MessageWriter) -> bool {
-        session_stream::stopped(&self.canceled, writer, &self.outbound)
-    }
-
-    fn cancelled(&self) -> bool {
-        self.canceled.load(Ordering::Acquire)
-    }
 }
 
 #[cfg(test)]

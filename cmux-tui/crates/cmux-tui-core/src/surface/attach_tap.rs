@@ -575,7 +575,9 @@ impl AttachFrameReceiver {
     }
 
     /// Next event of a snapshot viewer: a pending snapshot comes before any
-    /// frame. Blocks until an event, `deadline`, or `interrupt`.
+    /// frame. Blocks until an event, `deadline`, or `interrupt`. Viewers run
+    /// as drains and poll [`Self::try_viewer_event`]; tests block here.
+    #[cfg(test)]
     pub(crate) fn recv_viewer_event(
         &self,
         interrupt: &crate::stream_interrupt::StreamInterrupt,
