@@ -2644,3 +2644,81 @@ async fn a_forks_answer_does_not_hide_its_parents_full_access_under_mdm_off() {
         "the fork's answer hid its parent's full access from the next daemon"
     );
 }
+
+/// Review 63 of #23322: a torn last record (the daemon died while writing it) leaves no gap in
+/// `seq`, yet the record is lost. Under MDM's off the next daemon does not adopt a host whose log
+/// ends in one: the lost record is where its harness moved itself into full access.
+#[tokio::test]
+async fn a_left_host_whose_log_ends_in_a_torn_record_ends_under_mdm_off() {
+    let (mut daemon, session, harness_pid) = left_in_bypass("mdmtail", None).await;
+    let dir = daemon.home.join("sessions").join(&session).join("events");
+    let mut files: Vec<PathBuf> =
+        std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().path()).collect();
+    files.sort();
+    let file = files
+        .iter()
+        .find(|f| std::fs::read_to_string(f).unwrap().contains("\"kind\":\"current_mode_update\""));
+    let file = file.expect("the mode report is in the log");
+    let text = std::fs::read_to_string(file).unwrap();
+    let at = text.find("\"kind\":\"current_mode_update\"").unwrap();
+    let line_start = text[..at].rfind('\n').map_or(0, |n| n + 1);
+    let seq: u64 = text[line_start..]
+        .strip_prefix("{\"seq\":")
+        .unwrap()
+        .split(',')
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    // The log ends halfway through that record: everything after it was never written, and the
+    // daemon died before it saved the chat, so the next daemon numbers its records from there.
+    std::fs::write(file, &text[..at]).unwrap();
+    for later in files.iter().filter(|f| *f > file) {
+        std::fs::remove_file(later).unwrap();
+    }
+    let saved = daemon.home.join("sessions").join(&session).join("session.json");
+    let mut meta: Value = serde_json::from_slice(&std::fs::read(&saved).unwrap()).unwrap();
+    meta["lastSeq"] = json!(seq - 1);
+    std::fs::write(&saved, meta.to_string()).unwrap();
+    record_mdm_off(&daemon);
+    daemon.start();
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "the next daemon adopted a host whose log ends in a torn record under the managed off"
+    );
+}
+
+/// Review 63 of #23322: a link that broke while its host ran (an entry could not be logged; the
+/// debug seam `ACPMUX_TEST_UNLOGGED_ONCE`) is reattached by the next request, and the host replays
+/// what it kept. Under MDM's off a full-access mode in that replay is judged before the request
+/// reaches the agent.
+#[tokio::test]
+async fn a_mode_a_reattached_host_replays_is_judged_before_its_agent_is_reached_under_mdm_off() {
+    let env = [("ACPMUX_TEST_UNLOGGED_ONCE", "\"currentModeId\":\"full-access\"")];
+    let mut daemon = Daemon::with_env("mdmrelink", "ask", &env);
+    daemon.sigterm();
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let config =
+        json!({"harnesses": {"fake": fake}, "defaultHarness": "fake", "permissionPolicy": "ask"});
+    std::fs::write(daemon.home.join("config.json"), config.to_string()).unwrap();
+    daemon.start();
+    let session = new_session(&daemon).await;
+    let mut rpc = daemon.rpc().await;
+    let off = json!({"enabled": true, "discovery": false, "roots": [], "managedRoots": [],
+                     "allowFullAccess": false, "allowFullAccessManaged": true});
+    let pushed = rpc.call("_acpmux/chat_settings", off).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    let later = json!({"sessionId": session,
+                       "prompt": [{"type": "text", "text": "set-mode-after: 300 full-access"}]});
+    rpc.call("session/prompt", later).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    // The harness moves into full access; that entry is not logged and the link breaks.
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+    let ask = json!({"sessionId": session, "prompt": [{"type": "text", "text": "whoami"}]});
+    rpc.reply("session/prompt", ask).await;
+    let said = daemon.events(&session).iter().map(Value::to_string).collect::<String>();
+    assert!(
+        !said.contains(&format!("pid={harness_pid}")),
+        "the full-access agent a reattached host replayed answered a prompt under the managed off"
+    );
+}

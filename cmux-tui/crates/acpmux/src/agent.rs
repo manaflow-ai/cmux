@@ -1118,6 +1118,20 @@ impl ChildAgent {
         inbound: &mpsc::Sender<Inbound>,
     ) -> bool {
         use crate::agent_host::{Entry, TapDir};
+        // Debug builds only: `ACPMUX_TEST_UNLOGGED_ONCE=TEXT` fails to log the first host entry
+        // whose text holds TEXT, once per process, as a full disk does: the link breaks and the
+        // entry stays with the host for the next attach. Release builds have no seam.
+        #[cfg(debug_assertions)]
+        if let Ok(text) = std::env::var("ACPMUX_TEST_UNLOGGED_ONCE") {
+            static FIRED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+            let msg = match &entry {
+                Entry::Tap { msg, .. } | Entry::In { msg } => Some(msg.to_string()),
+                _ => None,
+            };
+            if msg.is_some_and(|m| m.contains(&text)) && !FIRED.swap(true, Ordering::SeqCst) {
+                return false;
+            }
+        }
         match entry {
             Entry::Tap { dir, msg } => match Message::from_value(msg) {
                 Ok(m) => {
