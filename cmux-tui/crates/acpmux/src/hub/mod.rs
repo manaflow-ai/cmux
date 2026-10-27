@@ -852,6 +852,7 @@ impl Hub {
             replaced: AtomicBool::new(false),
             closing: AtomicBool::new(false),
             stops: AtomicU64::new(0),
+            status_writes: AtomicU64::new(0),
             state_seq: AtomicU64::new(0),
             attached: std::sync::atomic::AtomicUsize::new(0),
             hidden: std::sync::atomic::AtomicUsize::new(0),
@@ -1268,6 +1269,15 @@ impl Hub {
     /// `reopen` is the stop count a reopen is for ([`Self::reopen`]), checked under the meta lock,
     /// which `kill`'s close takes after it counts the stop.
     fn write_status(&self, session: &Session, status: SessionStatus, reopen: Option<u64>) -> bool {
+        // From before the status is set to after it is logged.
+        session.status_writes.fetch_add(1, Ordering::SeqCst);
+        struct Done<'a>(&'a AtomicU64);
+        impl Drop for Done<'_> {
+            fn drop(&mut self) {
+                self.0.fetch_sub(1, Ordering::SeqCst);
+            }
+        }
+        let _done = Done(&session.status_writes);
         let (was, link) = {
             let mut m = session.meta.lock().unwrap();
             let was = m.status;
@@ -1278,7 +1288,12 @@ impl Hub {
                 return false;
             }
             m.status = status;
-            m.updated_at = now_ms();
+            // Only a change dates the chat: stopping a closed chat again logs nothing and leaves
+            // it as old as it was, or a chat stopped every day would never be old enough for log
+            // retention (`retention.rs`) and would move up the lists that sort by it.
+            if was != status {
+                m.updated_at = now_ms();
+            }
             // The parent's slot follows the status under the same lock, so
             // concurrent status writes and the index never disagree (the
             // index is a leaf lock, `subsessions.rs`).

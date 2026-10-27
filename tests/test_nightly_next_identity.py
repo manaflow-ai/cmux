@@ -12,9 +12,10 @@ from pathlib import Path
 import plistlib
 import re
 import sys
+from nightly_workflow_text import nightly_text
 
 ROOT = Path(__file__).resolve().parents[1]
-WORKFLOW = (ROOT / ".github/workflows/nightly.yml").read_text()
+WORKFLOW = nightly_text()
 
 
 def identity_block() -> str:
