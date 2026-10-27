@@ -212,9 +212,11 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.hover({ selector: '[data-tick="3"]' });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__card .acpmux-minimap__prompt"));
+        const card = ctx.document.querySelector<HTMLElement>(".acpmux-minimap__card");
         const style = ctx.document.createElement("style");
         style.textContent = ".acpmux-minimap__card[data-prompt] { max-height: none; }";
         ctx.document.head.append(style);
+        await ctx.waitFor(() => (card?.getBoundingClientRect().height ?? 0) > 166);
       },
     },
     rest: {
