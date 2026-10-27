@@ -168,7 +168,7 @@ final class ComputerUseSetupView: NSView {
         panel?.orderOut(nil)
         panel = nil
         guard let helping, window != nil, let url = model.helperAppURL else { return }
-        let next = HelperDragPanel(appURL: url, grant: OnboardingStrings.computerUseName(helping),
+        let next = HelperDragPanel(appURL: url, pane: helping,
                                    onBack: { [weak model] in model?.dismissHelper() },
                                    onDrop: { [weak model] in model?.helperDropped() })
         next.show(on: window?.screen)

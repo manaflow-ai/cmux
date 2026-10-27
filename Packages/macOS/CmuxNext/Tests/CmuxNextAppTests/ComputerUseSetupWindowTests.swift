@@ -207,14 +207,21 @@ struct ComputerUseSetupWindowTests {
         #expect(visible.contains(kept))
     }
 
-    @Test func thePanelsIconAndRowSitWhereTheDockingPutsThem() {
-        let panel = makePanel()
-        defer { panel.orderOut(nil) }
-        panel.contentView?.layoutSubtreeIfNeeded()
-        // The arrow stands over the helper's icon (its frame rounds to whole pixels: half a point at 1x).
-        #expect(abs(panel.arrow.frame.midX - HelperDragPanel.iconCenter) <= 0.5, "icon center \(panel.arrow.frame.midX)")
-        #expect(HelperDragPanel.iconCenter - HelperDragPanel.rowLeading
-            == SystemSettingsWindow.listIconCenter - SystemSettingsWindow.listLeading, "the icon sits in its row as in the list")
+    @Test func aKnownListPutsThePanelsTopJustUnderIt() {
+        let size = NSSize(width: HelperDragPanel.width, height: 100)
+        let settings = NSRect(x: 100, y: 200, width: 723, height: 625)
+        let bottom = SystemSettingsWindow.dockedFrame(panel: size, iconCenter: HelperDragPanel.iconCenter, settings: settings, visible: nil)
+        let under = SystemSettingsWindow.dockedFrame(panel: size, iconCenter: HelperDragPanel.iconCenter, settings: settings,
+                                                     listBottom: 416, visible: nil)
+        #expect(under.maxY == settings.maxY - 416 - SystemSettingsWindow.listGap, "the panel's top is a small gap under the list")
+        #expect(under.minX == bottom.minX, "the icon column does not change")
+        // A list that runs past the window docks at the bottom; one scrolled up stays under the toolbar.
+        let long = SystemSettingsWindow.dockedFrame(panel: size, iconCenter: HelperDragPanel.iconCenter, settings: settings,
+                                                    listBottom: 2000, visible: nil)
+        #expect(long == bottom)
+        let high = SystemSettingsWindow.dockedFrame(panel: size, iconCenter: HelperDragPanel.iconCenter, settings: settings,
+                                                    listBottom: -300, visible: nil)
+        #expect(high.maxY == settings.maxY - SystemSettingsWindow.toolbarHeight)
     }
 
     @Test func theWindowListPicksTheFrontmostSettingsWindow() {
@@ -226,10 +233,10 @@ struct ComputerUseSetupWindowTests {
             [kCGWindowOwnerName as String: "System Settings", kCGWindowLayer as String: 25, kCGWindowNumber as String: 3,
              kCGWindowBounds as String: CGRect(x: 0, y: 0, width: 800, height: 600).dictionaryRepresentation],
             [kCGWindowOwnerName as String: "System Settings", kCGWindowLayer as String: 0, kCGWindowNumber as String: 4,
-             kCGWindowBounds as String: CGRect(x: 50, y: 60, width: 800, height: 600).dictionaryRepresentation],
+             kCGWindowOwnerPID as String: 321, kCGWindowBounds as String: CGRect(x: 50, y: 60, width: 800, height: 600).dictionaryRepresentation],
         ]
         let found = SystemSettingsWindow.pick(list, owners: SystemSettingsWindow.ownerNames())
-        #expect(found == SettingsWindowMatch(id: 4, bounds: CGRect(x: 50, y: 60, width: 800, height: 600)))
+        #expect(found == SettingsWindowMatch(id: 4, bounds: CGRect(x: 50, y: 60, width: 800, height: 600), pid: 321))
         let frame = SystemSettingsWindow.appKitFrame(CGRect(x: 50, y: 60, width: 800, height: 600), primaryHeight: 1000)
         #expect(frame == NSRect(x: 50, y: 340, width: 800, height: 600))
     }
@@ -272,7 +279,7 @@ struct ComputerUseSetupWindowTests {
 
     private func makePanel(onBack: @escaping () -> Void = {}) -> HelperDragPanel {
         HelperDragPanel(appURL: URL(fileURLWithPath: "/Applications/cmux Computer Use.app"),
-                        grant: OnboardingStrings.computerUseName(.screenRecording), onBack: onBack, onDrop: {})
+                        pane: .screenRecording, onBack: onBack, onDrop: {})
     }
 
     private func buttons(in view: NSView?) -> [NSButton] {
@@ -343,6 +350,17 @@ struct ComputerUseSetupWindowTests {
         }
     }
 
+    /// Where the pane's first list ends, answered by the test (nil: no source, as without the grant).
+    @MainActor private final class FakeListReader: SettingsListReading {
+        var bottom: CGFloat?
+        var reads: [SettingsWindowMatch] = []
+
+        func firstListBottom(in window: SettingsWindowMatch) async -> CGFloat? {
+            reads.append(window)
+            return bottom
+        }
+    }
+
     /// Ticks only when the test calls ``onTick``; keeps the rate asked for.
     @MainActor private final class FakeFollowPace: SettingsFollowPace {
         var onTick: (() -> Void)?
@@ -368,13 +386,13 @@ struct ComputerUseSetupWindowTests {
     }
 
     /// A panel docked to window 7 at ``settingsBounds`` (never shown, so the dock lands at once).
-    private func dockedPanel() async -> (HelperDragPanel, FakeSettingsReader, FakeFollowPace, NSScreen?) {
+    private func dockedPanel(_ pane: ComputerUsePermissionPane = .screenRecording, list: FakeListReader? = nil,
+                             time: TestTime = TestTime()) async -> (HelperDragPanel, FakeSettingsReader, FakeFollowPace, NSScreen?) {
         let reader = FakeSettingsReader(), pace = FakeFollowPace()
-        let follower = SystemSettingsFollower(reader: reader, pace: pace)
+        let follower = SystemSettingsFollower(reader: reader, pace: pace, list: list, now: { time.now })
         let panel = HelperDragPanel(appURL: URL(fileURLWithPath: "/Applications/cmux Computer Use.app"),
-                                    grant: OnboardingStrings.computerUseName(.screenRecording), onBack: {}, onDrop: {},
-                                    follower: follower)
-        reader.match = SettingsWindowMatch(id: 7, bounds: settingsBounds)
+                                    pane: pane, onBack: {}, onDrop: {}, follower: follower)
+        reader.match = SettingsWindowMatch(id: 7, bounds: settingsBounds, pid: 42)
         reader.state = .onScreen(settingsBounds)
         let screen = NSScreen.screens.first
         panel.beginDocking(on: screen)
@@ -399,6 +417,83 @@ struct ComputerUseSetupWindowTests {
         #expect(panel.frame == panel.dockedFrame(for: moved), "the panel stays docked to the moved window")
         await tick(panel.follower, pace)
         #expect(panel.followMoves == 1, "no frame set while the window holds still")
+    }
+
+    /// Points from the top of the System Settings window at `bounds` down to the panel's top.
+    private func panelTop(_ panel: HelperDragPanel, under bounds: CGRect) -> CGFloat? {
+        guard let primary = NSScreen.screens.first else { return nil }
+        return SystemSettingsWindow.appKitFrame(bounds, primaryHeight: primary.frame.height).maxY - panel.frame.maxY
+    }
+
+    @Test func screenshotsDocksUnderTheFirstList() async {
+        let list = FakeListReader()
+        list.bottom = 300
+        let (panel, _, _, _) = await dockedPanel(list: list)
+        defer { panel.orderOut(nil) }
+        #expect(list.reads == [SettingsWindowMatch(id: 7, bounds: settingsBounds, pid: 42)], "one read before the first frame")
+        #expect(panel.listBottom == 300)
+        #expect(panelTop(panel, under: settingsBounds) == 300 + SystemSettingsWindow.listGap,
+                "the panel's top is a small gap under the first list")
+        #expect(panel.frame == panel.dockedFrame(for: settingsBounds))
+    }
+
+    @Test func screenshotsWithoutASourceUsesTheMeasuredList() async {
+        let list = FakeListReader()
+        let (panel, _, _, _) = await dockedPanel(list: list)
+        defer { panel.orderOut(nil) }
+        #expect(list.reads.count == 1)
+        #expect(panel.listBottom == SystemSettingsWindow.screenRecordingListBottom)
+        #expect(panelTop(panel, under: settingsBounds)
+            == SystemSettingsWindow.screenRecordingListBottom + SystemSettingsWindow.listGap)
+        let (bare, _, _, _) = await dockedPanel()
+        defer { bare.orderOut(nil) }
+        #expect(bare.listBottom == SystemSettingsWindow.screenRecordingListBottom, "no list reader: the measured place too")
+    }
+
+    @Test func accessibilityStillDocksAtTheBottom() async {
+        let (panel, _, _, screen) = await dockedPanel(.accessibility)
+        defer { panel.orderOut(nil) }
+        #expect(panel.listBottom == nil)
+        guard let primary = NSScreen.screens.first else { return }
+        let settings = SystemSettingsWindow.appKitFrame(settingsBounds, primaryHeight: primary.frame.height)
+        let bottom = SystemSettingsWindow.dockedFrame(panel: panel.frame.size, iconCenter: HelperDragPanel.iconCenter,
+                                                      settings: settings, visible: screen?.visibleFrame)
+        #expect(panel.frame == bottom)
+    }
+
+    @Test func followingKeepsThePanelUnderTheList() async {
+        let list = FakeListReader(), time = TestTime()
+        list.bottom = 300
+        let (panel, reader, pace, _) = await dockedPanel(list: list, time: time)
+        defer { panel.orderOut(nil) }
+        let gap = SystemSettingsWindow.listGap
+        let moved = settingsBounds.offsetBy(dx: 60, dy: 40)
+        reader.state = .onScreen(moved)
+        await tick(panel.follower, pace)
+        #expect(panel.followMoves == 1)
+        #expect(panelTop(panel, under: moved) == 300 + gap, "a move keeps the panel under the list")
+        #expect(panel.follower.listReads == 0, "no list read while the window moves")
+
+        // Still: the slow reads read the list again (a scroll, or a new app), at most every listInterval.
+        list.bottom = 340
+        time.now += SystemSettingsFollower.stillAfter
+        await tick(panel.follower, pace)
+        #expect(pace.rate == .still)
+        #expect(panel.follower.listReads == 1)
+        await panel.follower.listReading?.value
+        #expect(list.reads.last == SettingsWindowMatch(id: 7, bounds: moved, pid: 42))
+        #expect(panelTop(panel, under: moved) == 340 + gap, "the panel moves with the list")
+        #expect(panel.followMoves == 2)
+        await tick(panel.follower, pace)
+        #expect(panel.follower.listReads == 1, "no second read within listInterval")
+
+        // A failed read keeps the last place.
+        list.bottom = nil
+        time.now += SystemSettingsFollower.listInterval
+        await tick(panel.follower, pace)
+        await panel.follower.listReading?.value
+        #expect(panel.follower.listReads == 2)
+        #expect(panelTop(panel, under: moved) == 340 + gap)
     }
 
     @Test func anOffScreenWindowHidesThePanelUntilItIsBack() async {

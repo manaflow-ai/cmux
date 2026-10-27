@@ -1,10 +1,12 @@
 import AppKit
 
-/// A System Settings window found in the window list: its number and its
-/// window-list bounds (top-left origin on the primary screen).
+/// A System Settings window found in the window list: its number, its
+/// window-list bounds (top-left origin on the primary screen) and its owner's pid.
 nonisolated struct SettingsWindowMatch: Equatable, Sendable {
     let id: CGWindowID
     let bounds: CGRect
+    /// System Settings' pid (0 when the list gave none): the AX read of its first list needs it.
+    var pid: pid_t = 0
 }
 
 /// One read of the System Settings window the drag panel follows.
@@ -17,8 +19,9 @@ nonisolated enum SettingsWindowState: Equatable, Sendable {
     case gone
 }
 
-/// Where the System Settings window is, so the drag panel can dock over
-/// its bottom. The window list reads run off the main thread; they need no
+/// Where the System Settings window is, so the drag panel can dock over it
+/// (under the first list of the Screenshots pane, over the bottom of the
+/// Accessibility pane). The window list reads run off the main thread; they need no
 /// grant (owner and bounds are public, only titles are not).
 nonisolated struct SystemSettingsWindow {
     static let bundleID = "com.apple.systempreferences"
@@ -34,6 +37,18 @@ nonisolated struct SystemSettingsWindow {
     /// ...and the center of their app icons is here (each icon 20 pt, 10 pt in from the row's edge).
     static let listIconCenter: CGFloat = 263
     static var listWidth: CGFloat { listTrailing - listLeading }
+    /// The window's toolbar: the panel never docks over it.
+    static let toolbarHeight: CGFloat = 52
+    /// Room between the bottom of the pane's first list and the panel's top.
+    static let listGap: CGFloat = 8
+    /// The bottom of the Screen & System Audio Recording list with one app, from the window's top
+    /// edge, for when the list cannot be read (``SystemSettingsList``). Measured on macOS 26.6 (AX
+    /// frames of the pane, not scrolled): the toolbar is 52 pt, the section's title starts at 56 and
+    /// its two-line note at 73.5; the list starts at 111.5, each row is 40 pt (the outline 40 per
+    /// row + 0.5), and its +/- buttons add 24 pt under the rows: 136 + 40 per app (7 apps end at 416).
+    /// "System Audio Recording Only" then starts 29.75 pt lower. With one app assumed, a longer list
+    /// puts the arrow into one of its own rows, never into the second list.
+    static let screenRecordingListBottom: CGFloat = 176
 
     /// The frontmost System Settings window on screen, or nil when there is none.
     @concurrent static func frontWindow() async -> SettingsWindowMatch? {
@@ -80,7 +95,8 @@ nonisolated struct SystemSettingsWindow {
                   let dictionary = info[kCGWindowBounds as String] as? NSDictionary,
                   let bounds = CGRect(dictionaryRepresentation: dictionary as CFDictionary),
                   bounds.width >= 300, bounds.height >= 300 else { continue }
-            return SettingsWindowMatch(id: CGWindowID(number), bounds: bounds)
+            let pid = (info[kCGWindowOwnerPID as String] as? Int).map { pid_t(truncatingIfNeeded: $0) } ?? 0
+            return SettingsWindowMatch(id: CGWindowID(number), bounds: bounds, pid: pid)
         }
         return nil
     }
@@ -91,11 +107,20 @@ nonisolated struct SystemSettingsWindow {
         NSRect(x: bounds.minX, y: primaryHeight - bounds.maxY, width: bounds.width, height: bounds.height)
     }
 
-    /// The panel's frame docked over the bottom of `settings`, its helper icon (`iconCenter`
-    /// from the panel's left edge) in the column of the list's app icons, and inside `visible`.
-    static func dockedFrame(panel size: NSSize, iconCenter: CGFloat, settings: NSRect, visible: NSRect?) -> NSRect {
-        var frame = NSRect(x: settings.minX + listIconCenter - iconCenter, y: settings.minY + inset,
-                           width: size.width, height: size.height)
+    /// The panel's frame docked to `settings`, its helper icon (`iconCenter` from the panel's left
+    /// edge) in the column of the list's app icons, and inside `visible`. With `listBottom` (points
+    /// from the window's top edge) its top is ``listGap`` under that list, so its arrow points into
+    /// it; never lower than the bottom docking, never over the toolbar. Without, it docks over the
+    /// window's bottom.
+    static func dockedFrame(panel size: NSSize, iconCenter: CGFloat, settings: NSRect, listBottom: CGFloat? = nil,
+                            visible: NSRect?) -> NSRect {
+        let bottom = settings.minY + inset
+        var y = bottom
+        if let listBottom {
+            let under = settings.maxY - listBottom - listGap - size.height
+            y = max(bottom, min(under, settings.maxY - toolbarHeight - size.height))
+        }
+        var frame = NSRect(x: settings.minX + listIconCenter - iconCenter, y: y, width: size.width, height: size.height)
         if let visible {
             frame.origin.x = min(max(frame.minX, visible.minX), visible.maxX - size.width)
             frame.origin.y = min(max(frame.minY, visible.minY), visible.maxY - size.height)

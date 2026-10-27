@@ -2,8 +2,8 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextWakeups
 
-/// A glass panel docked over the bottom of the System Settings window while
-/// a grant is pending, about as wide as that window's list:
+/// A glass panel docked over the System Settings window while a grant is
+/// pending, about as wide as that window's list:
 ///
 ///       ^
 ///       |  Drag cmux Computer Use to the list above to allow Screenshots
@@ -18,7 +18,10 @@ import CmuxNextWakeups
 /// at the bottom center of the screen until the System Settings window is
 /// on screen (a few reads while System Settings opens), then docks to it as
 /// the next row of its list: the helper's row spans the list's rows and its
-/// icon stands in the list's icon column. Then it follows that window
+/// icon stands in the list's icon column. For Screenshots its top is just
+/// under the pane's first list (``SystemSettingsList``, or a measured place
+/// without it), so the arrow never points into "System Audio Recording Only";
+/// for Accessibility (one list) it docks over the window's bottom. Then it follows that window
 /// (``SystemSettingsFollower``): it moves with it, hides while it is off
 /// screen, and goes back to the bottom center to look again when it closes.
 final class HelperDragPanel: NSPanel {
@@ -34,6 +37,8 @@ final class HelperDragPanel: NSPanel {
     /// The helper row's corner; the panel's corner is concentric around it.
     static let rowRadius: CGFloat = 8
     private let onBack: () -> Void
+    /// The grant the panel helps with: it decides where the panel docks.
+    let pane: ComputerUsePermissionPane
     let arrow = HelperPanelArrow()
     let back = HelperPanelBackButton(target: nil, action: nil)
     /// A text field, not a chrome label: a chrome label draws one color, and this line has two
@@ -56,12 +61,15 @@ final class HelperDragPanel: NSPanel {
     /// Frames set to follow the window (tests).
     private(set) var followMoves = 0
 
-    /// `follower` stands in for the window list and the display frames (tests).
-    init(appURL: URL, grant: String, onBack: @escaping () -> Void, onDrop: @escaping () -> Void,
+    /// `follower` stands in for the window list, the list reads and the display frames (tests).
+    init(appURL: URL, pane: ComputerUsePermissionPane, onBack: @escaping () -> Void, onDrop: @escaping () -> Void,
          follower: SystemSettingsFollower? = nil) {
         self.onBack = onBack
+        self.pane = pane
+        let grant = OnboardingStrings.computerUseName(pane)
         let pace = LiveSettingsFollowPace()
-        self.follower = follower ?? SystemSettingsFollower(reader: LiveSettingsWindowReader(), pace: pace)
+        self.follower = follower ?? SystemSettingsFollower(reader: LiveSettingsWindowReader(), pace: pace,
+                                                           list: pane == .screenRecording ? LiveSettingsListReader() : nil)
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         pace.window = self
         self.follower.onEvent = { [weak self] in self?.followed($0) }
@@ -173,17 +181,20 @@ final class HelperDragPanel: NSPanel {
     /// may still be opening when Allow shows the panel.
     static let dockReads = 6
 
-    /// Moves the panel over the bottom of the System Settings window, then follows it.
+    /// Moves the panel onto the System Settings window, then follows it.
     private func dock() {
         locating?.cancel()
-        let reader = follower.reader
+        let reader = follower.reader, list = follower.list
         // task-owner: a few window list reads while System Settings opens; orderOut cancels them.
         locating = Task { [weak self] in
             var backoff = Backoff(initial: .milliseconds(150), maximum: .seconds(1), jitter: 0)
             for _ in 0..<Self.dockReads {
                 if let found = await reader.find() {
+                    // Screenshots: where the pane's first list ends, before the first frame (nil without the grant).
+                    let bottom = await list?.firstListBottom(in: found)
                     guard let self, !Task.isCancelled, shown else { return }
                     locating = nil
+                    follower.follow(found, listBottom: bottom)
                     if let target = dockedFrame(for: found.bounds), target != frame {
                         // The panel glides from its waiting place when on screen; it never animates hidden.
                         if isVisible {
@@ -192,7 +203,6 @@ final class HelperDragPanel: NSPanel {
                             Motion.overlays.withoutAnimation { animator().setFrame(target, display: true) }
                         }
                     }
-                    follower.follow(found)
                     return
                 }
                 // concurrency-allow: Backoff.wait spaces a few reads after one found no window, not a poll period.
@@ -207,7 +217,13 @@ final class HelperDragPanel: NSPanel {
         let settings = SystemSettingsWindow.appKitFrame(bounds, primaryHeight: primary.frame.height)
         let screen = NSScreen.screens.first { $0.frame.intersects(settings) } ?? fallbackScreen
         return SystemSettingsWindow.dockedFrame(panel: frame.size, iconCenter: Self.iconCenter, settings: settings,
-                                                visible: screen?.visibleFrame)
+                                                listBottom: listBottom, visible: screen?.visibleFrame)
+    }
+
+    /// Where the pane's first list ends, from the window's top: Screenshots only (read, else
+    /// measured); nil for Accessibility, which docks over the window's bottom.
+    var listBottom: CGFloat? {
+        pane == .screenRecording ? follower.listBottom ?? SystemSettingsWindow.screenRecordingListBottom : nil
     }
 
     private func moveToFallback() {
