@@ -3,13 +3,25 @@
 // acpmux's process registry (cmux-tui/crates/acpmux/docs/background-processes.md):
 // `_acpmux/process/list {sessionId}` finds the process the note's tool call started, and
 // `_acpmux/process/tail` reads the end of its output file. Live previews poll only while their row
-// is expanded; closing, unmounting, or the row leaving the live list stops and cleans up the timer.
-// The registry serves only this Mac's clients and keeps output for Claude Code's shells only.
+// is expanded and the page is shown (startPageInterval, as Blink stops a hidden page's timers in
+// page_scheduler_impl.cc), and stop once the process has exited; closing, unmounting, or the row
+// leaving the live list stops and cleans up the timer. Showing the page again reads nothing: the
+// next read waits for its period. The registry serves only this Mac's clients and keeps output for
+// Claude Code's shells only.
 import { createContext, useContext, useEffect, useState } from "react";
+import {
+  type PageIntervalOptions,
+  pageIsActive,
+  pageLifecycleFor,
+  startPageInterval,
+} from "../../../pages/shared/pageLifecycle";
 import { stripAnsi } from "./toolOutput";
 
 /// How much of the end of a task's output an opened note reads.
 export const BACKGROUND_TAIL_BYTES = 16 * 1024;
+
+/// How often an expanded tray row reads its running task's tail while the page is shown.
+export const BACKGROUND_TAIL_POLL_MS = 1200;
 
 export type BackgroundTaskOutput = {
   /// The end of what the task printed (colour codes kept; ShellBlock strips them), when known.
@@ -129,44 +141,65 @@ export function useBackgroundTaskOutput(toolCallId: string, open: boolean): Back
   return read?.key === key ? read.output : {};
 }
 
+/// Reads the task's tail now if the page is shown, then every `BACKGROUND_TAIL_POLL_MS` while it
+/// is shown, one read at a time, until the registry reports the process's exit (its output is then
+/// final) or the returned stop runs. A hidden or frozen page arms no timer. `onRead` gets each
+/// answer, `{}` for a refused read; nothing after the stop.
+export function pollBackgroundTaskOutput(
+  reader: BackgroundTaskOutputReader,
+  toolCallId: string | undefined,
+  processId: string | undefined,
+  onRead: (output: BackgroundTaskOutput) => void,
+  options: PageIntervalOptions = {},
+): () => void {
+  const lifecycle = options.lifecycle ?? pageLifecycleFor();
+  let current = true;
+  let reading = false;
+  let stopInterval = () => {};
+  const stop = () => {
+    current = false;
+    stopInterval();
+  };
+  const read = () => {
+    if (reading) return;
+    reading = true;
+    readBackgroundTaskOutput(reader, toolCallId, processId).then(
+      (output) => {
+        reading = false;
+        if (!current) return;
+        onRead(output);
+        if (output.exitCode !== undefined && !output.running) stop();
+      },
+      () => {
+        reading = false;
+        if (current) onRead({});
+      },
+    );
+  };
+  if (pageIsActive(lifecycle)) read();
+  stopInterval = startPageInterval(read, BACKGROUND_TAIL_POLL_MS, { lifecycle, timers: options.timers });
+  return stop;
+}
+
 /// A tray row's live tail. The caller's `open` is the stop predicate: the effect also cleans up
-/// its timer and ignores late replies when the row closes or unmounts.
+/// its timer and ignores late replies when the row closes or unmounts. `options` is the page's
+/// lifecycle and timers (a fake in tests).
 export function useLiveBackgroundTaskOutput(
   toolCallId: string | undefined,
   processId: string | undefined,
   open: boolean,
+  options: PageIntervalOptions = {},
 ): BackgroundTaskOutput {
   const reader = useContext(BackgroundTaskOutputContext);
   const [read, setRead] = useState<{ key: string; output: BackgroundTaskOutput }>();
   const key = reader ? `${reader.sessionId}\u0000${toolCallId ?? ""}\u0000${processId ?? ""}` : "";
+  const { lifecycle, timers } = options;
   useEffect(() => {
     if (!reader || !open || (!toolCallId && !processId)) return;
-    let current = true;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let poll: () => void;
-    const schedule = () => {
-      timer = setTimeout(poll, 1200);
-    };
-    poll = () => {
-      readBackgroundTaskOutput(reader, toolCallId, processId).then(
-        (output) => {
-          if (!current) return;
-          setRead({ key, output });
-          // The row is live while mounted; its unmount/close clears this timer and stops polling.
-          schedule();
-        },
-        () => {
-          if (!current) return;
-          setRead({ key, output: {} });
-          schedule();
-        },
-      );
-    };
-    poll();
-    return () => {
-      current = false;
-      if (timer !== undefined) clearTimeout(timer);
-    };
-  }, [reader, open, toolCallId, processId, key]);
+    return pollBackgroundTaskOutput(reader, toolCallId, processId, (output) => setRead({ key, output }), {
+      lifecycle,
+      timers,
+    });
+  }, [reader, open, toolCallId, processId, key, lifecycle, timers]);
   return read?.key === key ? read.output : {};
 }
