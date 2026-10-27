@@ -151,14 +151,10 @@ public struct WorkspacesList: View {
         content
             .navigationTitle("Workspaces")
             .navigationSubtitle(subtitle)
-            .toolbar {
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    if macs.count > 1 { filterMenu }
-                    NewWorkspaceButton(creator: creator, target: target, showsMacPicker: scope == .all, sameNames: sameNames) { start, directory in
-                        create(start, directory: directory, on: target?.id)
-                    }
-                }
-            }
+            // The toolbar from plain values in a view of its own: SwiftUI skips it
+            // when they did not change, so a workspace update does not rebuild
+            // the bar's items (it did, at about 10 ms, on every Mac tree update).
+            .background { toolbarHost }
             // The chosen Mac is the linked Mac: on a choice, on launch with a
             // remembered choice, and when the chosen Mac comes online.
             .onChange(of: scope.macToLink(in: macs), initial: true) { _, id in
@@ -282,7 +278,7 @@ public struct WorkspacesList: View {
 
     /// Creates a workspace and pushes it at once; the row is optimistic
     /// until the Mac confirms (ShellModel handles a refusal).
-    private func create(_ start: NewWorkspaceStart, directory: String?, on macID: String?) {
+    fileprivate func create(_ start: NewWorkspaceStart, directory: String?, on macID: String?) {
         guard let workspace = creator.create(start: start, directory: directory, macID: macID) else {
             theme.haptics.warning()
             return
@@ -351,20 +347,21 @@ public struct WorkspacesList: View {
     }
 
     private func inboxList(_ inbox: WorkspaceInbox, proxy: ScrollViewProxy) -> some View {
-        List {
+        let names = macNames()
+        return List {
             if inbox.allAsleep && query.isEmpty {
                 asleepHeader
             }
             if !inbox.needsYou.isEmpty {
                 Section {
                     SectionTitle(title: "Needs You")
-                    ForEach(inbox.needsYou) { row($0, inbox) }
+                    ForEach(inbox.needsYou) { row($0, inbox, names) }
                 }
             }
             if !inbox.pinned.isEmpty {
                 Section {
                     SectionTitle(title: "Pinned")
-                    ForEach(inbox.pinned) { row($0, inbox) }
+                    ForEach(inbox.pinned) { row($0, inbox, names) }
                 }
             }
             if !inbox.recent.isEmpty {
@@ -377,10 +374,10 @@ public struct WorkspacesList: View {
                         if let group = section.group {
                             groupHeader(group, section: section)
                             if !group.isCollapsed {
-                                ForEach(section.workspaces) { row($0, inbox) }
+                                ForEach(section.workspaces) { row($0, inbox, names) }
                             }
                         } else {
-                            ForEach(section.workspaces) { row($0, inbox) }
+                            ForEach(section.workspaces) { row($0, inbox, names) }
                         }
                     }
                 }
@@ -393,7 +390,7 @@ public struct WorkspacesList: View {
                         foldLine(fold, proxy: proxy)
                     }
                     if fold.isForcedOpen || unfolded.contains(fold.mac.id) {
-                        ForEach(fold.workspaces) { row($0, inbox) }
+                        ForEach(fold.workspaces) { row($0, inbox, names) }
                     }
                 }
             }
@@ -439,35 +436,25 @@ public struct WorkspacesList: View {
     }
 
     /// One row: its inputs as plain values (`WorkspaceRowModel`), so SwiftUI
-    /// skips every row whose values did not change; its menu is built only
-    /// when it is read (`WorkspaceRowMenu`).
-    private func row(_ ws: Workspace, _ inbox: WorkspaceInbox) -> some View {
-        let model = rowModel(ws, inbox)
-        return WorkspaceListRow(model: model, host: self)
+    /// skips every row whose values did not change; its list modifiers live in
+    /// the row (one element per row in the list's view list, not a chain of
+    /// modifiers walked on every update) and its menu is built only when it is
+    /// read (`WorkspaceRowMenu`).
+    private func row(_ ws: Workspace, _ inbox: WorkspaceInbox, _ names: [String: String]) -> some View {
+        WorkspaceListRow(model: rowModel(ws, inbox, names), host: self)
             .equatable()
-            .listRowInsets(EdgeInsets(top: 10, leading: 0, bottom: 10, trailing: 20))
-            .listRowBackground(theme.colors.bg.color)
-            .alignmentGuide(.listRowSeparatorLeading) { _ in gutter }
-            // Trailing only: a rightward swipe from the leading edge belongs to
-            // the team sidebar.
-            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                if model.canManage {
-                    Button("Close", systemImage: "xmark", role: .destructive) { confirmClose(ws) }
-                        // The app tints controls with the foreground color
-                        // (white in dark mode), which turned this into a blank
-                        // white pill. Back to the system tint: red for the role.
-                        .tint(nil)
-                        .accessibilityIdentifier("workspace.swipe.close")
-                    Button("Rename", systemImage: "pencil") { startRename(ws) }
-                        .tint(.gray)
-                        .accessibilityIdentifier("workspace.swipe.rename")
-                }
-            }
     }
 
-    private func rowModel(_ ws: Workspace, _ inbox: WorkspaceInbox) -> WorkspaceRowModel {
+    /// Each listed Mac's name as the list writes it (with its same-name tag),
+    /// worked out once per pass for every row.
+    private func macNames() -> [String: String] {
+        let sameNames = sameNames
+        return Dictionary(macs.map { ($0.id, sameNames.displayName($0)) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    private func rowModel(_ ws: Workspace, _ inbox: WorkspaceInbox, _ names: [String: String]) -> WorkspaceRowModel {
         let status = inbox.status(ws)
-        let macName = mac(ws.macID).map(displayName)
+        let macName = names[ws.macID]
         let canManage = status != .offline && creator.canManage(ws)
         let canArrange = canManage && creator.canArrange(ws)
         let moves = canArrange ? inbox.moves(of: ws) : (up: false, down: false)
@@ -1002,44 +989,26 @@ public struct WorkspacesList: View {
         }
     }
 
-    /// The Mac filter: All Macs, then each Mac (online first) with its
-    /// presence (and the live link line) as the subtitle.
-    private var filterMenu: some View {
-        let entries = macText.entries(MacFilterMemo.Input(macs: macs, accountMacs: accountMacs, connection: store.macConnection,
-                                                          linkStatus: store.macLinkStatus, live: store.tracksMacData,
-                                                          now: MinuteClock.shared.now))
-        return Menu {
-            // Toggles, not an inline Picker: a Picker drops each Mac's
-            // presence subtitle. The chosen row shows the checkmark.
-            Toggle(isOn: chosen(.all)) {
-                Label("All Macs", systemImage: "square.stack.3d.up")
-            }
-            .accessibilityIdentifier("workspaces.filter.all")
-            ForEach(entries) { mac in
-                // A title and a subtitle Text directly in the label: a menu
-                // shows the second as the subtitle (not inside a Label).
-                Toggle(isOn: chosen(.mac(mac.id))) {
-                    Text(mac.title)
-                    Text(mac.detail)
-                    // The model has no Mac kind (laptop or desktop) yet.
-                    Image(systemName: "desktopcomputer")
-                }
-                .accessibilityIdentifier("workspaces.filter.\(mac.id)")
-            }
-        } label: {
-            Label("Filter", systemImage: scope == .all ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
-        }
-        .accessibilityIdentifier("workspaces.filter")
-        // The chosen Mac and its presence and link line ("Online · Connected
-        // over WebRTC"), so VoiceOver (and the rig's link reader) hears the
-        // link without opening the menu.
-        .accessibilityValue(scopedMac.map { mac in
+    private var toolbarHost: some View {
+        let target = target
+        let macs = macs
+        let entries = macs.count > 1 ? macText.entries(MacFilterMemo.Input(macs: macs, accountMacs: accountMacs, connection: store.macConnection,
+                                                                           linkStatus: store.macLinkStatus, live: store.tracksMacData,
+                                                                           now: MinuteClock.shared.now)) : []
+        let filterValue = scopedMac.map { mac in
             [displayName(mac), entries.first { $0.id == mac.id }?.detail].compactMap(\.self).filter { !$0.isEmpty }.joined(separator: ", ")
-        } ?? "All Macs")
+        } ?? "All Macs"
+        let model = WorkspacesToolbar.Model(
+            showsFilter: macs.count > 1, entries: entries, scope: scope, filterValue: filterValue, target: target,
+            showsMacPicker: scope == .all, sameNames: sameNames,
+            recents: target.map { creator.recentDirectories(on: $0.id) } ?? [],
+            options: target.map { creator.options(on: $0.id) }, availableMacs: creator.availableMacs
+        )
+        return WorkspacesToolbar(model: model, host: self).equatable()
     }
 
     /// On for the chosen scope; turning one on chooses it (turning the chosen one off does nothing).
-    private func chosen(_ value: MacScope) -> Binding<Bool> {
+    fileprivate func chosen(_ value: MacScope) -> Binding<Bool> {
         Binding(get: { scope == value }, set: { if $0 { select(value) } })
     }
 
@@ -1078,6 +1047,8 @@ struct WorkspaceRowModel: Equatable {
 struct WorkspaceListRow: View, Equatable {
     let model: WorkspaceRowModel
     let host: WorkspacesList
+    /// The status gutter: separators start after it.
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     nonisolated static func == (a: Self, b: Self) -> Bool { a.model == b.model }
 
@@ -1121,6 +1092,24 @@ struct WorkspaceListRow: View, Equatable {
             }
         }
         .accessibilityIdentifier("workspace.row.\(ws.id)")
+        .listRowInsets(EdgeInsets(top: 10, leading: 0, bottom: 10, trailing: 20))
+        .listRowBackground(theme.colors.bg.color)
+        .alignmentGuide(.listRowSeparatorLeading) { _ in CmuxMobileListColumn.plain(typeSize).text }
+        // Trailing only: a rightward swipe from the leading edge belongs to
+        // the team sidebar.
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            if model.canManage {
+                Button("Close", systemImage: "xmark", role: .destructive) { host.confirmClose(ws) }
+                    // The app tints controls with the foreground color
+                    // (white in dark mode), which turned this into a blank
+                    // white pill. Back to the system tint: red for the role.
+                    .tint(nil)
+                    .accessibilityIdentifier("workspace.swipe.close")
+                Button("Rename", systemImage: "pencil") { host.startRename(ws) }
+                    .tint(.gray)
+                    .accessibilityIdentifier("workspace.swipe.rename")
+            }
+        }
     }
 }
 
@@ -1133,6 +1122,92 @@ struct WorkspaceRowMenu: View {
 
     var body: some View {
         host.rowMenu(id)
+    }
+}
+
+/// The Workspaces toolbar: the Mac filter and New Workspace, drawn from plain
+/// values (`Model`). Equal models skip it, so the bar's items are rebuilt only
+/// when what they show changes. `host` only runs actions and is not compared.
+struct WorkspacesToolbar: View, Equatable {
+    struct Model: Equatable {
+        var showsFilter: Bool
+        var entries: [MacFilterMemo.Entry]
+        var scope: MacScope
+        /// The chosen Mac and its presence and link line, for VoiceOver.
+        var filterValue: String
+        var target: MacDevice?
+        var showsMacPicker: Bool
+        var sameNames: MacNameDisambiguation
+        var recents: [String]
+        /// What New Workspace offers on the target Mac, and the Macs it can create on.
+        var options: WorkspaceCreationOptions?
+        var availableMacs: [MacDevice]
+    }
+
+    let model: Model
+    let host: WorkspacesList
+
+    nonisolated static func == (a: Self, b: Self) -> Bool { a.model == b.model }
+
+    var body: some View {
+        let model = model
+        let host = host
+        Color.clear
+            .accessibilityHidden(true)
+            .toolbar {
+                // Each item an Equatable view: SwiftUI re-hosts every bar item when
+                // any preference of the screen changes (each list update), and an
+                // equal item then skips its menu, its labels and their symbol lookups.
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    if model.showsFilter { WorkspacesFilterMenu(model: model, host: host).equatable() }
+                    NewWorkspaceButton(creator: host.creator, target: model.target, showsMacPicker: model.showsMacPicker,
+                                       sameNames: model.sameNames, recents: model.recents, options: model.options,
+                                       macs: model.availableMacs) { start, directory in
+                        host.create(start, directory: directory, on: model.target?.id)
+                    }
+                    .equatable()
+                }
+            }
+    }
+}
+
+/// The Mac filter: All Macs, then each Mac (online first) with its presence
+/// (and the live link line) as the subtitle.
+struct WorkspacesFilterMenu: View, Equatable {
+    let model: WorkspacesToolbar.Model
+    let host: WorkspacesList
+
+    nonisolated static func == (a: Self, b: Self) -> Bool {
+        a.model.entries == b.model.entries && a.model.scope == b.model.scope && a.model.filterValue == b.model.filterValue
+    }
+
+    var body: some View {
+        Menu {
+            // Toggles, not an inline Picker: a Picker drops each Mac's
+            // presence subtitle. The chosen row shows the checkmark.
+            Toggle(isOn: host.chosen(.all)) {
+                Label("All Macs", systemImage: "square.stack.3d.up")
+            }
+            .accessibilityIdentifier("workspaces.filter.all")
+            ForEach(model.entries) { mac in
+                // A title and a subtitle Text directly in the label: a menu
+                // shows the second as the subtitle (not inside a Label).
+                Toggle(isOn: host.chosen(.mac(mac.id))) {
+                    Text(mac.title)
+                    Text(mac.detail)
+                    // The model has no Mac kind (laptop or desktop) yet.
+                    Image(systemName: "desktopcomputer")
+                }
+                .accessibilityIdentifier("workspaces.filter.\(mac.id)")
+            }
+        } label: {
+            Label("Filter", systemImage: model.scope == .all ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
+        }
+        .accessibilityIdentifier("workspaces.filter")
+        // The chosen Mac and its presence and link line ("Online · Connected
+        // over WebRTC"), so VoiceOver (and the rig's link reader) hears the
+        // link without opening the menu.
+        .accessibilityValue(model.filterValue)
     }
 }
 
@@ -1707,7 +1782,7 @@ struct ConnectMacEmptyState: View {
 /// the Mac's default first tab: a terminal). Holding it opens a menu of the
 /// other ways to start, as Safari's new-tab button and Notes' compose button
 /// do. Only options the Mac's backend supports are listed.
-struct NewWorkspaceButton: View {
+struct NewWorkspaceButton: View, Equatable {
     let creator: WorkspaceCreator
     /// The Mac a tap creates on: the filtered Mac, else the preferred one.
     let target: MacDevice?
@@ -1716,7 +1791,19 @@ struct NewWorkspaceButton: View {
     let showsMacPicker: Bool
     /// The team's same-name Macs, tagged as the filter menu tags them.
     let sameNames: MacNameDisambiguation
+    /// The target Mac's recent directories (`WorkspaceCreator.recentDirectories`),
+    /// worked out by the list: the button reads no workspaces itself.
+    let recents: [String]
+    /// What the backend offers on `target`, and the Macs it can create on (from the list).
+    let options: WorkspaceCreationOptions?
+    let macs: [MacDevice]
     let create: (NewWorkspaceStart, String?) -> Void
+
+    /// Its values, not `creator` or `create` (actions only).
+    nonisolated static func == (a: Self, b: Self) -> Bool {
+        a.target == b.target && a.showsMacPicker == b.showsMacPicker && a.sameNames == b.sameNames && a.recents == b.recents
+            && a.options == b.options && a.macs == b.macs
+    }
     /// Open Folder…: the typed path, and why the last one was refused.
     @State private var openingFolder = false
     @State private var folderText = ""
@@ -1754,15 +1841,12 @@ struct NewWorkspaceButton: View {
     }
 
     @ViewBuilder private var menu: some View {
-        if let mac = target {
-            let options = creator.options(on: mac.id)
-            let macs = creator.availableMacs
+        if let mac = target, let options {
             if macs.count > 1 || !showsMacPicker {
                 Section("On \(displayName(mac))") { starts(options) }
             } else {
                 Section { starts(options) }
             }
-            let recents = creator.recentDirectories(on: mac.id)
             if !recents.isEmpty {
                 Section("Recent Directories") {
                     ForEach(recents, id: \.self) { directory in
