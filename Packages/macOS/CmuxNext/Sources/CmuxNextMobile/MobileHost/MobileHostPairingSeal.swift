@@ -77,7 +77,7 @@ public struct MobileHostKeychainPairingSeal: MobileHostPairingSealStore {
     private func perform<T>(_ call: ([String: Any]) -> (status: OSStatus, value: T)) -> (status: OSStatus, value: T) {
         let noPrompt = [kSecUseAuthenticationContext as String: Self.noPrompt()]
         let result = call(Self.query(service: service).merging(noPrompt) { $1 })
-        guard result.status == errSecMissingEntitlement else { return result }
+        return result
         return call(Self.loginQuery(service: service).merging(noPrompt) { $1 })
     }
 
