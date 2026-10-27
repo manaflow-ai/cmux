@@ -2231,7 +2231,7 @@ export class AcpmuxDirectClient {
     this.summary = { ...kept.summary, ...listed };
     this.learnChatThread();
     // A paused queue's failed turn no longer runs, whatever status acpmux last listed (`staleRun`).
-    this.turnOpen = this.liveRunning(this.summary);
+    this.turnOpen = listed?.status === "running" && !this.staleRun(listed);
     // Only acpmux says what is pending (attach's `session.pending`): a replayed ask is history
     // here. The marks it left on its own rows (an edit "awaiting permission") stand until the
     // attach replays the page, as they do on a page whose decision it does not hold either.
