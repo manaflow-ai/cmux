@@ -91,20 +91,28 @@ impl ChatSettings {
             .unwrap_or_default()
     }
 
-    /// Writes the file (0600, through a temp file and a rename).
+    /// Writes the file (0600, through a temp file and a rename). Each save has its own temp file,
+    /// so two saves at once (two settings pushes) never rename one away from the other.
     pub fn save(&self, path: &Path) -> io::Result<()> {
+        static SAVES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let dir = path.parent().ok_or_else(|| io::Error::other("no parent folder"))?;
         fs::create_dir_all(dir)?;
         let bytes = serde_json::to_vec_pretty(self).map_err(io::Error::other)?;
-        let tmp = path.with_extension("json.tmp");
+        let n = SAVES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let tmp = path.with_extension(format!("json.{}.{n}.tmp", std::process::id()));
         let mut options = fs::OpenOptions::new();
         options.write(true).create(true).truncate(true);
         #[cfg(unix)]
         std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-        let mut file = options.open(&tmp)?;
-        file.write_all(&bytes)?;
-        file.sync_all()?;
-        fs::rename(&tmp, path)
+        let written = options.open(&tmp).and_then(|mut file| {
+            file.write_all(&bytes)?;
+            file.sync_all()?;
+            fs::rename(&tmp, path)
+        });
+        if written.is_err() {
+            let _ = fs::remove_file(&tmp);
+        }
+        written
     }
 
     /// The root specs of the settings roots (managed first), and the refused ones.
