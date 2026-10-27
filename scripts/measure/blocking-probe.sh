@@ -107,13 +107,20 @@ pack() {
 }
 trap pack EXIT
 
-# The probe (the host's architecture; the linker signs it ad hoc).
-clang -dynamiclib -O2 -Wall -framework CoreFoundation -o "$out/blocking-probe.dylib" scripts/measure/blocking-probe/probe.c
+# The probe (the host's architecture; the linker signs it ad hoc). Without mach_msg2_internal in the SDK's
+# libsystem_kernel (before macOS 13) it sees mach_msg only.
+probe_flags=()
+if ! grep -q '_mach_msg2_internal' "$(xcrun --show-sdk-path)/usr/lib/system/libsystem_kernel.tbd" 2>/dev/null; then
+  probe_flags+=(-DPROBE_NO_MACH_MSG2)
+  echo "blocking-probe: the SDK's libsystem_kernel has no mach_msg2_internal; the probe sees mach_msg receives only" >&2
+fi
+clang -dynamiclib -O2 -Wall ${probe_flags[@]+"${probe_flags[@]}"} -framework CoreFoundation -framework Security \
+  -o "$out/blocking-probe.dylib" scripts/measure/blocking-probe/probe.c
 
 # Preflight on this host, before any app: dyld refuses a library that interposes a name this host's system
-# libraries lack (then the app would not start), so check the $NOCANCEL names, then load the probe into a
-# small test program and require its self-test row in the final dump.
-xcrun nm -u "$out/blocking-probe.dylib" | awk '/NOCANCEL/ { print $NF }' >"$out/preflight-needs.txt"
+# libraries lack (then the app would not start), so check the $NOCANCEL names and mach_msg2_internal, then load
+# the probe into a small test program and require its self-test row in the final dump.
+xcrun nm -u "$out/blocking-probe.dylib" | awk '/NOCANCEL|mach_msg2_internal/ { print $NF }' >"$out/preflight-needs.txt"
 if dyld_info -exports /usr/lib/system/libsystem_kernel.dylib >"$out/preflight-exports.txt" 2>&1; then
   while read -r name; do
     if ! grep -qF -- "$name" "$out/preflight-exports.txt"; then
@@ -132,18 +139,26 @@ fi
 # pattern probe-test-*-host) stats a file and reads a pipe (an input wait), probe-test-1-wait (not watched) checks
 # access to a file. Each waits for its child. With a launch window, the app then does what LaunchMarkSink does on
 # CMUX_NEXT_LAUNCH_MARKS_FD (the probe's /dev/null): its fcntls, an earlier mark's line, then the launch mark's
-# line, and checks access to a file, a call after the mark. A timer then exits.
+# line, and checks access to a file, a call after the mark. The app then makes the cross-process and loader calls:
+# a 5 ms mach receive that times out, a synchronous XPC send to a service that does not exist, a dlopen, a
+# getpwuid_r and a fork whose child exits at once. A timer then exits; until it fires the main run loop idles, a
+# wait that is never a mach receive, as the receives inside the XPC send and getpwuid_r are not.
 cat >"$out/preflight.c" <<'C'
 #include <CoreFoundation/CoreFoundation.h>
 #include <crt_externs.h>
+#include <dlfcn.h>
 #include <fcntl.h>
+#include <mach/mach.h>
 #include <pthread.h>
+#include <pwd.h>
 #include <spawn.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <xpc/xpc.h>
 static void done(CFRunLoopTimerRef timer, void *info) { (void)timer; (void)info; exit(0); }
 static int run(char *const argv[]) {
     pid_t pid;
@@ -182,6 +197,41 @@ static int send_marks(int fd) {
     if (write(fd, early, sizeof early - 1) != (ssize_t)(sizeof early - 1)) return 1;
     return write(fd, line, sizeof line - 1) == (ssize_t)(sizeof line - 1) ? 0 : 1;
 }
+static int fail(const char *what) {
+    fprintf(stderr, "preflight: %s\n", what);
+    return 1;
+}
+// One call of each cross-process and loader kind, on the main thread.
+static int cross_process(void) {
+    mach_port_t port = MACH_PORT_NULL;
+    if (mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &port) != KERN_SUCCESS) return fail("no port");
+    struct { mach_msg_header_t header; char body[256]; } message;
+    memset(&message, 0, sizeof message);
+    mach_msg_return_t received = mach_msg(&message.header, MACH_RCV_MSG | MACH_RCV_TIMEOUT, 0, sizeof message, port,
+                                          5, MACH_PORT_NULL);
+    (void)mach_port_mod_refs(mach_task_self(), port, MACH_PORT_RIGHT_RECEIVE, -1);
+    if (received != MACH_RCV_TIMED_OUT) return fail("the mach receive did not time out");
+    xpc_connection_t connection = xpc_connection_create_mach_service("com.cmuxterm.blocking-probe.none", NULL, 0);
+    xpc_connection_set_event_handler(connection, ^(xpc_object_t event) { (void)event; });
+    xpc_connection_resume(connection);
+    xpc_object_t request = xpc_dictionary_create(NULL, NULL, 0);
+    xpc_object_t reply = xpc_connection_send_message_with_reply_sync(connection, request);
+    int refused = xpc_get_type(reply) == XPC_TYPE_ERROR;
+    xpc_release(reply);
+    xpc_release(request);
+    xpc_connection_cancel(connection);
+    xpc_release(connection);
+    if (!refused) return fail("a service that does not exist replied");
+    if (dlopen("/usr/lib/libz.1.dylib", RTLD_NOW) == NULL) return fail("no libz");
+    struct passwd entry, *found = NULL;
+    char buffer[4096];
+    if (getpwuid_r(getuid(), &entry, buffer, sizeof buffer, &found) != 0 || found == NULL) return fail("no user");
+    int status;
+    pid_t child = fork();
+    if (child == 0) _exit(0);
+    if (child < 0 || waitpid(child, &status, 0) != child || !WIFEXITED(status)) return fail("no fork");
+    return 0;
+}
 static int join(void *(*body)(void *)) {
     pthread_t thread;
     return pthread_create(&thread, NULL, body, NULL) == 0 && pthread_join(thread, NULL) == 0 ? 0 : 1;
@@ -201,6 +251,7 @@ int main(int argc, char **argv) {
             if (send_marks(atoi(marks)) != 0) return 1;
             (void)access("/", F_OK);
         }
+        if (cross_process() != 0) return 1;
     }
     CFRunLoopTimerRef timer = CFRunLoopTimerCreate(NULL, CFAbsoluteTimeGetCurrent() + 0.5, 0, 0, 0, done, NULL);
     CFRunLoopAddTimer(CFRunLoopGetMain(), timer, kCFRunLoopCommonModes);
@@ -214,14 +265,16 @@ if ! CMUX_BLOCKING_PROBE_UNTIL_MARK="$preflight_mark" DYLD_PRINT_INTERPOSING=1 \
      DYLD_INSERT_LIBRARIES="$out/blocking-probe.dylib" CMUX_BLOCKING_PROBE_OUT="$out/preflight-dumps/probe-%p.tsv" \
      CMUX_BLOCKING_PROBE_CHILD="preflight:--probe-owner,--probe-session:probe-test-*-host" "$out/preflight" \
      >>"$out/preflight.txt" 2>&1; then
-  echo "blocking-probe: the probe does not load on this host (dyld refused it); see $out/preflight.txt" >&2
+  echo "blocking-probe: the preflight program failed: dyld refused the probe on this host, or a call it checks failed (its preflight: line); see $out/preflight.txt" >&2
   tail -n 20 "$out/preflight.txt" >&2
   exit 1
 fi
 # The report script checks the dumps (tests/test_blocking_probe_report.py checks its rules): the app's main-thread
-# self-test at exit, none from the inert hop, the owner's self-test, its watched thread's stat and input wait,
-# nothing from its unwatched thread; with a launch window, the app's window: its spawn, not its access after the
-# mark, no write or fcntl on the probe's mark descriptor (a missing window file fails the check).
+# self-test at exit and its one call of each cross-process and loader kind (one mach receive: neither the run
+# loop's idle wait nor a receive inside another call), none from the inert hop, the owner's self-test, its watched
+# thread's stat and input wait, nothing from its unwatched thread; with a launch window, the app's window: its
+# spawn, not its access after the mark, no write or fcntl on the probe's mark descriptor (a missing window file
+# fails the check).
 preflight_dumps=("$out"/preflight-dumps/probe-*.tsv)
 for window in "$out"/preflight-dumps/probe-*.tsv.window; do
   if [[ -e "$window" ]]; then preflight_dumps+=("$window"); fi
@@ -230,7 +283,7 @@ if ! python3 "$report" --preflight ${preflight_window[@]+"${preflight_window[@]}
   echo "blocking-probe: see $out/preflight.txt and $out/preflight-dumps" >&2
   exit 1
 fi
-echo "blocking-probe: preflight ok ($(grep -c 'interpos' "$out/preflight.txt") dyld interposing lines; main thread, spawn chain, argument gate, thread patterns, input waits)"
+echo "blocking-probe: preflight ok ($(grep -c 'interpos' "$out/preflight.txt") dyld interposing lines; main thread, spawn chain, argument gate, thread patterns, input waits, cross-process kinds)"
 
 CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 \
   | tee "$out/reload.log" | tail -n 40

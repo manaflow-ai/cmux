@@ -40,7 +40,9 @@
 // launcher's descriptor the probe opens /dev/null as one and names it in CMUX_NEXT_LAUNCH_MARKS_FD.
 //
 // Behavior is never changed, except that a CMUX_BLOCKING_PROBE_CHILD spawn gets the probe's variables (and a
-// launch window adds a CMUX_NEXT_LAUNCH_MARKS_FD to /dev/null when the launcher gave none): every
+// launch window adds a CMUX_NEXT_LAUNCH_MARKS_FD to /dev/null when the launcher gave none, and a watched main
+// thread's run loop gets two observers that only set the probe's idle flag; the probe links Security and XPC, which
+// a process without them then loads): every
 // interposer calls the real function on every path with the same arguments, returns its result and keeps its
 // errno. The recording path allocates nothing (a fixed table claimed and updated with atomics, `backtrace`
 // into a fixed array) and takes no lock (only the launch mark's one copy takes the dump thread's lock, to wake
@@ -55,17 +57,28 @@
 // select/poll, getaddrinfo, waitpid/wait4, posix_spawn/posix_spawnp, dispatch_semaphore_wait, dispatch_group_wait, dispatch_sync(_f),
 // pthread_cond_(timed)wait, pthread_mutex_lock, os_unfair_lock_lock, usleep, nanosleep. Waits count only past
 // WAIT_FLOOR_NS; every file or socket call counts, however fast (Chrome's rule: no disk on the UI thread).
+// Cross-process and loader calls: xpc_connection_send_message_with_reply_sync ("xpc-reply", BlockingKind.xpcReply),
+// mach_msg and mach_msg2_internal with a receive ("mach-receive", a wait past WAIT_FLOOR_NS), fork
+// ("process-spawn"), dlopen ("library-load"), getpwuid/getpwuid_r ("system-query"), SecItemCopyMatching/SecItemAdd
+// ("system-call"): every call counts but a mach receive's. An XPC reply, SecItem, getpwuid or dlopen call is one
+// entry with its whole time: the XPC replies and mach receives it makes inside are not recorded again (its file
+// calls still are), as Chrome's ScopedBlockingCall nested in another adds no second blocking scope
+// (base/threading/scoped_blocking_call_internal.cc). The main run loop's own wait for its next event, from its
+// last BeforeWaiting observer to its first AfterWaiting one (the probe's two observers, in the common modes), is
+// not a mach receive; a nested run loop in another mode waiting on main is. dlopen goes through dyld's
+// dlopen_from with the caller's address, so @rpath and @loader_path resolve from the caller as without the probe.
 // dispatch_sync's time includes the block's own work. On a watched thread other than main, a wait for the next
 // input has its own kind, "input-wait:<call>": a read of a socket, pipe or PTY (not of a regular file), recv*,
 // poll, select, waitpid and wait4. Chrome's message pump waits for work outside any ScopedBlockingCall the same
 // way; the report lists these apart from blocking work.
-// Not seen (known gaps): pthread_rwlock_*, os_unfair_lock_lock_with_options, semaphore_wait, mach_msg (sync XPC,
-// and the main run loop's own idle wait), __ulock_wait/os_sync_wait_on_address, kevent, renamex_np/renameatx_np,
-// ftruncate, getxattr/setxattr, readv/writev, getdirentries64, copyfile/clonefile, dispatch_async_and_wait, the
-// $NOCANCEL forms of close, pwrite, connect, recvmsg, sendmsg, select, waitpid and wait4, and calls inside one
-// system library to itself (dyld interposing sees calls across images only), so the probe under-counts and never
-// over-counts.
+// Not seen (known gaps): pthread_rwlock_*, os_unfair_lock_lock_with_options, semaphore_wait, mach_msg_overwrite,
+// __ulock_wait/os_sync_wait_on_address, kevent, renamex_np/renameatx_np, ftruncate, getxattr/setxattr,
+// readv/writev, getdirentries64, copyfile/clonefile, dispatch_async_and_wait, vfork, dlopen_preflight, the other
+// getpw*/getgr* lookups, the $NOCANCEL forms of close, pwrite, connect, recvmsg, sendmsg, select, waitpid and
+// wait4, and calls inside one system library to itself (dyld interposing sees calls across images only), so the
+// probe under-counts and never over-counts.
 #include <CoreFoundation/CoreFoundation.h>
+#include <Security/Security.h>
 #include <dispatch/dispatch.h>
 #include <limits.h>
 #include <dirent.h>
@@ -73,11 +86,13 @@
 #include <errno.h>
 #include <execinfo.h>
 #include <fcntl.h>
+#include <mach/mach.h>
 #include <mach/mach_time.h>
 #include <netdb.h>
 #include <os/lock.h>
 #include <poll.h>
 #include <pthread.h>
+#include <pwd.h>
 #include <spawn.h>
 #include <stdarg.h>
 #include <stdint.h>
@@ -92,8 +107,12 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <xpc/xpc.h>
 
 #include "probe_match.h"
+
+_Static_assert(PROBE_MACH_SEND_MSG == MACH_SEND_MSG && PROBE_MACH_RCV_MSG == MACH_RCV_MSG,
+               "probe_match.h's mach options are the SDK's");
 
 #define DYLD_INTERPOSE(_replacement, _replacee)                                                    \
     __attribute__((used)) static struct {                                                         \
@@ -113,6 +132,14 @@ extern int fsync_nocancel(int) __asm("_fsync$NOCANCEL");
 extern int poll_nocancel(struct pollfd *, nfds_t, int) __asm("_poll$NOCANCEL");
 extern ssize_t recvfrom_nocancel(int, void *, size_t, int, struct sockaddr *, socklen_t *) __asm("_recvfrom$NOCANCEL");
 extern ssize_t sendto_nocancel(int, const void *, size_t, int, const struct sockaddr *, socklen_t) __asm("_sendto$NOCANCEL");
+// libsystem_kernel's mach_msg2 entry (macOS 13+), which the SDK's inline mach_msg2 and libdispatch call: the message,
+// the 64-bit options (MACH64_RCV_MSG in the low bits), then the header and sizes packed in pairs. Named apart from
+// the SDK's own declaration, if it has one. blocking-probe.sh builds without it (PROBE_NO_MACH_MSG2) when the SDK
+// does not export it.
+#ifndef PROBE_NO_MACH_MSG2
+extern mach_msg_return_t probe_mach_msg2_internal(void *, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t,
+                                                  uint64_t) __asm("_mach_msg2_internal");
+#endif
 
 enum {
     SLOTS = 8192, MAX_PROBES = 64, DEPTH = 24, STACK_KEY = 16, WAIT_FLOOR_NS = 1000000, DUMP_SECONDS = 10,
@@ -144,6 +171,10 @@ static uint64_t record_ns;  // time spent recording (the backtraces and hashes)
 static mach_timebase_info_data_t timebase;
 static int ready;                    // set once the constructor has read the configuration of a recording process
 static pthread_key_t state_key;      // per thread: STATE_BUSY (the probe's own work) or STATE_SELFTEST
+static pthread_key_t outer_key;      // per thread: non-NULL inside a recorded XPC reply, SecItem, getpwuid or dlopen
+static int run_loop_idle;            // the main run loop waits for its next event (main thread only)
+// dyld's dlopen_from(path, mode, address in the caller): resolved at load, NULL on a dyld without it.
+static void *(*dlopen_from_fn)(const char *, int, void *);
 enum { STATE_NONE = 0, STATE_BUSY = 1, STATE_SELFTEST = 2 };
 static int watch_main = 1;           // the main thread is watched
 static char thread_list[512] = "main";  // the watched threads as given (the dump header)
@@ -449,6 +480,92 @@ static int p_posix_spawnp(pid_t *pid, const char *file, const posix_spawn_file_a
                           const posix_spawnattr_t *attr, char *const argv[], char *const envp[]) {
     return spawn(1, pid, file, actions, attr, argv, envp);
 }
+static pid_t p_fork(void) {
+    const char *thread = recording_thread();
+    if (thread == NULL) return fork();
+    uint64_t start = now_ns();
+    pid_t pid = fork();
+    int saved = errno;
+    if (pid != 0) {  // the parent, or a failed fork: the child records nothing of its own start
+        uint64_t ns = now_ns() - start;
+        __atomic_fetch_add(&calls, 1, __ATOMIC_RELAXED);
+        record("process-spawn:fork", thread, ns);
+    }
+    errno = saved;
+    return pid;
+}
+// Cross-process calls and the loader
+static inline int inside_outer(void) { return pthread_getspecific(outer_key) != NULL; }
+// TIMED for a call that is one entry with its whole time: the XPC replies and mach receives it makes inside are
+// not recorded again. Inside another such call it is not recorded either.
+#define TIMED_OUTER(kind, call)                                                                    \
+    do {                                                                                          \
+        const char *thread_ = recording_thread();                                                 \
+        if (thread_ == NULL || inside_outer()) return call;                                       \
+        pthread_setspecific(outer_key, (const void *)1);                                          \
+        uint64_t start_ = now_ns();                                                               \
+        __typeof__(call) result_ = call;                                                          \
+        int errno_ = errno;                                                                       \
+        uint64_t ns_ = now_ns() - start_;                                                         \
+        pthread_setspecific(outer_key, NULL);                                                     \
+        __atomic_fetch_add(&calls, 1, __ATOMIC_RELAXED);                                          \
+        record(kind, thread_, ns_);                                                               \
+        errno = errno_;                                                                           \
+        return result_;                                                                           \
+    } while (0)
+
+// A mach receive past WAIT_FLOOR_NS, of the kind probe_mach_kind gives; none for a send only, the main run loop's
+// idle wait or a receive inside an outer call.
+#define TIMED_MACH(receive, input_wait, options, call)                                             \
+    do {                                                                                          \
+        const char *thread_ = recording_thread();                                                 \
+        if (thread_ == NULL || inside_outer()) return call;                                       \
+        int main_ = thread_ == main_thread;                                                       \
+        const char *kind_ = probe_mach_kind((options), main_ || thread_ == probe_thread,          \
+                                            main_ && run_loop_idle, (receive), (input_wait));     \
+        if (kind_ == NULL) return call;                                                           \
+        uint64_t start_ = now_ns();                                                               \
+        mach_msg_return_t result_ = call;                                                         \
+        int errno_ = errno;                                                                       \
+        uint64_t ns_ = now_ns() - start_;                                                         \
+        __atomic_fetch_add(&calls, 1, __ATOMIC_RELAXED);                                          \
+        if (ns_ >= WAIT_FLOOR_NS) record(kind_, thread_, ns_);                                    \
+        errno = errno_;                                                                           \
+        return result_;                                                                           \
+    } while (0)
+
+static xpc_object_t p_xpc_reply_sync(xpc_connection_t connection, xpc_object_t message) {
+    TIMED_OUTER("xpc-reply:xpc_connection_send_message_with_reply_sync",
+                xpc_connection_send_message_with_reply_sync(connection, message));
+}
+static mach_msg_return_t p_mach_msg(mach_msg_header_t *m, mach_msg_option_t o, mach_msg_size_t send,
+                                    mach_msg_size_t receive, mach_port_name_t name, mach_msg_timeout_t t,
+                                    mach_port_name_t notify) {
+    TIMED_MACH("mach-receive:mach_msg", "input-wait:mach_msg", (uint64_t)o,
+               mach_msg(m, o, send, receive, name, t, notify));
+}
+#ifndef PROBE_NO_MACH_MSG2
+static mach_msg_return_t p_mach_msg2(void *data, uint64_t o, uint64_t a, uint64_t b, uint64_t c, uint64_t d,
+                                     uint64_t e, uint64_t t) {
+    TIMED_MACH("mach-receive:mach_msg2", "input-wait:mach_msg2", o,
+               probe_mach_msg2_internal(data, o, a, b, c, d, e, t));
+}
+#endif
+static void *p_dlopen(const char *path, int mode) {
+    void *caller = __builtin_return_address(0);
+    TIMED_OUTER("library-load:dlopen",
+                dlopen_from_fn != NULL ? dlopen_from_fn(path, mode, caller) : dlopen(path, mode));
+}
+static struct passwd *p_getpwuid(uid_t uid) { TIMED_OUTER("system-query:getpwuid", getpwuid(uid)); }
+static int p_getpwuid_r(uid_t uid, struct passwd *pw, char *buffer, size_t size, struct passwd **result) {
+    TIMED_OUTER("system-query:getpwuid_r", getpwuid_r(uid, pw, buffer, size, result));
+}
+static OSStatus p_SecItemCopyMatching(CFDictionaryRef query, CFTypeRef *result) {
+    TIMED_OUTER("system-call:SecItemCopyMatching", SecItemCopyMatching(query, result));
+}
+static OSStatus p_SecItemAdd(CFDictionaryRef attributes, CFTypeRef *result) {
+    TIMED_OUTER("system-call:SecItemAdd", SecItemAdd(attributes, result));
+}
 // Waits
 static long p_dispatch_semaphore_wait(dispatch_semaphore_t s, dispatch_time_t t) {
     TIMED("sync-wait:dispatch_semaphore_wait", WAIT_FLOOR_NS, dispatch_semaphore_wait(s, t));
@@ -522,6 +639,17 @@ DYLD_INTERPOSE(p_waitpid, waitpid)
 DYLD_INTERPOSE(p_wait4, wait4)
 DYLD_INTERPOSE(p_posix_spawn, posix_spawn)
 DYLD_INTERPOSE(p_posix_spawnp, posix_spawnp)
+DYLD_INTERPOSE(p_fork, fork)
+DYLD_INTERPOSE(p_xpc_reply_sync, xpc_connection_send_message_with_reply_sync)
+DYLD_INTERPOSE(p_mach_msg, mach_msg)
+#ifndef PROBE_NO_MACH_MSG2
+DYLD_INTERPOSE(p_mach_msg2, probe_mach_msg2_internal)
+#endif
+DYLD_INTERPOSE(p_dlopen, dlopen)
+DYLD_INTERPOSE(p_getpwuid, getpwuid)
+DYLD_INTERPOSE(p_getpwuid_r, getpwuid_r)
+DYLD_INTERPOSE(p_SecItemCopyMatching, SecItemCopyMatching)
+DYLD_INTERPOSE(p_SecItemAdd, SecItemAdd)
 DYLD_INTERPOSE(p_dispatch_semaphore_wait, dispatch_semaphore_wait)
 DYLD_INTERPOSE(p_dispatch_group_wait, dispatch_group_wait)
 DYLD_INTERPOSE(p_dispatch_sync, dispatch_sync)
@@ -787,11 +915,35 @@ static void open_window(const char *mark) {
     window_fd_ours = ours;
 }
 
+// The main run loop's wait for its next event: idle from the last BeforeWaiting observer (order LONG_MAX, after Core
+// Animation's commit and every other one) to the first AfterWaiting one (order LONG_MIN), in the common modes, so a
+// nested run loop in a private mode (a synchronous reply's) still records its receive.
+static void run_loop_will_wait(CFRunLoopObserverRef observer, CFRunLoopActivity activity, void *info) {
+    (void)observer; (void)activity; (void)info;
+    run_loop_idle = 1;
+}
+static void run_loop_woke(CFRunLoopObserverRef observer, CFRunLoopActivity activity, void *info) {
+    (void)observer; (void)activity; (void)info;
+    run_loop_idle = 0;
+}
+static void observe_main_run_loop(void) {
+    CFRunLoopObserverRef last = CFRunLoopObserverCreate(NULL, kCFRunLoopBeforeWaiting, true, LONG_MAX,
+                                                        run_loop_will_wait, NULL);
+    CFRunLoopObserverRef first = CFRunLoopObserverCreate(NULL, kCFRunLoopAfterWaiting | kCFRunLoopExit, true, LONG_MIN,
+                                                         run_loop_woke, NULL);
+    if (last != NULL && first != NULL) {
+        CFRunLoopAddObserver(CFRunLoopGetMain(), last, kCFRunLoopCommonModes);
+        CFRunLoopAddObserver(CFRunLoopGetMain(), first, kCFRunLoopCommonModes);
+    }
+    if (last != NULL) CFRelease(last);
+    if (first != NULL) CFRelease(first);
+}
+
 // dyld calls an image's initializers with the process's argc and argv.
 __attribute__((constructor)) static void start(int argc, const char **argv) {
     mach_timebase_info(&timebase);
     loaded_ns = now_ns();
-    if (pthread_key_create(&state_key, NULL) != 0) return;
+    if (pthread_key_create(&state_key, NULL) != 0 || pthread_key_create(&outer_key, NULL) != 0) return;
     const char *only = getenv("CMUX_BLOCKING_PROBE_ARG");
     // Inert unless argv holds every wanted argument: the variables stay in the environment for its children.
     if (only != NULL && only[0] != 0 && !probe_argv_holds_all(argc, argv, only)) return;
@@ -812,6 +964,12 @@ __attribute__((constructor)) static void start(int argc, const char **argv) {
     unsetenv("CMUX_BLOCKING_PROBE_ARG");
     unsetenv("CMUX_BLOCKING_PROBE_CHILD");
     unsetenv("DYLD_INSERT_LIBRARIES");
+    dlopen_from_fn = (void *(*)(const char *, int, void *))dlsym(RTLD_DEFAULT, "dlopen_from");
+    if (dlopen_from_fn == NULL) {
+        fprintf(stderr, "blocking-probe: this dyld has no dlopen_from, so a dlopen of an @rpath or @loader_path name "
+                        "resolves from the probe, not its caller\n");
+    }
+    if (watch_main) observe_main_run_loop();
     atexit(dump_at_exit);
     __atomic_store_n(&ready, 1, __ATOMIC_RELEASE);
     if (out_pattern[0] == 0) return;

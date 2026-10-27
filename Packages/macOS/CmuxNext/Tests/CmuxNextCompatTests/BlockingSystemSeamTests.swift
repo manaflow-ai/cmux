@@ -23,6 +23,7 @@ struct BlockingSystemSeamTests {
         #expect(BlockingKind.systemCall.rawValue == "system-call")
         #expect(BlockingKind.sleep.rawValue == "sleep")
         #expect(BlockingKind.ipcReply.rawValue == "ipc-reply")
+        #expect(BlockingKind.xpcReply.rawValue == "xpc-reply")
     }
 
     #if DEBUG || CMUX_BLOCKING_CHECKS
