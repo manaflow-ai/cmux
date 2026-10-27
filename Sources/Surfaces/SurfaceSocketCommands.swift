@@ -3,7 +3,6 @@ import CmuxControlSocket
 import CmuxSettings
 import CmuxSurfaceCatalogModel
 import Foundation
-import os
 
 // The socket face of the surface catalog: `surface.catalog`, `surface.project`,
 // `surface.new_terminal`, `surface.new_display`, and the `vm.tree` / `vm.terminal_open` / `vm.terminal_new` /
@@ -126,19 +125,13 @@ extension TerminalController {
             }
             let destination = options.open ? surfaceNewDisplayDestination(params) : nil
             if options.open, destination == nil { return surfaceNewDisplayWorkspaceError(id: id) }
-            // v2VmCall's closure returns a result payload, so busy is carried
-            // out of it and answered with its own error code here. A timed-out
-            // call returns while its task still runs, hence the lock.
-            let busy = OSAllocatedUnfairLock(initialState: false)
-            let response = v2VmCall(id: id, timeoutSeconds: 240) {
-                do {
-                    return try await Self.surfaceNewDisplay(options, destination: destination)
-                } catch let error as SurfaceDisplayCreationBusy {
-                    busy.withLock { $0 = true }
-                    throw error
-                }
+            return v2VmCall(
+                id: id,
+                timeoutSeconds: 240,
+                mapError: { $0 is SurfaceDisplayCreationBusy ? self.surfaceNewDisplayBusyError(id: id) : nil }
+            ) {
+                try await Self.surfaceNewDisplay(options, destination: destination)
             }
-            return busy.withLock { $0 } ? Self.surfaceNewDisplayBusyError(id: id) : response
 
         default:
             return v2Error(id: id, code: "method_not_found", message: "Unknown method")
@@ -175,7 +168,7 @@ extension TerminalController {
                 id: request.id, method: request.method, isV2: true, error: timeout
             )
         } catch is SurfaceDisplayCreationBusy {
-            return Self.surfaceNewDisplayBusyError(id: id)
+            return surfaceNewDisplayBusyError(id: id)
         } catch is CancellationError {
             return v2Error(
                 id: id,
@@ -263,12 +256,9 @@ extension TerminalController {
         )
     }
 
-    private nonisolated static func surfaceNewDisplayBusyError(id: Any?) -> String {
-        guard let idValue = JSONValue(foundationObject: id as Any) else {
-            return ControlResponseEncoder.encodeFailureResponse
-        }
-        return Self.v2Encoder.error(
-            id: idValue,
+    private nonisolated func surfaceNewDisplayBusyError(id: Any?) -> String {
+        v2Error(
+            id: id,
             code: "busy",
             message: String(
                 localized: "socket.surface.newDisplay.busy",
