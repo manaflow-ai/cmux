@@ -66,7 +66,9 @@ public struct URLSessionSocketConnection: DeviceHubSocketConnection {
 
 /// The device's socket to its User DO: pushes in, `{type:'ping'}` out after an
 /// interval of silence, and a reconnect with jittered backoff whenever it drops.
-/// While a socket is open nothing else wakes it but frames and the ping.
+/// While a socket is open nothing else wakes it but frames and the ping: a socket with
+/// traffic sends no ping at all, and an idle one pings once per ``pingInterval``, at most
+/// ``pingLeeway`` late.
 ///
 /// With the app's Energy Saver policy (p14-energy-120, ``KeepaliveGate``) the ping holds only while the
 /// Mac sleeps (``KeepaliveGate/Hold/systemSleep``): a Mac whose displays sleep is still the Mac Screen
@@ -100,6 +102,10 @@ public final class DeviceHubSocket: Sendable {
 
     let connector: any DeviceHubSocketConnector
     let pingInterval: Duration
+    /// How late the ping may go after ``pingInterval`` of silence: a tenth of it (3 s of 30 s), so the
+    /// OS can fold its wake into another one (Apple's Energy Efficiency Guide asks a timer tolerance of
+    /// at least 10% of its interval). A keepalive need not be on time to the second.
+    var pingLeeway: Duration { pingInterval / 10 }
     let backoff: Backoff
     let clock: any Clock<Duration>
     /// The app's Energy Saver policy (`MainWorkScheduler.energy`); nil pings and reconnects as if always awake.
@@ -131,7 +137,7 @@ public final class DeviceHubSocket: Sendable {
             keepalive.cancel()
             retry.cancel()
         }
-        // wakeup-allow: the reconnect loop; each pass waits on a connect, the socket's frames, or Backoff after a failure.
+        // wakeup-allow: backoff the reconnect loop; each pass waits on a connect, the socket's frames, or Backoff after a failure.
         while !Task.isCancelled {
             await handler(.state(.connecting))
             var failure = "the socket closed"
@@ -181,14 +187,16 @@ public final class DeviceHubSocket: Sendable {
         }
     }
 
-    /// PROTOCOL.md's keepalive, sent only after ``pingInterval`` with no frame from the server (any
-    /// frame, the pong too, re-arms it), as Chromium sends its HTTP/2 connection-check PING only
-    /// after a read silence (net/spdy/spdy_session.cc, `SendPrefacePingIfNoneInFlight`). A failed
-    /// send closes the socket, which ends the read. Nothing is armed while `gate` holds the keepalive.
+    /// PROTOCOL.md's keepalive, sent only after ``pingInterval`` of silence both ways: any frame from
+    /// the server (the pong too) re-arms it, and the ping is the only frame this socket sends, so its
+    /// send re-arms it too. Chromium sends its HTTP/2 connection-check PING only after a read silence
+    /// the same way (net/spdy/spdy_session.cc, `SendPrefacePingIfNoneInFlight`). The deadline is never
+    /// early and at most ``pingLeeway`` late. A failed send closes the socket, which ends the read.
+    /// Nothing is armed while `gate` holds the keepalive.
     private func armPing(_ keepalive: DemandTimer, _ connection: any DeviceHubSocketConnection, gate: KeepaliveGate) {
         gate.whileAwake {
-            // wakeup-allow: periodic DeviceHubSocket.ping (only after an interval of silence; the server answers without waking its object)
-            keepalive.schedule(after: pingInterval) { [weak keepalive, self] in
+            // wakeup-allow: periodic DeviceHubSocket.ping only on a silent socket; the server answers without waking its object
+            keepalive.schedule(after: pingInterval, tolerance: pingLeeway) { [weak keepalive, self] in
                 do { try await connection.send(#"{"type":"ping"}"#) } catch {
                     connection.close()
                     return
