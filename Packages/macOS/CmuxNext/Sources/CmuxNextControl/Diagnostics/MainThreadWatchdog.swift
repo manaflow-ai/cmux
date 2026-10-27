@@ -256,6 +256,8 @@ public final class MainThreadWatchdog: Sendable {
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), earlyObserver, .commonModes)
         CFRunLoopAddObserver(CFRunLoopGetMain(), lateObserver, .commonModes)
+        // The late stamp draws nothing: the commit-boundary audit does not count it as late.
+        AfterCommitObservers.register(lateObserver)
         let box = ObserverBox([earlyObserver, lateObserver])
         observer.withLock { $0 = box }
         let sampler = configuration.sampleStacks ? ThreadStackSampler(thread: mach_thread_self()) : nil
@@ -281,7 +283,10 @@ public final class MainThreadWatchdog: Sendable {
     public func stop() {
         guard running.compareExchange(expected: true, desired: false, ordering: .acquiringAndReleasing).exchanged else { return }
         if let box = observer.withLock({ observer in defer { observer = nil }; return observer }) {
-            for runLoopObserver in box.observers { CFRunLoopObserverInvalidate(runLoopObserver) }
+            for runLoopObserver in box.observers {
+                AfterCommitObservers.remove(runLoopObserver)
+                CFRunLoopObserverInvalidate(runLoopObserver)
+            }
         }
         alarm.wake()
     }

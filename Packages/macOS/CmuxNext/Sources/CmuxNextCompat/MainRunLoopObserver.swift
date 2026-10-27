@@ -45,6 +45,7 @@ public import Foundation
 /// ```
 public nonisolated final class MainRunLoopObserver {
     private let observer: CFRunLoopObserver
+    private let afterCommit: Bool
 
     /// Adds an observer of `activities` to the main run loop in `mode`, from any thread.
     ///
@@ -61,15 +62,21 @@ public nonisolated final class MainRunLoopObserver {
     ///     with it AppKit's display cycle) included. Default 0.
     ///   - mode: The run loop mode to observe (default `.commonModes`, which includes the
     ///     default mode and the event-tracking mode of menus and drags).
+    ///   - drawsNothingAfterCommit: True for an observer after the commit (`order: .max`) whose
+    ///     handler lays out, displays and commits nothing, so the commit-boundary audit does not
+    ///     count it as late (``AfterCommitObservers``). Default false.
     ///   - handler: Main-actor work with the stage that called it.
     public init(
         activities: CFRunLoopActivity,
         repeats: Bool = true,
         order: CFIndex = 0,
         mode: CFRunLoopMode = .commonModes,
+        drawsNothingAfterCommit: Bool = false,
         _ handler: @escaping @MainActor (CFRunLoopActivity) -> Void
     ) {
         observer = Self.addMainObserver(activities: activities, repeats: repeats, order: order, mode: mode, handler)
+        afterCommit = drawsNothingAfterCommit
+        if afterCommit { AfterCommitObservers.register(observer) }
     }
 
     /// Calls `body` once on the main actor, at the main run loop's next stage in `activities`,
@@ -112,10 +119,12 @@ public nonisolated final class MainRunLoopObserver {
     /// Stops observing now and removes the observer from the main run loop (also happens when
     /// the token is released). Safe to call more than once and from any thread.
     public func invalidate() {
+        if afterCommit { AfterCommitObservers.remove(observer) }
         CFRunLoopObserverInvalidate(observer)
     }
 
     deinit {
+        if afterCommit { AfterCommitObservers.remove(observer) }
         CFRunLoopObserverInvalidate(observer)
     }
 

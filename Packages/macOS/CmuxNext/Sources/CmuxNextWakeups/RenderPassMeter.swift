@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CoreFoundation
 import Darwin
 
@@ -45,16 +46,20 @@ final class RenderPassMeter {
         guard !started else { return }
         started = true
         for observer in observers { CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes) }
+        // The pass's end only reads the clock: the commit-boundary audit does not count it as late.
+        if let last = observers.last { AfterCommitObservers.register(last) }
     }
 
     /// Stops timing passes (no effect while stopped).
     func stop() {
         guard started else { return }
         started = false
+        if let last = observers.last { AfterCommitObservers.remove(last) }
         for observer in observers { CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes) }
     }
 
     deinit {
+        if let last = observers.last { AfterCommitObservers.remove(last) }
         for observer in observers { CFRunLoopObserverInvalidate(observer) }
     }
 }

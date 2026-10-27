@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CoreFoundation
 
 /// One observer of the main run loop, read from a `CFCopyDescription` dump of a run loop
@@ -12,6 +13,8 @@ public nonisolated struct CommitBoundaryObserver: Sendable, Hashable, Comparable
     /// The observer's whole entry in the dump (`<CFRunLoopObserver ...>{valid = ..., callout = ...}`), so
     /// a report shows what it is even when the callout is a block trampoline.
     public var dumpText: String
+    /// The observer's address in the dump (`<CFRunLoopObserver 0x...`), or nil when it showed none.
+    public var address: UInt?
 
     /// An observer of a dump.
     ///
@@ -20,11 +23,13 @@ public nonisolated struct CommitBoundaryObserver: Sendable, Hashable, Comparable
     ///   - callout: The callout symbol.
     ///   - activities: The activity bits, nil when unknown.
     ///   - dumpText: The observer's whole dump entry (default: none known).
-    public init(order: Int, callout: String, activities: UInt?, dumpText: String = "") {
+    ///   - address: The observer's address (default: none known).
+    public init(order: Int, callout: String, activities: UInt?, dumpText: String = "", address: UInt? = nil) {
         self.order = order
         self.callout = callout
         self.activities = activities
         self.dumpText = dumpText
+        self.address = address
     }
 
     /// The dump entry, or order and callout when none is known.
@@ -42,6 +47,12 @@ public nonisolated struct CommitBoundaryObserver: Sendable, Hashable, Comparable
     /// Whether this observer is on ``reviewedAfterBoundary``.
     public var isReviewedAfterBoundary: Bool {
         Self.reviewedAfterBoundary.contains(callout)
+    }
+
+    /// Whether this is one of cmux's own timing or heartbeat observers that runs after the commit
+    /// and draws nothing (`AfterCommitObservers`, by ``address``).
+    public var isOwnAfterCommit: Bool {
+        address.map(AfterCommitObservers.contains(address:)) ?? false
     }
 
     /// Whether this is Core Animation's transaction (commit) observer.

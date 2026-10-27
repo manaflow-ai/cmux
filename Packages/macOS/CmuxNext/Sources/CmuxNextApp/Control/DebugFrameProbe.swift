@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextSettings
@@ -65,7 +66,10 @@ final class DebugFrameProbe {
     private func stop() {
         client.deactivate()
         expiry.cancel()
-        for observer in observers { CFRunLoopObserverInvalidate(observer) }
+        for observer in observers {
+            AfterCommitObservers.remove(observer)
+            CFRunLoopObserverInvalidate(observer)
+        }
         observers.removeAll()
     }
 
@@ -95,6 +99,8 @@ final class DebugFrameProbe {
         guard let woke, let sleeps else { return }
         CFRunLoopAddObserver(CFRunLoopGetMain(), woke, .commonModes)
         CFRunLoopAddObserver(CFRunLoopGetMain(), sleeps, .commonModes)
+        // It only reads the clock: the commit-boundary audit does not count it as late.
+        AfterCommitObservers.register(sleeps)
         observers = [woke, sleeps]
     }
 
