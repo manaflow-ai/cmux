@@ -93,6 +93,7 @@ export default componentEntry<Props>({
           const [isOpen, setOpen] = useState(false);
           const trigger = useRef<HTMLButtonElement | null>(null);
           const [isFast, setFast] = useState(fast);
+          const [selection, setSelection] = useState("");
           const available = many
             ? [
                 ...families,
@@ -114,6 +115,7 @@ export default componentEntry<Props>({
               <div
                 style={{ padding: 16, paddingTop: anchorMiddle ? 280 : chat && !anchorTop ? 400 : 16 }}
                 data-expand={expand ? "" : undefined}
+                data-selection={selection}
               >
                 <QuickModelMenu
                   open={isOpen}
@@ -131,7 +133,7 @@ export default componentEntry<Props>({
                         list
                           .flatMap((family) => [...family.models, ...family.more])
                           .filter((model) => model.name.toLowerCase().includes(query.toLowerCase())),
-                      pick: () => undefined,
+                      pick: (model) => setSelection(model.id),
                     },
                     account: {
                       sessionId: "gallery",
@@ -151,7 +153,7 @@ export default componentEntry<Props>({
                       list,
                       current: tab ?? "claude",
                       onPick: () => undefined,
-                      onLaunch: () => undefined,
+                      onLaunch: (harness) => setSelection(harness),
                       onAddHarness: () => undefined,
                     },
                   }}

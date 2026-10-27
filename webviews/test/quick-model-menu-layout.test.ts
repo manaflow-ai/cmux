@@ -176,6 +176,21 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
     }
   });
 
+  test("searching from a launch entry selects the visible model, not that launch entry", async () => {
+    const page = await open("claude");
+    try {
+      await page.keyboard.press("ArrowLeft");
+      await page.waitForFunction(
+        () => document.querySelector('.acpmux-quick-rail-tab[aria-pressed="true"]')?.textContent === "Claude Code (sr)",
+      );
+      await page.locator(".acpmux-quick-search input").fill("Opus");
+      await page.keyboard.press("Enter");
+      expect(await page.locator("[data-selection]").getAttribute("data-selection")).toBe("claude/Opus 5.5");
+    } finally {
+      await page.close();
+    }
+  });
+
   test("Fast switch toggles with the keyboard and stays inside a narrow short window", async () => {
     const page = await open("claude-many-harnesses", 320, 290);
     try {
