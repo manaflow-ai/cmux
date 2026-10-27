@@ -243,6 +243,10 @@ struct QueueState {
     queued_bytes: usize,
     release_reservations: ReleaseReservations,
     in_flight: Option<InFlightInput>,
+    /// The in-flight session mutation, handed to `mux-session-mutation`.
+    session_mutation: Option<PtyInputEvent>,
+    /// The worker returned: `mux-session-mutation` gets no more events.
+    workers_done: bool,
     in_flight_surface_operations: HashMap<PtyInputLane, usize>,
     failed_lanes: HashSet<PtyInputLane>,
     retired_in_flight_lanes: HashSet<PtyInputLane>,
@@ -259,6 +263,8 @@ impl Default for QueueState {
             queued_bytes: 0,
             release_reservations: ReleaseReservations::default(),
             in_flight: None,
+            session_mutation: None,
+            workers_done: false,
             in_flight_surface_operations: HashMap::new(),
             failed_lanes: HashSet::new(),
             retired_in_flight_lanes: HashSet::new(),
@@ -336,6 +342,9 @@ struct SharedQueue {
     /// Watches each local input write at 100 ms (the owner mux's request
     /// watchdog); `None` with no local mux.
     hangs: Option<EchoWatch>,
+    /// Wakes `mux-session-mutation` (its own: `changed.notify_one` is for
+    /// the worker).
+    session_mutation_ready: Condvar,
     #[cfg(test)]
     after_operation_before_cleanup: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
@@ -357,6 +366,7 @@ impl SharedQueue {
 pub struct PtyInputDispatcher {
     sender: PtyInputSender,
     worker: Option<JoinHandle<()>>,
+    session_mutations: Option<JoinHandle<()>>,
 }
 
 #[derive(Clone)]
@@ -393,12 +403,15 @@ impl PtyInputDispatcher {
         let worker_queue = queue.clone();
         let on_failure = Arc::new(on_failure);
         let worker_failure = on_failure.clone();
+        let session_mutations = session_mutation::spawn(queue.clone(), on_failure.clone())?;
         let worker = cmux_tui_core::echo_thread::spawn("mux-pty-input", move || {
+            let _done = session_mutation::WorkerDone(worker_queue.clone());
             worker(worker_queue, worker_failure);
         })?;
         Ok(Self {
             sender: PtyInputSender { queue, on_failure, session_generation: 1 },
             worker: Some(worker),
+            session_mutations: Some(session_mutations),
         })
     }
 
@@ -472,8 +485,11 @@ impl PtyInputDispatcher {
         for failure in canceled {
             (self.sender.on_failure)(failure);
         }
-        if drained && let Some(worker) = self.worker.take() {
-            let _ = worker.join();
+        if drained {
+            for thread in [self.worker.take(), self.session_mutations.take()].into_iter().flatten()
+            {
+                let _ = thread.join();
+            }
         }
         drained
     }
@@ -908,6 +924,7 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
                     break event;
                 }
                 if state.events.is_empty()
+                    && state.in_flight.is_none()
                     && state.in_flight_surface_operations.is_empty()
                     && state.closed
                 {
@@ -919,6 +936,8 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
 
         if event.concurrent_surface_operation {
             spawn_surface_operation(queue.clone(), on_failure.clone(), event);
+        } else if session_mutation::is_session_mutation(&event) {
+            session_mutation::hand_off(&queue, event);
         } else {
             process_event(queue.clone(), on_failure.clone(), event);
         }
@@ -926,6 +945,12 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
 }
 
 fn dequeue_ready_event(state: &mut QueueState) -> Option<PtyInputEvent> {
+    // The in-flight event is a session mutation on `mux-session-mutation`
+    // (the worker finishes its own events before it dequeues again): it is
+    // the global barrier until it completes.
+    if state.in_flight.is_some() {
+        return None;
+    }
     let mut ready_index = None;
     let mut blocked_queued_lanes = HashSet::new();
     for (index, event) in state.events.iter().enumerate() {
@@ -1395,6 +1420,7 @@ fn prune_lane_to_recovery_releases(
 
 #[cfg(feature = "fuzzing")]
 pub(crate) mod fuzz;
+mod session_mutation;
 
 #[cfg(test)]
 mod tests {
@@ -2366,6 +2392,7 @@ mod tests {
                 session_generation: 1,
             },
             worker: None,
+            session_mutations: None,
         };
 
         assert!(!dispatcher.shutdown(Duration::ZERO));
@@ -2480,6 +2507,7 @@ mod tests {
                 session_generation: 1,
             },
             worker: None,
+            session_mutations: None,
         };
 
         assert!(!dispatcher.shutdown(Duration::ZERO));
