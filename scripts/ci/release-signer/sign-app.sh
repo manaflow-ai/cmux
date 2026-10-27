@@ -67,6 +67,8 @@ computer_use="$APP_PATH/Contents/Library/cmux Computer Use.app"
 if [[ "$MODE" == helper-first ]]; then
   [[ -d "$computer_use/Contents" ]] || { echo "error: nested cmux Computer Use app not found: $computer_use" >&2; exit 1; }
   : "${ASC_API_KEY_ID:?}" "${ASC_API_ISSUER_ID:?}" "${ASC_API_KEY_P8_BASE64:?}"
+  [[ "${CMUX_TIMESTAMP:-}" != none ]] ||
+    { echo "error: CMUX_TIMESTAMP=none cannot be notarized; helper-first needs Apple's time stamp" >&2; exit 2; }
   helper_wait="${CMUX_HELPER_NOTARY_WAIT_SECONDS:-1500}"
   [[ "$helper_wait" =~ ^[1-9][0-9]*$ ]] || { echo "error: CMUX_HELPER_NOTARY_WAIT_SECONDS must be a positive integer" >&2; exit 2; }
 fi
@@ -113,12 +115,14 @@ elif [[ "$cn" != *"$want"* ]]; then
 fi
 echo "==> signing as $cn"
 if [[ "$MODE" == helper-first ]]; then
-  (umask 077 && printf '%s' "$ASC_API_KEY_P8_BASE64" | base64 -d > "$secrets/AuthKey.p8") 2>/dev/null ||
+  # No child of this script sees the notary key in its environment.
+  p8="$ASC_API_KEY_P8_BASE64"; unset ASC_API_KEY_P8_BASE64
+  (umask 077 && printf '%s' "$p8" | base64 -d > "$secrets/AuthKey.p8") 2>/dev/null ||
     { echo "error: ASC_API_KEY_P8_BASE64 is not valid base64" >&2; exit 1; }
+  p8=""
   (umask 077 && "$R" encode-app-store-connect-api-key --config-file /dev/null -o "$secrets/api-key.json" \
     "$ASC_API_ISSUER_ID" "$ASC_API_KEY_ID" "$secrets/AuthKey.p8" >/dev/null)
   rm -f "$secrets/AuthKey.p8"
-  unset ASC_API_KEY_P8_BASE64
 fi
 
 find "$APP_PATH" -name '._*' -type f -delete   # AppleDouble files from an unzip
@@ -266,13 +270,22 @@ if [[ "$MODE" == helper-first ]]; then
     --wait --max-wait-seconds "$helper_wait" "$computer_use" > "$work/notary.log" 2>&1 || notary_status=$?
   cat "$work/notary.log"
   submission="$(grep -oiE 'submission id:? *[0-9a-f-]{36}' "$work/notary.log" | grep -oE '[0-9a-f-]{36}' | head -n 1 || true)"
-  if grep -q 'reached wait limit' "$work/notary.log"; then
+  if grep -qE 'reached (wait|time) limit' "$work/notary.log"; then
     echo "error: Apple has not answered the Computer Use helper submission ${submission:-?} within ${helper_wait}s" >&2
     exit 75
   fi
   (( notary_status == 0 )) && [[ -n "$submission" ]] ||
     { echo "error: Computer Use helper notarization failed (submission ${submission:-none})" >&2; exit 1; }
-  "$R" notary-log --config-file /dev/null --api-key-file "$secrets/api-key.json" "$submission" > "$work/notary-log.json"
+  # Apple can answer Accepted before the ticket log is ready: a few bounded
+  # tries, then 75 (accepted, nothing signed after it), as the Mac script.
+  for attempt in 1 2 3 4; do
+    python3 "$SCRIPTS_DIR/ci/run_with_timeout.py" --timeout-seconds 120 -- "$R" notary-log --config-file /dev/null \
+      --api-key-file "$secrets/api-key.json" "$submission" > "$work/notary-log.json" 2> "$work/log" &&
+      python3 -I -c 'import json, sys; json.load(open(sys.argv[1]))' "$work/notary-log.json" 2>/dev/null && break
+    tail -5 "$work/log" >&2
+    (( attempt < 4 )) || { echo "error: the Computer Use helper ticket log is not ready (submission $submission, Accepted)" >&2; exit 75; }
+    sleep "${CMUX_HELPER_LOG_RETRY_SECONDS:-15}"
+  done
   cat "$work/notary-log.json"
   verify_ticket_contents_cover_slices "$work/notary-log.json" "$computer_use"
   "$R" staple --config-file /dev/null "$computer_use" > "$work/log" 2>&1 ||

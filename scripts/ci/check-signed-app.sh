@@ -2,7 +2,8 @@
 # The checks scripts/sign-cmux-bundle.sh makes on the app it signed, made again
 # on a signed app whichever signer produced it, plus the Computer Use helper's
 # own ticket on a copy taken out of the app. verify-signed-nightly runs it, on
-# a Mac, with no secrets; it runs no code from the bundle.
+# a Mac, in a job without secrets: the browser host check runs the bundled
+# host's `version`, as sign-cmux-bundle.sh does.
 #
 #   scripts/ci/check-signed-app.sh <app> <app-entitlements> [--require-helper-ticket]
 #
@@ -109,11 +110,14 @@ if [[ ! -f "$COMPUTER_USE_HELPER/Contents/CodeResources" ]]; then
 fi
 # shellcheck source=lib/notarization-ticket.sh
 source "$SCRIPT_DIR/lib/notarization-ticket.sh"
+# shellcheck source=lib/gatekeeper-assessment.sh
+source "$SCRIPT_DIR/lib/gatekeeper-assessment.sh"
 copy="$work/standalone/cmux Computer Use.app"
 mkdir -p "$work/standalone"
 /usr/bin/ditto "$COMPUTER_USE_HELPER" "$copy"
 xcrun stapler validate "$copy"
 verify_stapled_ticket_covers_slices "$copy"
 /usr/bin/codesign --verify --strict --verbose=2 "$copy"
-spctl --assess --type execute -vv "$copy"
+# Uncached, with the propagation retries notarize-computer-use-helper.sh uses.
+assess_with_gatekeeper "$copy"
 echo "==> Computer Use helper: a copy out of the app keeps its own stapled ticket"

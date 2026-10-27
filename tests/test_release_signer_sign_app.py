@@ -61,6 +61,7 @@ if argv[0] == "sign":
 record["secret_env"] = sorted(k for k in ("APPLE_CERTIFICATE_PASSWORD", "APPLE_CERTIFICATE_BASE64") if k in os.environ)
 # The signer reads RCODESIGN_* variables as its own config: none may reach it.
 record["config_env"] = sorted(k for k in os.environ if k.startswith("RCODESIGN_"))
+record["notary_key_env"] = "ASC_API_KEY_P8_BASE64" in os.environ
 with open(os.environ["FAKE_LOG"], "a") as log:
     log.write(json.dumps(record) + "\n")
 if argv[0] == os.environ.get("FAKE_FAIL") or argv[-1].endswith(os.environ.get("FAKE_FAIL_PATH") or "\0"):
@@ -70,10 +71,12 @@ if argv[0] == "encode-app-store-connect-api-key":
 if argv[0] == "notary-submit":
     print("created submission ID: 0f0e0d0c-0b0a-4908-8706-050403020100")
     if os.environ.get("FAKE_NOTARY") == "timeout":
-        sys.exit("reached wait limit after 1500s")
+        sys.exit("Error: reached time limit waiting for notarization to complete")
     if os.environ.get("FAKE_NOTARY") == "invalid":
         sys.exit("notarization failed: Invalid")
 if argv[0] == "notary-log":
+    if os.environ.get("FAKE_NOTARY") == "nolog":
+        sys.exit("log not ready")
     print(json.dumps({"status": "Accepted", "ticketContents": [{"arch": "arm64", "cdhash": os.environ["FAKE_TICKET"]}]}))
 if argv[0] == "staple":
     ticket = argv[-1] + "/Contents/CodeResources"
@@ -323,8 +326,11 @@ class SignAppTest(unittest.TestCase):
                     self.assertNotIn(secret, arg, call)
                 if pem in arg or (key_dir in arg and call["tool"] != "rm"):
                     # helper-first: the notary key, written and read only as files in the same directory.
-                    if arg != pem and call["tool"] == "signer" and call["argv"][0] in NOTARY_KEY_ARGS:
-                        self.assertIn(Path(arg).name, NOTARY_KEY_ARGS[call["argv"][0]], call)
+                    argv = call["argv"]
+                    if call["tool"] == "python3" and argv[0].endswith("run_with_timeout.py"):
+                        argv = argv[argv.index("--") + 2:]  # the bounded notary-log call
+                    if arg != pem and call["tool"] in ("signer", "python3") and argv and argv[0] in NOTARY_KEY_ARGS:
+                        self.assertIn(Path(arg).name, NOTARY_KEY_ARGS[argv[0]], call)
                         continue
                     self.assertEqual((call["tool"], call["argv"][i - 1], arg), ("signer", "--pem-file", pem))
         self.assertFalse(Path(key_dir).exists())
@@ -412,9 +418,10 @@ class HelperFirstTest(SignAppTest):
         self.assertFalse([v for v in options(sign["argv"], "--entitlements-xml-file")
                           + options(sign["argv"], "--code-signature-flags") if v.startswith(CU)])
         self.assertEqual(set(sign["entitlements"]), (HELPER - {CU_EXE}) | JIT | CLEARED | {""})
-        # The API key reached the signer only as a file.
+        # The API key reached the signer only as a file, never in its environment.
         for call in self.calls():
             self.assertNotIn(self.env["ASC_API_KEY_P8_BASE64"], " ".join(call["argv"]))
+        self.assertEqual({c["notary_key_env"] for c in self.calls("signer")}, {False})
 
     def test_a_ticket_that_misses_a_slice_stops_before_anything_else(self) -> None:
         for env, stops_after in (({"FAKE_TICKET": "ab" * 20}, "notary-log"), ({"FAKE_STAPLED": "cd" * 20}, "staple"),
@@ -423,9 +430,16 @@ class HelperFirstTest(SignAppTest):
                 result = self.run_script(ok=False, **env)
                 self.assertEqual(self.signs(self.app), [])
                 self.assertEqual(self.calls("signer")[-1]["argv"][0], stops_after, result.stderr)
-        result = self.run_script(ok=False, FAKE_NOTARY="timeout")
-        self.assertEqual(result.returncode, 75)
-        self.assertEqual(self.signs(self.app), [])
+        for notary in ("timeout", "nolog"):
+            with self.subTest(notary=notary):
+                result = self.run_script(ok=False, FAKE_NOTARY=notary, CMUX_HELPER_LOG_RETRY_SECONDS="0")
+                self.assertEqual(result.returncode, 75, result.stderr)
+                self.assertEqual(self.signs(self.app), [])
+        self.assertEqual(len(self.calls("signer", "notary-log")), 4)
+
+    def test_an_unstamped_signature_is_not_submitted(self) -> None:
+        self.assertIn("cannot be notarized", self.run_script(ok=False, CMUX_TIMESTAMP="none").stderr)
+        self.assertEqual(self.calls("signer"), [])
 
     def test_needs_the_notary_key(self) -> None:
         self.env.pop("ASC_API_KEY_ID")
