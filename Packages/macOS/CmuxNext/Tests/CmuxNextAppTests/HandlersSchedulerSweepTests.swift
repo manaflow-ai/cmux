@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
-import CmuxNextDaemon
+@testable import CmuxNextDaemon
 import CmuxNextLayout
 import CmuxNextRemote
 import CmuxNextWakeups

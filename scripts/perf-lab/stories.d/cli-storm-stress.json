@@ -3,6 +3,7 @@
   "tier": "T2",
   "description": "CLI storm in the STRESS session (cli-storm-session.py --session stress, perf-stress-session.py): the light story's storm with STRESS's workspaces, Chromium pages and busy terminals behind it; the same per-request, error, frame, stall, PTY, footprint and throughput series.",
   "command": ["scripts/cmux-next/cli-storm-session.py", "--session", "stress"],
+  "runs": ["scripts/cmux-next/bench_cli_storm.py"],
   "session": "stress",
   "engine": "chromium",
   "config": "bench",

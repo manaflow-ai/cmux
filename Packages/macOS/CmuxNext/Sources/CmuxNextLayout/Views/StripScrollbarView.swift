@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextInput
 import CmuxNextWakeups
 import QuartzCore
 
@@ -25,11 +26,24 @@ final class StripScrollbarView: NSView {
         var snaps: [CGFloat]
     }
 
-    /// Thumb drag lifecycle and track clicks, in strip offsets.
+    /// Thumb drag lifecycle and track clicks, in strip offsets. Drag times are the events' own
+    /// (`NSEvent.timestamp`, seconds since boot), so the release velocity reads when the pointer moved.
     var onDragBegan: (() -> Void)?
-    var onDrag: ((CGFloat) -> Void)?
-    var onDragEnded: (() -> Void)?
+    /// The thumb passed `offset` at `time` before a later point of the same frame delivery: it counts
+    /// toward the release velocity, and the strip does not show it.
+    var onDragSample: ((_ offset: CGFloat, _ time: TimeInterval) -> Void)?
+    /// The strip shows `offset`, where the pointer was at `time`.
+    var onDrag: ((_ offset: CGFloat, _ time: TimeInterval) -> Void)?
+    var onDragEnded: ((_ time: TimeInterval) -> Void)?
     var onPage: ((CGFloat) -> Void)?
+    /// The windows' frame-aligned pointer input (feature `pointerFrameDrags`): a thumb drag scrolls on
+    /// the frame interval's first event and once more at its frame, to the latest point, with every
+    /// point between for the velocity, as Chromium delivers rAF-aligned moves with their coalesced
+    /// events (`third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`).
+    /// Nil: every drag event scrolls at once.
+    var pointerFrames: () -> FrameInputCoalescers? = { nil }
+    /// This thumb drag's consumer of its window's coalescer, from mouse-down to mouse-up.
+    private var frameDrag: PointerFrameConsumer?
 
     private let thumb = CALayer()
     private(set) var thumbRect: CGRect?
@@ -228,6 +242,7 @@ final class StripScrollbarView: NSView {
             hideTimer.cancel()
             layoutThumb()
             applyColors()
+            beginFrameDrag()
             onDragBegan?()
         } else if let target = StripScrollbarGeometry.pageTarget(clickX: x, thumb: thumbRect, offset: input.offset,
                                                                 viewportWidth: input.viewportWidth, snaps: input.snaps) {
@@ -235,21 +250,67 @@ final class StripScrollbarView: NSView {
         }
     }
 
-    // local-monitor-allow: a thumb drag is delivered unbuffered until its mouse-up (p06-scheduler.md section E); each step feeds the strip's user scroll and asks for one frame, which draws it
-    override func mouseDragged(with event: NSEvent) {
-        guard let drag, let input else { return }
-        let x = convert(event.locationInWindow, from: nil).x
-        let maxOffset = ColumnStripGeometry.maxOffset(contentWidth: input.contentWidth, viewportWidth: input.viewportWidth)
-        let offset = StripScrollbarGeometry.offset(forThumbMinX: x - drag.grab, thumbWidth: drag.width, track: bounds, maxOffset: maxOffset)
-        onDrag?(offset)
+    // local-monitor-allow: the thumb drag goes to the window's FrameInputCoalescer (frameDrag), one scroll per frame to the latest point; only a bar with no coalescer (tests, feature off) moves per event
+    override func mouseDragged(with event: NSEvent) { // perf-hot: 2ms resize-drag (every thumb drag event)
+        guard drag != nil else { return }
+        if let frameDrag, frameDrag.post(event) { return }
+        guard let offset = thumbOffset(at: event.locationInWindow) else { return }
+        onDrag?(offset, event.timestamp)
     }
 
     override func mouseUp(with event: NSEvent) {
         guard drag != nil else { return }
+        // The frame's pending move lands before the release (Chromium's ShouldFlushQueue).
+        frameDrag?.flush()
+        endFrameDrag()
         drag = nil
         layoutThumb()
         applyColors()
-        onDragEnded?()
+        onDragEnded?(event.timestamp)
         flash()
+    }
+
+    /// Leaving the view tree mid-drag: the mouse-up will never arrive here, so the pending moves go.
+    override func viewWillMove(toSuperview newSuperview: NSView?) {
+        super.viewWillMove(toSuperview: newSuperview)
+        if newSuperview == nil { endFrameDrag() }
+    }
+
+    /// The strip offset that puts the grabbed thumb point under the pointer at `windowPoint`; nil with no drag.
+    private func thumbOffset(at windowPoint: CGPoint) -> CGFloat? {
+        guard let drag, let input else { return nil }
+        let x = convert(windowPoint, from: nil).x
+        let maxOffset = ColumnStripGeometry.maxOffset(contentWidth: input.contentWidth, viewportWidth: input.viewportWidth)
+        return StripScrollbarGeometry.offset(forThumbMinX: x - drag.grab, thumbWidth: drag.width, track: bounds, maxOffset: maxOffset)
+    }
+
+    /// One delivery of the frame-aligned drag: every point but the latest feeds the velocity at its own
+    /// time, then the strip scrolls to the latest, as ``DividerHandleView`` delivers. No allocation: the
+    /// points are the delivery's own.
+    private func deliver(_ delivery: PointerCoalescedInput) { // perf-hot: 2ms resize-drag (each thumb drag delivery)
+        let samples = delivery.samples
+        if samples.count > 1 {
+            for sample in samples[..<(samples.count - 1)] {
+                guard let offset = thumbOffset(at: CGPoint(x: sample.location.x, y: sample.location.y)) else { return }
+                onDragSample?(offset, sample.timestamp)
+            }
+        }
+        let latest = delivery.latest
+        guard let offset = thumbOffset(at: CGPoint(x: latest.location.x, y: latest.location.y)) else { return }
+        onDrag?(offset, latest.timestamp)
+    }
+
+    private func beginFrameDrag() {
+        endFrameDrag()
+        guard let window, let frames = pointerFrames() else { return }
+        frameDrag = frames.coalescer(for: window).consumer(owner: "StripScrollbarView.thumbDrag") { [weak self] input in
+            self?.deliver(input)
+        }
+    }
+
+    /// Drops this drag's consumer and anything it still has pending.
+    private func endFrameDrag() {
+        frameDrag?.cancel()
+        frameDrag = nil
     }
 }

@@ -85,9 +85,11 @@ struct BrowserHibernationSaverTests {
         let start = ContinuousClock.now
         var rule = SaverCPUFreeze()
         let first = try #require(rule.pastGrace([.init(key: "a", hiddenFor: 0)], saver: true, now: start).read)
-        #expect(rule.land(Self.reading(["a": .zero], at: start), generation: first.generation))
+        let landed1 = rule.land(Self.reading(["a": .zero], at: start), generation: first.generation)
+        #expect(landed1)
         let second = try #require(rule.pastGrace([.init(key: "a", hiddenFor: 10)], saver: true, now: start + .seconds(10)).read)
-        #expect(rule.land(Self.reading(["a": .seconds(5)], at: start + .seconds(10)), generation: second.generation))
+        let landed2 = rule.land(Self.reading(["a": .seconds(5)], at: start + .seconds(10)), generation: second.generation)
+        #expect(landed2)
         #expect(abs((rule.proportions["a"] ?? 0) - 0.5) < 1e-9)
         // Hidden again 1 s ago, after both readings: its share is dropped, so it does not count as past the grace.
         let planned = rule.pastGrace([.init(key: "a", hiddenFor: 1)], saver: true, now: start + .seconds(12))
@@ -96,7 +98,8 @@ struct BrowserHibernationSaverTests {
         #expect(rule.proportions["a"] == nil)
         // The next window starts at the hide's first reading.
         let third = try #require(rule.pastGrace([.init(key: "a", hiddenFor: 9)], saver: true, now: start + .seconds(20)).read)
-        #expect(rule.land(Self.reading(["a": .seconds(9)], at: start + .seconds(20)), generation: third.generation))
+        let landed3 = rule.land(Self.reading(["a": .seconds(9)], at: start + .seconds(20)), generation: third.generation)
+        #expect(landed3)
         #expect(rule.proportions["a"] == nil, "a window that started before the hide counted")
     }
 
@@ -106,15 +109,18 @@ struct BrowserHibernationSaverTests {
         let start = ContinuousClock.now
         var rule = SaverCPUFreeze()
         let first = try #require(rule.pastGrace([.init(key: "a", hiddenFor: 0)], saver: true, now: start).read)
-        #expect(rule.land(Self.reading(["a": .zero], at: start), generation: first.generation))
+        let landed4 = rule.land(Self.reading(["a": .zero], at: start), generation: first.generation)
+        #expect(landed4)
         let second = try #require(rule.pastGrace([.init(key: "a", hiddenFor: 10)], saver: true, now: start + .seconds(10)).read)
         // Shown at 10.2 s and busy, hidden again at 10.5 s; the renderers are read at 11 s.
-        #expect(rule.land(Self.reading(["a": .seconds(5)], at: start + .seconds(11)), generation: second.generation))
+        let landed5 = rule.land(Self.reading(["a": .seconds(5)], at: start + .seconds(11)), generation: second.generation)
+        #expect(landed5)
         let planned = rule.pastGrace([.init(key: "a", hiddenFor: 0.5)], saver: true, now: start + .seconds(11))
         #expect(planned.candidates.first?.hiddenFor == 0.5, "a page busy while it showed counted as past the grace")
         #expect(rule.proportions["a"] == nil)
         let third = try #require(rule.pastGrace([.init(key: "a", hiddenFor: 10.5)], saver: true, now: start + .seconds(21)).read)
-        #expect(rule.land(Self.reading(["a": .seconds(8)], at: start + .seconds(21)), generation: third.generation))
+        let landed6 = rule.land(Self.reading(["a": .seconds(8)], at: start + .seconds(21)), generation: third.generation)
+        #expect(landed6)
         #expect(abs((rule.proportions["a"] ?? 0) - 0.3) < 1e-9)
     }
 
@@ -125,9 +131,11 @@ struct BrowserHibernationSaverTests {
         let stale = try #require(rule.pastGrace([.init(key: "a", hiddenFor: 0)], saver: true, now: start).read)
         _ = rule.pastGrace([.init(key: "a", hiddenFor: 1)], saver: false, now: start + .seconds(1))
         let fresh = try #require(rule.pastGrace([.init(key: "a", hiddenFor: 2)], saver: true, now: start + .seconds(2)).read)
-        #expect(!rule.land(Self.reading(["a": .zero], at: start), generation: stale.generation))
+        let landed7 = rule.land(Self.reading(["a": .zero], at: start), generation: stale.generation)
+        #expect(!landed7)
         #expect(rule.lastReadingAt == nil)
-        #expect(rule.land(Self.reading(["a": .zero], at: start + .seconds(2)), generation: fresh.generation))
+        let landed8 = rule.land(Self.reading(["a": .zero], at: start + .seconds(2)), generation: fresh.generation)
+        #expect(landed8)
     }
 
     /// A renderer two tabs share is split between them: a hidden page beside a busy shown page of its site is not busy.
@@ -194,10 +202,12 @@ struct BrowserHibernationSaverTests {
         var rule = SaverCPUFreeze()
         let first = try #require(rule.pastGrace([.init(key: key, hiddenFor: 0)], saver: true, now: start).read)
         let before = SaverCPUFreeze.reading(of: [key], tabs: tabs.0, renderers: cpu.map { sample($0.renderer, $0.first) }, at: start)
-        #expect(rule.land(before, generation: first.generation))
+        let landed9 = rule.land(before, generation: first.generation)
+        #expect(landed9)
         let second = try #require(rule.pastGrace([.init(key: key, hiddenFor: 10)], saver: true, now: later).read)
         let after = SaverCPUFreeze.reading(of: [key], tabs: tabs.1, renderers: cpu.map { sample($0.renderer, $0.second) }, at: later)
-        #expect(rule.land(after, generation: second.generation))
+        let landed10 = rule.land(after, generation: second.generation)
+        #expect(landed10)
         return rule.proportions
     }
 

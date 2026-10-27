@@ -14,7 +14,8 @@ import Atomics
 /// 4. the signed remote document, already filtered by safe mode
 /// 5. the field-trial arm (``FieldTrials`` keeps only the studies of this
 ///    build's channel: Nightly unless a study names another)
-/// 6. the channel default
+/// 6. the build's default set (a dogfood build's switch list, ``FeatureOverrides/buildDefaults``: on), else
+///    the channel default
 public nonisolated final class FeatureList: Sendable {
     public let registry: FeatureRegistry
     public let channel: Feature.Channel
@@ -127,6 +128,7 @@ public nonisolated final class FeatureList: Sendable {
         if let value = local?.localOverride(for: feature) { return Feature.Resolution(isEnabled: value, source: .local) }
         if let value = overrides.remote[name] { return Feature.Resolution(isEnabled: value, source: .remote) }
         if let value = overrides.fieldTrial[name] { return Feature.Resolution(isEnabled: value, source: .fieldTrial) }
+        if overrides.buildDefaults.contains(name) { return Feature.Resolution(isEnabled: true, source: .buildDefault) }
         return Feature.Resolution(isEnabled: feature.defaults.value(for: channel), source: .channelDefault)
     }
 }
