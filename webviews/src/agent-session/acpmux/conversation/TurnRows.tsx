@@ -258,8 +258,18 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
 /// count here first.
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
-  const { fork, forkSeq, forkAny, retry, retryWith, reauthenticate, resume, route, switchModel } =
-    useContext(TurnActionsContext);
+  const {
+    fork,
+    forkSeq,
+    forkAny,
+    retry,
+    retryWith,
+    reauthenticate,
+    transferCloudCredentials,
+    resume,
+    route,
+    switchModel,
+  } = useContext(TurnActionsContext);
   const text = row.text;
   const prompt = row.prompt;
   const seq = row.seq;
@@ -344,6 +354,17 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           {authenticationFailed && reauthenticate && (
             <button type="button" className="cv-turn-auth-action" onClick={reauthenticate}>
               {t("turn.signInAgain")}
+            </button>
+          )}
+          {authenticationFailed && transferCloudCredentials && row.retryRowId && prompt && (
+            <button
+              type="button"
+              className="cv-turn-auth-action"
+              onClick={() => {
+                void transferCloudCredentials(row.retryRowId!, prompt).catch(() => undefined);
+              }}
+            >
+              {t("turn.transferCredentials", { harness: route?.name || route?.harness || t("turn.failure.theAgent") })}
             </button>
           )}
         </span>

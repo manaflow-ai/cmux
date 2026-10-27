@@ -1784,6 +1784,11 @@ pre.cv-math-source {
   gap: 6px;
   padding-block: 3px;
 }
+/* The folded label uses the same row height as tools; full thought text keeps its padding. */
+.cv-thought.is-toggle {
+  align-items: center;
+  padding-block: 0;
+}
 .cv-thought.is-full {
   flex-direction: column;
   align-items: stretch;
