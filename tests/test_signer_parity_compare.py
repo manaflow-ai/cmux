@@ -195,6 +195,21 @@ class ReviewFindingTests(unittest.TestCase):
         b = make_app(self.root / "b", tool=macho(b"T" * 32, b"c") + b"tail-b")
         self.assertEqual(self.compare(a, b)[0], 1)
 
+    def test_a_file_named_codesignature_is_payload(self):
+        a = make_app(self.root / "a", tool=macho(b"T" * 32, b"c"))
+        b = make_app(self.root / "b", tool=macho(b"T" * 32, b"c"))
+        (a / "Contents/Resources/_CodeSignature").write_text("one")
+        (b / "Contents/Resources/_CodeSignature").write_text("two")
+        self.assertEqual(self.compare(a, b)[0], 1)
+
+    def test_a_truncated_signature_fails(self):
+        good = macho(b"T" * 32, b"c")
+        a = make_app(self.root / "a", tool=good)
+        b = make_app(self.root / "b", tool=good[:-10])
+        rc, failures = self.compare(a, b)
+        self.assertEqual(rc, 1)
+        self.assertTrue(any("(B): LC_CODE_SIGNATURE points outside the slice" in f for f in failures), failures)
+
     def test_setuid_bit_is_payload(self):
         a = make_app(self.root / "a", tool=macho(b"T" * 32, b"c"))
         b = make_app(self.root / "b", tool=macho(b"T" * 32, b"c"), mode=0o4755)

@@ -101,12 +101,25 @@ def slices(data: bytes):
 
 
 def signature_range(macho: bytes):
+    """(dataoff, datasize) of LC_CODE_SIGNATURE, or None when there is none.
+    Raises ValueError when it points outside the slice or its blob is not a
+    complete embedded-signature superblob."""
     ncmds = struct.unpack("<I", macho[16:20])[0]
     off = 32
     for _ in range(ncmds):
         cmd, size = struct.unpack("<II", macho[off:off + 8])
         if cmd == LC_CODE_SIGNATURE:
-            return struct.unpack("<II", macho[off + 8:off + 16])
+            dataoff, datasize = struct.unpack("<II", macho[off + 8:off + 16])
+            if datasize < 12 or dataoff + datasize > len(macho):
+                raise ValueError("LC_CODE_SIGNATURE points outside the slice")
+            magic, length, count = struct.unpack(">III", macho[dataoff:dataoff + 12])
+            if magic != 0xFADE0CC0 or length > datasize or 12 + 8 * count > length:
+                raise ValueError("the signature is not a complete embedded-signature superblob")
+            for i in range(count):
+                _, at = struct.unpack(">II", macho[dataoff + 12 + 8 * i:dataoff + 20 + 8 * i])
+                if at + 8 > length or at + struct.unpack(">I", macho[dataoff + at + 4:dataoff + at + 8])[0] > length:
+                    raise ValueError("a signature blob runs past the superblob")
+            return dataoff, datasize
         off += size
     return None
 
@@ -221,7 +234,13 @@ def walk(root: str) -> dict:
         for name in sorted(dirs) + sorted(files):
             path = os.path.join(directory, name)
             rel = os.path.relpath(path, root)
-            if "_CodeSignature" in rel.split(os.sep):
+            # Only the contents of a real _CodeSignature directory directly in
+            # a bundle's Contents/ (or a framework version) are signature
+            # output; a file or link of that name is payload like any other.
+            parts = rel.split(os.sep)
+            if any(p == "_CodeSignature" and os.path.isdir(os.path.join(root, *parts[:i + 1]))
+                   and not os.path.islink(os.path.join(root, *parts[:i + 1]))
+                   for i, p in enumerate(parts)):
                 continue
             out[rel] = path
     return out
@@ -243,10 +262,16 @@ def describe(root: str, rel: str, path: str) -> dict:
         digest.update(b"thin\0" if fat is None else b"fat\0" + fat[0])
         if fat is not None and not fat[1]:
             record["padding_error"] = "bytes outside the fat slices are not zero padding"
-        for arch, body in parts:
-            digest.update(arch.encode() + b"\0" + payload(body))
+        try:
+            signed = all(signature_range(body) for _, body in parts)
+            for arch, body in parts:
+                digest.update(arch.encode() + b"\0" + payload(body))
+        except ValueError as error:
+            record["signature_error"] = str(error)
+            signed = False
+            digest.update(b"invalid\0" + data)
         record.update(kind="macho", archs=[a for a, _ in parts], payload_sha256=digest.hexdigest(),
-                      signed=all(signature_range(body) for _, body in parts))
+                      signed=signed)
         record["_slices"] = parts
     elif is_ssh_manifest(rel):
         body, errors = manifest_payload(root, rel, data)
@@ -307,6 +332,8 @@ def main() -> int:
         keys = ("kind", "target", "mode", "archs", "payload_sha256")
         diff = [k for k in keys if ra.get(k) != rb.get(k)]
         for side, record in ((la, ra), (lb, rb)):
+            if record.get("signature_error"):
+                failures.append(f"{rel} ({side}): {record['signature_error']}")
             if record.get("padding_error"):
                 failures.append(f"{rel} ({side}): {record['padding_error']}")
             for error in record.get("manifest_errors", []):
