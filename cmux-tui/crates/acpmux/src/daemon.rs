@@ -1055,7 +1055,7 @@ async fn wait_for_job(path: &std::path::Path, job: String) -> Result<String> {
         }
         tries += 1;
         let left = deadline.saturating_duration_since(tokio::time::Instant::now());
-        if tries % 5 == 0 && !left.is_zero() {
+        if tries.is_multiple_of(5) && !left.is_zero() {
             let job = job.clone();
             let budget = left.min(Duration::from_secs(1));
             let running =
