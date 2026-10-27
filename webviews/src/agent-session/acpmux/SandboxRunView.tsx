@@ -12,8 +12,12 @@ export function SandboxRunView({
   onBack,
   onPersistent,
   onCheckAgain,
+  unread = false,
 }: {
   run: SandboxRun;
+  /// The newest read of the host didn't answer: a running card offers Check again (the chat view
+  /// hides the composer and its notice while the run holds the chat).
+  unread?: boolean;
   onBack?(): void;
   /// Sandboxed was picked but can't run now: send as a Persistent chat instead.
   onPersistent?(): void;
@@ -40,6 +44,15 @@ export function SandboxRunView({
         <output className="acpmux-sandbox-running">
           <Spinner size={14} loading />
           <span>{t("sandbox.running")}</span>
+          {unread && onCheckAgain && (
+            <>
+              {" "}
+              <span>{t("sandbox.unchecked")}</span>{" "}
+              <button type="button" className="acpmux-folder-choice-button" onClick={onCheckAgain}>
+                {t("sandbox.checkAgain")}
+              </button>
+            </>
+          )}
         </output>
       ) : run.state === "failed" ? (
         <div className="acpmux-sandbox-receipt" role="alert">

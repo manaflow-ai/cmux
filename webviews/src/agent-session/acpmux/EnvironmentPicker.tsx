@@ -156,20 +156,26 @@ export function EnvironmentPicker({
     if (sandboxed) runMode?.onMode("persistent");
   };
   // ⌥ held while the list is open shows New Cloud Machine's other face (as a Mac menu's alternate).
+  // ⌥ already held as the trigger is pressed counts too: the press's own modifier state.
   const [alternate, setAlternate] = useState(false);
+  const altAtPress = useRef(false);
   const offersSandbox = runMode !== undefined;
   useEffect(() => {
     if (!open || !offersSandbox) return;
-    const onKey = (event: KeyboardEvent) => setAlternate(event.altKey);
+    setAlternate(altAtPress.current);
+    const onKey = (event: KeyboardEvent | PointerEvent) => setAlternate(event.altKey);
     const onBlur = () => setAlternate(false);
     // ui-allow: ⌥ shows a menu row's alternate while the list is open, as a Mac menu does.
     window.addEventListener("keydown", onKey, true);
     window.addEventListener("keyup", onKey, true);
+    window.addEventListener("pointermove", onKey, true);
     window.addEventListener("blur", onBlur);
     return () => {
       window.removeEventListener("keydown", onKey, true);
       window.removeEventListener("keyup", onKey, true);
+      window.removeEventListener("pointermove", onKey, true);
       window.removeEventListener("blur", onBlur);
+      altAtPress.current = false;
       setAlternate(false);
     };
   }, [open, offersSandbox]);
@@ -381,7 +387,8 @@ export function EnvironmentPicker({
       else runMode?.onMode("sandboxed");
       return;
     }
-    if (!action) persistent();
+    // A machine, or New Cloud Machine (⌥ shows it while Sandboxed is the pick): Persistent again.
+    if (!action || value === ACTION + "cloud") persistent();
     if (action) action.run();
     else if (value === currentRow) focusPrompt();
     else if (value.startsWith(SAVED)) saved?.onPick(value.slice(SAVED.length));
@@ -514,6 +521,10 @@ export function EnvironmentPicker({
         aria-haspopup="dialog"
         aria-expanded={open}
         {...press}
+        onPointerDown={(event) => {
+          altAtPress.current = event.altKey;
+          press.onPointerDown(event);
+        }}
       >
         {face}
       </button>

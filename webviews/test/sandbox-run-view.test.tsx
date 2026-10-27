@@ -26,6 +26,17 @@ test("running shows the message and a turning spinner, never a pulsing dot", () 
   expect(text(markup)).toContain(t("sandbox.running"));
   expect(markup).toContain("cv-spinner");
   expect(markup).not.toContain("cv-spinner__dot");
+  expect(text(markup)).not.toContain(t("sandbox.checkAgain"));
+});
+
+test("a running card whose newest read failed says so and offers Check again", () => {
+  const markup = renderToStaticMarkup(
+    <SandboxRunView run={{ task: "list the TODOs", state: "running" }} unread onCheckAgain={() => undefined} />,
+  );
+  expect(text(markup)).toContain(t("sandbox.running"));
+  expect(text(markup)).toContain(t("sandbox.unchecked"));
+  expect(text(markup)).toContain(t("sandbox.checkAgain"));
+  expect(markup).toContain("cv-spinner");
 });
 
 test("a succeeded receipt reads reply first, then status, time, cost, artifacts and VM destroyed", () => {
