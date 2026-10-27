@@ -508,8 +508,10 @@ def swiftformat(binary: Path, config: Path, tree: Path, swift: list[str]) -> str
     present = [p for p in swift if (tree / p).is_file()]
     if not present:
         return ""
-    cache = tools_dir() / "swiftformat.cache"
-    _, out = run([str(binary), "--lint", "--config", str(config), "--cache", str(cache), "--quiet", *present], tree)
+    # No cache: the trees are fresh temporary folders on every run and SwiftFormat keys its cache by absolute path,
+    # so a persistent one never hits. It only grew (335 MB on a busy machine) and every call spent ~50 s reading and
+    # rewriting it, even for one file. Linting the changed files takes milliseconds without it.
+    _, out = run([str(binary), "--lint", "--config", str(config), "--cache", "ignore", "--quiet", *present], tree)
     return "\n".join(l for l in out.splitlines() if LOCATION.search(l))
 
 
