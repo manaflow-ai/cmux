@@ -274,6 +274,7 @@ extension CaptureSceneRegistry {
                             "scene": .string(definition.name)])
         }
         var createdKey: WorkspaceKey?
+        var addedFixtureHost: String?
         var cleaned = false
         func cleanup() async {
             guard let key = createdKey, !cleaned else { return }
@@ -282,6 +283,9 @@ extension CaptureSceneRegistry {
             services.windows.pendingClaims.removeValue(forKey: key.rawValue)
             services.windows.quietClaims.remove(key.rawValue)
             services.windows.reconcileMembership()
+            if let host = addedFixtureHost {
+                AgentTurnStateStore.shared.mirroredHosts.remove(host)
+            }
         }
         func failure(_ message: String) async -> CmuxNextSettings.JSONValue {
             await cleanup()
@@ -313,6 +317,13 @@ extension CaptureSceneRegistry {
             controller.sidebar.restore(width: 300, hidden: false)
             let tabSession = workspace.screens.flatMap(\.panes).flatMap(\.tabs).first(where: { $0.id == created.key })?.agentSession
             let fixtureSession = tabSession?.session ?? Self.autoNameSession
+            if let host = tabSession?.host {
+                let turns = AgentTurnStateStore.shared
+                if host != turns.localHost && !turns.mirroredHosts.contains(host) {
+                    turns.mirroredHosts.insert(host)
+                    addedFixtureHost = host
+                }
+            }
             // The fixture supplies an acpmux summary. Only the production namer may write its title.
             let summary: [String: Any] = ["sessionId": fixtureSession, "title": Self.generatedAutoName, "titleSource": "generated"]
             let title = AgentTurnStates.title(summary)
@@ -431,7 +442,6 @@ extension CaptureSceneRegistry {
         let tabFound = tab != nil
         let session = tab?.agentSession
         let sessionOK = session?.session == Self.autoNameSession
-        if let session { AgentTurnStateStore.shared.localHost = session.host }
         let generatedOK = session.map { AgentTurnStateStore.shared.generatedTitle(for: $0) == expectedGeneratedTitle } ?? false
         let view = services.agentTabs.existingView(tabID)
         let painted = view?.model.hasPainted == true
