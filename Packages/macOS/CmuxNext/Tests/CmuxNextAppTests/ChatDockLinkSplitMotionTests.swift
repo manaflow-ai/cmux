@@ -3,7 +3,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
 @testable import CmuxNextLayout
-import CmuxNextPages
+@testable import CmuxNextPages
 import CmuxNextPagesTestSupport
 @testable import CmuxNextTerminal
 import Testing
@@ -487,7 +487,7 @@ struct ChatDockLinkSplitMotionTests {
         try #require(chat.chromiumPage != nil, "the test host could not produce a Chromium page")
         let chromium = try #require(screen.provider.chromiumPage, "the fake Chromium host made no page")
         let installedNavigation = try #require(page.onNavigate, "AgentPaneView did not install onNavigate")
-        try #require(page.onOpenExternal, "AgentPaneView did not install onOpenExternal")
+        #expect(page.onOpenExternal != nil, "AgentPaneView did not install onOpenExternal")
 
         // AgentPaneView's initializer installs openURL to call LinkRouter with the source view.
         // Observe that production route without replacing it or manufacturing pane placement.
