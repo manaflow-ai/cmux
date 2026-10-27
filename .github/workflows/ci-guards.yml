@@ -1305,6 +1305,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_live_appcast_build.py
 
+      - name: Validate the classic failure incident under parallel runs
+        if: ${{ matrix.group == 'release-notary' }}
+        run: node --test tests/nightly_failure_issue.test.mjs
+
       - name: Validate newest-wins classic publication
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_classic_publish_lease.py

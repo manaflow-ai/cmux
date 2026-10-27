@@ -1425,21 +1425,20 @@ jobs:
         env:
           CHANNEL: ${{ needs.preflight.outputs.channel }}
           SOURCE_HEAD_SHA: ${{ needs.preflight.outputs.source_head_sha }}
+          SOURCE_BRANCH: ${{ needs.preflight.outputs.source_branch }}
         with:
+          # Parallel push runs publish in any order: this closes only the
+          # failures this commit includes (scripts/ci/nightly_failure_issue.mjs,
+          # from the trusted main checkout above).
           script: |
             const { owner, repo } = context.repo;
-            const label = `${process.env.CHANNEL}-failure`;
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
-            const open = await github.rest.issues.listForRepo({ owner, repo, labels: label, state: 'open', per_page: 10 });
-            for (const issue of open.data) {
-              // The issue body keeps the first failed SHA; later failures are comments.
-              // The channel label identifies the one incident that this publication resolves.
-              await github.rest.issues.createComment({
-                owner, repo, issue_number: issue.number,
-                body: `Notarization continuation accepted and published ${process.env.SOURCE_HEAD_SHA}: ${runUrl}`,
-              });
-              await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: 'closed' });
-            }
+            const channel = process.env.CHANNEL;
+            const incident = await import(`${process.env.GITHUB_WORKSPACE}/scripts/ci/nightly_failure_issue.mjs`);
+            await incident.close({
+              github, owner, repo, channel, appName: channel === 'rc' ? 'cmux RC' : 'cmux NIGHTLY',
+              ref: process.env.SOURCE_BRANCH, sha: process.env.SOURCE_HEAD_SHA, runUrl, log: core.info,
+            });
 
   generate-deltas:
     # Delta generation remains downstream of the first accepted publication.
