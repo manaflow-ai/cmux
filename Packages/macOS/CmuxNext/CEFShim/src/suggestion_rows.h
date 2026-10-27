@@ -9,8 +9,11 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <cstdio>
+#include <span>
 #include <string>
+#include <string_view>
+
+#include "unsafe_buffers.h"
 
 namespace cmux_shim {
 
@@ -59,16 +62,17 @@ inline constexpr int kMaxSuggestionRows = 200;
 // `text` as a JSON string literal: quotes, backslashes and control characters
 // escaped, other UTF-8 bytes as they are.
 inline void AppendJSONString(std::string* out, const char* text) {
+  constexpr std::string_view kHex = "0123456789abcdef";
   out->push_back('"');
-  for (const char* p = text ? text : ""; *p; ++p) {
-    const unsigned char c = static_cast<unsigned char>(*p);
+  for (const char byte : std::string_view(text ? text : "")) {
+    const unsigned char c = static_cast<unsigned char>(byte);
     if (c == '"' || c == '\\') {
       out->push_back('\\');
       out->push_back(static_cast<char>(c));
     } else if (c < 0x20) {
-      char escaped[7];
-      std::snprintf(escaped, sizeof(escaped), "\\u%04x", c);
-      out->append(escaped);
+      out->append("\\u00");
+      out->push_back(kHex[c >> 4]);
+      out->push_back(kHex[c & 0xf]);
     } else {
       out->push_back(static_cast<char>(c));
     }
@@ -93,9 +97,14 @@ inline std::string SuggestionsJSON(const ForkSuggestions* suggestions) {
                      ",\"height\":" + std::to_string(suggestions->height) +
                      ",\"rtl\":" + (suggestions->rtl ? "true" : "false") + ",\"selected\":" +
                      std::to_string(selected < 0 ? -1 : selected) + ",\"rows\":[";
-  for (int i = 0; i < count; ++i) {
-    const ForkSuggestionRow& row = suggestions->rows[i];
-    if (i > 0) json.push_back(',');
+  // SAFETY: the fork's cmux_suggestions_t holds `row_count` rows at `rows`,
+  // alive for the show call; the checks above refused a negative count and
+  // NULL rows with a count.
+  const auto all = UNSAFE_BUFFERS(SpanFromCArray(suggestions->rows, suggestions->row_count));
+  bool first = true;
+  for (const ForkSuggestionRow& row : all.first(static_cast<size_t>(count))) {
+    if (!first) json.push_back(',');
+    first = false;
     json += "{\"kind\":" + std::to_string(row.kind) + ",\"type\":" + std::to_string(row.type) + ",\"main\":";
     AppendJSONString(&json, row.main_text);
     json += ",\"minor\":";

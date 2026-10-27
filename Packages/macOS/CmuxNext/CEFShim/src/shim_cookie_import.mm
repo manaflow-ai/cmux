@@ -11,6 +11,7 @@
 #include "include/cef_parser.h"
 #include "include/cef_request_context.h"
 #include "shim_internal.h"
+#include "unsafe_buffers.h"
 
 using namespace cmux_shim;
 
@@ -58,7 +59,9 @@ class SetReply : public CefSetCookieCallback {
 int64_t Microseconds(CefRefPtr<CefDictionaryValue> entry, const char* key) {
   // Sent as strings: Chromium microseconds since 1601 exceed a double's 53 bits.
   if (!entry->HasKey(key)) return 0;
-  return std::strtoll(entry->GetString(key).ToString().c_str(), nullptr, 10);
+  const std::string text = entry->GetString(key).ToString();
+  // SAFETY: c_str() is NUL-terminated and strtoll reads no further.
+  return UNSAFE_BUFFERS(std::strtoll(text.c_str(), nullptr, 10));
 }
 
 // Runs once the context's cookie storage is initialized.

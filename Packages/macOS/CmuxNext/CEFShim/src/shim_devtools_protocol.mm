@@ -3,7 +3,8 @@
 // the id rule shared with shim-internal calls (cmux_cef_shim.h): raw sends
 // use ids >= 2^30, the shim assigns its own calls ids below 2^30.
 
-#include <cstring>
+#include <string>
+#include <string_view>
 
 #include "devtools_message_id.h"
 #include "include/cef_parser.h"
@@ -57,9 +58,10 @@ bool ForwardDevToolsMessage(int browser_id, const void* message, size_t message_
   // A top-level scan, not a full parse: a full parse refuses valid protocol
   // output (lone surrogates, deep nesting) and costs a parse per message.
   long long id = 0;
-  const DevToolsIdKind kind = TopLevelDevToolsId(static_cast<const char*>(message), message_size, &id);
+  const std::string_view text(static_cast<const char*>(message), message_size);
+  const DevToolsIdKind kind = TopLevelDevToolsId(text, &id);
   if (kind == DevToolsIdKind::kInvalid) return false;
-  const std::string raw(static_cast<const char*>(message), message_size);
+  const std::string raw(text);
   if (kind == DevToolsIdKind::kInt) {
     // A reply. Raw-send replies are the host's alone; shim-internal
     // replies go on to OnDevToolsMethodResult (DEVTOOLS_RESULT).
@@ -95,8 +97,8 @@ int cmux_shim_devtools_send(int browser_id, const char* message_json) {
   CefRefPtr<CefBrowser> browser = BrowserById(browser_id);
   if (!browser) return 0;
   if (!message_json || !*message_json) return -1;
-  const size_t size = std::strlen(message_json);
-  CefRefPtr<CefValue> value = CefParseJSON(message_json, size, JSON_PARSER_RFC);
+  const std::string_view json(message_json);
+  CefRefPtr<CefValue> value = CefParseJSON(json.data(), json.size(), JSON_PARSER_RFC);
   if (!value || value->GetType() != VTYPE_DICTIONARY) return -1;
   int id = 0;
   if (!MessageId(value->GetDictionary(), &id) || id < kFirstRawDevToolsId) return -1;

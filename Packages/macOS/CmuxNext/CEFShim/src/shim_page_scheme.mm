@@ -9,13 +9,15 @@
 
 #include <algorithm>
 #include <atomic>
-#include <cstring>
 #include <mutex>
+#include <span>
+#include <string_view>
 
 #include "cmux_page_path.h"
 #include "include/cef_parser.h"
 #include "include/cef_resource_handler.h"
 #include "include/cef_scheme.h"
+#include "unsafe_buffers.h"
 #include "include/cef_task.h"
 #include "include/wrapper/cef_stream_resource_handler.h"
 #include "shim_internal.h"
@@ -48,13 +50,16 @@ class DynamicResource : public CefResourceHandler {
   }
   bool Read(void* data_out, int bytes_to_read, int& bytes_read, CefRefPtr<CefResourceReadCallback>) override {
     std::lock_guard<std::mutex> lock(mutex_);
-    const size_t left = body_.size() - offset_;
-    const size_t count = std::min(left, static_cast<size_t>(std::max(bytes_to_read, 0)));
+    // SAFETY: CefResourceHandler::Read (include/cef_resource_handler.h):
+    // `data_out` has room for `bytes_to_read` bytes.
+    const std::span<char> out = UNSAFE_BUFFERS(SpanFromCArray(static_cast<char*>(data_out), bytes_to_read));
+    const std::string_view left = std::string_view(body_).substr(offset_);
+    const size_t count = std::min(left.size(), out.size());
     if (count == 0) {
       bytes_read = 0;
       return false;
     }
-    memcpy(data_out, body_.data() + offset_, count);
+    std::ranges::copy(left.substr(0, count), out.begin());
     offset_ += count;
     bytes_read = static_cast<int>(count);
     return true;

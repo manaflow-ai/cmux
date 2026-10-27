@@ -19,6 +19,7 @@
 #include "include/cef_request_context.h"
 #include "password_reveal_relay.h"
 #include "shim_internal.h"
+#include "unsafe_buffers.h"
 
 using namespace cmux_shim;
 
@@ -232,9 +233,11 @@ int cmux_shim_password_list(const char* profile_cache_path, int reply) {
 int cmux_shim_password_remove(const char* profile_cache_path, const char* const* ids, int count, int reply) {
   if (!fork_api().password_remove || !UsablePath(profile_cache_path) || !ids || count <= 0) return 0;
   CefRefPtr<PasswordCoreRequest> request = new PasswordCoreRequest(CoreOp::kRemove, profile_cache_path, reply);
-  for (int i = 0; i < count; ++i) {
-    if (!UsableId(ids[i])) return 0;
-    request->ids.emplace_back(ids[i]);
+  // SAFETY: cmux_shim_password_remove (cmux_cef_shim.h): `ids` holds `count`
+  // ids, alive for the call.
+  for (const char* id : UNSAFE_BUFFERS(SpanFromCArray(ids, count))) {
+    if (!UsableId(id)) return 0;
+    request->ids.emplace_back(id);
   }
   return StartCore(profile_cache_path, request);
 }

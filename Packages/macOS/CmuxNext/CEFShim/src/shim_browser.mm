@@ -3,12 +3,15 @@
 
 #import <AppKit/AppKit.h>
 
+#include <algorithm>
 #include <cstdint>
+#include <span>
 
 #include "include/cef_parser.h"
 #include "include/cef_values.h"
 #include "renderer_end.h"
 #include "shim_internal.h"
+#include "unsafe_buffers.h"
 
 using namespace cmux_shim;
 
@@ -202,26 +205,30 @@ int cmux_shim_renderer_client_ids(int browser_id, int* out, int capacity) {
   if (!out || capacity <= 0) {
     return 0;
   }
+  // SAFETY: cmux_shim_renderer_client_ids (cmux_cef_shim.h): `out` has room
+  // for `capacity` ids.
+  const std::span<int> slots = UNSAFE_BUFFERS(SpanFromCArray(out, capacity));
   // Each frame's render process host id, once.
-  int count = 0;
+  size_t count = 0;
   for (const int id : FrameRendererClientIDs(BrowserById(browser_id))) {
-    bool seen = false;
-    for (int i = 0; i < count; ++i) {
-      if (out[i] == id) {
-        seen = true;
-        break;
-      }
-    }
-    if (!seen && count < capacity) out[count++] = id;
+    const std::span<const int> written = slots.first(count);
+    if (std::ranges::find(written, id) == written.end() && count < slots.size()) slots[count++] = id;
   }
-  return count;
+  return static_cast<int>(count);
 }
 
 int cmux_shim_renderer_frames(int* browser_ids, int* client_ids, int* frame_counts, int capacity) {
   if (!browser_ids || !client_ids || !frame_counts || capacity < 0) {
     return 0;
   }
-  int count = 0;
+  // SAFETY: cmux_shim_renderer_frames (cmux_cef_shim.h): each of the three
+  // arrays has room for `capacity` entries.
+  const std::span<int> browser_slots = UNSAFE_BUFFERS(SpanFromCArray(browser_ids, capacity));
+  // SAFETY: as above.
+  const std::span<int> client_slots = UNSAFE_BUFFERS(SpanFromCArray(client_ids, capacity));
+  // SAFETY: as above.
+  const std::span<int> frame_slots = UNSAFE_BUFFERS(SpanFromCArray(frame_counts, capacity));
+  size_t count = 0;
   for (const auto& [browser_id, browser] : browsers()) {
     std::vector<std::pair<int, int>> renderers;  // client id, frames
     for (const int id : FrameRendererClientIDs(browser)) {
@@ -234,15 +241,15 @@ int cmux_shim_renderer_frames(int* browser_ids, int* client_ids, int* frame_coun
       }
     }
     for (const auto& [client_id, frames] : renderers) {
-      if (count < capacity) {
-        browser_ids[count] = browser_id;
-        client_ids[count] = client_id;
-        frame_counts[count] = frames;
+      if (count < browser_slots.size()) {
+        browser_slots[count] = browser_id;
+        client_slots[count] = client_id;
+        frame_slots[count] = frames;
       }
       ++count;
     }
   }
-  return count;
+  return static_cast<int>(count);
 }
 
 int cmux_shim_renderer_pid(int browser_id) {
@@ -509,7 +516,7 @@ char* cmux_shim_tab_navigation_entries(int browser_id) {
   root->SetList("entries", collector->entries);
   CefRefPtr<CefValue> value = CefValue::Create();
   value->SetDictionary(root);
-  return strdup(CefWriteJSON(value, JSON_WRITER_DEFAULT).ToString().c_str());
+  return OwnedCString(CefWriteJSON(value, JSON_WRITER_DEFAULT).ToString());
 }
 
 int cmux_shim_tab_go_to_entry(int browser_id, int offset) {

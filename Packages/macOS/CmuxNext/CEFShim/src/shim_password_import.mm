@@ -8,17 +8,17 @@
 // indices of the rows whose sign-in is saved with another password, so the
 // app can offer to replace those (cmux_password_import_replace, API 20).
 
-#define __STDC_WANT_LIB_EXT1__ 1  // memset_s
-#include <string.h>
-
 #include <cstddef>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "include/cef_cookie.h"
 #include "include/cef_request_context.h"
+#include "password_reveal_relay.h"
 #include "shim_internal.h"
+#include "unsafe_buffers.h"
 
 using namespace cmux_shim;
 
@@ -27,12 +27,15 @@ namespace {
 // One field copied out of the caller's buffer; zeroed before it is freed.
 class SecretField {
  public:
-  SecretField(const char* bytes, size_t length) : bytes_(length) {
-    if (length > 0 && bytes) memcpy(bytes_.data(), bytes, length);
+  SecretField(const char* bytes, size_t length) {
+    if (!bytes) {
+      bytes_.assign(length, '\0');
+      return;
+    }
+    const std::string_view field(bytes, length);
+    bytes_.assign(field.begin(), field.end());
   }
-  ~SecretField() {
-    if (!bytes_.empty()) memset_s(bytes_.data(), bytes_.size(), 0, bytes_.size());
-  }
+  ~SecretField() { ZeroSecret(bytes_); }
   SecretField(const SecretField&) = delete;
   SecretField& operator=(const SecretField&) = delete;
   const char* data() const { return bytes_.data(); }
@@ -51,8 +54,10 @@ class PasswordBatch : public CefBaseRefCounted {
       : mode_(mode), path_(std::move(path)), reply_(reply) {
     fields_.reserve(static_cast<size_t>(count) * 4);
     rows_.reserve(static_cast<size_t>(count));
-    for (int i = 0; i < count; ++i) {
-      const cmux_shim_password_entry& entry = entries[i];
+    // SAFETY: cmux_shim_import_passwords / cmux_shim_replace_passwords
+    // (cmux_cef_shim.h) pass `count` entries at `entries`, alive for the call
+    // that builds this batch (StartBatch refused NULL and a count <= 0).
+    for (const cmux_shim_password_entry& entry : UNSAFE_BUFFERS(SpanFromCArray(entries, count))) {
       const SecretField& url = Keep(entry.url, entry.url_length);
       const SecretField& realm = Keep(entry.signon_realm, entry.signon_realm_length);
       const SecretField& user = Keep(entry.username, entry.username_length);
@@ -119,7 +124,13 @@ class PasswordBatch : public CefBaseRefCounted {
                        ",\"conflict\":" + std::to_string(conflict) + ",\"rejected\":" + std::to_string(rejected);
     if (indices) {
       json += ",\"conflicts\":[";
-      for (int i = 0; i < index_count; ++i) json += (i ? "," : "") + std::to_string(indices[i]);
+      bool first = true;
+      // SAFETY: the fork's import callback (Imported) hands `index_count`
+      // indices at `indices`, alive during the call.
+      for (const int index : UNSAFE_BUFFERS(SpanFromCArray(indices, index_count))) {
+        json += (first ? "" : ",") + std::to_string(index);
+        first = false;
+      }
       json += "]";
     }
     Emit(CMUX_SHIM_REPLY, 0, reply_, added, 0, json + "}");

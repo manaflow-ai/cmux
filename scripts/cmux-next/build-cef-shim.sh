@@ -75,8 +75,13 @@ jobs="$(sysctl -n hw.ncpu)"
   ' _ {} || { echo "error: CEF wrapper compile failed" >&2; exit 1; }
 libtool -static -no_warning_for_no_symbols -o "$OUT_DIR/libcef_dll_wrapper.a" "$OUT_DIR"/obj/wrapper/*.o
 
+# Chromium's unsafe-buffers rule (docs/unsafe_buffers.md) on the shim's own
+# code, as an error: its queue is empty, every remaining site is an
+# UNSAFE_BUFFERS() with a SAFETY comment (CEFShim/src/unsafe_buffers.h). Not on
+# the wrapper, which is CEF's code.
+shim_flags=(-Wunsafe-buffer-usage -Werror=unsafe-buffer-usage)
 for src in "$SHIM_DIR"/src/*.mm; do
-  "$CXX" "${common[@]}" -I"$SHIM_DIR" -I"$SHIM_HEADER_DIR" -DCMUX_CEF_SHIM_ABI_ID="\"$ABI_ID\"" -c "$src" -o "$OUT_DIR/obj/shim/$(basename "$src").o"
+  "$CXX" "${common[@]}" "${shim_flags[@]}" -I"$SHIM_DIR" -I"$SHIM_HEADER_DIR" -DCMUX_CEF_SHIM_ABI_ID="\"$ABI_ID\"" -c "$src" -o "$OUT_DIR/obj/shim/$(basename "$src").o"
 done
 
 "$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" -dynamiclib \

@@ -14,7 +14,7 @@ static int cases = 0;
 static void Expect(const std::string& message, DevToolsIdKind kind, long long id = 0) {
   ++cases;
   long long got = -1;
-  DevToolsIdKind result = cmux_shim::TopLevelDevToolsId(message.data(), message.size(), &got);
+  DevToolsIdKind result = cmux_shim::TopLevelDevToolsId(message, &got);
   if (result != kind || (kind == DevToolsIdKind::kInt && got != id)) {
     ++failures;
     std::fprintf(stderr, "FAIL %s: kind %d id %lld\n", message.c_str(), static_cast<int>(result), got);

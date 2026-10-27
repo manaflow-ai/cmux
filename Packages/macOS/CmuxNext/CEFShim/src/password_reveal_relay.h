@@ -11,16 +11,19 @@
 #define CMUX_SHIM_PASSWORD_REVEAL_RELAY_H_
 
 #include <cstddef>
+#include <string_view>
 #include <vector>
 
 namespace cmux_shim {
 
 using PasswordRevealFn = void (*)(void* ctx, const char* password, size_t length);
 
-// Zeroes `length` bytes the compiler may not drop as a dead store.
-inline void ZeroSecret(char* bytes, size_t length) {
-  volatile char* p = bytes;
-  for (size_t i = 0; i < length; ++i) p[i] = 0;
+// Zeroes `bytes` with volatile stores, which the compiler may not drop as dead.
+inline void ZeroSecret(std::vector<char>& bytes) {
+  for (char& byte : bytes) {
+    volatile char& slot = byte;
+    slot = 0;
+  }
 }
 
 // Calls done(ctx, copy, length) once; NULL and 0 when there is no password.
@@ -32,9 +35,10 @@ inline void RelayRevealedPassword(const char* bytes, size_t length, PasswordReve
     done(ctx, nullptr, 0);
     return;
   }
-  std::vector<char> copy(bytes, bytes + length);
+  const std::string_view revealed(bytes, length);
+  std::vector<char> copy(revealed.begin(), revealed.end());
   done(ctx, copy.data(), copy.size());
-  ZeroSecret(copy.data(), copy.size());
+  ZeroSecret(copy);
   if (after_zero) after_zero(copy.data(), copy.size());
 }
 

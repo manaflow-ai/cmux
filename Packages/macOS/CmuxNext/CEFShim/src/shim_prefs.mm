@@ -3,20 +3,20 @@
 // through the request context the shim keeps per profile cache path.
 // UI thread only.
 
-#include <cstdlib>
-#include <cstring>
+#include <string_view>
 #include <utility>
 
 #include "include/cef_parser.h"
 #include "include/cef_preference.h"
 #include "shim_internal.h"
+#include "unsafe_buffers.h"
 
 namespace cmux_shim {
 
 namespace {
 
 bool Allowed(const char* name) {
-  static const char* const kAllowed[] = {
+  static constexpr std::string_view kAllowed[] = {
       "credentials_enable_service",
       "credentials_enable_autosignin",
       "autofill.profile_enabled",
@@ -24,8 +24,8 @@ bool Allowed(const char* name) {
       "password_manager.biometric_authentication_filling",
   };
   if (!name) return false;
-  for (const char* allowed : kAllowed) {
-    if (std::strcmp(name, allowed) == 0) return true;
+  for (const std::string_view allowed : kAllowed) {
+    if (name == allowed) return true;
   }
   return false;
 }
@@ -89,9 +89,7 @@ char* cmux_shim_pref_get(const char* profile_cache_path, const char* pref_name) 
   root->SetDictionary(dict);
   std::string json = CefWriteJSON(root, JSON_WRITER_DEFAULT).ToString();
   // Freed with cmux_shim_free_owned (std::free).
-  char* out = static_cast<char*>(std::malloc(json.size() + 1));
-  if (out) std::memcpy(out, json.c_str(), json.size() + 1);
-  return out;
+  return OwnedCString(json);
 }
 
 int cmux_shim_pref_set_bool(const char* profile_cache_path, const char* pref_name, int value) {

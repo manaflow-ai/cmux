@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <set>
 #include <string>
+#include <string_view>
 
 #include "include/cef_command_ids.h"
 #include "shim_internal.h"
@@ -60,9 +61,11 @@ std::set<int>& loaded_frontends() {
 
 bool IsPanelId(const char* panel) {
   if (!panel || !*panel) return false;
-  for (const char* c = panel; *c; ++c) {
-    const bool ok = (*c >= 'a' && *c <= 'z') || (*c >= '0' && *c <= '9') || *c == '-';
-    if (!ok || c - panel > 64) return false;
+  const std::string_view name(panel);
+  if (name.size() > 65) return false;
+  for (const char c : name) {
+    const bool ok = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-';
+    if (!ok) return false;
   }
   return true;
 }

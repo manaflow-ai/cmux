@@ -10,6 +10,7 @@
 
 #include "include/cef_drag_data.h"
 #include "shim_internal.h"
+#include "unsafe_buffers.h"
 
 using namespace cmux_shim;
 
@@ -172,8 +173,10 @@ int cmux_shim_browser_drag_target_enter(int browser_id, const char* const* files
   CefRefPtr<CefBrowserHost> host = DropTarget(browser_id);
   if (!host) return 0;
   CefRefPtr<CefDragData> data = CefDragData::Create();
-  for (int i = 0; files && i < file_count; ++i) {
-    if (files[i] && *files[i]) data->AddFile(files[i], CefString());
+  // SAFETY: cmux_shim_browser_drag_target_enter (cmux_cef_shim.h): `files`
+  // holds `file_count` paths, alive for the call.
+  for (const char* file : UNSAFE_BUFFERS(SpanFromCArray(files, file_count))) {
+    if (file && *file) data->AddFile(file, CefString());
   }
   if (text && *text) data->SetFragmentText(text);
   if (url && *url) {

@@ -15,6 +15,7 @@
 
 #include <cctype>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace cmux_shim {
@@ -27,9 +28,9 @@ struct LocalFilePath {
 };
 
 inline bool LocalFileSchemeURL(const std::string& url) {
-  static const char kScheme[] = "file:";
-  if (url.size() < 5) return false;
-  for (size_t i = 0; i < 5; ++i) {
+  constexpr std::string_view kScheme = "file:";
+  if (url.size() < kScheme.size()) return false;
+  for (size_t i = 0; i < kScheme.size(); ++i) {
     if (std::tolower(static_cast<unsigned char>(url[i])) != kScheme[i]) return false;
   }
   return true;
@@ -93,15 +94,15 @@ inline LocalFilePath ParseLocalFilePath(const std::string& url) {
 // shim cannot place (empty, about:, data:, filesystem:, blob:), an unknown
 // scheme or a URL that does not start with its scheme, loads no file.
 inline bool LocalFileWebDocument(const std::string& url) {
-  static const char* const kSchemes[] = {"http:",     "https:",           "chrome-extension:", "chrome:",
-                                         "devtools:", "chrome-untrusted:", "cmux-page:"};
-  for (const char* scheme : kSchemes) {
+  static constexpr std::string_view kSchemes[] = {"http:",     "https:",           "chrome-extension:", "chrome:",
+                                                  "devtools:", "chrome-untrusted:", "cmux-page:"};
+  for (const std::string_view scheme : kSchemes) {
     size_t i = 0;
-    while (scheme[i] && i < url.size() &&
+    while (i < scheme.size() && i < url.size() &&
            std::tolower(static_cast<unsigned char>(url[i])) == scheme[i]) {
       ++i;
     }
-    if (!scheme[i]) return true;
+    if (i == scheme.size()) return true;
   }
   return false;
 }

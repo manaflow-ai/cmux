@@ -12,8 +12,11 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <cstdio>
+#include <span>
 #include <string>
+#include <string_view>
+
+#include "unsafe_buffers.h"
 
 namespace cmux_shim {
 
@@ -54,10 +57,11 @@ inline bool PopupMenuReadable(const ForkPopupMenu& menu) {
          (menu.item_count == 0 || menu.items != nullptr);
 }
 
-// The length of the valid UTF-8 sequence at `s` (at most `left` bytes), 0
+// The length of the valid UTF-8 sequence at the start of `s` (not empty), 0
 // when it is not one: an overlong form, a surrogate, past U+10FFFF or cut.
-inline size_t Utf8SequenceLength(const unsigned char* s, size_t left) {
-  const unsigned char c = s[0];
+inline size_t Utf8SequenceLength(std::string_view s) {
+  auto byte = [s](size_t i) { return static_cast<unsigned char>(s[i]); };
+  const unsigned char c = byte(0);
   if (c < 0x80) return 1;
   size_t length = 0;
   unsigned char low = 0x80, high = 0xbf;  // the second byte's range
@@ -74,9 +78,9 @@ inline size_t Utf8SequenceLength(const unsigned char* s, size_t left) {
   } else {
     return 0;
   }
-  if (left < length || s[1] < low || s[1] > high) return 0;
+  if (s.size() < length || byte(1) < low || byte(1) > high) return 0;
   for (size_t i = 2; i < length; ++i) {
-    if ((s[i] & 0xc0) != 0x80) return 0;
+    if ((byte(i) & 0xc0) != 0x80) return 0;
   }
   return length;
 }
@@ -85,35 +89,31 @@ inline size_t Utf8SequenceLength(const unsigned char* s, size_t left) {
 // UTF-8 (chromium_host_control.h), so a byte that starts no valid sequence
 // becomes U+FFFD, as Chromium's own UTF-8 conversions do.
 inline void AppendJsonString(std::string& out, const char* text) {
+  constexpr std::string_view kHex = "0123456789abcdef";
   out += '"';
-  const auto* s = reinterpret_cast<const unsigned char*>(text ? text : "");
-  size_t left = std::char_traits<char>::length(reinterpret_cast<const char*>(s));
-  while (left > 0) {
-    const unsigned char c = *s;
+  std::string_view rest(text ? text : "");
+  while (!rest.empty()) {
+    const unsigned char c = static_cast<unsigned char>(rest.front());
+    size_t consumed = 1;
     if (c == '"' || c == '\\') {
       out += '\\';
       out += static_cast<char>(c);
     } else if (c < 0x20) {
-      char escaped[7];
-      std::snprintf(escaped, sizeof escaped, "\\u%04x", c);
-      out += escaped;
+      out += "\\u00";
+      out += kHex[c >> 4];
+      out += kHex[c & 0xf];
     } else if (c >= 0x80) {
-      const size_t length = Utf8SequenceLength(s, left);
+      const size_t length = Utf8SequenceLength(rest);
       if (length == 0) {
         out += "\xef\xbf\xbd";
-        ++s;
-        --left;
-        continue;
+      } else {
+        out += rest.substr(0, length);
+        consumed = length;
       }
-      out.append(reinterpret_cast<const char*>(s), length);
-      s += length;
-      left -= length;
-      continue;
     } else {
       out += static_cast<char>(c);
     }
-    ++s;
-    --left;
+    rest.remove_prefix(consumed);
   }
   out += '"';
 }
@@ -125,31 +125,34 @@ inline constexpr double kMaxPopupMenuFontSize = 10000;
 // selection, alignment and items of a readable menu (PopupMenuReadable).
 inline std::string PopupMenuJson(const ForkPopupMenu& menu) {
   auto flag = [](int value) { return value ? "true" : "false"; };
+  auto number = [](long long value) { return std::to_string(value); };
   std::string out;
   out.reserve(96 + static_cast<size_t>(menu.item_count) * 112);
-  char numbers[160];
   // Thousandths of a point, written with integers: %f follows the process's
   // LC_NUMERIC, and JSON has no NaN or infinity. A size Chromium never sends
   // (not above 0, not finite, over kMaxPopupMenuFontSize) reads as 0, the
   // menu's own font.
   const double size = menu.font_size;
   const long long milli = std::isfinite(size) && size > 0 && size <= kMaxPopupMenuFontSize ? std::llround(size * 1000) : 0;
-  std::snprintf(numbers, sizeof numbers,
-                "{\"x\":%d,\"y\":%d,\"width\":%d,\"height\":%d,\"fontSize\":%lld.%03lld,\"selected\":%d,"
-                "\"rightAligned\":%s,\"items\":[",
-                menu.x, menu.y, menu.width, menu.height, milli / 1000, milli % 1000, menu.selected,
-                flag(menu.right_aligned));
-  out += numbers;
-  for (int i = 0; i < menu.item_count; ++i) {
-    const ForkPopupMenuItem& item = menu.items[i];
-    out += i == 0 ? "{\"label\":" : ",{\"label\":";
+  const std::string thousandths = number(milli % 1000);
+  out += "{\"x\":" + number(menu.x) + ",\"y\":" + number(menu.y) + ",\"width\":" + number(menu.width) +
+         ",\"height\":" + number(menu.height) + ",\"fontSize\":" + number(milli / 1000) + "." +
+         std::string(3 - thousandths.size(), '0') + thousandths + ",\"selected\":" + number(menu.selected) +
+         ",\"rightAligned\":" + flag(menu.right_aligned) + ",\"items\":[";
+  // SAFETY: the menu is readable (PopupMenuReadable, this function's
+  // precondition): the fork's `items` holds `item_count` items, alive for the
+  // fork's show call that hands the menu over.
+  const std::span<const ForkPopupMenuItem> items = UNSAFE_BUFFERS(SpanFromCArray(menu.items, menu.item_count));
+  bool first = true;
+  for (const ForkPopupMenuItem& item : items) {
+    out += first ? "{\"label\":" : ",{\"label\":";
+    first = false;
     AppendJsonString(out, item.label);
     out += ",\"toolTip\":";
     AppendJsonString(out, item.tool_tip);
-    std::snprintf(numbers, sizeof numbers,
-                  ",\"type\":%d,\"enabled\":%s,\"checked\":%s,\"rtl\":%s,\"directionOverride\":%s}", item.type,
-                  flag(item.enabled), flag(item.checked), flag(item.rtl), flag(item.direction_override));
-    out += numbers;
+    out += ",\"type\":" + number(item.type) + ",\"enabled\":" + flag(item.enabled) + ",\"checked\":" +
+           flag(item.checked) + ",\"rtl\":" + flag(item.rtl) + ",\"directionOverride\":" +
+           flag(item.direction_override) + "}";
   }
   out += "]}";
   return out;

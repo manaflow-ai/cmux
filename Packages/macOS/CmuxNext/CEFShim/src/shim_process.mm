@@ -6,13 +6,14 @@
 #include <objc/message.h>
 #include <objc/runtime.h>
 
-#include <cstring>
 #include <set>
+#include <string>
 
 #include "include/cef_application_mac.h"
 #include "include/cef_parser.h"
 #include "include/wrapper/cef_library_loader.h"
 #include "shim_internal.h"
+#include "unsafe_buffers.h"
 
 namespace cmux_shim {
 
@@ -413,9 +414,11 @@ int cmux_shim_load(const char* framework_binary, char* err, size_t err_len) {
     return 1;
   }
   if (!cef_load_library(framework_binary)) {
-    if (err && err_len) {
-      snprintf(err, err_len, "cef_load_library failed: %s", dlerror() ?: "unknown");
-    }
+    const char* reason = dlerror();
+    // SAFETY: cmux_shim_load (cmux_cef_shim.h): `err` has room for `err_len`
+    // bytes.
+    WriteCString(UNSAFE_BUFFERS(SpanFromCArray(err, err_len)),
+                 std::string("cef_load_library failed: ") + (reason ? reason : "unknown"));
     return 0;
   }
   loaded = true;
@@ -513,8 +516,11 @@ int cmux_shim_initialize(const char* framework_dir, const char* main_bundle_path
   }
 
   std::vector<std::string> switches;
-  for (const char* const* it = switch_list; it && *it; ++it) {
+  for (const char* const* it = switch_list; it && *it;) {
     switches.emplace_back(*it);
+    // SAFETY: `switch_list` ends with NULL (cmux_cef_shim.h) and *it was not
+    // it, so the next element is in the list.
+    it = UNSAFE_BUFFERS(it + 1);
   }
   CefMainArgs args(0, nullptr);
   if (!CefInitialize(args, settings, MakeApp(std::move(switches)), nullptr)) {

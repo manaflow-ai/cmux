@@ -10,10 +10,12 @@
 
 #include <climits>
 #include <cstdint>
+#include <span>
 #include <string>
 #include <vector>
 
 #include "cmux_cef_shim.h"  // Sources/CmuxNextBrowser/CEF/Shim
+#include "unsafe_buffers.h"
 
 namespace cmux_shim {
 
@@ -95,10 +97,13 @@ int SetAppHandler(int (*fork_set)(const ForkHandler*), const ForkHandler* fork_h
 inline bool DeviceChoiceIndices(const cmux_shim_device_choice* choices, int count, std::vector<int>* out) {
   out->clear();
   if (count < 0 || (count > 0 && !choices)) return false;
-  out->reserve(static_cast<size_t>(count));
-  for (int i = 0; i < count; ++i) {
-    if (choices[i].index < 0 || choices[i].index > INT_MAX) return false;
-    out->push_back(static_cast<int>(choices[i].index));
+  // SAFETY: cmux_shim_device_chooser_answer (cmux_cef_shim.h) passes
+  // `choice_count` rows at `choices`, alive for the call.
+  const std::span<const cmux_shim_device_choice> rows = UNSAFE_BUFFERS(SpanFromCArray(choices, count));
+  out->reserve(rows.size());
+  for (const cmux_shim_device_choice& choice : rows) {
+    if (choice.index < 0 || choice.index > INT_MAX) return false;
+    out->push_back(static_cast<int>(choice.index));
   }
   return true;
 }
@@ -115,10 +120,12 @@ class RestoreEntries {
   RestoreEntries(const cmux_shim_restore_entry* entries, int count) {
     if (!entries || count <= 0) return;
     // Reserved up front: no string moves, so c_str() stays valid.
-    strings_.reserve(static_cast<size_t>(count) * 3);
-    fork_.reserve(static_cast<size_t>(count));
-    for (int i = 0; i < count; ++i) {
-      const cmux_shim_restore_entry& entry = entries[i];
+    // SAFETY: cmux_shim_tab_restore_entries (cmux_cef_shim.h) passes `count`
+    // entries at `entries`, alive for the call.
+    const std::span<const cmux_shim_restore_entry> rows = UNSAFE_BUFFERS(SpanFromCArray(entries, count));
+    strings_.reserve(rows.size() * 3);
+    fork_.reserve(rows.size());
+    for (const cmux_shim_restore_entry& entry : rows) {
       const char* url = Copy(entry.url, entry.url_length);
       const char* title = Copy(entry.title, entry.title_length);
       const char* state = Copy(entry.page_state, entry.page_state_length);

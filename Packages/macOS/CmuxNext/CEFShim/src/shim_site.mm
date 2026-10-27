@@ -6,7 +6,7 @@
 // favicons downloaded through the tab's own request context.
 
 #include <cstdlib>
-#include <cstring>
+#include <string_view>
 
 #include "include/cef_callback.h"
 #include "include/cef_browser.h"
@@ -17,6 +17,7 @@
 #include "include/cef_task.h"
 #include "include/cef_x509_certificate.h"
 #include "shim_internal.h"
+#include "unsafe_buffers.h"
 
 using namespace cmux_shim;
 
@@ -59,7 +60,7 @@ bool LookupType(const char* name, cef_content_setting_types_t* out) {
     return false;
   }
   for (const ContentType& entry : kContentTypes) {
-    if (std::strcmp(entry.name, name) == 0) {
+    if (std::string_view(entry.name) == name) {
       *out = entry.type;
       return true;
     }
@@ -73,11 +74,7 @@ CefRefPtr<CefRequestContext> ContextOf(int browser_id) {
 }
 
 char* Owned(const std::string& text) {
-  char* out = static_cast<char*>(std::malloc(text.size() + 1));
-  if (out) {
-    std::memcpy(out, text.c_str(), text.size() + 1);
-  }
-  return out;
+  return OwnedCString(text);
 }
 
 void EmitOnUI(int browser_id, int reply, int64_t a, const std::string& json) {

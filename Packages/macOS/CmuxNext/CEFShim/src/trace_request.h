@@ -3,7 +3,7 @@
 #pragma once
 
 #include <cstddef>
-#include <cstring>
+#include <string_view>
 #include <utility>
 
 namespace cmux_shim {
@@ -15,14 +15,14 @@ inline constexpr size_t kMaxTracePathBytes = 1023;
 // The output of cmux_cef_end_tracing: an absolute path that ends in ".json"
 // and names a file, not only the suffix. CEF writes to a temporary file for an
 // empty path; the caller always names its recording directory instead.
-inline bool TraceOutputPathAllowed(const char* path) {
-  static constexpr char kSuffix[] = ".json";
-  constexpr size_t kSuffixBytes = sizeof(kSuffix) - 1;
-  if (path == nullptr || path[0] != '/') return false;
-  const size_t length = std::strlen(path);
-  if (length > kMaxTracePathBytes || length <= kSuffixBytes + 1) return false;
-  if (path[length - kSuffixBytes - 1] == '/') return false;
-  return std::memcmp(path + length - kSuffixBytes, kSuffix, kSuffixBytes) == 0;
+inline bool TraceOutputPathAllowed(const char* c_path) {
+  constexpr std::string_view kSuffix = ".json";
+  if (c_path == nullptr) return false;
+  const std::string_view path(c_path);
+  if (!path.starts_with('/')) return false;
+  if (path.size() > kMaxTracePathBytes || path.size() <= kSuffix.size() + 1) return false;
+  if (path[path.size() - kSuffix.size() - 1] == '/') return false;
+  return path.ends_with(kSuffix);
 }
 
 // A C completion that runs exactly once: with the answer, or with `fallback`
