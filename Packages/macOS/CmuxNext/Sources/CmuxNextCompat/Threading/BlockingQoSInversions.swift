@@ -1,6 +1,7 @@
 #if DEBUG || CMUX_BLOCKING_CHECKS
 internal import Darwin
-internal import Dispatch
+// qosWait is @usableFromInline (the inlinable blockingSync calls it) and takes a DispatchQueue, so Dispatch is a public import here.
+public import Dispatch
 
 /// The QoS inversions the waiting seams record (Debug and bench-checks builds; Release compiles them out): a thread
 /// waited on a queue whose QoS is below its own (``BlockingQoSInversion``). Any thread records, the main thread
@@ -77,12 +78,13 @@ final class BlockingQoSInversions: Sendable {
 
 extension BlockingViolationTable {
     /// A waiting seam (``Dispatch/DispatchQueue/blockingSync(fileID:line:execute:)``) is about to wait on `queue`:
-    /// when the calling thread's QoS is above the queue's (a queue with a class), the wait is one inversion at
-    /// `fileID`:`line`. A queue made without a class runs at its submitters' class, so it is never an inversion.
-    /// Off an inversion it is two class reads and one compare.
+    /// when the calling thread's QoS is above the class the queue runs at (``Dispatch/DispatchQueue/runningQoS``:
+    /// its own, else its checked target's), the wait is one inversion at `fileID`:`line`. A queue with neither
+    /// runs at its submitters' class, so it is never an inversion. Off an inversion it is two class reads (one
+    /// queue-specific read more for a classless queue) and one compare.
     @usableFromInline @inline(never)
     static func qosWait(onto queue: DispatchQueue, fileID: StaticString, line: UInt) {
-        let target = ThreadQoS(queue.qos.qosClass)
+        let target = queue.runningQoS
         let waiter = ThreadQoS.current
         guard waiter.isInverted(waitingOn: target) else { return }
         let table = active

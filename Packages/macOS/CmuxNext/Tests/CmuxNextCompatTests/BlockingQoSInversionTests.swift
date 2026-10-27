@@ -52,6 +52,27 @@ struct BlockingQoSInversionTests {
         #expect(BlockingDetector(table: table).qosInversions.isEmpty)
     }
 
+    /// A checked queue made without a class runs at its target's (ThreadRegistry's "leave it out and run at its
+    /// `target:`'s"), through any number of checked targets: a wait on it from a higher class is an inversion
+    /// at its target's class, though `DispatchQueue.qos` reads unspecified for it.
+    @Test(arguments: [1, 2])
+    func aClasslessCheckedQueueOnAUtilityTargetIsOneInversion(depth: Int) async {
+        let table = BlockingViolationTable(mode: .record, poolMode: .record)
+        var queue: DispatchQueue = DispatchQueue.global(qos: .utility)
+        for _ in 0..<depth {
+            queue = DispatchQueue.checkedSerial(label: "com.cmuxterm.app.next.blocking-drain", target: queue)
+        }
+        #expect(queue.qos.qosClass == .unspecified)
+        #expect(queue.runningQoS == .utility)
+        let classless = queue
+        let line = await fromUserInteractive(table) { syncOnto(classless) }
+        await table.flush()
+
+        #expect(BlockingDetector(table: table).qosInversions == [BlockingQoSInversion(
+            location: "CmuxNextCompatTests/BlockingQoSInversionTests.swift:\(line)",
+            waiter: .userInteractive, target: .utility, count: 1)])
+    }
+
     @Test func classesCompareByTheKernelTierOrder() {
         #expect(ThreadQoS.userInteractive.isInverted(waitingOn: .utility))
         #expect(ThreadQoS.userInitiated.isInverted(waitingOn: .background))
