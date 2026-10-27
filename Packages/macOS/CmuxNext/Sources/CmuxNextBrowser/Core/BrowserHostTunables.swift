@@ -17,7 +17,9 @@ public nonisolated enum BrowserBackend: String, Sendable, Equatable {
 /// `cefHelperHost` (schemas/features/features.d); ``helper`` is only its local
 /// override, which ``BrowserHostSwitch`` applies. A bench build has the
 /// feature so `debug.chromium_host` can measure the host (chromium-host-bench.py), but
-/// never moves a tab to it: ``backend(hostEnabled:)`` stays in process there.
+/// never moves a tab to it: ``backend(hostEnabled:)`` stays in process there. Tabs move to the
+/// host only with the bench-only feature `chromiumHostTabs` too (``tabs`` is its local override),
+/// so a run that measures in-process tabs beside `debug.chromium_host` keeps them in process.
 /// plans/cmux-next/cef-helper-app-DESIGN.md.
 public nonisolated struct BrowserHostTunables {
     public nonisolated init() {}
@@ -25,15 +27,15 @@ public nonisolated struct BrowserHostTunables {
     /// The tunables to register: none outside Debug and bench builds.
     public static var all: [TunableDescriptor] {
         #if DEBUG || CMUX_BENCH_HOOKS
-        [helper.descriptor]
+        [helper.descriptor, tabs.descriptor]
         #else
         []
         #endif
     }
 
-    /// The backend the host's switch picks: ``BrowserBackend/host`` with `cefHelperHost` on
-    /// (Debug builds only), otherwise ``BrowserBackend/inProcess``. The App builds its
-    /// `CEFRuntimeSource` from it at launch, with the host's supervisor in host mode (task 080).
+    /// The backend the host's switch picks: ``BrowserBackend/host`` with `cefHelperHost` and
+    /// `chromiumHostTabs` on (Debug builds only), otherwise ``BrowserBackend/inProcess``. The App
+    /// builds its `CEFRuntimeSource` from it at launch, with the host's supervisor in host mode (task 080).
     public static func backend(hostEnabled: Bool) -> BrowserBackend {
         #if DEBUG
         hostEnabled ? .host : .inProcess
@@ -52,8 +54,16 @@ public nonisolated struct BrowserHostTunables {
     /// runs in the Chromium Host app, over a pane.
     public static let helper = Tunable<Bool>.toggle(
         "browserHost.helper", section, "Chromium Host app",
-        help: "Overrides the cefHelperHost feature: lets debug.chromium_host show a Chromium page whose browser process runs in the Chromium Host app. In Debug builds every Chromium tab of the next launch runs there too. Debug and bench builds only.",
+        help: "Overrides the cefHelperHost feature: lets debug.chromium_host show a Chromium page whose browser process runs in the Chromium Host app. Chromium tabs stay in cmux unless Chromium tabs in the host is on too. Debug and bench builds only.",
         default: false, code: "BrowserHostTunables.helper")
+
+    /// The local override of `chromiumHostTabs`, read at launch (the feature `replaces` it). With
+    /// ``helper`` on too, every Chromium tab of the next launch, of every profile, runs in the one
+    /// Chromium Host (`ChromiumHostSupervisor`, task 080 of plans/cmux-next/chrome-parity/p01-process.md).
+    public static let tabs = Tunable<Bool>.toggle(
+        "browserHost.tabs", section, "Chromium tabs in the host",
+        help: "Overrides the chromiumHostTabs feature: with the Chromium Host app on too, every Chromium tab of the next launch runs in its one host. Debug builds only.",
+        default: false, code: "BrowserHostTunables.tabs")
     #endif
 }
 

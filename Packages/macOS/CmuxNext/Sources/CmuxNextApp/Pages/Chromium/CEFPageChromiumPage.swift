@@ -26,16 +26,20 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
     /// The scheduler the hang watch flushes on; nil: the tab's hang never reaches the page host and
     /// Chromium waits on it until the renderer answers again, as before the feature.
     private let hangWork: MainWorkScheduler?
+    /// The default-off feature `pagePushChannel`: host events and replies go to the page as data.
+    private let pushChannel: Bool
     private var closed = false
 
     /// - Parameters:
     ///   - tab: The CEF tab the page shows in.
     ///   - pageID: The page's id (logs).
     ///   - hangWork: Forward the tab's hang and its end, flushed on this scheduler (feature `pageHangNotice`); nil: never.
-    init(tab: CEFTab, pageID: String, hangWork: MainWorkScheduler? = nil) {
+    ///   - pushChannel: The feature `pagePushChannel`: pushes where the fork has the channel; false: scripts only.
+    init(tab: CEFTab, pageID: String, hangWork: MainWorkScheduler? = nil, pushChannel: Bool = false) {
         self.tab = tab
         self.pageID = pageID
         self.hangWork = hangWork
+        self.pushChannel = pushChannel
     }
 
     var contentView: NSView { tab.contentView }
@@ -141,6 +145,15 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
             throw PageScriptError.exception(text)
         }
         return Self.foundation(value)
+    }
+
+    /// The page push channel, where the app turned it on (`pagePushChannel`) and the fork and shim have it.
+    var pushesToPage: Bool { pushChannel && CEFPagePush(tab: tab).isAvailable }
+
+    /// The tab's page push (``CEFPagePush``, fork API 39): data to the document's receiver, no script.
+    func push(_ text: String) {
+        guard pushChannel else { return }
+        CEFPagePush(tab: tab).send(text)
     }
 
     /// `value` with the types `JSONSerialization` gives (`NSNumber` for a number, so `as? Int`
