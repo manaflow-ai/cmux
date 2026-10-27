@@ -9,7 +9,7 @@ import Testing
 /// which cannot answer, never holds the swap; the swap reloads the shown page and leaves the others
 /// to reload when they show. Without it every page that holds a document is asked and reloads.
 /// A stale page that shows is asked first and reloads only when it allows it, so a reload never loses
-/// what it holds (``WebUpdates/staleShown(_:)``).
+/// what it holds (``WebUpdates/askShownStale()``).
 @MainActor @Suite(.serialized)
 struct WebUpdatesFrozenPagesTests {
     /// A page as the safe point sees it: whether it shows, what it answers, what the swap did to it.
@@ -133,7 +133,7 @@ struct WebUpdatesFrozenPagesTests {
         #expect(hidden.stale && hidden.reloads == 0)
 
         hidden.show(answering: "field.unsaved")
-        await web.askAtShow(hidden)
+        await web.askShownStale()
         #expect(hidden.asks == 1, "the page was not asked at its show")
         #expect(hidden.reloads == 0, "the show reloaded a page that held what a reload loses")
         #expect(hidden.stale)
@@ -159,7 +159,7 @@ struct WebUpdatesFrozenPagesTests {
         await web.look()
         let hidden = pages[1]
         hidden.show(answering: nil)
-        await web.askAtShow(hidden)
+        await web.askShownStale()
         #expect(hidden.asks == 1)
         #expect(hidden.reloads == 1)
         #expect(!hidden.stale)
@@ -173,7 +173,7 @@ struct WebUpdatesFrozenPagesTests {
         await web.look()
         #expect(page.stale)
         // Never shown: the show's ask does nothing.
-        await web.askAtShow(page)
+        await web.askShownStale()
         #expect(page.asks == 0 && page.reloads == 0 && page.stale)
     }
 

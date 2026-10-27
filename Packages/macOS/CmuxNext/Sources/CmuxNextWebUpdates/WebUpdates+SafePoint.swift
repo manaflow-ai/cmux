@@ -17,7 +17,7 @@ import CoreGraphics
 // are the shown pages only: a hidden or frozen page is never asked, so it never holds the swap; it
 // keeps its document, which loads its lazy chunks from its own files (``WebBundleOverlay/Pin``). As
 // it shows it is asked at once and reloads when it answers null; else it stays stale and the same
-// looks, under the same rules, ask it until it allows the reload (``staleShown(_:)``, p13-webui.md 3.C).
+// looks, under the same rules, ask it until it allows the reload (``askShownStale()``, p13-webui.md 3.C).
 extension WebUpdates: WebBundleSafePoint {
     /// The pages the swap reloads now (``WebBundleHost/bundleAskedPages``); none before the host exists.
     var askedPages: [any WebBundlePage] { pages()?.bundleAskedPages ?? [] }
@@ -31,27 +31,33 @@ extension WebUpdates: WebBundleSafePoint {
     /// A look has work: an update is pending, or a shown page still waits to reload.
     var hasLookWork: Bool { pending != nil || !staleShownPages.isEmpty }
 
-    /// `page` shows with files a swap replaced: asked now, it reloads when a reload keeps all it
-    /// holds; else it keeps its document and the safe point asks it again (``askAtShow(_:)``).
+    /// `page` shows with files a swap replaced: the safe point's next look runs now and asks the shown
+    /// stale pages (``askShownStale()``). A pending swap asks and reloads it at its own look.
     package func staleShown(_ page: any WebBundlePage) {
-        // task-owner: one ask of a page as it shows; WebSwapGate.answerWithin bounds the answer
-        Task { [weak self] in await self?.askAtShow(page) }
+        guard pending == nil else { return }
+        safePoint.schedule(after: .zero) { @MainActor [weak self] in await self?.askShownStale() }
     }
 
-    /// Asks `page`, which shows with files a swap replaced, whether a reload keeps all it holds: it
-    /// reloads when it does and is still the same shown, stale, idle document; else the next look
-    /// asks it again. A pending swap asks and reloads it at its own safe point.
-    func askAtShow(_ page: any WebBundlePage) async {
-        guard pending == nil, page.bundleStale, page.bundleShown else { return }
-        let document = page.bundleDocument
-        let held: String? = await Self.askAll([page]).first ?? "page.no-answer"
-        // Hidden again (its next show asks again), reloaded meanwhile, or a swap now pending.
-        guard pending == nil, page.bundleStale, page.bundleShown else { return }
-        if held == nil, !page.bundleLoading, page.bundleDocument == document {
-            page.reloadForBundle()
-            return
+    /// Asks the pages that show with files a swap replaced, as they show, whether a reload keeps all
+    /// they hold: each that says so, and still shows the same idle stale document, reloads; any other
+    /// stays stale, and the next look asks it again under ``WebSwapGate``'s rules.
+    func askShownStale() async {
+        guard pending == nil else { return }
+        let asked = staleShownPages
+        guard !asked.isEmpty else { return scheduleSafePoint() }
+        let documents = asked.map(\.bundleDocument)
+        let answers = await Self.askAll(asked)
+        // A swap now pending asks every shown page at its own look.
+        guard pending == nil else { return }
+        var held: String?
+        for (index, page) in asked.enumerated() where page.bundleStale && page.bundleShown {
+            if answers[index] == nil, !page.bundleLoading, page.bundleDocument == documents[index] {
+                page.reloadForBundle()
+            } else {
+                held = held ?? answers[index] ?? "page.changed"
+            }
         }
-        heldBy = held ?? "page.changed"
+        heldBy = held
         scheduleSafePoint()
     }
 
