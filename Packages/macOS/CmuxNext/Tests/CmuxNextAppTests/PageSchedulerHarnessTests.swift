@@ -162,7 +162,8 @@ import Testing
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appending(path: "notes.md")
         try Data("# Saved\n".utf8).write(to: file)
-        let drafts = RecoveryDraftStore(directory: directory.appending(path: "drafts"))
+        let drafts = RecoveryDraftStore(directory: directory.appending(path: "drafts"),
+                                        deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())))
         let document = FileQuitDocument(url: file, drafts: drafts, writable: { true }, clock: clock)
         document.edited(text: "# Unsaved\n", baseHash: FileDocument.hash(Data("# Saved\n".utf8)))
         #expect(document.hasUnsavedChanges)
