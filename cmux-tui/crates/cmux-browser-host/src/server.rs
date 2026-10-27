@@ -215,15 +215,13 @@ fn accept_provider(
         // The connected app's Chromium Host (p01-process-233): its relay link
         // serves that app's CEF tabs. With no app connected it has nothing to
         // relay and goes.
-        Opening::RelayLink { pid } => {
+        Opening::RelayLink { link } => {
             let Some(provider) = connected() else { return Ok(()) };
-            // The kernel's word for the peer wins over the frame's.
-            let peer = peer_pid(&stream).or(Some(pid));
             let shutdown_stream = stream.try_clone()?;
             let shutdown = Box::new(move || {
                 let _ = shutdown_stream.shutdown(std::net::Shutdown::Both);
             });
-            return provider.attach_relay_link(reader, writer, peer, shutdown);
+            return provider.attach_relay_link(reader, writer, link, shutdown);
         }
     };
     // One provider at a time: a second one gets no ack while the first is connected.
@@ -243,6 +241,10 @@ fn accept_provider(
         // Another provider won the race: this one goes.
         let _ = stream.shutdown(std::net::Shutdown::Both);
         return Ok(());
+    }
+    // A Chromium Host that outlived the last app keeps relaying for this one.
+    if let Some(previous) = current.as_ref() {
+        driver.take_relay_link_of(previous);
     }
     *current = Some(driver);
     drop(current);
@@ -333,49 +335,6 @@ fn peer_uid(stream: &UnixStream) -> Option<libc::uid_t> {
     // SAFETY: the fd is an open Unix socket; uid and gid are valid out pointers.
     let rc = unsafe { libc::getpeereid(stream.as_raw_fd(), &mut uid, &mut gid) };
     (rc == 0).then_some(uid)
-}
-
-/// The pid of the peer process (the connecting side of a Unix socket).
-#[cfg(target_os = "linux")]
-fn peer_pid(stream: &UnixStream) -> Option<u32> {
-    use std::os::fd::AsRawFd;
-    let mut cred = libc::ucred { pid: 0, uid: 0, gid: 0 };
-    let mut len = size_of::<libc::ucred>() as libc::socklen_t;
-    // SAFETY: the fd is an open Unix socket; cred and len describe a valid buffer.
-    let rc = unsafe {
-        libc::getsockopt(
-            stream.as_raw_fd(),
-            libc::SOL_SOCKET,
-            libc::SO_PEERCRED,
-            (&mut cred as *mut libc::ucred).cast(),
-            &mut len,
-        )
-    };
-    if rc == 0 { u32::try_from(cred.pid).ok().filter(|pid| *pid > 0) } else { None }
-}
-
-/// The pid of the peer process (`LOCAL_PEERPID`: the process that connected).
-#[cfg(target_os = "macos")]
-fn peer_pid(stream: &UnixStream) -> Option<u32> {
-    use std::os::fd::AsRawFd;
-    let mut pid: libc::pid_t = 0;
-    let mut len = size_of::<libc::pid_t>() as libc::socklen_t;
-    // SAFETY: the fd is an open Unix socket; pid and len describe a valid buffer.
-    let rc = unsafe {
-        libc::getsockopt(
-            stream.as_raw_fd(),
-            libc::SOL_LOCAL,
-            libc::LOCAL_PEERPID,
-            (&mut pid as *mut libc::pid_t).cast(),
-            &mut len,
-        )
-    };
-    if rc == 0 { u32::try_from(pid).ok().filter(|pid| *pid > 0) } else { None }
-}
-
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn peer_pid(_stream: &UnixStream) -> Option<u32> {
-    None
 }
 
 #[cfg(test)]
@@ -487,7 +446,7 @@ mod provider_listener_tests {
         stream.set_read_timeout(Some(std::time::Duration::from_secs(10))).unwrap();
         let frame = Frame::RelayHello {
             version: crate::provider::RELAY_VERSION,
-            pid: std::process::id(),
+            link: "link-1".into(),
             credential,
         };
         write_frame(&mut stream, &frame).unwrap();

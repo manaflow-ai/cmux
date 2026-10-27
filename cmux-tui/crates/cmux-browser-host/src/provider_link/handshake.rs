@@ -20,9 +20,9 @@ pub enum Opening {
     /// ([`send_hello_ack`]) once the host serves it.
     Provider(ProviderInfo),
     /// The app's Chromium Host: `relay.hello` with the relay credential, and
-    /// its pid as it reported it. The connected provider's relay answers it
+    /// the link id the app gave it. The connected provider's relay answers it
     /// ([`ProviderDriver::attach_relay_link`]).
-    RelayLink { pid: u32 },
+    RelayLink { link: String },
 }
 
 fn forbidden(message: &str) -> DriverError {
@@ -67,7 +67,7 @@ pub fn read_opening(
             }
             Ok(Opening::Provider(ProviderInfo { provider_id, install_id, engines, tabs }))
         }
-        Frame::RelayHello { version, pid, credential } => {
+        Frame::RelayHello { version, link, credential } => {
             if !credential.matches(&expected.relay_credential()) {
                 return Err(forbidden("relay credential does not match"));
             }
@@ -76,7 +76,7 @@ pub fn read_opening(
                     "relay version {version} is not supported"
                 )));
             }
-            Ok(Opening::RelayLink { pid })
+            Ok(Opening::RelayLink { link })
         }
         _ => Err(forbidden("provider must start with hello")),
     }

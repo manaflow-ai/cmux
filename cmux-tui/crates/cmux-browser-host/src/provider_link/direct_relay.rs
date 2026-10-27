@@ -10,12 +10,16 @@
 //!    as for `cdp.attach`. Commands wait here meanwhile (bounded, as the
 //!    app's own relay queue).
 //! 2. The app answers `tab.relay.direct` with the page's browser id and the
-//!    Chromium Host's pid. When that pid is the link's peer, the host sends
+//!    link id it gave its Chromium Host (with the credential, so the link's
+//!    `relay.hello` names it). When that is the link's id, the host sends
 //!    `relay.attach` to the link and the waiting commands after it; from then
 //!    on `cdp` frames go both ways on the link. Otherwise (no link, another
-//!    process) the relay goes through the app as before (`cdp.attach`).
+//!    app's host) the relay goes through the app as before (`cdp.attach`).
 //! 3. Capture commands also reach the app as `cdp.capture`, so a hidden tab
 //!    keeps its capture vote; the app holds the agent-ready UI.
+//! 4. The link outlives the app's provider connection: a Chromium Host that
+//!    survives an app crash keeps it, and the relaunched app's provider takes
+//!    it over, so an agent drives the same pages again with no reload.
 //!
 //! This is Chrome's remote debugging pipe (content/browser/devtools/
 //! devtools_pipe_handler.cc): the pipe is read and written on threads of its
@@ -25,6 +29,7 @@
 
 use super::*;
 use std::collections::HashSet;
+use std::sync::Weak;
 
 /// The first raw DevTools id of a relay straight to the Chromium Host: in
 /// the shim's raw range (>= 2^30, `cmux_shim_devtools_send`), above the ids
@@ -37,29 +42,43 @@ const DIRECT_LAST_RAW_ID: u64 = i32::MAX as u64;
 /// `RelaySession.queueLimit`).
 pub(crate) const PREPARE_QUEUE_LIMIT: usize = 256;
 
-/// The Chromium Host's relay link (`relay.hello` accepted).
+/// The Chromium Host's relay link (`relay.hello` accepted). It outlives the
+/// app's provider connection: a Chromium Host that survives the app
+/// (`browserHost.survivesAppCrash`) keeps its link, and the next app's
+/// provider takes it over ([`ProviderDriver::take_relay_link_of`]).
 pub(crate) struct RelayLink {
     writer: SharedWriter,
-    /// The peer process the kernel reported, when the platform reports one.
-    pid: Option<u32>,
-    generation: u64,
+    /// The id the app gave this Chromium Host (`relay.hello`).
+    id: String,
     shutdown: Box<dyn Fn() + Send + Sync>,
+    /// The provider whose tabs it relays; empty between an app's end and the
+    /// next app's provider.
+    target: Mutex<Weak<DirectRelays>>,
+    /// The link's reader saw its end.
+    ended: std::sync::atomic::AtomicBool,
 }
 
 impl RelayLink {
+    fn target(&self) -> Option<Arc<DirectRelays>> {
+        self.target.lock().unwrap_or_else(PoisonError::into_inner).upgrade()
+    }
+
+    fn retarget(&self, target: Weak<DirectRelays>) {
+        *self.target.lock().unwrap_or_else(PoisonError::into_inner) = target;
+    }
+
+    fn is_ended(&self) -> bool {
+        self.ended.load(Ordering::Acquire)
+    }
+
     fn write(&self, frame: &Frame) -> std::io::Result<()> {
         write_frame(&mut *self.writer.lock().unwrap_or_else(PoisonError::into_inner), frame)
             .map_err(|error| std::io::Error::other(error.to_string()))
     }
 
-    /// Whether the app's `hostPid` names this link's process.
-    fn serves(&self, host_pid: Option<u32>) -> bool {
-        match (self.pid, host_pid) {
-            (Some(peer), Some(named)) => peer == named,
-            // A platform that reports no peer pid: the credential alone.
-            (None, _) => true,
-            (Some(_), None) => false,
-        }
+    /// Whether the app's answer names this link's Chromium Host.
+    fn serves(&self, link: Option<&str>) -> bool {
+        link == Some(self.id.as_str())
     }
 }
 
@@ -170,8 +189,8 @@ impl DirectRoute {
     }
 
     /// Whether the relay goes over `link`.
-    fn on_link(&self, generation: u64) -> bool {
-        matches!(&*self.state(), Route::Host(link) if link.generation == generation)
+    fn on_link(&self, link: &Arc<RelayLink>) -> bool {
+        matches!(&*self.state(), Route::Host(on) if Arc::ptr_eq(on, link))
     }
 
     fn close(&self, reason: &str) {
@@ -225,7 +244,6 @@ pub(crate) struct DirectRelays {
     /// The next raw id per tab, kept across relays (as the app's
     /// `rawIDCursor`): a late reply of an old relay finds no call.
     cursors: Mutex<HashMap<String, u64>>,
-    generations: AtomicU64,
 }
 
 impl DirectRelays {
@@ -237,12 +255,15 @@ impl DirectRelays {
             link: Mutex::default(),
             routes: Mutex::default(),
             cursors: Mutex::default(),
-            generations: AtomicU64::new(1),
         })
     }
 
     fn current_link(&self) -> Option<Arc<RelayLink>> {
-        self.link.lock().unwrap_or_else(PoisonError::into_inner).clone()
+        self.link
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+            .filter(|link| !link.is_ended())
     }
 
     /// Whether a Chromium Host relay link is connected.
@@ -321,11 +342,8 @@ impl DirectRelays {
                     .get("browser")
                     .and_then(Value::as_i64)
                     .and_then(|browser| i32::try_from(browser).ok());
-                let host_pid = payload
-                    .get("hostPid")
-                    .and_then(Value::as_u64)
-                    .and_then(|pid| u32::try_from(pid).ok());
-                self.prepared(target_id, browser, host_pid);
+                let link = payload.get("link").and_then(Value::as_str);
+                self.prepared(target_id, browser, link);
                 true
             }
             ("tab.relay.failed", Some(target_id)) => {
@@ -342,15 +360,15 @@ impl DirectRelays {
         }
     }
 
-    /// The tab's page is agent-ready as `browser` of the Chromium Host
-    /// `host_pid`: the relay goes over the link when the link is that
-    /// process, else through the app.
-    fn prepared(&self, target_id: &str, browser: Option<i32>, host_pid: Option<u32>) {
+    /// The tab's page is agent-ready as `browser` of the Chromium Host the
+    /// app gave `link`: the relay goes over the link when it is that host's,
+    /// else through the app.
+    fn prepared(&self, target_id: &str, browser: Option<i32>, link: Option<&str>) {
         let Some(route) = self.route(target_id) else { return };
         let mut state = route.state();
         let Route::Preparing(queued) = &mut *state else { return };
         let queued = std::mem::take(queued);
-        let link = self.current_link().filter(|link| link.serves(host_pid));
+        let link = self.current_link().filter(|current| current.serves(link));
         if let (Some(link), Some(browser)) = (link, browser) {
             let attached = link
                 .write(&Frame::RelayAttach { target_id: target_id.to_owned(), browser })
@@ -377,36 +395,39 @@ impl DirectRelays {
         self: &Arc<Self>,
         mut reader: impl Read + Send + 'static,
         writer: impl Write + Send + 'static,
-        pid: Option<u32>,
+        id: String,
         shutdown: Box<dyn Fn() + Send + Sync>,
     ) -> std::io::Result<()> {
-        let generation = self.generations.fetch_add(1, Ordering::Relaxed);
         let link = Arc::new(RelayLink {
             writer: Arc::new(Mutex::new(Box::new(writer))),
-            pid,
-            generation,
+            id,
             shutdown,
+            target: Mutex::new(Arc::downgrade(self)),
+            ended: std::sync::atomic::AtomicBool::new(false),
         });
         link.write(&Frame::RelayHelloAck {})?;
-        let previous = self.link.lock().unwrap_or_else(PoisonError::into_inner).replace(link);
-        if let Some(previous) = previous {
-            (previous.shutdown)();
-        }
-        let relays = Arc::downgrade(self);
+        self.adopt(link.clone());
+        let reading = link.clone();
         let spawned = std::thread::Builder::new()
             .name("cmux-browser-host-relay-link".into())
             .spawn(move || {
+                let link = reading;
                 let reason = loop {
                     let frame = read_frame(&mut reader);
-                    let Some(direct) = relays.upgrade() else { return };
+                    // Between two apps no provider takes the link's frames:
+                    // its relays ended with the first app.
+                    let direct = link.target();
                     match frame {
                         Ok(Some(Frame::Cdp { target_id, message })) => {
-                            direct.host_message(generation, &target_id, &message);
+                            if let Some(direct) = direct {
+                                direct.host_message(&link, &target_id, &message);
+                            }
                         }
                         Ok(Some(Frame::RelayClosed { target_id, .. })) => {
-                            if direct
-                                .route(&target_id)
-                                .is_some_and(|route| route.on_link(generation))
+                            if let Some(direct) = direct
+                                && direct
+                                    .route(&target_id)
+                                    .is_some_and(|route| route.on_link(&link))
                             {
                                 direct.end(&target_id, "the tab's page closed");
                             }
@@ -418,19 +439,41 @@ impl DirectRelays {
                         }
                     }
                 };
-                if let Some(direct) = relays.upgrade() {
-                    direct.link_closed(generation, &reason);
+                link.ended.store(true, Ordering::Release);
+                if let Some(direct) = link.target() {
+                    direct.link_closed(&link, &reason);
                 }
+                (link.shutdown)();
             });
         if let Err(error) = spawned {
-            self.link_closed(generation, "the relay link's reader could not start");
+            link.ended.store(true, Ordering::Release);
+            self.link_closed(&link, "the relay link's reader could not start");
+            (link.shutdown)();
             return Err(error);
         }
         Ok(())
     }
 
-    fn host_message(&self, generation: u64, target_id: &str, message: &str) {
-        let Some(route) = self.route(target_id).filter(|route| route.on_link(generation)) else {
+    /// Takes `link` as this provider's: it replaces any earlier link, whose
+    /// socket ends.
+    pub(super) fn adopt(self: &Arc<Self>, link: Arc<RelayLink>) {
+        link.retarget(Arc::downgrade(self));
+        let previous = self.link.lock().unwrap_or_else(PoisonError::into_inner).replace(link);
+        if let Some(previous) = previous {
+            previous.retarget(Weak::new());
+            (previous.shutdown)();
+        }
+    }
+
+    /// The link, for the next app's provider, once this provider's
+    /// connection ended; nothing when the link ended too.
+    pub(super) fn take_link(&self) -> Option<Arc<RelayLink>> {
+        let link = self.link.lock().unwrap_or_else(PoisonError::into_inner).take()?;
+        (!link.is_ended()).then_some(link)
+    }
+
+    fn host_message(&self, link: &Arc<RelayLink>, target_id: &str, message: &str) {
+        let Some(route) = self.route(target_id).filter(|route| route.on_link(link)) else {
             return;
         };
         route.inbound(message);
@@ -441,26 +484,21 @@ impl DirectRelays {
         }
     }
 
-    /// The link of `generation` ended: each of its relays ends, and the next
-    /// call attaches again (through the app while no link is up).
-    fn link_closed(&self, generation: u64, reason: &str) {
-        let ended = {
-            let mut link = self.link.lock().unwrap_or_else(PoisonError::into_inner);
-            if link.as_ref().is_some_and(|link| link.generation == generation) {
-                link.take()
-            } else {
-                None
+    /// `link` ended: each of its relays ends, and the next call attaches
+    /// again (through the app while no link is up).
+    fn link_closed(&self, link: &Arc<RelayLink>, reason: &str) {
+        {
+            let mut current = self.link.lock().unwrap_or_else(PoisonError::into_inner);
+            if current.as_ref().is_some_and(|current| Arc::ptr_eq(current, link)) {
+                *current = None;
             }
-        };
-        if let Some(ended) = ended {
-            (ended.shutdown)();
         }
         let on_link: Vec<String> = self
             .routes
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .iter()
-            .filter(|(_, route)| route.on_link(generation))
+            .filter(|(_, route)| route.on_link(link))
             .map(|(target_id, _)| target_id.clone())
             .collect();
         for target_id in on_link {
@@ -468,15 +506,15 @@ impl DirectRelays {
         }
     }
 
-    /// The app's provider connection ended: the link ends with it (its
-    /// relays already closed with the provider's).
+    /// The app's provider connection ended: its relays closed with it, and
+    /// the link stays up for the next app ([`DirectRelays::take_link`]): the
+    /// Chromium Host may outlive the app. It relays nothing until then.
     pub(super) fn provider_closed(&self, reason: &str) {
-        let link = self.link.lock().unwrap_or_else(PoisonError::into_inner).take();
         for (_, route) in self.routes.lock().unwrap_or_else(PoisonError::into_inner).drain() {
             route.close(reason);
         }
-        if let Some(link) = link {
-            (link.shutdown)();
+        if let Some(link) = self.link.lock().unwrap_or_else(PoisonError::into_inner).as_ref() {
+            link.retarget(Weak::new());
         }
     }
 }

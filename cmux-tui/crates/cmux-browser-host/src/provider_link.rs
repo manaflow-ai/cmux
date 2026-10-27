@@ -357,20 +357,29 @@ impl ProviderDriver {
     }
 
     /// The app's Chromium Host opened its relay link (`relay.hello`, which
-    /// the caller checked): CEF relays opened from now on go over it. `pid`
-    /// is the link's peer process when the platform reports one; `shutdown`
-    /// ends the link's socket.
+    /// the caller checked): CEF relays opened from now on go over it. `link`
+    /// is the id the app gave that Chromium Host, which its answers to
+    /// `cdp.prepare` name; `shutdown` ends the link's socket.
     pub fn attach_relay_link(
         &self,
         reader: impl Read + Send + 'static,
         writer: impl Write + Send + 'static,
-        pid: Option<u32>,
+        link: String,
         shutdown: Box<dyn Fn() + Send + Sync>,
     ) -> std::io::Result<()> {
         if let Some(reason) = self.closed_reason() {
             return Err(std::io::Error::other(reason));
         }
-        self.direct.attach_link(reader, writer, pid, shutdown)
+        self.direct.attach_link(reader, writer, link, shutdown)
+    }
+
+    /// Takes over the relay link of `previous`, a provider whose app is gone
+    /// (a Chromium Host that outlived its app keeps its link): this
+    /// provider's CEF relays go over it from now on.
+    pub fn take_relay_link_of(&self, previous: &ProviderDriver) {
+        if let Some(link) = previous.direct.take_link() {
+            self.direct.adopt(link);
+        }
     }
 
     /// Closes a CEF tab's relay and tells the app (`cdp.detach`).

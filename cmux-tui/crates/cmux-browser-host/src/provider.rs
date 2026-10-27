@@ -232,8 +232,9 @@ pub enum Frame {
     /// Makes a CEF tab agent-ready without relaying it through the app
     /// (host -> app; p01-process-233): the app marks and prepares the page as
     /// for `cdp.attach`, then answers with the event `tab.relay.direct`
-    /// (`targetId`, `browser`, `hostPid`) or `tab.relay.failed` (`targetId`,
-    /// `reason`). Sent only while the app's Chromium Host holds a relay link.
+    /// (`targetId`, `browser`, `link`: the link id it gave its Chromium Host)
+    /// or `tab.relay.failed` (`targetId`, `reason`). Sent only while a
+    /// Chromium Host holds a relay link.
     #[serde(rename = "cdp.prepare")]
     CdpPrepare {
         #[serde(rename = "targetId")]
@@ -253,10 +254,11 @@ pub enum Frame {
         id: Option<u64>,
     },
     /// The Chromium Host's relay link opens (Chromium Host -> host): the
-    /// relay credential ([`ProviderSecret::relay_credential`]) and the
-    /// host's own pid.
+    /// relay credential ([`ProviderSecret::relay_credential`]) and the link
+    /// id the app gave that Chromium Host with it, which the app's
+    /// `tab.relay.direct` names.
     #[serde(rename = "relay.hello")]
-    RelayHello { version: u32, pid: u32, credential: ProviderSecret },
+    RelayHello { version: u32, link: String, credential: ProviderSecret },
     /// The host accepted `relay.hello`.
     #[serde(rename = "relay.hello.ack")]
     RelayHelloAck {},
@@ -355,10 +357,10 @@ impl fmt::Debug for Frame {
                 .field("active", active)
                 .field("id", id)
                 .finish(),
-            Frame::RelayHello { version, pid, .. } => f
+            Frame::RelayHello { version, link, .. } => f
                 .debug_struct("RelayHello")
                 .field("version", version)
-                .field("pid", pid)
+                .field("link", link)
                 .finish_non_exhaustive(),
             Frame::RelayHelloAck {} => f.write_str("RelayHelloAck"),
             Frame::RelayAttach { target_id, browser } => f

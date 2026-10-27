@@ -27,9 +27,9 @@ fn cef_tab(target_id: &str) -> TabAnnounce {
 /// How the fake app answers `cdp.prepare`.
 #[derive(Clone, Copy)]
 enum Prepare {
-    /// `tab.relay.direct` naming browser 7 of the Chromium Host `pid`.
+    /// `tab.relay.direct` naming browser 7 of the Chromium Host the app gave `link`.
     Direct {
-        pid: u32,
+        link: &'static str,
     },
     Fail,
 }
@@ -38,6 +38,8 @@ enum Prepare {
 /// for `cdp` frames it gets (a relay that fell back to it).
 struct FakeApp {
     frames: Arc<Mutex<Vec<Frame>>>,
+    /// The app's end of its connection (a kill ends it).
+    stream: UnixStream,
 }
 
 impl FakeApp {
@@ -53,15 +55,16 @@ impl FakeApp {
         let frames = Arc::new(Mutex::new(Vec::new()));
         let thread_frames = frames.clone();
         let mut writer = app.try_clone().unwrap();
+        let stream = app.try_clone().unwrap();
         let mut reader = app;
         std::thread::spawn(move || {
             while let Ok(Some(frame)) = read_frame(&mut reader) {
                 thread_frames.lock().unwrap().push(frame.clone());
                 let reply = match frame {
                     Frame::CdpPrepare { target_id } => Some(match prepare {
-                        Prepare::Direct { pid } => Frame::Event {
+                        Prepare::Direct { link } => Frame::Event {
                             name: "tab.relay.direct".into(),
-                            payload: json!({"targetId": target_id, "browser": 7, "hostPid": pid}),
+                            payload: json!({"targetId": target_id, "browser": 7, "link": link}),
                         },
                         Prepare::Fail => Frame::Event {
                             name: "tab.relay.failed".into(),
@@ -80,7 +83,7 @@ impl FakeApp {
                 }
             }
         });
-        (FakeApp { frames }, provider)
+        (FakeApp { frames, stream }, provider)
     }
 
     fn frames(&self) -> Vec<Frame> {
@@ -106,14 +109,14 @@ struct FakeHost {
 }
 
 impl FakeHost {
-    fn link(provider: &ProviderDriver, pid: Option<u32>) -> FakeHost {
+    fn link(provider: &ProviderDriver, link: &str) -> FakeHost {
         let (host_end, provider_end) = UnixStream::pair().unwrap();
         let shutdown_end = provider_end.try_clone().unwrap();
         provider
             .attach_relay_link(
                 provider_end.try_clone().unwrap(),
                 provider_end,
-                pid,
+                link.to_owned(),
                 Box::new(move || {
                     let _ = shutdown_end.shutdown(std::net::Shutdown::Both);
                 }),
@@ -152,8 +155,8 @@ fn evaluate(conn: &CdpConnection) -> Result<Value, DriverError> {
 
 #[test]
 fn a_linked_chromium_host_relays_cef_tabs_without_the_app() {
-    let (app, provider) = FakeApp::start(Prepare::Direct { pid: 4242 });
-    let host = FakeHost::link(&provider, Some(4242));
+    let (app, provider) = FakeApp::start(Prepare::Direct { link: "L1" });
+    let host = FakeHost::link(&provider, "L1");
     assert!(matches!(host.next(), Frame::RelayHelloAck {}));
     let conn = provider.open_relay("C", "page").unwrap();
     for _ in 0..3 {
@@ -171,9 +174,9 @@ fn a_linked_chromium_host_relays_cef_tabs_without_the_app() {
 }
 
 #[test]
-fn a_host_pid_that_is_not_the_links_peer_relays_through_the_app() {
-    let (app, provider) = FakeApp::start(Prepare::Direct { pid: 1111 });
-    let host = FakeHost::link(&provider, Some(4242));
+fn a_link_id_that_is_not_the_links_relays_through_the_app() {
+    let (app, provider) = FakeApp::start(Prepare::Direct { link: "L0" });
+    let host = FakeHost::link(&provider, "L1");
     assert!(matches!(host.next(), Frame::RelayHelloAck {}));
     let conn = provider.open_relay("C", "page").unwrap();
     assert_eq!(evaluate(&conn).unwrap(), json!({"via": "app"}));
@@ -196,7 +199,7 @@ fn without_a_link_the_relay_goes_through_the_app_as_before() {
 #[test]
 fn a_page_that_cannot_start_fails_the_waiting_commands() {
     let (app, provider) = FakeApp::start(Prepare::Fail);
-    let host = FakeHost::link(&provider, Some(4242));
+    let host = FakeHost::link(&provider, "L1");
     assert!(matches!(host.next(), Frame::RelayHelloAck {}));
     let conn = provider.open_relay("C", "page").unwrap();
     let error = evaluate(&conn).unwrap_err();
@@ -211,8 +214,8 @@ fn a_page_that_cannot_start_fails_the_waiting_commands() {
 
 #[test]
 fn a_screenshot_on_the_link_holds_the_apps_capture_vote_until_its_reply() {
-    let (app, provider) = FakeApp::start(Prepare::Direct { pid: 4242 });
-    let host = FakeHost::link(&provider, Some(4242));
+    let (app, provider) = FakeApp::start(Prepare::Direct { link: "L1" });
+    let host = FakeHost::link(&provider, "L1");
     assert!(matches!(host.next(), Frame::RelayHelloAck {}));
     let conn = provider.open_relay("C", "page").unwrap();
     conn.call(Some("page"), "Page.captureScreenshot", json!({}), WAIT).unwrap();
@@ -247,8 +250,8 @@ fn a_screenshot_on_the_link_holds_the_apps_capture_vote_until_its_reply() {
 
 #[test]
 fn a_link_that_ends_ends_its_relays_and_later_relays_go_through_the_app() {
-    let (app, provider) = FakeApp::start(Prepare::Direct { pid: 4242 });
-    let host = FakeHost::link(&provider, Some(4242));
+    let (app, provider) = FakeApp::start(Prepare::Direct { link: "L1" });
+    let host = FakeHost::link(&provider, "L1");
     assert!(matches!(host.next(), Frame::RelayHelloAck {}));
     let conn = provider.open_relay("C", "page").unwrap();
     evaluate(&conn).unwrap();
@@ -264,9 +267,43 @@ fn a_link_that_ends_ends_its_relays_and_later_relays_go_through_the_app() {
 }
 
 #[test]
+fn a_chromium_host_that_outlives_its_app_relays_for_the_next_app() {
+    let (first_app, first) = FakeApp::start(Prepare::Direct { link: "L1" });
+    let host = FakeHost::link(&first, "L1");
+    assert!(matches!(host.next(), Frame::RelayHelloAck {}));
+    let conn = first.open_relay("C", "page").unwrap();
+    evaluate(&conn).unwrap();
+    // The app is killed: its relays end, the Chromium Host's link stays.
+    first_app.stream.shutdown(std::net::Shutdown::Both).unwrap();
+    let deadline = std::time::Instant::now() + WAIT;
+    // The provider's reader marks itself closed, then closes its relays.
+    while first.closed_reason().is_none() || conn.closed_reason().is_none() {
+        assert!(std::time::Instant::now() < deadline, "the old relay ends with its app");
+        std::thread::yield_now();
+    }
+    // The relaunched app's provider takes the link over.
+    let (second_app, second) = FakeApp::start(Prepare::Direct { link: "L1" });
+    second.take_relay_link_of(&first);
+    assert!(second.direct.linked() && !first.direct.linked(), "the link moved to the new provider");
+    let again = second.open_relay("C", "page").unwrap();
+    assert_eq!(
+        evaluate(&again).unwrap(),
+        json!({"via": "host"}),
+        "the agent drives the page again"
+    );
+    assert_eq!(second_app.cdp_count(), 0, "still never through the app");
+    // The Chromium Host was attached to the page again for the new relay.
+    let mut attaches = 0;
+    while let Ok(frame) = host.frames.recv_timeout(Duration::from_millis(200)) {
+        attaches += usize::from(matches!(frame, Frame::RelayAttach { .. }));
+    }
+    assert_eq!(attaches, 2);
+}
+
+#[test]
 fn a_reopened_relay_continues_the_raw_ids() {
-    let (_app, provider) = FakeApp::start(Prepare::Direct { pid: 4242 });
-    let host = FakeHost::link(&provider, Some(4242));
+    let (_app, provider) = FakeApp::start(Prepare::Direct { link: "L1" });
+    let host = FakeHost::link(&provider, "L1");
     assert!(matches!(host.next(), Frame::RelayHelloAck {}));
     let first = provider.open_relay("C", "page").unwrap();
     evaluate(&first).unwrap();
@@ -291,7 +328,7 @@ fn the_relay_credential_opens_a_relay_link_and_nothing_else() {
     };
     let relay = |credential: ProviderSecret| Frame::RelayHello {
         version: crate::provider::RELAY_VERSION,
-        pid: 9,
+        link: "L9".into(),
         credential,
     };
     let hello = |secret: ProviderSecret| Frame::Hello {
@@ -302,7 +339,9 @@ fn the_relay_credential_opens_a_relay_link_and_nothing_else() {
         engines: vec!["cef".into()],
         tabs: Vec::new(),
     };
-    assert!(matches!(open(relay(credential.clone())), Ok(Opening::RelayLink { pid: 9 })));
+    assert!(
+        matches!(open(relay(credential.clone())), Ok(Opening::RelayLink { link }) if link == "L9")
+    );
     assert!(open(relay(secret.clone())).is_err(), "the secret is not the relay credential");
     assert!(open(hello(credential)).is_err(), "the relay credential opens no provider");
     assert!(matches!(open(hello(secret.clone())), Ok(Opening::Provider(_))));
