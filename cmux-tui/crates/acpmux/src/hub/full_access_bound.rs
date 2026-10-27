@@ -230,24 +230,26 @@ impl Hub {
         Ok(())
     }
 
-    /// For an agent started outside any session (a model probe) from `argv`: refused while MDM
-    /// forces full access off and `argv` pins it, else what `full_access_forced_off` waits on
+    /// For an agent started outside any session (a model probe) from `argv`, under the off it
+    /// read as it began (`latch`): refused while MDM forces full access off for it and `argv` pins
+    /// it, else what `full_access_forced_off` waits on
     /// (none when `argv` does not pin it). Review 25 of #23322: the probe holds it from before its
     /// start, so an off that lands while it starts or runs ends it, an unset after it too (review
     /// 46).
-    pub(super) fn probe_bound(&self, argv: &[String]) -> anyhow::Result<Option<OffWatch>> {
+    pub(super) fn probe_bound(
+        &self,
+        latch: &OffLatch,
+        argv: &[String],
+    ) -> anyhow::Result<Option<OffWatch>> {
         if runs_full_access(&FullAccessView::of_argv(argv)).is_none() {
             return Ok(None);
         }
-        // The count and the state, read together (review 75): an off counted after this is the
-        // probe's to end on.
-        let (offs, seen, off) = self.full_access_off_now();
-        #[cfg(test)]
-        after_off_count(self);
-        if off {
+        // The probe's one read of the off (`latch`, review 77): an off that held as it began, or
+        // came and went since, refuses it; one counted after is the probe's to end on.
+        if latch.off() {
             anyhow::bail!("its profile pins full access, which MDM forces off");
         }
-        Ok(Some(OffWatch { offs, seen }))
+        Ok(Some(OffWatch { offs: latch.offs.clone(), seen: latch.seen }))
     }
 
     /// MDM's off as a start that begins now sees it (`OffLatch`).
@@ -409,7 +411,9 @@ mod tests {
         cfg.store.mode = crate::config::StoreMode::Memory;
         let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
         let hub = Hub::new(cfg, store);
-        let mut bound = hub.probe_bound(&["agent".to_owned(), "--yolo".to_owned()]).unwrap();
+        let latch = hub.off_latch();
+        let mut bound =
+            hub.probe_bound(&latch, &["agent".to_owned(), "--yolo".to_owned()]).unwrap();
         hub.apply_full_access_push(Some(false)).await;
         hub.apply_full_access_push(None).await;
         let ended = tokio::time::timeout(
@@ -460,7 +464,7 @@ mod tests {
         assert!(hub.off_latch().off(), "an unset during the latch's read erased the off");
         hub.apply_full_access_push(Some(false)).await;
         AFTER_OFF_COUNT.set(Some(unset));
-        let pinned = hub.probe_bound(&["agent".to_owned(), "--yolo".to_owned()]);
+        let pinned = hub.probe_bound(&hub.off_latch(), &["agent".to_owned(), "--yolo".to_owned()]);
         assert!(pinned.is_err(), "an unset during the read let a pinned probe start");
     }
 

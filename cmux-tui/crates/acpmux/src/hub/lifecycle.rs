@@ -581,10 +581,15 @@ impl Hub {
                 super::pool::end_pooled(pooled).await;
                 return Err(e);
             }
+            let reported_off = pooled.reported_off();
             match self.adopt_pooled(session, pooled).await {
-                // MDM forces full access off (#23322, review 71): a report of full access held
-                // past the take's check may not have reached the chat when its start is capped.
-                Ok((_, true)) if self.full_access_managed_off() => {
+                // MDM forces full access off (#23322, reviews 71 and 77): a report of full access
+                // held past the take's check may not have reached the chat when its start is
+                // capped, and one made while the off held counts though it is unset by now.
+                Ok((_, reported))
+                    if reported_off.load(Ordering::SeqCst)
+                        || (reported && self.full_access_managed_off()) =>
+                {
                     self.stop_full_access_agent(session).await;
                     return Err(super::start_mode::full_access_off());
                 }
@@ -1292,7 +1297,7 @@ impl Hub {
         // MDM forces full access off (#23322): a profile pinning it is never started to probe,
         // and a probe that runs when the off lands ends then (`probe_bound`).
         let mut bound =
-            self.probe_bound(&profile.argv).map_err(|e| anyhow::anyhow!("{name}: {e}"))?;
+            self.probe_bound(&latch, &profile.argv).map_err(|e| anyhow::anyhow!("{name}: {e}"))?;
         let mut resolved = profile.clone();
         resolved.argv = self.resolved_launcher_argv(resolved.argv);
         let child = crate::agent::ChildAgent::spawn(name, &resolved, &cwd, tx, tap).await?;

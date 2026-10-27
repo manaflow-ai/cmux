@@ -143,7 +143,7 @@ impl Hub {
         let started = std::time::Instant::now();
         // MDM forces full access off (#23322): a profile pinning it is never started to list its
         // models, and a list that runs when the off lands ends then (`probe_bound`).
-        let listed = match self.probe_bound(&target.argv) {
+        let listed = match self.probe_bound(&self.off_latch(), &target.argv) {
             Err(e) => Err(e),
             Ok(mut bound) => {
                 let probe = crate::live_models::probe(

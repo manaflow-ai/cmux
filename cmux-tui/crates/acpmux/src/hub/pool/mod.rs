@@ -150,6 +150,14 @@ pub(super) struct Pooled {
     reported_off: Arc<AtomicBool>,
 }
 
+impl Pooled {
+    /// Whether its harness reported full access while MDM forced it off (`reported_off`), kept
+    /// for the handoff after the entry is given up (review 77 of #23322).
+    pub(super) fn reported_off(&self) -> Arc<AtomicBool> {
+        self.reported_off.clone()
+    }
+}
+
 /// What a pooled session is started from, and the key it is served under.
 struct PoolSpec {
     key: PoolKey,
