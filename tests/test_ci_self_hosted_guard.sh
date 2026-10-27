@@ -1104,11 +1104,44 @@ check_no_github_hosted_runners() {
   # on fixtures first, so a narrowed key pattern cannot pass vacuously.
   hosted_scan() {
     local dir="$1" line file content stripped exception allowed
-    # A block-scalar runs-on (`runs-on: >-`) spreads the label over lines the
-    # line scan cannot read, so it is refused outright.
-    grep -rnE "^[[:space:]]+runs-on:[[:space:]]*[>|][-+]?[[:space:]]*(#.*)?$" "$dir" | while IFS= read -r line; do
-      echo "FAIL: block-scalar runs-on (write it on one line so this guard can read it): ${line#"$ROOT_DIR"/}" | cut -c1-260
-    done
+    # A runner selection spread over several lines (a block scalar, or a
+    # plain or quoted scalar that wraps) is invisible to the line scan below.
+    # YAML parses each workflow, and a multi-line value under runs-on, os or a
+    # *runner* key fails when its joined text names a hosted label (the same
+    # fork-branch and nightly rules; no exact-line exception can name it).
+    python3 -W ignore::FutureWarning - "$dir" "$ROOT_DIR" "$hosted" "$fork_branch" "$trusted_list" "$nightly_hosted" <<'PY'
+import pathlib, re, sys, yaml
+root, repo = pathlib.Path(sys.argv[1]), sys.argv[2]
+hosted, fork, trusted, nightly = (re.compile(p) for p in sys.argv[3:7])
+key = re.compile(r"^(runs-on|runs_on|os|labels|group|[A-Za-z0-9_-]*runner[A-Za-z0-9_-]*)$", re.IGNORECASE)
+def spans(node):
+    """A scalar under a runner key that starts and ends on different lines."""
+    if isinstance(node, yaml.MappingNode):
+        for k, v in node.value:
+            if isinstance(k, yaml.ScalarNode) and key.match(str(k.value)):
+                for leaf in ([v] if isinstance(v, yaml.ScalarNode) else
+                             [x for x in v.value if isinstance(x, yaml.ScalarNode)] if isinstance(v, yaml.SequenceNode) else []):
+                    if leaf.end_mark.line > leaf.start_mark.line and (leaf.end_mark.column > 0 or leaf.end_mark.line > leaf.start_mark.line + 1):
+                        yield k.value, leaf.start_mark.line + 1, str(leaf.value)
+            yield from spans(v)
+    elif isinstance(node, yaml.SequenceNode):
+        for v in node.value:
+            yield from spans(v)
+for f in sorted(root.rglob("*.y*ml")):
+    try:
+        doc = yaml.compose(f.read_text(encoding="utf-8"))
+    except yaml.YAMLError:
+        continue
+    is_nightly = re.search(r"(nightly|notarization)[^/]*[.]yml$", f.name) is not None
+    for name, line, text in spans(doc):
+        text = " ".join(text.split())
+        if is_nightly:
+            text = nightly.sub("", text)
+        if not hosted.search(trusted.sub("", fork.sub("", text))):
+            continue
+        print(f"FAIL: multi-line runner selection (write it on one line so this guard can read it): "
+              f"{str(f).removeprefix(repo + '/')}:{line}: {name}"[:260])
+PY
     while IFS= read -r line; do
       file="${line%%:*}"
       content="${line#*:*:}"
@@ -1144,9 +1177,14 @@ jobs:
       linux-arm64-runner: ubuntu-24.04-arm
       linux_runner: ubuntu-latest
       LINUX_BUILD_RUNNER: ubuntu-22.04
-  d:
-    runs-on: >-
-      ${{ vars.X || 'blacksmith-4vcpu-ubuntu-2404' }}
+  e:
+    runs-on: ${{ vars.LINUX_RUNNER ||
+      'ubuntu-24.04' }}
+  f:
+    uses: ./.github/workflows/x.yml
+    with:
+      linux_runner: >-
+        ${{ vars.X || 'ubuntu-24.04' }}
 YAML
   cat > "$fixture/clean-nightly.yml" <<'YAML'
 jobs:
@@ -1154,11 +1192,19 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
   b:
     runs-on: blacksmith-16vcpu-ubuntu-2404
+  c:
+    runs-on: >-
+      ${{ vars.X || 'blacksmith-4vcpu-ubuntu-2404' }}
+  d:
+    env:
+      CMUX_CI_RUNNER_VARIABLES: |
+        LINUX_RUNNER=${{ vars.LINUX_RUNNER }}
+        MACOS_RUNNER_26=${{ vars.MACOS_RUNNER_26 }}
 YAML
   scan_out="$(hosted_scan "$fixture")"
   rm -rf "$fixture"
-  if [[ "$(grep -c '^FAIL:' <<<"$scan_out")" -ne 6 ]] || grep -q 'clean-nightly.yml' <<<"$scan_out"; then
-    echo "FAIL: GitHub-hosted runner guard self-test: the scan must flag exactly the six hosted selections in its fixture and nothing in the clean one:"
+  if [[ "$(grep -c '^FAIL:' <<<"$scan_out")" -ne 7 ]] || grep -q 'clean-nightly.yml' <<<"$scan_out"; then
+    echo "FAIL: GitHub-hosted runner guard self-test: the scan must flag exactly the seven hosted selections in its fixture and nothing in the clean one:"
     echo "$scan_out"
     exit 1
   fi
