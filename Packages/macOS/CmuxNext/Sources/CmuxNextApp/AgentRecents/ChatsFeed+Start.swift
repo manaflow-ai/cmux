@@ -3,6 +3,7 @@ import CmuxNextAgentLanes
 import CmuxNextAgentPane
 import CmuxNextHomeEngine
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextLaunch
 import CmuxNextWakeups
 import Foundation
@@ -25,23 +26,24 @@ extension ChatsFeed {
         launch.post()
     }
 
-    /// An agent page shows: Home and the New Tab page's feeds (p08-startup-027) and the indicator watches
-    /// (p08-startup-097) start right after the first frame instead of after startup.
+    /// An agent page or a Home view shows: Home and the New Tab page's feeds (p08-startup-027) and the indicator
+    /// watches (p08-startup-097) start right after the first frame instead of after startup.
     static func pageShown(in services: AppServices) {
         services.home.launchFeeds?.need()
         services.chatsFeed?.launchIndicators?.pageShown()
     }
 
-    /// The app's watch starts. The device ID is the launch's read of it (p08-startup-076): each start runs after the
-    /// first frame, when that read has ended, so none reads the file on main.
+    /// The app's watch starts. This Mac's host is `AgentTabStore.localHost` (the Cloud device ID). Open dependency
+    /// p08-startup-076: once it lands that is the launch's read and no start reads `device-id` on main; until then
+    /// the first ask still reads it on main, once, after the first frame (it was before it).
     private static func indicatorStarts(for services: AppServices, feed: ChatsFeed) -> ChatIndicatorLaunch.Starts {
         let socket = feed.socket, tag = services.environment.tag
         return ChatIndicatorLaunch.Starts(
-            turnStates: { [weak services] in if let services { startTurnStates(socketPath: socket, localHost: localHost(services)) } },
+            turnStates: { [weak services] in if let services { startTurnStates(socketPath: socket, localHost: services.agentTabs.localHost) } },
             sessionTree: { [weak services] in
                 guard let services else { return }
                 SidebarSessionTreeFeed.shared.start(workspaces: { [weak services] in services?.machines.allWorkspaces.map { $0.0 } ?? [] },
-                                                    localHost: localHost(services), reader: services.pullRequests.reader)
+                                                    localHost: services.agentTabs.localHost, reader: services.pullRequests.reader)
             },
             chatHistory: { [weak services, weak feed] in
                 guard let services, let feed else { return }
@@ -49,7 +51,7 @@ extension ChatsFeed {
                 let history = SidebarChatHistoryFeed.shared
                 feed.observe(history) { [weak feed] in if let feed { history.chats = feed.store } }
                 history.start(workspaces: { [weak services] in services?.machines.allWorkspaces.map { $0.0 } ?? [] },
-                              localHost: localHost(services), open: { [weak services] key in services?.chatsOpener.open(key) })
+                              localHost: services.agentTabs.localHost, open: { [weak services] key in services?.chatsOpener.open(key) })
             },
             chiefTurnStates: { startChiefTurnStates(tag: tag) },
             uploadSweep: {
@@ -58,16 +60,29 @@ extension ChatsFeed {
             },
             shown: { [weak services] in
                 guard let services else { return ChatIndicatorLaunch.Shown() }
-                return shown(services.machines.allWorkspaces.lazy.map { $0.0 }, localHost: services.agentTabs.localHost,
-                             chiefHost: services.agentTabs.chiefHost)
+                let sections = DesignSettings.shared.sidebarSections
+                let sidebar = sidebarShown(sessionTree: sections.sessionTree, priorityView: sections.priorityViewEnabled,
+                                           chiefPlaced: ChiefSidebar.shared.isPlaced)
+                // Only a host already read: this look never reads `device-id`.
+                return shown(services.machines.allWorkspaces.lazy.map { $0.0 }, localHost: services.agentTabs.resolvedLocalHost,
+                             chiefHost: services.agentTabs.chiefHost, sidebar: sidebar)
             }
         )
     }
 
-    /// What `workspaces` show of the indicators: a chat tab of this Mac's acpmux (any chat tab not the Chief's while
-    /// this Mac's host is not known yet) and a Chief subagent tab. It stops at the first tab that shows both.
-    static func shown(_ workspaces: some Sequence<WorkspaceModel>, localHost: String?, chiefHost: String?) -> ChatIndicatorLaunch.Shown {
-        var shown = ChatIndicatorLaunch.Shown()
+    /// What the sidebar shows of the watches with no chat tab open: the session tree (`sidebar.sessionTree`) and the
+    /// Priority view draw this Mac's chats and their turn states; the placed Chief item draws the Chief's status and
+    /// subagent rows.
+    static func sidebarShown(sessionTree: Bool, priorityView: Bool, chiefPlaced: Bool) -> ChatIndicatorLaunch.Shown {
+        ChatIndicatorLaunch.Shown(indicators: sessionTree || priorityView, chief: chiefPlaced)
+    }
+
+    /// What `sidebar` and `workspaces` show of the indicators: a chat tab of this Mac's acpmux (any chat tab not the
+    /// Chief's while this Mac's host is not known yet) and a Chief subagent tab. It stops once both show.
+    static func shown(_ workspaces: some Sequence<WorkspaceModel>, localHost: String?, chiefHost: String?,
+                      sidebar: ChatIndicatorLaunch.Shown = .init()) -> ChatIndicatorLaunch.Shown {
+        var shown = sidebar
+        if shown.indicators, shown.chief { return shown }
         for workspace in workspaces {
             for screen in workspace.screens {
                 for pane in screen.panes {
@@ -94,11 +109,6 @@ extension ChatsFeed {
         // A deleted chat's uploads go with it (``AgentChatUploads``).
         AgentTurnStateFeed.purged = { AgentChatUploads.removeInBackground(session: $0) }
         turns.start(localHost: localHost)
-    }
-
-    /// `install:<id>` of this Mac, from the launch's read of its install id; nil while it is not known.
-    private static func localHost(_ services: AppServices) -> String? {
-        (try? services.cloud.localDeviceID()).map(AgentSessionRef.host(installID:))
     }
 
     /// The Chief home's acpmux watch (2026-10-20: every Chief subagent tab read "Agent"): the

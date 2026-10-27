@@ -6,9 +6,10 @@ public import CmuxNextWakeups
 /// that split for the indicators, decided by what the windows show.
 ///
 /// - This Mac's turn-state watch, the sidebar's session tree and its chat history are one ``LaunchNeedPosts``:
-///   after startup by default; right after the first frame once an agent page shows (``pageShown()``) or a window
-///   shows one of this Mac's chat tabs (``checkShown()``).
-/// - The Chief home's turn-state watch is another: after startup unless a window shows a Chief subagent tab.
+///   after startup by default; right after the first frame once an agent page or Home shows (``pageShown()``), or a
+///   window shows one of this Mac's chat tabs or a sidebar that draws its chats (``checkShown()``).
+/// - The Chief home's turn-state watch is another: after startup unless a window shows a Chief subagent tab or the
+///   sidebar's Chief item.
 /// - The chat uploads' age sweep is one afterStartup post on the files lane at `.bestEffort`: nobody waits for it.
 ///
 /// ```swift
@@ -20,14 +21,15 @@ public import CmuxNextWakeups
 public final class ChatIndicatorLaunch {
     /// Which indicator watches the windows show now.
     public struct Shown: Equatable, Sendable {
-        /// A chat tab of this Mac's acpmux: this Mac's turn states, session tree and chat history.
+        /// A chat tab of this Mac's acpmux, or a sidebar that draws its chats: this Mac's turn states, session tree
+        /// and chat history.
         public var indicators: Bool
-        /// A Chief subagent tab: the Chief home's turn states.
+        /// A Chief subagent tab or the sidebar's Chief item: the Chief home's turn states.
         public var chief: Bool
 
         /// - Parameters:
-        ///   - indicators: A chat tab of this Mac's acpmux shows.
-        ///   - chief: A Chief subagent tab shows.
+        ///   - indicators: A chat tab of this Mac's acpmux, or a sidebar that draws its chats, shows.
+        ///   - chief: A Chief subagent tab or the sidebar's Chief item shows.
         public init(indicators: Bool = false, chief: Bool = false) {
             self.indicators = indicators
             self.chief = chief
@@ -100,7 +102,7 @@ public final class ChatIndicatorLaunch {
     /// Whether something shown moved this Mac's watches to right after the first frame.
     public var indicatorsNeeded: Bool { indicators.isNeeded }
 
-    /// Whether a Chief subagent tab moved the Chief home's watch to right after the first frame.
+    /// Whether a Chief subagent tab or the sidebar's Chief item moved the Chief home's watch to right after the first frame.
     public var chiefNeeded: Bool { chief.isNeeded }
 
     /// Posts the launch's default: every watch after startup, the upload sweep after startup on the files lane at

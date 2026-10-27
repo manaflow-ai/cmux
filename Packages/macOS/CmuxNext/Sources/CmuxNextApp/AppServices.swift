@@ -617,8 +617,8 @@ final class AppServices {
     private(set) lazy var agentTabs = AgentTabStore.wired(to: self)
     /// Which agent chat opened each file, for viewer quotes (viewer-comments-DESIGN.md).
     private(set) lazy var chatQuoteOpeners = ChatQuoteOpeners()
-    /// The device-wide Chats index (nil without acpmux), watched once for every window; its launch watches are posted (p08-startup-097).
-    private(set) lazy var chatsFeed: ChatsFeed? = ChatsFeed.made(for: self)
+    /// The device-wide Chats index (nil without acpmux), watched once for every window; its launch watches are posted (p08-startup-097). Tests set one on a fake socket.
+    lazy var chatsFeed: ChatsFeed? = ChatsFeed.made(for: self)
     /// Relays the Chats index and editor sources into the daemon's project list.
     private(set) lazy var projectsImport = ProjectsImport(services: self)
     /// Shared Open Chat path for sidebar clicks and palette Return.

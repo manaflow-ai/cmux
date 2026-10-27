@@ -66,6 +66,9 @@ final class ChatsFeed {
         directoryWatch?.cancel()
     }
 
+    /// Whether something observes the feed: its first observer connected it (``observe(_:_:)``).
+    var isObserved: Bool { !observers.isEmpty }
+
     /// Starts one long-lived watch for the first live observer.
     func observe(_ owner: AnyObject, _ changed: @escaping @MainActor () -> Void) {
         observers.append(({ [weak owner] in owner }, changed))

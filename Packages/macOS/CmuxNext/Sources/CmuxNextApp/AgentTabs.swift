@@ -91,7 +91,7 @@ final class AgentTabStore {
     }
     /// Reads this Mac's `install:<id>` (AppServices: the Cloud device id), on need.
     var resolveLocalHost: @MainActor () -> String? = { nil }
-    private var resolvedLocalHost: String?
+    private(set) var resolvedLocalHost: String?  // ``localHost`` once read; reading this reads no `device-id`
     /// `install:<id>` of this Mac. Only that host attaches a tab to its acpmux; nil refuses new
     /// tabs. Read again while it is nil (the id file could not be read yet).
     var localHost: String? {

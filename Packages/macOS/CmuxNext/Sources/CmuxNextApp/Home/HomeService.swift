@@ -281,7 +281,7 @@ final class HomeService {
     /// Home opened in a window (or its owner reconnected, not `asked`): start
     /// the Chief home's brain host when none runs (ChiefBrainKeeper).
     func homeDidOpen(asked: Bool) {
-        launchFeeds?.need()
+        ChatsFeed.pageShown(in: services)  // its feeds and the chat indicators right after the first frame
         if !homeOpened {
             homeOpened = true
             publishAppLinks()

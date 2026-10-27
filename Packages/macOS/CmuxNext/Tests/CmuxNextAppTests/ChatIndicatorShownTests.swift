@@ -38,6 +38,31 @@ import Testing
         #expect(shown == ChatIndicatorLaunch.Shown())
     }
 
+    /// The placed Chief item draws the Chief's status and subagent rows with no Chief tab open.
+    @Test func aPlacedChiefItemNeedsTheChiefWatch() {
+        let sidebar = ChatsFeed.sidebarShown(sessionTree: false, priorityView: false, chiefPlaced: true)
+        let shown = ChatsFeed.shown(Self.workspaces(hosts: [nil]), localHost: Self.local, chiefHost: Self.chief, sidebar: sidebar)
+        #expect(shown == ChatIndicatorLaunch.Shown(indicators: false, chief: true))
+    }
+
+    /// The session tree draws this Mac's chats and their turn states (its chat history too) with no chat tab open.
+    @Test func theSessionTreeNeedsThisMacsWatches() {
+        let sidebar = ChatsFeed.sidebarShown(sessionTree: true, priorityView: false, chiefPlaced: false)
+        let shown = ChatsFeed.shown(Self.workspaces(hosts: [nil]), localHost: Self.local, chiefHost: Self.chief, sidebar: sidebar)
+        #expect(shown == ChatIndicatorLaunch.Shown(indicators: true, chief: false))
+    }
+
+    @Test func thePriorityViewNeedsThisMacsWatches() {
+        #expect(ChatsFeed.sidebarShown(sessionTree: false, priorityView: true, chiefPlaced: false).indicators)
+    }
+
+    /// The default sidebar (no session tree, no Priority view, no Chief item) needs nothing of its own.
+    @Test func theDefaultSidebarNeedsNoWatch() {
+        let sidebar = ChatsFeed.sidebarShown(sessionTree: false, priorityView: false, chiefPlaced: false)
+        #expect(sidebar == ChatIndicatorLaunch.Shown())
+        #expect(ChatsFeed.shown(Self.workspaces(hosts: [nil]), localHost: Self.local, chiefHost: Self.chief, sidebar: sidebar) == sidebar)
+    }
+
     /// Before this Mac's install id is known, any chat tab not the Chief's counts as this Mac's.
     @Test func anUnknownLocalHostCountsEveryNonChiefChat() {
         let shown = ChatsFeed.shown(Self.workspaces(hosts: ["install:other-mac"]), localHost: nil, chiefHost: Self.chief)
