@@ -1,6 +1,6 @@
 import Foundation
-import CmuxNextActions
-import CmuxNextSettings
+public import CmuxNextActions
+public import CmuxNextSettings
 
 /// Retains an editor reveal until config or subscription can deliver it, without reloading edits.
 @MainActor public final class FilePageLineLocation {

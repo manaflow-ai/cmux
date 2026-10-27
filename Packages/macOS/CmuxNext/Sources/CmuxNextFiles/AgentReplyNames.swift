@@ -1,5 +1,5 @@
 import CmuxNextWakeups
-import Foundation
+public import Foundation
 
 /// Finds the files a reply names without a folder (`next-sync.py` for `scripts/next-sync.py`)
 /// inside a chat's folders, for its path chips (``AgentPaneReplyLinks/findByName``). One
