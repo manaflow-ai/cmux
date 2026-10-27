@@ -366,6 +366,17 @@ impl Mux {
         self.journal_event_epoch.watch(watcher)
     }
 
+    /// Runs `watcher` after each raise of the shared journal's fan-out
+    /// epoch until the watch drops: a journal stream that reads the ring
+    /// watches it instead of a thread waiting (p05-ipc-147). The watcher
+    /// runs on the fan-out's tailer, so it only posts.
+    pub(crate) fn watch_shared_journal(
+        &self,
+        watcher: impl Fn() + Send + Sync + 'static,
+    ) -> JournalWatch {
+        self.journal_kernel.watch(watcher)
+    }
+
     /// Like `wait_for_journal_event`, with no timeout: returns the new
     /// epoch, or `epoch` once `interrupt` has fired.
     pub(crate) fn wait_for_journal_event_until_interrupted(
@@ -374,15 +385,6 @@ impl Mux {
         interrupt: &crate::stream_interrupt::StreamInterrupt,
     ) -> u64 {
         self.journal_event_epoch.wait_until_interrupted(epoch, interrupt)
-    }
-
-    /// Like `wait_for_shared_journal`, with no timeout.
-    pub(crate) fn wait_for_shared_journal_until_interrupted(
-        &self,
-        epoch: u64,
-        interrupt: &crate::stream_interrupt::StreamInterrupt,
-    ) -> u64 {
-        self.journal_kernel.wait_until_interrupted(epoch, interrupt)
     }
 
     /// Wakes this mux's journal waiters when `interrupt` fires, so a

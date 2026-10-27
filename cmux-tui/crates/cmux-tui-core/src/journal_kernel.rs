@@ -8,6 +8,9 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 use serde_json::{Value, json};
 
+use crate::mux::journal_epoch::{
+    CommitWatchers, JournalWatch, Watcher, WatcherOwner, run_watchers, watch_on,
+};
 use crate::workspace_registry::SessionJournalReader;
 use crate::{
     JournalClass, JournalIngress, JournalProducerManifest, JournalReplayPolicy, JournalSensitivity,
@@ -194,6 +197,9 @@ struct JournalFanoutState {
     records: VecDeque<Arc<JournalDocument>>,
     record_bytes: usize,
     available: bool,
+    /// Run after each raise of `epoch`, outside the lock: a journal stream
+    /// drain watches instead of a thread waiting (p05-ipc-147).
+    watchers: CommitWatchers,
     #[cfg(test)]
     database_reader_count: u64,
 }
@@ -252,6 +258,7 @@ impl JournalKernel {
                     records: VecDeque::new(),
                     record_bytes: 0,
                     available: false,
+                    watchers: CommitWatchers::default(),
                     #[cfg(test)]
                     database_reader_count: 0,
                 }),
@@ -274,6 +281,7 @@ impl JournalKernel {
                 records: VecDeque::new(),
                 record_bytes: 0,
                 available: true,
+                watchers: CommitWatchers::default(),
                 #[cfg(test)]
                 database_reader_count: 1,
             }),
@@ -360,20 +368,6 @@ impl JournalKernel {
         state.epoch
     }
 
-    /// Like `wait`, with no timeout: returns the new epoch, or `epoch`
-    /// once `interrupt` has fired.
-    pub(crate) fn wait_until_interrupted(
-        &self,
-        epoch: u64,
-        interrupt: &crate::stream_interrupt::StreamInterrupt,
-    ) -> u64 {
-        let mut state = self.state.lock().recover_poison();
-        while state.epoch == epoch && !interrupt.is_fired() {
-            state = self.changed.wait(state).recover_poison();
-        }
-        state.epoch
-    }
-
     /// Wakes every waiter without changing the epoch (an interrupt fired).
     pub(crate) fn notify_waiters(&self) {
         let _state = self.state.lock().unwrap_or_else(|error| error.into_inner());
@@ -381,20 +375,35 @@ impl JournalKernel {
     }
 
     pub(crate) fn wake_waiters(&self) {
-        let mut state = self.state.lock().recover_poison();
-        // The generation is the wait predicate. Advancing it makes a wake
-        // observable even when the signal arrives just before wait() locks.
-        state.epoch = state.epoch.wrapping_add(1);
-        self.changed.notify_all();
+        let watchers = {
+            let mut state = self.state.lock().recover_poison();
+            // The generation is the wait predicate. Advancing it makes a wake
+            // observable even when the signal arrives just before wait() locks.
+            state.epoch = state.epoch.wrapping_add(1);
+            self.changed.notify_all();
+            state.watchers.snapshot()
+        };
+        run_watchers(&watchers);
+    }
+
+    /// Runs `watcher` after each raise of the fan-out epoch until the
+    /// returned watch drops (`Mux::watch_shared_journal`).
+    pub(crate) fn watch(
+        self: &Arc<Self>,
+        watcher: impl Fn() + Send + Sync + 'static,
+    ) -> JournalWatch {
+        watch_on(self, watcher)
     }
 
     pub(crate) fn shutdown(&self) {
-        {
+        let watchers = {
             let mut state = self.state.lock().recover_poison();
             state.shutdown_requested = true;
             state.epoch = state.epoch.wrapping_add(1);
             self.changed.notify_all();
-        }
+            state.watchers.snapshot()
+        };
+        run_watchers(&watchers);
         if let Some(tailer) = self.tailer.lock().recover_poison().take()
             && waits::join(tailer).is_err()
         {
@@ -636,6 +645,19 @@ fn run_tailer(weak: Weak<JournalKernel>, reader: SessionJournalReader, mut last_
         }
         state.epoch = state.epoch.wrapping_add(1);
         kernel.changed.notify_all();
+        let watchers = state.watchers.snapshot();
+        drop(state);
+        run_watchers(&watchers);
+    }
+}
+
+impl WatcherOwner for JournalKernel {
+    fn with_watchers<R>(&self, f: impl FnOnce(&mut CommitWatchers) -> R) -> R {
+        f(&mut self.state.lock().recover_poison().watchers)
+    }
+
+    fn unwatch(&self, id: u64) -> Option<Watcher> {
+        self.with_watchers(|watchers| watchers.remove(id))
     }
 }
 
@@ -776,6 +798,28 @@ mod performance_tests {
         assert!(document.record_bytes.get().is_none());
     }
 
+    /// A journal stream drain watches the fan-out epoch instead of a thread
+    /// waiting on it (p05-ipc-147): each raise runs the watcher, outside
+    /// the lock, until its watch drops.
+    #[test]
+    fn a_fanout_watcher_runs_on_each_raise_until_its_watch_drops() {
+        let kernel = JournalKernel::new(None, &[]).unwrap();
+        let runs = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = runs.clone();
+        let observed = Arc::downgrade(&kernel);
+        let watch = kernel.watch(move || {
+            // The lock is released: the watcher may read the epoch.
+            let _ = observed.upgrade().map(|kernel| kernel.epoch());
+            counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        });
+        kernel.wake_waiters();
+        kernel.wake_waiters();
+        assert_eq!(runs.load(std::sync::atomic::Ordering::SeqCst), 2);
+        drop(watch);
+        kernel.wake_waiters();
+        assert_eq!(runs.load(std::sync::atomic::Ordering::SeqCst), 2, "a dropped watch still ran");
+    }
+
     #[test]
     fn explicit_wake_is_observable_even_before_a_waiter_sleeps() {
         let kernel = JournalKernel {
@@ -787,6 +831,7 @@ mod performance_tests {
                 records: VecDeque::new(),
                 record_bytes: 0,
                 available: true,
+                watchers: CommitWatchers::default(),
                 database_reader_count: 0,
             }),
             changed: Condvar::new(),
@@ -840,6 +885,7 @@ mod performance_tests {
                 records,
                 record_bytes,
                 available: true,
+                watchers: CommitWatchers::default(),
                 database_reader_count: 0,
             }),
             changed: Condvar::new(),

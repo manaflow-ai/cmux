@@ -411,24 +411,8 @@ fn handle_resource_connection_control(
     }
 }
 
-pub(super) fn send_resource_stream_item(
-    writer: &MessageWriter,
-    outbound: &OutboundStream,
-    stream_id: &StreamPublicId,
-    sequence: u64,
-    cursor: &Value,
-    item: Value,
-) -> bool {
-    writer
-        .send_stream_backpressured(
-            &resource_stream_item(writer, stream_id, sequence, cursor, item),
-            outbound,
-        )
-        .is_ok()
-}
-
-/// [`send_resource_stream_item`] for a drain that never waits: it checked
-/// that `outbound` has room first (`MessageSink::stream_has_room`).
+/// Queues one cursored item of a resource stream. Its drain never waits:
+/// it checked that `outbound` has room first (`MessageSink::stream_has_room`).
 pub(super) fn queue_resource_stream_item(
     writer: &MessageWriter,
     outbound: &OutboundStream,

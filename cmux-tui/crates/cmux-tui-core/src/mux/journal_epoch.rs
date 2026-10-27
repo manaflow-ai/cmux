@@ -15,19 +15,99 @@ use std::sync::{Arc, Weak};
 use crate::panic_free::RecoverPoison;
 use crate::stream_interrupt::StreamInterrupt;
 
-type Watcher = (u64, Arc<dyn Fn() + Send + Sync>);
+pub(crate) type Watcher = (u64, Arc<dyn Fn() + Send + Sync>);
+
+/// A copy-on-write list of commit watchers, kept under its owner's state
+/// lock: a commit clones the list's `Arc` under the lock and runs it after
+/// releasing it ([`run_watchers`]). The journal epoch and the shared journal
+/// fan-out (`JournalKernel`, p05-ipc-147) each hold one.
+#[derive(Default)]
+pub(crate) struct CommitWatchers {
+    next: u64,
+    list: Arc<Vec<Watcher>>,
+}
+
+impl CommitWatchers {
+    fn add(&mut self, watcher: impl Fn() + Send + Sync + 'static) -> u64 {
+        let id = self.next;
+        self.next += 1;
+        let mut list = Vec::clone(&self.list);
+        list.push((id, Arc::new(watcher)));
+        self.list = Arc::new(list);
+        id
+    }
+
+    /// Removes watcher `id`; the caller drops it outside its lock.
+    pub(crate) fn remove(&mut self, id: u64) -> Option<Watcher> {
+        let mut list = Vec::clone(&self.list);
+        let removed = list
+            .iter()
+            .position(|(watcher, _)| *watcher == id)
+            .map(|index| list.swap_remove(index));
+        self.list = Arc::new(list);
+        removed
+    }
+
+    /// The list a commit runs once its lock is released.
+    pub(crate) fn snapshot(&self) -> Arc<Vec<Watcher>> {
+        self.list.clone()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
+        self.list.len()
+    }
+}
+
+/// Runs a [`CommitWatchers::snapshot`]; never under its owner's lock.
+pub(crate) fn run_watchers(watchers: &[Watcher]) {
+    for (_, watcher) in watchers {
+        watcher();
+    }
+}
+
+/// The owner of a [`CommitWatchers`]: what a [`JournalWatch`] removes its
+/// watcher from.
+pub(crate) trait WatcherOwner: Send + Sync {
+    /// Runs `f` on the owner's list under its state lock.
+    fn with_watchers<R>(&self, f: impl FnOnce(&mut CommitWatchers) -> R) -> R
+    where
+        Self: Sized;
+    /// Removes watcher `id` and returns it, to drop outside the lock.
+    fn unwatch(&self, id: u64) -> Option<Watcher>;
+}
+
+/// Registers `watcher` on `owner` until the returned watch drops.
+pub(crate) fn watch_on<O: WatcherOwner + 'static>(
+    owner: &Arc<O>,
+    watcher: impl Fn() + Send + Sync + 'static,
+) -> JournalWatch {
+    let id = owner.with_watchers(|watchers| watchers.add(watcher));
+    let owner: Weak<O> = Arc::downgrade(owner);
+    let owner: Weak<dyn WatcherOwner> = owner;
+    JournalWatch { owner, id }
+}
 
 #[derive(Default)]
 struct EpochState {
     epoch: u64,
-    next_watcher: u64,
-    watchers: Arc<Vec<Watcher>>,
+    watchers: CommitWatchers,
 }
 
 #[derive(Default)]
 struct Inner {
     state: Mutex<EpochState>,
     changed: Condvar,
+}
+
+impl WatcherOwner for Inner {
+    fn with_watchers<R>(&self, f: impl FnOnce(&mut CommitWatchers) -> R) -> R {
+        f(&mut self.state.lock().recover_poison().watchers)
+    }
+
+    fn unwatch(&self, id: u64) -> Option<Watcher> {
+        self.with_watchers(|watchers| watchers.remove(id))
+    }
 }
 
 /// The mux's journal commit epoch.
@@ -46,11 +126,9 @@ impl JournalEpoch {
             let mut state = self.lock();
             state.epoch = state.epoch.wrapping_add(1);
             self.0.changed.notify_all();
-            state.watchers.clone()
+            state.watchers.snapshot()
         };
-        for (_, watcher) in watchers.iter() {
-            watcher();
-        }
+        run_watchers(&watchers);
     }
 
     pub(crate) fn current(&self) -> u64 {
@@ -86,13 +164,7 @@ impl JournalEpoch {
 
     /// Runs `watcher` after each commit until the returned watch drops.
     pub(crate) fn watch(&self, watcher: impl Fn() + Send + Sync + 'static) -> JournalWatch {
-        let mut state = self.lock();
-        let id = state.next_watcher;
-        state.next_watcher += 1;
-        let mut watchers = Vec::clone(&state.watchers);
-        watchers.push((id, Arc::new(watcher)));
-        state.watchers = Arc::new(watchers);
-        JournalWatch { epoch: Arc::downgrade(&self.0), id }
+        watch_on(&self.0, watcher)
     }
 
     #[cfg(test)]
@@ -103,25 +175,15 @@ impl JournalEpoch {
 
 /// A registered commit watcher; dropping it removes the watcher.
 pub(crate) struct JournalWatch {
-    epoch: Weak<Inner>,
+    owner: Weak<dyn WatcherOwner>,
     id: u64,
 }
 
 impl Drop for JournalWatch {
     fn drop(&mut self) {
-        let Some(inner) = self.epoch.upgrade() else { return };
-        let removed = {
-            let mut state = inner.state.lock().recover_poison();
-            let mut watchers = Vec::clone(&state.watchers);
-            let removed = watchers
-                .iter()
-                .position(|(id, _)| *id == self.id)
-                .map(|index| watchers.swap_remove(index));
-            state.watchers = Arc::new(watchers);
-            removed
-        };
+        let Some(owner) = self.owner.upgrade() else { return };
         // The watcher's captures drop outside the lock.
-        drop(removed);
+        drop(owner.unwatch(self.id));
     }
 }
 

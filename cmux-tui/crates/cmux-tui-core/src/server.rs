@@ -2449,8 +2449,6 @@ use disconnect::{
 mod journal_filter;
 #[cfg(test)]
 use journal_filter::JournalStreamFilter;
-#[cfg(test)]
-use journal_stream::run_session_journal_stream;
 
 mod resource_waits;
 use resource_waits::start_resource_wait;
@@ -2488,7 +2486,6 @@ use journal_stream::{
 mod resource_connection;
 use resource_connection::{
     handle_resource_connection_message, queue_resource_stream_item, resource_stream_end,
-    send_resource_stream_item,
 };
 
 mod connection_frame;

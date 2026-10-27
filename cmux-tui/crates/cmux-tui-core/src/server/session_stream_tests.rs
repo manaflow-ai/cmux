@@ -118,19 +118,94 @@ fn session_event_stream_sends_each_commit_as_a_delta() {
     mux.shutdown();
 }
 
+/// The journal stream is a drain on the mux's work lanes (p05-ipc-147):
+/// closing its outbound alone ends it, which frees its id and its worker
+/// permit, and no thread is left waiting on the journal.
 #[test]
 fn session_journal_stream_ends_when_its_outbound_closes_alone() {
     let mux = Mux::new_for_test("journal-stream-close", crate::SurfaceOptions::default());
-    let (writer, _outbound) = tests::captured_writer();
+    let (writer, _captured) = tests::captured_writer();
     let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let stream_id = "stream_33333333333343338333333333333333";
     let request = request(
         "session.journal.subscribe",
-        "stream_33333333333343338333333333333333",
+        stream_id,
         json!({"start":"beginning","filter":{"kinds":["workspace.*"],"max_sensitivity":"sensitive"}}),
     );
     let (_, start) = prepare_session_journal_stream(&mux, client, &writer, &request).unwrap();
     let outbound = start.outbound.clone();
-    returns_after_outbound_close("the session journal stream", outbound, move || {
-        run_session_journal_stream(&mux, client, &writer, start);
-    });
+    start_session_journal_stream(mux.clone(), client, writer, start);
+    let admission = &mux.control_clients.resource_stream_admission;
+    assert!(
+        !admission.wait_until_idle(Instant::now() + Duration::from_millis(100)),
+        "the journal stream ended before its outbound closed"
+    );
+    outbound.close();
+    assert!(
+        admission.wait_until_idle(Instant::now() + Duration::from_secs(2)),
+        "the journal stream kept its worker permit after its outbound closed"
+    );
+    let parsed = StreamPublicId::parse(stream_id.to_string()).unwrap();
+    assert!(
+        mux.control_clients.take_resource_stream(client, &parsed).is_none(),
+        "the ended stream kept its id"
+    );
+    mux.shutdown();
+}
+
+/// A live journal stream sends each commit as the next item, woken by the
+/// commit, not by a thread waiting on the journal (p05-ipc-147).
+#[test]
+fn session_journal_stream_sends_each_commit_as_it_lands() {
+    let mux = Mux::new_for_test("journal-stream-live", crate::SurfaceOptions::default());
+    let (writer, captured) = tests::captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let request = request(
+        "session.journal.subscribe",
+        "stream_55555555555545558555555555555555",
+        json!({"filter":{"kinds":["workspace.*"],"max_sensitivity":"sensitive"}}),
+    );
+    let (_, start) = prepare_session_journal_stream(&mux, client, &writer, &request).unwrap();
+    let outbound = start.outbound.clone();
+    start_session_journal_stream(mux.clone(), client, writer, start);
+    mux.new_workspace_as(&crate::Actor::Daemon, Some("woken".into()), Some((80, 24))).unwrap();
+    let item = next_json(&captured);
+    assert_eq!(item["type"], "stream_item", "{item}");
+    assert_eq!(item["sequence"], "0", "{item}");
+    assert!(item["item"]["kind"].as_str().is_some_and(|kind| kind.starts_with("workspace.")));
+    outbound.close();
+    mux.shutdown();
+}
+
+/// A bounded replay (`follow: false`) sends what the journal held when it
+/// opened and ends `completed` behind those items, without a thread.
+#[test]
+fn session_journal_stream_bounded_replay_completes() {
+    let mux = Mux::new_for_test("journal-stream-bounded", crate::SurfaceOptions::default());
+    mux.new_workspace_as(&crate::Actor::Daemon, Some("held".into()), Some((80, 24))).unwrap();
+    let (writer, captured) = tests::captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let request = request(
+        "session.journal.subscribe",
+        "stream_66666666666646668666666666666666",
+        json!({"start":"beginning","follow":false,
+               "filter":{"kinds":["workspace.*"],"max_sensitivity":"sensitive"}}),
+    );
+    let (_, start) = prepare_session_journal_stream(&mux, client, &writer, &request).unwrap();
+    start_session_journal_stream(mux.clone(), client, writer, start);
+    let mut items = 0;
+    let end = loop {
+        let line = next_json(&captured);
+        if line["type"] == "stream_item" {
+            items += 1;
+            continue;
+        }
+        break line;
+    };
+    assert!(items > 0, "the replay sent no record");
+    assert_eq!(end["type"], "stream_end", "{end}");
+    assert_eq!(end["reason"], "completed", "{end}");
+    let admission = &mux.control_clients.resource_stream_admission;
+    assert!(admission.wait_until_idle(Instant::now() + Duration::from_secs(2)));
+    mux.shutdown();
 }

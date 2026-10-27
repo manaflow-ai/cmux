@@ -916,7 +916,9 @@ fn graceful_stream_terminal_is_ordered_after_queued_items() {
     let stream = writer.start_stream(&json!({"event":"overflow"})).unwrap();
     writer.send_stream(&json!({"event":"first"}), &stream).unwrap();
     writer.send_stream(&json!({"event":"second"}), &stream).unwrap();
-    writer.send_ordered_terminal(&json!({"event":"completed"}), &stream).unwrap();
+    let queued =
+        writer.try_send_ordered_terminal(&json!({"event":"completed"}), &stream, Box::new(|| {}));
+    assert!(queued.unwrap(), "the terminal fits behind two items");
 
     assert_eq!(pop_json(&outbound)["event"], "first");
     assert_eq!(pop_json(&outbound)["event"], "second");

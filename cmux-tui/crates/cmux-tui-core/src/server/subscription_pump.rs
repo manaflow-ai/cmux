@@ -27,13 +27,15 @@
 //! done the pump fires the interrupt, which drops that waker.
 
 use cmux_threads::sync::Mutex;
-use cmux_threads::work::{Lane, Priority, Refused};
+use cmux_threads::work::{Lane, Priority, Refused, Shutdown};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Weak};
+use std::time::Duration;
 
 use crate::Mux;
 use crate::mux::mux_work::Sequence;
 use crate::panic_free::RecoverPoison;
+use crate::server::RoomWaker;
 use crate::server::attach_lifecycle::attach_pump::Turn;
 use crate::stream_interrupt::StreamInterrupt;
 
@@ -81,12 +83,14 @@ impl SubscriptionPump {
     /// The hook a source runs when it has something for the drain. It holds
     /// the pump weakly: a source never keeps an ended subscription alive.
     pub(super) fn hook(&self) -> impl Fn() + Send + Sync + 'static {
-        let pump = Arc::downgrade(&self.inner);
-        move || {
-            if let Some(inner) = pump.upgrade() {
-                wake(&inner);
-            }
-        }
+        let waker = self.waker();
+        move || waker.wake()
+    }
+
+    /// What a drain keeps to wake its own pump later: when the connection
+    /// has room for its terminal, or at a deadline.
+    pub(super) fn waker(&self) -> PumpWaker {
+        PumpWaker(Arc::downgrade(&self.inner))
     }
 
     /// Fired by any close the subscription ends on; it wakes the drain.
@@ -108,6 +112,43 @@ impl SubscriptionPump {
             self.inner.stop.fire();
         }
         posted
+    }
+}
+
+/// A weak handle on a pump: it never keeps an ended subscription alive.
+/// The pump lives until its drain is done (its stop interrupt's waker holds
+/// it), so a wake its drain asks for always finds it.
+#[derive(Clone)]
+pub(super) struct PumpWaker(Weak<PumpInner>);
+
+impl PumpWaker {
+    /// Posts the drain's next turn (one turn for any number of wakes).
+    pub(super) fn wake(&self) {
+        if let Some(inner) = self.0.upgrade() {
+            wake(&inner);
+        }
+    }
+
+    /// A wake for the connection to hold while it has no room for the
+    /// drain's ordered terminal (`MessageWriter::try_send_ordered_terminal`).
+    pub(super) fn room_waker(&self) -> RoomWaker {
+        let waker = self.clone();
+        Box::new(move || waker.wake())
+    }
+
+    /// A turn once `delay` has passed (a wait's deadline); an earlier wake
+    /// runs one sooner as well. After shutdown began nothing runs it, and
+    /// the drain ends with its connection.
+    pub(super) fn wake_after(&self, delay: Duration) {
+        let Some(mux) = self.0.upgrade().and_then(|inner| inner.mux.upgrade()) else { return };
+        let waker = self.clone();
+        let _ = mux.post_mux_work_after(
+            delay,
+            Priority::UserVisible,
+            Lane::Files,
+            Shutdown::SkipOnShutdown,
+            move |_| waker.wake(),
+        );
     }
 }
 

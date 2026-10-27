@@ -64,7 +64,7 @@ impl Mux {
 
     /// [`Self::post_mux_work`] once `delay` has passed
     /// ([`cmux_threads::work::Work::post_delayed`]).
-    pub(super) fn post_mux_work_after(
+    pub(crate) fn post_mux_work_after(
         &self,
         delay: Duration,
         priority: Priority,

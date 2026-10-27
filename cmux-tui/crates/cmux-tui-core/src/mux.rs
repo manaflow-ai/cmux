@@ -217,7 +217,7 @@ mod host_close;
 mod host_death_tests;
 mod idle_close;
 mod journal;
-mod journal_epoch;
+pub(crate) mod journal_epoch;
 pub(crate) use journal_epoch::JournalWatch;
 mod journal_maintenance;
 mod journal_plugin_host;

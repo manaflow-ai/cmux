@@ -8,27 +8,30 @@ use super::MessageWriter;
 use super::OutboundStream;
 use super::ResourceWorkerPermit;
 use super::journal_filter::{JournalCompiledRegex, JournalStreamFilter};
+use super::queue_resource_stream_item;
 use super::register_resource_outbound;
 use super::resource_session_id;
 use super::resource_stream_end;
 use super::resource_stream_id;
-use super::send_resource_stream_item;
 use super::session_stream;
+use super::subscription_pump::{PumpWaker, SubscriptionDrain, SubscriptionPump, TURN_BUDGET};
 use crate::JournalSensitivity;
 use crate::JournalSubject;
 use crate::Mux;
 use crate::journal_kernel::JournalDocument;
 use crate::journal_kernel::SharedJournalPage;
 use crate::journal_kernel::SharedJournalRead;
+use crate::mux::JournalWatch;
 use crate::panic_free::JsonFields;
 use crate::resource::ResourceError;
 use crate::resource::ResourceOperation;
 use crate::resource::SessionPublicId;
 use crate::resource::StreamPublicId;
 use crate::resource::WireDecimal;
-use crate::stream_interrupt::StreamInterrupt;
+use crate::server::attach_lifecycle::attach_pump::Turn;
 use serde_json::Value;
 use serde_json::json;
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
@@ -532,6 +535,11 @@ pub(super) fn prepare_session_journal_stream(
     ))
 }
 
+/// Starts the stream's drain on the mux's work lanes (subscription_pump.rs):
+/// a journal commit (on the shared fan-out, the tailer's publish), room on
+/// the stream or its close wakes it; no thread waits for the journal on its
+/// behalf (p05-ipc-147). It reads SQLite pages, so it runs on the Files
+/// lane, as `session.events` does.
 pub(super) fn start_session_journal_stream(
     mux: Arc<Mux>,
     client: u64,
@@ -540,16 +548,29 @@ pub(super) fn start_session_journal_stream(
 ) {
     let stream_id = start.stream_id.clone();
     let outbound = start.outbound.clone();
-    let worker_mux = mux.clone();
-    let worker_writer = writer.clone();
-    let spawn = cmux_threads::spawn(
-        "mux-resource-session-journal",
-        crate::thread_qos::ThreadType::Interactive.qos(),
-        move || {
-            run_session_journal_stream(&worker_mux, client, &worker_writer, start);
-        },
-    );
-    if spawn.is_err() {
+    let pump = SubscriptionPump::new(&mux);
+    writer.register_interrupt(pump.stop());
+    outbound.register_interrupt(pump.stop());
+    outbound.on_space(pump.hook());
+    // The drain compares the epoch it watches: the fan-out's while it reads
+    // the ring, the commit epoch otherwise.
+    let watch = if start.shared_fanout {
+        mux.watch_shared_journal(pump.hook())
+    } else {
+        mux.watch_journal_events(pump.hook())
+    };
+    let drain = JournalDrain {
+        mux: mux.clone(),
+        client,
+        writer: writer.clone(),
+        waker: pump.waker(),
+        stream: start,
+        page: None,
+        read_again: true,
+        completing: false,
+        _watch: watch,
+    };
+    if pump.start(Box::new(drain)).is_err() {
         let _ = mux.control_clients.take_resource_stream(client, &stream_id);
         let end = resource_stream_end(
             &stream_id,
@@ -569,213 +590,279 @@ pub(super) fn start_session_journal_stream(
     }
 }
 
-pub(super) fn run_session_journal_stream(
-    mux: &Arc<Mux>,
-    client: u64,
-    writer: &MessageWriter,
-    mut stream: SessionJournalStreamStart,
-) {
-    let interrupt = StreamInterrupt::new();
-    writer.register_interrupt(&interrupt);
-    stream.outbound.register_interrupt(&interrupt);
-    mux.wake_journal_waiters_on(&interrupt);
-    'stream: loop {
-        if session_stream::stopped(&stream.canceled, writer, &stream.outbound) {
-            break;
-        }
-        if complete_bounded_journal_replay(writer, &stream) {
-            break;
-        }
-        loop {
-            let page = match session_journal_page(
-                mux,
-                stream.reader.as_ref(),
-                stream.indexed_subjects.as_deref(),
-                stream.shared_fanout,
-                stream.last_sequence,
-                JOURNAL_STREAM_PAGE_SIZE,
-            ) {
-                Ok(SharedJournalRead::Page(page)) => page,
-                Ok(SharedJournalRead::Gap { .. } | SharedJournalRead::Unavailable)
-                    if stream.shared_fanout && stream.reader.is_none() =>
-                {
-                    match mux.session_journal_reader() {
-                        Ok(Some(reader)) => {
-                            stream.reader = Some(reader);
-                            continue;
-                        }
-                        Ok(None) | Err(_) => {
-                            let end = resource_stream_end(
-                                &stream.stream_id,
-                                "gap",
-                                Some(journal_cursor(&stream.session_id, stream.last_sequence)),
-                                Some("reconnect with the last journal cursor"),
-                                None,
-                            );
-                            let _ = writer.send_terminal(&end, &stream.outbound);
-                            break 'stream;
-                        }
-                    }
-                }
-                Ok(SharedJournalRead::Gap { .. } | SharedJournalRead::Unavailable) => {
-                    let end = resource_stream_end(
-                        &stream.stream_id,
-                        "gap",
-                        Some(journal_cursor(&stream.session_id, stream.last_sequence)),
-                        Some("reconnect with the last journal cursor"),
-                        None,
-                    );
-                    let _ = writer.send_terminal(&end, &stream.outbound);
-                    break 'stream;
-                }
-                Err(_) => {
-                    let end = resource_stream_end(
-                        &stream.stream_id,
-                        "gap",
-                        Some(journal_cursor(&stream.session_id, stream.last_sequence)),
-                        Some("reconnect with the last journal cursor"),
-                        None,
-                    );
-                    let _ = writer.send_terminal(&end, &stream.outbound);
-                    break 'stream;
-                }
-            };
-            let head_sequence = page.head_sequence;
-            let scanned_through = page.scanned_through;
-            if page.records.is_empty() {
-                stream.last_sequence = stream.last_sequence.max(
-                    stream
-                        .through_sequence
-                        .map_or(scanned_through, |through| scanned_through.min(through)),
-                );
-                if complete_bounded_journal_replay(writer, &stream) {
-                    break 'stream;
-                }
-                if stream.last_sequence < head_sequence {
-                    let end = resource_stream_end(
-                        &stream.stream_id,
-                        "gap",
-                        Some(journal_cursor(&stream.session_id, stream.last_sequence)),
-                        Some("reconnect from a retained journal cursor"),
-                        None,
-                    );
-                    let _ = writer.send_terminal(&end, &stream.outbound);
-                    break 'stream;
-                }
-                if stream.shared_fanout && stream.reader.is_some() {
-                    stream.reader = None;
-                    stream.epoch = mux.shared_journal_epoch();
-                }
-                break;
-            }
-            for document in page.records {
-                let record_sequence = document.record.sequence;
-                if stream
-                    .through_sequence
-                    .is_some_and(|through_sequence| record_sequence > through_sequence)
-                {
-                    stream.last_sequence = stream.through_sequence.unwrap_or(record_sequence);
-                    if complete_bounded_journal_replay(writer, &stream) {
-                        break 'stream;
-                    }
-                }
-                if stream.filter.matches(&document) {
-                    let cursor = journal_cursor(&stream.session_id, record_sequence);
-                    if stream.canceled.load(Ordering::Acquire)
-                        || !send_resource_stream_item(
-                            writer,
-                            &stream.outbound,
-                            &stream.stream_id,
-                            stream.next_sequence,
-                            &cursor,
-                            if stream.remote_redacted {
-                                remote_journal_record_value(&document)
-                            } else {
-                                document.wire_value().clone()
-                            },
-                        )
-                    {
-                        mux.control_clients.finish_resource_stream(
-                            client,
-                            &stream.stream_id,
-                            stream.outbound.id,
-                        );
-                        return;
-                    }
-                    stream.next_sequence = stream.next_sequence.saturating_add(1);
-                }
-                stream.last_sequence = record_sequence;
-                let end = resource_stream_end(
-                    &stream.stream_id,
-                    "gap",
-                    Some(journal_cursor(&stream.session_id, stream.last_sequence)),
-                    Some("reconnect with the last journal cursor"),
-                    None,
-                );
-                let _ = writer.update_stream_overflow(&stream.outbound, &end);
-                if complete_bounded_journal_replay(writer, &stream) {
-                    break 'stream;
-                }
-            }
-            if scanned_through > stream.last_sequence {
-                stream.last_sequence = stream
-                    .through_sequence
-                    .map_or(scanned_through, |through| scanned_through.min(through));
-                let end = resource_stream_end(
-                    &stream.stream_id,
-                    "gap",
-                    Some(journal_cursor(&stream.session_id, stream.last_sequence)),
-                    Some("reconnect with the last journal cursor"),
-                    None,
-                );
-                let _ = writer.update_stream_overflow(&stream.outbound, &end);
-                if complete_bounded_journal_replay(writer, &stream) {
-                    break 'stream;
-                }
-            }
-            if stream.last_sequence >= head_sequence {
-                if stream.shared_fanout && stream.reader.is_some() {
-                    stream.reader = None;
-                    stream.epoch = mux.shared_journal_epoch();
-                }
-                break;
-            }
-        }
-        loop {
-            if session_stream::stopped(&stream.canceled, writer, &stream.outbound) {
-                break 'stream;
-            }
-            let epoch = if stream.shared_fanout && stream.reader.is_none() {
-                mux.wait_for_shared_journal_until_interrupted(stream.epoch, &interrupt)
-            } else {
-                mux.wait_for_journal_event_until_interrupted(stream.epoch, &interrupt)
-            };
-            if epoch != stream.epoch {
-                stream.epoch = epoch;
-                break;
-            }
-        }
-    }
-    mux.control_clients.finish_resource_stream(client, &stream.stream_id, stream.outbound.id);
+/// A page read and not yet handled.
+struct PendingJournalPage {
+    head_sequence: u64,
+    scanned_through: u64,
+    records: VecDeque<Arc<JournalDocument>>,
 }
 
-fn complete_bounded_journal_replay(
-    writer: &MessageWriter,
-    stream: &SessionJournalStreamStart,
-) -> bool {
-    let Some(through_sequence) = stream.through_sequence else {
-        return false;
-    };
-    if stream.last_sequence < through_sequence {
-        return false;
+/// What the next step of a drain did.
+enum Step {
+    /// A record was sent or the cursor moved: look again.
+    Sent,
+    /// Nothing until a commit, room on the stream or on the connection.
+    Idle,
+    /// The stream has its terminal, or lost its connection.
+    End,
+}
+
+/// One `session.journal.subscribe` stream on its pump's sequence. Dropped,
+/// it ends its registration (the stream id and its worker permit).
+struct JournalDrain {
+    mux: Arc<Mux>,
+    client: u64,
+    writer: MessageWriter,
+    waker: PumpWaker,
+    stream: SessionJournalStreamStart,
+    page: Option<PendingJournalPage>,
+    /// Read before comparing epochs: the first turn, and after a page that
+    /// ended below the journal's head.
+    read_again: bool,
+    /// The bounded replay's `completed` end waits for room on the connection.
+    completing: bool,
+    _watch: JournalWatch,
+}
+
+impl SubscriptionDrain for JournalDrain {
+    fn turn(&mut self) -> Turn {
+        for _ in 0..TURN_BUDGET {
+            if session_stream::stopped(&self.stream.canceled, &self.writer, &self.stream.outbound) {
+                return Turn::Done;
+            }
+            if self.completing {
+                return match self.complete() {
+                    Some(Step::Idle) => Turn::Idle,
+                    _ => Turn::Done,
+                };
+            }
+            if !self.writer.sink.stream_has_room(&self.stream.outbound) {
+                return Turn::Idle;
+            }
+            match self.step() {
+                Step::Sent => {}
+                Step::Idle => return Turn::Idle,
+                Step::End => return Turn::Done,
+            }
+        }
+        Turn::Yield
     }
-    let end = resource_stream_end(
-        &stream.stream_id,
-        "completed",
-        Some(journal_cursor(&stream.session_id, through_sequence)),
-        None,
-        None,
-    );
-    let _ = writer.send_ordered_terminal(&end, &stream.outbound);
-    true
+}
+
+impl Drop for JournalDrain {
+    fn drop(&mut self) {
+        self.mux.control_clients.finish_resource_stream(
+            self.client,
+            &self.stream.stream_id,
+            self.stream.outbound.id,
+        );
+    }
+}
+
+impl JournalDrain {
+    /// Sends the next matching record (moving the cursor past those that
+    /// do not match), reading a page when the journal moved.
+    fn step(&mut self) -> Step {
+        if let Some(step) = self.complete() {
+            return step;
+        }
+        while let Some(page) = self.page.as_mut() {
+            let Some(document) = page.records.pop_front() else {
+                return self.finish_page();
+            };
+            if let Some(step) = self.record(&document) {
+                return step;
+            }
+        }
+        if !self.read_again {
+            let epoch = if self.stream.shared_fanout && self.stream.reader.is_none() {
+                self.mux.shared_journal_epoch()
+            } else {
+                self.mux.journal_event_epoch()
+            };
+            if epoch == self.stream.epoch {
+                return Step::Idle;
+            }
+            self.stream.epoch = epoch;
+        }
+        self.read_again = false;
+        let Some(page) = self.read() else {
+            return self.gap("reconnect with the last journal cursor");
+        };
+        if page.records.is_empty() {
+            return self.empty_page(page.head_sequence, page.scanned_through);
+        }
+        self.page = Some(PendingJournalPage {
+            head_sequence: page.head_sequence,
+            scanned_through: page.scanned_through,
+            records: page.records.into(),
+        });
+        Step::Sent
+    }
+
+    /// The page after the cursor; `None` is a gap the stream ends on. On
+    /// the shared fan-out a cursor behind the ring catches up on its own
+    /// read-only reader.
+    fn read(&mut self) -> Option<SharedJournalPage> {
+        loop {
+            let read = session_journal_page(
+                &self.mux,
+                self.stream.reader.as_ref(),
+                self.stream.indexed_subjects.as_deref(),
+                self.stream.shared_fanout,
+                self.stream.last_sequence,
+                JOURNAL_STREAM_PAGE_SIZE,
+            );
+            match read {
+                Ok(SharedJournalRead::Page(page)) => return Some(page),
+                Ok(SharedJournalRead::Gap { .. } | SharedJournalRead::Unavailable)
+                    if self.stream.shared_fanout && self.stream.reader.is_none() =>
+                {
+                    self.stream.reader = Some(self.mux.session_journal_reader().ok()??);
+                }
+                Ok(SharedJournalRead::Gap { .. } | SharedJournalRead::Unavailable) | Err(_) => {
+                    return None;
+                }
+            }
+        }
+    }
+
+    /// A page with no record: the cursor moves to what the read covered.
+    fn empty_page(&mut self, head_sequence: u64, scanned_through: u64) -> Step {
+        let covered = self
+            .stream
+            .through_sequence
+            .map_or(scanned_through, |through| scanned_through.min(through));
+        self.stream.last_sequence = self.stream.last_sequence.max(covered);
+        if let Some(step) = self.complete() {
+            return step;
+        }
+        if self.stream.last_sequence < head_sequence {
+            return self.gap("reconnect from a retained journal cursor");
+        }
+        self.caught_up();
+        Step::Sent
+    }
+
+    /// One record of the page: `Some` once it was sent or the stream ends,
+    /// `None` when the cursor only moved past it.
+    fn record(&mut self, document: &JournalDocument) -> Option<Step> {
+        let record_sequence = document.record.sequence;
+        if let Some(through) = self.stream.through_sequence
+            && record_sequence > through
+        {
+            self.stream.last_sequence = through;
+            if let Some(step) = self.complete() {
+                return Some(step);
+            }
+        }
+        let matched = self.stream.filter.matches(document);
+        if matched {
+            let cursor = journal_cursor(&self.stream.session_id, record_sequence);
+            let item = if self.stream.remote_redacted {
+                remote_journal_record_value(document)
+            } else {
+                document.wire_value().clone()
+            };
+            if self.stream.canceled.load(Ordering::Acquire)
+                || !queue_resource_stream_item(
+                    &self.writer,
+                    &self.stream.outbound,
+                    &self.stream.stream_id,
+                    self.stream.next_sequence,
+                    &cursor,
+                    item,
+                )
+            {
+                return Some(Step::End);
+            }
+            self.stream.next_sequence = self.stream.next_sequence.saturating_add(1);
+        }
+        self.stream.last_sequence = record_sequence;
+        self.update_overflow();
+        if let Some(step) = self.complete() {
+            return Some(step);
+        }
+        matched.then_some(Step::Sent)
+    }
+
+    /// Every record of the page is handled: the cursor moves to what the
+    /// read covered, then the stream reads again or waits.
+    fn finish_page(&mut self) -> Step {
+        let Some(page) = self.page.take() else { return Step::Sent };
+        if page.scanned_through > self.stream.last_sequence {
+            self.stream.last_sequence = self
+                .stream
+                .through_sequence
+                .map_or(page.scanned_through, |through| page.scanned_through.min(through));
+            self.update_overflow();
+            if let Some(step) = self.complete() {
+                return step;
+            }
+        }
+        if self.stream.last_sequence >= page.head_sequence {
+            self.caught_up();
+        } else {
+            self.read_again = true;
+        }
+        Step::Sent
+    }
+
+    /// The cursor reached the head: a catch-up reader goes back to the
+    /// shared ring and its epoch.
+    fn caught_up(&mut self) {
+        if self.stream.shared_fanout && self.stream.reader.is_some() {
+            self.stream.reader = None;
+            self.stream.epoch = self.mux.shared_journal_epoch();
+        }
+    }
+
+    /// The stream's overflow end names its current cursor.
+    fn update_overflow(&self) {
+        let end = resource_stream_end(
+            &self.stream.stream_id,
+            "gap",
+            Some(journal_cursor(&self.stream.session_id, self.stream.last_sequence)),
+            Some("reconnect with the last journal cursor"),
+            None,
+        );
+        let _ = self.writer.update_stream_overflow(&self.stream.outbound, &end);
+    }
+
+    /// Ends the stream with a gap at its cursor.
+    fn gap(&self, hint: &str) -> Step {
+        let end = resource_stream_end(
+            &self.stream.stream_id,
+            "gap",
+            Some(journal_cursor(&self.stream.session_id, self.stream.last_sequence)),
+            Some(hint),
+            None,
+        );
+        let _ = self.writer.send_terminal(&end, &self.stream.outbound);
+        Step::End
+    }
+
+    /// A bounded replay that reached its end queues `completed` behind its
+    /// items: `Some(End)` once queued, `Some(Idle)` while the connection
+    /// has no room for it (its room wakes the drain), `None` before the end.
+    fn complete(&mut self) -> Option<Step> {
+        let through = self.stream.through_sequence?;
+        if self.stream.last_sequence < through {
+            return None;
+        }
+        let end = resource_stream_end(
+            &self.stream.stream_id,
+            "completed",
+            Some(journal_cursor(&self.stream.session_id, through)),
+            None,
+            None,
+        );
+        let queued = self.writer.try_send_ordered_terminal(
+            &end,
+            &self.stream.outbound,
+            self.waker.room_waker(),
+        );
+        self.completing = matches!(queued, Ok(false));
+        Some(if self.completing { Step::Idle } else { Step::End })
+    }
 }
