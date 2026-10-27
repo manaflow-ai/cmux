@@ -141,6 +141,11 @@ on:
           - both
           - github-token
           - app-token
+      sign_pool:
+        description: nightly-next only. Also sign, notarize and check this build on the release runner pool (signer-* jobs); publication is unchanged.
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   # A nightly-next promotion request builds nothing here, so it gets its own
@@ -213,7 +218,7 @@ jobs:
     # Keep its default on the hosted runner so a busy paid Linux pool cannot
     # delay every nightly before the macOS work is admitted; retain the normal
     # Linux runner fallback for repositories that do not set the override.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
       head_sha: ${{ steps.decide.outputs.head_sha }}
@@ -1466,7 +1471,7 @@ jobs:
   resolve-nightly-ghostty-cli-helper:
     needs: [decide, resolve-nightly-cmux-tui-client]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -1701,6 +1706,9 @@ jobs:
           path: ${{ runner.temp }}/source-archive
           if-no-files-found: error
           retention-days: 3
+          # A re-run of pick-nightly-build-runner re-runs this job after a success
+          # (owned_pool_rescue.repick_job()); its second upload replaces the first.
+          overwrite: true
 
       # Signing only embeds the license trees. Keep that handoff separate from
       # the optional source offer so each signing leg does not download the
@@ -1713,6 +1721,9 @@ jobs:
           path: ${{ runner.temp }}/source-archive/*-licenses
           if-no-files-found: error
           retention-days: 3
+          # A re-run of pick-nightly-build-runner re-runs this job after a success
+          # (owned_pool_rescue.repick_job()); its second upload replaces the first.
+          overwrite: true
 
   # The web bundles and the third-party notices of a cmux-next nightly, built
   # on Linux beside build-nightly-app instead of on its serial path (0.7 to
@@ -1810,7 +1821,7 @@ jobs:
     needs: [decide, resolve-nightly-cmux-tui-client]
     if: ${{ !cancelled() && needs.resolve-nightly-cmux-tui-client.result == 'success' }}
     continue-on-error: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # A dispatch mints the routing token too, so the key is read in the routing environment, as
     # the other dispatchable pickers do (iroh-release-gate.yml, test-ios.yml).
     environment: ci-routing-agent
@@ -3076,7 +3087,7 @@ jobs:
     # Runs for every app build (build_only and fast included): it picks the
     # commit every app job checks out (build_sha).
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
       actions: read
@@ -3240,7 +3251,13 @@ jobs:
     # gives Apple lipo's bytes). The client install, its probes and the strip
     # run in build-nightly-app; the checks that execute Mach-O run in
     # verify-signed-nightly. The fallback below runs only after a failure.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # While Blacksmith Linux starts nothing (the overflow record is set) and
+    # hosted Ubuntu is saturated, this and the other light nightly jobs take
+    # Blacksmith macOS 26, which still moves. Apple's lipo then does the
+    # thinning llvm-lipo copies. No owned label: a runs-on never reads an
+    # unpicked owned variable (tests/test_nightly_trusted_routing.py), and the
+    # picker that validates one itself runs after decide.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 100
     strategy:
       fail-fast: false
@@ -3309,7 +3326,7 @@ jobs:
       # shim trims it.
       - &put-llvm-lipo-on-path-as-lipo
         name: Put llvm-lipo on PATH as lipo
-        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
+        if: runner.os == 'Linux' && (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true')
         run: |
           set -euo pipefail
           llvm_lipo="$(ls /usr/lib/llvm-18/bin/llvm-lipo 2>/dev/null || command -v llvm-lipo || ls /usr/lib/llvm-*/bin/llvm-lipo 2>/dev/null | sort -V | tail -n 1 || true)"
@@ -3429,7 +3446,13 @@ jobs:
           products="build-universal/Build/Products/Release"
           mkdir -p "$products"
           # The Mac's tar records extended attributes GNU tar does not restore.
-          tar --warning=no-unknown-keyword -C "$products" -xzf nightly-inputs/app/cmux-nightly-unsigned.tar.gz
+          # On an owned Mac (the outage fallback) the Mac's own tar restores them,
+          # as this job did before it moved to Linux (#25885).
+          if [ "$RUNNER_OS" = Linux ]; then
+            tar --warning=no-unknown-keyword -C "$products" -xzf nightly-inputs/app/cmux-nightly-unsigned.tar.gz
+          else
+            tar -C "$products" -xzf nightly-inputs/app/cmux-nightly-unsigned.tar.gz
+          fi
 
       # The cx-f58x browser-data scan runs here, on the per-run hosted lane,
       # before anything is injected or signed. In build-nightly-app it took
@@ -3673,7 +3696,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || 'ubuntu-24.04' }}
     timeout-minutes: 100
     strategy:
       fail-fast: false
@@ -3959,7 +3982,7 @@ jobs:
   prepare-nightly-variant:
     needs: [prepare-nightly-variant-primary, prepare-nightly-variant-fallback]
     if: always() && (needs.prepare-nightly-variant-primary.result == 'success' || needs.prepare-nightly-variant-fallback.result == 'success')
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || 'ubuntu-24.04' }}
     steps:
       - name: Accept primary or fallback preparation
         run: echo "nightly preparation completed on the primary or fallback route"
@@ -3979,7 +4002,7 @@ jobs:
     # vars.MACOS_RUNNER_26: a pick never blocks signing. It runs on GitHub's hosted runner, as
     # prepare-nightly-variant does, so it never waits on a queue of its own before that fallback.
     continue-on-error: true
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || 'ubuntu-24.04' }}
     # Room for every step budget in turn (the Blacksmith pick 2, then the owned pick's token
     # mints 1 + 1 and picker 2) plus checkout, so the job is never cut off before its outputs;
     # the Blacksmith pick runs first so `runner` is set before the owned steps start.
@@ -3993,9 +4016,9 @@ jobs:
       # The other Blacksmith macOS 26 size, which the signing jobs take on a re-run
       # (attempt 2 on), so a re-run moves off a label that stalled after this pick.
       alternate: ${{ steps.sign-runner.outputs.alternate }}
-      # An owned label (glaeda-...) with a machine free now, or empty: the verify jobs then
-      # take `runner`. Only attempt 1 reads it; a re-run verifies on Blacksmith.
-      owned: ${{ steps.owned.outputs.label }}
+      # An owned label (glaeda-...) or empty: the verify jobs then take `runner`. Only attempt 1
+      # reads it; a re-run verifies on Blacksmith.
+      owned: ${{ steps.owned.outputs.owned }}
     steps:
       - name: Checkout publication tooling at the workflow commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -4021,7 +4044,7 @@ jobs:
       # budget. Any failure leaves the token empty, and the pick below then finds no owned Mac.
       - name: Mint the owned-pool routing token
         id: route-token
-        if: github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && github.event_name == 'push' && github.ref_name == 'nightly-next' && startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, 'glaeda-trusted-') && startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER, 'glaeda-runner-')
+        if: github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && github.event_name == 'push' && github.ref_name == 'nightly-next'
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -4042,39 +4065,28 @@ jobs:
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-administration: read
 
-      # An owned Mac only when one is free now (simple_pool_picker: idle runners less the
-      # queued jobs of the label family); anything else, a failure included, is empty.
+      # The owned labels the build picker offers (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, glaeda's
+      # nightly slot, then vars.CI_SIDE_LANE_RUNNER), never the dedicated builder, while one of
+      # their runners is idle now (nightly_build_runner.py verify). glaeda admits a nightly job on
+      # a mini ahead of every PR, DEV and side job. Anything else, a failure included, is empty,
+      # and the verify jobs take `runner`.
       # Only nightly-next push runs, the scope ci-owned-pool-rescue.yml watches (owned_pool_rescue.py
-      # nightly_target): a stuck owned verify there is cancelled and re-run on Blacksmith. RC, main
-      # and manual runs keep Blacksmith.
-      - name: Pick a free owned Mac for the verify jobs
+      # nightly_target): a stuck owned verify there is moved to Blacksmith. RC, main and manual
+      # runs keep Blacksmith. Until 2026-10-27 this
+      # ran the pull request pool picker, which named a Blacksmith macOS 15 label in run 40515681971
+      # while owned side runners sat idle: verify then queued 1.5 h on Blacksmith.
+      - name: Pick an owned Mac for the verify jobs
         id: owned
-        if: github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && github.event_name == 'push' && github.ref_name == 'nightly-next' && startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, 'glaeda-trusted-') && startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER, 'glaeda-runner-')
+        if: github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && github.event_name == 'push' && github.ref_name == 'nightly-next'
         continue-on-error: true
         timeout-minutes: 2
         env:
-          GH_TOKEN: ${{ github.token }}
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
-          GH_REPO: ${{ github.repository }}
-          POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
-          POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
-          POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
-          OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
-          PR_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
-        run: |
-          set -uo pipefail
-          label="$(python3 .publish-tooling/scripts/ci/e2e_runner_pool.py \
-            --requested auto \
-            --order "$POOL_ORDER" \
-            --max-queued "$POOL_MAX_QUEUED" \
-            --owned "$POOL_OWNED" \
-            --owned-slots "$OWNED_SLOTS" \
-            --pr-xcode-app "$PR_XCODE_APP")" || label=""
-          case "$label" in
-            glaeda-*) echo "Verify jobs: $label (a re-run verifies on Blacksmith)" ;;
-            *) echo "No owned Mac free now (picker said '${label:-nothing}'); Blacksmith verifies."; label="" ;;
-          esac
-          echo "label=$label" >> "$GITHUB_OUTPUT"
+          SNAPSHOT_TOKEN: ${{ github.token }}
+          # In order; only labels ci-owned-pool-rescue.yml watches are offered.
+          OWNED_LABELS: ${{ format('{0} {1}', vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, vars.CI_SIDE_LANE_RUNNER) }}
+          CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
+        run: python3 .publish-tooling/scripts/ci/nightly_build_runner.py verify
 
   build-sign-notarize-nightly:
     # Production secrets: GitHub releases them only to protected refs (the
@@ -5224,6 +5236,328 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+  # nightly-next on the release runner pool, off unless the sign_pool input or
+  # vars.CI_NIGHTLY_NEXT_SIGN_POOL turns it on: signer-app signs the app
+  # (the Computer Use helper notarized and stapled first) and notarizes it,
+  # signer-dmg-image packages the DMG on a Mac, signer-dmg signs, notarizes and
+  # staples the DMG and writes the appcast, and signer-verify runs Apple's
+  # checks. Their artifacts feed nothing yet; build-sign-notarize-nightly
+  # still signs and publishes this run's build.
+  signer-build:
+    needs: [decide]
+    if: needs.decide.outputs.track == 'nightly-next' && (inputs.sign_pool || vars.CI_NIGHTLY_NEXT_SIGN_POOL == '1') && vars.CMUX_NEXT_CEF_ON_DEMAND != '1' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.continue_only != 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.notary_probe != 'true' && needs.decide.outputs.variants == '["arm64"]' && inputs.nightly_next_unsigned_run == ''
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-8vcpu-ubuntu-2404' }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      sha256: ${{ steps.build.outputs.sha256 }}
+      # Named for the attempt that built it: a rerun of failed jobs keeps this job's output.
+      artifact: nightly-signer-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .publish-tooling
+          sparse-checkout: scripts/ci/release-signer
+      - id: cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/signer
+          key: release-signer-rust-1.95.0-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.publish-tooling/scripts/ci/release-signer/build.sh', '.publish-tooling/scripts/ci/release-signer/apple-codesign-0.29.0.patch') }}
+      # The runner image's rustup only; never a fetched installer script.
+      - name: Set up Rust
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.cargo/bin:$PATH"
+          rustup toolchain install 1.95.0 --profile minimal
+          dirname "$(rustup which --toolchain 1.95.0 cargo)" >> "$GITHUB_PATH"
+      - name: Build the signer
+        id: build
+        run: |
+          set -euo pipefail
+          if [ -x "$RUNNER_TEMP/signer/rcodesign" ]; then echo "sha256=$(sha256sum "$RUNNER_TEMP/signer/rcodesign" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          else bash .publish-tooling/scripts/ci/release-signer/build.sh "$RUNNER_TEMP/signer" >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nightly-signer-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/signer/rcodesign
+          if-no-files-found: error
+          retention-days: 1
+
+  signer-app:
+    environment: ${{ needs.decide.outputs.environment }}
+    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, signer-build]
+    if: needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 75
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      sha256: ${{ steps.pack.outputs.sha256 }}
+    env:
+      TOOLS: .publish-tooling
+      SIGNER_WORK: ${{ github.workspace }}/signer-work
+      NIGHTLY_VARIANT: arm64
+      NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
+      NIGHTLY_MARKETING_VERSION: ${{ needs.build-nightly-app.outputs.daemon_version }}
+      NIGHTLY_DMG_RELEASE: ${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg
+      NIGHTLY_DMG_IMMUTABLE: ${{ needs.decide.outputs.dmg_prefix }}-arm64-${{ needs.build-nightly-app.outputs.daemon_build }}.dmg
+      BUNDLE_REMOTE_DAEMON_ASSETS: ${{ needs.decide.outputs.should_publish != 'true' }}
+      CHANNEL: ${{ needs.decide.outputs.channel }}
+      TRACK: ${{ needs.decide.outputs.track }}
+      CHANNEL_BUNDLE_ID: ${{ needs.decide.outputs.bundle_id }}
+      CHANNEL_APP_NAME: ${{ needs.decide.outputs.app_name }}
+      CHANNEL_URL_SCHEME: ${{ needs.decide.outputs.url_scheme }}
+      CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
+      CHANNEL_FEED_BASE: ${{ needs.decide.outputs.feed_base }}
+      BUILD_SHORT_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+    steps:
+      - &signer-checkout-build
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          submodules: false
+      - &signer-checkout-tools
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .publish-tooling
+          sparse-checkout: scripts
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-${{ needs.decide.outputs.channel }}-prepared-app-arm64-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+          path: prepared-app
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-nightly-remote-daemon
+          path: remote-daemon-assets
+      - &signer-install
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ needs.signer-build.outputs.artifact }}
+          path: ${{ runner.temp }}/signer
+      - &signer-install-check
+        name: Install the signer
+        env:
+          SIGNER_SHA256: ${{ needs.signer-build.outputs.sha256 }}
+        run: bash .publish-tooling/scripts/ci/release-signer/install.sh "$RUNNER_TEMP/signer/rcodesign" "$SIGNER_SHA256" >> "$GITHUB_ENV"
+      - name: Prepare the app
+        id: prepare
+        env:
+          NEXT_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_NEXT_PRIVATE_KEY }}
+        run: bash .publish-tooling/scripts/ci/nightly-steps/signer-app-prepare.sh
+      - name: Sign the app, the Computer Use helper notarized first
+        env:
+          CMUX_SIGN_MODE: helper-first
+          CMUX_HELPER_ENTITLEMENTS: cmux-helper.entitlements
+          CMUX_HELPER_NOTARY_WAIT_SECONDS: "1200"
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+          ENTITLEMENTS: ${{ needs.decide.outputs.entitlements }}
+        run: bash .publish-tooling/scripts/ci/release-signer/sign-app.sh "${{ steps.prepare.outputs.app }}" "$ENTITLEMENTS"
+      - name: Notarize and staple the app
+        id: notarize
+        env:
+          NOTARY_MAX_WAIT_SECONDS: "1200"
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+        run: bash .publish-tooling/scripts/ci/release-signer/notarize-app.sh "${{ steps.prepare.outputs.app }}" "$RUNNER_TEMP/notary-app.log" >> "$GITHUB_OUTPUT"
+      - name: Pack the stapled app
+        id: pack
+        env:
+          APP_SUBMISSION: ${{ steps.notarize.outputs.submission_id }}
+        run: bash .publish-tooling/scripts/ci/nightly-steps/signer-app-pack.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-next-signer-app-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+          path: signer-out/stapled-app.tar
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
+
+  signer-dmg-image:
+    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, pick-nightly-sign-runner, signer-app]
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && needs.pick-nightly-sign-runner.outputs.owned || github.run_attempt > 1 && needs.pick-nightly-sign-runner.outputs.alternate || needs.pick-nightly-sign-runner.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      sha256: ${{ steps.dmg.outputs.sha256 }}
+      floor: ${{ steps.dmg.outputs.floor }}
+    env:
+      CMUX_CI_XCODE_APP: ${{ github.run_attempt == 1 && needs.pick-nightly-sign-runner.outputs.owned != '' && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      SIGNER_WORK: ${{ github.workspace }}/signer-work
+      CHANNEL_APP_NAME: ${{ needs.decide.outputs.app_name }}
+      NIGHTLY_DMG_RELEASE: ${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg
+    steps:
+      - *signer-checkout-build
+      - *signer-checkout-tools
+      - &signer-notices
+        name: Initialize cmux-next notices submodule
+        if: github.ref_name == 'nightly-next'
+        run: bash scripts/ci/init-submodule.sh ghostty-next
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22.23.4"
+      - &signer-download-app
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-nightly-next-signer-app-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+          path: signer-app
+      - name: Apple's checks of the stapled app
+        env:
+          APP_SHA256: ${{ needs.signer-app.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          echo "$APP_SHA256  signer-app/stapled-app.tar" | shasum -a 256 -c -
+          mkdir -p "$SIGNER_WORK" && tar -C "$SIGNER_WORK" -xf signer-app/stapled-app.tar
+          bash .publish-tooling/scripts/ci/nightly-steps/signer-apple-checks.sh "$SIGNER_WORK/$CHANNEL_APP_NAME.app"
+      - name: The signed-app checks
+        env:
+          CHECK_MINOS: "true"
+          PACKAGE_HANDOFF: "false"
+          PACKAGE_UNNOTARIZED_ZIP: "false"
+        run: |
+          set -euo pipefail
+          bash scripts/ci/signed-app-checks.sh start "$SIGNER_WORK/$CHANNEL_APP_NAME.app"
+          bash scripts/ci/signed-app-checks.sh finish
+      - name: Build the unsigned DMG
+        id: dmg
+        run: bash .publish-tooling/scripts/ci/nightly-steps/signer-dmg-image.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-next-signer-unsigned-dmg-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+          path: signer-out/${{ env.NIGHTLY_DMG_RELEASE }}
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
+
+  signer-dmg:
+    environment: ${{ needs.decide.outputs.environment }}
+    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, signer-build, signer-app, signer-dmg-image]
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    env:
+      TOOLS: .publish-tooling
+      SIGNER_WORK: ${{ github.workspace }}/signer-work
+      NIGHTLY_VARIANT: arm64
+      NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
+      NIGHTLY_MARKETING_VERSION: ${{ needs.build-nightly-app.outputs.daemon_version }}
+      NIGHTLY_DMG_RELEASE: ${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg
+      NIGHTLY_DMG_IMMUTABLE: ${{ needs.decide.outputs.dmg_prefix }}-arm64-${{ needs.build-nightly-app.outputs.daemon_build }}.dmg
+      BUNDLE_REMOTE_DAEMON_ASSETS: ${{ needs.decide.outputs.should_publish != 'true' }}
+      CHANNEL: ${{ needs.decide.outputs.channel }}
+      TRACK: ${{ needs.decide.outputs.track }}
+      CHANNEL_BUNDLE_ID: ${{ needs.decide.outputs.bundle_id }}
+      CHANNEL_APP_NAME: ${{ needs.decide.outputs.app_name }}
+      CHANNEL_URL_SCHEME: ${{ needs.decide.outputs.url_scheme }}
+      CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
+      CHANNEL_FEED_BASE: ${{ needs.decide.outputs.feed_base }}
+      BUILD_SHORT_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+    steps:
+      - *signer-checkout-tools
+      - *signer-install
+      - *signer-install-check
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-nightly-next-signer-unsigned-dmg-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+          path: signer-out
+      - *signer-download-app
+      - name: Sign, notarize and staple the DMG
+        env:
+          UNSIGNED_SHA256: ${{ needs.signer-dmg-image.outputs.sha256 }}
+          NOTARY_MAX_WAIT_SECONDS: "1200"
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+        run: bash .publish-tooling/scripts/ci/nightly-steps/signer-dmg.sh
+      - name: Write the appcast
+        env:
+          APP_SHA256: ${{ needs.signer-app.outputs.sha256 }}
+          FLOOR: ${{ needs.signer-dmg-image.outputs.floor }}
+          SPARKLE_CHANNEL: ${{ vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'cmux-next-dev' || 'cmux-next' }}
+          NEXT_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_NEXT_PRIVATE_KEY }}
+        run: |
+          echo "$APP_SHA256  signer-app/stapled-app.tar" | sha256sum -c -
+          bash .publish-tooling/scripts/ci/nightly-steps/signer-appcast.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-next-signer-variant-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+          path: |
+            signer-out/${{ env.NIGHTLY_DMG_RELEASE }}
+            signer-out/${{ env.NIGHTLY_DMG_IMMUTABLE }}
+            signer-out/appcast-arm64.xml
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
+
+  signer-verify:
+    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, pick-nightly-sign-runner, signer-dmg]
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && needs.pick-nightly-sign-runner.outputs.owned || github.run_attempt > 1 && needs.pick-nightly-sign-runner.outputs.alternate || needs.pick-nightly-sign-runner.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      CMUX_CI_XCODE_APP: ${{ github.run_attempt == 1 && needs.pick-nightly-sign-runner.outputs.owned != '' && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      SIGNER_WORK: ${{ github.workspace }}/signer-work
+      CHANNEL_APP_NAME: ${{ needs.decide.outputs.app_name }}
+      NIGHTLY_DMG_RELEASE: ${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg
+      NIGHTLY_DMG_IMMUTABLE: ${{ needs.decide.outputs.dmg_prefix }}-arm64-${{ needs.build-nightly-app.outputs.daemon_build }}.dmg
+      NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
+    steps:
+      - *signer-checkout-build
+      - *signer-checkout-tools
+      - *signer-notices
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-nightly-next-signer-variant-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+          path: signer-out
+      - name: The final DMG and the app in it
+        env:
+          SIGN_CHANNEL: ${{ needs.decide.outputs.sign_channel }}
+        run: |
+          set -euo pipefail
+          dmg="signer-out/$NIGHTLY_DMG_RELEASE"
+          cmp "$dmg" "signer-out/$NIGHTLY_DMG_IMMUTABLE"
+          /usr/bin/codesign --verify --verbose=2 "$dmg"
+          spctl -a -vv -t open --context context:primary-signature "$dmg" 2>&1 | tee spctl-dmg.txt
+          grep -qx 'source=Notarized Developer ID' spctl-dmg.txt
+          bash scripts/ci/verify-dmg-artifact.sh "$dmg" "$SIGN_CHANNEL" --require-stapled-app 4>&1
+          mnt="$(mktemp -d)"
+          hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mnt" >/dev/null
+          trap 'hdiutil detach "$mnt" >/dev/null 2>&1 || hdiutil detach -force "$mnt" >/dev/null 2>&1 || true' EXIT
+          bash .publish-tooling/scripts/ci/nightly-steps/signer-apple-checks.sh "$mnt/$CHANNEL_APP_NAME.app"
+      - name: The appcast's Sparkle signature over the final DMG
+        run: |
+          set -euo pipefail
+          python3 -I .publish-tooling/scripts/ci/release-signer/verify_appcast_item.py signer-out/appcast-arm64.xml \
+            "signer-out/$NIGHTLY_DMG_IMMUTABLE" "$NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY" "$NIGHTLY_BUILD" | tee -a "$GITHUB_STEP_SUMMARY"
+
   # nightly-next continuation. A build whose notarization wait ran out left a
   # recovery artifact (build-sign-notarize-nightly). Each later published
   # nightly-next run lists the newer pending ones, continues the newest that
@@ -5234,7 +5568,7 @@ jobs:
   find-nightly-next-recovery:
     needs: [decide]
     if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 70
     permissions:
       actions: read
