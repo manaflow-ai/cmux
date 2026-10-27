@@ -257,6 +257,26 @@ class RigCleanupTests(unittest.TestCase):
                 mock.patch.object(rig_cleanup.subprocess, "run", return_value=failed):
             self.assertTrue(rig_cleanup.group_alive(4242))
 
+    def test_a_record_a_reaper_dropped_before_the_dir_existed_is_written_again(self):
+        import shutil
+        shutil.rmtree(self.rig)
+        c, _ = self.cleanup_with({})
+        real = rig_cleanup.register
+        calls = []
+
+        def register_then_drop(path, *args, **kwargs):
+            out = real(path, *args, **kwargs)
+            calls.append(path)
+            if len(calls) == 1:  # the reconciler's "its dir is gone" between record and mkdir
+                os.unlink(rig_cleanup.record_file(path))
+            return out
+
+        with mock.patch.object(rig_cleanup, "register", side_effect=register_then_drop):
+            c.register_rig()
+        self.assertTrue(os.path.isdir(self.rig))
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(self.records()[self.rig][1]["owner_pid"], os.getpid())
+
 
 if __name__ == "__main__":
     unittest.main()

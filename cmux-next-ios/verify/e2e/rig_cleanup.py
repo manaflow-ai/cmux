@@ -271,6 +271,11 @@ class RigCleanup:
         self.rig_owner = (pid, process_start(pid))
         try:
             register(self.rig, *self.rig_owner, owner_pgid=os.getpgrp(), directory=self.directory)
+            os.makedirs(self.rig, exist_ok=True)
+            # A reaper that saw the record before the dir existed may have dropped it ("its dir is gone"); the
+            # dir exists now, so a record written again stays.
+            if not owned(read_record(self.rig, self.directory), *self.rig_owner):
+                register(self.rig, *self.rig_owner, owner_pgid=os.getpgrp(), directory=self.directory)
         except Held as held:
             raise SystemExit(f"refusing to start: {held} (another run of this rig)")
         except (OSError, ValueError) as error:
