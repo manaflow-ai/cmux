@@ -257,7 +257,10 @@ test("brokered PR mutations and git branch updates are Changes", () => {
   const rows = [
     activity(
       [
-        shell("gh pr view 41 -R acme/uploader --json title", '{"title":"Read first"}'),
+        shell(
+          "gh pr view 41 -R acme/uploader --json title,headRefName",
+          '{"title":"Read first","headRefName":"si-sources-parser"}',
+        ),
         shell("glaeda-gh gh pr edit 41 -R acme/uploader --title 'Changed'"),
         shell("git push origin si-sources-parser"),
       ],
@@ -265,6 +268,43 @@ test("brokered PR mutations and git branch updates are Changes", () => {
     ),
   ];
   expect(transcriptPullRequests(rows).map((pr) => [pr.number, pr.changed])).toEqual([[41, true]]);
+});
+
+test("git pushes and reverts only change pull requests on the pushed branch", () => {
+  const read = (number: number, head: string) =>
+    activity(
+      [shell(`gh pr view ${number} -R acme/uploader --json headRefName`, JSON.stringify({ headRefName: head }))],
+      number,
+    );
+  const unrelated = [read(41, "feature-41"), read(42, "feature-42"), activity([shell("git push origin unrelated")], 3)];
+  expect(transcriptPullRequests(unrelated, { folder: "acme/uploader" }).map((pr) => [pr.number, pr.changed])).toEqual([
+    [41, undefined],
+    [42, undefined],
+  ]);
+
+  const optionForms = [
+    read(41, "feature-41"),
+    read(42, "feature-42"),
+    activity([shell("git -C /project push origin feature-41")], 3),
+    activity([shell("git branch --show-current", "feature-42")], 4),
+    activity([shell("git -c key=value revert deadbeef")], 5),
+  ];
+  expect(transcriptPullRequests(optionForms, { folder: "acme/uploader" }).map((pr) => [pr.number, pr.changed])).toEqual(
+    [
+      [41, true],
+      [42, true],
+    ],
+  );
+});
+
+test("brokered comment writes are Changes, not Sources", () => {
+  const rows = [activity([shell("glaeda-gh post pr-comment acme/uploader#41 --body-file -")], 1)];
+  expect(transcriptPullRequests(rows, { folder: "acme/uploader" })[0]).toMatchObject({
+    number: 41,
+    changed: true,
+    kind: "pullRequest",
+  });
+  expect(sessionSummary(rows, "acme/uploader").sources).toEqual([]);
 });
 
 test("mutating issue calls do not become read-only Sources", () => {
@@ -316,6 +356,20 @@ test("sessionSummary reuses its producer revision across 50 streamed chunks", ()
   visits = 0;
   for (let index = 0; index < 50; index++) {
     rows.set("reply", { ...assistant(`chunk ${index}`, 2), id: "reply", version: index + 1, streaming: true });
+    rows.set("thought", {
+      id: "thought",
+      version: index + 1,
+      at: 3,
+      kind: "activity",
+      items: [{ kind: "thought", text: `thinking ${index}` }],
+    });
+    rows.set("tool-progress", {
+      id: "tool-progress",
+      version: index + 1,
+      at: 4,
+      kind: "activity",
+      items: [{ kind: "tool", text: "", tool: { id: "t", title: "Work", status: "in_progress" } }],
+    });
     expect(sessionSummary(rows.sorted(), "acme/app")).toBe(first);
   }
   expect(visits).toBe(0);

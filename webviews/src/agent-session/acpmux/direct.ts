@@ -90,6 +90,7 @@ import {
   markTranscriptSummaryVersion,
   markTranscriptSourceVersion,
   pullRequestRowKey,
+  transcriptSummaryRowIsStreaming,
   transcriptSourceRowKey,
 } from "./summary/transcriptPullRequests";
 import { parseHarnessIconSpec, rememberHarnessIcons } from "../shared/harnessIcons";
@@ -991,7 +992,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       this.pullRequestActivityVersion = Symbol();
     if (!unchanged && row.kind === "activity" && pullRequestRowKey(previous) !== pullRequestRowKey(row))
       this.pullRequestCommandVersion = Symbol();
-    if (!unchanged && !(row.kind === "assistant" && row.streaming)) this.transcriptSummaryVersion = Symbol();
+    if (!unchanged && !transcriptSummaryRowIsStreaming(row)) this.transcriptSummaryVersion = Symbol();
     if (!unchanged && transcriptSourceRowKey(previous) !== transcriptSourceRowKey(row))
       this.transcriptSourceVersion = Symbol();
     if (!unchanged) this.snapshot = undefined;
