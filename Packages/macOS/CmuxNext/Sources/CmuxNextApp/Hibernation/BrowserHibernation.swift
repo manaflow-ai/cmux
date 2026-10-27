@@ -91,7 +91,7 @@ final class BrowserHibernation {
     /// (feature `memoryDiscardRemoteTabs`, set by the App); off, they count as pages that cannot restore.
     var discardsStreamedPages = false
     /// A hidden Chromium page whose out-of-process frame crashed is discarded (``subframeDidCrash(_:)``, feature
-    /// `memoryDiscardCrashedSubframes`, set by the App before `start()`); off, it keeps its sad frame.
+    /// `memoryDiscardCrashedSubframes`, set by the App before pages mount); off, it keeps its sad frame.
     var discardsCrashedSubframes = false
     var frozenGrowth = FrozenGrowthRule()
     let growthDeadline: MainDeadline
@@ -723,16 +723,6 @@ final class BrowserHibernation {
         return nil
     }
 
-    /// A frame of page `key` crashed in another renderer (``BrowserSubframeCrashReporting``): a hidden page is
-    /// discarded with reason external, as by Hibernate Tab, so it shows again reloaded whole and its renderers'
-    /// memory goes; a shown page keeps its sad frame. Chrome's DiscardPageWithCrashedSubframePolicy
-    /// (chrome/browser/performance_manager/policies/discard_page_with_crashed_subframe_policy.cc).
-    func subframeDidCrash(_ key: String) {
-        guard discardsCrashedSubframes, setting.isEnabled, let cache, cache.lifecycle.phase(key) == .mountedHidden else { return }
-        cache.trace(key, "discard (\(DiscardReason.external.rawValue), crashed subframe)")
-        _ = hibernateNow(key)
-    }
-
     /// Probes the page, captures its history and snapshot, then hibernates it if it is still hidden
     /// with the same generation. `.external` is the person's Hibernate Tab, which asks the page nothing.
     private func prepare(_ key: String, for reason: DiscardReason) {
@@ -856,17 +846,6 @@ final class BrowserHibernation {
 // `PageDiscardingHelper`'s order (page_discarding_helper.cc). The browser hibernation is one owner
 // (its tabs); the agent chats and the cmux page lifecycle are the others (`urgentDiscardOwners`).
 extension BrowserHibernation: UrgentDiscardOwner {
-    /// Ranks every owner's hidden pages once and lets the first go (``UrgentDiscardRanker/run(_:)``):
-    /// a browser tab through its probe, a chat after its wake state, a page at once. Every owner's own
-    /// paced discards then wait one of its pace intervals.
-    func urgentPass() {
-        guard let cache else { return }
-        lastUrgentPass = urgentRanker.run([self] + urgentDiscardOwners())
-        for candidate in lastUrgentPass.discards {
-            cache.trace(candidate.key, "discard (\(DiscardReason.urgent.rawValue), ranked \(candidate.kind.rawValue))")
-        }
-    }
-
     /// The paced passes discard no tab for one critical pace interval from now: the critical event's
     /// discard is the urgent pass's.
     func holdPacedDiscards() {

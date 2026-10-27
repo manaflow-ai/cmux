@@ -110,6 +110,16 @@ extension BrowserHibernation {
         audible.watch(key, speaker) { [weak speaker] in speaker?.isAudible == true }
     }
 
+    /// A frame of page `key` crashed in another renderer (``BrowserSubframeCrashReporting``): a hidden page is
+    /// discarded with reason external, as by Hibernate Tab, so it shows again reloaded whole and its renderers'
+    /// memory goes; a shown page keeps its sad frame. Chrome's DiscardPageWithCrashedSubframePolicy
+    /// (chrome/browser/performance_manager/policies/discard_page_with_crashed_subframe_policy.cc).
+    func subframeDidCrash(_ key: String) {
+        guard discardsCrashedSubframes, setting.isEnabled, let cache, cache.lifecycle.phase(key) == .mountedHidden else { return }
+        cache.trace(key, "discard (\(DiscardReason.external.rawValue), crashed subframe)")
+        _ = hibernateNow(key)
+    }
+
     /// A page's sound ended: a hidden page is planned again, so its minute's end joins the deadline.
     func soundDidEnd(_ key: String) {
         if cache?.lifecycle.phase(key) == .mountedHidden { replan() }

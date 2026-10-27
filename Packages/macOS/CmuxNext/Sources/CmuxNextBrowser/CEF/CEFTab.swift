@@ -79,10 +79,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
         didSet {
             let phaseChanged = machine.state.phase != oldValue.state.phase
             if phaseChanged { pageWaiters.notePhase(machine.state.phase) }
-            if phaseChanged || machine.state.processExit != oldValue.state.processExit, runtime.hostStart == nil {
-                onRenderersMayChange?()
-                noteFrameRenderers()
-            }
+            if phaseChanged || machine.state.processExit != oldValue.state.processExit, runtime.hostStart == nil { renderersMayHaveChanged() }
         }
     }
     /// Runs when the renderers that serve this page may have changed: its load phase changed (a navigation
@@ -90,15 +87,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
     /// p14-energy-124). In process only: with the Chromium Host on, those shim calls are replies over the
     /// wire, and attribution there is p14-energy-124a.
     @ObservationIgnored var onRenderersMayChange: (() -> Void)?
-    /// A frame of this page crashed in a renderer other than its main frame's (``BrowserSubframeCrashReporting``,
-    /// `CEFTab+Processes`); while set, ``frameRenderers`` follows the page.
-    @ObservationIgnored public var onSubframeCrash: (@MainActor () -> Void)? {
-        didSet { noteFrameRenderers() }
-    }
-    /// The renderer client ids of this page's frames as last read: at each load phase, at a hide, and when
-    /// ``onSubframeCrash`` is set. Chromium forgets a dead renderer's frames when it hears of the death, which
-    /// can come before the app's child monitor does, so the crash check reads this too.
-    @ObservationIgnored var frameRenderers: Set<Int32> = []
+    /// The subframe crash hook and the renderers of this page's frames as last read (`CEFTab+Processes`).
+    @ObservationIgnored var subframeCrashes = SubframeCrashWatch()
     /// The page plays unmuted media (`BrowserAudibleReporting`): `state.media?.isAudible`, kept
     /// apart so its observers wake on the flip only, not on each load tick or title.
     public internal(set) var isAudible = false
@@ -172,11 +162,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
     /// calls with it as the person's gesture); nil ignores it.
     @ObservationIgnored public var pageUserInput: (@MainActor (TimeInterval) -> Void)?
 
-    /// The file URLs of a PAGE_DRAG_ENTER event's JSON array of absolute paths.
-    nonisolated static func dragPaths(_ json: String) -> [URL] {
-        guard let paths = try? JSONSerialization.blockingJSONObject(with: Data(json.utf8)) as? [String] else { return [] }
-        return paths.filter { $0.hasPrefix("/") }.map { URL(fileURLWithPath: $0) }
-    }
     /// URL of the last main-frame load that committed (Chromium's current
     /// entry). Renderer debug URLs (chrome://crash) never commit.
     @ObservationIgnored var committedURL: URL?
@@ -453,7 +438,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
         host.lifecycleTrace.record(id, "visible(\(visible)) was=\(!isOccluded) shown=\(host.visibleTab === self)")
         guard visible == isOccluded else { return }
         isOccluded = !visible
-        if !visible { noteFrameRenderers() }
         // Show at once; a hide waits for the end of the turn (CEFPaneHost.setNeedsHostVisibility).
         if host.visibleTab === self { if visible { host.hostView.isHidden = false } else { host.setNeedsHostVisibility() } }
         devToolsController.views?.host.isHidden = !visible
