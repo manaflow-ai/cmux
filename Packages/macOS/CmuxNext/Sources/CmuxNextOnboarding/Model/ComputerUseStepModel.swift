@@ -27,6 +27,7 @@ public final class ComputerUseStepModel {
     func start() {
         guard task == nil, let source else { return }
         let stream = source.permissions()
+        // main-hop-allow: follows the helper's grant stream while the step shows (stop cancels it); each grant change from System Settings applies in its own resume
         task = Task { [weak self] in
             for await value in stream {
                 // stop() cancels on the main actor, so a value already

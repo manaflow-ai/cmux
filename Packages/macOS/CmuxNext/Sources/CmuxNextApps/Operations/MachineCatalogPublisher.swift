@@ -8,13 +8,18 @@ public import CmuxNextWakeups
 /// No idle polling, owner start or reconnect occurs. Newer snapshots supersede and cancel
 /// older attempts; the native sequence fence prevents a delayed older frame rolling back
 /// a newer publication. An empty snapshot withdraws all remote routes on the live lease.
+///
+/// The registry follow is a ``ServiceObservation`` in the automation class (p06-scheduler.md rule 3): it publishes
+/// for the daemon's remote routing whether or not a window shows, and a burst of registry changes submits once, as
+/// one posted task (Chromium's classed UI-thread task, base/task/task_traits.h).
 @MainActor
 @Observable
 public final class MachineCatalogPublisher {
     private let source: @MainActor @Sendable () -> MachineCatalogSource?
+    private let work: MainWorkScheduler
     private let backoff: Backoff
     private let clock: any Clock<Duration>
-    @ObservationIgnored private var following: Task<Void, Never>?
+    @ObservationIgnored private var following: ServiceObservation<MachineCatalogSource?>?
     @ObservationIgnored private(set) var sending: Task<Void, Never>?
     private struct Lease: Equatable {
         let owner: ResourceID
@@ -33,27 +38,26 @@ public final class MachineCatalogPublisher {
     /// Creates an event-driven publisher; call ``start()`` after composition.
     /// - Parameters:
     ///   - source: Reads observable registry, identity, admission and handshake state.
+    ///   - work: The app's one main-thread scheduler; the registry follow flushes on it.
     ///   - backoff: Spacing after an actual competing-publisher or timeout refusal.
     ///   - clock: Cancellable retry clock; tests inject a controlled clock.
-    public init(source: @escaping @MainActor @Sendable () -> MachineCatalogSource?,
+    public init(source: @escaping @MainActor @Sendable () -> MachineCatalogSource?, on work: MainWorkScheduler,
                 backoff: Backoff = .init(initial: .milliseconds(500), maximum: .seconds(30)),
                 clock: any Clock<Duration> = ContinuousClock()) {
         self.source = source
+        self.work = work
         self.backoff = backoff
         self.clock = clock
     }
 
-    nonisolated deinit { following?.cancel(); sending?.cancel() }
+    // The follow stops when it is released with the publisher.
+    nonisolated deinit { sending?.cancel() }
 
-    /// Starts one observation stream; repeated starts have no effect.
+    /// Starts one registry follow and submits the current snapshot before it returns; repeated starts have no effect.
     public func start() {
         guard following == nil else { return }
-        // task-owner: this publisher owns one event-driven registry watch, cancelled by stop/deinit.
-        following = Task { [weak self, source] in
-            for await value in ObservationStream(source) {
-                guard !Task.isCancelled else { return }
-                self?.submit(value)
-            }
+        following = ServiceObservation(.automation, owner: "MachineCatalogPublisher.source", on: work, read: source) { [weak self] value in
+            self?.submit(value)
         }
     }
 
@@ -85,6 +89,8 @@ public final class MachineCatalogPublisher {
         let next = sequence
         let request = MachineCatalogPublishRequest(expectedMachineID: value.owner, sequence: next, machines: value.machines)
         // task-owner: newest snapshot owns this bounded request/retry chain; a change or stop cancels it.
+        // main-hop-allow: each send, retry and acknowledgement re-checks the main-actor source (admit) between its awaits;
+        // the writer's publish is the connection's request, off main
         sending = Task { [weak self, backoff, clock] in
             var backoff = backoff
             // wakeup-allow: backoff: every retry awaits the request and a Backoff after a real refusal; fatal errors end the chain.

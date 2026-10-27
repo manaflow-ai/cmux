@@ -232,6 +232,7 @@ final class PaletteTableView: NSTableView {
         trackingArea = area
     }
 
+    // local-monitor-allow: hoverMoves is the list's PointerFrameHover, which coalesces moves to the window's frame
     override func mouseMoved(with event: NSEvent) { hoverMoves.moved(event) }
 
     override func mouseExited(with event: NSEvent) {

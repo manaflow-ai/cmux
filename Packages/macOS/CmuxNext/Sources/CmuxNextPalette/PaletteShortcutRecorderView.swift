@@ -36,6 +36,7 @@ final class PaletteShortcutRecorderView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
+    // visibility-walk-allow: colors only (the glass's theme, the message color), no layout
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()
@@ -63,6 +64,7 @@ final class PaletteShortcutRecorderView: NSView {
         if !press.began(event) { super.mouseDown(with: event) }
     }
 
+    // local-monitor-allow: a held press's drag (PalettePress) is per event and keeps order; no hover work runs here
     override func mouseDragged(with event: NSEvent) {
         guard press.isPressed else { return super.mouseDragged(with: event) }
         press.dragged(event)

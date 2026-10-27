@@ -187,6 +187,8 @@ public final class AppsClient {
         guard availability.isAvailable else { return }
         let request = projection.listRequested()
         listing?.cancel()
+        // main-hop-allow: list() is the main-actor transport's daemon read (its I/O runs off main); the mirror takes the
+        // reply in its one resume, and a newer refresh cancels it
         listing = Task { [weak self, transport] in
             guard let reply = try? await transport.list(), !Task.isCancelled else { return }
             self?.projection.applyList(reply.apps, revision: reply.revision, request: request)

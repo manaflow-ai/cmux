@@ -34,6 +34,7 @@ final class HelperPanelCloseButton: NSButton {
     override func mouseEntered(with event: NSEvent) { hover.state.hovering = true }
     override func mouseExited(with event: NSEvent) { hover.state.hovering = false }
 
+    // visibility-walk-allow: repaints its hover fill (ChromeHover) only, no layout
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         hover.refresh(animated: false)

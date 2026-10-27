@@ -30,6 +30,7 @@ final class OnboardingAccentButton: NSButton {
         applyAppearance()
     }
 
+    // visibility-walk-allow: its layer fill and its title's color, no layout
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyAppearance()

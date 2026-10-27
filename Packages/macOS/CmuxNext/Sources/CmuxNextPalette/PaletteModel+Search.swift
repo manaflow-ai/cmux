@@ -32,6 +32,7 @@ extension PaletteModel {
         if state === current { isLoading = !pending.isEmpty }
         for provider in page.providers where pending.contains(provider.id) {
             let providerID = provider.id
+            // main-hop-allow: a provider's items() is main-actor async (any reads run off main inside it); the rows merge in its one resume, and leaving the page cancels it
             state.tasks.append(Task { [weak self, weak state] in
                 let items = await provider.items()
                 guard !Task.isCancelled, let self, let state else { return }
@@ -67,6 +68,7 @@ extension PaletteModel {
                 }
                 let providerID = provider.id
                 state.pendingProviders.insert(providerID)
+                // main-hop-allow: a deferred provider's items() is main-actor async; the rows merge in its one resume, and leaving the page cancels it
                 state.tasks.append(Task { [weak self, weak state] in
                     let items = await provider.items()
                     guard !Task.isCancelled, let self, let state else { return }
@@ -159,6 +161,7 @@ extension PaletteModel {
             let queryItems = page.queryItems
             // The superseded search ranks nothing if it has not started (its result is stale anyway).
             searchTask?.cancel()
+            // main-hop-allow: the person's query (p06 rule 2): the rank runs on the searcher actor, off main; this task only awaits it and delivers the rows in its one resume, and the next key supersedes it
             searchTask = Task { [weak self, weak state] in
                 let result = await searcher.search(
                     entries: request.entries, version: request.version,
@@ -190,6 +193,7 @@ extension PaletteModel {
         searchTask?.cancel()
         // The search field's spinner while the page looks (Search All Windows reads every terminal first).
         if state === current { isLoading = true }
+        // main-hop-allow: the person's query (p06 rule 2): the page's results(query) is main-actor async (terminal reads run off main); the rows land in its one resume, and the next key cancels it
         searchTask = Task { [weak self, weak state] in
             let items = await results(query)
             guard !Task.isCancelled, let self, let state, searchID == self.searchGeneration else { return }

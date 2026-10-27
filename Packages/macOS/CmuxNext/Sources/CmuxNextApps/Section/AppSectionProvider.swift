@@ -120,6 +120,8 @@ final class AppSectionHostingView: NSHostingView<AnyView> {
         sceneAppearance.update(from: self)
     }
 
+    // visibility-walk-allow: resolves the section's theme colors and writes them only when they change; the section shows
+    // while its sidebar does, so a theme change re-renders only a section the sidebar holds
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         sceneAppearance.update(from: self)

@@ -100,6 +100,7 @@ final class PaletteFooterView: NSView {
         needsLayout = true // invalidate: new text or segments (the guard above) take new widths
     }
 
+    // visibility-walk-allow: only invalidates; AppKit lays out a hidden view when it shows, so the repaint already waits for it
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         needsLayout = true // invalidate: layout() paints the icon tint and divider for the new appearance

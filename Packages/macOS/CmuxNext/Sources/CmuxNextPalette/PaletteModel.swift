@@ -171,6 +171,7 @@ public final class PaletteModel {
     /// default (a model without a panel: tests, scripted pages) runs it on the
     /// next main-actor turn.
     @ObservationIgnored public var afterFrame: (@escaping @MainActor () -> Void) -> Void = { work in
+        // main-hop-allow: only a model with no panel (tests, scripted pages) uses this default; PaletteController passes the main run loop's pass after the commit
         Task { @MainActor in work() }
     }
     /// The deferred providers' items a page's empty query last showed (its

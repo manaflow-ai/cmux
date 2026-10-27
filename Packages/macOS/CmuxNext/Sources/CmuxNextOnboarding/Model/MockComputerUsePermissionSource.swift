@@ -26,6 +26,7 @@ public final class MockComputerUsePermissionSource: ComputerUsePermissionSource 
         let (stream, continuation) = AsyncStream<ComputerUsePermissions>.makeStream(bufferingPolicy: .bufferingNewest(1))
         continuation.yield(current)
         continuations[id] = continuation
+        // main-hop-allow: a gallery and test mock; the stream's termination can come from any thread and only drops its continuation
         continuation.onTermination = { [weak self] _ in Task { @MainActor in self?.continuations[id] = nil } }
         return stream
     }
