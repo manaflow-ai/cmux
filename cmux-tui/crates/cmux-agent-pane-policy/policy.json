@@ -68,7 +68,7 @@
     "_acpmux/view": {"params": ["sessionId", "visible"], "acpmux": []},
     "_acpmux/warm": {"params": ["sessionIds", "limit"], "acpmux": []},
     "_acpmux/kill": {"params": ["sessionId", "purge"], "acpmux": []},
-    "_acpmux/prewarm": {"params": ["harness", "cwd"], "acpmux": []},
+    "_acpmux/prewarm": {"params": ["harness", "cwd", "release"], "acpmux": []},
     "_acpmux/start_mode": {"params": ["harness", "cwd"], "acpmux": []},
     "_acpmux/harnesses": {"params": ["cwd"], "acpmux": []},
     "_acpmux/models": {"params": ["refresh"], "acpmux": []},

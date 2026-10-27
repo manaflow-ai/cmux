@@ -201,6 +201,10 @@ impl Hub {
         joined: &super::digest::DigestTurn,
     ) -> Result<Value, RpcError> {
         let prompt_id = opts.prompt_id.unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
+        // A held agent message released, or a queued one sent now, may still name its uploads.
+        let mut blocks = blocks;
+        let web = opts.control == Control::Web;
+        crate::prompt_uploads::resolve_off_runtime(&session.id, web, &mut blocks).await?;
         // A stop after this prompt came ends the agent start it waits on (`ensure_child`).
         let stops = session.stops.load(Ordering::SeqCst);
         let control = opts.control;
@@ -289,6 +293,14 @@ impl Hub {
         }
         // What its queue entry holds now (`queue_edit.rs` may edit a prompt that waited).
         let (mut blocks, control, trust_gate) = (run.blocks.clone(), run.control, run.trust_gate);
+        // A queued prompt restored from the log may still name its uploads (`prompt_uploads.rs`).
+        let web = control == Control::Web;
+        let read = crate::prompt_uploads::resolve_off_runtime(&session.id, web, &mut blocks).await;
+        if let Err(e) = read {
+            self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
+            drop(guard);
+            return Err(e);
+        }
         let device = run.full_access_device.clone();
         let mut display_parts = run.display_parts.clone();
         // A pushed forum rule whose key moved on while it waited tells the current one.
@@ -324,7 +336,8 @@ impl Hub {
         }
         // A continuation Stop overtook since it fired is refused here (`auto_resume.rs`).
         let turn = TurnInfo::prompted(client, &text, &turn_id, &prompt_id, control);
-        if let Err(e) = self.start_turn(session, after_turn.as_deref(), no_queue, turn) {
+        let retry = super::subagent_retry::is_retry(run.provenance.as_ref());
+        if let Err(e) = self.start_turn(session, after_turn.as_deref(), no_queue, retry, turn) {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
             return Err(e);
