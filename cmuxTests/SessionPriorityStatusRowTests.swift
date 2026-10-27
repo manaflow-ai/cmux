@@ -53,6 +53,7 @@ struct SessionPriorityStatusRowTests {
         #expect(row([.applying, .held(.draft), .upToDate]).value.hasSuffix(held))
         #expect(row([.held(.draft), .notApplied(nil), .applying]).value.hasSuffix(notApplied))
         #expect(row([.notApplied(.notClaude), .manual(.flag), .upToDate]).value.hasSuffix(manual))
+        #expect(row([.held(.draft), .manual(.launchEnvironmentEffort)]).value.hasSuffix(manual))
     }
 
     @Test

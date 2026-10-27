@@ -46,6 +46,35 @@ struct SessionPriorityResumeInputTests {
         #expect(occurrences(of: "CLAUDE_CODE_EFFORT_LEVEL=", in: command) == 1)
     }
 
+    /// The resume marks the level it sets, so the recorded launch of the resumed Claude reads
+    /// as cmux's and a hand-set `CLAUDE_CODE_EFFORT_LEVEL` reads as the user's.
+    @Test
+    func effortIsMarkedAsCmuxs() throws {
+        let snapshot = claudeSnapshot(environment: [
+            "CLAUDE_CODE_EFFORT_LEVEL": "low",
+            "CMUX_SESSION_PRIORITY_EFFORT": "low",
+        ])
+
+        let command = try #require(resumeInput(snapshot, target: SessionPriorityTarget(effort: .xhigh)).posixCommand())
+
+        #expect(command.contains("CMUX_SESSION_PRIORITY_EFFORT=xhigh"))
+        #expect(command.contains("CLAUDE_CODE_EFFORT_LEVEL=xhigh"))
+        #expect(occurrences(of: "CMUX_SESSION_PRIORITY_EFFORT=", in: command) == 1)
+        let marker = try #require(command.range(of: "CMUX_SESSION_PRIORITY_EFFORT=xhigh"))
+        let resumeOption = try #require(command.range(of: "--resume"))
+        #expect(marker.upperBound <= resumeOption.lowerBound)
+    }
+
+    @Test
+    func modelOnlyTargetAddsNoMarker() throws {
+        let command = try #require(
+            resumeInput(claudeSnapshot(), target: SessionPriorityTarget(model: "opus")).posixCommand()
+        )
+
+        #expect(!command.contains("CMUX_SESSION_PRIORITY_EFFORT"))
+        #expect(!command.contains("CLAUDE_CODE_EFFORT_LEVEL"))
+    }
+
     @Test
     func emptyTargetKeepsTheRecordedEnvironment() throws {
         let snapshot = claudeSnapshot(environment: ["CLAUDE_CODE_EFFORT_LEVEL": "low"])
