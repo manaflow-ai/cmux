@@ -61,13 +61,11 @@ struct AgentPaneAttentionTabsTests {
     /// A page's Go to moves the person's focus, so it needs their own click or key in the pane:
     /// page script alone (an agent's chat content) cannot show a tab.
     @Test func aPagesGoToNeedsThePersonsGesture() async {
-        let shared = AgentPaneAttentionTabs.shared
-        let (items, onOpen) = (shared.items, shared.onOpen)
-        defer { shared.items = items; shared.onOpen = onOpen }
+        let shared = AgentPaneAttentionTabs()
         var shown: [String] = []
         shared.items = [item]
         shared.onOpen = { id in shown.append(id); return true }
-        let model = AgentPaneModel(host: NoHost())
+        let model = AgentPaneModel(host: NoHost(), attentionTabs: shared)
         let request = AgentPaneRequest(body: ["method": "chat.attention.open", "params": ["tabId": "tab_1"]])
         let unasked = await model.respond(to: request)
         #expect((unasked["error"] as? [String: Any])?["code"] as? String == AgentPaneTransportError.gestureRequired.rawValue)

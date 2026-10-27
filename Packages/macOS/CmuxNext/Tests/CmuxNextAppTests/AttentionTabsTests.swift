@@ -71,9 +71,7 @@ struct AttentionTabsTests {
         }
         // Both machines' workspaces also share an id here (a cloned machine's state): windows find a
         // workspace by id alone, so Go to on the SSH row refuses rather than show this Mac's tab.
-        let shared = AgentPaneAttentionTabs.shared
-        let (savedItems, savedOnOpen) = (shared.items, shared.onOpen)
-        defer { shared.items = savedItems; shared.onOpen = savedOnOpen }
+        let shared = services.attentionTabs
         AppActions.bind(services)
         shared.items = items
         let lab = try #require(items.first { $0.reason == "Log in on lab" })
@@ -133,10 +131,8 @@ struct AttentionTabsTests {
 
     @Test func anAgentsRunOpensNoPalette() throws {
         _ = NSApplication.shared
-        let shared = AgentPaneAttentionTabs.shared
-        let (items, onOpen, onChange) = (shared.items, shared.onOpen, shared.onChange)
-        defer { shared.items = items; shared.onOpen = onOpen; shared.onChange = onChange }
         let services = AppServices(environment: AppEnvironment.current([:]))
+        let shared = services.attentionTabs
         AppActions.bind(services)
         shared.items = [AgentPaneAttentionTabs.Item(tabId: "tab_1", reason: "Log in to GitHub", workspaceTitle: "cmux next",
                                                     tabTitle: "GitHub", atMs: 1_000)]
@@ -163,10 +159,8 @@ struct AttentionTabsTests {
     /// and the page stay, a new mark's row comes and a cleared mark's row goes.
     @Test func anOpenPageReloadsOnAChangeAndKeepsItsQuery() async throws {
         _ = NSApplication.shared
-        let shared = AgentPaneAttentionTabs.shared
-        let (items, onOpen, onChange) = (shared.items, shared.onOpen, shared.onChange)
-        defer { shared.items = items; shared.onOpen = onOpen; shared.onChange = onChange }
         let services = AppServices(environment: AppEnvironment.current([:]))
+        let shared = services.attentionTabs
         AppActions.bind(services)
         let palette = services.palette
         defer { palette.hide() }
@@ -175,7 +169,7 @@ struct AttentionTabsTests {
         let vercel = AgentPaneAttentionTabs.Item(tabId: "local/tab_2", reason: "Log in to Vercel", workspaceTitle: "Release",
                                                  tabTitle: "Vercel", atMs: 2_000)
         shared.items = [github]
-        palette.model.reset(to: AttentionPalettePage().page())
+        palette.model.reset(to: AttentionPalettePage(tabs: shared).page())
         palette.model.query = "log in"
         await palette.model.settle()
         #expect(palette.model.rows.map(\.item.title) == ["Log in to GitHub"])

@@ -9,10 +9,8 @@ public import Foundation
 /// where things are man i dont see anything other than the current workspace".
 @MainActor
 public final class AgentPaneAttentionTabs {
-    public static let shared = AgentPaneAttentionTabs()
-
-    /// One list; the App uses `shared`, a test its own (its pages are only the views it pushes to).
-    init() {}
+    /// The composition root owns one list; a test may use an isolated list.
+    public init() {}
 
     /// The marked tabs, newest mark first.
     public var items: [Item] = [] {
