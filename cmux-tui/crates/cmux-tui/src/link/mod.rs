@@ -502,7 +502,7 @@ async fn serve(
         signal = shutdown_signal() => signal,
     };
     registration::remove_if_owned(&state.registration_dir(), pid);
-    let _ = std::fs::remove_file(&socket_path);
+    let _ = tokio::fs::remove_file(&socket_path).await;
     result
 }
 

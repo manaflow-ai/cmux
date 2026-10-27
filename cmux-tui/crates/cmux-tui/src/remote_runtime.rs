@@ -821,7 +821,7 @@ async fn run_client(
             serve_mux_bridge(bridge_multiplexer, socket.listener(), bridge_shutdown_rx).await;
             let _ = socket.unlink();
             if let Some(record) = route_record {
-                let _ = fs::remove_file(record);
+                let _ = tokio::fs::remove_file(record).await;
             }
         });
         let mut fatal = multiplexer.subscribe_fatal();
@@ -1560,7 +1560,7 @@ async fn prepare_client_socket_with_shutdown(
 
     use std::os::unix::fs::FileTypeExt;
 
-    match fs::symlink_metadata(path) {
+    match tokio::fs::symlink_metadata(path).await {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => {
             return Err(error)
@@ -2104,8 +2104,9 @@ async fn run_daemon(
             persist_daemon_lifecycle_fence(&state_dir)
                 .context(catalog().remote.confirm_lifecycle_fence_durability)?;
         }
-        let auth_state_preexisting =
-            auth_state_dir.try_exists().context(catalog().remote.inspect_authorization_state)?;
+        let auth_state_preexisting = tokio::fs::try_exists(&auth_state_dir)
+            .await
+            .context(catalog().remote.inspect_authorization_state)?;
         let auth_state_schema = auth_state_preexisting
             .then(|| persisted_auth_state_schema(&auth_state_dir))
             .transpose()
@@ -2912,7 +2913,9 @@ pub(crate) async fn complete_verified_daemon_stop(
     daemon_name: &str,
 ) -> anyhow::Result<()> {
     let auth_state_dir = state_dir.join("auth");
-    auth_state_dir.try_exists().context(catalog().remote.inspect_stopped_authorization_state)?;
+    tokio::fs::try_exists(&auth_state_dir)
+        .await
+        .context(catalog().remote.inspect_stopped_authorization_state)?;
 
     let auth = AuthDatabase::load_or_migrate_legacy(&auth_state_dir, daemon_name, true)
         .context(catalog().remote.acquire_stopped_authorization_lease)?;
@@ -3018,8 +3021,9 @@ pub(crate) async fn acknowledge_legacy_shutdown_state(
     admin_socket: &Path,
 ) -> anyhow::Result<()> {
     let auth_state_dir = state_dir.join("auth");
-    let auth_state_preexisting =
-        auth_state_dir.try_exists().context(catalog().remote.inspect_legacy_authorization_state)?;
+    let auth_state_preexisting = tokio::fs::try_exists(&auth_state_dir)
+        .await
+        .context(catalog().remote.inspect_legacy_authorization_state)?;
     let lifecycle_fenced =
         read_daemon_lifecycle_fence(state_dir).context(catalog().remote.verify_lifecycle_fence)?;
     if !auth_state_preexisting && !lifecycle_fenced {
