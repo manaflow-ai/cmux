@@ -224,6 +224,7 @@ async fn a_peer_lease_never_takes_a_saved_peers_name() {
             url: "ws://127.0.0.1:1".into(),
             token: None,
             peer_token: None,
+            vm_boundary: false,
         },
     );
     let a = hub(cfg);
@@ -291,4 +292,37 @@ async fn a_closing_connection_ends_its_peer_lease_before_killing_its_ephemeral_s
     assert!(lease_ended < killed, "the lease ended after the kill ({lease_ended} >= {killed})");
     assert!(a.peers().is_empty(), "{:?}", a.peers());
     assert!(a.resolve(&id).is_err(), "the ephemeral session was not purged");
+}
+
+/// A saved peer's `vmBoundary` (`hub/vm_boundary.rs`) follows config.json at a
+/// reload: the caller taking it back applies to the running peer at once, with
+/// no reconnect.
+#[tokio::test]
+async fn a_reload_takes_a_saved_peers_vm_boundary_back() {
+    let scratch_a = scratch("reload-vmb");
+    let path = scratch_a.0.join("config.json");
+    let write = |on: bool| {
+        let mut cfg = config();
+        cfg.path = Some(path.clone());
+        cfg.peers.insert(
+            "vm".into(),
+            acpmux::config::PeerConfig {
+                url: "ws://127.0.0.1:1".into(),
+                token: None,
+                peer_token: None,
+                vm_boundary: on,
+            },
+        );
+        cfg.save().unwrap();
+        cfg
+    };
+    let a = hub(write(true));
+    a.reconnect_peer("vm", false).await.unwrap();
+    assert!(a.peer_by_name("vm").unwrap().vm_boundary());
+    write(false);
+    a.reload_catalog().await.unwrap();
+    assert!(!a.peer_by_name("vm").unwrap().vm_boundary(), "the reload left the boundary on");
+    write(true);
+    a.reload_catalog().await.unwrap();
+    assert!(a.peer_by_name("vm").unwrap().vm_boundary());
 }

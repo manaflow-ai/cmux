@@ -159,6 +159,8 @@ impl Hub {
             .map_err(|e| RpcError::invalid_params(format!("parse session.json: {e}")))?;
         // A store comes from this machine's chat index, never from a bundle.
         meta.chat_store = None;
+        // Nor the VM boundary: only a caller's peer link asks for it (`vm_boundary.rs`).
+        meta.vm_boundary = false;
         // Nor is a mode cmux set here, which only this daemon records (`SessionMeta::mode_set_by_cmux`).
         meta.mode_set_by_cmux = None;
         super::bookmarks::capped(&mut meta.bookmarks);
