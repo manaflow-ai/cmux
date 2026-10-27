@@ -37,12 +37,23 @@ Output, in `artifacts/journeys/<job12>-<UTC time>/` (or `--out`):
 
 - `results.jsonl`: one line per journey: `id`, `priority`, `status` (`pass`, `fail` or
   `not run`), `reason`, `evidence` (each check with its result, its time from the mark and
-  what it saw), `clip`, `checks` (the frames the checks read), `build_job`, `commit`, `tag`,
-  `host`, `path`, `nonce`, `run_at`;
+  what it saw), `clip`, `clip_frames`, `clip_action_frames` and `clip_action_distinct` (how
+  many of the clip's frames, and how many different ones, show the journey's action), `action`
+  (its first step and its start and end times), `checks` (the frames the checks read),
+  `build_job`, `commit`, `tag`, `host`, `path`, `nonce`, `run_at`;
 - `<id>/result.json`: the full record (every step and its reply, every check's detail);
 - `<id>/check-NN.png`: each frame a `frame_text` check read (full size);
 - `<id>/clip.mp4` (with ffmpeg) or `<id>/clip.png` (an animated PNG, about a frame a second;
-  any browser plays it) and `<id>/clip/`, the frames it is made of.
+  any browser plays it) and `<id>/clip/`, the frames it is made of. Every frame is in the clip:
+  frames change size when a journey places, resizes, zooms or fills the window, so the clip's
+  canvas is the largest frame and a smaller frame is centered on black.
+
+A journey's action starts at its first step that is not set-up (`new_terminal`,
+`neutral_prompt`, `name_pane`, `window_place`, `remember`, `expect` and the like; `SETUP_STEPS`
+in `driver.py`). The driver takes a frame as the action starts and one as it ends, besides the
+frame every `--frame-interval` seconds, so a 1-second journey still has its action in the clip.
+`run.py` turns a `pass` into a `fail` when the clip shows fewer than 2 different frames of the
+action, or there is no clip.
 
 Exit 0 when every selected journey passed, 1 when one failed, 75 when none failed but one did
 not run.
@@ -202,6 +213,10 @@ daemon screen's last lines: the scrollback did not jump), `output_advances`, and
 (daemon evidence: the shell's `echo TAG $(stty size)` equals the daemon screen's and the app's
 grid). The file's docstring has every field.
 
+A text check reads output, never the typed command: the command says `X-${nonce}-$((6*7))` and
+the checks want `X-${nonce}-42`, which only the shell's output has. The command line's echo of
+`X-${nonce}` alone can no longer pass a window or split journey.
+
 ## Judge
 
 The driver decides, not the author:
@@ -227,9 +242,11 @@ It refuses (exit 1) and prints the build report unless:
 1. every commit in `dogfood-fixes.list` is an ancestor of the build's commit (add each dogfood
    fix there in the commit that lands it);
 2. every P0 journey's newest result for JOB (any `results.jsonl` under `artifacts/journeys`,
-   `--results`) is `pass` on the build's commit, with passing app, daemon and frame evidence and
-   its check frames on disk;
-3. the independent QA verdict file `artifacts/journeys/qa/<JOB>.json` (`--qa`) says ship.
+   `--results`) is `pass` on the build's commit, with passing app, daemon and frame evidence,
+   its check frames on disk, and a clip on disk with at least 2 different frames of its action
+   (results written before `run.py` counted action frames refuse: rerun them);
+3. the independent QA verdict file `artifacts/journeys/qa/<JOB>.json` (`--qa`) says ship for
+   this exact build.
 
 The QA agent is not the author: it gets the build (tag and job) and `run.py --list`, never the
 diff; it uses the build as a new user and tries to break it, files each failure as a new
@@ -242,13 +259,18 @@ journey and a bug, and writes:
   "verdict": "ship",
   "qa_agent": "who ran QA",
   "author_agent": "who wrote the build",
-  "tried": ["typed in a new terminal", "Ctrl+C on sleep and cat", "..."],
-  "failures": [{"what": "...", "journey": "journeys/p0/NEW.json", "bug": "issue or bead id"}]
+  "tried": [{"what": "typed in a new terminal", "result": "pass", "evidence": "path of a still"}],
+  "bugs": [{"title": "...", "repro": "1. ... 2. ...", "severity": "high|medium|low",
+            "journey": "journeys/p0/NEW.json (or what the new journey checks)"}],
+  "notes": "how QA drove the app, its limits, what it did not test"
 }
 ```
 
-Any other verdict, an empty `tried`, a failure without a filed journey and bug, or a QA agent
-that is the author refuses the build.
+The gate refuses the build when the file names no `build_job` or another build, names no
+`commit` or another one (a prefix of at least 7 hex digits counts), names no `qa_agent` or the
+author, says any verdict but `ship`, lists nothing in `tried`, or has an open bug: any bug of
+severity `high`, `critical`, `blocker` or `p0`, and any other bug that names no journey. An
+older file's `failures` list is read as bugs too.
 
 ## Not supported yet
 

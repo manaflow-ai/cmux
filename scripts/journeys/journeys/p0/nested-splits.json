@@ -39,28 +39,28 @@
        {"app_prompt": true}
      ]},
 
-    {"do": "type", "text": "echo d-${nonce} $(stty size)", "enter": true, "mark": "td"},
+    {"do": "type", "text": "echo d-${nonce}-$((6*7)) $(stty size)", "enter": true, "mark": "td"},
     {"do": "expect", "title": "d answers with its own PTY size", "since": "td", "timeout": 10,
-     "all": [{"pty_size": {"tag": "d-${nonce}", "pane": "d"}}, {"app_text_contains": "d-${nonce} "}, {"pane_frame_text": {"text": "d-${nonce}", "pane": "d"}}]},
+     "all": [{"pty_size": {"tag": "d-${nonce}-42", "pane": "d"}}, {"app_text_contains": "d-${nonce}-42 "}, {"pane_frame_text": {"text": "d-${nonce}-42", "pane": "d"}}]},
     {"do": "use_pane", "pane": "c", "click": true},
-    {"do": "type", "text": "echo c-${nonce} $(stty size)", "enter": true, "mark": "tc"},
+    {"do": "type", "text": "echo c-${nonce}-$((6*7)) $(stty size)", "enter": true, "mark": "tc"},
     {"do": "expect", "title": "c answers with its own PTY size", "since": "tc", "timeout": 10,
-     "all": [{"pty_size": {"tag": "c-${nonce}", "pane": "c"}}, {"app_text_contains": "c-${nonce} "}, {"pane_frame_text": {"text": "c-${nonce}", "pane": "c"}}]},
+     "all": [{"pty_size": {"tag": "c-${nonce}-42", "pane": "c"}}, {"app_text_contains": "c-${nonce}-42 "}, {"pane_frame_text": {"text": "c-${nonce}-42", "pane": "c"}}]},
     {"do": "use_pane", "pane": "b", "click": true},
-    {"do": "type", "text": "echo b-${nonce} $(stty size)", "enter": true, "mark": "tb"},
+    {"do": "type", "text": "echo b-${nonce}-$((6*7)) $(stty size)", "enter": true, "mark": "tb"},
     {"do": "expect", "title": "b answers with its own PTY size", "since": "tb", "timeout": 10,
-     "all": [{"pty_size": {"tag": "b-${nonce}", "pane": "b"}}, {"app_text_contains": "b-${nonce} "}, {"pane_frame_text": {"text": "b-${nonce}", "pane": "b"}}]},
+     "all": [{"pty_size": {"tag": "b-${nonce}-42", "pane": "b"}}, {"app_text_contains": "b-${nonce}-42 "}, {"pane_frame_text": {"text": "b-${nonce}-42", "pane": "b"}}]},
     {"do": "use_pane", "pane": "a", "click": true},
-    {"do": "type", "text": "echo a-${nonce} $(stty size)", "enter": true, "mark": "ta"},
+    {"do": "type", "text": "echo a-${nonce}-$((6*7)) $(stty size)", "enter": true, "mark": "ta"},
     {"do": "expect", "title": "a answers with its own PTY size; every pane's text shows in one frame", "since": "ta", "timeout": 10,
      "all": [
-       {"pty_size": {"tag": "a-${nonce}", "pane": "a"}},
+       {"pty_size": {"tag": "a-${nonce}-42", "pane": "a"}},
        {"daemon_prompt": true},
-       {"app_text_contains": "a-${nonce} "},
-       {"pane_frame_text": {"text": "a-${nonce}", "pane": "a"}},
-       {"pane_frame_text": {"text": "b-${nonce}", "pane": "b"}},
-       {"pane_frame_text": {"text": "c-${nonce}", "pane": "c"}},
-       {"pane_frame_text": {"text": "d-${nonce}", "pane": "d"}}
+       {"app_text_contains": "a-${nonce}-42 "},
+       {"pane_frame_text": {"text": "a-${nonce}-42", "pane": "a"}},
+       {"pane_frame_text": {"text": "b-${nonce}-42", "pane": "b"}},
+       {"pane_frame_text": {"text": "c-${nonce}-42", "pane": "c"}},
+       {"pane_frame_text": {"text": "d-${nonce}-42", "pane": "d"}}
      ]}
   ],
   "finally": [{"do": "restore_window", "from": "before-place"}]

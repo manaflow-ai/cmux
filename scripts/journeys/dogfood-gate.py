@@ -10,10 +10,12 @@ CI gate. Refuses (exit 1) unless all three hold for the exact build of fleet job
       (`git merge-base --is-ancestor`, after fetching the commit; an unknown sha refuses too);
   (b) journeys: every P0 journey in scripts/journeys/journeys has a `pass` line for JOB and its
       commit in some results.jsonl under DIR (run.py's output; default artifacts/journeys), the
-      newest line per journey counting, with passing app, daemon and frame evidence and its check
-      frames on disk;
+      newest line per journey counting, with passing app, daemon and frame evidence, its check
+      frames on disk, and a clip on disk that shows at least 2 different frames of the journey's action;
   (c) QA: the independent QA agent's verdict file (default artifacts/journeys/qa/<JOB>.json) names
-      JOB, says "verdict": "ship", lists what it tried, and has no open failure (README.md).
+      JOB ("build_job") and its commit, names its QA agent ("qa_agent", not the author), says
+      "verdict": "ship", lists what it tried, and has no open bug: none of high or worse severity,
+      and every other bug names its journey ("bugs"; README.md).
 
 Prints the build report (fixes, P0 results with clip links, the QA verdict) either way.
 Exit 0: ship; 1: refused; 2: usage or the build could not be read.
@@ -107,6 +109,9 @@ def check_journeys(results_dir, job, sha):
         kinds = {e.get("kind") for e in line.get("evidence") or [] if e.get("pass")}
         failing = [e for e in line.get("evidence") or [] if not e.get("pass")]
         checks_on_disk = [c for c in line.get("checks") or [] if Path(c).is_file()]
+        clip = line.get("clip")
+        action_frames = line.get("clip_action_frames") or 0
+        action_distinct = line.get("clip_action_distinct") or 0
         if status == "pass":
             if line.get("commit") != sha:
                 status, reason = "fail", f"its result names commit {line.get('commit')}, not {sha}"
@@ -114,13 +119,38 @@ def check_journeys(results_dir, job, sha):
                 status, reason = "fail", "its result lacks passing app, daemon and frame evidence"
             elif not checks_on_disk:
                 status, reason = "fail", "its check frames are not on disk"
+            elif not clip or not Path(clip).is_file():
+                status, reason = "fail", f"it has no clip on disk ({clip or 'none'})"
+            elif min(action_frames, action_distinct) < journeys.MIN_ACTION_FRAMES:
+                # Results from before run.py counted action frames have neither field: they refuse too.
+                status, reason = "fail", (f"its clip shows {action_frames} frame(s) of the action ({action_distinct} different; "
+                                          f"needs {journeys.MIN_ACTION_FRAMES}): rerun it with this run.py")
         rows.append((spec["id"], status, reason, line.get("clip")))
         if status != "pass":
             refusals.append(f"journeys: P0 {spec['id']} is {status}: {reason}")
     return rows, refusals
 
 
+# Severities of a QA bug that hold the build even when it names a journey.
+BLOCKING_SEVERITIES = {"blocker", "critical", "high", "p0"}
+
+
+def qa_bugs(verdict):
+    """The QA file's bugs: "bugs" (what the QA agent writes), plus "failures" (the older README name)."""
+    bugs = []
+    for key in ("bugs", "failures"):
+        value = verdict.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, list):
+            raise ValueError(f"{key!r} is not a list")
+        bugs += value
+    return bugs
+
+
 def check_qa(path, job, sha):
+    """The QA verdict file as the QA agent writes it (README.md, "The dogfood gate"): verdict, tried,
+    bugs, build_job, commit, qa_agent. Refusals for anything that does not say "ship this exact build"."""
     path = Path(path)
     if not path.is_file():
         return None, [f"qa: no verdict file at {path} (the independent QA agent writes it; README.md)"]
@@ -128,20 +158,44 @@ def check_qa(path, job, sha):
         verdict = json.loads(path.read_text())
     except ValueError as error:
         return None, [f"qa: {path} is not JSON: {error}"]
+    if not isinstance(verdict, dict):
+        return None, [f"qa: {path} is not a JSON object"]
     refusals = []
-    if verdict.get("build_job") != job:
-        refusals.append(f"qa: the verdict names build {verdict.get('build_job')!r}, not {job}")
-    if verdict.get("commit") and verdict["commit"] != sha:
-        refusals.append(f"qa: the verdict names commit {verdict['commit']}, not {sha}")
+    named_job = verdict.get("build_job")
+    if not named_job:
+        refusals.append("qa: the verdict names no build (build_job), so it is not a verdict on this build")
+    elif named_job != job:
+        refusals.append(f"qa: the verdict names build {named_job!r}, not {job}")
+    commit = str(verdict.get("commit") or "").lower()
+    if not commit:
+        refusals.append("qa: the verdict names no commit")
+    elif not (re.fullmatch(r"[0-9a-f]{7,40}", commit) and sha.startswith(commit)):
+        refusals.append(f"qa: the verdict names commit {commit!r}, not {sha}")
     if verdict.get("verdict") != "ship":
         refusals.append(f"qa: the verdict is {verdict.get('verdict')!r}, not \"ship\"")
-    if not verdict.get("tried"):
+    tried = verdict.get("tried")
+    if not isinstance(tried, list) or not tried:
         refusals.append("qa: the verdict lists nothing it tried")
-    open_failures = [f for f in verdict.get("failures") or [] if not (isinstance(f, dict) and f.get("journey") and f.get("bug"))]
-    if open_failures:
-        refusals.append(f"qa: {len(open_failures)} failure(s) without a filed journey and bug")
-    if verdict.get("qa_agent") and verdict.get("qa_agent") == verdict.get("author_agent"):
+    qa_agent = verdict.get("qa_agent")
+    if not qa_agent:
+        refusals.append("qa: the verdict names no QA agent (qa_agent)")
+    elif qa_agent == verdict.get("author_agent"):
         refusals.append("qa: the QA agent is the author; the author cannot judge its own build")
+    try:
+        bugs = qa_bugs(verdict)
+    except ValueError as error:
+        return verdict, refusals + [f"qa: {path}: {error}"]
+    for bug in bugs:
+        if not isinstance(bug, dict):
+            refusals.append(f"qa: a bug entry is not an object: {str(bug)[:120]}")
+            continue
+        title = str(bug.get("title") or bug.get("what") or "?")[:120]
+        severity = str(bug.get("severity") or "").lower()
+        if severity in BLOCKING_SEVERITIES:
+            refusals.append(f"qa: open {severity} bug: {title}")
+        elif not bug.get("journey"):
+            refusals.append(f"qa: a bug names no journey: {title}")
+    verdict["_bugs"] = bugs
     return verdict, refusals
 
 
@@ -181,8 +235,12 @@ def main(argv=None):
         print(f"| {jid} | {status} | {clip or '-'} | {reason or ''} |")
     print("\n## Independent QA\n")
     if verdict:
-        print(f"verdict {verdict.get('verdict')!r} by {verdict.get('qa_agent', '?')}; tried {len(verdict.get('tried') or [])} things; "
-              f"failures {len(verdict.get('failures') or [])}")
+        bugs = verdict.get("_bugs") or []
+        print(f"verdict {verdict.get('verdict')!r} by {verdict.get('qa_agent') or '?'} on build {verdict.get('build_job') or '?'} "
+              f"commit {verdict.get('commit') or '?'}; tried {len(verdict.get('tried') or [])} things; bugs {len(bugs)}")
+        for bug in bugs:
+            if isinstance(bug, dict):
+                print(f"- [{bug.get('severity') or '?'}] {str(bug.get('title') or bug.get('what') or '?')[:160]}")
     else:
         print("no verdict")
     print()

@@ -27,22 +27,22 @@
        {"grid_fits": {"pane": "right", "vs": "right0", "cols": "wider", "rows": "same"}},
        {"app_prompt": true}
      ]},
-    {"do": "type", "text": "echo right-${nonce} $(stty size)", "enter": true, "mark": "typed-right"},
+    {"do": "type", "text": "echo right-${nonce}-$((6*7)) $(stty size)", "enter": true, "mark": "typed-right"},
     {"do": "expect", "title": "the right PTY has the wider grid", "since": "typed-right", "timeout": 10,
      "all": [
-       {"pty_size": {"tag": "right-${nonce}", "pane": "right"}},
+       {"pty_size": {"tag": "right-${nonce}-42", "pane": "right"}},
        {"daemon_prompt": true},
-       {"app_text_contains": "right-${nonce} "},
-       {"pane_frame_text": "right-${nonce}"}
+       {"app_text_contains": "right-${nonce}-42 "},
+       {"pane_frame_text": "right-${nonce}-42"}
      ]},
     {"do": "use_pane", "pane": "left", "click": true, "title": "click into the left pane"},
-    {"do": "type", "text": "echo left-${nonce} $(stty size)", "enter": true, "mark": "typed-left"},
+    {"do": "type", "text": "echo left-${nonce}-$((6*7)) $(stty size)", "enter": true, "mark": "typed-left"},
     {"do": "expect", "title": "the left PTY has the narrower grid", "since": "typed-left", "timeout": 10,
      "all": [
-       {"pty_size": {"tag": "left-${nonce}", "pane": "left"}},
+       {"pty_size": {"tag": "left-${nonce}-42", "pane": "left"}},
        {"daemon_prompt": true},
-       {"app_text_contains": "left-${nonce} "},
-       {"pane_frame_text": "left-${nonce}"}
+       {"app_text_contains": "left-${nonce}-42 "},
+       {"pane_frame_text": "left-${nonce}-42"}
      ]}
   ],
   "finally": [{"do": "restore_window", "from": "before-place"}]

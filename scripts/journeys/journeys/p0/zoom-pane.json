@@ -27,13 +27,13 @@
        {"pane_state": {"pane": "left", "fields": {"visible": false}}},
        {"app_prompt": true}
      ]},
-    {"do": "type", "text": "echo zoomed-${nonce} $(stty size)", "enter": true, "mark": "tz"},
+    {"do": "type", "text": "echo zoomed-${nonce}-$((6*7)) $(stty size)", "enter": true, "mark": "tz"},
     {"do": "expect", "title": "the zoomed PTY has the whole window's grid", "since": "tz", "timeout": 10,
      "all": [
-       {"pty_size": {"tag": "zoomed-${nonce}", "pane": "right"}},
+       {"pty_size": {"tag": "zoomed-${nonce}-42", "pane": "right"}},
        {"daemon_prompt": true},
-       {"app_text_contains": "zoomed-${nonce} "},
-       {"pane_frame_text": "zoomed-${nonce}"}
+       {"app_text_contains": "zoomed-${nonce}-42 "},
+       {"pane_frame_text": "zoomed-${nonce}-42"}
      ]},
 
     {"do": "key", "title": "Cmd-Shift-Return again", "key": "return", "modifiers": ["cmd", "shift"], "mark": "unzoom"},
@@ -46,13 +46,13 @@
        {"grid_fits": {"pane": "left"}},
        {"app_prompt": true}
      ]},
-    {"do": "type", "text": "echo back-${nonce} $(stty size)", "enter": true, "mark": "tb"},
+    {"do": "type", "text": "echo back-${nonce}-$((6*7)) $(stty size)", "enter": true, "mark": "tb"},
     {"do": "expect", "title": "the PTY has the half grid again", "since": "tb", "timeout": 10,
      "all": [
-       {"pty_size": {"tag": "back-${nonce}", "pane": "right"}},
+       {"pty_size": {"tag": "back-${nonce}-42", "pane": "right"}},
        {"daemon_prompt": true},
-       {"app_text_contains": "back-${nonce} "},
-       {"pane_frame_text": "back-${nonce}"}
+       {"app_text_contains": "back-${nonce}-42 "},
+       {"pane_frame_text": "back-${nonce}-42"}
      ]}
   ],
   "finally": [{"do": "restore_window", "from": "before-place"}]

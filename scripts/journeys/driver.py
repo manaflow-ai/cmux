@@ -54,6 +54,10 @@ CLIP_WIDTH = 1280
 FRAME_GRACE = 10.0
 # Evidence a passing journey must have: the user-visible result seen three independent ways.
 REQUIRED_KINDS = ("app", "daemon", "frame")
+# Steps that only set a journey up (or check it): its action starts at the first other step, and
+# the clip must show that action (run.py fails a pass whose clip has fewer than 2 frames of it).
+SETUP_STEPS = {"new_terminal", "neutral_prompt", "name_pane", "window_place", "remember", "remember_value", "file",
+               "clipboard_set", "use", "use_pane", "adopt_pane", "adopt_window", "wait", "expect", "focused_terminal"}
 KIND = {"daemon_line": "daemon", "daemon_contains": "daemon", "daemon_prompt": "daemon",
         "app_text_line": "app", "app_text_contains": "app", "app_prompt": "app", "app_pane": "app",
         "process_present": "process", "process_gone": "process", "frame_text": "frame",
@@ -299,22 +303,61 @@ def descendants(table, roots):
 
 
 class Frames(threading.Thread):
-    """The main window every `interval` seconds while a journey runs: the clip."""
+    """The main window every `interval` seconds while a journey runs: the clip. `capture_now` takes one
+    at once (past MAX_FRAMES too): the journey asks for one as its action starts and one as it ends, so
+    a clip has the action even when the action is shorter than the interval."""
 
     def __init__(self, app, directory, interval):
         super().__init__(daemon=True)
         self.app, self.directory, self.interval = app, Path(directory), max(0.25, interval)
-        self.count, self.stopped = 0, threading.Event()
+        self.count, self.stopped, self.wake = 0, threading.Event(), threading.Event()
         self.directory.mkdir(parents=True, exist_ok=True)
+        self.t0 = now()
+        # times[i]: seconds from t0 to the request of frame-<i>.png (a frame shows the window at or after it).
+        self.times = []
+        self.started = self.finished = 0
+        self.done = threading.Condition()
+
+    def at(self):
+        return round(now() - self.t0, 3)
 
     def run(self):
-        while not self.stopped.is_set() and self.count < MAX_FRAMES:
-            try:
-                self.app.snapshot(self.directory / f"frame-{self.count:05d}.png")
-                self.count += 1
-            except (OSError, ValueError, StepError):
-                pass
-            self.stopped.wait(self.interval)
+        while not self.stopped.is_set():
+            # Cleared only when seen set: a capture_now that sets it after this read is seen next turn.
+            forced = self.wake.is_set()
+            if forced:
+                self.wake.clear()
+            if forced or self.count < MAX_FRAMES:
+                self.capture()
+            self.wake.wait(self.interval)
+
+    def capture(self):
+        with self.done:
+            self.started += 1
+        asked = self.at()
+        try:
+            self.app.snapshot(self.directory / f"frame-{self.count:05d}.png")
+            self.times.append(asked)
+            self.count += 1
+        except Exception:  # noqa: BLE001 (a missed frame is not an error; the clip check counts what is there)
+            pass
+        finally:
+            with self.done:
+                self.finished += 1
+                self.done.notify_all()
+
+    def capture_now(self, timeout=SNAPSHOT_TIMEOUT + 5):
+        """Takes a frame now (waits for an attempt that starts after this call); the time it was asked for."""
+        asked = self.at()
+        with self.done:
+            need = self.started + 1
+            self.wake.set()
+            self.done.wait_for(lambda: self.finished >= need or not self.is_alive(), timeout=timeout)
+        return asked
+
+    def stop(self):
+        self.stopped.set()
+        self.wake.set()
 
 
 # ---- text matching -------------------------------------------------------------------------
@@ -1329,10 +1372,14 @@ class Journey:
         frames = Frames(self.app, self.out / "frames", self.frame_interval)
         frames.start()
         status, reason = "pass", ""
+        action = None
         try:
             for index, step in enumerate(self.spec["steps"]):
                 if now() > self.deadline:
                     raise Deadline(f"the lease deadline came before step {index + 1} ({step['do']})")
+                if action is None and step["do"] not in SETUP_STEPS:
+                    # The window as the action starts, whatever the frame interval.
+                    action = {"from_step": index + 1, "do": step["do"], "start": frames.capture_now()}
                 record = {"index": index + 1, "do": step["do"], "title": step.get("title", "")}
                 handler = getattr(self, "step_" + step["do"], None)
                 if handler is None:
@@ -1361,6 +1408,10 @@ class Journey:
         except (StepError, OSError, ValueError, subprocess.TimeoutExpired) as error:
             status, reason = "fail", f"step {len(self.steps)} ({self.steps[-1]['do'] if self.steps else '?'}): {error}"
         finally:
+            if action is not None:
+                # The window as the action ends (before the clean-up steps change it).
+                frames.capture_now()
+                action["end"] = frames.at()
             # `finally` steps put the app back for the next journey (leave full screen, close a second
             # window), whatever happened; their errors are recorded and never change the status.
             for step in self.spec.get("finally") or []:
@@ -1371,7 +1422,7 @@ class Journey:
                 except Exception as error:  # noqa: BLE001 (clean-up: record any error, keep going)
                     record["ok"], record["error"] = False, str(error)[-300:]
                 self.steps.append(record)
-            frames.stopped.set()
+            frames.stop()
             frames.join(timeout=SNAPSHOT_TIMEOUT)
             for path in self.files:
                 try:
@@ -1389,7 +1440,10 @@ class Journey:
         result = {"id": self.id, "priority": self.spec.get("priority"), "title": self.spec.get("title"),
                   "status": status, "reason": reason, "started_at": wall, "seconds": round(now() - started, 2),
                   "nonce": self.nonce, "terminal": self.term, "pane": self.pane, "host_pid": self.host_pid,
-                  "frames": frames.count, "clip_frames": clip, "steps": self.steps, "evidence": self.evidence}
+                  "frames": frames.count, "clip_frames": clip, "frame_times": frames.times, "action": action,
+                  "action_frames": [i for i, t in enumerate(frames.times)
+                                    if action and "end" in action and action["start"] <= t <= action["end"]],
+                  "steps": self.steps, "evidence": self.evidence}
         (self.out / "result.json").write_text(json.dumps(result, indent=1, default=str) + "\n")
         return result
 

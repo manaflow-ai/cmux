@@ -343,66 +343,150 @@ def collect(out, ids, host, missing_reason):
 
 # ---- clips -------------------------------------------------------------------------------
 
+# A pass needs this many frames of its action in the clip (the driver takes one as the action starts and
+# one as it ends), and that many different ones: a clip that never shows the window change proves nothing.
+MIN_ACTION_FRAMES = 2
+
+
+def png_size(data):
+    ihdr = dict(png_chunks(data)).get(b"IHDR")
+    if ihdr is None:
+        raise ValueError("no IHDR")
+    return struct.unpack(">II", ihdr[:8])
+
+
 def make_clip(directory, interval):
-    """clip.mp4 with ffmpeg, else clip.png (APNG, standard library only) from <id>/clip/frame-*.png."""
+    """The clip of <id>/clip/frame-*.png, every frame on one canvas (frames change size when a journey
+    places, resizes, zooms or fills the window): clip.mp4 with ffmpeg, else clip.png (APNG, standard
+    library only). (path or None, the frame numbers the clip shows)."""
     frames = sorted((directory / "clip").glob("frame-*.png"))
     if not frames:
-        return None
+        return None, set()
+    numbers = {f: int(f.stem.split("-")[1]) for f in frames}
     if shutil.which("ffmpeg"):
-        listing, video = directory / "clip.txt", directory / "clip.mp4"
-        listing.write_text("".join(f"file '{f.resolve()}'\nduration {interval:g}\n" for f in frames) + f"file '{frames[-1].resolve()}'\n")
-        done = subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", str(listing),
-                               "-vf", "scale=1280:-2", "-pix_fmt", "yuv420p", str(video)], capture_output=True, timeout=600)
-        listing.unlink()
-        if done.returncode == 0:
-            return video
-    return apng(frames, directory / "clip.png", interval)
+        sizes = []
+        for f in frames:
+            try:
+                sizes.append(png_size(f.read_bytes()))
+            except ValueError:
+                pass
+        if sizes:
+            width = max(w for w, _ in sizes)
+            canvas_w = 1280
+            canvas_h = int(max(h for _, h in sizes) * canvas_w / width + 1) // 2 * 2
+            listing, video = directory / "clip.txt", directory / "clip.mp4"
+            listing.write_text("".join(f"file '{f.resolve()}'\nduration {interval:g}\n" for f in frames) + f"file '{frames[-1].resolve()}'\n")
+            fit = (f"scale={canvas_w}:{canvas_h}:force_original_aspect_ratio=decrease,"
+                   f"pad={canvas_w}:{canvas_h}:(ow-iw)/2:(oh-ih)/2:color=black")
+            done = subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", str(listing),
+                                   "-vf", fit, "-pix_fmt", "yuv420p", str(video)], capture_output=True, timeout=600)
+            listing.unlink()
+            if done.returncode == 0:
+                return video, set(numbers.values())
+    target, kept = apng(frames, directory / "clip.png", interval)
+    return target, {numbers[f] for f in kept}
 
 
 def png_chunks(data):
     if data[:8] != b"\x89PNG\r\n\x1a\n":
         raise ValueError("not a PNG")
     pos, chunks = 8, []
-    while pos < len(data):
+    while pos + 8 <= len(data):
         length, kind = struct.unpack(">I4s", data[pos:pos + 8])
         chunks.append((kind, data[pos + 8:pos + 8 + length]))
         pos += 12 + length
     return chunks
 
 
+ADAM7 = ((0, 0, 8, 8), (4, 0, 8, 8), (0, 4, 4, 8), (2, 0, 4, 4), (0, 2, 2, 4), (1, 0, 2, 2), (0, 1, 1, 2))
+CHANNELS = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}
+
+
+def blank_idat(width, height, fmt):
+    """Image data of a WIDTH x HEIGHT image of zero bytes (black, or clear with alpha) in the PNG format
+    `fmt` (IHDR bytes 8..12: bit depth, color type, compression, filter, interlace)."""
+    depth, color, interlace = fmt[0], fmt[1], fmt[4]
+    row = lambda w: 1 + (w * CHANNELS.get(color, 4) * depth + 7) // 8
+    if interlace:
+        passes = [(-(-(width - x0) // dx), -(-(height - y0) // dy)) for x0, y0, dx, dy in ADAM7]
+        raw = b"".join(bytes(row(w) * h) for w, h in passes if w > 0 and h > 0)
+    else:
+        raw = bytes(row(width) * height)
+    return zlib.compress(raw, 9)
+
+
 def apng(frames, target, interval):
-    """An animated PNG of same-format frames (others skipped), `interval` seconds each; identical frames merge."""
+    """An animated PNG of every frame, `interval` seconds each, on one canvas (the largest width and
+    height): a smaller frame is centered on black, and each frame clears its area when the next comes.
+    Identical frames in a row merge into one longer frame. Frames need one PNG format (bit depth, color
+    type, palette: what sips writes for the app's snapshots); a frame of another format is left out
+    and is not in the kept list. (path or None, the kept frame paths)."""
     def chunk(kind, body):
         return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body) & 0xFFFFFFFF)
-    parsed, last = [], None
+    parsed, last, fmt, plte = [], None, None, None
     for path in frames:
         data = path.read_bytes()
         if data == last and parsed:
-            parsed[-1][2] += 1
+            parsed[-1]["repeats"] += 1
+            parsed[-1]["paths"].append(path)
+            continue
+        try:
+            chunks = png_chunks(data)
+        except (ValueError, struct.error):
+            continue
+        found = dict(chunks)
+        ihdr = found.get(b"IHDR")
+        if ihdr is None or len(ihdr) != 13:
+            continue
+        if fmt is None:
+            fmt, plte = ihdr[8:], found.get(b"PLTE")
+        if ihdr[8:] != fmt or found.get(b"PLTE") != plte:
             continue
         last = data
-        chunks = png_chunks(data)
-        ihdr = dict(chunks).get(b"IHDR")
-        if ihdr is None or (parsed and ihdr[8:] != parsed[0][0][8:]):
-            continue
-        parsed.append([ihdr, b"".join(body for kind, body in chunks if kind == b"IDAT"), 1])
+        width, height = struct.unpack(">II", ihdr[:8])
+        parsed.append({"size": (width, height), "idat": b"".join(body for kind, body in chunks if kind == b"IDAT"),
+                       "repeats": 1, "paths": [path]})
     if not parsed:
-        return None
-    width, height = struct.unpack(">II", parsed[0][0][:8])
-    parsed = [p for p in parsed if struct.unpack(">II", p[0][:8]) == (width, height)]
-    out, seq = [b"\x89PNG\r\n\x1a\n", chunk(b"IHDR", parsed[0][0]), chunk(b"acTL", struct.pack(">II", len(parsed), 0))], 0
-    for index, (ihdr, idat, repeats) in enumerate(parsed):
-        delay = max(1, round(interval * repeats * 100))
-        out.append(chunk(b"fcTL", struct.pack(">IIIIIHHBB", seq, width, height, 0, 0, delay, 100, 0, 0)))
+        return None, []
+    canvas_w, canvas_h = max(p["size"][0] for p in parsed), max(p["size"][1] for p in parsed)
+    head = struct.pack(">II", canvas_w, canvas_h) + fmt
+    out = [b"\x89PNG\r\n\x1a\n", chunk(b"IHDR", head), chunk(b"acTL", struct.pack(">II", len(parsed), 0))]
+    if plte is not None:
+        out.append(chunk(b"PLTE", plte))
+    seq = 0
+    # The first frame is the still image when it fills the canvas; otherwise the still image is a black
+    # canvas that is not part of the animation, and every frame is an fdAT placed on it.
+    first_is_still = parsed[0]["size"] == (canvas_w, canvas_h)
+    if not first_is_still:
+        out.append(chunk(b"IDAT", blank_idat(canvas_w, canvas_h, fmt)))
+    for index, frame in enumerate(parsed):
+        width, height = frame["size"]
+        x, y = (canvas_w - width) // 2, (canvas_h - height) // 2
+        delay = max(1, round(interval * frame["repeats"] * 100))
+        # dispose_op 1 (background): the frame's area is cleared before the next one; blend_op 0 (source).
+        out.append(chunk(b"fcTL", struct.pack(">IIIIIHHBB", seq, width, height, x, y, delay, 100, 1, 0)))
         seq += 1
-        if index == 0:
-            out.append(chunk(b"IDAT", idat))
+        if index == 0 and first_is_still:
+            out.append(chunk(b"IDAT", frame["idat"]))
         else:
-            out.append(chunk(b"fdAT", struct.pack(">I", seq) + idat))
+            out.append(chunk(b"fdAT", struct.pack(">I", seq) + frame["idat"]))
             seq += 1
     out.append(chunk(b"IEND", b""))
     target.write_bytes(b"".join(out))
-    return target
+    return target, [path for frame in parsed for path in frame["paths"]]
+
+
+def clip_check(directory, result, kept):
+    """How many of the action's frames (result.json "action_frames") the clip shows, and how many of
+    those differ: {"action_frames", "action_distinct", "ok"}."""
+    action = [i for i in result.get("action_frames") or [] if isinstance(i, int) and i in kept]
+    digests = set()
+    for i in action:
+        path = directory / "clip" / f"frame-{i:05d}.png"
+        if path.is_file():
+            digests.add(hashlib.sha256(path.read_bytes()).hexdigest())
+    return {"action_frames": len(action), "action_distinct": len(digests),
+            "ok": len(action) >= MIN_ACTION_FRAMES and len(digests) >= MIN_ACTION_FRAMES}
 
 
 # ---- report ------------------------------------------------------------------------------
@@ -477,10 +561,20 @@ def main(argv=None):
     lines = []
     for spec in chosen:
         result = results.get(spec["id"], {"status": "not run", "reason": "no result"})
-        clip = make_clip(out / spec["id"], opts.frame_interval) if (out / spec["id"]).is_dir() else None
-        line = {"id": spec["id"], "priority": spec["priority"], "status": result.get("status", "not run"),
-                "reason": result.get("reason", ""), "evidence": compact(result.get("evidence")),
-                "clip": str(clip) if clip else None, "checks": sorted(str(p) for p in (out / spec["id"]).glob("check-*.png")),
+        clip, kept = make_clip(out / spec["id"], opts.frame_interval) if (out / spec["id"]).is_dir() else (None, set())
+        shown = clip_check(out / spec["id"], result, kept)
+        status, reason = result.get("status", "not run"), result.get("reason", "")
+        if status == "pass" and not (clip and shown["ok"]):
+            # A pass needs a clip of its action: the frames are the evidence a person looks at.
+            status = "fail"
+            reason = (f"the clip shows {shown['action_frames']} frame(s) of the action ({shown['action_distinct']} different; "
+                      f"needs {MIN_ACTION_FRAMES} different)" if clip else "no clip")
+        line = {"id": spec["id"], "priority": spec["priority"], "status": status,
+                "reason": reason, "evidence": compact(result.get("evidence")),
+                "clip": str(clip) if clip else None, "clip_frames": len(kept),
+                "clip_action_frames": shown["action_frames"], "clip_action_distinct": shown["action_distinct"],
+                "action": result.get("action"),
+                "checks": sorted(str(p) for p in (out / spec["id"]).glob("check-*.png")),
                 "build_job": build["id"], "commit": build["commit"], "tag": build["tag"], "host": result.get("host"),
                 "path": spec["_path"], "nonce": result.get("nonce"), "seconds": result.get("seconds"),
                 "run_at": result.get("started_at") or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
