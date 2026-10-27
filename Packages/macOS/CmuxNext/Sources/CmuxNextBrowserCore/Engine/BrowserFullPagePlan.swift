@@ -1,4 +1,4 @@
-public import CoreGraphics
+public import Foundation
 
 /// The viewport positions a stitched full-page capture scrolls to, in CSS
 /// pixels, row by row. The page clamps the last row and column to its

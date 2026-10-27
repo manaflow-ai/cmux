@@ -1,4 +1,8 @@
+#if canImport(CryptoKit)
 package import CryptoKit
+#else
+package import Crypto
+#endif
 public import Foundation
 
 /// A distinguished name's fields the certificate viewer shows.

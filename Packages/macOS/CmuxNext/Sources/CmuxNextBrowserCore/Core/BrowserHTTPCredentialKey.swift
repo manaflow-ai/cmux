@@ -1,4 +1,7 @@
 package import Foundation
+#if canImport(FoundationNetworking)
+package import FoundationNetworking
+#endif
 
 /// Where a remembered HTTP sign-in applies: one browser profile, one server
 /// (scheme, host, port), one realm and one method.

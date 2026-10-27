@@ -1,4 +1,7 @@
 public import Foundation
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
 
 /// Foundation cookies for a WebKit store. `HTTPCookiePropertyKey` has no
 /// HttpOnly key, so an HttpOnly cookie is parsed from a `Set-Cookie`

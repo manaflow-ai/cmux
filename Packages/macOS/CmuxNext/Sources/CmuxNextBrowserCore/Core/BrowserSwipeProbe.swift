@@ -1,4 +1,4 @@
-package import CoreGraphics
+package import Foundation
 
 /// The page-world script a swipe asks (`BrowserSwipeGesture`), and its answer. Owned by
 /// `CEFSwipeNavigation`.

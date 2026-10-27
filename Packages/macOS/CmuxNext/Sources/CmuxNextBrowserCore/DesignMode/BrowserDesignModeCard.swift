@@ -1,4 +1,3 @@
-public import CoreGraphics
 public import Foundation
 
 /// One design mode highlight as an agent chat's composer shows it: a text chip with what the agent

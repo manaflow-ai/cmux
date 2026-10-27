@@ -1,4 +1,3 @@
-public import CoreGraphics
 public import Foundation
 
 /// A popup window a page asked for: `window.open` with window features

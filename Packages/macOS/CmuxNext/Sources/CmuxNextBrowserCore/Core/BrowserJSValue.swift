@@ -17,7 +17,7 @@ public nonisolated enum BrowserJSValue: Hashable, Sendable {
         case nil, is NSNull:
             self = .null
         case let number as NSNumber:
-            if CFGetTypeID(number) == CFBooleanGetTypeID() {
+            if Self.isBoolean(number) {
                 self = .bool(number.boolValue)
             } else {
                 self = .number(number.doubleValue)
@@ -33,6 +33,16 @@ public nonisolated enum BrowserJSValue: Hashable, Sendable {
         default:
             self = .null
         }
+    }
+
+    /// Whether `number` holds a boolean (JavaScript `true`/`false`), not the integer 0 or 1.
+    private static func isBoolean(_ number: NSNumber) -> Bool {
+        #if canImport(Darwin)
+        CFGetTypeID(number) == CFBooleanGetTypeID()
+        #else
+        // swift-corelibs-foundation has no public CFBoolean; its booleans are their own NSNumber subclass.
+        type(of: number) == type(of: NSNumber(value: true))
+        #endif
     }
 
     /// Foundation representation, for passing arguments into WebKit.

@@ -19,7 +19,11 @@ public nonisolated struct SystemHostLookup: HostLookup {
         // A person is typing the word; the omnibar shows the answer.
         let status = try? await runner.runHostResolution(.userBlocking) { () -> Int32 in
             var hints = addrinfo()
+            #if canImport(Glibc)
+            hints.ai_socktype = Int32(SOCK_STREAM.rawValue)
+            #else
             hints.ai_socktype = SOCK_STREAM
+            #endif
             var result: UnsafeMutablePointer<addrinfo>?
             let status = blockingGetaddrinfo(host, nil, &hints, &result)
             if let result { freeaddrinfo(result) }

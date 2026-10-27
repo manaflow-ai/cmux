@@ -1,4 +1,4 @@
-package import CoreGraphics
+package import Foundation
 
 /// Which way a page swipe goes. Content dragged right (`scrollingDeltaX > 0`, the page
 /// scrolling toward its left edge) shows the previous page, as in Safari and Chrome.

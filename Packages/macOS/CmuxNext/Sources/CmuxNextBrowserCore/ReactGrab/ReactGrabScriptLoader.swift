@@ -1,5 +1,12 @@
+#if canImport(CryptoKit)
 package import CryptoKit
+#else
+package import Crypto
+#endif
 public import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Fetches the pinned react-grab release once per run and checks its SHA-256 before handing it out.
 ///

@@ -99,10 +99,24 @@ public nonisolated struct VerificationMessageParser: Sendable {
 
     // MARK: - Links
 
+    #if canImport(Darwin)
     private static func links(in text: String) -> [URL] {
         guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return [] }
         return detector.blockingRegexMatches(in: text).compactMap(\.url)
     }
+    #else
+    /// swift-corelibs-foundation has no NSDataDetector. ``safeLinks(_:)`` keeps only https links,
+    /// so only those are looked for; trailing sentence punctuation is not part of the link.
+    private static let httpsLink = try? NSRegularExpression(pattern: #"https://[^\s<>"'()\[\]{}]+?(?=[.,;:!?]*(?:[\s<>"'()\[\]{}]|$))"#,
+                                                            options: [.caseInsensitive])
+
+    private static func links(in text: String) -> [URL] {
+        guard let httpsLink else { return [] }
+        return httpsLink.blockingRegexMatches(in: text).compactMap { match in
+            Range(match.range, in: text).flatMap { URL(string: String(text[$0])) }
+        }
+    }
+    #endif
 
     /// https only, a host, no user info, the default port; each link once.
     private static func safeLinks(_ links: [URL]) -> [URL] {

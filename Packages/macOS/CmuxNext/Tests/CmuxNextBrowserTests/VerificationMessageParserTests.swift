@@ -76,6 +76,13 @@ import Testing
         #expect(parsed.links.map(\.absoluteString) == ["https://github.com/confirm?t=1"])
     }
 
+    /// Sentence punctuation after a link is not part of it (NSDataDetector on macOS, the https
+    /// pattern on Linux, p15-oracle-140).
+    @Test func aLinkEndsBeforeSentencePunctuation() {
+        let parsed = parser.parse(Self.email(body: "Confirm at https://github.com/confirm?t=1. Or (https://github.com/c/2), thanks!"))
+        #expect(parsed.links.map(\.absoluteString) == ["https://github.com/confirm?t=1", "https://github.com/c/2"])
+    }
+
     /// An email's description never shows its text: a log line or crash
     /// report must not carry a code.
     @Test func theEmailDescriptionIsRedacted() {

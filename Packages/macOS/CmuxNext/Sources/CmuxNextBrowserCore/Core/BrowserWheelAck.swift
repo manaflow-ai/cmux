@@ -1,4 +1,4 @@
-package import CoreGraphics
+package import Foundation
 
 /// Chromium's answer to one trackpad wheel a hosted page got (WHEEL_ACK, task p01-process-234 of
 /// plans/cmux-next/chrome-parity/p01-process.md; the host's side is `ChromiumHost/src/host_wheel_ack.h`).

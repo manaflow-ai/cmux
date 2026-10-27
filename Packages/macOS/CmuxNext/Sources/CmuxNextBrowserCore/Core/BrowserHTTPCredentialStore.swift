@@ -1,6 +1,8 @@
 import CmuxNextCompat
 package import Foundation
+#if canImport(Security)
 package import Security
+#endif
 
 /// HTTP sign-ins the user checked "Remember password" for. Nothing goes in
 /// unless they did; an off-the-record profile never reads or writes it.
@@ -10,6 +12,7 @@ package nonisolated protocol BrowserHTTPCredentialStoring: Sendable {
     func forget(_ key: BrowserHTTPCredentialKey)
 }
 
+#if canImport(Security)
 /// One generic-password item per sign-in under `<bundle id>.browser-http-auth`,
 /// accessible after first unlock, this device only. Blocking Keychain calls:
 /// callers run it off the main actor.
@@ -52,4 +55,4 @@ package nonisolated struct KeychainHTTPCredentialStore: BrowserHTTPCredentialSto
         self.service = service
     }
 }
-
+#endif
