@@ -1,0 +1,92 @@
+The DMG signer patch for the apple-codesign 0.29.0 crate.
+Applied by scripts/ci/build-rcodesign-dmg.sh with patch -p1 in the crate root.
+
+--- a/src/dmg.rs
++++ b/src/dmg.rs
+@@ -47,8 +47,11 @@
+     crate::{
+         code_directory::{CodeDirectoryBlob, CodeSignatureFlags},
+         cryptography::{Digest, DigestType},
++        code_requirement::{CodeRequirementExpression, CodeRequirements, RequirementType},
+         embedded_signature::{BlobData, CodeSigningSlot, EmbeddedSignature, RequirementSetBlob},
+         embedded_signature_builder::EmbeddedSignatureBuilder,
++        policy::derive_designated_requirements,
++        signing_settings::DesignatedRequirementMode,
+         AppleCodesignError, SettingsScope, SigningSettings,
+     },
+     log::warn,
+@@ -329,7 +332,7 @@
+     ) -> Result<Vec<u8>, AppleCodesignError> {
+         let mut builder = EmbeddedSignatureBuilder::default();
+ 
+-        for (slot, blob) in self.create_special_blobs()? {
++        for (slot, blob) in self.create_special_blobs(settings)? {
+             builder.add_blob(slot, blob)?;
+         }
+ 
+@@ -389,9 +392,14 @@
+ 
+         let koly_digest = reader.koly().digest_for_code_directory(digest_type)?;
+ 
+-        let mut cd = CodeDirectoryBlob {
+-            version: 0x20100,
++        // As codesign does for a DMG: the team of an Apple-issued certificate,
++        // which needs the 0x20200 Code Directory (0x20100 has no team field).
++        let team_name = settings.team_id().map(|x| Cow::Owned(x.to_string()));
++
++        let mut cd = CodeDirectoryBlob {
++            version: if team_name.is_some() { 0x20200 } else { 0x20100 },
+             flags,
++            team_name,
+             code_limit: reader.koly().offset_after_plist() as u32,
+             digest_size: digest_type.hash_len()? as u8,
+             digest_type,
+@@ -407,12 +415,44 @@
+     }
+ 
+     /// Create special blobs that are added to the superblob.
++    ///
++    /// The requirement set holds the designated requirement codesign writes:
++    /// derived from the signing certificate (as for Mach-O), or the explicit one
++    /// in the settings.
+     pub fn create_special_blobs(
+         &self,
++        settings: &SigningSettings,
+     ) -> Result<Vec<(CodeSigningSlot, BlobData)>, AppleCodesignError> {
+-        Ok(vec![(
+-            CodeSigningSlot::RequirementSet,
+-            RequirementSetBlob::default().into(),
+-        )])
++        let mut requirements = CodeRequirements::default();
++
++        match settings.designated_requirement(SettingsScope::Main) {
++            DesignatedRequirementMode::Auto => {
++                if let Some((_, cert)) = settings.signing_key() {
++                    let identifier = Some(
++                        settings
++                            .binary_identifier(SettingsScope::Main)
++                            .ok_or(AppleCodesignError::NoIdentifier)?
++                            .to_string(),
++                    );
++                    requirements.push(derive_designated_requirements(
++                        cert,
++                        settings.certificate_chain(),
++                        identifier,
++                    )?);
++                }
++            }
++            DesignatedRequirementMode::Explicit(exprs) => {
++                for expr in exprs {
++                    requirements.push(CodeRequirementExpression::from_bytes(expr)?.0);
++                }
++            }
++        }
++
++        let mut blob = RequirementSetBlob::default();
++        if !requirements.is_empty() {
++            requirements.add_to_requirement_set(&mut blob, RequirementType::Designated)?;
++        }
++
++        Ok(vec![(CodeSigningSlot::RequirementSet, blob.into())])
+     }
+ }

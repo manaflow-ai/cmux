@@ -144,6 +144,9 @@ PATH_OWNERS = {
     "scripts/ci/product_input_identity.py": frozenset(("preflight",)),
     "scripts/ci/ci_health_report.py": frozenset(("ci",)),
     "scripts/ci/queue_janitor.py": frozenset(("ci",)),
+    # The delivery workflow list: test_nightly_delivery_concurrency.py (release-notary) and
+    # queue_janitor.py (ci) both import it.
+    "scripts/ci/delivery_workflows.py": frozenset(("ci", "release-notary")),
     # test_ci_starved_labels.py (ci) loads it by path; queue_janitor.py imports it.
     "scripts/ci/starved_labels.py": frozenset(("ci",)),
     "scripts/ci/required_status_checks.py": frozenset(("ci",)),

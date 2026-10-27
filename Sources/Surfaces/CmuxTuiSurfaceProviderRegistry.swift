@@ -560,7 +560,7 @@ final class CmuxTuiSurfaceProviderRegistry {
                 guard let loss = CloudMachineAccessLoss(error: error) else { continue }
                 if let provider = providers[target.id] {
                     provider.noteAccessLost(loss)
-                } else if loss.isMachineScoped {
+                } else if Self.endsRestoredMachine(loss) {
                     // No provider ever reached this machine; its restored
                     // panes leave like any machine outside the user's reach.
                     adoptedOwnerTeams[target.id] = nil
@@ -828,23 +828,60 @@ final class CmuxTuiSurfaceProviderRegistry {
         return page.vms.compactMap { providers[$0.id] }
     }
 
+    /// Whether `loss` proves that a machine no provider has reached yet is out
+    /// of the user's reach, so its restored panes may leave. Leaving erases the
+    /// panes' saved links to their remote terminals.
+    ///
+    /// A `404 vm_not_found` is no proof: the server answers it for a deleted
+    /// machine and for a read made with a team that does not own the machine,
+    /// or with an incomplete team list. Those panes stay restoring and are
+    /// read again on the next refresh
+    /// (https://github.com/manaflow-ai/cmux/issues/21820).
+    nonisolated static func endsRestoredMachine(_ loss: CloudMachineAccessLoss) -> Bool {
+        loss.isMachineScoped && loss != .notFound
+    }
+
+    /// Access is gone: the restored panes leave instead of reconnecting
+    /// through a provider built from persisted metadata.
+    private func endRestoredMachine(_ machineID: String) {
+        adoptedOwnerTeams[machineID] = nil
+        unregisterMachine(machineID)
+    }
+
     private func registerPendingRestoredMachines(pageTeamID: String?, generation: UInt64) async {
         guard let catalog else { return }
         for machineID in catalog.pendingRestoredMachineIDs where providers[machineID] == nil {
             let info = catalog.machineInfo(for: .cloud(machineID))
-            guard let ownerTeamID = adoptedOwnerTeams[machineID] ?? pageTeamID,
+            guard var ownerTeamID = adoptedOwnerTeams[machineID] ?? pageTeamID,
                   !ownerTeamID.isEmpty,
                   !isRetired, generation == refreshGeneration,
                   isCloudEnabled(), !Task.isCancelled else { continue }
             let fetchedSummary: VMSummary?
             do {
                 fetchedSummary = try await loadMachineStatus(machineID, ownerTeamID)
-            } catch let error where CloudMachineAccessLoss(error: error)?.isMachineScoped == true {
+            } catch let error where CloudMachineAccessLoss(error: error) == .notFound {
                 guard !isRetired, generation == refreshGeneration else { return }
-                // Access is gone: the restored panes leave instead of reconnecting
-                // through a provider built from persisted metadata.
-                adoptedOwnerTeams[machineID] = nil
-                unregisterMachine(machineID)
+                // The saved team may be a guess: a legacy pane adopts the
+                // selected team. The selected team's read can still find it.
+                guard let pageTeamID, !pageTeamID.isEmpty, pageTeamID != ownerTeamID else { continue }
+                do {
+                    let summary = try await loadMachineStatus(machineID, pageTeamID)
+                    guard !isRetired, generation == refreshGeneration else { return }
+                    adoptedOwnerTeams[machineID] = pageTeamID
+                    ownerTeamID = pageTeamID
+                    fetchedSummary = summary
+                } catch {
+                    guard !isRetired, generation == refreshGeneration else { return }
+                    // The same rule as the saved team's read: only a definite
+                    // loss ends the panes; another 404 keeps them restoring.
+                    if CloudMachineAccessLoss(error: error).map(Self.endsRestoredMachine) == true {
+                        endRestoredMachine(machineID)
+                    }
+                    continue
+                }
+            } catch let error where CloudMachineAccessLoss(error: error).map(Self.endsRestoredMachine) == true {
+                guard !isRetired, generation == refreshGeneration else { return }
+                endRestoredMachine(machineID)
                 continue
             } catch {
                 fetchedSummary = nil
