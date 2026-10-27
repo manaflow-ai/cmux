@@ -200,44 +200,53 @@ extension PageWebView {
         const el = all.find(drawn);
         if (!el) { return JSON.stringify({ reason: 'not rendered' }); }
         el.scrollIntoView({ block, inline: 'nearest', behavior: 'instant' });
-        // At `start`, a sticky bar over the scroller's top (Settings' search and section tabs) would
-        // cover the element's own title: scroll back by what covers its top edge, again while
-        // another bar does (at most 4 times); a top still covered is not a scroll.
-        const coverOf = () => {
-          const t = el.getBoundingClientRect();
-          const over = document.elementFromPoint(t.left + t.width / 2, Math.max(t.top, 0) + 2);
-          if (!over || el.contains(over) || over.contains(el)) { return null; }
+        // The part of its box that shows: inside the viewport and every ancestor that clips that axis
+        // (a nested scroller).
+        const visible = () => {
+          const r = el.getBoundingClientRect();
+          let top = Math.max(r.top, 0), bottom = Math.min(r.bottom, window.innerHeight);
+          let left = Math.max(r.left, 0), right = Math.min(r.right, window.innerWidth);
+          for (let a = el.parentElement; a && a !== document.documentElement; a = a.parentElement) {
+            const cs = getComputedStyle(a);
+            const clipsX = cs.overflowX !== 'visible', clipsY = cs.overflowY !== 'visible';
+            if (!clipsX && !clipsY) { continue; }
+            const c = a.getBoundingClientRect();
+            if (clipsY) { top = Math.max(top, c.top); bottom = Math.min(bottom, c.bottom); }
+            if (clipsX) { left = Math.max(left, c.left); right = Math.min(right, c.right); }
+          }
+          return { r, top, bottom, left, right };
+        };
+        // How far its top edge is hidden (clipped, or under a sticky bar such as Settings' search and
+        // section tabs), probed in the middle of its visible width; 0 when the top shows.
+        const hiddenTop = () => {
+          const v = visible();
+          if (v.right <= v.left) { return 0; }
+          if (v.r.top < v.top) { return v.top - v.r.top + 8; }
+          const over = document.elementFromPoint((v.left + v.right) / 2, v.r.top + 2);
+          if (over && el.contains(over)) { return 0; }
+          if (!over || over.contains(el)) { return 8; }
           let cover = over;
           while (cover.parentElement && !cover.parentElement.contains(el)) { cover = cover.parentElement; }
-          return cover.getBoundingClientRect().bottom - t.top + 8;
+          return Math.max(cover.getBoundingClientRect().bottom - v.r.top + 8, 8);
         };
         if (block === 'start') {
-          let scroller = el.parentElement;
-          while (scroller && !(/(auto|scroll)/.test(getComputedStyle(scroller).overflowY) && scroller.scrollHeight > scroller.clientHeight)) {
-            scroller = scroller.parentElement;
+          // The scrollers that hold it, inner first: each step moves the first that can still move up.
+          const scrollers = [];
+          for (let a = el.parentElement; a; a = a.parentElement) {
+            if (/(auto|scroll)/.test(getComputedStyle(a).overflowY) && a.scrollHeight > a.clientHeight) { scrollers.push(a); }
           }
-          scroller = scroller || document.scrollingElement;
+          if (document.scrollingElement && !scrollers.includes(document.scrollingElement)) { scrollers.push(document.scrollingElement); }
           for (let i = 0; i < 4; i++) {
-            const by = coverOf();
-            if (by === null || by <= 0) { break; }
+            const by = hiddenTop();
+            const scroller = scrollers.find((sc) => sc.scrollTop > 0);
+            if (by <= 0 || !scroller) { break; }
             scroller.scrollBy({ top: -by, behavior: 'instant' });
           }
-          if (coverOf() !== null) { return JSON.stringify({ reason: 'top covered' }); }
+          if (hiddenTop() > 0) { return JSON.stringify({ reason: 'top covered' }); }
         }
-        const r = el.getBoundingClientRect();
-        // The part of its box that shows: inside the viewport and every clipping ancestor (a nested
-        // scroller). Its middle must hit the element, so a sheet over all of it fails; a sticky
-        // header over its top edge does not. (An overlay with pointer-events: none is not seen.)
-        let top = Math.max(r.top, 0), bottom = Math.min(r.bottom, window.innerHeight);
-        let left = Math.max(r.left, 0), right = Math.min(r.right, window.innerWidth);
-        for (let a = el.parentElement; a && a !== document.documentElement; a = a.parentElement) {
-          const cs = getComputedStyle(a);
-          const clipsX = cs.overflowX !== 'visible', clipsY = cs.overflowY !== 'visible';
-          if (!clipsX && !clipsY) { continue; }
-          const c = a.getBoundingClientRect();
-          if (clipsY) { top = Math.max(top, c.top); bottom = Math.min(bottom, c.bottom); }
-          if (clipsX) { left = Math.max(left, c.left); right = Math.min(right, c.right); }
-        }
+        const { r, top, bottom, left, right } = visible();
+        // The middle of what shows must hit the element, so a sheet over all of it fails. (An overlay
+        // with pointer-events: none is not seen.)
         const shown = bottom > top && right > left
           && el.contains(document.elementFromPoint((left + right) / 2, (top + bottom) / 2));
         if (!shown) { return JSON.stringify({ reason: 'not in view' }); }
