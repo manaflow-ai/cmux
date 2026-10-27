@@ -476,10 +476,10 @@ async fn forward_signals(
         if received.is_none() {
             return Err("signal stream closed".into());
         }
-        if let Err(error) = signal_pidfd(pidfd.as_raw_fd(), number) {
-            if error.raw_os_error() != Some(libc::ESRCH) {
-                return Err(error.to_string());
-            }
+        if let Err(error) = signal_pidfd(pidfd.as_raw_fd(), number)
+            && error.raw_os_error() != Some(libc::ESRCH)
+        {
+            return Err(error.to_string());
         }
     }
 }
