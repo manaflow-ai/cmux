@@ -58,3 +58,7 @@ libc.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true
+
+[dev-dependencies]
+# The paused clock for the reconnect backoff tests.
+tokio = { workspace = true, features = ["test-util"] }

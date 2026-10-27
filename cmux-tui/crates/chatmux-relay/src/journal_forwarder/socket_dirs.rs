@@ -1,17 +1,20 @@
 //! Socket-root changes for the journal forwarder. A session appears when a
 //! cmux-tui daemon binds `<name>.sock` in one of the resolver roots, so the
-//! forwarder rescans on a file-watcher event, not on a scan period (Chromium
-//! base/files/file_path_watcher.h). A root that does not exist yet is
-//! watched through its parent until it appears. `changes` counts the events;
-//! session workers whose daemon is gone wait on it too.
+//! forwarder rescans on a directory-entry event, not on a scan period
+//! (Chromium base/files/file_path_watcher.h). A root that does not exist yet
+//! is watched through its parent, for entries appearing only, until it
+//! appears (entry_watch.rs: file work in the parent queues no event).
+//! `changes` counts the relevant events; session workers whose daemon is
+//! gone wait on it too.
 
-use std::collections::HashSet;
-use std::ffi::{OsStr, OsString};
+mod entry_watch;
+
+use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
-use notify::Watcher as _;
+use entry_watch::{EntryWatch, Fired, Mask};
 use tokio::sync::watch;
 
 /// A root can appear between the check and the parent watch; a reconcile
@@ -19,27 +22,25 @@ use tokio::sync::watch;
 /// often.
 const RECONCILE_PASSES: usize = 4;
 
+/// Each watched directory: a root (`Entries`) or a missing root's parent
+/// (`Appear`).
+type Targets = HashMap<PathBuf, Mask>;
+
 pub(super) struct SocketDirs {
-    dirs: Vec<PathBuf>,
+    dirs: Arc<[PathBuf]>,
+    /// None before the first reconcile and after the watch failed.
     watched: Option<Watched>,
-    changes: Arc<watch::Sender<u64>>,
-    /// The watcher reported an error: its watches may be gone.
-    lost: Arc<AtomicBool>,
+    changes: watch::Sender<u64>,
 }
 
 struct Watched {
-    watcher: notify::RecommendedWatcher,
-    paths: HashSet<PathBuf>,
+    watch: EntryWatch,
+    targets: Targets,
 }
 
 impl SocketDirs {
     pub(super) fn new(dirs: Vec<PathBuf>) -> Self {
-        Self {
-            dirs,
-            watched: None,
-            changes: Arc::new(watch::channel(0).0),
-            lost: Arc::new(AtomicBool::new(false)),
-        }
+        Self { dirs: dirs.into(), watched: None, changes: watch::channel(0).0 }
     }
 
     /// A receiver that wakes on the next change of a socket root.
@@ -49,116 +50,143 @@ impl SocketDirs {
 
     /// Wakes every receiver, as a root change would.
     pub(super) fn bump(&self) {
-        bump(&self.changes);
+        self.changes.send_modify(|generation| *generation = generation.wrapping_add(1));
     }
 
     /// Watches every root (or its parent while it does not exist). `false`
     /// when a root cannot be watched: the caller rescans on a backoff then.
-    /// The watcher's calls block (inotify answers on its own thread, FSEvents
-    /// restarts its stream), so they run on the blocking pool.
+    /// The path lookups block, so they run on the blocking pool.
     pub(super) async fn reconcile(&mut self) -> bool {
-        let dirs = self.dirs.clone();
-        let watched = self.watched.take();
-        let changes = Arc::clone(&self.changes);
-        let lost = Arc::clone(&self.lost);
+        let watched = match self.watched.take() {
+            Some(watched) => watched,
+            None => match EntryWatch::new() {
+                Ok(watch) => Watched { watch, targets: Targets::new() },
+                Err(_) => return false,
+            },
+        };
+        let dirs = Arc::clone(&self.dirs);
         let task = cmux_blocking::spawn_blocking(move || {
-            let watched = match watched {
-                Some(watched) if !lost.swap(false, Ordering::AcqRel) => Some(watched),
-                stale => {
-                    drop(stale);
-                    Watched::new(&dirs, changes, lost)
-                }
-            };
-            match watched {
-                Some(mut watched) => {
-                    let complete = watched.reconcile(&dirs);
-                    (Some(watched), complete)
-                }
-                None => (None, false),
-            }
+            let mut watched = watched;
+            let complete = watched.reconcile(&dirs);
+            (watched, complete)
         });
         match task.await {
             Ok((watched, complete)) => {
-                self.watched = watched;
+                self.watched = Some(watched);
                 complete
             }
             Err(_) => false,
         }
     }
 
-    /// Drops the watcher on the blocking pool (its backends join threads).
-    pub(super) async fn close(mut self) {
-        if let Some(watched) = self.watched.take() {
-            let _ = cmux_blocking::spawn_blocking(move || drop(watched)).await;
+    /// Waits for the next change of a socket root, bumps every receiver and
+    /// returns. Events that concern no root (another entry appearing in a
+    /// parent) are dropped here. Never returns while nothing is watched.
+    /// Cancel-safe.
+    pub(super) async fn changed(&mut self) {
+        let Some(watched) = self.watched.as_mut() else {
+            return std::future::pending().await;
+        };
+        loop {
+            match watched.watch.wait().await {
+                Ok(fired) => {
+                    if concerns_sockets(&mut watched.targets, &self.dirs, fired) {
+                        break;
+                    }
+                }
+                Err(_) => {
+                    // The next reconcile makes a new watch.
+                    self.watched = None;
+                    break;
+                }
+            }
         }
+        self.bump();
     }
-}
-
-fn bump(changes: &watch::Sender<u64>) {
-    changes.send_modify(|generation| *generation = generation.wrapping_add(1));
 }
 
 impl Watched {
-    fn new(
-        dirs: &[PathBuf],
-        changes: Arc<watch::Sender<u64>>,
-        lost: Arc<AtomicBool>,
-    ) -> Option<Self> {
-        let names: Vec<OsString> =
-            dirs.iter().filter_map(|dir| dir.file_name().map(OsStr::to_owned)).collect();
-        let watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-            let relevant = match event {
-                Ok(event) => concerns_sockets(&names, &event),
-                Err(_) => {
-                    lost.store(true, Ordering::Release);
-                    true
-                }
-            };
-            if relevant {
-                bump(&changes);
-            }
-        })
-        .ok()?;
-        Some(Self { watcher, paths: HashSet::new() })
-    }
-
     fn reconcile(&mut self, dirs: &[PathBuf]) -> bool {
         for _ in 0..RECONCILE_PASSES {
             let (wanted, found_all) = watch_targets(dirs);
-            if wanted == self.paths {
+            if wanted == self.targets {
                 return found_all;
             }
-            let gone: Vec<PathBuf> = self.paths.difference(&wanted).cloned().collect();
-            for path in gone {
-                let _ = self.watcher.unwatch(&path);
-                self.paths.remove(&path);
+            let stale: Vec<PathBuf> = self
+                .targets
+                .iter()
+                .filter(|(path, mask)| wanted.get(*path) != Some(*mask))
+                .map(|(path, _)| path.clone())
+                .collect();
+            for path in stale {
+                self.watch.remove(&path);
+                self.targets.remove(&path);
             }
-            for path in wanted {
-                if self.paths.contains(&path) {
+            for (path, mask) in wanted {
+                if self.targets.contains_key(&path) {
                     continue;
                 }
-                if self.watcher.watch(&path, notify::RecursiveMode::NonRecursive).is_err() {
+                if self.watch.add(&path, mask).is_err() {
                     return false;
                 }
-                self.paths.insert(path);
+                self.targets.insert(path, mask);
             }
         }
         false
     }
 }
 
-/// Each root that exists, else its parent; `false` when neither exists for
-/// some root.
-fn watch_targets(dirs: &[PathBuf]) -> (HashSet<PathBuf>, bool) {
-    let mut targets = HashSet::new();
+/// Whether the events change a socket root: a `.sock` entry in a root, a
+/// root appearing in a parent, a watched directory going away (its target is
+/// dropped so the next reconcile watches again), or lost events.
+fn concerns_sockets(targets: &mut Targets, roots: &[PathBuf], fired: Vec<Fired>) -> bool {
+    let mut relevant = false;
+    for fired in fired {
+        relevant |= match fired {
+            Fired::Overflow => true,
+            Fired::Gone { dir } => {
+                targets.remove(&dir);
+                true
+            }
+            Fired::Entry { dir, name } => match targets.get(&dir).copied() {
+                Some(Mask::Entries) => {
+                    name.is_none_or(|name| Path::new(&name).extension() == Some(OsStr::new("sock")))
+                }
+                Some(Mask::Appear) => {
+                    // The missing roots under this parent (a sibling root
+                    // that exists has its own watch).
+                    let mut missing = roots.iter().filter(|root| {
+                        root.parent() == Some(dir.as_path()) && !targets.contains_key(*root)
+                    });
+                    match name {
+                        Some(name) => {
+                            missing.any(|root| root.file_name() == Some(name.as_os_str()))
+                        }
+                        // kqueue names no entry: a missing root that exists
+                        // now is the change.
+                        None => missing.any(|root| is_dir(root)),
+                    }
+                }
+                None => false,
+            },
+        };
+    }
+    relevant
+}
+
+/// Each root that exists (`Entries`), else its parent (`Appear`); `false`
+/// when neither exists for some root.
+fn watch_targets(dirs: &[PathBuf]) -> (Targets, bool) {
+    let mut targets = Targets::new();
     let mut found_all = true;
     for dir in dirs {
-        let target = Some(dir.as_path())
-            .filter(|dir| is_dir(dir))
-            .or_else(|| dir.parent().filter(|parent| is_dir(parent)));
-        match target {
-            Some(target) => {
-                targets.insert(target.to_path_buf());
+        if is_dir(dir) {
+            targets.insert(dir.clone(), Mask::Entries);
+            continue;
+        }
+        match dir.parent().filter(|parent| is_dir(parent)) {
+            Some(parent) => {
+                targets.entry(parent.to_path_buf()).or_insert(Mask::Appear);
             }
             None => found_all = false,
         }
@@ -170,105 +198,120 @@ fn is_dir(path: &Path) -> bool {
     cmux_blocking::fs::metadata(path).is_ok_and(|metadata| metadata.is_dir())
 }
 
-/// A root itself appearing or going, or a `.sock` entry in one. Matched by
-/// name: FSEvents reports `/private/tmp` for `/tmp`.
-fn concerns_sockets(roots: &[OsString], event: &notify::Event) -> bool {
-    if event.need_rescan() {
-        return true;
-    }
-    if matches!(event.kind, notify::EventKind::Access(_)) {
-        return false;
-    }
-    let is_root =
-        |path: &Path| path.file_name().is_some_and(|name| roots.iter().any(|root| root == name));
-    event.paths.iter().any(|path| {
-        is_root(path)
-            || (path.extension() == Some(OsStr::new("sock")) && path.parent().is_some_and(is_root))
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsString;
     use std::time::Duration;
 
-    fn event(kind: notify::EventKind, path: &str) -> notify::Event {
-        notify::Event::new(kind).add_path(PathBuf::from(path))
+    fn scratch(label: &str) -> PathBuf {
+        let base = std::env::temp_dir()
+            .join(format!("chatmux-socket-dirs-{label}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        base
+    }
+
+    fn entry(dir: &str, name: Option<&str>) -> Vec<Fired> {
+        vec![Fired::Entry { dir: PathBuf::from(dir), name: name.map(OsString::from) }]
     }
 
     #[test]
     fn only_root_and_socket_entries_are_changes() {
-        use notify::EventKind;
-        use notify::event::{AccessKind, CreateKind, ModifyKind, RemoveKind};
-        let roots = vec![OsString::from("cmux-tui-501")];
-        let create = EventKind::Create(CreateKind::Any);
-        assert!(concerns_sockets(&roots, &event(create, "/private/tmp/cmux-tui-501")));
-        assert!(concerns_sockets(&roots, &event(create, "/tmp/cmux-tui-501/work.sock")));
-        assert!(concerns_sockets(
-            &roots,
-            &event(EventKind::Remove(RemoveKind::Any), "/tmp/cmux-tui-501/work.sock")
-        ));
-        assert!(!concerns_sockets(&roots, &event(create, "/tmp/cmux-tui-501/work.log")));
-        assert!(!concerns_sockets(&roots, &event(create, "/tmp/other/work.sock")));
-        assert!(!concerns_sockets(
-            &roots,
-            &event(EventKind::Modify(ModifyKind::Any), "/tmp/unrelated.txt")
-        ));
-        assert!(!concerns_sockets(
-            &roots,
-            &event(EventKind::Access(AccessKind::Any), "/tmp/cmux-tui-501/work.sock")
-        ));
+        let roots = [PathBuf::from("/tmp/cmux-tui-501"), PathBuf::from("/run/cmux-tui-hashed-501")];
+        let mut targets = Targets::from([
+            (PathBuf::from("/tmp/cmux-tui-501"), Mask::Entries),
+            (PathBuf::from("/run"), Mask::Appear),
+        ]);
+        let mut check = |fired| concerns_sockets(&mut targets, &roots, fired);
+        assert!(check(entry("/tmp/cmux-tui-501", Some("work.sock"))));
+        assert!(check(entry("/tmp/cmux-tui-501", None)), "kqueue names no entry");
+        assert!(!check(entry("/tmp/cmux-tui-501", Some("work.pid"))));
+        assert!(check(entry("/run", Some("cmux-tui-hashed-501"))));
+        assert!(!check(entry("/run", Some("unrelated.txt"))));
+        assert!(!check(entry("/run", None)), "no root under /run exists here");
+        assert!(!check(entry("/elsewhere", Some("work.sock"))));
+        assert!(check(vec![Fired::Overflow]));
+        assert!(check(vec![Fired::Gone { dir: PathBuf::from("/tmp/cmux-tui-501") }]));
+        assert!(
+            !targets.contains_key(Path::new("/tmp/cmux-tui-501")),
+            "a gone root is watched again"
+        );
+    }
+
+    /// $TMPDIR holds the existing root and is the parent of the missing
+    /// hashed root: other entries changing in $TMPDIR (kqueue does not name
+    /// them) are not changes because the existing root has its own watch.
+    #[test]
+    fn an_existing_sibling_root_does_not_make_parent_churn_a_change() {
+        let base = scratch("sibling");
+        let root = base.join("cmux-tui-501");
+        let hashed = base.join("cmux-tui-hashed-501");
+        std::fs::create_dir(&root).unwrap();
+        let roots = [root.clone(), hashed.clone()];
+        let (mut targets, found_all) = watch_targets(&roots);
+        assert!(found_all);
+        assert_eq!(targets, Targets::from([(root, Mask::Entries), (base.clone(), Mask::Appear)]));
+        let unnamed = || vec![Fired::Entry { dir: base.clone(), name: None }];
+        assert!(!concerns_sockets(&mut targets, &roots, unnamed()));
+        std::fs::create_dir(&hashed).unwrap();
+        assert!(concerns_sockets(&mut targets, &roots, unnamed()));
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]
     fn a_missing_root_is_watched_through_its_parent() {
-        let base = std::env::temp_dir().join(format!("chatmux-socket-dirs-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&base);
-        std::fs::create_dir_all(&base).unwrap();
+        let base = scratch("targets");
         let root = base.join("cmux-tui-501");
         let (targets, found_all) = watch_targets(std::slice::from_ref(&root));
         assert!(found_all);
-        assert_eq!(targets, HashSet::from([base.clone()]));
+        assert_eq!(targets, Targets::from([(base.clone(), Mask::Appear)]));
         std::fs::create_dir(&root).unwrap();
         let (targets, _) = watch_targets(std::slice::from_ref(&root));
-        assert_eq!(targets, HashSet::from([root]));
+        assert_eq!(targets, Targets::from([(root, Mask::Entries)]));
         let orphan = base.join("missing").join("cmux-tui-501");
         assert!(!watch_targets(&[orphan]).1, "no root and no parent: not complete");
         let _ = std::fs::remove_dir_all(&base);
     }
 
     /// The forwarder wakes when a socket is bound in a root that did not
-    /// exist at start, with no scan period.
-    #[test]
-    fn a_socket_bound_in_a_new_root_wakes_the_forwarder() {
-        let base =
-            std::env::temp_dir().join(format!("chatmux-socket-dirs-bind-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&base);
-        std::fs::create_dir_all(&base).unwrap();
+    /// exist at start, with no scan period; unrelated file work in the
+    /// watched parent (a busy /tmp) neither changes anything nor returns
+    /// from `changed`.
+    #[tokio::test]
+    async fn a_socket_bound_in_a_new_root_wakes_the_forwarder_and_parent_work_does_not() {
+        let base = scratch("bind");
         let root = base.join("cmux-tui-77");
-        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-        runtime.block_on(async {
-            let mut dirs = SocketDirs::new(vec![root.clone()]);
-            let mut changes = dirs.subscribe();
-            assert!(dirs.reconcile().await, "the parent is watched");
-            changes.borrow_and_update();
+        let unrelated = base.join("unrelated.txt");
+        std::fs::write(&unrelated, b"seed").unwrap();
+        let mut dirs = SocketDirs::new(vec![root.clone()]);
+        let mut changes = dirs.subscribe();
+        assert!(dirs.reconcile().await, "the parent is watched");
+        changes.borrow_and_update();
 
-            std::fs::create_dir(&root).unwrap();
-            tokio::time::timeout(Duration::from_secs(10), changes.changed())
-                .await
-                .expect("the new root is a change")
-                .unwrap();
-            assert!(dirs.reconcile().await, "the root itself is watched now");
-            changes.borrow_and_update();
+        for _ in 0..200 {
+            std::fs::write(&unrelated, b"unrelated work").unwrap();
+            let _ = std::fs::read(&unrelated).unwrap();
+        }
+        assert!(
+            tokio::time::timeout(Duration::from_millis(300), dirs.changed()).await.is_err(),
+            "file work in the parent is not a change"
+        );
+        assert!(!changes.has_changed().unwrap());
 
-            let _listener =
-                std::os::unix::net::UnixListener::bind(root.join("session.sock")).unwrap();
-            tokio::time::timeout(Duration::from_secs(10), changes.changed())
-                .await
-                .expect("the bound socket is a change")
-                .unwrap();
-            dirs.close().await;
-        });
+        std::fs::create_dir(&root).unwrap();
+        tokio::time::timeout(Duration::from_secs(10), dirs.changed())
+            .await
+            .expect("the new root is a change");
+        assert!(changes.has_changed().unwrap());
+        assert!(dirs.reconcile().await, "the root itself is watched now");
+        changes.borrow_and_update();
+
+        let _listener = std::os::unix::net::UnixListener::bind(root.join("session.sock")).unwrap();
+        tokio::time::timeout(Duration::from_secs(10), dirs.changed())
+            .await
+            .expect("the bound socket is a change");
+        assert!(changes.has_changed().unwrap());
         let _ = std::fs::remove_dir_all(&base);
     }
 }

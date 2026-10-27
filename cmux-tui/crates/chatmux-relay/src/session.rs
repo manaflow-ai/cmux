@@ -686,8 +686,9 @@ async fn relay_session(
     // no FIN/RST arrives, so without this the relay would sit on the zombie
     // socket until the kernel's TCP retransmission timeout (10+ minutes).
     let mut liveness = SocketLiveness::new(tokio::time::Instant::now(), now_ms());
-    // wakeup-allow: deadline the socket's next protocol deadline (the server-set heartbeat or the
-    // read-liveness deadline); traffic ends each wait first, and an idle socket wakes once per heartbeat
+    // wakeup-allow: periodic ChatmuxRelay.heartbeat the server-set heartbeat, sent every cadence
+    // whatever the traffic (the chatmux server's presence rule counts heartbeats); the read-liveness
+    // deadline shares this timer, so an idle socket wakes once per heartbeat
     let timer = tokio::time::sleep_until(liveness.next_deadline());
     tokio::pin!(timer);
     let mut critical_burst = 0_u8;

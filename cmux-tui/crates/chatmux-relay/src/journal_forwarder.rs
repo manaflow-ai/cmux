@@ -56,8 +56,10 @@ const DEFAULT_RECONNECT_MAX: Duration = Duration::from_secs(30);
 /// each next one twice as late, up to the cap.
 const UNWATCHED_RESCAN_FIRST: Duration = Duration::from_secs(15);
 const UNWATCHED_RESCAN_MAX: Duration = Duration::from_secs(120);
-/// A session worker retries on the reconnect backoff this many times; after
-/// that it waits for its socket root to change (the daemon binds again).
+/// A session worker that finds no daemon (no socket, or every connect is
+/// refused) this many times in a row stops its timer and waits for its
+/// socket root to change (the daemon binds again). Any other failure keeps
+/// the timer backoff: a live daemon that is stopped or slow must recover.
 const RETRIES_BEFORE_PARKING: u32 = 5;
 const MAX_DISCOVERED_SESSIONS: usize = 128;
 const MAX_SOCKET_ENTRIES_PER_ROOT: usize = 512;
@@ -367,7 +369,6 @@ async fn run(events: ManagedEvents, cancellation: CancellationToken) {
     let flush_wake = Arc::new(tokio::sync::Notify::new());
     let socket_dirs = socket_directories();
     let mut sockets = SocketDirs::new(socket_dirs.clone());
-    let mut changes = sockets.subscribe();
     let shared = Shared {
         events,
         client,
@@ -383,8 +384,8 @@ async fn run(events: ManagedEvents, cancellation: CancellationToken) {
     let mut tasks: HashMap<String, JoinHandle<()>> = HashMap::new();
     let mut rescan_gap = UNWATCHED_RESCAN_FIRST;
     loop {
-        // A change during the scan below wakes the next pass.
-        changes.borrow_and_update();
+        // An entry change during the scan below stays queued in the watch
+        // and wakes the next pass.
         let watched = sockets.reconcile().await;
         discover_sessions(&shared, &socket_dirs, &mut tasks).await;
         if watched {
@@ -393,7 +394,7 @@ async fn run(events: ManagedEvents, cancellation: CancellationToken) {
         tokio::select! {
             biased;
             _ = cancellation.cancelled() => break,
-            changed = changes.changed() => if changed.is_err() { break },
+            () = sockets.changed() => {}
             () = unwatched_rescan(rescan_gap), if !watched => {
                 rescan_gap = rescan_gap.saturating_mul(2).min(UNWATCHED_RESCAN_MAX);
                 // Parked session workers retry with the rescan.
@@ -401,7 +402,7 @@ async fn run(events: ManagedEvents, cancellation: CancellationToken) {
             }
         }
     }
-    sockets.close().await;
+    drop(sockets);
     abort_and_join_tasks(tasks).await;
     flusher.abort();
     let _ = flusher.await;
@@ -757,6 +758,8 @@ async fn run_session(
     let mut volatile_resume = None;
     let mut claim: Option<SessionClaim> = None;
     let mut socket_changes = shared.socket_changes.clone();
+    // Attempts in a row that found no daemon listening.
+    let mut no_daemon = 0_u32;
     loop {
         if shared.cancellation.is_cancelled() {
             return;
@@ -764,6 +767,7 @@ async fn run_session(
         // Only a root change after this attempt starts wakes a parked retry.
         socket_changes.borrow_and_update();
         let mut stream = None;
+        let mut daemon_gone = true;
         for socket_path in &socket_paths {
             if !safe_socket_entry(socket_path).await {
                 continue;
@@ -782,16 +786,22 @@ async fn run_session(
                     stream = Some(connected_stream);
                     break;
                 }
-                Some(Ok(Err(_)) | Err(_)) => {}
+                Some(Ok(Err(error))) if nothing_listens(&error) => {}
+                // A timeout (a full backlog: the daemon is stopped or busy)
+                // or another error: something is there.
+                Some(Ok(Err(_)) | Err(_)) => daemon_gone = false,
             }
         }
         let Some(stream) = stream else {
             failures = failures.saturating_add(1);
-            if !wait_reconnect(&shared, &mut socket_changes, failures).await {
+            no_daemon = if daemon_gone { no_daemon.saturating_add(1) } else { 0 };
+            let park = no_daemon > RETRIES_BEFORE_PARKING;
+            if !wait_reconnect(&shared, &mut socket_changes, failures, park).await {
                 return;
             }
             continue;
         };
+        no_daemon = 0;
         let (read_half, mut write_half) = stream.into_split();
         let mut reader = tokio::io::BufReader::new(read_half);
         let identity_request = json!({
@@ -812,7 +822,7 @@ async fn run_session(
             ) => !matches!(result, Ok(Ok(()))),
         } {
             failures = failures.saturating_add(1);
-            if !wait_reconnect(&shared, &mut socket_changes, failures).await {
+            if !wait_reconnect(&shared, &mut socket_changes, failures, false).await {
                 return;
             }
             continue;
@@ -832,14 +842,14 @@ async fn run_session(
             .and_then(|line| parse_session_identity(&line))
         else {
             failures = failures.saturating_add(1);
-            if !wait_reconnect(&shared, &mut socket_changes, failures).await {
+            if !wait_reconnect(&shared, &mut socket_changes, failures, false).await {
                 return;
             }
             continue;
         };
         if !identity_matches(&session_name, &session_key, &identity_name) {
             failures = failures.saturating_add(1);
-            if !wait_reconnect(&shared, &mut socket_changes, failures).await {
+            if !wait_reconnect(&shared, &mut socket_changes, failures, false).await {
                 return;
             }
             continue;
@@ -909,7 +919,7 @@ async fn run_session(
             ) => !matches!(result, Ok(Ok(()))),
         } {
             failures = failures.saturating_add(1);
-            if !wait_reconnect(&shared, &mut socket_changes, failures).await {
+            if !wait_reconnect(&shared, &mut socket_changes, failures, false).await {
                 return;
             }
             continue;
@@ -988,7 +998,7 @@ async fn run_session(
         } else {
             failures = failures.saturating_add(1);
         }
-        if !wait_reconnect(&shared, &mut socket_changes, failures).await {
+        if !wait_reconnect(&shared, &mut socket_changes, failures, false).await {
             return;
         }
     }
@@ -1278,22 +1288,29 @@ async fn wait_backoff(cancellation: &CancellationToken, delay: Duration) -> bool
 
 /// Waits before a session worker's next connection attempt: a change of a
 /// socket root (its daemon bound the socket again) ends the wait at once;
-/// the reconnect backoff ends it only for the first RETRIES_BEFORE_PARKING
-/// failures, so a worker whose daemon is gone does not wake the relay.
+/// the reconnect backoff ends it unless the worker is `parked` (its daemon
+/// is gone), so a worker with no daemon does not wake the relay.
 /// `false` when the forwarder stops.
 #[cfg(unix)]
 async fn wait_reconnect(
     shared: &Shared,
     socket_changes: &mut tokio::sync::watch::Receiver<u64>,
     failures: u32,
+    parked: bool,
 ) -> bool {
-    let parked = failures > RETRIES_BEFORE_PARKING;
     tokio::select! {
         biased;
         _ = shared.cancellation.cancelled() => false,
         changed = socket_changes.changed() => changed.is_ok(),
         retry = wait_backoff(&shared.cancellation, reconnect_delay(failures)), if !parked => retry,
     }
+}
+
+/// A connect error that means no daemon listens on the path: the socket
+/// file is gone, or it is left over from a daemon that exited.
+#[cfg(unix)]
+fn nothing_listens(error: &std::io::Error) -> bool {
+    matches!(error.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused)
 }
 
 #[cfg(unix)]
@@ -1713,9 +1730,8 @@ mod tests {
         Some(buffer.get(header_end..header_end.checked_add(length)?)?.to_vec())
     }
 
-    /// A worker whose daemon is gone stops retrying on a timer once the
-    /// backoff is spent; a socket-root change (the daemon binds again) or the
-    /// forwarder's end wakes it.
+    /// A parked worker (its daemon is gone) has no timer: a socket-root
+    /// change (the daemon binds again) or the forwarder's end wakes it.
     #[cfg(unix)]
     #[tokio::test]
     async fn a_parked_session_worker_waits_for_a_socket_root_change() {
@@ -1724,10 +1740,10 @@ mod tests {
         let (changes, receiver) = tokio::sync::watch::channel(0_u64);
         shared.socket_changes = receiver;
         let mut worker_changes = shared.socket_changes.clone();
-        let parked = RETRIES_BEFORE_PARKING + 1;
+        let failures = RETRIES_BEFORE_PARKING + 1;
 
         {
-            let wait = wait_reconnect(&shared, &mut worker_changes, parked);
+            let wait = wait_reconnect(&shared, &mut worker_changes, failures, true);
             tokio::pin!(wait);
             assert!(
                 tokio::time::timeout(Duration::from_millis(200), wait.as_mut()).await.is_err(),
@@ -1742,16 +1758,109 @@ mod tests {
             );
         }
 
-        // Before the backoff is spent a change ends the wait early too.
+        // An unparked wait ends early on a change too.
         changes.send_modify(|generation| *generation += 1);
-        assert!(wait_reconnect(&shared, &mut worker_changes, 1).await);
+        assert!(wait_reconnect(&shared, &mut worker_changes, 1, false).await);
 
         drop(changes);
         assert!(
-            !wait_reconnect(&shared, &mut worker_changes, parked).await,
+            !wait_reconnect(&shared, &mut worker_changes, failures, true).await,
             "the forwarder's end stops the worker"
         );
         let _ = tokio::fs::remove_dir_all(root).await;
+    }
+
+    /// A socket root with the mode the forwarder accepts.
+    #[cfg(unix)]
+    async fn private_socket_root(label: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let id = NEXT_CURSOR_TEST_ID.fetch_add(1, Ordering::Relaxed);
+        let root = std::env::temp_dir()
+            .join(format!("chatmux-relay-root-{label}-{}-{id}", std::process::id()));
+        tokio::fs::create_dir(&root).await.expect("create socket root");
+        tokio::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700))
+            .await
+            .expect("make the socket root private");
+        root
+    }
+
+    /// Only a missing socket or a refused connect means no daemon; a live
+    /// daemon that does not answer is something else.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn only_a_missing_or_refused_socket_means_no_daemon() {
+        let root = private_socket_root("no-daemon").await;
+        let missing = tokio::net::UnixStream::connect(root.join("missing.sock")).await.unwrap_err();
+        assert!(nothing_listens(&missing), "{missing:?}");
+        let stale = root.join("stale.sock");
+        drop(std::os::unix::net::UnixListener::bind(&stale).unwrap());
+        let refused = tokio::net::UnixStream::connect(&stale).await.unwrap_err();
+        assert!(nothing_listens(&refused), "{refused:?}");
+        assert!(!nothing_listens(&std::io::Error::from(std::io::ErrorKind::PermissionDenied)));
+        let _ = tokio::fs::remove_dir_all(root).await;
+    }
+
+    /// A live daemon that misses more identity handshakes than
+    /// RETRIES_BEFORE_PARKING (stopped in a debugger, overloaded) is not
+    /// gone: the worker keeps its timer and subscribes once the daemon
+    /// answers. No socket-root change happens meanwhile.
+    #[cfg(unix)]
+    #[tokio::test(start_paused = true)]
+    async fn a_worker_reconnects_to_a_daemon_that_answers_after_many_missed_handshakes() {
+        use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _};
+        let root = private_socket_root("silent-daemon").await;
+        let socket = root.join("work.sock");
+        let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+        let (cursor_root, cursor_path) = cursor_test_path("silent-daemon").await;
+        let (mut shared, _wake) = test_shared(String::from("http://127.0.0.1:9"), cursor_path);
+        // The socket roots never change in this test.
+        let (_root_changes, receiver) = tokio::sync::watch::channel(0_u64);
+        shared.socket_changes = receiver;
+        let silent_attempts = RETRIES_BEFORE_PARKING + 2;
+        let (subscribed, subscription) = tokio::sync::oneshot::channel();
+        let daemon = tokio::spawn(async move {
+            // Accepted but never answered: each identity read times out.
+            let mut silent = Vec::new();
+            for _ in 0..silent_attempts {
+                silent.push(listener.accept().await.unwrap().0);
+            }
+            let (stream, _) = listener.accept().await.unwrap();
+            let (read, mut write) = stream.into_split();
+            let mut lines = tokio::io::BufReader::new(read).lines();
+            let identity = lines.next_line().await.unwrap().unwrap();
+            assert!(identity.contains("chatmux-journal-identity"));
+            let answer = json!({
+                "protocol": PROTOCOL,
+                "type": "response",
+                "id": "chatmux-journal-identity",
+                "ok": true,
+                "result": [{"name": "work"}],
+            });
+            write.write_all(format!("{answer}\n").as_bytes()).await.unwrap();
+            let subscribe = lines.next_line().await.unwrap().unwrap();
+            let _ = subscribed.send(subscribe);
+            // Hold every connection open until the test ends.
+            std::future::pending::<()>().await;
+            drop((silent, write, lines));
+        });
+        let worker = tokio::spawn(run_session(
+            shared.clone(),
+            Some(String::from("work")),
+            String::from("work"),
+            vec![socket],
+        ));
+
+        let subscribe = tokio::time::timeout(Duration::from_secs(30 * 60), subscription)
+            .await
+            .expect("the worker retried on its timer and subscribed")
+            .unwrap();
+        assert!(subscribe.contains("session.journal.subscribe"), "{subscribe}");
+
+        shared.cancellation.cancel();
+        let _ = worker.await;
+        daemon.abort();
+        let _ = tokio::fs::remove_dir_all(root).await;
+        let _ = tokio::fs::remove_dir_all(cursor_root).await;
     }
 
     #[cfg(unix)]
