@@ -121,6 +121,20 @@ class Run(unittest.TestCase):
         self.assertTrue((kept / "HEAD").exists())
         self.assertTrue((self.repo / "ghostty" / ".git").exists())
 
+    def test_a_half_made_nested_path_submodule_and_its_worktree_are_removed(self) -> None:
+        subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
+        (self.repo / ".gitmodules").write_text('[submodule "vendor/lib"]\n\tpath = vendor/lib\n')
+        half = self.repo / ".git" / "modules" / "vendor" / "lib"
+
+        def leave() -> None:
+            (half / "objects").mkdir(parents=True, exist_ok=True)
+            (self.repo / "vendor" / "lib").mkdir(parents=True, exist_ok=True)
+            (self.repo / "vendor" / "lib" / ".git").write_text("gitdir: ../../.git/modules/vendor/lib\n")
+
+        self.run_with([128], tries=1, leave=leave)
+        self.assertFalse((self.repo / ".git" / "modules" / "vendor").exists())
+        self.assertFalse((self.repo / "vendor" / "lib").exists())
+
     def test_a_fresh_config_lock_is_removed(self) -> None:
         git = self.repo / ".git"
         git.mkdir()

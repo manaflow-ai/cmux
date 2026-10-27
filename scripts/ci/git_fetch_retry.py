@@ -160,20 +160,24 @@ def clean_new_modules(repo: Path, before: set[Path], log: Callable[[str], None] 
     """
     new = sorted(module_dirs(repo) - before, key=lambda path: len(path.parts))
     removed: list[Path] = []
+    # Worktrees first, for every new git dir or a descendant of one (a submodule at a/b makes
+    # both .git/modules/a and .git/modules/a/b), so no worktree is left pointing at a deleted dir.
+    new_resolved = [git_dir.resolve() for git_dir in new]
+    for worktree in submodule_worktrees(repo):
+        marker = worktree / ".git"
+        if not marker.is_file():
+            continue
+        target = marker.read_text(errors="replace").strip().removeprefix("gitdir:").strip()
+        points_at = (worktree / target).resolve() if not Path(target).is_absolute() else Path(target).resolve()
+        if any(points_at == git_dir or git_dir in points_at.parents for git_dir in new_resolved):
+            try:
+                remove_tree(worktree)
+                removed.append(worktree)
+            except OSError as error:
+                log(f"git_fetch_retry: could not remove {worktree}: {error}")
     for git_dir in new:
         if any(parent in removed for parent in git_dir.parents):
             continue
-        resolved = git_dir.resolve()
-        for worktree in submodule_worktrees(repo):
-            marker = worktree / ".git"
-            if marker.is_file():
-                target = marker.read_text(errors="replace").strip().removeprefix("gitdir:").strip()
-                if (worktree / target).resolve() == resolved or Path(target).resolve() == resolved:
-                    try:
-                        remove_tree(worktree)
-                        removed.append(worktree)
-                    except OSError as error:
-                        log(f"git_fetch_retry: could not remove {worktree}: {error}")
         try:
             remove_tree(git_dir)
             removed.append(git_dir)
