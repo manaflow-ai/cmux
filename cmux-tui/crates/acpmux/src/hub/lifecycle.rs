@@ -450,6 +450,10 @@ impl Hub {
         profile: &super::spawn::Spawn,
         stops: u64,
     ) -> Result<Arc<ChildAgent>, RpcError> {
+        // MDM's off as this start begins: its one read, before it waits on anything (review 123),
+        // which every check of the start takes, so an off that comes and goes while it starts
+        // still holds for it (reviews 73, 75 and 77 of #23322).
+        let off = self.off_latch();
         #[cfg(test)]
         super::full_access_bound::operation_entry(self);
         // One spawn at a time per session; a caller that waited here finds
@@ -461,7 +465,7 @@ impl Hub {
             return Err(stopped_while_starting());
         }
         // Boxed: a start is a deep future, and the stack a caller polls it on is not.
-        let child = Box::pin(self.reach_or_start(session, profile, stops)).await?;
+        let child = Box::pin(self.reach_or_start(session, profile, stops, &off)).await?;
         // Stopped while this agent started (no other start can run while this one holds the
         // spawn lock): the stop found no agent to end yet, or the start went on after it. The
         // agent is ended here and the session stays closed.
@@ -521,6 +525,7 @@ impl Hub {
         session: &Arc<Session>,
         profile: &super::spawn::Spawn,
         stops: u64,
+        off: &super::full_access_bound::OffLatch,
     ) -> Result<Arc<ChildAgent>, RpcError> {
         if self.shutting_down() {
             return Err(super::shutdown::shutting_down_error());
@@ -565,11 +570,8 @@ impl Hub {
             }
         }
 
-        // MDM's off as this start begins: its one read, which every check below takes, so an off
-        // that comes and goes while it starts still holds for it (reviews 73, 75 and 77 of #23322).
-        let off = self.off_latch();
         // Every start below (pooled, cold, resumed, a fork or sub-session) runs this profile.
-        if let Err(e) = self.refuse_pinned_full_access(&off, profile) {
+        if let Err(e) = self.refuse_pinned_full_access(off, profile) {
             self.append(session, "mux", "full_access_refused", json!({}));
             return Err(e);
         }
@@ -584,7 +586,7 @@ impl Hub {
         Self::starting(session, stops);
         // A pooled session claimed for this id (`pool/`): its host already
         // runs with the harness initialized and its session created.
-        if let Some(pooled) = self.pool_take_claimed_for(&session.id, profile, &off) {
+        if let Some(pooled) = self.pool_take_claimed_for(&session.id, profile, off) {
             // Reopened before it is taken, so the pooled start's Ready lands on an open session.
             if let Err(e) = self.reopen_to_start(session, stops) {
                 super::pool::end_pooled(pooled).await;
@@ -636,7 +638,7 @@ impl Hub {
         // session, forever. Re-adoption and pool adoption above keep their
         // own bounds: they serve agents that may be mid-turn.
         let budget = self.config.read().await.agent_start_timeout();
-        match tokio::time::timeout(budget, self.cold_start(session, profile, stops, &off)).await {
+        match tokio::time::timeout(budget, self.cold_start(session, profile, stops, off)).await {
             Ok(result) => result.map(|child| self.keep_account_home(session, profile, child)),
             Err(_) => {
                 self.abandon_cold_start(session, budget).await;

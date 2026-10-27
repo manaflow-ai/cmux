@@ -504,6 +504,11 @@ impl Hub {
         agent_request_id: Option<&Id>,
         ask: Option<super::permission_groups::AskInFlight>,
     ) -> Value {
+        // MDM's off as this ask begins: its one read, before anything it waits on (review 123),
+        // which every decision below takes, so an off that comes and goes while it is judged still
+        // holds for it (reviews 73, 75 and 77 of #23322). Read without a lock, so also under the
+        // permission lock.
+        let off = self.off_latch();
         #[cfg(test)]
         super::full_access_bound::operation_entry(self);
         // One harness-neutral copy of any questions, before rules and the
@@ -517,10 +522,6 @@ impl Hub {
         // the async workers: its git reads look at the repositories on disk.
         // Only under approve-reads: approve-edits writes files unasked, so a command's own
         // program could be one the agent wrote.
-        // MDM's off as this ask begins: its one read, which every decision below takes, so an off
-        // that comes and goes while it is judged still holds for it (reviews 73, 75 and 77 of
-        // #23322). Read without a lock, so also under the permission lock.
-        let off = self.off_latch();
         let reads_policy = {
             let cfg = self.config.read().await;
             capped_policy(Self::stored_policy_for(session, cfg.permission_policy), off.off())
