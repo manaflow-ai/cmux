@@ -51,8 +51,9 @@ struct CEFPageDialogs {
         let failures = tab.signInAttempts[key, default: 0]
         guard failures < BrowserHTTPAuth.attemptLimit else { return answer(token, credential: nil) }
         let dialogs = self, stores = runtime.stores
-        let memory = BrowserHTTPSignInMemory(store: stores.httpCredentials, offTheRecord: stores.offTheRecord.isOffTheRecord(tab.profileID))
-        BrowserHTTPSignIn(memory: memory, key: key, failures: failures, space: space) { [weak tab] kind, origin, done in
+        let memory = BrowserHTTPSignInMemory(store: stores.httpCredentials, index: stores.httpSignIns,
+                                             offTheRecord: stores.offTheRecord.isOffTheRecord(tab.profileID))
+        BrowserHTTPSignIn(memory: memory, key: key, failures: failures, space: space, lanes: stores.lanes) { [weak tab] kind, origin, done in
             guard let tab else { return done(.cancel) }
             tab.enqueuePrompt(kind, origin: origin, completion: done)
         }.run { [weak tab] _, credential in

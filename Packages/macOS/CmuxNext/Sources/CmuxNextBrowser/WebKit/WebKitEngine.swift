@@ -57,7 +57,7 @@ public final class WebKitEngine: BrowserEngine {
     /// The remembered-sign-in rules for a profile's tabs, over the store both engines share
     /// (``BrowserSharedStores/httpCredentials``).
     func httpSignInMemory(for profile: BrowserProfileID) -> BrowserHTTPSignInMemory {
-        BrowserHTTPSignInMemory(store: stores.httpCredentials, offTheRecord: profileStore.isOffTheRecord(profile))
+        BrowserHTTPSignInMemory(store: stores.httpCredentials, index: stores.httpSignIns, offTheRecord: profileStore.isOffTheRecord(profile))
     }
 
     /// Per-profile site permissions, shared with the Chromium engine.

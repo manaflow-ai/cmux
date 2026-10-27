@@ -13,6 +13,11 @@ public nonisolated enum BrowserPermissionKind: Hashable, Sendable {
     case location
     /// Web notifications (WebKit tabs): Block or Allow, remembered for the site.
     case notifications
+    /// Chromium's other requests, listed together as Chrome's permission
+    /// bubble lists them: Block or Allow. Chromium remembers the answer; cmux
+    /// also keeps it when every item has a per-site setting
+    /// (`BrowserSiteCapability.siteKind`).
+    case capabilities([BrowserSiteCapability])
 }
 
 /// What a prompt asks the user.

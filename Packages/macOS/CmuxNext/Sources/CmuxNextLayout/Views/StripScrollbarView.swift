@@ -64,6 +64,7 @@ final class StripScrollbarView: NSView {
 
     /// `hideClock` runs the `auto` fade-out deadline.
     init(hideClock: any Clock<Duration>) {
+        // timer-class-allow: the fade-out runs on the injected scrollbar clock (LayoutRootView's scrollbarClock) the strip suites step; it is armed only by a shown bar's scroll or hover
         hideTimer = DemandTimer(owner: "Layout.stripScrollbar.hide", clock: hideClock)
         super.init(frame: .zero)
         wantsLayer = true
@@ -175,11 +176,13 @@ final class StripScrollbarView: NSView {
     }
 
     // Called for the bar's own `isHidden` and for an ancestor's (a screen switch, an empty workspace).
+    // visibility-walk-allow: the occluder is input routing (which window rect takes clicks over a page); a hidden bar drops it in this turn
     override func viewDidHide() {
         super.viewDidHide()
         syncOccluder()
     }
 
+    // visibility-walk-allow: as viewDidHide: the shown bar's occluder comes back in this turn
     override func viewDidUnhide() {
         super.viewDidUnhide()
         syncOccluder()
@@ -194,6 +197,7 @@ final class StripScrollbarView: NSView {
     /// coordinates as this bar's occluder, nothing otherwise. A window it left drops it. Also run
     /// when an ancestor moved without an `update` (a screen sliding in or out).
     func syncOccluder() {
+        // visibility-walk-allow: the occluder's hit region: a bar under a hidden ancestor must take no clicks over a page
         let rect = isShown && !isHiddenOrHasHiddenAncestor ? thumbRect.map { convert($0, to: nil) } : nil
         // A window in deallocation counts as none: a weak reference to it aborts the runtime.
         let window = self.window.flatMap { $0.isBeingDeallocated ? nil : $0 }
@@ -205,6 +209,7 @@ final class StripScrollbarView: NSView {
         WindowOverlayHost.existingHost(for: window)?.setOccluder(id: occluderID, rect: rect)
     }
 
+    // visibility-walk-allow: the thumb's one layer color, no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()
@@ -245,6 +250,7 @@ final class StripScrollbarView: NSView {
         }
     }
 
+    // local-monitor-allow: the thumb drag goes to the window's FrameInputCoalescer (frameDrag), one scroll per frame to the latest point; only a bar with no coalescer (tests, feature off) moves per event
     override func mouseDragged(with event: NSEvent) { // perf-hot: 2ms resize-drag (every thumb drag event)
         guard drag != nil else { return }
         if let frameDrag, frameDrag.post(event) { return }

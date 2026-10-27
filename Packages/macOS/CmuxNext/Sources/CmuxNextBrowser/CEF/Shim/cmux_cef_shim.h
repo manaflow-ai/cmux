@@ -258,17 +258,23 @@ typedef enum {
   // renderer's crash leaves a sad frame in from it (Chrome's
   // DiscardPageWithCrashedSubframePolicy reads the dead process's frame nodes).
   CMUX_SHIM_SUBFRAME_RENDERER = 64,
+  // Host mode only: one call of the fork's lock handler, pushed by the
+  // Chromium Host while cmux's remote shim has a lock handler
+  // (cmux_shim_set_lock_handler, task p01-process-229): request =
+  // cmux_shim_lock_event_t, a = its detail. The remote shim calls cmux's
+  // lock fn with them; cmux's event fn never sees this kind.
+  CMUX_SHIM_LOCK = 65,
   // A page's alert, confirm or prompt (CefJSDialogHandler::OnJSDialog), only
   // after cmux_shim_set_page_dialogs(1); Chromium shows no dialog of its own.
   // request = the question's token; a = 0 alert, 1 confirm, 2 prompt
   // (cef_jsdialog_type_t); s1 = the message; s2 = the URL of the frame that
   // asks, a newline, then the prompt's default text ("" for the others). The
   // page waits for cmux_shim_js_dialog_reply (during the event or later).
-  CMUX_SHIM_JS_DIALOG = 65,
+  CMUX_SHIM_JS_DIALOG = 66,
   // Chromium ended the browser's waiting JS_DIALOG questions itself (a
   // navigation, the renderer ended, DevTools answered). Not sent after the
   // host's answer.
-  CMUX_SHIM_JS_DIALOG_DISMISSED = 66,
+  CMUX_SHIM_JS_DIALOG_DISMISSED = 67,
   // A server or a proxy asks for a user name and password
   // (CefRequestHandler::GetAuthCredentials), only after
   // cmux_shim_set_page_dialogs(1); Chromium shows no sign-in dialog of its
@@ -277,10 +283,10 @@ typedef enum {
   // scheme ("basic", "digest", "ntlm", "negotiate"), a newline, then the
   // realm ("" when the server sends none). The request waits for
   // cmux_shim_auth_reply.
-  CMUX_SHIM_AUTH = 67,
+  CMUX_SHIM_AUTH = 68,
   // The browser's waiting AUTH questions are gone (a new main-frame
   // navigation started). Not sent after the host's answer.
-  CMUX_SHIM_AUTH_DISMISSED = 68,
+  CMUX_SHIM_AUTH_DISMISSED = 69,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -617,8 +623,11 @@ CMUX_SHIM_EXPORT int cmux_shim_desktop_media_answer(int64_t token, int source_ty
                                                     int tab_browser_id, int audio);
 // Pointer lock and keyboard lock: the app decides, hides and frees its own
 // cursor and forwards the raw movement. Escape exits with by_user 1 (Chrome's
-// 1.25 s cooldown for that page). escape_locked is 1 when a keyboard lock
-// also takes Escape (the app still exits on a long Escape, as Chrome does).
+// 1.25 s cooldown for that page). detail: for KEYBOARD_LOCK_REQUESTED 1 when
+// the lock also takes Escape (the app still exits on a held Escape, as Chrome
+// does); for POINTER_LOCK_REQUESTED 1 when the page asked for unadjusted
+// movement (requestPointerLock({unadjustedMovement: true}), the fork's next
+// train; 0 before it); 0 otherwise.
 typedef enum {
   // Answer with cmux_shim_browser_pointer_lock_answer.
   CMUX_SHIM_POINTER_LOCK_REQUESTED = 0,
@@ -629,7 +638,7 @@ typedef enum {
   // The keyboard lock ended: route reserved keys as usual again.
   CMUX_SHIM_KEYBOARD_UNLOCKED = 3,
 } cmux_shim_lock_event_t;
-CMUX_SHIM_EXPORT int cmux_shim_set_lock_handler(void (*fn)(void* context, int event, int browser_id, int escape_locked),
+CMUX_SHIM_EXPORT int cmux_shim_set_lock_handler(void (*fn)(void* context, int event, int browser_id, int detail),
                                                 void* context);
 CMUX_SHIM_EXPORT int cmux_shim_browser_pointer_lock_answer(int browser_id, int allowed);
 CMUX_SHIM_EXPORT int cmux_shim_browser_keyboard_lock_answer(int browser_id, int allowed);
