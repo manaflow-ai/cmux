@@ -3,8 +3,10 @@ internal import CmuxNextCompat
 
 /// macOS Low Power Mode, observed once for the app: the composition root's ``EnergyMonitor``
 /// owns the one instance and hands it out by init. It follows
-/// `NSProcessInfoPowerStateDidChange` (no polling); `override` replaces the
-/// system value (the `debug.low_power_mode` socket method and tests).
+/// `NSProcessInfoPowerStateDidChange` (no polling) with one main-queue observer, as
+/// ``ThermalStateWatch`` follows the thermal state (Chrome's
+/// base/power_monitor/power_monitor_device_source_mac.mm observes the same notice once);
+/// `override` replaces the system value (the `debug.low_power_mode` socket method and tests).
 @MainActor
 public final class LowPowerMode {
     /// An observer of the system power state (``EnergyMonitor`` makes the app's one).
@@ -22,19 +24,17 @@ public final class LowPowerMode {
     private var systemEnabled: Bool
     private let read: () -> Bool
     private let handlers = MainActorHandlers<Bool>()
-    private var notifications: Task<Void, Never>?
+    private var observation: MainActorObservation?
 
     /// Follows `read` each time `center` posts a power state change.
     public init(center: NotificationCenter, read: @escaping () -> Bool) {
         self.read = read
         systemEnabled = read()
         isEnabled = systemEnabled
-        notifications = Task { [weak self, center] in
-            for await _ in center.notifications(named: .NSProcessInfoPowerStateDidChange) {
-                guard let self else { return }
-                self.systemEnabled = self.read()
-                self.update()
-            }
+        observation = MainActorObservation(.NSProcessInfoPowerStateDidChange, center: center) { [weak self] in
+            guard let self else { return }
+            self.systemEnabled = self.read()
+            self.update()
         }
     }
 
@@ -43,12 +43,6 @@ public final class LowPowerMode {
         read = { enabled }
         systemEnabled = enabled
         isEnabled = enabled
-    }
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    // The task handle is Sendable and cancels from any thread: a release off main stops the loop too.
-    nonisolated deinit {
-        notifications?.cancel()
     }
 
     /// Calls `handler` with the new value each time Low Power Mode turns on

@@ -1,14 +1,15 @@
-import CmuxNextCompat
+package import CmuxNextWakeups
 
-/// Watches each hidden page's title and icon for ``PageBackgroundActivity``: one observation per
-/// hidden page, from its hide to its show, discard or close. Event-driven: a page that changes
-/// nothing wakes nothing, and a frozen page changes nothing.
+/// Watches each hidden page's title and icon for ``PageBackgroundActivity``: one ``ServiceObservation``
+/// per hidden page, from its hide to its show, discard or close, in the `background` class (a fact
+/// for the discard planner nobody waits on; it must still be noted while the page is hidden).
+/// Event-driven: a page that changes nothing wakes nothing, and a frozen page changes nothing.
 ///
 /// Off until its owner sets ``isEnabled`` (the `memorySaverBackgroundActivity` feature): until then no
 /// page is watched and none is ever active.
 ///
 /// ```swift
-/// let watch = PageActivityWatch()
+/// let watch = PageActivityWatch(mainWork: mainWork)
 /// watch.isEnabled = true
 /// watch.hide("tab", look: { [weak page] in page.map(look(of:)) }, isAgentDriven: { false }, onActive: replan)
 /// watch.contains("tab")   // after its title changes: true
@@ -20,9 +21,13 @@ package final class PageActivityWatch {
     package var isEnabled = false
     /// The facts the watches feed.
     package private(set) var activity = PageBackgroundActivity()
-    private var observations: [String: Task<Void, Never>] = [:]
+    private var observations: [String: ServiceObservation<PageBackgroundActivity.Look?>] = [:]
+    private let mainWork: MainWorkScheduler
 
-    package init() {}
+    /// - Parameter mainWork: The app's one main-thread scheduler: each change's note is a task on it.
+    package init(mainWork: MainWorkScheduler) {
+        self.mainWork = mainWork
+    }
 
     /// Page `key` hid: watches what it shows from now on.
     ///
@@ -38,15 +43,19 @@ package final class PageActivityWatch {
         forget(key)
         guard isEnabled, let shown = look() else { return }
         activity.hide(key, look: shown)
-        // The stream's first value is the look now: a change between this hide and the task's
-        // first turn is a change against `shown`, so none is lost.
-        let looks = ObservationStream(look)
-        observations[key] = Task { [weak self] in
-            for await current in looks {
-                guard let self, let current else { return }
-                if self.activity.note(key, look: current, counts: !isAgentDriven()) { onActive() }
-            }
+        // The observation applies the look now in this turn (the same as `shown`, so it notes no
+        // change), then each later change of what `look` read once per flush.
+        observations[key] = ServiceObservation(.background, owner: "hibernation.pageActivity", on: mainWork,
+                                               read: look) { [weak self] current in
+            guard let self else { return }
+            guard let current else { return self.endWatch(key) }
+            if self.activity.note(key, look: current, counts: !isAgentDriven()) { onActive() }
         }
+    }
+
+    /// The page is gone: its watch ends, its fact stays until ``forget(_:)``.
+    private func endWatch(_ key: String) {
+        observations.removeValue(forKey: key)?.cancel()
     }
 
     /// Whether hidden page `key` changed its title or icon since it hid.
