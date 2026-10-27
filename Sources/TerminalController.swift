@@ -8296,18 +8296,24 @@ class TerminalController {
         }
     }
 
-    private nonisolated func v2BrowserPendingJavaScriptDialogIDs(_ browserPanel: BrowserPanel) -> Set<String> {
-        v2MainSync { Set(browserPanel.pendingJavaScriptDialogs.map(\.dialogID)) }
+    /// The oldest JavaScript dialog the page has open, which `browser.dialog.*` answers.
+    private nonisolated func v2BrowserPendingJavaScriptDialog(_ browserPanel: BrowserPanel) -> MobileBrowserDialogEvent? {
+        v2MainSync { browserPanel.pendingJavaScriptDialogs.first }
     }
 
-    /// The JavaScript dialog a page opened after `earlier` were already pending.
-    private nonisolated func v2BrowserJavaScriptDialogOpened(
-        by browserPanel: BrowserPanel,
-        since earlier: Set<String>
-    ) -> MobileBrowserDialogEvent? {
-        v2MainSync {
-            browserPanel.pendingJavaScriptDialogs.first { !earlier.contains($0.dialogID) }
+    /// The `dialog` object of `browser.dialog.*` results and of an action a dialog blocked.
+    private nonisolated func v2BrowserDialogFields(_ dialog: MobileBrowserDialogEvent) -> [String: Any] {
+        let type: String
+        switch dialog.kind {
+        case .javaScriptConfirm: type = "confirm"
+        case .javaScriptPrompt: type = "prompt"
+        default: type = "alert"
         }
+        return [
+            "type": type,
+            "message": dialog.message ?? "",
+            "default_text": v2OrNull(dialog.textField?.initial)
+        ]
     }
 
     private nonisolated func v2BrowserSelectorAction(
@@ -8329,11 +8335,21 @@ class TerminalController {
             let script = scriptBuilder(v2JSONLiteral(selector))
             let retryAttempts = max(1, v2Int(params, "retry_attempts") ?? 3)
             let selectorCondition = "document.querySelector(\(v2JSONLiteral(selector))) !== null"
-            // A JavaScript dialog the action opens blocks the page's script
-            // thread, so the action's script cannot return while it is up and
-            // the evaluation times out (#25107). The dialog is the page's answer
-            // to the action, not a failure, and is left for `browser.dialog.*`.
-            let dialogsBeforeAction = v2BrowserPendingJavaScriptDialogIDs(browserPanel)
+            // A JavaScript dialog blocks the page's script thread, so no action
+            // script can return while one is up (#25107). One already open is
+            // reported instead of waiting out the evaluation timeout; one the
+            // action itself opens is the page's answer to it, not a failure.
+            // Either way the dialog is left for `browser.dialog.*`.
+            if let dialog = v2BrowserPendingJavaScriptDialog(browserPanel) {
+                return .err(
+                    code: "dialog_pending",
+                    message: String(
+                        localized: "cli.browser.dialog.error.pending",
+                        defaultValue: "A dialog is waiting for browser.dialog.accept or browser.dialog.dismiss"
+                    ),
+                    data: ["action": actionName, "selector": selector, "dialog": v2BrowserDialogFields(dialog)]
+                )
+            }
             func actionPayload(attempt: Int) -> [String: Any] {
                 var payload: [String: Any] = [
                     "workspace_id": ctx.workspaceId.uuidString,
@@ -8349,19 +8365,9 @@ class TerminalController {
             for attempt in 1...retryAttempts {
                 switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script, timeout: javaScriptTimeout, useEval: false) {
                 case .failure(let message):
-                    if let dialog = v2BrowserJavaScriptDialogOpened(
-                        by: browserPanel,
-                        since: dialogsBeforeAction
-                    ) {
+                    if let dialog = v2BrowserPendingJavaScriptDialog(browserPanel) {
                         var payload = actionPayload(attempt: attempt)
-                        var dialogPayload: [String: Any] = [
-                            "kind": dialog.kind.rawValue,
-                            "dialog_id": dialog.dialogID
-                        ]
-                        if let message = dialog.message {
-                            dialogPayload["message"] = message
-                        }
-                        payload["dialog"] = dialogPayload
+                        payload["dialog"] = v2BrowserDialogFields(dialog)
                         // A post-action snapshot would wait on the same blocked
                         // script thread, so the dialog stands in for it.
                         return .ok(payload)
@@ -10541,19 +10547,9 @@ class TerminalController {
         guard let dialog = ctx.browserPanel.respondToJavaScriptDialog(accept: accept, text: text) else {
             return .err(code: "not_found", message: String(localized: "cli.browser.dialog.error.noPending", defaultValue: "No pending dialog"), data: ["pending": []])
         }
-        let type: String
-        switch dialog.kind {
-        case .javaScriptConfirm: type = "confirm"
-        case .javaScriptPrompt: type = "prompt"
-        default: type = "alert"
-        }
         return .ok(v2BrowserPanelFields(ctx, adding: [
             "accepted": accept,
-            "dialog": [
-                "type": type,
-                "message": dialog.message ?? "",
-                "default_text": v2OrNull(dialog.textField?.initial)
-            ],
+            "dialog": v2BrowserDialogFields(dialog),
             "remaining": ctx.browserPanel.pendingJavaScriptDialogs.count
         ]))
     }

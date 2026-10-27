@@ -18693,6 +18693,12 @@ struct CMUXCLI {
                 return
             }
             print(fallback)
+            if payload["action"] != nil,
+               let dialog = payload["dialog"] as? [String: Any],
+               let type = dialog["type"] as? String {
+                let message = (dialog["message"] as? String) ?? ""
+                print("dialog: \(type) \"\(message)\" (answer it with `browser dialog accept` or `dismiss`)")
+            }
             if let snapshot = payload["post_action_snapshot"] as? String,
                !snapshot.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 print(snapshot)

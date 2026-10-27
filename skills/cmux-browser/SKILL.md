@@ -189,6 +189,18 @@ ws(s) loads and reports `navigator.onLine === false`.
 
 ## Troubleshooting `js_error`
 
+An element action (`click`, `dblclick`, `hover`, `focus`, `type`, `fill`,
+`check`, `uncheck`, `select`, `scroll-into-view`) whose page opens `confirm()`,
+`alert()` or `prompt()` returns OK with a `dialog` object (`type`, `message`,
+`default_text`) instead of failing: the action ran and the dialog is waiting.
+Answer it before anything else. While it is open, element actions and
+`get`/`is` queries fail at once with `dialog_pending`; `eval`, `wait`, `press`,
+`scroll` and `snapshot` still block until the JavaScript timeout:
+
+```bash
+cmux browser --surface "$SURFACE" dialog accept
+```
+
 Some complex pages reject the JavaScript behind `snapshot --interactive` and
 `eval`. Recover by checking whether the page actually navigated, then fall
 back to raw text or HTML:

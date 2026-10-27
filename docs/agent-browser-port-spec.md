@@ -427,7 +427,7 @@ Planned verification commands at implementation completion:
 12. Browser create/move commands should expose enough placement/result metadata for agents to make deterministic follow-up decisions.
 13. Reuse behavior is implicit by default (caller-relative right-pane reuse); explicit handles can still force deterministic targeting.
 14. `browser fill` accepts empty text and treats it as a clear operation.
-15. Mutating browser actions can opt into post-action verification snapshots via `snapshot_after` (`--snapshot-after` in CLI), returning `post_action_snapshot` (+ refs/title/url).
+15. Mutating browser actions can opt into post-action verification snapshots via `snapshot_after` (`--snapshot-after` in CLI), returning `post_action_snapshot` (+ refs/title/url). An action whose page opens a JavaScript dialog returns `dialog` (`type`, `message`, `default_text`) instead of the snapshot and leaves the dialog for `browser.dialog.*`; while one is open, selector-based actions fail fast with `dialog_pending`.
 16. Legacy `new-pane`/`new-surface` plain output prefers short `surface:N` refs under default CLI ID formatting.
 
 ## Remaining Open Decisions
