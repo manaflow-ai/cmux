@@ -269,7 +269,10 @@ start (Claude Code's own too), a prompt waits, a continuation may fire, the chat
 sub-session's run slots are full, or that subagent's retry is under way;
 `retry.nothing_failed` (`data.why`: `closed`, `running`, `resumed`, `replaced`, `ended`,
 `forgotten`, `not_retryable`, `skipped`) and `retry.unknown_subagent`, never the chat's own
-turn. A
+turn. Under `subagent-retry-v2` the subagent's entry carries `retryInFlight: {attempt, of,
+reason, firedAt, promptId, manual}` from an attempt's fire until the subagent runs again or the
+attempt is over (the next wait, given up, refused, Stop, close), `null` on acpmux's other
+entries; a restart, or a move to another daemon, settles one left open with `retryable: false`. A
 `notifyCommand` in the config runs on a permission request and on a turn that ends
 unattended, with `ACPMUX_EVENT`, `ACPMUX_SESSION_NAME` and `ACPMUX_TEXT` set.
 `agentStartTimeoutMs` (default 90000) bounds a cold agent start (spawn, `initialize`,
