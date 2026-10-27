@@ -141,4 +141,59 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
           await page.close();
         }
       });
+  for (const name of browsers.keys())
+    for (const width of [1200, 1084])
+      test(`${name}: an open card follows its rail on every painted inspector and resize frame at ${width}px`, async () => {
+        current = browsers.get(name)!;
+        const page = await pane!.open({ width, height: 700 });
+        try {
+          await closeInspector(page);
+          await page.locator(".acpmux-minimap__tick").first().focus();
+          const card = page.locator(".acpmux-minimap__card");
+          await card.waitFor({ state: "visible" });
+          // Keep this same preview open while the Inspector changes independently of pointer/focus.
+          await card.locator(".acpmux-minimap__bookmark").focus();
+          await page.evaluate(() => {
+            const samples: { rail: number; card: number | null }[] = [];
+            const stop = window.cmuxAfterPaint(() => {
+              const rail = document.querySelector(".acpmux-minimap__rail")!.getBoundingClientRect();
+              const card = document.querySelector(".acpmux-minimap__card")?.getBoundingClientRect();
+              samples.push({ rail: rail.right, card: card?.left ?? null });
+              return true;
+            });
+            Object.assign(window, { railCardFrames: { samples, stop } });
+          });
+          const toggle = () =>
+            page.locator("button.acpmux-chat-inspector-toggle").evaluate((node) => (node as HTMLElement).click());
+          for (const open of [true, false, true]) {
+            await toggle();
+            await page.locator("aside.acpmux-chat-inspector").waitFor({ state: open ? "visible" : "detached" });
+            await settle(page);
+            await page.evaluate(() => window.cmuxPaintFrame());
+          }
+          for (const next of [1600, 1084, 1200]) {
+            await page.setViewportSize({ width: next, height: 700 });
+            await page.waitForFunction((next) => document.querySelector(".acpmux-shell")!.clientWidth === next, next);
+            await settle(page);
+            await page.evaluate(() => window.cmuxPaintFrame());
+          }
+          const samples = await page.evaluate(() => {
+            const trace = (
+              window as unknown as {
+                railCardFrames: { samples: { rail: number; card: number | null }[]; stop(): void };
+              }
+            ).railCardFrames;
+            trace.stop();
+            return trace.samples;
+          });
+          expect(samples.length).toBeGreaterThan(0);
+          expect(new Set(samples.map((sample) => Math.round(sample.rail))).size).toBeGreaterThan(2);
+          expect(samples.filter((sample) => sample.card === null || Math.abs(sample.card - sample.rail) > 1)).toEqual(
+            [],
+          );
+          if (process.env.RAIL_CARD_SCREENSHOT) await page.screenshot({ path: process.env.RAIL_CARD_SCREENSHOT });
+        } finally {
+          await page.close();
+        }
+      });
 });
