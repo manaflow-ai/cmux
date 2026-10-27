@@ -91,10 +91,15 @@ import Testing
                 accessibilityPrefix: "test.find")
             let original = try #require(pill.field.font).pointSize
             let changes = AsyncStream<CGFloat>.makeStream()
-            let observation = pill.field.observe(\.font, options: .new) { _, change in
-                if let font = change.newValue ?? nil { changes.continuation.yield(font.pointSize) }
+            let field = pill.field
+            let fill = field.fill
+            // The Swift font override doesn't reliably emit KVO. Its didSet refreshes the
+            // themed fill after installing the font, so record that existing render callback.
+            field.fill = { [weak field, continuation = changes.continuation] in
+                if let size = field?.font?.pointSize { continuation.yield(size) }
+                return fill()
             }
-            defer { observation.invalidate(); changes.continuation.finish() }
+            defer { field.fill = fill; changes.continuation.finish() }
             var sizes = changes.stream.makeAsyncIterator()
             try await call(page, "set", "appearance.metrics.chromeFontSize", .number(16))
             // CheckedFont rounds its cache key to hundredths of a point.
