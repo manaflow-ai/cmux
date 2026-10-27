@@ -214,6 +214,7 @@ public final class HoverCardRowView: NSView {
 
     /// A store repaint with no new theme (a machine color picked while the card shows) reaches
     /// the row only through this hook.
+    // visibility-walk-allow: color stores only (a tint, four text colors, the accessory's layer colors), no layout or text measure; a row exists only in a shown card
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()
@@ -303,11 +304,11 @@ public final class HoverCardAccessoryView: NSView {
         mark.path = nil
         switch accessory {
         case .dot?:
-            mark.path = CGPath(ellipseIn: CGRect(x: 0, y: midY - Self.dotSize / 2, width: Self.dotSize, height: Self.dotSize), transform: nil)
+            mark.path = CGPath.ellipse(in: CGRect(x: 0, y: midY - Self.dotSize / 2, width: Self.dotSize, height: Self.dotSize))
         case .ring(let fraction, _)?:
             let center = CGPoint(x: Self.ringSize / 2, y: midY)
             let radius = (Self.ringSize - Self.ringWidth) / 2
-            track.path = CGPath(ellipseIn: CGRect(x: center.x - radius, y: center.y - radius, width: 2 * radius, height: 2 * radius), transform: nil)
+            track.path = CGPath.ellipse(in: CGRect(x: center.x - radius, y: center.y - radius, width: 2 * radius, height: 2 * radius))
             let arc = CGMutablePath()
             // From the top, clockwise on screen (y grows up, so the angle falls).
             let start = CGFloat.pi / 2
@@ -404,6 +405,7 @@ public final class HoverCardGalleryHost: NSView, ThemeResponsive {
         recolor()
     }
 
+    // visibility-walk-allow: DEBUG gallery host only, shown in the gallery's own window; it recolors one card body as the panel does
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         recolor()

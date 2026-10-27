@@ -1,0 +1,6 @@
+{
+	"notifications": "flat",
+	"layout": {
+		"scrollModifier": "command"
+	}
+}

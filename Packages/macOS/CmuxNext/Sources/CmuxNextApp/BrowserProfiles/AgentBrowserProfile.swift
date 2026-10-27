@@ -1,8 +1,8 @@
 import CmuxNextBrowser
 import CmuxNextControl
+import CmuxNextDaemonService
 import CmuxNextWakeups
 import Foundation
-import CmuxNextCompat
 
 /// openBrowser's optional `profile` argument (plans/cmux-next/passwords.md,
 /// section 3.4). "agent" asks for the clean agent profile: one profile with a
@@ -38,41 +38,26 @@ enum AgentBrowserProfile {
     /// the record reaches this app's mirror, and a tab opened then would fall
     /// back to the workspace's profile (the cascade only takes known ids), so
     /// this waits for the record to be reported, at most `deadline`.
+    ///
+    /// R-wait: one ``ObservedCondition`` (a `ServiceObservation` in the automation class: an agent's
+    /// `openBrowser` asked) reads the profile list again only when it changes, bounded by a `MainDeadline`.
     static func ensure(_ profiles: BrowserProfileService, deadline: Duration = .seconds(5)) async throws -> String {
         if profiles.isKnown(id) { return id }
         _ = try await profiles.createProfile(id: id, name: name, color: nil, icon: nil)
-        if profiles.isKnown(id) { return id }
-        let timer = DemandTimer(owner: "AgentBrowserProfile.ensure")
-        let once = ResumeOnce()
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            once.begin(continuation)
-            // Event-driven: the profile list is observable state of the home store.
-            let watch = Task { @MainActor in
-                for await known in ObservationStream({ profiles.isKnown(id) }) where known {
-                    if once.resume(.success(())) { timer.cancel() }
-                    return
-                }
-            }
-            timer.schedule(after: deadline) {
-                if once.resume(.failure(NotReported())) { watch.cancel() }
-            }
-        }
+        let services = profiles.services
+        try await reported(within: deadline, on: services.mainWork, deadlines: services.mainDeadlines) { profiles.isKnown(id) }
         return id
+    }
+
+    /// Returns once `known` holds (at once when it holds now); throws ``NotReported`` when it still does not
+    /// after `deadline` on `deadlines`.
+    static func reported(within deadline: Duration, on work: MainWorkScheduler, deadlines: MainDeadlineScheduler,
+                         _ known: @escaping @MainActor () -> Bool) async throws(NotReported) {
+        await ObservedCondition(owner: "AgentBrowserProfile.ensure", .automation, on: work).until(timeout: deadline, deadlines: deadlines, known)
+        guard known() else { throw NotReported() }
     }
 
     nonisolated struct NotReported: Error, CustomStringConvertible {
         var description: String { "the agent browser profile was created but not reported back by the home daemon" }
-    }
-
-    /// Resumes a continuation once: the record or the deadline, whichever comes first.
-    nonisolated final class ResumeOnce: Sendable {
-        private let state = Mutex<CheckedContinuation<Void, any Error>?>(nil)
-        func begin(_ continuation: CheckedContinuation<Void, any Error>) { state.withLock { $0 = continuation } }
-        @discardableResult
-        func resume(_ result: Result<Void, any Error>) -> Bool {
-            guard let continuation = state.withLock({ value -> CheckedContinuation<Void, any Error>? in defer { value = nil }; return value }) else { return false }
-            continuation.resume(with: result)
-            return true
-        }
     }
 }

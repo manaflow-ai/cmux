@@ -384,7 +384,7 @@ final class BlockLayout: Sendable {
 
 /// Block layouts by (lineage, byte range, column): LRU, 256 blocks.
 /// cmux: checked `Sendable` (p10-stability-055): the map and its clock are one lock state.
-final class BlockLayoutCache: Sendable {
+final class BlockLayoutCache: Sendable { // cmux: memory: fixed at most capacity + 64 blocks of about 4 KB of text each (LRU)
     static let shared = BlockLayoutCache()
     struct Key: Hashable { var lineage: Int; var start: Int; var end: Int; var final: Bool; var column: CGFloat; var md: Bool = false }
     private struct State: Sendable {
@@ -408,7 +408,8 @@ final class BlockLayoutCache: Sendable {
             s.map.updateValue((v, s.tick), forKey: k) // dictionary write
             if s.map.count > BlockLayoutCache.capacity + 64 {
                 let keep = s.map.sorted { $0.value.1 > $1.value.1 }.prefix(BlockLayoutCache.capacity)
-                s.map = Dictionary(uniqueKeysWithValues: keep.map { ($0.key, $0.value) })
+                // cmux: keys come from `s.map`, so they are unique; no trapping init (p10-stability-096).
+                s.map = Dictionary(keep.map { ($0.key, $0.value) }, uniquingKeysWith: { first, _ in first })
             }
         }
     }

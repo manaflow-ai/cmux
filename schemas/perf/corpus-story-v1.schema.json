@@ -125,6 +125,18 @@
         }
       ]
     },
+    "config": {
+      "type": "object",
+      "description": "Optional: cmux-next.json settings the replay launches the bench app with (play.py sets them over bench_launch.BenchApp's default config), so a story's input reaches the same targets on every bench host. A key is a dotted setting path that schemas/defaults/cmux-next.json lists as setting.<key>, and its value has that default's type.",
+      "propertyNames": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]*(\\.[A-Za-z0-9]+)+$"},
+      "additionalProperties": {
+        "oneOf": [
+          {"type": "boolean"},
+          {"type": "number"},
+          {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"}
+        ]
+      }
+    },
     "agents": {
       "type": "array",
       "description": "ACP agent tracks that the acpmux fake-agent harness streams with recorded timing (task 114). Transcripts are synthetic.",

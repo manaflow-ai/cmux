@@ -71,18 +71,20 @@ final class LineTransport: Sendable {
     /// handlers, which run there, decode with it too.
     let decoder: WireDecoder
     /// Watches the reader's handling of each line, never its wait in `read(2)`; nil watches nothing.
-    private let hangWatched: HangWatchedLane?
+    let hangWatched: HangWatchedLane?
     /// The one timer of every reply deadline on this connection, armed for the earliest (``DeadlineHeap``).
     private let deadlineTimer: DemandTimer
     /// Time since the connection opened, on the clock ``deadlineTimer`` sleeps on.
     private let elapsed: @Sendable () -> Duration
+    /// ``elapsed`` in nanoseconds when the reader last read bytes: the heartbeat's silence (``inboundSilence``).
+    private let lastInbound = Atomic<Int64>(0)
     /// Where each request's `daemon.request` slice goes (LineTransport+RequestTrace.swift), the top bits of its
     /// async id (``traceConnectionBits(scope:)``) and its flow's seed (``requestFlowSeed(pid:)``).
     let trace: TraceRuntime, traceConnection: UInt64, traceFlowSeed: UInt64
 
     /// - Parameter opened: An opened bridge (``open(path:bridge:role:stats:hangs:writerTarget:trace:)``); nil connects to `path`.
     /// - Parameter stats: Where the connection counts (``DaemonEndpoint/wireStats``); nil for none.
-    /// - Parameter hangs: Watches each line's handling on the reader thread; nil watches nothing. `writerTarget`: see `open`.
+    /// - Parameter hangs: Watches each line the reader handles and each writer drain step; nil: none. `writerTarget`: see `open`.
     /// - Parameter clock: What reply deadlines are measured and slept on; tests pass a `ManualClock`.
     init(path: String, opened: DaemonBridge.Opened? = nil, role: DaemonWireStats.Role, stats: DaemonWireStats?,
          hangs: (any HangWatchScoping)? = nil, writerTarget: DispatchQueue? = nil, trace: TraceRuntime = .shared,
@@ -107,7 +109,7 @@ final class LineTransport: Sendable {
         }
         Self.sizeBuffers(fd)
         socket = Mutex(Socket(fd: fd))
-        writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write", qos: role.writerQoS, target: writerTarget)
+        writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write", qos: role.writerQoS, target: writerTarget, hangs: hangs)
         recorder?.connectionOpened(role, bridged: opened != nil)
         // After the last throw: a transport that never opened registers nothing (its deinit does not run).
         hangWatched = hangs.map { HangWatchedLane("daemon.line", deadline: Self.lineHangDeadline, on: $0) }
@@ -116,27 +118,6 @@ final class LineTransport: Sendable {
     /// The socket's SO_SNDBUF and SO_RCVBUF as the kernel reports them; nil once it closed.
     var socketBuffers: (send: Int, receive: Int)? {
         socket.withLock { socket -> (send: Int, receive: Int)? in socket.fd >= 0 ? Self.bufferSizes(socket.fd) : nil }
-    }
-
-    private static func connect(_ path: String) throws(DaemonError) -> Int32 {
-        let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else { throw .connectFailed(path: path, errno: errno) }
-        // Close-on-exec: a program the app execs must not inherit a daemon connection, whose
-        // peer key is this process's audit token (request-origin.md, peer key caveat).
-        _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
-        var on: Int32 = 1
-        // SAFETY: setsockopt reads the given size, MemoryLayout<Int32>.size, from `on`, an Int32 live for the call.
-        unsafe setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
-        guard let address = UnixSocketAddress(path: path) else {
-            Darwin.close(fd)
-            throw .socketPathTooLong(path)
-        }
-        guard address.connect(fd) == 0 else {
-            let code = errno
-            Darwin.close(fd)
-            throw .connectFailed(path: path, errno: code)
-        }
-        return fd
     }
 
     deinit {
@@ -158,10 +139,15 @@ final class LineTransport: Sendable {
     }
 
     /// Starts the reader thread, handing each event its envelope cause. Call once.
-    func start(onCausedEvent onEvent: @escaping CausedEventHandler, onClose: @escaping CloseHandler) {
+    ///
+    /// - Parameter waitForConsumer: Runs on the reader thread after each line it handled, outside the
+    ///   line's hang scope: an event handler that found its consumer behind waits there
+    ///   (``DaemonEventRoute/waitWhileReaderParked()``), which is idle time, not a hang.
+    func start(onCausedEvent onEvent: @escaping CausedEventHandler, waitForConsumer: (@Sendable () -> Void)? = nil,
+               onClose: @escaping CloseHandler) {
         let fd = socket.withLock { $0.fd }
         let thread = Thread { [self] in
-            readLoop(fd: fd, onEvent: onEvent, onClose: onClose)
+            readLoop(fd: fd, onEvent: onEvent, waitForConsumer: waitForConsumer, onClose: onClose)
         }
         thread.name = "cmux-tui reader \(path)"
         thread.qualityOfService = role.readerQoS
@@ -169,8 +155,12 @@ final class LineTransport: Sendable {
     }
 
     var isClosed: Bool { state.withLock { $0.closed != nil } }
+    /// The connection runs through a bridge child (``DaemonBridge``), which carries bytes but no descriptors.
+    var bridged: Bool { child != nil }
     /// The writer queue's class (``DaemonWireStats/Role/writerQoS``; tests).
     var writerQoS: DispatchQoS { writer.queueQoS }
+    /// How long since the daemon last sent anything (a reply, an event, a stream line); from the open until its first.
+    var inboundSilence: Duration { elapsed() - .nanoseconds(lastInbound.load(ordering: .relaxed)) }
     func setStreamHandler(_ handler: (@Sendable (_ streamID: String, _ line: Data) -> Void)?) { state.withLock { $0.streamHandler = handler } }
 
     /// Counts `streamID`'s lines as stream-0 events until its `stream_end`;
@@ -184,14 +174,17 @@ final class LineTransport: Sendable {
     /// arrived in time fails the request with `DaemonError.timedOut`; the
     /// late reply is dropped when it comes (architecture.md 5a). Its
     /// `daemon.request` slice ends when the slot resolves (LineTransport+RequestTrace.swift).
-    func request(cmd: DaemonCommandName, timeout: Duration?, _ body: (UInt64) throws -> Data) async throws -> Response {
+    /// With `framed`, a typed v12 command goes as a REQUEST frame once the connection holds `ipc-frames-v2`
+    /// (``FramedRequests``).
+    func request(cmd: DaemonCommandName, timeout: Duration?, framed: Bool = false,
+                 _ body: (UInt64) throws -> Data) async throws -> Response {
         let slot = ReplySlot()
         #if DEBUG || CMUX_BENCH_HOOKS
         // A traced new terminal: the request naming its id, and that request's reply.
         let armed = NewTerminalTrace.shared.isArmed
         var traced: String?
         #endif
-        submit(.reply(cmd: cmd.wire, slot), deadline: timeout.map { self.deadline(after: $0) }) { id in
+        submit(.reply(cmd: cmd.wire, slot), deadline: timeout.map { self.deadline(after: $0) }, framed: framed) { id in
             let line = try body(id)
             #if DEBUG || CMUX_BENCH_HOOKS
             if armed { traced = NewTerminalTrace.shared.requestSent(line) }
@@ -237,19 +230,23 @@ final class LineTransport: Sendable {
     /// socket lock so the pending requests' send order equals wire order. On failure before
     /// registration the waiter is resumed here; after it, `failAll` owns it. A `deadline` applies
     /// only to a waiter that awaits its reply.
+    /// With `framed`, the request goes as a REQUEST frame when the connection frames its method
+    /// (``FramedRequests``), else as a line.
     /// Returns the request id once the waiter is registered.
     @discardableResult
-    func submit(_ waiter: Waiter, deadline: DeadlineHeap.Deadline? = nil, _ body: (UInt64) throws -> Data) -> Result<UInt64, any Error> {
+    func submit(_ waiter: Waiter, deadline: DeadlineHeap.Deadline? = nil, framed: Bool = false,
+                _ body: (UInt64) throws -> Data) -> Result<UInt64, any Error> {
         var writeFailure: String?
         var submittedID: UInt64 = 0
         let early: (any Error)? = socket.withLock { socket -> (any Error)? in
             let id: UInt64
-            switch state.withLock({ state -> Result<UInt64, DaemonError> in
+            let framing: FramedRequests?
+            switch state.withLock({ state -> Result<(UInt64, FramedRequests?), DaemonError> in
                 if let reason = state.closed { return .failure(Self.closedError(reason)) }
                 defer { state.nextID += 1 }
-                return .success(state.nextID)
+                return .success((state.nextID, framed ? state.framing : nil))
             }) {
-            case .success(let value): id = value
+            case .success(let value): (id, framing) = value
             case .failure(let error): return error
             }
             let payload: Data
@@ -265,10 +262,9 @@ final class LineTransport: Sendable {
                 }
             }
             submittedID = id
-            var line = payload
-            line.append(0x0A)
-            writeFailure = socket.fd >= 0 ? writer.write(line)?.description : "socket closed"
-            if writeFailure == nil { recorder?.lineWritten(bytes: line.count) }
+            let message = Self.message(payload, id: id, cmd: waiter.cmd, framing: framing)
+            writeFailure = socket.fd >= 0 ? writer.write(message)?.description : "socket closed"
+            if writeFailure == nil { recorder?.lineWritten(bytes: message.count) }
             return nil
         }
         if let early {
@@ -353,13 +349,15 @@ final class LineTransport: Sendable {
         }
     }
 
-    private func readLoop(fd: Int32, onEvent: CausedEventHandler, onClose: CloseHandler) {
+    private func readLoop(fd: Int32, onEvent: CausedEventHandler, waitForConsumer: (@Sendable () -> Void)?, onClose: CloseHandler) {
         let decoder = self.decoder
         // An attach connection carries the terminal's output: the reader's copies of its bytes
         // are copies of that output (``DaemonWireStats/Snapshot/outputBytesCopiedApp``).
         let outputStream = role == .terminalAttach ? recorder : nil
-        // Frames come only with their negotiation (p05-ipc-092); until then a 0xFF boundary is a bad message.
+        // Frames come only with their negotiation (p05-ipc-092); until the handshake asks for them
+        // (``acceptFrames()``) a 0xFF boundary is a bad message.
         var reader = FrameReader(limits: FrameReader.Limits(maxLine: Self.maxLineBytes, maxFramePayload: FrameHeader.maxPayloadCap))
+        var framesAccepted = false
         var chunk = [UInt8](repeating: 0, count: Self.socketBufferBytes)
         var closeDetail = "EOF"
         // wakeup-allow: bounded: blocking read on a dedicated thread; EOF, errors and bad messages end it, EINTR retries
@@ -374,18 +372,26 @@ final class LineTransport: Sendable {
                 break
             }
             recorder?.bytesRead(count)
+            let (seconds, attoseconds) = elapsed().components
+            lastInbound.store(seconds &* 1_000_000_000 &+ attoseconds / 1_000_000_000, ordering: .relaxed)
             outputStream?.outputCopied(count)  // into the reader's buffer
             // SAFETY: push copies the first `count` bytes of the array's own storage, the ones read(2) just
             // wrote (count <= its size); the closure lends the storage for the call only.
             unsafe chunk.withUnsafeBytes { unsafe reader.push(UnsafeRawBufferPointer(rebasing: $0.prefix(count))) }
+            if !framesAccepted, acceptsFrames {
+                reader.negotiateFrames()
+                framesAccepted = true
+            }
             var next = Self.nextMessage(&reader)
-            while case .success(let message?) = next {
-                // An empty line carries nothing; a frame cannot come before frames are negotiated.
-                if case .json(let bytes) = message, !bytes.isEmpty {
-                    outputStream?.outputCopied(2 * bytes.count)  // out of the reader as the line, then into its Data
-                    handle(bytes, decoder: decoder, onEvent: onEvent)
-                }
-                next = Self.nextMessage(&reader)
+            var unrouted: String?
+            while case .success(let message?) = next, unrouted == nil {
+                unrouted = dispatch(message, decoder: decoder, outputStream: outputStream, onEvent: onEvent,
+                                    waitForConsumer: waitForConsumer)
+                if unrouted == nil { next = Self.nextMessage(&reader) }
+            }
+            if let unrouted {
+                closeDetail = "bad message: \(unrouted)"
+                break
             }
             if case .failure(let bad) = next {
                 closeDetail = "bad message: \(bad.reason)"
@@ -411,7 +417,7 @@ final class LineTransport: Sendable {
 
     /// Routes one line inside a hang scope of ``lineHangDeadline`` (Chrome watches each IO-thread task
     /// the same way, base/threading/hang_watcher.cc).
-    private func handle<Line: RandomAccessCollection<UInt8>>(_ bytes: Line, decoder: WireDecoder, onEvent: CausedEventHandler)
+    func handle<Line: RandomAccessCollection<UInt8>>(_ bytes: Line, decoder: WireDecoder, onEvent: CausedEventHandler)
     where Line.Index == Int {
         guard let hangWatched else { return route(bytes, decoder: decoder, onEvent: onEvent) }
         hangWatched.run { route(bytes, decoder: decoder, onEvent: onEvent) }

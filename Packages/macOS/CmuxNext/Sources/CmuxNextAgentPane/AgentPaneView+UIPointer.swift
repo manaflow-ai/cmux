@@ -6,12 +6,12 @@ import CmuxNextPages
 extension AgentPaneView {
     /// Installs or removes the debug picker in this pane's document.
     public func setUiPointerInspector(_ enabled: Bool) {
-        page.evaluate(enabled ? Self.uiPointerScript : Self.uiPointerStopScript)
+        page.evaluate(enabled ? Self.uiPointerScript : Self.uiPointerStopScript) // MQ12 thaws first: the person points at this pane
     }
 
     /// Runs a picker operation in whichever engine currently draws this pane.
     public func evaluateUiPointer(_ script: String) {
-        page.evaluate(script)
+        page.evaluate(script) // MQ12 thaws first: the person points at this pane
     }
 
     /// View points per CSS pixel for the page currently drawing this pane.

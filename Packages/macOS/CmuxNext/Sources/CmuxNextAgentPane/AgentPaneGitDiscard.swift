@@ -80,7 +80,10 @@ public nonisolated struct AgentPaneGitDiscard: Equatable, Sendable {
     /// to the user's), from the top of the repository.
     /// Moves one file to the Trash (tests pass their own folder, so they never touch the real Trash).
     public typealias Trashing = @Sendable (URL) throws -> Void
-    public static let systemTrash: Trashing = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
+    public static let systemTrash: Trashing = {
+        // SAFETY: the result pointer is nil, so trashItem writes through no pointer.
+        try unsafe FileManager.default.trashItem(at: $0, resultingItemURL: nil)
+    }
 
     @concurrent public static func run(_ request: AgentPaneGitDiscard, roots: [String], home: String? = nil,
                                        trash: @escaping Trashing = AgentPaneGitDiscard.systemTrash) async -> Outcome {

@@ -199,11 +199,12 @@ extension DebugInputScrollViews {
 ///
 /// ```swift
 /// ScrollViewAuditSource { [mainWork] in
-///     await withCheckedContinuation { continuation in
+///     // A job the scheduler dropped audits nothing.
+///     (try? await withOnceContinuation { (continuation: OnceContinuation<DebugInputScrollViews, OnceContinuationError>) in
 ///         mainWork.postFromAnyThread(.automation, owner: "debug.input.scroll_views") {
 ///             continuation.resume(returning: DebugInputScrollViews(auditing: NSApp.windows))
 ///         }
-///     }
+///     }) ?? DebugInputScrollViews(rows: [])
 /// }
 /// ```
 public nonisolated struct ScrollViewAuditSource: DebugInputSource {

@@ -1,6 +1,9 @@
 public import AppKit
 public import CmuxNextDesign
 public import CmuxNextFileGrid
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 public import CmuxNextFiles
 
 /// Runs a grid command on the pane's files: the one path the grid's menu,
@@ -55,9 +58,11 @@ public final class ScreenshotsCommands {
         case .rename:
             guard let item = items.first else { return }
             // task-owner: `pendingRename`; one rename sheet; ends when the person answers it
+            // main-hop-allow: an AppKit sheet on the pane's window must begin on the main actor (#24760); the rename after it runs off main in CmuxNextFiles
             pendingRename = Task { await askToRename(item, in: window) }
         case .trash:
             // task-owner: one Move to Trash; ends when the files are moved
+            // main-hop-allow: a person's Move to Trash: the move runs off main in CmuxNextFiles; Put Back registers on the window's undo manager, a main-actor object
             Task {
                 do { try await trash(items, undo: window?.undoManager) } catch { show(error, in: window) }
             }
@@ -96,7 +101,7 @@ public final class ScreenshotsCommands {
         let files = files
         undo.registerUndo(withTarget: self) { target in
             // task-owner: `pendingUndo`; one undo's file operation, ends when it is done
-            target.pendingUndo = Task { try await operation(files) }
+            target.pendingUndo = Task { @concurrent in try await operation(files) }
         }
     }
 
@@ -119,11 +124,13 @@ public final class ScreenshotsCommands {
         let baseLength = (item.name as NSString).deletingPathExtension.utf16.count
         // Begin the sheet here, on the main actor: an `async let` runs it in a
         // child task off main, where AppKit throws (#24760).
-        let response: NSApplication.ModalResponse = await withCheckedContinuation { continuation in
+        // A sheet that went away without an answer renames nothing.
+        let response: NSApplication.ModalResponse = (try? await withOnceContinuation {
+            (continuation: OnceContinuation<NSApplication.ModalResponse, OnceContinuationError>) in
             alert.beginSheetModal(for: window) { continuation.resume(returning: $0) }
             alert.window.makeFirstResponder(field)
             field.currentEditor()?.selectedRange = NSRange(location: 0, length: baseLength)
-        }
+        }) ?? .cancel
         guard response == .alertFirstButtonReturn else { return }
         do {
             try await rename(item, to: field.stringValue, undo: window.undoManager)

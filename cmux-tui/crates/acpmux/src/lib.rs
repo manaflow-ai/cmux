@@ -37,7 +37,11 @@ pub mod config;
 pub mod cua_socket;
 pub mod cua_v2;
 pub mod daemon;
+pub mod daemon_lifecycle;
 pub mod daemon_status;
+/// `_acpmux/debug_panic` (p09-observability task 101): debug and `--features bench` builds only.
+#[cfg(any(debug_assertions, feature = "bench"))]
+mod debug_crash_inject;
 pub mod deliver;
 pub(crate) mod energy_control;
 pub mod forum;
@@ -59,6 +63,7 @@ pub mod local_stream;
 pub mod login_env;
 pub mod mailbox;
 pub mod maintenance;
+pub mod mcp_relay;
 pub mod memory;
 pub mod native;
 pub mod no_panic;

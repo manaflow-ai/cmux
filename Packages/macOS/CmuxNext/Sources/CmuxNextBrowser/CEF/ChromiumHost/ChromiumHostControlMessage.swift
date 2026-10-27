@@ -265,10 +265,10 @@ nonisolated struct ChromiumHostControlMessage: Equatable, Sendable {
             message.fields.append(Field(tag: tag, value: value))
         }
         guard fds.count >= fdCount, shared.count <= fdCount else { return .malformed }
-        var taken = Array(fds.prefix(fdCount))
+        let frameFds = Array(fds.prefix(fdCount))
         fds.removeFirst(fdCount)
-        let regions = Array(taken.suffix(shared.count))
-        taken.removeLast(shared.count)
+        let regions = Array(frameFds.suffix(shared.count))
+        let taken = Array(frameFds.dropLast(shared.count))
         let filled = fillSharedFields(&message, shared, from: regions)
         for region in regions { Darwin.close(region) }
         guard filled else {

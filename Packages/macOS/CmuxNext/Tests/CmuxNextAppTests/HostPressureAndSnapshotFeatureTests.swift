@@ -74,9 +74,10 @@ struct HostPressureAndSnapshotFeatureTests {
         store.activate(file: nil)
         let features = FeatureList(registry: FeatureRegistry(), channel: .dev, overrides: overrides)
         let services = AppServices(environment: AppEnvironment.current(["CMUX_NEXT_SHOWCASE": "1"]), features: features)
+        let rig = MainDeadlineRig(), node = VisibilityNode(root: "window", own: .visible)
         return HostPressureIndicatorView(
-            services: services, store: store, notifications: NotificationCenter(), windowVisible: { _ in true },
-            service: { HostPressureService(acpmux: nil, memoryPressure: { _ in (.normal, {}) }, store: store) }) {}
+            services: services, store: store, mainWork: rig.deadlines.work, nodeOf: { _ in node },
+            service: { hostPressureTestService(store, rig: rig) }) {}
     }
 
     /// `CMUX_ENABLE_FEATURES=hostPressure` turns the indicator on; managed policy and the default keep it off.
@@ -100,9 +101,9 @@ struct HostPressureAndSnapshotFeatureTests {
         let tab = MockBrowserEngine().makeMockTab(BrowserTabConfiguration())
         defer { tab.close() }
         let compressed = await hibernation.snapshot(tab, key: "a")
-        #expect(compressed != nil && compressed?.data != nil, "the default keeps pictures compressed")
+        #expect(compressed?.isEncoded == true, "the default keeps pictures compressed")
         hibernation.snapshots.keepsCompressed = false
         let decoded = await hibernation.snapshot(tab, key: "a")
-        #expect(decoded != nil && decoded?.data == nil, "off keeps the decoded picture, with no bytes")
+        #expect(decoded?.isEncoded == false, "off keeps the decoded picture, not encoded bytes")
     }
 }

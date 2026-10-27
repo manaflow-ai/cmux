@@ -8,7 +8,7 @@ final class PaletteKeycapsView: NSView {
         didSet {
             guard keycaps != oldValue else { return }
             invalidateIntrinsicContentSize()
-            needsDisplay = true
+            needsDisplay = true // invalidate: other caps (the guard above)
         }
     }
 
@@ -131,6 +131,19 @@ final class PaletteRowCell: NSTableCellView {
     private var isSelected = false
     private var swatches: [ThemeRGB] = []
     private var ball: PaletteBall?
+    /// What `layout()` reads besides the bounds, as last configured: the list configures every
+    /// visible row on each result change (each typed character), and a row that shows the same text
+    /// with the same matches lays out nothing.
+    private var shown: Shown?
+
+    private struct Shown: Equatable {
+        var title: String
+        var face: NSFont?
+        var highlights: [Int]
+        var subtitle: String?
+        var accessory: String?
+        var keycaps: [String]?
+    }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -154,25 +167,37 @@ final class PaletteRowCell: NSTableCellView {
                 ?? item.brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: Metrics.iconSize) }
                 ?? PaletteText.symbol(item.symbol ?? "command", size: Metrics.iconSize)
         }
-        swatches = item.swatches
-        ball = item.ball
         let drawsColor = !item.swatches.isEmpty || item.ball != nil
         swatch.isHidden = !drawsColor
         icon.isHidden = drawsColor
-        self.isSelected = isSelected
+        let face = item.fontFamily.flatMap { PaletteFontFaces.shared.font(family: $0, size: Typography.body.pointSize) }
+        let next = Shown(title: item.title, face: face, highlights: row.highlights, subtitle: item.subtitle,
+                         accessory: item.accessory, keycaps: item.keycaps)
+        let recolors = next != shown || item.swatches != swatches || item.ball != ball
+        let reselects = isSelected != self.isSelected
+        swatches = item.swatches
+        ball = item.ball
         titleText = item.title
-        titleFace = item.fontFamily.flatMap { PaletteFontFaces.shared.font(family: $0, size: Typography.body.pointSize) }
+        titleFace = face
         highlights = row.highlights
-        applyColors()
+        if recolors {
+            self.isSelected = isSelected
+            applyColors()
+        } else if reselects {
+            setSelected(isSelected) // the icon's tint only
+        }
+        let alpha: CGFloat = item.isEnabled ? 1 : 0.45
+        if alphaValue != alpha { alphaValue = alpha }
+        guard next != shown else { return }
+        shown = next
         subtitle.stringValue = item.subtitle ?? ""
         subtitle.isHidden = item.subtitle == nil
         accessory.stringValue = item.accessory ?? ""
         accessory.isHidden = item.accessory == nil
         keycaps.keycaps = item.keycaps ?? []
         keycaps.isHidden = item.keycaps == nil
-        alphaValue = item.isEnabled ? 1 : 0.45
         setAccessibilityLabel(item.title)
-        needsLayout = true
+        needsLayout = true // invalidate: new text, matches or keycaps (the guard above) take new widths
     }
 
     func setSelected(_ selected: Bool) {

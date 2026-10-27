@@ -18,6 +18,7 @@ mod layout;
 mod local_server;
 mod machine_agent;
 mod menu;
+mod metrics;
 mod pairing;
 mod remote;
 mod remote_client;
@@ -51,6 +52,7 @@ pub(crate) use layout::LayoutMessages;
 pub(crate) use local_server::LocalServerMessages;
 pub(crate) use machine_agent::MachineAgentMessages;
 pub(crate) use menu::MenuMessages;
+pub(crate) use metrics::MetricsMessages;
 pub(crate) use pairing::PairingMessages;
 pub(crate) use remote::RemoteMessages;
 pub(crate) use remote_client::RemoteClientMessages;
@@ -157,6 +159,7 @@ pub(crate) struct Catalog {
     pub coderouter: CodeRouterMessages,
     pub billing: BillingMessages,
     pub energy: EnergyMessages,
+    pub metrics: MetricsMessages,
     pub trace: TraceMessages,
     pub update_notice: UpdateNoticeMessages,
 }
@@ -173,6 +176,7 @@ static ENGLISH: Catalog = Catalog {
     coderouter: coderouter::ENGLISH,
     billing: billing::ENGLISH,
     energy: energy::ENGLISH,
+    metrics: metrics::ENGLISH,
     trace: trace::ENGLISH,
     update_notice: update_notice::ENGLISH,
     app_control: app_control::ENGLISH,
@@ -207,6 +211,7 @@ static JAPANESE: Catalog = Catalog {
     coderouter: coderouter::JAPANESE,
     billing: billing::JAPANESE,
     energy: energy::JAPANESE,
+    metrics: metrics::JAPANESE,
     trace: trace::JAPANESE,
     update_notice: update_notice::JAPANESE,
     app_control: app_control::JAPANESE,

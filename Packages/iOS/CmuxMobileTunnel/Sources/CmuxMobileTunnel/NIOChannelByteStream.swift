@@ -1,3 +1,5 @@
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 import Foundation
 import NIOCore
 
@@ -20,7 +22,7 @@ public final class NIOChannelByteStream: TunnelByteStream, Sendable {
         var buffered: [Data] = []
         var ended = false
         var failure: (any Error)?
-        var waiter: CheckedContinuation<Data?, any Error>?
+        var waiter: OnceContinuation<Data?, any Error>?
         var readRequested = false
     }
 
@@ -51,7 +53,7 @@ public final class NIOChannelByteStream: TunnelByteStream, Sendable {
     }
 
     public func read() async throws -> Data? {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withOnceThrowingContinuation { (continuation: OnceContinuation<Data?, any Error>) in
             onLoop { stream in
                 let requestRead = stream.state.withValue { state -> Bool in
                     if !state.buffered.isEmpty {

@@ -56,7 +56,7 @@ enum DebugOmnibarClickBench {
         bar.benchProbe = { name in
             BenchSpans.mark(name)
             guard !timed, name == "field.becameFirstResponder",
-                  let down = NSApp.currentEvent, down.type == .leftMouseDown else { return }
+                  let down = services.inputDispatch.event, down.type == .leftMouseDown else { return }
             timed = true
             let pressed = down.timestamp
             let input = (ProcessInfo.processInfo.systemUptime - pressed) * 1_000

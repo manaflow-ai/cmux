@@ -22,7 +22,6 @@ final class WorkspaceContentView: NSView {
             needsLayout = true // invalidate: the bar shows or hides (the guard above).
         }
     }
-    private var tokenObservation: Task<Void, Never>?
     /// Parked in its window (``ParkingContainer``): set with `isHidden` by `WindowRootView`, so it is
     /// redundant while hidden parking is the only parking.
     private(set) var isParkedOffScreen = false
@@ -36,9 +35,11 @@ final class WorkspaceContentView: NSView {
         notifyParkingChange()
     }
 
-    /// Showing a hidden parked view shows it (the side-by-side view unhides companions directly).
+    /// Showing a hidden parked view shows it (the side-by-side view unhides companions directly). Every hide
+    /// and show reaches the main pane that holds this view, whoever sets it (a switch, the side-by-side view).
     override var isHidden: Bool {
         willSet { if !newValue, isHidden, isParkedOffScreen { isParkedOffScreen = false } }
+        didSet { if isHidden != oldValue { (superview as? MainPaneCardView)?.workspaceDidChangeHidden(self) } }
     }
 
     init(layoutView: NSView, bar: TabStripView) {
@@ -50,22 +51,15 @@ final class WorkspaceContentView: NSView {
         addSubview(layoutView)
         bar.isHidden = true
         addSubview(bar)
-        tokenObservation = Task { [weak self] in
-            // invalidate: a new strip height (the stream emits a changed value only) moves the bar and the layout.
-            for await _ in ObservationStream({ Metrics.tabStripHeight }) { self?.needsLayout = true }
-        }
+        // A new strip height lays this view out again from the bar's owner (`ScreenBarController`), which follows it
+        // while the workspace shows.
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            tokenObservation?.cancel()
-        }
-    }
+    nonisolated deinit {}
 
     nonisolated override var isFlipped: Bool { true }
 
@@ -75,20 +69,29 @@ final class WorkspaceContentView: NSView {
         emptyView?.removeFromSuperview()
         emptyView = view
         if let view {
-            view.translatesAutoresizingMaskIntoConstraints = false
+            // Framed at once, so the view never shows at a stale size; `layout()` keeps it on the bounds.
+            view.frame = bounds
             addSubview(view, positioned: .above, relativeTo: nil)
             view.reparentRootedThemeScope()
-            NSLayoutConstraint.activate([
-                view.leadingAnchor.constraint(equalTo: leadingAnchor),
-                view.trailingAnchor.constraint(equalTo: trailingAnchor),
-                view.topAnchor.constraint(equalTo: topAnchor),
-                view.bottomAnchor.constraint(equalTo: bottomAnchor),
-            ])
             layoutView.isHidden = true
             bar.isHidden = true
         } else {
             layoutView.isHidden = false
             bar.isHidden = !showsBar
+        }
+    }
+
+    /// The frames `layout()` sets: the layout above the bar, the bar along the bottom edge (0 high
+    /// while hidden), and the empty state over the whole view. The view is flipped.
+    struct Frames: Equatable {
+        var layout: CGRect
+        var bar: CGRect
+        var empty: CGRect
+
+        init(bounds: CGRect, barHeight: CGFloat) {
+            layout = CGRect(x: 0, y: 0, width: bounds.width, height: max(0, bounds.height - barHeight))
+            bar = CGRect(x: 0, y: bounds.height - barHeight, width: bounds.width, height: barHeight)
+            empty = CGRect(origin: .zero, size: bounds.size)
         }
     }
 
@@ -133,9 +136,10 @@ final class WorkspaceContentView: NSView {
 
     override func layout() {
         super.layout()
-        let barHeight = showsBar ? TabStripView.preferredHeight : 0
-        layoutView.frame = NSRect(x: 0, y: 0, width: bounds.width, height: max(0, bounds.height - barHeight))
-        bar.frame = NSRect(x: 0, y: bounds.height - barHeight, width: bounds.width, height: barHeight)
+        let frames = Frames(bounds: bounds, barHeight: showsBar ? TabStripView.preferredHeight : 0)
+        layoutView.frame = frames.layout
+        bar.frame = frames.bar
+        if let emptyView, emptyView.frame != frames.empty { emptyView.frame = frames.empty }
     }
 }
 
