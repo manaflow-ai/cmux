@@ -257,7 +257,7 @@ struct TerminalSurfaceRemoteOutputTests {
     }
 
     @MainActor
-    private func makeSurface(
+    fileprivate func makeSurface(
         runtimeSurfaceBits: UInt,
         ioMode: TerminalSurfaceIOMode = .exec,
         isRemoteTerminal: Bool = false,
