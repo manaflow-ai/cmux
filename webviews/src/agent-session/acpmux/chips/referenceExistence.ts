@@ -10,7 +10,14 @@
 // d's repository) and is asked again when a chip for it mounts. An answer is kept for the page's
 // life (the oldest past MAX_KEPT go, and a shown chip asks again); resetReferenceExistence clears
 // the timers.
+//
+// The rounds rest while the page is hidden, frozen or parked (p13-webui-069, MQ4b): a round's wait
+// is a page timeout that arms nothing then, and a batch asked for while hidden waits for the show.
+// On show a round counts its whole wait again (`onResume: "wait"`): the agent page reads nothing on
+// show (scripts/cmux-next/check-switch-fetches.py).
 import { useEffect, useSyncExternalStore } from "react";
+import { pageIsActive, pageLifecycleFor } from "../../../pages/shared/pageLifecycle";
+import { type PagePollSeams, startPageTimeout } from "../../../pages/shared/pagePoll";
 import { callChipHost } from "./host";
 
 type State = "yes" | "no" | "asking" | "unknown";
@@ -23,7 +30,10 @@ const ROUNDS = 8;
 const MAX_KEPT = 2_000;
 
 const known = new Map<string, State>();
-const timers = new Set<ReturnType<typeof setTimeout>>();
+/** The cancel function of each round's wait. */
+const waits = new Set<() => void>();
+/** The page's lifecycle and timers, or a test's fakes (resetReferenceExistence). */
+let seams: PagePollSeams = {};
 const listeners = new Set<() => void>();
 let queued: string[] = [];
 let running = 0;
@@ -34,19 +44,31 @@ function changed() {
   for (const listener of listeners) listener();
 }
 
+/** `ms` of the page being shown; a hide stops the count and a show starts it again. */
 const wait = (ms: number) =>
   new Promise<void>((resolve) => {
-    const timer = setTimeout(() => {
-      timers.delete(timer);
-      resolve();
-    }, ms);
-    timers.add(timer);
+    const cancel = startPageTimeout(
+      () => {
+        waits.delete(cancel);
+        resolve();
+      },
+      ms,
+      { ...seams, onResume: "wait" },
+    );
+    waits.add(cancel);
   });
+
+/** The wait before `round`: none for a shown page's first, one first wait for a hidden one's. */
+function roundWait(round: number): number {
+  if (round) return Math.min(WAIT_MS * 2 ** (round - 1), MAX_WAIT_MS);
+  return pageIsActive(seams.lifecycle ?? pageLifecycleFor()) ? 0 : WAIT_MS;
+}
 
 async function run(batch: string[], started: number) {
   let pending = batch;
   for (let round = 0; pending.length && round < ROUNDS; round++) {
-    if (round) await wait(Math.min(WAIT_MS * 2 ** (round - 1), MAX_WAIT_MS));
+    const ms = roundWait(round);
+    if (ms) await wait(ms);
     if (started !== generation) return;
     await callChipHost("link.inspect", { paths: [], urls: pending });
     const replies = await Promise.all(pending.map((url) => callChipHost("pr.inspect", { url })));
@@ -135,10 +157,11 @@ export function usePullRequestsExist(urls: readonly string[]): readonly boolean[
   return each.some((state) => state !== "yes" && state !== "no") ? undefined : each.map((state) => state === "yes");
 }
 
-/** Tests and the gallery start from nothing. */
-export function resetReferenceExistence(): void {
-  for (const timer of timers) clearTimeout(timer);
-  timers.clear();
+/** Tests and the gallery start from nothing, on the page's lifecycle and timers or on `next`. */
+export function resetReferenceExistence(next: PagePollSeams = {}): void {
+  for (const cancel of waits) cancel();
+  waits.clear();
+  seams = next;
   known.clear();
   queued = [];
   running = 0;
