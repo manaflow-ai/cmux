@@ -21,16 +21,19 @@ const sourceIcon = (kind: SummarySourceKind | undefined) => {
   }
 };
 
-/// References the session read or named. Sources are quiet rows: only URLs and pull requests
-/// navigate, while files and MCP calls preserve the transcript's useful provenance.
+/// References the session read or named; files open beside the scoped session.
 export function SourcesSection({
   sources,
   onOpenBeside,
+  onOpenFile,
+  cwd,
   expanded,
   onExpandedChange,
 }: {
   sources: readonly SummarySource[];
   onOpenBeside?: (url: string) => void;
+  onOpenFile?: (path: string) => void;
+  cwd?: string;
   expanded?: boolean;
   onExpandedChange?: (expanded: boolean) => void;
 }) {
@@ -50,6 +53,8 @@ export function SourcesSection({
           <SourceRow
             key={`${source.kind ?? "url"}:${source.url ?? source.label}`}
             source={source}
+            onOpenFile={onOpenFile}
+            cwd={cwd}
             onOpenBeside={onOpenBeside}
           />
         ))}
@@ -68,13 +73,39 @@ export function SourcesSection({
   );
 }
 
-function SourceRow({ source, onOpenBeside }: { source: SummarySource; onOpenBeside?: (url: string) => void }) {
+function SourceRow({
+  source,
+  onOpenBeside,
+  onOpenFile,
+  cwd,
+}: {
+  source: SummarySource;
+  onOpenBeside?: (url: string) => void;
+  onOpenFile?: (path: string) => void;
+  cwd?: string;
+}) {
   const content = (
     <>
       <Icon name={sourceIcon(source.kind)} size={ROW_ICON} row />
       <span className="acpmux-chat-inspector-source__label">{source.label}</span>
     </>
   );
+  const path =
+    source.kind === "file"
+      ? source.label.startsWith("/") || source.label.startsWith("~/")
+        ? source.label
+        : cwd
+          ? `${cwd.replace(/\/$/, "")}/${source.label}`
+          : undefined
+      : undefined;
+  if (path && onOpenFile)
+    return (
+      <li className="acpmux-chat-inspector-source">
+        <button type="button" className="acpmux-chat-inspector-source__link" onClick={() => onOpenFile(path)}>
+          {content}
+        </button>
+      </li>
+    );
   if (!source.url) return <li className="acpmux-chat-inspector-source">{content}</li>;
   return (
     <li className="acpmux-chat-inspector-source">

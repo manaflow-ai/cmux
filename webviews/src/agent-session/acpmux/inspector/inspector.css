@@ -707,6 +707,10 @@ button.acpmux-chat-inspector-port:hover,
   border-radius: var(--acpmux-inspector-row-radius);
 }
 .acpmux-chat-inspector-source__link {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
   min-width: 0;
   flex: 1 1 auto;
   display: flex;

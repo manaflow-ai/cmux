@@ -308,6 +308,7 @@ const full: Props = {
   onStopProcess: async () => undefined,
   onOpenUrl: () => undefined,
   onOpenOutput: () => undefined,
+  onOpenSourceFile: () => undefined,
   onOpenSubagent: () => undefined,
   onSaveEnvironment: () => undefined,
   onSetRunningLimit: async () => undefined,
@@ -453,6 +454,7 @@ const subagentPanel: Props = {
   agent: worktreeAgent,
   onOpenUrl: () => undefined,
   onOpenOutput: () => undefined,
+  onOpenSourceFile: () => undefined,
   onStopProcess: async () => undefined,
   scope: scopeOf(worktreeAgent),
 };
