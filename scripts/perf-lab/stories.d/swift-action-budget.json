@@ -1,0 +1,19 @@
+{
+  "id": "swift-action-budget",
+  "tier": "builder",
+  "description": "ActionBudgetMonitorBench: the always-on cost of the per-action budget record, the clock read, the batch hand-off and the board span, ns per run (swift test -c release, no app).",
+  "command": ["scripts/perf-lab/stories/swift_benches.py", "run", "--story", "swift-action-budget", "--filter", "ActionBudgetMonitorBench", "--env", "CMUX_ACTION_BUDGET_BENCH=1"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "swift\\.action_budget\\.(record|clock_read|always_on|batch_handoff|span)_ns", "unit": "ns", "better": "lower"},
+    {"name": "swift\\.action_budget\\.dropped_runs", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 900,
+  "needs": ["file:Packages/macOS/CmuxNext/Tests/CmuxNextActionsTests/ActionBudgetMonitorBench.swift", "file:Packages/macOS/CmuxNext/Tests/CmuxNextTestSupport/PerfResultWriter.swift"],
+  "owner": "PL-instant",
+  "component": "Actions>Budget",
+  "hot_paths": ["action-budget"]
+}

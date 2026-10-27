@@ -9,7 +9,7 @@ import Testing
 /// new interval, and a stop that also stops the refresh that is running. Under Energy Saver the
 /// activity runs every four intervals, and while no feed surface shows it is invalidated (p14-energy-032).
 @MainActor
-@Suite struct GitHubFeedSourcePollTests {
+@Suite(.serialized) struct GitHubFeedSourcePollTests {
     /// Answers notification `n` (ETag `n-<n>`) to the n-th call, records each call's ETag, and
     /// holds a call while the test asks it to.
     private actor Script {
@@ -76,25 +76,22 @@ import Testing
     }
 
     @MainActor private final class Rig {
-        let clock: ManualClock
         let owner: Owner
         let script: Script
         let calls: AsyncStream<Int>
         let activities: ManualBackgroundActivityScheduler
         let posted: Posted
-        /// The main deadlines the catch-up after a show is booked on, at an uptime that moves with ``clock``.
+        /// The main deadlines the catch-up after a show is booked on; their uptime times the interval since the last refresh.
         let deadlines: MainDeadlineRig
         let source: GitHubFeedSource
 
         init(energy: EnergyPolicySource = EnergyPolicySource(), surfaces: ShownWindows? = nil) {
             let (calls, started) = AsyncStream.makeStream(of: Int.self)
-            let clock = ManualClock()
             let owner = Owner()
             let script = Script(started: started)
             let activities = ManualBackgroundActivityScheduler()
             let posted = Posted()
             let deadlines = MainDeadlineRig()
-            self.clock = clock
             self.owner = owner
             self.script = script
             self.calls = calls
@@ -105,7 +102,7 @@ import Testing
             source = GitHubFeedSource(owner: owner, client: Client(script: script), interval: .seconds(120),
                                       energy: energy, surfaces: surfaces, activities: intents,
                                       activityIdentifier: GitHubFeedSource.refreshActivityIdentifier(bundleID: "com.cmuxterm.app.next.test"),
-                                      deadlines: deadlines.deadlines, clock: clock)
+                                      deadlines: deadlines.deadlines)
         }
 
         /// Waits for the next call to start and returns its number.
@@ -114,11 +111,8 @@ import Testing
             return nil
         }
 
-        /// Moves the clock and the deadlines' uptime on together, firing nothing on the deadlines.
-        func advance(by duration: Duration) {
-            clock.advance(by: duration)
-            deadlines.advance(by: duration)
-        }
+        /// Moves the deadlines' uptime on, firing nothing on them.
+        func advance(by duration: Duration) { deadlines.advance(by: duration) }
 
         /// Waits for the running refresh to end.
         func settle() async { await source.runner?.value }
@@ -148,7 +142,7 @@ import Testing
         let activity = try #require(rig.activities.live.first)
         #expect(activity.owner == "GitHubFeedSource.refresh")
         #expect(activity.identifier == "com.cmuxterm.app.next.test.github-feed.refresh", "the identifier does not start with the bundle id")
-        #expect(rig.clock.sleeperCount == 0, "the poll still sleeps on a clock")
+        #expect(!rig.deadlines.hasArmedWake, "the poll still books a deadline between refreshes")
 
         #expect(await rig.run())
         #expect(await rig.nextCall() == 2)

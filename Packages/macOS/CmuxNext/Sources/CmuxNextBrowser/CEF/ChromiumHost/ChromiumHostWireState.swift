@@ -221,11 +221,12 @@ nonisolated final class ChromiumHostWireState: Sendable {
                 start += consumed
                 decoded = ChromiumHostFrame.decode(buffer[start...])
             }
-            if decoded == .invalid {
+            // A frame never claims more than the bytes read; one that does is an invalid wire too.
+            if decoded != .invalid, start <= buffer.count {
+                buffer.removeFirst(start)
+            } else {
                 protocolError.store(true, ordering: .releasing)
                 open = false
-            } else {
-                buffer.removeFirst(start)
             }
         }
         let waiters = wire.withLock { wire -> [OnceContinuation<Void, OnceContinuationError>] in

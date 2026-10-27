@@ -15,6 +15,10 @@ public import CmuxNextWakeups
 /// refreshes an interval after the last refresh, at once when that has passed, and schedules the
 /// activity anew then (p14-energy-032), as Chromium stops a hidden page's timers and runs what came due
 /// once it shows (`content/public/browser/visibility.h`).
+///
+/// No deadline of the poll waits while the app is hidden: the activity is the system's to coalesce (its
+/// tolerance), and the catch-up waits only while a feed surface shows, so the Blink-style whole-second
+/// alignment of hidden wakes (p06-scheduler-344) has nothing left to align here.
 @MainActor
 public final class GitHubFeedSource: GitHubFeedDetailProviding {
     public static let defaultInterval: Duration = .seconds(120)
@@ -52,17 +56,17 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
     private var polling = false
     /// A refresh of the poll runs now; a run of the activity meanwhile starts none.
     private var pollRefreshing = false
-    /// The time since the last poll refresh of this generation ended, on the injected clock; nil
+    /// When the last poll refresh of this generation ended, in the deadline scheduler's uptime; nil
     /// before its first, so a start while hidden refreshes on the first show.
-    private var sinceLastRefresh: (@MainActor () -> Duration)?
-    /// Starts a stopwatch on the injected clock (opened once, in ``init``, so its instants stay typed).
-    private let startStopwatch: @MainActor () -> @MainActor () -> Duration
+    private var lastRefreshEnded: Duration?
     private let now: @MainActor () -> Date
     /// The poll's running refresh, which ``stop()`` cancels (that ends its `gh` child). Set from
     /// ``start()`` until ``stop()``; tests read it to await a refresh they stopped.
     private(set) var runner: Task<Void, Never>?
     /// When the refresh a show inside the interval waits for is due, on the deadlines' uptime; tests read it.
     var catchUpDue: Duration? { catchUp.plannedWake?.due }
+    /// The app's one deadline scheduler: its uptime times the interval since the last refresh.
+    private let deadlines: MainDeadlineScheduler
     /// Bumped by every start and stop: a refresh of an older generation posts, stores and
     /// schedules nothing (``stop()`` may land while its `gh` call runs).
     private var pollGeneration = 0
@@ -74,6 +78,11 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
     private(set) public var lastError: String?
     public private(set) var githubDetails: [String: GitHubFeedDetail] = [:]
 
+    /// - Parameters:
+    ///   - activities: Schedules the repeating poll activity (`.system(work:)` in the app).
+    ///   - activityIdentifier: The poll activity's identifier (``refreshActivityIdentifier(bundleID:)``).
+    ///   - deadlines: The app's one deadline scheduler (`AppServices.mainDeadlines`): the catch-up is a
+    ///     background deadline on it, and its uptime times the interval since the last refresh.
     public init(
         owner: any FeedPostingSource,
         client: any GitHubFeedAPI = GitHubCLIClient(),
@@ -83,8 +92,7 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
         activities: MainIntentBackgroundActivities,
         activityIdentifier: String,
         deadlines: MainDeadlineScheduler,
-        now: @escaping @MainActor () -> Date = { Date() },
-        clock: any Clock<Duration> = ContinuousClock()
+        now: @escaping @MainActor () -> Date = { Date() }
     ) {
         self.owner = owner
         self.client = client
@@ -94,7 +102,7 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
         self.activities = activities
         self.activityIdentifier = activityIdentifier
         self.now = now
-        startStopwatch = GitHubFeedSource.stopwatches(on: clock)
+        self.deadlines = deadlines
         catchUp = MainDeadline(owner: Self.refreshOwner, workClass: .background, scheduler: deadlines)
         surfacesObservation = surfaces?.observe { [weak self] anyShown in self?.shownChanged(anyShown) }
         energyObservation = MainActorEnergyObservation(energy) { [weak self] _ in self?.energyChanged() }
@@ -130,7 +138,7 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
         polling = false
         pollRefreshing = false
         pollGeneration += 1
-        sinceLastRefresh = nil
+        lastRefreshEnded = nil
         runner?.cancel()
         runner = nil
         pause()
@@ -147,7 +155,8 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
         guard anyShown else { return pause() }
         guard activity == nil, !catchUp.isScheduled else { return }
         let generation = pollGeneration
-        let rest: Duration = pollRefreshing ? .zero : currentInterval - (sinceLastRefresh?() ?? currentInterval)
+        let sinceLast = lastRefreshEnded.map { deadlines.uptime - $0 } ?? currentInterval
+        let rest: Duration = pollRefreshing ? .zero : currentInterval - sinceLast
         guard rest > .zero else { return resume(generation) }
         catchUp.schedule(after: rest) { [weak self] in self?.resume(generation) }
     }
@@ -207,20 +216,14 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
     private func beginRefresh(_ generation: Int) {
         guard generation == pollGeneration, !pollRefreshing else { return }
         pollRefreshing = true
+        // task-owner: `runner`; one poll refresh; stop() cancels it (that ends its `gh` child)
+        // main-hop-allow: refresh is the source's main-actor poll (its awaits are the `gh` calls); its posts and ETags apply in order on the feed owner
         runner = Task { @MainActor [weak self] in
             guard let self else { return }
             await refresh()
             guard generation == pollGeneration else { return }
             pollRefreshing = false
-            sinceLastRefresh = startStopwatch()
-        }
-    }
-
-    /// Starts stopwatches on `clock`: each call reads the time since that call, later.
-    private static func stopwatches<C: Clock<Duration>>(on clock: C) -> @MainActor () -> @MainActor () -> Duration {
-        {
-            let start = clock.now
-            return { start.duration(to: clock.now) }
+            lastRefreshEnded = deadlines.uptime
         }
     }
 
