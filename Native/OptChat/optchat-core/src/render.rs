@@ -297,6 +297,38 @@ fn changes_a_line(text: &str) -> bool {
         .any(|head| text.strip_prefix(head).is_some_and(id_then))
 }
 
+/// Longest quote of a reply's target, in characters (`reply_marker`).
+pub const REPLY_QUOTE: usize = 80;
+
+/// The line a user message that replies to conversation message `seq`
+/// starts with: `(reply to #seq: <quote>)`, the quote flattened to one line
+/// and cut to `REPLY_QUOTE` characters, or `(reply to #seq)` with no quote
+/// (the target sits right above it, or has no text). No timestamps: the
+/// logged text stays byte-identical, so cached views keep it.
+pub fn reply_marker(seq: u64, quote: Option<&str>) -> String {
+    let flat = quote
+        .map(|q| q.split_whitespace().collect::<Vec<_>>().join(" "))
+        .unwrap_or_default();
+    if flat.is_empty() {
+        return format!("(reply to #{seq})");
+    }
+    let mut cut: String = flat.chars().take(REPLY_QUOTE).collect();
+    if cut.len() < flat.len() {
+        cut.push('…');
+    }
+    format!("(reply to #{seq}: {cut})")
+}
+
+/// `(re #seq) `, the short form a summary line of a message that starts with
+/// a `reply_marker` starts with (`compact_request`); None for other texts.
+pub fn reply_tag(text: &str) -> Option<String> {
+    let rest = text.strip_prefix("(reply to #")?;
+    let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+    let after = rest.get(digits..)?;
+    (digits > 0 && (after.starts_with(')') || after.starts_with(": ")))
+        .then(|| format!("(re #{}) ", &rest[..digits]))
+}
+
 /// The text of a note that edits message `target` (spec 5a.2).
 pub fn edit_of(target: u64, text: &str) -> String {
     format!("edit of {target}: {text}")

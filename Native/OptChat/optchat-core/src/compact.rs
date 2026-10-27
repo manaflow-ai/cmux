@@ -201,9 +201,10 @@ pub struct CompactRequest {
     /// The task, verbatim from the spec, with the ruler: the message whole,
     /// or the two lines.
     pub step: String,
-    /// For a message longer than `STEP_MESSAGE` characters: what the line
-    /// starts with, saying how much of the message the call did not show
-    /// (`finish_line` puts it there). None: the step holds it whole.
+    /// What the host puts at the start of the line (`finish_line`): for a
+    /// reply, its `(re #N) ` tag; for a message longer than `STEP_MESSAGE`
+    /// characters, how much of it the call did not show. None: the model
+    /// writes the whole line.
     pub cut: Option<String>,
     /// The node is on the imported side (its last message was imported):
     /// the host lets the chat's own nodes go first for a model session.
@@ -263,18 +264,35 @@ pub fn compact_request(
                  (about 70 words), the length of this ruler:\n{RULER}\n",
                 node.i
             );
+            // A reply's line keeps its target as `(re #N) ` (`reply_tag`),
+            // added by the host, so no summary loses what it answers.
+            let reply = (kind == crate::Kind::User)
+                .then(|| crate::render::reply_tag(&text))
+                .flatten();
             if total > STEP_MESSAGE {
                 // Deviation (README): the spec sends the message whole, which
                 // a paste larger than the model's context fails on every try.
                 let shown = cut_middle(&text, STEP_MESSAGE);
                 let unread = total - STEP_MESSAGE;
-                let prefix = format!("(cut: {unread} of {total} characters unread) ");
+                let prefix = format!(
+                    "{}(cut: {unread} of {total} characters unread) ",
+                    reply.as_deref().unwrap_or_default()
+                );
                 let room = NODE.saturating_sub(prefix.len());
                 let step = format!(
                     "{head}This message is too long to show whole: the middle {unread} of its \
                      {total} characters are cut out of this task (marked [...]). Its line will \
                      start with \"{prefix}\", added for you; write the rest, in at most {room} \
                      bytes.\n<input>\n{}: {shown}\n</input>",
+                    kind.as_str()
+                );
+                cut = Some(prefix);
+                step
+            } else if let Some(prefix) = reply {
+                let room = NODE.saturating_sub(prefix.len());
+                let step = format!(
+                    "{head}Its line will start with \"{prefix}\", added for you; write the rest, \
+                     in at most {room} bytes.\n<input>\n{}: {text}\n</input>",
                     kind.as_str()
                 );
                 cut = Some(prefix);
@@ -322,8 +340,8 @@ fn cut_middle(text: &str, keep: usize) -> String {
 }
 
 impl CompactRequest {
-    /// The bytes the model may write: NODE, less the cut prefix the host
-    /// adds in front of a cut message's line.
+    /// The bytes the model may write: NODE, less the prefix the host adds
+    /// in front of the line (`cut`).
     pub fn room(&self) -> usize {
         NODE.saturating_sub(self.cut.as_ref().map_or(0, String::len))
     }

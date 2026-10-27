@@ -118,7 +118,9 @@ Your view holds only what you said and did. When the user asks \"do you see
 this?\" or names a message you cannot find in it, call transcript(n) to read
 the chat exactly as they see it, every author, before you answer. A note
 \"posted as you, not by your tools\" names a bubble the host posted in your
-name that the user saw.";
+name that the user saw. A user line that starts \"(reply to #N...)\" or
+\"(re #N)\" answers chat message #N, as transcript numbers them (not a line
+id: reply_to takes the reply's own line id).";
 
 /// VIEW_DOC of the older spec (section 7.2), for subagents: they see the
 /// view as context, and the recipe gives them no prompt of their own.

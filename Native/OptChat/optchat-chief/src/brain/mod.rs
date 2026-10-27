@@ -39,6 +39,7 @@ mod prewarm;
 pub mod reaction_wake;
 mod recover;
 mod replies;
+mod reply_context;
 mod reply_ledger;
 pub use reply_ledger::{MAX_REPLY_TRIES, NO_REPLY_TAG, REPLY_RETRY_WAITS};
 mod send;
@@ -840,6 +841,9 @@ pub struct Brain {
     /// restart an unknown message counts as not the newest.
     message_seqs: HashMap<String, u64>,
     newest_seq: u64,
+    /// The recent messages of the Chief conversation, every author: the
+    /// targets a reply's marker names (`reply_context.rs`).
+    recent: reply_context::Recent,
     /// The keys of the reactions this host posted (`react` dedupe, besides
     /// the message's own reactions).
     reacted: std::collections::HashSet<String>,
@@ -1001,6 +1005,7 @@ impl Brain {
             reply_threads: HashMap::new(),
             message_seqs: HashMap::new(),
             newest_seq: 0,
+            recent: reply_context::Recent::default(),
             reacted: std::collections::HashSet::new(),
             sent_keys: std::collections::HashSet::new(),
             tool_stopped: false,
