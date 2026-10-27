@@ -26,16 +26,8 @@ A Linux job runs this right before the macOS job queues and prints its labels:
   vars.CI_SIDE_LANE_RUNNER) that the rescue watches, or the same label on a wider class
   (side_lane_placement.compatible_labels()), while an online runner carrying it
   is idle now (pr_runner_pool.live_owned_free(), the rule side lanes are placed
-  with). With no idle runner, it is still the first of them an online runner
-  carries while every Blacksmith macOS label is stalled (QUEUE_ON_OWNED): glaeda
-  admits a nightly job on a mini ahead of every PR, DEV and side job, and the
-  rescue holds an owned nightly job while its Blacksmith re-run label is stalled
-  and moves it once that label has room (hold_for_destination()), so that is
-  the timed fallback. Empty when no label is one the rescue watches, when the
-  runners cannot be read (no routing token), or when a Blacksmith label moves
-  and no owned runner is idle. Run 40515681971 (2026-10-27) took a stalled
-  blacksmith-6vcpu-macos-26 for its build, sign and verify and queued about
-  5 h of its 6 h there while most owned side runners sat idle.
+  with). Empty when no label is one the rescue watches, or when the runners
+  cannot be read (no routing token): a busy fleet is never waited on.
 - `blacksmith`: the Blacksmith macOS 26 label whose queue moves
   (nightly_sign_runner.pick(): vars.MACOS_RUNNER_26, then 6 vCPU, then 12 vCPU,
   past any stalled one). Never empty. EXCLUDE (a label another leg already
@@ -146,13 +138,10 @@ def dedicated_route(label: str, read: Callable[[], Sequence[Mapping[str, Any]] |
         sleep(look_seconds)
 
 
-def owned_route(labels: str | Sequence[str], runners: Sequence[Mapping[str, Any]] | None,
-                queue: bool = False) -> tuple[str, str]:
+def owned_route(labels: str | Sequence[str], runners: Sequence[Mapping[str, Any]] | None) -> tuple[str, str]:
     """(the first watched owned label, or a wider class of it, with an idle runner now, or "", why).
 
-    With `queue` (every Blacksmith macOS label is stalled), and no idle runner, the first of them an online
-    runner carries (QUEUE_ON_OWNED). Any attempt: the workflow reads `owned` only when this pick was made for
-    the run's own attempt."""
+    Any attempt: the workflow reads `owned` only when this pick was made for the run's own attempt."""
     wanted = [label for label in (labels.split() if isinstance(labels, str) else labels) if label]
     watched = [label for label in wanted if owned_label(label)]
     if not watched:
@@ -164,23 +153,7 @@ def owned_route(labels: str | Sequence[str], runners: Sequence[Mapping[str, Any]
     for candidate in candidates:
         if free[candidate] > 0:
             return candidate, f"`{candidate}` has {free[candidate]} idle runner(s) now"
-    if queue:
-        for candidate in candidates:
-            online = placement._online(candidate, runners)  # noqa: SLF001 - the side lanes' own online count
-            if online:
-                return candidate, (f"no idle runner, but {online} online runner(s) carry `{candidate}` and every "
-                                   "Blacksmith macOS label is stalled: it queues first in line on a mini, and the "
-                                   "rescue moves it once Blacksmith has room")
     return "", f"no idle runner carries {', '.join(f'`{c}`' for c in candidates)} now"
-
-
-def blacksmith_stalled(variable: str, snapshot: Mapping[str, Any] | None, now: dt.datetime) -> bool:
-    """Whether a fresh snapshot saw every Blacksmith macOS 26 label the jobs may take stalled (QUEUE_ON_OWNED).
-
-    No snapshot, or an old one, is not a stall: the owned pick then stays the idle-now rule."""
-    labels = blacksmith_picker.candidates(variable)
-    stuck = blacksmith_picker.stalled(snapshot, labels, now)
-    return bool(stuck) and all(label in stuck for label in labels)
 
 
 def blacksmith_route(variable: str, snapshot: Mapping[str, Any] | None, now: dt.datetime,
@@ -242,6 +215,11 @@ def main(env: Mapping[str, str] = os.environ,
         write_output(env, {"dedicated": dedicated}, [f"dedicated: {dedicated or 'none'} ({dedicated_why})"])
         return 0
 
+    runners = None
+    if not dedicated and any(owned_label(label) for label in labels):
+        runners = read()
+    owned, owned_why = (dedicated, "the dedicated builder") if dedicated else owned_route(labels, runners)
+
     snapshot = None
     snapshot_token = env.get("SNAPSHOT_TOKEN", "")
     if snapshot_token and repo:
@@ -252,14 +230,8 @@ def main(env: Mapping[str, str] = os.environ,
                 snapshot = read_snapshot(snapshot_token, repo)
         except Exception as error:  # noqa: BLE001 - the variable keeps its say
             print(f"::warning title=nightly build runner::could not read the pool snapshot ({str(error)[:200]})")
-    candidate = (env.get("CANDIDATE") or "").strip()
-    blacksmith, blacksmith_why = blacksmith_route(candidate, snapshot, now, (env.get("EXCLUDE") or "").strip())
-
-    runners = None
-    if not dedicated and any(owned_label(label) for label in labels):
-        runners = read()
-    owned, owned_why = ((dedicated, "the dedicated builder") if dedicated
-                        else owned_route(labels, runners, queue=blacksmith_stalled(candidate, snapshot, now)))
+    blacksmith, blacksmith_why = blacksmith_route((env.get("CANDIDATE") or "").strip(), snapshot, now,
+                                                  (env.get("EXCLUDE") or "").strip())
     if only_verify:
         write_output(env, {"owned": owned}, [f"verify: {owned or 'none'} ({owned_why})",
                                              f"blacksmith otherwise: {blacksmith} ({blacksmith_why})"])

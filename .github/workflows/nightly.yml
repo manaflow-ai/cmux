@@ -1807,8 +1807,7 @@ jobs:
 
   # The route for build-nightly-app on nightly-next, read right before it queues
   # (scripts/ci/nightly_build_runner.py): `owned`, the owned label while one of its
-  # runners is idle now (or online, while every Blacksmith macOS label is stalled),
-  # and `blacksmith`, the Blacksmith macOS 26 label whose queue
+  # runners is idle now, and `blacksmith`, the Blacksmith macOS 26 label whose queue
   # moves. Owned Macs first, Blacksmith last (Leo, 2026-10-24); never one label with no
   # fallback. Until 2026-10-27 the build read vars.CI_NIGHTLY_NEXT_BUILD_RUNNER alone for
   # every attempt: runs 40446901975 and 40448164753 died at "Set up runner" on it, and a
@@ -1950,12 +1949,10 @@ jobs:
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'
     # Native nightlies use the same controller-managed owned-Mac pool as dev builds.
     # On nightly-next, pick-nightly-build-runner gives attempt 1 the dedicated builder
-    # (glaeda-trusted-next-nightly) while it is free, else an owned label while one
-    # of its runners is idle now, or while every Blacksmith macOS label is stalled
-    # (glaeda admits it first on a mini; the rescue moves it once Blacksmith has
-    # room), and every other case (a busy fleet with Blacksmith moving, a refused or
-    # stuck attempt the rescue re-runs) the moving Blacksmith label: the build never
-    # waits on one label with no fallback.
+    # (glaeda-trusted-next-nightly) while it is free, else an owned label only
+    # while one of its runners is idle now, and every other case (a busy fleet, a
+    # refused or stuck attempt the rescue re-runs) the moving Blacksmith label: the
+    # build never waits on one label with no fallback.
     # Main's ci-cache-writer environment never follows NEXT onto that worker:
     # NEXT retains only its own local Release state, without shared restores.
     # Rescue watches both refs. Signing, notarization and GUI checks follow the
@@ -4057,13 +4054,13 @@ jobs:
           permission-administration: read
 
       # The owned labels the build picker offers (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, glaeda's
-      # nightly slot, then vars.CI_SIDE_LANE_RUNNER), never the dedicated builder: an idle runner
-      # now, or, while every Blacksmith macOS label is stalled, one online (nightly_build_runner.py
-      # verify). glaeda admits a nightly job on a mini ahead of every PR, DEV and side job.
-      # Anything else, a failure included, is empty, and the verify jobs take `runner`.
+      # nightly slot, then vars.CI_SIDE_LANE_RUNNER), never the dedicated builder, while one of
+      # their runners is idle now (nightly_build_runner.py verify). glaeda admits a nightly job on
+      # a mini ahead of every PR, DEV and side job. Anything else, a failure included, is empty,
+      # and the verify jobs take `runner`.
       # Only nightly-next push runs, the scope ci-owned-pool-rescue.yml watches (owned_pool_rescue.py
-      # nightly_target): a stuck owned verify there is held while Blacksmith is stalled and moved to
-      # Blacksmith once it has room. RC, main and manual runs keep Blacksmith. Until 2026-10-27 this
+      # nightly_target): a stuck owned verify there is moved to Blacksmith. RC, main and manual
+      # runs keep Blacksmith. Until 2026-10-27 this
       # ran the pull request pool picker, which named a Blacksmith macOS 15 label in run 40515681971
       # while owned side runners sat idle: verify then queued 1.5 h on Blacksmith.
       - name: Pick an owned Mac for the verify jobs
