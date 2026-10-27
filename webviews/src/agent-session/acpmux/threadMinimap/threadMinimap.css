@@ -329,6 +329,8 @@
   overflow: hidden;
   margin-top: 4px;
   color: var(--agent-muted);
+}
+.acpmux-minimap__card[data-prompt] .acpmux-minimap__reply {
   height: auto;
   max-height: calc(var(--acpmux-minimap-reply-lines, 1) * var(--acpmux-minimap-reply-line-height, 20px));
   min-height: var(--acpmux-minimap-reply-line-height, 20px);

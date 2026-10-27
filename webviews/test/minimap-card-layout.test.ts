@@ -321,4 +321,27 @@ await requireBrowserLane("minimap-card-layout.test.ts", async () => {
       await page.close();
     }
   });
+
+  test("a reply-only preview keeps its four-line budget", async () => {
+    const page = await browser.newPage({ viewport: { width: 880, height: 640 } });
+    try {
+      const port = (vite.httpServer!.address() as { port: number }).port;
+      await page.goto(`http://127.0.0.1:${port}/test/browser/thread-minimap.html`);
+      const bounds = await page.evaluate(() => {
+        const card = document.createElement("div");
+        card.className = "acpmux-minimap__card";
+        card.innerHTML = '<div class="acpmux-minimap__reply"><p>one</p><p>two</p><p>three</p><p>four</p></div>';
+        card.style.cssText = "position:absolute; visibility:hidden;";
+        document.body.append(card);
+        const reply = card.querySelector<HTMLElement>(".acpmux-minimap__reply")!.getBoundingClientRect();
+        const height = card.getBoundingClientRect().height;
+        card.remove();
+        return { height, reply: reply.height };
+      });
+      expect(bounds.reply).toBeGreaterThanOrEqual(80);
+      expect(bounds.height).toBeGreaterThanOrEqual(bounds.reply);
+    } finally {
+      await page.close();
+    }
+  });
 });
