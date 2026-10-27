@@ -400,8 +400,17 @@ The daemon that runs the chat replaces each reference before anything reads the 
 - **Any other file, of any size, and any image past those limits** becomes
   `{"type": "resource_link", "uri": "file:///…/uploads/<chat>/<uploadId>/<name>", "name",
   "mimeType", "size"}`. It is never base64, so a 2 GB file adds a few hundred bytes to the prompt.
-  A follow-up PR adds a model-sized copy of a large image (downscaled to the harness's limit, from
-  one table per harness) inline, next to the link to the original.
+- **A model-sized copy** (`model_copies.rs`) goes next to the link to a PNG past those limits.
+  It is made only when the prompt is written to the agent, after the prompt was accepted, so a
+  busy chat still takes it at once:
+  - It is scaled so its long edge fits the harness's model: 1568 px for Claude and any family the
+    table does not name, 2048 px for Codex. It is scaled down again until it fits the inline image
+    size and the prompt's inline room.
+  - The copy is an inline `image`, with a line that names the original's path.
+  - It is saved next to the upload as `.model-<edge>.png`, so a retry reuses it, and it is removed
+    with the upload.
+  - The transcript keeps the prompt as sent.
+  - Another image type, or a PNG it cannot read, keeps only its link.
 - **A context note** lists each file's path, type and size, and says which images are not shown
   inline. It is a text block marked `_meta.acpmux.context`, which the transcript hides. It lists
   as many files as fit the message with the prompt's other blocks; past that it ends with "and N
