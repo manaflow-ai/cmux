@@ -184,6 +184,7 @@ select {
 
 .cloud-body.layout-cards {
   flex-wrap: wrap;
+  align-content: flex-start;
 }
 
 .cloud-machines {
@@ -210,7 +211,7 @@ select {
   margin-top: 0;
   padding-top: 14px;
   padding-inline-start: var(--page-edge);
-  border-left: 1px solid var(--cloud-separator);
+  border-inline-start: 1px solid var(--cloud-separator);
 }
 
 .cloud-section-header,
@@ -1058,7 +1059,7 @@ select {
     padding-block-start: var(--page-edge);
     padding-inline-start: 0;
     border-top: 1px solid var(--cloud-separator);
-    border-left: 0;
+    border-inline-start: 0;
   }
 
   .cloud-body.layout-cards .cloud-machines {
