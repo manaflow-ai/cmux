@@ -18,7 +18,7 @@ extension AppBrowserPage {
     nonisolated static let keptScreenshots = 32
     nonisolated static let screenshotLifetime: TimeInterval = 3600
 
-    static func screenshot(_ page: any BrowserTab, tabID: String, _ capture: BrowserPageCapture) async throws -> JSONValue {
+    static func screenshot(_ page: any BrowserTab, tabID: String, _ capture: CmuxNextControl.BrowserPageCapture) async throws -> JSONValue {
         let image: CGImage
         do {
             switch capture {

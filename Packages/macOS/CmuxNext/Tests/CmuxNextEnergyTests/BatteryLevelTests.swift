@@ -71,7 +71,7 @@ struct BatteryLevelTests {
             let sourceChanged = reading.onBattery != onBattery
             reading.onBattery = onBattery
             reading.batteryPercent = percent
-            post(sourceChanged ? kIOPSNotifyPowerSource : kIOPSNotifyPercentChange)
+            post(sourceChanged ? kIOPSNotifyPowerSource : PowerSourceMonitor.percentChangeNotification)
         }
     }
 
@@ -130,7 +130,7 @@ struct BatteryLevelTests {
         mac.change(onBattery: true, percent: 90)
         #expect(deliveries.readings.count == 2)
         #expect(deliveries.readings.last?.onBattery == true)
-        #expect(mac.live == [kIOPSNotifyPowerSource, kIOPSNotifyPercentChange])
+        #expect(mac.live == [kIOPSNotifyPowerSource, PowerSourceMonitor.percentChangeNotification])
         mac.change(onBattery: false, percent: 89)
         #expect(deliveries.readings.count == 3)
         #expect(mac.live == [kIOPSNotifyPowerSource], "plugged in: the charge notification ends")

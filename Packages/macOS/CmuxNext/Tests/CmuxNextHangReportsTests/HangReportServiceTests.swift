@@ -26,6 +26,16 @@ struct HangReportServiceTests {
         var now: Date { date.withLock { $0 } }
     }
 
+    /// The features the app runs with, which a test changes between reports.
+    final class LiveFeatures: Sendable {
+        private let state: Mutex<HangReport.FeatureState>
+        init(_ value: HangReport.FeatureState) { state = Mutex(value) }
+        var value: HangReport.FeatureState {
+            get { state.withLock { $0 } }
+            set { state.withLock { $0 = newValue } }
+        }
+    }
+
     private let directory = FileManager().temporaryDirectory.appending(path: "hang-reports-\(UUID().uuidString)")
     private let suite = "hang-reports-\(UUID().uuidString)"
     private var defaults: UserDefaults { UserDefaults(suiteName: suite) ?? .standard }
@@ -48,7 +58,7 @@ struct HangReportServiceTests {
     func service(_ transport: any HangReportTransport, counts: @escaping @Sendable () async -> CoarseCounts = { CoarseCounts(windows: 1, workspaces: 3, panes: 4, tabs: 9) },
                  build: String = "70123", allowed: @escaping @Sendable () -> Bool = { true },
                  wireSchema: HangReport.WireSchema = .v2, inputLatency: (any HangReportInputLatencySource)? = nil,
-                 mainThread: MainThreadReportLedger? = nil)
+                 mainThread: MainThreadReportLedger? = nil, features: @escaping @Sendable () -> HangReport.FeatureState? = { nil })
         -> HangReportService {
         let clock = clock
         let collector = HangReportCollector(resolve: { _ in [.other] }, schedule: { $0() })
@@ -59,7 +69,27 @@ struct HangReportServiceTests {
             environment: HangReportService.Environment(
                 app: HangReport.App(version: "0.70.0", build: build, channel: "nightly"), os: HangReport.OS(version: "15.7.4"),
                 hardware: HardwareClass(arch: "arm64", chip: "Apple M4 Pro", cores: 14, memoryGB: 48),
-                counts: counts, now: { clock.now }, stillAllowed: allowed, inputLatency: inputLatency, mainThread: mainThread))
+                counts: counts, now: { clock.now }, stillAllowed: allowed, inputLatency: inputLatency, mainThread: mainThread,
+                features: features))
+    }
+
+    /// The features are read as each report is built (p12-perf-process-151): a live Debug toggle flipped after
+    /// launch changes the arm the app runs, and the next report names that arm, as `features.list` does.
+    @Test func eachReportNamesTheFeaturesTheAppRunsWithThen() async throws {
+        let launch = HangReport.FeatureState(hash: "0123456789abcdef", nonDefault: [])
+        let toggled = HangReport.FeatureState(hash: "fedcba9876543210", nonDefault: [
+            HangReport.FeatureEntry(name: "agentChromium", state: "off", source: "local"),
+        ])
+        let current = LiveFeatures(launch)
+        let transport = RecordingTransport()
+        let service = service(transport, wireSchema: .v3, features: { current.value })
+        await service.setEnabled(true)
+        await service.receive(HangReportFixtures.metricKitInput())
+        current.value = toggled
+        await service.receive(HangReportFixtures.metricKitInput())
+        let sent = try transport.sent.map { try JSONDecoder().decode(HangReport.self, from: $0) }
+        #expect(sent.map(\.featuresHash) == [launch.hash, toggled.hash])
+        #expect(sent.map(\.features) == [[], toggled.nonDefault])
     }
 
     @Test func offSendsNothing() async {

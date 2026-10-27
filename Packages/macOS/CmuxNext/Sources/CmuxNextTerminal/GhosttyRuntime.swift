@@ -2,7 +2,7 @@ public import AppKit
 public import CmuxNextProcessEnvironment
 public import CmuxNextDesign
 import CmuxNextTrace
-import CmuxNextWakeups
+public import CmuxNextWakeups
 import GhosttyNextKit
 import os
 import CmuxNextCompat
@@ -48,6 +48,8 @@ public final class GhosttyRuntime {
     var reloadRequests = 0
     /// A ``reloadConfig()`` came before the first config landed (``start(loadingOn:then:)`` runs it then).
     var reloadAfterStart = false
+    /// cmux's Kitty graphics budget per screen (``setImageStorageBytesPerScreen(_:)``), bounded from the start.
+    var imageStorageBytesPerScreen = GhosttyRuntime.defaultImageStorageBytesPerScreen
     /// Bumps on every config change (reload, conditional theme switch), after the new config is in
     /// place. Visible views observe it; hidden ones read it when they show.
     public let configRevision = GhosttyConfigRevision()
@@ -62,14 +64,12 @@ public final class GhosttyRuntime {
     /// Messages from the last config load (unknown keys, bad values).
     public internal(set) var configDiagnostics: [String] = []
 
-    /// Frontend-level actions that have no surface target (for example
-    /// `quit` or `new_window` from an app-scoped keybind). Return true when
-    /// handled.
+    /// Frontend-level actions that have no surface target (for example `quit` or `new_window` from an
+    /// app-scoped keybind). Return true when handled.
     public var appActionHandler: ((TerminalHostAction) -> Bool)?
 
-    /// Fires after a config change so hosts can re-read derived values such
-    /// as ``backgroundColor``, and after a soft reload so surfaces with their
-    /// own theme take it back.
+    /// Fires after a config change so hosts can re-read derived values such as ``backgroundColor``, and
+    /// after a soft reload so surfaces with their own theme take it back.
     public var onConfigChange: (() -> Void)?
     /// The services' handlers (``addConfigChangeHandler(_:)``), in the order added.
     private var configChangeHandlers: [@MainActor () -> Void] = []
@@ -84,7 +84,11 @@ public final class GhosttyRuntime {
 
     nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "terminal")
 
-    private let context = RuntimeCallbackContext()
+    let context = RuntimeCallbackContext()
+    /// The tick on the app's board and its scheduler (``attach(to:holdsHiddenActions:)``); nil before that, and in tests.
+    var ticks: GhosttyTickClass?
+    /// A hidden terminal's state actions wait for it to show (``attach(to:holdsHiddenActions:)``).
+    var holdsHiddenActions = false
     let hostKeybindCache = HostKeybindCache()
     /// The input sources as the terminal key path reads them (switch keys, source kind, copy mode's
     /// ASCII map); the app starts it with its runner, this runtime's observers keep it current.
@@ -99,6 +103,11 @@ public final class GhosttyRuntime {
     public let secureInput = TerminalSecureInput(trace: .shared)
     private var observers: [any NSObjectProtocol] = []
     private var appearanceObservation: NSKeyValueObservation?
+    /// Energy Saver's edges to libghostty (``followEnergySaver(on:)``); nil before that call, and always
+    /// for a GhosttyNextKit pin without `ghostty_app_set_energy_saver`.
+    private var energySaver: GhosttyEnergySaver?
+    /// Puts resized terminals' drawn frames into their size's commit; nil: they land when drawn.
+    public var hostFramePresenter: TerminalHostFramePresenter?
 
     /// Runs `ghostty_init` when `main` did not (tests); the app starts at ``start(with:)``. The app has one
     /// runtime, ``shared``; a test makes its own only to check one that never started.
@@ -139,11 +148,16 @@ public final class GhosttyRuntime {
         // example set_color_scheme emits CONFIG_CHANGE).
         context.runtime = self
 
+        // `start` runs once, so the context registers once; libghostty's app is never freed, so
+        // the entry stays for the process.
+        guard let token = try? RuntimeCallbackContext.callbacks.register(context) else {
+            Self.logger.error("no runtime callback slot; terminal surfaces are disabled")
+            return
+        }
         var runtime = ghostty_runtime_config_s()
-        // SAFETY: the userdata is unretained: `context` is this runtime's stored
-        // constant and the runtime is never freed, so every callback that gets it back
-        // (RuntimeCallbackContext.from) sees a live object.
-        unsafe runtime.userdata = Unmanaged.passUnretained(context).toOpaque()
+        // SAFETY: the userdata is `context`'s token, never its address: a callback resolves it
+        // (RuntimeCallbackContext.from), and one that comes after the context is gone finds nothing.
+        unsafe runtime.userdata = token.context
         runtime.supports_selection_clipboard = true
         // SAFETY: each callback has the C signature ghostty.h declares for its slot and
         // reads its pointers only as that header documents (GhosttyRuntimeCallbacks.swift).
@@ -160,13 +174,14 @@ public final class GhosttyRuntime {
         unsafe runtime.close_surface_cb = ghosttyCloseSurface
         // SAFETY: ghostty_app_new copies the runtime config during the call and does not take
         // over the built config, which `config` (above) now owns.
-        app = unsafe ghostty_app_new(&runtime, config)
+        app = TerminalTimings.ghosttyAppNew { unsafe ghostty_app_new(&runtime, config) }
         guard let app else {
             Self.logger.error("ghostty_app_new failed; terminal surfaces are disabled")
             return
         }
         // SAFETY: `app` was just created and is never freed.
         unsafe ghostty_app_set_focus(app, NSApp?.isActive ?? false)
+        energySaver?.refresh()
         traceHook.refreshDemand()
         installObservers()
     }
@@ -184,6 +199,8 @@ public final class GhosttyRuntime {
         let environment = ProcessEnvironmentGuard.process
         if !environment.isFrozen { GhosttyRuntime.prepareProcessEnvironment(resources: GhosttyRuntime.resourcesDirectory(), environmentGuard: environment) }
         environment.freeze()
+        TerminalTimings.ghosttyInitBegan()
+        defer { TerminalTimings.ghosttyInitEnded() }
         // SAFETY: unsafeArgv is the process's argv, argc entries long and valid for the
         // process's lifetime; ghostty_init only reads it.
         return unsafe ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) == 0
@@ -206,7 +223,7 @@ public final class GhosttyRuntime {
         config = unsafe fresh
         hostKeybindCache.binds = nil
         // Themed configs were built on the old files: each keeps serving until its rebuild lands.
-        themeConfigs.invalidate(loader: configLoader) { GhosttyConfigInputs.current(theme: $0) }
+        themeConfigs.invalidate(loader: configLoader) { configInputs(theme: $0) }
         onConfigChange?()
         configRevision.bump()
         for handler in configChangeHandlers { handler() }
@@ -334,13 +351,7 @@ public final class GhosttyRuntime {
 
     // MARK: Tick and focus
 
-    /// Runs one libghostty app tick on the main actor after a coalesced wakeup.
-    func tick() {
-        context.pending.store(false, ordering: .releasing)
-        guard let app else { return }
-        // SAFETY: `app` is live (never freed); a tick runs on the main actor as Ghostty asks.
-        unsafe ghostty_app_tick(app)
-    }
+    // The tick: GhosttyRuntime+Ticks.swift.
 
     private func installObservers() {
         let center = NotificationCenter.default
@@ -380,6 +391,24 @@ public final class GhosttyRuntime {
         guard let app else { return }
         // SAFETY: `app` is live (never freed).
         unsafe ghostty_app_set_focus(app, focused)
+    }
+
+    /// Sends the Energy Saver state of `mainWork`'s policy (``MainWorkScheduler/energy``, the app's one
+    /// source) to libghostty on each edge (`ghostty_app_set_energy_saver`, ghostty-next p14-energy-114):
+    /// shader and Kitty animations wake at most every 33 ms and scrollback compression runs at utility
+    /// QoS while it is on. ``attach(to:holdsHiddenActions:)`` calls it once. It makes no call at all when the pinned
+    /// GhosttyNextKit lacks the export (`GHOSTTY_ENERGY_SAVER`, Package.swift).
+    public func followEnergySaver(on mainWork: MainWorkScheduler) {
+        #if GHOSTTY_ENERGY_SAVER
+        let saver = GhosttyEnergySaver { [weak self] on in
+            guard let app = self?.app else { return false }
+            // SAFETY: `app` is live (never freed).
+            unsafe ghostty_app_set_energy_saver(app, on)
+            return true
+        }
+        energySaver = saver
+        saver.follow(mainWork.energy, queue: mainWork.wakeUps)
+        #endif
     }
 
     /// Drives Ghostty's light/dark conditional config
@@ -438,22 +467,6 @@ public final class GhosttyRuntime {
         let bytes = unsafe UnsafeRawBufferPointer(start: pointer, count: Int(info.version_len))
         // SAFETY: as above.
         return unsafe String(decoding: bytes, as: UTF8.self)
-    }
-}
-
-/// Runtime-level callback userdata. Collapses bursts of `wakeup_cb` (any thread, which touches
-/// only the atomic flag) into one main-actor tick and points back at the runtime (main-actor only).
-nonisolated final class RuntimeCallbackContext: Sendable {
-    let pending = Atomic<Bool>(false)
-    @MainActor weak var runtime: GhosttyRuntime?
-
-    /// `raw` must be the runtime's userdata (`ghostty_runtime_config_s.userdata`) or nil.
-    static func from(_ raw: UnsafeMutableRawPointer?) -> RuntimeCallbackContext? {
-        // SAFETY: the caller passes the userdata GhosttyRuntime.init made from its context,
-        // which the never-freed runtime keeps alive; taken unretained, as it was passed.
-        guard let raw = unsafe raw else { return nil }
-        // SAFETY: as above.
-        return unsafe Unmanaged<RuntimeCallbackContext>.fromOpaque(raw).takeUnretainedValue()
     }
 }
 

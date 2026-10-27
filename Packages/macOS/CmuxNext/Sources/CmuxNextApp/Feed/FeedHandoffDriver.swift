@@ -247,16 +247,20 @@ final class FeedHandoffDriver {
         let ids = local.map { Self.cloudID(install: install, local: $0) }
         for start in stride(from: 0, to: ids.count, by: 256) {
             let chunk = Array(ids[start..<min(start + 256, ids.count)])
-            let body: [String: Any] = ["op": "feed.read", "params": ["items": chunk],
-                                       "idempotency_key": UUID().uuidString, "origin": "user"]
+            let key = UUID().uuidString
             let id = UUID()
             // task-owner: FeedHandoffDriver.running: one feed.read at best effort; a failure only leaves the cloud copy
-            // unread (U5: nothing queues). The owner call is main-actor, so its body stays on main.
-            running[id] = work.task(.bestEffort) { @MainActor [weak self, owner] in
-                do { _ = try await owner("v1/ops", body) } catch { self?.note("read failed: \(Self.describe(error))") }
-                self?.running[id] = nil
-            }
+            // unread (U5: nothing queues). The owner call is main-actor, so its body stays on main (markRead). The task
+            // takes only Sendable values (the ids, the key).
+            running[id] = work.task(.bestEffort) { [weak self] in await self?.markRead(chunk, key: key, task: id) }
         }
+    }
+
+    /// One feed.read of `items` in the cloud; then task `id` is done.
+    private func markRead(_ items: [String], key: String, task id: UUID) async {
+        let body: [String: Any] = ["op": "feed.read", "params": ["items": items], "idempotency_key": key, "origin": "user"]
+        do { _ = try await owner("v1/ops", body) } catch { note("read failed: \(Self.describe(error))") }
+        running[id] = nil
     }
 
     private func note(_ line: String) {

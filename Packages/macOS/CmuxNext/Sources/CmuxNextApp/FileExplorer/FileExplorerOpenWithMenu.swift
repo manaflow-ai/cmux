@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextFiles
 import UniformTypeIdentifiers
 import CmuxNextFilesUI
+import CmuxNextWakeups
 
 /// The file explorer's Open With submenu, as Finder shows it: every app the
 /// system reports for the file's type, the default first and marked, the
@@ -12,14 +13,17 @@ import CmuxNextFilesUI
 /// picks it), so the menu, the palette and the CLI share one path.
 final class FileExplorerOpenWithMenu: NSObject {
     private let registry: ActionRegistry
+    private let mainWork: MainWorkScheduler
     private let appIcon: @MainActor (URL, NSMenuItem) -> Void
 
     /// - Parameters:
     ///   - registry: The registry whose `fileExplorerOpenWith` each row runs.
+    ///   - mainWork: The app's main-thread scheduler: a submenu Launch Services answers late fills as one task on it.
     ///   - appIcon: Sets an app row's image to the app's icon, now or when it lands (`WorkspaceFileApps.showIcon`);
     ///     no icons by default.
-    init(registry: ActionRegistry, appIcon: @escaping @MainActor (URL, NSMenuItem) -> Void = { _, _ in }) {
+    init(registry: ActionRegistry, mainWork: MainWorkScheduler, appIcon: @escaping @MainActor (URL, NSMenuItem) -> Void = { _, _ in }) {
         self.registry = registry
+        self.mainWork = mainWork
         self.appIcon = appIcon
     }
 
@@ -50,11 +54,17 @@ final class FileExplorerOpenWithMenu: NSObject {
             fill(submenu, with: kept, arguments: arguments)
             return item
         }
-        // task-owner: one LaunchServices lookup; ends when the submenu is filled.
-        Task { [weak self, weak submenu] in
-            let list = await apps.openWithList(forFileNamed: name, isDirectory: isFolder)
+        // task-owner: one LaunchServices lookup off main; ends when the submenu is filled. The fill is the rest of the
+        // person's right-click (userBlocking), posted in the common modes, so it runs while the menu tracks.
+        // The off-main task holds only Sendable values; the menu and its submenu stay in a main-actor closure.
+        let mainWork = mainWork
+        let fillLate: @MainActor @Sendable (OpenWithList) -> Void = { [weak self, weak submenu] list in
             guard let self, let submenu else { return }
-            self.fill(submenu, with: list, arguments: arguments)
+            fill(submenu, with: list, arguments: arguments)
+        }
+        Task { @concurrent in
+            let list = await apps.openWithList(forFileNamed: name, isDirectory: isFolder)
+            mainWork.postFromAnyThread(.userBlocking, owner: "FileExplorerOpenWith.fill") { fillLate(list) }
         }
         return item
     }
@@ -86,10 +96,11 @@ final class FileExplorerOpenWithMenu: NSObject {
         panel.allowsMultipleSelection = false
         panel.message = FileExplorerStrings.chooseApp(item.lastPathComponent)
         panel.prompt = FileExplorerStrings.openPrompt
-        // task-owner: one open panel; ends when the person picks an app or cancels.
-        Task { @MainActor in
-            guard await panel.begin() == .OK, let app = panel.url else { return }
+        // The panel calls back on the main thread in the turn the person picks: no task to hop back.
+        let picked: (NSApplication.ModalResponse) -> Void = { response in
+            guard response == .OK, let app = panel.url else { return }
             open(app.path)
         }
+        panel.begin(completionHandler: picked)
     }
 }

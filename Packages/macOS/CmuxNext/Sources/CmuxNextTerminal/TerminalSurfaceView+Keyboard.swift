@@ -18,7 +18,7 @@ extension TerminalSurfaceView {
             return clipboardRequests.asUserPaste { keyDown(with: event) }
         }
         guard let surface else {
-            interpretKeyEvents([event])
+            interpret(event, as: event)
             return
         }
         // Copy mode takes every key except Command chords before Ghostty or
@@ -27,8 +27,9 @@ extension TerminalSurfaceView {
             noteKeyTaken()
             return
         }
-        // The key goes to the terminal: its echo's frame is awaited from here.
+        // The key goes to the terminal: its echo's frame is awaited from here, and Ghostty's ticks run as input until it.
         lane?.echoStage?.keyDown()
+        GhosttyRuntime.shared.noteTerminalKey()
 
         // Ghostty decides which modifiers take part in text translation (for
         // example `macos-option-as-alt`). Rebuild the event only when that
@@ -52,7 +53,7 @@ extension TerminalSurfaceView {
         let inputSourceBefore = mayChangeInputSource ? inputSources.currentSourceID() : nil
         lastPerformKeyEventTimestamp = nil
 
-        interpretKeyEvents([translationEvent])
+        interpret(event, as: translationEvent)
 
         if mayChangeInputSource, inputSources.sourceChanged(since: inputSourceBefore) {
             return
@@ -119,9 +120,19 @@ extension TerminalSurfaceView {
     /// Command/Control chord that `performKeyEquivalent` passed on.
     public override func doCommand(by selector: Selector) {
         guard let previous = lastPerformKeyEventTimestamp,
-              let current = NSApp.currentEvent,
-              previous == current.timestamp else { return }
-        NSApp.sendEvent(current)
+              let key = interpretingKeyDown,
+              previous == key.timestamp else { return }
+        resendKey(key)
+    }
+
+    /// Runs `translated` through the input methods for the key down `event`, which is
+    /// ``interpretingKeyDown`` meanwhile (upstream reads AppKit's current event, which a key the App
+    /// routes itself is not).
+    func interpret(_ event: NSEvent, as translated: NSEvent) {
+        let outer = interpretingKeyDown
+        interpretingKeyDown = event
+        defer { interpretingKeyDown = outer }
+        interpretKeyEvents([translated])
     }
 
     // MARK: Sending

@@ -56,6 +56,7 @@ public final class OverflowButton: NSButton {
         focusRingType = .none
         renderGlyph()
         // Hover follows the pointer and the button's frame (cx-3wu5).
+        // invalidate: `PointerHover` calls this only when hovering flips; the tint follows it.
         hover.followPointer(onChange: { [weak self] in self?.needsDisplay = true })
     }
 
@@ -70,6 +71,7 @@ public final class OverflowButton: NSButton {
     /// agent that read the error pressed again).
     override public func accessibilityPerformPress() -> Bool {
         guard onPress != nil || pressMenu != nil else { return super.accessibilityPerformPress() }
+        // visibility-walk-allow: an accessibility press: a hidden button must not press, as AppKit's own AXPress refuses
         guard isEnabled, !isHiddenOrHasHiddenAncestor else { return false }
         if let onPress {
             onPress()
@@ -108,8 +110,10 @@ public final class OverflowButton: NSButton {
     }
 
     private func changeHover(_ change: (inout ChromeHover.State) -> Void) {
+        let old = hover.state
         change(&hover.state)
-        needsDisplay = true
+        guard hover.state != old else { return }
+        needsDisplay = true // invalidate: pressed changed (the guard above); the tint follows it.
     }
 
     /// A press menu opens on mouse-down, pressed while it is open; otherwise NSButton tracks the

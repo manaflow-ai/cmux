@@ -45,13 +45,20 @@ Per mode:
            file picker; each in a fresh host) with the frontmost pid and the host's activation counters; IME and
            drag are listed as not forwarded, find as run by --find.
   ime      helper, with --ime: the host's TEXT_INPUT_STATE pushes per keystroke into the focused field against the
-           fork's text input changes (ime_row; pass: <= 1 push per key).
+           fork's text input changes (ime_row; pass: <= 1 push per key). Then password_row (task p01-process-230):
+           a click into the probe's password field turns cmux's secure event input on (debug.chromium_host
+           password_input, and the system's secure input pid is cmux's where ioreg shows it), a click back into the
+           text field turns it off.
   identity helper: the host is a second executable of cmux.app (cmux's bundle id): its LaunchServices type
            (UIElement: no Dock icon, menu bar or Cmd-Tab entry), the frontmost app after the input rows and after
            `open -b <bundle id>` and during 10 clicks with a key each (never the host; the host's own activation and
-           key-window counters stay 0), the keys of cmux's defaults domain that changed while the host ran less
-           those cmux changed alone before it (pass: none), and a Quit AppleEvent to the bundle id (cmux quits, not
-           the host; last row).
+           key-window counters stay 0), the host's on-screen windows (CGWindowList; pass: 0, its page windows are
+           detached and never ordered in, task p01-process-053), the keys of cmux's defaults domain that changed
+           while the host ran less those cmux changed alone before it (pass: none), and a Quit AppleEvent to the
+           bundle id (cmux quits, not the host; last row).
+  geometry helper: the window moves, then grows, 1 point per display frame; the host's geometry counters
+           (kOpGeometryStats through `debug.chromium_host.measure {op: geometry}`) give the page placements per
+           display frame (pass: <= 1, none unplaced; geometry_row, task p01-process-053).
   failure  helper: when the host page never shows, the host's Chromium log tail and its crash reports.
   baseline (--baseline, task p01-process-005; plans/cmux-next/chrome-parity/p01-process.md) adds the numbers the
            process-model program is measured against, and prints them as perf-lead.md section 5 rows
@@ -77,10 +84,63 @@ Per mode:
            `debug.cef`'s `page_cursor` (the page view's cursor in host mode) must name it. In process the page window
            shows Chromium's own cursor, and until the host input route (p01-process-042) a host-mode page view has no
            pointer route to the host: the row says not_measurable with the reason instead of passing.
+  mouse    `--modes mouse` (task 054 of plans/cmux-next/chrome-parity/p01-process.md), host mode: a page with a
+           `title=` band and a pad that records every mousedown, mouseup, click, auxclick and ctrl-wheel (a pinch, as
+           Blink hands it to the page) with its button, and visualViewport.scale.
+           tooltip  the pointer moves onto the band once and stays: `debug.cef`'s `page_tooltip` must name the band's
+                    title and `tooltip_shown` (the app's tooltip on screen) must show it while the pointer stays
+                    inside the page view (Chrome's -setToolTipAtMousePoint: shows it with no exit and enter).
+           back, forward  `debug.mouse` page clicks with AppKit buttons 3 and 4: the page must see no left button
+                    (button 0) event; until the host sends kBack and kForward (p01-process-054b) it sees none.
+           middle   a middle click: the page's events of button 1 (auxclick), reported.
+           pinch, smart_magnify  `debug.mouse` page `pinch` (scale 1.5) and `smart_magnify`: the frames the page view
+                    sent, and whether the page saw them (scale changed or a ctrl-wheel); `not_dispatched` with the
+                    reason while the host drops kGesture (p01-process-054b), never a pass.
+           In process, or before the host input route (p01-process-042), the row says not_measurable.
+  dragin   `--modes dragin` (task 050), on an input host (real HID events) with feature chromiumHostDragIn on: a
+           Chromium tab of the app's backend over a drop zone and an <input type=file>; a real drag session from
+           another app (pointer-probe.swift drag-file, as from Finder) drops one file on each. Pass: the zone's drop
+           event and the input's change event have the file's name and size, the source saw the drop taken, and
+           `debug.cef`'s `page_drag` counts one more DragTarget drop and at least one DRAG_OPERATION answer (the
+           page view, not the DevTools relay, took it). In process, or with a fork API below 31 (p01-process-178,
+           where the relay takes the drops), the row says not_measurable with the reason instead of passing.
+  display  `--modes display` (task 221): a Chromium tab of the app's backend in the Chromium Host follows the cmux
+           window's display: rAF/s against the display's refresh rate and devicePixelRatio against its scale, then,
+           with a second display (cmux20-bench has an external one), frames until both are the new display's after
+           the window moves there and back, counted from the move (pass: rate within 2 frames, scale within 1, the
+           1x to 2x move reported as `scale_up`) (chromium_host_display.py).
 
---native-ui runs instead the hosted widget rows (chromium_host_native_ui.py, p01-process-066): date, datalist,
-popup window, DevTools docked and in a window, an extension popup and a side panel, each shown by cmux from the
-host's layer context (`debug.cef` `host_widgets`), with feature chromiumHostWidgets on and two test extensions.
+  swipe    `--modes swipe` (task 234), on an input host (real HID events): a two-finger trackpad swipe
+           (pointer-probe.swift swipe, through NSApp's event dispatch like a hand's) over a Chromium tab of the app's
+           backend. flat: a page that does not scroll sideways, opened twice (?1 then ?2); a swipe that drags the
+           content right must go Back to ?1. wide: a page whose sideways scroller is scrolled to its middle; the same
+           swipe must scroll it and stay on ?2. Per gesture, `debug.cef` `swipe` gives the page probes (each a script
+           run in the page: a control request in host mode) and the WHEEL_ACKs it decided from. Pass: back on flat,
+           no navigation on wide, and on a host that acks wheels (`host_acks_wheels`) 0 probes per gesture. A swipe no
+           gesture of reaches (`gestures` unchanged: the page view takes no scrolls before the host input route,
+           p01-process-042) says not_measurable.
+  pinch    `--modes pinch` (task 234), on an input host: a real trackpad pinch (pointer-probe.swift magnify, zoom in)
+           over a Chromium tab of the app's backend. Pass: the page's visual viewport scale grows (Chrome's pinch
+           zoom), the page stays put, and the pinch starts no swipe gesture (`debug.cef` `swipe`). The page counts
+           the ctrl+wheel events Chrome makes of a pinch, so a pinch that reached Chromium but did not zoom fails
+           apart from one that never arrived. In host mode a pinch that never reaches the page (the page view's
+           magnify route is p01-process-042's input route with p01-process-054's PinchEvent) says not_measurable.
+
+--native-ui [ROWS] runs instead the native UI rows (chromium_host_native_ui.py), all or the comma-separated ROWS: a
+<select> as a cmux menu while the host is never frontmost (p01-process-060, feature chromiumHostPopupMenus), the page
+menu (CONTEXT_MENU and context_menu_done) and a page's download (DOWNLOAD_* and download_continue) in host mode
+(p01-process-069), the hosted widget rows (p01-process-066): date, datalist, popup window, DevTools docked and in a window, an extension
+popup and a side panel, each shown by cmux from the host's layer context (`debug.cef` `host_widgets`), with feature
+chromiumHostWidgets on and two test extensions, then the autofill and password rows (chromium_host_suggestions.py,
+p01-process-061): the field's suggestions in cmux's list (`debug.cef` `host_suggestions`) with feature
+chromiumHostSuggestions on, then the page dialog rows (chromium_host_native_ui_dialogs.py, p01-process-064): file
+picker, certificate error, beforeunload and renderer hang, each answered by cmux while the host is never frontmost
+and shows no window, with feature chromiumHostFileDialogs on.
+
+--kill-host runs instead the host kill rows (chromium_host_kill.py, p01-process-082): one `--signals` signal per row
+(default KILL; TRAP,SEGV,ABRT,KILL for the done check) to the Chromium Host under a Chromium tab of the app's backend:
+cmux runs on, the tab shows the crash page with Reload (`crash_page_ms` from the signal), and Reload brings the page
+back under a new host.
 
 --find runs instead the find rows (chromium_host_find.py, p01-process-048): Cmd-F, a typed query, Cmd-G, Cmd-Shift-G
 and Escape through cmux's find pill on a Chromium page in the host (`debug.cef` backend `host`), the pill's match
@@ -108,8 +168,11 @@ sys.path.insert(0, HERE)
 from bench_launch import BenchApp, LaunchError, RecordError, build_config, build_sha, tag_of  # noqa: E402
 import browser_engine_bench_report as results  # noqa: E402
 import chromium_host_baseline  # noqa: E402
+import chromium_host_display  # noqa: E402
 import chromium_host_find  # noqa: E402
+import chromium_host_kill  # noqa: E402
 import chromium_host_native_ui  # noqa: E402
+import chromium_host_native_ui_dialogs  # noqa: E402
 
 
 def parse(argv=None):
@@ -124,8 +187,13 @@ def parse(argv=None):
     parser.add_argument("--pump-seconds", type=float, default=10.0)
     parser.add_argument("--host-switches", default="", help="more Chromium switches for the host, comma-separated (diagnosis)")
     parser.add_argument("--ime", action="store_true", help="helper: TEXT_INPUT_STATE pushes per keystroke (ime_row)")
-    parser.add_argument("--native-ui", action="store_true", help="only the hosted widget rows (chromium_host_native_ui.py)")
+    parser.add_argument("--native-ui", nargs="?", const="", default=None, metavar="ROWS",
+                        help="only the native UI rows (chromium_host_native_ui.py): all, or the comma-separated ROWS "
+                             f"({', '.join(chromium_host_native_ui.ROWS + chromium_host_native_ui_dialogs.ROWS)})")
     parser.add_argument("--find", action="store_true", help="only the find rows (chromium_host_find.py)")
+    parser.add_argument("--kill-host", action="store_true", help="only the host kill rows (chromium_host_kill.py)")
+    parser.add_argument("--signals", default="KILL",
+                        help=f"--kill-host: the signals, one row each ({','.join(chromium_host_kill.SIGNALS)})")
     parser.add_argument("--baseline", action="store_true", help="task p01-process-005: stall 9a, 10-tab idle wakes, census, rows")
     parser.add_argument("--idle-settle-seconds", type=float, default=35.0, help="wait before the 10-tab idle sample")
     parser.add_argument("--tag", help="the lab runner's tag of --app (checked against the bundle's name)")
@@ -135,8 +203,18 @@ def parse(argv=None):
     parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
                         help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
     args = parser.parse_args(argv)
-    if args.native_ui and args.find:
-        parser.error("--native-ui and --find each run instead of the modes: pick one")
+    if sum([args.native_ui is not None, args.find, args.kill_host]) > 1:
+        parser.error("--native-ui, --find and --kill-host each run instead of the modes: pick one")
+    try:
+        args.signals = chromium_host_kill.signal_numbers(args.signals)
+    except ValueError as error:
+        parser.error(str(error))
+    if args.native_ui is not None:
+        try:
+            args.native_ui = chromium_host_native_ui.rows_named(
+                args.native_ui, chromium_host_native_ui.ROWS + chromium_host_native_ui_dialogs.ROWS)
+        except ValueError as error:
+            parser.error(str(error))
     if args.tag is not None and tag_of(f"cmux DEV {args.tag}.app") != tag_of(args.app):
         parser.error(f"--tag {args.tag!r} is not the tag of --app {args.app!r}")
     return args
@@ -150,6 +228,7 @@ PAGE = """<!doctype html><meta charset=utf-8><title>host probe</title>
 #box{position:fixed;left:0;top:70%;width:60px;height:60px;background:#f0c000}
 .go{animation:slide 0.5s linear infinite alternate}@keyframes slide{to{transform:translateX(600px)}}</style>
 <input id=t><button id=b>click</button><div id=box></div>
+<input id=pw type=password style="position:fixed;left:45%;top:40%;width:20%">
 <select id=s style="position:fixed;left:10%;top:55%;width:20%;height:30px"><option>one<option>two<option>three</select>
 <button id=al style="position:fixed;left:45%;top:55%;width:15%;height:40px" onclick="S.dialogs++; alert('probe')">alert</button>
 <input id=f type=file style="position:fixed;left:65%;top:55%;width:20%">
@@ -217,6 +296,73 @@ margin:0;border:0;padding:0;display:block;box-sizing:border-box}</style>
 <div id=custom style="top:75%;cursor:url(data:image/png;base64,PNG) 4 4,auto;background:#ecd">custom</div>""".replace(
     "PNG", base64.b64encode(cursor_png()).decode())
 
+# The drag-in probe (task 050): a drop zone that takes the drop (preventDefault in dragover) and a file input,
+# whose default drop sets its files. window.dragLog records what each saw.
+DRAG_PAGE = """<!doctype html><meta charset=utf-8><title>drag probe</title>
+<style>html,body{margin:0;height:100%;font:16px system-ui}#zone,#file{position:fixed;top:10%;width:40%;height:50%;
+box-sizing:border-box;margin:0}#zone{left:5%;background:#2a6}#file{left:55%;background:#ddd}</style>
+<div id=zone>drop zone</div><input id=file type=file>
+<script>
+const log = window.dragLog = {zone: [], dropped: null, file: null};
+const zone = document.getElementById('zone');
+for (const type of ['dragenter', 'dragover', 'dragleave', 'drop']) zone.addEventListener(type, event => {
+  event.preventDefault();
+  if (!log.zone.includes(type)) log.zone.push(type);
+  if (type === 'drop') log.dropped = [...event.dataTransfer.files].map(f => [f.name, f.size]);
+});
+document.getElementById('file').addEventListener('change', event => { log.file = [...event.target.files].map(f => [f.name, f.size]); });
+</script>"""
+DRAG_FILE_TEXT = "cmux drag-in probe\n" * 64
+
+# The swipe probe: `?flat` does not scroll sideways (taller than the pane: it scrolls only down); `?wide` is a
+# sideways scroller filling the page. The title names the variant and the step (?flat-1, ?flat-2), so a Back shows.
+SWIPE_PAGE = """<!doctype html><meta charset=utf-8><title>swipe probe</title>
+<style>html,body{margin:0;background:#204080;color:#fff;font:16px system-ui}#tall{height:300vh}
+#wide{position:fixed;inset:0;overflow-x:auto;overflow-y:hidden}#wide div{width:400vw;height:100%;
+background:linear-gradient(90deg,#204080,#f0c000)}</style>
+<div id=tall></div>
+<script>
+const [variant, step] = location.search.slice(1).split('-');
+document.title = 'swipe ' + variant + ' ' + step;
+if (variant === 'wide') {
+  document.getElementById('tall').remove();
+  const wide = document.createElement('div');
+  wide.id = 'wide';
+  wide.appendChild(document.createElement('div'));
+  document.body.appendChild(wide);
+  wide.scrollLeft = wide.scrollWidth / 2 - innerWidth / 2;
+}
+window.__scrollLeft = () => (document.getElementById('wide') || document.scrollingElement).scrollLeft;
+</script>"""
+
+# The pinch probe: a page the pinch zooms. Chrome turns a trackpad pinch into ctrl+wheel events for the page first
+# (a script may take them) and, untaken, into a pinch of the visual viewport; the page counts the ctrl+wheels so a
+# pinch that reached Chromium but did not zoom shows apart from one that never arrived.
+PINCH_PAGE = """<!doctype html><meta charset=utf-8><title>pinch probe</title>
+<style>html,body{margin:0;background:#204080;color:#fff;font:16px system-ui}
+#grid{height:100vh;background:repeating-linear-gradient(45deg,#204080 0 20px,#f0c000 20px 40px)}</style>
+<div id=grid></div>
+<script>
+window.__pinch = {ctrlWheels: 0};
+addEventListener('wheel', event => { if (event.ctrlKey) window.__pinch.ctrlWheels += 1; }, {passive: true});
+window.__zoom = () => ({scale: visualViewport.scale, dpr: devicePixelRatio, ctrlWheels: window.__pinch.ctrlWheels});
+</script>"""
+# ChromiumHostDragDestination.forkAPI: the fork whose DragTarget calls reach a detached page (task 172).
+DRAG_TARGET_FORK_API = 31
+
+
+# The mouse row's page (task 054): a title= band over a pad that records the page's mouse events and pinches.
+MOUSE_TOOLTIP = "probe tooltip"
+MOUSE_PAGE = """<!doctype html><meta charset=utf-8><title>mouse probe</title>
+<style>html,body{margin:0;height:100%;font:16px system-ui}div{position:fixed;left:0;width:100%;height:50%}</style>
+<div id=tip style="top:0;background:#cde" title="TIP">tooltip</div>
+<div id=pad style="top:50%;background:#ecd">buttons and gestures</div>
+<script>
+window.__mouse = [];
+for (const type of ["mousedown", "mouseup", "click", "auxclick", "contextmenu"])
+  addEventListener(type, e => { __mouse.push({type, button: e.button, buttons: e.buttons}); }, true);
+addEventListener("wheel", e => { if (e.ctrlKey) __mouse.push({type: "pinch-wheel", dy: e.deltaY}); }, {capture: true, passive: true});
+</script>""".replace("TIP", MOUSE_TOOLTIP)
 
 TUNABLES = {"version": 1, "values": {"browserHost.helper": True, "browserResize.layerHostingEveryPage": True}}
 RESULT = {"build": "Debug", "modes": {}, "notes": []}
@@ -233,6 +379,52 @@ def main_display_hz():
     cg.CGDisplayModeGetRefreshRate.argtypes = [ctypes.c_void_p]
     mode = cg.CGDisplayCopyDisplayMode(cg.CGMainDisplayID())
     return round(cg.CGDisplayModeGetRefreshRate(mode), 2) if mode else None
+
+
+def on_screen_windows(pid):
+    """The on-screen windows `pid` owns (CGWindowListCopyWindowInfo with kCGWindowListOptionOnScreenOnly), each
+    {"layer", "alpha", "bounds" [x, y, w, h]}, or None when CoreGraphics cannot be read."""
+    import ctypes
+    try:
+        cg = ctypes.CDLL("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
+        cf = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+    except OSError:
+        return None
+    ptr, index = ctypes.c_void_p, ctypes.c_long
+    cg.CGWindowListCopyWindowInfo.restype, cg.CGWindowListCopyWindowInfo.argtypes = ptr, [ctypes.c_uint32, ctypes.c_uint32]
+    cg.CGRectMakeWithDictionaryRepresentation.restype = ctypes.c_bool
+    cg.CGRectMakeWithDictionaryRepresentation.argtypes = [ptr, ptr]
+    cf.CFArrayGetCount.restype, cf.CFArrayGetCount.argtypes = index, [ptr]
+    cf.CFArrayGetValueAtIndex.restype, cf.CFArrayGetValueAtIndex.argtypes = ptr, [ptr, index]
+    cf.CFDictionaryGetValue.restype, cf.CFDictionaryGetValue.argtypes = ptr, [ptr, ptr]
+    cf.CFNumberGetValue.restype, cf.CFNumberGetValue.argtypes = ctypes.c_bool, [ptr, index, ptr]
+    cf.CFRelease.argtypes = [ptr]
+    key = {name: ptr.in_dll(cg, name).value for name in ("kCGWindowOwnerPID", "kCGWindowLayer", "kCGWindowAlpha",
+                                                         "kCGWindowBounds")}
+    sint32, double = 3, 13  # kCFNumberSInt32Type, kCFNumberDoubleType
+
+    def number(entry, name, kind, ctype):
+        value, out = cf.CFDictionaryGetValue(entry, key[name]), ctype()
+        return out.value if value and cf.CFNumberGetValue(value, kind, ctypes.byref(out)) else None
+
+    windows = cg.CGWindowListCopyWindowInfo(1, 0)  # kCGWindowListOptionOnScreenOnly, kCGNullWindowID
+    if not windows:
+        return None
+    found = []
+    try:
+        for i in range(cf.CFArrayGetCount(windows)):
+            entry = cf.CFArrayGetValueAtIndex(windows, i)
+            if number(entry, "kCGWindowOwnerPID", sint32, ctypes.c_int32) != pid:
+                continue
+            rect = (ctypes.c_double * 4)()  # CGRect: origin x, y, size width, height
+            bounds = cf.CFDictionaryGetValue(entry, key["kCGWindowBounds"])
+            placed = bool(bounds) and cg.CGRectMakeWithDictionaryRepresentation(bounds, rect)
+            found.append({"layer": number(entry, "kCGWindowLayer", sint32, ctypes.c_int32),
+                          "alpha": number(entry, "kCGWindowAlpha", double, ctypes.c_double),
+                          "bounds": [round(v, 1) for v in rect] if placed else None})
+    finally:
+        cf.CFRelease(windows)
+    return found
 
 
 # ChromiumHostFrame.quitLimit: how long a host may take to end after `quit` or EOF before it is SIGKILLed / ends itself.
@@ -374,6 +566,20 @@ def front_pid():
     return int(found.group(1)) if found else None
 
 
+def chromium_host_pid():
+    """The pid of the running Chromium Host (`<Product> Chromium Host` in the app's Contents/MacOS), or None."""
+    macos = os.path.join(os.path.abspath(opts.app), "Contents", "MacOS") + "/"
+    try:
+        listing = subprocess.run(["/bin/ps", "-axo", "pid=,command="], capture_output=True, text=True, timeout=10).stdout
+    except subprocess.TimeoutExpired:
+        return None
+    for line in listing.splitlines():
+        pid, _, command = line.strip().partition(" ")
+        if command.startswith(macos) and command[len(macos):].split(" --", 1)[0].endswith(" Chromium Host"):
+            return int(pid)
+    return None
+
+
 def defaults_snapshot(domain):
     """cmux's defaults domain as {key: value repr} (`defaults export`), or None."""
     import plistlib
@@ -483,10 +689,17 @@ def main():
         open(native, "w").write(chromium_host_native_ui.PAGE)
         url = pathlib.Path(native).as_uri()
         env.update(chromium_host_native_ui.launch_env(chromium_host_native_ui.write_extensions(opts.out)))
+        env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), chromium_host_native_ui_dialogs.FEATURES]))
+    if opts.kill_host:
+        kill_page = os.path.join(opts.out, "kill-host.html")
+        open(kill_page, "w").write(chromium_host_kill.PAGE)
+        url = pathlib.Path(kill_page).as_uri()
     if opts.find:
         find_page = os.path.join(opts.out, "find.html")
         open(find_page, "w").write(chromium_host_find.PAGE)
         url = pathlib.Path(find_page).as_uri()
+    if "dragin" in opts.modes.split(","):
+        env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), "chromiumHostDragIn"]))
     if opts.host_switches:
         env["CMUX_NEXT_CHROMIUM_HOST_SWITCHES"] = opts.host_switches
         RESULT["host_switches"] = opts.host_switches
@@ -508,11 +721,25 @@ def main():
         RESULT["cef"] = {"fork_api": (cef.get("windows") or {}).get("fork_api"), "unavailable": cef.get("unavailable"),
                          "fallback": cef.get("fallback")}
         DEFAULTS["launch"] = defaults_snapshot(app_bundle_id())
-        modes = [] if opts.native_ui or opts.find else opts.modes.split(",")
+        modes = [] if opts.native_ui or opts.find or opts.kill_host else opts.modes.split(",")
         if opts.native_ui:
-            RESULT["modes"]["native_ui"], ok = chromium_host_native_ui.run(rpc, wait, lambda script: page_eval(rpc, script, None), url)
+            RESULT["modes"]["native_ui"], ok = chromium_host_native_ui.run(
+                rpc, wait, lambda script: page_eval(rpc, script, None), url,
+                rows_to_run=[row for row in opts.native_ui if row in chromium_host_native_ui.ROWS], front=front_pid,
+                app_pid=app.process.pid if app.process else None, right_click=page_right_click(rpc))
+            dialog_rows = [row for row in opts.native_ui if row in chromium_host_native_ui_dialogs.ROWS]
+            if dialog_rows:
+                dialogs, dialogs_ok = chromium_host_native_ui_dialogs.run(
+                    rpc, wait, lambda script: page_eval(rpc, script, None), opts.out, chromium_host_pid, front_pid,
+                    on_screen_windows, rows_to_run=dialog_rows)
+                RESULT["modes"]["native_ui"].update(dialogs)
+                ok = ok and dialogs_ok
         if opts.find:
             RESULT["modes"]["find"], ok = chromium_host_find.run(rpc, wait, lambda script: page_eval(rpc, script, None), url)
+        if opts.kill_host:
+            RESULT["modes"]["kill_host"], ok = chromium_host_kill.run(
+                rpc, wait, url, opts.signals, chromium_host_pid, app.process.pid if app.process else None,
+                lambda pid: pid is not None and not pid_gone(pid))
         inproc_tab = None
         if "inproc" in modes:
             inproc_tab = run_inproc(rpc, url)
@@ -529,6 +756,28 @@ def main():
             cursor_probe = os.path.join(opts.out, "cursor.html")
             open(cursor_probe, "w").write(CURSOR_PAGE)
             ok = run_cursor(rpc, pathlib.Path(cursor_probe).as_uri()) and ok
+        if "swipe" in modes:
+            swipe_probe = os.path.join(opts.out, "swipe.html")
+            open(swipe_probe, "w").write(SWIPE_PAGE)
+            ok = run_swipe(rpc, pathlib.Path(swipe_probe).as_uri()) and ok
+        if "pinch" in modes:
+            pinch_probe = os.path.join(opts.out, "pinch.html")
+            open(pinch_probe, "w").write(PINCH_PAGE)
+            ok = run_pinch(rpc, pathlib.Path(pinch_probe).as_uri()) and ok
+        if "dragin" in modes:
+            drag_probe = os.path.join(opts.out, "drag.html")
+            open(drag_probe, "w").write(DRAG_PAGE)
+            ok = run_dragin(rpc, pathlib.Path(drag_probe).as_uri()) and ok
+        if "mouse" in modes:
+            mouse_probe = os.path.join(opts.out, "mouse.html")
+            open(mouse_probe, "w").write(MOUSE_PAGE)
+            ok = run_mouse(rpc, pathlib.Path(mouse_probe).as_uri()) and ok
+        if "display" in modes:
+            display_probe = os.path.join(opts.out, "display.html")
+            open(display_probe, "w").write(chromium_host_display.PAGE)
+            RESULT["modes"]["display"], ran = chromium_host_display.run(
+                rpc, wait, lambda script: page_eval(rpc, script, None), pathlib.Path(display_probe).as_uri(), time.sleep)
+            ok = ran and ok
         if opts.stress:
             run_stress_pump(rpc, url, "helper" in modes)
         if opts.baseline:
@@ -886,7 +1135,8 @@ def census(app, name, session=None, baseline=None):
 
 
 # The probe's fixed layout: the field spans 10-70 % at 20 % height, the button 10-40 % at 40 % (+40 px).
-HOST_SPOTS = {"t": (0.4, 0.2, 10), "b": (0.25, 0.4, 40), "s": (0.2, 0.55, 15), "al": (0.52, 0.55, 20), "f": (0.75, 0.55, 12)}
+HOST_SPOTS = {"t": (0.4, 0.2, 10), "b": (0.25, 0.4, 40), "s": (0.2, 0.55, 15), "al": (0.52, 0.55, 20), "f": (0.75, 0.55, 12),
+              "pw": (0.55, 0.4, 10)}
 
 
 def host_click_point(border):
@@ -908,6 +1158,20 @@ def focused_pane_border(rpc):
     layers = rpc("debug.pane_chrome") or {}
     return next((p.get("border") for w in layers.get("windows") or [] for p in w.get("panes") or []
                  if pane and p.get("pane") == pane and isinstance(p.get("border"), list)), None)
+
+
+def page_right_click(rpc):
+    """A right click (a posted window event, as a person's) on an empty spot of the focused pane's page, low and right
+    of the native-ui probe's controls and below any browser toolbar. The pane is read at each call (the probe's tab
+    opens after this is made); the click returns False when no pane is focused."""
+    def click():
+        border = focused_pane_border(rpc)
+        if not border:
+            return False
+        bx, by, bw, bh = border
+        rpc("debug.mouse", {"x": bx + bw * 0.75, "y": by + bh * 0.8, "button": "right"})
+        return True
+    return click
 
 
 def run_host_probe(rpc, url, record=True):
@@ -983,6 +1247,11 @@ def run_helper(rpc, url, inproc_tab):
     counters = rpc("debug.chromium_host.measure", {"op": "input"}) or {}
     identity["clicks"] = {"fronts": sorted(set(p for p in fronts if p is not None)), "host_frontmost": fronts.count(host_pid),
                           "activations": counters.get("activations"), "key_windows": counters.get("key_windows")}
+    # The host's page windows are detached and its own windows never ordered in (task p01-process-053): with the
+    # page shown and after the clicks, the window server lists no window of the host on screen.
+    host_windows = on_screen_windows(host_pid) if host_pid else None
+    identity["host_windows_on_screen"] = {"count": None if host_windows is None else len(host_windows),
+                                          "windows": (host_windows or [])[:8]}
     try:
         opened = subprocess.run(["/usr/bin/open", "-b", bundle_id], capture_output=True, text=True, timeout=20)
         open_exit, open_err = opened.returncode, opened.stderr.strip()[:200]
@@ -994,7 +1263,8 @@ def run_helper(rpc, url, inproc_tab):
     identity["pass"] = (identity["host_type"] in ("UIElement", "BackgroundOnly") and identity["front_after_input"] != host_pid
                         and identity["open_b"]["front"] != host_pid and identity["open_b"]["host_type"] in ("UIElement", "BackgroundOnly")
                         and identity["clicks"]["host_frontmost"] == 0 and identity["clicks"]["activations"] == 0
-                        and identity["clicks"]["key_windows"] == 0)
+                        and identity["clicks"]["key_windows"] == 0
+                        and identity["host_windows_on_screen"]["count"] == 0)
     # The same baseline with the page in the host: cmux's pump still runs for in-process Chromium (the
     # in-process tab, idle in the other pane, and the spare page), the host's page idles and scrolls.
     host_point = click_point("t")
@@ -1012,8 +1282,10 @@ def run_helper(rpc, url, inproc_tab):
     row["fork_api"] = state.get("fork_api")
 
     row["input"] = input_rows(rpc, url, title, click_point, borders, host_pid)
+    bounded(row, "geometry", lambda: geometry_row(rpc))
     if opts.ime:
         bounded(row, "ime", lambda: ime_row(rpc, title, click_point))
+        bounded(row, "password", lambda: password_row(rpc, click_point))
 
     # Kill: cmux keeps running, a new host loads the saved page.
     before = rpc("debug.chromium_host") or {}
@@ -1088,6 +1360,346 @@ def run_cursor(rpc, url):
     else:
         row["pass"] = all(b.get("pass") for b in bands)
     RESULT["modes"]["cursor"] = row
+    return True
+
+
+def build_pointer_probe():
+    """pointer-probe.swift built here (an input host's Accessibility grant posts its events); None when it fails."""
+    probe = os.path.join(tempfile.mkdtemp(prefix="pointer-probe-"), "pointer-probe")
+    built = subprocess.run(["xcrun", "swiftc", "-O", os.path.join(HERE, "pointer-probe.swift"), "-o", probe],
+                           capture_output=True, text=True, timeout=300)
+    return probe if built.returncode == 0 else None
+
+
+def run_dragin(rpc, url):
+    """The drag-in row (task 050): a real drag session from another app (pointer-probe drag-file, as from Finder)
+    of one file onto the drag probe's drop zone, then onto its <input type=file>. Each passes when the page got
+    the file with its bytes (the zone's drop event, the input's change event) and the source saw the drop taken."""
+    probe = build_pointer_probe()
+    if not probe:
+        RESULT["modes"]["dragin"] = {"error": "pointer-probe.swift did not build (xcrun swiftc)"}
+        return False
+    opened = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url}, "focus": True, "origin": "script"}, timeout=120)
+    tab = {}
+
+    def page(script):
+        reply = rpc("browser.page.eval", {"script": script, **({"tab": tab["tab"]} if tab.get("tab") else {})}, timeout=20)
+        if not isinstance(reply, dict) or "error" in reply:
+            return None
+        tab.setdefault("tab", reply.get("tab"))
+        return reply.get("value")
+    if not wait(lambda: page("document.readyState === 'complete' && document.title === 'drag probe'"), 60, 0.5):
+        RESULT["modes"]["dragin"] = {"error": f"the drag probe never loaded: {json.dumps(opened)[:200]}"}
+        return False
+    border = focused_pane_border(rpc)
+    window = next((w for w in (rpc("debug.window_list") or {}).get("windows") or []
+                   if w.get("kind") == "main" and w.get("visible")), None)
+    screen_h = subprocess.run([probe, "screen"], capture_output=True, text=True, timeout=20).stdout.strip()
+    if not border or not window or not screen_h:
+        RESULT["modes"]["dragin"] = {"error": "no pane, window or screen geometry (debug.pane_chrome, debug.window_list)"}
+        return False
+    frame = window.get("frame") or {}
+    # Window points from the top left to screen points from the top left (the pane's page view fills its border).
+    left = frame.get("x", 0) + border[0]
+    top = float(screen_h) - (frame.get("y", 0) + frame.get("height", 0)) + border[1]
+    path = os.path.join(opts.out, "drag-in.txt")
+    with open(path, "w") as out:
+        out.write(DRAG_FILE_TEXT)
+    expected = [[os.path.basename(path), len(DRAG_FILE_TEXT.encode())]]
+    # The source sits left of the window when there is room, else at its top left corner (it floats above cmux).
+    source = (max(30.0, frame.get("x", 0) - 40), top + 20)
+
+    def page_drag():
+        # Only a host-mode page view has a page_drag (debug.cef): in process the DevTools relay takes file drags.
+        cef = rpc("debug.cef") or {}
+        mine = [e for e in cef.get("devtools") or [] if (e.get("url") or "").startswith(url)]
+        return (mine or [{}])[0].get("page_drag"), (cef.get("windows") or {}).get("fork_api")
+
+    counts, fork_api = page_drag()
+    row = {"backend": "host" if counts else "in_process", "fork_api": fork_api, "page_drag": counts}
+    if not counts:
+        row["not_measurable"] = "the tab runs in process, where the DevTools relay takes file drags: no DragTarget path"
+    elif not isinstance(fork_api, (int, float)) or fork_api < DRAG_TARGET_FORK_API:
+        row["not_measurable"] = (f"fork API {fork_api} is below {DRAG_TARGET_FORK_API} (p01-process-178): the page view "
+                                 "refuses the drag and the DevTools relay takes the drops")
+    elif not counts.get("takes_drags"):
+        row["error"] = "the page view takes no drags: feature chromiumHostDragIn is off or the pane never wired it"
+    for target, field in (("zone", "dropped"), ("file", "file")):
+        rect = page(f"(() => {{ const r = document.getElementById('{target}').getBoundingClientRect(); "
+                    "return [r.x + r.width / 2, r.y + r.height / 2]; })()")
+        if not rect:
+            row[target] = {"error": "no target rect", "pass": False}
+            continue
+        point = (left + rect[0], top + rect[1])
+        dragged = subprocess.run([probe, "drag-file", f"{source[0]:.0f}", f"{source[1]:.0f}", f"{point[0]:.0f}", f"{point[1]:.0f}",
+                                  "40", path], capture_output=True, text=True, timeout=60)
+        got = wait(lambda: page(f"window.dragLog.{field}"), 5, 0.1)
+        log = page("JSON.stringify(window.dragLog)")
+        before, after = counts or {}, page_drag()[0] or {}
+        # This drop went through cmux_shim_browser_drag_target_*: one more DragTarget drop, and the renderer
+        # answered the drag's enter or over through the fork's watch.
+        drag_target = {key: (after.get(key) or 0) - (before.get(key) or 0) for key in ("enters", "drops", "answers")}
+        counts = after
+        row[target] = {"point": point, "source": dragged.stdout.strip() or dragged.stderr.strip()[:200], "got": got, "log": log,
+                       "drag_target": drag_target,
+                       "pass": (got == expected and dragged.returncode == 0 and drag_target["drops"] == 1
+                                and drag_target["answers"] >= 1)}
+    if "not_measurable" not in row:
+        row["pass"] = "error" not in row and all(row[t].get("pass") for t in ("zone", "file"))
+    RESULT["modes"]["dragin"] = row
+    return True
+
+
+def run_mouse(rpc, url):
+    """The mouse rows (task 054): the page's tooltip shown while the pointer stays, back and forward clicks that never
+    reach the page as a left click, the middle click, and the pinch and smart magnify frames (debug.mouse page)."""
+    opened = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url}, "focus": True, "origin": "script"}, timeout=120)
+    tab = {}
+
+    def page(script):
+        value, got = page_eval_reply(rpc, script, tab.get("tab"))
+        if got:
+            tab.setdefault("tab", got)
+        return value
+    if not wait(lambda: page("document.readyState === 'complete' && document.title === 'mouse probe'"), 60, 0.5):
+        RESULT["modes"]["mouse"] = {"error": f"the mouse probe never loaded: {json.dumps(opened)[:200]}"}
+        return False
+
+    def entry():
+        entries = (rpc("debug.cef") or {}).get("devtools") or []
+        return ([e for e in entries if (e.get("url") or "").startswith(url)] or [{}])[0]
+
+    def center(element):
+        return page(f"(() => {{ const r = document.getElementById('{element}').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; }})()")
+
+    def unmeasurable(reply):
+        # No route to the host, or a move that went to the in-process page window (no page view).
+        return isinstance(reply, dict) and (reply.get("reason") in ("no_host_input_route", "not_host_mode")
+                                            or (not reply.get("error") and reply.get("view") != "ChromiumHostPageView"))
+
+    row = {}
+    tip = center("tip")
+    moved = rpc("debug.mouse", {"action": "move", "target": "page", "x": tip[0], "y": tip[1]}) if tip else {"error": "no band rect"}
+    if unmeasurable(moved):
+        row["not_measurable"] = (f"no host-mode page view with a pointer route to the Chromium Host ({moved.get('reason') or 'in process'}): "
+                                 "in process Chromium's page window shows its own tooltip and gets every button itself")
+        RESULT["modes"]["mouse"] = row
+        return True
+    if not isinstance(moved, dict) or moved.get("error"):
+        row["tooltip"] = {"move": moved, "error": "debug.mouse move failed", "pass": False}
+    else:
+        # The renderer sends the tooltip after the move reaches it; the tooltip then waits AppKit's hover delay. No
+        # other move: the pointer stays inside the page view the whole time, as a user's resting on the link.
+        text = wait(lambda: entry().get("page_tooltip") == MOUSE_TOOLTIP and MOUSE_TOOLTIP, 5, 0.05)
+        shown = wait(lambda: entry().get("tooltip_shown") == MOUSE_TOOLTIP and MOUSE_TOOLTIP, 5, 0.05)
+        row["tooltip"] = {"expected": MOUSE_TOOLTIP, "page_tooltip": text or entry().get("page_tooltip"),
+                          "shown": shown or entry().get("tooltip_shown"), "pass": bool(text and shown)}
+
+    pad = center("pad") or [0, 0]
+    for button in ("back", "forward", "middle"):
+        page("window.__mouse = []")
+        clicked = rpc("debug.mouse", {"target": "page", "button": button, "x": pad[0], "y": pad[1]})
+        time.sleep(1.0)  # test harness: the click's events reach the page through the host, if at all
+        events = page("JSON.stringify(window.__mouse)")
+        seen = json.loads(events) if isinstance(events, str) else None
+        result = {"click": clicked, "events": seen}
+        if not isinstance(clicked, dict) or clicked.get("error"):
+            result["error"] = "debug.mouse page click failed"
+            if button != "middle":
+                result["pass"] = False
+        elif seen is None:
+            result["error"] = "the page's events could not be read"
+            if button != "middle":
+                result["pass"] = False
+        elif button == "middle":
+            result["auxclick"] = any(e.get("type") == "auxclick" and e.get("button") == 1 for e in seen)
+        else:
+            left = [e for e in seen if e.get("button") == 0]
+            result["left_events"] = left
+            result["pass"] = not left
+            if not seen:
+                result["note"] = "nothing reached the page: the host sends kBack and kForward from p01-process-054b"
+        row[button] = result
+
+    for gesture in ("pinch", "smart_magnify"):
+        page("window.__mouse = []")
+        before = page("visualViewport.scale")
+        sent = rpc("debug.mouse", {"action": gesture, "target": "page", "x": pad[0], "y": pad[1],
+                                   **({"scale": 1.5} if gesture == "pinch" else {})})
+        time.sleep(1.0)  # test harness: the gesture, if dispatched, zooms within a frame or two
+        after = page("visualViewport.scale")
+        events = page("JSON.stringify(window.__mouse)")
+        wheel = any(e.get("type") == "pinch-wheel" for e in (json.loads(events) if isinstance(events, str) else []))
+        result = {"sent": sent, "scale_before": before, "scale_after": after, "ctrl_wheel": wheel}
+        if not isinstance(sent, dict) or sent.get("error") or not sent.get("frames"):
+            result.update({"error": "the page view sent no gesture frame", "pass": False})
+        elif before != after or wheel:
+            result["dispatched"] = True
+            result["pass"] = True
+        else:
+            result["not_dispatched"] = "the host drops kGesture until the fork sends PinchEvent and SmartMagnifyEvent (p01-process-054b)"
+        row[gesture] = result
+
+    row["pass"] = all(row.get(name, {}).get("pass") is not False for name in ("tooltip", "back", "forward", "pinch", "smart_magnify"))
+    RESULT["modes"]["mouse"] = row
+    return True
+
+
+def run_swipe(rpc, url):
+    """The swipe row (task 234): a real two-finger swipe (pointer-probe swipe) that drags the content right, over a
+    page that does not scroll sideways (Back must happen) and over one scrolled to the middle of its sideways
+    scroller (the page scrolls, no navigation), with the page probes and wheel acks each gesture took."""
+    probe = build_pointer_probe()
+    if not probe:
+        RESULT["modes"]["swipe"] = {"error": "pointer-probe.swift did not build (xcrun swiftc)"}
+        return False
+    page, title_is = tab_page(rpc)
+
+    def swipe_stats():
+        return (rpc("debug.cef") or {}).get("swipe") or {}
+
+    row = {}
+    opened = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url + "?flat-1"}, "focus": True,
+                                "origin": "script"}, timeout=120)
+    if not title_is("swipe flat 1"):
+        RESULT["modes"]["swipe"] = {"error": f"the swipe probe never loaded: {json.dumps(opened)[:200]}"}
+        return False
+    backend = rpc("debug.cef") or {}
+    row["backend"] = backend.get("backend")
+    center = focused_pane_center(rpc, probe)
+    if not center:
+        RESULT["modes"]["swipe"] = {"error": "no pane, window or screen geometry (debug.pane_chrome, debug.window_list)"}
+        return False
+
+    def gesture(variant, expect_title):
+        before = swipe_stats()
+        left_before = page("window.__scrollLeft()")
+        swiped = subprocess.run([probe, "swipe", f"{center[0]:.0f}", f"{center[1]:.0f}", "12", "24"],
+                                capture_output=True, text=True, timeout=30)
+        back = title_is(expect_title) if expect_title else None
+        time.sleep(0.5)  # a late Back would show here; the wide case must still be on its page
+        title = page("document.title")
+        after = swipe_stats()
+        delta = {key: (after.get(key) or 0) - (before.get(key) or 0) for key in ("gestures", "probes", "acks", "swipes")}
+        return {"variant": variant, "probe": swiped.stdout.strip() or swiped.stderr.strip()[:200], "title": title,
+                "back": bool(back), "scroll_left": [left_before, page("window.__scrollLeft()")], "swipe": delta,
+                "host_acks_wheels": after.get("host_acks_wheels")}
+
+    page(f"location.href = {json.dumps(url + '?flat-2')}")
+    if not title_is("swipe flat 2"):
+        RESULT["modes"]["swipe"] = {"error": "the second flat page never loaded"}
+        return False
+    flat = gesture("flat", "swipe flat 1")
+    flat["pass"] = flat["back"] and flat["title"] == "swipe flat 1"
+    row["flat"] = flat
+
+    page(f"location.href = {json.dumps(url + '?wide-1')}")
+    title_is("swipe wide 1")
+    page(f"location.href = {json.dumps(url + '?wide-2')}")
+    if not title_is("swipe wide 2"):
+        row["wide"] = {"error": "the wide pages never loaded", "pass": False}
+    else:
+        wide = gesture("wide", None)
+        left = wide["scroll_left"]
+        wide["pass"] = wide["title"] == "swipe wide 2" and None not in left and left[1] < left[0]
+        row["wide"] = wide
+    gestures = [r for r in (row.get("flat"), row.get("wide")) if r and "swipe" in r]
+    acks_on = any(r.get("host_acks_wheels") for r in gestures)
+    row["host_acks_wheels"] = acks_on
+    row["probes_per_gesture"] = max((r["swipe"]["probes"] / max(r["swipe"]["gestures"], 1) for r in gestures), default=None)
+    if not gestures or all(r["swipe"]["gestures"] == 0 for r in gestures):
+        row["not_measurable"] = ("no gesture reached the swipe: in host mode the page view takes no scrolls before the "
+                                 "host input route (p01-process-042); in process, the posted HID gesture never reached "
+                                 "a page window")
+    else:
+        zero_probes = not acks_on or row["probes_per_gesture"] == 0
+        row["pass"] = bool(row["flat"].get("pass") and row.get("wide", {}).get("pass") and zero_probes)
+    RESULT["modes"]["swipe"] = row
+    return True
+
+
+def tab_page(rpc):
+    """`page(script)`, the value of `script` in the tab of the first eval that names one (the focused tab), and
+    `title_is(title)`, true once that tab has loaded a page with that title (20 s)."""
+    tab = {}
+
+    def page(script):
+        reply = rpc("browser.page.eval", {"script": script, **({"tab": tab["tab"]} if tab.get("tab") else {})}, timeout=20)
+        if not isinstance(reply, dict) or "error" in reply:
+            return None
+        tab.setdefault("tab", reply.get("tab"))
+        return reply.get("value")
+
+    def title_is(title):
+        return wait(lambda: page(f"document.readyState === 'complete' && document.title === {json.dumps(title)}"), 20, 0.2)
+
+    return page, title_is
+
+
+def focused_pane_center(rpc, probe):
+    """The focused pane's center in screen points from the top left (the page view fills its border), or None
+    without pane, window or screen geometry."""
+    border = focused_pane_border(rpc)
+    window = next((w for w in (rpc("debug.window_list") or {}).get("windows") or []
+                   if w.get("kind") == "main" and w.get("visible")), None)
+    screen_h = subprocess.run([probe, "screen"], capture_output=True, text=True, timeout=20).stdout.strip()
+    if not border or not window or not screen_h:
+        return None
+    frame = window.get("frame") or {}
+    return (frame.get("x", 0) + border[0] + border[2] / 2,
+            float(screen_h) - (frame.get("y", 0) + frame.get("height", 0)) + border[1] + border[3] / 2)
+
+
+def run_pinch(rpc, url):
+    """The pinch row (task 234): a real trackpad pinch (pointer-probe magnify) over a Chromium tab must zoom the page
+    (its visual viewport's scale grows, as Chrome's pinch does) and must not become a swipe, now that the hosted page
+    view hands each scroll to the swipe first."""
+    probe = build_pointer_probe()
+    if not probe:
+        RESULT["modes"]["pinch"] = {"error": "pointer-probe.swift did not build (xcrun swiftc)"}
+        return False
+    page, title_is = tab_page(rpc)
+
+    def swipe_stats():
+        return (rpc("debug.cef") or {}).get("swipe") or {}
+
+    opened = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url}, "focus": True,
+                                "origin": "script"}, timeout=120)
+    if not title_is("pinch probe"):
+        RESULT["modes"]["pinch"] = {"error": f"the pinch probe never loaded: {json.dumps(opened)[:200]}"}
+        return False
+    row = {"backend": (rpc("debug.cef") or {}).get("backend")}
+    center = focused_pane_center(rpc, probe)
+    if not center:
+        RESULT["modes"]["pinch"] = {"error": "no pane, window or screen geometry (debug.pane_chrome, debug.window_list)"}
+        return False
+    before = page("window.__zoom()") or {}
+    stats_before = swipe_stats()
+    pinched = subprocess.run([probe, "magnify", f"{center[0]:.0f}", f"{center[1]:.0f}", "0.05", "20"],
+                             capture_output=True, text=True, timeout=30)
+    start = before.get("scale") or 1
+    wait(lambda: ((page("window.__zoom()") or {}).get("scale") or start) > start + 0.05, 3, 0.1)
+    time.sleep(0.5)  # a swipe or navigation the pinch set off would show here
+    after = page("window.__zoom()") or {}
+    stats_after = swipe_stats()
+    row.update({
+        "probe": pinched.stdout.strip() or pinched.stderr.strip()[:200],
+        "before": before, "after": after, "title": page("document.title"),
+        "swipe": {key: (stats_after.get(key) or 0) - (stats_before.get(key) or 0) for key in ("gestures", "swipes")},
+    })
+    zoomed = (after.get("scale") or start) > start + 0.05
+    reached = zoomed or (after.get("ctrlWheels") or 0) > (before.get("ctrlWheels") or 0)
+    row["zoomed"] = zoomed
+    if not reached and row["backend"] == "host":
+        row["not_measurable"] = ("the pinch never reached the page: in host mode the page view sends the host no "
+                                 "magnify before the host input route (p01-process-042) and its PinchEvent "
+                                 "(p01-process-054)")
+    else:
+        row["pass"] = bool(zoomed and row["title"] == "pinch probe" and row["swipe"]["swipes"] == 0
+                           and row["swipe"]["gestures"] == 0)
+        if not reached:
+            row["error"] = "the posted pinch never reached the page (no ctrl+wheel, no zoom)"
+    RESULT["modes"]["pinch"] = row
     return True
 
 
@@ -1197,6 +1809,48 @@ def input_rows(rpc, url, title, click_point, borders, host_pid):
 IME_STATS = ("changes", "pushes", "frames", "unsent", "watches")
 
 
+GEOMETRY_STATS = ("frames", "applied", "unchanged", "unplaced")
+
+
+def geometry_row(rpc, steps=60):
+    """Geometry frames per moving page per display frame (task p01-process-053). The host places a page's window only
+    when its geometry changed (HostContext::PlaceFrame), so a page that moves every frame costs at most one placement
+    per frame. The window moves 1 point per display frame for `steps` frames, then grows 1 point per frame for
+    `steps` frames (debug.window_frame: one programmatic setFrame each, as a display change or Rectangle does); the
+    host's counters (kOpGeometryStats: frames, applied, unchanged, unplaced) are read before and after through
+    `debug.chromium_host.measure {op: geometry}`. Pass: placements per display frame <= 1 for the one moving page, and
+    no geometry the host could not place. Until cmux's host session asks the host for them, the row says the counters
+    are unavailable instead of passing."""
+    counters = lambda: rpc("debug.chromium_host.measure", {"op": "geometry"}) or {}
+    before = counters()
+    if not all(isinstance(before.get(key), (int, float)) for key in GEOMETRY_STATS):
+        return {"unavailable": "the app does not answer debug.chromium_host.measure geometry", "reply": before,
+                "pass": None}
+    start = (rpc("debug.window_frame") or {}).get("frame")
+    if not (isinstance(start, list) and len(start) == 4):
+        return {"error": "no window frame (debug.window_frame)", "pass": False}
+    hz = main_display_hz() or 60.0
+    x, y, w, h = start
+    began = time.monotonic()
+    for i in range(1, steps + 1):
+        rpc("debug.window_frame", {"frame": [x + i, y, w, h]})
+        time.sleep(1 / hz)  # test harness: one move per display frame
+    for i in range(1, steps + 1):
+        rpc("debug.window_frame", {"frame": [x + steps, y, w + i, h]})
+        time.sleep(1 / hz)  # test harness: one resize per display frame
+    time.sleep(0.2)  # test harness: the last geometry reaches the host
+    elapsed = time.monotonic() - began
+    after = counters()
+    rpc("debug.window_frame", {"frame": start})
+    delta = {key: (after.get(key) or 0) - (before.get(key) or 0) for key in GEOMETRY_STATS}
+    display_frames = max(1, round(elapsed * hz))
+    row = {"steps": 2 * steps, "display_frames": display_frames, "hz": hz, **delta}
+    row["applied_per_frame"] = round(delta["applied"] / display_frames, 3)
+    row["frames_per_frame"] = round(delta["frames"] / display_frames, 3)
+    row["pass"] = delta["applied"] > 0 and delta["applied"] <= display_frames and delta["unplaced"] == 0
+    return row
+
+
 def ime_row(rpc, title, click_point):
     """--ime: TEXT_INPUT_STATE pushes per keystroke (task p01-process-044). The host folds the fork's text input
     notifications of one display frame into one push, so a keystroke whose renderer notifications land in two frames
@@ -1225,6 +1879,48 @@ def ime_row(rpc, title, click_point):
     row["pushes_per_key"] = round(delta["pushes"] / keys, 3) if keys else None
     row["changes_per_key"] = round(delta["changes"] / keys, 3) if keys else None
     row["pass"] = bool(keys) and delta["pushes"] <= keys and delta["unsent"] == 0
+    return row
+
+
+def secure_input_pid():
+    """The pid that holds the system's secure event input (IORegistry kCGSSessionSecureInputPID), 0 for none, None
+    when ioreg cannot say."""
+    try:
+        done = subprocess.run(["/usr/sbin/ioreg", "-l", "-w", "0", "-d", "1"], capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    import re
+    # The root's IOConsoleUsers holds it, all on one line: ({"kCGSSessionSecureInputPID"=123, ...}).
+    found = re.search(r'"kCGSSessionSecureInputPID"\s*=\s*(\d+)', done.stdout)
+    if found:
+        return int(found.group(1))
+    return 0 if done.returncode == 0 else None
+
+
+def password_row(rpc, click_point):
+    """--ime: secure event input while the probe's password field has focus (task p01-process-230). In host mode
+    cmux is the frontmost process, so cmux's page view turns it on, as Chrome's browser process holds a
+    ScopedPasswordInputEnabler (ui/base/cocoa/secure_password_input.mm). A click into #pw must turn on
+    `password_input` of debug.chromium_host, a click back into #t must turn it off; where ioreg shows the system's
+    secure input pid it must be cmux's while on and not cmux's after. Until the app reports `password_input` the row
+    says it is unavailable instead of passing."""
+    state = lambda: rpc("debug.chromium_host") or {}
+    first = state()
+    if "password_input" not in first:
+        return {"unavailable": "debug.chromium_host has no password_input", "pass": None}
+    app_pid = first.get("app_pid")
+    rpc("debug.mouse", click_point("pw"))
+    focused = bool(wait(lambda: state().get("password_input") is True, 5))
+    pid_focused = secure_input_pid()
+    rpc("debug.mouse", click_point("t"))
+    blurred = bool(wait(lambda: state().get("password_input") is False, 5))
+    pid_blurred = secure_input_pid()
+    row = {"focused": focused, "blurred": blurred, "app_pid": app_pid, "secure_pid_focused": pid_focused,
+           "secure_pid_blurred": pid_blurred}
+    system_ok = True
+    if app_pid and pid_focused is not None and pid_blurred is not None:
+        system_ok = pid_focused == app_pid and pid_blurred != app_pid
+    row["pass"] = focused and blurred and system_ok
     return row
 
 

@@ -62,10 +62,15 @@ public final class FrameWriter: Sendable {
     /// A single larger message is still sent whole; bulk and background messages are never gathered.
     public static let batchBytes = 64 << 10
 
+    /// Runs one drain step (the send of one batch) on the drain queue and returns when `step` has run. The owner
+    /// passes its hang-watch scope here (CmuxNextDaemon's `SocketWriter`), so this module needs no tracing.
+    public typealias StepRunner = @Sendable (_ step: () -> Void) -> Void
+
     private let sink: any FrameSink
     private let limit: Int
     private let queue: DispatchQueue
     private let state = Mutex(State())
+    private let runStep: StepRunner?
 
     /// - Parameters:
     ///   - sink: Where the bytes go: ``SocketFrameSink`` for a socket, a recorder in tests.
@@ -73,10 +78,12 @@ public final class FrameWriter: Sendable {
     ///   - qos: The drain queue's class, chosen by the owner from what the connection carries.
     ///   - target: A serial queue the drain runs on (its target), nil for none (p04-input-058).
     ///   - limit: The most bytes that may wait (not counting the step in flight).
+    ///   - runStep: Runs each drain step, once per step (a hang scope); nil runs it bare.
     public init(sink: any FrameSink, label: String, qos: DispatchQoS, target: DispatchQueue? = nil,
-                limit: Int = FrameWriter.defaultLimit) {
+                limit: Int = FrameWriter.defaultLimit, runStep: StepRunner? = nil) {
         self.sink = sink
         self.limit = limit
+        self.runStep = runStep
         queue = DispatchQueue(label: label, qos: qos, target: target)
     }
 
@@ -134,7 +141,7 @@ public final class FrameWriter: Sendable {
     private func drain() {
         // wakeup-allow: bounded: each step sends queued messages and the loop stops when the queues are empty, the writer closed or a send failed
         while let batch = state.withLock({ $0.takeBatch(budget: Self.batchBytes) }) {
-            let failure = send(batch)
+            let failure = sendStep(batch)
             Self.closeDescriptors(batch.fds)
             guard let failure else { continue }
             let dropped = state.withLock { state -> [Int32] in
@@ -145,6 +152,14 @@ public final class FrameWriter: Sendable {
             Self.closeDescriptors(dropped)
             return
         }
+    }
+
+    /// One drain step: the send of `batch`, inside ``runStep`` when the owner gave one.
+    private func sendStep(_ batch: Batch) -> Failure? {
+        guard let runStep else { return send(batch) }
+        var failure: Failure?
+        runStep { failure = send(batch) }
+        return failure
     }
 
     private func send(_ batch: Batch) -> Failure? {

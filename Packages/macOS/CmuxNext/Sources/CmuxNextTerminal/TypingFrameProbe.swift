@@ -19,17 +19,22 @@ import QuartzCore
 /// marks; once installed it stays for the process and its layer class. The override looks the
 /// superclass's IMP up on each call, so a hook installed there later (RenderStats) runs while it is
 /// in and never after it is out.
+///
+/// With renderer-owned frames (`GHOSTTY_RENDERER_FRAMES`, p03-rendering-081) the renderer presents into
+/// its own leaf and no frame passes through `setContents:`, so there is no hook in any build: every
+/// contents mark, the new-terminal trace's too, is the renderer's presented-frame callback
+/// (`presented_cb`, ``ghosttySurfacePresented(_:_:_:_:)``).
 enum TypingFrameProbe {
     /// Whether every terminal layer class gets the hook, and so whether surfaces get echo stages.
     nonisolated static var hooksEveryLayer: Bool {
-        #if DEBUG || CMUX_BENCH_HOOKS
+        #if (DEBUG || CMUX_BENCH_HOOKS) && !GHOSTTY_RENDERER_FRAMES
         return true
         #else
         return false
         #endif
     }
 
-    #if DEBUG || CMUX_BENCH_HOOKS
+    #if (DEBUG || CMUX_BENCH_HOOKS) && !GHOSTTY_RENDERER_FRAMES
     private typealias SetContents = @convention(c) (AnyObject, Selector, AnyObject?) -> Void
 
     /// Each hooked layer class and the gate its hook reads.
@@ -41,12 +46,12 @@ enum TypingFrameProbe {
         init(_ key: TypingLatencyProbe.SurfaceKey) { self.key = key }
     }
 
-    /// The associated-object key of a layer's ``SurfaceBox``: the class object, one stable address
-    /// readable from any thread.
-    @safe private nonisolated static var keyFlowsKey: UnsafeRawPointer {
-        // SAFETY: only an address used as a key, never dereferenced; the class object lives for
-        // the process, so the address is stable.
-        unsafe UnsafeRawPointer(Unmanaged.passUnretained(SurfaceBox.self as AnyObject).toOpaque())
+    /// The associated-object key of a layer's ``SurfaceBox``: the class's identity, one stable
+    /// address readable from any thread (nil only for a 0 identity, which no type has).
+    @safe private nonisolated static var keyFlowsKey: UnsafeRawPointer? {
+        // SAFETY: built from the identity's bits and only compared by the runtime, never
+        // dereferenced; the class's metadata lives for the process, so the address is stable.
+        unsafe UnsafeRawPointer(bitPattern: UInt(bitPattern: ObjectIdentifier(SurfaceBox.self)))
     }
     #endif
 
@@ -55,11 +60,11 @@ enum TypingFrameProbe {
     /// (``GhosttyRuntime/echoStages``). Nothing in Release builds.
     @MainActor static func install(on layer: CALayer, gate: TerminalContentsGate,
                                    keyFlows: TypingLatencyProbe.SurfaceKey? = nil) {
-        #if DEBUG || CMUX_BENCH_HOOKS
-        if let keyFlows {
+        #if (DEBUG || CMUX_BENCH_HOOKS) && !GHOSTTY_RENDERER_FRAMES
+        if let keyFlows, let key = unsafe keyFlowsKey {
             // SAFETY: the key is an address the runtime only compares (`keyFlowsKey`); the runtime
             // retains the box on `layer` (OBJC_ASSOCIATION_RETAIN).
-            unsafe objc_setAssociatedObject(layer, keyFlowsKey, SurfaceBox(keyFlows), .OBJC_ASSOCIATION_RETAIN)
+            unsafe objc_setAssociatedObject(layer, key, SurfaceBox(keyFlows), .OBJC_ASSOCIATION_RETAIN)
         }
         let layerClass: AnyClass = type(of: layer)
         guard layerClass != CALayer.self else { return }
@@ -81,7 +86,7 @@ enum TypingFrameProbe {
         #endif
     }
 
-    #if DEBUG || CMUX_BENCH_HOOKS
+    #if (DEBUG || CMUX_BENCH_HOOKS) && !GHOSTTY_RENDERER_FRAMES
     /// Built outside the main actor so the block carries no isolation check:
     /// a layer whose contents are set off the main thread must not trap.
     private nonisolated static func override(calling superclass: AnyClass, _ selector: Selector,
@@ -97,8 +102,8 @@ enum TypingFrameProbe {
             if gate.isOpen { TerminalEchoStage.attached(to: layer)?.contentsSet() }
             // SAFETY: the key is an address the runtime only compares (`keyFlowsKey`); the value is
             // an object the layer retains, and the cast checks its type.
-            if TypingLatencyProbe.isEnabled,
-               let box = unsafe objc_getAssociatedObject(layer, keyFlowsKey) as? SurfaceBox {
+            if TypingLatencyProbe.isEnabled, let key = unsafe keyFlowsKey,
+               let box = unsafe objc_getAssociatedObject(layer, key) as? SurfaceBox {
                 TypingLatencyProbe.shared.mark(.contents, surface: box.key)
             }
             if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.contents(layer: ObjectIdentifier(layer)) }

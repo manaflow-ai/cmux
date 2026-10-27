@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 
 /// The page's cursor over the page view (task 045 of plans/cmux-next/chrome-parity/p01-process.md).
 /// In host mode the Chromium Host's page window never shows, so Chromium cannot set the cursor:
@@ -52,6 +53,19 @@ extension ChromiumHostPageView {
             }
         }
     }
+
+    /// The page's tooltip (host mode, TOOLTIP of task 054): Chrome's page view shows `SetTooltipText`
+    /// with `-setToolTipAtMousePoint:`, and here cmux's themed tooltip shows it below the pointer, at
+    /// once although the pointer is already over the page (``NSView/setThemedToolTipAtPointer(_:)``);
+    /// nil or "" shows none. In process the page window shows Chromium's own.
+    var pageTooltip: String? {
+        get { themedToolTip }
+        set { setThemedToolTipAtPointer(newValue) }
+    }
+
+    /// The page's tooltip text, nil while none shows (`debug.cef`'s `page_tooltip`,
+    /// chromium-host-bench.py's tooltip row).
+    public var pageTooltipText: String? { pageTooltip }
 
     /// The CSS name of the page's cursor ("custom" for an image), nil while the page view shows none
     /// (`debug.cef`'s `page_cursor`, chromium-host-bench.py's cursor row).

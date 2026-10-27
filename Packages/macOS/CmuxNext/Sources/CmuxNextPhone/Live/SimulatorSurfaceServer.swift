@@ -1,5 +1,7 @@
 public import Foundation
 import IOSurface
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 import os
 
 private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "phone.surface")
@@ -36,7 +38,7 @@ public final class SimulatorSurfaceServer {
     public let secret = UUID().uuidString.replacingOccurrences(of: "-", with: "") + UUID().uuidString.replacingOccurrences(of: "-", with: "")
     private var listener: LoopbackListener?
     private var sessions: [ObjectIdentifier: Session] = [:]
-    private var ready: [CheckedContinuation<UInt16, any Error>] = []
+    private var ready: [OnceContinuation<UInt16, any Error>] = []
     /// Runs once when the source stops (``stop()``, or its listener failed).
     public var onEnd: (@MainActor () -> Void)?
     /// Whether the phone tab this source streams still shows this simulator. Asked on
@@ -59,7 +61,7 @@ public final class SimulatorSurfaceServer {
         } catch {
             throw Failure.listener("\(error)")
         }
-        return try await withCheckedThrowingContinuation { ready.append($0) }
+        return try await withOnceThrowingContinuation { (waiter: OnceContinuation<UInt16, any Error>) in ready.append(waiter) }
     }
 
     /// Whether the source still listens (``stop()`` not called, its listener not failed).
@@ -217,7 +219,9 @@ extension SimulatorSurfaceServer {
                 return startFrames()
             }
             switch type {
-            case "encode": encode(idr: line["idr"]?.bool ?? false, kbps: Int(line["kbps"]?.number ?? 4000))
+            case "encode":
+                guard let kbps = Self.bitrate(line) else { return fail("bad kbps") }
+                encode(idr: line["idr"]?.bool ?? false, kbps: kbps)
             case "visible": setVisible(line["visible"]?.bool ?? true)
             case "touch", "text", "key", "button":
                 guard stillShown() else {
@@ -320,6 +324,13 @@ extension SimulatorSurfaceServer {
         private func key(_ line: [String: SurfaceSourceValue]) {
             guard let usage = line["key"]?.string.flatMap(Self.keyUsage), let down = line["down"]?.bool else { return }
             try? live.keyNow(usage, down: down, udid: udid)
+        }
+
+        /// The kbps of an `encode` line (4000 when it names none). hostd sends a whole number; a fraction or a
+        /// value past `Int` is a bad line (nil, and the session ends), never a rate rounded or clamped into range.
+        static func bitrate(_ line: [String: SurfaceSourceValue]) -> Int? {
+            guard let value = line["kbps"] else { return 4000 }
+            return value.number.flatMap { Int(exactly: $0) }
         }
 
         /// The HID keyboard usages of the keys a phone may press (hostd's list).

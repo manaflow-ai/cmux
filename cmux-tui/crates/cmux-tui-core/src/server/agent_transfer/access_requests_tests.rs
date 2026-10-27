@@ -7,7 +7,7 @@ use std::time::Instant;
 
 use serde_json::{Map, Value, json};
 
-use super::{AccessRequests, Command, Refusal, handle};
+use super::{AccessRequests, Command, Refusal, serve};
 
 fn frame(value: Value) -> Map<String, Value> {
     match value {
@@ -18,7 +18,7 @@ fn frame(value: Value) -> Map<String, Value> {
 
 fn run(requests: &AccessRequests, value: Value) -> Result<Value, &'static str> {
     Command::parse(frame(value))
-        .and_then(|command| handle(requests, command, Instant::now()))
+        .and_then(|command| serve(requests, command, Instant::now()))
         .map_err(Refusal::code)
 }
 

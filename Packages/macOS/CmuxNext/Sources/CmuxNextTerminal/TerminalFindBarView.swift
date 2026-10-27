@@ -41,16 +41,13 @@ final class TerminalFindBarView: NSView {
     init(find: TerminalFindController, mainWork: MainWorkScheduler, node: VisibilityNode?) {
         self.find = find
         causes = mainWork.causes
-        pill = FindPillView(labels: Self.labels, icons: .terminal, accessibilityPrefix: "cmux.terminal.find")
-        super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
+        let pill = FindPillView(labels: Self.labels, icons: .terminal, accessibilityPrefix: "cmux.terminal.find")
+        self.pill = pill
+        super.init(frame: CGRect(origin: .zero, size: pill.fittingSize))
+        // Framed in layout(); the pill's content keeps its own constraints, so it starts at the size they ask for.
+        pill.translatesAutoresizingMaskIntoConstraints = true
+        pill.frame = bounds
         addSubview(pill)
-        NSLayoutConstraint.activate([
-            pill.leadingAnchor.constraint(equalTo: leadingAnchor),
-            pill.trailingAnchor.constraint(equalTo: trailingAnchor),
-            pill.topAnchor.constraint(equalTo: topAnchor),
-            pill.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
         pill.onQueryChange = { [weak self] query in self?.asPerson { $0.find.updateQuery(query) } }
         pill.onCommand = { [weak self] command in self?.asPerson { $0.run(command) } }
         follow(on: mainWork, node: node)
@@ -64,6 +61,22 @@ final class TerminalFindBarView: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// The pill's own size (its field's preferred width, its fixed height); the host frames the bar
+    /// at it, no wider than its room (`TerminalHostView.layoutOverlays`).
+    override var fittingSize: NSSize { pill.fittingSize }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let oldSize = frame.size
+        super.setFrameSize(newSize)
+        if newSize != oldSize { needsLayout = true } // invalidate: a new size (the check above) re-frames the pill
+    }
+
+    /// The pill fills the bar.
+    override func layout() {
+        super.layout()
+        if pill.frame != bounds { pill.frame = bounds }
+    }
 
     /// Clicks pass through to the terminal while the pill is hidden.
     override func hitTest(_ point: NSPoint) -> NSView? {

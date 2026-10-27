@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 
 /// Runs the omnibar state machine: reduces inputs in FIFO order, applies
@@ -28,17 +29,23 @@ import Foundation
     private var queue: [OmnibarInput] = []
     private var isRunning = false
     private var queryTask: Task<Void, Never>?
+    /// Bumped by every query and cancel: a delivery already posted for an older query does nothing.
+    private var queryEpoch: UInt64 = 0
+    /// The app's one main-thread scheduler: a query's rows reach the reducer as posted userBlocking tasks.
+    private let mainWork: MainWorkScheduler
 
     init(
         field: any OmnibarFieldSurface,
         popup: any OmnibarPopupSurface,
         resolver: @escaping () -> OmniboxResolver,
-        suggest: @escaping (OmniboxRequest) -> AsyncStream<OmniboxDelivery>
+        suggest: @escaping (OmniboxRequest) -> AsyncStream<OmniboxDelivery>,
+        mainWork: MainWorkScheduler
     ) {
         state = OmnibarState()
         applier = OmnibarEffectApplier(field: field, popup: popup)
         self.resolver = resolver
         self.suggest = suggest
+        self.mainWork = mainWork
     }
 
     #if DEBUG
@@ -106,19 +113,29 @@ import Foundation
         switch effect {
         case .query(let generation, let text):
             queryTask?.cancel()
+            queryEpoch &+= 1
+            let epoch = queryEpoch
             let deliveries = suggest(OmniboxRequest(text: text, generation: generation, gate: gate))
-            queryTask = Task { [weak self] in
+            let mainWork = mainWork
+            // The stream is read off main; each delivery is the rest of the person's typing, a userBlocking task
+            // that yields to their next key (Chrome posts AutocompleteController's results to the UI thread).
+            queryTask = Task { @concurrent [weak self] in
                 for await delivery in deliveries {
                     guard !Task.isCancelled else { return }
-                    switch delivery {
-                    case .local(let rows): self?.send(.suggestions(generation: generation, rows: rows))
-                    case .more(let rows, let capacity): self?.send(.moreSuggestions(generation: generation, rows: rows, capacity: capacity))
+                    let input: OmnibarInput = switch delivery {
+                    case .local(let rows): .suggestions(generation: generation, rows: rows)
+                    case .more(let rows, let capacity): .moreSuggestions(generation: generation, rows: rows, capacity: capacity)
+                    }
+                    await mainWork.apply(.userBlocking, owner: "browser.omnibar.suggestions") { [weak self] () -> Void in
+                        self?.deliver(input, epoch: epoch)
                     }
                 }
             }
         case .keywordInput(let extensionID, let text, let generation):
             queryTask?.cancel()
+            queryEpoch &+= 1
             let suggest = keywordSuggest
+            // main-hop-allow: keywordSuggest is the tab's main-actor async chrome.omnibox round trip (the extension answers in Chromium's process); this task only starts it and hands the rows to the reducer
             queryTask = Task { [weak self] in
                 let rows = await suggest(extensionID, text)
                 guard !Task.isCancelled else { return }
@@ -128,8 +145,15 @@ import Foundation
         case .cancelQuery:
             queryTask?.cancel()
             queryTask = nil
+            queryEpoch &+= 1
         case .beep, .began, .ended, .deleteSuggestion, .typedNavigation, .typedHTTPSUpgrade, .hostTypoFixed, .copyAnswer, .keywordStarted, .keywordEnded:
             onEffect?(effect)
         }
+    }
+
+    /// A delivery of the query still in flight; one posted before a cancel or a newer query does nothing.
+    private func deliver(_ input: OmnibarInput, epoch: UInt64) {
+        guard epoch == queryEpoch else { return }
+        send(input)
     }
 }

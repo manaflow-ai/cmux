@@ -614,3 +614,58 @@ the push and before the PR (exit 0, no build, off the fleet, no credentials), an
 `--publish-bundle` in another clone (a PR, no build), next to the refusals and the resume on one host. Result
 of the first fleet run: not run. Like the probe (section 9), `cmux-ci run` takes the script only after the
 controller's ci-step allowlist (cmuxterm-hq) lists `scripts/cmux-next/pgo/refresh.sh`.
+
+## 12. Rust PGO for cmux-tui and cmux-app-ffi (task 056)
+
+`scripts/cmux-next/pgo/rust-pgo.sh` gives the app's Rust code Chrome's PGO flow (`docs/pgo.md`,
+`tools/pgo/generate_profile.py`, `build/config/compiler/pgo/pgo.gni`), with no new CI job or step:
+
+1. `generate` builds the daemon (`cmux-tui`, `cmux-tui-host`) and `cmux-app-ffi` with `-Cprofile-generate`,
+   each into its own profile directory. Every build passes an explicit `--target`, so RUSTFLAGS never reach
+   build scripts or proc macros, and the generate and use builds differ only in the profile flag.
+2. `run` drives `rust_pgo_scenarios.py`. The FFI half calls every C ABI the app calls, as the app calls it
+   (`rust_pgo_ffi.py`): the palette ranker and focus rule corpora recorded from the app, the per-frame motion
+   steps, the sidebar document mirror (load, view, drag acceptance, intents and their echo batches: confirmed,
+   stale, gapped then reloaded, rejected), the window focus machine (topology, every event kind, the history
+   reads, a journal checkpoint), the drop, drag, layout and tasks reducer ops, the remote desktop core on
+   loopback (receiver and two-stream session on both carriers, with loss, NACKs, feedback, input acks and a
+   bulk transfer with credit) and the remote tab client vectors. Then `coverage` fails the run unless every C
+   function that the app's Swift sources name and the library exports has counts in the profile: LLVM compiles
+   a function with no counts as cold code, so an unexercised hot path would get slower. The daemon half is a
+   headless daemon serving the app's requests (connect reads, `new-tab`, `send`, `read-screen`, layout reads,
+   `close-terminal`); it ends through `shutdown-daemon`, so it exits through `exit(3)` and writes its profile.
+   `--storm-tag` adds the CLI storm against a tagged app that bundles the instrumented daemon.
+3. `merge` uses `llvm-profdata` from the pinned rustc's `llvm-tools` component, after a check that its LLVM
+   major is rustc's (rustc reads only profiles of its own LLVM). `--pin` writes the pointers.
+4. Pointers name one profile by sha256, LLVM major and target, as `chrome/build/mac-arm.pgo.txt` does:
+   `cmux-tui/crates/cmux-tui/pgo.txt` and `cmux-tui/crates/cmux-app-ffi/pgo.txt`. Each is inside its crate, so a
+   new profile changes the inputs of what is built with it: the cmux-tui tree key, and the app FFI pin
+   (`check-app-ffi-pin.sh`, whose inputs, like the FFI release's push paths, also list `rust-pgo.sh`). The tree
+   key lists `rust-pgo.sh` too. The profile is fetched by sha256 from `ci-cache.cmux.com/pgo/<part>/` into
+   `~/Library/Caches/cmux/pgo/rust/`.
+5. Use, in the builds that ship (Chrome builds its official binaries with the profile on the builders):
+   `build-app-ffi.sh` adds `rust-pgo.sh rustflags cmux-app-ffi --target <slice>` per slice of the app FFI
+   xcframework. The daemon gets `rust-pgo.sh rustflags cmux-tui --target <triple> --strict` in the builds of
+   the published cmux-tui tree and commit artifacts, which Release, Nightly and the Xcode Release phase bundle:
+   `macos-cross.sh all` (the Linux darwin builder) and `cmux-tui-build-package.yml`'s Mac builds, and in
+   `nightly.yml`'s fast build. `--strict` fails such a build when the pinned profile cannot be fetched, so a
+   published binary depends only on its tree. Not covered: `macos-cross.sh bins` (cmuxterm-hq pins its text)
+   and `build-cmux-tui-client.sh` (a development client; it passes no `--target`, so RUSTFLAGS would reach its
+   build scripts). Debug builds never ask.
+
+No pointer: nothing changes, no warning and no rustc run. A pointer for another target (the x86_64 slice) or
+LLVM builds without PGO; a profile whose sha256 differs or that cannot be fetched warns, or fails a `--strict`
+build. `CMUX_RUST_PGO=off` turns it off for one build.
+
+Test phase: `rust-pgo.sh ab` builds the regular daemon of the checkout and one built the same way with the
+merged profile (`DIR/cmux-tui.profdata`, or `--profile`), so it needs no pointer and no clean tree, then runs
+the daemon scenario on both in ABBA order and prints p50 and p95 per request class. The target is -5 % at p50
+and p95 over all requests. Measured on 2026-10-26 on a shared 360-core Linux VM (x86_64, load average about
+100), 15 and 20 rounds of 8 tabs: no gain (all requests p50 +8.1 % and +4.1 %, p95 +1.2 % and +3.0 %). On this
+host the client-side time is mostly the socket and the Python client. Before any pointer is committed, run
+the same A/B on a fleet Mac (aarch64-apple-darwin), where the profile is pinned:
+`generate`, `run`, `merge --pin` (the pointers stay uncommitted) and `ab` in one
+`cmux-ci run --class isolated --script ... --ref SHA` step. Commit the pointers and upload the profiles only
+when that A/B meets the target. As for refresh.sh (section 11), `cmux-ci run` takes the script only after the
+controller's ci-step allowlist (cmuxterm-hq) lists `scripts/cmux-next/pgo/rust-pgo.sh`. Result of the first
+fleet run: not run.

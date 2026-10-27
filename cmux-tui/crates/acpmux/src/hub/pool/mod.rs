@@ -329,7 +329,11 @@ impl Hub {
                 "a remote-origin connection never uses the session pool",
             ));
         }
-        if crate::launch_policy::agent_launch_disabled() {
+        let named_denied = req
+            .harness
+            .as_deref()
+            .is_some_and(|id| !crate::launch_policy::harness_launch_allowed(id));
+        if crate::launch_policy::every_launch_denied() || named_denied {
             return Ok(
                 json!({"accepted": false, "reason": crate::launch_policy::DISABLED_MESSAGE}),
             );
@@ -362,6 +366,10 @@ impl Hub {
             }
             hub.wait_startup().await;
             let spec = hub.pool_spec(harness, preset, cwd).await?;
+            // The default or preset harness, resolved now (cx-9ettq).
+            if !crate::launch_policy::harness_launch_allowed(&spec.draft.harness) {
+                return Err(crate::launch_policy::rpc_error());
+            }
             if trust_gate && let Some(paths) = hub.trust_gate() {
                 let folder = spec.draft.cwd.to_string_lossy().into_owned();
                 let family =

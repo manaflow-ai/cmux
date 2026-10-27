@@ -1,3 +1,6 @@
+import AppKit
+import CmuxNextWakeups
+
 /// The app-wide LRU of hidden pages' and terminals' last frames (`HiddenFrameLRU`, task p03-rendering-099), as a
 /// hosted page uses it. Chrome keeps one such list for every saved frame of the browser process
 /// (`FrameEvictionManager`, components/viz/client/frame_eviction_manager.h): a shown frame is locked, a hidden
@@ -24,17 +27,19 @@ extension CEFLayerHosting {
         setNeedsCommitPass()
     }
 
-    /// The content lifecycle hid or showed the view, or the view changed windows (`CEFHostView`): a hosted
-    /// page's visibility reaches the fork after the commit, once, whatever the turn changed back and forth.
+    /// The content lifecycle hid or showed the view, the view changed windows (`CEFHostView`), or its window
+    /// was occluded or seen again: a hosted page's visibility reaches the fork after the commit, once,
+    /// whatever the turn changed back and forth.
     func visibilityMayHaveChanged() {
+        followWindowOcclusion()
         guard showsInSwitchTransaction else { return }
         // A page shown past its grace puts its snapshot and its layer host back in this transaction.
-        if isViewShown { showHiddenSnapshot() }
+        if pageVisibility == .visible { showHiddenSnapshot() }
         setNeedsCommitPass()
     }
 
     /// The content lifecycle's state for this page: the view's own flag (`CEFTab.setContentVisible`).
-    private var isViewShown: Bool {
+    var isViewShown: Bool {
         guard let view else { return false }
         return view.window != nil && !view.isHidden
     }
@@ -49,11 +54,11 @@ extension CEFLayerHosting {
         let held = switchCommit.takeHeld()
         held?.activate?()
         if showsInSwitchTransaction, let fork, let browser {
-            let shown = isViewShown
-            switchCommit.apply(shown ? .visible : .hidden, browser: browser, fork: fork)
-            // The renderer hears the show now; its next frame takes the snapshot away. Hidden: a page past
-            // its grace that showed and hid again in this turn goes back past its grace.
-            if shown { awaitFrameUnderSnapshot(browser: browser, fork: fork) } else { keepPastGrace(browser: browser, fork: fork) }
+            let visibility = pageVisibility
+            switchCommit.apply(visibility, browser: browser, fork: fork)
+            // The renderer hears the show now; its next frame takes the snapshot away. Hidden or occluded: a
+            // page past its grace that showed and hid again in this turn goes back past its grace.
+            if visibility == .visible { awaitFrameUnderSnapshot(browser: browser, fork: fork) } else { keepPastGrace(browser: browser, fork: fork) }
         }
         syncDeadline()
         held?.place()
@@ -107,6 +112,10 @@ final class CEFSwitchCommit {
     weak var hiddenFrames: (any CEFHiddenFrames)?
     /// What a hidden page does when its grace ends (the layer hosting's snapshot); nil evicts at once.
     var pastGrace: ((_ browser: Int32, _ fork: CEFLayerHosting.Fork) -> Void)?
+
+    /// The page's window's occlusion family subscription, and that window (``CEFLayerHosting/followWindowOcclusion()``).
+    var occlusionWatch: WindowOcclusionSubscription?
+    weak var occlusionWindow: NSWindow?
 
     private var held: HeldShow?
     private var isScheduled = false

@@ -13,7 +13,8 @@
 ///   for 5 minutes at its due time joins its node's wake-up budget: one wake a minute for the whole node, or one
 ///   1 s-aligned wake when the node had none in the last minute (`kIntensiveThrottledWakeUpInterval`,
 ///   `WakeUpBudgetPool::AllowLowerAlignmentIfNoRecentWakeUp`). A node that played media in the last 30 s
-///   (`kRecentAudioDelay`) or is ``VisibilityNode/isCaptured`` is not aligned: it is ``flexible``.
+///   (`kRecentAudioDelay`) is not aligned: it is ``flexible``. A capture vote that does not stay hidden makes the node
+///   visible; a `stayHidden` one renders the node but keeps its timers aligned (its page still reads hidden).
 ///
 /// A deadline a person or a request waits on is ``precise`` or ``flexible``, never ``whenHidden(_:)``.
 public enum TimerAlignment: Sendable {
@@ -53,7 +54,7 @@ public enum TimerAlignment: Sendable {
         case .flexible:
             return .flexible
         case .whenHidden(let node):
-            guard !node.isVisible, !node.mediaActiveWithin(Self.recentMedia), !node.isCaptured else { return .flexible }
+            guard !node.isVisible, !node.mediaActiveWithin(Self.recentMedia) else { return .flexible }
             guard repeating, let since = node.hiddenSince, uptime - since + max(delay, .zero) >= Self.intensiveAfter else {
                 return .hidden
             }

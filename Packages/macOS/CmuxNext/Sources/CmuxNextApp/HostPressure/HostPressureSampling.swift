@@ -1,33 +1,18 @@
-import AppKit
 import CmuxNextCompat
+import CmuxNextWakeups
 
 /// When a window's host pressure indicator samples the host (cmux#22662: a new dev
 /// surface ships off). It samples only while the feature `hostPressure` (resolved at
 /// launch; Debug Settings `hostPressure.enabled` is its local override) is on and its window
-/// can be seen: in a window, not minimized, and not fully occluded (hidden app, another
-/// Space, covered). Everything else (feature off, hidden, minimized, occluded, closed) means no
-/// subscription, so no service, no monitor, no 15 s timer and no reads.
+/// can be seen: the window's node in the visibility tree is visible (in a window, not
+/// minimized, not fully occluded, cmux not hidden, the displays awake). Everything else
+/// (feature off, hidden, minimized, occluded, closed) means no subscription, so no service,
+/// no monitor, no 15 s timer and no reads.
 @MainActor struct HostPressureSampling: Equatable {
     var enabled: Bool
     var windowVisible: Bool
 
     var samples: Bool { enabled && windowVisible }
-
-    /// Whether `window` can be seen right now (the app not hidden either).
-    static func isVisible(_ window: NSWindow?) -> Bool {
-        guard let window, !NSApplication.shared.isHidden else { return false }
-        return window.isVisible && !window.isMiniaturized && window.occlusionState.contains(.visible)
-    }
-
-    /// The window notifications after which `isVisible` may differ (ordering a window out or in
-    /// changes its occlusion state).
-    static let windowChanges: [Notification.Name] = [
-        NSWindow.didChangeOcclusionStateNotification, NSWindow.didMiniaturizeNotification,
-        NSWindow.didDeminiaturizeNotification, NSWindow.willCloseNotification,
-    ]
-
-    /// The app notifications after which `isVisible` may differ (Hide cmux, then show it again).
-    static let appChanges: [Notification.Name] = [NSApplication.didHideNotification, NSApplication.didUnhideNotification]
 }
 
 /// One window's subscription to the app's `HostPressureService`. `cancel()` ends it at once;
@@ -36,10 +21,13 @@ import CmuxNextCompat
 /// window never leaves a subscriber behind that would keep the monitor's timer running.
 nonisolated final class HostPressureSubscription: Sendable {
     let service: HostPressureService
+    /// Where a subscription released without ``cancel()`` posts its unsubscribe.
+    private let mainWork: MainWorkScheduler
     private let live = Mutex(true)
 
     @MainActor init(_ service: HostPressureService) {
         self.service = service
+        mainWork = service.mainWork
         service.subscribe()
     }
 
@@ -58,26 +46,7 @@ nonisolated final class HostPressureSubscription: Sendable {
     deinit {
         guard end() else { return }
         let service = service
-        // task-owner: one hop that ends a subscription released without cancel(); it ends after the call
-        Task { @MainActor in service.unsubscribe() }
+        // One background task (nobody sees the monitor stop) that ends a subscription released without cancel().
+        mainWork.postFromAnyThread(.background, owner: "HostPressureSubscription.release") { service.unsubscribe() }
     }
-}
-
-/// Tasks cancelled together from any thread (a view's nonisolated deinit included).
-nonisolated final class HostPressureTasks: Sendable {
-    private let tasks = Mutex<[Task<Void, Never>]>([])
-
-    func add(_ task: Task<Void, Never>) {
-        tasks.withLock { $0.append(task) }
-    }
-
-    func cancelAll() {
-        let all = tasks.withLock { tasks in
-            defer { tasks = [] }
-            return tasks
-        }
-        all.forEach { $0.cancel() }
-    }
-
-    deinit { cancelAll() }
 }

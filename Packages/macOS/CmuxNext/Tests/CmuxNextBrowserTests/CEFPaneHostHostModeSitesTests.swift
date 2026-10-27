@@ -54,8 +54,8 @@ import Testing
     /// A tab's page is a child window only in process; in host mode it is the pane's page view, in
     /// the view tree (task 028), so App code that reaches page windows leaves host pages alone.
     @Test(arguments: [false, true])
-    func aTabIsAChildWindowPageOnlyInProcess(hostMode: Bool) throws {
-        let (runtime, root) = try Self.runtime(hostMode: hostMode)
+    func aTabIsAChildWindowPageOnlyInProcess(hostMode: Bool) async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: hostMode)
         defer { try? FileManager.default.removeItem(at: root) }
         let (host, tab) = Self.pane(runtime)
         host.ensureCreated(tab)
@@ -375,7 +375,7 @@ import Testing
         let page = try #require(host.hostedPageView)
         #expect(page.pageCursorName == "default", "the arrow until the page sets one")
 
-        runtime.handle(.cursor(browser: Self.firstBrowser, cursor: .builtIn(3)))
+        runtime.handle(.pageView(browser: Self.firstBrowser, .cursor(.builtIn(3))))
         #expect(page.pageCursorName == "text")
 
         let second = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
@@ -383,15 +383,39 @@ import Testing
         runtime.register(second, browser: Self.firstBrowser + 1)
         host.present(second, in: container)
         #expect(page.pageCursorName == "default", "the first tab's cursor is not the second's")
-        runtime.handle(.cursor(browser: Self.firstBrowser + 1, cursor: .builtIn(18)))
+        runtime.handle(.pageView(browser: Self.firstBrowser + 1, .cursor(.builtIn(18))))
         #expect(page.pageCursorName == "col-resize")
-        runtime.handle(.cursor(browser: Self.firstBrowser, cursor: .builtIn(2)))
+        runtime.handle(.pageView(browser: Self.firstBrowser, .cursor(.builtIn(2))))
         #expect(page.pageCursorName == "col-resize", "a hidden tab's cursor does not show")
 
         host.present(first, in: container)
         #expect(page.pageCursorName == "pointer")
         host.present(second, in: container)
         #expect(page.pageCursorName == "col-resize")
+    }
+
+    /// Task 054: the shown tab's TOOLTIP shows on the page view; a hidden tab's does not.
+    @Test func hostModeShowsTheShownTabsTooltip() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, first) = try Self.livePane(runtime)
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        host.present(first, in: container)
+        let page = try #require(host.hostedPageView)
+        #expect(page.pageTooltip == nil)
+        runtime.handle(.pageView(browser: Self.firstBrowser, .tooltip("Close")))
+        #expect(page.pageTooltip == "Close")
+        let second = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        host.add(second)
+        runtime.register(second, browser: Self.firstBrowser + 1)
+        host.present(second, in: container)
+        #expect(page.pageTooltip == nil, "the first tab's tooltip is not the second's")
+        runtime.handle(.pageView(browser: Self.firstBrowser, .tooltip("Hidden")))
+        #expect(page.pageTooltip == nil, "a hidden tab's tooltip does not show")
+        runtime.handle(.pageView(browser: Self.firstBrowser + 1, .tooltip("Shown")))
+        #expect(page.pageTooltip == "Shown")
+        runtime.handle(.pageView(browser: Self.firstBrowser + 1, .tooltip("")))
+        #expect(page.pageTooltip == nil)
     }
 
     // MARK: Fixtures

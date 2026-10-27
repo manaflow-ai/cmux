@@ -43,10 +43,14 @@ pub(crate) type SwitchArms = BTreeMap<&'static str, &'static str>;
 const TERMINAL_HOLDER: &str = "terminal-holder";
 
 /// The arms this daemon runs. The one daemon switch so far is the F6 holder,
-/// which `holder_runtime` reads once from `CMUX_TUI_TERMINAL_HOST_MODEL`;
+/// which `holder_runtime` fixes once from the `terminalHolder` feature;
 /// task 020's `Switches` value from `CMUX_TUI_SWITCHES` replaces this source.
 pub(crate) fn launch_switch_arms() -> SwitchArms {
+    // The terminal holder is unix-only: elsewhere the daemon runs the old arm.
+    #[cfg(unix)]
     let holder = if crate::holder_runtime::enabled() { "new" } else { "old" };
+    #[cfg(not(unix))]
+    let holder = "old";
     BTreeMap::from([(TERMINAL_HOLDER, holder)])
 }
 
@@ -166,6 +170,146 @@ pub(crate) fn child_exits(holders: u64) -> ChildExits {
     BTreeMap::from([(HOLDER, holders)])
 }
 
+/// How invariant I9 treats one top-level section of `session.snapshot`:
+/// the journal restore preview's value is compared with the live one, or
+/// the section is not restored from the journal, for a reason.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(tag = "restore", rename_all = "camelCase")]
+pub(crate) enum RestoreSection {
+    Compared,
+    Excluded { reason: &'static str },
+}
+
+/// The section map of I9 (p15-oracle task 205): every top-level key of
+/// `session.snapshot`, in its order. A new section fails
+/// `the_section_map_covers_every_session_snapshot_key` until it is added
+/// here, compared or excluded with a reason. The compared sections are the
+/// ones `journal_checkpoint::RestoreReducer` reduces (the resource
+/// collections, the session resource and the cursor) and `extra`, which it
+/// keeps at the checkpoint's value: it equals the live one only while no
+/// `state_upsert`/`state_delete` change followed the checkpoint, and
+/// [`RestorePreview::state_changes_not_reduced`] counts the ones that did
+/// (I9 fails on them, as on an unsupported record).
+pub(crate) const RESTORE_SECTIONS: [(&str, RestoreSection); 15] = [
+    (
+        "machine",
+        RestoreSection::Excluded {
+            reason: "the host the daemon runs on, not session state: no journal record \
+                     changes it, so a preview only repeats the checkpoint's value",
+        },
+    ),
+    ("session", RestoreSection::Compared),
+    ("workspaces", RestoreSection::Compared),
+    ("screens", RestoreSection::Compared),
+    ("panes", RestoreSection::Compared),
+    ("tabs", RestoreSection::Compared),
+    ("terminals", RestoreSection::Compared),
+    ("browsers", RestoreSection::Compared),
+    (
+        "clients",
+        RestoreSection::Excluded {
+            reason: "the connections of this daemon process: no journal record carries \
+                     them, and a restored session starts with none",
+        },
+    ),
+    ("notifications", RestoreSection::Compared),
+    ("agents", RestoreSection::Compared),
+    ("frontend_projections", RestoreSection::Compared),
+    ("sidebar_views", RestoreSection::Compared),
+    ("cursor", RestoreSection::Compared),
+    ("extra", RestoreSection::Compared),
+];
+
+/// The `oracle-restore-preview` reply.
+#[derive(Debug, Serialize)]
+pub(crate) struct OracleRestorePreview {
+    /// [`RESTORE_SECTIONS`], by section name.
+    pub(crate) sections: BTreeMap<&'static str, RestoreSection>,
+    /// `None` when the session has no journal checkpoint yet.
+    pub(crate) preview: Option<RestorePreview>,
+}
+
+/// The journal checkpoint reduced through the journal head.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RestorePreview {
+    pub(crate) checkpoint_id: String,
+    pub(crate) checkpoint_sequence: u64,
+    /// The journal head the reduction ended at: I9 compares the preview
+    /// with a daemon facet whose `journalHead` is this sequence.
+    pub(crate) head_sequence: u64,
+    /// Required records the reducer could not apply: a restore loses them.
+    pub(crate) unsupported_count: u64,
+    /// The first of them (`sequence`, `event_id`, `kind`), at most 1,024.
+    pub(crate) unsupported: Vec<Value>,
+    /// `state_upsert`/`state_delete` changes of applied records that the
+    /// reducer does not reduce: `extra` keeps the checkpoint's value, so a
+    /// restore loses them.
+    pub(crate) state_changes_not_reduced: u64,
+    /// The compared sections of the reduced `session.snapshot`.
+    pub(crate) session: BTreeMap<&'static str, Value>,
+}
+
+/// Build the `oracle-restore-preview` reply for the checkpoint `selector`
+/// names (`latest` or a checkpoint id), reduced through `through` (an
+/// `oracle-state` reply's `journal_head`) or the journal head, on the
+/// journal reader path ([`Mux::oracle_restore_preview`]): no registry lock.
+pub(crate) fn oracle_restore_preview(
+    mux: &Mux,
+    selector: &str,
+    through: Option<u64>,
+) -> anyhow::Result<OracleRestorePreview> {
+    let preview =
+        mux.oracle_restore_preview(selector, through)?.map(restore_preview).transpose()?;
+    Ok(OracleRestorePreview { sections: BTreeMap::from(RESTORE_SECTIONS), preview })
+}
+
+/// The reply's preview from the reducer's result
+/// (`journal_checkpoint::RestoreReducer::finish`).
+fn restore_preview(mut reduced: Value) -> anyhow::Result<RestorePreview> {
+    let decimal = |key: &str| -> anyhow::Result<u64> {
+        reduced[key]
+            .as_str()
+            .and_then(|text| text.parse().ok())
+            .ok_or_else(|| anyhow::anyhow!("restore preview {key} is not a decimal string"))
+    };
+    let checkpoint_sequence = decimal("checkpoint_source_sequence")?;
+    let head_sequence = decimal("head_sequence")?;
+    let unsupported_count = decimal("unsupported_required_record_count")?;
+    let state_changes_not_reduced = match &reduced["state"]["journal_replay"] {
+        Value::Object(replay) => match replay.get("state_changes_not_reduced") {
+            None => 0,
+            Some(count) => count.as_str().and_then(|text| text.parse().ok()).ok_or_else(|| {
+                anyhow::anyhow!("restore preview state_changes_not_reduced is not a decimal string")
+            })?,
+        },
+        _ => 0,
+    };
+    let Value::Object(mut snapshot) = reduced["state"]["session_snapshot"].take() else {
+        anyhow::bail!("restore preview state has no session_snapshot object");
+    };
+    let session = RESTORE_SECTIONS
+        .iter()
+        .filter(|(_, section)| *section == RestoreSection::Compared)
+        .filter_map(|(name, _)| snapshot.remove(*name).map(|value| (*name, value)))
+        .collect();
+    let Value::String(checkpoint_id) = reduced["checkpoint_id"].take() else {
+        anyhow::bail!("restore preview checkpoint_id is not a string");
+    };
+    let Value::Array(unsupported) = reduced["unsupported_required_records"].take() else {
+        anyhow::bail!("restore preview unsupported_required_records is not an array");
+    };
+    Ok(RestorePreview {
+        checkpoint_id,
+        checkpoint_sequence,
+        head_sequence,
+        unsupported_count,
+        unsupported,
+        state_changes_not_reduced,
+        session,
+    })
+}
+
 fn count(value: usize) -> u64 {
     u64::try_from(value).unwrap_or(u64::MAX)
 }
@@ -173,3 +317,7 @@ fn count(value: usize) -> u64 {
 #[cfg(test)]
 #[path = "oracle_state_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "oracle_restore_preview_tests.rs"]
+mod restore_preview_tests;

@@ -29,7 +29,7 @@ public struct CookieImporter: Sendable {
         var start = 0
         while start < cookies.count { // wakeup-allow: bounded by the cookie count
             try Task.checkCancellation()
-            let slice = Array(cookies[start..<min(start + batchSize, cookies.count)])
+            let slice = Array(cookies.dropFirst(start).prefix(batchSize))
             let written = try await destination.setCookies(slice, profileID: target)
             report.written += written.written
             report.rejected += written.rejected

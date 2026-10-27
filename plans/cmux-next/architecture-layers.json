@@ -152,6 +152,7 @@
     "CmuxHomeCoreTestSupport": {"layer": "core", "package": "Packages/Shared/CmuxHomeCore", "note": "test helper declared as a regular target"},
     "CmuxFuzzSupport": {"layer": "core", "package": "Packages/Shared/CmuxFuzzSupport", "note": "seeded property-test support; only test targets depend on it"},
     "CmuxSafeConcurrency": {"layer": "core", "package": "Packages/Shared/CmuxSafeConcurrency", "note": "portable Mutex (os_unfair_lock) and the shared concurrency primitives; Foundation-free"},
+    "CmuxSafeConcurrencyAtomics": {"layer": "core", "package": "Packages/Shared/CmuxSafeConcurrency", "note": "static inline C atomics (compiler __atomic builtins) under CmuxSafeConcurrency's lock-free CallbackRegistry on the macOS 14 / iOS 17 floor (p10-stability-081)"},
     "CmuxThreading": {"layer": "core", "package": "Packages/Shared/CmuxThreading", "note": "threading leaf of the Shared/iOS packages: blockingCall seam and hook slot, hooked Mutex, MayBlockRunner (p02-threads-130); Foundation-free"},
 
     "CmuxAppAttest": {"layer": "service", "package": "Packages/Shared/CmuxAppAttest", "note": "DeviceCheck / App Attest calls"},

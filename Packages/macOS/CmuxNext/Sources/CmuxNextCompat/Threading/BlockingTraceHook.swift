@@ -68,8 +68,10 @@ public final class BlockingTraceHook: Sendable {
     @inlinable @inline(__always)
     static var recordingSink: BlockingTraceSink? {
         let address = process.recording.load(ordering: .acquiring)
-        guard address != 0, let pointer = UnsafeRawPointer(bitPattern: UInt(address)) else { return nil }
-        return Unmanaged<BlockingTraceSink>.fromOpaque(pointer).takeUnretainedValue()
+        // SAFETY: a nonzero address is one update(_:recording:) stored: a sink it retained once and never releases,
+        // so the reference is live for the process's life and taking it unretained is balanced.
+        guard address != 0, let pointer = unsafe UnsafeRawPointer(bitPattern: UInt(address)) else { return nil }
+        return unsafe Unmanaged<BlockingTraceSink>.fromOpaque(pointer).takeUnretainedValue()
     }
 
     /// Whether some sink records the process's blocking calls now.
@@ -84,10 +86,12 @@ public final class BlockingTraceHook: Sendable {
     ///   - sink: The sink of a trace runtime.
     ///   - recording: Whether its blocking-call category records now.
     public static func update(_ sink: BlockingTraceSink, recording: Bool) {
+        // SAFETY: the one retain each sink gets (`pinned` flips once), never released, keeps every address this
+        // stores live for recordingSink; the address is stored as an integer and read back only there.
         if !sink.pinned.exchange(true, ordering: .sequentiallyConsistent) {
-            _ = Unmanaged.passRetained(sink)
+            _ = unsafe Unmanaged.passRetained(sink)
         }
-        let address = UInt64(UInt(bitPattern: Unmanaged.passUnretained(sink).toOpaque()))
+        let address = UInt64(UInt(bitPattern: ObjectIdentifier(sink))) // the sink's address, from its identity
         if recording {
             process.recording.store(address, ordering: .sequentiallyConsistent)
         } else {
@@ -119,6 +123,7 @@ extension BlockingKind {
         case .systemQuery: 16
         case .priorityInversion: 17
         case .ffi: 18
+        case .xpcReply: 19
         }
     }
 }

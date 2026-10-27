@@ -78,6 +78,7 @@ public struct IrxListeningPortScanner: Sendable {
 
     #if os(macOS)
     func listeners() -> [Listener] {
+        guard maximumProcesses > 0, maximumDescriptorsPerProcess > 0 else { return [] }
         var pids = [pid_t](repeating: 0, count: maximumProcesses)
         let pidBufferSize = Int32(clamping: pids.count * MemoryLayout<pid_t>.stride)
         // SAFETY: proc_listallpids writes at most pidBufferSize bytes, the array's byte

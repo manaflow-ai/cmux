@@ -683,6 +683,17 @@ connection that only declares `set-client-info` kind `app` is not the verified
 app. Hiding an app needs a verified app until P8 adds the verified-app path:
 agents must not change what the user sees.
 
+### Request priority
+
+Capability `request-priority-v1`. A request may carry `"priority": "user" |
+"automation"`: whom it serves. Like an `origin` claim it only narrows: the
+daemon runs the request at the class its connection's origin gives it
+(user-initiated for the verified app, utility for any other connection) and
+`automation` lowers that to utility; `user` never raises a request above its
+connection's class. A request without `priority` keeps the derived class. Any
+other value makes the envelope malformed. It is a scheduling hint: it grants
+nothing and authorization never reads it.
+
 Completed pure mutations retain the newest 4096 ordinary replay records. A
 running registry may retain at most 127 additional ordinary records between
 batched pruning passes; startup removes that slack. The newest

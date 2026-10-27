@@ -7,6 +7,8 @@
 //! cmux-tui-core re-exports each module at its old path
 //! (`cmux_tui_core::platform`, ...).
 
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
+
 #[cfg(unix)]
 pub mod host_exe;
 mod kinfo_proc;

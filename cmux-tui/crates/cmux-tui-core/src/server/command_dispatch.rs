@@ -66,6 +66,8 @@ pub(super) fn handle_command_with_cancellation(
         }
         Command::ServerStats { include } => cmd_server::server_stats(mux, client, include),
         Command::DebugDaemonLocks => cmd_server::daemon_locks(mux, client),
+        Command::ServerThreads => cmd_server::server_threads(mux, client),
+        Command::ServerBlocking => cmd_server::server_blocking(mux, client),
         Command::TraceStart(params) => {
             cmd_server::trace_control(mux, client, || trace_control::start_call(&params))
         }
@@ -826,7 +828,9 @@ pub(super) fn handle_command_with_cancellation(
         Command::ResizeSurface { surface, cols, rows } => {
             cmd_sizing::resize_surface(mux, client, surface, cols, rows)
         }
-        Command::ResizeAttachedView { surface, lease, view, identity, cols, rows } => {
+        Command::ResizeAttachedView { surface, lease, view, identity, cols, rows, stream } => {
+            let lease =
+                attach_streams::checked_view_lease(mux, client, writer, surface, stream, lease)?;
             cmd_sizing::resize_attached_view(
                 mux, client, surface, lease, view, identity, cols, rows,
             )
@@ -834,11 +838,18 @@ pub(super) fn handle_command_with_cancellation(
         Command::ReleaseSurfaceSize { surface } => {
             cmd_sizing::release_surface_size(mux, client, surface)
         }
-        Command::ReleaseAttachedViewSize { surface, lease, view } => {
+        Command::ReleaseAttachedViewSize { surface, lease, view, stream } => {
+            let lease =
+                attach_streams::checked_view_lease(mux, client, writer, surface, stream, lease)?;
             cmd_sizing::release_attached_view_size(mux, client, surface, lease, view)
         }
-        Command::DetachAttachedView { surface, lease, view } => {
-            cmd_attach::detach_attached_view(mux, client, surface, lease, view)
+        Command::DetachAttachedView { surface, lease, view, stream } => {
+            let lease =
+                attach_streams::checked_view_lease(mux, client, writer, surface, stream, lease)?;
+            cmd_attach::detach_attached_view(mux, client, writer, surface, lease, view)
+        }
+        Command::CancelStream(terminal_io_wire::CancelStreamParams { stream }) => {
+            attach_streams::cancel_stream(mux, client, writer, stream)
         }
         Command::FocusPane { pane } => cmd_panes::focus_pane(mux, actor, pane),
         Command::SelectTab(params) => cmd_tabs::select_tab(mux, actor, params),
@@ -852,7 +863,9 @@ pub(super) fn handle_command_with_cancellation(
             cmd_server::report_focus(mux, client_id, pane, tab)
         }
         Command::ClientFocus { client_id } => cmd_server::client_focus(mux, client_id),
-        Command::SnapshotRequest(params) => cmd_terminal_io::snapshot_request(mux, client, params),
+        Command::SnapshotRequest(params) => {
+            cmd_terminal_io::snapshot_request(mux, client, writer, params)
+        }
         Command::TerminalHistory(params) => cmd_terminals::terminal_history(mux, params),
         Command::TerminalReadRange(params) => cmd_terminals::terminal_read_range(mux, params),
         Command::ScrollSurface(ScrollSurfaceParams { surface, delta }) => {
@@ -870,6 +883,7 @@ pub(super) fn handle_command_with_cancellation(
                 rows,
                 expected_generation,
                 expected_terminal_id,
+                stream,
                 ..
             } = params;
             // A sized attach is a size report: it starts (or renews) the
@@ -888,6 +902,7 @@ pub(super) fn handle_command_with_cancellation(
                 expected_generation,
                 expected_terminal_id,
                 snapshot,
+                stream,
             )
         }
     }

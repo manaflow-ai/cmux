@@ -7,7 +7,9 @@ struct BlockingSiteKey: Equatable {
 
     /// The site of a seam call.
     init(fileID: StaticString, line: UInt) {
-        first = fileID.hasPointerRepresentation ? UInt(bitPattern: fileID.utf8Start) : UInt(fileID.unicodeScalar.value)
+        // SAFETY: only the address of the literal's static storage is kept, as an integer key; it is never
+        // dereferenced.
+        first = unsafe fileID.hasPointerRepresentation ? UInt(bitPattern: fileID.utf8Start) : UInt(fileID.unicodeScalar.value)
         second = line &+ 1  // never 0, so a key is never the empty slot
     }
 

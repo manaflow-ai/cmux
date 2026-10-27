@@ -11,10 +11,10 @@ nonisolated struct ChromiumHostFrame: Equatable, Sendable {
     enum Kind: UInt32, Sendable {
         // cmux -> host
         case navigate = 1, geometry = 2, mouse = 3, wheel = 4, key = 5, focus = 6, ping = 7, stats = 8, quit = 9, edit = 10
-        case ime = 11, textInputWatch = 12
+        case ime = 11, textInputWatch = 12, gesture = 13
         // host -> cmux
         case ready = 101, context = 102, address = 103, title = 104, pong = 105, statsReply = 106, error = 107
-        case rendererGone = 108, textInputState = 109
+        case rendererGone = 108, textInputState = 109, inputPresented = 110
     }
 
     static let headerSize = 64
@@ -114,6 +114,42 @@ nonisolated struct ChromiumHostFrame: Equatable, Sendable {
         let scaled = (delta * wheelDeltaScale).rounded()
         guard !scaled.isNaN else { return 0 }
         return Int32(min(max(scaled, Double(Int32.min)), Double(Int32.max)))
+    }
+
+    /// An input frame's presentation (`kInputPresented` in the header, task p04-input-066): the host reports when the
+    /// frame that shows an input reached the display, by the input's event time, from the fork's presentation
+    /// feedback (`gfx::PresentationFeedback`, ui/gfx/presentation_feedback.h), as viz reports it for the frame that
+    /// carried the input's `EventMetrics` (cc/metrics/compositor_frame_reporter.cc).
+    nonisolated struct InputPresented: Equatable, Sendable {
+        /// The input frame's `t0`: its event time (CLOCK_UPTIME_RAW nanoseconds).
+        var eventNanos: UInt64
+        /// When the frame that shows it reached the display (CLOCK_UPTIME_RAW nanoseconds).
+        var presentedNanos: UInt64
+        /// `gfx::PresentationFeedback::Flags`.
+        var feedbackFlags: UInt32
+    }
+
+    /// `kPresentationFailed`: `gfx::PresentationFeedback::kFailure`, the frame never reached the display.
+    static let presentationFailed: UInt32 = 1 << 1
+    /// `kReadyReportsInputPresented`, in a `ready` frame's `v[2]`: the host sends an `inputPresented` frame for each
+    /// input (its fork has the presentation feedback callback).
+    static let readyReportsInputPresented: Int32 = 1 << 0
+
+    /// A `ready` frame whose host reports each input's presentation; false for another kind.
+    var reportsInputPresented: Bool {
+        kind == .ready && v[2] & Self.readyReportsInputPresented != 0
+    }
+
+    static func inputPresented(_ presented: InputPresented) -> ChromiumHostFrame {
+        var frame = ChromiumHostFrame(.inputPresented, v: [Int32(bitPattern: presented.feedbackFlags)], t0: presented.eventNanos)
+        frame.t1 = presented.presentedNanos
+        return frame
+    }
+
+    /// The fields of an input presented frame; nil for another kind.
+    var inputPresentedFields: InputPresented? {
+        guard kind == .inputPresented else { return nil }
+        return InputPresented(eventNanos: t0, presentedNanos: t1, feedbackFlags: UInt32(bitPattern: v[0]))
     }
 
     /// The header and payload as sent.

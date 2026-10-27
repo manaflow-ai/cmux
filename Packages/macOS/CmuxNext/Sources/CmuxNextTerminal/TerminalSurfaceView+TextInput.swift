@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextInput
 import GhosttyNextKit
 
 // IME and marked text, exactly as upstream Ghostty's SurfaceView
@@ -37,6 +38,14 @@ extension TerminalSurfaceView: NSTextInputClient {
         if keyTextAccumulator == nil {
             syncPreedit()
         }
+    }
+
+    /// Upstream takes only text that comes with an event (a key, a click on a candidate, the emoji
+    /// picker, dictation): a key typed here, or an input method's text once the window's input tap
+    /// dispatched input. A window with no tap takes it.
+    private var textComesWithInput: Bool {
+        guard keyTextAccumulator == nil, let tap = (window as? InputTapHosting)?.inputTap else { return true }
+        return tap.lastDispatched != nil
     }
 
     public func unmarkText() {
@@ -92,9 +101,7 @@ extension TerminalSurfaceView: NSTextInputClient {
     }
 
     public func insertText(_ string: Any, replacementRange: NSRange) {
-        // Upstream: only text that comes with an event (a key, a click on a
-        // candidate, the emoji picker, dictation).
-        guard surface != nil, NSApp.currentEvent != nil else { return }
+        guard surface != nil, textComesWithInput else { return }
         let text: String
         switch string {
         case let attributed as NSAttributedString:

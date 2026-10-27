@@ -5,6 +5,9 @@ import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextTabs
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// `debug.new_tab {action: "frame_strip"}` (DEBUG builds): the window as the window server
 /// composited it, frame after frame, around one key sent through the real key path (`key`, default
@@ -34,8 +37,8 @@ enum DebugFrameStrip {
         }
         // The key goes in once the recorder has frames from before it: the CLI's deadline, automation class.
         let lead = MainDeadline(owner: "debug.frame_strip.lead", workClass: .automation, scheduler: services.mainDeadlines)
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-            lead.schedule(after: .milliseconds(120)) { done.resume() }
+        _ = try? await withOnceContinuation { (done: OnceContinuation<Void, OnceContinuationError>) in
+            lead.schedule(after: .milliseconds(120)) { done.resume(returning: ()) }
         }
         withExtendedLifetime(lead) {}  // a released deadline never fires
         let sent: JSONValue
@@ -60,8 +63,8 @@ enum DebugFrameStrip {
                 // timer-class-allow: a person's key cadence; a classed deadline would wait out each key's input response, which a person's next key never does
                 let gap = DemandTimer(owner: "debug.frame_strip.repeat")
                 for _ in 1..<count {
-                    await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-                        gap.scheduleOnMain(after: .milliseconds(interval)) { done.resume() }
+                    _ = try? await withOnceContinuation { (done: OnceContinuation<Void, OnceContinuationError>) in
+                        gap.scheduleOnMain(after: .milliseconds(interval)) { done.resume(returning: ()) }
                     }
                     _ = DebugKey.send(keyParams, services: services)
                 }

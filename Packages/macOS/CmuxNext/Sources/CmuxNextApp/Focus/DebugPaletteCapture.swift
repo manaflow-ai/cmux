@@ -33,8 +33,9 @@ enum DebugPaletteCapture {
     /// the window server call off the main thread).
     static func capture(_ panel: NSWindow, to path: String, windowImage: (CGWindowID) async -> CGImage?) async -> JSONValue {
         guard let view = panel.contentView else { return .object(["error": .string("the palette is not open")]) }
+        // sync-layout: the capture below reads the panel's laid-out, drawn content.
         view.layoutSubtreeIfNeeded()
-        view.displayIfNeeded()
+        view.displayIfNeeded() // sync-layout: the capture below reads the drawn panel.
         // The composited window (glass included). A process may capture its
         // own windows without a Screen Recording grant.
         if let image = await windowImage(CGWindowID(panel.windowNumber)), image.width > 1 {

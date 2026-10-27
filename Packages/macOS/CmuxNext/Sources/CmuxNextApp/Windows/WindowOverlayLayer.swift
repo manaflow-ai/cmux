@@ -187,7 +187,7 @@ final class WindowOverlayLayer {
     /// applies the deferred page update once the pass ends.
     func planeDidLayout(_ plane: OverlayPlane) {
         guard layoutDepth == 0 else { return }
-        // A layout outside the window's pass (`layoutSubtreeIfNeeded`).
+        // A layout outside the window's pass (a forced subtree layout).
         windowDidLayoutWork()
     }
 

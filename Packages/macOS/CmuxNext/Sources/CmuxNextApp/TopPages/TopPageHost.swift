@@ -1,5 +1,6 @@
 import AppKit
 import CmuxHomeCore
+import CmuxNextCompat
 import CmuxNextFeatures
 import CmuxNextHibernation
 import CmuxNextHomeEngine
@@ -26,6 +27,10 @@ import CmuxNextWakeups
 /// kind `topPage`), so input the record does not keep holds a page at any pressure (the lead rule's
 /// form input). Events only: content swaps, a page leaving the window, and one deadline per window
 /// for its next page to come due.
+///
+/// The memory coordinator hands each window's host the Memory Saver mode, which scales a page's
+/// timeout (off: no timed release), and the pressure level: at critical a hidden page goes whatever
+/// the mode (``dueAfter(_:)``).
 @MainActor
 final class TopPageHost {
     private(set) var views: [TopPageRoute: NSView] = [:]
@@ -59,6 +64,11 @@ final class TopPageHost {
     var now: () -> ContinuousClock.Instant = { .now }
     /// Pages released so far (tests, diagnostics).
     private(set) var releasedCount = 0
+    /// The `memory.saver` mode that scales each page's timeout (the memory coordinator hands it over).
+    private(set) var saverMode: MemorySaverMode = .medium
+    /// The coordinator's pressure level: at critical, hidden pages go whatever the mode (``dueAfter(_:)``).
+    private(set) var pressure: MemoryPressureLevel = .normal
+    private var memoryRegistration: MemoryConsumerRegistration?
     /// A page hidden less than this never goes for the budget: the person just left it, and a
     /// switch back to it must find it live, not rebuild it in the switch's turn (as
     /// `AgentPageHibernation.minimumHidden` keeps an agent page the person just left).
@@ -67,7 +77,8 @@ final class TopPageHost {
     init(make: @escaping (TopPageRoute, WindowController?) -> (view: NSView, key: String?)?,
          closed: @escaping (TopPageRoute, String) -> Void,
          discardable: @escaping (TopPageRoute, NSView) -> (any PageDiscardable)?, title: @escaping (TopPageRoute) -> String,
-         discards: Bool, hiddenLimit: Int, hosts: @escaping () -> [TopPageHost], deadline: any PageDiscardDeadline) {
+         discards: Bool, hiddenLimit: Int, hosts: @escaping () -> [TopPageHost], deadline: any PageDiscardDeadline,
+         memory: (any MemoryConsumerRegistry)? = nil) {
         self.make = make
         self.closed = closed
         self.discardable = discardable
@@ -76,6 +87,10 @@ final class TopPageHost {
         self.hiddenLimit = hiddenLimit
         self.hosts = hosts
         self.deadline = deadline
+        guard discards else { return }
+        memoryRegistration = memory.map {
+            MemoryConsumerRegistration(name: "top-page-discards", traits: ContentDiscardScheduler.memoryTraits, consumer: self, registry: $0)
+        }
     }
 
     /// The app's top pages: classic Home, and an internal page's provider view in an
@@ -99,7 +114,8 @@ final class TopPageHost {
                   discards: services.features.isEnabled(.topPageDiscard),
                   hiddenLimit: SubsystemBudget.forThisMac(gpuResidentAvailable: false).liveHiddenInternalPages,
                   hosts: { [weak services] in services?.windows.controllers.map { $0.topPages } ?? [] },
-                  deadline: MainDeadline(owner: "TopPageHost.discard", workClass: .background, scheduler: services.mainDeadlines))
+                  deadline: MainDeadline(owner: "TopPageHost.discard", workClass: .background, scheduler: services.mainDeadlines),
+                  memory: services.memoryCoordinator)
     }
 
     private static func makePage(_ route: TopPageRoute, in window: WindowController?,
@@ -197,14 +213,16 @@ final class TopPageHost {
         guard discards else { return }
         let budgetWait = Self.releaseOverLimit(hosts(), limit: hiddenLimit)
         let at = now()
+        let reason: DiscardReason = pressure == .critical ? .urgent : .proactive
         var next = budgetWait
         for (route, since) in hiddenSince {
-            guard let view = views[route], case .afterHidden(let timeout) = policy(route, view) else { continue }
+            guard let view = views[route], case .afterHidden(let pageTimeout) = policy(route, view),
+                  let timeout = dueAfter(pageTimeout) else { continue }
             let remaining = timeout - (at - since)
             let wait: Duration
             if remaining > .zero {
                 wait = remaining
-            } else if view.window != nil || release(route, for: .proactive) {
+            } else if view.window != nil || release(route, for: reason) {
                 // Released, or still on screen (a paint hold keeps it): it leaving is the event
                 // that plans again (``contentDidLeaveWindow()``).
                 continue
@@ -276,6 +294,15 @@ final class TopPageHost {
         restoring.removeAll()
     }
 
+    /// How long a page whose policy says `timeout` waits hidden now. At critical pressure, whatever
+    /// the mode: the sooner of `timeout` and ``budgetMinimumHidden``, as Chrome's urgent discarding
+    /// takes hidden tabs before their proactive time (urgent_page_discarding_policy.cc). Else
+    /// `timeout` in the Memory Saver mode; nil when the mode discards nothing proactively (off).
+    private func dueAfter(_ timeout: Duration) -> Duration? {
+        if pressure == .critical { return min(timeout, Self.budgetMinimumHidden) }
+        return saverMode.proactiveTimeout(timeout)
+    }
+
     /// The owner's policy; a page with no owner never goes.
     private func policy(_ route: TopPageRoute, _ view: NSView) -> PageDiscardPolicy {
         discardable(route, view)?.pageDiscardPolicy ?? .never
@@ -289,4 +316,34 @@ final class TopPageHost {
         // The key goes first, so the provider no longer counts this page as open (`pageIsOpen`).
         if let key = keys.removeValue(forKey: route) { closed(route, key) }
     }
+}
+
+// The Memory Saver mode scales each page's timeout (Chrome's memory_saver_mode_policy.cc) and the
+// level picks the proactive or the urgent pass: a change of either plans again after this turn, and
+// the critical limit's release slice runs one pass. Lossy and holding no cap of its own, like the
+// content discard schedulers.
+extension TopPageHost: MemoryLevelConsumer, MemorySaverModeConsumer {
+    func memorySaverModeDidChange(_ mode: MemorySaverMode) {
+        guard mode != saverMode else { return }
+        saverMode = mode
+        guard discards else { return }
+        deadline.arm(after: .zero) { [weak self] in self?.plan() }
+    }
+
+    func memoryLevelDidChange(_ level: MemoryPressureLevel) {
+        guard level != pressure else { return }
+        pressure = level
+        guard discards else { return }
+        deadline.arm(after: .zero) { [weak self] in self?.plan() }
+    }
+
+    func updateMemoryLimit(_ limit: MemoryLimit) {}
+
+    func releaseMemory(within slice: MemoryReleaseSlice) -> MemoryReleaseProgress {
+        if slice.limit.isCritical { plan() }
+        return .done
+    }
+
+    /// Unknown: a page's views are not sampled on their own.
+    var memoryUsage: MemoryUsage? { nil }
 }

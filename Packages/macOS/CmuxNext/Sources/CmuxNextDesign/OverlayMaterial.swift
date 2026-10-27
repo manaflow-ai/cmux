@@ -67,6 +67,8 @@ public final class ReduceTransparency {
     private let surfaces = NSHashTable<OverlaySurfaceView>.weakObjects()
     private let cards = NSHashTable<CardSurfaceView>.weakObjects()
     private var observer: AppearanceSignals.Subscription?
+    /// The state the registered cards draw; nil before the first card registers.
+    private var cardsOpaque: Bool?
 
     /// `system` reads the setting; `changes` raises ``AppearanceSignals/Signal/displayOptions``
     /// when it may have changed (nil: it never changes but through ``override``).
@@ -84,6 +86,7 @@ public final class ReduceTransparency {
     /// Makes a sidebar card's surface follow this state until it is deallocated.
     func register(_ card: CardSurfaceView) {
         cards.add(card)
+        if cardsOpaque == nil { cardsOpaque = isEnabled }
         observeChanges()
     }
 
@@ -96,7 +99,11 @@ public final class ReduceTransparency {
 
     private func refreshSurfaces() {
         for surface in surfaces.allObjects { surface.refreshMaterial() }
-        for card in cards.allObjects { card.needsDisplay = true }
+        // A display-options signal says the state may have changed: the cards repaint only when it did.
+        let opaque = isEnabled
+        guard cardsOpaque != nil, opaque != cardsOpaque else { return }
+        cardsOpaque = opaque
+        for card in cards.allObjects { card.needsDisplay = true } // invalidate: the state changed (the guard above).
     }
 }
 

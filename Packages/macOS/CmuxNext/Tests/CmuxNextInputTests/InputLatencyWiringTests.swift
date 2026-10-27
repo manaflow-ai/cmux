@@ -234,6 +234,7 @@ struct InputLatencyWiringTests {
     @Test("A frame update is what the dispatch left for the commit, never the target alone; a key closes either way")
     func frameUpdates() throws {
         let unchanged = InputLatencyTrackerTests.Harness()
+        unchanged.tracker.pagesReportPresentation = true  // the page waits for its own frame, as the terminal does
         let still = wiring(unchanged)
         let window = window(content: NSView())
         send(still, .keyDown, window: window, keyWindow: window)

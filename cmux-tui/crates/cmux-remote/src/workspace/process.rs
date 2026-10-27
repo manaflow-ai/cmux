@@ -1059,7 +1059,7 @@ impl ProcessManager {
         let cwd_directory = {
             let unix_root = root.unix_root();
             let canonical = cwd.clone();
-            tokio::task::spawn_blocking(move || {
+            cmux_blocking::spawn_blocking(move || {
                 unix_root.pinned_directory_for_canonical_path(&canonical)
             })
             .await
@@ -1079,7 +1079,7 @@ impl ProcessManager {
         #[cfg(unix)]
         {
             let verifier = cwd_directory.try_clone()?;
-            tokio::task::spawn_blocking(move || verifier.verify_identity("process cwd"))
+            cmux_blocking::spawn_blocking(move || verifier.verify_identity("process cwd"))
                 .await
                 .map_err(|error| {
                 RpcError::new("internal", format!("process cwd verification task failed: {error}"))
@@ -1479,9 +1479,12 @@ impl ProcessManager {
         #[cfg(not(unix))]
         {
             let reader_events = events.clone();
-            let reader_thread = std::thread::Builder::new()
-                .name(format!("cmux-remote-pty-{id}"))
-                .spawn(move || {
+            // Terminal output the person waits for: UserInitiated, not the
+            // closed user-interactive list (threading-model.md).
+            let reader_thread = cmux_threads::spawn(
+                format!("cmux-remote-pty-{id}"),
+                cmux_threads::ThreadQos::UserInitiated,
+                move || {
                     let mut buffer = vec![0u8; PROCESS_READ_CHUNK];
                     loop {
                         match reader.read(&mut buffer) {
@@ -1489,13 +1492,15 @@ impl ProcessManager {
                             Ok(read) => reader_events.publish_output(id, false, &buffer[..read]),
                         }
                     }
-                })
-                .map_err(|error| RpcError::new("pty-open-failed", error.to_string()))?;
+                },
+            )
+            .map_err(|error| RpcError::new("pty-open-failed", error.to_string()))?;
             let (status_tx, status_rx) = oneshot::channel();
             let thread_record = record.clone();
-            std::thread::Builder::new()
-                .name(format!("cmux-remote-pty-wait-{id}"))
-                .spawn(move || {
+            cmux_threads::spawn(
+                format!("cmux-remote-pty-wait-{id}"),
+                cmux_threads::ThreadQos::Utility,
+                move || {
                     let _pty_slot = pty_slot;
                     let mut child = pending_child.take();
                     let status = child.wait();
@@ -1508,8 +1513,9 @@ impl ProcessManager {
                     close_record_master(&thread_record);
                     events.publish_exit(id, outcome);
                     let _ = status_tx.send(outcome);
-                })
-                .map_err(|error| RpcError::new("pty-open-failed", error.to_string()))?;
+                },
+            )
+            .map_err(|error| RpcError::new("pty-open-failed", error.to_string()))?;
             self.processes.write().await.insert_active(id, record.clone());
             let waiter_record = record.clone();
             let processes = self.processes.clone();
@@ -1632,7 +1638,7 @@ impl ProcessManager {
             #[cfg(not(unix))]
             {
                 let mut writer = writer;
-                let mut write = tokio::task::spawn_blocking(move || {
+                let mut write = cmux_blocking::spawn_blocking(move || {
                     let result = writer.write_all(&bytes).and_then(|()| {
                         if send_control_d {
                             writer.write_all(&[4])?;
@@ -2029,7 +2035,9 @@ async fn wait_for_process_completions(
 ) -> bool {
     tokio::time::timeout(
         timeout,
-        futures_util::future::join_all(completions.iter().map(|completion| completion.wait())),
+        futures_util::future::join_all(
+            completions.iter().map(Arc::as_ref).map(ProcessCompletion::wait),
+        ),
     )
     .await
     .is_ok()

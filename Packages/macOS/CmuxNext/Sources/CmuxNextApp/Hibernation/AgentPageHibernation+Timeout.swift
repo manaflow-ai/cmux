@@ -49,7 +49,7 @@ extension AgentPageHibernation {
         if let again = releaseOverLimit(live, at: current) { next = min(next ?? again, again) }
         deadlineDelay = next
         if let next {
-            deadline.scheduleOnMain(after: .milliseconds(Int64(next * 1000) + 50)) { [weak self] in self?.replan() }
+            deadline.schedule(after: .milliseconds(Int64(next * 1000) + 50)) { [weak self] in self?.replan() }
         } else {
             deadline.cancel()
         }
@@ -108,6 +108,7 @@ extension AgentPageHibernation {
     }
 
     private static func isOnScreen(_ view: AgentPaneView) -> Bool {
+        // visibility-walk-allow: the last check before a page is let go must see what still draws; a pane parks a hidden page in its window (isHidden), so the view tree says it, as a hit test reads it
         view.window != nil && !view.isHiddenOrHasHiddenAncestor
     }
 

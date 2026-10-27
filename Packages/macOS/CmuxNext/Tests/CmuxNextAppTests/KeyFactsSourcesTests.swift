@@ -166,7 +166,7 @@ struct KeyFactsSourcesTests {
         let editor = CodeEditorKeysTests.page(KeyRouter.codeEditorPageID)
         editor.frame = NSRect(x: 0, y: 0, width: 200, height: 200)
         try #require(harness.shell.contentView).addSubview(editor)
-        try #require(harness.shell.makeFirstResponder(editor.webKitView))
+        try #require(harness.shell.makeFirstResponder(editor.webView))
         try #require(harness.facts().pageID == KeyRouter.codeEditorPageID, "the facts did not find the editor holding the keys")
         #expect(!harness.facts().pageKeySequencePending)
         let builds = harness.builds
@@ -189,7 +189,7 @@ struct KeyFactsSourcesTests {
         harness.controller.state.page = route
         try #require(harness.controller.showTopPage(route), "the test page did not show as a top page")
         try #require(harness.controller.shownTopPage == route)
-        try #require(harness.shell.makeFirstResponder(page.webKitView))
+        try #require(harness.shell.makeFirstResponder(page.webView))
         return page
     }
 

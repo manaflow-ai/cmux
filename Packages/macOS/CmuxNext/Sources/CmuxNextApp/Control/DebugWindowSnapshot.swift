@@ -221,6 +221,7 @@ enum DebugWindowSnapshot {
                 webView.layer?.isHidden = layerHidden
             }
         }
+        // sync-layout: the snapshot below reads the window drawn with its web views hidden, in this turn.
         window.contentView?.displayIfNeeded()
         return try appKitBaseImage(for: window)
     }
@@ -254,7 +255,7 @@ enum DebugWindowSnapshot {
     static func window(_ params: [String: JSONValue], services: AppServices) -> NSWindow? {
         let windows = NSApp.windows
         if let id = params["window"]?.stringValue ?? params["window"]?.intValue.map(String.init) {
-            if let main = services.windows.controller(for: id)?.window { return main }
+            if let main = services.windows.controllerBuildingIfWaiting(for: id)?.window { return main }
             return windows.first { String($0.windowNumber) == id }
         }
         if let kind = params["kind"]?.stringValue {

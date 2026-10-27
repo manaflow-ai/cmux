@@ -66,6 +66,14 @@ nonisolated struct ChromiumHostTextInput: Sendable {
         var editCommands: [String] = []
     }
 
+    /// The longest composition sent, 4 KiB of UTF-16: with a clause per unit
+    /// its kIme frame stays under ``ChromiumHostFrame/maxPayload``, so the
+    /// host never refuses it. A longer marked text keeps its first units.
+    static let maxCompositionUnits = 2048
+    /// The longest text one commit op carries (its payload is the text alone);
+    /// a longer insert goes as consecutive commits, the first with the replacement.
+    static let maxCommitUnits = ChromiumHostFrame.maxPayload / 2
+
     private(set) var state = ChromiumHostTextInputState()
     /// The input method's marked text (UTF-16).
     private(set) var markedText: [UInt16] = []
@@ -136,7 +144,7 @@ nonisolated struct ChromiumHostTextInput: Sendable {
         let delayed = taken && turn.hasEditCommands && !marked
         var committed = false
         if turn.inserted.count > (composing ? 0 : 1) {
-            outputs.append(.op(.commitText(String(decoding: turn.inserted, as: UTF16.self), replacement: nil)))
+            outputs += Self.commits(turn.inserted, replacement: nil)
             committed = true
         }
         if marked {
@@ -176,6 +184,36 @@ nonisolated struct ChromiumHostTextInput: Sendable {
         return 0
     }
 
+    /// The character a key frame carries for `characters`: its one UTF-16
+    /// unit, or 0. A character of more units (outside the BMP) never goes as
+    /// half of a surrogate pair: the input method's insert commits it whole,
+    /// as Chrome inserts non-BMP characters as text
+    /// (`-[RenderWidgetHostViewCocoa keyEvent:wasKeyEquivalent:]`).
+    static func keyCharacter(_ characters: String?) -> UInt16 {
+        guard let units = characters?.utf16, units.count == 1, let unit = units.first,
+              !UTF16.isLeadSurrogate(unit), !UTF16.isTrailSurrogate(unit) else { return 0 }
+        return unit
+    }
+
+    /// `units` as commit ops of at most ``maxCommitUnits`` each, never
+    /// splitting a surrogate pair; only the first replaces `replacement`.
+    private static func commits(_ units: [UInt16], replacement: Range<Int>?) -> [Output] {
+        let ends = Array(sequence(first: boundary(units, at: min(maxCommitUnits, units.count))) { end in
+            end < units.count ? boundary(units, at: min(end + maxCommitUnits, units.count)) : nil
+        })
+        return zip([0] + ends.dropLast(), ends).map { (start: Int, end: Int) -> Output in
+            .op(.commitText(String(decoding: units[start..<end], as: UTF16.self),
+                            replacement: start == 0 ? replacement : nil))
+        }
+    }
+
+    /// `index`, moved back one unit when it falls inside a surrogate pair.
+    private static func boundary(_ units: [UInt16], at index: Int) -> Int {
+        guard index > 0, index < units.count, UTF16.isTrailSurrogate(units[index]),
+              UTF16.isLeadSurrogate(units[index - 1]) else { return index }
+        return index - 1
+    }
+
     private static func marking(_ key: ChromiumHostFrame, _ mark: KeyMark, ch: UInt16) -> ChromiumHostFrame {
         var frame = key
         frame.v[3] = mark.rawValue
@@ -187,17 +225,32 @@ nonisolated struct ChromiumHostTextInput: Sendable {
 
     /// `setMarkedText`: inside a key turn the key's end sends it; outside one
     /// (a click in the candidate window, a layout switch) it goes now.
+    /// Marked text over ``maxCompositionUnits`` keeps its first units here and
+    /// on the host alike, so ``markedRange`` and the page's composition agree.
     mutating func setMarkedText(_ text: String, clauses: [ChromiumHostCompositionClause], selection: Range<Int>,
                                 replacement: Range<Int>?) -> [Output] {
-        markedText = Array(text.utf16)
-        markedSelection = selection
-        self.clauses = clauses
+        var units = Array(text.utf16)
+        if units.count > Self.maxCompositionUnits {
+            units.removeSubrange(Self.boundary(units, at: Self.maxCompositionUnits)...)
+        }
+        let length = units.count
+        func clamped(_ range: Range<Int>) -> Range<Int> {
+            min(max(range.lowerBound, 0), length)..<min(max(range.upperBound, 0), length)
+        }
+        markedText = units
+        markedSelection = clamped(selection)
+        self.clauses = clauses.compactMap { clause in
+            var kept = clause
+            kept.range = clamped(clause.range)
+            return kept.range.isEmpty ? nil : kept
+        }
         if turn != nil {
             turn?.replacement = replacement
             return []
         }
-        compositionInFlight = !text.isEmpty
-        return [.op(.setComposition(text: text, clauses: clauses, selection: selection, replacement: replacement))]
+        compositionInFlight = !units.isEmpty
+        return [.op(.setComposition(text: String(decoding: units, as: UTF16.self), clauses: self.clauses,
+                                    selection: markedSelection, replacement: replacement))]
     }
 
     /// `insertText`: typed text waits for the key's end; text with a
@@ -209,7 +262,7 @@ nonisolated struct ChromiumHostTextInput: Sendable {
             turn?.inserted += Array(text.utf16)
             return []
         }
-        return [.op(.commitText(text, replacement: replacement))]
+        return Self.commits(Array(text.utf16), replacement: replacement)
     }
 
     /// `unmarkText`: keeps the composition's text and ends it.

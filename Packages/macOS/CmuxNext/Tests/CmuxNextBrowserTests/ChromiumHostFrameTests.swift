@@ -125,7 +125,8 @@ import Testing
         }
         #expect(decoded.map(\.phase) == [Self.changed, 0])
         #expect(decoded.map(\.momentumPhase) == [0, Self.began])
-        #expect(decoded.allSatisfy(\.precise))
+        let allPrecise = decoded.allSatisfy(\.precise)
+        #expect(allPrecise)
         #expect(decoded.map(\.deltaY) == [12.34, -25.5])
         #expect(decoded[0].deltaX == -1.5)
         #expect(decoded.map(\.modifierFlags) == [Self.shift, 0])
@@ -169,6 +170,33 @@ import Testing
         #expect(try #require(notPrecise.wheelFields).precise == false)
         #expect(frame(1, precise: true).flags == ChromiumHostFrame.wheelPrecise)
         #expect(ChromiumHostFrame(.key).wheelFields == nil)
+    }
+
+    /// The host's report that an input's frame was presented (task p04-input-066), the same bytes as
+    /// chromium_host_wire_test.cpp's kInputPresentedGolden: event time 0x1122334455, presented at 0x1122a0b0c0, vsync.
+    static let inputPresentedGolden = hexBytes("6e00000000000000010000000000000000000000000000000000000000000000"
+                                               + "00000000000000005544332211000000c0b0a022110000000000000000000000")
+
+    @Test func encodesAndDecodesTheGoldenInputPresentedFrame() throws {
+        let presented = ChromiumHostFrame.InputPresented(eventNanos: 0x11_2233_4455, presentedNanos: 0x11_22a0_b0c0,
+                                                         feedbackFlags: 1)
+        #expect(ChromiumHostFrame.inputPresented(presented).encoded() == Self.inputPresentedGolden)
+        guard case .frame(let frame, let consumed) = ChromiumHostFrame.decode(Self.inputPresentedGolden[...]) else {
+            Issue.record("the golden input presented frame does not decode")
+            return
+        }
+        #expect(consumed == ChromiumHostFrame.headerSize)
+        #expect(frame.kind == .inputPresented)
+        #expect(frame.inputPresentedFields == presented)
+        #expect(ChromiumHostFrame(.key).inputPresentedFields == nil)
+    }
+
+    /// A host announces in its `ready` (`v[2]` bit 0, `kReadyReportsInputPresented`) that it reports each input's
+    /// presentation; an older host's `ready` has 0 there.
+    @Test func readyAnnouncesInputPresentedReports() {
+        #expect(ChromiumHostFrame(.ready, v: [27, 42, 1]).reportsInputPresented)
+        #expect(!ChromiumHostFrame(.ready, v: [27, 42]).reportsInputPresented)
+        #expect(!ChromiumHostFrame(.context, v: [0, 0, 1]).reportsInputPresented)
     }
 }
 #endif

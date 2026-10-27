@@ -4,6 +4,9 @@ internal import CoreFoundation
 internal import Darwin
 internal import Dispatch
 internal import Foundation
+internal import class CmuxSafeConcurrency.OnceContinuation
+internal import enum CmuxSafeConcurrency.OnceContinuationError
+internal import func CmuxSafeConcurrency.withOnceContinuation
 #if DEBUG
 internal import os
 #endif
@@ -66,6 +69,9 @@ final class BlockingViolationTable: Sendable {
     private let mainCounters = BlockingSiteCounters(capacity: BlockingViolationTable.siteLimit)
     private let ring: BlockingPendingRing
     private let mainOverflow = UnsafeAtomic<Int>.create(0)
+    /// How many ``resetCounts()`` finished: stored after the zeroing, so a reader that loads it first sees the
+    /// zeroed counters whenever it sees the new value.
+    private let resets = UnsafeAtomic<Int>.create(0)
     private let pool = BlockingOffMainSites(siteLimit: BlockingViolationTable.siteLimit,
                                             pendingLimit: BlockingViolationTable.pendingLimit)
     /// The ``BlockingKind/wrongLane`` sites: seams in items of BackgroundWork's `.cpu` lane.
@@ -80,6 +86,7 @@ final class BlockingViolationTable: Sendable {
     // Drain queue writes, any thread reads.
     private let published = Mutex<[PublishedSite]>([])
     private let sink = Mutex<(any BlockingViolationSink)?>(nil)
+    nonisolated(unsafe) private var drainWatch: BlockingDrainWatch? // crash-allow: drain queue only (watchDrain sets it in a block on drainQueue; every drain-queue job reads it there)
     #if DEBUG
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "blocking")
     #endif
@@ -122,7 +129,10 @@ final class BlockingViolationTable: Sendable {
         self.uptimeNanos = uptimeNanos
         ring = BlockingPendingRing(capacity: Self.pendingLimit)
         wake = DispatchSource.makeUserDataAddSource(queue: drainQueue)
-        wake.setEventHandler { [weak self] in self?.drain() }
+        wake.setEventHandler { [weak self] in
+            guard let self else { return }
+            watched { drain() }
+        }
         if startsDrain { wake.activate() }
     }
 
@@ -130,6 +140,7 @@ final class BlockingViolationTable: Sendable {
         wake.cancel()
         wake.activate()  // a source that never ran must be activated to be released
         mainOverflow.destroy()
+        resets.destroy()
     }
 
     /// Lets a table made with `startsDrain: false` drain.
@@ -344,6 +355,13 @@ final class BlockingViolationTable: Sendable {
 
     // MARK: the drain (drain queue)
 
+    /// Runs one drain-queue job inside the composition root's hang-watch scope, when it set one
+    /// (``watchDrain(_:)``): one scope per job.
+    private func watched(_ job: () -> Void) {
+        guard let drainWatch else { return job() }
+        drainWatch(job)
+    }
+
     private func drain() {
         var resolver = BlockingFrameResolver()
         drain(ring, context: .main, &resolver)
@@ -393,10 +411,10 @@ final class BlockingViolationTable: Sendable {
 
     /// Waits until the drain has handled every site recorded before the call (tests).
     func flush() async {
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+        _ = try? await withOnceContinuation { (done: OnceContinuation<Void, OnceContinuationError>) in
             drainQueue.async { [self] in
-                drain()
-                done.resume()
+                watched { drain() }
+                done.resume(returning: ())
             }
         }
     }
@@ -410,8 +428,15 @@ final class BlockingViolationTable: Sendable {
         drainQueue.async { [self] in
             self.sink.withLock { $0 = sink }
             guard let sink else { return }
-            for site in published.withLock({ $0 }) { sink.record(site.violation) }
+            watched {
+                for site in published.withLock({ $0 }) { sink.record(site.violation) }
+            }
         }
+    }
+
+    /// Sets, on the drain queue, what runs each later drain-queue job (``BlockingDetector/watchDrain(_:)``).
+    func watchDrain(_ watch: BlockingDrainWatch?) {
+        drainQueue.async { [self] in drainWatch = watch }
     }
 
     /// Every published site of every context, in the order each first reached the drain.
@@ -442,11 +467,15 @@ final class BlockingViolationTable: Sendable {
         }
     }
 
+    /// How many ``resetCounts()`` finished (load it before the sites it is read with).
+    var resetCount: Int { resets.load(ordering: .acquiring) }
+
     func resetCounts() {
         mainCounters.reset()
         pool.counters.reset()
         cpuLane.counters.reset()
         laneSync.counters.reset()
+        resets.wrappingIncrement(ordering: .releasing)
     }
 }
 #endif

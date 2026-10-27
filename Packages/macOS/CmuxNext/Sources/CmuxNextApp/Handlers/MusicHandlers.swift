@@ -2,6 +2,9 @@ import AppKit
 import CmuxNextActions
 import CmuxNextNowPlaying
 import UniformTypeIdentifiers
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// cmux's own music player (cx-imt2i): Play Music… picks songs or folders (or plays its `url`, an
 /// http(s) stream, else its `path`, a file or a folder) on the Now Playing card and the media keys;
@@ -62,13 +65,14 @@ enum MusicHandlers {
         panel.allowedContentTypes = [.audio]
         panel.message = MusicStrings.chooseMessage
         panel.prompt = MusicStrings.choosePrompt
-        let response: NSApplication.ModalResponse = await withCheckedContinuation { continuation in
+        // A panel that drops its reply was cancelled.
+        let response = (try? await withOnceContinuation { (continuation: OnceContinuation<NSApplication.ModalResponse, OnceContinuationError>) in
             if let anchor {
                 panel.beginSheetModal(for: anchor) { continuation.resume(returning: $0) }
             } else {
                 panel.begin { continuation.resume(returning: $0) }
             }
-        }
+        }) ?? .cancel
         return response == .OK && !panel.urls.isEmpty ? panel.urls : nil
     }
 }
