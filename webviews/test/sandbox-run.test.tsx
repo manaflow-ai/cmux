@@ -496,7 +496,11 @@ test("a send whose answer is lost while another attempt's receipt holds the tab 
     (method) =>
       method === "sandbox.run"
         ? new Promise((_resolve, reject) => (lose = reject))
-        : Promise.resolve({ task: "older", key: "k-old", reply: { ok: true, value: { receipt: { status: "succeeded" } } } }),
+        : Promise.resolve({
+            task: "older",
+            key: "k-old",
+            reply: { ok: true, value: { receipt: { status: "succeeded" } } },
+          }),
     (text) => restored.push(text),
   );
   tab.setMode("sandboxed");
@@ -518,7 +522,10 @@ test("the only documented request refusals free the tab; a host read with no att
     expect(sandboxRetryable({ task: "go", state: "failed", code })).toBe(false);
   }
   for (const key of [undefined, ""]) {
-    const tab = new SandboxTab(async () => ({ task: "go", key, running: true }), () => undefined);
+    const tab = new SandboxTab(
+      async () => ({ task: "go", key, running: true }),
+      () => undefined,
+    );
     await tab.read();
     expect(tab.host).toEqual({ kind: "unknown" });
     expect(tab.checked).toBe(false);
