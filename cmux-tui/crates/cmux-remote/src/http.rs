@@ -171,6 +171,7 @@ fn validate_workspace_http_token_metadata(metadata: &fs::Metadata) -> Result<(),
     }
     #[cfg(unix)]
     {
+        // SAFETY: geteuid takes no arguments, cannot fail, and touches no memory.
         if metadata.uid() != unsafe { libc::geteuid() } {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
