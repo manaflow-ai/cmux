@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "build": "4048947256901",
+  "notes": "notes/4048947256901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 25282,
+      "title": "cmux NEXT chat header: no machine and folder label, and no row for it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25492,
+      "title": "runs: the sandboxed Run model's DB behavior tests (split from #25377)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26124,
+      "title": "ci: owned-pool sources read only a policy branch's own test, not a no-hosted-Mac guard",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26086,
+      "title": "ci: publish a git bundle of cmux for the fleet minis' local mirrors",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25377,
+      "title": "runs: sandboxed Run model, migrations and teardown on every path",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25487,
+      "title": "cloud: the .cmux/machine.toml applier, and the bootstrap start's handshake with it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26114,
+      "title": "fix(agent-chat): glide mouse wheel notches on the shared scroll clock",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24188,
+      "title": "Agent chat Changes: files in kind order, kind labels, a no-tests note, generated files folded",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
