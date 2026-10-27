@@ -35,6 +35,7 @@ const reply = (prompt: string, text: string) =>
   chat([user(prompt, 6), assistant(text, 5), summary(5, { status: "completed", durationMs: 21_000 })]);
 
 const open = async (ctx: PlayContext) => {
+  await ctx.waitFor(() => ctx.document.querySelector('button[aria-label="Open preview"]'));
   await ctx.click({ role: "button", name: "Open preview" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-artifact"));
 };
@@ -54,7 +55,15 @@ const liveReply = (text: string, version: number, streaming = true) =>
     user("Update the release notes while I read the preview", 1),
     assistant(fence("markdown", text), 0, { id: "artifact-live", version, streaming }),
   ]);
+const liveChecks = {
+  layoutShiftMax: {
+    value: 0.3,
+    reason:
+      "Opening the shared side preview intentionally narrows and moves the transcript/composer; this fixture compares the subsequent document rewrite.",
+  },
+};
 const live = (finish = false) => ({
+  checks: liveChecks,
   note: finish
     ? "The preview follows the same source through turn completion."
     : "A live rewrite updates the already-open preview; no close/reopen.",
@@ -70,6 +79,7 @@ const live = (finish = false) => ({
 });
 
 const writtenLive = {
+  checks: liveChecks,
   note: "A completed rewrite of the same canonical file refreshes its open preview.",
   snapshot: chat([
     user("Write a status page", 2),
@@ -83,8 +93,10 @@ const writtenLive = {
       { id: "live-write", version: 1 },
     ),
     assistant("Preparing release", 1, { id: "live-status", version: 1 }),
+    summary(0, { status: "completed" }),
   ]),
   play: async (ctx: PlayContext) => {
+    await ctx.click({ role: "button", name: "Worked for 42s" });
     await open(ctx);
     const page = ctx.document.defaultView as Window;
     page.cmuxAcpmuxBridge?.receive(
@@ -100,6 +112,7 @@ const writtenLive = {
           { id: "live-write", version: 2 },
         ),
         assistant("Release ready", 0, { id: "live-status", version: 2 }),
+        summary(0, { status: "completed" }),
       ]),
     );
     await ctx.waitFor(() =>
