@@ -1,21 +1,33 @@
 //! Channels that know their producer's QoS, so a thread that waits on work
-//! sent from a lower-QoS thread is a recorded `priority-inversion` site
-//! (plans/cmux-next/chrome-parity/p02-threads.md, 3D, task 206).
+//! sent from a lower-QoS thread raises that thread for the wait and, in
+//! Debug, is a recorded `priority-inversion` site
+//! (plans/cmux-next/chrome-parity/p02-threads.md, 3D, tasks 206 and 238).
 //!
 //! [`mpsc`] wraps `std::sync::mpsc` and `crossbeam` (feature `crossbeam`)
 //! wraps `crossbeam_channel`, with the same calls, so a site swaps the import
 //! and nothing else.
 //!
+//! - Boost, all builds: every send records its registered thread as the
+//!   channel's producer. A blocking receive (`recv`, `recv_timeout`, the
+//!   blocking iterators) that finds no message, on a registered thread of a
+//!   higher class than that producer, starts a QoS override on the producer
+//!   at its own class and ends it when the wait ends. libdispatch does the
+//!   same for a `dispatch_sync` waiter and the thread that drains the queue;
+//!   the override is Chromium's `SetCurrentThreadTypeOverride`
+//!   (base/threading/platform_thread_apple.mm). Linux counts the wait in
+//!   [`ProducerBoosts::unboosted`] and boosts nothing: the producer can exit
+//!   during the wait and its tid be reused before the nice value goes back.
+//!   A one-shot reply channel has no producer before its one send, so its
+//!   wait raises nothing; the lane and lock boosts cover those waits.
 //! - Debug: each message carries the QoS of the registered thread that sent
-//!   it. A blocking receive (`recv`, `recv_timeout`, the blocking iterators)
-//!   on a registered thread of higher QoS records a
+//!   it. A blocking receive on a registered thread of higher QoS records a
 //!   [`BlockingKind::PriorityInversion`] site at the receive's caller, read
 //!   with [`crate::blocking::snapshot`]. It never panics: the receive is
-//!   allowed, the QoS pairing is what a review fixes (task 238 adds the
-//!   producer boost). A non-blocking receive records nothing: it never waits
-//!   on the producer. Unregistered threads have no QoS and record nothing.
-//! - Release: a message is the plain value on the plain channel; no QoS is
-//!   read or recorded.
+//!   allowed, the QoS pairing is what a review fixes. A non-blocking receive
+//!   records nothing: it never waits on the producer. Unregistered threads
+//!   have no QoS and record nothing.
+//! - Release: a message is the plain value on the plain channel; only the
+//!   producer record above is kept.
 //!
 //! Every blocking receive is also a checked [`BlockingKind::Recv`] wait, as
 //! [`crate::checked::sync::recv`] is.
@@ -27,12 +39,17 @@
 //!
 //! Chromium makes a waiter run ahead of a lower-priority lock owner with
 //! priority-inheritance mutexes (base/synchronization/lock_impl_posix.cc);
-//! a channel has no owner the kernel can see, so the message names its
+//! a channel has no owner the kernel can see, so the channel names its
 //! producer.
 
 use std::panic::Location;
 
 use crate::blocking::{BlockingKind, assert_blocking_allowed_at};
+
+mod producer;
+
+use producer::Shared;
+pub use producer::{ProducerBoosts, producer_boosts};
 
 #[path = "sync_locks.rs"]
 mod locks;
@@ -101,8 +118,10 @@ fn received<T>(payload: Payload<T>, site: &'static Location<'static>) -> T {
 /// Wrapped `std::sync::mpsc` channels.
 pub mod mpsc {
     use super::{
-        BlockingKind, Location, Payload, assert_blocking_allowed_at, received, tag, untag,
+        BlockingKind, Location, Payload, ProducerBoosts, Shared, assert_blocking_allowed_at,
+        received, tag, untag,
     };
+    use std::sync::Arc;
     use std::sync::mpsc as std_mpsc;
     use std::time::Duration;
 
@@ -111,28 +130,36 @@ pub mod mpsc {
     /// `std::sync::mpsc::channel`.
     pub fn channel<T>() -> (Sender<T>, Receiver<T>) {
         let (sender, receiver) = std_mpsc::channel();
-        (Sender(sender), Receiver(receiver))
+        let shared = Shared::default();
+        (Sender(sender, Arc::clone(&shared)), Receiver(receiver, shared))
     }
 
     /// `std::sync::mpsc::sync_channel`.
     pub fn sync_channel<T>(bound: usize) -> (SyncSender<T>, Receiver<T>) {
         let (sender, receiver) = std_mpsc::sync_channel(bound);
-        (SyncSender(sender), Receiver(receiver))
+        let shared = Shared::default();
+        (SyncSender(sender, Arc::clone(&shared)), Receiver(receiver, shared))
     }
 
     /// `std::sync::mpsc::Sender`.
-    pub struct Sender<T>(std_mpsc::Sender<Payload<T>>);
+    pub struct Sender<T>(std_mpsc::Sender<Payload<T>>, Shared);
 
     impl<T> Sender<T> {
-        /// `Sender::send`.
+        /// `Sender::send`; the calling thread becomes the channel's producer.
         pub fn send(&self, value: T) -> Result<(), SendError<T>> {
+            self.1.sent();
             self.0.send(tag(value)).map_err(|SendError(payload)| SendError(untag(payload)))
+        }
+
+        /// The channel's producer boosts.
+        pub fn boosts(&self) -> ProducerBoosts {
+            self.1.boosts()
         }
     }
 
     impl<T> Clone for Sender<T> {
         fn clone(&self) -> Self {
-            Self(self.0.clone())
+            Self(self.0.clone(), Arc::clone(&self.1))
         }
     }
 
@@ -143,26 +170,35 @@ pub mod mpsc {
     }
 
     /// `std::sync::mpsc::SyncSender`.
-    pub struct SyncSender<T>(std_mpsc::SyncSender<Payload<T>>);
+    pub struct SyncSender<T>(std_mpsc::SyncSender<Payload<T>>, Shared);
 
     impl<T> SyncSender<T> {
-        /// `SyncSender::send`.
+        /// `SyncSender::send`; the calling thread becomes the channel's
+        /// producer.
         pub fn send(&self, value: T) -> Result<(), SendError<T>> {
+            self.1.sent();
             self.0.send(tag(value)).map_err(|SendError(payload)| SendError(untag(payload)))
         }
 
-        /// `SyncSender::try_send`.
+        /// `SyncSender::try_send`; the calling thread becomes the channel's
+        /// producer.
         pub fn try_send(&self, value: T) -> Result<(), TrySendError<T>> {
+            self.1.sent();
             self.0.try_send(tag(value)).map_err(|error| match error {
                 TrySendError::Full(payload) => TrySendError::Full(untag(payload)),
                 TrySendError::Disconnected(payload) => TrySendError::Disconnected(untag(payload)),
             })
         }
+
+        /// The channel's producer boosts.
+        pub fn boosts(&self) -> ProducerBoosts {
+            self.1.boosts()
+        }
     }
 
     impl<T> Clone for SyncSender<T> {
         fn clone(&self) -> Self {
-            Self(self.0.clone())
+            Self(self.0.clone(), Arc::clone(&self.1))
         }
     }
 
@@ -173,25 +209,36 @@ pub mod mpsc {
     }
 
     /// `std::sync::mpsc::Receiver`.
-    pub struct Receiver<T>(std_mpsc::Receiver<Payload<T>>);
+    pub struct Receiver<T>(std_mpsc::Receiver<Payload<T>>, Shared);
 
     impl<T> Receiver<T> {
-        /// `Receiver::recv`, a checked wait that records an inversion.
+        /// `Receiver::recv`, a checked wait that boosts the producer and
+        /// records an inversion.
         #[track_caller]
         pub fn recv(&self) -> Result<T, RecvError> {
             self.recv_at(Location::caller())
         }
 
-        /// `Receiver::recv_timeout`, a checked wait that records an inversion.
+        /// `Receiver::recv_timeout`, a checked wait that boosts the producer
+        /// and records an inversion.
         #[track_caller]
         pub fn recv_timeout(&self, timeout: Duration) -> Result<T, RecvTimeoutError> {
             let site = Location::caller();
             assert_blocking_allowed_at(BlockingKind::Recv, site);
-            // wakeup-allow: deadline the caller's own timeout, forwarded unchanged
-            self.0.recv_timeout(timeout).map(|payload| received(payload, site))
+            let payload = match self.0.try_recv() {
+                Ok(payload) => payload,
+                Err(TryRecvError::Disconnected) => return Err(RecvTimeoutError::Disconnected),
+                Err(TryRecvError::Empty) => {
+                    let _wait = self.1.wait();
+                    // wakeup-allow: deadline the caller's own timeout, forwarded unchanged
+                    self.0.recv_timeout(timeout)?
+                }
+            };
+            Ok(received(payload, site))
         }
 
-        /// `Receiver::try_recv`: no wait, nothing checked or recorded.
+        /// `Receiver::try_recv`: no wait, nothing checked, boosted or
+        /// recorded.
         pub fn try_recv(&self) -> Result<T, TryRecvError> {
             self.0.try_recv().map(untag)
         }
@@ -207,9 +254,22 @@ pub mod mpsc {
             TryIter { receiver: self }
         }
 
+        /// The channel's producer boosts.
+        pub fn boosts(&self) -> ProducerBoosts {
+            self.1.boosts()
+        }
+
         fn recv_at(&self, site: &'static Location<'static>) -> Result<T, RecvError> {
             assert_blocking_allowed_at(BlockingKind::Recv, site);
-            self.0.recv().map(|payload| received(payload, site))
+            let payload = match self.0.try_recv() {
+                Ok(payload) => payload,
+                Err(TryRecvError::Disconnected) => return Err(RecvError),
+                Err(TryRecvError::Empty) => {
+                    let _wait = self.1.wait();
+                    self.0.recv()?
+                }
+            };
+            Ok(received(payload, site))
         }
     }
 
@@ -289,9 +349,11 @@ pub mod mpsc {
 #[cfg(feature = "crossbeam")]
 pub mod crossbeam {
     use super::{
-        BlockingKind, Location, Payload, assert_blocking_allowed_at, received, tag, untag,
+        BlockingKind, Location, Payload, ProducerBoosts, Shared, assert_blocking_allowed_at,
+        received, tag, untag,
     };
     use crossbeam_channel as cb;
+    use std::sync::Arc;
     use std::time::Duration;
 
     pub use crossbeam_channel::{
@@ -301,26 +363,36 @@ pub mod crossbeam {
     /// `crossbeam_channel::unbounded`.
     pub fn unbounded<T>() -> (Sender<T>, Receiver<T>) {
         let (sender, receiver) = cb::unbounded();
-        (Sender(sender), Receiver(receiver))
+        let shared = Shared::default();
+        (Sender(sender, Arc::clone(&shared)), Receiver(receiver, shared))
     }
 
     /// `crossbeam_channel::bounded`.
     pub fn bounded<T>(capacity: usize) -> (Sender<T>, Receiver<T>) {
         let (sender, receiver) = cb::bounded(capacity);
-        (Sender(sender), Receiver(receiver))
+        let shared = Shared::default();
+        (Sender(sender, Arc::clone(&shared)), Receiver(receiver, shared))
     }
 
     /// `crossbeam_channel::Sender`.
-    pub struct Sender<T>(cb::Sender<Payload<T>>);
+    pub struct Sender<T>(cb::Sender<Payload<T>>, Shared);
 
     impl<T> Sender<T> {
-        /// `Sender::send`.
+        /// `Sender::send`; the calling thread becomes the channel's producer.
         pub fn send(&self, value: T) -> Result<(), SendError<T>> {
+            self.1.sent();
             self.0.send(tag(value)).map_err(|SendError(payload)| SendError(untag(payload)))
         }
 
-        /// `Sender::try_send`.
+        /// The channel's producer boosts.
+        pub fn boosts(&self) -> ProducerBoosts {
+            self.1.boosts()
+        }
+
+        /// `Sender::try_send`; the calling thread becomes the channel's
+        /// producer.
         pub fn try_send(&self, value: T) -> Result<(), TrySendError<T>> {
+            self.1.sent();
             self.0.try_send(tag(value)).map_err(|error| match error {
                 TrySendError::Full(payload) => TrySendError::Full(untag(payload)),
                 TrySendError::Disconnected(payload) => TrySendError::Disconnected(untag(payload)),
@@ -340,7 +412,7 @@ pub mod crossbeam {
 
     impl<T> Clone for Sender<T> {
         fn clone(&self) -> Self {
-            Self(self.0.clone())
+            Self(self.0.clone(), Arc::clone(&self.1))
         }
     }
 
@@ -351,25 +423,41 @@ pub mod crossbeam {
     }
 
     /// `crossbeam_channel::Receiver`.
-    pub struct Receiver<T>(cb::Receiver<Payload<T>>);
+    pub struct Receiver<T>(cb::Receiver<Payload<T>>, Shared);
 
     impl<T> Receiver<T> {
-        /// `Receiver::recv`, a checked wait that records an inversion.
+        /// `Receiver::recv`, a checked wait that boosts the producer and
+        /// records an inversion.
         #[track_caller]
         pub fn recv(&self) -> Result<T, RecvError> {
             self.recv_at(Location::caller())
         }
 
-        /// `Receiver::recv_timeout`, a checked wait that records an inversion.
+        /// `Receiver::recv_timeout`, a checked wait that boosts the producer
+        /// and records an inversion.
         #[track_caller]
         pub fn recv_timeout(&self, timeout: Duration) -> Result<T, RecvTimeoutError> {
             let site = Location::caller();
             assert_blocking_allowed_at(BlockingKind::Recv, site);
-            // wakeup-allow: deadline the caller's own timeout, forwarded unchanged
-            self.0.recv_timeout(timeout).map(|payload| received(payload, site))
+            let payload = match self.0.try_recv() {
+                Ok(payload) => payload,
+                Err(TryRecvError::Disconnected) => return Err(RecvTimeoutError::Disconnected),
+                Err(TryRecvError::Empty) => {
+                    let _wait = self.1.wait();
+                    // wakeup-allow: deadline the caller's own timeout, forwarded unchanged
+                    self.0.recv_timeout(timeout)?
+                }
+            };
+            Ok(received(payload, site))
         }
 
-        /// `Receiver::try_recv`: no wait, nothing checked or recorded.
+        /// The channel's producer boosts.
+        pub fn boosts(&self) -> ProducerBoosts {
+            self.1.boosts()
+        }
+
+        /// `Receiver::try_recv`: no wait, nothing checked, boosted or
+        /// recorded.
         pub fn try_recv(&self) -> Result<T, TryRecvError> {
             self.0.try_recv().map(untag)
         }
@@ -397,13 +485,21 @@ pub mod crossbeam {
 
         fn recv_at(&self, site: &'static Location<'static>) -> Result<T, RecvError> {
             assert_blocking_allowed_at(BlockingKind::Recv, site);
-            self.0.recv().map(|payload| received(payload, site))
+            let payload = match self.0.try_recv() {
+                Ok(payload) => payload,
+                Err(TryRecvError::Disconnected) => return Err(RecvError),
+                Err(TryRecvError::Empty) => {
+                    let _wait = self.1.wait();
+                    self.0.recv()?
+                }
+            };
+            Ok(received(payload, site))
         }
     }
 
     impl<T> Clone for Receiver<T> {
         fn clone(&self) -> Self {
-            Self(self.0.clone())
+            Self(self.0.clone(), Arc::clone(&self.1))
         }
     }
 

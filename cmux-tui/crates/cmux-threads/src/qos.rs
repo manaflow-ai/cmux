@@ -28,7 +28,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::registry;
 
-/// QoS overrides one thread starts on another (a lock waiter on its owner).
+/// QoS overrides one thread starts on another (a lock waiter on its owner, a
+/// channel waiter on its producer).
 pub(crate) mod boost;
 
 /// The QoS a cmux thread declares. Ordered from lowest to highest priority.
