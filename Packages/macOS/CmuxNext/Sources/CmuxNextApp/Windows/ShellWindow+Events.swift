@@ -59,6 +59,38 @@ extension ShellWindow {
         controller.focus.responderDidChange(FocusResponderClassifier.classify(firstResponder, in: controller), source: .current)
     }
 
+    // MARK: Order-in (QA chrome-parity-v2-1 bug 1)
+
+    /// The first time a window is placed on screen with no first responder, AppKit makes its first key view the
+    /// first responder (`initialFirstResponder` unset). In a cmux window that is the sidebar's workspace list
+    /// whenever the focused pane's content is not a key view yet (a restored browser pane showing its launch
+    /// picture): the focus model heard a sidebar report, took it as the person's choice, and the next Return
+    /// opened the workspace's rename field. Nobody asked for that pick. While the window is ordered in with no
+    /// first responder, only the focus model's own move (its applier) takes the keyboard; it places the keyboard
+    /// on the restored target once that content is presented. A responder already set is left alone.
+    func refusesOrderInKeyView(_ responder: NSResponder?) -> Bool {
+        guard orderInDepth > 0, firstResponder === self, let view = responder as? NSView, view.window === self else { return false }
+        return focus?.isApplying != true
+    }
+
+    /// Runs `body` with `orderInDepth` counted when the window is not on screen yet (every ordering path below).
+    private func orderingIn(_ body: () -> Void) {
+        guard !isVisible else { return body() }
+        orderInDepth += 1
+        defer { orderInDepth -= 1 }
+        body()
+    }
+
+    override func order(_ place: NSWindow.OrderingMode, relativeTo otherWin: Int) {
+        guard place != .out else { return super.order(place, relativeTo: otherWin) }
+        orderingIn { super.order(place, relativeTo: otherWin) }
+    }
+
+    override func orderFront(_ sender: Any?) { orderingIn { super.orderFront(sender) } }
+    override func orderBack(_ sender: Any?) { orderingIn { super.orderBack(sender) } }
+    override func orderFrontRegardless() { orderingIn { super.orderFrontRegardless() } }
+    override func makeKeyAndOrderFront(_ sender: Any?) { orderingIn { super.makeKeyAndOrderFront(sender) } }
+
     override func becomeKey() {
         cursorRectHold?.windowKeyStateWillChange(self)
         super.becomeKey()
