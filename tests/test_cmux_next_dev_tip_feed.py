@@ -763,6 +763,10 @@ check("environment" not in signer_job and "secrets." not in json.dumps(signer_jo
       and "ubuntu" in signer_job["runs-on"] and "macos" not in signer_job["runs-on"]
       and not any("actions/cache" in str(step.get("uses", "")) for step in signer_job["steps"]),
       "the DMG signer is built on Linux with no environment, secret, cache or concurrency group")
+check(signer_job["steps"][0]["with"]["ref"] == "${{ github.sha }}"
+      and not any("setup-cmux-tui-rust" in str(step.get("uses", "")) or "sh.rustup.rs" in step.get("run", "")
+                  for step in signer_job["steps"]),
+      "the DMG signer builds from the dispatched commit with the image's rustup, never a fetched installer")
 check(any(step.get("run", "").startswith("./scripts/ci/build-rcodesign-dmg.sh") for step in signer_job["steps"])
       and signer_job["outputs"]["sha256"] == "${{ steps.build.outputs.sha256 }}"
       and dmg_job["env"]["RCODESIGN_DMG_SHA256"] == "${{ needs.rcodesign-dmg.outputs.sha256 }}",
@@ -776,7 +780,7 @@ check("+++ b/src/dmg.rs" in patch_text and "team_name" in patch_text and "derive
       and "0x20200" in patch_text, "the patch adds the team, the 0x20200 Code Directory and the designated requirement")
 dmg_signer = (ROOT / "scripts/ci/rcodesign-notarize-dmg-dev.sh").read_text()
 dmg_signer_code = "\n".join(line for line in dmg_signer.splitlines() if not line.lstrip().startswith("#"))
-check("--for-notarization" not in dmg_signer_code and "--timestamp-url http://timestamp.apple.com/ts01" in dmg_signer_code,
+check('[[ "$team" == 7WLXT3NR37 ]]' in dmg_signer_code and "--for-notarization" not in dmg_signer_code and "--timestamp-url http://timestamp.apple.com/ts01" in dmg_signer_code,
       "the DMG gets codesign's flags (none) and Apple's time stamp")
 check(all(want in dmg_signer_code for want in ("version: '0x20200'", "flags: CodeSignatureFlags(0x0)", "team_name: $team",
                                                 "(certificate leaf[subject.OU] = \\\"$team\\\")")),

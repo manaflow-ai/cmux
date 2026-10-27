@@ -58,7 +58,7 @@ unset APPLE_CERTIFICATE_PASSWORD APPLE_CERTIFICATE_BASE64
 subject="$(openssl x509 -noout -subject -nameopt multiline,utf8,-esc_msb < "$secrets/identity.pem")"
 cn="$(awk '/^ *commonName *=/ { sub(/^ *commonName *= */, ""); print; exit }' <<<"$subject")"
 team="$(awk '/^ *organizationalUnitName *=/ { sub(/^ *organizationalUnitName *= */, ""); print; exit }' <<<"$subject")"
-[[ "$team" =~ ^[A-Z0-9]{10}$ ]] || { echo "error: the certificate ($cn) names no team (OU '$team')" >&2; exit 1; }
+[[ "$team" == 7WLXT3NR37 ]] || { echo "error: the certificate ($cn) is for team '$team', not 7WLXT3NR37" >&2; exit 1; }
 [[ "$cn" == "Developer ID Application:"* ]] ||
   { echo "error: the certificate ($cn) is not a Developer ID Application certificate" >&2; exit 1; }
 want="$APPLE_SIGNING_IDENTITY"
