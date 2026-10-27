@@ -693,10 +693,10 @@ impl ChildAgent {
             // The host writes it and logs it back as an `out` entry.
             return h.link().line(msg.to_value()).await;
         }
-        let safe = crate::codex_app_server::redact(&msg.to_value());
-        let safe_message = Message::from_value(safe).unwrap_or_else(|_| msg.clone());
-        (self.tap)(Direction::Out, &safe_message, None);
         if let Some(cx) = &self.codex {
+            let safe = crate::codex_app_server::redact(&msg.to_value());
+            let safe_message = Message::from_value(safe).unwrap_or_else(|_| msg.clone());
+            (self.tap)(Direction::Out, &safe_message, None);
             let order = cx.order.lock().await;
             let split = crate::codex_app_server::split(cx.tr.from_client(&msg.to_value()));
             let written = self.codex_lines(split.server).await;
@@ -707,6 +707,7 @@ impl ChildAgent {
             self.codex_to_hub(cx, split.hub).await;
             return Ok(());
         }
+        (self.tap)(Direction::Out, msg, None);
         if let Some(tr) = &self.translator {
             match tr.outbound(msg).await {
                 crate::claude_stdio::Outbound::Lines(lines) => {

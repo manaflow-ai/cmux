@@ -34,10 +34,16 @@ pub fn path() -> Option<PathBuf> {
 /// the former preserves existing login behavior, while the latter fails closed.
 pub fn read() -> Result<Option<AccessFile>> {
     let Some(path) = path() else { return Ok(None) };
+    read_at(&path, Path::new("/etc/cmux/vm-kind"))
+}
+
+/// Read a broker file with an explicit owner marker. Tests use a temporary
+/// marker rather than mutating the process environment or relying on /etc.
+pub fn read_at(path: &Path, owner_marker: &Path) -> Result<Option<AccessFile>> {
     if !path.exists() {
         return Ok(None);
     }
-    validate_owner_marker()?;
+    validate_owner_marker(owner_marker)?;
     let file = File::open(&path)?;
     let metadata = file.metadata()?;
     // SAFETY: getuid has no preconditions.
@@ -76,11 +82,20 @@ pub fn read() -> Result<Option<AccessFile>> {
 
 pub fn changed_since(modified: SystemTime) -> bool {
     let Some(path) = path() else { return false };
-    std::fs::metadata(path).and_then(|m| m.modified()).map_or(false, |m| m != modified)
+    std::fs::metadata(path).and_then(|m| m.modified()).map_or(true, |m| m != modified)
 }
 
-fn validate_owner_marker() -> Result<()> {
-    let path = Path::new("/etc/cmux/vm-kind");
+fn validate_owner_marker(path: &Path) -> Result<()> {
+    let metadata = std::fs::symlink_metadata(path)
+        .map_err(|_| anyhow!("Codex broker requires an owner VM"))?;
+    ensure!(metadata.is_file(), "Codex broker owner marker is not a file");
+    if path == Path::new("/etc/cmux/vm-kind") {
+        ensure!(metadata.uid() == 0, "Codex broker owner marker is not root-owned");
+        ensure!(
+            std::fs::symlink_metadata("/srv/team").is_err(),
+            "Codex broker is unavailable on a shared VM"
+        );
+    }
     let kind =
         std::fs::read_to_string(path).map_err(|_| anyhow!("Codex broker requires an owner VM"))?;
     ensure!(kind.trim() == "owner", "Codex broker requires an owner VM");
@@ -94,22 +109,14 @@ mod tests {
 
     #[test]
     fn missing_file_is_disabled() {
-        let old = std::env::var_os("CMUX_CODEX_BROKER_ACCESS");
-        // SAFETY: this test changes the process environment before any child is spawned.
-        unsafe {
-            std::env::set_var("CMUX_CODEX_BROKER_ACCESS", "/no/such/codex-broker-access.json");
-        }
-        assert!(read().unwrap().is_none());
-        if let Some(old) = old {
-            unsafe {
-                std::env::set_var("CMUX_CODEX_BROKER_ACCESS", old);
-            }
-        } else {
-            // SAFETY: this test changes the process environment before any child is spawned.
-            unsafe {
-                std::env::remove_var("CMUX_CODEX_BROKER_ACCESS");
-            }
-        }
+        let dir =
+            std::env::temp_dir().join(format!("cmux-codex-broker-test-{}", uuid::Uuid::now_v7()));
+        let file = dir.join("missing.json");
+        let marker = dir.join("vm-kind");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&marker, "shared\n").unwrap();
+        assert!(read_at(&file, &marker).unwrap().is_none());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -118,23 +125,11 @@ mod tests {
             std::env::temp_dir().join(format!("cmux-codex-broker-test-{}", uuid::Uuid::now_v7()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("access.json");
+        let marker = dir.join("vm-kind");
+        std::fs::write(&marker, "owner\n").unwrap();
         std::fs::write(&file, r#"{"schema":1,"bridge":"codex-external-access-v1","accessToken":"a","chatgptAccountId":"acct","expiresAt":4102444800}"#).unwrap();
-        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
-        let old = std::env::var_os("CMUX_CODEX_BROKER_ACCESS");
-        unsafe {
-            std::env::set_var("CMUX_CODEX_BROKER_ACCESS", &file);
-        }
-        assert!(read().is_err());
-        if let Some(old) = old {
-            unsafe {
-                std::env::set_var("CMUX_CODEX_BROKER_ACCESS", old);
-            }
-        } else {
-            // SAFETY: this test changes the process environment before any child is spawned.
-            unsafe {
-                std::env::remove_var("CMUX_CODEX_BROKER_ACCESS");
-            }
-        }
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(read_at(&file, &marker).is_err());
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

@@ -34,6 +34,7 @@ pub struct Translator {
 #[cfg(unix)]
 struct AuthGate {
     file: Option<AccessFile>,
+    pinned_account_id: Option<String>,
     previous_account_id: Option<String>,
     initialize_id: Option<Value>,
     login_id: Option<Value>,
@@ -53,6 +54,7 @@ impl AuthGate {
             Err(error) => {
                 return Self {
                     file: None,
+                    pinned_account_id: None,
                     previous_account_id: None,
                     initialize_id: None,
                     login_id: None,
@@ -61,8 +63,10 @@ impl AuthGate {
                 };
             }
         };
+        let pinned_account_id = file.as_ref().map(|file| file.account_id.clone());
         Self {
             file,
+            pinned_account_id,
             previous_account_id: None,
             initialize_id: None,
             login_id: None,
@@ -98,14 +102,28 @@ impl AuthGate {
         }))
     }
 
+    fn account_allowed(&self, file: &AccessFile, requested_previous: Option<&str>) -> bool {
+        let expected = self.previous_account_id.as_deref().or(self.pinned_account_id.as_deref());
+        expected.is_none_or(|account_id| account_id == file.account_id)
+            && requested_previous.is_none_or(|account_id| {
+                account_id == file.account_id
+                    && expected.is_none_or(|expected| expected == account_id)
+            })
+    }
+
+    fn fail(&mut self) {
+        self.failed = Some("Codex broker unavailable".into());
+        self.login_id = None;
+        self.held.clear();
+    }
+
     fn refresh_response(id: &Value, file: &AccessFile) -> Out {
         Out::Server(serde_json::json!({
             "jsonrpc": "2.0",
             "id": id,
             "result": {
                 "accessToken": file.access_token,
-                "chatgptAccountId": file.account_id,
-                "chatgptPlanType": "chatgpt"
+                "chatgptAccountId": file.account_id
             }
         }))
     }
@@ -116,6 +134,34 @@ impl AuthGate {
             "id": id,
             "error": {"code": -32001, "message": "Codex broker unavailable"}
         }))
+    }
+
+    fn handle_refresh<F>(&mut self, raw: &Value, read: F) -> Option<Vec<Out>>
+    where
+        F: FnOnce() -> anyhow::Result<Option<AccessFile>>,
+    {
+        if raw.get("method").and_then(Value::as_str) != Some("account/chatgptAuthTokens/refresh") {
+            return None;
+        }
+        let id = raw.get("id")?;
+        if let Some(failure) = self.failed.as_ref() {
+            tracing::debug!(error = %failure, "Codex broker refresh unavailable");
+            return Some(vec![Self::refresh_error(id)]);
+        }
+        let requested_previous = raw
+            .pointer("/params/previousAccountId")
+            .or_else(|| raw.pointer("/params/previous_account_id"))
+            .and_then(Value::as_str);
+        match read() {
+            Ok(Some(file)) if self.account_allowed(&file, requested_previous) => {
+                self.file = Some(file.clone());
+                Some(vec![Self::refresh_response(id, &file)])
+            }
+            Ok(Some(_)) | Ok(None) | Err(_) => {
+                self.fail();
+                Some(vec![Self::refresh_error(id)])
+            }
+        }
     }
 }
 
@@ -153,6 +199,19 @@ impl Translator {
                 }
                 return Vec::new();
             }
+            if auth.enabled() && auth.should_refresh() {
+                match codex_auth_file::read() {
+                    Ok(Some(file)) if auth.account_allowed(&file, None) => {}
+                    _ => auth.fail(),
+                }
+                if let Some(id) = msg.get("id").cloned() {
+                    return vec![Out::Client(serde_json::json!({
+                        "jsonrpc":"2.0", "id": id,
+                        "error": {"code": -32001, "message": "Codex broker unavailable"}
+                    }))];
+                }
+                return Vec::new();
+            }
         }
         if let Some(out) = self.background().request(msg) {
             return out;
@@ -171,26 +230,9 @@ impl Translator {
             // is a server request, so answer it directly and preserve the
             // opaque JSON-RPC id.  Never pass credentials through the inner
             // translator or hold unrelated output while answering it.
-            if auth.enabled()
-                && raw.get("method").and_then(Value::as_str)
-                    == Some("account/chatgptAuthTokens/refresh")
-                && let Some(id) = raw.get("id")
-            {
-                if let Some(failure) = auth.failed.as_ref() {
-                    tracing::debug!(error = %failure, "Codex broker refresh unavailable");
-                    return vec![AuthGate::refresh_error(id)];
-                }
-                match codex_auth_file::read() {
-                    Ok(Some(file)) => {
-                        auth.file = Some(file.clone());
-                        return vec![AuthGate::refresh_response(id, &file)];
-                    }
-                    Ok(None) | Err(_) => {
-                        auth.failed = Some("Codex broker unavailable".into());
-                        auth.login_id = None;
-                        auth.held.clear();
-                        return vec![AuthGate::refresh_error(id)];
-                    }
+            if auth.enabled() {
+                if let Some(out) = auth.handle_refresh(raw, codex_auth_file::read) {
+                    return out;
                 }
             }
 
@@ -200,7 +242,7 @@ impl Translator {
                         auth.failed = Some("Codex broker login failed".into());
                         auth.login_id = None;
                         auth.held.clear();
-                        return Vec::new();
+                        return self.inner.server_closed("Codex broker login failed");
                     }
                     auth.previous_account_id =
                         auth.file.as_ref().map(|file| file.account_id.clone());
@@ -214,6 +256,9 @@ impl Translator {
 
             if auth.enabled() && auth.initialize_id.as_ref() == raw.get("id") {
                 let out = self.inner.from_server(raw);
+                if raw.get("error").is_some() {
+                    return out;
+                }
                 if auth.failed.is_some() {
                     return Vec::new();
                 }
@@ -238,12 +283,16 @@ impl Translator {
 
             if auth.enabled() && !auth.pending() && auth.should_refresh() {
                 match codex_auth_file::read() {
-                    Ok(Some(file)) => {
+                    Ok(Some(file)) if auth.account_allowed(&file, None) => {
                         auth.held.extend(self.inner.from_server(raw));
                         return vec![auth.login_request(file)];
                     }
                     Ok(None) | Err(_) => {
-                        auth.failed = Some("Codex broker unavailable".into());
+                        auth.fail();
+                        return Vec::new();
+                    }
+                    Ok(Some(_)) => {
+                        auth.fail();
                         return Vec::new();
                     }
                 }
@@ -427,10 +476,17 @@ pub fn redact(raw: &Value) -> Value {
                 .iter()
                 .map(|(key, value)| {
                     let lower = key.to_ascii_lowercase();
-                    let secret = lower.contains("token")
-                        || lower.contains("authorization")
-                        || lower.contains("api_key")
-                        || lower == "apikey";
+                    let secret = matches!(
+                        lower.as_str(),
+                        "accesstoken"
+                            | "refreshtoken"
+                            | "idtoken"
+                            | "authorization"
+                            | "apikey"
+                            | "api_key"
+                            | "clientsecret"
+                            | "client_secret"
+                    );
                     (
                         key.clone(),
                         if secret { Value::String("[REDACTED]".into()) } else { redact(value) },
@@ -439,7 +495,11 @@ pub fn redact(raw: &Value) -> Value {
                 .collect(),
         ),
         Value::Array(values) => Value::Array(values.iter().map(redact).collect()),
-        Value::String(value) if value.matches('.').count() == 2 && value.len() > 32 => {
+        Value::String(value)
+            if value.starts_with("eyJ")
+                && value.split('.').all(|part| !part.is_empty())
+                && value.matches('.').count() == 2 =>
+        {
             Value::String("[REDACTED]".into())
         }
         other => other.clone(),
@@ -496,13 +556,18 @@ mod tests {
     fn wire_redaction_hides_auth_fields_and_jwt_shaped_values() {
         let value = json!({
             "method": "account/login/start",
-            "params": {"accessToken": "header.payload.signature", "chatgptAccountId": "acct"},
+            "params": {"accessToken": "eyJhbGci.eyJzdWI.signature", "chatgptAccountId": "acct"},
             "result": {"authorization": "Bearer secret"}
         });
         let safe = redact(&value);
         assert_eq!(safe["params"]["accessToken"], "[REDACTED]");
         assert_eq!(safe["result"]["authorization"], "[REDACTED]");
         assert_eq!(safe["params"]["chatgptAccountId"], "acct");
+        assert_eq!(
+            redact(&json!("ordinary prose.with punctuation.is fine")),
+            json!("ordinary prose.with punctuation.is fine")
+        );
+        assert_eq!(redact(&json!({"tokenCount": 3}))["tokenCount"], 3);
     }
 
     #[cfg(unix)]
@@ -521,7 +586,7 @@ mod tests {
         assert_eq!(reply["id"], json!({"opaque": [7, 2]}));
         assert_eq!(reply["result"]["accessToken"], "access-secret");
         assert_eq!(reply["result"]["chatgptAccountId"], "acct-123");
-        assert_eq!(reply["result"]["chatgptPlanType"], "chatgpt");
+        assert!(reply["result"].get("chatgptPlanType").is_none());
         assert!(reply["result"].get("refreshToken").is_none());
     }
 
@@ -536,5 +601,44 @@ mod tests {
         assert_eq!(reply["id"], 41);
         assert_eq!(reply["error"]["code"], -32001);
         assert!(reply.to_string().find("access-secret").is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refresh_dispatch_preserves_id_and_rejects_account_switch() {
+        let file = AccessFile {
+            access_token: "access-secret".into(),
+            account_id: "acct-123".into(),
+            expires_at: 4_102_444_800,
+            modified: std::time::SystemTime::UNIX_EPOCH,
+        };
+        let mut gate = AuthGate::from_read(Ok(Some(file.clone())));
+        let out = gate
+            .handle_refresh(
+                &json!({
+                    "jsonrpc": "2.0", "id": "refresh-7",
+                    "method": "account/chatgptAuthTokens/refresh",
+                    "params": {"previousAccountId": "acct-123"}
+                }),
+                || Ok(Some(file.clone())),
+            )
+            .expect("refresh request");
+        let Out::Server(reply) = &out[0] else { panic!("server response") };
+        assert_eq!(reply["id"], "refresh-7");
+        assert_eq!(reply["result"]["chatgptAccountId"], "acct-123");
+
+        let out = gate
+            .handle_refresh(
+                &json!({
+                    "jsonrpc": "2.0", "id": 8,
+                    "method": "account/chatgptAuthTokens/refresh",
+                    "params": {"previousAccountId": "acct-other"}
+                }),
+                || Ok(Some(file)),
+            )
+            .expect("refresh request");
+        let Out::Server(reply) = &out[0] else { panic!("server error") };
+        assert_eq!(reply["id"], 8);
+        assert_eq!(reply["error"]["code"], -32001);
     }
 }
