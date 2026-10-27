@@ -31,9 +31,11 @@ struct CaptureScenePageCompositedTests {
     }
 
     @Test func chromiumPageMaySettleWhileBackingWebViewLoads() {
-        #expect(CaptureSceneRegistry.agentPageCanSettle(attached: true, loading: true))
-        #expect(CaptureSceneRegistry.agentPageCanSettle(attached: true, loading: false))
-        #expect(!CaptureSceneRegistry.agentPageCanSettle(attached: false, loading: true))
+        #expect(CaptureSceneRegistry.agentPageCanSettle(attached: true, loading: true, chromium: true))
+        #expect(CaptureSceneRegistry.agentPageCanSettle(attached: true, loading: false, chromium: true))
+        #expect(!CaptureSceneRegistry.agentPageCanSettle(attached: true, loading: true, chromium: false))
+        #expect(CaptureSceneRegistry.agentPageCanSettle(attached: true, loading: false, chromium: false))
+        #expect(!CaptureSceneRegistry.agentPageCanSettle(attached: false, loading: true, chromium: true))
     }
 }
 #endif

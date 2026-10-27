@@ -70,7 +70,9 @@ final class CaptureSceneRegistry {
                     && self.services.windows.controller(for: targetWindowID)?.sidebar.model.sections.flatMap(\.workspaces).contains { !$0.rowState.isPending } == true
                     && self.services.showcase.agentTabs.values.contains {
                     guard let view = self.services.agentTabs.existingView($0) else { return false }
-                    return Self.agentPageCanSettle(attached: view.webView.window != nil, loading: view.webView.isLoading)
+                    return Self.agentPageCanSettle(attached: view.webView.window != nil,
+                                                   loading: view.webView.isLoading,
+                                                   chromium: view.debugShowsChromium)
                 }
             },
             start: start,
@@ -199,11 +201,10 @@ final class CaptureSceneRegistry {
     }
 
     /// A Chromium agent can have a live, ready DOM while its backing WKWebView still reports loading
-    /// an asynchronous resource. The readiness probe below checks body, transcript and composer;
-    /// this frame gate only needs the page attached to the window.
-    static func agentPageCanSettle(attached: Bool, loading: Bool) -> Bool {
-        _ = loading
-        return attached
+    /// an asynchronous resource. WebKit still needs to finish navigation before seed_rows runs;
+    /// the readiness probe below then checks body, transcript and composer for either engine.
+    static func agentPageCanSettle(attached: Bool, loading: Bool, chromium: Bool) -> Bool {
+        attached && (chromium || !loading)
     }
 
     private func readinessIsComplete(_ readiness: JSONValue) -> Bool {
