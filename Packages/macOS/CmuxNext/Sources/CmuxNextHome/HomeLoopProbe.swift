@@ -23,23 +23,24 @@ import QuartzCore
 
     /// The attached loops that are on their layers now: 0 while nobody can see them.
     var runningCount: Int { loops.runningCount }
+    /// The probe's place in the visibility tree (recipe R-hide).
+    private var node: VisibilityNode { loops.node }
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         loops.place(in: window)
-        loops.node.set(isHiddenOrHasHiddenAncestor ? .hidden : .visible)
     }
 
     override func viewDidHide() {
         super.viewDidHide()
-        loops.node.set(.hidden)
+        node.set(.hidden)
     }
 
     override func viewDidUnhide() {
         super.viewDidUnhide()
-        loops.node.set(.visible)
+        node.set(.visible)
     }
 
     func attach(_ layer: CALayer, key: String, make: @escaping @MainActor () -> CAAnimation?) {

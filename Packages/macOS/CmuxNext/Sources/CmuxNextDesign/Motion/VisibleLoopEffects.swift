@@ -84,11 +84,13 @@ private struct WindowShownProbe: NSViewRepresentable {
         private let shown: Shown
         private let visibility = ViewVisibility("swiftui.loop")
         private var flips: VisibilitySubscription?
+        /// The probe's place in the visibility tree (recipe R-hide).
+        private var node: VisibilityNode { visibility.node }
 
         init(shown: Shown) {
             self.shown = shown
             super.init(frame: .zero)
-            flips = visibility.node.subscribe(owner: "VisibleLoopEffects") { [weak self] _ in self?.report() }
+            flips = node.subscribe(owner: "VisibleLoopEffects") { [weak self] _ in self?.report() }
         }
 
         @available(*, unavailable)
@@ -99,22 +101,21 @@ private struct WindowShownProbe: NSViewRepresentable {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             visibility.place(in: window)
-            visibility.node.set(isHiddenOrHasHiddenAncestor ? .hidden : .visible)
             report()
         }
 
         override func viewDidHide() {
             super.viewDidHide()
-            visibility.node.set(.hidden)
+            node.set(.hidden)
         }
 
         override func viewDidUnhide() {
             super.viewDidUnhide()
-            visibility.node.set(.visible)
+            node.set(.visible)
         }
 
         private func report() {
-            let isShown = visibility.node.isVisible
+            let isShown = node.isVisible
             if shown.isShown != isShown { shown.isShown = isShown }
         }
     }
