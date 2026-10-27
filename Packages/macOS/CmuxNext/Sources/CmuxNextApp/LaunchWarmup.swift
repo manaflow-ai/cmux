@@ -19,6 +19,8 @@ import Foundation
 /// `action_catalog_built` launch mark is when this thread finished it.
 enum LaunchWarmup {
     static func start(catalog: ActionCatalogLaunch) {
+        // qos-allow: a frame waits for it (userInteractive): main reads the catalog, the menu's symbol and the
+        // display UUIDs before its first frame; below main's QoS a loaded machine ran them after main reached them.
         let thread = Thread {
             catalog.build()
             DebugTimings.markLaunch("action_catalog_built")
@@ -31,9 +33,6 @@ enum LaunchWarmup {
             prewarmDisplayUUIDs()
         }
         thread.name = "cmux-next launch warm-up"
-        // The main thread waits for each of these before its first frame (the
-        // registry's catalog read, the menu's symbols, the window's display):
-        // below main's QoS, a loaded machine can run them after main reaches them.
         thread.qualityOfService = .userInteractive
         thread.start()
         // Its own thread: the connecting screen's strings can be read before the work above ends.
