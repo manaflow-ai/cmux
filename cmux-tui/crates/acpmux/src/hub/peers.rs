@@ -290,8 +290,11 @@ impl Hub {
         self.peers.lock().unwrap().get(name).cloned()
     }
 
-    /// Prefix a peer session's summary so it reads as `<peer>/<name>`.
+    /// Prefix a peer session's summary so it reads as `<peer>/<name>`. A display line the peer
+    /// put on a pending ask never reaches a client (`drop_display_lines`): every row a peer's
+    /// list or `session_changed` adds goes through here.
     pub(super) fn remote_summary(peer: &str, mut summary: Value) -> Value {
+        super::drop_display_lines(&mut summary);
         let generation = summary
             .get("sessionReceipt")
             .and_then(|value| serde_json::from_value::<SessionReceipt>(value.clone()).ok())
@@ -390,13 +393,8 @@ impl Hub {
                         if !self.is_current(&peer, generation) {
                             return;
                         }
-                        map.values_mut()
-                            .filter(|r| r.peer == peer)
-                            .filter_map(|r| {
-                                super::peer_cache::mark_stale(&mut r.summary, link.last_seen)
-                                    .then(|| r.summary.clone())
-                            })
-                            .collect()
+                        self.with_tombstones(&peer, generation, |t| t.link_ended());
+                        map.mark_peer_stale(&peer, link.last_seen)
                     };
                     if !changed.is_empty() {
                         self.save_peer_cache(&peer, generation, true);
@@ -413,6 +411,9 @@ impl Hub {
                         if !self.is_current(&peer, generation) {
                             return;
                         }
+                        // Read before a purge this link already brought (`purge_tombstones.rs`).
+                        let purged = self.with_tombstones(&peer, generation, |t| t.take());
+                        let purged = purged.unwrap_or_default();
                         let mut old: HashMap<String, Value> = map
                             .iter()
                             .filter(|(_, r)| r.peer == peer)
@@ -423,6 +424,9 @@ impl Hub {
                         for s in list {
                             let summary = Self::remote_summary(&peer, s);
                             let Some(receipt) = session_receipt(&summary) else { continue };
+                            if purged.contains(&receipt.mux_session_id) {
+                                continue;
+                            }
                             let id = receipt.qualified_id();
                             if old.remove(&id).as_ref() != Some(&summary) {
                                 changed.push(summary.clone());
@@ -451,6 +455,8 @@ impl Hub {
                             if !self.is_current(&peer, generation) {
                                 return;
                             }
+                            // An older list of this link must not bring it back.
+                            self.with_tombstones(&peer, generation, |t| t.purged(&mux_id));
                             let key = map
                                 .iter()
                                 .find(|(_, r)| r.peer == peer && r.receipt.mux_session_id == mux_id)
@@ -483,6 +489,7 @@ impl Hub {
                         if !self.is_current(&peer, generation) {
                             return;
                         }
+                        self.with_tombstones(&peer, generation, |t| t.changed(&mux_id));
                         let old_id = map
                             .iter()
                             .find(|(_, r)| r.peer == peer && r.receipt.mux_session_id == mux_id)
@@ -539,12 +546,14 @@ impl Hub {
                         });
                     }
                 }
-                PeerNotice::Notification { method: m, params } => {
+                PeerNotice::Notification { method: m, mut params } => {
                     let Some(id) =
                         params.get("sessionId").and_then(Value::as_str).map(str::to_owned)
                     else {
                         return;
                     };
+                    // No display line of the peer's own reaches a client (`drop_display_lines`).
+                    super::drop_display_lines(&mut params);
                     let summary = self
                         .remote_sessions
                         .lock()
