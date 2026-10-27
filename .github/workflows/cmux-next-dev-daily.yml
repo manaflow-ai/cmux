@@ -965,6 +965,9 @@ jobs:
       contents: read
     outputs:
       sha256: ${{ steps.build.outputs.sha256 }}
+      # A rerun of tip-dmg alone keeps this job's outputs from its own attempt,
+      # so the artifact name travels with them.
+      artifact: rcodesign-dmg-${{ github.run_attempt }}
     steps:
       - name: Checkout trusted build scripts
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1068,7 +1071,7 @@ jobs:
       - name: Download the DMG signer
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: rcodesign-dmg-${{ github.run_attempt }}
+          name: ${{ needs.rcodesign-dmg.outputs.artifact }}
           path: ${{ runner.temp }}/rcodesign-dmg
 
       # Only the binary rcodesign-dmg built, by its digest.

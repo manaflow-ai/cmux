@@ -771,6 +771,11 @@ check(any(step.get("run", "").startswith("./scripts/ci/build-rcodesign-dmg.sh") 
       and signer_job["outputs"]["sha256"] == "${{ steps.build.outputs.sha256 }}"
       and dmg_job["env"]["RCODESIGN_DMG_SHA256"] == "${{ needs.rcodesign-dmg.outputs.sha256 }}",
       "tip-dmg checks the signer against the digest its build reported")
+download = next(step for step in dmg_job["steps"] if step.get("name") == "Download the DMG signer")
+upload = next(step for step in signer_job["steps"] if "upload-artifact" in str(step.get("uses", "")))
+check(download["with"]["name"] == "${{ needs.rcodesign-dmg.outputs.artifact }}"
+      and signer_job["outputs"]["artifact"] == upload["with"]["name"],
+      "a tip-dmg rerun downloads the signer from the attempt that built it")
 build_script = (ROOT / "scripts/ci/build-rcodesign-dmg.sh").read_text()
 check("CRATE_SHA256=f24e9ebdb70a2aee3ca1cea217009fb50776955f0d7678c31d22e48c1524667f" in build_script
       and "--locked" in build_script and "rcodesign-$CRATE_VERSION-dmg.patch" in build_script,
