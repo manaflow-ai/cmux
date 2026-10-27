@@ -264,7 +264,7 @@ extension TerminalController {
     }
 
     private nonisolated static func surfaceNewDisplayBusyError(id: Any?) -> String {
-        guard let idValue = JSONValue(foundationObject: id) else {
+        guard let idValue = JSONValue(foundationObject: id as Any) else {
             return ControlResponseEncoder.encodeFailureResponse
         }
         return Self.v2Encoder.error(
