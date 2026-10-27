@@ -12,7 +12,7 @@ import CmuxNextPalette
 // App-wide inputs to the per-window focus coordinators.
 extension AppServices {
     /// Whether the key router decided a key-down: the main menu bar does not search for it (`ActionMenuBar`).
-    var decidedKey: (NSEvent) -> Bool {
+    var decidedKey: @MainActor (NSEvent) -> Bool {
         { [weak self] in self?.keyRouter.decided.contains($0) ?? false }
     }
 

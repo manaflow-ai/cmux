@@ -8,9 +8,12 @@ public import AppKit
 /// a chord with no menu item does. A chord that a responder item (Copy, Undo, Hide), a system item (Quit) or
 /// an item the bar does not make shares keeps AppKit's search, and so does every undecided key and a click.
 ///
-/// `NSMenu` is nonisolated in the macOS 26 SDK, so the bar is too (its overrides must match); the registry
-/// work runs on the main actor only, from AppKit's key dispatch on the main thread.
-public nonisolated final class ActionMenuBar: NSMenu {
+/// The macOS 26 SDK declares `NSMenu`'s `init(coder:)` and `performKeyEquivalent(with:)` nonisolated, so their
+/// overrides are too. The bar's state stays on the main actor: the key work runs there, on the main thread
+/// AppKit dispatches keys on, and reads the key-down from the registry (``ActionRegistry/dispatchingInputEvent``),
+/// matched by identity to the one AppKit hands the bar, so no event crosses actors. A key-down that is not the
+/// one being dispatched keeps AppKit's search.
+public final class ActionMenuBar: NSMenu {
     /// A key equivalent as AppKit matches it: the lowercased key and the modifiers.
     nonisolated struct Chord: Equatable {
         let key: String
@@ -37,7 +40,7 @@ public nonisolated final class ActionMenuBar: NSMenu {
 
     private weak var registry: ActionRegistry?
     /// Whether the key router decided a key-down (the App's `KeyRouter.decided`).
-    private let decidedKey: @MainActor (NSEvent) -> Bool
+    private nonisolated let decidedKey: @MainActor (NSEvent) -> Bool
     /// The key-down the bar last refused: the same event's second pass asks nothing again.
     private weak var refusedEvent: NSEvent?
 
@@ -47,25 +50,29 @@ public nonisolated final class ActionMenuBar: NSMenu {
         super.init(title: "")
     }
 
-    public required init(coder: NSCoder) {
+    public nonisolated required init(coder: NSCoder) {
         decidedKey = { _ in false }
         super.init(coder: coder)
     }
 
     // perf-hot: 0.5ms key-dispatch (every chord no view took)
-    public override func performKeyEquivalent(with event: NSEvent) -> Bool {
+    public nonisolated override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard event.type == .keyDown, Thread.isMainThread else { return super.performKeyEquivalent(with: event) }
-        if event === refusedEvent { return false }
+        // The event is alive for this call, so its identifier names it alone until the call returns.
+        let keyDown = ObjectIdentifier(event)
         // main-proof: the guard above returned unless this runs on the main thread.
-        if MainActor.assumeIsolated({ refusesSearch(for: event) }) { return false }
+        if MainActor.assumeIsolated({ refusesSearch(for: keyDown) }) { return false }
         return super.performKeyEquivalent(with: event)
     }
 
-    /// Whether the bar refuses to search for the key-down `event` (it records the refusal), and counts the
-    /// search AppKit runs otherwise. False without a registry.
-    @MainActor private func refusesSearch(for event: NSEvent) -> Bool {
+    /// Whether the bar refuses to search for the key-down `keyDown` (it records the refusal; its second pass is
+    /// refused at once), and counts the search AppKit runs otherwise. Only the key-down being dispatched
+    /// (``ActionRegistry/dispatchingInputEvent``) is refused. False without a registry.
+    private func refusesSearch(for keyDown: ObjectIdentifier) -> Bool {
+        if let refusedEvent, ObjectIdentifier(refusedEvent) == keyDown { return true }
         guard let registry else { return false }
-        if decidedKey(event), let chord = Chord(event), registry.refusesEveryKeyEquivalent(of: Self.items(matching: chord, in: self)) {
+        if let event = registry.dispatchingInputEvent(), ObjectIdentifier(event) == keyDown, decidedKey(event),
+           let chord = Chord(event), registry.refusesEveryKeyEquivalent(of: Self.items(matching: chord, in: self)) {
             refusedEvent = event
             registry.menuTarget.counters.skipped += 1
             return true

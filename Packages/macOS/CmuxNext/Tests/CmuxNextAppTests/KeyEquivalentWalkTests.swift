@@ -52,6 +52,8 @@ import Testing
         var gateAllows = false
         var dispatching = true
         var ran = 0
+        /// The key-down being dispatched (`ActionRegistry.dispatchingInputEvent`).
+        var event: NSEvent?
     }
 
     /// A shell window of 30 panes beside the view that has the keyboard, and its key router.
@@ -243,22 +245,29 @@ import Testing
         let bar = Self.bar(registry, [
             try #require(registry.makeMenuItem(for: "newTab.default")), try #require(registry.makeMenuItem(for: "quit")), copy,
         ], decided: decided)
+        registry.dispatchingInputEvent = { counts.event }
         func decidedKey(_ key: String, keyCode: UInt16) throws -> NSEvent {
             let event = try Self.key(key, ignoringModifiers: key, [.command], keyCode: keyCode, in: nil)
             decided.add(event)
             return event
         }
+        /// The bar's search for `event` while it is the key-down being dispatched, as `CmuxApplication` sends it.
+        func press(_ event: NSEvent) -> Bool {
+            counts.event = event
+            defer { counts.event = nil }
+            return bar.performKeyEquivalent(with: event)
+        }
 
         let newTab = try decidedKey("t", keyCode: 17)
-        #expect(!bar.performKeyEquivalent(with: newTab))
-        #expect(!bar.performKeyEquivalent(with: newTab), "the second pass of a refused Cmd-T took it")
+        #expect(!press(newTab))
+        #expect(!press(newTab), "the second pass of a refused Cmd-T took it")
         #expect(counts.gate == 1, "the gate was asked \(counts.gate) times for one refused Cmd-T")
         #expect(registry.menuKeyEquivalentCounters == MenuKeyEquivalentCounters(searches: 0, skipped: 1, validations: 0))
 
-        _ = bar.performKeyEquivalent(with: try decidedKey("q", keyCode: 12))
-        _ = bar.performKeyEquivalent(with: try decidedKey("c", keyCode: 8))
-        _ = bar.performKeyEquivalent(with: try decidedKey("j", keyCode: 38))
-        _ = bar.performKeyEquivalent(with: try Self.key("t", ignoringModifiers: "t", [.command], keyCode: 17, in: nil))
+        _ = press(try decidedKey("q", keyCode: 12))
+        _ = press(try decidedKey("c", keyCode: 8))
+        _ = press(try decidedKey("j", keyCode: 38))
+        _ = press(try Self.key("t", ignoringModifiers: "t", [.command], keyCode: 17, in: nil))
         #expect(registry.menuKeyEquivalentCounters.searches == 4,
                 "Quit, Copy, an unbound chord or an undecided Cmd-T lost the menu search")
         #expect(registry.menuKeyEquivalentCounters.skipped == 1)
@@ -292,6 +301,7 @@ import Testing
         registry.bind(action, isEnabled: { counts.availability += 1; return true }) { counts.ran += 1 }
         let router = shown.router
         registry.isDispatchingKeyDown = { router.inputDispatch.isKeyDown }
+        registry.dispatchingInputEvent = { router.inputDispatch.event }
         registry.menuKeyEquivalentGate = { id in
             counts.gate += 1
             return router.allowsMenuKeyEquivalent(id)
