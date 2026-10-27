@@ -100,6 +100,9 @@ for UIKit. Drive everything else from `ScreenSession`:
 - state: `phase` (`.connecting`, `.connected`, `.failed(message:needsSignIn:)`, `.ended`), `isReconnecting`, `stats`, `streamPath`, `frameSize`;
 - input: `tap(_:modifiers:)`, `type(_:modifiers:)`, `key(_:down:)`, `click(_:)`, `movePointer(to:)`, `press(_:down:)`, `scroll(dx:dy:)`;
 - `relayOnly`: connect only through the relay server (for testing that path).
+- stats line: a stream's `stats` are read from WebRTC only while `preferences.showStats` is on and
+  `statsVisible` is true; set `statsVisible` when your stats line shows and when it goes (`ScreenSessionView`
+  does). Each sample is a one-shot deadline; `useStatsDeadline(_:)` puts it on the host's scheduler.
 - control: `selectDisplay(_:)`, `preferences.quality` + `applyQuality()`, `refresh()`, `resumeIfNeeded()`, `connect()`, `reconnect()` (connect again with retries), `close()`.
 
 `MacShortcutsBar(session:shortcuts:)` and `PairingScanner { link in … }`
