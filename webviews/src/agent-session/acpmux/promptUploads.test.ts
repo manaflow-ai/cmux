@@ -201,9 +201,9 @@ test("removing every shared waiter cancels the upload and releases its Blob", as
   removed = true;
   releasePromptUploadAttachments([one.id]);
   expect(cancelled).toBe(true);
+  const rejected = Promise.all([first.catch((error) => error), retry.catch((error) => error)]);
   done.resolve();
-  await expect(first).rejects.toThrow("closed");
-  await expect(retry).rejects.toThrow("closed");
+  for (const error of await rejected) expect(error.message).toContain("closed");
   expect(blobs().size).toBe(0);
 });
 test("an older daemon keeps the existing inline block shape when upload refs are unavailable", async () => {

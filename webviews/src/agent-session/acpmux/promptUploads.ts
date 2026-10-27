@@ -24,7 +24,7 @@ type UploadBlobScope = typeof globalThis & { __cmuxUploadBlobs?: Map<string, Blo
 const tokenOwners = new Map<string, string>();
 const activeTokens = new Set<string>();
 const inFlight = new Map<string, Promise<UploadReply>>();
-const waiters = new Map<string, number>();
+const waiters = new Map<string, Set<{ isCancelled?: () => boolean }>>();
 const discardedTokens = new Set<string>();
 const cancelTokens = new Map<string, () => void>();
 const tokenRecords = new Map<string, () => void>();
@@ -48,7 +48,8 @@ export function releasePromptUploadBlob(token: string, cancel = false): void {
 }
 function discardToken(token: string, cancel = true): void {
   if (activeTokens.has(token)) {
-    if (cancel && (waiters.get(token) ?? 0) > 1) return;
+    const shared = waiters.get(token);
+    if (cancel && shared && shared.size > 1 && [...shared].some((waiter) => !waiter.isCancelled?.())) return;
     discardedTokens.add(token);
     if (cancel) cancelTokens.get(token)?.();
   } else releasePromptUploadBlob(token, cancel);
@@ -142,7 +143,10 @@ export async function preparePromptUploads({
           void transport.cancelBlob!(token).catch(() => undefined);
         });
       inFlight.set(token, sending);
-      waiters.set(token, (waiters.get(token) ?? 0) + 1);
+      const waiter = { isCancelled };
+      const shared = waiters.get(token) ?? new Set();
+      shared.add(waiter);
+      waiters.set(token, shared);
       const forget = () => {
         releasePromptUploadBlob(token);
         if (tokenCache.get(key)?.token === token) tokenCache.delete(key);
@@ -153,12 +157,11 @@ export async function preparePromptUploads({
         ensureOpen();
         ref = completedReply(reply, size);
       } catch (error) {
-        if (discardedTokens.has(token) && waiters.get(token) === 1) forget();
+        if (discardedTokens.has(token) && waiters.get(token)?.size === 1) forget();
         throw error;
       } finally {
-        const left = (waiters.get(token) ?? 1) - 1;
-        if (left) waiters.set(token, left);
-        else {
+        shared.delete(waiter);
+        if (!shared.size) {
           waiters.delete(token);
           if (inFlight.get(token) === sending) {
             inFlight.delete(token);
