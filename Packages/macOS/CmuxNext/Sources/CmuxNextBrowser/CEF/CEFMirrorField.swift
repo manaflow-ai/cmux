@@ -140,7 +140,7 @@ extension CEFShimEvent {
         case .tab(let kind, let browser, let window, _): (CEFMirrorTrigger.tab(kind), browser, window)
         case .devToolsOpened(let browser, _, _): (CEFMirrorTrigger.devToolsOpened, browser, 0)
         case .devToolsClosed(let browser, _): (CEFMirrorTrigger.devToolsClosed, browser, 0)
-        case .renderTerminated(let browser, _, _, _, _): (CEFMirrorTrigger.renderTerminated, browser, 0)
+        case .renderTerminated(let browser, _, _, _, _, _): (CEFMirrorTrigger.renderTerminated, browser, 0)
         case .frameRenderers(let browser): (CEFMirrorTrigger.frameRenderers, browser, 0)
         default: nil
         }
