@@ -108,7 +108,6 @@ export function QueuedMessageCard({
       <IncomingMessageLine
         id={row.id}
         message={message}
-        messageAt={row.at}
         images={row.images}
         onOpen={onOpen}
         onReply={onReply}
