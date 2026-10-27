@@ -18,9 +18,18 @@ final class WebKitPageContainer: NSView {
     /// The web view; WebKit owns its frame (an attached inspector shrinks it).
     private(set) weak var page: NSView?
 
-    init(page: NSView) {
+    /// What hides the web view from WebKit (``WebKitPageVisibility``): the web view's own `isHidden`, set in the
+    /// change's turn, so a show is applied before the switch's frame commits. Only the web view: an attached
+    /// inspector or a stand-in beside it keeps its own state.
+    var visibility: WebKitPageVisibility {
+        didSet { if visibility.hidesPage != oldValue.hidesPage { page?.isHidden = visibility.hidesPage } }
+    }
+
+    init(page: NSView, visibility: WebKitPageVisibility = WebKitPageVisibility()) {
         self.page = page
+        self.visibility = visibility
         super.init(frame: .zero)
+        page.isHidden = visibility.hidesPage
         page.frame = bounds
         page.autoresizingMask = [.width, .height]
         page.translatesAutoresizingMaskIntoConstraints = true

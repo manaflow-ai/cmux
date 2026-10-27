@@ -104,7 +104,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         pageBaseHold = MainDeadline(owner: "browser.pageBase", workClass: .visible, scheduler: engine.deadlines)
         let webView = WebKitWebView(frame: .zero, configuration: webViewConfiguration)
         self.webView = webView
-        container = WebKitPageContainer(page: webView)
+        container = WebKitPageContainer(page: webView, visibility: WebKitPageVisibility(followsContent: engine.hidesHiddenTabs))
         super.init()
         inspectorWatch.attach(webView: webView, container: container, events: engine.appEvents)
 
@@ -179,8 +179,9 @@ public final class WebKitTab: NSObject, BrowserTab {
         }
     }
 
-    /// WebKit draws in-view and throttles hidden views itself.
-    public func setContentVisible(_ visible: Bool) {}
+    /// WebKit draws in-view; with ``WebKitEngine/hidesHiddenTabs`` a hidden page's web view is hidden to WebKit
+    /// (``WebKitPageVisibility``), shown again in this call.
+    public func setContentVisible(_ visible: Bool) { container.visibility.contentHidden = !visible }
 
     // MARK: Snapshot, script, find
 
@@ -321,6 +322,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         machine.apply(event)
         let audible = machine.state.media?.isAudible == true
         if audible != isAudible { isAudible = audible }
+        container.visibility.playsMedia = audible || machine.state.media?.isPictureInPicture == true
         for observer in navigationObservers.values { observer(event) }
         if machine.state.faviconURL != previousFavicon {
             faviconURLDidChange()

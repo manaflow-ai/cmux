@@ -48,6 +48,9 @@ public final class WebKitEngine: BrowserEngine {
     /// WebKit's; the clock times its steps (tests replace both).
     var rateReshowSnapshot: (() async -> NSImage?)?
     var rateReshowClock: any Clock<Duration> = ContinuousClock()
+    /// A tab the content lifecycle hides is hidden to WebKit (``WebKitPageVisibility``, feature `webkitHiddenTabs`).
+    /// Read when each tab is made; the App sets it once, before its first tab.
+    public var hidesHiddenTabs = false
     /// HTTP sign-ins the user chose to remember (Keychain; tests inject memory).
     var httpCredentials: any BrowserHTTPCredentialStoring = KeychainHTTPCredentialStore.standard
 
