@@ -25769,6 +25769,34 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "undeclared",
+      "cli_name" : "cloud apply-machine-config",
+      "context_menu" : "undeclared",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudApplyMachineConfig",
+      "main_menu" : null,
+      "mcp" : "undeclared",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Apply Machine Config",
+      "title_key" : "action.cloudApplyMachineConfig",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "cloud set-idle-pause",
       "context_menu" : "offered",
