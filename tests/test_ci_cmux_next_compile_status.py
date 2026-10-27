@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""cmux-next/linux-compile: the controller's Linux Release compile of the exact head, published fail-closed.
+"""cmux-next/compile: the controller's Release compile of the exact head, published fail-closed.
 
 The status step runs here as written in cmux-next.yml, with a stand-in `curl` that serves the
 compile-check reply and records each status post.
@@ -47,7 +47,7 @@ cp "$REPLY" "$out"
 
 
 def job() -> dict:
-    return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["linux-compile-status"]
+    return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["compile-status"]
 
 
 def step_script() -> str:
@@ -96,8 +96,8 @@ class StatusMapping(unittest.TestCase):
             with self.subTest(reply=reply):
                 code, posts, _ = self.run_step(reply)
                 self.assertEqual(code == 0, ok)
-                self.assertEqual([post["state"] for post in posts], ["pending", state])
-                self.assertTrue(all(post["context"] == "cmux-next/linux-compile" for post in posts))
+                self.assertEqual([(post["state"], post["context"]) for post in posts],
+                                 [("pending", "cmux-next/compile"), (state, "cmux-next/compile")])
 
     def test_a_failure_links_the_compile_log(self):
         _, posts, _ = self.run_step(self.reply("fail"))
