@@ -460,14 +460,16 @@ final class BrowserTabService {
     /// the record reopened at relaunch is the page the user last saw.
     func flushRecords() async {
         for writer in writers.values { await writer.flushNow() }
-        // Until none is left: quit's run loop still takes input, and a write typed meanwhile chains on (or adds) one.
-        while let (id, write) = recordWrites.first {
-            await write.value
-            if recordWrites[id] == write { recordWrites[id] = nil }
-        }
         // Each page is asked for its scroll position at once, not in turn.
         // task-owner: every flush is awaited before quit goes on.
         let flushes = historyWriters.values.map { writer in Task { await writer.flushNow() } }
         for flush in flushes { await flush.value }
+        // Last, and until none is left: quit's run loop still takes input, and an address typed during any of
+        // the awaits above or below chains on (or adds) one. The function returns with no suspension after the
+        // final check, so no typed address of the flush's time is left behind.
+        while let (id, write) = recordWrites.first {
+            await write.value
+            if recordWrites[id] == write { recordWrites[id] = nil }
+        }
     }
 }
