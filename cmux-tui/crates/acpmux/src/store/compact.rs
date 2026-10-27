@@ -126,13 +126,11 @@ impl LocalStore {
         }
         let (write, archive) = match mode {
             CompactMode::DryRun => (false, None),
-            CompactMode::Write { archive } => {
-                (true, archive.map(|a| a.join(id).join(format!("{}", now_ms()))))
-            }
+            CompactMode::Write { archive } => (true, archive),
         };
-        let archive = match &archive {
-            Some(pass) => {
-                let kept = Archive::create(pass)?;
+        let archive = match archive {
+            Some(root) => {
+                let kept = Archive::create(root, id, &now_ms().to_string())?;
                 let meta = self.dir(id).join("session.json");
                 if meta.exists() {
                     // A copy: the chat's own file may be written again in place.

@@ -17,7 +17,7 @@ pub(super) use other::Archive;
 
 #[cfg(unix)]
 mod unix {
-    use anyhow::{Context, Result, anyhow, bail, ensure};
+    use anyhow::{Context, Result, anyhow, ensure};
     use std::ffi::{CString, OsStr};
     use std::fs::File;
     use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
@@ -27,7 +27,8 @@ mod unix {
 
     /// A pass's archive folder, held open (module docs).
     pub(in crate::store) struct Archive {
-        /// From the first folder that was there before the pass down to the pass's own.
+        /// From the first folder above the named one that was there before the pass (the named
+        /// one itself, when it was) down to the pass's own.
         dirs: Vec<File>,
         events: File,
     }
@@ -69,39 +70,46 @@ mod unix {
     }
 
     impl Archive {
-        /// Makes `pass` and its `events`, and every missing folder above it, owner-only. A pass
-        /// folder that is there already is another pass's: refused.
-        pub(in crate::store) fn create(pass: &Path) -> Result<Self> {
-            let existed = pass
-                .ancestors()
-                .skip(1)
-                .find(|dir| !dir.as_os_str().is_empty() && dir.is_dir())
-                .context("the archive has no folder above it")?;
-            let root = std::fs::OpenOptions::new()
-                .read(true)
-                .custom_flags(libc::O_DIRECTORY | libc::O_CLOEXEC)
-                .open(existed)
-                .with_context(|| format!("open archive folder {}", existed.display()))?;
-            let parts = pass
-                .strip_prefix(existed)?
-                .components()
-                .map(|part| match part {
-                    Component::Normal(part) => Ok(part),
-                    _ => bail!("archive path {} is not plain", pass.display()),
-                })
-                .collect::<Result<Vec<_>>>()?;
-            let mut dirs = vec![root];
-            let mut path = existed.to_path_buf();
-            for (i, part) in parts.iter().enumerate() {
+        /// Makes `<root>/<id>/<pass>/events`, owner-only. `root` is the folder the person named,
+        /// which may be a link and is made owner-only if it is not there; the chat's folder is
+        /// made the first time, and the pass's folder is new: one there already is another
+        /// pass's, refused.
+        pub(in crate::store) fn create(root: &Path, id: &str, pass: &str) -> Result<Self> {
+            use std::os::unix::fs::DirBuilderExt;
+            // The folders above it that were not there are made, and synced from the top one
+            // that was.
+            let mut named = Vec::new();
+            for dir in root.ancestors().filter(|dir| !dir.as_os_str().is_empty()) {
+                named.push(dir.to_path_buf());
+                if dir.is_dir() {
+                    break;
+                }
+            }
+            std::fs::DirBuilder::new().recursive(true).mode(0o700).create(root)?;
+            let open = |dir: &Path| {
+                std::fs::OpenOptions::new()
+                    .read(true)
+                    .custom_flags(libc::O_DIRECTORY | libc::O_CLOEXEC)
+                    .open(dir)
+                    .with_context(|| format!("open archive folder {}", dir.display()))
+            };
+            let mut dirs = named.iter().rev().map(|dir| open(dir)).collect::<Result<Vec<_>>>()?;
+            let mut path = root.to_path_buf();
+            for (part, made_before) in [(id, true), (pass, false)] {
+                ensure!(
+                    matches!(
+                        Path::new(part).components().collect::<Vec<_>>()[..],
+                        [Component::Normal(_)]
+                    ),
+                    "archive folder name {part:?} is not plain"
+                );
                 path.push(part);
-                let part = name(part)?;
+                let part = name(OsStr::new(part))?;
                 let parent = dirs.last().expect("the root");
                 match mkdir_at(parent, &part) {
                     Ok(()) => {}
-                    // A chat's folder an earlier pass made; never the pass's own.
-                    Err(e)
-                        if e.kind() == std::io::ErrorKind::AlreadyExists && i + 1 < parts.len() => {
-                    }
+                    // The chat's folder an earlier pass made; never the pass's own.
+                    Err(e) if made_before && e.kind() == std::io::ErrorKind::AlreadyExists => {}
                     Err(e) => {
                         return Err(e)
                             .with_context(|| format!("make archive folder {}", path.display()));
@@ -113,9 +121,9 @@ mod unix {
             let events = name(OsStr::new("events"))?;
             let pass_dir = dirs.last().expect("the pass's folder");
             mkdir_at(pass_dir, &events).with_context(|| {
-                format!("make archive folder {}", pass.join("events").display())
+                format!("make archive folder {}", path.join("events").display())
             })?;
-            let events = own_dir_at(pass_dir, &events, &pass.join("events"))?;
+            let events = own_dir_at(pass_dir, &events, &path.join("events"))?;
             Ok(Self { dirs, events })
         }
 
@@ -182,7 +190,8 @@ mod other {
     }
 
     impl Archive {
-        pub(in crate::store) fn create(pass: &Path) -> Result<Self> {
+        pub(in crate::store) fn create(root: &Path, id: &str, pass: &str) -> Result<Self> {
+            let pass = &root.join(id).join(pass);
             anyhow::ensure!(!pass.exists(), "archive folder {} already exists", pass.display());
             std::fs::create_dir_all(pass.parent().unwrap_or(pass))?;
             crate::config::private_state_dir(pass)?;
