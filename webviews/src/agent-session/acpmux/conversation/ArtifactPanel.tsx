@@ -7,13 +7,19 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useT } from "../i18n";
 import { artifactFileName, documentName, previewHtml, type Artifact, type ArtifactKind } from "./artifactPreview";
-import { ARTIFACT_FRAME_URL, artifactGallery, artifactNeedsRun, galleryArtifactDocument } from "./artifactSandbox";
+import {
+  artifactCanRender,
+  artifactFrameURL,
+  artifactGallery,
+  artifactNeedsRun,
+  galleryArtifactDocument,
+} from "./artifactSandbox";
 import { renderFrameCSS } from "./renderBase";
 import { copyText } from "./clipboard";
 import { CodeBlock, languageLabel } from "./CodeBlock";
 import { Check, ChevronLeft, ChevronRight, Close, Copy, SaveTray } from "./icons";
 import { Markdown } from "./Markdown";
-import { canRender, ranRenders, useRenderFrame } from "./RenderCard";
+import { ranRenders, useRenderFrame } from "./RenderCard";
 
 export { OpenPreview } from "./OpenPreview";
 
@@ -63,7 +69,7 @@ export function ArtifactPanel({
   const index = Math.max(0, found);
   const artifact = list[index]!;
   const jsx = /^(jsx|tsx)$/i.test(artifact.lang);
-  const previews = artifact.kind === "markdown" || canRender() || artifactGallery();
+  const previews = artifact.kind === "markdown" || artifactCanRender() || artifactGallery();
   const [tab, setTab] = useState<"preview" | "code">(previews ? "preview" : "code");
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -276,7 +282,7 @@ function RunningFrame({ html, title }: { html: string; title: string }) {
     <iframe
       ref={frame}
       className="acpmux-artifact-frame"
-      src={artifactGallery() ? undefined : ARTIFACT_FRAME_URL}
+      src={artifactGallery() ? undefined : artifactFrameURL()}
       srcDoc={artifactGallery() ? galleryArtifactDocument(html, renderFrameCSS()) : undefined}
       title={title}
       sandbox="allow-scripts"
