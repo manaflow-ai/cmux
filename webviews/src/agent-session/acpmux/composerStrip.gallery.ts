@@ -80,6 +80,16 @@ export default agentPaneEntry({
       note: "After the first send: no location strip (a chat cannot change folder or machine), and no gap where it stood.",
       snapshot: started(),
     },
+    "started-movable": {
+      note: "A started chat its tab's right-click menu can move (Move to Cloud): still no location strip over the composer; the move stays in that menu.",
+      native: { "pane.tabState": { moves: ["cloudMove"] } },
+      snapshot: started(),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer-box"));
+        if (ctx.document.querySelector(".acpmux-composer-strip"))
+          throw new Error("a started chat drew the location strip over its composer");
+      },
+    },
     "long-folder": {
       note: 'A new chat in a folder with a long name: in a narrow pane it cuts in the middle and keeps its last word ("atlas-we…service"); the branch keeps its name.',
       ready: { newSession: true },
