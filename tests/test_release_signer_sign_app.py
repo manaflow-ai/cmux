@@ -16,6 +16,7 @@ import json
 import os
 import plistlib
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -50,7 +51,10 @@ if argv[0] == "sign":
     if os.path.isdir(target):
         record["files"] = sorted(os.path.relpath(os.path.join(d, f), target)
                                  for d, _, fs in os.walk(target) for f in fs)
-        record["manifest"] = json.load(open(target + "/Contents/Resources/bin/cmux-tui-ssh/manifest.json"))
+        manifest = target + "/Contents/Resources/bin/cmux-tui-ssh/manifest.json"
+        record["manifest"] = json.load(open(manifest)) if os.path.exists(manifest) else None
+        import plistlib
+        record["nonce"] = "CMUXNotarizationSubmission" in plistlib.load(open(target + "/Contents/Info.plist", "rb"))
     else:
         open(target, "ab").write(b"\nSIGNED")
 # Only openssl may see the certificate secrets: the signer unsets them after the PEM exists.
@@ -61,6 +65,20 @@ with open(os.environ["FAKE_LOG"], "a") as log:
     log.write(json.dumps(record) + "\n")
 if argv[0] == os.environ.get("FAKE_FAIL") or argv[-1].endswith(os.environ.get("FAKE_FAIL_PATH") or "\0"):
     sys.exit("fake signer failure")
+if argv[0] == "encode-app-store-connect-api-key":
+    open(argv[argv.index("-o") + 1], "w").write("{}")
+if argv[0] == "notary-submit":
+    print("created submission ID: 0f0e0d0c-0b0a-4908-8706-050403020100")
+    if os.environ.get("FAKE_NOTARY") == "timeout":
+        sys.exit("reached wait limit after 1500s")
+    if os.environ.get("FAKE_NOTARY") == "invalid":
+        sys.exit("notarization failed: Invalid")
+if argv[0] == "notary-log":
+    print(json.dumps({"status": "Accepted", "ticketContents": [{"arch": "arm64", "cdhash": os.environ["FAKE_TICKET"]}]}))
+if argv[0] == "staple":
+    ticket = argv[-1] + "/Contents/CodeResources"
+    open(ticket, "wb").write(b"ticket" + bytes.fromhex(os.environ.get("FAKE_STAPLED", os.environ["FAKE_TICKET"])))
+    os.chmod(ticket, 0o600)
 if argv[0] == "print-signature-info":
     print("- path: " + argv[-1] + "\n  entity:\n    mach_o:\n      signature:\n        code_directory:")
     if b"ENTITLED" in open(argv[-1], "rb").read():
@@ -154,6 +172,10 @@ def build_app(app: Path, bundle_id: str = BUNDLE_ID) -> None:
         write(app / rel, data)
     manifest = {"binaries": {rel.rsplit("/", 1)[1]: hashlib.sha256(d).hexdigest() for rel, d in tui.items()}}
     write(app / "Contents/Resources/bin/cmux-tui-ssh/manifest.json", json.dumps(manifest).encode(), 0o644)
+
+
+NOTARY_KEY_ARGS = {"encode-app-store-connect-api-key": {"api-key.json", "AuthKey.p8"},
+                   "notary-submit": {"api-key.json"}, "notary-log": {"api-key.json"}}
 
 
 def options(argv: list[str], name: str) -> list[str]:
@@ -300,6 +322,10 @@ class SignAppTest(unittest.TestCase):
                 for secret in (P12_BASE64, PASSWORD, P12.decode("latin-1")):
                     self.assertNotIn(secret, arg, call)
                 if pem in arg or (key_dir in arg and call["tool"] != "rm"):
+                    # helper-first: the notary key, written and read only as files in the same directory.
+                    if arg != pem and call["tool"] == "signer" and call["argv"][0] in NOTARY_KEY_ARGS:
+                        self.assertIn(Path(arg).name, NOTARY_KEY_ARGS[call["argv"][0]], call)
+                        continue
                     self.assertEqual((call["tool"], call["argv"][i - 1], arg), ("signer", "--pem-file", pem))
         self.assertFalse(Path(key_dir).exists())
         # The secrets are unset once the PEM exists: no signer call inherits them.
@@ -326,6 +352,103 @@ class SignAppTest(unittest.TestCase):
         write(self.app / "Contents/Library/SystemExtensions/t.systemextension/Contents/MacOS/t", b"\xcf\xfa\xed\xfe")
         self.assertIn("no Cloud tunnel", self.run_script(ok=False).stderr)
         self.assertEqual(self.calls("signer", "sign"), [])
+
+
+CU = "Contents/Library/cmux Computer Use.app"
+CU_EXE = CU + "/Contents/MacOS/cmux-computer-use"
+
+
+def signed_macho(tag: bytes, cpu: int = 0x0100000C) -> tuple[bytes, str]:
+    """A thin Mach-O with one SHA-256 CodeDirectory, and its CDHash."""
+    cd = bytearray(struct.pack(">II", 0xFADE0C02, 44) + b"\0" * 36)
+    cd[37] = 2
+    cd = bytes(cd[:40]) + tag[:4].ljust(4, b"\0")
+    sig = struct.pack(">III", 0xFADE0CC0, 20 + len(cd), 1) + struct.pack(">II", 0, 20) + cd
+    head = struct.pack("<IIIIIIII", 0xFEEDFACF, cpu, 0, 2, 1, 16, 0, 0)
+    body = head + struct.pack("<IIII", 0x1D, 16, 48, len(sig))
+    return body + sig, hashlib.sha256(cd).hexdigest()[:40]
+
+
+class HelperFirstTest(SignAppTest):
+    """CMUX_SIGN_MODE=helper-first: the Computer Use helper is signed alone,
+    notarized, checked and stapled before the rest of the bundle is signed
+    around it, as notarize-computer-use-helper.sh and all-except-computer-use."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        macho, self.cdhash = signed_macho(b"cua1")
+        write(self.app / CU_EXE, macho)
+        self.env.update(CMUX_SIGN_MODE="helper-first", FAKE_TICKET=self.cdhash, ASC_API_KEY_ID="KEYID12345",
+                        ASC_API_ISSUER_ID="issuer", ASC_API_KEY_P8_BASE64=base64.b64encode(b"p8-key-9c1e").decode())
+
+    def test_components_get_the_sign_cmux_bundle_treatment(self) -> None:
+        pass  # the bundle pass below leaves the helper out; the rest is SignAppTest's
+
+    def test_helper_is_notarized_and_stapled_before_the_app_is_signed(self) -> None:
+        self.run_script()
+        order = [(c["argv"][0], c["argv"][-1]) for c in self.calls("signer") if c["argv"][0] != "print-signature-info"]
+        helper, app = str(self.app / CU), str(self.app)
+        steps = [o for o in order if o[1] in (helper, app) or o[0] in ("notary-log", "encode-app-store-connect-api-key")]
+        self.assertEqual([s[0] for s in steps], ["encode-app-store-connect-api-key", "sign", "notary-submit",
+                                                  "notary-log", "staple", "sign"])
+        self.assertEqual([s[1] for s in steps if s[0] in ("sign", "notary-submit", "staple")],
+                         [helper, helper, helper, app])
+        [alone] = self.signs(self.app / CU)
+        self.assertTrue(alone["nonce"], "the submission nonce goes in before the helper is signed")
+        self.assertEqual(alone["entitlements"], {"": HELPER_TEXT})
+        self.assertIn("--for-notarization", alone["argv"])
+        self.assertEqual(sorted(options(alone["argv"], "--code-signature-flags")),
+                         ["Contents/Frameworks/libcu.dylib:runtime", "Contents/MacOS/cmux-computer-use:runtime", "runtime"])
+        # Checked after signing and after stapling, in place and as a standalone copy.
+        verified = [c["argv"][-1] for c in self.calls("signer", "verify")]
+        self.assertEqual(verified.count(str(self.app / CU_EXE)), 3)
+        self.assertTrue(any(v.endswith("/standalone.app/Contents/MacOS/cmux-computer-use") for v in verified))
+        ticket = self.app / CU / "Contents/CodeResources"
+        self.assertEqual(ticket.read_bytes(), b"ticket" + bytes.fromhex(self.cdhash))
+        self.assertEqual(ticket.stat().st_mode & 0o777, 0o644)
+        # The bundle pass keeps the helper's signature and ticket: excluded, no scoped settings.
+        [sign] = self.signs(self.app)
+        self.assertEqual(sorted(options(sign["argv"], "--exclude"))[:2], [CU, CU + "/**"])
+        self.assertFalse([v for v in options(sign["argv"], "--entitlements-xml-file")
+                          + options(sign["argv"], "--code-signature-flags") if v.startswith(CU)])
+        self.assertEqual(set(sign["entitlements"]), (HELPER - {CU_EXE}) | JIT | CLEARED | {""})
+        # The API key reached the signer only as a file.
+        for call in self.calls():
+            self.assertNotIn(self.env["ASC_API_KEY_P8_BASE64"], " ".join(call["argv"]))
+
+    def test_a_ticket_that_misses_a_slice_stops_before_anything_else(self) -> None:
+        for env, stops_after in (({"FAKE_TICKET": "ab" * 20}, "notary-log"), ({"FAKE_STAPLED": "cd" * 20}, "staple"),
+                                 ({"FAKE_NOTARY": "invalid"}, "notary-submit")):
+            with self.subTest(**env):
+                result = self.run_script(ok=False, **env)
+                self.assertEqual(self.signs(self.app), [])
+                self.assertEqual(self.calls("signer")[-1]["argv"][0], stops_after, result.stderr)
+        result = self.run_script(ok=False, FAKE_NOTARY="timeout")
+        self.assertEqual(result.returncode, 75)
+        self.assertEqual(self.signs(self.app), [])
+
+    def test_needs_the_notary_key(self) -> None:
+        self.env.pop("ASC_API_KEY_ID")
+        self.run_script(ok=False)
+        self.assertEqual(self.calls("signer", "sign"), [])
+
+
+class SliceCdhashesTest(unittest.TestCase):
+    """slice-cdhashes.py prints what slice_cdhashes (lipo, codesign -d) prints."""
+
+    def test_universal_helper(self) -> None:
+        arm, arm_hash = signed_macho(b"arm1")
+        x86, x86_hash = signed_macho(b"x861", cpu=0x01000007)
+        fat = struct.pack(">II", 0xCAFEBABE, 2) + struct.pack(">iiIII", 0x01000007, 3, 4096, len(x86), 12)
+        fat += struct.pack(">iiIII", 0x0100000C, 0, 8192, len(arm), 14)
+        fat = fat.ljust(4096, b"\0") + x86.ljust(4096, b"\0") + arm
+        with tempfile.TemporaryDirectory() as tmp:
+            app = Path(tmp) / "h.app"
+            write(app / "Contents/Info.plist", plistlib.dumps({"CFBundleExecutable": "h"}))
+            write(app / "Contents/MacOS/h", fat)
+            out = subprocess.run([sys.executable, "-I", str(SCRIPT.parent / "slice-cdhashes.py"), str(app)],
+                                 capture_output=True, text=True, check=True).stdout
+        self.assertEqual(out, f"arm64={arm_hash}\nx86_64={x86_hash}\n")
 
 
 if __name__ == "__main__":
