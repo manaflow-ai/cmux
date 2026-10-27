@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
-"""energy-test-phase.py (p14-energy-123): D7 auto simulates 15% on battery, wants reason `battery`, always clears,
-and wants the Mac's own policy and inputs back, "Turn Off for Now" included; a hung app or a failed clear is a
-problem, never a crash; --dry-run prints the exact commands; no workflow references it.
+"""energy-test-phase.py (p14-energy-090, -123): D7 auto simulates 15% on battery, wants reason `battery`, always
+clears, and wants the Mac's own policy and inputs back, "Turn Off for Now" included; a hung app or a failed clear is a
+problem, never a crash. The D1-D17 orchestrator: --dry-run prints each step's exact command; fixture outputs of
+wakeup-audit, idle-budget, cef-idle-probe, bench-typing, xbench, cargo nextest and the Swift suite lane parse into
+pass, fail or not judged; --collect-only judges a run folder; it waits for a quiet host; no workflow references it.
 
   python3 -m pytest scripts/cmux-next/tests/test_energy_test_phase.py
 """
 from __future__ import annotations
 
+import argparse
 import contextlib
 import importlib.util
 import io
 import json
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -73,40 +77,35 @@ class FakeApp:
 class D7AutoTests(unittest.TestCase):
     def test_fifteen_percent_on_battery_with_reason_battery_passes(self):
         app = FakeApp()
-        results = phase.run(["D7-auto"], app.rpc)
-        self.assertTrue(results["D7-auto"]["pass"], results["D7-auto"]["problems"])
+        problems, _ = phase.run_d7_auto(app.rpc)
+        self.assertEqual(problems, [])
         self.assertEqual(app.calls, [(phase.ENERGY, {}), (phase.SIMULATE, {"on_battery": True, "percent": 15}),
                                      (phase.SIMULATE, {"clear": True})])
 
     def test_another_reason_fails(self):
-        results = phase.run(["D7-auto"], FakeApp(simulate_reason=None).rpc)
-        self.assertFalse(results["D7-auto"]["pass"])
-        self.assertIn("reason 'battery'", results["D7-auto"]["problems"][0])
+        problems, _ = phase.run_d7_auto(FakeApp(simulate_reason=None).rpc)
+        self.assertIn("reason 'battery'", problems[0])
 
     def test_a_clear_that_does_not_restore_fails(self):
-        results = phase.run(["D7-auto"], FakeApp(forget_clear=True).rpc)
-        problems = " ".join(results["D7-auto"]["problems"])
+        problems = " ".join(phase.run_d7_auto(FakeApp(forget_clear=True).rpc)[0])
         self.assertIn("after clear: inputs.simulated is not false", problems)
         self.assertIn("is not the Mac's", problems)
 
     def test_the_simulation_is_cleared_even_when_simulate_fails(self):
         app = FakeApp(fail_simulate=True)
-        results = phase.run(["D7-auto"], app.rpc)
-        self.assertFalse(results["D7-auto"]["pass"])
+        problems, _ = phase.run_d7_auto(app.rpc)
         self.assertEqual(app.calls[-1], (phase.SIMULATE, {"clear": True}))
-        self.assertEqual(results["D7-auto"]["problems"], ["debug.energy.simulate: method not found"])
+        self.assertEqual(problems, ["debug.energy.simulate: method not found"])
 
     def test_a_failed_clear_adds_a_problem_and_keeps_the_first(self):
-        results = phase.run(["D7-auto"], FakeApp(fail_simulate=True, fail_clear=True).rpc)
-        problems = results["D7-auto"]["problems"]
+        problems, _ = phase.run_d7_auto(FakeApp(fail_simulate=True, fail_clear=True).rpc)
         self.assertEqual(problems[0], "debug.energy.simulate: method not found")
         self.assertIn("simulation may still be active", problems[1])
         self.assertEqual(len(problems), 2)
 
     def test_a_failed_clear_after_a_good_simulation_fails(self):
-        results = phase.run(["D7-auto"], FakeApp(fail_clear=True).rpc)
-        self.assertFalse(results["D7-auto"]["pass"])
-        self.assertIn("simulation may still be active", results["D7-auto"]["problems"][0])
+        problems, _ = phase.run_d7_auto(FakeApp(fail_clear=True).rpc)
+        self.assertIn("simulation may still be active", problems[0])
 
     def test_a_clear_that_ends_turn_off_for_now_fails(self):
         problems = phase.judge_d7_auto(report(session_override=True), report(simulated=True, on_battery=True, percent=15,
@@ -155,24 +154,81 @@ class ReplyTests(unittest.TestCase):
         def hung(command, **kwargs):
             raise subprocess.TimeoutExpired(command, kwargs["timeout"])
 
-        results = phase.run(["D7-auto"], phase.cli_rpc("energy-sim", runner=hung))
-        self.assertFalse(results["D7-auto"]["pass"])
-        self.assertIn("simulation may still be active", results["D7-auto"]["problems"][-1])
-        self.assertIn("D7-auto", phase.markdown(results))
+        problems, _ = phase.run_d7_auto(phase.cli_rpc("energy-sim", runner=hung))
+        self.assertIn("simulation may still be active", problems[-1])
+
+    def test_a_bench_app_error_reply_is_an_rpc_error(self):
+        class App:
+            def rpc(self, method, params, timeout):
+                return {"error": "connection refused", "unreachable": True} if params else {"policy": {}, "error": None,
+                                                                                              "inputs": {}}
+
+        call = phase.bench_rpc(App())
+        self.assertIn("inputs", call(phase.ENERGY, {}))  # a report that carries an `error` field is still a report
+        with self.assertRaisesRegex(phase.RpcError, "connection refused"):
+            call(phase.SIMULATE, phase.CLEAR)
+
+
+SHA = "0123456789abcdef0123456789abcdef01234567"
+APP = "/fleet/cmux DEV energy-p.app"
+
+
+def dry_run(*args):
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        code = phase.main(["--ref", SHA, "--out", "/tmp/etp", "--dry-run", *args])
+    return code, out.getvalue()
 
 
 class CommandLineTests(unittest.TestCase):
     def test_dry_run_prints_each_exact_command(self):
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out):
-            self.assertEqual(phase.main(["--tag", "energy-sim", "--dry-run"]), 0)
+        code, text = dry_run("--tag", "energy-sim")
+        self.assertEqual(code, 0)
         self.assertIn("CMUX_TAG=energy-sim scripts/cmux-debug-cli.sh rpc debug.energy.simulate "
-                      "'{\"on_battery\":true,\"percent\":15}'", out.getvalue())
-        self.assertIn("rpc debug.energy.simulate '{\"clear\":true}'", out.getvalue())
+                      "'{\"on_battery\":true,\"percent\":15}'", text)
+        self.assertIn("rpc debug.energy.simulate '{\"clear\":true}'", text)
+        self.assertIn("# idle-budget (D2, D3, D4, D5, D6, D7, D11, D12, D13, D14, D15, D16, D17): skipped, needs --app", text)
 
-    def test_an_unknown_check_is_refused_before_anything_runs(self):
+    def test_dry_run_with_a_bundle_prints_every_step(self):
+        code, text = dry_run("--app", APP, "--debug-app", "/fleet/Debug/cmux DEV energy-p.app",
+                             "--chrome-app", "/Apps/Chromium.app", "--chrome-ublock", "/cache/ublock")
+        self.assertEqual(code, 0)
+        self.assertNotIn("skipped", text)
+        self.assertIn("python3 -I scripts/cmux-next/wakeup-audit.py --strict\n", text)
+        self.assertIn("python3 scripts/cmux-next/idle-budget.py --app '/fleet/cmux DEV energy-p.app' --out "
+                      "/tmp/etp/idle-budget --json /tmp/etp/idle-budget/idle-budget.json --sessions light-webkit,light,"
+                      "light-hidden,minimized,occluded,tabs-static,chrome-static,stress-static,home,energy-saver,app-quit,"
+                      "external-churn,agent-idle,agent-working-visible,busy-hidden --gate --chrome-app /Apps/Chromium.app "
+                      "--chrome-ublock /cache/ublock\n", text)
+        self.assertIn("--sessions light-hidden,signed-in,signed-in-display-sleep --chrome-app", text)
+        self.assertIn("python3 scripts/cmux-next/cef-idle-probe.py --app '/fleet/cmux DEV energy-p.app' --out /tmp/etp/cef-idle", text)
+        self.assertIn("--surface terminal,agent-composer-chromium,chromium-page-scroll --energy-saver off,on", text)
+        self.assertIn("xbench.py run --out /tmp/etp/xbench/run --app 'cmux=/fleet/cmux DEV energy-p.app' --app "
+                      "chrome=/Apps/Chromium.app --chrome-extension /cache/ublock --browsers cmux-chromium,cmux-terminal,"
+                      "chrome --rounds 3 --max-load 4\n", text)
+        self.assertIn("python3 scripts/cmux-next/idle-budget.py --xbench /tmp/etp/xbench/results.json", text)
+        self.assertIn("CMUX_TAG=energy-p scripts/cmux-debug-cli.sh rpc debug.energy '{}'", text)
+        self.assertIn(f"cmux-ci run --class isolated --script scripts/ci/cmux-tui-rust-check.sh --ref {SHA} --key "
+                      f"energy-test-phase-{SHA}-d9 --arg=test --arg=daemon_idle", text)
+        self.assertIn("--script scripts/ci/package-test-lane.sh", text)
+        self.assertIn("--arg=suite --arg=Packages/macOS/CmuxNext --arg=MainWakeUpQueueTests,DemandTimerLeewayTests,", text)
+
+    def test_checks_select_their_steps(self):
+        _, text = dry_run("--app", APP, "--checks", "D9,D1")
+        self.assertEqual([line for line in text.splitlines() if line.startswith("# ")], ["# audit (D1)", "# rust-idle (D9)"])
+
+    def test_checks_select_the_idle_sessions_they_need(self):
+        self.assertEqual(phase.idle_sessions(["D3"]), ("light", "light-hidden", "minimized", "occluded"))
+        self.assertEqual(phase.idle_sessions(["D7", "D12"]), ("tabs-static", "energy-saver"))
+        self.assertEqual(phase.idle_sessions(["D15"]), phase.BENCH_SESSIONS)
+        _, text = dry_run("--app", APP, "--checks", "D5")
+        self.assertIn("--sessions stress-static --gate", text)
+
+    def test_an_unknown_check_or_bundle_is_refused_before_anything_runs(self):
         with self.assertRaises(SystemExit):
-            phase.parse_checks("D7-auto,D99")
+            phase.parse_checks("D7,D99")
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            phase.main(["--app", "/fleet/Other.app", "--dry-run"])
 
     def test_no_workflow_references_the_script(self):
         workflows = REPO / ".github" / "workflows"
@@ -180,6 +236,225 @@ class CommandLineTests(unittest.TestCase):
             self.skipTest("no .github/workflows in this checkout")
         for path in workflows.glob("*.y*ml"):
             self.assertNotIn("energy-test-phase", path.read_text(errors="replace"), path.name)
+
+
+BUDGET = {"assertions_allowed_when": ["sessions.keepAwake", "phone.keepAwake"],
+          "allowed_periodic": [{"owner": "GitHubFeedSource.refresh", "period_s": 120}]}
+
+
+def renderer(pid, hidden=True, wakeups=0.0):
+    return {"pid": pid, "kind": "cef-renderer", "hidden": hidden, "wakeups_per_s": wakeups}
+
+
+def idle_report(over=(), exits=None, refused=(), ledger=None, renderers=None, not_judged=None):
+    """An idle-budget.py --json report: every bench session ran, with these overs and session results."""
+    exits = {session: 0 for session in phase.BENCH_SESSIONS} if exits is None else exits
+    sessions = {session: {"exit": code, "not_judged": (not_judged or {}).get(session, []), "result": {
+        "processes": (renderers or {}).get(session, [renderer(100)]),
+        **({"ledger": ledger} if session == "tabs-static" and ledger is not None else {})}}
+        for session, code in exits.items()}
+    return {"over": [list(o) for o in over], "refused": list(refused), "session_exits": exits, "sessions": sessions}
+
+
+QUIET_LEDGER = {"owners": [{"owner": "CEFMessagePump", "reason": "delayed", "per_s": 1.2},
+                           {"owner": "GitHubFeedSource", "reason": "refresh", "per_s": 0.4},
+                           {"owner": "FrameScheduler", "reason": "tick", "per_s": 0.05}]}
+AUDIT_OK = "wakeup-audit swift: escaped 120, hit 0 (unescaped by rule: none)\n"
+AUDIT_RED = AUDIT_OK + ("wakeup-audit: webviews/src/ui/wave.css:29: css-infinite (loop) hit\n"
+                        "wakeup-audit: Packages/macOS/CmuxNext/CEFShim/src/shim_proxy.mm:96: spin-loop (loop) hit\n")
+XBENCH_OK = "IDLE-BUDGET over=0 xbench=/tmp/etp/xbench/results.json\n"
+XBENCH_RED = ("IDLE-BUDGET-OVER xbench cmux-chromium idle-wakeups-20/chrome 0.8 > 0.5\n"
+              "IDLE-BUDGET-NOT-JUDGED xbench cmux-chromium power-idle-hidden: not judged: chrome not measured\n"
+              "IDLE-BUDGET over=1 xbench=/tmp/etp/xbench/results.json\n")
+NEXTEST_OK = """    Starting 10 tests across 2 binaries
+        PASS [  31.002s] (1/10) acpmux::daemon_idle acpmux_daemon_idle_has_no_periodic_wakeups
+        PASS [  32.120s] (2/10) cmux-tui::idle_wakeups cmux_next_daemon_idle_holder_mode
+     Summary [  64.000s] 10 tests run: 10 passed, 0 skipped
+cmux-ci: step 0123456789abcdef succeeded on aws-m4pro-3
+"""
+NEXTEST_RED = NEXTEST_OK.replace("        PASS [  32.120s] (2/10) cmux-tui::idle_wakeups",
+                                 "        FAIL [  32.120s] (2/10) cmux-tui::idle_wakeups")
+SUITES = ("Swift suite results (Packages/macOS/CmuxNext):\n"
+          "suite                                            result                time\n"
+          + "".join(f"{suite:<48} {'passed':<18} {12:6}s\n" for suite in phase.D10_SUITES))
+D8_PASS = {"d8": {surface: {"verdict": "pass", "on": 8.1, "off": 8.0} for surface in phase.D8_SURFACES}}
+
+
+class IdleBudgetJudgeTests(unittest.TestCase):
+    def test_a_clean_run_passes_every_idle_check(self):
+        checks = phase.judge_idle(idle_report(), BUDGET)
+        self.assertEqual({check: result["status"] for check, result in checks.items()},
+                         dict.fromkeys(("D2", "D3", "D4", "D5", "D6", "D7", "D11", "D13", "D14", "D15", "D16"), "pass"))
+
+    def test_overs_go_to_their_d_rows(self):
+        checks = phase.judge_idle(idle_report(over=[
+            ("tabs-static", "app", "main_wakes_per_s", 0.8, 0.5),
+            ("light-hidden", "cef-renderer", "role", "default", "best-effort"),
+            ("light", "assertions", "held", 1, 0),
+            ("signed-in", "session", "phone.keepAwake", "on", "off"),
+            ("light", "app", "disk_bytes_per_s", 68.3, 0),
+            ("energy-saver", "session", "page_raf_per_s", 60.0, 31)]), BUDGET)
+        failed = {check for check, result in checks.items() if result["status"] == "fail"}
+        self.assertEqual(failed, {"D4", "D7", "D11", "D15", "D16"})
+        self.assertEqual(checks["D4"]["problems"], ["IDLE-BUDGET-OVER tabs-static app main_wakes_per_s 0.8 0.5"])
+        self.assertEqual(len(checks["D11"]["problems"]), 2)
+
+    def test_a_hidden_renderer_over_fails_d3_and_d17(self):
+        over = ("minimized", "cef-renderer", "hidden_wakeups_max", 3.0, 0.1)
+        self.assertEqual(phase.over_checks(over, set()), ["D3", "D17"])
+        self.assertEqual(phase.judge_idle(idle_report(over=[over]), BUDGET)["D3"]["status"], "fail")
+
+    def test_a_session_not_run_failed_or_refused_is_not_judged(self):
+        exits = {session: 0 for session in phase.BENCH_SESSIONS}
+        del exits["stress-static"]
+        exits["agent-idle"] = 1
+        checks = phase.judge_idle(idle_report(exits=exits, refused=["energy-saver"]), BUDGET)
+        self.assertEqual(checks["D5"], phase.verdict(missing=["stress-static: not run"]))
+        self.assertEqual(checks["D14"]["status"], "not judged")
+        self.assertIn("energy-saver: refused (IDLE-BUDGET-REFUSED)", checks["D7"]["missing"])
+        self.assertEqual(phase.judge_idle(None, BUDGET)["D2"]["missing"], ["idle-budget did not run (no report)"])
+
+    def test_idle_budget_notes_ride_along_without_changing_the_verdict(self):
+        note = "agent-idle agent-harness hidden_wakeups_max: not judged: no limit"
+        checks = phase.judge_idle(idle_report(not_judged={"agent-idle": [note]}), BUDGET)
+        self.assertEqual(checks["D14"]["status"], "pass")
+        self.assertEqual(checks["D14"]["notes"], [note])
+
+
+class OtherJudgeTests(unittest.TestCase):
+    def test_d1_from_the_audit(self):
+        self.assertEqual(phase.judge_audit(0, AUDIT_OK)["status"], "pass")
+        red = phase.judge_audit(1, AUDIT_RED)
+        self.assertEqual(red["status"], "fail")
+        self.assertEqual(red["problems"][:2], ["2 open hit(s)", "webviews/src/ui/wave.css:29: css-infinite (loop) hit"])
+        self.assertEqual(phase.judge_audit(2, "Traceback")["status"], "not judged")
+
+    def test_d12_ledger_and_early_passes(self):
+        self.assertEqual(phase.judge_d12(idle_report(ledger=QUIET_LEDGER), {"early_passes": 0}, BUDGET)["status"], "pass")
+        busy = {"owners": [{"owner": "SidebarModel", "reason": "deadline", "per_s": 0.5},
+                           {"owner": "BusyWatchdog", "reason": "window", "per_s": 0.02}]}
+        result = phase.judge_d12(idle_report(ledger=busy), {"early_passes": 3}, BUDGET)
+        self.assertEqual(result["problems"], ["ledger owner SidebarModel deadline at 0.5/s > 0.1",
+                                              "BusyWatchdog.window at 0.02/s (want 0)",
+                                              "cef-idle: 3 early CEF pump passes (want 0)"])
+        self.assertEqual(phase.judge_d12(idle_report(), {"error": "launch"}, BUDGET)["missing"],
+                         ["tabs-static has no debug.wakeups ledger (a build without it)",
+                          "cef-idle: no early-pass count (launch)"])
+
+    def test_d17_every_hidden_renderer_is_hidden_and_quiet(self):
+        self.assertEqual(phase.judge_d17(idle_report())["status"], "pass")
+        bad = idle_report(renderers={"occluded": [renderer(7, hidden=False), renderer(8, wakeups=2.5)], "minimized": []})
+        result = phase.judge_d17(bad)
+        self.assertEqual(result["problems"], ["occluded: renderer pid 7 is not reported hidden",
+                                              "occluded: renderer pid 8 at 2.5/s > 1.0"])
+        self.assertEqual(result["missing"], ["minimized: no Chromium renderer measured"])
+
+    def test_d8_from_bench_typing_verdicts(self):
+        self.assertEqual(phase.judge_d8(D8_PASS)["status"], "pass")
+        d8 = {"d8": {**D8_PASS["d8"], "terminal": {"verdict": "fail", "check": "key->frame p95", "on": 9.1, "off": 8.0},
+                     "chromium-page-scroll": {"verdict": "unscored", "why": ["refresh 60 Hz"]}}}
+        result = phase.judge_d8(d8)
+        self.assertEqual(result["status"], "fail")
+        self.assertEqual(result["missing"], ["chromium-page-scroll: unscored: refresh 60 Hz"])
+        self.assertEqual(phase.judge_d8(None)["status"], "not judged")
+
+    def test_d6_xbench_rows(self):
+        self.assertEqual(phase.judge_xbench(0, XBENCH_OK)["status"], "pass")
+        red = phase.judge_xbench(0, XBENCH_RED)
+        self.assertEqual(red["problems"], ["IDLE-BUDGET-OVER xbench cmux-chromium idle-wakeups-20/chrome 0.8 > 0.5"])
+        self.assertEqual(phase.judge_xbench(1, "Traceback: results.json")["status"], "not judged")
+
+    def test_d9_needs_both_idle_binaries_to_pass(self):
+        self.assertEqual(phase.judge_d9(0, NEXTEST_OK)["status"], "pass")
+        self.assertEqual(phase.judge_d9(1, NEXTEST_RED)["problems"],
+                         ["FAIL cmux-tui::idle_wakeups cmux_next_daemon_idle_holder_mode"])
+        only_acpmux = "\n".join(line for line in NEXTEST_OK.splitlines() if "idle_wakeups" not in line)
+        self.assertEqual(phase.judge_d9(0, only_acpmux)["missing"], ["no passing idle_wakeups test"])
+        self.assertEqual(phase.judge_d9(75, "")["status"], "not judged")
+
+    def test_d10_every_suite_passes(self):
+        self.assertEqual(phase.judge_d10(0, SUITES)["status"], "pass")
+        red = SUITES.replace(f"{'SuspendWatchTests':<48} {'passed':<18}", f"{'SuspendWatchTests':<48} {'failed (exit 1)':<18}")
+        self.assertEqual(phase.judge_d10(1, red)["problems"], ["SuspendWatchTests: failed (exit 1)"])
+        short = "\n".join(line for line in SUITES.splitlines() if not line.startswith("BatteryLevelTests"))
+        self.assertEqual(phase.judge_d10(0, short)["missing"], ["BatteryLevelTests: no result"])
+        self.assertEqual(phase.judge_d10(2, "")["status"], "not judged")
+
+
+def write_run(out, idle=None, d7_problems=(), steps=None):
+    """A run folder as main() leaves it, every output passing unless overridden."""
+    out = Path(out)
+    for name, data in (("idle-budget/idle-budget.json", idle or idle_report(ledger=QUIET_LEDGER)),
+                       ("cef-idle/cef-idle.json", {"early_passes": 0}), ("bench-typing/d8.json", D8_PASS),
+                       ("d7-auto.log", {"problems": list(d7_problems), "reports": {}})):
+        (out / name).parent.mkdir(parents=True, exist_ok=True)
+        (out / name).write_text(json.dumps(data))
+    for name, text in (("audit", AUDIT_OK), ("xbench", XBENCH_OK), ("rust-idle", NEXTEST_OK), ("swift-suites", SUITES)):
+        (out / f"{name}.log").write_text(text)
+    ran = {name: {"exits": [0], "load": 1.5} for name in ("audit", "xbench", "rust-idle", "swift-suites")}
+    (out / "steps.json").write_text(json.dumps({**ran, **(steps or {})}))
+
+
+class RunTests(unittest.TestCase):
+    def collect_only(self, out, *args):
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            code = phase.main(["--ref", SHA, "--out", out, "--collect-only", *args])
+        return code, json.loads((Path(out) / "report.json").read_text()), stdout.getvalue()
+
+    def test_collect_only_judges_a_run_folder(self):
+        with tempfile.TemporaryDirectory() as out:
+            write_run(out)
+            code, report, text = self.collect_only(out, "--checks", "D1,D2,D6,D7,D8,D9,D10,D12,D17")
+            self.assertEqual(code, 0, text)
+            self.assertEqual({check: result["status"] for check, result in report["checks"].items()},
+                             dict.fromkeys(["D1", "D2", "D6", "D7", "D8", "D9", "D10", "D12", "D17"], "pass"))
+            self.assertIn("| D7 | energy saver: energy-saver session and auto at 15% on battery | pass |", text)
+            self.assertIn("| p14-energy test phase (energy-test-phase.py, ", text)
+            self.assertIn(f"| {SHA[:11]} | D9 Rust idle tests on fleet macOS | - | pass |", text)
+
+    def test_a_failing_or_unmeasured_check_exits_one(self):
+        with tempfile.TemporaryDirectory() as out:
+            write_run(out, d7_problems=["simulated 15% on battery: inputs.simulated is not true"])
+            code, report, _ = self.collect_only(out, "--checks", "D7,D13")
+            self.assertEqual(code, 1)
+            self.assertEqual(report["checks"]["D7"]["problems"],
+                             ["D7 auto: simulated 15% on battery: inputs.simulated is not true"])
+            self.assertEqual(report["checks"]["D13"]["status"], "not judged")  # no --debug-app: signed-in not run
+            self.assertIn("signed-in sessions: not run (--debug-app)", report["checks"]["D13"]["missing"])
+
+    def test_a_step_that_started_on_a_busy_host_says_so(self):
+        with tempfile.TemporaryDirectory() as out:
+            write_run(out, steps={"xbench": {"exits": [0], "load": 7.25}})
+            _, report, _ = self.collect_only(out, "--checks", "D6")
+            self.assertIn("xbench started at load 7.25 (not under 4)", report["checks"]["D6"]["notes"])
+
+    def test_run_step_logs_each_command_and_its_exit(self):
+        with tempfile.TemporaryDirectory() as out:
+            calls = []
+
+            def runner(argv, cwd, stdout, stderr):
+                calls.append(argv)
+                stdout.write("IDLE-BUDGET over=0\n")
+                return subprocess.CompletedProcess(argv, 3 if "report" in argv else 0)
+
+            opts = argparse.Namespace(out=out, max_load=4, quiet_wait=0)
+            step = phase.Step("xbench", ("D6",), (("python3", "a.py", "run"), ("python3", "a.py", "report")), quiet=False)
+            evidence = phase.run_step(step, opts, runner)
+            self.assertEqual(evidence["exits"], [0, 3])
+            self.assertEqual(len(calls), 2)
+            self.assertIn("$ python3 a.py report\n", (Path(out) / "xbench.log").read_text())
+
+    def test_it_waits_for_a_quiet_host_and_gives_up_at_the_deadline(self):
+        loads, now, slept = iter([9.0, 6.0, 3.5, 3.5]), [0.0], []
+
+        def sleep(seconds):
+            slept.append(seconds)
+            now[0] += seconds
+
+        self.assertEqual(phase.wait_quiet(4, 60, load=lambda: next(loads), sleep=sleep, clock=lambda: now[0]), 3.5)
+        self.assertEqual(slept, [5, 5])
+        self.assertEqual(phase.wait_quiet(4, 10, load=lambda: 8.0, sleep=sleep, clock=lambda: now[0]), 8.0)
 
 
 if __name__ == "__main__":
