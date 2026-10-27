@@ -339,7 +339,9 @@ fn account_home() -> PathBuf {
 
 /// Opens a terminal with no argv (the app's default terminal) and checks that
 /// Ctrl-C ends a foreground `sleep` in it (`$?` is 130 at the next prompt).
-/// `via_login`: the shell's parent must be login(1) (the app's chain on macOS).
+/// `via_login`: the terminal is the app's (a terminal host, created with the
+/// frontend's terminal id and shell), and the shell's parent must be
+/// login(1), the app's chain on macOS.
 fn ctrl_c_ends_a_foreground_sleep_in_a_new_terminal(daemon: &Daemon, shell: &str, via_login: bool) {
     request(
         &daemon.socket,
@@ -352,11 +354,15 @@ fn ctrl_c_ends_a_foreground_sleep_in_a_new_terminal(daemon: &Daemon, shell: &str
         .and_then(|workspace| workspace["key"].as_str())
         .unwrap_or_else(|| panic!("no workspace login: {tree}"))
         .to_owned();
-    let created = request(
-        &daemon.socket,
-        json!({"cmd": "create-terminal", "key": key, "cols": 80, "rows": 24}),
-    );
-    let surface = created["surface"].as_u64().unwrap_or_else(|| panic!("no surface: {created}"));
+    let surface = if via_login {
+        hosted_shell_terminal(daemon, &key, shell)
+    } else {
+        let created = request(
+            &daemon.socket,
+            json!({"cmd": "create-terminal", "key": key, "cols": 80, "rows": 24}),
+        );
+        created["surface"].as_u64().unwrap_or_else(|| panic!("no surface: {created}"))
+    };
     request(&daemon.socket, json!({"cmd": "send", "surface": surface, "text": "echo SHELL-UP\r"}));
     wait_for_screen(daemon, surface, "SHELL-UP", "the login shell");
     if via_login {
@@ -384,4 +390,32 @@ fn ctrl_c_ends_a_foreground_sleep_in_a_new_terminal(daemon: &Daemon, shell: &str
         json!({"cmd": "send", "surface": surface, "text": "echo AFTER-EXIT=$?\r"}),
     );
     wait_for_screen(daemon, surface, "AFTER-EXIT=130", &format!("Ctrl-C in {shell}"));
+}
+
+/// A new tab in workspace `key`'s pane as the app makes one: the frontend's
+/// terminal id (so a terminal host runs it and starts its shell through
+/// login(1) on macOS) and its shell (`SHELL`, an interactive `-i`). Returns
+/// the surface.
+#[cfg(target_os = "macos")]
+fn hosted_shell_terminal(daemon: &Daemon, key: &str, shell: &str) -> u64 {
+    let tree = request(&daemon.socket, json!({"cmd": "list-workspaces"}));
+    let pane = tree["workspaces"]
+        .as_array()
+        .and_then(|workspaces| workspaces.iter().find(|workspace| workspace["key"] == key))
+        .and_then(|workspace| workspace["screens"].as_array())
+        .and_then(|screens| screens.iter().find_map(|screen| screen["panes"].as_array()?.first()))
+        .map(|pane| pane["id"].clone())
+        .unwrap_or_else(|| panic!("no pane in workspace {key}: {tree}"));
+    let terminal_id = format!("{:08x}00004000800{:013x}", std::process::id(), 0x2c_u64);
+    let created = request(
+        &daemon.socket,
+        json!({"cmd": "new-tab", "pane": pane, "terminal_id": terminal_id, "cols": 80,
+            "rows": 24, "env": {"SHELL": shell}, "shell_args": ["-i"]}),
+    );
+    created["surface"].as_u64().unwrap_or_else(|| panic!("no surface: {created}"))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn hosted_shell_terminal(_daemon: &Daemon, _key: &str, _shell: &str) -> u64 {
+    unreachable!("login(1) starts only on macOS")
 }
