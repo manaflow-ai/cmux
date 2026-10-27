@@ -2115,6 +2115,31 @@ async fn an_unadoptable_full_access_host_ends_once_mdm_turns_full_access_off() {
     );
 }
 
+/// Review 2 of #26055: a host a restart left whose record this build cannot read is never adopted,
+/// so what it runs is not known, though its log says it asks: under MDM's off it ends.
+#[tokio::test]
+async fn an_unadoptable_host_ends_under_mdm_off_though_its_log_asks() {
+    let mut daemon = Daemon::new("mdmunknown", "ask");
+    let session = new_session(&daemon).await;
+    let mut rpc = daemon.rpc().await;
+    let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
+    rpc.call("session/prompt", prompt).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    daemon.sigterm();
+    drop(rpc);
+    assert!(alive(harness_pid), "SIGTERM ended the agent");
+    let record = daemon.home.join("hosts").join(format!("{session}.json"));
+    let mut unreadable: Value = serde_json::from_slice(&std::fs::read(&record).unwrap()).unwrap();
+    unreadable["record_version"] = json!(99);
+    std::fs::write(&record, unreadable.to_string()).unwrap();
+    record_mdm_off(&daemon);
+    daemon.start();
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "an unadoptable host ran on under the managed off"
+    );
+}
+
 /// Review 44 of #23322: the argv a start runs is on disk before its agent starts. A chat whose
 /// agent ended starts again, for a model pick, on a profile a config reload pinned to `--yolo`;
 /// the daemon dies while that agent initializes. Under MDM's off the next daemon ends that host

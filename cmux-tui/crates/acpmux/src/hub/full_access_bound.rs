@@ -464,10 +464,20 @@ impl Hub {
     /// Host records that cannot be read do not prove the host gone, so its log is read back then
     /// too (`host_record_gone`, review 67).
     fn runs_full_access_by_any_record(&self, session: &Session) -> bool {
+        self.runs_full_access_by_records(session, Self::read_host_records().as_ref())
+    }
+
+    /// `runs_full_access_by_any_record` with the host records as read (`read_host_records`):
+    /// None when they could not be read.
+    fn runs_full_access_by_records(
+        &self,
+        session: &Session,
+        records: Option<&super::hosts::HostRecords>,
+    ) -> bool {
         if runs_full_access(&FullAccessView::of_session(session)).is_some() {
             return true;
         }
-        if Self::host_record_gone(&session.id)
+        if records.is_some_and(|r| !r.live.contains(&session.id))
             || session.floor.left_host_read.load(Ordering::SeqCst)
         {
             return false;
@@ -1197,6 +1207,42 @@ mod tests {
         assert_ne!(
             first.generation, next.generation,
             "an agent whose end was pending was handed out"
+        );
+    }
+
+    /// Review 69 of #23322: a left host's log read back while the host records could not be read
+    /// is not kept as the last word: a later check reads the log again and finds what the host
+    /// reported since.
+    #[tokio::test]
+    async fn a_left_host_read_while_its_records_were_unreadable_is_read_again() {
+        let (hub, chat, _) = two_chats_on(&[], false).await;
+        hub.append(&chat, "mux", "host_started", json!({}));
+        assert!(
+            !hub.runs_full_access_by_records(&chat, None),
+            "a log that asks read as full access"
+        );
+        let update = json!({"jsonrpc": "2.0", "method": "session/update", "params": {
+            "sessionId": chat.meta().agent_session_id,
+            "update": {"sessionUpdate": "current_mode_update", "currentModeId": "full-access"}}});
+        hub.append(&chat, "in", "current_mode_update", update);
+        assert!(
+            hub.runs_full_access_by_records(&chat, None),
+            "a read while the host records could not be read hid the host's later full access"
+        );
+    }
+
+    /// Review 2 of #26055: a host whose own record this build cannot read may run on unproven, and
+    /// it is never adopted, so its log never hears what it did since: under MDM's off it counts as
+    /// full access, whatever its log says.
+    #[tokio::test]
+    async fn a_host_whose_record_cannot_be_read_counts_as_full_access() {
+        let (hub, chat, _) = two_chats_on(&[], false).await;
+        hub.append(&chat, "mux", "host_started", json!({}));
+        let ids = std::collections::HashSet::from([chat.id.clone()]);
+        let records = super::super::hosts::HostRecords { live: ids.clone(), unreadable: ids };
+        assert!(
+            hub.runs_full_access_by_records(&chat, Some(&records)),
+            "a host whose record cannot be read was judged by its log"
         );
     }
 
