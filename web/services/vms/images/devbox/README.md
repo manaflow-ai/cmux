@@ -109,7 +109,7 @@ manifest test, never for `promote`; the promotion that bakes those sources delet
 `.github/workflows/cloud-devbox-image-rebake.yml` runs when a commit that touches an image input
 (`REBAKE_INPUTS` in `web/scripts/devbox-rebake.ts`: every file in the bake's import closure and
 every file it ships; the test keeps the workflow's paths equal to it) lands on `feat-cmux-next`,
-and on manual dispatch (`force`, `keep`). It bakes when the inputs differ from the ones the last
+and on manual dispatch from `feat-cmux-next` (`force`, `keep`; any other ref does nothing). It bakes when the inputs differ from the ones the last
 published rebake recorded in `services/vms/images/rebake-state.json`, or a Freestyle default was
 baked from other sources than that commit's, unless an open `devbox-rebake/<inputs key 12>` PR
 already has them. It then promotes (bake, verify, derive every size, manifest rows), settles
@@ -119,7 +119,7 @@ already has them. It then promotes (bake, verify, derive every size, manifest ro
 superseded. The version is `<UTC yyyymmddHHMM>-<commit 10>-<inputs key 12>`; every snapshot is
 slugged `cmux-devbox-ci-<version>[-<size>]` and its manifest rows carry it. Merging the PR is the
 promotion. The run then keeps the newest `keep` (default 5) rebake versions plus every snapshot a
-manifest row names (this run's and the base branch's), and deletes the other `cmux-devbox-ci-*`
+manifest row names (this run's, and feat-cmux-next's and main's as they are now), and deletes the other `cmux-devbox-ci-*`
 snapshots; nothing else on the account is touched.
 
 Rollback is therefore a revert of the promotion commit as a whole, never the

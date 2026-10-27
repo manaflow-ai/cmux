@@ -138,6 +138,7 @@ describe("rebake inputs", () => {
     const workflow = YAML.parse(readFileSync(path.join(here, "../../.github/workflows/cloud-devbox-image-rebake.yml"), "utf8")) as {
       on: { push: { paths: string[] } };
       concurrency: { "cancel-in-progress": boolean };
+      jobs: { rebake: { if: string } };
     };
     expect(workflow.on.push.paths).toEqual([
       ...REBAKE_INPUTS.include,
@@ -146,5 +147,7 @@ describe("rebake inputs", () => {
       ".github/workflows/cloud-devbox-image-rebake.yml",
     ]);
     expect(workflow.concurrency["cancel-in-progress"]).toBe(false);
+    // The account and the devbox-rebake/* PRs are shared: one canonical branch bakes.
+    expect(workflow.jobs.rebake.if).toContain("github.ref == 'refs/heads/feat-cmux-next'");
   });
 });

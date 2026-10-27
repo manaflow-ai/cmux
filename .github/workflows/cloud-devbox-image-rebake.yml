@@ -74,7 +74,9 @@ concurrency:
 
 jobs:
   rebake:
-    if: github.repository == 'manaflow-ai/cmux' && github.ref_type == 'branch'
+    # One canonical branch: the Freestyle account and the devbox-rebake/* PRs
+    # are shared, so a dispatch from any other ref does nothing.
+    if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # A full bake + ladder takes about 20 minutes (run 40399656939); a run still
     # going after 6 hours is stuck, the one case a started bake may end.
@@ -248,7 +250,7 @@ jobs:
           fi
           echo "url=$url" >> "$GITHUB_OUTPUT"
           # An older open rebake PR would promote snapshots prune may delete: close it.
-          GH_TOKEN="$APP_TOKEN" gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&base=$BASE&per_page=100" \
+          GH_TOKEN="$APP_TOKEN" gh api --paginate "repos/$GITHUB_REPOSITORY/pulls?state=open&base=$BASE&per_page=100" \
             --jq ".[] | select(.head.repo.full_name == \"$GITHUB_REPOSITORY\" and (.head.ref | startswith(\"devbox-rebake/\")) and .head.ref != \"$BRANCH\") | .number" |
             while read -r old; do
               GH_TOKEN="$APP_TOKEN" gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$old/comments" -f body="Superseded by $url (devbox image $VERSION)." >/dev/null
@@ -270,12 +272,17 @@ jobs:
         env:
           FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
           KEEP: ${{ inputs.keep || '5' }}
-          BASE: ${{ github.ref_name }}
+        # Every deployed branch's manifest as it is now (rows merged while this
+        # run baked included) is protected, not only this checkout's.
         run: |
           set -euo pipefail
-          git fetch --quiet origin "$BASE"
-          git show "origin/$BASE:web/services/vms/images/manifest.json" > "$RUNNER_TEMP/base-manifest.json"
-          bun scripts/devbox-rebake.ts prune --keep "$KEEP" --also-manifest "$RUNNER_TEMP/base-manifest.json"
+          args=()
+          for branch in feat-cmux-next main; do
+            git fetch --quiet origin "$branch"
+            git show "origin/$branch:web/services/vms/images/manifest.json" > "$RUNNER_TEMP/manifest-$branch.json"
+            args+=(--also-manifest "$RUNNER_TEMP/manifest-$branch.json")
+          done
+          bun scripts/devbox-rebake.ts prune --keep "$KEEP" "${args[@]}"
 
       - name: Upload the promotion receipt
         if: always() && steps.plan.outputs.go == 'true'

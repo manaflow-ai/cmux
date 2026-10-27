@@ -16,7 +16,7 @@
  *   bun scripts/devbox-rebake.ts settle
  *       After a promotion: drop every awaiting-rebake.json entry the new defaults satisfy
  *       (its drift is gone), so the manifest check and test pass with the promotion.
- *   FREESTYLE_API_KEY=... bun scripts/devbox-rebake.ts prune --keep N [--also-manifest F] [--dry-run]
+ *   FREESTYLE_API_KEY=... bun scripts/devbox-rebake.ts prune --keep N [--also-manifest F]... [--dry-run]
  *       Keep the newest N rebake versions' snapshots (slug cmux-devbox-ci-<version>[-<size>])
  *       and every snapshot any manifest row names (the base branch's rows are a subset of
  *       this checkout's); delete the other rebake snapshots. Never touches a snapshot
@@ -229,9 +229,9 @@ async function prune(): Promise<void> {
   const { Freestyle } = await import("freestyle");
   const fs = new Freestyle({ baseUrl: process.env.FREESTYLE_API_URL?.trim() || undefined });
   const snapshots = await listAllSnapshots((options) => fs.vms.snapshots.list(options) as unknown as ReturnType<SnapshotLister>);
-  // --also-manifest: the base branch's manifest as it is now, so rows merged while this run baked are kept too.
-  const also = argValue("--also-manifest");
-  const doomed = pruneSelection(snapshots, [readImageManifest(), ...(also ? [readImageManifest(also)] : [])], keep);
+  // --also-manifest (repeatable): deployed branches' manifests as they are now, so their rows are kept too.
+  const also = process.argv.flatMap((arg, index) => (arg === "--also-manifest" && process.argv[index + 1] ? [process.argv[index + 1]] : []));
+  const doomed = pruneSelection(snapshots, [readImageManifest(), ...also.map((file) => readImageManifest(file))], keep);
   console.log(`prune: ${snapshots.length} snapshots; keeping the newest ${keep} rebake versions and every manifest image; ${doomed.length} to delete`);
   let failed = 0;
   for (const row of doomed) {
