@@ -359,6 +359,46 @@ class Refusal(unittest.TestCase):
                       now=clock.now, sleep=clock.sleep, log=lambda text: None)
         self.assertEqual(api.calls.count("rerun-failed"), 1)
 
+    def test_a_job_whose_runner_was_stopped_mid_job_counts_as_a_refusal_whatever_its_length(self):
+        # Job 121926149188 (run 40424205219, PR #25241, 2026-10-27): "Set up runner" (glaeda's hook) was
+        # cancelled when the runner got a shutdown signal; the job failed and its `always()` steps passed.
+        in_hook = refused_job(name="cmux-next Release compile (Xcode 26)", seconds=585, labels=(SIDE,), steps=[
+            {"name": "Set up job", "conclusion": "success"},
+            {"name": "Set up runner", "conclusion": "cancelled"},
+            {"name": "Checkout", "conclusion": "skipped"},
+            {"name": "Complete job", "conclusion": "success"}])
+        self.assertTrue(rescue.refused(in_hook))
+        # Job 121931705481 (run 40425653402, PR #25768): stopped twelve minutes in, inside "Run the fast tier".
+        in_step = refused_job(name="cmux-next fast tier", seconds=760, labels=(SIDE,), steps=[
+            {"name": "Set up job", "conclusion": "success"},
+            {"name": "Set up runner", "conclusion": "success"},
+            {"name": "Checkout", "conclusion": "success"},
+            {"name": "Select Xcode", "conclusion": "success"},
+            {"name": "Run the fast tier", "conclusion": "cancelled"},
+            {"name": "Complete job", "conclusion": "success"}])
+        self.assertTrue(rescue.refused(in_step))
+        self.assertEqual(rescue.decided_failures([in_hook, in_step]), [])
+        # A step that failed (a step timeout too) is the code's; a cancelled job or a Blacksmith job is not ours.
+        failed_step = [dict(step, conclusion="failure") if step["conclusion"] == "cancelled" else step
+                       for step in in_step["steps"]]
+        self.assertFalse(rescue.refused({**in_step, "steps": failed_step}))
+        self.assertFalse(rescue.refused({**in_step, "conclusion": "cancelled"}))
+        self.assertFalse(rescue.refused({**in_step, "labels": [BLACKSMITH]}))
+
+    def test_an_open_heads_stopped_runner_is_rerun_once_its_run_finishes_without_a_cancel(self):
+        clock = Clock()
+        api = FakeAPI(clock, refusing_run(refused_at=0, seconds=760, labels=(SIDE,), steps=[
+            {"name": "Set up job", "conclusion": "success"},
+            {"name": "Run the fast tier", "conclusion": "cancelled"},
+            {"name": "Complete job", "conclusion": "success"}]), marker=True, finished=lambda seconds: True)
+        target = rescue.sweep_target(listed(RUN_ID, path=rescue.CMUX_NEXT_WORKFLOW_PATH,
+                                            pull_requests=[{"number": 25768}]), "manaflow-ai/cmux", late=False)
+        rescue.follow(api, target, seconds=90, queue_rounds="0",
+                      now=clock.now, sleep=clock.sleep, log=lambda text: None)
+        self.assertEqual(api.calls.count("rerun-failed"), 1)
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("force-cancel", api.calls)
+
     def test_a_job_no_runner_acquired_is_rerun_once_the_run_finishes_red(self):
         # Run 39607661629 (2026-10-21): GitHub cancelled ios-simulator-build after 4 minutes on
         # glaeda-ios-sim ("not acquired by Runner of type self-hosted"), and the run ended in failure.
