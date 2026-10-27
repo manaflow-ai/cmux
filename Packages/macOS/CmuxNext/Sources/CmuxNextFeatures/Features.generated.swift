@@ -1723,6 +1723,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// A resized or newly shown terminal's frame at its new size goes into the commit that carries the size when Ghostty already drew it; it never waits. Needs a GhosttyNextKit pin whose ghostty_surface_present_host_frame never waits (p03-rendering-084).
+    public static let terminalPreCommitPresent = Feature(
+        index: 98,
+        name: "terminalPreCommitPresent",
+        owner: "PL-ghostty",
+        description: "A resized or newly shown terminal's frame at its new size goes into the commit that carries the size when Ghostty already drew it; it never waits. Needs a GhosttyNextKit pin whose ghostty_surface_present_host_frame never waits (p03-rendering-084).",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-24",
+        params: [],
+        stories: ["motion"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Terminal sizing counts one participant per app connection: all of an app's views of one terminal are leases of one participant (its latest active view sets its size), and disconnecting that participant ends only that terminal's views, not the app's connection.
     public static let terminalSizingPerApp = Feature(
         index: 99,
@@ -2023,6 +2040,7 @@ nonisolated extension Feature {
         .terminalGPURelease,
         .terminalHolder,
         .terminalPointerFrames,
+        .terminalPreCommitPresent,
         .terminalSizingPerApp,
         .topPageDiscard,
         .visibilityGatedHosting,
@@ -2137,6 +2155,7 @@ nonisolated extension Feature {
         .terminalGPURelease,
         .terminalHolder,
         .terminalPointerFrames,
+        .terminalPreCommitPresent,
         .terminalSizingPerApp,
         .topPageDiscard,
         .visibilityGatedHosting,

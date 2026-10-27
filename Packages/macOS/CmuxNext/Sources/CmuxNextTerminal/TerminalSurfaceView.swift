@@ -456,8 +456,7 @@ public final class TerminalSurfaceView: NSView {
         let pixels = convertToBacking(bounds.size)
         guard pixels.width >= 1, pixels.height >= 1 else { return }
         defer { copyMode.syncCursor() }
-        // SAFETY: the view's live surface (`surface`).
-        unsafe ghostty_surface_set_size(surface, UInt32(pixels.width), UInt32(pixels.height))
+        TerminalHostFramePresenter.setSize(of: self, to: pixels)  // its drawn frame into this turn's commit
         // SAFETY: the view's live surface (`surface`).
         let size = unsafe ghostty_surface_size(surface)
         publish(size: size)
