@@ -350,7 +350,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
     // MARK: BrowserTab
 
     public func load(_ url: URL) {
-        guard !isClosed else { return }
+        guard !isClosed, !loadsDebugURL(url) else { return }
         isDiscardedInPlace = false
         automaticDownloads.userGesture()
         let id = makeNavigationID()

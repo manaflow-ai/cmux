@@ -1,4 +1,4 @@
-import CmuxNextWakeups
+public import CmuxNextWakeups
 
 /// Closes of several tabs that wait for pages deciding their own close, so
 /// each close stays ONE Reopen Closed step.
@@ -20,7 +20,8 @@ import CmuxNextWakeups
 ///
 /// ```swift
 /// let closes = PageDecidedCloses<FakePane, [TabID]>(prepare: { _, ids in ids },
-///                                                   send: { prepared, _, _ in sent.append(prepared) })
+///                                                   send: { prepared, _, _ in sent.append(prepared) },
+///                                                   deadlines: deadlines)
 /// closes.begin(closing: [(pane, ["a"])], deciding: [(pane, ["b"])], userClose: true)
 /// _ = closes.absorb([(pane, ["b"])]) // sends [["a"], ["b"]] once
 /// ```
@@ -37,7 +38,7 @@ public final class PageDecidedCloses<Pane: AnyObject, Prepared> {
         var waiting: Set<TabID>
         /// Pages that closed, by pane, in the order they closed.
         var decided: [(pane: WeakPane, ids: [TabID])] = []
-        var timer: DemandTimer
+        var timer: MainDeadline
     }
 
     private struct WeakPane {
@@ -46,7 +47,7 @@ public final class PageDecidedCloses<Pane: AnyObject, Prepared> {
 
     private let prepare: @MainActor (Pane, [TabID]) -> Prepared?
     private let send: @MainActor ([Prepared], Pane, Bool) -> Void
-    private let clock: any Clock<Duration>
+    private let deadlines: MainDeadlineScheduler
     private var gestures: [Int: Gesture] = [:]
     private var nextID = 0
 
@@ -65,17 +66,18 @@ public final class PageDecidedCloses<Pane: AnyObject, Prepared> {
     ///   is left for the daemon.
     /// - Parameter send: Sends prepared halves in one daemon close, from the
     ///   gesture's first pane; the flag says whether a person closed them.
-    /// - Parameter clock: The deadline's clock (tests pass their own).
+    /// - Parameter deadlines: The app's one deadline placer (tests pass one on a queue they fire): each
+    ///   gesture's ``deadline`` is a `visible` deadline on it.
     public init(prepare: @escaping @MainActor (Pane, [TabID]) -> Prepared?,
                 send: @escaping @MainActor ([Prepared], Pane, Bool) -> Void,
-                clock: any Clock<Duration> = ContinuousClock()) {
+                deadlines: MainDeadlineScheduler) {
         self.prepare = prepare
         self.send = send
-        self.clock = clock
+        self.deadlines = deadlines
     }
 
-    // The isolated deinit of a generic main-actor class crashes the Release optimizer (#23050); the
-    // gestures' timers cancel in their own deinit.
+    // The isolated deinit of a generic main-actor class crashes the Release optimizer (#23050); a
+    // released gesture's deadline never runs (its wake holds it weakly).
     nonisolated deinit {}
 
     /// Starts a gesture: `closing` run their local half now, `deciding` are
@@ -88,11 +90,11 @@ public final class PageDecidedCloses<Pane: AnyObject, Prepared> {
         guard let first = (closing.first ?? deciding.first)?.pane else { return }
         let id = nextID
         nextID += 1
-        let timer = DemandTimer(owner: "tabs.pageDecidedClose", clock: clock)
+        let timer = MainDeadline(owner: "Tabs.pageDecidedClose", workClass: .visible, scheduler: deadlines)
         gestures[id] = Gesture(first: first, userClose: userClose, prepared: closing.compactMap { prepare($0.pane, $0.ids) },
                                waiting: Set(deciding.flatMap(\.ids)), timer: timer)
         // The gesture's deadline: pages not closed by then are left out (a page asking its question never holds the rest).
-        timer.scheduleOnMain(after: deadline) { [weak self] in self?.finish(id) }
+        timer.schedule(after: deadline) { [weak self] in self?.finish(id) }
     }
 
     /// Takes the tabs of `parts` whose page a waiting gesture waits for (the
