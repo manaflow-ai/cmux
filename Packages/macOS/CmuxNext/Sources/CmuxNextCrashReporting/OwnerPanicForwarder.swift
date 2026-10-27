@@ -161,7 +161,7 @@ public final class OwnerPanicForwarder: Sendable {
 
     /// The file's size and inode; nil when it cannot be read.
     private static func identity(of file: URL) -> (size: UInt64, inode: UInt64)? {
-        guard let attributes = try? FileManager.default.attributesOfItem(atPath: file.path),
+        guard let attributes = try? FileManager.checked.attributesOfItem(atPath: file.path),
               let size = (attributes[.size] as? NSNumber)?.uint64Value,
               let inode = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value else { return nil }
         return (size, inode)
@@ -212,7 +212,7 @@ public final class OwnerPanicForwarder: Sendable {
         var directories: [URL] = []
         for log in logs where !directories.contains(log.directory) {
             if log.createsDirectory {
-                try? FileManager.default.createDirectory(at: log.directory, withIntermediateDirectories: true)
+                try? FileManager.checked.createDirectory(at: log.directory, withIntermediateDirectories: true)
             }
             directories.append(log.directory)
         }

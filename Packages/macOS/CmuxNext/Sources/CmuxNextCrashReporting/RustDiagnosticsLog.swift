@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// One family of JSONL files a cmux Rust process writes for the app to forward (p09-observability-075): where
@@ -59,14 +60,14 @@ public struct RustDiagnosticsLog: Sendable, Equatable {
                            source: source, kind: kind)
     }
 
-    /// The log's files that exist now, in name order.
-    public func files(fileManager: FileManager = .default) -> [URL] {
+    /// The log's files that exist now, in name order (disk reads: call it off the main thread).
+    public func files() -> [URL] {
         switch name {
         case .exact(let exact):
             let file = directory.appending(path: exact)
-            return fileManager.fileExists(atPath: file.path) ? [file] : []
+            return FileManager.checked.fileExists(atPath: file.path) ? [file] : []
         case .pattern:
-            let names = (try? fileManager.contentsOfDirectory(atPath: directory.path)) ?? []
+            let names = (try? FileManager.checked.contentsOfDirectory(atPath: directory.path)) ?? []
             return names.filter(name.matches).sorted().map { directory.appending(path: $0) }
         }
     }
