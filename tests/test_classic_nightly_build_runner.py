@@ -111,6 +111,22 @@ class CloudRoute(unittest.TestCase):
         self.assertEqual(picker.blacksmith_route(snapshot(large=40, small=40), NOW)[0], picker.SMALL)
 
 
+class FirstAndAlternate(unittest.TestCase):
+    def test_first_puts_the_six_vcpu_label_ahead_while_it_moves(self) -> None:
+        now = NOW
+        self.assertEqual(picker.blacksmith_route(None, now, picker.SMALL)[0], picker.SMALL)
+        self.assertEqual(picker.blacksmith_route(snapshot(), now, picker.SMALL)[0], picker.SMALL)
+        # The 2026-10-27 12:03-12:46Z case: 6 vCPU stalled, 12 vCPU moving.
+        self.assertEqual(picker.blacksmith_route(snapshot(small=52), now, picker.SMALL)[0], picker.LARGE)
+        # A label that is not a candidate changes nothing.
+        self.assertEqual(picker.blacksmith_route(None, now, "glaeda-std-xcode-26.6")[0], picker.LARGE)
+
+    def test_the_alternate_is_always_the_other_blacksmith_label(self) -> None:
+        self.assertEqual(picker.alternate(picker.SMALL), picker.LARGE)
+        self.assertEqual(picker.alternate(picker.LARGE), picker.SMALL)
+        self.assertTrue(all(label.startswith("blacksmith-") for label in picker.CANDIDATES))
+
+
 class Main(unittest.TestCase):
     def run_main(self, env, runners, snap):
         clock = Clock()
@@ -125,9 +141,9 @@ class Main(unittest.TestCase):
 
     def test_outputs(self) -> None:
         self.assertEqual(self.run_main({}, [runner(POOL, RUNNER)], snapshot()),
-                         {"trusted": "true", "cloud": picker.LARGE})
+                         {"trusted": "true", "cloud": picker.LARGE, "alternate": picker.SMALL})
         self.assertEqual(self.run_main({}, [runner(POOL, RUNNER, status="offline")], snapshot(large=30)),
-                         {"trusted": "false", "cloud": picker.SMALL})
+                         {"trusted": "false", "cloud": picker.SMALL, "alternate": picker.LARGE})
 
     def test_a_failing_read_never_fails_the_job(self) -> None:
         def boom(token, repo):

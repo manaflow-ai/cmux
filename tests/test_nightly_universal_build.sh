@@ -367,7 +367,7 @@ if ! awk '
   /^  generate-nightly-deltas:/ { job="delta"; next }
   /^  republish-nightly-deltas:/ { job="republish"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
-  job == "delta" && /needs: \[decide, build-nightly-app, publish-nightly\]/ { saw_publish_need=1 }
+  job == "delta" && /needs: \[decide, build-nightly-app, publish-nightly(, pick-classic-sign-runner)?\]/ { saw_publish_need=1 }
   job == "delta" && /fail-fast: false/ { saw_matrix=1 }
   job == "republish" && /needs: \[decide, build-nightly-app, publish-nightly, generate-nightly-deltas\]/ { saw_delta_need=1 }
   job == "republish" && /gh api .*commits\/\$CHANNEL_RELEASE_TAG/ { saw_guard=1 }

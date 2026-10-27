@@ -1712,18 +1712,56 @@ jobs:
           [[ "$cmux_tui_commit" =~ ^[0-9a-f]{40}$ ]]
           echo "commit=$cmux_tui_commit" >> "$GITHUB_OUTPUT"
 
+  # The Blacksmith macOS 26 label the jobs after the build take (prepare, sign and notarize, verify,
+  # deltas): 6 vCPU while its queue moves, else 12 vCPU, by the queue janitor's snapshot and the one
+  # stall rule (scripts/ci/classic_nightly_build_runner.py, ENABLED 0: no trusted pick). Picked once
+  # the build is done, so it reads the queues as they are when signing starts. `alternate` is the
+  # other label, which a re-run takes so it never queues again on the label that stalled. Signing
+  # stays on Blacksmith: never an owned label. Every step continues on error, so the job ends green.
+  pick-classic-sign-runner:
+    needs: [decide, build-nightly-app]
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 6
+    permissions:
+      # The queue janitor's pool snapshot (an artifact).
+      actions: read
+      contents: read
+    outputs:
+      runner: ${{ steps.pick.outputs.cloud }}
+      alternate: ${{ steps.pick.outputs.alternate }}
+    steps:
+      - name: Checkout the picker at the workflow commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        continue-on-error: true
+        timeout-minutes: 2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          sparse-checkout: scripts/ci
+
+      - name: Pick a Blacksmith macOS label with a moving queue
+        id: pick
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          SNAPSHOT_TOKEN: ${{ github.token }}
+          FIRST: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+          ENABLED: '0'
+        run: python3 scripts/ci/classic_nightly_build_runner.py
+
   prepare-nightly-variant:
     # No environment and no secrets: this job runs code from the bundle (the
     # cmux-tui probe, the CLI and helper regressions, the sidecar handshake)
     # before signing. build-sign-notarize-nightly signs exactly the app it uploads
     # and runs no bundle code itself.
-    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client]
+    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, pick-classic-sign-runner]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
     # actions:read lets the parallel artifact download resolve the blob URL.
     permissions:
       contents: read
       actions: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && needs.pick-classic-sign-runner.outputs.alternate || needs.pick-classic-sign-runner.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -1966,7 +2004,7 @@ jobs:
     # Production secrets: GitHub releases them only to protected refs (the
     # environment's deployment branch policy: main, tags v*).
     environment: release
-    needs: [decide, build-nightly-app, prepare-nightly-variant]
+    needs: [decide, build-nightly-app, prepare-nightly-variant, pick-classic-sign-runner]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
     # Sign and notarize on the same macOS 26 lane proven by stable releases.
     permissions:
@@ -1976,7 +2014,7 @@ jobs:
     # job onto a machine that is reused between jobs. Blacksmith is trusted
     # like GitHub-hosted for signing, and no nightly job takes a GitHub-hosted
     # Mac (tests/test_ci_self_hosted_guard.sh).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && needs.pick-classic-sign-runner.outputs.alternate || needs.pick-classic-sign-runner.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
     # Start the standalone helper submission early so
     # Apple's first wait overlaps useful work; finish it before the final DMG.
     # Sparkle delta generation runs after the full publication in a separate
@@ -2664,11 +2702,11 @@ jobs:
     # helpers and sidecar. It runs even when signing failed after the app
     # was signed (for example a queued helper), because the notarization
     # continuation publishes only variants whose verify job passed.
-    needs: [decide, build-nightly-app, build-sign-notarize-nightly]
+    needs: [decide, build-nightly-app, build-sign-notarize-nightly, pick-classic-sign-runner]
     if: always() && needs.build-sign-notarize-nightly.result != 'skipped' && needs.build-sign-notarize-nightly.result != 'cancelled'
     permissions:
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && needs.pick-classic-sign-runner.outputs.alternate || needs.pick-classic-sign-runner.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -3166,12 +3204,12 @@ jobs:
     # BinaryDelta process therefore cannot extend the user's wait for a full
     # DMG and signed appcast.
     environment: release
-    needs: [decide, build-nightly-app, publish-nightly]
+    needs: [decide, build-nightly-app, publish-nightly, pick-classic-sign-runner]
     if: always() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.fast_build != 'true' && needs.publish-nightly.result == 'success'
     permissions:
       contents: read
       actions: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && needs.pick-classic-sign-runner.outputs.alternate || needs.pick-classic-sign-runner.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
     strategy:
       fail-fast: false
       matrix:
