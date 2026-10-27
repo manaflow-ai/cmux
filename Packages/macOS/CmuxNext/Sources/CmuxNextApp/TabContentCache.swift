@@ -192,6 +192,8 @@ final class TabContentCache {
 
     /// The app's grid sender for every terminal it makes (``ResizeCoordinator``).
     let resizes: ResizeCoordinator
+    /// Takes the daemon's stages of each key echo of a local terminal (p04-input-094); set by the App.
+    var terminalKeyStamps: (any TerminalKeyStampSink)?
 
     /// - Parameters:
     ///   - chromium: The Chromium engine's slot: its stores now, the engine (and the App's wiring) at its first read.
@@ -259,7 +261,7 @@ final class TabContentCache {
         let io = DaemonTerminalIO(target: target, resizes: resizes, visible: render, gate: gate, createIntent: create?.intentID ?? 0, creatingInput: gate.flatMap { gate in daemon.creatingInput(tab.terminalID) { gate.isResolved } },
                                   burstTrace: pageRequests.services?.burstTrace, policyBlocked: daemon.policyBlock.check,
                                   hangWatch: daemon.hangWatch, screenChanged: pageRequests.services?.terminalScreenChanged,
-                                  endpoint: { try await daemon.endpoint() })
+                                  keyStamps: daemon.isLocal ? terminalKeyStamps : nil, endpoint: { try await daemon.endpoint() })
         let session = makeSession(io: io, tab: tab, daemon: daemon); session.traceCreate(create, surface: tab.surface.rawValue)
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
                                   store: daemon.store, surface: tab.surface, gate: gate)

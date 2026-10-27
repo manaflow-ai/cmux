@@ -166,7 +166,7 @@ public final class TerminalSurfaceView: NSView {
          modifiers: TerminalModifierWatch? = nil, pointerFrames: FrameInputCoalescers? = nil,
          gpuResidency: (any TerminalGPUResidency)? = nil) {
         let echoStage = echoStages.makeStage() // before the surface: the trace hook may see its first frame
-        let bridge = SurfaceBridge(input: input, echoStage: echoStage, frameMarks: echoStages.frameMarks)
+        let bridge = SurfaceBridge(input: input, echoStage: echoStage, frameMarks: echoStages.frameMarks, keySlots: echoStages)
         // SAFETY: balanced by the one release in `deinit` (`bridge`'s note).
         self.bridge = unsafe Unmanaged.passRetained(bridge)
         self.session = session

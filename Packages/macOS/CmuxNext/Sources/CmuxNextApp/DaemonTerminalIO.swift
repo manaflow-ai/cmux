@@ -73,10 +73,13 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// `hangWatch`: watches each line the attachment's reader handles (`DaemonService.hangWatch`).
     /// `screenChanged`: told after each step this view maps (output, replay, grid, link status), so the oracle's
     /// `terminals` facet waits wake (`AppServices.terminalScreenChanged`; nil in Release).
+    /// `keyStamps`: takes the daemon's stages of each key echo (p04-input-094); only for a daemon on this Mac, whose
+    /// clock they are on.
     init(target: Target, resizes: ResizeCoordinator, visible: Bool = true, gate: TerminalTargetGate? = nil,
          createIntent: UInt64 = 0, creatingInput: CreatingTerminalInput? = nil,
          burstTrace: BurstTrace? = nil, policyBlocked: @escaping @Sendable () -> Bool = { false },
          hangWatch: (any HangWatchScoping)? = nil, screenChanged: (@Sendable () -> Void)? = nil,
+         keyStamps: (any TerminalKeyStampSink)? = nil,
          endpoint: @escaping @Sendable () async throws -> DaemonEndpoint) {
         self.resizes = resizes
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.terminal")
@@ -105,7 +108,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
                                                     images: Self.attachImages,
                                                     device: await Self.sizingDevice.value,
                                                     hangs: hangWatch, createIntent: firstAttach.take(),
-                                                    inputQueue: inputQueue)
+                                                    inputQueue: inputQueue, keyStamps: keyStamps)
             },
             onFailure: { error in
                 logger.error("attach \(surface) failed: \(String(describing: error), privacy: .public)")
@@ -187,14 +190,15 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     ///
     /// While the terminal is still being created its bytes go by id, one awaited send at a time; the lane holds
     /// every later record meanwhile, and a chunk the daemon refused goes by the attachment on `queue` before the
-    /// lane resumes, so no record passes it.
+    /// lane resumes, so no record passes it. A key's bytes carry its latency slot's flow to the link
+    /// (p04-input-094); by id they go without it.
     static func inputDrain<Link: TerminalAttachLink>(on queue: DispatchQueue, driver: TerminalAttachDriver<Link>,
                                                      creating: (any CreatingTerminalInputSending)?) -> TerminalInputDrain {
         TerminalInputDrain(queue: queue) { record, resume in
             switch record {
-            case .bytes(let data):
+            case .bytes(let data), .keyBytes(let data, _):
                 guard let creating, !creating.sendsByAttachment else {
-                    driver.input(data)
+                    driver.input(data, keyFlow: record.keyFlow)
                     return .next
                 }
                 Task {

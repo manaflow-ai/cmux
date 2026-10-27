@@ -33,6 +33,7 @@ public struct InputLatencySlot: Sendable, Equatable {
     public var echoRead: UInt64
     public var echoSent: UInt64
     public var presented: UInt64
+    public var echoParsed: UInt64
 
     /// A slot with every stage skipped.
     public init(
@@ -65,6 +66,7 @@ public struct InputLatencySlot: Sendable, Equatable {
         echoRead = 0
         echoSent = 0
         presented = 0
+        echoParsed = 0
     }
 
     /// The nanoseconds of `stage`, 0 when the input skipped it.
@@ -85,6 +87,7 @@ public struct InputLatencySlot: Sendable, Equatable {
             case .echoRead: echoRead
             case .echoSent: echoSent
             case .presented: presented
+            case .echoParsed: echoParsed
             }
         }
         set {
@@ -103,6 +106,7 @@ public struct InputLatencySlot: Sendable, Equatable {
             case .echoRead: echoRead = newValue
             case .echoSent: echoSent = newValue
             case .presented: presented = newValue
+            case .echoParsed: echoParsed = newValue
             }
         }
     }

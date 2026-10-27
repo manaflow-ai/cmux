@@ -1,3 +1,4 @@
+import CmuxNextInputCore
 import CmuxNextWakeups
 
 /// The process's terminal echo stages: the contents gate every terminal layer's hook reads and the
@@ -31,6 +32,10 @@ public final class TerminalEchoStages {
         self.sink = sink
         traceHook?.echoStagesInstalled()
     }
+
+    /// The latency slot flow of the key press the app is dispatching (``InputLatencyToken/keyFlow``), or 0 while it
+    /// dispatches none or no sink is installed: Ghostty's write of that key sends it to the daemon (p04-input-094).
+    var dispatchingKeyFlow: UInt64 { sink?.dispatchingKey?.keyFlow ?? 0 }
 
     /// Where a new surface's presented frames are marked (``SurfaceBridge/frameMarks``): the trace hook's
     /// recorder, which marks the stages, the typing probe and the new-terminal trace; nil without one.

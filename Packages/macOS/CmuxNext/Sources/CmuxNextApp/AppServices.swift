@@ -763,6 +763,10 @@ final class AppServices {
         pages.sharesChromiumWindows = self.features.isEnabled(.pageTabsShareChromiumWindow)
         DebugTimings.markLaunch("services.cache")
         let runtime = GhosttyRuntime.shared
+        // Terminal keys' echo and daemon stages go to the input latency slots, from the first terminal (p04-input-094).
+        let terminalKeys = TerminalKeyLatency(tracker: inputLatency.tracker)
+        runtime.echoStages.install(terminalKeys)
+        cache.terminalKeyStamps = terminalKeys
         let previousConfigChange = runtime.onConfigChange
         runtime.onConfigChange = { [weak self] in
             previousConfigChange?()

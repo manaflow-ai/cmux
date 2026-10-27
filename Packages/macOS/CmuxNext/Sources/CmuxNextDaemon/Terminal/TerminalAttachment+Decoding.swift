@@ -1,6 +1,7 @@
 import Foundation
 import os
 import CmuxNextCompat
+import CmuxNextWakeups
 
 /// Attach-connection lines to channel events (byte replay and snapshot
 /// attach).
@@ -43,6 +44,27 @@ extension TerminalAttachment {
         /// The key press this output echoes (`send` carried it and the PTY read stamped it); absent
         /// from a daemon without exact flows or when no press was open.
         var flow: UInt64?
+        /// That press's daemon stages (p04-input-094); absent from a daemon before them, or one whose clock is
+        /// not this Mac's.
+        var keyStages: KeyStages?
+
+        enum CodingKeys: String, CodingKey {
+            case surface, data, colors, generation, flow
+            case keyStages = "key_stages"
+        }
+    }
+
+    /// `key_stages {received, written, read, sent, lost}` of an `output` that echoes a key press.
+    private struct KeyStages: Decodable {
+        var received: UInt64
+        var written: UInt64
+        var read: UInt64
+        var sent: UInt64
+        var lost: UInt64?
+
+        var stamps: TerminalKeyStamps {
+            TerminalKeyStamps(received: received, written: written, read: read, sent: sent, lost: lost ?? 0)
+        }
     }
 
     /// `snapshot {phase, generation, offset, version, cols?, rows?, colors?, data}`.
@@ -158,7 +180,7 @@ extension TerminalAttachment {
                 decoder.recorder?.outputCopied(output.data.count)  // base64 out of the line, even if dropped below
                 guard scoped(output.surface) else { return nil }
                 return DecodedAttachLine(event: .output(output.data, colors: output.colors), generation: output.generation,
-                                         flow: output.flow)
+                                         flow: output.flow, keyStamps: output.keyStages?.stamps)
             case "resized":
                 let state = try decoder.decode(VTState.self, from: line)
                 guard scoped(state.surface) else { return nil }

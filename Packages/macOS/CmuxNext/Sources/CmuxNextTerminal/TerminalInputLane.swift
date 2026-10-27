@@ -130,9 +130,12 @@ private nonisolated struct TerminalInputOverflow {
     /// that would pass `byteLimit`.
     mutating func append(_ record: TerminalInputRecord, byteLimit: Int, recordLimit: Int) -> Bool {
         guard records.count < recordLimit else { return false }
-        if case .bytes(let data) = record {
+        switch record {
+        case .bytes(let data), .keyBytes(let data, _):
             guard bytes + data.count <= byteLimit else { return false }
             bytes += data.count
+        case .resize, .focusGained, .takeOverSize, .reconnect, .resync:
+            break
         }
         records.append(record)
         return true

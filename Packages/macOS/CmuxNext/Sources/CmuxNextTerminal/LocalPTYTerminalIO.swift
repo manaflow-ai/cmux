@@ -164,7 +164,7 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
     public func inputDrain() -> TerminalInputDrain {
         TerminalInputDrain(queue: writeQueue) { [self] record, _ in
             switch record {
-            case .bytes(let data):
+            case .bytes(let data), .keyBytes(let data, _):
                 guard !closed.load(ordering: .acquiring) else { break }
                 input.append(data)
                 input.flush(to: masterFD, source: writeSource)

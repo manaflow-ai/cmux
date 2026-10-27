@@ -35,10 +35,14 @@ nonisolated final class SurfaceBridge: Sendable {
     let frames: GhosttyTraceHook.Surface
     /// Where this surface's presented frames are marked (``ghosttySurfacePresented(_:_:_:_:)``); nil: nowhere.
     let frameMarks: GhosttyTraceHook.Recorder?
+    /// Names the key press the app is dispatching, whose bytes carry its flow (``dispatchingKeyFlow``); nil: none.
+    let keySlots: TerminalEchoStages?
 
-    init(input: TerminalInputSink, echoStage: TerminalEchoStage? = nil, frameMarks: GhosttyTraceHook.Recorder? = nil) {
+    init(input: TerminalInputSink, echoStage: TerminalEchoStage? = nil, frameMarks: GhosttyTraceHook.Recorder? = nil,
+         keySlots: TerminalEchoStages? = nil) {
         self.input = input
         self.frameMarks = frameMarks
+        self.keySlots = keySlots
         frames = GhosttyTraceHook.Surface(key: input.typingSurface, echoStage: echoStage)
         // An answer that changed shows at once: the pointer goes to Ghostty again.
         linkFilter.onChange { [weak self] in
@@ -49,6 +53,13 @@ nonisolated final class SurfaceBridge: Sendable {
     /// The session's surfaces to the typing probe (``TypingLatencyProbe``): the key router opens a press
     /// on it, and Ghostty's writes, the output lane and the frame mark by it.
     var typingSurface: TypingLatencyProbe.SurfaceKey { input.typingSurface }
+
+    /// The latency slot flow of the key press whose dispatch makes Ghostty write now (0: none): Ghostty writes a
+    /// key's bytes inline on the main thread, inside its dispatch; a write on its IO thread is no key's.
+    var dispatchingKeyFlow: UInt64 {
+        guard let keySlots, Thread.isMainThread else { return 0 }
+        return MainActor.assumeIsolated { keySlots.dispatchingKeyFlow } // main-proof: guarded by Thread.isMainThread above
+    }
 
     /// Ghostty wrote `bytes` (`io_write_cb`, on the thread that made the write): one on the main thread
     /// (a key, a paste, a report) reaches the session's echo predictions (``PredictiveEchoSlot/written(_:by:)``).
@@ -154,8 +165,9 @@ nonisolated struct TerminalInputSink: Sendable {
         self.typingSurface = typingSurface
     }
 
-    func send(_ data: Data) {
-        lane.push(.bytes(data))
+    /// Sends `data`; `keyFlow` is the latency slot flow of the key press it encodes (0: none, p04-input-094).
+    func send(_ data: Data, keyFlow: UInt64 = 0) {
+        lane.push(keyFlow == 0 ? .bytes(data) : .keyBytes(data, keyFlow: keyFlow))
     }
 
     func resize(_ grid: TerminalGridSize, pixelWidth: Int, pixelHeight: Int) {
@@ -195,5 +207,5 @@ nonisolated func ghosttyIOWrite(_ userdata: UnsafeMutableRawPointer?, _ bytes: U
     // SAFETY: as above.
     let data = unsafe Data(bytes: bytes, count: Int(length))
     bridge.wrote(data)
-    bridge.input.send(data)
+    bridge.input.send(data, keyFlow: bridge.dispatchingKeyFlow)
 }
