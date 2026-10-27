@@ -61,7 +61,7 @@ impl SettingsList {
         let mut words = args.iter();
         while let Some(word) = words.next() {
             match word.as_str() {
-                "--keys" if !options.keys => options.keys = true,
+                "--keys" => options.keys = true,
                 "--section" if options.section.is_none() => {
                     options.section = Some(
                         words
