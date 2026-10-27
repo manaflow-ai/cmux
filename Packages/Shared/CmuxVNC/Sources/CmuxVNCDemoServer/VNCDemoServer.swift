@@ -1,4 +1,6 @@
 import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 import func CmuxSafeConcurrency.withOnceThrowingContinuation
 import CmuxVNC
 import CoreGraphics
@@ -93,16 +95,18 @@ public final class VNCDemoServer: @unchecked Sendable {
 
     /// Whether the animation clock runs (tests): only while a viewer is connected.
     func animationClockRuns() async -> Bool {
-        await withCheckedContinuation { continuation in
-            queue.async { continuation.resume(returning: self.timer != nil) }
-        }
+        // A dropped answer (the queue is gone) reads as not running.
+        (try? await withOnceContinuation { (answer: OnceContinuation<Bool, OnceContinuationError>) in
+            queue.async { answer.resume(returning: self.timer != nil) }
+        }) ?? false
     }
 
     /// The text typed by viewers so far (tests).
     public func typedText() async -> String {
-        await withCheckedContinuation { continuation in
-            queue.async { continuation.resume(returning: self.scene?.typed ?? "") }
-        }
+        // A dropped answer (the queue is gone) reads as nothing typed.
+        (try? await withOnceContinuation { (answer: OnceContinuation<String, OnceContinuationError>) in
+            queue.async { answer.resume(returning: self.scene?.typed ?? "") }
+        }) ?? ""
     }
 
     private func accept(_ connection: NWConnection) {
