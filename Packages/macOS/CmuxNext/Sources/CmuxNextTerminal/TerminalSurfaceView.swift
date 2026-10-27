@@ -242,6 +242,7 @@ public final class TerminalSurfaceView: NSView {
         // SAFETY: the view's live surface (`surface`).
         unsafe ghostty_surface_set_host_sized(surface, true)
         TerminalFontScale(self).installCallback()
+        GhosttyLockWaitSignpost.install(on: surface, bridge: bridge)
         // Light/dark themes (default Apple System Colors) follow the app.
         GhosttyRuntime.shared.registerColorScheme(of: self)
         // SAFETY: the lane owns the off-main uses of the surface until `deinit` closes it, before
