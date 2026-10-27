@@ -32,6 +32,7 @@ from pathlib import Path
 import browser_resize
 import dark_load_flash
 import sidebar_content
+from lab_rows import Row, missed_frames, perf_stats
 
 EPS = 0.75  # points: a value this close to its start or end counts as there
 
@@ -42,7 +43,7 @@ EPS = 0.75  # points: a value this close to its start or end counts as there
 # the ends, over a trace of at least `min_frames` frames (two frames would pass by having no
 # room to move). A new tab is there at once at its slot and full width, and the strip makes
 # room in the same frame (b235e5f5d752, Lawrence 10-14): no grow-in by default.
-THRESHOLDS: dict[str, dict[str, float]] = {
+THRESHOLDS = {
     "new_tab_cold": {"max_intermediate": 1, "min_frames": 20},
     "new_tab_warm": {"max_intermediate": 1, "min_frames": 20},
     "sidebar_collapse": {"min_intermediate": 8, "max_step": 0.4, "p95_frames": 2.5, "max_frames": 8},
@@ -274,11 +275,6 @@ class Driver:
 # ---------------------------------------------------------------- judge
 
 
-def percentile(values: list[float], p: float) -> float:
-    ordered = sorted(values)
-    return ordered[min(len(ordered) - 1, int(round((len(ordered) - 1) * p)))] if ordered else 0.0
-
-
 def motion(values: list[float], times: list[float]) -> dict:
     """How `values` (one per frame, at `times` ms) moved from their first to their last value."""
     if len(values) < 2:
@@ -340,7 +336,7 @@ def sidebar_series(trace: dict) -> dict:
 
 
 def frame_budget(intervals: list[float], refresh: float, limits: dict[str, float]) -> tuple[dict, list[str]]:
-    p95, worst = percentile(intervals, 0.95), max(intervals, default=0.0)
+    p95, worst = perf_stats.pct(intervals, 0.95) or 0.0, max(intervals, default=0.0)
     problems = []
     if intervals and refresh > 0:
         if p95 > limits["p95_frames"] * refresh:
@@ -402,6 +398,10 @@ def judge(out: Path) -> dict[str, dict]:
             continue
         if data is None or ("error" in data and "samples" not in data and "scroll_top" not in data and "drags" not in data):
             verdicts[name] = {"ok": False, "problems": [f"not measured: {(data or {}).get('error', 'no result file')}"]}
+            continue
+        if name not in ("transcript_follow", "window_resize") and not data.get("samples"):
+            # A build without the per-frame trace (debug.motion trace_* is DEBUG-only) answers with no samples.
+            verdicts[name] = {"ok": False, "problems": ["not measured: the trace has no per-frame samples"]}
             continue
         if name.startswith(("new_tab", "reduce_new_tab")):
             grow, neighbors = tab_series(data)
@@ -500,17 +500,82 @@ def judge_resize(data: dict, refresh: float) -> dict:
         lag_runs.append(longest)
         content["window_intermediate"] = window["intermediate"]
         results.append(content)
-    if not results:
-        return {"ok": False, "problems": ["not measured: no drag"]}
+    if not any(result["frames"] for result in results):
+        return {"ok": False, "problems": ["not measured: no drag" if not results else "not measured: no drag has per-frame samples"]}
     worst = min(results, key=lambda result: result["intermediate"])
     verdict = judge_motion("window_resize", {**worst, "intervals": [i for r in results for i in r["intervals"]]}, refresh)
-    verdict["intervals"] = []
     verdict["drags"] = [{key: r[key] for key in ("travel", "intermediate", "window_intermediate", "max_step")} for r in results]
     verdict["lag_frames"] = max(lag_runs)
     # Strict tracking (content within one frame of the edge) is reported, not enforced, until
     # feat/live-resize-tracking lands.
     verdict["strict_lag_ok"] = max(lag_runs) <= 1
     return verdict
+
+
+# ---------------------------------------------------------------- result-v1
+
+
+def measured(verdict: dict) -> bool:
+    """False for a scenario the run could not measure: it says so in `measured` or in a "not measured" problem."""
+    if verdict.get("measured") is False:
+        return False
+    return not any(str(problem).startswith("not measured") for problem in verdict.get("problems") or [])
+
+
+def cmd_t_dropped(out: Path, verdicts: dict[str, dict], refresh: float) -> dict[str, int]:
+    """Per measured Cmd-T opening (cold, warm), the display frames its trace missed. The trace runs from 0.1 s before
+    the key to 0.9 s after it (Driver.new_tab), sampled once per display frame, so this is golden's own window, not
+    the key-to-frame window of the new-surface-frames target (instant-new-surfaces-bench's `cmd_t.<session>.dropped`).
+    A scenario the judge did not measure, one where no tab opened (`nothing changed`, no `opening`) or one whose
+    trace is too short is left out: it has no missed-frame count to report."""
+    found = {}
+    for name in ("new_tab_cold", "new_tab_warm"):
+        verdict = verdicts.get(name) or {}
+        if not measured(verdict) or verdict.get("opening") is None or "nothing changed" in (verdict.get("problems") or []):
+            continue
+        samples = (load(out, name) or {}).get("samples") or []
+        if len(samples) >= THRESHOLDS[name]["min_frames"]:
+            times = times_of(samples)
+            found[name] = missed_frames([b - a for a, b in zip(times, times[1:])], refresh)
+    return found
+
+
+def rows(out: Path, verdicts: dict[str, dict]) -> list[Row]:
+    """result-v1 rows of the lab story `frame_pacing.golden`, from the measured scenarios only: whether each passed,
+    the numbers its THRESHOLDS judge (intermediate frames, the largest step's share of the travel, every frame
+    interval in refresh periods, the transcript's trail), the live resize's lag, the browser resize and dark load
+    rows, and `golden.new_tab_<cold|warm>.dropped`, the frames each measured Cmd-T opening missed."""
+    refresh = refresh_of(out)
+    found: list[Row] = []
+    for name, verdict in verdicts.items():
+        if not measured(verdict):
+            continue
+        base = f"golden.{name}"
+        found.append(Row(f"{base}.pass", "ratio", "higher", (1.0 if verdict.get("ok") else 0.0,)))
+        if name == "browser_resize":
+            found += browser_resize.rows(verdict, base)
+            continue
+        if name == "dark_load_flash":
+            found += [Row(f"{base}.{key}_gain", "ratio", "lower", (verdict[key]["gain"],))
+                      for key in dark_load_flash.TOLERANCE if isinstance(verdict.get(key), dict)]
+            continue
+        limits = THRESHOLDS[name]
+        if "intermediate" in verdict:
+            better = "higher" if "min_intermediate" in limits else "lower"
+            found.append(Row(f"{base}.intermediate", "count", better, (verdict["intermediate"],)))
+        if "max_step" in limits and "max_step" in verdict:
+            found.append(Row(f"{base}.max_step", "ratio", "lower", (verdict["max_step"],)))
+        intervals = verdict.get("intervals") or []
+        if "p95_frames" in limits and intervals and refresh > 0:
+            found.append(Row(f"{base}.frame_periods", "unitless", "lower",
+                             tuple(round(interval / refresh, 3) for interval in intervals)))
+        found += [Row(f"{base}.{key}", "ratio", "lower", (verdict[key],)) for key in ("trail_max", "trail_end")
+                  if key in verdict]
+        if "lag_frames" in verdict:
+            found.append(Row(f"{base}.lag_frames", "count", "lower", (verdict["lag_frames"],)))
+    found += [Row(f"golden.{name}.dropped", "count", "lower", (count,))
+              for name, count in cmd_t_dropped(out, verdicts, refresh).items()]
+    return found
 
 
 def markdown(out: Path, verdicts: dict[str, dict]) -> str:

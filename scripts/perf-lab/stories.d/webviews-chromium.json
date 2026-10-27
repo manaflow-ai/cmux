@@ -1,0 +1,20 @@
+{
+  "id": "webviews-chromium",
+  "tier": "linux",
+  "description": "The webviews perf tests in headless Chromium on Linux: opening chats from a list of 120 against a busy stand-in acpmux, quiet and with 40 chats working, cold and cached (chat-open-perf.test.ts), and the diff viewer's first row, first highlight and stream end on a 2,000-file and a 1,000,000-line patch (diff-paint-perf.test.ts).",
+  "command": ["webviews/scripts/perf-lab-story.sh", "--engine", "chromium"],
+  "session": "light",
+  "engine": "chromium",
+  "config": "release",
+  "metrics": [
+    {"name": "web\\.chat_open\\.(quiet|loaded)_(cold|cached)\\.(draw|fade)", "unit": "ms", "better": "lower"},
+    {"name": "web\\.chat_open\\.(quiet|loaded)_(cold|cached)\\.(draw_frames|shifted_frames|blank_frames|flashes|never_drawn)", "unit": "count", "better": "lower"},
+    {"name": "web\\.diff_paint\\.(mixed|huge)\\.(first_row|first_highlight|complete)", "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 600,
+  "needs": ["file:webviews/scripts/perf-result.mjs", "file:webviews/test/chat-open-perf.test.ts",
+            "file:webviews/test/diff-paint-perf.test.ts"],
+  "owner": "Performance Lead",
+  "component": "Webviews>Bench"
+}
