@@ -3,6 +3,39 @@
 use super::person::ANSWERED_BY_SLOT;
 use super::*;
 
+tokio::task_local! {
+    /// The fence of the ancestor's answer the agent's request in this task got, until its
+    /// write takes it (`respond_answer`).
+    static ANSWER_FENCE: std::cell::RefCell<AnswerFence>;
+}
+
+/// An ancestor's answer's fence no write took: cut when dropped, as the request's task ends, so
+/// no push waits on it (review 84 of #23322).
+#[derive(Default)]
+struct AnswerFence(Option<crate::agent::Fence>);
+
+impl Drop for AnswerFence {
+    fn drop(&mut self) {
+        if let Some(f) = self.0.take() {
+            f.cut();
+        }
+    }
+}
+
+/// Gives the agent's request in this task the fence of the ancestor's answer it got. A fence
+/// with no request task to write it (a trust card's own task), or one it replaces, is cut.
+fn keep_answer_fence(fence: crate::agent::Fence) {
+    match ANSWER_FENCE.try_with(|f| f.borrow_mut().0.replace(fence.clone())) {
+        Ok(None) => {}
+        Ok(Some(replaced)) => {
+            replaced.cut();
+        }
+        Err(_) => {
+            fence.cut();
+        }
+    }
+}
+
 // A losing answer is told the first one (`respond_permission`).
 #[path = "permission_settled.rs"]
 pub(super) mod settled;
@@ -112,6 +145,7 @@ impl Hub {
                             turn_id,
                             ask,
                             host_incarnation.clone(),
+                            None,
                         )
                         .await;
                         finish_hub.finish_agent_request(
@@ -297,7 +331,50 @@ impl Hub {
         }
     }
 
-    pub(super) async fn on_agent_request(
+    /// Answers the agent's request `id` with `result`, under the fence of the ancestor's answer
+    /// it carries (`ANSWER_FENCE`), and returns once it is handed on. An answer an off push cut
+    /// while it was queued never reaches the agent, which still waits: the request is handled
+    /// again (`again`: its method, params, permission epoch, turn and host incarnation), so it is
+    /// asked under the bound now, or cancelled when a stop or a new turn came since (reviews 84
+    /// and 88 of #23322).
+    async fn respond_answer(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        child: &Arc<ChildAgent>,
+        id: Id,
+        result: Result<Value, RpcError>,
+        again: (String, Option<Value>, u64, Option<String>, Option<String>),
+    ) {
+        let fence = ANSWER_FENCE.try_with(|f| f.borrow_mut().0.take()).ok().flatten();
+        let _ = child.respond_fenced(id.clone(), result, fence.as_ref()).await;
+        let Some(fence) = fence else { return };
+        let (hub, s, c) = (self.clone(), session.clone(), child.clone());
+        // task-owner: ends once its writer takes the answer or it is cut: only a queued one can be.
+        tokio::spawn(async move {
+            fence.taken().await;
+            // A writer that stopped cuts what it still had: its agent is gone and asks nothing.
+            if fence.is_cut() && c.is_alive().await {
+                let (m, params, epoch, turn_id, incarnation) = again;
+                // Open again while it is asked, so the agent's withdrawal of it is heard.
+                let ask = m == method::SESSION_REQUEST_PERMISSION;
+                if ask {
+                    hub.register_agent_request(&s, &id, incarnation.as_deref());
+                }
+                let request_id = id.clone();
+                let (h, i) = (hub.clone(), incarnation.clone());
+                h.on_agent_request(s.clone(), id, m, params, epoch, turn_id, None, i, Some(c))
+                    .await;
+                if ask {
+                    hub.finish_agent_request(&s, &request_id, incarnation.as_deref());
+                }
+            }
+        });
+    }
+
+    /// [`Self::on_agent_request_in`], where an ancestor's answer finds the fence of its write
+    /// (`ANSWER_FENCE`). Boxed: a cut answer's request is handled again from inside it, for
+    /// `asked_of`, the agent that asked it.
+    pub(super) fn on_agent_request(
         self: Arc<Self>,
         session: Arc<Session>,
         id: Id,
@@ -307,19 +384,54 @@ impl Hub {
         turn_id: Option<String>,
         ask: Option<super::permission_groups::AskInFlight>,
         host_incarnation: Option<String>,
+        asked_of: Option<Arc<ChildAgent>>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+        Box::pin(async move {
+            let request = self.on_agent_request_in(
+                session,
+                id,
+                m,
+                params,
+                epoch,
+                turn_id,
+                ask,
+                host_incarnation,
+                asked_of,
+            );
+            ANSWER_FENCE.scope(Default::default(), request).await;
+        })
+    }
+
+    async fn on_agent_request_in(
+        self: Arc<Self>,
+        session: Arc<Session>,
+        id: Id,
+        m: String,
+        params: Option<Value>,
+        epoch: u64,
+        turn_id: Option<String>,
+        ask: Option<super::permission_groups::AskInFlight>,
+        host_incarnation: Option<String>,
+        asked_of: Option<Arc<ChildAgent>>,
     ) {
         // Context was captured before spawning this request task, so cancel
         // or a new turn cannot make a delayed request join the new ask.
-        let Some(child) = session.child.lock().await.clone() else {
-            return;
+        let current = session.child.lock().await.clone();
+        // A request handled again is answered only to the agent that asked it, while it still
+        // has the session: a failover's agent starts its request ids over (review 88 of #23322).
+        let child = match (asked_of, current) {
+            (Some(asked), Some(now)) if Arc::ptr_eq(&asked, &now) => asked,
+            (None, Some(now)) => now,
+            _ => return,
         };
         // Grok's x.ai extension requests: a question or a plan approval,
         // asked through the same permission path (xai.rs).
+        let again = (m.clone(), params.clone(), epoch, turn_id.clone(), host_incarnation.clone());
         if let Some(kind) = super::xai::request_kind(&m) {
             let result = self
                 .handle_xai_request(&session, kind, params.unwrap_or(Value::Null), epoch, turn_id)
                 .await;
-            let _ = child.respond(id, result).await;
+            self.respond_answer(&session, &child, id, result, again).await;
             return;
         }
         // Cursor's cursor/ requests: a question or a plan approval (cursor_ext.rs).
@@ -333,7 +445,7 @@ impl Hub {
                     turn_id,
                 )
                 .await;
-            let _ = child.respond(id, result).await;
+            self.respond_answer(&session, &child, id, result, again).await;
             return;
         }
         if m == method::SESSION_REQUEST_PERMISSION {
@@ -349,7 +461,7 @@ impl Hub {
                     ask,
                 )
                 .await;
-            let _ = child.respond(id, Ok(result)).await;
+            self.respond_answer(&session, &child, id, Ok(result), again).await;
             return;
         }
         // ACP file-system methods: the harness delegates reads and writes to
@@ -795,6 +907,10 @@ impl Hub {
             self.start_permission_group_timer(session, id);
         }
         let mut outcome = rx.await.unwrap_or_else(|_| json!({"outcome":"cancelled"}));
+        // An ancestor's answer: written under its fence (`subsession_answer.rs`).
+        if let Some(fence) = self.answer_fences.lock().unwrap().remove(&permission_id) {
+            keep_answer_fence(fence);
+        }
         // Who answered for the person (`hub/person.rs` answered_by): audit
         // only, never sent to the agent.
         let answered_by = outcome.as_object_mut().and_then(|o| o.remove(ANSWERED_BY_SLOT));
@@ -1047,6 +1163,12 @@ impl Hub {
                 }
             }
             let p = map.remove(permission_id).unwrap();
+            // An ancestor's answer that won: its fence goes to the asking task, which writes it
+            // (`ANSWER_FENCE`), here under the prompt's lock, where it won, so a losing answer
+            // never takes it away (review 81 of #23322).
+            if let Some(fence) = answerer.fence {
+                self.answer_fences.lock().unwrap().insert(permission_id.to_owned(), fence.clone());
+            }
             // A person's answer names them beside any device (`author.rs`), after the person
             // rule above, which it never satisfies.
             let answered_by = crate::author::answered_by(answered_by, answerer.author);
@@ -1078,7 +1200,13 @@ impl Hub {
         if let Some(by) = answered_by {
             outcome[ANSWERED_BY_SLOT] = by;
         }
-        let _ = pending.reply.send(outcome);
+        // The asking task is gone: nothing writes the answer, so its fence is cut.
+        if pending.reply.send(outcome).is_err()
+            && let Some(fence) = answerer.fence
+        {
+            self.answer_fences.lock().unwrap().remove(permission_id);
+            fence.cut();
+        }
         Ok(())
     }
 
@@ -1288,7 +1416,7 @@ fn normalize_path(path: &std::path::Path) -> std::path::PathBuf {
 /// their turn and still ask, often in the moment between the harness's end of
 /// turn and acpmux's. A cancel bumps `permission_epoch`, and the remote floor
 /// still judges a request after a Web turn by that turn (`web_turn`).
-fn stale_turn(session: &Session, then: &Option<String>) -> bool {
+pub(super) fn stale_turn(session: &Session, then: &Option<String>) -> bool {
     // A turn the remote floor cancelled stays cancelled for every request
     // from it, also after it ended and a local client restored an asking mode.
     if then.is_some()

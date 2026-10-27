@@ -471,13 +471,15 @@ pub struct Hub {
     pub(super) start_mode_state: start_mode_state::StartModeCell,
     /// Held by each `sessions.allowFullAccess` push through its teardown (`apply_full_access_push`).
     pub(super) full_access_pushes: tokio::sync::Mutex<()>,
-    /// Held (read) by a family message from its last check until it is written to the agent, and
-    /// an answer from its check to its delivery; an MDM off push takes it (write) once the off is
-    /// stored
+    /// Held (read) by a family message or an ancestor's answer from its last check until it is
+    /// written to the agent; an MDM off push takes it (write) once the off is stored
     /// (`full_access_bound.rs` `family_gate`).
     pub(super) family_gate: Arc<tokio::sync::RwLock<()>>,
     /// Bumped by an off push that waited too long on the gate: its holders cut their message.
     pub(super) family_cut: tokio::sync::watch::Sender<u64>,
+    /// The fence of an ancestor's answer, by permission id, for the write that delivers it
+    /// (`subsession_answer.rs`).
+    pub(super) answer_fences: StdMutex<HashMap<String, crate::agent::Fence>>,
     /// Tests only: a pause before a family message's write (`full_access_bound::WriteSeam`).
     #[cfg(test)]
     pub(super) family_write_seam: full_access_bound::WriteSeam,
@@ -626,6 +628,7 @@ impl Hub {
             full_access_pushes: tokio::sync::Mutex::new(()),
             family_gate: Arc::new(tokio::sync::RwLock::new(())),
             family_cut: tokio::sync::watch::channel(0).0,
+            answer_fences: StdMutex::new(HashMap::new()),
             #[cfg(test)]
             family_write_seam: Default::default(),
             #[cfg(test)]
