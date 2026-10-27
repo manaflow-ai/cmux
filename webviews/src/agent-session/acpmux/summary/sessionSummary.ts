@@ -6,13 +6,7 @@ import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { isSubagentGroup } from "../subagents/subagentRows";
 import { mcpCall, mcpPlainName } from "../conversation/mcpCalls";
 import { editedPaths } from "../toolPaths";
-import {
-  transcriptPullRequestKey,
-  transcriptPullRequests,
-  transcriptSummaryVersion,
-  transcriptSourceVersion,
-  type SummaryPullRequest,
-} from "./transcriptPullRequests";
+import { transcriptPullRequests, transcriptSummaryVersion, type SummaryPullRequest } from "./transcriptPullRequests";
 
 export type { PullRequestState, SummaryPullRequest } from "./transcriptPullRequests";
 
@@ -32,7 +26,7 @@ export type SummaryBackgroundTask = {
   startedAt?: number;
 };
 export type SessionSummary = {
-  /// The chat's project folder; absent means only project-relative Outputs can be included.
+  /// The chat's project folder; absent leaves Outputs unscoped.
   cwd?: string;
   scheduled: SummaryWakeup[];
   pullRequests: SummaryPullRequest[];
@@ -97,7 +91,6 @@ function scheduled(all: readonly Tool[]): SummaryWakeup[] {
 const GITHUB_PR_URL = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)(?:\/[^\s]*)?$/;
 const GITHUB_ISSUE_URL = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/issues\/(\d+)(?:\/[^\s]*)?$/;
 const sourceKey = (source: SummarySource) => `${source.kind ?? "url"}:${source.url ?? source.label}`;
-let sourceCache: { revision: symbol; pullRequests: string; sources: SummarySource[] } | undefined;
 let summaryCache:
   | {
       revision: symbol;
@@ -106,19 +99,6 @@ let summaryCache:
       summary: SessionSummary;
     }
   | undefined;
-let pullRequestCache:
-  | {
-      revision: string | symbol;
-      folder?: string;
-      replies: boolean;
-      pullRequests: SummaryPullRequest[];
-    }
-  | undefined;
-const pullRequestSourceKey = (pullRequests: readonly SummaryPullRequest[]) =>
-  pullRequests
-    .map((pr) => `${pr.url}:${pr.kind ?? ""}:${pr.opened ? 1 : 0}:${pr.changed ? 1 : 0}:${pr.mentioned ? 1 : 0}`)
-    .join("|");
-
 const normalizedPath = (path: string) => {
   const absolute = path.startsWith("/");
   const parts: string[] = [];
@@ -157,11 +137,6 @@ function sources(
   all: readonly Tool[],
   pullRequests: readonly SummaryPullRequest[],
 ): SummarySource[] {
-  const revision = transcriptSourceVersion(rows);
-  const pullRequestKey = pullRequestSourceKey(pullRequests);
-  if (revision) {
-    if (sourceCache?.revision === revision && sourceCache.pullRequests === pullRequestKey) return sourceCache.sources;
-  }
   const seen = new Map<string, SummarySource>();
   const add = (source: SummarySource) => {
     const key = sourceKey(source);
@@ -214,11 +189,9 @@ function sources(
     if (call) add({ label: mcpPlainName(call), kind: "mcp" });
   }
   // Assistant URLs become Sources only once the reply settles; streaming tokens never enter this
-  // loop because transcriptSourceVersion remains unchanged until that row is closed.
+  // loop during progress because the producer summary revision stays unchanged.
   for (const row of rows) if (row.kind === "assistant" && !row.streaming) addUrls(row.text ?? "");
-  const result = [...seen.values()];
-  if (revision) sourceCache = { revision, pullRequests: pullRequestKey, sources: result };
-  return result;
+  return [...seen.values()];
 }
 
 /// The pull requests the chat opened (the composer's PR bars, PullRequestDock.tsx).
@@ -284,22 +257,12 @@ export function sessionSummary(rows: readonly AcpmuxRow[], repository?: string |
   const inspector = repository !== undefined;
   // The summary card reads only the commands, and lists no mention.
   const folder = repository ?? undefined;
-  const revision = inspector
-    ? (transcriptSourceVersion(rows) ?? transcriptPullRequestKey(rows, true))
-    : transcriptPullRequestKey(rows);
-  const cached =
-    pullRequestCache?.revision === revision &&
-    pullRequestCache.folder === folder &&
-    pullRequestCache.replies === inspector
-      ? pullRequestCache.pullRequests
-      : undefined;
-  const pullRequests = cached ?? transcriptPullRequests(rows, { folder, replies: inspector });
-  if (!cached) pullRequestCache = { revision, folder, replies: inspector, pullRequests };
+  const pullRequests = transcriptPullRequests(rows, { folder, replies: inspector });
   const result = {
     ...(cwd ? { cwd } : {}),
     scheduled: scheduled(all),
     pullRequests: inspector ? pullRequests : pullRequests.filter((pr) => !pr.mentioned),
-    outputs: filesInProject(turnFiles(rows as AcpmuxRow[]), cwd),
+    outputs: cwd === undefined ? turnFiles(rows as AcpmuxRow[]) : filesInProject(turnFiles(rows as AcpmuxRow[]), cwd),
     subagents: subagents(rows, all),
     sources: sources(rows, all, pullRequests),
     backgroundTasks: backgroundTasks(rows, all),

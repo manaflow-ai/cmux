@@ -41,8 +41,6 @@ export type SummaryPullRequest = {
   mentioned?: boolean;
   /// Where in the transcript the chat last touched or named it (rises with each row), for order.
   touched?: number;
-  /// The branch GitHub reports for this pull request, used to attribute git pushes/reverts.
-  head?: string;
 };
 
 const PR_URL = /https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)/g;
@@ -53,7 +51,7 @@ const CREATE = /\bgh\s+pr\s+create\b|\bglaeda-gh\s+post\s+pr(?=\s|$)/;
 const ISSUE_CALL = /\bgh\s+issue\s+([a-z][\w-]*)(?=\s|$)([^\n;&|]*)/g;
 /// Writes sent through glaeda's broker are mutations even though they do not use `gh pr`.
 const BROKER_CALL =
-  /\bglaeda-gh\s+(?:[a-z][\w-]*\s+)*(pr-(?:comment|edit|close|reopen|merge|review|approve|request-changes|update-branch|push|revert)|issue-(?:comment|edit|close|reopen|create|lock|unlock))(?=\s|$)([^\n;&|]*)/g;
+  /\bglaeda-gh\s+(?:[a-z][\w-]*\s+)*(pr-(?:comment|edit|close|reopen|merge|review|approve|request-changes|update-branch)|issue-(?:comment|edit|close|reopen|create|lock|unlock))(?=\s|$)([^\n;&|]*)/g;
 /// One call that acts on a single pull request: a `gh pr` verb, `gh-merge-green`, or `glaeda-gh`
 /// with a `pr` argument (`wait pr`, `status pr`, `checks pr`), up to the end of the call.
 const CALL =
@@ -119,8 +117,6 @@ const MUTATING = new Set([
   "lock",
   "unlock",
   "update-branch",
-  "push",
-  "revert",
 ]);
 
 const succeeded = (tool: Tool) => tool.status === "completed" && (tool.exitCode ?? 0) === 0;
@@ -147,40 +143,19 @@ function outputTitle(tool: Tool): string | undefined {
   return undefined;
 }
 
-function outputHead(tool: Tool): string | undefined {
-  const output = tool.output?.trim();
-  if (!output) return undefined;
-  try {
-    const value: unknown = JSON.parse(output);
-    if (value && typeof value === "object" && typeof (value as { headRefName?: unknown }).headRefName === "string") {
-      return (value as { headRefName: string }).headRefName.trim() || undefined;
-    }
-  } catch {
-    // Plain `--jq .headRefName` output is handled below.
-  }
-  if (
-    /\bgh\s+pr\s+view\b/.test(tool.command ?? "") &&
-    /(?:--jq\s+[^\n]*headRefName|--json[^\n]*headRefName)/.test(tool.command ?? "") &&
-    !output.includes("\n")
-  )
-    return output;
-  return undefined;
-}
-
 /// `name`: a repository by its name (`glaeda #12`); one the transcript never names is the word
 /// before a bare `#N` ("Merged #12") when `orFolder`, else nothing.
 type Ref = { kind: "full"; repo: string } | { kind: "name"; name: string; orFolder: boolean } | { kind: "folder" };
 /// What one row says about pull requests, before the folder and the transcript's repositories
 /// resolve its `#N` and `repo #N`.
 type Finding =
-  | { how: "opened"; repo: string; number: number; title?: string; head?: string; kind?: "pullRequest" | "issue" }
+  | { how: "opened"; repo: string; number: number; title?: string; kind?: "pullRequest" | "issue" }
   | {
       how: "touched";
       ref: Ref;
       number: number;
       changed?: boolean;
       title?: string;
-      head?: string;
       kind?: "pullRequest" | "issue";
     }
   | {
@@ -189,13 +164,9 @@ type Finding =
       number: number;
       changed?: boolean;
       title?: string;
-      head?: string;
       kind?: "pullRequest" | "issue";
     }
-  | { how: "settle"; ref: Ref; number: number; state: PullRequestState; at?: number }
-  /// A successful git push/revert changes the session's current branch. Resolve it against the
-  /// pull requests already found for the session's repository after the row scan.
-  | { how: "branch"; ref: Ref; branch?: string };
+  | { how: "settle"; ref: Ref; number: number; state: PullRequestState; at?: number };
 
 /// The pull request a call names: its first argument, after the flags and their values.
 function callTarget(rest: string): { ref: Ref; number: number } | undefined {
@@ -221,49 +192,6 @@ function callTarget(rest: string): { ref: Ref; number: number } | undefined {
   return undefined;
 }
 
-const GIT_GLOBAL_WITH_VALUE = new Set(["-C", "-c", "--git-dir", "--work-tree"]);
-
-function gitCommand(command: string): { action: string; args: string[] } | undefined {
-  const words = command.trim().split(/\s+/);
-  const git = words.findIndex((word) => word === "git");
-  if (git < 0) return undefined;
-  let index = git + 1;
-  while (index < words.length) {
-    const word = words[index]!;
-    if (word === "--") {
-      index++;
-      break;
-    }
-    if (GIT_GLOBAL_WITH_VALUE.has(word)) {
-      index += 2;
-      continue;
-    }
-    if (
-      word.startsWith("--git-dir=") ||
-      word.startsWith("--work-tree=") ||
-      (word.startsWith("-c") && word.length > 2)
-    ) {
-      index++;
-      continue;
-    }
-    if (word.startsWith("-")) {
-      index++;
-      continue;
-    }
-    break;
-  }
-  const action = words[index];
-  return action ? { action, args: words.slice(index + 1) } : undefined;
-}
-
-function pushedBranch(args: string[]): string | undefined {
-  const positional = args.filter((arg) => !arg.startsWith("-"));
-  if (positional.length < 2) return undefined;
-  const ref = positional[1]!;
-  const branch = ref.includes(":") ? ref.slice(ref.lastIndexOf(":") + 1) : ref;
-  return branch && branch !== "HEAD" ? branch : undefined;
-}
-
 function toolFindings(tool: Tool): Finding[] {
   if (!succeeded(tool)) return [];
   const command = tool.command ?? "";
@@ -272,15 +200,12 @@ function toolFindings(tool: Tool): Finding[] {
   if (CREATE.test(plain)) {
     const title = TITLE.exec(command);
     const text = title ? (title[1] ?? title[2] ?? title[3])?.replace(/\\(.)/g, "$1") : undefined;
-    const head = /(?:^|\s)--head(?:=|\s+)(?:"([^"]+)"|'([^']+)'|(\S+))/.exec(command);
-    const branch = head ? (head[1] ?? head[2] ?? head[3]) : undefined;
     for (const match of (tool.output ?? "").matchAll(PR_URL))
       found.push({
         how: "opened",
         repo: match[1]!,
         number: Number(match[2]),
         ...(text ? { title: text } : {}),
-        ...(branch ? { head: branch } : {}),
       });
     return found;
   }
@@ -316,6 +241,7 @@ function toolFindings(tool: Tool): Finding[] {
     const target = callTarget(match[2] ?? "");
     if (!target) continue;
     const issue = match[1]!.startsWith("issue-");
+    issueCall ||= issue;
     found.push({
       how: "touched",
       ref: target.ref,
@@ -333,29 +259,16 @@ function toolFindings(tool: Tool): Finding[] {
     const title =
       outputTitle(tool) ??
       (titleMatch ? (titleMatch[1] ?? titleMatch[2] ?? titleMatch[3])?.replace(/\\(.)/g, "$1") : undefined);
-    const head = outputHead(tool);
     found.push({
       how: "touched",
       ref: target.ref,
       number: target.number,
       ...(match[0].startsWith("gh-merge-green") || (action && MUTATING.has(action)) ? { changed: true } : {}),
       ...(title ? { title } : {}),
-      ...(head ? { head } : {}),
     });
     const state = match[0].startsWith("gh-merge-green") ? "merged" : SETTLES[action ?? ""];
     if (state)
       found.push({ how: "settle", ref: target.ref, number: target.number, state, at: tool.endedAt ?? tool.startedAt });
-  }
-  const git = gitCommand(plain);
-  if (git?.action === "branch" && git.args[0] === "--show-current") {
-    const branch = tool.output?.trim();
-    if (branch) found.push({ how: "branch", ref: { kind: "folder" }, branch });
-  } else if (git?.action === "push") {
-    const branch = pushedBranch(git.args);
-    if (branch) found.push({ how: "branch", ref: { kind: "folder" }, branch });
-    else found.push({ how: "branch", ref: { kind: "folder" } });
-  } else if (git?.action === "revert") {
-    found.push({ how: "branch", ref: { kind: "folder" } });
   }
   for (const match of plain.matchAll(PR_URL))
     found.push({ how: "touched", ref: { kind: "full", repo: match[1]! }, number: Number(match[2]) });
@@ -438,51 +351,6 @@ export const markTranscriptSummaryVersion = (rows: readonly AcpmuxRow[], version
   summaryVersions.set(rows, version);
 };
 export const transcriptSummaryVersion = (rows: readonly AcpmuxRow[]): symbol | undefined => summaryVersions.get(rows);
-/// Rows that only carry live stream progress do not change settled summary facts. OrderedRows uses
-/// this to keep the session summary revision stable while thoughts and tool calls stream.
-export function transcriptSummaryRowIsStreaming(row: AcpmuxRow | undefined): boolean {
-  if (!row) return false;
-  if (row.kind === "assistant") return row.streaming === true;
-  if (row.kind !== "activity") return false;
-  const items = row.items ?? [];
-  if (items.length === 0) return false;
-  return items.every(
-    (item) =>
-      item.kind === "thought" ||
-      (item.tool !== undefined && (item.tool.status === "pending" || item.tool.status === "in_progress")),
-  );
-}
-const sourceVersions = new WeakMap<readonly AcpmuxRow[], symbol>();
-export const markTranscriptSourceVersion = (rows: readonly AcpmuxRow[], version: symbol): void => {
-  sourceVersions.set(rows, version);
-};
-export const transcriptSourceVersion = (rows: readonly AcpmuxRow[]): symbol | undefined => sourceVersions.get(rows);
-/// Only settled assistant text and tool payloads can add Sources. Streaming prose deliberately has
-/// an empty key, so a token never advances the source revision.
-export function transcriptSourceRowKey(row: AcpmuxRow | undefined): string {
-  if (!row) return "";
-  if (row.kind === "assistant") return row.streaming ? "" : `assistant:${row.text ?? ""}`;
-  if (row.kind !== "activity") return "";
-  return JSON.stringify(
-    (row.items ?? []).flatMap(({ tool }) =>
-      tool && tool.status === "completed" && (tool.exitCode ?? 0) === 0
-        ? [
-            [
-              tool.id,
-              tool.kind,
-              tool.status,
-              tool.exitCode,
-              tool.title,
-              tool.command,
-              tool.inputSummary,
-              tool.output,
-              tool.locations,
-            ],
-          ]
-        : [],
-    ),
-  );
-}
 const fingerprints = new WeakMap<AcpmuxRow, string>();
 
 // The producer asks only about the row it changed. A reply chunk with the same PR references
@@ -560,7 +428,6 @@ export function transcriptPullRequests(
     title?: string,
     changed = false,
     kind?: "pullRequest" | "issue",
-    head?: string,
   ) => {
     if (number <= 0) return;
     const url = kind === "issue" ? issueUrlOf(repo, number) : urlOf(repo, number);
@@ -572,7 +439,6 @@ export function transcriptPullRequests(
         number,
         ...(kind ? { kind } : how !== "mentioned" ? { kind: "pullRequest" as const } : {}),
         ...(title ? { title } : {}),
-        ...(head ? { head } : {}),
         state: "open",
         opened: how === "opened",
         ...(changed || how === "opened" ? { changed: true } : {}),
@@ -588,33 +454,17 @@ export function transcriptPullRequests(
     if (how === "opened") pr.opened = true;
     if (changed || how === "opened") pr.changed = true;
     if (title && !pr.title) pr.title = title;
-    if (head) pr.head = head;
   };
-  let currentBranch: string | undefined;
   perRow.forEach((findings, index) => {
     const at = index + 1;
     for (const finding of findings) {
       if (finding.how === "opened") {
-        note(finding.repo, finding.number, "opened", at, finding.title, true, finding.kind, finding.head);
-        continue;
-      }
-      if (finding.how === "branch") {
-        const repo = resolve(finding.ref);
-        if (finding.branch) currentBranch = finding.branch;
-        const branch = finding.branch ?? currentBranch;
-        if (repo && branch) {
-          for (const pr of found.values())
-            if (pr.repo === repo && pr.kind !== "issue" && pr.head === branch) pr.changed = true;
-        } else if (repo && !branch) {
-          const candidates = [...found.values()].filter((pr) => pr.repo === repo && pr.kind !== "issue" && pr.head);
-          if (candidates.length === 1) candidates[0]!.changed = true;
-        }
+        note(finding.repo, finding.number, "opened", at, finding.title, true, finding.kind);
         continue;
       }
       const repo = resolve(finding.ref);
       if (finding.how !== "settle") {
-        if (repo)
-          note(repo, finding.number, finding.how, at, finding.title, finding.changed, finding.kind, finding.head);
+        if (repo) note(repo, finding.number, finding.how, at, finding.title, finding.changed, finding.kind);
         continue;
       }
       // Without a repository (no `-R`, no folder), a merge names every one with its number.

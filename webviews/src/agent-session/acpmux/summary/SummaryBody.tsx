@@ -112,7 +112,7 @@ export function SummaryBody({
     // When the session has a project root, reject checkpoint paths outside it before matching by
     // display suffix. Otherwise an unrelated `outside/src/index.ts` could replace the allowed
     // `project/src/index.ts` output merely because both display as `src/index.ts`.
-    const inProject = projectPathAllowed(file.canonical ?? file.path, summary.cwd);
+    const inProject = summary.cwd === undefined || projectPathAllowed(file.canonical ?? file.path, summary.cwd);
     if (!inProject) continue;
     const output = outputOf(file);
     if (output === undefined) {
