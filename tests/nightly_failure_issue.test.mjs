@@ -146,17 +146,20 @@ const RC_BRANCHES = { 'rc/v0.65.2': sha('2'), 'rc/v0.65.3': sha('4') };
 const rc = { channel: 'rc', appName: 'cmux RC' };
 
 test('a newer RC line resolves an older line, never the reverse', async () => {
-  const { github, issues } = fakeGitHub({ parents: RC, branches: RC_BRANCHES });
+  // rc/v0.65.3 moves on to 7 after 4 published.
+  const parents = { ...RC, [sha('7')]: [sha('4')] };
+  const { github, issues } = fakeGitHub({ parents, branches: { ...RC_BRANCHES, 'rc/v0.65.3': sha('7') } });
   await fail(github, sha('1'), 'rc/v0.65.2', rc);
   await publish(github, sha('4'), 'rc/v0.65.3', rc);
   assert.equal(issues[0].state, 'closed');
 
   // The next incident reopens the same issue.
-  await fail(github, sha('4'), 'rc/v0.65.3', rc);
+  await fail(github, sha('7'), 'rc/v0.65.3', rc);
   assert.equal(issues.length, 1);
+  assert.equal(issues[0].state, 'open');
   await publish(github, sha('2'), 'rc/v0.65.2', rc);
   assert.equal(issues[0].state, 'open');
-  await publish(github, sha('4'), 'rc/v0.65.3', rc);
+  await publish(github, sha('7'), 'rc/v0.65.3', rc);
   assert.equal(issues[0].state, 'closed');
 });
 
@@ -183,7 +186,7 @@ test('a close that lands between a report and its check is undone by the reporte
   hooks.afterComment = async (n) => { await github.rest.issues.update({ issue_number: n, state: 'closed' }); };
   await fail(github, sha('d'));
   assert.equal(issues[0].state, 'open');
-  assert.match(issues[0].comments.at(-1), /^Reopened: d{40} \(main\)/);
+  assert.match(issues[0].comments.at(-1), /^Reopened: failing on .*d{40} \(main\)/);
 });
 
 test('a report that lands between a close and its read-back is undone by the closer', async () => {
@@ -252,14 +255,28 @@ test('an older RC line that fails after a newer line published opens no incident
   assert.equal(await fail(github, sha('4'), 'rc/v0.65.3', { ...rc, releaseTag: 'rc' }), 1);
 });
 
-test('a close folds duplicates left open into the lowest incident first', async () => {
+test('open duplicates left by older code are each resolved on their own', async () => {
   const { github, issues } = fakeGitHub({ parents: MAIN, labelExists: true });
   await github.rest.issues.create({ labels: ['nightly-failure'], body: `<!-- cmux-nightly-failure: sha=${sha('b')} ref=main -->` });
   await github.rest.issues.create({ labels: ['nightly-failure'], body: `<!-- cmux-nightly-failure: sha=${sha('d')} ref=main -->` });
-  assert.deepEqual(await publish(github, sha('c')), []);
-  assert.equal(issues[1].state, 'closed');
-  assert.equal(issues[0].state, 'open'); // d, carried over from #2, is newer than c
-  assert.deepEqual(await publish(github, sha('d')), [1]);
+  assert.deepEqual(await publish(github, sha('c')), [1]);
+  assert.equal(issues[1].state, 'open'); // d is newer than c
+  // An older writer that appends to the open duplicate is still read there.
+  issues[1].comments.push(`cmux NIGHTLY run https://x failed on ${sha('d')} (main) in: build.`);
+  assert.deepEqual(await publish(github, sha('d')), [2]);
+});
+
+test('a failure recorded after a close settled the same commit counts again', async () => {
+  const { github, issues } = fakeGitHub({ parents: MAIN, labelExists: true });
+  // Settled by the old code's closing comment, which carries no resolution marker.
+  await github.rest.issues.create({ labels: ['nightly-failure'], body: failureMarkerFor(sha('c')) });
+  issues[0].comments.push(`cmux NIGHTLY publish succeeded again on ${sha('c')} (main): https://x`);
+  issues[0].state = 'closed';
+  await fail(github, sha('c'));
+  assert.equal(issues[0].state, 'open');
+  assert.deepEqual(await publish(github, sha('b')), []);
+  assert.equal(issues[0].state, 'open');
+  assert.deepEqual(await publish(github, sha('c')), [1]);
 });
 
 test('every incident reuses the oldest issue, so a lagging list never splits one', async () => {
@@ -289,18 +306,18 @@ test('a publication that finishes while a failure is recorded closes the inciden
   assert.equal(issues[0].state, 'closed');
 });
 
-test('a failure recorded on a duplicate while it is folded is carried over', async () => {
-  const { github, issues, hooks } = fakeGitHub({ parents: MAIN, labelExists: true });
-  await github.rest.issues.create({ labels: ['nightly-failure'], body: `<!-- cmux-nightly-failure: sha=${sha('b')} ref=main -->` });
-  await github.rest.issues.create({ labels: ['nightly-failure'], body: `<!-- cmux-nightly-failure: sha=${sha('c')} ref=main -->` });
-  // A reporter that picked #2 from a stale list writes d there just as #2 is being folded.
-  const watch = async (n, body) => {
-    if (n === 2 && body.startsWith('Duplicate of')) issues[1].comments.push(failureMarkerFor(sha('d')));
-    else hooks.afterComment = watch;
-  };
-  hooks.afterComment = watch;
-  assert.deepEqual(await publish(github, sha('c')), []);
-  assert.equal(issues[1].state, 'closed');
-  assert.equal(issues[0].state, 'open'); // d was carried to #1, and c does not include it
-  assert.deepEqual(await publish(github, sha('d')), [1]);
+test('a failure that the closing publication already includes leaves the incident closed', async () => {
+  const { github, issues } = fakeGitHub({ parents: MAIN });
+  await fail(github, sha('b'));
+  await publish(github, sha('d'));
+  assert.equal(issues[0].state, 'closed');
+  // A stale-tag reporter for c that paused before writing (no release check).
+  await fail(github, sha('c'));
+  assert.equal(issues[0].state, 'closed');
+  // A newer commit's failure reopens it.
+  const { github: g2, issues: i2 } = fakeGitHub({ parents: { ...MAIN, [sha('e')]: [sha('d')] } });
+  await fail(g2, sha('b'));
+  await publish(g2, sha('d'));
+  await fail(g2, sha('e'));
+  assert.equal(i2[0].state, 'open');
 });
