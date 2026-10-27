@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "build": "4048857346401",
+  "notes": "notes/4048857346401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 25973,
+      "title": "Agent pane: an attached chat whose session is recreated or moved reads the session listed now",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25461,
+      "title": "cli: cmux run --sandboxed submits a sandboxed Run, waits within its timeout and prints its receipt",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26085,
+      "title": "ci(cmux-next): no GitHub-hosted Macs: drop the hosted overflow and seed pool, x86_64 checks under Rosetta, and a guard",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26101,
+      "title": "composer: no location strip above a started chat's composer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25488,
+      "title": "cloud secret set|ls|rm: values for .cmux/machine.toml's [secrets] in this Mac's Keychain",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26092,
+      "title": "fix(agent-chat): keep selected header toggle unboxed",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
