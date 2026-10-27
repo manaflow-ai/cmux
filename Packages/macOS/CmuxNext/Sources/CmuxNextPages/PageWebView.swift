@@ -162,6 +162,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The crash clock (tests set it).
     var now: () -> Date = { Date() }
     var crashReloads = PageCrashReloads()
+    /// Chromium ended under a host that shows the crash notice: the page reopens in WebKit only on
+    /// the notice's Reload (``reloadAfterCrashes()``).
+    var webKitLoadsOnReload = false
     let claimState = PageClaimState()
 
     public var pageID: String { descriptor.id }

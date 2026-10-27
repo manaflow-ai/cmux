@@ -39,9 +39,31 @@ struct PageWebViewCrashReloadTests {
         #expect(page.reloads == 0, "a crashed agent chat reloaded by itself")
         #expect(reports == [false, false], "the host was not told to show its notice")
 
+        // The Chromium start deadline is off: its WebKit fallback would load the page by itself.
+        #expect(view.chromiumSession?.deadline.isScheduled == false, "the start deadline can still reload the crashed page")
+        #expect(view.showsChromium)
+
         // The notice's Reload is the person's.
         view.reloadAfterCrashes()
         #expect(page.reloads == 1)
+        view.close()
+    }
+
+    /// The Chromium browser ending (`.ended`) under such a host shows the notice too: the page
+    /// reopens in WebKit only on Reload.
+    @Test func theBrowserEndingShowsTheNoticeAndWaitsForReload() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (view, page) = try await started(FakeChromiumHosting())
+        view.reloadsAfterCrash = false
+        var reports: [Bool] = []
+        view.onCrash = { _, reloading in reports.append(reloading) }
+        page.onEvent?(.ended)
+        #expect(reports == [false])
+        #expect(!view.showsChromium)
+        #expect(view.webKitLoadsOnReload, "the page reopened in WebKit by itself")
+        #expect(view.webView.url == nil)
+        view.reloadAfterCrashes()
+        #expect(!view.webKitLoadsOnReload)
         view.close()
     }
 
