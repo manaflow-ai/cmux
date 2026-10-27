@@ -155,8 +155,8 @@ extension HomeService {
         let listed = HomeChiefName.select(from: listedAll)
         // The local Chief is looked up (never created) while a cloud Chief has the tab.
         let localChief = if shown == nil, let owner { try await chiefConversation(owner) } else { listed?.id }
-        // The Chief's welcome alone is no history (HomeService+ChiefWelcome).
-        let localHasHistory = shown == nil || listed.map { $0.lastSeq > 0 && !isOnlyWelcome($0.id, lastSeq: $0.lastSeq) } == true
+        // The Chief's welcome alone is no history (ChiefWelcome).
+        let localHasHistory = shown == nil || listed.map { $0.lastSeq > 0 && chiefWelcome?.isOnlyMessage(of: $0.id, lastSeq: $0.lastSeq) != true } == true
         guard let chief = cloud.chiefTab(local: localChief, localHasHistory: localHasHistory, choice: hostedChief.choice,
                                          prefersLocal: prefersLocalChief), HomeDock.classic else { return }
         homeWorkspaceStep = "waiting for the home workspace in the tree"

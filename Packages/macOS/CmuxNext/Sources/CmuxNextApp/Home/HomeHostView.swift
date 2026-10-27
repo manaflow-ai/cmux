@@ -258,13 +258,13 @@ final class HomeHostView: NSView {
             let sources = await ChiefMemoryImportHandlers.detectForOffer(muxHome: muxHome)
             guard !Task.isCancelled, !service.isCloudConversation(id), let title = MemorySource.offerTitle(sources),
                   let summary = store.rows.first(where: { $0.summary.id == id })?.summary,
-                  summary.lastSeq == 0 || service.isOnlyWelcome(summary), summary.participants.contains(where: { $0.agentClass == .chief }) else { return }
+                  summary.lastSeq == 0 || service.chiefWelcome?.isOnlyMessage(of: summary) == true, summary.participants.contains(where: { $0.agentClass == .chief }) else { return }
             self?.transcript.setFirstRunMemoryOffer(title)
         }
         // The first-run panel's agent rows open the agent's tab like a jump (Search Tabs).
         transcript.onFirstRunAgent = { [weak services] tab in _ = services?.revealTab(tab) }
-        // The Chief's welcome alone keeps the first-run panel (HomeService+ChiefWelcome).
-        transcript.isOnlyWelcome = { [weak service] summary in service?.isOnlyWelcome(summary) == true }
+        // The Chief's welcome alone keeps the first-run panel (ChiefWelcome).
+        transcript.isOnlyWelcome = { [weak service] summary in service?.chiefWelcome?.isOnlyMessage(of: summary) == true }
         // task-owner: lives as long as this view; event-driven (Observation):
         // the user's agents for the first-run glance, only while it can show
         // (the Chief with no messages yet): otherwise no tab is read, so tab
@@ -272,7 +272,7 @@ final class HomeHostView: NSView {
         agentsWatch = Task { [weak self] in
             for await state in ObservationStream({ () -> ([HomeAgentGlance], HomeStarterContext)? in
                 guard let summary = store.rows.first(where: { $0.summary.id == id })?.summary,
-                      summary.lastSeq == 0 || service.isOnlyWelcome(summary), summary.participants.contains(where: { $0.agentClass == .chief }) else { return nil }
+                      summary.lastSeq == 0 || service.chiefWelcome?.isOnlyMessage(of: summary) == true, summary.participants.contains(where: { $0.agentClass == .chief }) else { return nil }
                 let glances = HomeAgentGlances(services: services)
                 let agents = glances.current
                 return (agents, glances.starters(agents: agents, badges: SidebarSessionTree.shared.pullRequests))
