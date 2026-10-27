@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextBridgeUI
 // Only the grid size: CmuxNextDaemon has its own PaneID (the daemon's handles).
 import struct CmuxNextDaemon.CellSize
 @testable import CmuxNextDesign

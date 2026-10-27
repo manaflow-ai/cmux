@@ -1,3 +1,4 @@
+public import CmuxNextBridge
 public import CmuxNextSidebar
 import CmuxNextDesign
 

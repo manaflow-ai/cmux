@@ -63,7 +63,8 @@
 
     "CmuxNextHibernation": {"layer": "domain"},
     "CmuxNextSettings": {"layer": "domain", "plan": "drop Design: its 86 value types move to CmuxNextDesignTokens"},
-    "CmuxNextBridge": {"layer": "domain", "plan": "maps daemon state to view models: the models it fills move out of Layout, Sidebar, Tabs into their domain packages"},
+    "CmuxNextBridge": {"layer": "domain", "note": "daemon-state rules (attach machine, status mapping, turn states, surface ledger) on core and service targets only; its UI edges are CmuxNextBridgeUI (p15-oracle-227)"},
+    "CmuxNextBridgeUI": {"layer": "ui", "mixes": ["domain"], "plan": "maps daemon state into the Layout, Sidebar and Tabs models and holds ResizeCoordinator (AppKit); the mappings move down once those models live in domain packages"},
     "CmuxNextImportSuggestions": {"layer": "domain"},
     "CmuxNextAgentCursor": {"layer": "domain", "plan": "drop Design (Motion values to DesignTokens)"},
     "CmuxNextNowPlaying": {"layer": "domain", "plan": "drop Sidebar, Browser, AgentPane: protocol seams"},

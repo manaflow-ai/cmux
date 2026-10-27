@@ -1,5 +1,6 @@
 import Foundation
 import CmuxNextBridge
+import CmuxNextBridgeUI
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextTabs

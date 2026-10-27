@@ -1,4 +1,5 @@
 import CmuxNextBridge
+import CmuxNextBridgeUI
 import CmuxNextDaemon
 import CmuxNextLayout
 import CmuxNextFocus

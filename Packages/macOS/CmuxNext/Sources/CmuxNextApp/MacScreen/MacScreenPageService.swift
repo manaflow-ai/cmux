@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextBridgeUI
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextControl

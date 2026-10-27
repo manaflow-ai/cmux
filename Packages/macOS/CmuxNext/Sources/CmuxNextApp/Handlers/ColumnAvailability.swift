@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextLayout
 import CmuxNextBridge
+import CmuxNextBridgeUI
 
 /// Up-front availability of column actions (every screen is a column strip):
 /// on a screen's only column, width presets and column moves are disabled

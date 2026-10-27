@@ -2,6 +2,7 @@
 import CmuxNextAgentActivity
 import CmuxNextAgentLanes
 import CmuxNextBridge
+import CmuxNextBridgeUI
 import CmuxNextBrowser
 import CmuxNextBrowserTabs
 import CmuxNextControl

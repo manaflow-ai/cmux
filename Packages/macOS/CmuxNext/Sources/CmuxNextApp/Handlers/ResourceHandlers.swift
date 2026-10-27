@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextBridgeUI
 import Foundation
 
 /// "Show Tab Resource Usage" and "Show Workspace Resource Usage": open the

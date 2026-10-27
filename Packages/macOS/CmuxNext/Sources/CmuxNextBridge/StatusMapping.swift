@@ -1,6 +1,5 @@
 public import CmuxNextDaemon
-public import CmuxNextDesign
-public import CmuxNextTabs
+public import CmuxNextDesignTokens
 import Foundation
 
 /// Turns the status facts the daemon publishes about a tab into
@@ -9,18 +8,36 @@ import Foundation
 /// renders: every fact here is written by its owner (agent hooks through
 /// the session host; running shell commands from the terminal record's
 /// `extra.busy`; `workspace_status` entries and OSC 9;4 terminal progress
-/// once the app reads them).
-public struct StatusMapping {
-    public static let shared = Self()
+/// once the app reads them). The app's mapping (`StatusMapping.shared`,
+/// CmuxNextBridgeUI) reads its settings from `DesignSettings`.
+public struct StatusMapping: Sendable {
+    /// The settings the mapping reads on each call: `status.*` (when a plain
+    /// command counts as busy) and `appearance.statusIndicator.*` (which marks
+    /// the tab's icon slot shows, whose style hints win).
+    public struct Settings: Sendable {
+        public var behavior: @MainActor @Sendable () -> StatusBehaviorSettings
+        public var indicator: @MainActor @Sendable () -> StatusIndicatorSettings
+
+        public init(behavior: @escaping @MainActor @Sendable () -> StatusBehaviorSettings,
+                    indicator: @escaping @MainActor @Sendable () -> StatusIndicatorSettings) {
+            self.behavior = behavior
+            self.indicator = indicator
+        }
+
+        /// The settings' defaults: a mapping no settings file feeds (tests).
+        public static let defaults = Settings(behavior: { StatusBehaviorSettings() }, indicator: { StatusIndicatorSettings() })
+    }
 
     /// The local acpmux turn states (agent chat tabs).
     let turns: AgentTurnStateStore
     /// This client's seen OSC 7501 `done` and `error` records.
-    let seen: ProgramStatusSeenStore
+    package let seen: ProgramStatusSeenStore
+    let settings: Settings
 
-    public init(turns: AgentTurnStateStore = .shared, seen: ProgramStatusSeenStore = .shared) {
+    public init(turns: AgentTurnStateStore = .shared, seen: ProgramStatusSeenStore = .shared, settings: Settings = .defaults) {
         self.turns = turns
         self.seen = seen
+        self.settings = settings
     }
 
     /// The reports one tab contributes.
@@ -46,7 +63,7 @@ public struct StatusMapping {
     /// An agent's terminal shows its own hook or turn state instead: the agent CLI is one long command
     /// that would look busy while it waits at its prompt.
     func command(_ tab: TabModel, nowMs: UInt64 = UInt64(Date().timeIntervalSince1970 * 1000)) -> StatusReport? { // wall-clock: compared with the daemon's commandSinceMs, Unix ms
-        let behavior = DesignSettings.shared.statusBehavior
+        let behavior = settings.behavior()
         guard behavior.inferCommandBusy, tab.agent == nil, tab.agentSession == nil, var since = tab.commandSinceMs else { return nil }
         _ = tab.commandRecheck
         // A daemon whose clock runs ahead (another machine) counts from when this client saw the command.
@@ -69,7 +86,7 @@ public struct StatusMapping {
     /// same terminal reported at the same time or later: an explicit report
     /// is never hidden by a guess. A record without a report time (an older
     /// host) counts as fresher.
-    func yieldsToProgram(_ agent: AgentStatus, _ records: [ProgramStatusRecord]) -> Bool {
+    package func yieldsToProgram(_ agent: AgentStatus, _ records: [ProgramStatusRecord]) -> Bool {
         guard let source = agent.source, Self.detectorSources.contains(source) else { return false }
         return records.contains { ($0.updatedAtMs ?? .max) >= agent.updatedAtMs }
     }
@@ -104,7 +121,7 @@ public struct StatusMapping {
     /// stronger record (blocked, working) is live or nothing is unseen.
     /// An agent chat's failed turn, or one that completed unwatched, is the
     /// same outcome (acpmux owns both facts).
-    public func outcome(_ tab: TabModel) -> TabStatus? {
+    public func outcome(_ tab: TabModel) -> StatusOutcome? {
         switch ProgramStatusRecord.strongest(seen.visible(tab))?.state {
         case .error?: return .failure
         case .done?: return .success
@@ -138,7 +155,7 @@ public struct StatusMapping {
     /// mark there, because the tab's badge already marks those states.
     /// Agent work leaves the slot when `showAgentWorkingOnTabs` is off.
     public func loading(_ tab: TabModel) -> StatusSummary {
-        let showsWorking = DesignSettings.shared.statusIndicator.showsAgentWorkingOnTabs
+        let showsWorking = settings.indicator().showsAgentWorkingOnTabs
         return StatusStack.resolve(reports(tab).filter { $0.state.isLoading || ($0.state.isWorking && showsWorking) },
                                    honoring: honored)
     }
@@ -175,11 +192,11 @@ public struct StatusMapping {
     }
 
     /// Sources whose style hint wins (`appearance.statusIndicator.honorStatusStyle`).
-    var honored: Set<StatusReport.Source> { DesignSettings.shared.statusIndicator.honoredStyleSources }
+    var honored: Set<StatusReport.Source> { settings.indicator().honoredStyleSources }
 
     /// Agent hook state as an indicator state. `done` is not shown here:
     /// the tab's status badge marks it, and a finished agent is not loading.
-    func state(_ agent: AgentState) -> StatusIndicatorState? {
+    package func state(_ agent: AgentState) -> StatusIndicatorState? {
         switch agent {
         case .working: .working
         case .blocked: .waiting
@@ -189,7 +206,7 @@ public struct StatusMapping {
 
     /// An OSC 7501 record as an indicator state. `reports` passes only
     /// records still to show, so a `done` or `error` here is unseen.
-    func state(_ record: ProgramStatusRecord) -> StatusIndicatorState? {
+    package func state(_ record: ProgramStatusRecord) -> StatusIndicatorState? {
         switch record.state {
         case .working: .working(progress: record.progress.map { Double($0) / 100 })
         case .blocked: .waiting(kind: record.kind.flatMap { StatusBlockedKind(rawValue: $0.rawValue) })
@@ -200,7 +217,7 @@ public struct StatusMapping {
     }
 
     /// An acpmux turn state as an indicator state.
-    func state(_ turn: AgentTurnState) -> StatusIndicatorState {
+    package func state(_ turn: AgentTurnState) -> StatusIndicatorState {
         switch turn {
         case .working: .working
         case .needsInput: .waiting
@@ -208,4 +225,11 @@ public struct StatusMapping {
         case .done: .success
         }
     }
+}
+
+/// How a tab's last unseen run ended (`StatusMapping.outcome`): the tab's badge
+/// draws a success or a failure until the user looks at the terminal.
+public nonisolated enum StatusOutcome: Hashable, Sendable {
+    case success
+    case failure
 }

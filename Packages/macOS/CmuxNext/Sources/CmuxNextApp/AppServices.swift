@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextApps
 import CmuxNextAgentPane
 import CmuxNextBridge
+import CmuxNextBridgeUI
 import CmuxNextBrowser
 import CmuxNextBrowserHistory
 import CmuxNextChiefPetWiring

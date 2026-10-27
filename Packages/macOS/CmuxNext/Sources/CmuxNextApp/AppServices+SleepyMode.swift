@@ -1,4 +1,5 @@
 import CmuxNextBridge
+import CmuxNextBridgeUI
 
 extension AppServices {
     /// This Mac's tabs whose agent runs a turn (acpmux, hooks or an OSC 7501

@@ -1,4 +1,5 @@
 import CmuxNextBridge
+import CmuxNextBridgeUI
 @testable import CmuxNextApp
 import CmuxNextLayout
 import Foundation

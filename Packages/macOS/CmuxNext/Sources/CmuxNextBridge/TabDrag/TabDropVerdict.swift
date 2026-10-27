@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// Why a drop target cannot take the dragged tabs. The zone does not
 /// highlight and the drop springs back (`TabDropPreview.highlights`).

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextBridgeUI
 import Foundation
 import Observation
 @testable import CmuxNextSidebar

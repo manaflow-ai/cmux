@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextBridgeUI
 import CmuxNextDaemon
 
 /// Home's close rules in the app (S15, cx-qno.3). The store refuses every

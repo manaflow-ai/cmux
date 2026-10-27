@@ -1,6 +1,7 @@
 import CmuxNextCompat
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextBridgeUI
 import CmuxNextDaemon
 import CmuxNextLayout
 import Foundation

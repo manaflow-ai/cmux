@@ -46,12 +46,9 @@ MARKER = "// sorted: scripts/cmux-next/check-package-dependency-lists.py"
 REQUIRED = ("CmuxNextAppTests",)
 
 # Imports that were undeclared when the import check landed (2026-10-24): "Target: Module". Shrink only.
-# CmuxNextBridge's Design import is a ui edge from a domain target (architecture-layers.json): declaring it
-# would add a layer_hard edge, so its fix is to stop importing Design, not to declare it.
 IMPORT_BASELINE = frozenset((
     "CmuxNextActionsTests: CmuxNextWakeups",
     "CmuxNextApp: CmuxNextFileGrid",
-    "CmuxNextBridge: CmuxNextDesign",
     "CmuxNextControlTests: CmuxNextDesign",
     "CmuxNextCookieImport: CmuxNextCompat",
     "CmuxNextMobileHostTests: CmuxNextMobile",

@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextBridge
+import CmuxNextBridgeUI
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextSidebar

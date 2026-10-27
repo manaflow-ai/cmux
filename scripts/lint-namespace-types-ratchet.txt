@@ -32,13 +32,13 @@ Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/Model/BookmarkRanker.swift:Boo
 Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/Model/BookmarkURL.swift:BookmarkLimits
 Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/Model/BookmarkURL.swift:BookmarkURL
 Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkEditorState.swift:BookmarkPageAddress
-Packages/macOS/CmuxNext/Sources/CmuxNextBridge/PaneResize.swift:PaneResize
 Packages/macOS/CmuxNext/Sources/CmuxNextBridge/TabDrag/DropRevealPolicy.swift:DropRevealPolicy
 Packages/macOS/CmuxNext/Sources/CmuxNextBridge/TabDrag/TabDragGeometry.swift:TabDragGeometry
 Packages/macOS/CmuxNext/Sources/CmuxNextBridge/TabDrag/TabDragOutcome.swift:TabDragResolver
 Packages/macOS/CmuxNext/Sources/CmuxNextBridge/TabDrag/TabMoveIndex.swift:TabMoveIndex
 Packages/macOS/CmuxNext/Sources/CmuxNextBridge/TabGroupReorder.swift:TabGroupReorder
 Packages/macOS/CmuxNext/Sources/CmuxNextBridge/TerminalStreamPlan.swift:TerminalStreamPlan
+Packages/macOS/CmuxNext/Sources/CmuxNextBridgeUI/PaneResize.swift:PaneResize
 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Core/Profiles/BrowserProfileStrings.swift:BrowserProfileStrings
 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Omnibox/BrowserHistoryRanker.swift:BrowserHistoryRanker
 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Omnibox/BrowserURLDisplay.swift:BrowserURLDisplay

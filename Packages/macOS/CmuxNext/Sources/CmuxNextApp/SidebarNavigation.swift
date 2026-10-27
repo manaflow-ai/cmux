@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextBridgeUI
 import CmuxNextDesign
 import CmuxNextInput
 import CmuxNextSidebar

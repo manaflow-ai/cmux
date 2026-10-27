@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextSettings
 import CmuxNextBridge
+import CmuxNextBridgeUI
 import CmuxNextBrowser
 import CmuxNextControl
 import CmuxNextTerminal

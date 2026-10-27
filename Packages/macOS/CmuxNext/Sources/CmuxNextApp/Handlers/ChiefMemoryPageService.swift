@@ -1,5 +1,5 @@
 import AppKit
-import typealias CmuxNextBridge.StripTabID
+import typealias CmuxNextBridgeUI.StripTabID
 import CmuxNextChiefMemory
 import CmuxNextDaemon
 import CmuxNextDesign

@@ -6,6 +6,7 @@ import CmuxNextCompat
 import CmuxNextDaemonRecovery
 import CmuxNextHistory
 import CmuxNextBridge
+import CmuxNextBridgeUI
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign

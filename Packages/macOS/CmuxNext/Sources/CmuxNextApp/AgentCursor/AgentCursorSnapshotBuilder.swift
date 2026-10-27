@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentCursorVisibility
 import CmuxNextBridge
+import CmuxNextBridgeUI
 import CmuxNextBrowser
 import CmuxNextLayout
 import CmuxNextSidebar

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextBridgeUI
 import CmuxNextDaemon
 
 /// Action handlers for window membership (every drag transition is also an

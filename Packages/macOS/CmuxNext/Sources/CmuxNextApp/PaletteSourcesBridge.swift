@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextAgentLanes
 import CmuxNextBridge
+import CmuxNextBridgeUI
 import CmuxNextDaemon
 import CmuxNextPalette
 import CmuxNextSettings

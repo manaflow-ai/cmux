@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextBridgeUI
 import CmuxNextDaemon
 
 /// Resolves what an action acts on: the invocation's target (context menu,

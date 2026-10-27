@@ -1,5 +1,6 @@
 import CmuxNextAgentActivity
 public import CmuxNextBridge
+public import CmuxNextBridgeUI
 import CmuxNextDesign
 import Foundation
 public import CmuxNextSidebar

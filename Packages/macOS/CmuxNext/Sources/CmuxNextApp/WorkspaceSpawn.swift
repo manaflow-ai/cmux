@@ -1,6 +1,7 @@
 import CmuxNextAppCore
 import CmuxNextAgentPane
 import CmuxNextBridge
+import CmuxNextBridgeUI
 import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextSidebar

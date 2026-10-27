@@ -1,5 +1,6 @@
 import CmuxNextAgentActivity
 import CmuxNextBridge
+import CmuxNextBridgeUI
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import Foundation

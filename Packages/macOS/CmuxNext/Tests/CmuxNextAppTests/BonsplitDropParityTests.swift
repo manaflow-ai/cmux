@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextBridge
+import CmuxNextBridgeUI
 import CmuxNextDesign
 import enum CmuxNextDaemon.PaneEdge
 @testable import CmuxNextLayout

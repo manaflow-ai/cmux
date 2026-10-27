@@ -1,3 +1,4 @@
+import CmuxNextBridge
 public import AppKit
 import CmuxNextDesign
 public import CmuxNextDaemon

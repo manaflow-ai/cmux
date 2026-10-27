@@ -1,3 +1,4 @@
+public import CmuxNextBridge
 import CmuxAgentBrands
 public import CmuxNextDaemon
 public import CmuxNextSidebar

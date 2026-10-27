@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// Where a terminal is, as the client sees it: Lawrence's visibility rule
 /// for run notifications (plans/cmux-next/status-indicators.md). Client view

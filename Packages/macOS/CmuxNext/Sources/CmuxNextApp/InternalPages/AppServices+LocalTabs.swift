@@ -1,4 +1,5 @@
 import CmuxNextBridge
+import CmuxNextBridgeUI
 import CmuxNextControl
 import CmuxNextDaemon
 #if DEBUG || CMUX_BENCH_HOOKS

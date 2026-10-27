@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 public import CoreGraphics
 
 /// Motion model of the drag ghost. The ghost tracks the pointer with zero

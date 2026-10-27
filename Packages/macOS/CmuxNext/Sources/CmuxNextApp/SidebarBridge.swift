@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextAgentActivity
 import CmuxNextAgentLanes
 import CmuxNextBridge
+import CmuxNextBridgeUI
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon

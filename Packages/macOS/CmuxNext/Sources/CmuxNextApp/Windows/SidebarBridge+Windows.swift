@@ -1,4 +1,5 @@
 import CmuxNextBridge
+import CmuxNextBridgeUI
 import CmuxNextSidebar
 
 // The sidebar side of window membership: positions in this window's

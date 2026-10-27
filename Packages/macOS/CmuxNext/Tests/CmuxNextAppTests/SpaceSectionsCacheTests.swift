@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
 import CmuxNextBridge
+import CmuxNextBridgeUI
 @testable import CmuxNextSidebar
 import Observation
 import Testing

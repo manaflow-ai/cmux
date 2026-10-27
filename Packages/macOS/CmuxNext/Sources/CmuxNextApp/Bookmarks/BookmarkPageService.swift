@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBookmarks
 import CmuxNextBridge
+import CmuxNextBridgeUI
 import CmuxNextBrowser
 import Foundation
 import UniformTypeIdentifiers

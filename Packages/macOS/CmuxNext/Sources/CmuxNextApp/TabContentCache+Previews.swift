@@ -1,6 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 import CmuxNextBridge
+import CmuxNextBridgeUI
 import CmuxNextBrowser
 import CmuxNextControl
 import CmuxNextDesign

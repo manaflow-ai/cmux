@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextBridgeUI
 import CmuxNextLayout
 
 /// Canvas layout actions (plans/cmux-next/canvas-layout.md): a screen shown as

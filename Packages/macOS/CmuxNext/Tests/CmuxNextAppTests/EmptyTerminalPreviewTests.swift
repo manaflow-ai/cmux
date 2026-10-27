@@ -1,4 +1,5 @@
 import CmuxNextBridge
+import CmuxNextBridgeUI
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon

@@ -1,6 +1,6 @@
 import AppKit
 import CmuxNextActions
-import typealias CmuxNextBridge.StripTabID
+import typealias CmuxNextBridgeUI.StripTabID
 import typealias CmuxNextDaemon.SurfaceID
 import CmuxNextHibernation
 import CmuxNextHomeEngine

@@ -1,4 +1,5 @@
 import CmuxNextBridge
+import CmuxNextBridgeUI
 import CmuxNextTabs
 
 /// One ordering source for a tab strip (R38, Lawrence 2026-10-02: after a

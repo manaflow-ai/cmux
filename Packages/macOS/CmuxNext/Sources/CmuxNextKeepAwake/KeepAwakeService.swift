@@ -1,4 +1,4 @@
-import CmuxNextBridge
+public import CmuxNextBridge
 import CmuxNextCompat
 public import CmuxNextDaemon
 public import CmuxNextSettings
@@ -27,13 +27,14 @@ public final class KeepAwakeService {
 
     /// Follows the setting and local agent work. Call once the settings
     /// controller exists; a second call does nothing. The power source comes
-    /// from the App (``setOnBattery(_:)``).
-    public func start(settings: SettingsController, store: DaemonStore) {
+    /// from the App (``setOnBattery(_:)``); `status` is the App's status
+    /// mapping (`StatusMapping.shared`), which reads its settings.
+    public func start(settings: SettingsController, store: DaemonStore, status: StatusMapping) {
         guard observation == nil else { return }
         observation = Task { [weak self] in
             await settings.waitForLoad(atLeast: 1)
             for await (sessions, working) in ObservationStream({
-                (settings.snapshot.sessions, KeepAwakeService.agentsWorking(store))
+                (settings.snapshot.sessions, KeepAwakeService.agentsWorking(store, status: status))
             }) {
                 // One write, so the hold never drops between the fields.
                 guard var next = self?.policy else { return }
@@ -61,10 +62,10 @@ public final class KeepAwakeService {
     /// Some local agent runs a turn: an acpmux session (with or without a tab
     /// showing it) or a tab's agent hooks or OSC 7501 `working` record.
     /// Other machines' agents run there and keep that machine awake.
-    static func agentsWorking(_ store: DaemonStore) -> Bool {
+    static func agentsWorking(_ store: DaemonStore, status: StatusMapping) -> Bool {
         if AgentTurnStateStore.shared.hasWorkingSession { return true }
         let tabs = store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
-        return StatusMapping.shared.isWorking(tabs: tabs)
+        return status.isWorking(tabs: tabs)
     }
 
     private func apply() {

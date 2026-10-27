@@ -7,6 +7,7 @@ import Foundation
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 import CmuxNextBridge
+import CmuxNextBridgeUI
 import CmuxNextPages
 import CmuxNextSidebar
 import WebKit

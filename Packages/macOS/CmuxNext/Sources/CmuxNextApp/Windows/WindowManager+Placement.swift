@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextBridgeUI
 import CmuxNextSidebar
 
 /// A new workspace's sidebar slot, kept until the daemon reports it.

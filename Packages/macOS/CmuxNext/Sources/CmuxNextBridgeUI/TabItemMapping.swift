@@ -1,3 +1,4 @@
+public import CmuxNextBridge
 import CmuxNextIcons
 import Foundation
 public import CmuxNextDaemon
@@ -113,7 +114,11 @@ public struct TabItemMapping {
         // An agent chat's acpmux turn or an OSC 7501 program waits for the user.
         if StatusMapping.shared.needsInput(tab) { return .needsInput }
         // An OSC 7501 error or done the user has not seen yet.
-        if let outcome = StatusMapping.shared.outcome(tab) { return outcome }
+        switch StatusMapping.shared.outcome(tab) {
+        case .success?: return .success
+        case .failure?: return .failure
+        case nil: break
+        }
         return switch tab.agent?.state {
         case .blocked: .needsInput
         case .done: .success

@@ -1,5 +1,5 @@
 import CoreGraphics
-import CmuxNextBridge
+public import CmuxNextBridge
 public import CmuxUpdater
 
 /// Computes the safe-to-relaunch snapshot for an app update beside ``DaemonService`` so the
@@ -8,9 +8,9 @@ public extension DaemonService {
     /// Reads the daemon's confirmed tab mirror and the acpmux/status overlays.
     /// A relaunch waits for active agent turns and foreground work, while a short hardware-input
     /// quiet window (`quietInput`, nil for ``UpdateRelaunchBlockers/quietInputPeriod``) protects a
-    /// focused typing session.
+    /// focused typing session. `status` is the App's status mapping (`StatusMapping.shared`).
     @MainActor
-    func currentRelaunchBlockers(quietInput: Duration? = nil) -> UpdateRelaunchBlockers {
+    func currentRelaunchBlockers(status: StatusMapping, quietInput: Duration? = nil) -> UpdateRelaunchBlockers {
         let quietInput = quietInput ?? UpdateRelaunchBlockers.quietInputPeriod
         guard store.isLoaded,
               case .connected = store.connectionState,
@@ -25,7 +25,7 @@ public extension DaemonService {
         var busyAgents = Set<String>()
         var runningCommands = Set<String>()
         for tab in tabs {
-            for report in StatusMapping.shared.reports(tab) {
+            for report in status.reports(tab) {
                 switch report.source {
                 case .agent where report.state.isWorking:
                     busyAgents.insert(tab.id)

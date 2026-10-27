@@ -1,4 +1,5 @@
 @testable import CmuxNextBridge
+@testable import CmuxNextBridgeUI
 @testable import CmuxNextDaemon
 import Testing
 

@@ -1,6 +1,7 @@
 public import CmuxNextAgentActivity
 public import CmuxNextAgentPane
 import CmuxNextBridge
+import CmuxNextBridgeUI
 import CmuxNextCompat
 public import CmuxNextDaemon
 import CmuxNextDesign

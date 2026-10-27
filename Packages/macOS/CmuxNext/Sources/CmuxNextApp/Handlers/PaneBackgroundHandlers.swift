@@ -3,6 +3,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextBridge
+import CmuxNextBridgeUI
 
 /// Appearance per window, workspace, pane and tab (plans/cmux-next/appearance-scopes-DESIGN.md):
 /// `appearance.set|reset` (every level and property) and the menu rows `pane.setBackground`,

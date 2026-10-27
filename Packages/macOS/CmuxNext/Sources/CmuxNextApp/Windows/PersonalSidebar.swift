@@ -1,4 +1,5 @@
 import CmuxNextBridge
+import CmuxNextBridgeUI
 import CmuxNextDaemon
 
 /// Sidebar order and groups from the home session's personal state

@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 public import CoreGraphics
 
 /// What the drag shows at the pointer now.

@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentLanes
 import CmuxNextApps
 import CmuxNextBridge
+import CmuxNextBridgeUI
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextIcons

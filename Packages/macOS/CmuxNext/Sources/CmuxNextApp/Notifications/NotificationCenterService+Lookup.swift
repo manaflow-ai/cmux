@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextBridge
+import CmuxNextBridgeUI
 import CmuxNextSettings
 import CmuxNextFocus
 

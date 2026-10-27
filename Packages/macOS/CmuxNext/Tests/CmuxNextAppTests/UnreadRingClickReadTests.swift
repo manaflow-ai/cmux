@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import CmuxNextBridge
+import CmuxNextBridgeUI
 import Foundation
 import Testing
 

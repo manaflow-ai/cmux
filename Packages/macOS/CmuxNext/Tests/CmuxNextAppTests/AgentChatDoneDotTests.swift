@@ -1,5 +1,6 @@
 import CmuxNextAgentLanes
 import CmuxNextBridge
+import CmuxNextBridgeUI
 @testable import CmuxNextDaemon
 import Darwin
 import Foundation

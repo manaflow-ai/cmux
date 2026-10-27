@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextBookmarks
 import CmuxNextBridge
+import CmuxNextBridgeUI
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextSettings

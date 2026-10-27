@@ -1,5 +1,5 @@
 public import CmuxNextDaemon
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// A `terminal` notification the session host posted for an OSC 7501 record
 /// (cmux-tui-core `program_status::raise_alert`): when a record starts

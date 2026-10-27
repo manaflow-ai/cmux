@@ -2158,7 +2158,7 @@
             "method": "debug.oracle.snapshot",
             "path": "/layout",
             "v0": null,
-            "provider": "OracleLayoutFacet (CmuxNextBridge), listed in AppServices+OracleHost",
+            "provider": "OracleLayoutFacet (CmuxNextBridgeUI), listed in AppServices+OracleHost",
             "task": "p15-oracle-035",
             "from": "LayoutModel values per screen"
           },

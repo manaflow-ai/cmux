@@ -1,5 +1,5 @@
 import CmuxNextCompat
-import CmuxNextDesign
+import CmuxNextDesignTokens
 public import Observation
 
 /// Client-local tab selection per pane (the daemon's `active_tab` is only a
