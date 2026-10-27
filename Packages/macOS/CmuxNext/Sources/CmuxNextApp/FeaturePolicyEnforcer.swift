@@ -12,7 +12,10 @@ struct FeaturePolicyEnforcer {
     let services: AppServices
 
     /// Follows the registry's disabled set, the current one now; the caller keeps the returned follower for the
-    /// app's lifetime. `automation`: the device management profile (another process) changes the set.
+    /// app's lifetime. At launch it is the critical `FeaturePolicyEnforcer.start` step of
+    /// `AppServices.applyManagedPolicyAtLaunch`, right after the launch read's `DisabledFeatures` reached the
+    /// registry, before any of these services starts.
+    /// `automation`: the device management profile (another process) changes the set.
     func start() -> AnyObject {
         let registry = services.registry
         let disabled = ServiceObservation(.automation, owner: "FeaturePolicyEnforcer", on: services.mainWork) {

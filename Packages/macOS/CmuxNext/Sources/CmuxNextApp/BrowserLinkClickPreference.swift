@@ -41,7 +41,7 @@ enum BrowserLinkClickPreference {
             webKit?.linkClicks = mapping
             chromium?.built?.linkClicks = mapping
         }
-        // Chrome enterprise policies follow from here too: AppDelegate, which starts the followers, is at its line budget.
-        return [links as AnyObject] + BrowserManagedPolicyPreference.follow(settings, webKit: webKit, chromium: chromium, on: mainWork)
+        // The Chrome enterprise policies are the launch's critical managed policy step (`AppServices.applyManagedPolicyAtLaunch`).
+        return [links]
     }
 }

@@ -20,10 +20,11 @@ enum BrowserManagedPolicyPreference {
             }
         }
         // `automation`: another process (the device management profile) changes the policy. The current one
-        // applies now, before any page loads.
+        // applies now, before any page loads: the launch read's forced values until the first load.
         let policy = ServiceObservation(.automation, owner: "BrowserManagedPolicyPreference", on: mainWork) {
-            BrowserURLFilter(managedPolicy: settings.managedPolicy)
-        } apply: { [weak webKit] filter in
+            ManagedURLFilters(settings.managedPolicyInEffect)
+        } apply: { [weak webKit] lists in
+            let filter = BrowserURLFilter(blocklist: lists.blocklist, allowlist: lists.allowlist)
             if let webKit, webKit.urlFilter != filter { webKit.urlFilter = filter }
         }
         return [policy]

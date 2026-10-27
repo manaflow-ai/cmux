@@ -227,7 +227,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         launchSettle.dropLaunchReads(frames: services.terminalLaunchFrames, pages: services.launchImages, features: services.features, images: launchImageHold)  // p07-memory-083
         daemonPrompts = DaemonPrompts.start(services)
         services.startLocalDaemon(prestart: daemonPrestart)  // the painted terminal colors first (OSC 10/11/12)
-        services.lifetimeFollowers.append(FeaturePolicyEnforcer(services: services).start())
         services.postCloudStart(on: order.startup)  // no Cloud restore or connect before the first frame (p08-startup 020)
         services.postNonPaintServices(on: order.startup)
         // Before the first window opens (restoreWhenLoaded opens one at once): its indicators and its first
@@ -331,8 +330,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             shown: services.features.isEnabled(.hiddenPollPause) ? services.appVisibility.shownWindows : nil)
         let registry = services.registry
         let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch)
-        settings.applyManagedFeaturesNow()
-        services.lifetimeFollowers += ManagedPolicyBridge(settings: settings, updater: services.updater, auth: services.cloudAuth, mainWork: services.mainWork, appEvents: services.appEvents).start()
+        services.applyManagedPolicyAtLaunch(settings, on: order.startup)  // critical: before any feature or page engine (p08-startup-101)
         self.settings = settings
         services.settings = settings
         // No socket write asks for a confirmation before the first frame: the control socket starts after it.
@@ -389,7 +387,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         services.configActions.start(settings: settings)
-        // What an engine reads when it makes a page or starts, before any does (managed policy included).
+        // What an engine reads when it makes a page or starts, before any does (the managed policy: `applyManagedPolicyAtLaunch`).
         services.cache.browserTabs.preference.follow(settings, on: services.mainWork)
         services.lifetimeFollowers += BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, chromium: services.cache.chromium, on: services.mainWork)
         WorkspaceAutoNameWiring(services: services).start(settings: settings) // `workspaces.autoName.variant` persist (hq#1957)

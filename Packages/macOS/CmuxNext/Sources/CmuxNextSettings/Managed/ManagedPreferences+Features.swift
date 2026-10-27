@@ -33,6 +33,11 @@ extension SettingsController {
         launchRead?.loaded.inputs.managed.forced ?? managedReader.read().forced
     }
 
+    /// The managed policy in effect: the forced values of the launch read (``forcedManagedValuesNow()``) until the
+    /// first load, then ``managedPolicy``. A follower started before the load (the launch's critical policy steps)
+    /// never applies an empty policy; the first load changes ``loadCount``, so an observation of this follows it.
+    public var managedPolicyInEffect: [String: JSONValue] { loadCount >= 1 ? managedPolicy : forcedManagedValuesNow() }
+
     /// Applies `DisabledFeatures` from the forced managed values (``forcedManagedValuesNow()``),
     /// before Cloud, SSH and apps start, so no feature runs in the window before the first full
     /// settings load.

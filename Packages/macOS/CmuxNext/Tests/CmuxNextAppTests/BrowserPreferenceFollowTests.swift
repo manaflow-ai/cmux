@@ -58,7 +58,7 @@ import Testing
         let changed = BrowserLinkClickMapping(settings.snapshot.browserLinkClicks)
         #expect(changed != current)
         #expect(runMainLoop { webKit.linkClicks == changed }, "the file's change reaches WebKit as a posted task")
-        #expect(followers?.count == 2, "the link clicks and the managed policy")
+        #expect(followers?.count == 1, "the link clicks (the managed policy is `applyManagedPolicyAtLaunch`'s)")
 
         followers = nil
         try folder.write(#"{"browser":{"links":{"cmdClick":"backgroundTab"}}}"#)
