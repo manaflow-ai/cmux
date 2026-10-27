@@ -19,9 +19,13 @@ import Darwin
 /// let window = VisibilityNode(root: "window", own: .visible)
 /// let workspace = VisibilityNode("workspace", own: .hidden, parent: window)
 /// let token = workspace.subscribe(owner: "Sidebar.rows") { visibility in rows.apply(visibility) }
-/// workspace.deferUntilVisible(key: "appearance") { [weak view] in view?.applyAppearance() }
+/// workspace.deferAppearance(owner: "Strip") { [weak view] in view?.applyAppearance() }
 /// workspace.set(.visible) // token is notified once, then the appearance body runs
 /// ```
+///
+/// A view hidden in AppKit forwards it and nothing else (recipe R-hide): `viewDidHide` calls
+/// `node.set(.hidden)`, `viewDidUnhide` calls `node.set(.visible)`, and work a hidden view skips waits in
+/// ``deferUntilVisible(key:_:)`` under a key, so a show runs each kind of work once.
 ///
 /// Subscribers are told only when ``effective`` flips, after the whole subtree has its new state,
 /// parents before children. Hold the ``VisibilitySubscription``: releasing it ends the
@@ -75,6 +79,8 @@ import Darwin
 
     private let isRoot: Bool
     let uptime: Uptime
+    /// The counts a root was made with (``workCounts``); nil on a child.
+    private let rootWorkCounts: VisibilityWorkCounts?
     /// Children whose own state is visible or occluded: the ones a parent flip can change.
     private var shownChildren: [ObjectIdentifier: WeakNode] = [:]
     /// Children whose own state is hidden: always hidden, never visited by a parent flip.
@@ -114,8 +120,11 @@ import Darwin
     ///   - name: The name diagnostics show.
     ///   - own: The starting state.
     ///   - uptime: The clock for ``hiddenSince`` and ``mediaActiveWithin(_:)``.
-    public init(root name: String, own: Visibility, uptime: @escaping Uptime = VisibilityNode.systemUptime) {
+    ///   - workCounts: Where the tree's nodes count their work (``workCounts``); nil counts nothing.
+    public init(root name: String, own: Visibility, uptime: @escaping Uptime = VisibilityNode.systemUptime,
+                workCounts: VisibilityWorkCounts? = nil) {
         self.name = name
+        self.rootWorkCounts = workCounts
         self.own = own
         self.effective = own
         self.notified = own
@@ -144,6 +153,7 @@ import Darwin
         self.notifiedRendering = effective == .visible || captured
         self.isRoot = false
         self.uptime = parent.uptime
+        self.rootWorkCounts = nil
         self.hiddenSince = effective == .visible ? nil : parent.uptime()
         self.hiddenStateSince = effective == .hidden ? parent.uptime() : nil
         self.parent = parent
@@ -263,6 +273,36 @@ import Darwin
         } else {
             deferred.append((key: key, work: work))
         }
+    }
+
+    /// Re-applies `owner`'s appearance (recipe R-appear): now when this node is visible, else once when
+    /// it next shows, however many theme, contrast or scale changes came meanwhile. A
+    /// `viewDidChangeEffectiveAppearance` body that does more than set layer colors (measures text,
+    /// rebuilds layers, lays out) goes through it, so a theme flip costs what is on screen; a hidden
+    /// `RenderWidgetHostImpl` likewise sends its visual properties once, in `WasShown`
+    /// (content/browser/renderer_host/render_widget_host_impl.cc). Each run counts in
+    /// ``VisibilityWorkCounts/appearanceApplies``.
+    ///
+    /// - Parameters:
+    ///   - owner: The view's name; one pending body per owner on this node.
+    ///   - apply: The appearance body. The node holds it until it runs: capture the view weakly.
+    public func deferAppearance(owner: String, _ apply: @escaping @MainActor () -> Void) {
+        deferUntilVisible(key: AppearanceKey(owner: owner)) { [weak self] in
+            self?.workCounts?.appearanceApplies &+= 1
+            apply()
+        }
+    }
+
+    /// Where this node counts its work: its root's counts (``init(root:own:uptime:workCounts:)``), read
+    /// when the work runs, so a node moved to another tree counts there. Nil while detached.
+    public var workCounts: VisibilityWorkCounts? {
+        var node = self
+        while let parent = node.parent { node = parent }
+        return node.rootWorkCounts
+    }
+
+    private struct AppearanceKey: Hashable {
+        let owner: String
     }
 
     /// Drops the pending work for `key`, if any.

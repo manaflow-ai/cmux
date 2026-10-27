@@ -98,7 +98,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // Under its workspace's node (p06-scheduler-023); a pane outside a workspace (tests) is a root.
         let parent: VisibilityNode? = workspace.flatMap { $0.visibilityNode }
         visibilityNode = parent.map { VisibilityNode("pane:\(pane.id)", own: own, parent: $0) }
-            ?? VisibilityNode(root: "pane:\(pane.id)", own: own)
+            ?? VisibilityNode(root: "pane:\(pane.id)", own: own, workCounts: services.visibilityWorkCounts)
         view = PaneContentView(stripModel: stripModel, reveal: services.launchReveal, input: services.inputTap, node: visibilityNode, deadlines: services.mainDeadlines)
         stripModel.intentHandler = { [weak self] intent in self?.handle(intent) }
         view.stripView.previewProvider = services.previews

@@ -127,6 +127,8 @@ final class AppServices {
     let machineHealth = MachineHealthStore()
     /// Layout passes and tree changes of off-screen workspaces, all windows (`debug.layout_counters`).
     let hiddenLayoutWork = HiddenLayoutWork()
+    /// What the visibility tree ran for what shows (`appearance_applies`); every root the app makes counts here.
+    let visibilityWorkCounts = VisibilityWorkCounts()
     /// The app's one fan-out of app-wide notices (`AppEvents`, p06-scheduler-021): every window's
     /// key tracker and later adopters subscribe here, one observer per name for the whole app.
     let appEvents = AppEvents(center: .default)
@@ -138,7 +140,7 @@ final class AppServices {
     /// node's parent (`WindowVisibilitySource`, p06-scheduler-022).
     private(set) lazy var appVisibility = AppVisibilitySource(
         appEvents: appEvents, workspaceEvents: workspaceEvents,
-        isAppHidden: NSApp.isHidden
+        isAppHidden: NSApp.isHidden, workCounts: visibilityWorkCounts
     )
     /// Reduce Motion, the motion switches, hover cards, the inactive dim and the system's display
     /// options (``AppearanceSignals``, p06-scheduler-043), handed to the readers this root builds:

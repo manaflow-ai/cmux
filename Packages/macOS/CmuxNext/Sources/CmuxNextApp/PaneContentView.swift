@@ -108,7 +108,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// - Parameter deadlines: The app's one main-thread deadline scheduler (`AppServices.mainDeadlines`); its
     ///   work scheduler runs the view's observations.
     init(stripModel: TabStripModel, reveal: LaunchReveal, input: InputEventTap, node: VisibilityNode, deadlines: MainDeadlineScheduler) {
-        stripView = TabStripView(model: stripModel, input: input)
+        stripView = TabStripView(model: stripModel, input: input, node: node)
         self.node = node
         // The pane's limit for a page that never paints under its launch image: `visible` work.
         launchImageDeadline = MainDeadline(owner: "pane.launch-image", workClass: .visible, scheduler: deadlines)
@@ -389,7 +389,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         // A hidden pane repaints once, when it shows (R-appear).
-        node.deferUntilVisible(key: "PaneContentView.appearance") { [weak self] in self?.themeDidChange() }
+        node.deferAppearance(owner: "PaneContentView") { [weak self] in self?.themeDidChange() }
     }
 
     /// The content background under the content only (the strip has its

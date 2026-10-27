@@ -243,6 +243,62 @@ import Testing
         #expect(window.childCounts.hidden == 1 && window.childCounts.shown == 0)
     }
 
+    /// Recipe R-appear (p06-scheduler-215, done check 10): three theme flips at 50 workspaces run the
+    /// appearance body of the visible workspace only, then one body per workspace as each shows.
+    @Test func aThemeFlipAtFiftyWorkspacesAppliesOnlyWhatIsOnScreenThenOncePerShow() {
+        let counts = VisibilityWorkCounts()
+        let window = VisibilityNode(root: "window", own: .visible, workCounts: counts)
+        let workspaces = (0..<50).map { VisibilityNode("workspace:\($0)", own: $0 == 0 ? .visible : .hidden, parent: window) }
+        var applied: [Int] = []
+        for _ in 0..<3 {
+            for (index, workspace) in workspaces.enumerated() {
+                workspace.deferAppearance(owner: "TabStripView") { applied.append(index) }
+            }
+        }
+        #expect(applied == [0, 0, 0], "a hidden workspace ran its appearance body")
+        #expect(counts.appearanceApplies == 3)
+        #expect(workspaces.dropFirst().allSatisfy { $0.deferredCount == 1 }, "a hidden workspace kept more than one body")
+
+        workspaces[0].set(.hidden)
+        for workspace in workspaces.dropFirst() {
+            workspace.set(.visible)
+            workspace.set(.hidden)
+            workspace.set(.visible)
+        }
+        #expect(applied == [0, 0, 0] + Array(1..<50), "a shown workspace did not apply once")
+        #expect(counts.appearanceApplies == 52)
+    }
+
+    /// A node counts into the counts of the root it is under when the body runs: a tab made under the
+    /// unselected-tabs root and moved to a shown pane counts in the pane's tree; a detached node counts nowhere.
+    @Test func appearanceAppliesCountInTheTreeTheNodeIsInWhenTheyRun() throws {
+        let counts = VisibilityWorkCounts()
+        let pane = VisibilityNode(root: "pane", own: .visible, workCounts: counts)
+        let unselected = VisibilityNode(root: "tabs.unselected", own: .hidden)
+        let tab = VisibilityNode("tab", parent: unselected)
+        tab.deferAppearance(owner: "chrome") {}
+        #expect(counts.appearanceApplies == 0)
+        try tab.attach(to: pane)
+        #expect(counts.appearanceApplies == 1, "the moved tab's body did not count in its new tree")
+        tab.detach()
+        #expect(tab.workCounts == nil)
+        counts.reset()
+        #expect(counts.appearanceApplies == 0)
+    }
+
+    /// One pending appearance body per owner on a node: two views on one node each re-theme on show.
+    @Test func appearanceBodiesAreKeptPerOwner() {
+        let tab = VisibilityNode(root: "tab", own: .hidden)
+        var runs: [String] = []
+        tab.deferAppearance(owner: "strip") { runs.append("strip:1") }
+        tab.deferAppearance(owner: "bar") { runs.append("bar") }
+        tab.deferAppearance(owner: "strip") { runs.append("strip:2") }
+        tab.deferUntilVisible(key: "strip") { runs.append("strip-key") }
+        #expect(tab.deferredCount == 3, "an owner's appearance body shares a key with plain deferred work")
+        tab.set(.visible)
+        #expect(runs == ["strip:2", "bar", "strip-key"])
+    }
+
     @Test func deferredWorkRunsOncePerKeyOnShow() {
         let window = VisibilityNode(root: "window", own: .hidden)
         let tab = VisibilityNode("tab", parent: window)

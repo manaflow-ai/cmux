@@ -2,7 +2,7 @@ public import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 public import CmuxNextInput
-import CmuxNextWakeups
+public import CmuxNextWakeups
 import Observation
 import QuartzCore
 
@@ -83,12 +83,15 @@ public final class TabStripView: NSView {
     var cells: [TabID: TabCell] = [:]
     let windowMain = WindowMainObserver()
     let windowVisibility = WindowVisibilityObserver()
-    /// In a window and not hidden (`syncShown`).
+    /// The strip in the visibility tree (recipe R-hide): under its pane's or workspace's node, own-hidden
+    /// while AppKit hides the strip or an ancestor (`viewDidHide`). A model, appearance or scale change
+    /// that comes while it is not visible waits on it (`deferUntilVisible`) and applies once, at rest,
+    /// in its show turn.
+    public let visibilityNode: VisibilityNode
+    /// Runs ``syncShown(_:)`` on each flip of ``visibilityNode``.
+    private var visibilityWatch: VisibilitySubscription?
+    /// In a window and its node visible (`syncShown`): the window-wide fan-outs reach the strip.
     private(set) var isShownInWindow = false
-    /// The model changed while the strip was out of sight: it syncs once, at rest, when it shows.
-    var modelChangedWhileHidden = false
-    /// An appearance or scale change came while hidden; applied when shown.
-    private var appearanceIsStale = false
     /// Group chips, bands, drag, and optimistic membership.
     var groups = TabStripGroupState()
     /// Every tab's and chip's target geometry (`TabPlace`); Core Animation shows the motion to it.
@@ -191,10 +194,16 @@ public final class TabStripView: NSView {
     static let placeholderID = TabID("__cmux.tabs.drop-placeholder__")
     // MARK: - Init
 
-    public init(model: TabStripModel, background: Background = .none, input: InputEventTap) {
+    /// - Parameters:
+    ///   - input: The app's input tap, for the strip's mode subscriptions.
+    ///   - node: The node of what holds the strip (its pane, or the screen bar's workspace); nil: a root
+    ///     (demos and tests), visible while AppKit shows the strip.
+    public init(model: TabStripModel, background: Background = .none, input: InputEventTap, node: VisibilityNode? = nil) {
         self.model = model
         inputTap = input
+        visibilityNode = node.map { VisibilityNode("tabs.strip", parent: $0) } ?? VisibilityNode(root: "tabs.strip", own: .visible)
         super.init(frame: CGRect(x: 0, y: 0, width: 600, height: Self.preferredHeight))
+        visibilityWatch = visibilityNode.subscribe(owner: "TabStripView.shown") { [weak self] _ in self?.syncShown() }
         wantsLayer = true
         layerContentsRedrawPolicy = .never
         hoverCard.strip = self
@@ -334,21 +343,21 @@ public final class TabStripView: NSView {
 
     public override func viewDidHide() {
         super.viewDidHide()
-        syncShown(false)
+        visibilityNode.set(.hidden)
     }
 
     public override func viewDidUnhide() {
         super.viewDidUnhide()
-        syncShown()
+        visibilityNode.set(.visible)
     }
 
-    /// The window-wide fan-outs (hover-card hit tests, main and occlusion changes) reach only a
-    /// shown strip: a hidden one (a parked workspace, still in its window, or a hidden screen bar)
-    /// is not in them, and an appearance or scale change waits until it shows. Showing re-reads
-    /// the window's state and applies, without motion, the model changes that came while hidden
-    /// (``syncFromModel()`` lays nothing out out of sight).
+    /// The window-wide fan-outs (hover-card hit tests, main and occlusion changes) reach only a strip
+    /// in a window whose node is visible: a parked workspace's, a suspended pane's, a hidden screen bar
+    /// and a covered or minimized window's strip are not in them, and their spinners stop. The node's
+    /// flip to visible re-reads the window's state here, then runs what waited on the node: the model
+    /// changes, without motion (``syncFromModel()``), and the appearance.
     func syncShown(_ shown: Bool? = nil) {
-        let shown = shown ?? (window != nil && !isHiddenOrHasHiddenAncestor)
+        let shown = shown ?? (window != nil && visibilityNode.isVisible)
         guard shown != isShownInWindow else { return }
         isShownInWindow = shown
         hoverCards.unregister(hoverCard)
@@ -359,38 +368,27 @@ public final class TabStripView: NSView {
             if window != nil { endPointerState() }
             return
         }
-        // What changed while out of sight lands at once in its final place: nobody saw it move.
-        if modelChangedWhileHidden {
-            modelChangedWhileHidden = false
-            sync(fromModel: true, animating: false)
-        }
         hoverCards.register(hoverCard)
         applyMultiSelection()
-        if appearanceIsStale {
-            appearanceIsStale = false
-            applyAppearance()
-            applyFrames()
-        }
     }
 
+    /// R-appear: a strip out of sight re-themes its layers once, when it shows.
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        guard isShownInWindow || window == nil else {
-            appearanceIsStale = true
-            return
-        }
-        applyAppearance()
+        visibilityNode.deferAppearance(owner: "TabStripView") { [weak self] in self?.applyAppearance() }
     }
 
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        guard isShownInWindow || window == nil else {
-            appearanceIsStale = true
-            return
+        visibilityNode.deferUntilVisible(key: Self.backingKey) { [weak self] in
+            self?.applyAppearance()
+            self?.applyFrames()
         }
-        applyAppearance()
-        applyFrames()
     }
+
+    /// The ``visibilityNode`` keys of the strip's deferred work.
+    static let backingKey = "TabStripView.backing"
+    static let modelSyncKey = "TabStripView.modelSync"
 
     /// Layers do not inherit theme scope or scale; push both (re-applies colors).
     func applyAppearance() {

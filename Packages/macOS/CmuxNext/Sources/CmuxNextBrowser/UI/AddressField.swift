@@ -124,7 +124,7 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
     /// field shows (a field editor is up only while the bar has the keys).
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        visibilityNode.deferUntilVisible(key: Self.appearanceKey) { [weak self] in self?.recolorText() }
+        visibilityNode.deferAppearance(owner: Self.appearanceKey) { [weak self] in self?.recolorText() }
     }
 
     /// The ``visibilityNode`` key of the field's deferred restyle.

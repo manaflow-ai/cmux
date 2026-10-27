@@ -583,7 +583,7 @@ public final class AddressBarView: NSView {
     /// measures and lays out no text (R-appear).
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        visibilityNode.deferUntilVisible(key: Self.appearanceKey) { [weak self] in self?.restyleField() }
+        visibilityNode.deferAppearance(owner: Self.appearanceKey) { [weak self] in self?.restyleField() }
     }
 
     /// The ``visibilityNode`` key of the bar's deferred repaint.

@@ -439,7 +439,7 @@ public final class BrowserChromeView: NSView {
     /// A hidden tab repaints once, when it shows (R-appear).
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        visibilityNode.deferUntilVisible(key: Self.appearanceKey) { [weak self] in self?.updateColors() }
+        visibilityNode.deferAppearance(owner: Self.appearanceKey) { [weak self] in self?.updateColors() }
     }
 
     /// The ``visibilityNode`` keys of the chrome's deferred repaints.

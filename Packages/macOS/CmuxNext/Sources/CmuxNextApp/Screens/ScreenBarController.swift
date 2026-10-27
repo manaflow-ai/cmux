@@ -42,7 +42,11 @@ final class ScreenBarController {
     /// - Parameter node: The node the bar follows its screens under; nil: the workspace's, else the bar's own.
     init(content: WorkspaceContentController, node: VisibilityNode? = nil) {
         self.content = content
-        view = TabStripView(model: model, input: content.services.inputTap)
+        // The workspace's node once it has one (p06-scheduler-023); until then the bar's own, always visible.
+        let node = node ?? content.visibilityNode
+            ?? VisibilityNode(root: "screen-bar", own: .visible, workCounts: content.services.visibilityWorkCounts)
+        // The strip's node is under it: a hidden bar or workspace defers the strip's syncs to its show.
+        view = TabStripView(model: model, input: content.services.inputTap, node: node)
         view.hoverFrameInput = content.services.hoverFrameInput  // hover once per frame (`pointerFrameHover`)
         preview = ScreenPreviewSource(content: content)
         view.dragsWindowFromEmptySpace = false
@@ -52,8 +56,6 @@ final class ScreenBarController {
         view.setAccessibilityLabel(ScreenStrings.barAccessibility)
         model.intentHandler = { [weak self] intent in self?.handle(intent) }
         view.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
-        // The workspace's node once it has one (p06-scheduler-023); until then the bar's own, always visible.
-        let node = node ?? content.visibilityNode ?? VisibilityNode(root: "screen-bar", own: .visible)
         observation = VisibleObservation(node, owner: "ScreenBar.snapshot", on: content.services.mainWork) { [weak self] in
             self.map { Self.snapshot($0.content) }
         } apply: { [weak self] snapshot in

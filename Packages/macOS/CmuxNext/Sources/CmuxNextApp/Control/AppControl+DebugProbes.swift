@@ -84,8 +84,8 @@ extension AppControl {
             // Work per layout change: pane snapshots, applies, topology sends (bench_pane_scale.py).
             .mainActor("debug.layout_counters") { [weak services] call in
                 let roots = services?.windows.controllers.flatMap { $0.mountedContents.map(\.layoutView) } ?? []
-                return .value(DebugLayoutCounters.handle(call.params, roots: roots,
-                                                         hiddenWork: services?.hiddenLayoutWork))
+                return .value(DebugLayoutCounters.handle(call.params, roots: roots, hiddenWork: services?.hiddenLayoutWork,
+                                                         visibilityWork: services?.visibilityWorkCounts))
             },
             // A full-screen or Space transition: notifications, resizes, layout passes (fullscreen-transition.py).
             .mainActor("debug.window_transition") { [events = services.workspaceEvents] call in

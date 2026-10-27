@@ -32,12 +32,14 @@ public import CmuxNextWakeups
     ///     display sleep and wake notices are posted.
     ///   - isAppHidden: Whether the app is hidden now (`NSApp.isHidden`).
     ///   - uptime: The clock of the tree's `hiddenSince`.
+    ///   - workCounts: Where the tree counts its work (`debug.layout_counters`); nil counts nothing.
     public init(appEvents: AppEvents, workspaceEvents: AppEvents, isAppHidden: Bool,
-                uptime: @escaping VisibilityNode.Uptime = VisibilityNode.systemUptime) {
+                uptime: @escaping VisibilityNode.Uptime = VisibilityNode.systemUptime,
+                workCounts: VisibilityWorkCounts? = nil) {
         self.isAppHidden = isAppHidden
         self.appEvents = appEvents
         self.workspaceEvents = workspaceEvents
-        node = VisibilityNode(root: "app", own: isAppHidden ? .hidden : .visible, uptime: uptime)
+        node = VisibilityNode(root: "app", own: isAppHidden ? .hidden : .visible, uptime: uptime, workCounts: workCounts)
         let owner = "AppVisibilitySource"
         subscriptions = [
             // raw-observer-allow: an AppEvents subscription, the recipe R-notif asks for (the app's one observer per notice); only the notice's name matches

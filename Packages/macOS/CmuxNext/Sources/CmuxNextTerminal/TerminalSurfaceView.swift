@@ -161,10 +161,12 @@ public final class TerminalSurfaceView: NSView {
 
     // MARK: Lifecycle
 
+    /// - Parameter node: The terminal's tab node (`TerminalHostView.node`); nil: no tab (tests), the view's
+    ///   node is a root.
     init(io mode: ghostty_surface_io_mode_e, input: TerminalInputSink, session: TerminalSession?,
          echoStages: TerminalEchoStages, hangWatch: (any HangWatchScoping)? = nil, secureInput: TerminalSecureInput,
          modifiers: TerminalModifierWatch? = nil, pointerFrames: FrameInputCoalescers? = nil,
-         gpuResidency: (any TerminalGPUResidency)? = nil) {
+         gpuResidency: (any TerminalGPUResidency)? = nil, node: VisibilityNode? = nil) {
         let echoStage = echoStages.makeStage() // before the surface: the trace hook may see its first frame
         let bridge = SurfaceBridge(input: input, echoStage: echoStage, frameMarks: echoStages.frameMarks)
         // SAFETY: balanced by the one release in `deinit` (`bridge`'s note).
@@ -175,8 +177,10 @@ public final class TerminalSurfaceView: NSView {
         modifierWatch = modifiers
         frameCoalescers = pointerFrames
         gpu = TerminalGPUResidencyGate(seam: gpuResidency)
+        visibilityNode = node.map { VisibilityNode("terminal.surface", parent: $0) } ?? VisibilityNode(root: "terminal.surface", own: .visible)
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         bridge.target = self
+        shownWatch = visibilityNode.subscribe(owner: "TerminalSurfaceView.shown") { [weak self] _ in self?.syncWindowState() }
         createSurface(mode: mode, echoStage: echoStage, contentsGate: echoStages.contentsGate)
     }
 
@@ -277,48 +281,20 @@ public final class TerminalSurfaceView: NSView {
         syncWindowState()
     }
 
-    public override func viewDidHide() {
-        super.viewDidHide()
-        isShown = false
-        // A hidden terminal gets no mouseExited: its link hover and modifier watcher end here.
-        linkPointer.exited()
-        observeWindow(false)
-        updateOcclusion()
-    }
-
-    public override func viewDidUnhide() {
-        super.viewDidUnhide()
-        syncWindowState()
-    }
-
-    /// Shown in a window: observe it and apply its current scale, screen, size, occlusion and key
-    /// state (each a no-op when unchanged). Parked counts as hidden (``ParkingContainer``).
-    private func syncWindowState() {
-        let shown = window != nil && !isHiddenOrHasHiddenAncestor && !isParkedOrHasParkedAncestor
-        isShown = shown
-        observeWindow(shown)
-        if !shown { linkPointer.exited() }
-        if shown {
-            updateContentScale()
-            // A view that joins a pane on a layout spring sends the grid the spring rests at, once; its first
-            // report (held while it was not shown) would be a size no frame rests at.
-            let joined = isInPaneMotion && joinPaneMotion()
-            updateSurfaceSize(forceReport: pendingForcedReport && !joined)
-            pendingForcedReport = false
-        }
-        updateOcclusion()
-        updateFocus()
-    }
-
-    /// Shown in a window, not hidden or parked (``syncWindowState()``). A layout change of a terminal
-    /// that is not shown records its size only (PL-script A3: a hidden workspace's layout sized every
-    /// warm terminal's surface and resized its PTY); showing it applies the last size once.
-    private(set) var isShown = false
+    /// The terminal in the visibility tree (recipe R-hide, TerminalSurfaceView+Visibility.swift): under its
+    /// tab's node, own-hidden while AppKit hides the view or an ancestor.
+    let visibilityNode: VisibilityNode
+    /// Runs ``syncWindowState()`` on each flip of ``visibilityNode``.
+    private var shownWatch: VisibilitySubscription?
+    /// In a window, its node not hidden and no container above parked (``syncWindowState()``). A layout
+    /// change of a terminal that is not shown records its size only (PL-script A3: a hidden workspace's
+    /// layout sized every warm terminal's surface and resized its PTY); showing it applies the last size once.
+    var isShown = false
     /// A forced grid report asked for while the view was not shown (`TerminalSession.init`, a new owner):
     /// it goes when the view is shown.
-    private var pendingForcedReport = false
+    var pendingForcedReport = false
 
-    private func observeWindow(_ observe: Bool) {
+    func observeWindow(_ observe: Bool) {
         guard observe == windowObservers.isEmpty else { return }
         let center = NotificationCenter.default
         for observer in windowObservers { center.removeObserver(observer) }
@@ -384,7 +360,7 @@ public final class TerminalSurfaceView: NSView {
     /// `ghostty_surface_set_content_scale` + `ghostty_surface_set_display_id`
     /// (ghostty.h:1440, :1821).
     /// Applies only what changed since the last call (a terminal shown again calls it).
-    private func updateContentScale() {
+    func updateContentScale() {
         guard let surface else { return }
         let scale = convertToBacking(NSSize(width: 1, height: 1))
         if scale != appliedContentScale {
@@ -538,7 +514,7 @@ public final class TerminalSurfaceView: NSView {
 
     /// Focus is first responder in the key window. Ghostty uses it for cursor
     /// style and for focus reports (mode 1004) to the program.
-    private func updateFocus(firstResponder: Bool? = nil) {
+    func updateFocus(firstResponder: Bool? = nil) {
         guard let surface else { return }
         let focused = (firstResponder ?? isFirstResponder) && (window?.isKeyWindow ?? false)
         guard focused != lastFocus else { return }

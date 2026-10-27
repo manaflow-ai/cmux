@@ -166,7 +166,8 @@ public final class TerminalSession {
     ///     surfaces send moves, drags and mouse-reporting trackpad scrolls to Ghostty on a frame interval's
     ///     first event and once more at its frame (``TerminalPointerFrames``). Nil: every event at once.
     ///   - mainWork: The app's main-thread scheduler, and `node` the tab's node (`TabContentCache.node(for:)`; nil: no
-    ///     tab, as in tests): the host's find bar, scrollbar and TextBox follow their models through them, once per frame while it shows.
+    ///     tab, as in tests): the host's find bar, scrollbar and TextBox follow their models through them, once per frame while it shows, and
+    ///     its surfaces size, report grids and watch the window only while the node is not hidden (R-hide).
     ///   - gpuResidency: Lets the surfaces' GPU memory go while ``releasesGPUWhilePaused`` and paused;
     ///     nil keeps them resident (a GhosttyNextKit pin without the switch, or `terminalGPURelease` off).
     public init(io: any TerminalIO, ownsGeometry: Bool = true,
@@ -193,7 +194,7 @@ public final class TerminalSession {
         view = TerminalHostView(mainWork: mainWork, node: node)
         surfaceView = TerminalSurfaceView(io: ioMode, input: input, session: nil, echoStages: echoStages, hangWatch: hangWatch,
                                           secureInput: secureInput, modifiers: modifiers, pointerFrames: pointerFrames,
-                                          gpuResidency: gpuResidency)
+                                          gpuResidency: gpuResidency, node: node)
         surfaceView.bridgeObject.installLinkFilter(nil)
         surfaceView.session = self
         surfaceView.ownsGeometry = ownsGeometry
@@ -402,7 +403,7 @@ public final class TerminalSession {
         let wasFirstResponder = old.isFirstResponder
         let fresh = TerminalSurfaceView(io: ioMode, input: input, session: self, echoStages: echoStages, hangWatch: hangWatch,
                                         secureInput: secureInput, modifiers: modifiers, pointerFrames: pointerFrames,
-                                        gpuResidency: gpuResidency)
+                                        gpuResidency: gpuResidency, node: view.node)
         swappedSurfaces += 1
         #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { traceSurfaceSwapped(fresh) }
