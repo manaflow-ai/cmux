@@ -39,8 +39,6 @@ import os
     private let step = DemandTimer(owner: "SingleInstanceHandoff.step")
     /// ``deadline``: unanswered work is given up (or reopened).
     private let giveUpTimer = DemandTimer(owner: "SingleInstanceHandoff.giveUp")
-    /// ``hardDeadline``: the process ends. Its sleep runs off the main thread, so a blocked send cannot hold it.
-    private static let hardExit = DemandTimer(owner: "SingleInstanceHandoff.hardExit")
 
     private init(lock: URL, giveUpAt: ContinuousClock.Instant) {
         self.lock = lock
@@ -55,6 +53,9 @@ import os
             logger.notice("launch: an agent launch of a second copy forwards nothing (the running copy would come forward); exiting")
             exit(0)
         }
+        // ``hardDeadline``: the process ends. Its sleep runs off the main thread, so a blocked send cannot hold it;
+        // `run` never returns, so the timer lives until the exit.
+        let hardExit = DemandTimer(owner: "SingleInstanceHandoff.hardExit")
         hardExit.schedule(after: .seconds(hardDeadline)) { exit(0) }
         // No saved windows of this copy: its restoration store would take over the running copy's.
         UserDefaults.standard.setVolatileDomain(["ApplePersistenceIgnoreState": true], forName: UserDefaults.argumentDomain)
@@ -63,7 +64,7 @@ import os
         app.setActivationPolicy(.accessory)
         let handoff = SingleInstanceHandoff(lock: lock, giveUpAt: giveUpAt)
         app.delegate = handoff
-        withExtendedLifetime(handoff) { app.run() }
+        withExtendedLifetime((handoff, hardExit)) { app.run() }
         exit(0)
     }
 
