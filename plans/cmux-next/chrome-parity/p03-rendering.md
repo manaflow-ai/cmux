@@ -1439,6 +1439,18 @@ every task that changes behavior or performance and is not repeated per row.
 - Acceptance: TerminalIdleCursorFrameTests: steady focused cursor draws 0 frames in 10 s (red at base).
 - Test phase: render-idle-damage.py Ghostty frames at idle = 0 (with 091).
 - Size S.
+- Fork branch: manaflow-ai/ghostty-next `cp/p03-rendering-089`, commit `19eb96940` (on ghostty-next main `9ce9b7d08`). `cells_rebuilt`
+  (set by every `rebuildCells`, so every renderer wake drew a frame) becomes `frame_changed`: a frame update sets it
+  only when it built a row, or when what the frame shows outside its rows changed (`FrameShown`: cursor cell,
+  uniforms, block cursor text color, color target, cells' screen size), or Kitty images or the overlay updated.
+  Config, font grid, screen size, focus, shown again and `ghostty_surface_refresh` (new renderer message
+  `.redraw`) set it directly. The blink timer runs only for a focused, visible surface with a shown blinking
+  cursor: a tick that finds none does not re-arm, and the next frame update or focus that needs it starts it
+  (`syncCursorTimer`). The 600 ms timer no longer starts at thread start. Chromium: no damage, no draw
+  (`cc/scheduler/scheduler_state_machine.cc`, `ShouldDraw` needs `needs_redraw_`).
+  App test: `TerminalIdleCursorFrameTests.aSteadyFocusedCursorDrawsNoFrameForOutputThatChangesNothing` (title
+  output every 250 ms for 10 s, 0 frames; red at 723c4ab). The ghostty-next gitlink is not moved: the integrator
+  lane (task 079) lands the branch and bumps the pin.
 
 #### p03-rendering-090 ghostty-next: external cursor with cell image
 - Files: `ghostty-next/src/renderer/generic.zig`, `src/renderer/cursor.zig`, `src/apprt/embedded.zig`, `include/ghostty.h`.
