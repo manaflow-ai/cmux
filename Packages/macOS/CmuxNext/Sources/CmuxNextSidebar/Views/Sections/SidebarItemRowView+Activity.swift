@@ -34,7 +34,9 @@ extension SidebarItemRowView {
         if style.isIconOnly { return layoutActivity(onGlyph: icon.frame) }
         if activityOnColumn { return }
         let side = SidebarStyle.indicatorSize
-        activity.frame = NSRect(x: title.frame.maxX + Metrics.space2, y: (bounds.height - side) / 2, width: side, height: side)
+        // After the row's detail when it draws one (SidebarItemRowView+Detail), which follows the title.
+        let textEnd = showsDetail ? detail.frame.maxX : title.frame.maxX
+        activity.frame = NSRect(x: textEnd + Metrics.space2, y: (bounds.height - side) / 2, width: side, height: side)
     }
 
     /// The indicator on `glyph`'s bottom trailing corner.

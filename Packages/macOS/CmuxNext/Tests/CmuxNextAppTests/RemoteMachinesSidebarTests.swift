@@ -89,7 +89,7 @@ struct RemoteMachinesSidebarTests {
                     Self.lane("gone", peer: "big-red", .working, since: 30, title: "Gone")], peers: peers)
         let rows = RemoteMachinesSidebar.mergedRows(machines: machines, displayName: { $0 == "huge-blue" ? "Huge Blue" : nil })
         #expect(rows.map(\.info.title) == ["New", "Old"])
-        #expect(rows.allSatisfy { $0.info.caption == "Huge Blue" && $0.info.indent == 0 && $0.info.icon != .cloud })
+        #expect(rows.allSatisfy { $0.info.detail == "Huge Blue" && $0.info.caption == nil && $0.info.indent == 0 && $0.info.icon != .cloud })
         #expect(rows[0].info.activity == .working)
         #expect(rows[0].item.id.rawValue == LayoutItemID.transientPrefix + "remote:session:id-new")
         #expect(RemoteMachinesSidebar(lanes: AgentLaneStore()).activate(rows[0].item.id))

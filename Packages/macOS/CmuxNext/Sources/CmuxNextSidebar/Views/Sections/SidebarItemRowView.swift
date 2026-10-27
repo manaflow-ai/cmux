@@ -62,6 +62,7 @@ class SidebarItemRowView: NSView {
     let icon = DecorativeImageView() // the row's label names the item
     private let pin = DecorativeImageView() // a pinned row's leading pin; Pinned's header names it
     let title = ChromeLabel(labelWithString: "")
+    let detail = ChromeLabel(labelWithString: "") // `info.detail` after the title (SidebarItemRowView+Detail)
     let badge = UnreadBadgeView()
     /// The blue unread dot of a workspace row (`info.unreadDot`, Home's unread): a row draws it on
     /// the trailing column, as a workspace row does; an icon look dots its glyph with `badge`.
@@ -111,7 +112,7 @@ class SidebarItemRowView: NSView {
         icon.imageScaling = .scaleProportionallyDown
         title.lineBreakMode = .byTruncatingTail
         title.maximumNumberOfLines = 1
-        [pin, icon, title, badge, rowBadge, avatarView, activity].forEach(addSubview)
+        [pin, icon, title, detail, badge, rowBadge, avatarView, activity].forEach(addSubview)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         // Keyboard focus is the fill's next tonal step (`fill`), never the system's blue ring.
@@ -145,7 +146,7 @@ class SidebarItemRowView: NSView {
         self.info = info
         self.style = style
         title.stringValue = style == .favorite ? info.caption ?? info.title : info.title
-        title.isHidden = style.isIconOnly
+        title.isHidden = style.isIconOnly; configureDetail()
         pin.image = info.leadingPin ? NSImage.icon(.statePinned, size: Metrics.smallIconSize) : nil
         title.alignment = style == .favorite ? .center : .natural
         let trailingDot = info.unreadDot && !style.isIconOnly && style != .favorite
@@ -158,8 +159,8 @@ class SidebarItemRowView: NSView {
         // An icon names itself (and its shortcut) in its tooltip; a tile's
         // caption can truncate, so it keeps the full title.
         // The profile control draws no name, so its tooltip says who it is: the email.
-        themedToolTip = info.avatar?.toolTip ?? (style.isIconOnly ? info.toolTip : style == .favorite ? info.title : nil)
-        setAccessibilityLabel(info.accessibilityTitle ?? info.title)
+        themedToolTip = info.avatar?.toolTip ?? (style.isIconOnly ? info.toolTip : style == .favorite ? info.titleWithDetail : nil)
+        setAccessibilityLabel(info.accessibilityTitle ?? accessibilityTitleWithDetail)
         applyAvatar()
         setAccessibilitySelected(info.isActive)
         alphaValue = info.isMissing ? 0.5 : 1
@@ -182,7 +183,7 @@ class SidebarItemRowView: NSView {
             // A favicon draws in its own colors: on the resting well, not the workspace color.
             chip.backgroundColor = showsSwatchDot ? info.color.map(SidebarStyle.color)?.cgColor
                 : wells ? ((info.favicon == nil ? info.color.map(SidebarStyle.color) : nil) ?? rest).cgColor : nil
-            title.textColor = Palette.textPrimary
+            (title.textColor, detail.textColor) = (Palette.textPrimary, Palette.textTertiary)
             // An icon is secondary at rest and full strength under the pointer
             // or keyboard focus (the footer's avatar and gear).
             let strong = (style == .icon || showsAvatar) && (isHovered || isPressed || showsMenu || showsKeyFocus)
@@ -297,7 +298,7 @@ class SidebarItemRowView: NSView {
         let th = ceil(title.intrinsicContentSize.height)
         let textX = showsSwatchDot ? chip.frame.maxX + Metrics.space3
             : bare ? iconFrame.minX : iconFrame.maxX + (style == .chip ? Metrics.space2 : Metrics.space3)
-        title.frame = NSRect(x: textX, y: (b.height - th) / 2, width: max(0, activityLeading(before: badgeX) - Metrics.space2 - textX), height: th)
+        layoutTitle(x: textX, y: (b.height - th) / 2, height: th, end: activityLeading(before: badgeX) - Metrics.space2)
     }
 
     /// Places the row's trailing mark as a workspace row places its own: the blue unread dot, else
@@ -445,7 +446,6 @@ class SidebarItemRowView: NSView {
     }
 
     // MARK: Pointer
-
 
     /// Activates on press, as the sidebar's rows do; the pressed fill shows
     /// until release.

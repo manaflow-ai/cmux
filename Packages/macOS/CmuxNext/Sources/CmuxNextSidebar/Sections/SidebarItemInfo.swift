@@ -24,6 +24,9 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var shortcut: String?
     /// The shorter caption a tile draws under its glyph; nil uses `title`.
     public var caption: String?
+    /// Quieter words a row draws after its title on the same line (a remote chat's machine); the
+    /// title truncates first. Tiles and icons draw none.
+    public var detail: String?
     /// An agent's brand mark (`AgentBrandID`), drawn instead of `icon` (a Recents chat).
     public var brand: String?
     /// One emoji the item draws as its glyph (a workspace's emoji icon), before `brand` and `icon`.
@@ -199,9 +202,16 @@ extension SidebarBuiltIn {
 
 extension SidebarItemInfo {
     /// An icon's tooltip: the title, and the shortcut when there is one
-    /// ("Settings (⌘,)").
+    /// ("Settings (⌘,)"); a remote chat's machine follows its title ("Review, linux-box").
     public var toolTip: String {
-        shortcut.map { SectionStrings.titleWithShortcut(title, $0) } ?? title
+        shortcut.map { SectionStrings.titleWithShortcut(titleWithDetail, $0) } ?? titleWithDetail
+    }
+
+    /// The title, then the detail when there is one: what VoiceOver reads and a tile or icon's tooltip
+    /// says, where no detail draws.
+    public var titleWithDetail: String {
+        guard let detail, !detail.isEmpty else { return title }
+        return "\(title), \(detail)"
     }
 }
 

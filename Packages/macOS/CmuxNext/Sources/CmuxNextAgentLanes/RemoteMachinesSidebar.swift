@@ -317,7 +317,7 @@ public final class RemoteMachinesSidebar {
         return chats.sorted { ($0.1.since, $1.0) > ($1.1.since, $0.0) }.prefix(pageSize).map { peer, chat in
             var info = SidebarItemInfo(title: chat.title, symbol: "bubble.left", brand: chat.harness)
             info.activity = chat.activity
-            info.caption = displayName(peer) ?? peer
+            info.detail = displayName(peer) ?? peer
             let item = SidebarTransientItem(id: LayoutItemID(sessionPrefix + chat.id), info: info, after: previous)
             previous = [item.item.ref]
             return item
