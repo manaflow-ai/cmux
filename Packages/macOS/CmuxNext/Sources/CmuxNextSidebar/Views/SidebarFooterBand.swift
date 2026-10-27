@@ -219,6 +219,7 @@ final class SidebarFooterBand {
     /// modal tracking starts.
     static func popUpProfileMenu(_ menu: NSMenu, from anchor: NSView?) {
         // task-owner: none needed; one-shot hop to the next main-actor turn, holds no state
+        // main-hop-allow: menu tracking: popUp runs a modal tracking loop, so the caller (a socket action, a palette run) returns before it starts
         Task { @MainActor in
             guard let anchor, anchor.window != nil else {
                 menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)

@@ -109,15 +109,15 @@ public final class MainThreadWatchdog: Sendable {
     public let log: HangLog
     /// Busy windows (CPU with no input, animation or output) share the log.
     public let busy: BusyWatchdog
-    /// Hang-watch scopes on other threads still open 2 s past their budget (``attach(hangWatch:crashKeys:)``,
+    /// Hang-watch scopes on other threads still open 2 s past their budget (``attach(hangWatch:crashKeys:trace:)``,
     /// kind `hang`, with a stack): their own log, so a lane that hangs again and again never pushes
     /// main-thread stalls out of ``log``.
     public let threadHangs = HangLog(capacity: 128)
     /// Hang-watch scopes on other threads past their budget (kind `jank`, no stack): apart from
     /// ``threadHangs``, so a busy lane's janks never push the rarer hang dumps out.
     public let threadJanks = HangLog(capacity: 128)
-    /// The slot table and crash keys ``attach(hangWatch:crashKeys:)`` connected; the watchdog thread reads the flag, then the sink once.
-    let hangWatchSink = Mutex<HangMonitor.Source?>(nil)
+    /// What ``attach(hangWatch:crashKeys:trace:)`` connected (read once, after the flag), and the sinks of ``onThreadHang`` and ``onLastHang`` (HangMonitor.swift).
+    let hangWatchSink = Mutex<HangMonitor.Source?>(nil), threadHangSinks = Mutex(ThreadHangSinks())
     let hangWatchAttached = Atomic<Bool>(false)
     private let thresholdNanos: UInt64
     /// `CLOCK_UPTIME_RAW` nanoseconds; tests inject a clock that moves only

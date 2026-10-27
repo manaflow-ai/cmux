@@ -72,6 +72,7 @@ public final class LaunchMarkView: NSView {
         }
     }
 
+    // visibility-walk-allow: it only invalidates; AppKit runs updateLayer only for a view it draws, so a hidden mark costs one flag
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true // invalidate: the appearance changed; the colors resolve again.

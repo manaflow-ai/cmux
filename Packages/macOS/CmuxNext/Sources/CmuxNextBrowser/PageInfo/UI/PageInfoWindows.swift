@@ -39,6 +39,7 @@ final class PageInfoWindows {
         let window = SiteDataWindow(site: site, send: send)
         siteData = window
         present(window)
+        // main-hop-allow: pageInfoSiteData is the engine's main-actor async read of the profile's data store; the task only starts it and fills the window it opened
         Task { [weak window] in
             let data = await provider.pageInfoSiteData(pageHost: site.host)
             window?.show(data)

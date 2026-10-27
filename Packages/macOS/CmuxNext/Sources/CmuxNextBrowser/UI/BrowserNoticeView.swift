@@ -4,14 +4,16 @@ import CmuxNextIcons
 
 /// A small glass pill at the bottom of the page with one line of text and a
 /// close button: a subtle, dismissible notice (the WebKit fallback when
-/// Chromium cannot start). It never takes focus.
-final class BrowserNoticeView: NSView {
+/// Chromium cannot start). It never takes focus. Its row lays out by frame
+/// (`ChromeRowLayout`); `PageFloatingOverlays` sizes it with `cardSize`.
+final class BrowserNoticeView: ChromeFrameView, PageFloatingCard {
     var onClose: (() -> Void)?
     /// The notice's one action (a button before the close button), if any.
     var action: (title: String, run: () -> Void)? {
         didSet {
             actionButton.title = action?.title ?? ""
             actionButton.isHidden = action == nil
+            needsLayout = true // invalidate: the action button's title or presence changed the row
         }
     }
     private lazy var actionButton: ChromeTextButton = {
@@ -22,41 +24,34 @@ final class BrowserNoticeView: NSView {
     /// Set while the close animation runs; a new notice then gets a new view.
     var isDismissing = false
     private let label = ChromeLabel(labelWithString: "")
+    // The target is set in init (no IUOs).
+    private let closeButton = ChromeIconButton(icon: .browserToolbarClose, label: Strings.dismissNotice,
+                                               action: #selector(BrowserNoticeView.close), target: nil)
+    /// The pill's content (the glass's), where the row lays out.
+    private let content = OverlayBackingView()
     private let density = DensityBinding()
     /// The card's material: glass, or opaque under Reduce Transparency.
     private(set) var glass: OverlaySurfaceView?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        translatesAutoresizingMaskIntoConstraints = false
         label.lineBreakMode = .byTruncatingTail
-        // The pill fits its text; only a narrow page truncates it (cx-whr7).
-        label.setContentCompressionResistancePriority(.keepsTextWidth, for: .horizontal)
-        let close = ChromeIconButton(icon: .browserToolbarClose, label: Strings.dismissNotice, action: #selector(close), target: self)
-
-        let stack = NSStackView(views: [label, actionButton, close])
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        let content = OverlayBackingView()
-        content.addSubview(stack)
+        closeButton.target = self
+        for view in [label, actionButton, closeButton] as [NSView] {
+            view.translatesAutoresizingMaskIntoConstraints = true
+            content.addSubview(view)
+        }
         let glass = Glass.makeOverlayPanel(content: content, cornerRadius: BrowserMetrics.overlayCornerRadius)
+        glass.translatesAutoresizingMaskIntoConstraints = true
+        glass.autoresizingMask = [.width, .height]
+        glass.frame = bounds
         addSubview(glass)
         self.glass = glass
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            stack.centerYAnchor.constraint(equalTo: content.centerYAnchor),
-            glass.leadingAnchor.constraint(equalTo: leadingAnchor),
-            glass.trailingAnchor.constraint(equalTo: trailingAnchor),
-            glass.topAnchor.constraint(equalTo: topAnchor),
-            glass.bottomAnchor.constraint(equalTo: bottomAnchor),
-            density.bind(heightAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.findBarHeight },
-            density.bind(widthAnchor.constraint(lessThanOrEqualToConstant: 0)) { BrowserMetrics.promptMaxWidth },
-        ])
-        density.update { [label] in
+        density.update { [weak self] in
+            guard let self else { return }
             label.font = BrowserMetrics.bodyFont
-            stack.spacing = BrowserMetrics.itemSpacing
-            stack.edgeInsets = NSEdgeInsets(top: 0, left: BrowserMetrics.overlayPadding, bottom: 0, right: BrowserMetrics.buttonSpacing)
             glass.cornerRadius = BrowserMetrics.overlayCornerRadius
+            needsLayout = true // invalidate: a design token changed the row's sizes
         }
         density.start(in: self)
     }
@@ -64,6 +59,35 @@ final class BrowserNoticeView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    /// The pill's row: the text, the action if any and the close button,
+    /// with the overlay padding before the text.
+    var rowLayout: ChromeRowLayout {
+        ChromeRowLayout(spacing: BrowserMetrics.itemSpacing,
+                        insets: ChromeInsets(leading: BrowserMetrics.overlayPadding, trailing: BrowserMetrics.buttonSpacing),
+                        rightToLeft: laysOutRightToLeft)
+    }
+
+    private var rowViews: [NSView] {
+        actionButton.isHidden ? [label, closeButton] : [label, actionButton, closeButton]
+    }
+
+    /// The pill fits its text up to the prompt width; only a narrower page
+    /// truncates it (cx-whr7).
+    func cardSize(maxWidth: CGFloat) -> CGSize {
+        let natural = rowLayout.width(of: rowViews.map { $0.chromeLayoutSize(maxWidth: .greatestFiniteMagnitude) })
+        return CGSize(width: max(min(natural, BrowserMetrics.promptMaxWidth, maxWidth), 0), height: BrowserMetrics.findBarHeight)
+    }
+
+    override func layout() {
+        super.layout()
+        if let glass, glass.frame != bounds { glass.frame = bounds }
+        let views = rowViews
+        let box = CGRect(origin: .zero, size: bounds.size)
+        let rects = rowLayout.place(views.map { $0.chromeLayoutSize(maxWidth: box.width) }, in: box, flexible: 0)
+        for (view, rect) in zip(views, rects) { view.setChromeLayoutRect(rect) }
+    }
+
+    // visibility-walk-allow: one text color and the glass tint in the theme scope, no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()
@@ -86,6 +110,7 @@ final class BrowserNoticeView: NSView {
         set {
             label.stringValue = newValue
             setAccessibilityLabel(newValue)
+            needsLayout = true // invalidate: the text changed the row
         }
     }
 

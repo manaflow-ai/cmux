@@ -1,6 +1,8 @@
 import CmuxNextCompat
 import CmuxNextWakeups
 import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// Continuations waiting for a reply by key, each with a deadline on the
 /// injected clock (architecture.md 5a): a reply that never comes (a page
@@ -14,7 +16,7 @@ import Foundation
 final class CEFReplyWaiters<Key: Hashable & Sendable, Value: Sendable> {
     private struct Waiter {
         let id: UInt64
-        let continuation: CheckedContinuation<Value, any Error>
+        let continuation: OnceContinuation<Value, any Error>
         let deadline: Task<Void, Never>
 
         func finish(_ result: Result<Value, any Error>) {
@@ -65,7 +67,8 @@ final class CEFReplyWaiters<Key: Hashable & Sendable, Value: Sendable> {
             self?.settle(key, waiter: id, .failure(failure))
         }
         return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
+            // Waiters dropped with this table unresumed throw OnceContinuationError.abandoned.
+            try await withOnceThrowingContinuation { (continuation: OnceContinuation<Value, any Error>) in
                 // Keys are unique per request; a reused one fails the older waiter.
                 waiting.updateValue(Waiter(id: id, continuation: continuation, deadline: deadline), forKey: key)?
                     .finish(.failure(superseded()))

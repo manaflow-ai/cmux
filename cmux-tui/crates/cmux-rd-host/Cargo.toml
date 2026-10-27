@@ -52,3 +52,4 @@ lto = "thin"
 # cmux-tui/clippy.toml disallows std thread spawns and sleep: allowed here as in the cmux-tui
 # workspace, and denied outside tests on src/main.rs (p02-threads 229).
 disallowed_methods = "allow"
+disallowed_types = "allow"

@@ -222,7 +222,7 @@ struct DaemonConnectMarksTests {
 @Suite(.enabled(if: RealBinary.isBranchBuild, "needs the same-tree cmux-tui (scripts/cmux-next/pin-cmux-tui.sh fetch)"),
        .timeLimit(.minutes(2)), .liveDaemon)
 struct DaemonConnectMarksLiveTests {
-    static func launcher(_ id: Substring, root: URL) throws -> DaemonLauncher {
+    static func launcher(_ id: some StringProtocol, root: URL) throws -> DaemonLauncher {
         let binary = try #require(RealBinary.url)
         let environment = LoginEnvironment.shared.daemonEnvironment(login: nil, base: ProcessInfo.processInfo.environment,
                                                                     overrides: [:])

@@ -128,6 +128,8 @@ public final class BackdropImageStore {
         let dark = NSApp?.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         guard let selection, cached(selection, texture: texture, dark: dark) == nil else { return }
         // task-owner: one load per prewarm, kept in `warming` so tests can wait for it
+        // main-hop-allow: image(_:texture:dark:) is the store's main-actor cache, whose decode and texture run detached
+        // off main; this task only starts it, and its one resume holds the image
         warming.append(Task { [weak self] in _ = await self?.image(selection, texture: texture, dark: dark) })
     }
 

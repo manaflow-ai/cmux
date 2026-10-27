@@ -9,6 +9,7 @@ import CmuxNextBrowser
 import CmuxNextChiefViews
 import CmuxNextCompat
 import CmuxNextControl
+import CmuxNextCrashReporting
 import CmuxNextDesign
 import CmuxNextFeed
 import CmuxNextFloating
@@ -87,6 +88,9 @@ final class DebugSettingsService: InternalPageProvider {
         store.register(TunableCatalog.all)
         fileURL = url
         store.activate(file: url)
+        // The Sentry scope names the arm features.list reports, the file's toggles and later changes included.
+        let features = FeatureFlagsPage.report(services.features, tunables: store, daemon: services.environment.daemonFeatureHello)
+        services.lifetimeFollowers.append(services.crashReporting.reporter.followFeatures(on: services.mainWork) { CrashFeatureScope(features.fieldState) })
         // CmuxNextCloud does not see tunables; Release keeps CloudAuth's default (automatic).
         services.cloud.auth.signInWindow = { .init(rawValue: AccountTunables.signInWindow.value.rawValue) ?? .automatic }
         // The store loads the file off the main actor, after the first icons draw: the family is read here.

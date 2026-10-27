@@ -1,5 +1,8 @@
 import CmuxNextApps
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 public import CmuxNextControl
 public import CmuxNextDaemon
 public import CmuxNextTrace
@@ -134,8 +137,11 @@ extension DaemonService {
 
     /// Waits for the first connection (or for startup to give up): an event,
     /// not a retry, so terminals drawn from the snapshot attach at once.
+    /// A dropped waiter returns as startup giving up does.
     public func firstConnection() async {
-        await withCheckedContinuation { connectionWaiters.append($0) }
+        _ = try? await withOnceContinuation { (waiter: OnceContinuation<Void, OnceContinuationError>) in
+            connectionWaiters.append(waiter)
+        }
     }
 
     /// Runs at the first connection and when startup gives up: the moment the app's daemon features take
@@ -144,6 +150,6 @@ extension DaemonService {
         featureHello?.settle()
         let waiters = connectionWaiters
         connectionWaiters.removeAll()
-        for waiter in waiters { waiter.resume() }
+        for waiter in waiters { waiter.resume(returning: ()) }
     }
 }

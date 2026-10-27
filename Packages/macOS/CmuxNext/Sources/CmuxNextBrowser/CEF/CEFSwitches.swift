@@ -10,6 +10,11 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// Chromium `base::Feature`s the app's features turn on (process `chromium` in
     /// schemas/features/features.d, for example `cefTimerSlack`'s `TimerSlackMac`).
     var chromiumFeatures: [String] = []
+    /// Chromium `base::Feature`s the app's features turn off (process `chromium`, off from any source:
+    /// the channel default, the remote document, policy or `CMUX_DISABLE_FEATURES`). They go in one
+    /// `disable-features` entry and leave the `enable-features` entry, also a feature cmux itself names
+    /// there: disable wins, as in Chromium's `FeatureList::InitFromCommandLine` (base/feature_list.cc).
+    var disabledChromiumFeatures: [String] = []
     /// The default-off feature `chromiumSpareAfterFirstTab`: pass the fork's spare renderer policy
     /// (`spareRendererAfterFirstTab`).
     var spareAfterFirstTab = false
@@ -103,6 +108,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // One entry: the shim merges it into CEF's own list (CEFShim/src/command_line_switches.h),
         // and Chromium passes the list to every child process.
         result.append("enable-features=" + enabledFeatures.joined(separator: ","))
+        if !disabledChromiumFeatures.isEmpty {
+            result.append("disable-features=" + disabledChromiumFeatures.joined(separator: ","))
+        }
         // Chrome shares a renderer between at most 2 main frames of one site below its process
         // limit (kProcessPerSiteUpToMainFrameThreshold), but Chromium 154 turns that off for the
         // whole process once any frame ever had a DevTools agent (RenderFrameHostManager,
@@ -166,11 +174,21 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // utility processes and the browser's non-UI threads only: the UI thread's MessagePumpExternal
         // arms no base timer, and the app's deadline queue gets the leeway from the fork's absolute
         // run times (p14-energy-046).
+        // A feature the app turns off leaves this entry, so the two lists never name one feature.
         let named = [Self.chromePromptOffFeature] + Self.wakeUpAlignmentFeatures + Self.idleSourceOffFeatures
-        for feature in named + chromiumFeatures where !features.contains(feature) {
+        let disabled = Set(disabledChromiumFeatures)
+        for feature in named + chromiumFeatures
+        where !features.contains(feature) && !disabled.contains(Self.featureName(of: feature)) {
             features.append(feature)
         }
         return features
+    }
+
+    /// The feature an `enable-features` entry names: `IPH_DemoMode:chosen_feature/IPH_Dummy` is
+    /// `IPH_DemoMode` (the `Name<Study:param/value` syntax `FeatureList::ParseEnableFeatures` reads,
+    /// base/feature_list.cc; a leading `*` is the default-state marker).
+    static func featureName(of entry: String) -> String {
+        String(entry.drop { $0 == "*" }.prefix { $0 != "<" && $0 != ":" })
     }
 
     /// Chromium's wake-up alignment. Both are `FEATURE_DISABLED_BY_DEFAULT`; Chrome turns them on
@@ -304,6 +322,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         forkAPIVersion: Int32,
         rendererPaths: Bool = false,
         chromiumFeatures: [String] = [],
+        disabledChromiumFeatures: [String] = [],
         spareAfterFirstTab: Bool = false,
         bundleIdentifier: String?,
         environment: [String: String],
@@ -334,6 +353,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             forkAPIVersion: forkAPIVersion,
             rendererPaths: rendererPaths,
             chromiumFeatures: chromiumFeatures,
+            disabledChromiumFeatures: disabledChromiumFeatures,
             spareAfterFirstTab: spareAfterFirstTab,
             useMockKeychain: dev,
             loadExtensions: extensions,

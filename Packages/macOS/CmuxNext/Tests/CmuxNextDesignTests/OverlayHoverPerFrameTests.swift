@@ -153,12 +153,12 @@ import Testing
         let rig = try Scroller()
         defer { rig.close() }
         for step in 0..<8 { rig.proximity.mouseMoved(with: try Self.move(at: step.isMultiple(of: 2) ? rig.far : rig.near, in: rig.window)) }
-        #expect(rig.proximity.moves.frames === rig.frames.coalescers, "the proximity did not take its window's frames")
+        #expect(rig.proximity.frameInput.frames === rig.frames.coalescers, "the proximity did not take its window's frames")
         #expect(!rig.scroller.isKnobExpanded, "a move after the leading one widened the knob before the frame")
-        #expect(rig.proximity.moves.hasPending)
+        #expect(rig.proximity.frameInput.hasPending)
         rig.frames.frame()
         #expect(rig.scroller.isKnobExpanded, "the frame did not report the latest move, near the edge")
-        #expect(rig.proximity.moves.maxDeliveriesPerFrame == 2)
+        #expect(rig.proximity.frameInput.maxDeliveriesPerFrame == 2)
     }
 
     /// A lone move near the edge widens the knob in its own turn.
@@ -167,7 +167,7 @@ import Testing
         defer { rig.close() }
         rig.proximity.mouseMoved(with: try Self.move(at: rig.near, in: rig.window))
         #expect(rig.scroller.isKnobExpanded)
-        #expect(!rig.proximity.moves.hasPending)
+        #expect(!rig.proximity.frameInput.hasPending)
     }
 
     /// A window that carries no frames (the feature off, a window the App did not make) reports each move at once.
@@ -177,7 +177,7 @@ import Testing
         rig.proximity.mouseMoved(with: try Self.move(at: rig.far, in: rig.window))
         rig.proximity.mouseMoved(with: try Self.move(at: rig.near, in: rig.window))
         #expect(rig.scroller.isKnobExpanded, "the second move waited with no frames")
-        #expect(rig.proximity.moves.frames == nil)
+        #expect(rig.proximity.frameInput.frames == nil)
     }
 
     /// Leaving the view drops the waiting moves: the frame after the exit does not widen the knob.
@@ -226,15 +226,15 @@ import Testing
     @Test func aHoverRevealExitDropsTheWaitingMoves() throws {
         let rig = try Reveal()
         defer { rig.close() }
-        #expect(rig.probe.moves.frames === rig.frames.coalescers, "the probe did not take its window's frames")
+        #expect(rig.probe.frameInput.frames === rig.frames.coalescers, "the probe did not take its window's frames")
         rig.probe.mouseMoved(with: try Self.move(at: rig.inside, in: rig.window))
         #expect(rig.reveal.state.pointerInside, "the leading move did not mark the pointer inside")
         rig.probe.mouseMoved(with: try Self.move(at: rig.inside, in: rig.window))
-        #expect(rig.probe.moves.hasPending)
+        #expect(rig.probe.frameInput.hasPending)
         rig.probe.mouseExited(with: try Self.exit(at: rig.inside, in: rig.window))
         #expect(!rig.reveal.state.pointerInside)
         rig.frames.frame()
         #expect(!rig.reveal.state.pointerInside, "a move from before the exit marked the pointer inside again")
-        #expect(rig.probe.moves.maxDeliveriesPerFrame <= 2)
+        #expect(rig.probe.frameInput.maxDeliveriesPerFrame <= 2)
     }
 }

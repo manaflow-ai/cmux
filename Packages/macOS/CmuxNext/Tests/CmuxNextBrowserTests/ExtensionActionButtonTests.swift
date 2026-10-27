@@ -22,11 +22,9 @@ struct ExtensionActionButtonTests {
             let content = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 100))
             window.contentView = content
             content.addSubview(button)
-            NSLayoutConstraint.activate([
-                button.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 100),
-                button.topAnchor.constraint(equalTo: content.topAnchor, constant: 20),
-            ])
-            content.layoutSubtreeIfNeeded() // sync-layout: the test reads the button's laid-out frame
+            // Framed at its own size, 100 pt in and 20 pt down, as the toolbar's row places it.
+            let size = button.intrinsicContentSize
+            button.frame = NSRect(x: 100, y: content.bounds.height - 20 - size.height, width: size.width, height: size.height)
             button.onRun = { [unowned self] in runs += 1 }
             button.canDrag = { [unowned self] in dragAllowed }
             button.onDragMoved = { [unowned self] in moves.append($0) }
@@ -44,6 +42,18 @@ struct ExtensionActionButtonTests {
                                             windowNumber: window.windowNumber, context: nil, eventNumber: 0,
                                             clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1))
         }
+    }
+
+    /// p03-rendering-073: the button is the toolbar's square by its intrinsic size, with no constraint of
+    /// its own, so the toolbar's row frames it and a pane resized every frame solves none for it.
+    @Test func theButtonIsTheToolbarSquareWithoutConstraints() {
+        let h = Harness()
+        defer { h.window.close() }
+        let side = OmnibarStyle.buttonSize
+        #expect(h.button.intrinsicContentSize == NSSize(width: side, height: side))
+        #expect(h.button.frame.size == NSSize(width: side, height: side))
+        #expect(OmnibarBadgeFrameLayoutTests.usesFrames(h.button))
+        #expect(h.button.translatesAutoresizingMaskIntoConstraints)
     }
 
     /// The press lights the button and returns at once; the release over it runs the action once.

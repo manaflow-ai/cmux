@@ -62,7 +62,7 @@ extension PageWebView {
     public func selectedText() async -> String {
         let script = "String(getSelection())"
         guard let page = chromiumSession?.page else {
-            return (try? await webKitPieces?.view.evaluateJavaScript(script)) as? String ?? ""
+            return (try? await webKitPieces?.view.evaluateJavaScript(script)) as? String ?? "" // MQ12 allowed: the page the person acts on shows
         }
         guard let json = try? await page.devTools("Runtime.evaluate", params: ["expression": script, "returnByValue": true]) else { return "" }
         return ChromiumPageHostWire.evaluationString(json) ?? ""

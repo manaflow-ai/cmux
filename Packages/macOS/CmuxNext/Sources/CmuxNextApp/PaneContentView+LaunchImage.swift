@@ -97,7 +97,9 @@ extension VisiblePaneRefs {
             return .page(Pane(key: "window:\(controller.state.id):\(route)", state: state))
         }
         guard let content = controller.content, !content.isParked else { return .loading }
-        let onScreen = content.panes.values.filter { Window.isOnScreen($0.view) }
+        // While the launch holds panes off screen (p08-startup-065), only the panes the layout reports on screen hold startup.
+        let onlyVisible = controller.services.launchPanes.holdsPanes
+        let onScreen = content.panes.values.filter { Window.isOnScreen($0.view) && (!onlyVisible || $0.isVisible) }
         return .workspace(onScreen: onScreen.map { Pane(key: $0.paneKey, state: state(of: $0)) }, layoutPanes: content.modelPanes.count)
     }
 

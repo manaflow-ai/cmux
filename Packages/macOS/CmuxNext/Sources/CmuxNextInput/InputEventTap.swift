@@ -225,6 +225,7 @@ public final class InputEventTap: InputObserving {
     /// Runs `body`, one event's dispatch through the three stages, as one delivery: a subscription
     /// made in any stage is added when it ends, so none hears the event that made it. The application
     /// object wraps each event's dispatch in it; a nested dispatch joins the outermost.
+    // perf-hot: 5us input-tap
     public func dispatching(_ body: () -> Void) {
         delivering += 1
         defer { endDelivery() }
@@ -234,6 +235,7 @@ public final class InputEventTap: InputObserving {
     /// Records `event` as the last dispatched (and last pointer) event and calls its class's observers.
     /// The application object calls it for every event, before the key router. A tracking-area event
     /// is no input of its own (a move made it), so it replaces neither.
+    // perf-hot: 5us input-tap
     public func deliverObserve(_ event: NSEvent) {
         guard let type = InputEventType(event.type) else { return }
         let record = InputEventRecord(event, type: type)
@@ -263,6 +265,7 @@ public final class InputEventTap: InputObserving {
 
     /// Calls `event`'s class's intercepts in their order until one consumes it. The application object
     /// calls it after the key router, before `super.sendEvent`, and dispatches the event only on `.pass`.
+    // perf-hot: 5us input-tap
     public func deliverIntercepts(_ event: NSEvent) -> InterceptResult {
         guard let type = InputEventType(event.type) else { return .pass }
         let index = Int(type.eventClass.rawValue)
@@ -282,6 +285,7 @@ public final class InputEventTap: InputObserving {
 
     /// Calls `event`'s class's after-dispatch observers. The application object calls it after AppKit
     /// dispatched the event, or after an intercept consumed it.
+    // perf-hot: 5us input-tap
     public func deliverAfterDispatch(_ event: NSEvent) {
         guard let type = InputEventType(event.type) else { return }
         let index = Int(type.eventClass.rawValue)
@@ -300,6 +304,7 @@ public final class InputEventTap: InputObserving {
 
     /// Calls `event`'s class's dispatch-end observers with `outcome`. The application object calls it
     /// once per event, after the event's dispatch scope (``dispatching(_:)``) ended, on every path.
+    // perf-hot: 5us input-tap
     public func deliverDispatchEnd(_ event: NSEvent, outcome: DispatchOutcome) {
         guard let type = InputEventType(event.type) else { return }
         let index = Int(type.eventClass.rawValue)

@@ -1,6 +1,9 @@
 public import AppKit
 public import CmuxNextDesign
 public import CmuxNextFileGrid
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 public import CmuxNextFiles
 
 /// Runs a grid command on the pane's files: the one path the grid's menu,
@@ -119,11 +122,13 @@ public final class ScreenshotsCommands {
         let baseLength = (item.name as NSString).deletingPathExtension.utf16.count
         // Begin the sheet here, on the main actor: an `async let` runs it in a
         // child task off main, where AppKit throws (#24760).
-        let response: NSApplication.ModalResponse = await withCheckedContinuation { continuation in
+        // A sheet that went away without an answer renames nothing.
+        let response: NSApplication.ModalResponse = (try? await withOnceContinuation {
+            (continuation: OnceContinuation<NSApplication.ModalResponse, OnceContinuationError>) in
             alert.beginSheetModal(for: window) { continuation.resume(returning: $0) }
             alert.window.makeFirstResponder(field)
             field.currentEditor()?.selectedRange = NSRange(location: 0, length: baseLength)
-        }
+        }) ?? .cancel
         guard response == .alertFirstButtonReturn else { return }
         do {
             try await rename(item, to: field.stringValue, undo: window.undoManager)

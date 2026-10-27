@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import CmuxNextTerminal
+import CmuxNextWakeups
 
 /// The R92 diagnostics of the applied Ghostty config, kept current: read
 /// again on every config change (`GhosttyRuntime.addConfigChangeHandler`). The
@@ -9,22 +10,27 @@ import CmuxNextTerminal
 /// computes the same list on demand.
 @MainActor @Observable
 final class GhosttyDiagnosticsModel {
-    static let shared = GhosttyDiagnosticsModel()
-
     /// Nil until the first read finished (the page then shows nothing,
     /// never a false "everything applies").
     private(set) var diagnostics: [GhosttyConfigDiagnostic]?
 
     @ObservationIgnored private let read: @MainActor () -> GhosttyConfigDiagnosticsSnapshot?
+    @ObservationIgnored private let mainWork: MainWorkScheduler
+    @ObservationIgnored private let work: BackgroundWork
     @ObservationIgnored private var generation = 0
 
     /// - Parameters:
+    ///   - mainWork: The app's main-thread scheduler each read's answer is posted to.
+    ///   - work: Starts each read off main at a stated priority.
     ///   - read: The applied config's diagnostics snapshot.
     ///   - onConfigChange: Registers a handler for every config change
     ///     (``GhosttyRuntime/addConfigChangeHandler(_:)``). A service: it follows every change, with
     ///     or without the Settings page shown.
-    init(read: @escaping @MainActor () -> GhosttyConfigDiagnosticsSnapshot? = { GhosttyRuntime.shared.configDiagnosticsSnapshot },
+    init(mainWork: MainWorkScheduler, work: BackgroundWork,
+         read: @escaping @MainActor () -> GhosttyConfigDiagnosticsSnapshot? = { GhosttyRuntime.shared.configDiagnosticsSnapshot },
          onConfigChange: @MainActor (@escaping @MainActor () -> Void) -> Void = { GhosttyRuntime.shared.addConfigChangeHandler($0) }) {
+        self.mainWork = mainWork
+        self.work = work
         self.read = read
         refresh()
         onConfigChange { [weak self] in
@@ -33,7 +39,8 @@ final class GhosttyDiagnosticsModel {
     }
 
     /// Reads the applied config again; the keybind lines are read off the
-    /// main actor, and only the newest read is kept.
+    /// main actor, and only the newest read is kept. Its answer is one posted `visible` task (the
+    /// Settings page lists it).
     func refresh() {
         generation += 1
         let current = generation
@@ -41,11 +48,14 @@ final class GhosttyDiagnosticsModel {
             diagnostics = []
             return
         }
+        let mainWork = mainWork
         // task-owner: one read per config change; a newer read supersedes it (generation).
-        Task { [weak self] in
+        work.task(.bestEffort) { [weak self] in
             let found = await snapshot.diagnostics()
-            guard let self, self.generation == current, found != self.diagnostics else { return }
-            self.diagnostics = found
+            mainWork.postFromAnyThread(.visible, owner: "GhosttyDiagnostics.read") { [weak self] in
+                guard let self, generation == current, found != diagnostics else { return }
+                diagnostics = found
+            }
         }
     }
 }

@@ -129,11 +129,14 @@ class ScratchProfileTests(unittest.TestCase):
 
 
 class RecordTests(unittest.TestCase):
-    def test_every_closed_id_is_a_browser_profile_argument_gap_today(self):
+    def test_every_closed_id_was_a_browser_profile_argument_gap(self):
+        # Holds before and after apply_gap_closures.py (p15-oracle-087) drops the closed ids from the baseline: each is
+        # still listed with the browser-profile argument reason or gone.
         gaps = json.loads(GAPS.read_text())["gaps"]
+        reason = "needs a browser-profile argument"
         for ident in FAMILY.closes:
             with self.subTest(ident=ident):
-                self.assertEqual(gaps.get(ident), "needs a browser-profile argument")
+                self.assertEqual(gaps.get(ident, reason), reason)
         left = sorted(i for i, why in gaps.items() if i.startswith("browserProfile.") and i not in FAMILY.closes)
         self.assertEqual(left, [], "a browserProfile gap this family leaves open")
 

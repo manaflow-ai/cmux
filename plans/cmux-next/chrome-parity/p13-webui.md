@@ -554,6 +554,7 @@ Size: S <= 150 lines, M <= 400, L = split into commits of <= 400. "Tell" names t
 | 062 | CEF pane hosts of closed pages are removed | S | - | - |
 | 063 | Page tabs share one Chromium window per pane | M | 005, 062 | - |
 | 064 | Page teardown leaves the Cmd-W turn (PageRetirer) | S | 061 | - |
+| 064b | Reopen Closed takes back a page tab's retired page | M | 064 | - |
 | 065 | Native pushes held or thaw-first while frozen | M | 028 | MQ12 |
 | 066 | Provider freeze hooks; page relay channels in WebUIHost | M | 023 | MQ10 |
 | 067 | Daemon: page-relay subscriptions filter by event kind | M | - | - |
@@ -966,9 +967,20 @@ CmuxNextBrowserTests; pages10: CEF windows <= panes in use.
 
 **064 PageRetirer.** Files: WebUI/PageRetirer.swift (new), WebUIHost.swift, CmuxNextApp/NewTab/AgentPageRetirer.swift
 (deleted), AgentTabs.swift. Change: retire detaches the view at once and closes the engine page on one DemandTimer
-at a quiet moment, for every page; undo-close re-adopts. Acceptance: 0 engine close calls in the close turn, 1 after
-the timer; a re-adopted page is never closed; `final class AgentPageRetirer` == 0. Test: PageRetirerTests; Cmd-W
-row.
+at a quiet moment, for every page; the routes, subscriptions and bridge end in the close's turn. Acceptance: 0
+engine close calls in the close turn, 1 after the timer; the page's routes and subscriptions end in the close's
+turn; `final class AgentPageRetirer` == 0. Test: PageRetirerTests, WebUIHostTests; CmuxNextAppTests
+DebugSettingsHangWatchTests and InternalPageDiscardPolicyCoverageTests; bench-webui.py open
+`settings.cmd_w_engine_close_calls` == 0 (`debug.webui` `retire`).
+
+**064b Reopen Closed takes back a retired page.** Files: WebUI/PageRetirer.swift, WebUIHost.swift, PageRouter.swift,
+CmuxNextApp/InternalPages/InternalPageTabStore.swift, Handlers/CloseUndoToasts.swift. Change: undo-close
+re-adoption, left out of 064 (the daemon's closed history reopens a page tab as a new tab): keep each closed page
+tab's view by its closed record while the retirer holds it; a Reopen Closed or close-toast Undo before the deadline
+takes it back, gives its router the new routes and reloads its document in the same engine page. Chrome's
+TabRestoreService makes a new WebContents, so the commit says what the reuse saves. Acceptance: a page tab closed
+and reopened before the deadline shows the same view and its engine page never closes; one reopened later opens
+a new page. Test: PageRetirerTests; CmuxNextAppTests filter ClosedHistory, CloseUndoToasts.
 
 **065 Native pushes while frozen.** Files: PageWebView+EngineNeutral.swift, PageWebView.swift,
 CmuxNextDesign/GlassLens/GlassBackdropFeed.swift, AgentPaneView.swift, Tests/.../PageFrozenEvaluateTests.swift.

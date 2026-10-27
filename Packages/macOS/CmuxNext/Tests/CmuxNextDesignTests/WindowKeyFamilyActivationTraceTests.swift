@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 @testable import CmuxNextDesign
 import CmuxNextSignposts
 @testable import CmuxNextTrace
@@ -20,8 +21,15 @@ struct WindowKeyFamilyActivationTraceTests {
         let log = TraceRecordLog()
         let runtime: TraceRuntime
         var boundaries: [@MainActor (CommitBoundary.Outcome) -> Void] = []
+        /// The checks and commit boundaries run on the main run loop, as in the app (``WindowKeyEnvironment/live``).
+        let liveRunLoop: Bool
+        /// The outcomes of the live commit boundaries the trackers asked for.
+        var outcomes: [CommitBoundary.Outcome] = []
+        /// A live boundary that fires stops the run of ``waitingTurn(_:)`` it fired in.
+        private var stopsAtBoundary = false
 
-        init() {
+        init(liveRunLoop: Bool = false) {
+            self.liveRunLoop = liveRunLoop
             let log = log
             runtime = TraceRuntime(role: .app, clock: TraceClock(), stubRecorder: { log.append($0) })
             runtime.setCategoryMask(1 << UInt64(SignpostCategory.switch.traceBit))
@@ -30,8 +38,43 @@ struct WindowKeyFamilyActivationTraceTests {
         var environment: WindowKeyEnvironment {
             var environment = keyboard.environment
             environment.switchSignposter = Signposter(category: .switch, trace: runtime)
-            environment.afterCommit = { [unowned self] body in self.boundaries.append(body) }
+            guard liveRunLoop else {
+                environment.afterCommit = { [unowned self] body in self.boundaries.append(body) }
+                return environment
+            }
+            let live = WindowKeyEnvironment.live
+            environment.beforeCommit = live.beforeCommit
+            environment.afterCommit = { [unowned self] body in
+                live.afterCommit { outcome in
+                    body(outcome)
+                    self.outcomes.append(outcome)
+                    guard self.stopsAtBoundary else { return }
+                    self.stopsAtBoundary = false
+                    CFRunLoopStop(CFRunLoopGetMain())
+                }
+            }
             return environment
+        }
+
+        /// One main run-loop turn that polls and exits without waiting (only the exit stage runs). A mode with no
+        /// source returns before its observers, so a far-future timer keeps the default mode non-empty.
+        func pollingTurn() {
+            let timer = CFRunLoopTimerCreateWithHandler(nil, CFAbsoluteTimeGetCurrent() + 3_600, 0, 0, 0) { _ in }
+            CFRunLoopAddTimer(CFRunLoopGetMain(), timer, .defaultMode)
+            _ = CFRunLoopRunInMode(.defaultMode, 0, false)
+            CFRunLoopTimerInvalidate(timer)
+        }
+
+        /// Runs the main run loop until a live boundary fires, or `timeout` with nothing to wake it (a far-future
+        /// timer keeps the mode non-empty): `.stopped` when a boundary ended the run, `.timedOut` when none came.
+        func waitingTurn(_ timeout: CFTimeInterval) -> CFRunLoopRunResult {
+            let timer = CFRunLoopTimerCreateWithHandler(nil, CFAbsoluteTimeGetCurrent() + 3_600, 0, 0, 0) { _ in }
+            CFRunLoopAddTimer(CFRunLoopGetMain(), timer, .defaultMode)
+            stopsAtBoundary = true
+            let result = CFRunLoopRunInMode(.defaultMode, timeout, false)
+            stopsAtBoundary = false
+            CFRunLoopTimerInvalidate(timer)
+            return result
         }
 
         /// Fires the boundaries asked for so far with `outcome` (the turn's commit).
@@ -185,5 +228,57 @@ struct WindowKeyFamilyActivationTraceTests {
         harness.turn([])
         #expect(harness.log.records.isEmpty)
         #expect(harness.boundaries.isEmpty)
+    }
+
+    /// The live seams (a block on the main run loop for the check, ``CommitBoundary`` for the end): the check runs at
+    /// the blocks stage, ahead of the turn's commit, so the boundary it asks for catches that commit. A check run
+    /// from a commit-stage observer asked for its boundary inside that stage, which CFRunLoop had already listed, so
+    /// every flip ended as missed or a turn late.
+    @Test func aFlipOnTheLiveRunLoopEndsAtTheCommitAfterIt() throws {
+        let harness = Harness(liveRunLoop: true)
+        let (window, family, _) = harness.window()
+        defer { withExtendedLifetime(window) {} }
+        harness.pollingTurn()
+        #expect(family.checks == 1, "the tracker's first read did not run on the main run loop")
+        harness.keyboard.key = window
+        harness.keyboard.post([NSWindow.didResignKeyNotification, NSWindow.didBecomeKeyNotification])
+        harness.pollingTurn()
+        #expect(family.checks == 2)
+        harness.log.removeAll()
+
+        harness.keyboard.key = nil
+        harness.keyboard.post([NSWindow.didResignKeyNotification])
+        harness.pollingTurn()
+        #expect(family.checks == 3 && family.isInactive, "the resign's check did not run in the turn")
+        #expect(harness.outcomes == [.committed], "the flip's boundary missed the turn's commit: \(harness.outcomes)")
+        let ends = harness.records(.asyncEnd)
+        try #require(ends.count == 1, "the flip's switch.app_activation did not end at the turn's commit")
+        #expect(ends[0].arg0 == 0, "the slice ended as missed, so readers drop it")
+    }
+
+    /// A key notice posted inside a before-waiting callout (an input-response item, another observer): its check
+    /// wakes the run loop, runs with no other event, and its flip ends at the next commit. An observer never wakes
+    /// the loop, so a check waiting on one slept until some unrelated event came, with the wash wrong.
+    @Test func aKeyNoticeInsideABeforeWaitingCalloutIsCheckedWithNoOtherEvent() throws {
+        let harness = Harness(liveRunLoop: true)
+        let (window, family, _) = harness.window()
+        defer { withExtendedLifetime(window) {} }
+        harness.pollingTurn()
+        harness.keyboard.key = window
+        harness.keyboard.post([NSWindow.didResignKeyNotification, NSWindow.didBecomeKeyNotification])
+        harness.pollingTurn()
+        let checks = family.checks
+        harness.log.removeAll()
+
+        harness.keyboard.key = nil
+        let center = harness.keyboard.center
+        MainRunLoopObserver.once(activities: .beforeWaiting, order: 1_000) {
+            center.post(name: NSWindow.didResignKeyNotification, object: nil)
+        }
+        let result = harness.waitingTurn(2)
+        #expect(result == .stopped, "the check slept until the run timed out: nothing woke the run loop for it")
+        #expect(family.checks == checks + 1 && family.isInactive)
+        #expect(harness.outcomes == [.committed], "the flip's boundary missed its commit: \(harness.outcomes)")
+        #expect(harness.records(.asyncEnd).map(\.arg0) == [0])
     }
 }
