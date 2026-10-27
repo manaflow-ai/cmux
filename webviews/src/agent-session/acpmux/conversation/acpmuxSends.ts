@@ -67,6 +67,9 @@ export function acpmuxSendCall(tool: Tool, priorFiles?: ReadonlyMap<string, stri
   if (tool.kind !== "execute" || !tool.command) return undefined;
   const send = acpmuxSend(tool.command, undefined, 0, priorFiles);
   if (!send) return undefined;
+  // A failed or in-flight shell event is not a durable recorded producer. Keep the compact target
+  // row, but do not expose bytes that may never have been written or sent.
+  if (tool.status !== "completed") delete send.text;
   // A send moved to the background runs, and ends, there (model.ts `background`).
   const background = tool.background?.state;
   // Failed by its status, a nonzero exit (toolGroups.ts `isFailed`), or its background run, even
@@ -212,11 +215,11 @@ export function shellCommands(line: string): ShellCommand[] {
       // Stdout leaves the pipe: `> f`, `&> f`, `>&f`, `1> f`; `2> f` keeps the
       // command's output on the terminal and must not become a message body source.
       const fd = /^\d+/.exec(redirect[0])?.[0];
+      // A later stdout redirect shadows an earlier candidate, including `/dev/null`.
+      if (op === ">" && (fd === undefined || fd === "1"))
+        writeFile = target.literal && target.text !== "/dev/null" ? target : undefined;
       if (op === ">&" ? !/^(?:\d+|-)$/.test(target.text) : WRITES.has(op) && target.text !== "/dev/null") {
         writes = true;
-        // Only a truncating stdout redirect is an unambiguous recorded producer. Appends,
-        // read-write redirects and stderr/combined streams are fail-closed below.
-        if (target.literal && op === ">" && (fd === undefined || fd === "1")) writeFile = target;
       }
       if ((op.startsWith(">") || op.startsWith("&>")) && (fd === undefined || fd === "1") && target.text !== "1")
         stdout = true;
@@ -284,25 +287,33 @@ const MESSAGE_PATH_MUTATORS = new Set([
   "truncate",
 ]);
 
+function recordedMessageBodyChange(command: ShellCommand): RecordedMessageBodyChange | undefined {
+  // `;` is the parser's synthetic terminator for a standalone heredoc command. Every other
+  // operator may skip the write or alter its working directory before the send.
+  if (command.op !== "" && command.op !== ";") return { reset: true };
+  const words = unwrapped(command.words);
+  const name = program(words[0]);
+  if (command.writeFile?.literal) {
+    const body = command.words.length === 1 && name === "cat" ? command.stdin : undefined;
+    return {
+      path: command.writeFile.text,
+      ...(body && typeof body !== "string" && body.literal ? { text: body.text } : {}),
+    };
+  }
+  if (command.writes || !name || MESSAGE_PATH_MUTATORS.has(name) || SHELLS.has(name) || name === "reach")
+    return { reset: true };
+  return undefined;
+}
+
 export function recordedMessageBodyChanges(line: string): RecordedMessageBodyChange[] {
   const commands = shellCommands(line);
   // A control operator can skip a write or change its working directory. Without an event-level
   // execution record, discard every cached producer rather than guessing which branch ran.
   // A heredoc line ends with the parser's synthetic `;`; with no second command it is still a
   // single executed writer. Any other operator means execution or directory state is uncertain.
-  if (commands.length !== 1 || !["", ";"].includes(commands[0]!.op)) return [{ reset: true }];
-  const command = commands[0]!;
-  const words = unwrapped(command.words);
-  const name = program(words[0]);
-  // A simple, literal `cat > path <<EOF` is the only shell writer whose body is recorded here.
-  if (command.writeFile?.literal) {
-    const path = command.writeFile.text;
-    const body = command.words.length === 1 && name === "cat" ? command.stdin : undefined;
-    return [{ path, ...(body && typeof body !== "string" && body.literal ? { text: body.text } : {}) }];
-  }
-  // Any dynamic redirect or known path-mutating command may have changed a cached producer.
-  if (command.writes || !name || MESSAGE_PATH_MUTATORS.has(name)) return [{ reset: true }];
-  return [];
+  if (commands.length !== 1) return [{ reset: true }];
+  const change = recordedMessageBodyChange(commands[0]!);
+  return change ? [change] : [];
 }
 
 // Tool rows are immutable snapshots but the enclosing turn is rebuilt as streamed calls arrive.
@@ -330,6 +341,17 @@ export function recordedMessageBodyChangesForTool(tool: {
   while (recordedBodyCache.size > RECORDED_BODY_CACHE_LIMIT)
     recordedBodyCache.delete(recordedBodyCache.keys().next().value!);
   return changes;
+}
+
+function applyRecordedMessageBodyChange(command: ShellCommand, files: Map<string, ShellWord>): void {
+  const change = recordedMessageBodyChange(command);
+  if (!change) return;
+  if ("reset" in change) {
+    files.clear();
+    return;
+  }
+  if (change.text === undefined) files.delete(change.path);
+  else files.set(change.path, { text: change.text, literal: true });
 }
 
 /** Test-only observability for the bounded revision cache. */
@@ -586,6 +608,8 @@ export function acpmuxSend(
   const recordedFiles = new Map<string, ShellWord>(
     [...(priorFiles ?? [])].map(([path, text]) => [path, { text, literal: true }]),
   );
+  const uncertainControlFlow = commands.some((command) => command.op !== "" && command.op !== ";");
+  if (uncertainControlFlow) recordedFiles.clear();
   let found: AcpmuxSend | undefined;
   let at = -1;
   /// The send came from `acpmux send`'s own words here, not from a nested line.
@@ -593,6 +617,9 @@ export function acpmuxSend(
   /// Commands that send, read or not (`acpmux send "$LANE" hi` is a send whose target is unknown).
   let sends = 0;
   for (const [index, command] of commands.entries()) {
+    // Apply producer events in shell order before examining a send. A later unknown write or
+    // shadowing redirect therefore cannot reuse an earlier heredoc body.
+    if (!uncertainControlFlow) applyRecordedMessageBodyChange(command, recordedFiles);
     const words = unwrapped(command.words);
     const name = program(words[0]);
     let send: AcpmuxSend | undefined;
@@ -641,9 +668,6 @@ export function acpmuxSend(
       at = index;
       direct = name !== "reach" && !SHELLS.has(name);
     }
-    const writer = command.words.length === 1 && program(command.words[0]) === "cat" ? command.stdin : undefined;
-    if (command.writeFile?.literal && writer && typeof writer !== "string" && writer.literal)
-      recordedFiles.set(command.writeFile.text, writer);
   }
   if (!found) return undefined;
   // Every other step that does more than set up, report, feed the send or filter what it printed

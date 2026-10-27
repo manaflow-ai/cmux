@@ -276,6 +276,19 @@ describe("acpmuxSend", () => {
     expect(recordedMessageBodyChanges("cat <> /tmp/message <<'EOF'\nread-write\nEOF")).toEqual([{ reset: true }]);
     expect(recordedMessageBodyChanges("cat > \"$MESSAGE\" <<'EOF'\ndynamic\nEOF")).toEqual([{ reset: true }]);
     expect(recordedMessageBodyChanges("cd /tmp")).toEqual([{ reset: true }]);
+    expect(
+      read("cat > /tmp/message <<'EOF'\nOLD\nEOF\nprintf NEW > /tmp/message\nacpmux send lane - < /tmp/message"),
+    ).toEqual({ target: "lane", noWait: false, others: 2 });
+    expect(read("cat > /tmp/message > /dev/null <<'EOF'\nSHADOWED\nEOF\nacpmux send lane - < /tmp/message")).toEqual({
+      target: "lane",
+      noWait: false,
+      others: 1,
+    });
+    expect(read("true || cat > /tmp/message <<'EOF'\nSKIPPED\nEOF\nacpmux send lane - < /tmp/message")).toEqual({
+      target: "lane",
+      noWait: false,
+      others: 1,
+    });
   });
 });
 
