@@ -42,7 +42,14 @@ test("a chat that never connects names the verb and the wait, not a host op", as
 });
 
 function host(actions: () => Record<string, Action> | undefined, waitMs: number): AutomationHost {
-  const snapshot = { type: "snapshot", rows: [], sessions: [], connection: "connected", isWorking: false, sessionId: "s1" };
+  const snapshot = {
+    type: "snapshot",
+    rows: [],
+    sessions: [],
+    connection: "connected",
+    isWorking: false,
+    sessionId: "s1",
+  };
   return {
     snapshot: () => snapshot as unknown as AcpmuxSnapshot,
     call: async (method, params) => (await pageAction(actions, method, waitMs))(params ?? {}),
@@ -74,7 +81,14 @@ test("new_chat on a chat that connects late runs the chat's action", async () =>
     };
   }, 30);
   // The accept window (10 ms) is shorter than the connect (30 ms): the verb waits for the chat first.
-  expect(await newChat(host(() => actions, 1_000), "fake", undefined, 10)).toEqual({ sessionId: "s1" });
+  expect(
+    await newChat(
+      host(() => actions, 1_000),
+      "fake",
+      undefined,
+      10,
+    ),
+  ).toEqual({ sessionId: "s1" });
   expect(started).toEqual([{ harness: "fake" }]);
 });
 
@@ -90,6 +104,16 @@ test("send_prompt on a chat that connects late runs the chat's send", async () =
       },
     };
   }, 30);
-  expect(await sendPrompt(host(() => actions, 1_000), "hi", 10)).toEqual({ sent: true, turnEnded: false, sessionId: "s1" });
+  expect(
+    await sendPrompt(
+      host(() => actions, 1_000),
+      "hi",
+      10,
+    ),
+  ).toEqual({
+    sent: true,
+    turnEnded: false,
+    sessionId: "s1",
+  });
   expect(sent).toEqual([{ text: "hi" }]);
 });
