@@ -68,6 +68,7 @@ export function SavedEnvironmentPanel({
   const [browseFailed, setBrowseFailed] = useState(false);
   const name = useRef<HTMLInputElement>(null);
   const browseRequest = useRef(0);
+  const browsePending = useRef(false);
   useEffect(() => {
     name.current?.focus();
     return () => {
@@ -100,15 +101,17 @@ export function SavedEnvironmentPanel({
       .finally(() => setSaving(false));
   };
   const browse = (request?: BrowseRequest) => {
-    if (!onBrowse || browsing) return Promise.resolve(undefined);
+    if (!onBrowse || browsePending.current) return Promise.resolve(undefined);
     const id = ++browseRequest.current;
+    browsePending.current = true;
     setBrowsing(true);
     setBrowseFailed(false);
     setError(undefined);
     return Promise.resolve()
       .then(() => onBrowse(request))
       .then((folder) => {
-        if (browseRequest.current === id && folder) {
+        if (browseRequest.current !== id) return undefined;
+        if (folder && !request?.deferPick) {
           setDraft((current) => ({ ...current, folder }));
           setBrowseFailed(false);
           setError(undefined);
@@ -116,14 +119,14 @@ export function SavedEnvironmentPanel({
         return folder;
       })
       .catch((failure: unknown) => {
-        if (browseRequest.current === id) {
-          setBrowseFailed(true);
-          setError(browseFailureMessage(failure));
-          if (request?.deferPick) throw failure;
-        }
+        if (browseRequest.current !== id) return undefined;
+        if (request?.deferPick) throw failure;
+        setBrowseFailed(true);
+        setError(browseFailureMessage(failure));
         return undefined;
       })
       .finally(() => {
+        browsePending.current = false;
         if (browseRequest.current === id) setBrowsing(false);
       });
   };
@@ -172,7 +175,6 @@ export function SavedEnvironmentPanel({
                 // Another machine's folders are its own: a switch starts with none.
                 if (kind !== draft.kind) {
                   browseRequest.current += 1;
-                  setBrowsing(false);
                   setBrowseFailed(false);
                   setError(undefined);
                   setDraft(({ id: kept, name: named }) => ({

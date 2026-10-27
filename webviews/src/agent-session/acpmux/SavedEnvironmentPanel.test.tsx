@@ -57,13 +57,10 @@ afterEach(async () => {
   saved.clear();
 });
 
-test("keeps a saved environment usable when folder browse rejects", async () => {
-  const container = installDom();
-  let rejectBrowse: ((error: Error) => void) | undefined;
-  const browse = () =>
-    new Promise<string | undefined>((_resolve, reject) => {
-      rejectBrowse = reject;
-    });
+async function renderPanel(
+  container: HTMLElement,
+  onBrowse: (request?: { deferPick?: boolean }) => Promise<string | undefined>,
+) {
   await act(async () => {
     root = createRoot(container);
     root.render(
@@ -77,7 +74,7 @@ test("keeps a saved environment usable when folder browse rejects", async () => 
             updatedAt: 1,
           }}
           folders={[{ id: "/Users/you/src/cmux", label: "cmux" }]}
-          onBrowse={browse}
+          onBrowse={onBrowse}
           machines={[]}
           machineFolders={() => []}
           onSave={async () => undefined}
@@ -86,6 +83,16 @@ test("keeps a saved environment usable when folder browse rejects", async () => 
       </UiProvider>,
     );
   });
+}
+
+test("keeps a saved environment usable when folder browse rejects", async () => {
+  const container = installDom();
+  let rejectBrowse: ((error: Error) => void) | undefined;
+  const browse = () =>
+    new Promise<string | undefined>((_resolve, reject) => {
+      rejectBrowse = reject;
+    });
+  await renderPanel(container, browse);
 
   await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-location-button")!.click());
   await act(async () => document.querySelector<HTMLElement>("[data-choose]")!.click());
@@ -115,35 +122,16 @@ test("keeps a saved environment usable when folder browse rejects", async () => 
 
 test("releases the browse guard after switching environment kind", async () => {
   const container = installDom();
+  const settleBrowse: ((folder: string | undefined) => void)[] = [];
   const rejectBrowse: ((error: Error) => void)[] = [];
   let calls = 0;
   const browse = () =>
-    new Promise<string | undefined>((_resolve, reject) => {
+    new Promise<string | undefined>((resolve, reject) => {
       calls += 1;
+      settleBrowse.push(resolve);
       rejectBrowse.push(reject);
     });
-  await act(async () => {
-    root = createRoot(container);
-    root.render(
-      <UiProvider container={container}>
-        <SavedEnvironmentPanel
-          environment={{
-            id: "cmux-local",
-            name: "cmux local",
-            kind: "local",
-            folder: "/Users/you/src/cmux",
-            updatedAt: 1,
-          }}
-          folders={[{ id: "/Users/you/src/cmux", label: "cmux" }]}
-          onBrowse={browse}
-          machines={[]}
-          machineFolders={() => []}
-          onSave={async () => undefined}
-          onClose={() => {}}
-        />
-      </UiProvider>,
-    );
-  });
+  await renderPanel(container, browse);
 
   const chooseFolder = async () => {
     await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-location-button")!.click());
@@ -161,6 +149,11 @@ test("releases the browse guard after switching environment kind", async () => {
       .find((button) => button.textContent === "Local")
       ?.click(),
   );
+  await chooseFolder();
+  expect(calls).toBe(1);
+  await act(async () => settleBrowse[0]!("/Users/you/src/stale"));
+  expect(container.querySelector<HTMLInputElement>(".acpmux-env-input")?.value).toBe("cmux local");
+  expect(container.querySelector('[data-placeholder=""]')).toBeTruthy();
   await chooseFolder();
   expect(calls).toBe(2);
   await act(async () => rejectBrowse[1]!(new Error("Folder access was denied.")));
