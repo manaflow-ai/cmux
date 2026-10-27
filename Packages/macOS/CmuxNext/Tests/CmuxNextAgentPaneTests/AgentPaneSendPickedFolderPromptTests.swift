@@ -31,7 +31,7 @@ struct AgentPaneSendPickedFolderPromptTests {
 
     /// A pane with no root for `folder` (a project outside the fresh workspace) and one root of its
     /// own (`root`), on a stand-in acpmux.
-    private func pane(home: Bool = false) async throws -> Pane {
+    private func pane(home: Bool = false, connected: Bool = true) async throws -> Pane {
         let server = AcpmuxStandInServer()
         try await server.start()
         let base = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
@@ -49,8 +49,11 @@ struct AgentPaneSendPickedFolderPromptTests {
         let model = AgentPaneModel(host: NoHost(), transport: transport)
         transport.roots = { [root] }
         transport.homeFolder = home ? folder : "/nonexistent-home-\(UUID().uuidString)"
-        let id = try await transport.open(AcpmuxConnection(url: server.url, dashboardToken: "t", localAppToken: nil))
-        #expect(await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#]) == nil)
+        var id = 0
+        if connected {
+            id = try await transport.open(AcpmuxConnection(url: server.url, dashboardToken: "t", localAppToken: nil))
+            #expect(await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#]) == nil)
+        }
         return Pane(server: server, model: model, inbox: inbox, clock: clock, folder: folder, root: root, base: base, id: id)
     }
 
@@ -122,6 +125,59 @@ struct AgentPaneSendPickedFolderPromptTests {
         let home = pane.model.transport.homeFolder!
         #expect(await pane.model.transport.pick(home) == home)
         #expect(pane.server.peers.first?.frames.filter { $0.contains("acp.trust.set") }.count == 1)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aPreOpenFolderPickIsAcknowledgedBeforeTheQueuedChatStarts() async throws {
+        let pane = try await pane(connected: false)
+        defer { pane.server.stop(); try? FileManager.default.removeItem(at: pane.base) }
+        #expect(await pane.model.transport.pick(pane.folder) == pane.folder)
+        try await startAfterDeferredTrust(pane)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aFolderPickedAfterCloseSurvivesReconnect() async throws {
+        let pane = try await pane()
+        defer { pane.server.stop(); try? FileManager.default.removeItem(at: pane.base) }
+        pane.model.transport.close(connection: pane.id)
+        // The native picker completes even though the old connection still has request ids.
+        #expect(await pane.model.transport.pick(pane.folder) == pane.folder)
+        try await startAfterDeferredTrust(pane)
+    }
+
+    private func startAfterDeferredTrust(_ pane: Pane) async throws {
+        let transport = pane.model.transport
+        pane.server.hold("acp.trust.set")
+        let id = try await transport.open(AcpmuxConnection(url: pane.server.url, dashboardToken: "t", localAppToken: nil))
+        defer { pane.server.releaseHeld(); transport.close(connection: id) }
+        let start = #"{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"cwd":"\#(pane.folder)","mcpServers":[]}}"#
+        // Both frames already wait when initialization begins. The start must still wait for trust.
+        let sending = Task { await transport.send(connection: id, frames: [
+            #"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#, start,
+        ]) }
+        #expect(await pane.server.wait { $0.last?.frames.contains { $0.contains("acp.trust.set") } == true })
+        #expect(pane.server.peers.last?.frames.contains { $0.contains("session/new") } == false)
+        pane.server.releaseHeld()
+        #expect(await sending.value == nil)
+        #expect(await pane.server.wait { $0.last?.frames.contains { $0.contains("session/new") } == true })
+    }
+
+    @Test func choosingAFolderNativelyRecordsTrustAfterThePanelConsumesItsGesture() async throws {
+        let pane = try await pane()
+        defer { pane.server.stop(); try? FileManager.default.removeItem(at: pane.base) }
+        pane.model.onChooseFolder = { .chosen(pane.folder) }
+        pane.model.transport.gestures.record(click: true)
+        _ = await pane.model.respond(to: .chooseFolder)
+        #expect(await pane.server.wait { $0.first?.frames.contains { $0.contains("acp.trust.set") && $0.contains(pane.folder) } == true })
+        #expect(await start(pane, id: 1) == nil)
+        #expect(await prompt(pane, id: 2) == nil)
+    }
+
+    @Test func pickingAnExistingRootCarriesTheSendGesture() async throws {
+        let pane = try await pane()
+        defer { pane.server.stop(); try? FileManager.default.removeItem(at: pane.base) }
+        pane.model.transport.gestures.record()
+        #expect(status(await pane.model.respond(to: .useFolder(pane.root, confirm: false))) == "ok")
+        #expect(await start(pane, id: 1, in: pane.root) == nil)
+        #expect(await prompt(pane, id: 2) == nil)
     }
 
     /// A pick passes its gesture only to a chat that starts: with no start after it, a prompt into

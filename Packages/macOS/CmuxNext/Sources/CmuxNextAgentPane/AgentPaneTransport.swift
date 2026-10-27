@@ -237,7 +237,6 @@ import CmuxNextCompat
             Task { @MainActor [weak self] in self?.arrived(id) }
         }
         self.socket = socket
-        flushPendingTrust()
         // cx-fcaq: the local WebSocket goes only to a port the acpmux this app runs listens on.
         if connection.remote == nil, let executable = connection.executable, let port = connection.url.port,
            !(await AcpmuxServerPeer.verifyListener(port: port, executable: executable)) {
@@ -289,45 +288,6 @@ import CmuxNextCompat
         draining = true
         // task-owner: the send line's one drain; it ends when the line is empty
         Task { [weak self] in await self?.drain() }
-    }
-
-    func submitHost(connection id: Int, requestID: Int, frame: String) async -> AgentPaneTransportError? {
-        await withCheckedContinuation { continuation in
-            pendingHost.append(PendingHostSend(connection: id, requestID: requestID, frame: frame, reply: continuation))
-            guard !draining else { return }
-            draining = true
-            Task { [weak self] in await self?.drain() }
-        }
-    }
-
-    final class PendingHostSend {
-        let connection: Int
-        let requestID: Int
-        let frame: String
-        let reply: CheckedContinuation<AgentPaneTransportError?, Never>?
-
-        init(connection: Int, requestID: Int, frame: String, reply: CheckedContinuation<AgentPaneTransportError?, Never>?) {
-            self.connection = connection
-            self.requestID = requestID
-            self.frame = frame
-            self.reply = reply
-        }
-    }
-
-    func hostAnswered(_ id: Int) {
-        awaitingHost.removeValue(forKey: id)?.reply?.resume(returning: nil)
-    }
-
-    func failHostRequests(connection id: Int) {
-        let waiting = awaitingHost.values.filter { $0.connection == id }
-        for host in waiting {
-            awaitingHost.removeValue(forKey: host.requestID)
-            requestIds?.cancel(host.requestID)
-            host.reply?.resume(returning: .closed)
-        }
-        for host in pendingHost where host.connection == id { host.reply?.resume(returning: .closed) }
-        pendingHost.removeAll { $0.connection == id }
-        if let personProofID { requestIds?.cancelAndNotify(personProofID) }
     }
 
     nonisolated enum Step: Sendable { case sent, refused(AgentPaneTransportError), stop(AgentPaneTransportError) }

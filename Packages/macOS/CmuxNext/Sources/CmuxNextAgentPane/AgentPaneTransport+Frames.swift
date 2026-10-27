@@ -145,33 +145,21 @@ extension AgentPaneTransport {
     /// main-actor state, the re-encode and the send. It stops at the first frame that needs the main
     /// actor (the gesture record, the sheets, the pane's sessions), which gets only small facts.
     func drain() async {
-        while !pending.isEmpty || !pendingHost.isEmpty {
-            guard let entry = pending.first else {
-                guard let host = pendingHost.first else { break }
-                guard host.connection == current else {
-                    pendingHost.removeFirst()
-                    host.reply?.resume(returning: .staleConnection)
+        while !pending.isEmpty || !pendingHost.isEmpty || (sentFirst && !pendingTrustFolders.isEmpty) {
+            if sentFirst, let socket, !socket.isClosed, let ids = requestIds {
+                flushPendingTrust()
+                if !pendingHost.isEmpty {
+                    let host = pendingHost.removeFirst()
+                    guard host.connection == current else {
+                        host.reply?.resume(returning: .staleConnection)
+                        continue
+                    }
+                    // A trust write must be acknowledged before any queued chat can start.
+                    await sendHost(host, socket: socket, ids: ids)
                     continue
                 }
-                guard sentFirst, let socket, let ids = requestIds else {
-                    draining = false
-                    return
-                }
-                let requestID = host.requestID
-                ids.whenAnswered(requestID) { [weak self] in
-                    Task { @MainActor in self?.hostAnswered(requestID) }
-                }
-                let error = socket.send(host.frame)
-                pendingHost.removeFirst()
-                if let error {
-                    ids.cancel(requestID)
-                    host.reply?.resume(returning: error)
-                } else {
-                    awaitingHost[host.requestID] = host
-                }
-                await Task.yield()
-                continue
             }
+            guard let entry = pending.first else { break }
             guard !entry.frames.isEmpty else {
                 finishFirst()
                 continue
@@ -242,7 +230,7 @@ extension AgentPaneTransport {
                 Self.logger.error("agent pane transport: person proof not sent: \(error.rawValue, privacy: .public)")
             }
         }
-        if personProofID == id { personProofID = nil }
+        if self.socket === socket, personProofID == id { personProofID = nil }
     }
 
     /// The most frames one off-main pass takes (so a long line still yields between passes).
