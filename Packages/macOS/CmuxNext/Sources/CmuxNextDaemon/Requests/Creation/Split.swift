@@ -7,6 +7,7 @@ import Foundation
 public struct SplitRequest: TerminalSpawningRequest {
     public typealias Response = SurfaceCreated
     public static let commandName: DaemonCommandName = "split"
+    public static let repliesBeforeTerminalStart = true
     public var pane: PaneID
     public var direction: SplitDirection
     public var tab: SurfaceID?

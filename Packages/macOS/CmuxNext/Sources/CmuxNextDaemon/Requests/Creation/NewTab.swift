@@ -90,6 +90,7 @@ public struct SpawnOptions: Sendable, Hashable {
 public struct NewTabRequest: TerminalSpawningRequest {
     public typealias Response = SurfaceCreated
     public static let commandName: DaemonCommandName = "new-tab"
+    public static let repliesBeforeTerminalStart = true
     public var pane: PaneID?
     public var options: SpawnOptions
     public init(pane: PaneID?, options: SpawnOptions = SpawnOptions()) {

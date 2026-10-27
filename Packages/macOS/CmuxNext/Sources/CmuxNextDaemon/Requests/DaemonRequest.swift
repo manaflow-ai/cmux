@@ -47,7 +47,17 @@ extension DaemonRequest {
 /// retry (1 s) windows, so these use `Configuration.spawnTimeout` instead of
 /// the 2 s control-plane deadline: a client that gives up first reports a
 /// failure for a tab the daemon then creates.
-public protocol TerminalSpawningRequest: DaemonRequest {}
+public protocol TerminalSpawningRequest: DaemonRequest {
+    /// A daemon with `terminal-async-start-v1` answers this command once it admitted the terminal,
+    /// before its host is up (`starting: true`), and reports the start as `terminal-started` or
+    /// `terminal-start-failed` (``TerminalStartWatch``): the request then keeps the control deadline.
+    /// False for a command whose reply still waits for the host.
+    static var repliesBeforeTerminalStart: Bool { get }
+}
+
+extension TerminalSpawningRequest {
+    public static var repliesBeforeTerminalStart: Bool { false }
+}
 
 /// `{}` responses.
 public struct EmptyResponse: Decodable, Sendable, Equatable {

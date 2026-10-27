@@ -142,6 +142,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `send {terminal_id}` to a terminal still being created: the daemon queues the input and
     /// writes it after the commit (cx-wb5.78, ``SendTerminalInputRequest``).
     case terminalInputWhileCreating = "terminal-input-while-creating-v1"
+    /// `create-terminal`, `new-tab`, `split` answer at admit, `starting: true`; then ``TerminalStartWatch`` (F10).
+    case terminalAsyncStart = "terminal-async-start-v1"
     /// The owner ends a terminal with no tab after a grace period unless it
     /// is kept: `keep` on creation, `set-terminal-keep`, and
     /// `shutdown-daemon end_terminals` (cmux-tui PR 15600).
@@ -519,32 +521,30 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .tabWorkspaceName, .notificationAck, .feedLocalOwner, .tabGroups, .savedTabGroups, .workspacePin,
              .workspaceChecklist, .notificationMarkUnread, .tabMarkUnread, .workspaceDescription, .workspaceStatus,
              .screenMetadata, .screenGroups, .stateResources, .windowRecords, .terminalEnv, .terminalPlacementEnv,
-             .splitClientKeys, .splitClientSplitID, .rowClientKeys, .conversationTabSplit,
-             .terminalInputWhileCreating, .terminalReap, .resumeCommand, .terminalReaperActive,
-             .endTerminalsKeepLayout, .batchClose, .sendExpectForeground, .closeReason, .closeWorkspaceIfEmpty,
-             .browserHostProvider, .frontendBrowserActivate, .frontendBrowserInsertAfter, .loopbackForward,
-             .browserRuntime, .notificationSource, .terminalShellArgs, .terminalFrontendShellIntegration,
-             .launchSnapshot, .profiles, .personalRemoteLocalhost, .sessionIdentity, .remoteTerminalTabs,
-             .dockColumns, .edgeDocks, .dockColumnRole, .pinnedDock, .pinnedDockAlone, .rows, .columnMove,
-             .tabColumnRespawn, .tabRestart, .tabRestartKeptLayout, .tabPark, .detachedTerminals, .personalTerminals,
-             .browserProfiles, .bookmarks, .bookmarkIcon, .history, .localConversations, .conversationDraftEvents,
-             .chiefLive, .cloudChiefLive, .conversationRuns, .cloudConversationRuns, .cloudConversationTyping,
-             .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs,
-             .agentSessionAttach, .agentSessionObserve, .agentSessionStart, .agentSessionTrust,
-             .agentSessionStartKeyedReason, .agentSessionChildren, .pageTabs, .pageTabRoute, .appScreens,
-             .conversationSearch, .conversationThreads, .conversationThread, .conversationInboxState, .homeInbox,
-             .chiefEvents, .cloudConversations, .cloudHostReplica, .cloudAttachments, .cloudSelfHost,
-             .pageCredential, .scopedPageCredential, .wsListen, .wsListenOrigins, .personalMixedOrder,
-             .workspaceGroupIcon, .workspaceGroupPin, .screenGroupIcon, .tabGroupIcon, .sessionIcon,
-             .localAttachments, .linkPreview, .chiefInspect, .terminalPendingSequence, .terminalCommandHistory,
-             .sidebarLayout, .sidebarDoc, .placementShift, .paletteUsage, .browserDevices, .browserFit,
-             .browserFitWidth, .keybindings, .iconAssets, .projectList, .tabSplitRespawn, .tabSplitKeepFocus,
-             .workspaceCreateFocus, .attachIdentity, .creationReceipts, .creationAttemptKeys,
-             .terminalColorOverrides, .terminalSnapshotHistory, .terminalSnapshotLocalHistory,
-             .terminalSnapshotImages, .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
-             .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation,
-             .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .eventCause, .energy,
-             .energyRule, .diagnosticSites:
+             .splitClientKeys, .splitClientSplitID, .rowClientKeys, .conversationTabSplit, .terminalInputWhileCreating,
+             .terminalAsyncStart, .terminalReap, .resumeCommand, .terminalReaperActive, .endTerminalsKeepLayout,
+             .batchClose, .sendExpectForeground, .closeReason, .closeWorkspaceIfEmpty, .browserHostProvider,
+             .frontendBrowserActivate, .frontendBrowserInsertAfter, .loopbackForward, .browserRuntime,
+             .notificationSource, .terminalShellArgs, .terminalFrontendShellIntegration, .launchSnapshot, .profiles,
+             .personalRemoteLocalhost, .sessionIdentity, .remoteTerminalTabs, .dockColumns, .edgeDocks, .dockColumnRole,
+             .pinnedDock, .pinnedDockAlone, .rows, .columnMove, .tabColumnRespawn, .tabRestart, .tabRestartKeptLayout,
+             .tabPark, .detachedTerminals, .personalTerminals, .browserProfiles, .bookmarks, .bookmarkIcon, .history,
+             .localConversations, .conversationDraftEvents, .chiefLive, .cloudChiefLive, .conversationRuns,
+             .cloudConversationRuns, .cloudConversationTyping, .workspaceKind, .workspaceAgentFolder,
+             .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .agentSessionAttach, .agentSessionObserve,
+             .agentSessionStart, .agentSessionTrust, .agentSessionStartKeyedReason, .agentSessionChildren, .pageTabs,
+             .pageTabRoute, .appScreens, .conversationSearch, .conversationThreads, .conversationThread,
+             .conversationInboxState, .homeInbox, .chiefEvents, .cloudConversations, .cloudHostReplica,
+             .cloudAttachments, .cloudSelfHost, .pageCredential, .scopedPageCredential, .wsListen, .wsListenOrigins,
+             .personalMixedOrder, .workspaceGroupIcon, .workspaceGroupPin, .screenGroupIcon, .tabGroupIcon,
+             .sessionIcon, .localAttachments, .linkPreview, .chiefInspect, .terminalPendingSequence,
+             .terminalCommandHistory, .sidebarLayout, .sidebarDoc, .placementShift, .paletteUsage, .browserDevices,
+             .browserFit, .browserFitWidth, .keybindings, .iconAssets, .projectList, .tabSplitRespawn,
+             .tabSplitKeepFocus, .workspaceCreateFocus, .attachIdentity, .creationReceipts, .creationAttemptKeys,
+             .terminalColorOverrides, .terminalSnapshotHistory, .terminalSnapshotLocalHistory, .terminalSnapshotImages,
+             .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal, .terminalResources, .machineIdentity,
+             .agentCLIAppProvider, .agentCLIAppInvalidation, .agentInventoryWatchAdmission, .stash, .stashWorkspaces,
+             .layoutBulk, .eventCause, .energy, .energyRule, .diagnosticSites:
             return .optional
         }
     }
