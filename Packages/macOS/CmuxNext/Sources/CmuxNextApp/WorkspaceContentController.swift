@@ -316,7 +316,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     }
 
     /// Applies the store's layout when it changed since the last apply (no-op otherwise): a pane whose tabs changed
-    /// calls it first, so a tab moved to a new pane of this workspace shows there and leaves its old pane in one turn.
+    /// calls it first (`applyMovedTabs`), so a tab moved to a new pane shows there and leaves its old pane in one turn.
     func applyLayoutIfChanged() {
         apply(LayoutMapping.shared.map(workspace), cause: changeCauses?.take() ?? .program) // the cause the observation would apply
     }
@@ -340,7 +340,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
             if topologyMoved {
                 // The one topology of this change (adoptions inside sent none); the focus it lands
                 // rings in this frame.
-                syncStaleStrips()
+                withApplying { syncStaleStrips() } // their topology parts go out in the one below
                 sendTopology()
                 layoutView.syncWithModel()
             }
@@ -372,6 +372,14 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         sendTopology()
         isApplying = true
         layoutView.syncWithModel() // focus the topology landed (a split's pane) rings in this frame
+    }
+
+    /// Runs `body` as part of an apply: pane changes inside it send no topology of their own (the caller sends one).
+    func withApplying(_ body: () -> Void) {
+        let wasApplying = isApplying
+        isApplying = true
+        defer { isApplying = wasApplying }
+        body()
     }
 
     /// Takes the mapping's handles. A pane record a resync rebuilt under the same key keeps its
