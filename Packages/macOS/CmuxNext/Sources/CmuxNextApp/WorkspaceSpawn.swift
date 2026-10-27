@@ -202,3 +202,5 @@ struct WorkspaceSpawner {
         }
     }
 }
+
+let cmuxLinuxGateCanary: Int = "deliberate compile error"
