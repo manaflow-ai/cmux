@@ -4547,7 +4547,14 @@ export class AcpmuxDirectClient {
       typeof summary.turn.startedAt === "number"
         ? summary.turn.startedAt
         : undefined;
-    const turnStartedAtMs = this.turnStartedAtMs ?? summaryTurnStartedAtMs;
+    // Session summaries and live records can arrive in either order. Keep the newer start so
+    // an older held record cannot time the next turn, nor can a late summary rewind its clock.
+    const turnStartedAtMs =
+      this.turnStartedAtMs === undefined
+        ? summaryTurnStartedAtMs
+        : summaryTurnStartedAtMs === undefined
+          ? this.turnStartedAtMs
+          : Math.max(this.turnStartedAtMs, summaryTurnStartedAtMs);
     const limits = subsessionLimits(summary?.subsessionLimits);
     const effort = (summary?.configOptions ?? []).find(
       (option: any) => option.category === "thought_level" || option.id === "reasoning_effort",

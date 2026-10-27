@@ -70,7 +70,13 @@ function fakeDaemon(history: Recorded[], details: Record<string, unknown> = {}) 
       socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }) });
     }
   };
-  return { open, push };
+  const change = (fields: Record<string, unknown>) => {
+    Object.assign(session, fields);
+    socket.onmessage?.({
+      data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { session } }),
+    });
+  };
+  return { open, push, change };
 }
 
 /// Yields until `ready()` holds; fails after 2 s with what it waited for.
@@ -172,6 +178,34 @@ test("an attach in the middle of a turn uses the summary start when its event is
     expect(snapshot.turnStartedAtMs).toBe(START + 30_000);
     daemon.push(record([["mux", "turn_end", { turnId: "t2" }]], 2));
     await until(() => snapshot.isWorking === false, "the turn's end");
+  } finally {
+    client.close();
+  }
+});
+
+test("a newer summary start replaces a previous live turn before its start event arrives", async () => {
+  const daemon = fakeDaemon(record([started]));
+  let snapshot: any;
+  const client = await AcpmuxDirectClient.connect(
+    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
+    (next: any) => (snapshot = next),
+    undefined,
+    daemon.open,
+  );
+  try {
+    await until(() => snapshot?.connection === "connected", "the attach");
+    expect(snapshot.turnStartedAtMs).toBe(START + 1_000);
+    daemon.change({ title: "next", turn: { turnId: "t2", startedAt: START + 30_000 } });
+    await until(() => snapshot.summary?.title === "next", "the newer summary");
+    expect(snapshot.turnStartedAtMs).toBe(START + 30_000);
+    // A late summary of the earlier turn must not move the clock backwards either.
+    daemon.push(record([["mux", "turn_started", { turnId: "t2" }]], 31));
+    daemon.change({ title: "earlier", turn: { turnId: "t1", startedAt: START + 1_000 } });
+    await until(() => snapshot.summary?.title === "earlier", "the older summary");
+    expect(snapshot.turnStartedAtMs).toBe(START + 31_000);
+    daemon.push(record([["mux", "turn_result", { turnId: "t2", status: "completed" }]], 32));
+    await until(() => snapshot.isWorking === false, "the turn result");
+    expect(snapshot.turnStartedAtMs).toBeUndefined();
   } finally {
     client.close();
   }
