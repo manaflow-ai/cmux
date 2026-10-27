@@ -147,6 +147,18 @@ def fat(*thin_files: bytes, subtype: int = 0, align: int = 14, pad_byte: bytes =
     head = header + entries
     return head + pad_byte * ((1 << align) - len(head)) + body
 
+    def test_slices_differing_only_inside_the_cms_are_counted(self):
+        a = make_app(self.root / "a", tool=macho(b"TEXT" * 8, b"cms-a" * 4, pad=32))
+        b = make_app(self.root / "b", tool=macho(b"TEXT" * 8, b"cms-b" * 4, pad=32))
+        _, result = self.run_compare(a, b)
+        self.assertEqual(result["counts"]["only_cms_differs"], result["counts"]["slices"])
+        # A different reservation is reported as more than a CMS difference.
+        c = make_app(self.root / "c", tool=macho(b"TEXT" * 8, b"cms-b" * 4, pad=48))
+        _, result = self.run_compare(a, c)
+        self.assertEqual(result["counts"]["only_cms_differs"], 0)
+        self.assertIn("signature reservation (LC_CODE_SIGNATURE offset or size) differs",
+                      json.dumps(result["signature_differences"]))
+
 
 class ReviewFindingTests(unittest.TestCase):
     """Each payload difference the first review named must fail."""
@@ -268,6 +280,31 @@ class ReviewFindingTests(unittest.TestCase):
         hidden[sig_at + index_end:sig_at + index_end + 4] = b"HIDE"
         c = make_app(self.root / "c", tool=bytes(hidden))
         self.assertEqual(self.compare(b, c)[0], 1)
+
+    def test_input_signature_residue_passes_only_with_matching_input(self):
+        # codesign over a linker-signed input: the old signature's bytes stay past the new superblob.
+        good = bytearray(macho(b"T" * 32, b"c", pad=16))
+        sig_at = struct.unpack("<I", bytes(good[32 + 72 + 8:32 + 72 + 12]))[0]
+        old = bytes(good)
+        old_tail = bytearray(old)
+        old_tail[-16:] = b"OLDSIGNATUREDATA"
+        residue = bytearray(good)
+        residue[-16:] = b"OLDSIGNATUREDATA"
+        a = make_app(self.root / "a", tool=bytes(residue))
+        b = make_app(self.root / "b", tool=bytes(good))
+        u = make_app(self.root / "u", tool=bytes(old_tail))
+        self.assertEqual(self.compare(a, b)[0], 1)
+        out = self.root / "out.json"
+        proc = subprocess.run([sys.executable, "-I", str(SCRIPT), str(a), str(b), str(out), "--input", str(u)],
+                              capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("input-signature residue (A): Contents/MacOS/Demo: 16 bytes", proc.stdout)
+        other = bytearray(old_tail)
+        other[-16:] = b"SOMETHINGELSE!!!"
+        v = make_app(self.root / "v", tool=bytes(other))
+        proc = subprocess.run([sys.executable, "-I", str(SCRIPT), str(a), str(b), str(out), "--input", str(v)],
+                              capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 1)
 
     def test_setuid_bit_is_payload(self):
         a = make_app(self.root / "a", tool=macho(b"T" * 32, b"c"))
