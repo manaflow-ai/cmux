@@ -55,6 +55,15 @@ async fn linux_remote_chain_uses_the_production_sandbox_without_a_switch() {
         .to_string(),
     )
     .unwrap();
+    // Match the daemon's HOME=d/home and ACPMUX_HOME=d, without bypassing its gate.
+    let trust = acpmux::trust::Paths {
+        claude_json: d.join("home/.claude.json"),
+        codex_config: d.join("home/.codex/config.toml"),
+        record: d.join("trust.json"),
+        agent_home: None,
+        cmux_worktrees: None,
+    };
+    acpmux::trust::set(&trust, &d.join("work").to_string_lossy(), "trusted").unwrap();
     let mut command = daemon_env::tokio_command(&d, daemon_env::Agents::StandIn);
     let mut daemon = command
         .args([
