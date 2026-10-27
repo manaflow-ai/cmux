@@ -24,6 +24,8 @@ public nonisolated struct SystemCrashReport: Sendable, Equatable {
     public var processName: String
     /// `procPath` as macOS wrote it (the user name already replaced with `USER`).
     public var processPath: String
+    /// The crashed process's pid (`pid`): a Chromium helper's matches its helper-exit event and its minidump.
+    public var pid: Int32?
     public var incident: String?
     public var exceptionType: String
     public var signal: String?
@@ -67,6 +69,7 @@ public nonisolated struct SystemCrashReport: Sendable, Equatable {
         guard threads.indices.contains(faulting) else { return nil }
         processName = body["procName"] as? String ?? header["name"] as? String ?? "unknown"
         processPath = body["procPath"] as? String ?? ""
+        pid = (body["pid"] as? NSNumber).flatMap { Int32(exactly: $0.int64Value) }
         incident = body["incident"] as? String ?? header["incident_id"] as? String
         let exception = body["exception"] as? [String: Any] ?? [:]
         exceptionType = exception["type"] as? String ?? "EXC_CRASH"
