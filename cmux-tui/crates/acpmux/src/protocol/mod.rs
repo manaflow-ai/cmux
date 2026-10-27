@@ -237,6 +237,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_FILE_PUT_CHUNK, Request),
         untyped(method::MUX_FILE_PUT_FINISH, Request),
         untyped(method::MUX_FILE_PUT_CANCEL, Request),
+        untyped(method::MUX_FILE_PUT_STATUS, Request),
         untyped(method::MUX_DISPATCH, Request),
         untyped(method::MUX_STEER, Request),
         untyped(method::MUX_BRIEFS, Request),

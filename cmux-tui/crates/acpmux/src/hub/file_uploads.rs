@@ -29,6 +29,8 @@ use std::time::Duration;
 pub const FEATURE: &str = "filePut";
 /// The resumable upload feature advertised by current daemons.
 pub const CHUNKS_FEATURE: &str = "filePutChunks";
+/// `_acpmux/file_put_status`, finish `sha256`, `upload.*` reasons and `upload.diskFull`.
+pub const RESUME_FEATURE: &str = "uploadResume";
 /// The largest one-shot request accepted for compatibility with older peers.
 pub const LEGACY_MAX_BYTES: usize = 10 << 20;
 /// The largest decoded chunk. Its base64 form stays below one MiB on the wire.
@@ -279,15 +281,23 @@ fn begin(session: &str, params: &Value) -> Result<Value, RpcError> {
     let id = uuid::Uuid::now_v7().to_string();
     let path = part_path(session, &id).ok_or_else(|| RpcError::invalid_params("no such chat"))?;
     let parent = path.parent().ok_or_else(|| RpcError::internal("upload path has no parent"))?;
-    crate::config::private_state_dir(parent).map_err(|e| RpcError::internal(e.to_string()))?;
+    crate::config::private_state_dir(parent)
+        .map_err(|e| failed_anyhow("cannot start upload", parent, &e, None))?;
+    // The one failure about size: the disk that would hold it has no room (Leo, 2026-10-26).
+    if let Some(free) = free_bytes(parent)
+        && free < size
+    {
+        let _ = std::fs::remove_dir(parent);
+        return Err(disk_full(parent, Some(size), Some(free), None));
+    }
     crate::agent_tools::write_private(&path, &[])
-        .map_err(|e| RpcError::internal(format!("cannot start upload: {e}")))?;
+        .map_err(|e| failed_anyhow("cannot start upload", &path, &e, None))?;
     let meta =
         meta_path(session, &id).ok_or_else(|| RpcError::invalid_params("invalid uploadId"))?;
     let metadata = serde_json::to_vec(&json!({"fileName": name, "size": size}))
         .map_err(|e| RpcError::internal(format!("cannot encode upload metadata: {e}")))?;
     crate::agent_tools::write_private(&meta, &metadata)
-        .map_err(|e| RpcError::internal(format!("cannot record upload: {e}")))?;
+        .map_err(|e| failed_anyhow("cannot record upload", &meta, &e, None))?;
     Ok(json!({"uploadId": id, "fileName": name, "size": size}))
 }
 
@@ -318,32 +328,160 @@ fn chunk(params: &Value) -> Result<Value, RpcError> {
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(data)
         .map_err(|e| RpcError::invalid_params(format!("data is not base64: {e}")))?;
-    let path =
-        part_path(session, upload).ok_or_else(|| RpcError::invalid_params("invalid uploadId"))?;
-    let meta =
-        meta_path(session, upload).ok_or_else(|| RpcError::invalid_params("invalid uploadId"))?;
-    let metadata = crate::config::private_state_file(&meta)
-        .map_err(|e| RpcError::invalid_params(format!("unknown upload: {e}")))?;
-    let declared: Value = serde_json::from_reader(metadata)
+    append(session, upload, offset, &bytes)
+}
+
+/// No unfinished upload `upload` of this chat.
+fn unknown(upload: &str) -> RpcError {
+    RpcError::invalid_params(format!("unknown upload {upload}"))
+        .with_data(json!({"reason": "upload.unknown"}))
+}
+
+/// The declared `{fileName, size}` of unfinished upload `upload`.
+fn declared(session: &str, upload: &str) -> Result<(String, u64), RpcError> {
+    let meta = meta_path(session, upload).ok_or_else(|| unknown(upload))?;
+    let file = crate::config::private_state_file(&meta).map_err(|_| unknown(upload))?;
+    let declared: Value = serde_json::from_reader(file)
         .map_err(|e| RpcError::invalid_params(format!("invalid upload metadata: {e}")))?;
-    let declared_size = declared
-        .get("size")
-        .and_then(Value::as_u64)
-        .ok_or_else(|| RpcError::invalid_params("invalid upload size"))?;
-    let mut file = crate::config::private_state_rw(&path)
-        .map_err(|e| RpcError::invalid_params(format!("unknown upload: {e}")))?;
+    let name = declared.get("fileName").and_then(Value::as_str).map(str::to_owned);
+    let size = declared.get("size").and_then(Value::as_u64);
+    name.zip(size).ok_or_else(|| RpcError::invalid_params("invalid upload metadata"))
+}
+
+/// Appends `bytes` at `offset`, which must be the upload's current end, and answers the new end
+/// once the bytes are on disk. Blocking: run it off the runtime.
+fn append(session: &str, upload: &str, offset: u64, bytes: &[u8]) -> Result<Value, RpcError> {
+    let (_, size) = declared(session, upload)?;
+    let path = part_path(session, upload).ok_or_else(|| unknown(upload))?;
+    let mut file = crate::config::private_state_rw(&path).map_err(|_| unknown(upload))?;
     let current = file.metadata().map_err(|e| RpcError::internal(e.to_string()))?.len();
     if current != offset {
-        return Err(RpcError::invalid_params(format!("upload offset is {current}, got {offset}")));
+        return Err(RpcError::invalid_params(format!("upload offset is {current}, got {offset}"))
+            .with_data(json!({"reason": "upload.offset", "offset": current})));
     }
     let next = current.saturating_add(bytes.len() as u64);
-    if next > declared_size {
-        return Err(past_declared(declared_size));
+    if next > size {
+        return Err(past_declared(size));
     }
-    file.seek(SeekFrom::End(0)).map_err(|e| RpcError::internal(e.to_string()))?;
-    file.write_all(&bytes).map_err(|e| RpcError::internal(format!("cannot append upload: {e}")))?;
-    file.sync_data().map_err(|e| RpcError::internal(format!("cannot sync upload: {e}")))?;
+    let write = |file: &mut std::fs::File| -> std::io::Result<()> {
+        file.seek(SeekFrom::End(0))?;
+        file.write_all(bytes)?;
+        file.sync_data()
+    };
+    if let Err(e) = write(&mut file) {
+        // A short write leaves the file past `current`: cut it back, so the sender resumes there.
+        let _ = file.set_len(current);
+        return Err(failed("cannot append upload", &path, &e, Some(current)));
+    }
     Ok(json!({"offset": next}))
+}
+
+/// `_acpmux/file_put_status`: where an upload stands, so a sender resumes after a disconnect or
+/// a restart. `{uploadId, fileName, size, offset, finished, path?}`. Blocking.
+fn status(session: &str, params: &Value) -> Result<Value, RpcError> {
+    let upload = params
+        .get("uploadId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| RpcError::invalid_params("uploadId is required"))?;
+    let dir = part_path(session, upload)
+        .and_then(|p| p.parent().map(Path::to_path_buf))
+        .ok_or_else(|| unknown(upload))?;
+    if let Ok((name, size)) = declared(session, upload) {
+        let offset = std::fs::symlink_metadata(dir.join(".part")).map_or(0, |m| m.len());
+        return Ok(json!({"uploadId": upload, "fileName": name, "size": size,
+            "offset": offset, "finished": false}));
+    }
+    // A finished upload's folder holds its one file (`finish`).
+    for entry in std::fs::read_dir(&dir).map_err(|_| unknown(upload))?.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let meta = std::fs::symlink_metadata(entry.path());
+        if let Ok(meta) = meta
+            && meta.is_file()
+            && is_file_name(&name)
+        {
+            return Ok(json!({"uploadId": upload, "fileName": name, "size": meta.len(),
+                "offset": meta.len(), "finished": true,
+                "path": entry.path().to_string_lossy()}));
+        }
+    }
+    Err(unknown(upload))
+}
+
+/// Lowercase hex SHA-256 of the file at `path`, read 1 MiB at a time.
+fn sha256_of(path: &Path) -> std::io::Result<String> {
+    use sha2::Digest;
+    use std::io::Read;
+    let mut file = crate::config::private_state_file(path).map_err(std::io::Error::other)?;
+    let mut hash = sha2::Sha256::new();
+    let mut buf = vec![0u8; 1 << 20];
+    loop {
+        let n = file.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hash.update(&buf[..n]);
+    }
+    Ok(hash.finalize().iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// Whether `e` says the disk (or the owner's quota) is full.
+pub(crate) fn is_disk_full(e: &std::io::Error) -> bool {
+    #[cfg(unix)]
+    let full = [libc::ENOSPC, libc::EDQUOT];
+    // ERROR_HANDLE_DISK_FULL, ERROR_DISK_FULL.
+    #[cfg(windows)]
+    let full = [39, 112];
+    #[cfg(not(any(unix, windows)))]
+    let full: [i32; 0] = [];
+    e.raw_os_error().is_some_and(|code| full.contains(&code))
+}
+
+/// `upload.diskFull`: the one size failure, naming this host and the path that had no room.
+pub(crate) fn disk_full(
+    path: &Path,
+    needed: Option<u64>,
+    free: Option<u64>,
+    offset: Option<u64>,
+) -> RpcError {
+    let host = crate::host_pressure::host_name();
+    RpcError::new(-32000, format!("the disk on {host} is full at {}", path.display())).with_data(
+        json!({"reason": "upload.diskFull", "host": host, "path": path.to_string_lossy(),
+            "needed": needed, "free": free, "offset": offset, "retryable": false}),
+    )
+}
+
+/// An I/O failure writing `path`: `upload.diskFull` when the disk is full.
+fn failed(what: &str, path: &Path, e: &std::io::Error, offset: Option<u64>) -> RpcError {
+    if is_disk_full(e) {
+        disk_full(path, None, None, offset)
+    } else {
+        RpcError::internal(format!("{what}: {e}"))
+    }
+}
+
+fn failed_anyhow(what: &str, path: &Path, e: &anyhow::Error, offset: Option<u64>) -> RpcError {
+    match e.chain().find_map(|cause| cause.downcast_ref::<std::io::Error>()) {
+        Some(io) => failed(what, path, io, offset),
+        None => RpcError::internal(format!("{what}: {e}")),
+    }
+}
+
+/// Bytes free to this user on the file system of `dir`; None where unknown.
+#[cfg(unix)]
+fn free_bytes(dir: &Path) -> Option<u64> {
+    use std::os::unix::ffi::OsStrExt;
+    let c = std::ffi::CString::new(dir.as_os_str().as_bytes()).ok()?;
+    // SAFETY: a NUL-terminated path and a zeroed struct statvfs fills.
+    let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
+    // SAFETY: as above.
+    let rc = unsafe { libc::statvfs(c.as_ptr(), &mut st) };
+    #[allow(clippy::useless_conversion)]
+    (rc == 0).then(|| u64::from(st.f_bavail).saturating_mul(u64::from(st.f_frsize)))
+}
+
+#[cfg(not(unix))]
+fn free_bytes(_dir: &Path) -> Option<u64> {
+    None
 }
 
 fn finish(session: &str, params: &Value) -> Result<Value, RpcError> {
@@ -360,29 +498,48 @@ fn finish(session: &str, params: &Value) -> Result<Value, RpcError> {
         .get("size")
         .and_then(Value::as_u64)
         .ok_or_else(|| RpcError::invalid_params("size is required"))?;
-    let part =
-        part_path(session, upload).ok_or_else(|| RpcError::invalid_params("invalid uploadId"))?;
-    let meta =
-        meta_path(session, upload).ok_or_else(|| RpcError::invalid_params("invalid uploadId"))?;
-    let metadata = crate::config::private_state_file(&meta)
-        .map_err(|e| RpcError::invalid_params(format!("unknown upload: {e}")))?;
-    let declared: Value = serde_json::from_reader(metadata)
-        .map_err(|e| RpcError::invalid_params(format!("invalid upload metadata: {e}")))?;
-    if declared.get("fileName").and_then(Value::as_str) != Some(name)
-        || declared.get("size").and_then(Value::as_u64) != Some(size)
-    {
+    let want = match params.get("sha256") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(h))
+            if h.len() == 64 && h.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) =>
+        {
+            Some(h.as_str())
+        }
+        Some(_) => return Err(RpcError::invalid_params("sha256 is 64 lowercase hex digits")),
+    };
+    let part = part_path(session, upload).ok_or_else(|| unknown(upload))?;
+    let meta = meta_path(session, upload).ok_or_else(|| unknown(upload))?;
+    let dir = part.parent().ok_or_else(|| RpcError::internal("upload has no folder"))?;
+    let path = dir.join(name);
+    let declared = match declared(session, upload) {
+        Ok(declared) => declared,
+        // Finished already: a finish whose answer was lost is answered again.
+        Err(e) => {
+            let done =
+                std::fs::symlink_metadata(&path).is_ok_and(|m| m.is_file() && m.len() == size);
+            return if done { Ok(json!({"path": path.to_string_lossy()})) } else { Err(e) };
+        }
+    };
+    if declared.0 != name || declared.1 != size {
         return Err(RpcError::invalid_params("upload metadata does not match"));
     }
-    let current = std::fs::metadata(&part)
-        .map_err(|e| RpcError::invalid_params(format!("unknown upload: {e}")))?
-        .len();
+    let current = std::fs::metadata(&part).map_err(|_| unknown(upload))?.len();
     if current != size {
         return Err(RpcError::invalid_params(format!(
             "upload has {current} bytes, expected {size}"
-        )));
+        ))
+        .with_data(json!({"reason": "upload.incomplete", "offset": current})));
     }
-    let dir = part.parent().ok_or_else(|| RpcError::internal("upload has no folder"))?;
-    let path = dir.join(name);
+    if let Some(want) = want {
+        let got = sha256_of(&part).map_err(|e| failed("cannot read upload", &part, &e, None))?;
+        if got != want {
+            // The bytes are not the sender's: it begins again.
+            let _ = std::fs::remove_file(&part);
+            let _ = std::fs::remove_file(&meta);
+            return Err(RpcError::invalid_params("the upload's sha256 does not match")
+                .with_data(json!({"reason": "upload.corrupt", "sha256": got})));
+        }
+    }
     std::fs::rename(&part, &path)
         .map_err(|e| RpcError::internal(format!("cannot finish upload: {e}")))?;
     let _ = std::fs::remove_file(meta);
@@ -485,6 +642,14 @@ pub async fn handle_cancel(hub: &super::Hub, params: Value) -> Result<Value, Rpc
         .map_err(|e| RpcError::internal(e.to_string()))?;
     reject_purged(&session).await?;
     answer
+}
+
+pub async fn handle_status(hub: &super::Hub, params: Value) -> Result<Value, RpcError> {
+    let session = hub.resolve(crate::server::session_key(&params)?)?;
+    let id = session.id.clone();
+    tokio::task::spawn_blocking(move || status(&id, &params))
+        .await
+        .map_err(|e| RpcError::internal(e.to_string()))?
 }
 
 /// A purge can race any blocking upload operation. Remove files created after the purge and
@@ -662,6 +827,20 @@ mod tests {
         assert_eq!(sweep(&root, now, Duration::from_millis(30 * day)), 0);
         std::fs::remove_dir_all(&root).unwrap();
         std::fs::remove_dir_all(&outside).unwrap();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_full_disk_is_the_one_size_failure_and_names_the_host_and_path() {
+        let e = std::io::Error::from_raw_os_error(libc::ENOSPC);
+        let err = failed("cannot append upload", Path::new("/x/.part"), &e, Some(7));
+        let data = err.data.unwrap();
+        assert_eq!(data["reason"], "upload.diskFull");
+        assert_eq!(data["path"], "/x/.part");
+        assert_eq!(data["offset"], 7);
+        assert_eq!(data["host"], crate::host_pressure::host_name());
+        let other = failed("x", Path::new("/x"), &std::io::Error::other("no"), None);
+        assert!(other.data.is_none());
     }
 
     #[test]
