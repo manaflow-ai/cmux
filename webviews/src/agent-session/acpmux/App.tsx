@@ -2170,8 +2170,9 @@ export function VirtualTranscript({
   const [lane, setLane] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
   const stopJump = useCallback(() => {
-    if (jumpTarget.current !== undefined && ref.current) stopScroll(ref.current);
+    const active = jumpTarget.current !== undefined;
     jumpTarget.current = undefined;
+    if (active && ref.current) stopScroll(ref.current);
   }, []);
   // The shared animation owns one RAF and its input listeners. Leaving this chat or unmounting
   // cancels that ride before the next session can reuse this scroller.
@@ -3717,6 +3718,14 @@ export function VirtualTranscript({
         followTrace.set(node.scrollTop);
         scrollPacer.current?.cancel();
         setScrollAt(node.scrollTop, 0);
+      },
+      () => {
+        // A native turn/bookmark command can replace the shared ride without a DOM input event.
+        // Explicit stopJump disowns first; only an external replacement releases bottom follow.
+        if (jumpTarget.current === undefined) return;
+        jumpTarget.current = undefined;
+        scrolledTo.current = { top: node.scrollTop, atLatest: false };
+        follow(false);
       },
     );
   };
