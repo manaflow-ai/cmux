@@ -17,7 +17,12 @@
 //!   gives up and the failure is fatal. A failure that leaves a declared shared
 //!   lock poisoned is fatal at once: the shared state may be half-mutated.
 //! - Every call names a [`ShutdownBehavior`], Chromium's `TaskShutdownBehavior`
-//!   (`base/task/task_traits.h`).
+//!   (`base/task/task_traits.h`). Chromium's shutdown waits for BLOCK_SHUTDOWN
+//!   tasks with no bound (`base/task/thread_pool/task_tracker.cc`,
+//!   `TaskTracker::CompleteShutdown`); here each Block worker states its own
+//!   deadline, at most
+//!   [`ShutdownBehavior::MAX_BLOCK_DEADLINE`], and a worker that misses it
+//!   is named in [`ShutdownReport::late`].
 //!
 //! The [`Supervisor`] is built once by the process's composition root with a
 //! [`FailureSink`] ([`ExitProcess`] in production) and passed to the code that
@@ -134,8 +139,31 @@ pub enum ShutdownBehavior {
     Skip,
     /// BLOCK_SHUTDOWN: shutdown asks it to stop and waits up to `deadline` for
     /// it to return (a journal flush). A worker past it is named in
-    /// [`ShutdownReport::late`].
+    /// [`ShutdownReport::late`]. The deadline is over zero and at most
+    /// [`ShutdownBehavior::MAX_BLOCK_DEADLINE`]; a supervise call refuses
+    /// any other with [`SuperviseError::BlockDeadline`].
     Block { deadline: Duration },
+}
+
+impl ShutdownBehavior {
+    /// The longest [`ShutdownBehavior::Block`] deadline. It stays under the
+    /// app's 15 s hard quit deadline (`QuitDeadline.engineStopLimit`), so a
+    /// quit a Block worker holds ends by that worker's deadline, not by the
+    /// hard deadline's forced exit.
+    pub const MAX_BLOCK_DEADLINE: Duration = Duration::from_secs(10);
+
+    /// `self`, or the error for a Block deadline that bounds nothing (zero)
+    /// or holds a quit past [`ShutdownBehavior::MAX_BLOCK_DEADLINE`].
+    fn checked(self) -> Result<Self, SuperviseError> {
+        match self {
+            Self::Block { deadline }
+                if deadline.is_zero() || deadline > Self::MAX_BLOCK_DEADLINE =>
+            {
+                Err(SuperviseError::BlockDeadline(deadline))
+            }
+            other => Ok(other),
+        }
+    }
 }
 
 /// Why a run ended badly.
@@ -275,6 +303,9 @@ pub enum SuperviseError {
     Spawn(std::io::Error),
     /// `supervise_task` ran outside a tokio runtime.
     NoRuntime,
+    /// A [`ShutdownBehavior::Block`] deadline of zero or over
+    /// [`ShutdownBehavior::MAX_BLOCK_DEADLINE`].
+    BlockDeadline(Duration),
 }
 
 impl fmt::Display for SuperviseError {
@@ -283,6 +314,11 @@ impl fmt::Display for SuperviseError {
             Self::ShuttingDown => f.write_str("the supervisor is shutting down"),
             Self::Spawn(error) => write!(f, "thread did not start: {error}"),
             Self::NoRuntime => f.write_str("no tokio runtime on this thread"),
+            Self::BlockDeadline(deadline) => write!(
+                f,
+                "a Block shutdown deadline is over zero and at most {:?}; got {deadline:?}",
+                ShutdownBehavior::MAX_BLOCK_DEADLINE
+            ),
         }
     }
 }
@@ -291,7 +327,7 @@ impl std::error::Error for SuperviseError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Spawn(error) => Some(error),
-            Self::ShuttingDown | Self::NoRuntime => None,
+            Self::ShuttingDown | Self::NoRuntime | Self::BlockDeadline(_) => None,
         }
     }
 }
@@ -420,6 +456,7 @@ impl Supervisor {
         name: &str,
         shutdown: ShutdownBehavior,
     ) -> Result<(Arc<StopState>, DoneGuard), SuperviseError> {
+        let shutdown = shutdown.checked()?;
         let stop = Arc::new(StopState {
             requested: AtomicBool::new(false),
             thread: OnceLock::new(),

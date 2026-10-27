@@ -273,6 +273,34 @@ fn shutdown_stops_restarts_waits_for_block_and_names_late_workers() {
 }
 
 #[test]
+fn a_block_deadline_of_zero_or_past_the_cap_is_refused_and_registers_nothing() {
+    let (supervisor, _events) = supervisor();
+    let past_cap = ShutdownBehavior::MAX_BLOCK_DEADLINE + Duration::from_millis(1);
+    for deadline in [Duration::ZERO, past_cap] {
+        let refused = supervisor.supervise_thread(
+            "unbounded",
+            Fatal,
+            ShutdownBehavior::Block { deadline },
+            |_stop: &StopToken| (),
+        );
+        assert!(
+            matches!(refused, Err(SuperviseError::BlockDeadline(got)) if got == deadline),
+            "{deadline:?} accepted"
+        );
+    }
+    assert!(supervisor.live_workers().is_empty(), "a refused worker left an entry");
+    supervisor
+        .supervise_thread(
+            "at-cap",
+            Fatal,
+            ShutdownBehavior::Block { deadline: ShutdownBehavior::MAX_BLOCK_DEADLINE },
+            |stop: &StopToken| while !stop.wait_timeout(WAIT) {},
+        )
+        .unwrap();
+    assert!(supervisor.shutdown().late.is_empty());
+}
+
+#[test]
 fn a_fatal_worker_that_errs_while_stopping_is_not_fatal_and_block_workers_finish() {
     let (supervisor, events) = supervisor();
     supervisor
@@ -551,6 +579,19 @@ mod tasks {
             tokio::task::yield_now().await;
         }
         assert!(events.try_recv().is_err(), "a stop is not a failure");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_task_with_a_zero_block_deadline_is_refused() {
+        let (supervisor, _events) = supervisor();
+        let refused = supervisor.supervise_task(
+            "unbounded-task",
+            Fatal,
+            ShutdownBehavior::Block { deadline: Duration::ZERO },
+            |_stop| async {},
+        );
+        assert!(matches!(refused, Err(SuperviseError::BlockDeadline(Duration::ZERO))));
+        assert!(supervisor.live_workers().is_empty());
     }
 
     #[test]

@@ -129,6 +129,9 @@ class FakeGuest:
     def ping_ms(self, timeout: float, *_args, **_kw):
         return self.pings.pop(0) if self.pings else 20
 
+    def refocus(self) -> bool:
+        return False
+
 
 class ChaosVerdicts(unittest.TestCase):
     def setUp(self):
@@ -405,6 +408,163 @@ class ChaosVerdicts(unittest.TestCase):
         self.c.shell_ids = lambda role: (900, 650)  # a terminal host's child, not the holder's
         with self.assertRaises(chaos.Skip):
             self.c.fault_holder()
+
+
+class QuitStorm(unittest.TestCase):
+    """The quit faults against a fake app: Cmd-Q shows the sheet, a second Cmd-Q answers it and the app exits."""
+
+    def setUp(self):
+        smoke.RFB = FakeVNC
+        chaos.REPORT_DEADLINE = 0
+        self.saved = (chaos.QUIT_EXIT_DEADLINE, chaos.QUIT_ASK_WAIT, chaos.CHILD_EXIT_DEADLINE)
+        chaos.QUIT_EXIT_DEADLINE = chaos.QUIT_ASK_WAIT = chaos.CHILD_EXIT_DEADLINE = 0  # one look each
+        self.out = tempfile.mkdtemp(prefix="chaos-quit-")
+        self.g = FakeGuest()
+        self.c = chaos.Chaos(self.g, "127.0.0.1:5900:pw", self.out)
+        self.c.app_pid = 4242
+        self.c.shot = lambda name: None
+        self.c.wait = lambda probe, seconds, every=1.0: probe()
+        self.keys: list[str] = []
+        self.asks = True  # the first Cmd-Q shows the quit sheet
+        self.exit_code = 0  # what the app exits with once quit
+        self.ignores_quit = False
+        self.status: int | None = None
+        self.sheet = False
+        self.left_children: list[int] = []  # Chromium children still running after the exit
+        self.ps = [(800, 4242, "/x/Chromium Helper --type=renderer"), (801, 4242, "/x/Chromium Helper --type=gpu-process")]
+        self.relaunch_problems: dict = {}
+        self.quits: list[int | None] = []
+        self.c.press = self.press
+        self.c.type_keys = lambda text: self.keys.append("type:" + text)
+        self.c.exited = lambda: self.status
+        self.c.procs = lambda: self.ps
+        self.c.call = self.call
+        self.c.launch = lambda phase: setattr(self.c, "app_pid", 5000) or True
+        self.c.tour = lambda: self.relaunch_problems
+        self.c.quit = lambda: self.quits.append(self.c.app_pid)
+        self.c.kill = lambda pids: self.keys.append("kill:" + ",".join(map(str, pids)))
+
+    def tearDown(self):
+        chaos.QUIT_EXIT_DEADLINE, chaos.QUIT_ASK_WAIT, chaos.CHILD_EXIT_DEADLINE = self.saved
+
+    def press(self, chord: str) -> None:
+        self.keys.append(chord)
+        if chord != "cmd+q" or self.ignores_quit:
+            return
+        if self.asks and not self.sheet and self.status is None and self.keys.count("cmd+q") == 1:
+            self.sheet = True
+            return
+        self.sheet, self.status = False, self.exit_code
+        self.ps = [row for row in self.ps if row[0] in self.left_children]
+
+    def call(self, method: str, params: dict | None = None, timeout: float = 60) -> dict:
+        if method == "debug.quit":
+            return {"asking": self.sheet, "quitting": self.sheet}
+        if method == "debug.daemon":
+            return {"pid": 31, "connection": "connected"}
+        return {}
+
+    def test_a_clean_quit_answers_the_sheet_with_a_second_cmd_q_and_relaunches(self):
+        ok, detail = self.c.quit_storm()
+        self.assertTrue(ok, detail)
+        self.assertEqual((detail["sheet"], detail["exit_status"], detail["children_left"]), ("cmd-q", 0, []))
+        self.assertEqual((detail["chromium_children"], detail["new_pid"], self.c.app_pid), ([800, 801], 5000, 5000))
+        self.assertEqual(self.keys, ["cmd+q", "cmd+q"])
+        self.assertEqual(self.quits, [], "a clean quit needs no clean-up")
+
+    def test_a_quit_without_a_sheet_is_one_cmd_q(self):
+        self.asks = False
+        ok, detail = self.c.quit_storm()
+        self.assertTrue(ok, detail)
+        self.assertEqual((detail["sheet"], self.keys), ("none", ["cmd+q"]))
+
+    def test_an_app_that_never_exits_fails_and_is_cleaned_up(self):
+        self.ignores_quit, self.asks = True, False
+        ok, detail = self.c.quit_storm()
+        self.assertFalse(ok)
+        self.assertIsNone(detail["exit_status"])
+        self.assertEqual(self.quits, [4242])
+        self.assertIn("quit_state", detail)
+
+    def test_a_nonzero_exit_fails(self):
+        self.exit_code = 137  # the hard quit deadline's forced exit, or a crash
+        ok, detail = self.c.quit_storm()
+        self.assertFalse(ok)
+        self.assertEqual(detail["exit_status"], 137)
+
+    def test_a_chromium_child_left_after_the_exit_fails_and_is_killed(self):
+        self.left_children = [801]
+        ok, detail = self.c.quit_storm()
+        self.assertFalse(ok)
+        self.assertEqual(detail["children_left"], [801])
+        self.assertIn("kill:801", self.keys)
+
+    def test_a_relaunch_that_fails_its_tour_fails_the_fault(self):
+        self.relaunch_problems = {"echo": "a typed echo did not run"}
+        ok, detail = self.c.quit_storm()
+        self.assertFalse(ok)
+        self.assertEqual(detail["relaunch_tour"], self.relaunch_problems)
+
+    def test_quit_typing_presses_cmd_q_in_the_middle_of_the_line(self):
+        self.c.tabs = {"left": "tL"}
+        self.c.focus = lambda tab: {}
+        ok, detail = self.c.fault_quit_typing()
+        self.assertTrue(ok, detail)
+        first, cmd_q, rest = self.keys[:3]
+        self.assertEqual(cmd_q, "cmd+q")
+        self.assertTrue(first.startswith("type:echo ") and rest.startswith("type:"))
+        self.assertEqual(len(first) + len(rest) - 10, detail["typed"])
+
+    def test_quit_daemon_restart_kills_the_daemon_right_before_cmd_q(self):
+        ok, detail = self.c.fault_quit_daemon_restart()
+        self.assertTrue(ok, detail)
+        self.assertEqual(self.keys[:2], ["kill:31", "cmd+q"])
+
+    def test_quit_split_animation_presses_cmd_d_right_before_cmd_q(self):
+        self.c.tabs = {"left": "tL"}
+        self.c.focus = lambda tab: {}
+        self.c.panes = lambda: 2
+        ok, _ = self.c.fault_quit_split_animation()
+        self.assertTrue(ok)
+        self.assertEqual(self.keys[:2], ["cmd+d", "cmd+q"])
+
+    def test_quit_page_load_opens_both_engines_on_a_server_that_never_answers(self):
+        opened = []
+        self.c.tabs = {"cef": "tC"}
+        self.c.focus = lambda tab: {}
+        plain = self.call
+
+        def call(method, params=None, timeout=60):
+            if method == "action.run" and (params or {}).get("action") == "openBrowser":
+                opened.append(params["args"])
+                return {"created": ["load-" + params["args"]["engine"]]}
+            return plain(method, params, timeout)
+        self.c.call = call
+        ok, detail = self.c.fault_quit_page_load()
+        self.assertTrue(ok, detail)
+        self.assertEqual([a["engine"] for a in opened], ["cef", "webkit"])
+        self.assertTrue(all(f":{chaos.TARPIT_PORT}/" in a["url"] for a in opened))
+        self.assertTrue(any("kill $(cat " + chaos.TARPIT_PID in c for c in self.g.commands), "the tarpit is stopped")
+
+    def test_a_quit_fault_has_no_pings_while_the_app_is_down_and_keeps_the_relaunched_pid(self):
+        self.g.app_pid = 5000  # the relaunched app
+        self.c.fault_quit_daemon_restart = lambda: (setattr(self.c, "app_pid", 5000), (True, {}))[1]
+        row = self.c.run_fault("quit-daemon-restart", "quit")
+        self.assertEqual((row["outcome"], row["pings_during_fault"], row["app_pid_kept"]), ("ok", 0, True))
+        self.assertEqual(len(row["ping_ms_vm"]), 3)
+
+    def test_every_quit_fault_is_one_row_of_the_quit_phase(self):
+        quit_faults = [f for f, (phase, _) in chaos.FAULTS.items() if phase == "quit"]
+        self.assertEqual(quit_faults, ["quit-page-load", "quit-typing", "quit-daemon-restart", "quit-split-animation"])
+        self.g.app_pid = 5000
+        self.c.app_pid = None
+        self.c.call = lambda method, params=None, timeout=60: {}
+        for name in quit_faults:
+            setattr(self.c, "fault_" + name.replace("-", "_"), lambda: (True, {}))
+        self.c.run(quit_faults)
+        rows = self.c.result["faults"]
+        self.assertEqual([(r["fault"], r["phase"], r["outcome"]) for r in rows], [(f, "quit", "ok") for f in quit_faults])
+        self.assertTrue(all(r["expected"].endswith(chaos.QUIT_EXPECTED) for r in rows))
 
 
 if __name__ == "__main__":

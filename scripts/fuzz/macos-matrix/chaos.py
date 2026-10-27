@@ -44,13 +44,27 @@ right before and right after every kill; the checked echo comes after recovery.
                      1 MB or more): the app stays up, nothing refuses, and a typed echo runs in the
                      new workspace; it keeps working after the space is freed.
 
+The quit storm (phase `quit`) presses Cmd-Q as real keys over VNC while something is in flight, then
+relaunches. A quit sheet is answered by a second Cmd-Q (its default, QuitAlert.answerDefault), and only
+when that leaves it open by `debug.quit` pressing its default button. Each needs: the app exits with status 0 within
+30 s of the first Cmd-Q, every Chromium child it had (`--type=`) ends within 10 s of the exit, and a
+relaunch answers a ping and passes the tour (two terminals, the pages, a typed echo). Any crash report
+of a cmux, daemon or acpmux process in the window (the quit through the relaunch's tour) fails it.
+
+  quit-page-load     Cmd-Q while a Chromium and a WebKit tab load from a guest server that accepts and
+                     never answers.
+  quit-typing        Cmd-Q in the middle of a line typed into a terminal; the rest of it typed after.
+  quit-daemon-restart Cmd-Q right after a SIGKILL of the cmux-tui daemon, while the app reconnects.
+  quit-split-animation Cmd-Q right after Cmd-D, while the new split animates.
+
 Every fault also needs: the app's pid unchanged, every main-thread ping answered within 10 s (one a
 second on a thread of its own while the fault and its recovery run, three after; their times are
 recorded "VM, not comparable"), and no crash report (.ips) of a cmux process whose crash time (the
 report's captureTime, in the guest's clock like every window) is in the fault's window. A crash in a
 launch, a tour or a quit is no fault's and fails the run. A fault the guest cannot inject (no
 passwordless sudo, no holder process, a level or a full volume that never came) is `skip` with the
-reason, which is no verdict for the run: never a PASS.
+reason, which is no verdict for the run: never a PASS. A quit fault has no pings while the app is down
+(its three come from the relaunched app), and its `app_pid_kept` is about the relaunched pid.
 
 result.json: {"suite": "chaos", "os", "build", "faults": [{"fault", "phase", "expected", "outcome":
 "ok"|"FAIL"|"skip", "ok", "detail", "seconds", "window", "app_pid_kept", "ping_ms_vm", "crash_reports"}],
@@ -74,6 +88,7 @@ import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from fuzz import Guest, report_kind  # noqa: E402
+import smoke  # noqa: E402  (smoke.RFB for a VNC reconnect: the class tests replace)
 from smoke import LAUNCH_DEADLINE, PERL_HTTP, STEP_DEADLINE, Smoke  # noqa: E402
 
 TITLE = "cmux-chaos-page"
@@ -90,6 +105,16 @@ HOME_IMAGE = "/tmp/cmux-chaos-home.sparseimage"
 HOME_MOUNT = "/tmp/cmux-chaos-home"
 BASE_ENV = "CMUX_NEXT_SOCKET_MODE=automation"
 PF_ANCHOR = "com.apple/cmux-chaos"  # /etc/pf.conf evaluates every com.apple/* anchor
+QUIT_EXIT_DEADLINE = 30  # s from the first Cmd-Q to the exit: the app's hard quit deadline is 15 s (QuitDeadline)
+QUIT_ASK_WAIT = 3  # s for the quit sheet to show, and then to close after the second Cmd-Q
+CHILD_EXIT_DEADLINE = 10  # s after the app's exit for its Chromium children to end
+TARPIT_PORT = 8740
+TARPIT_PID = "/tmp/cmux-chaos-tarpit.pid"
+# Accepts every connection and never answers, so a page that loads from it is still loading at the quit.
+PERL_TARPIT = ("my $s = IO::Socket::INET->new(LocalPort => shift, Listen => 64, ReuseAddr => 1) or die $!;"
+               " my @held; while (my $c = $s->accept) { push @held, $c }")
+QUIT_EXPECTED = ("the app exits 0 within 30 s (a quit sheet answered by a second Cmd-Q); its Chromium children "
+                 "end; a relaunch tours and a typed echo runs; no crash report")
 PF_RULES = ("pass quick on lo0 all\n"
             "pass in quick proto tcp from any to any port 22 flags any keep state\n"
             "pass out quick proto tcp from any port 22 to any flags any keep state\n"
@@ -116,12 +141,17 @@ FAULTS = {
                              "rest with an error); a typed echo runs"),
     "full-disk": ("full-disk", "app stays up with its home volume full: a new workspace, a split and Settings, none "
                                "refused; a typed echo runs in the new workspace; it still answers after the space is freed"),
+    "quit-page-load": ("quit", "Cmd-Q while a Chromium and a WebKit page load: " + QUIT_EXPECTED),
+    "quit-typing": ("quit", "Cmd-Q in the middle of keys typed into a terminal: " + QUIT_EXPECTED),
+    "quit-daemon-restart": ("quit", "Cmd-Q right after the daemon is SIGKILLed: " + QUIT_EXPECTED),
+    "quit-split-animation": ("quit", "Cmd-Q right after Cmd-D, while the split animates: " + QUIT_EXPECTED),
 }
 PHASES = {  # phase: (extra environment, shell prelude) of its launch
     "app": ("", ""),
     "holder": ("CMUX_TUI_TERMINAL_HOST_MODEL=holder", ""),
     "fd-limit": ("", "ulimit -Sn 256 && ulimit -Hn 256 &&"),
     "full-disk": (f"HOME={HOME_MOUNT} CFFIXED_USER_HOME={HOME_MOUNT}", ""),
+    "quit": ("", ""),
 }
 
 
@@ -376,13 +406,15 @@ class Chaos(Smoke):
     def run_fault(self, name: str, phase: str) -> dict:
         row = {"fault": name, "phase": phase, "expected": FAULTS[name][1]}
         started, clock = self.guest_time(), time.time()
-        pinger = Pinger(self.g)
+        # A quit fault ends the app on purpose: its pings come from the relaunched app, after it.
+        pinger = None if phase == "quit" else Pinger(self.g)
         try:
-            pinger.start()
+            if pinger:
+                pinger.start()
             try:
                 ok, detail = getattr(self, "fault_" + name.replace("-", "_"))()
             finally:
-                during = pinger.stop()
+                during = pinger.stop() if pinger else []
             pings = during + [self.g.ping_ms(PING_BOUND_MS / 1000) for _ in range(3)]
             answered = all(ms is not None and ms < PING_BOUND_MS for ms in pings)
             kept = self.app_pid is not None and self.g.pid() == self.app_pid
@@ -672,6 +704,127 @@ class Chaos(Smoke):
             "free_kb_when_full": int(free), "new_workspace": bool(fresh), "split": split, "settings": settings,
             "echo": echoed, "ping_after_free_ms_vm": after}
 
+    # --- the quit storm ---------------------------------------------------------------------------
+    def poll(self, probe, seconds: float, every: float = 0.5):
+        """Smoke.wait without its early end when the app is gone: a quit waits for exactly that."""
+        end = time.time() + seconds
+        while True:
+            value = probe()
+            if value or time.time() >= end:
+                return value
+            time.sleep(every)
+
+    def vnc_send(self, send) -> None:
+        """Real keys over VNC (the server drops idle clients: one reconnect)."""
+        try:
+            send(self.vnc)
+        except (ConnectionError, OSError, RuntimeError):
+            self.vnc = smoke.RFB(*self.vnc_args)
+            send(self.vnc)
+
+    def press(self, chord: str) -> None:
+        self.vnc_send(lambda vnc: vnc.chord(chord))
+
+    def type_keys(self, text: str) -> None:
+        self.vnc_send(lambda vnc: vnc.type_text(text, gap=0.005))
+
+    def exited(self) -> int | None:
+        """The app's exit status, once launch()'s shell wrote it."""
+        out = self.g.sh(f"cat {EXIT_FILE} 2>/dev/null").stdout.strip()
+        return int(out) if out.isdigit() else None
+
+    def chromium_children(self) -> list[int]:
+        return sorted(pid for pid, ppid, args in self.procs() if ppid == self.app_pid and "--type=" in args)
+
+    def still_running(self, pids: list[int]) -> list[int]:
+        """Which of `pids` still run as a Chromium child (a reused pid runs something else)."""
+        return sorted(pid for pid, _, args in self.procs() if pid in pids and "--type=" in args)
+
+    def answer_quit_sheet(self) -> str:
+        """`none` when the app quit without asking, `cmd-q` when a second Cmd-Q answered the sheet with its
+        default, `press-default` when debug.quit had to press it ("quit" is Keep on a sheet without Quit)."""
+        def state():
+            if self.exited() is not None:
+                return "exited"
+            return "asking" if self.call("debug.quit", timeout=5).get("asking") else None
+        if self.poll(state, QUIT_ASK_WAIT, 0.25) != "asking":
+            return "none"
+        self.press("cmd+q")
+        if self.poll(lambda: self.exited() is not None or not self.call("debug.quit", timeout=5).get("asking"),
+                     QUIT_ASK_WAIT, 0.25):
+            return "cmd-q"
+        self.call("debug.quit", {"press": "quit"}, timeout=5)
+        return "press-default"
+
+    def quit_storm(self, before=None, after=None) -> tuple[bool, dict]:
+        """Cmd-Q (real keys) between `before` and `after`; then the exit, the Chromium children and a
+        relaunch with the tour. Leaves the relaunched app as self.app_pid."""
+        old = self.app_pid
+        children = self.chromium_children()
+        self.g.refocus()
+        if before:
+            before()
+        self.press("cmd+q")
+        if after:
+            after()
+        clock = time.time()
+        sheet = self.answer_quit_sheet()
+        self.poll(lambda: self.exited() is not None, max(0.0, QUIT_EXIT_DEADLINE - (time.time() - clock)))
+        status = self.exited()
+        detail = {"old_pid": old, "sheet": sheet, "exit_status": status,
+                  "quit_seconds_vm": round(time.time() - clock, 1), "chromium_children": children}
+        if status is None:
+            detail["quit_state"] = self.call("debug.quit", timeout=10)
+            self.quit()  # ends what still runs of the build, so the relaunch starts clean
+        self.poll(lambda: not self.still_running(children), CHILD_EXIT_DEADLINE)
+        left = self.still_running(children)
+        if left:
+            self.kill(left)
+        detail["children_left"] = left
+        self.app_pid = None
+        if not self.launch("quit"):
+            return False, {**detail, "relaunch": f"no ping within {LAUNCH_DEADLINE} s"}
+        problems = self.tour()
+        detail.update(new_pid=self.app_pid, relaunch_tour=problems or "ok")
+        return status == 0 and not left and not problems, detail
+
+    def fault_quit_page_load(self):
+        pages = self.tabs.get("cef") or self.missing("cef")
+        self.g.sh(f"( trap '' HUP; exec /usr/bin/perl -MIO::Socket::INET -e '{PERL_TARPIT}' {TARPIT_PORT} "
+                  f">/tmp/cmux-chaos-tarpit.log 2>&1 </dev/null ) & echo $! >{TARPIT_PID}; disown; true")
+        try:
+            self.focus(pages)  # the loading tabs open in the pages' pane
+            loading = {}
+            for engine in ("cef", "webkit"):
+                reply = self.call("action.run", {"action": "openBrowser", "focus": True, "args": {
+                    "url": f"http://127.0.0.1:{TARPIT_PORT}/?{engine}", "engine": engine}})
+                loading[engine] = (reply.get("created") or [None])[0]
+            ok, detail = self.quit_storm()
+        finally:
+            self.g.sh(f"kill $(cat {TARPIT_PID} 2>/dev/null) 2>/dev/null; true")
+        return ok and all(loading.values()), {"loading_tabs": loading, **detail}
+
+    def fault_quit_typing(self):
+        self.focus(self.tabs.get("left") or self.missing("left"))
+        line = "echo cmux-chaos-quit-typing-" + "abcdefghij" * 4
+        half = len(line) // 2
+        ok, detail = self.quit_storm(before=lambda: self.type_keys(line[:half]),
+                                     after=lambda: self.type_keys(line[half:]))
+        return ok, {"typed": len(line), "cmd_q_after": half, **detail}
+
+    def fault_quit_daemon_restart(self):
+        old = self.call("debug.daemon").get("pid")
+        if not old:
+            return False, {"why": "debug.daemon names no connected daemon"}
+        ok, detail = self.quit_storm(before=lambda: self.kill([int(old)]))
+        return ok, {"killed_daemon": old, **detail}
+
+    def fault_quit_split_animation(self):
+        self.focus(self.tabs.get("left") or self.missing("left"))
+        panes = self.panes()
+        ok, detail = self.quit_storm(before=lambda: self.press("cmd+d"))  # Ghostty's split right
+        return ok, {"panes_before": panes, **detail}
+
     def missing(self, role: str):
         raise RuntimeError(f"the tour has no {role} tab")
 
@@ -766,7 +919,7 @@ class Chaos(Smoke):
             ending = self.guest_time()
             self.quit()
             self.segment("end", "quit", ending)
-        g.sh("kill $(cat /tmp/cmux-chaos-www.pid 2>/dev/null) 2>/dev/null; "
+        g.sh(f"kill $(cat /tmp/cmux-chaos-www.pid {TARPIT_PID} 2>/dev/null) 2>/dev/null; "
              f"sudo -n /sbin/pfctl -a {PF_ANCHOR} -F all >/dev/null 2>&1; "
              f"hdiutil detach -quiet -force {HOME_MOUNT} >/dev/null 2>&1; true", timeout=60)
         rows = self.result["faults"]

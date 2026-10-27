@@ -119,6 +119,17 @@ checked after recovery. Each fault has its own expected outcome:
 | `holder` | relaunch with `CMUX_TUI_TERMINAL_HOST_MODEL=holder`, SIGKILL the holder (`cmux-holder`, or `__holder` in cmux-tui-host) whose child is the left terminal's shell | the app stays up; each pane of that holder shows the ended state with "Restart Shell Here" (`debug.surfaces` `status_text`, `restart_offered`) and Restart (`tab.restart`, the button's action) brings its shell back, or kept the same shell while a new holder runs (it adopted the masters); other holders and their shells are untouched |
 | `fd-limit` | relaunch under `ulimit -n 256` (soft and hard), then 12 workspaces and 8 pages | the app stays up (refusals are errors, recorded); an echo runs |
 | `full-disk` | relaunch with HOME on a 512 MB sparse image, then the image filled | a new workspace, a split and Settings with a full home volume (`skip` when 1 MB or more stayed free), none refused; an echo runs in the new workspace; the app answers after the space is freed |
+| `quit-page-load` | Cmd-Q (VNC keys) while a Chromium and a WebKit tab load from a guest server that accepts and never answers | the quit result (below) |
+| `quit-typing` | Cmd-Q in the middle of a line typed into a terminal (VNC keys); the rest typed after | the quit result |
+| `quit-daemon-restart` | SIGKILL the cmux-tui daemon, then Cmd-Q at once, while the app reconnects | the quit result |
+| `quit-split-animation` | Cmd-D, then Cmd-Q at once, while the new split animates | the quit result |
+
+The quit storm (phase `quit`) answers a quit sheet with a second Cmd-Q (its default), and only if that leaves it
+open presses the default through `debug.quit`. The quit result: the app exits 0 within 30 s of the first Cmd-Q
+(its hard quit deadline is 15 s), every Chromium child it had ends within 10 s of the exit, and a relaunch
+answers a ping and passes the tour (terminals, pages, an echo). A crash report of any cmux, daemon or acpmux
+process from the Cmd-Q through the relaunch's tour fails the fault. A quit fault has no pings while the app is
+down; its three pings and `app_pid_kept` are about the relaunched app.
 
 Every fault also needs the same app pid, every main-thread ping answered within 10 s (one a second on a thread
 of its own while the fault and its recovery run, three after; their times are labeled "VM, not comparable") and
