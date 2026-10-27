@@ -166,7 +166,9 @@ extension Motion {
 extension MotionGate {
     /// Animates `NSView.animator()` changes with a spring token, or applies
     /// them at once when movement does not animate. `completion` runs on the
-    /// main thread after the change finishes (or on the next turn).
+    /// main thread after the change finishes (or on the next turn). A
+    /// layer-backed view's frame or alpha moves on the render server through
+    /// `animate(_:in:frame:alpha:completion:)` instead (MotionGate+ViewLayer).
     ///
     /// - Parameter view: The view the change animates. When its window has no
     ///   screen the change applies at once (``canAnimate(in:)``).
