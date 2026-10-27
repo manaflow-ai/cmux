@@ -530,6 +530,8 @@ public actor CloudCodexBrokerRegistry {
     /// Returns the existing holder without creating or signing in to one.
     public func existing(for scope: CloudCodexBrokerScope) -> CloudCodexBroker? { brokers[scope] }
 
+    func hasPendingCleanup(for scope: CloudCodexBrokerScope) -> Bool { pendingCleanup[scope] != nil }
+
     /// Called only after the service successfully deletes this VM.
     public func discardDeletedTarget(_ machineID: String, scope: CloudCodexBrokerScope) async {
         await brokers[scope]?.discardDeletedTarget(machineID)
