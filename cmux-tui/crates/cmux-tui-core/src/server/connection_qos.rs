@@ -16,7 +16,7 @@
 //!
 //! The person's connections ([`ConnectionClass::Person`]) rest at the echo
 //! class on the reader (it reads the person's keys) and at user-initiated on
-//! the dispatcher. They are the verified app's connection and the app's
+//! their request tasks. They are the verified app's connection and the app's
 //! other connections without a hello (`terminal_attach`, `journal_read`,
 //! `agent_session_attach`, ...): the same process, by the kernel's peer
 //! fact fixed at accept (`ConnectionOrigin::peer_key`), as a verified app
@@ -28,8 +28,8 @@
 //! authorization reads the request origin (server/origin_gate.rs).
 //!
 //! A connection thread reads its class at one point of its loop
-//! ([`RestingClass::follow`]): the reader before each line it routes, the
-//! dispatcher before each request it runs. The class is entered as a
+//! ([`RestingClass::follow`]): the reader before each line it routes, a
+//! control task as it starts (connection_scheduler.rs). The class is entered as a
 //! [`WorkQos`], so a thread resting at utility is raised while it waits for
 //! or holds a ranked lock (`cmux_tui_platform::qos::LockBoost`), and a
 //! request's own class (`crate::request_qos`) nests inside it. The
@@ -66,6 +66,15 @@ pub(in crate::server) enum ConnectionClass {
 }
 
 impl ConnectionClass {
+    /// The class's name in `server-threads` (server/server_stats.rs).
+    pub(in crate::server) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Unclassified => "unclassified",
+            Self::Person => "person",
+            Self::Automation => "automation",
+        }
+    }
+
     /// The class of a connection over `transport` whose origin derives to
     /// `origin`; `remote_device` is `set-client-info remote: true`, and
     /// `app_process` says its peer is the process of a verified app
@@ -111,7 +120,9 @@ impl ConnectionClass {
 pub(in crate::server) enum ConnectionThread {
     /// Reads and routes its lines (mux-conn, mux-remote-conn, mux-ws-conn).
     Reader,
-    /// Runs its queued requests (mux-control-dispatch, mux-surface-control).
+    /// Runs its queued requests: a control task on the sequenced pool (in a
+    /// scope, not resting). A clear-history request is a `Mux::work` item at
+    /// its cause's class (task 230), not a connection thread.
     Request,
 }
 
@@ -119,15 +130,25 @@ pub(in crate::server) enum ConnectionThread {
 /// and its threads (which follow it). Advisory: a thread that reads an old
 /// value takes the new one at its next follow point.
 #[derive(Debug, Default)]
-pub(in crate::server) struct ConnectionClassCell(AtomicU8);
+pub(in crate::server) struct ConnectionClassCell {
+    class: AtomicU8,
+    /// The connection's client id; `None` for a cell no registry record
+    /// holds.
+    client: Option<u64>,
+}
 
 impl ConnectionClassCell {
+    /// The cell of connection `client`'s registry record.
+    pub(in crate::server) fn of_client(client: u64) -> Self {
+        Self { class: AtomicU8::default(), client: Some(client) }
+    }
+
     pub(in crate::server) fn get(&self) -> ConnectionClass {
-        ConnectionClass::from_u8(self.0.load(Ordering::Relaxed))
+        ConnectionClass::from_u8(self.class.load(Ordering::Relaxed))
     }
 
     pub(in crate::server) fn set(&self, class: ConnectionClass) {
-        self.0.store(class as u8, Ordering::Relaxed);
+        self.class.store(class as u8, Ordering::Relaxed);
     }
 }
 
@@ -139,6 +160,8 @@ pub(in crate::server) struct RestingClass {
     enabled: bool,
     /// `None` before the first follow.
     applied: Option<ConnectionClass>,
+    /// The thread's registry row names the connection (first follow).
+    named: bool,
     /// Dropped before the next class is entered: scopes nest.
     scope: Option<WorkQos>,
 }
@@ -149,15 +172,24 @@ impl RestingClass {
         role: ConnectionThread,
         gate: RequestQos,
     ) -> Self {
-        Self { cell, role, enabled: gate.enabled(), applied: None, scope: None }
+        Self { cell, role, enabled: gate.enabled(), applied: None, named: false, scope: None }
     }
 
     /// Runs this thread at its connection's class when that changed since
     /// the last call: one relaxed load otherwise. Call it outside every
     /// request and lock scope. The thread's registry row asks for the class
     /// (`desired`) and shows it as `effective` once applied; a class the
-    /// process could not take back is not entered (`WorkQos::enter`).
+    /// process could not take back is not entered (`WorkQos::enter`). The
+    /// first call, feature on or off, names the connection on the row
+    /// (`server-threads` `connection`), so the QoS audit can tell the
+    /// person's connection threads from automation's.
     pub(in crate::server) fn follow(&mut self) {
+        if !self.named {
+            self.named = true;
+            if let (Some(client), Some(slot)) = (self.cell.client, cmux_threads::current_slot()) {
+                slot.work_for(client);
+            }
+        }
         if !self.enabled {
             return;
         }

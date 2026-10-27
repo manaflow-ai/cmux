@@ -339,10 +339,11 @@ fn take_descriptors(message: &libc::msghdr) -> Vec<OwnedFd> {
 fn set_cloexec(fd: &OwnedFd) -> std_io::Result<()> {
     // SAFETY: fcntl on a valid owned descriptor.
     let flags = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GETFD) };
-    // SAFETY: as above.
-    if flags < 0
-        || unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETFD, flags | libc::FD_CLOEXEC) } < 0
-    {
+    if flags < 0 {
+        return Err(std_io::Error::last_os_error());
+    }
+    // SAFETY: as above; F_SETFD only adds FD_CLOEXEC to the flags just read.
+    if unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETFD, flags | libc::FD_CLOEXEC) } < 0 {
         return Err(std_io::Error::last_os_error());
     }
     Ok(())

@@ -25680,6 +25680,137 @@
         }
       }
     },
+    "handlers.refusal.hibernateDiscardAttempted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This tab could not hibernate. It stays loaded until you show it again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر إسبات علامة التبويب هذه. تبقى محمّلة حتى تعرضها مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova kartica nije mogla hibernirati. Ostaje učitana dok je ponovo ne prikažete."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne fane kunne ikke gå i dvale. Den forbliver indlæst, indtil du viser den igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Tab konnte nicht in den Ruhezustand wechseln. Er bleibt geladen, bis du ihn wieder anzeigst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta pestaña no pudo hibernar. Permanece cargada hasta que la vuelvas a mostrar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cet onglet n’a pas pu être mis en veille. Il reste chargé jusqu’à ce que vous l’affichiez de nouveau."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa scheda non è stata ibernata. Resta caricata finché non la mostri di nuovo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このタブを休止できませんでした。もう一度表示するまで読み込んだままにします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងនេះមិនអាចសម្ងំបានទេ។ វានៅតែផ្ទុក រហូតដល់អ្នកបង្ហាញវាម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 탭을 최대 절전 모드로 전환할 수 없습니다. 다시 표시할 때까지 로드된 상태로 유지됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne fanen kunne ikke gå i dvale. Den forblir lastet til du viser den igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie udało się uśpić tej karty. Pozostaje załadowana, dopóki jej ponownie nie pokażesz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta aba não pôde hibernar. Ela continua carregada até você mostrá-la de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось усыпить эту вкладку. Она остаётся загруженной, пока вы снова её не откроете."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แท็บนี้ไม่สามารถไฮเบอร์เนตได้ แท็บจะยังคงโหลดอยู่จนกว่าคุณจะแสดงอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sekme hazırda bekletilemedi. Siz yeniden gösterene kadar yüklü kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося приспати цю вкладку. Вона лишається завантаженою, доки ви знову її не покажете."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể cho thẻ này ngủ đông. Thẻ vẫn được tải cho đến khi bạn hiển thị lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法休眠此标签页。在你再次显示它之前，它会保持加载。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法休眠此分頁。在你再次顯示它之前，它會保持載入。"
+          }
+        }
+      }
+    },
     "handlers.refusal.hibernateFormSubmission": {
       "extractionState": "manual",
       "localizations": {

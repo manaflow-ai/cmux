@@ -1,6 +1,7 @@
 import CmuxNextCompat
 import CmuxNextPages
 import CmuxNextPagesTestSupport
+import CmuxNextWakeups
 import Foundation
 import Testing
 @testable import CmuxNextChiefViews
@@ -24,7 +25,8 @@ struct ChiefViewsPageHostTests {
     }()
 
     private static let noApp = ChiefViewsHost(workspaces: { [] }, machineName: { _ in nil }, openChat: { _ in },
-                                              revealTab: { _ in false }, openURL: { _ in })
+                                              revealTab: { _ in false }, openURL: { _ in },
+                                              mainWork: MainWorkScheduler(budget: MainFrameBudget()))
 
     @Test func thePageOpensThroughTheGivenHost() throws {
         try #require(Self.registeredRoot)

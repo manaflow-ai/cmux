@@ -13,9 +13,9 @@ pub struct Started {
 
 /// Every process, from `ps`; empty when `ps` fails.
 fn process_table() -> Vec<Started> {
-    let Ok(out) =
-        std::process::Command::new("ps").args(["-axww", "-o", "pid=,ppid=,lstart="]).output()
-    else {
+    let mut ps = std::process::Command::new("ps");
+    ps.args(["-axww", "-o", "pid=,ppid=,lstart="]);
+    let Ok(out) = cmux_blocking::process::output(&mut ps) else {
         return Vec::new();
     };
     String::from_utf8_lossy(&out.stdout)
