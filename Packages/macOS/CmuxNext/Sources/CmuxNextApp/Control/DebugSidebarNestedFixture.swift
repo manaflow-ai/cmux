@@ -63,6 +63,9 @@ struct DebugSidebarNestedFixture {
 ///   after a `state`, it reads the board anew.
 /// - `tooltip: true`: the synthetic pointer rests on that header (`debug.pointer_hover`), so its tooltip
 ///   opens after the usual delay; `false` moves the pointer away.
+/// - `click: true`: the person's Update on that machine's line in Settings > Updates, as the board takes
+///   it when the policy accepts it (no update runs): its line then says it is updating while its state is
+///   `updating`.
 extension DebugSidebarNestedFixture {
     static func daemonUpdate(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         let id = params["id"]?.stringValue ?? "ssh:build-box"
@@ -80,6 +83,11 @@ extension DebugSidebarNestedFixture {
                                                              notify: params["notify"]?.boolValue ?? false,
                                                              build: params["build"]?.stringValue))
             answer["state"] = .string(raw)
+        }
+        if params["click"]?.boolValue == true {
+            // task-owner: one board call that returns at once (the stand-in policy accepts at once)
+            Task { _ = await DaemonUpdateBoard.shared.update(id) { _ in true } }
+            answer["click"] = .bool(true)
         }
         guard let controller = services.windows.controllers.first(where: { c in params["window"]?.stringValue.map { $0 == c.state.id } ?? true })
                 ?? services.windows.active else {

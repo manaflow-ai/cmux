@@ -9,7 +9,8 @@
 //!
 //! The old one-shot request is bounded to [`LEGACY_MAX_BYTES`] because it crosses the peer link as
 //! one WebSocket frame. New clients use the resumable methods below, whose chunks are bounded by
-//! [`CHUNK_BYTES`], and may send a larger file up to [`MAX_BYTES`].
+//! [`CHUNK_BYTES`]: a file sent that way has no size cap (Leo, 2026-10-26: "I ALREADY SAID WE NEED
+//! ARBITARRILY LARGE FILES OF ANY TYPE"), only the disk it is written to.
 //!
 //! A chat's files go when the chat is deleted (`_acpmux/kill` with purge, [`remove_session`]; not
 //! when Bring Back replaces its closed copy under the same id, `transfer_in.rs`), and
@@ -28,8 +29,6 @@ use std::time::Duration;
 pub const FEATURE: &str = "filePut";
 /// The resumable upload feature advertised by current daemons.
 pub const CHUNKS_FEATURE: &str = "filePutChunks";
-/// The largest file a local or peer upload may hold.
-pub const MAX_BYTES: usize = 1 << 30;
 /// The largest one-shot request accepted for compatibility with older peers.
 pub const LEGACY_MAX_BYTES: usize = 10 << 20;
 /// The largest decoded chunk. Its base64 form stays below one MiB on the wire.
@@ -65,6 +64,38 @@ fn made_at(name: &str) -> Option<u64> {
     Some(secs * 1000 + u64::from(nanos) / 1_000_000)
 }
 
+/// Whether `path` is inside this daemon's uploads folder (no `..`).
+pub(crate) fn is_upload(path: &Path) -> bool {
+    path.starts_with(root())
+        && !path.components().any(|c| matches!(c, std::path::Component::ParentDir))
+}
+
+/// Held while the sweep decides on and deletes an upload, and while a prompt marks one used and
+/// checks it is there ([`touch`]): an upload in use is never deleted between the two.
+pub(crate) static IN_USE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// The marker of an upload folder's last use ([`touch`]).
+const USED: &str = ".used";
+
+/// Marks the upload folder of `file` as used now, so the age sweep keeps it for another
+/// `uploadsMaxAgeDays` from its last use, not its upload: a prompt that names it, or a turn that
+/// starts with it. The caller holds [`IN_USE`] across this and its check that the file is there,
+/// and refuses the prompt when the mark cannot be written: the sweep would not know it is in use.
+/// Blocking.
+pub(crate) fn touch(file: &Path) -> anyhow::Result<()> {
+    let dir = file.parent().ok_or_else(|| anyhow::anyhow!("{} has no folder", file.display()))?;
+    crate::agent_tools::write_private(&dir.join(USED), &[])
+}
+
+/// When upload folder `dir` was last used ([`touch`]), in Unix ms; 0 when never.
+fn used_at(dir: &Path) -> u64 {
+    let modified = std::fs::symlink_metadata(dir.join(USED)).and_then(|m| m.modified());
+    modified
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+}
+
 /// Deletes each upload under `root` older than `max_age` at `now_ms`, and a session folder it
 /// leaves empty; answers how many uploads went. Only real folders with a UUIDv7 name are read as
 /// uploads: a symlink, a file or another name is kept. Blocking: run it off the runtime.
@@ -79,7 +110,10 @@ pub(crate) fn sweep(root: &Path, now_ms: u64, max_age: Duration) -> usize {
     let mut removed = 0;
     for session in real_dirs(root) {
         for upload in real_dirs(&session.path()) {
-            let old = upload.file_name().to_str().and_then(made_at).is_some_and(|at| at < cutoff);
+            // Made and last used before the cutoff (`touch`), decided and deleted under `IN_USE`.
+            let _held = IN_USE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let old = upload.file_name().to_str().and_then(made_at).is_some_and(|at| at < cutoff)
+                && used_at(&upload.path()) < cutoff;
             if old && std::fs::remove_dir_all(upload.path()).is_ok() {
                 removed += 1;
             }
@@ -166,9 +200,19 @@ fn windows_device_name(name: &str) -> bool {
         )
 }
 
+/// A one-shot `_acpmux/file_put` past [`LEGACY_MAX_BYTES`]: the resumable methods take it.
 fn too_large() -> RpcError {
-    RpcError::invalid_params(format!("a file is at most {} MiB", MAX_BYTES >> 20))
-        .with_data(json!({"reason": "filePut.tooLarge", "maxBytes": MAX_BYTES}))
+    RpcError::invalid_params(format!(
+        "a one-shot file_put is at most {} MiB: send a larger file with file_put_begin",
+        LEGACY_MAX_BYTES >> 20
+    ))
+    .with_data(json!({"reason": "filePut.tooLarge", "maxBytes": LEGACY_MAX_BYTES}))
+}
+
+/// A chunk past the size its upload began with.
+fn past_declared(size: u64) -> RpcError {
+    RpcError::invalid_params(format!("the upload began as {size} bytes"))
+        .with_data(json!({"reason": "filePut.pastSize", "size": size}))
 }
 
 fn upload_id(id: &str) -> Option<String> {
@@ -181,6 +225,42 @@ fn part_path(session: &str, upload: &str) -> Option<PathBuf> {
 
 fn meta_path(session: &str, upload: &str) -> Option<PathBuf> {
     Some(session_dir(session)?.join(upload_id(upload)?).join(".meta"))
+}
+
+/// Where a finished upload `upload` of session `session` named `name` is (`finish`); None for an
+/// id that is not a UUIDv7 or a name that is not a plain file name (`prompt_uploads.rs`).
+pub(crate) fn finished_path(session: &str, upload: &str, name: &str) -> Option<PathBuf> {
+    is_file_name(name).then_some(())?;
+    Some(session_dir(session)?.join(upload_id(upload)?).join(name))
+}
+
+/// Opens a finished upload at `path` ([`finished_path`]) to read: its chat's folder and its own
+/// folder are real folders (no symlink anywhere below `uploads`), and the file is this user's
+/// owner-only file with no other name (one hard link), so nothing outside the uploads can be
+/// read through it. `NotFound` when it is not there. Blocking.
+pub(crate) fn open_finished(path: &Path) -> std::io::Result<std::fs::File> {
+    for dir in path.ancestors().skip(1).take(2) {
+        let meta = std::fs::symlink_metadata(dir)?;
+        if !meta.is_dir() {
+            return Err(std::io::Error::other(format!("{} is not a folder", dir.display())));
+        }
+    }
+    let file = crate::config::private_state_file(path).map_err(|e| {
+        match e.chain().find_map(|c| c.downcast_ref::<std::io::Error>()) {
+            Some(io) if io.kind() == std::io::ErrorKind::NotFound => {
+                std::io::Error::from(std::io::ErrorKind::NotFound)
+            }
+            _ => std::io::Error::other(e.to_string()),
+        }
+    })?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if file.metadata()?.nlink() != 1 {
+            return Err(std::io::Error::other(format!("{} has another name", path.display())));
+        }
+    }
+    Ok(file)
 }
 
 fn begin(session: &str, params: &Value) -> Result<Value, RpcError> {
@@ -196,9 +276,6 @@ fn begin(session: &str, params: &Value) -> Result<Value, RpcError> {
         .get("size")
         .and_then(Value::as_u64)
         .ok_or_else(|| RpcError::invalid_params("size is required"))?;
-    if size > MAX_BYTES as u64 {
-        return Err(too_large());
-    }
     let id = uuid::Uuid::now_v7().to_string();
     let path = part_path(session, &id).ok_or_else(|| RpcError::invalid_params("no such chat"))?;
     let parent = path.parent().ok_or_else(|| RpcError::internal("upload path has no parent"))?;
@@ -260,8 +337,8 @@ fn chunk(params: &Value) -> Result<Value, RpcError> {
         return Err(RpcError::invalid_params(format!("upload offset is {current}, got {offset}")));
     }
     let next = current.saturating_add(bytes.len() as u64);
-    if next > declared_size || next > MAX_BYTES as u64 {
-        return Err(too_large());
+    if next > declared_size {
+        return Err(past_declared(declared_size));
     }
     file.seek(SeekFrom::End(0)).map_err(|e| RpcError::internal(e.to_string()))?;
     file.write_all(&bytes).map_err(|e| RpcError::internal(format!("cannot append upload: {e}")))?;
@@ -283,9 +360,6 @@ fn finish(session: &str, params: &Value) -> Result<Value, RpcError> {
         .get("size")
         .and_then(Value::as_u64)
         .ok_or_else(|| RpcError::invalid_params("size is required"))?;
-    if size > MAX_BYTES as u64 {
-        return Err(too_large());
-    }
     let part =
         part_path(session, upload).ok_or_else(|| RpcError::invalid_params("invalid uploadId"))?;
     let meta =
@@ -354,7 +428,7 @@ pub fn check_chunk(params: &Value) -> Result<(), RpcError> {
 }
 
 /// The bytes padded base64 `data` decodes to, read from its length and padding with no decode,
-/// so a file one byte past [`MAX_BYTES`] is refused here and never sent on.
+/// so a one-shot file one byte past [`LEGACY_MAX_BYTES`] is refused here and never sent on.
 fn decoded_len(data: &str) -> usize {
     let pad = data.bytes().rev().take(2).take_while(|&b| b == b'=').count();
     (data.len() / 4 * 3).saturating_sub(pad)
@@ -450,9 +524,6 @@ pub fn put(id: &str, params: &Value) -> Result<Value, RpcError> {
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(data)
         .map_err(|e| RpcError::invalid_params(format!("data is not base64: {e}")))?;
-    if bytes.len() > MAX_BYTES {
-        return Err(too_large());
-    }
     let dir = session_dir(id).ok_or_else(|| RpcError::invalid_params("no such chat"))?;
     let failed = |e: anyhow::Error| RpcError::internal(format!("cannot save the file: {e}"));
     crate::config::private_state_dir(&dir).map_err(failed)?;
@@ -562,10 +633,13 @@ mod tests {
         let only_old = root.join("chat-b").join(named(now - 40 * day));
         let other = root.join("chat-c").join("notes");
         let v4 = root.join("chat-c").join("0190a000-0000-4000-8000-000000000000");
-        for dir in [&old, &new, &only_old, &other, &v4] {
+        // An old upload that a prompt used just now stays.
+        let used = root.join("chat-a").join(named(now - 35 * day));
+        for dir in [&old, &new, &only_old, &other, &v4, &used] {
             std::fs::create_dir_all(dir).unwrap();
             std::fs::write(dir.join("f.txt"), b"x").unwrap();
         }
+        touch(&used.join("f.txt")).unwrap();
         // An old-named link, and a linked session folder: neither is followed.
         let outside = root.with_extension("outside");
         std::fs::create_dir_all(&outside).unwrap();
@@ -580,7 +654,7 @@ mod tests {
             std::os::unix::fs::symlink(&outside, root.join("chat-e")).unwrap();
         }
         assert_eq!(sweep(&root, now, Duration::from_millis(30 * day)), 2);
-        assert!(!old.exists() && new.exists());
+        assert!(!old.exists() && new.exists() && used.exists());
         assert!(!root.join("chat-b").exists(), "an emptied session folder stays");
         assert!(other.exists() && v4.exists());
         assert!(outside.join("keep.txt").exists() && outside_old.exists());

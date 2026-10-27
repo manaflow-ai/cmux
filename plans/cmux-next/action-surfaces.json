@@ -5342,6 +5342,34 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "space clear-defaults",
+      "context_menu" : "minimalMenu",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "space.clearDefaults",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Clear Space Terminal Defaults…",
+      "title_key" : "action.space.clearDefaults",
+      "title_table" : "ProfileActions"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "space new-group",
       "context_menu" : "offered",
       "context_menus" : [
