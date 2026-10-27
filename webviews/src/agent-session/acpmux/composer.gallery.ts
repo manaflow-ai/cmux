@@ -1174,6 +1174,11 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cancel[data-escape-armed] svg"));
       },
     },
+    // Leo 2026-10-21: "IDK IF IM ACTUALLY STOPPING YOU". Stop (or Esc) sent, the turn not ended yet.
+    "working-stopping": {
+      note: "Stop or Esc was sent and the agent has not ended its turn yet: Stop turns and the empty prompt says Stopping…, until the turn ends.",
+      snapshot: chat(working, { isWorking: true, stopping: true }),
+    },
     "working-steer": {
       note: "A prompt typed while the turn runs: one ↵ control puts it into the turn now, as Return does (read when the agent's current step ends); ⌘Return queues it for after the turn; Stop sits left of the mic, as in Claude's desktop app.",
       snapshot: steering(true),
