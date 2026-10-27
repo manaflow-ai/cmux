@@ -165,7 +165,11 @@ struct CloudCredentialTransferTests {
             timeout: .seconds(10), clock: ContinuousClock())
         #expect(ran.stdout.isEmpty && ran.stderr.isEmpty)
         #expect(!FileManager.default.fileExists(atPath: source.path))
-        let target = home.appendingPathComponent(provider == .claude ? ".claude/settings.json" : ".codex/auth.json")
+        // Folder and file apart: one literal naming both reads as the repository's own Claude settings
+        // file to scripts/cmux-next/ci-target-graph.py, which then routes this target on it.
+        let target = provider == .claude
+            ? home.appendingPathComponent(".claude").appendingPathComponent("settings.json")
+            : home.appendingPathComponent(".codex").appendingPathComponent("auth.json")
         if custom {
             #expect(ran.status != 0)
             #expect(!FileManager.default.fileExists(atPath: target.path))
