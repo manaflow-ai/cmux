@@ -179,6 +179,9 @@ public struct ScreenSessionView: View {
             .font(.caption2.monospacedDigit())
             .foregroundStyle(.secondary)
             .lineLimit(1)
+            // WebRTC's numbers are read only while this line is on screen.
+            .onAppear { session.statsVisible = true }
+            .onDisappear { session.statsVisible = false }
     }
 
     @ViewBuilder private var stateCard: some View {

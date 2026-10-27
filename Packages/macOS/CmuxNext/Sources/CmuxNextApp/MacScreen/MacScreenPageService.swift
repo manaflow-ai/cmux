@@ -167,6 +167,7 @@ final class MacScreenPageService: InternalPageProvider {
 extension AppServices {
     static func makeMacScreenPages(_ services: AppServices) -> MacScreenPages {
         let pages = MacScreenPages(store: .forApplication(bundleIdentifier: services.environment.launch.bundleID), mainWork: services.mainWork)
+        pages.deadlines = services.mainDeadlines
         pages.useShortcuts(of: services.registry)
         pages.pointerFrames = { [weak services] in services?.remotePointerFrames }
         pages.hubHost.indicatorMenuItem = { [weak registry = services.registry] in registry?.makeMenuItem(for: $0) }

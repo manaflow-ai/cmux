@@ -102,8 +102,26 @@ public final class ScreenSession {
     public private(set) var relayErrors: [ICECandidateError] = []
     @ObservationIgnored private var reconnectAttempts = 0
     @ObservationIgnored private var reconnectTask: Task<Void, Never>?
-    /// Asks WebRTC for its numbers while the stats line can show (``pollsStreamStats(showStats:phase:)``).
-    @ObservationIgnored private var streamStatsTask: Task<Void, Never>?
+    /// The stats line is on screen: the host's view says so when it shows and when it goes (a hidden tab, a
+    /// hidden toolbar). WebRTC's numbers are read only while it shows (``pollsStreamStats(showStats:statsVisible:phase:)``).
+    @ObservationIgnored public var statsVisible = false {
+        didSet { if statsVisible != oldValue { syncStreamStatsPoll() } }
+    }
+    /// The connected stream's numbers for the stats line; nil while no stream is connected.
+    @ObservationIgnored private var statsSource: (any ScreenVideoStatsSource)? {
+        didSet { if statsSource !== oldValue { syncStreamStatsPoll() } }
+    }
+    /// The next stats sample: a one-shot deadline each sample arms again (``useStatsDeadline(_:)``).
+    @ObservationIgnored private var statsDeadline: any ScreenDeadline = RunLoopScreenDeadline()
+    /// The read of WebRTC's numbers in flight.
+    @ObservationIgnored private var statsRead: Task<Void, Never>?
+    /// Bumped by every start and stop of the sampling, so a read of an older run publishes nothing.
+    @ObservationIgnored private var statsGeneration: UInt64 = 0
+    @ObservationIgnored private var statsSampling = false
+    /// The last read's cumulative bytes and time: the next sample's rate is the difference.
+    @ObservationIgnored private var statsBaseline: (bytes: Double, time: CFTimeInterval)?
+    /// The stats clock (tests step it).
+    @ObservationIgnored var statsNow: @MainActor () -> CFTimeInterval = { CACurrentMediaTime() }
     public var isStream: Bool { pairing?.isStream == true || makeSignaling != nil }
     /// Screen streams use the TURN relay only (ICE policy `relay`), to check
     /// the relay path; applies from the next `connect()`. Off by default.
@@ -288,8 +306,7 @@ public final class ScreenSession {
                 reconnectStarted = nil
                 isReconnecting = false
                 viewer.setQuality(preferences.quality)
-                phase = .connected(VNCServerInfo(width: 0, height: 0, name: name, nativeFormat: .bgrx,
-                                                 protocolMinor: 8, securityType: 0))
+                streamOpened(viewer, name: name)
             } catch {
                 guard let self, stream === viewer else { return }
                 if isReconnecting {
@@ -338,6 +355,7 @@ public final class ScreenSession {
             // Giving up: the dropped stream's room socket would keep reconnecting.
             stream?.close()
             stream = nil
+            statsSource = nil
             isReconnecting = false
             phase = .failed(message: message, needsSignIn: false)
             return
@@ -393,41 +411,83 @@ public final class ScreenSession {
         .milliseconds(max(8, Int((delay * 100).rounded())))
     }
 
-    /// Whether WebRTC's numbers are asked for: only while the stats line can show, on a connected
+    /// The host's deadline for the stats line's samples (CmuxNext: a visible-class `MainDeadline` named
+    /// `MacScreen.stats`); standalone keeps a ``RunLoopScreenDeadline``.
+    public func useStatsDeadline(_ deadline: any ScreenDeadline) {
+        statsDeadline.cancel()
+        statsDeadline = deadline
+        syncStreamStatsPoll()
+    }
+
+    /// A screen stream opened: it shows as connected, and `source` gives the stats line its numbers.
+    func streamOpened(_ source: any ScreenVideoStatsSource, name: String) {
+        statsSource = source
+        phase = .connected(VNCServerInfo(width: 0, height: 0, name: name, nativeFormat: .bgrx,
+                                         protocolMinor: 8, securityType: 0))
+    }
+
+    /// The time between two stats samples.
+    nonisolated static let statsInterval: TimeInterval = 1
+
+    /// Whether WebRTC's numbers are asked for: only while the stats line is on screen, on a connected
     /// stream with ``ScreenPreferences/showStats`` on (as chrome://webrtc-internals asks `getStats`
     /// only while its page is open).
-    static func pollsStreamStats(showStats: Bool, phase: Phase) -> Bool {
-        guard showStats, case .connected = phase else { return false }
+    static func pollsStreamStats(showStats: Bool, statsVisible: Bool, phase: Phase) -> Bool {
+        guard showStats, statsVisible, case .connected = phase else { return false }
         return true
     }
 
-    /// Starts or stops the stats poll for the current stream, phase and preference.
+    /// The stats line's numbers are being read (tests).
+    var pollsStats: Bool { statsSampling }
+    /// The read of WebRTC's numbers in flight (tests await it).
+    var pendingStatsRead: Task<Void, Never>? { statsRead }
+
+    /// Starts or stops the stats sampling for the current stream, phase, preference and visibility. A start
+    /// takes a new baseline: WebRTC's `bytesReceived` counts from the connect.
     private func syncStreamStatsPoll() {
-        streamStatsTask?.cancel()
-        streamStatsTask = nil
-        guard let viewer = stream, Self.pollsStreamStats(showStats: preferences.showStats, phase: phase) else { return }
-        streamStatsTask = Task { [weak self] in await self?.pollStreamStats(viewer) }
+        stopStatsSampling()
+        guard let source = statsSource,
+              Self.pollsStreamStats(showStats: preferences.showStats, statsVisible: statsVisible, phase: phase) else { return }
+        statsSampling = true
+        readStreamStats(source, generation: statsGeneration)
     }
 
-    /// WebRTC's own numbers, once a second, for the stats line.
-    private func pollStreamStats(_ viewer: ScreenStreamViewer) async {
-        var lastBytes = 0.0
-        var lastTime = CACurrentMediaTime()
-        // wakeup-allow: bounded the stats line's second, only while it shows on a connected stream (syncStreamStatsPoll); WebRTC has no stats event
-        while !Task.isCancelled, stream === viewer {
-            // wakeup-allow: bounded one stats sample a second while the stats line shows; a tenth of it is leeway
-            try? await Task.sleep(for: .seconds(1), tolerance: .milliseconds(100))
-            let video = await viewer.videoStats()
-            let now = CACurrentMediaTime()
-            var next = stats
-            next.fps = video.fps ?? 0
-            next.kilobytesPerSecond = (video.bytesReceived - lastBytes) / 1024 / max(now - lastTime, 0.001)
-            next.latencyMs = video.rttMs
-            next.encoding = [video.codec, video.decoder == "VideoToolbox" ? "HW" : video.decoder].compactMap { $0 }.joined(separator: " ")
-            stats = next
-            lastBytes = video.bytesReceived
-            lastTime = now
+    /// Stops the sampling; the numbers it showed are cleared, so no stale numbers read as live.
+    private func stopStatsSampling() {
+        statsGeneration &+= 1
+        guard statsSampling else { return }
+        statsSampling = false
+        statsDeadline.cancel()
+        statsRead?.cancel()
+        statsRead = nil
+        statsBaseline = nil
+        stats = LiveStats()
+    }
+
+    /// Reads WebRTC's numbers once, then arms the deadline for the next read.
+    private func readStreamStats(_ source: any ScreenVideoStatsSource, generation: UInt64) {
+        statsRead = Task { [weak self, source] in
+            let video = await source.videoStats()
+            guard let self, !Task.isCancelled, generation == statsGeneration else { return }
+            statsRead = nil
+            sampleStreamStats(video, at: statsNow())
+            statsDeadline.schedule(after: Self.statsInterval) { [weak self, weak source] in
+                guard let self, let source, generation == statsGeneration else { return }
+                readStreamStats(source, generation: generation)
+            }
         }
+    }
+
+    /// One sample for the stats line. The first read of a run is only the baseline of the receive rate.
+    private func sampleStreamStats(_ video: ScreenStreamViewer.VideoStats, at now: CFTimeInterval) {
+        defer { statsBaseline = (video.bytesReceived, now) }
+        guard let last = statsBaseline else { return }
+        var next = stats
+        next.fps = video.fps ?? 0
+        next.kilobytesPerSecond = max(0, video.bytesReceived - last.bytes) / 1024 / max(now - last.time, 0.001)
+        next.latencyMs = video.rttMs
+        next.encoding = [video.codec, video.decoder == "VideoToolbox" ? "HW" : video.decoder].compactMap { $0 }.joined(separator: " ")
+        stats = next
     }
 
     /// Streams display `index` (the Mac crops to it).
@@ -453,8 +513,7 @@ public final class ScreenSession {
         }
         for task in tasks { task.cancel() }
         tasks.removeAll()
-        streamStatsTask?.cancel()
-        streamStatsTask = nil
+        statsSource = nil
         if let client { Task { await client.disconnect() } }
         client = nil
         // Closing a peer connection waits on WebRTC's threads (TURN

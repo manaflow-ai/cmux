@@ -854,6 +854,8 @@ public final class ScreenStreamViewer: Sendable {
         public var decoder: String?
         public var bytesReceived: Double = 0
         public var framesDecoded: Double = 0
+
+        public init() {}
     }
 
     public func videoStats() async -> VideoStats {

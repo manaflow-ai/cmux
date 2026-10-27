@@ -82,6 +82,8 @@ public final class MacScreenPane {
     private let hideTimer = DemandTimer(owner: "mac-screen.hidden-grace")
     /// The session's phase and stall (``observePhase(_:on:)``).
     private var phaseWatch: FrameObservation<StreamState>?
+    /// The tab's visibility: the stats line is read only while the tab is on screen.
+    private var statsVisibility: VisibilitySubscription?
     private struct StreamState: Equatable {
         var phase: ScreenSession.Phase
         var isStalled: Bool
@@ -91,9 +93,10 @@ public final class MacScreenPane {
     /// approved session: `viewer` asks for it and hands its ticket's
     /// signaling to the session once; a dropped stream does not reconnect on
     /// its own (Try Again asks again). The chrome updates while `node` (the
-    /// tab) is visible, on `mainWork`'s frames.
+    /// tab) is visible, on `mainWork`'s frames. The stats line samples on `deadlines` (the app's one
+    /// deadline scheduler); nil keeps the session's standalone deadline.
     public init(hubDevice viewer: MacScreenHubViewer, name: String, preferences: ScreenPreferences, node: VisibilityNode,
-                on mainWork: MainWorkScheduler) {
+                on mainWork: MainWorkScheduler, deadlines: MainDeadlineScheduler? = nil) {
         let session = ScreenSession(title: name, preferences: preferences, signaling: { [weak viewer] in viewer?.takeSignaling() })
         session.reconnectLimit = 0
         model = MacScreenPaneModel(session: session, name: name, gate: .open, hub: viewer)
@@ -102,6 +105,11 @@ public final class MacScreenPane {
         view = MacScreenPaneView(model: model, node: node, on: mainWork)
         view.input.sink = sink
         wire(session, on: mainWork)
+        if let deadlines { session.useStatsDeadline(MacScreenStatsDeadline(scheduler: deadlines)) }
+        session.statsVisible = node.isVisible
+        statsVisibility = node.subscribe(owner: MacScreenStatsDeadline.owner) { [weak session] visibility in
+            session?.statsVisible = visibility == .visible
+        }
         viewer.startStream = { [weak self] in
             guard let self, let session = self.session else { return }
             connectSession(session)

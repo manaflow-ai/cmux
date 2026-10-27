@@ -47,6 +47,8 @@ public final class MacScreenPages {
     public let approval: MacScreenApprovalPrompt
     /// The app's main-thread scheduler: the tabs' views apply model changes on its frames.
     private let mainWork: MainWorkScheduler
+    /// The app's one deadline scheduler: each screen's stats line samples on it (``MacScreenStatsDeadline``).
+    public var deadlines: MainDeadlineScheduler?
     /// The device hub while this app is signed in to one (the app sets it on
     /// sign-in and clears it on sign-out): the user's devices, and the session
     /// pushes Mac Screen follows.
@@ -397,7 +399,8 @@ public final class MacScreenPages {
     private func makeHubPane(deviceID: String, record: MacScreenRecord, tab: MacScreenTab) -> MacScreenPane {
         let key = tab.key
         let viewer = MacScreenHubViewer(deviceID: deviceID) { [weak self] in self?.hub }
-        let pane = MacScreenPane(hubDevice: viewer, name: deviceName(deviceID), preferences: ScreenPreferences(), node: tab.node, on: mainWork)
+        let pane = MacScreenPane(hubDevice: viewer, name: deviceName(deviceID), preferences: ScreenPreferences(), node: tab.node, on: mainWork,
+                                 deadlines: deadlines)
         if let resume = resumeScopes.removeValue(forKey: key), resume.deviceID == deviceID {
             viewer.resumeScope = resume.scope
         } else if confirmed[key] == record, let scope = pendingScopes.removeValue(forKey: deviceID) {
