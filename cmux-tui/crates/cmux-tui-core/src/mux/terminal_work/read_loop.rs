@@ -19,12 +19,24 @@
 //!   [`PARKED_READ_WORKERS`] of them park with no timeout (the next echo runs
 //!   at once, no thread start) and the others exit. So any number of idle
 //!   terminals costs two threads and no wakeup.
+//! - **Blocking.** A run reads without blocking. Registry publication
+//!   (directory, progress, the exit) goes to the terminal work pool, but a
+//!   query response written to a PTY whose child does not read its input
+//!   still waits, as does any publication the full pool hands back. Those
+//!   calls run in [`will_block`], Chrome's `ScopedBlockingCall` with
+//!   `BlockingType::WILL_BLOCK` (base/threading/scoped_blocking_call.h): a
+//!   worker inside it stops counting against [`MAX_READ_WORKERS`], so the
+//!   other ready sources get a worker at once, as Chrome's thread group
+//!   raises its max tasks for a worker that will block
+//!   (base/task/thread_pool/thread_group.cc, `BlockingStarted`). A blocked
+//!   terminal holds only its own thread, as its reader thread did.
 //! - **Lifetime.** A source lives in the loop until its run returns
 //!   [`ReadFlow::Finished`] (its end of stream); the loop then stops watching
 //!   the descriptor before [`ReadSource::finish`] may close it. A dropped
 //!   owner never cuts a live terminal off: the loop and its workers end
 //!   once the last source finished.
 
+use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::io;
 use std::os::fd::RawFd;
@@ -62,8 +74,88 @@ pub(crate) trait ReadSource: Send + 'static {
     fn run(&mut self) -> ReadFlow;
 
     /// Runs once, on a worker, after the loop stopped watching the
-    /// descriptor: the source may close it now.
+    /// descriptor: the source may close it now. It may block: the loop runs
+    /// it in [`will_block`].
     fn finish(self: Box<Self>);
+}
+
+thread_local! {
+    /// The loop of the read worker on this thread, for [`will_block`].
+    static WORKER_LOOP: RefCell<Option<Arc<Shared>>> = const { RefCell::new(None) };
+}
+
+/// Runs `f`, which may wait on others (a PTY write, sqlite, a contended
+/// lock). On a read worker, the worker does not count against
+/// [`MAX_READ_WORKERS`] while `f` runs, so a source that blocks here never
+/// keeps another one from being read. Anywhere else it only runs `f`.
+pub(crate) fn will_block<R>(f: impl FnOnce() -> R) -> R {
+    // Taken for the scope, so a nested call only runs its `f`.
+    let Some(shared) = WORKER_LOOP.with(|worker| worker.borrow_mut().take()) else { return f() };
+    let _blocked = BlockedWorker::start(shared);
+    f()
+}
+
+/// A read worker inside [`will_block`]; ends the scope on drop, an unwind
+/// included.
+struct BlockedWorker {
+    shared: Option<Arc<Shared>>,
+}
+
+impl BlockedWorker {
+    fn start(shared: Arc<Shared>) -> Self {
+        {
+            let mut state = shared.lock();
+            state.blocked += 1;
+            // A queued source gets the slot this worker leaves now.
+            if !state.runnable.is_empty() {
+                shared.start_worker(state);
+            }
+        }
+        Self { shared: Some(shared) }
+    }
+}
+
+impl Drop for BlockedWorker {
+    fn drop(&mut self) {
+        let Some(shared) = self.shared.take() else { return };
+        shared.lock().blocked -= 1;
+        WORKER_LOOP.with(|worker| *worker.borrow_mut() = Some(shared));
+    }
+}
+
+/// A worker's place in its loop. A worker that exits gives its slot back
+/// under the lock it decided in ([`Self::leave`]); one that unwinds gives it
+/// back on drop and hands a queued source on, so a panic never keeps a slot
+/// no thread holds.
+struct WorkerSlot {
+    shared: Arc<Shared>,
+    held: bool,
+}
+
+impl WorkerSlot {
+    fn enter(shared: &Arc<Shared>) -> Self {
+        WORKER_LOOP.with(|worker| *worker.borrow_mut() = Some(shared.clone()));
+        Self { shared: shared.clone(), held: true }
+    }
+
+    fn leave(&mut self, state: &mut State) {
+        state.workers -= 1;
+        self.held = false;
+    }
+}
+
+impl Drop for WorkerSlot {
+    fn drop(&mut self) {
+        WORKER_LOOP.with(|worker| worker.borrow_mut().take());
+        if !self.held {
+            return;
+        }
+        let mut state = self.shared.lock();
+        state.workers -= 1;
+        if !state.runnable.is_empty() {
+            self.shared.start_worker(state);
+        }
+    }
 }
 
 /// Queues one more run of a source, as its readiness would. A run already in
@@ -105,6 +197,9 @@ struct State {
     runnable: VecDeque<u64>,
     workers: usize,
     parked: usize,
+    /// Workers inside [`will_block`]: they do not count against
+    /// [`MAX_READ_WORKERS`].
+    blocked: usize,
     /// The owner dropped its [`TerminalReads`]: end once no source is left.
     owner_gone: bool,
     loop_started: bool,
@@ -123,6 +218,7 @@ pub(crate) struct ReadLoopStats {
     pub(crate) sources: usize,
     pub(crate) workers: usize,
     pub(crate) parked: usize,
+    pub(crate) blocked: usize,
 }
 
 /// The owner's handle on its read loop. The poller and the loop thread start
@@ -186,7 +282,12 @@ impl TerminalReads {
     pub(crate) fn stats(&self) -> ReadLoopStats {
         let Some(shared) = self.shared.get() else { return ReadLoopStats::default() };
         let state = shared.lock();
-        ReadLoopStats { sources: state.entries.len(), workers: state.workers, parked: state.parked }
+        ReadLoopStats {
+            sources: state.entries.len(),
+            workers: state.workers,
+            parked: state.parked,
+            blocked: state.blocked,
+        }
     }
 }
 
@@ -206,6 +307,12 @@ impl Shared {
 
     fn done(state: &State) -> bool {
         state.owner_gone && state.entries.is_empty()
+    }
+
+    /// Workers that count against [`MAX_READ_WORKERS`]: the ones not
+    /// inside [`will_block`].
+    fn active(state: &State) -> usize {
+        state.workers - state.blocked
     }
 
     /// `token`'s descriptor is ready or it was kicked.
@@ -232,7 +339,7 @@ impl Shared {
         if state.parked > 0 {
             self.work.notify_one();
         }
-        if state.runnable.len() <= state.parked || state.workers >= MAX_READ_WORKERS {
+        if state.runnable.len() <= state.parked || Self::active(&state) >= MAX_READ_WORKERS {
             return;
         }
         state.workers += 1;
@@ -255,8 +362,15 @@ impl Shared {
     }
 
     fn work_loop(self: &Arc<Self>) {
+        let mut slot = WorkerSlot::enter(self);
         let mut state = self.lock();
         loop {
+            // One more than the bound while a blocked worker came back: the
+            // others drain the queue.
+            if Self::active(&state) > MAX_READ_WORKERS {
+                slot.leave(&mut state);
+                return;
+            }
             if let Some((token, source)) = self.next_run(&mut state) {
                 drop(state);
                 self.run(token, source);
@@ -264,7 +378,7 @@ impl Shared {
                 continue;
             }
             if state.parked >= PARKED_READ_WORKERS || Self::done(&state) {
-                state.workers -= 1;
+                slot.leave(&mut state);
                 return;
             }
             state.parked += 1;
@@ -313,10 +427,15 @@ impl Shared {
         }
     }
 
-    /// Stops watching `token` and finishes its source.
+    /// Stops watching `token` and finishes its source. A panicking finish
+    /// ends only that source, as a panicking run does.
     fn remove(self: &Arc<Self>, token: u64) {
-        if let Some(source) = self.unwatch(token) {
-            source.finish();
+        let Some(source) = self.unwatch(token) else { return };
+        let finished = will_block(|| {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| source.finish()))
+        });
+        if finished.is_err() {
+            eprintln!("cmux-tui: a terminal read source's finish panicked");
         }
     }
 

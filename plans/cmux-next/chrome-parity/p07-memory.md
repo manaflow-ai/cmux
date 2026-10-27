@@ -1531,17 +1531,33 @@ All IDs below are `p07-memory-NNN`.
 - Test: fleet cargo test -p cmux-holder; holder_terminals on macOS 26 and 27.
 
 ### 095 Daemon threads per terminal
-- Files: cmux-tui-core/src/surface/spawn.rs, surface.rs, mux/terminal_work.rs.
-- Change: PTY reads on the kqueue TerminalWorkPool; one EVFILT_PROC watcher for child waits; the host
-  thread joins the pool. Check the threading and PL-daemon queues first.
-- Acceptance: 50 terminals add <= 2 threads; idle_wakeups green; output order unchanged.
-- Test: fleet cargo test -p cmux-tui-core surface; perf-10x-idle.sh counts=100 thread column.
+- Files: cmux-tui-core/src/surface/spawn.rs, surface.rs, surface/local_reader.rs, surface/local_output.rs,
+  mux/terminal_work.rs, mux/terminal_work/read_loop.rs, read_poller.rs.
+- Change: daemon-local PTY reads on the owner's one read loop (kqueue/epoll, TerminalWorkPool); registry
+  publication (directory, progress, exit) on the pool. Narrowed: the child wait (`-wait`) is p02-threads-237's
+  reaper, and the hosted reader (`-host`, `-host-frames`) is 095b.
+- Acceptance: 50 daemon-local terminals add <= 2 threads at idle, plus the 50 `-wait` threads p02-threads-237
+  owns until it lands; no read worker slot is lost to a panicking or blocked source; idle_wakeups green;
+  output order unchanged.
+- Test: fleet cargo test -p cmux-tui-core surface read_loop; perf-10x-idle.sh counts=100 thread column.
 - Status: reader in. Daemon-local PTYs read on the owner's one read loop (`mux/terminal_work/read_loop.rs`:
-  `mux-terminal-io` on kqueue/epoll, `mux-terminal-read` workers, one run per terminal at once), so 50 terminals
-  add 2 threads at idle and no `surface-<id>-reader`. The `-wait` thread is p02-threads-237's `mux-reaper`
-  (EVFILT_PROC; it started first and owns that part). Left: `surface-<id>-host` and `-host-frames` of hosted
-  terminals (the reconnect path still blocks; it needs a work-item reconnect first); holder terminals'
-  readers are p01-process-120.
+  `mux-terminal-io` on kqueue/epoll, `mux-terminal-read` workers, one run per terminal at once): no
+  `surface-<id>-reader`, and the loop adds 2 threads at idle. Each terminal still has its `surface-<id>-wait`
+  thread until p02-threads-237's `mux-reaper` lands, so today 50 terminals add 2 + 50 threads
+  (`surface::tests::read_loop::fifty_idle_local_terminals_add_only_the_loop_threads` asserts exactly that
+  bound). Registry publication (directory, progress, the exit) runs on the terminal work pool, and a query
+  response write that can wait runs in `read_loop::will_block`, which frees the worker's slot (Chrome's
+  `ScopedBlockingCall` WILL_BLOCK), so a blocked or panicking terminal never stops the others. Holder
+  terminals' readers are p01-process-120.
+
+### 095b Hosted terminals on the read loop
+- Files: cmux-tui-core/src/surface.rs, surface/hosted_reader.rs, surface/hosted_reader/reconnect.rs,
+  mux/terminal_work/read_loop.rs.
+- Change: the reconnect of an adopted or opt-out host becomes a pool work item; the host socket then reads as a
+  ReadSource on the owner's read loop, so `surface-<id>-host` and `-host-frames` go.
+- Acceptance: 50 adopted hosted terminals add <= 2 threads at idle; reconnect and resync keep output order.
+- Test: cargo test -p cmux-tui-core surface::tests::hosted read_loop.
+- Depends on: 095, p01-process-138.
 
 ### 096 Sliced release of parked workspaces and warm set
 - Files: Windows/WindowController+Parking.swift, AppServices+Hibernation.swift, TabContentCache.swift, tests.

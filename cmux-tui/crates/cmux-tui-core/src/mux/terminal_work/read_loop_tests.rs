@@ -174,3 +174,103 @@ fn a_panicking_run_drops_its_source_and_spares_the_others() {
     assert_eq!(receive(&healthy, 2), b"ok");
     drop(panicking);
 }
+
+#[test]
+fn panicking_finishes_never_use_up_the_workers() {
+    struct PanicsAtEnd {
+        stream: UnixStream,
+    }
+    impl ReadSource for PanicsAtEnd {
+        fn run(&mut self) -> ReadFlow {
+            let mut buffer = [0u8; 16];
+            match self.stream.read(&mut buffer) {
+                Ok(0) => ReadFlow::Finished,
+                _ => ReadFlow::Continue,
+            }
+        }
+        fn finish(self: Box<Self>) {
+            panic!("an end-of-stream publication failed")
+        }
+    }
+    let reads = TerminalReads::new();
+    for _ in 0..=MAX_READ_WORKERS {
+        let (reader, writer) = UnixStream::pair().unwrap();
+        reader.set_nonblocking(true).unwrap();
+        let fd = reader.as_raw_fd();
+        reads
+            .register(fd, Box::new(PanicsAtEnd { stream: reader }))
+            .unwrap_or_else(|_| panic!("registered"));
+        drop(writer);
+        assert_eq!(wait_for(&reads, |stats| stats.sources == 0).sources, 0);
+    }
+    let stats = wait_for(&reads, |stats| stats.workers <= PARKED_READ_WORKERS);
+    assert!(stats.workers <= PARKED_READ_WORKERS, "a panicked finish kept its slot: {stats:?}");
+    let mut healthy = register(&reads);
+    healthy.writer.write_all(b"still read").unwrap();
+    assert_eq!(receive(&healthy, 10), b"still read");
+}
+
+/// A source whose publication waits, as a query response does on a PTY
+/// whose child never reads its input.
+struct BlocksInPublish {
+    stream: UnixStream,
+    entered: Sender<()>,
+    release: Receiver<()>,
+}
+
+impl ReadSource for BlocksInPublish {
+    fn run(&mut self) -> ReadFlow {
+        let mut buffer = [0u8; 16];
+        match self.stream.read(&mut buffer) {
+            Ok(0) => return ReadFlow::Finished,
+            Ok(_) => {}
+            Err(_) => return ReadFlow::Continue,
+        }
+        will_block(|| {
+            self.entered.send(()).unwrap();
+            self.release.recv_timeout(WAIT).expect("released");
+        });
+        ReadFlow::Continue
+    }
+
+    fn finish(self: Box<Self>) {}
+}
+
+#[test]
+fn sources_blocked_in_publication_never_keep_the_others_unread() {
+    let reads = TerminalReads::new();
+    let (entered_tx, entered) = channel();
+    let mut releases = Vec::new();
+    let mut writers = Vec::new();
+    for _ in 0..=MAX_READ_WORKERS {
+        let (reader, mut writer) = UnixStream::pair().unwrap();
+        reader.set_nonblocking(true).unwrap();
+        let (release_tx, release) = channel();
+        let fd = reader.as_raw_fd();
+        let source = BlocksInPublish { stream: reader, entered: entered_tx.clone(), release };
+        reads.register(fd, Box::new(source)).unwrap_or_else(|_| panic!("registered"));
+        writer.write_all(b"?").unwrap();
+        releases.push(release_tx);
+        writers.push(writer);
+    }
+    for _ in 0..=MAX_READ_WORKERS {
+        entered.recv_timeout(WAIT).expect("every blocked source got a worker");
+    }
+    assert_eq!(reads.stats().blocked, MAX_READ_WORKERS + 1);
+    let mut healthy = register(&reads);
+    healthy.writer.write_all(b"read anyway").unwrap();
+    assert_eq!(receive(&healthy, 11), b"read anyway");
+
+    for release in &releases {
+        release.send(()).unwrap();
+    }
+    let stats =
+        wait_for(&reads, |stats| stats.blocked == 0 && stats.workers <= PARKED_READ_WORKERS);
+    assert_eq!(stats.blocked, 0, "{stats:?}");
+    assert!(stats.workers <= PARKED_READ_WORKERS, "the extra workers exit at idle: {stats:?}");
+}
+
+#[test]
+fn will_block_off_a_read_worker_only_runs_its_call() {
+    assert_eq!(will_block(|| 7), 7);
+}

@@ -180,7 +180,14 @@ impl ReadSource for LocalReader {
         ReadFlow::Continue
     }
 
+    /// The end publishes the exit through the registry (sqlite), so it
+    /// runs on the owner's terminal work pool, not on the read worker; with
+    /// no owner or a full pool, here (the loop runs it in `will_block`).
     fn finish(self: Box<Self>) {
-        self.end();
+        let owner = self.surface.as_pty().and_then(|pty| pty.mux.upgrade());
+        let Some(owner) = owner else { return self.end() };
+        if let Err(end) = owner.submit_terminal_work(Box::new(move || self.end())) {
+            end();
+        }
     }
 }
