@@ -8,7 +8,7 @@
 use crate::driver::Driver;
 use crate::gate::{Gate, Grants};
 use crate::protocol::{DriverError, DriverEvent, ErrorCode};
-use crate::vm::{VmConfig, VmSession};
+use crate::vm::{VmConfig, VmEvents, VmSession};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -94,7 +94,7 @@ pub struct SessionContext {
 /// The profile agents get unless the person names another (D12).
 pub const AGENT_PROFILE: &str = "agent";
 
-type EventSlot = Arc<Mutex<Option<(Arc<Gate>, std::sync::mpsc::Sender<DriverEvent>)>>>;
+type EventSlot = Arc<Mutex<Option<(Arc<Gate>, VmEvents)>>>;
 
 struct Session {
     vm: VmSession,
@@ -294,7 +294,7 @@ impl Host {
         let slot: EventSlot = Arc::new(Mutex::new(None));
         let sink_slot = slot.clone();
         let sink: crate::driver::EventSink = Arc::new(move |event: DriverEvent| {
-            if let Some((gate, tx)) =
+            if let Some((gate, events)) =
                 sink_slot.lock().unwrap_or_else(PoisonError::into_inner).as_ref()
             {
                 // The engine's entry for the policy log, not a session event.
@@ -303,7 +303,7 @@ impl Host {
                     return;
                 }
                 let payload = gate.mask_event(&event.name, &event.payload);
-                let _ = tx.send(DriverEvent { name: event.name, payload });
+                events.event(&event.name, payload);
             }
         });
         // Only the person (user origin) opens a session on another profile,
@@ -370,19 +370,9 @@ impl Host {
         };
         let vm = VmSession::spawn(config, gate.clone())
             .map_err(|e| DriverError::closed(format!("could not start the session: {e}")))?;
-        // Forward masked driver events into the VM from one thread per session.
-        // unbounded-allow: fed by the CDP event thread, which must never wait (see cdp/dispatch.rs)
-        let (tx, rx) = std::sync::mpsc::channel::<DriverEvent>();
-        let events_vm = vm.events();
-        std::thread::Builder::new()
-            .name(format!("cmux-browser-host-events-{name}"))
-            .spawn(move || {
-                for event in rx {
-                    events_vm.event(&event.name, event.payload);
-                }
-            })
-            .map_err(|e| DriverError::closed(format!("could not start the session: {e}")))?;
-        *slot.lock().unwrap_or_else(PoisonError::into_inner) = Some((gate.clone(), tx));
+        // Masked driver events go into the VM's capped event queue, which
+        // never makes the driver's event thread wait.
+        *slot.lock().unwrap_or_else(PoisonError::into_inner) = Some((gate.clone(), vm.events()));
         let resolved = if engine == "auto" { "headless".to_owned() } else { engine };
         let idle = Idle::new(self.idle_timeout);
         self.sessions().insert(

@@ -1,6 +1,7 @@
 //! The `__agent-host` process: runs one harness and keeps it, and every line
 //! it produced, until a controller has logged them.
 
+use super::stdin_queue::{STDIN_PENDING_CAP, StdinQueue, StdinStuck};
 use super::*;
 use crate::claude_stdio::{Outbound, Translator};
 use crate::rpc::Message;
@@ -250,9 +251,11 @@ struct State {
     /// Connections that have not said `Hello` yet.
     pending_conns: Vec<(u64, mpsc::UnboundedSender<HostFrame>)>,
     controller: Option<Controller>,
-    /// Unbounded: a harness that stops reading never blocks the loop; what
-    /// waits here is bounded by the controller, which waits for answers.
-    stdin_tx: mpsc::UnboundedSender<String>,
+    /// A harness that stops reading never blocks the loop; past the queue's
+    /// cap it is ended ([`State::write_stdin`]).
+    stdin: StdinQueue,
+    /// The harness stopped reading its stdin and is being ended.
+    stdin_stuck: bool,
     translator: Option<Arc<Translator>>,
     /// `codex app-server` bridged in process (`codex_app_server.rs`).
     codex: Option<Arc<crate::codex_app_server::Translator>>,
@@ -306,17 +309,7 @@ impl Started {
         let pgid = child.id().map(|p| p as i32);
 
         // stdin writer: a full pipe never blocks the event loop.
-        // unbounded-allow: one line per frame or reply this host routes to the harness; the owner's
-        // frames come one at a time through the bounded `events` queue
-        let (stdin_tx, mut stdin_rx) = mpsc::unbounded_channel::<String>();
-        tokio::spawn(async move {
-            let mut stdin = stdin;
-            while let Some(line) = stdin_rx.recv().await {
-                if stdin.write_all(line.as_bytes()).await.is_err() || stdin.flush().await.is_err() {
-                    break;
-                }
-            }
-        });
+        let stdin = StdinQueue::start(stdin, STDIN_PENDING_CAP);
         // stdout reader: one line per permit, so the loop stops reading (and
         // the harness blocks on its pipe) while the buffer is over its cap.
         let (pace_tx, mut pace_rx) = mpsc::channel::<()>(1);
@@ -425,7 +418,8 @@ impl Started {
             leader_code: None,
             pending_conns: Vec::new(),
             controller: None,
-            stdin_tx,
+            stdin,
+            stdin_stuck: false,
             translator,
             codex,
             pgid,
@@ -516,13 +510,7 @@ impl Started {
                 Event::Term => {
                     // The frozen end path (`terminate_unadoptable`): end the
                     // harness while its group is still ours, then the host.
-                    state.note_under();
-                    if state.leader_alive.load(std::sync::atomic::Ordering::SeqCst)
-                        && let Some(pg) = state.pgid
-                    {
-                        // SAFETY: the leader is unreaped, so the group is ours.
-                        unsafe { libc::killpg(pg, libc::SIGKILL) };
-                    }
+                    state.end_harness();
                     break;
                 }
                 Event::Accepted(stream) => {
@@ -556,13 +544,7 @@ impl Started {
             }
             if state.unadoptable {
                 // As SIGTERM: end the harness while its group is ours, then the host.
-                state.note_under();
-                if state.leader_alive.load(std::sync::atomic::Ordering::SeqCst)
-                    && let Some(pg) = state.pgid
-                {
-                    // SAFETY: the leader is unreaped, so the group is ours.
-                    unsafe { libc::killpg(pg, libc::SIGKILL) };
-                }
+                state.end_harness();
                 break;
             }
             if state.finished() {
@@ -605,6 +587,35 @@ impl State {
             if !self.under.contains(&p) {
                 self.under.push(p);
             }
+        }
+    }
+
+    /// Ends the harness while its group is still ours.
+    fn end_harness(&mut self) {
+        self.note_under();
+        if self.leader_alive.load(std::sync::atomic::Ordering::SeqCst)
+            && let Some(pg) = self.pgid
+        {
+            // SAFETY: the leader is unreaped, so the group is ours.
+            unsafe { libc::killpg(pg, libc::SIGKILL) };
+        }
+    }
+
+    /// Queues a line for the harness. One that stopped reading its stdin
+    /// is ended once the queue is full; its exit is logged as usual.
+    fn write_stdin(&mut self, line: String) {
+        if self.stdin_stuck {
+            return;
+        }
+        if let Err(StdinStuck { waiting }) = self.stdin.send(line) {
+            self.stdin_stuck = true;
+            tracing::warn!(waiting, "harness stopped reading its stdin; ending it");
+            self.push(Entry::Err {
+                line: format!(
+                    "[the harness stopped reading its stdin ({waiting} bytes waiting); ending it]"
+                ),
+            });
+            self.end_harness();
         }
     }
 
@@ -793,7 +804,7 @@ impl State {
             msg: Message::notification(crate::codex_app_server::STDIN_KIND, line.clone())
                 .to_value(),
         });
-        let _ = self.stdin_tx.send(crate::codex_app_server::line(&line));
+        self.write_stdin(crate::codex_app_server::line(&line));
     }
 
     fn write_claude_line(&mut self, line: Value) {
@@ -803,7 +814,7 @@ impl State {
         });
         let mut s = line.to_string();
         s.push('\n');
-        let _ = self.stdin_tx.send(s);
+        self.write_stdin(s);
     }
 
     async fn on_line(&mut self, msg: Value) {
@@ -821,7 +832,7 @@ impl State {
         }
         let Some(tr) = self.translator.clone() else {
             self.push(Entry::Tap { dir: TapDir::Out, msg: message.to_value() });
-            let _ = self.stdin_tx.send(message.to_line());
+            self.write_stdin(message.to_line());
             return;
         };
         self.push(Entry::Tap { dir: TapDir::Out, msg: message.to_value() });
@@ -1054,27 +1065,4 @@ fn watch_record(
 }
 
 #[cfg(test)]
-mod tests {
-    /// A pooled host ends at the end of its wait only when no controller
-    /// ever said `Hello`; a session's host never ends this way.
-    #[test]
-    fn only_a_pooled_host_with_no_controller_yet_ends_after_its_wait() {
-        assert!(super::pooled_without_owner(true, None));
-        assert!(!super::pooled_without_owner(true, Some(1)));
-        assert!(!super::pooled_without_owner(false, None));
-    }
-
-    /// The leader is waited for without being reaped: while it is a zombie
-    /// its process group id cannot be reused, so ending the group then can
-    /// never signal another process group.
-    #[test]
-    fn waiting_for_the_leader_leaves_it_unreaped() {
-        let mut child =
-            std::process::Command::new("/bin/sh").args(["-c", "exit 3"]).spawn().unwrap();
-        let pid = child.id() as i32;
-        assert!(super::wait_exit_unreaped(pid), "the wait failed");
-        // SAFETY: signal 0 to this test's own child only checks existence.
-        assert_eq!(unsafe { libc::kill(pid, 0) }, 0, "the leader was reaped by the wait");
-        assert_eq!(child.wait().unwrap().code(), Some(3), "the exit status is kept for the reaper");
-    }
-}
+mod tests;

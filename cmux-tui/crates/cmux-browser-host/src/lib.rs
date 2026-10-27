@@ -23,6 +23,7 @@ pub mod egress_proxy;
 pub mod egress_scope;
 pub mod egress_services;
 pub mod engines;
+pub mod event_cap;
 pub mod fs_sandbox;
 pub mod gate;
 #[cfg(unix)]

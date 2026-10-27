@@ -395,6 +395,35 @@ async fn paced_output_left_in_the_pipe_at_exit_is_kept() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A harness that never reads its stdin does not make the host queue lines
+/// for it without limit: past the queue's cap (64 MiB) the host says so and
+/// ends the harness, and the exit is logged as usual.
+#[tokio::test]
+async fn a_harness_that_stops_reading_its_stdin_is_ended() {
+    let dir = scratch("stdin");
+    let mut spec = spec(&dir, "s-stdin");
+    spec.program = "python3".into();
+    spec.args = vec!["-c".into(), "import time\ntime.sleep(120)\n".into()];
+    let record = link::spawn(&launcher(), &spec).await.expect("spawn host");
+    let (link, _) = connected(&record, 0).await;
+    let lock = live_lock(&dir, &record);
+    let big = "x".repeat(1 << 20);
+    for id in 1..=70 {
+        request(&link, id, "x/big", json!({ "pad": big })).await;
+    }
+    let mut after = 0;
+    let seen = read_until(&link, &mut after, |e| matches!(e, Entry::Exit { .. })).await;
+    assert!(
+        seen.iter().any(
+            |(_, e)| matches!(e, Entry::Err { line } if line.contains("stopped reading its stdin"))
+        ),
+        "the host never reported the stuck stdin"
+    );
+    wait_dead(lock).await;
+    drop(link);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A host whose start fails (here the harness cannot be spawned) leaves no
 /// liveness lock file behind: a stale `.live` file would outlive the session.
 #[tokio::test]

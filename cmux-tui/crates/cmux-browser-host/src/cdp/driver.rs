@@ -8,7 +8,7 @@
 //! setup threads, never while the state lock is held.
 
 use super::connection::{CdpConnection, CdpEvent};
-use super::dispatch::Dispatch;
+use super::dispatch::EventQueue;
 use super::state::{AGENT_WORLD, FollowUp, State, TabState};
 use crate::driver::{Driver, EventSink};
 use crate::protocol::{DriverError, ErrorCode, timeout_of};
@@ -32,7 +32,7 @@ pub(super) struct Inner {
     pub(super) agent_source: Arc<str>,
     /// Driver events go to the sink from a dispatcher thread, in order, so a
     /// sink that answers an event with a driver call cannot block the reader.
-    pub(super) events: Mutex<mpsc::Sender<Dispatch>>,
+    pub(super) events: Mutex<EventQueue>,
     state: Mutex<State>,
     pub(super) changed: Condvar,
     /// The request filter (`set_request_filter`), shared with the worker
@@ -133,7 +133,7 @@ impl Inner {
         hidden_viewport: Option<(i64, i64)>,
         owns_browser: bool,
     ) -> Result<Arc<Inner>, DriverError> {
-        let event_tx = super::dispatch::start(events)?;
+        let event_tx = super::dispatch::start(events, crate::event_cap::EVENT_QUEUE_CAP)?;
         let request_filter = Arc::new(Mutex::new(None));
         let cors: Arc<Mutex<super::cors::Cors>> = Arc::default();
         let paused =
@@ -451,7 +451,7 @@ impl Inner {
         if !applied.events.is_empty() {
             let events = self.events.lock().unwrap_or_else(PoisonError::into_inner);
             for event in applied.events {
-                let _ = events.send(Dispatch::Event(event));
+                events.event(event);
             }
         }
         for follow_up in applied.follow_ups {

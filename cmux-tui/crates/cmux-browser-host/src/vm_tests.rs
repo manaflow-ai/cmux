@@ -34,6 +34,9 @@ struct FakeHost {
     cancelled: Mutex<Vec<u64>>,
     calls: Mutex<Vec<(String, Value)>>,
     natives: Mutex<Vec<(String, Value)>>,
+    /// `secrets('hold')` says it entered, then waits for the release: the
+    /// VM thread is busy until then.
+    hold: Mutex<Option<(mpsc::SyncSender<()>, mpsc::Receiver<()>)>>,
 }
 
 impl VmHost for FakeHost {
@@ -74,6 +77,14 @@ impl VmHost for FakeHost {
 
     fn native(&self, name: &str, args: Value) -> Result<Value, String> {
         self.natives.lock().unwrap().push((name.to_owned(), args.clone()));
+        if name == "secrets"
+            && args["op"] == "hold"
+            && let Some((entered, release)) = self.hold.lock().unwrap().take()
+        {
+            let _ = entered.send(());
+            let _ = release.recv();
+            return Ok(json!(null));
+        }
         match name {
             "secrets" => Ok(json!({"name": args["args"]["name"], "domains": [], "totp": false})),
             "policy" => Err("the domain policy is locked for this session".into()),
@@ -87,10 +98,15 @@ impl VmHost for FakeHost {
 const ORDERED: &str = r#"{"title":"cmux","url":"https://example.com/cmux","snippet":"s","nested":{"z":1,"a":[{"y":2,"b":3}]}}"#;
 
 fn session(memory_limit: usize) -> (VmSession, Arc<FakeHost>) {
+    session_with(memory_limit, EVENT_QUEUE_CAP)
+}
+
+fn session_with(memory_limit: usize, event_cap: usize) -> (VmSession, Arc<FakeHost>) {
     let host = Arc::new(FakeHost {
         cancelled: Mutex::new(Vec::new()),
         calls: Mutex::new(Vec::new()),
         natives: Mutex::new(Vec::new()),
+        hold: Mutex::new(None),
     });
     let config = VmConfig {
         session_id: "t".into(),
@@ -103,7 +119,7 @@ fn session(memory_limit: usize) -> (VmSession, Arc<FakeHost>) {
         scripts: vec![("mini.js".into(), MINI_RUNTIME.into())],
         resources: vec![("guide.md".into(), "# guide".into())],
     };
-    (VmSession::spawn(config, host.clone()).unwrap(), host)
+    (VmSession::spawn_capped(config, host.clone(), event_cap).unwrap(), host)
 }
 
 fn lines(outcome: &EvalOutcome) -> Vec<String> {
@@ -206,6 +222,33 @@ fn events_reach_the_runtime() {
     vm.event("tab.closed", json!({"targetId": "T"}));
     let out = vm.eval("return events;", Duration::from_secs(5));
     assert_eq!(lines(&out), vec![r#"[["tab.closed",{"targetId":"T"}]]"#]);
+}
+
+#[test]
+fn events_past_the_cap_are_dropped_and_reported_to_the_runtime() {
+    let (vm, host) = session_with(0, 2);
+    let (entered_tx, entered) = mpsc::sync_channel(1);
+    let (release, held) = mpsc::sync_channel(1);
+    *host.hold.lock().unwrap() = Some((entered_tx, held));
+    let vm = Arc::new(vm);
+    let busy = {
+        let vm = vm.clone();
+        std::thread::spawn(move || {
+            vm.eval("testNative.secrets('hold', '{}');", Duration::from_secs(10))
+        })
+    };
+    entered.recv_timeout(Duration::from_secs(10)).unwrap();
+    // The VM thread is in the native call: two events fill its queue.
+    for i in 0..5 {
+        vm.event("console", json!({ "i": i }));
+    }
+    release.send(()).unwrap();
+    assert_eq!(busy.join().unwrap().error, None);
+    let out = vm.eval(
+        "return events.map(([name, p]) => name === 'events.dropped' ? 'dropped ' + p.count : p.i);",
+        Duration::from_secs(5),
+    );
+    assert_eq!(lines(&out), vec![r#"[0,"dropped 3",1]"#]);
 }
 
 #[test]

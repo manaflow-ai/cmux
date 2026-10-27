@@ -5,6 +5,7 @@
 //! [`VmHost::driver_call`], where the host applies policy and resolves secret
 //! handles before any driver sees the call; the VM never holds a driver.
 
+use crate::event_cap::{EVENT_QUEUE_CAP, EVENTS_DROPPED_EVENT, EventCap};
 use crate::protocol::DriverError;
 use rquickjs::{Context, Ctx, Function, Object, Persistent, Promise, Runtime};
 use serde_json::{Value, json};
@@ -83,18 +84,31 @@ enum Input {
 /// A running session. Dropping it stops the VM thread.
 pub struct VmSession {
     tx: mpsc::Sender<Input>,
+    events: VmEvents,
 }
 
 impl VmSession {
     pub fn spawn(config: VmConfig, host: Arc<dyn VmHost>) -> io::Result<VmSession> {
-        // unbounded-allow: evals wait for their answer; events come from the CDP event thread,
-        // which must never wait (see cdp/dispatch.rs)
+        Self::spawn_capped(config, host, EVENT_QUEUE_CAP)
+    }
+
+    /// [`VmSession::spawn`] with room for `event_cap` waiting events.
+    pub(crate) fn spawn_capped(
+        config: VmConfig,
+        host: Arc<dyn VmHost>,
+        event_cap: usize,
+    ) -> io::Result<VmSession> {
+        // unbounded-allow: events hold at most `event_cap` places (`VmEvents::event` drops and
+        // counts the rest); an eval is one per caller waiting for its answer, a result one per
+        // driver call the VM itself started, a stop one per session
         let (tx, rx) = mpsc::channel();
         let loop_tx = tx.clone();
+        let event_cap = EventCap::new(event_cap);
+        let events = VmEvents { tx: tx.clone(), cap: event_cap.clone() };
         std::thread::Builder::new()
             .name(format!("cmux-browser-host-vm-{}", config.session_id))
-            .spawn(move || run(config, host, rx, loop_tx))?;
-        Ok(VmSession { tx })
+            .spawn(move || run(config, host, rx, loop_tx, event_cap))?;
+        Ok(VmSession { tx, events })
     }
 
     /// Evaluates REPL code and waits for it (or its timeout).
@@ -127,12 +141,12 @@ impl VmSession {
 
     /// Delivers a driver event to the runtime (`__cmuxHostOnEvent`).
     pub fn event(&self, name: &str, payload: Value) {
-        let _ = self.tx.send(Input::Event { name: name.to_owned(), payload });
+        self.events.event(name, payload);
     }
 
     /// A handle that delivers events from another thread.
     pub fn events(&self) -> VmEvents {
-        VmEvents { tx: self.tx.clone() }
+        self.events.clone()
     }
 }
 
@@ -144,15 +158,23 @@ impl Drop for VmSession {
     }
 }
 
-/// Delivers driver events to a session's VM from any thread.
+/// Delivers driver events to a session's VM from any thread, without
+/// waiting: while the VM has a full queue of events, a new one is dropped
+/// and counted, and the VM reports the count as an
+/// [`EVENTS_DROPPED_EVENT`] after the next event it takes.
 #[derive(Clone)]
 pub struct VmEvents {
     tx: mpsc::Sender<Input>,
+    cap: EventCap,
 }
 
 impl VmEvents {
     pub fn event(&self, name: &str, payload: Value) {
-        let _ = self.tx.send(Input::Event { name: name.to_owned(), payload });
+        if self.cap.admit()
+            && self.tx.send(Input::Event { name: name.to_owned(), payload }).is_err()
+        {
+            self.cap.release();
+        }
     }
 }
 
@@ -230,6 +252,7 @@ fn run(
     host: Arc<dyn VmHost>,
     rx: mpsc::Receiver<Input>,
     tx: mpsc::Sender<Input>,
+    event_cap: EventCap,
 ) {
     let Ok(runtime) = Runtime::new() else { return };
     if config.memory_limit > 0 {
@@ -425,6 +448,7 @@ fn run(
                 }
             }),
             Some(Input::Event { name, payload }) => context.with(|ctx| {
+                let dropped = event_cap.taken();
                 if name == "download.finished"
                     && let Some(path) = payload.get("path").and_then(Value::as_str)
                     && let Some(sandbox) = shared.borrow().sandbox.clone()
@@ -436,6 +460,10 @@ fn run(
                 }
                 if let Some(on_event) = entry(&ctx, &shared, "__cmuxHostOnEvent") {
                     let _: rquickjs::Result<()> = on_event.call((name, payload.to_string()));
+                    if let Some(dropped) = dropped {
+                        let _: rquickjs::Result<()> =
+                            on_event.call((EVENTS_DROPPED_EVENT, dropped.to_string()));
+                    }
                 }
                 if running.is_none() {
                     interrupt_at.store(u64::MAX, Ordering::Relaxed);

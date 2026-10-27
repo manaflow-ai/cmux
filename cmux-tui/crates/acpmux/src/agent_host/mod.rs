@@ -31,6 +31,8 @@ pub mod program_wait;
 #[cfg(unix)]
 pub(crate) mod record_watch;
 pub(crate) mod scope;
+#[cfg(unix)]
+mod stdin_queue;
 pub mod sweep;
 #[cfg(unix)]
 pub(crate) mod tree;
