@@ -5022,10 +5022,9 @@ jobs:
     if: ${{ always() && (needs.release-compile.result == 'failure' || needs.release-compile-fast-admission.result == 'failure') && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' }}
     name: cmux-next Release compile revert
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents and pull-requests write App token; ephemeral Blacksmith VM
+    # The environment macos-placement already takes on a push for the same App key; push-only here.
+    environment: ci-routing-agent
     timeout-minutes: 10
-    concurrency:
-      group: cmux-next-release-compile-revert
-      cancel-in-progress: false
     permissions:
       actions: read
       contents: read

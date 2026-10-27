@@ -98,7 +98,7 @@ class WorkflowJob(unittest.TestCase):
             self.assertIn(needle, job_["if"])
         # No write permission on the workflow token: the App token pushes and opens the revert.
         self.assertEqual(job_["permissions"], {"actions": "read", "contents": "read"})
-        self.assertFalse(job_["concurrency"]["cancel-in-progress"])
+        self.assertEqual(job_["environment"], "ci-routing-agent")
         run = "\n".join(step.get("run", "") for step in job_["steps"])
         self.assertIn("cmux_next_compile_revert.py", run)
         self.assertIn("git revert --no-edit", run)
