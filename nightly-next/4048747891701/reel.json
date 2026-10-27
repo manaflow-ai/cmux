@@ -1,0 +1,472 @@
+{
+  "version": 1,
+  "build": "4048747891701",
+  "notes": "notes/4048747891701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 26089,
+      "title": "ci(nightly-next): the browser-data proof keeps its scope after the client moved (fix-forward #25885)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25493,
+      "title": "cmux wg dial: a ProxyCommand that reaches a Cloud machine through the app's WireGuard hub",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26099,
+      "title": "cmux-next routing: a linux-guard Python test needs no Mac tier",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24203,
+      "title": "Chief settings: harnesses and models by readable names",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26094,
+      "title": "ci(nightly): build the iPhone host for the nightly's compile archs only",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26013,
+      "title": "composer: the account's Cloud machines in the machine list, with Resume and Open",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25925,
+      "title": "cmux NEXT Settings: an unset browser.hibernation shows Never Discard (Freeze Hidden Tabs)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26077,
+      "title": "nightly-next: read the Dev ring switch live when publishing",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25726,
+      "title": "acpmux: Linux sandbox A2, refuse mount aliases of protected paths",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25714,
+      "title": "Fixes #25640: Search All Windows answers as it reads",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25679,
+      "title": "Workspace color shows at once (store intent), Fixes #25657",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26063,
+      "title": "acpmux docs: ownerToken on begin, cancel and owned refs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25842,
+      "title": "cmux NEXT Chromium: a page keeps up with a dragged pane divider (holds its size, lays out once)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25840,
+      "title": "acpmux: send --attach and send_message take files of any size and number, by reference",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26025,
+      "title": "nightly-next: the names job passes its versioned DMG to the publisher (fix-forward #25656)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23990,
+      "title": "cmux NEXT Inspector: Subagents shows the running limit, with − / + to change it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25644,
+      "title": "composer: make a started chat's environment chip actionable",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26017,
+      "title": "ci(nightly-next): the app build takes an idle owned Mac, else a moving Blacksmith label",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26020,
+      "title": "ci(risk): read the review verdict from the PR description; no verdict warns, not red",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25956,
+      "title": "ci: route the rescue's cmux-bot re-runs like github-actions[bot]'s",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26026,
+      "title": "ci(guards): list the two manual-lane workflow readers as UNWIRED",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26014,
+      "title": "acpmux: a large screenshot reaches the model as a copy sized for its harness, next to the link to the original",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25997,
+      "title": "ci: start the macOS keychain real-import only when the keychain tool changes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26027,
+      "title": "ci(dev): the DEV publisher's jobs take no concurrency group",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26019,
+      "title": "ci(cmux-next): the compile status posts only cmux-next/compile",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26011,
+      "title": "agent pane: the account's Cloud machines and Open/Resume for the machine list",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26029,
+      "title": "ci(cmux-tui): read a published manifest or binary again after a timeout or 5xx",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26005,
+      "title": "ci(nightly-next): tree-commit markers say a commit's cmux-tui tree is ready; request-nightly-next requires and backfills them",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25823,
+      "title": "cmux NEXT: Add Machine… in the environment picker; Add Device lists ssh config hosts and New Cloud VM…",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25779,
+      "title": "acpmux: the daemon compacts closed chats' logs by itself (retention 3/3)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26012,
+      "title": "ci(nightly-next): feat-cmux-next's tick matches main (no polling coalescer)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26023,
+      "title": "ci(pool): cmux-next's cascade and the nightly sign pick read the one 10-min stall rule",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25540,
+      "title": "cmux NEXT: the app pushes an MDM-forced sessions.allowFullAccess, and the mode menu says Managed by your organization (#23322 a2)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25995,
+      "title": "ci(nightly-next): feat-cmux-next's promote guard matches main; retire its live ack as main did (#21544)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26018,
+      "title": "ci(release-notary): run every What's New test and fail at the end",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25477,
+      "title": "ci(nightly-next): publish-path gh calls go out as the release App first, github.token as fallback",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25975,
+      "title": "ci(nightly): build the cmux-next source tarball only when the nightly may publish it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26002,
+      "title": "ci(pool): read the minis from their runner group; a 10-min-old Blacksmith queue has no free slot",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25927,
+      "title": "ci(nightly-next): a late Release compile requests the newest commit with its tree, never its own old one",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25976,
+      "title": "ci(nightly): deltas and release notes never share publish-nightly's group",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25929,
+      "title": "ci: rename the compile status to cmux-next/compile",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25953,
+      "title": "Revert \"ci(cmux-next): a landing hands its DEV app to the publisher from its push run (#25895)\"",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25986,
+      "title": "ci(nightly-next): retire NIGHTLY_NEXT_HOLD; an unset NIGHTLY_NEXT_WRITER means mac",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26000,
+      "title": "ci(nightly): reuse only a stripped Ghostty helper; a hit skips the strip",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25960,
+      "title": "Agent chat: polish minimap hover cards",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25904,
+      "title": "cmux NEXT: an automatic update reopens behind without ever coming to the front",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25778,
+      "title": "cmux NEXT: Settings > Machines' Dedicated agent machine switch on a Cloud machine (vmHost)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25996,
+      "title": "acpmux: Linux sandbox F2: forked-child regressions for name and metadata mutations",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25987,
+      "title": "release-notes: a build with no What's New entry publishes \"Fixes and improvements\" instead of failing",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25982,
+      "title": "cmux NEXT screenshots tests: remove their temp folders, TemporaryItems included",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25941,
+      "title": "ci(nightly): build the Ghostty CLI helper on owned macOS 26, drop every macOS 15 label",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25963,
+      "title": "ci: a daemon-test job that finds its tree already marked skips the tests",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25926,
+      "title": "acpmux log retention: an archive under a group-writable folder is kept, safely",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25977,
+      "title": "cmux on iPhone pairs with a Mac by scanning its QR code (cmux-next://pair)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25970,
+      "title": "test(next): keep fold anchor fixture away from transcript end (no bead)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25974,
+      "title": "acpmux: Linux sandbox F1: name and metadata mutations in the user-notify supervisor",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25897,
+      "title": "ci(nightly-next): resolver waits once for the tip's tree publisher on a miss",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25774,
+      "title": "acpmux docs: the prompt-uploads contract (files of any size, by reference)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25955,
+      "title": "composer: list every machine acpmux knows in the environment picker",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25803,
+      "title": "acpmux: the app's WebSocket takes binary upload frames, with no size cap",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25961,
+      "title": "nightly: bound republish-nightly-deltas to 15 minutes on nightly-next",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25933,
+      "title": "ci: the daemon-tests marker and our check, job and step names name no runner OS",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25964,
+      "title": "ci: publish verifies its commit manifests once off main",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25930,
+      "title": "ci(nightly): reuse the Ghostty CLI helper when its inputs are unchanged; no Mac on a hit",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25876,
+      "title": "web: keep code highlighting from janking streams",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/25876/fallback-after-55ff8ca.mp4",
+      "source": "manual",
+      "note": "5 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 25885,
+      "title": "ci(nightly-next): prepare the nightly variant on Linux, byte-identical",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25838,
+      "title": "cmux device list: ~/.ssh/config hosts as computers to add",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25923,
+      "title": "Mobile Pairing shows this Mac's pairing link as a QR code",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25723,
+      "title": "fix(next): tighten transcript footer-to-sender spacing (no bead)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25917,
+      "title": "cmux-next: Move Sessions re-checks a terminal is idle right before ending it (fix-forward #20945)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25620,
+      "title": "agent pane peer snapshots (8t2/n): tests of the attach fixes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25793,
+      "title": "acpmux: resumable uploads report where they stand, check their bytes, and fail on size only when the disk is full",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25936,
+      "title": "ci(cmux-next): the placement summary names why the DEV compile slot took nothing",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25911,
+      "title": "fix(next): give remote and group menu rows distinct icons",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25690,
+      "title": "cmux NEXT: optionally keep chat scroll position when sending",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/25690/99f881e5/next-agent-pane-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "99f881e5",
+      "tour": "agent-pane"
+    },
+    {
+      "pr": 25924,
+      "title": "ci: the signing-keychain guard reads nightly.yml's moved run blocks",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
