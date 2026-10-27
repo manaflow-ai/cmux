@@ -29,9 +29,9 @@ struct HomePendingTerminalFocusTests {
                                       charactersIgnoringModifiers: String(character), isARepeat: false, keyCode: 0))
     }
 
-    /// Home shows, a script asks for a new terminal with focus (the journey's `newTab`), and until that terminal has the
+    /// Home shows, the person asks for a new terminal (`newTab`), and until that terminal has the
     /// keyboard Home's message box neither takes the keyboard (its pane focused again by the app) nor gets a typed key.
-    @Test func keysTypedForANewTerminalAskedForOverHomeNeverReachTheChiefMessageBox() async throws {
+    @Test func keysTypedForAPersonsNewTerminalOverHomeNeverReachTheChiefMessageBox() async throws {
         try await PasswordManagerRouteTests.withApp { services, connection in
             let (window, home) = try await HomeSplitKeysTests.showHome(services, connection)
             let shell = try #require(window.window)
@@ -65,8 +65,9 @@ struct HomePendingTerminalFocusTests {
             let holds = shell.makeFirstResponder(holder) && shell.firstResponder === holder
             try #require(holds, "the test view did not take the keyboard")
 
-            // The journey's request: a script's new workspace with one terminal, shown in this window.
-            let request = ActionInvocation(arguments: ["focus": .bool(true), "name": .string("pending-terminal")], origin: .script)
+            // The person's new workspace with one terminal (a terminal-first Cmd-N; `command` makes it a terminal, not
+            // the New Tab page a person's New Workspace opens by default).
+            let request = ActionInvocation(arguments: ["name": .string("pending-terminal"), "command": .string("/bin/sh")], origin: .user)
             #expect(services.registry.perform("newTab", invocation: request))
             // From this moment the window's keys are the new terminal's: the key router holds them for it, so neither
             // Home's primary input (`typesIntoPrimaryInput`) nor its first responder gets them.
@@ -98,6 +99,43 @@ struct HomePendingTerminalFocusTests {
             })
             let finalText = box.string
             #expect(finalText.isEmpty, "keys typed for the new terminal went to Home's message box: \"\(finalText)\"")
+        }
+    }
+
+    /// Automation never competes with the person (CLAUDE.md, "Go past Chrome where cmux is scripted"): a script's new
+    /// terminal with focus, sent while the person types in a text input of the window, holds none of their keys and
+    /// leaves the window where it is; the new workspace is listed, not shown.
+    @Test func aScriptsNewTerminalNeverTakesTheKeysOfAPersonTypingInAField() async throws {
+        try await PasswordManagerRouteTests.withApp { services, connection in
+            let (window, home) = try await HomeSplitKeysTests.showHome(services, connection)
+            let shell = try #require(window.window)
+            let host = try #require(shell.contentView)
+            // A text field the person typed into, with the keyboard (typed, so focusing it asks no AutoFill service).
+            let field = NSTextField(string: "a draft")
+            field.contentType = .URL
+            field.frame = NSRect(x: 10, y: 10, width: 200, height: 24)
+            host.addSubview(field)
+            defer { field.removeFromSuperview() }
+            let focused = shell.makeFirstResponder(field)
+            try #require(focused, "the field did not take the keyboard")
+            let editing = shell.firstResponder?.ownsTypedText == true
+            try #require(editing, "the field's editor does not have the keyboard: \(String(describing: shell.firstResponder))")
+
+            let request = ActionInvocation(arguments: ["focus": .bool(true), "name": .string("scripted-terminal")], origin: .script)
+            #expect(services.registry.perform("newTab", invocation: request))
+            let held = services.keyRouter.modes.contains(.creationCapture)
+            #expect(!held, "a script's new terminal holds the keys of a person typing in a field")
+            let typed = try Self.key("x", in: shell)
+            let taken = services.keyRouter.interceptKeyDown(typed, in: shell)
+            #expect(!taken, "a key the person typed in the field was taken for the script's terminal")
+
+            // The workspace is made and listed in this window; the window stays on Home.
+            try await PasswordManagerRouteTests.until({
+                services.daemon.store.workspaces.contains { $0.name == "scripted-terminal" }
+                    && services.daemon.store.workspaces.first { $0.name == "scripted-terminal" }.map { services.windows.registry.value.owner(of: $0.id) != nil } == true
+            }, report: { "the script's workspace was never listed: \(services.daemon.store.workspaces.map(\.name))" })
+            let shown = window.state.workspaceID
+            #expect(shown == home.id, "the script's new terminal took the window from the person typing: it shows \(String(describing: shown))")
         }
     }
 }

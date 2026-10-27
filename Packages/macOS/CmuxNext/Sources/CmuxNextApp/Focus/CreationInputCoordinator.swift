@@ -57,6 +57,12 @@ final class CreationInputCoordinator {
         return buffer.newestGeneration == generation
     }
 
+    /// Whether `window`'s keys wait in a creation hold now (tests, `debug.focus`).
+    func isHolding(in window: NSWindow?) -> Bool {
+        guard let window else { return false }
+        return buffers[window.windowNumber] != nil
+    }
+
     /// The person closed provisional tab `tab` in `window` before the daemon made it: the keys held
     /// for it are dropped and the rest go on (``CreationInputBuffer/cancel(tab:)``).
     func drop(tab: String, in window: NSWindow?) {
