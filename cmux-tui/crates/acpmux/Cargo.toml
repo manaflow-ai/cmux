@@ -23,6 +23,10 @@ unexpected_cfgs = { level = "warn", check-cfg = ["cfg(tokio_unstable)"] }
 [features]
 # The lab's tokio slow-poll detector (cmux-blocking; RUSTFLAGS="--cfg tokio_unstable").
 cmux-stability = ["cmux-blocking/cmux-stability"]
+# Crash injectors for the fleet's crash matrix (`_acpmux/debug_panic`,
+# src/debug_crash_inject.rs): code behind cfg(any(debug_assertions,
+# feature = "bench")), so release builds never have it. Off by default.
+bench = []
 
 [dependencies]
 cmux-blocking.workspace = true

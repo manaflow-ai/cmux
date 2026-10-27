@@ -122,6 +122,10 @@ pub use browser_runtime::BROWSER_RUNTIME_CAPABILITY;
 mod window_title;
 use window_title::sanitize_window_title;
 pub use window_title::window_title_osc;
+/// `debug-panic` (p09-observability task 101): debug and `--features bench` builds only.
+#[cfg(any(debug_assertions, feature = "bench"))]
+#[path = "server/debug_crash_inject.rs"]
+mod debug_crash_inject;
 #[path = "server/loopback_forward.rs"]
 mod loopback_forward;
 /// `oracle-state` (p15-oracle task 021): debug and `--features oracle` builds only.

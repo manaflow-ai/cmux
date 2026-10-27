@@ -1144,6 +1144,35 @@ Errors: `oracle state requires a trusted local connection`,
 session has no journal file to read), `bad request: ...`, and the reducer's
 errors (a gap in the journal, an unknown reducer version).
 
+### debug-panic
+
+| Field | Value |
+| --- | --- |
+| name | `debug-panic` |
+| status | implemented in debug builds and `--features bench` builds only |
+| since | protocol 12, no capability |
+
+Makes this daemon crash on purpose, for the crash matrix
+(`plans/cmux-next/chrome-parity/p09-observability.md`, task 101). A release
+daemon has no such command and answers `bad request: unknown variant`.
+Trusted local connections only; WebSocket and remote relay clients are
+refused before anything runs. acpmux has the same injector as
+`_acpmux/debug_panic {kind}`, on its local unix socket only.
+
+Params: `kind` (required string): `panic` (a Rust panic on the thread
+`debug-crash-inject`; the owner's panic log records it and the daemon keeps
+running), `abort` (SIGABRT) or `segv` (a store to an unmapped address,
+SIGSEGV). No other field.
+
+Result: `object{kind:string, pid:uint64}`, sent once the crash thread has
+started. For `abort` and `segv` the process may end before the reply is
+written.
+
+Errors: `debug-panic requires a trusted local connection`,
+`bad request: debug-panic kind must be panic, abort or segv`,
+`bad request: debug-panic takes no field ...`,
+`debug-panic could not start its thread: ...`.
+
 ### trace-start, trace-stop, trace-status
 
 | Field | Value |
