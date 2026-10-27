@@ -23,20 +23,17 @@ extension AgentHandlers {
         }
         guard let workspace = context.scope(invocation).workspace else { return context.refuse(MiscHandlerStrings.noPane) }
         _ = context.registry.perform("newTab.default", invocation: invocation)
-        context.registry.track(Task { @MainActor in
-            let pane = try? await ControlDeadline.shared.run(
-                method: "agent-pane.mount",
-                deadline: .now + .seconds(10)
-            ) { @MainActor in
-                await Self.waitForPaneController(in: workspace, context: context)
-            }
-            guard let pane else {
+        // The mount is awaited off the action's turn; the chat opens in one task of the run's completion.
+        context.registry.trackWork(owner: "AgentHandlers.withAgentPane", on: context.services.mainWork) {
+            await Self.waitForPaneController(in: workspace, context: context)
+        } then: { result in
+            guard case .success(let pane?) = result else {
                 context.refuse(MiscHandlerStrings.noPane)
                 return ActionWorkFailure(MiscHandlerStrings.noPane)
             }
             open(pane)
             return nil
-        })
+        }
     }
 
     /// A new workspace in the active window with the chat as its only tab, when that window shows
@@ -48,34 +45,38 @@ extension AgentHandlers {
         let daemon = services.activeDaemon
         guard let window = context.activeWindow, services.agentTabs.canHost(on: daemon) else { return false }
         let windowID = window.state.id
-        context.registry.track(Task { @MainActor in
-            var spawn = WorkspaceSpawn(cwd: seed.cwd)
-            spawn.firstChat = seed
-            do {
-                _ = try await services.windows.createWorkspace(spawn, on: daemon, into: windowID)
-                return nil
-            } catch {
-                daemon.logger.error("agent chat workspace over a top page failed: \(String(describing: error), privacy: .public)")
-                return ActionWorkFailure("new agent chat: \(error)")
-            }
-        })
+        var spawn = WorkspaceSpawn(cwd: seed.cwd)
+        spawn.firstChat = seed
+        let request = spawn, windows = services.windows
+        // The creation is awaited off the action's turn; its failure is one task of the run's completion.
+        context.registry.trackWork(owner: "AgentHandlers.chatWorkspaceOverTopPage", on: services.mainWork) {
+            _ = try await windows.createWorkspace(request, on: daemon, into: windowID)
+        } then: { result in
+            guard case .failure(let error) = result else { return nil }
+            daemon.logger.error("agent chat workspace over a top page failed: \(String(describing: error), privacy: .public)")
+            return ActionWorkFailure("new agent chat: \(error)")
+        }
         return true
     }
 
+    /// How long a new chat waits for the active workspace's first pane to mount.
+    static let paneMountLimit: Duration = .seconds(10)
+
+    /// The first mounted pane of `workspace`, at once when one is mounted now, else nil after ``paneMountLimit``.
     @MainActor
     private static func waitForPaneController(in workspace: WorkspaceModel, context: AppActionContext) async -> PaneController? {
         // The store's panes are observable; mounted controllers are not, so
         // the mount generation stands in for them (`PaneMounts`).
         let services = context.services
-        func mounted() -> PaneController? {
+        let mounted: @MainActor () -> PaneController? = {
             workspace.screens.flatMap(\.panes).lazy.compactMap(services.paneController(for:)).first
         }
-        for await isMounted in ObservationStream({ () -> Bool in
-            _ = services.paneMounts.generation
-            return mounted() != nil
-        }) where isMounted {
-            return mounted()
-        }
-        return nil
+        // One ServiceObservation reads again only when the panes or the mount generation change.
+        await ObservedCondition(owner: "AgentHandlers.paneMount", .visible, on: services.mainWork)
+            .until(timeout: paneMountLimit, deadlines: services.mainDeadlines) {
+                _ = services.paneMounts.generation
+                return mounted() != nil
+            }
+        return mounted()
     }
 }

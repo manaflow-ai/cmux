@@ -31,8 +31,8 @@ final class BrowserDownloadsPopup {
     private weak var anchor: NSView?
     /// The toolbar the popup opened from, which draws its button pressed while it is open.
     private weak var buttons: BrowserToolbarButtonsView?
-    /// The automatic close of a popup that opened by itself.
-    private let autoClose = DemandTimer(owner: "Browser.downloadsPopup")
+    /// The automatic close of a popup that opened by itself (made on first use, on the app's deadline scheduler).
+    private var autoClose: MainDeadline?
     /// The shown popup's rows (``followRows(on:)``); a show replaces it and a close ends it.
     private var rowsWatch: FrameObservation<RowShape>?
 
@@ -61,16 +61,19 @@ final class BrowserDownloadsPopup {
     /// back to the notice over the tab.
     @discardableResult
     func showFinished(_ list: BrowserDownloadList, buttons: BrowserToolbarButtonsView, on work: MainWorkScheduler,
-                      icons: WorkspaceQueries, showFolder: @escaping () -> Void) -> Bool {
+                      deadlines: MainDeadlineScheduler, icons: WorkspaceQueries, showFolder: @escaping () -> Void) -> Bool {
         // The Downloads button itself, or More when it is collapsed; never the bare toolbar.
         guard NSApp.isActive, let anchor = buttons.popupAnchor(for: .downloads), anchor !== buttons.superview,
-              let window = anchor.window, window.isKeyWindow || window.isMainWindow,
+              let window = anchor.window, window.isKeyWindow || window.isMainWindow, // visibility-walk-allow: the Downloads button's own AppKit state (collapsed into More, a hidden toolbar); visibility nodes hold tabs and panes, not toolbar buttons
               !anchor.isHiddenOrHasHiddenAncestor else { return false }
         // Already open (a click, or another download): it stays as it is and lists the new row.
         if popup.isShown { return true }
         guard show(list, anchor: anchor, buttons: buttons, work: work, icons: icons, showFolder: showFolder, makeKey: false) else { return false }
         model.entered = false
-        autoClose.scheduleOnMain(after: Self.autoCloseDelay) { [weak self] in
+        // Visible: the close shows on screen. Flexible (the default): 5 s may move by a few ms.
+        let autoClose = self.autoClose ?? MainDeadline(owner: "Browser.downloadsPopup", workClass: .visible, scheduler: deadlines)
+        self.autoClose = autoClose
+        autoClose.schedule(after: Self.autoCloseDelay) { [weak self] in
             guard let self, !self.model.entered else { return }
             self.close()
         }
@@ -156,6 +159,7 @@ final class BrowserDownloadsPopup {
     private func resize() {
         guard popup.isShown, let content else { return }
         // The button left the screen (another tab, the tab closed): the popup goes with it.
+        // visibility-walk-allow: the Downloads button's own AppKit state, read once per row change while the popup shows
         guard let anchor, let window = anchor.window, !anchor.isHiddenOrHasHiddenAncestor else { return close() }
         // sync-layout: the hosting view takes the new rows in its layout; its fitting size sizes the popup below.
         content.layoutSubtreeIfNeeded()
@@ -165,7 +169,7 @@ final class BrowserDownloadsPopup {
                    preferred: .below, trailing: true, makeKey: popup.panel.isKeyWindow)
     }
 
-    private func cancelAutoClose() { autoClose.cancel() }
+    private func cancelAutoClose() { autoClose?.cancel() }
 
     private func closed() {
         cancelAutoClose()
@@ -458,6 +462,7 @@ final class BrowserDownloadRowEventView: NSView, NSDraggingSource {
         dragged = false
     }
 
+    // local-monitor-allow: a 3 pt threshold test, then the drag session, which beginDraggingSession must start from this event; a drag is unbuffered until mouseUp (p06-scheduler.md section E)
     override func mouseDragged(with event: NSEvent) {
         guard !dragged, let down = downEvent else { return }
         let start = down.locationInWindow, now = event.locationInWindow

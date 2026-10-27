@@ -90,13 +90,17 @@ extension AppActionContext {
     /// Runs an action's asynchronous work and reports its failure: a capturing caller (the CLI,
     /// MCP) awaits it and answers it; a palette, menu or keyboard run shows it when it comes.
     func report(_ work: @escaping @MainActor () async -> ActionWorkFailure?) {
-        let task = Task { @MainActor in await work() }
-        if registry.isCapturingWork {
-            registry.track(task)
-        } else {
-            // task-owner: a run nobody awaits; the refusal shows when the work ends.
-            Task { @MainActor [weak registry] in if let failure = await task.value { registry?.refuse(failure.message) } }
+        let registry = self.registry, capturing = registry.isCapturingWork
+        let end = registry.completion(on: services.mainWork)
+        let task = end.start { () -> ActionWorkFailure? in
+            let failure = await work()
+            // A run nobody awaits shows the refusal when the work ends, as one task of the run's completion.
+            if !capturing, let failure {
+                end.post(owner: "AppActionContext.report", answering: true) { [weak registry] in registry?.refuse(failure.message) }
+            }
+            return failure
         }
+        if capturing { registry.track(task) }
     }
 
     /// Statement form: `guard ... else { return ctx.refuse("why") }`.
@@ -175,6 +179,7 @@ extension AppActionContext {
     /// The daemon tabs Move Tab to New Workspace or Window takes for `tab`: on one of several
     /// selected tabs, every selected tab that may move, in strip order (`tab` among them); else `tab`.
     func movingTabs(_ invocation: ActionInvocation, _ tab: TabModel) -> [TabModel] {
+        // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051), once
         guard let pane = services.locateTab(tab.id).flatMap({ services.paneController(for: $0.1) }) else { return [tab] }
         return actingTabs(invocation, pane, StripTabID(tab.id)).compactMap { pane.tab($0) }.filter { $0.id == tab.id || TabPromotion.refusal(tab: $0.id, services: services) == nil }
     }
@@ -182,6 +187,7 @@ extension AppActionContext {
     /// The targeted daemon tab, found in any workspace (shown or not).
     func daemonTab(_ invocation: ActionInvocation) -> (tab: TabModel, pane: PaneModel)? {
         if let target = explicitTarget(invocation, kinds: [.tab]) {
+            // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051), once
             return services.locateTab(target.id) ?? notFound(RefusalStrings.noTab(target.id))
         }
         guard let (pane, id) = tab(invocation) else { return nil }

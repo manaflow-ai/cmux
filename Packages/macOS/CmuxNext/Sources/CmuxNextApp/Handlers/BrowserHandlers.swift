@@ -73,13 +73,15 @@ enum BrowserHandlers {
         registry.bind("toggleReactGrab", run: { invocation in
             let entry = try context.page(invocation)
             let tab = entry.tab, grab = context.services.reactGrab, logger = context.daemon.logger
-            Task { [weak chrome = entry.chrome] in
-                do {
-                    try await grab.toggle(tab)
-                } catch {
+            // The page script is awaited off the action's turn; a failure's notice is one task of the run's completion.
+            registry.trackWork(owner: "BrowserHandlers.toggleReactGrab", on: context.services.mainWork, tracked: false) {
+                try await grab.toggle(tab)
+            } then: { [weak chrome = entry.chrome] result in
+                if case .failure(let error) = result {
                     logger.error("react-grab toggle failed: \(String(describing: error), privacy: .public)")
                     chrome?.showNotice(MiscHandlerStrings.reactGrabFailed)
                 }
+                return nil
             }
         })
         registry.bindEffect("palette.browserOpenDefault", requires: nil, effect: { invocation in
@@ -111,25 +113,32 @@ enum BrowserHandlers {
             let tab = try context.page(invocation).tab
             guard tab.contentView.window != nil else { throw ActionFailure(message: MiscHandlerStrings.noBrowser) }
             let overlay = BrowserSectionOverlay(over: tab.contentView)
-            Task {
-                guard let selection = await overlay.select() else { return }
-                copyScreenshot(context) { try await selection.capture(from: tab) }
+            copyScreenshot(context) {
+                // Esc cancels the drag: nothing is copied or logged.
+                guard let selection = await overlay.select() else { throw CancellationError() }
+                return try await selection.capture(from: tab)
             }
         })
     }
 
     /// Copies the image `capture` takes to the clipboard (Screenshot Page and
-    /// Screenshot Section); a failed capture is logged.
+    /// Screenshot Section); a failed capture is logged. The capture is awaited off
+    /// the action's turn; the clipboard write is one task of the run's completion.
     static func copyScreenshot(_ context: AppActionContext, _ capture: @escaping @MainActor () async throws -> CGImage) {
         let logger = context.daemon.logger
-        Task {
-            do {
-                let image = try await capture()
+        context.registry.trackWork(owner: "BrowserHandlers.copyScreenshot", on: context.services.mainWork, tracked: false) {
+            try await capture()
+        } then: { result in
+            switch result {
+            case .success(let image):
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.writeObjects([NSImage(cgImage: image, size: .zero)])
-            } catch {
+            case .failure(is CancellationError):
+                break
+            case .failure(let error):
                 logger.error("browser screenshot failed: \(String(describing: error), privacy: .public)")
             }
+            return nil
         }
     }
 
@@ -209,13 +218,17 @@ enum BrowserHandlers {
         let intent = content?.beginFocusIntent()
         let address = url?.absoluteString ?? context.services.newTabAddress(for: choice)
         let model = strip.pane
-        Task {
-            do {
-                let surface = try await browserTabs.open(choice, in: model, url: address, profile: profile)
+        // The open is awaited off the action's turn; the focus it expects is one task of the run's completion.
+        context.registry.trackWork(owner: "BrowserHandlers.splitBrowserTab", on: context.services.mainWork, tracked: false) {
+            try await browserTabs.open(choice, in: model, url: address, profile: profile)
+        } then: { result in
+            switch result {
+            case .success(let surface):
                 content?.expectFocus(on: surface, target: url == nil ? .addressBar : .content, generation: intent)
-            } catch {
+            case .failure(let error):
                 context.daemon.logger.error("split-browser tab failed: \(String(describing: error), privacy: .public)")
             }
+            return nil
         }
     }
 

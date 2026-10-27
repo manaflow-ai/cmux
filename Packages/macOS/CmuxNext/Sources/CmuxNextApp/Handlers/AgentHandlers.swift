@@ -300,15 +300,16 @@ enum AgentHandlers {
         let handle = pane.pane.handle
         let options = SpawnOptions(cwd: tab.cwd, workspace: context.services.workspaceKey(of: pane.pane))
         let line = command + "\n"
-        let logger = context.daemon.logger
-        let repair = context.services.emptyWorkspaces
+        let logger = context.daemon.logger, repair = context.services.emptyWorkspaces
         // A fork into a new workspace is placed like Cmd-N: in the current group (cx-caoh).
         let key = WorkspaceKey.generate()
         if destination == .workspace || destination == .window {
             let windows = context.services.windows
             NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: NewWorkspacePlacements.rule(for: nil, in: windows), windows: windows)
         }
-        Task {
+        // The daemon commands run off main; showing the fork's new workspace is one task of the run's completion.
+        let end = context.registry.completion(on: context.services.mainWork)
+        end.start {
             do {
                 let surface: SurfaceID?
                 var workspace: WorkspaceKey?
@@ -330,10 +331,12 @@ enum AgentHandlers {
                 }
                 if let surface { try await connection.send(surface, text: line) }
                 if let workspace {
-                    context.window(showing: workspace.rawValue)
-                    // A new window: the fork's new workspace moves there, as Move Workspace to New Window moves one.
-                    if destination == .window {
-                        _ = context.registry.perform("moveWorkspaceToNewWindow", invocation: ActionInvocation(target: ActionTargetRef(kind: .workspace, id: workspace.rawValue), origin: .user))
+                    end.post(owner: "AgentHandlers.fork", answering: true) {
+                        context.window(showing: workspace.rawValue)
+                        // A new window: the fork's new workspace moves there, as Move Workspace to New Window moves one.
+                        if destination == .window {
+                            _ = context.registry.perform("moveWorkspaceToNewWindow", invocation: ActionInvocation(target: ActionTargetRef(kind: .workspace, id: workspace.rawValue), origin: .user))
+                        }
                     }
                 }
             } catch {

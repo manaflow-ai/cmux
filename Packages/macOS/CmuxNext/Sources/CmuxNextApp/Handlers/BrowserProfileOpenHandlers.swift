@@ -32,7 +32,9 @@ enum BrowserProfileOpenHandlers {
             let windowID = UUID().uuidString.lowercased()
             var spawn = WorkspaceSpawn()
             spawn.browserProfile = record.id
-            Task { _ = try? await windows.createWorkspace(spawn, into: windowID) }
+            // The creation is awaited off the action's turn, with the run's scopes (ActionCompletion).
+            let request = spawn, end = context.registry.completion(on: context.services.mainWork)
+            end.start { _ = try? await windows.createWorkspace(request, into: windowID) }
         }
         bind("browserProfile.newWorkspace") { invocation in
             let record = try context.requiredBrowserProfile(invocation)
@@ -40,7 +42,8 @@ enum BrowserProfileOpenHandlers {
             let target = windows.targetWindow(preferring: windows.active?.state.id)
             var spawn = WorkspaceSpawn()
             spawn.browserProfile = record.id
-            Task { _ = try? await windows.createWorkspace(spawn, into: target) }
+            let request = spawn, end = context.registry.completion(on: context.services.mainWork)
+            end.start { _ = try? await windows.createWorkspace(request, into: target) }
         }
         bind("browserProfile.setWorkspaceDefault") { invocation in
             let record = try context.requiredBrowserProfile(invocation)

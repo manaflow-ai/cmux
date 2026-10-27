@@ -19,16 +19,19 @@ extension AppActionContext {
         // The action run's origin, read now (the write runs later): a socket or page run is not
         // the user and may change only agent-settable keys.
         let writer = SettingWriter.currentRun()
-        registry.track(Task { @MainActor in
+        // The writes are awaited off the action's turn; the outcome is one task of the run's completion.
+        registry.trackWork(owner: "AppActionContext.writeSettings", on: services.mainWork) {
             do {
                 for (path, value) in edits { try await settings.setSetting(at: path, to: value, by: writer) }
-                return nil
             } catch {
-                Self.settingsLogger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                 if reloadOnFailure { await settings.reload() }
-                return ActionWorkFailure(String(describing: error))
+                throw error
             }
-        })
+        } then: { result in
+            guard case .failure(let error) = result else { return nil }
+            Self.settingsLogger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+            return ActionWorkFailure(String(describing: error))
+        }
     }
 
     /// `writeSettings` for one key; nil removes it (its default applies).
