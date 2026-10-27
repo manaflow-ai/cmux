@@ -34,11 +34,10 @@ pub enum PeerCmd {
         #[arg(long)]
         build: bool,
     },
-    /// Whether a machine is a dedicated agent VM (vmHost): Claude runs there
-    /// without the sandbox and your own machine's sessions start approve-all,
-    /// the VM being the boundary. On by default on a VM cmux created, never
-    /// on a personal or SSH-added machine (`on` is refused there). Applies to
-    /// new sessions at once, with no restart.
+    /// Whether a machine is a dedicated agent VM (vmHost), where Claude would
+    /// run without the sandbox. Off everywhere until an attested source exists:
+    /// nothing on the machine (its /etc/cmux/vm-kind, its config) may turn off
+    /// the sandbox, so `on` is refused. Shows whether cmux created the VM.
     VmHost {
         /// A peer; omit for this machine.
         name: Option<String>,
