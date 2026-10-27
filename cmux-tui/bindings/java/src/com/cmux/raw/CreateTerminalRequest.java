@@ -13,6 +13,7 @@ import java.util.Objects;
 /** Immutable create-terminal request. Protocol v7; authority: control. */
 public final class CreateTerminalRequest implements WireValue {
     private final Field<List<String>> argv;
+    private final Field<Boolean> asyncStart;
     private final Field<Integer> cols;
     private final Field<String> command;
     private final Field<String> cwd;
@@ -32,6 +33,7 @@ public final class CreateTerminalRequest implements WireValue {
 
     private CreateTerminalRequest(Builder builder) {
         this.argv = builder.argv.map(value -> List.copyOf(value));
+        this.asyncStart = builder.asyncStart;
         this.cols = builder.cols;
         this.command = builder.command;
         this.cwd = builder.cwd;
@@ -53,6 +55,7 @@ public final class CreateTerminalRequest implements WireValue {
     public static Builder builder() { return new Builder(); }
 
     public Field<List<String>> argv() { return argv; }
+    public Field<Boolean> asyncStart() { return asyncStart; }
     public Field<Integer> cols() { return cols; }
     public Field<String> command() { return command; }
     public Field<String> cwd() { return cwd; }
@@ -76,6 +79,10 @@ public final class CreateTerminalRequest implements WireValue {
         Object rawArgv = Wire.optional(object, "argv");
         if (!Wire.isMissing(rawArgv)) {
             builder.argv(rawArgv == null ? null : Wire.array(rawArgv, "CreateTerminalRequest.argv", item -> Wire.string(item, "CreateTerminalRequest.argv item")));
+        }
+        Object rawAsyncStart = Wire.optional(object, "async_start");
+        if (!Wire.isMissing(rawAsyncStart)) {
+            builder.asyncStart(Wire.bool(rawAsyncStart, "CreateTerminalRequest.async_start"));
         }
         Object rawCols = Wire.optional(object, "cols");
         if (!Wire.isMissing(rawCols)) {
@@ -148,6 +155,7 @@ public final class CreateTerminalRequest implements WireValue {
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "argv", argv);
+        Wire.put(object, "async_start", asyncStart);
         Wire.put(object, "cols", cols);
         Wire.put(object, "command", command);
         Wire.put(object, "cwd", cwd);
@@ -170,17 +178,18 @@ public final class CreateTerminalRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof CreateTerminalRequest that)) return false;
-        return Objects.equals(argv, that.argv) && Objects.equals(cols, that.cols) && Objects.equals(command, that.command) && Objects.equals(cwd, that.cwd) && Objects.equals(detached, that.detached) && Objects.equals(env, that.env) && Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedRevision, that.expectedRevision) && Objects.equals(keep, that.keep) && Objects.equals(key, that.key) && Objects.equals(mutationId, that.mutationId) && Objects.equals(name, that.name) && Objects.equals(origin, that.origin) && Objects.equals(rows, that.rows) && Objects.equals(shellArgs, that.shellArgs) && Objects.equals(terminalId, that.terminalId) && Objects.equals(workspace, that.workspace);
+        return Objects.equals(argv, that.argv) && Objects.equals(asyncStart, that.asyncStart) && Objects.equals(cols, that.cols) && Objects.equals(command, that.command) && Objects.equals(cwd, that.cwd) && Objects.equals(detached, that.detached) && Objects.equals(env, that.env) && Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedRevision, that.expectedRevision) && Objects.equals(keep, that.keep) && Objects.equals(key, that.key) && Objects.equals(mutationId, that.mutationId) && Objects.equals(name, that.name) && Objects.equals(origin, that.origin) && Objects.equals(rows, that.rows) && Objects.equals(shellArgs, that.shellArgs) && Objects.equals(terminalId, that.terminalId) && Objects.equals(workspace, that.workspace);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(argv, cols, command, cwd, detached, env, expectedGeneration, expectedRevision, keep, key, mutationId, name, origin, rows, shellArgs, terminalId, workspace); }
+    public int hashCode() { return Objects.hash(argv, asyncStart, cols, command, cwd, detached, env, expectedGeneration, expectedRevision, keep, key, mutationId, name, origin, rows, shellArgs, terminalId, workspace); }
 
     @Override
     public String toString() { return "CreateTerminalRequest" + toWire(); }
 
     public static final class Builder {
         private Field<List<String>> argv = Field.omitted();
+        private Field<Boolean> asyncStart = Field.omitted();
         private Field<Integer> cols = Field.omitted();
         private Field<String> command = Field.omitted();
         private Field<String> cwd = Field.omitted();
@@ -200,6 +209,10 @@ public final class CreateTerminalRequest implements WireValue {
 
         public Builder argv(List<String> value) {
             this.argv = Field.ofNullable(value);
+            return this;
+        }
+        public Builder asyncStart(Boolean value) {
+            this.asyncStart = Field.of(value);
             return this;
         }
         public Builder cols(Integer value) {

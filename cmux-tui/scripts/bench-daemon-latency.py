@@ -166,6 +166,7 @@ import tempfile
 import threading
 import time
 import traceback
+import uuid
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(os.path.dirname(SCRIPT_DIR))
@@ -698,6 +699,37 @@ def _op_new_tab(f, i):
 def _op_create_terminal(f, i):
     ms, data = f.timed("create-terminal", workspace=f.ws_id, argv=["/bin/sh"], cols=80, rows=24)
     f.close(data["surface"])
+    return ms
+
+
+@op("create-terminal-async", kind="create", capability="terminal-async-start-v1")
+def _op_create_terminal_async(f, i):
+    """`terminal-async-start-v1`: the op's time is the reply, which comes at admission; it then
+    waits for `terminal-started` (or fails on `terminal-start-failed`) and closes the new tab."""
+    terminal_id = uuid.uuid4().hex
+    outcome = {}
+
+    def on_event(_line, msg):
+        if msg and msg.get("terminal_id") == terminal_id and msg.get("event") in (
+                "terminal-started", "terminal-start-failed"):
+            outcome["event"] = msg
+
+    previous, f.c.on_event = f.c.on_event, on_event
+    try:
+        ms, data = f.timed("create-terminal", workspace=f.ws_id, argv=["/bin/sh"], cols=80, rows=24,
+                           terminal_id=terminal_id, origin="bench", mutation_id=f.key(), async_start=True)
+        deadline = time.perf_counter() + 60
+        while data.get("starting") and "event" not in outcome and time.perf_counter() < deadline:
+            f.c.pump(0.05)
+    finally:
+        f.c.on_event = previous
+    if not data.get("starting"):
+        f.close(data["surface"])
+        return ms
+    event = outcome.get("event")
+    if event is None or event["event"] != "terminal-started":
+        raise DaemonError("create-terminal async start", event or {"error": "no terminal-started in 60 s"})
+    f.close(event["result"]["surface"])
     return ms
 
 

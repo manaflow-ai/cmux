@@ -95,6 +95,8 @@ public final class Events {
     public static final EventMetadata TERMINAL_INPUT_UNCLAIMED = new EventMetadata("terminal-input-unclaimed", 12, "terminal-input-while-creating-v1", List.of("control"), true);
     public static final EventMetadata TERMINAL_REAPED = new EventMetadata("terminal-reaped", 12, "terminal-reap-v1", List.of("subscribe"), true);
     public static final EventMetadata TERMINAL_REGISTRY_CHANGED = new EventMetadata("terminal-registry-changed", 9, null, List.of("subscribe"), true);
+    public static final EventMetadata TERMINAL_START_FAILED = new EventMetadata("terminal-start-failed", 12, "terminal-async-start-v1", List.of("control"), true);
+    public static final EventMetadata TERMINAL_STARTED = new EventMetadata("terminal-started", 12, "terminal-async-start-v1", List.of("control"), true);
     public static final EventMetadata TITLE_CHANGED = new EventMetadata("title-changed", 5, null, List.of("subscribe"), true);
     public static final EventMetadata TREE_CHANGED = new EventMetadata("tree-changed", 5, null, List.of("subscribe"), true);
     public static final EventMetadata URL_OPEN = new EventMetadata("url-open", 12, null, List.of("control"), true);
@@ -193,6 +195,8 @@ public final class Events {
         values.put("terminal-input-unclaimed", TERMINAL_INPUT_UNCLAIMED);
         values.put("terminal-reaped", TERMINAL_REAPED);
         values.put("terminal-registry-changed", TERMINAL_REGISTRY_CHANGED);
+        values.put("terminal-start-failed", TERMINAL_START_FAILED);
+        values.put("terminal-started", TERMINAL_STARTED);
         values.put("title-changed", TITLE_CHANGED);
         values.put("tree-changed", TREE_CHANGED);
         values.put("url-open", URL_OPEN);

@@ -802,6 +802,8 @@ MODEL_BY_PATH = {
     'events/terminal-input-unclaimed/payload': models.TerminalInputUnclaimedEvent,
     'events/terminal-reaped/payload': models.TerminalReapedEvent,
     'events/terminal-registry-changed/payload': models.TerminalRegistryChangedEvent,
+    'events/terminal-start-failed/payload': models.TerminalStartFailedEvent,
+    'events/terminal-started/payload': models.TerminalStartedEvent,
     'events/title-changed/payload': models.TitleChangedEvent,
     'events/tree-changed/payload': models.TreeChangedEvent,
     'events/url-open/payload': models.UrlOpenEvent,

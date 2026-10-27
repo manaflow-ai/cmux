@@ -63,6 +63,16 @@ impl Mux {
         anyhow::bail!("created running terminal has no placement")
     }
 
+    /// Test seam: `hook` runs on every terminal create's launch path, before
+    /// its workspace is locked, where a slow host start would wait.
+    #[cfg(test)]
+    pub(crate) fn set_terminal_create_launch_hook_for_test(
+        &self,
+        hook: Option<Arc<dyn Fn() + Send + Sync>>,
+    ) {
+        *self.terminal_create_after_empty_check.lock().unwrap() = hook;
+    }
+
     #[track_caller]
     pub(crate) fn reap_created_terminal_surface(self: &Arc<Self>, surface: Option<SurfaceId>) {
         if let Some(surface) = surface.and_then(|surface| self.surface(surface)) {

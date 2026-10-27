@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 0099f55a8d73eeccd65a50020e3ff0c8be1ac82f5723a1d6b384ce58b5e9108c. */
+/* cmux-tui mux protocol 12, IR 2a31c3226150f02e37757e122ea9ab10d5fbf150907f213709f3df899c3e78e5. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "0099f55a8d73eeccd65a50020e3ff0c8be1ac82f5723a1d6b384ce58b5e9108c" as const;
+export const SDK_IR_SHA256 = "2a31c3226150f02e37757e122ea9ab10d5fbf150907f213709f3df899c3e78e5" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1820,6 +1820,10 @@ export const COMMAND_METADATA = {
     "since": 7,
     "capability": "workspace-registry-v1",
     "fields": {
+      "async_start": {
+        "since": 12,
+        "capability": "terminal-async-start-v1"
+      },
       "detached": {
         "since": 12,
         "capability": "detached-terminals-v1"
@@ -1844,7 +1848,8 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "keep:true marks the new terminal kept, so the owner does not end it when it has no tab placement (terminal-reap-v1).",
-      "detached:true (detached-terminals-v1) creates a kept terminal with no workspace, pane, screen, or tab; the result has null surface, pane, screen, and workspace, key \"detached\", and terminal_resource_id."
+      "detached:true (detached-terminals-v1) creates a kept terminal with no workspace, pane, screen, or tab; the result has null surface, pane, screen, and workspace, key \"detached\", and terminal_resource_id.",
+      "async_start:true (terminal-async-start-v1, advertised while the daemon feature terminalAsyncStart is on) replies once the create is admitted, before its terminal starts, when the request names its own terminal_id with origin and mutation_id, a live workspace, and comes from a local connection; the result then has starting:true, lifecycle launching and null surface, pane, screen and terminal_incarnation, and replayed is false even for a retry. The same connection then gets terminal-started with the placement a synchronous create returns, or terminal-start-failed with the mutation_id, after the reply. Input sent to the terminal_id meanwhile is queued (terminal-input-while-creating-v1). Otherwise async_start is ignored and the create replies after its terminal started."
     ]
   },
   "create-workspace": {
@@ -5292,6 +5297,22 @@ export const EVENT_METADATA = {
     "capability": null,
     "streams": [
       "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "terminal-start-failed": {
+    "since": 12,
+    "capability": "terminal-async-start-v1",
+    "streams": [
+      "control"
+    ],
+    "emission": "emitted"
+  },
+  "terminal-started": {
+    "since": 12,
+    "capability": "terminal-async-start-v1",
+    "streams": [
+      "control"
     ],
     "emission": "emitted"
   },
@@ -17538,6 +17559,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "Id"
         }
       },
+      "starting": {
+        "capability": "terminal-async-start-v1",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
       "surface": {
         "nullable": true,
         "presence": "required",
@@ -25932,6 +25963,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             },
             "kind": "array",
             "min_items": 1
+          }
+        },
+        "async_start": {
+          "capability": "terminal-async-start-v1",
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
           }
         },
         "cols": {
@@ -40255,6 +40297,98 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "terminal-start-failed": {
+    "additional_properties": false,
+    "fields": {
+      "error": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "error_code": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "terminal-start-failed"
+        }
+      },
+      "key": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "mutation_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "terminal_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "terminal-started": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "terminal-started"
+        }
+      },
+      "mutation_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "result": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "TerminalPlacement"
+        }
+      },
+      "terminal_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },

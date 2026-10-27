@@ -17804,6 +17804,11 @@ Result<Json> Codec<TerminalPlacement>::encode(const TerminalPlacement& value) {
     } else {
         object.emplace("screen", Json(nullptr));
     }
+    if (value.starting) {
+        auto encoded = encode_value(*value.starting);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("starting", std::move(encoded).value());
+    }
     if (value.surface) {
         auto encoded = encode_value(*value.surface);
         if (!encoded) return std::move(encoded).error();
@@ -17935,6 +17940,12 @@ Result<TerminalPlacement> Codec<TerminalPlacement>::decode(const Json& value) {
             if (!decoded) return std::move(decoded).error();
             result.screen = std::move(decoded).value();
         }
+    }
+    const Json* field_starting = value.find("starting");
+    if (field_starting) {
+        auto decoded = decode_value<bool>(*field_starting);
+        if (!decoded) return std::move(decoded).error();
+        result.starting = std::move(decoded).value();
     }
     const Json* field_surface = value.find("surface");
     if (!field_surface) {
@@ -29700,6 +29711,11 @@ Result<Json> Codec<CreateTerminalRequest>::encode(const CreateTerminalRequest& v
         if (!encoded) return std::move(encoded).error();
         object.emplace("argv", std::move(encoded).value());
     }
+    if (value.async_start) {
+        auto encoded = encode_value(*value.async_start);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("async_start", std::move(encoded).value());
+    }
     if (!value.cols.is_absent()) {
         auto encoded = encode_value(value.cols);
         if (!encoded) return std::move(encoded).error();
@@ -29796,6 +29812,12 @@ Result<CreateTerminalRequest> Codec<CreateTerminalRequest>::decode(const Json& v
             if (!decoded) return std::move(decoded).error();
             result.argv = Field<std::vector<std::string>>(std::move(decoded).value());
         }
+    }
+    const Json* field_async_start = value.find("async_start");
+    if (field_async_start) {
+        auto decoded = decode_value<bool>(*field_async_start);
+        if (!decoded) return std::move(decoded).error();
+        result.async_start = std::move(decoded).value();
     }
     const Json* field_cols = value.find("cols");
     if (field_cols) {
@@ -49579,6 +49601,156 @@ Result<TerminalRegistryChangedEvent> Codec<TerminalRegistryChangedEvent>::decode
     return result;
 }
 
+Result<Json> Codec<TerminalStartFailedEvent>::encode(const TerminalStartFailedEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("terminal-start-failed")));
+    auto encoded_error = encode_value(value.error);
+    if (!encoded_error) return std::move(encoded_error).error();
+    object.emplace("error", std::move(encoded_error).value());
+    if (value.error_code) {
+        auto encoded = encode_value(*value.error_code);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("error_code", std::move(encoded).value());
+    } else {
+        object.emplace("error_code", Json(nullptr));
+    }
+    auto encoded_key = encode_value(value.key);
+    if (!encoded_key) return std::move(encoded_key).error();
+    object.emplace("key", std::move(encoded_key).value());
+    auto encoded_mutation_id = encode_value(value.mutation_id);
+    if (!encoded_mutation_id) return std::move(encoded_mutation_id).error();
+    object.emplace("mutation_id", std::move(encoded_mutation_id).value());
+    auto encoded_terminal_id = encode_value(value.terminal_id);
+    if (!encoded_terminal_id) return std::move(encoded_terminal_id).error();
+    object.emplace("terminal_id", std::move(encoded_terminal_id).value());
+    return Json(std::move(object));
+}
+
+Result<TerminalStartFailedEvent> Codec<TerminalStartFailedEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    TerminalStartFailedEvent result{};
+    const Json* field_error = value.find("error");
+    if (!field_error) {
+        return make_error(ErrorCode::decode, "missing required field 'error'");
+    }
+    if (field_error) {
+        auto decoded = decode_value<std::string>(*field_error);
+        if (!decoded) return std::move(decoded).error();
+        result.error = std::move(decoded).value();
+    }
+    const Json* field_error_code = value.find("error_code");
+    if (!field_error_code) {
+        return make_error(ErrorCode::decode, "missing required field 'error_code'");
+    }
+    if (field_error_code) {
+        if (field_error_code->is_null()) {
+            result.error_code.reset();
+        } else {
+            auto decoded = decode_value<std::string>(*field_error_code);
+            if (!decoded) return std::move(decoded).error();
+            result.error_code = std::move(decoded).value();
+        }
+    }
+    const Json* field_key = value.find("key");
+    if (!field_key) {
+        return make_error(ErrorCode::decode, "missing required field 'key'");
+    }
+    if (field_key) {
+        auto decoded = decode_value<std::string>(*field_key);
+        if (!decoded) return std::move(decoded).error();
+        result.key = std::move(decoded).value();
+    }
+    const Json* field_mutation_id = value.find("mutation_id");
+    if (!field_mutation_id) {
+        return make_error(ErrorCode::decode, "missing required field 'mutation_id'");
+    }
+    if (field_mutation_id) {
+        auto decoded = decode_value<std::string>(*field_mutation_id);
+        if (!decoded) return std::move(decoded).error();
+        result.mutation_id = std::move(decoded).value();
+    }
+    const Json* field_terminal_id = value.find("terminal_id");
+    if (!field_terminal_id) {
+        return make_error(ErrorCode::decode, "missing required field 'terminal_id'");
+    }
+    if (field_terminal_id) {
+        auto decoded = decode_value<std::string>(*field_terminal_id);
+        if (!decoded) return std::move(decoded).error();
+        result.terminal_id = std::move(decoded).value();
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("terminal-start-failed"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
+Result<Json> Codec<TerminalStartedEvent>::encode(const TerminalStartedEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("terminal-started")));
+    auto encoded_mutation_id = encode_value(value.mutation_id);
+    if (!encoded_mutation_id) return std::move(encoded_mutation_id).error();
+    object.emplace("mutation_id", std::move(encoded_mutation_id).value());
+    auto encoded_result = encode_value(value.result);
+    if (!encoded_result) return std::move(encoded_result).error();
+    object.emplace("result", std::move(encoded_result).value());
+    auto encoded_terminal_id = encode_value(value.terminal_id);
+    if (!encoded_terminal_id) return std::move(encoded_terminal_id).error();
+    object.emplace("terminal_id", std::move(encoded_terminal_id).value());
+    return Json(std::move(object));
+}
+
+Result<TerminalStartedEvent> Codec<TerminalStartedEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    TerminalStartedEvent result{};
+    const Json* field_mutation_id = value.find("mutation_id");
+    if (!field_mutation_id) {
+        return make_error(ErrorCode::decode, "missing required field 'mutation_id'");
+    }
+    if (field_mutation_id) {
+        auto decoded = decode_value<std::string>(*field_mutation_id);
+        if (!decoded) return std::move(decoded).error();
+        result.mutation_id = std::move(decoded).value();
+    }
+    const Json* field_result = value.find("result");
+    if (!field_result) {
+        return make_error(ErrorCode::decode, "missing required field 'result'");
+    }
+    if (field_result) {
+        auto decoded = decode_value<TerminalPlacement>(*field_result);
+        if (!decoded) return std::move(decoded).error();
+        result.result = std::move(decoded).value();
+    }
+    const Json* field_terminal_id = value.find("terminal_id");
+    if (!field_terminal_id) {
+        return make_error(ErrorCode::decode, "missing required field 'terminal_id'");
+    }
+    if (field_terminal_id) {
+        auto decoded = decode_value<std::string>(*field_terminal_id);
+        if (!decoded) return std::move(decoded).error();
+        result.terminal_id = std::move(decoded).value();
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("terminal-started"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<TitleChangedEvent>::encode(const TitleChangedEvent& value) {
     (void)value;
     Json::Object object;
@@ -52881,6 +53053,16 @@ Result<Event> Codec<Event>::decode(const Json& value) {
         if (!decoded) return std::move(decoded).error();
         return Event{Event::Variant(std::move(decoded).value()), value};
     }
+    if (name.value() == "terminal-start-failed") {
+        auto decoded = decode_value<TerminalStartFailedEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
+    if (name.value() == "terminal-started") {
+        auto decoded = decode_value<TerminalStartedEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
     if (name.value() == "title-changed") {
         auto decoded = decode_value<TitleChangedEvent>(value);
         if (!decoded) return std::move(decoded).error();
@@ -52993,7 +53175,8 @@ constexpr std::array<CommandFieldRequirement, 8> kCommand86FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 1> kCommand144FieldRequirements{{
     {"idempotency_key", 0U, "creation-attempt-keys-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 5> kCommand146FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 6> kCommand146FieldRequirements{{
+    {"async_start", 12U, "terminal-async-start-v1"},
     {"detached", 12U, "detached-terminals-v1"},
     {"env", 12U, "terminal-env-v1"},
     {"keep", 12U, "terminal-reap-v1"},
@@ -53549,7 +53732,7 @@ constexpr std::array<CommandMetadata, 363> kCommands{{
     {"ws-listen", "local-admin", 12U, "ws-listen-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"zoom-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
 }};
-constexpr std::array<EventMetadata, 94> kEvents{{
+constexpr std::array<EventMetadata, 96> kEvents{{
     {"activity-changed", 12U, "vm-activity-v1", "control", "emitted"},
     {"agent-changed", 11U, "", "subscribe", "emitted"},
     {"agent-inventory-changed", 12U, "agent-inventory-watch-v1", "control", "emitted"},
@@ -53634,6 +53817,8 @@ constexpr std::array<EventMetadata, 94> kEvents{{
     {"terminal-input-unclaimed", 12U, "terminal-input-while-creating-v1", "control", "emitted"},
     {"terminal-reaped", 12U, "terminal-reap-v1", "subscribe", "emitted"},
     {"terminal-registry-changed", 9U, "", "subscribe", "emitted"},
+    {"terminal-start-failed", 12U, "terminal-async-start-v1", "control", "emitted"},
+    {"terminal-started", 12U, "terminal-async-start-v1", "control", "emitted"},
     {"title-changed", 5U, "", "subscribe", "emitted"},
     {"tree-changed", 5U, "", "subscribe", "emitted"},
     {"url-open", 12U, "", "control", "emitted"},

@@ -19,6 +19,7 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 | Browser attach v6 | `attach-surface` command on a browser | `browser-state`, `frame`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Control lifecycle notice | No command; sent after a successful `shutdown-daemon` or `session.shutdown` acknowledgment | `daemon-shutdown` |
 | Control input notice | No command; sent to a connection whose queued input for a creating terminal was not written | `terminal-input-unclaimed` |
+| Control start notice | `create-terminal` with `async_start` under `terminal-async-start-v1`; sent after its reply | `terminal-started`, `terminal-start-failed` |
 | Attach stream with `attach-streams-v1` | `attach-surface` with `stream` | the events of its mode, each with `stream`, then `stream-end` |
 | Native owner inventory watch | Trusted Unix `agent-inventory-watch` with `agent-inventory-watch-v1` | `agent-inventory-changed`, `agent-inventory-watch-ended` |
 
@@ -84,6 +85,8 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `config-reload-requested` | subscribe | session | protocol 6 |
 | `daemon-shutdown` | control | session | protocol 12; sent after the successful `shutdown-daemon` or `session.shutdown` response |
 | `terminal-input-unclaimed` | control | `terminal_id` | `terminal-input-while-creating-v1`; only to the connection that queued the bytes |
+| `terminal-started` | control | `terminal_id` | `terminal-async-start-v1`; only to the connection whose create replied `starting:true`, after that reply |
+| `terminal-start-failed` | control | `terminal_id` | `terminal-async-start-v1`; only to the connection whose create replied `starting:true`, after that reply |
 | `terminal-clipboard-read` | control (targeted) | `request_id` | protocol 12 additive; capability `terminal-clipboard-read-v1`; only to the one frontend subscribed to the terminal |
 | `terminal-clipboard-read-cancelled` | control (targeted) | `request_id` | protocol 12 additive; capability `terminal-clipboard-read-v1`; only to the frontend that got the read |
 | `window-title-requested` | subscribe | session | protocol 6 |
@@ -1378,6 +1381,60 @@ Example:
 
 ```json
 {"event":"terminal-input-unclaimed","terminal_id":"51000000000040008000000000000001","bytes_base64":"bHMNCg==","reason":"failed"}
+```
+
+### terminal-started
+
+| Field | Value |
+| --- | --- |
+| event | `terminal-started` |
+| status | implemented control event |
+| since | protocol 12, capability `terminal-async-start-v1` |
+
+Payload:
+
+```text
+object{event:"terminal-started",terminal_id:string,mutation_id:string,result:TerminalPlacement}
+```
+
+Meaning: The terminal of a `create-terminal` that replied `starting:true`
+([commands.md](commands.md#create-terminal)) started. `result` is what the
+create replies without `async_start`: its placement, incarnation, lifecycle and
+revision, and `replayed:true` when the create replayed an earlier one with the
+same `mutation_id`. It is sent on the control queue of the connection that sent
+the create, after the create's reply, also without a subscription.
+
+Example:
+
+```json
+{"event":"terminal-started","terminal_id":"00000000000040008000000000000001","mutation_id":"create-monitor","result":{"surface":15,"terminal_id":"00000000000040008000000000000001","terminal_incarnation":"00000000000040008000000000000002","pane":14,"screen":13,"workspace":12,"key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","lifecycle":"running","exit":null,"already_exited":false,"terminal_revision":4,"replayed":false,"registry_id":"71f24185-113a-4eb0-9286-1e20743e7e05","generation":"37928442-1982-40b6-bf80-c1ea50ca8bf8"}}
+```
+
+### terminal-start-failed
+
+| Field | Value |
+| --- | --- |
+| event | `terminal-start-failed` |
+| status | implemented control event |
+| since | protocol 12, capability `terminal-async-start-v1` |
+
+Payload:
+
+```text
+object{event:"terminal-start-failed",terminal_id:string,mutation_id:string,key:string,error:string,error_code:string|null}
+```
+
+Meaning: The terminal of a `create-terminal` that replied `starting:true` did
+not start; `error` and `error_code` are what the create would have failed with
+without `async_start`. The client rolls back the intent of `mutation_id`. Input
+queued for `terminal_id` comes back in `terminal-input-unclaimed` with reason
+`failed`. It is sent on the control queue of the connection that sent the
+create, after the create's reply, also without a subscription.
+
+Example:
+
+```json
+{"event":"terminal-start-failed","terminal_id":"00000000000040008000000000000001","mutation_id":"create-monitor","key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","error":"terminal generation conflict: expected 1, current 2","error_code":null}
 ```
 
 ### terminal-clipboard-read

@@ -346,6 +346,7 @@ pub(super) fn handle_command_with_cancellation(
             env,
             keep,
             detached,
+            async_start,
             mutation,
         } => cmd_terminals::create_terminal(
             mux,
@@ -363,7 +364,7 @@ pub(super) fn handle_command_with_cancellation(
             terminal_id,
             env,
             keep,
-            detached,
+            (detached, async_start),
             mutation,
         ),
         Command::NewScreen(params) => cmd_screens::new_screen(mux, client, params),

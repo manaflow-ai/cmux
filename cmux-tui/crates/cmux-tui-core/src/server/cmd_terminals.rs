@@ -11,6 +11,8 @@ use super::paired_surface_size;
 use super::renderer_grant;
 use super::require_pty;
 use super::shell_argv;
+use super::terminal_async_start;
+use super::terminal_async_start::TerminalStart;
 use super::terminal_history;
 use super::terminal_io_wire::{TerminalHistoryParams, TerminalReadRangeParams};
 use super::terminal_resources;
@@ -20,7 +22,9 @@ use crate::Mux;
 use crate::SurfaceId;
 use crate::WorkspaceId;
 use crate::platform;
+use crate::terminal_host::TerminalId;
 use crate::workspace_registry::TerminalLifecycle;
+use crate::workspace_registry::WorkspaceMutation;
 use serde_json::Value;
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -240,7 +244,7 @@ pub(super) fn create_terminal(
     terminal_id: Option<String>,
     env: Option<BTreeMap<String, String>>,
     keep: bool,
-    detached: bool,
+    (detached, async_start): (bool, bool),
     mutation: MutationRequest,
 ) -> anyhow::Result<Value> {
     let mut env =
@@ -284,6 +288,126 @@ pub(super) fn create_terminal(
             (Err(_), Some(key)) => (None, key),
             (Err(error), None) => return Err(error),
         };
+        let create = ReceiptedCreate {
+            workspace,
+            key,
+            argv,
+            cwd,
+            name,
+            size,
+            terminal_id,
+            expected_generation: mutation.expected_generation,
+            expected_revision: mutation.expected_revision,
+            mutation: workspace_mutation,
+            env,
+            keep,
+            identity: (registry_id, generation),
+        };
+        let _ = async_start;
+        create.run(mux)
+    } else {
+        let (workspace, key) = resolved?;
+        let created =
+            mux.create_terminal_result_in_workspace_as(&actor, workspace, argv, cwd, name, size)?;
+        if keep {
+            keep_created_terminal(mux, Some(created.terminal.terminal_id.as_str()))?;
+        }
+        let placement = created.placement;
+        let already_exited = created.terminal.lifecycle == TerminalLifecycle::Exited;
+        Ok(json!({
+            "surface": placement.as_ref().map(|placement| placement.surface),
+            "terminal_id": created.terminal.terminal_id,
+            "terminal_incarnation": created.terminal.incarnation,
+            "pane": placement.as_ref().map(|placement| placement.pane),
+            "screen": placement.as_ref().map(|placement| placement.screen),
+            "workspace": placement.as_ref().map(|placement| placement.workspace),
+            "key": key,
+            "lifecycle": created.terminal.lifecycle,
+            "exit": created.terminal.exit,
+            "already_exited": already_exited,
+            "terminal_revision": created.terminal_revision,
+            "replayed": false,
+            "registry_id": registry_id,
+            "generation": generation,
+        }))
+    }
+}
+
+/// A `create-terminal` on the receipted path (a terminal id, a mutation id
+/// or an environment): everything its start needs, owned, so it can run
+/// after the reply (`terminal-async-start-v1`).
+struct ReceiptedCreate {
+    /// `None` for a keyed retry whose workspace closed since.
+    workspace: Option<WorkspaceId>,
+    key: String,
+    argv: Option<Vec<String>>,
+    cwd: Option<String>,
+    name: Option<String>,
+    size: Option<(u16, u16)>,
+    terminal_id: Option<String>,
+    expected_generation: Option<String>,
+    expected_revision: Option<u64>,
+    mutation: WorkspaceMutation,
+    env: Vec<(String, String)>,
+    keep: bool,
+    /// The registry id and generation the reply names.
+    identity: (String, String),
+}
+
+impl ReceiptedCreate {
+    /// `terminal-async-start-v1`: whether this create may reply before its
+    /// start. It needs the feature, a local connection, a live workspace,
+    /// its own canonical `terminal_id` (the id the reply and the events
+    /// name, which input may already address) and a request that can leave
+    /// its start for after the reply.
+    fn may_start_after_reply(&self, mux: &Mux, client: u64) -> bool {
+        let canonical = self
+            .terminal_id
+            .as_deref()
+            .is_some_and(|id| TerminalId::from_hex(id).is_some_and(|parsed| parsed.to_hex() == id));
+        mux.terminal_async_start_enabled()
+            && !mux.is_remote_client(client)
+            && self.workspace.is_some()
+            && canonical
+            && terminal_async_start::can_defer()
+    }
+
+    /// Reply once admitted; the start runs after the reply.
+    fn admit(self, mux: &Arc<Mux>) -> anyhow::Result<Value> {
+        let (Some(workspace), Some(terminal_id)) = (self.workspace, self.terminal_id.clone())
+        else {
+            return self.run(mux);
+        };
+        let identity = self.identity.clone();
+        let (mutation_id, key) = (self.mutation.id.clone(), self.key.clone());
+        let start_mux = mux.clone();
+        let work = Box::new(move || self.run(&start_mux));
+        let start = TerminalStart::new(mux, terminal_id, mutation_id, key, work);
+        let reply = start.admitted_reply(workspace, identity)?;
+        match terminal_async_start::defer(start) {
+            Ok(()) => Ok(reply),
+            Err(start) => start.run_inline(),
+        }
+    }
+
+    /// Create, project, activate and place the terminal: the synchronous
+    /// create, and an async start's work.
+    fn run(self, mux: &Arc<Mux>) -> anyhow::Result<Value> {
+        let Self {
+            workspace,
+            key,
+            argv,
+            cwd,
+            name,
+            size,
+            terminal_id,
+            expected_generation,
+            expected_revision,
+            mutation,
+            env,
+            keep,
+            identity: (registry_id, generation),
+        } = self;
         let result = mux.create_raw_terminal_in_workspace_with_mutation(
             workspace,
             &key,
@@ -292,9 +416,9 @@ pub(super) fn create_terminal(
             name,
             size,
             terminal_id.as_deref(),
-            mutation.expected_generation.as_deref(),
-            mutation.expected_revision,
-            &workspace_mutation,
+            expected_generation.as_deref(),
+            expected_revision,
+            &mutation,
             env,
         )?;
         let projection_fingerprint = json!({
@@ -302,7 +426,7 @@ pub(super) fn create_terminal(
             "workspace_key":key,
         });
         mux.commit_full_resource_projection_with_mutation(
-            &workspace_mutation,
+            &mutation,
             "raw.terminal.create",
             &projection_fingerprint,
             json!({
@@ -331,31 +455,6 @@ pub(super) fn create_terminal(
             "already_exited": already_exited,
             "terminal_revision": created.terminal_revision,
             "replayed": result.replayed,
-            "registry_id": registry_id,
-            "generation": generation,
-        }))
-    } else {
-        let (workspace, key) = resolved?;
-        let created =
-            mux.create_terminal_result_in_workspace_as(&actor, workspace, argv, cwd, name, size)?;
-        if keep {
-            keep_created_terminal(mux, Some(created.terminal.terminal_id.as_str()))?;
-        }
-        let placement = created.placement;
-        let already_exited = created.terminal.lifecycle == TerminalLifecycle::Exited;
-        Ok(json!({
-            "surface": placement.as_ref().map(|placement| placement.surface),
-            "terminal_id": created.terminal.terminal_id,
-            "terminal_incarnation": created.terminal.incarnation,
-            "pane": placement.as_ref().map(|placement| placement.pane),
-            "screen": placement.as_ref().map(|placement| placement.screen),
-            "workspace": placement.as_ref().map(|placement| placement.workspace),
-            "key": key,
-            "lifecycle": created.terminal.lifecycle,
-            "exit": created.terminal.exit,
-            "already_exited": already_exited,
-            "terminal_revision": created.terminal_revision,
-            "replayed": false,
             "registry_id": registry_id,
             "generation": generation,
         }))

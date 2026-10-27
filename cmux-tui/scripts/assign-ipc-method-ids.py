@@ -165,7 +165,8 @@ EVENT_FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
         "layout-changed", "tree-changed", "empty", "pane-*", "tab-*", "screen-*", "workspace-*",
         "title-changed", "surface-*", "bell", "notification", "status", "graphics-status",
         "frontend-projection-changed", "terminal-registry-changed", "terminal-reaped",
-        "terminal-input-unclaimed", "window-title-requested", "program-status-changed",
+        "terminal-input-unclaimed", "terminal-started", "terminal-start-failed",
+        "window-title-requested", "program-status-changed",
         "url-open", "terminal-clipboard-*",
     )),
     "daemon-events": (0xC2, "Clients, daemon lifetime, settings, pairing and machine state.", (

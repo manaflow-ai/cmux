@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 0099f55a8d73eeccd65a50020e3ff0c8be1ac82f5723a1d6b384ce58b5e9108c. */
+/* cmux-tui mux protocol 12, IR 2a31c3226150f02e37757e122ea9ab10d5fbf150907f213709f3df899c3e78e5. */
 
 
 import type * as T from "./types.js";
@@ -780,6 +780,22 @@ export type TerminalRegistryChangedEvent = { event: "terminal-registry-changed" 
   "terminal_revision": bigint;
 };
 
+/** Protocol v12; emission: emitted; streams: control. */
+export type TerminalStartFailedEvent = { event: "terminal-start-failed" } & {
+  "error": string;
+  "error_code": (string) | null;
+  "key": string;
+  "mutation_id": string;
+  "terminal_id": string;
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type TerminalStartedEvent = { event: "terminal-started" } & {
+  "mutation_id": string;
+  "result": T.TerminalPlacement;
+  "terminal_id": string;
+};
+
 /** Protocol v5; emission: emitted; streams: subscribe. */
 export type TitleChangedEvent = { event: "title-changed" } & {
   /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
@@ -969,6 +985,8 @@ export type KnownCmuxEvent =
   | TerminalInputUnclaimedEvent
   | TerminalReapedEvent
   | TerminalRegistryChangedEvent
+  | TerminalStartFailedEvent
+  | TerminalStartedEvent
   | TitleChangedEvent
   | TreeChangedEvent
   | UrlOpenEvent

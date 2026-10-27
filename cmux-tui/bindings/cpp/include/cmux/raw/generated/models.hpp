@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "0099f55a8d73eeccd65a50020e3ff0c8be1ac82f5723a1d6b384ce58b5e9108c";
+inline constexpr std::string_view kProtocolIrSha256 = "2a31c3226150f02e37757e122ea9ab10d5fbf150907f213709f3df899c3e78e5";
 
 enum class AccessRequestKind;
 struct AccessRequestPending;
@@ -850,6 +850,8 @@ struct TerminalClipboardReadCancelledEvent;
 struct TerminalInputUnclaimedEvent;
 struct TerminalReapedEvent;
 struct TerminalRegistryChangedEvent;
+struct TerminalStartFailedEvent;
+struct TerminalStartedEvent;
 struct TitleChangedEvent;
 struct TreeChangedEvent;
 struct UrlOpenEvent;
@@ -3775,6 +3777,7 @@ struct CreateTabGroupRequest {
 
 struct CreateTerminalRequest {
     Field<std::vector<std::string>> argv{};
+    std::optional<bool> async_start{};
     Field<std::uint16_t> cols{};
     Field<std::string> command{};
     Field<std::string> cwd{};
@@ -7316,6 +7319,7 @@ struct TerminalPlacement {
     std::string registry_id{};
     bool replayed{};
     std::optional<Id> screen{};
+    std::optional<bool> starting{};
     std::optional<Id> surface{};
     std::string terminal_id{};
     std::optional<std::string> terminal_incarnation{};
@@ -7427,6 +7431,22 @@ struct TerminalResumeCommandResult {
     std::optional<std::string> command{};
     std::string terminal_id{};
     friend bool operator==(const TerminalResumeCommandResult&, const TerminalResumeCommandResult&) = default;
+};
+
+struct TerminalStartFailedEvent {
+    std::string error{};
+    std::optional<std::string> error_code{};
+    std::string key{};
+    std::string mutation_id{};
+    std::string terminal_id{};
+    friend bool operator==(const TerminalStartFailedEvent&, const TerminalStartFailedEvent&) = default;
+};
+
+struct TerminalStartedEvent {
+    std::string mutation_id{};
+    TerminalPlacement result{};
+    std::string terminal_id{};
+    friend bool operator==(const TerminalStartedEvent&, const TerminalStartedEvent&) = default;
 };
 
 struct TitleChangedEvent {
@@ -12807,6 +12827,18 @@ template <>
 struct Codec<TerminalRegistryChangedEvent> {
     static Result<Json> encode(const TerminalRegistryChangedEvent& value);
     static Result<TerminalRegistryChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalStartFailedEvent> {
+    static Result<Json> encode(const TerminalStartFailedEvent& value);
+    static Result<TerminalStartFailedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalStartedEvent> {
+    static Result<Json> encode(const TerminalStartedEvent& value);
+    static Result<TerminalStartedEvent> decode(const Json& value);
 };
 
 template <>

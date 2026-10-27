@@ -278,6 +278,7 @@ use group_outcome_json::{
 };
 use split_respawn::{frontend_shell, placement_spawn_options, shell_argv, split_tab};
 mod capabilities;
+mod terminal_async_start;
 mod terminal_create;
 mod terminal_history;
 mod terminal_io_wire;
@@ -1205,6 +1206,11 @@ enum Command {
         /// `detached-terminals-v1`: a kept terminal with no tab.
         #[serde(default)]
         detached: bool,
+        /// `terminal-async-start-v1`: reply once admitted, with
+        /// `starting: true`; `terminal-started` or `terminal-start-failed`
+        /// follows. Needs `terminal_id` and `mutation_id`.
+        #[serde(default)]
+        async_start: bool,
         #[serde(flatten)]
         mutation: MutationRequest,
     },

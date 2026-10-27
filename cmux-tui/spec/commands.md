@@ -3078,6 +3078,7 @@ Params:
 | `expected_generation` | `string` | optional | Compare-and-swap guard for the daemon boot UUID |
 | `expected_revision` | `uint64` | optional | Compare-and-swap guard for the resource projection revision |
 | `detached` | `boolean` | default false | `detached-terminals-v1`; create a kept terminal with no workspace, pane, screen, or tab |
+| `async_start` | `boolean` | default false | `terminal-async-start-v1`; reply once admitted, before the terminal starts (below) |
 
 Result:
 
@@ -3089,9 +3090,28 @@ object{
   exit:TerminalExit|null,
   already_exited:bool,terminal_revision:uint64,replayed:bool,
   registry_id:string,generation:string,
-  terminal_resource_id?:string
+  terminal_resource_id?:string,starting?:bool
 }
 ```
+
+With `async_start:true` (capability `terminal-async-start-v1`, advertised while
+the daemon feature `terminalAsyncStart` is on) a create that names its own
+canonical `terminal_id`, with `origin` and `mutation_id`, in a live workspace,
+from a local connection, replies once the daemon admitted it, before its
+terminal starts: the result has `starting:true`, `lifecycle:"launching"`,
+null `surface`, `pane`, `screen` and `terminal_incarnation`, the workspace,
+and `replayed:false` even for a retry. The start then runs on the daemon's
+terminal work pool, the starts of one connection in request order, and the
+same connection gets [`terminal-started`](events.md#terminal-started) with the
+result a synchronous create returns, or
+[`terminal-start-failed`](events.md#terminal-start-failed) with the create's
+`mutation_id`, always after the reply. A failed start commits nothing the
+client must undo beyond its own intent for that `mutation_id`; a failure
+after the reservation leaves the terminal `exited`, as a synchronous create
+does. Input sent to the `terminal_id` meanwhile is queued
+(`terminal-input-while-creating-v1`). A client attaches with the `surface`
+that `terminal-started` names. Any other create ignores `async_start` and
+replies after its terminal started, without `starting`.
 
 With `detached:true` (capability `detached-terminals-v1`; a client must not
 send it to a server that omits the capability, because an older server

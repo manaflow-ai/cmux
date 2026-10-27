@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '0099f55a8d73eeccd65a50020e3ff0c8be1ac82f5723a1d6b384ce58b5e9108c'
+IR_SHA256 = '2a31c3226150f02e37757e122ea9ab10d5fbf150907f213709f3df899c3e78e5'
 
 
 @dataclass(frozen=True)
@@ -1985,6 +1985,7 @@ COMMANDS = {
         None,
         {
             'argv': CommandFieldMetadata(None, None),
+            'async_start': CommandFieldMetadata(12, 'terminal-async-start-v1'),
             'cols': CommandFieldMetadata(None, None),
             'command': CommandFieldMetadata(None, None),
             'cwd': CommandFieldMetadata(None, None),
@@ -4930,6 +4931,8 @@ EVENTS = {
     'terminal-input-unclaimed': EventMetadata('terminal-input-unclaimed', 12, 'terminal-input-while-creating-v1', ('control',), 'emitted'),
     'terminal-reaped': EventMetadata('terminal-reaped', 12, 'terminal-reap-v1', ('subscribe',), 'emitted'),
     'terminal-registry-changed': EventMetadata('terminal-registry-changed', 9, None, ('subscribe',), 'emitted'),
+    'terminal-start-failed': EventMetadata('terminal-start-failed', 12, 'terminal-async-start-v1', ('control',), 'emitted'),
+    'terminal-started': EventMetadata('terminal-started', 12, 'terminal-async-start-v1', ('control',), 'emitted'),
     'title-changed': EventMetadata('title-changed', 5, None, ('subscribe',), 'emitted'),
     'tree-changed': EventMetadata('tree-changed', 5, None, ('subscribe',), 'emitted'),
     'url-open': EventMetadata('url-open', 12, None, ('control',), 'emitted'),

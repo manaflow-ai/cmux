@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 0099f55a8d73eeccd65a50020e3ff0c8be1ac82f5723a1d6b384ce58b5e9108c.
+// cmux-tui mux protocol 12, IR 2a31c3226150f02e37757e122ea9ab10d5fbf150907f213709f3df899c3e78e5.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1099,6 +1099,24 @@ pub struct TerminalRegistryChangedEvent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalStartFailedEvent {
+    pub error: String,
+    pub error_code: Nullable<String>,
+    pub key: String,
+    pub mutation_id: String,
+    pub terminal_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalStartedEvent {
+    pub mutation_id: String,
+    pub result: T::TerminalPlacement,
+    pub terminal_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TitleChangedEvent {
     /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -1319,6 +1337,8 @@ pub enum Event {
     TerminalInputUnclaimed(TerminalInputUnclaimedEvent),
     TerminalReaped(TerminalReapedEvent),
     TerminalRegistryChanged(TerminalRegistryChangedEvent),
+    TerminalStartFailed(TerminalStartFailedEvent),
+    TerminalStarted(TerminalStartedEvent),
     TitleChanged(TitleChangedEvent),
     TreeChanged(TreeChangedEvent),
     UrlOpen(UrlOpenEvent),
@@ -1420,6 +1440,8 @@ impl Event {
             Self::TerminalInputUnclaimed(_) => Some("terminal-input-unclaimed"),
             Self::TerminalReaped(_) => Some("terminal-reaped"),
             Self::TerminalRegistryChanged(_) => Some("terminal-registry-changed"),
+            Self::TerminalStartFailed(_) => Some("terminal-start-failed"),
+            Self::TerminalStarted(_) => Some("terminal-started"),
             Self::TitleChanged(_) => Some("title-changed"),
             Self::TreeChanged(_) => Some("tree-changed"),
             Self::UrlOpen(_) => Some("url-open"),
@@ -1520,6 +1542,8 @@ impl Event {
             Self::TerminalInputUnclaimed(_) => Some(&TERMINAL_INPUT_UNCLAIMED_EVENT_METADATA),
             Self::TerminalReaped(_) => Some(&TERMINAL_REAPED_EVENT_METADATA),
             Self::TerminalRegistryChanged(_) => Some(&TERMINAL_REGISTRY_CHANGED_EVENT_METADATA),
+            Self::TerminalStartFailed(_) => Some(&TERMINAL_START_FAILED_EVENT_METADATA),
+            Self::TerminalStarted(_) => Some(&TERMINAL_STARTED_EVENT_METADATA),
             Self::TitleChanged(_) => Some(&TITLE_CHANGED_EVENT_METADATA),
             Self::TreeChanged(_) => Some(&TREE_CHANGED_EVENT_METADATA),
             Self::UrlOpen(_) => Some(&URL_OPEN_EVENT_METADATA),
@@ -2205,6 +2229,22 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("terminal-registry-changed") => match serde_json::from_value::<TerminalRegistryChangedEvent>(raw.clone()) {
             Ok(event) => Event::TerminalRegistryChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("terminal-start-failed") => match serde_json::from_value::<TerminalStartFailedEvent>(raw.clone()) {
+            Ok(event) => Event::TerminalStartFailed(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("terminal-started") => match serde_json::from_value::<TerminalStartedEvent>(raw.clone()) {
+            Ok(event) => Event::TerminalStarted(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

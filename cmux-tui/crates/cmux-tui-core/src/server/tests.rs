@@ -565,6 +565,7 @@ mod resource_waits;
 mod session_streams;
 mod sizing;
 mod socket_and_render;
+mod terminal_async_start;
 mod view_leases;
 mod wire_commands;
 mod workspace_checklist_capability;

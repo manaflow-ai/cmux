@@ -127,7 +127,7 @@
   "mux-events": {
    "id": 193,
    "description": "The mux tree: workspaces, screens, panes, tabs, surfaces and their state.",
-   "next_ordinal": 36
+   "next_ordinal": 38
   },
   "daemon-events": {
    "id": 194,
@@ -4003,6 +4003,16 @@
      "nullable": false,
      "since": 12,
      "capability": "detached-terminals-v1"
+    },
+    "starting": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "terminal-async-start-v1"
     }
    },
    "additional_properties": false
@@ -15954,6 +15964,17 @@
       "default": false,
       "since": 12,
       "capability": "detached-terminals-v1"
+     },
+     "async_start": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "since": 12,
+      "capability": "terminal-async-start-v1"
      }
     },
     "additional_properties": false,
@@ -15972,7 +15993,8 @@
    "stream": null,
    "constraints": [
     "keep:true marks the new terminal kept, so the owner does not end it when it has no tab placement (terminal-reap-v1).",
-    "detached:true (detached-terminals-v1) creates a kept terminal with no workspace, pane, screen, or tab; the result has null surface, pane, screen, and workspace, key \"detached\", and terminal_resource_id."
+    "detached:true (detached-terminals-v1) creates a kept terminal with no workspace, pane, screen, or tab; the result has null surface, pane, screen, and workspace, key \"detached\", and terminal_resource_id.",
+    "async_start:true (terminal-async-start-v1, advertised while the daemon feature terminalAsyncStart is on) replies once the create is admitted, before its terminal starts, when the request names its own terminal_id with origin and mutation_id, a live workspace, and comes from a local connection; the result then has starting:true, lifecycle launching and null surface, pane, screen and terminal_incarnation, and replayed is false even for a retry. The same connection then gets terminal-started with the placement a synchronous create returns, or terminal-start-failed with the mutation_id, after the reply. Input sent to the terminal_id meanwhile is queued (terminal-input-while-creating-v1). Otherwise async_start is ignored and the create replies after its terminal started."
    ],
    "method_id": 1031,
    "priority": "control",
@@ -38966,6 +38988,118 @@
     "additional_properties": false
    },
    "event_id": 49428,
+   "priority": "control"
+  },
+  "terminal-started": {
+   "since": 12,
+   "capability": "terminal-async-start-v1",
+   "streams": [
+    "control"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "terminal-started"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "mutation_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "result": {
+      "type": {
+       "kind": "ref",
+       "name": "TerminalPlacement"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "event_id": 49444,
+   "priority": "control"
+  },
+  "terminal-start-failed": {
+   "since": 12,
+   "capability": "terminal-async-start-v1",
+   "streams": [
+    "control"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "terminal-start-failed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "mutation_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "key": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "error": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "error_code": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "event_id": 49445,
    "priority": "control"
   },
   "terminal-registry-changed": {

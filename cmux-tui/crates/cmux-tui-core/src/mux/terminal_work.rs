@@ -22,6 +22,11 @@
 //! The pool also owns the owner's one read loop ([`read_loop`]): every
 //! daemon-local PTY terminal's output is read there, not on a thread of its
 //! own.
+//!
+//! With the default-off daemon feature [`ASYNC_START_FEATURE`]
+//! (`terminal-async-start-v1`, schemas/features/features.d/terminalAsyncStart.json)
+//! a `create-terminal` that asks for it replies once admitted and starts its
+//! terminal here (server/terminal_async_start.rs).
 
 use super::*;
 
@@ -54,6 +59,23 @@ const TERMINAL_JOB_HANG_DEADLINE: Duration = cmux_hang_watch::DEFAULT_DEADLINE;
 
 type TerminalJob = Box<dyn FnOnce() + Send>;
 
+/// The registry name of the feature that lets a `create-terminal` reply
+/// before its terminal starts (`terminal-async-start-v1`).
+pub(crate) const ASYNC_START_FEATURE: &str = "terminalAsyncStart";
+
+/// Whether [`ASYNC_START_FEATURE`] is on for this owner; read with one
+/// relaxed load per create.
+#[derive(Debug, Default)]
+struct AsyncStartGate(AtomicBool);
+
+impl AsyncStartGate {
+    /// From `CMUX_ENABLE_FEATURES` and `CMUX_DISABLE_FEATURES` (disable
+    /// wins); the registry default is off on every channel.
+    fn from_env() -> Self {
+        Self(AtomicBool::new(cmux_features::listed_in_env(ASYNC_START_FEATURE)))
+    }
+}
+
 #[derive(Default)]
 struct TerminalWorkState {
     queue: VecDeque<TerminalJob>,
@@ -71,6 +93,8 @@ pub(crate) struct TerminalWorkPool {
     /// The host process started ahead of the next new tab (R81, cap one).
     #[cfg(any(unix, windows))]
     standby: Arc<standby_host::StandbyHostSlot>,
+    /// [`ASYNC_START_FEATURE`].
+    async_start: AsyncStartGate,
 }
 
 impl TerminalWorkPool {
@@ -84,6 +108,7 @@ impl TerminalWorkPool {
             reads: read_loop::TerminalReads::new(),
             #[cfg(any(unix, windows))]
             standby: standby_host::StandbyHostSlot::new(memory.clone()),
+            async_start: AsyncStartGate::from_env(),
         }
     }
 
@@ -208,6 +233,17 @@ impl Mux {
     #[cfg(unix)]
     pub(crate) fn terminal_reads(&self) -> &read_loop::TerminalReads {
         &self.terminal_work.reads
+    }
+
+    /// Whether a `create-terminal` may reply before its terminal starts
+    /// ([`ASYNC_START_FEATURE`], `terminal-async-start-v1`).
+    pub(crate) fn terminal_async_start_enabled(&self) -> bool {
+        self.terminal_work.async_start.0.load(Ordering::Relaxed)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_terminal_async_start_for_test(&self, enabled: bool) {
+        self.terminal_work.async_start.0.store(enabled, Ordering::Relaxed);
     }
 
     /// Queue `job` on the terminal work pool. Returns it when the pool is

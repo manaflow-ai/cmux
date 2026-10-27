@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "0099f55a8d73eeccd65a50020e3ff0c8be1ac82f5723a1d6b384ce58b5e9108c";
+pub const ir_sha256 = "2a31c3226150f02e37757e122ea9ab10d5fbf150907f213709f3df899c3e78e5";
 
 pub const AccessRequestKind = enum {
     file,
@@ -4110,6 +4110,7 @@ pub const TerminalPlacement = struct {
     registry_id: []const u8,
     replayed: bool,
     screen: wire.Nullable(Id),
+    starting: ?bool = null,
     surface: wire.Nullable(Id),
     terminal_id: []const u8,
     terminal_incarnation: wire.Nullable([]const u8),
@@ -4118,6 +4119,7 @@ pub const TerminalPlacement = struct {
     workspace: wire.Nullable(Id),
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "starting",
         "terminal_resource_id",
     };
 };
@@ -7958,6 +7960,7 @@ pub fn createTabGroup(client: anytype, request: CreateTabGroupRequest) !wire.Dec
 
 pub const CreateTerminalRequest = struct {
     argv: wire.Field([]const []const u8) = .absent,
+    async_start: ?bool = null,
     cols: wire.Field(u16) = .absent,
     command: wire.Field([]const u8) = .absent,
     cwd: wire.Field([]const u8) = .absent,
@@ -7976,6 +7979,7 @@ pub const CreateTerminalRequest = struct {
     workspace: wire.Field(Id) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "async_start",
         "detached",
         "keep",
     };
@@ -7992,6 +7996,7 @@ pub fn createTerminal(client: anytype, request: CreateTerminalRequest) !wire.Dec
             .since = 7,
             .capability = "workspace-registry-v1",
             .fields = &.{
+                .{ .name = "async_start", .since = 12, .capability = "terminal-async-start-v1" },
                 .{ .name = "detached", .since = 12, .capability = "detached-terminals-v1" },
                 .{ .name = "env", .since = 12, .capability = "terminal-env-v1" },
                 .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
@@ -14191,6 +14196,22 @@ pub const TerminalRegistryChangedEvent = struct {
     };
 };
 
+pub const TerminalStartFailedEvent = struct {
+    @"error": []const u8,
+    error_code: wire.Nullable([]const u8),
+    event: []const u8,
+    key: []const u8,
+    mutation_id: []const u8,
+    terminal_id: []const u8,
+};
+
+pub const TerminalStartedEvent = struct {
+    event: []const u8,
+    mutation_id: []const u8,
+    result: TerminalPlacement,
+    terminal_id: []const u8,
+};
+
 pub const TitleChangedEvent = struct {
     /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
     cause: ?EventCause = null,
@@ -14423,6 +14444,8 @@ pub const Event = union(enum) {
     terminal_input_unclaimed: TerminalInputUnclaimedEvent,
     terminal_reaped: TerminalReapedEvent,
     terminal_registry_changed: TerminalRegistryChangedEvent,
+    terminal_start_failed: TerminalStartFailedEvent,
+    terminal_started: TerminalStartedEvent,
     title_changed: TitleChangedEvent,
     tree_changed: TreeChangedEvent,
     url_open: UrlOpenEvent,
@@ -14522,6 +14545,8 @@ pub fn eventWireName(event: Event) []const u8 {
         .terminal_input_unclaimed => "terminal-input-unclaimed",
         .terminal_reaped => "terminal-reaped",
         .terminal_registry_changed => "terminal-registry-changed",
+        .terminal_start_failed => "terminal-start-failed",
+        .terminal_started => "terminal-started",
         .title_changed => "title-changed",
         .tree_changed => "tree-changed",
         .url_open => "url-open",
@@ -14885,6 +14910,14 @@ pub fn decodeEvent(allocator: std.mem.Allocator, value: wire.Value) !DecodedEven
     if (std.mem.eql(u8, name, "terminal-registry-changed")) {
         const decoded = try wire.decodeLeaky(TerminalRegistryChangedEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .terminal_registry_changed = decoded } };
+    }
+    if (std.mem.eql(u8, name, "terminal-start-failed")) {
+        const decoded = try wire.decodeLeaky(TerminalStartFailedEvent, arena.allocator(), value);
+        return .{ .arena = arena, .value = .{ .terminal_start_failed = decoded } };
+    }
+    if (std.mem.eql(u8, name, "terminal-started")) {
+        const decoded = try wire.decodeLeaky(TerminalStartedEvent, arena.allocator(), value);
+        return .{ .arena = arena, .value = .{ .terminal_started = decoded } };
     }
     if (std.mem.eql(u8, name, "title-changed")) {
         const decoded = try wire.decodeLeaky(TitleChangedEvent, arena.allocator(), value);
@@ -15409,18 +15442,20 @@ const event_streams_80 = [_][]const u8{"control"};
 const event_streams_81 = [_][]const u8{"control"};
 const event_streams_82 = [_][]const u8{"subscribe"};
 const event_streams_83 = [_][]const u8{"subscribe"};
-const event_streams_84 = [_][]const u8{"subscribe"};
-const event_streams_85 = [_][]const u8{"subscribe"};
-const event_streams_86 = [_][]const u8{"control"};
-const event_streams_87 = [_][]const u8{"attach-byte"};
-const event_streams_88 = [_][]const u8{"subscribe"};
-const event_streams_89 = [_][]const u8{"subscribe-deltas"};
-const event_streams_90 = [_][]const u8{"subscribe-deltas"};
+const event_streams_84 = [_][]const u8{"control"};
+const event_streams_85 = [_][]const u8{"control"};
+const event_streams_86 = [_][]const u8{"subscribe"};
+const event_streams_87 = [_][]const u8{"subscribe"};
+const event_streams_88 = [_][]const u8{"control"};
+const event_streams_89 = [_][]const u8{"attach-byte"};
+const event_streams_90 = [_][]const u8{"subscribe"};
 const event_streams_91 = [_][]const u8{"subscribe-deltas"};
 const event_streams_92 = [_][]const u8{"subscribe-deltas"};
 const event_streams_93 = [_][]const u8{"subscribe-deltas"};
+const event_streams_94 = [_][]const u8{"subscribe-deltas"};
+const event_streams_95 = [_][]const u8{"subscribe-deltas"};
 
-pub const event_count: usize = 94;
+pub const event_count: usize = 96;
 pub const events = [_]EventDescriptor{
     .{ .name = "activity-changed", .since = 12, .capability = "vm-activity-v1", .streams = &event_streams_0 },
     .{ .name = "agent-changed", .since = 11, .capability = null, .streams = &event_streams_1 },
@@ -15506,14 +15541,16 @@ pub const events = [_]EventDescriptor{
     .{ .name = "terminal-input-unclaimed", .since = 12, .capability = "terminal-input-while-creating-v1", .streams = &event_streams_81 },
     .{ .name = "terminal-reaped", .since = 12, .capability = "terminal-reap-v1", .streams = &event_streams_82 },
     .{ .name = "terminal-registry-changed", .since = 9, .capability = null, .streams = &event_streams_83 },
-    .{ .name = "title-changed", .since = 5, .capability = null, .streams = &event_streams_84 },
-    .{ .name = "tree-changed", .since = 5, .capability = null, .streams = &event_streams_85 },
-    .{ .name = "url-open", .since = 12, .capability = null, .streams = &event_streams_86 },
-    .{ .name = "vt-state", .since = 5, .capability = null, .streams = &event_streams_87 },
-    .{ .name = "window-title-requested", .since = 6, .capability = null, .streams = &event_streams_88 },
-    .{ .name = "workspace-added", .since = 7, .capability = null, .streams = &event_streams_89 },
-    .{ .name = "workspace-changed", .since = 12, .capability = "workspace-metadata-v1", .streams = &event_streams_90 },
-    .{ .name = "workspace-closed", .since = 7, .capability = null, .streams = &event_streams_91 },
-    .{ .name = "workspace-moved", .since = 7, .capability = null, .streams = &event_streams_92 },
-    .{ .name = "workspace-renamed", .since = 7, .capability = null, .streams = &event_streams_93 },
+    .{ .name = "terminal-start-failed", .since = 12, .capability = "terminal-async-start-v1", .streams = &event_streams_84 },
+    .{ .name = "terminal-started", .since = 12, .capability = "terminal-async-start-v1", .streams = &event_streams_85 },
+    .{ .name = "title-changed", .since = 5, .capability = null, .streams = &event_streams_86 },
+    .{ .name = "tree-changed", .since = 5, .capability = null, .streams = &event_streams_87 },
+    .{ .name = "url-open", .since = 12, .capability = null, .streams = &event_streams_88 },
+    .{ .name = "vt-state", .since = 5, .capability = null, .streams = &event_streams_89 },
+    .{ .name = "window-title-requested", .since = 6, .capability = null, .streams = &event_streams_90 },
+    .{ .name = "workspace-added", .since = 7, .capability = null, .streams = &event_streams_91 },
+    .{ .name = "workspace-changed", .since = 12, .capability = "workspace-metadata-v1", .streams = &event_streams_92 },
+    .{ .name = "workspace-closed", .since = 7, .capability = null, .streams = &event_streams_93 },
+    .{ .name = "workspace-moved", .since = 7, .capability = null, .streams = &event_streams_94 },
+    .{ .name = "workspace-renamed", .since = 7, .capability = null, .streams = &event_streams_95 },
 };

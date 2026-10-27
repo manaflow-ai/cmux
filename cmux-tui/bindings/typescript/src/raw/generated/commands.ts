@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 0099f55a8d73eeccd65a50020e3ff0c8be1ac82f5723a1d6b384ce58b5e9108c. */
+/* cmux-tui mux protocol 12, IR 2a31c3226150f02e37757e122ea9ab10d5fbf150907f213709f3df899c3e78e5. */
 
 
 import type * as T from "./types.js";
@@ -1625,6 +1625,7 @@ export type CreateTabGroupResult = T.TabGroupOutcome;
 export interface CreateTerminalRequest extends CmuxRequestBase {
   cmd: "create-terminal";
   "argv"?: (Array<string>) | null;
+  "async_start"?: boolean;
   "cols"?: (number) | null;
   "command"?: (string) | null;
   "cwd"?: (string) | null;

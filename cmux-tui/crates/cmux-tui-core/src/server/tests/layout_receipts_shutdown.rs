@@ -199,6 +199,7 @@ fn create_terminal_rejects_partial_dimensions() {
                 env: None,
                 keep: false,
                 detached: false,
+                async_start: false,
                 mutation: MutationRequest::default(),
             },
             &test_writer(),
@@ -227,6 +228,7 @@ fn mutation_specific_raw_terminal_create_updates_public_projection_once() {
         env: None,
         keep: false,
         detached: false,
+        async_start: false,
         mutation: MutationRequest {
             origin: Some("raw-projection-test".to_string()),
             mutation_id: Some("raw-terminal-create-once".to_string()),

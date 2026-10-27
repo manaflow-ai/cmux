@@ -12,6 +12,11 @@
 //! each create commits only after every earlier create of its connection
 //! committed, so the tabs of a pane land in the order they were requested.
 //! Other requests may be answered before an earlier create's reply.
+//!
+//! A `create-terminal` admitted under `terminal-async-start-v1` replies
+//! here before its terminal starts; its start runs after the reply, in
+//! request order with the connection's other starts
+//! (server/terminal_async_start.rs).
 
 use super::*;
 use crate::panic_free::RecoverPoison;
@@ -20,6 +25,8 @@ use crate::panic_free::RecoverPoison;
 #[derive(Default)]
 pub(super) struct ConnectionCreations {
     state: Mutex<CreationQueue>,
+    /// Starts of admitted `create-terminal`s (`terminal-async-start-v1`).
+    starts: Mutex<terminal_async_start::ConnectionStarts>,
 }
 
 #[derive(Default)]
@@ -250,7 +257,7 @@ impl ConnectionSurfaceScheduler {
     }
 
     fn commit_creation(
-        &self,
+        self: &Arc<Self>,
         mux: &Arc<Mux>,
         client: u64,
         slot: &CreationSlot,
@@ -288,7 +295,12 @@ impl ConnectionSurfaceScheduler {
                         _ => {}
                     }
                 }
-                run_pending_request(self, mux, client, pending, writer)
+                // The reply is queued when this returns; a start the
+                // request admitted runs only then.
+                let after_reply = terminal_async_start::StartsAfterReply::enter();
+                let keep_open = run_pending_request(self, mux, client, pending, writer);
+                self.start_terminals(mux, writer, after_reply.take());
+                keep_open
             }
             None => true,
         };
@@ -303,6 +315,50 @@ impl ConnectionSurfaceScheduler {
             mux.discard_prelaunched_terminal(&terminal_hex);
         }
         keep_open
+    }
+
+    /// Run `starts` after their replies, in request order: each counts as a
+    /// creation of this connection until it reported.
+    fn start_terminals(
+        self: &Arc<Self>,
+        mux: &Arc<Mux>,
+        writer: &MessageWriter,
+        starts: Vec<terminal_async_start::TerminalStart>,
+    ) {
+        for _ in &starts {
+            self.begin_creation();
+        }
+        if self.creations.starts.lock().recover_poison().push(starts) {
+            self.drain_starts(mux, writer);
+        }
+    }
+
+    /// Run the connection's next start on the terminal work pool, one start
+    /// per pool job so each runs under its own hang deadline; the job hands
+    /// the drain on to the next. A saturated pool runs it here, after the
+    /// reply, as a create without the feature would have.
+    fn drain_starts(self: &Arc<Self>, mux: &Arc<Mux>, writer: &MessageWriter) {
+        loop {
+            let scheduler = self.clone();
+            let (job_mux, job_writer) = (mux.clone(), writer.clone());
+            let job: Box<dyn FnOnce() + Send> = Box::new(move || {
+                if scheduler.run_next_start(&job_writer) {
+                    scheduler.drain_starts(&job_mux, &job_writer);
+                }
+            });
+            if mux.submit_terminal_work(job).is_ok() || !self.run_next_start(writer) {
+                return;
+            }
+        }
+    }
+
+    /// Run the next start; false when none was left and the drain ended.
+    fn run_next_start(&self, writer: &MessageWriter) -> bool {
+        let next = self.creations.starts.lock().recover_poison().next();
+        let Some(start) = next else { return false };
+        terminal_async_start::run_start(start, writer);
+        self.finish_creation();
+        true
     }
 
     fn begin_creation(&self) {

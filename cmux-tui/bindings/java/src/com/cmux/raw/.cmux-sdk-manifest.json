@@ -1382,8 +1382,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "6df86d9672bd1e6f8ead8718bab440bac05254444cab1df86a14f7166cc599a4",
-      "size": 98134
+      "sha256": "5bf396f27df177240a55aad26ac1456aefa9f406f3b1c540f74cb98f510417fb",
+      "size": 98218
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1787,8 +1787,8 @@
     },
     {
       "path": "CreateTerminalRequest.java",
-      "sha256": "e67371d6ed4f1e381469097c72a7f4b8f3f245379dae43974681652c3b4d45b8",
-      "size": 12937
+      "sha256": "64d94791eaea540bb6b59ffc26eabc84a1a7f7339b1455a5692ecb1f074aad18",
+      "size": 13616
     },
     {
       "path": "CreateWorkspaceGroupRequest.java",
@@ -1937,8 +1937,8 @@
     },
     {
       "path": "Events.java",
-      "sha256": "b7d1a069499e525b47972ea79760d10c46b1d013c03894dd5d0b17d7c34461c7",
-      "size": 19681
+      "sha256": "4f736d69f533542aa60898bb9f4b85a04f991789a86d535ee487c13c9e2fb564",
+      "size": 20123
     },
     {
       "path": "ExportLayoutRequest.java",
@@ -2997,8 +2997,8 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "dd2896809f5694d8dbb4771ffdf739aa79f2648f987204d863f1104ed725c279",
-      "size": 7994
+      "sha256": "30bcc0a5e00a0f52c14662eca69f1162f6cdba7210a76312983c463be914cb58",
+      "size": 8157
     },
     {
       "path": "ProtocolEvent.java",
@@ -4152,8 +4152,8 @@
     },
     {
       "path": "TerminalPlacement.java",
-      "sha256": "d65a405328b933ec4700a20887e4e5a6353fcb76b237e9757dae5d323d644b67",
-      "size": 12545
+      "sha256": "4970c390d91725a348e0d3daab978044e03783d2e6108292b8534078ef2af2ac",
+      "size": 13179
     },
     {
       "path": "TerminalPortsListener.java",
@@ -4234,6 +4234,16 @@
       "path": "TerminalResumeCommandResult.java",
       "sha256": "9aa6e24e9ba25329bdf63e1a365ed0ad2786baa7d568881b296d93e94560460f",
       "size": 2828
+    },
+    {
+      "path": "TerminalStartFailedEvent.java",
+      "sha256": "617364ff3715471b72c8a992081b5c8820b9c40db3e518c85cb517f5c4f8a17e",
+      "size": 5236
+    },
+    {
+      "path": "TerminalStartedEvent.java",
+      "sha256": "9fc6fe4ef1d69ee392d717655955d41b121afabf77739392a83b768ed459787e",
+      "size": 3852
     },
     {
       "path": "TitleChangedEvent.java",
@@ -4482,7 +4492,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "0099f55a8d73eeccd65a50020e3ff0c8be1ac82f5723a1d6b384ce58b5e9108c",
+  "ir_sha256": "2a31c3226150f02e37757e122ea9ab10d5fbf150907f213709f3df899c3e78e5",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

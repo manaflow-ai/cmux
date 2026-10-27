@@ -1100,6 +1100,18 @@
       ]
     },
     {
+      "name": "terminal-start-failed",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "terminal-started",
+      "streams": [
+        "control"
+      ]
+    },
+    {
       "name": "title-changed",
       "streams": [
         "subscribe"
