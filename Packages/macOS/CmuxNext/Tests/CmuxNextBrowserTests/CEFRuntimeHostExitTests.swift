@@ -234,6 +234,8 @@ import Testing
 
     func observeHostEnds(_ ended: @escaping @MainActor () -> Void) {}
 
+    func hostSaidHello() {}
+
     #if DEBUG
     /// Launches a stand-in host, SIGKILLs it, waits for its end off main and reports it as the supervisor
     /// does: mapped with `pageExit`, on main, nothing for a clean exit.

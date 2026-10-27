@@ -1810,12 +1810,12 @@ nonisolated extension Feature {
     )
 
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// debug.chromium_host can show a Chromium page whose browser process runs in the Chromium Host app, over a pane, and the browser backend picks the host; Chromium tabs stay in cmux until the host supervisor lands.
+    /// debug.chromium_host can show a Chromium page whose browser process runs in the Chromium Host app, over a pane, and the browser backend picks the host; Chromium tabs move to that one host only with chromiumHostTabs on too.
     public static let cefHelperHost = Feature(
         index: 104,
         name: "cefHelperHost",
         owner: "PL-cef-helper",
-        description: "debug.chromium_host can show a Chromium page whose browser process runs in the Chromium Host app, over a pane, and the browser backend picks the host; Chromium tabs stay in cmux until the host supervisor lands.",
+        description: "debug.chromium_host can show a Chromium page whose browser process runs in the Chromium Host app, over a pane, and the browser backend picks the host; Chromium tabs move to that one host only with chromiumHostTabs on too.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,
@@ -1867,6 +1867,24 @@ nonisolated extension Feature {
         stories: ["memory-hidden"],
         sticky: false,
         runtimeMutable: false
+    )
+
+    /// With cefHelperHost on too, every Chromium tab of the launch, of every profile, runs in the one Chromium Host (ChromiumHostSupervisor) instead of cmux's process. Debug builds only; bench builds keep tabs in process.
+    public static let chromiumHostTabs = Feature(
+        index: 106,
+        name: "chromiumHostTabs",
+        owner: "PL-cef-helper",
+        description: "With cefHelperHost on too, every Chromium tab of the launch, of every profile, runs in the one Chromium Host (ChromiumHostSupervisor) instead of cmux's process. Debug builds only; bench builds keep tabs in process.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["chromium-host"],
+        sticky: false,
+        runtimeMutable: false,
+        replaces: ["browserHost.tabs"]
     )
 
     /// Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.
@@ -2014,6 +2032,7 @@ nonisolated extension Feature {
         .cefHelperHost,
         .cefLayerHostingEveryPage,
         .chromiumHostIdleExit,
+        .chromiumHostTabs,
         .perfLabCanary,
         .perfLabKillProbe,
     ]
