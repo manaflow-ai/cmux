@@ -17,7 +17,9 @@ extension GhosttyRuntime {
     public func attach(to mainWork: MainWorkScheduler, holdsHiddenActions: Bool = false) {
         let ticks = GhosttyTickClass(work: mainWork)
         self.ticks = ticks
+        let context = context
         tickPacer = GhosttyTickPacer(context: context, frames: mainWork.frames,
+                                     hop: { post in context.hopToMain(posted: post) },
                                      isInputTick: { ticks.classForTick() == .input },
                                      tick: { [weak self] post in self?.tick(posted: post) })
         self.holdsHiddenActions = holdsHiddenActions

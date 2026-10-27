@@ -4,7 +4,8 @@ import CmuxNextWakeupsTestSupport
 import Testing
 
 /// Ghostty's wakeup ticks paced to the frame (p03-rendering-119): a stream of wakeups ticks at most once
-/// per frame with no hop per wakeup, a quiet spell's first wakeup and a key's echo tick at once, and
+/// per frame with no hop per wakeup, a quiet spell's first wakeup and a key's echo tick at once (a
+/// wakeup left to the frame before the key too), a mailbox message waits at most one frame, and
 /// `GhosttyRuntime.tick` shows in debug.wakeups.
 @MainActor @Suite(.timeLimit(.minutes(1)))
 struct GhosttyTickPacerTests {
@@ -75,20 +76,52 @@ struct GhosttyTickPacerTests {
         #expect(!rig.pacer.isPacing)
     }
 
-    @Test func aWakeupLeftToTheFrameBeforeAKeyTicksOnTheNextFrame() {
+    @Test func aWakeupLeftToTheFrameBeforeAKeyTicksInAHopWithTheEcho() {
         let rig = PacerRig()
         rig.stream()
         rig.frame()
         rig.clock.now += 1_000_000
         rig.wake()
-        #expect(rig.hops == 2, "the client is on: the wakeup made no hop")
+        #expect(rig.queuedHops == 0, "the client is on: the wakeup made no hop")
         rig.pacer.noteTerminalKey()
+        rig.isInputTick = true
+        rig.clock.now += 1_000_000
+        rig.wake() // the echo
+        #expect(rig.queuedHops == 1, "the key queued the hop the wakeup did not make; the echo merged into it")
+        let (ticks, outside, frames) = (rig.ticks, rig.ticksOutsideFrames, rig.frames)
+
+        rig.deliverHops()
+
+        #expect(rig.ticks == ticks + 1)
+        #expect(rig.ticksOutsideFrames == outside + 1, "the echo ticked in the hop's turn")
+        #expect(rig.frames == frames, "no frame ran")
+        #expect(!rig.context.pending.load(ordering: .relaxed))
+    }
+
+    @Test func aKeyWithNothingPendingQueuesNoHop() {
+        let rig = PacerRig()
+        rig.stream()
+        rig.frame()
+        rig.pacer.noteTerminalKey()
+
+        #expect(rig.queuedHops == 0, "the frame ran the stream's tick")
+        #expect(!rig.pacer.isPacing)
+    }
+
+    @Test func aMailboxMessageWhilePacingTicksByTheNextFrame() {
+        // A clipboard request, child exit or close is a mailbox message whose wakeup looks like the
+        // stream's: it waits at most one frame (GhosttyTickPacer's doc).
+        let rig = PacerRig()
+        rig.stream()
+        rig.frame()
+        rig.clock.now += 1_000_000
+        rig.wake()
         let ticks = rig.ticks
 
         rig.frame()
 
         #expect(rig.ticks == ticks + 1)
-        #expect(rig.scheduler.activeClients.isEmpty, "the key stopped the pacing; the frame ran what was left")
+        #expect(rig.hops == 2, "the stream's two hops only")
     }
 
     @Test func aHopAFrameBeatRunsNoSecondTick() {
@@ -138,13 +171,14 @@ private final class PacerRig {
     private(set) var hops = 0
     private(set) var queuedHops = 0
     private(set) var pacer: GhosttyTickPacer!
-    private var frames = 0
+    private(set) var frames = 0
     private var inFrame = false
 
     init() {
         scheduler = FrameScheduler.testing(clock: ManualClock(), ledger: ledger, mediaTime: { 1000 }) { _ in PacerTestLink() }
         let clock = clock
         pacer = GhosttyTickPacer(context: context, frames: scheduler, ledger: ledger, now: { clock.now },
+                                 hop: { [weak self] _ in self?.queuedHops += 1 },
                                  isInputTick: { [weak self] in self?.isInputTick ?? false },
                                  tick: { [weak self] _ in self?.recordTick() })
     }

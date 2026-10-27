@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextWakeups
 
 /// Runtime-level callback userdata. Collapses bursts of `wakeup_cb` (any thread, which touches
 /// only the atomic flags) into one main-actor tick and points back at the runtime (main-actor only).
@@ -23,6 +24,14 @@ nonisolated final class RuntimeCallbackContext: Sendable {
             return false
         }
         return !framed.load(ordering: .sequentiallyConsistent)
+    }
+
+    /// Queues the hop ``wake()`` asked for, from any thread: the runtime's
+    /// ``GhosttyRuntime/wakeupArrived(posted:)`` on a later pass of the main run loop.
+    ///
+    /// - Parameter post: When the wakeup came.
+    func hopToMain(posted post: MainTaskPost) {
+        MainRunLoopBlock.perform { self.runtime?.wakeupArrived(posted: post) }
     }
 
     /// The started runtimes' contexts by the token each gives libghostty as its userdata. A C

@@ -8,9 +8,15 @@ import CmuxNextWakeups
 /// and the pacer's frame client stays on, so the wakeups that follow set the context's pending flag
 /// and make no hop at all (``RuntimeCallbackContext/wake()``). The client stops after
 /// ``idleFrames`` frames with no wakeup. While a key a terminal took waits for its echo
-/// (``GhosttyTickClass/classForTick()`` is input) the tick never waits, and a key stops the frame
-/// pacing at once (``noteTerminalKey()``). Clipboard confirms and writes and close are callbacks of
-/// their own (GhosttyRuntimeCallbacks.swift) and never wait for a frame.
+/// (``GhosttyTickClass/classForTick()`` is input) the tick never waits: a key stops the frame
+/// pacing at once and hops for a tick a wakeup left to the frame (``noteTerminalKey()``), so the
+/// echo is parsed in that hop's turn or its own.
+///
+/// Every libghostty app mailbox message runs in a tick (`App.drainMailbox`, ghostty-next
+/// src/App.zig), and `wakeup_cb` does not say which message woke it. So while output streams, an
+/// OSC 52 read or write, a child exit or a surface close in any terminal waits at most until the
+/// next frame (8.3 ms at 120 Hz, 16.7 ms at 60 Hz). Running those at once needs libghostty to signal a discrete
+/// message apart from the stream's, a ghostty-next change for the integrator lane (p03-rendering-079).
 ///
 /// Chrome treats continuous input the same way: a discrete event dispatches at once and continuous
 /// ones coalesce to one per frame, dispatched at the begin-frame (`MainThreadEventQueue`,
@@ -39,6 +45,7 @@ final class GhosttyTickPacer {
     private let context: RuntimeCallbackContext
     private let ledger: WakeupLedger
     private let now: () -> UInt64
+    private let hop: @MainActor (MainTaskPost) -> Void
     private let isInputTick: @MainActor () -> Bool
     private let tick: @MainActor (MainTaskPost?) -> Void
     private var client: FrameClient?
@@ -53,14 +60,18 @@ final class GhosttyTickPacer {
     ///   - frames: The scheduler whose frames run the paced ticks.
     ///   - ledger: Where hops are counted (`debug.wakeups`).
     ///   - now: `CLOCK_UPTIME_RAW` nanoseconds (tests: a clock they move).
+    ///   - hop: Queues a hop to ``wakeupArrived(posted:)`` the way a wakeup does
+    ///     (``RuntimeCallbackContext/hopToMain(posted:)``).
     ///   - isInputTick: Whether a tick that starts now serves a key a terminal took.
     ///   - tick: Runs one app tick, recorded as `post` (nil: run time only).
     init(context: RuntimeCallbackContext, frames: FrameScheduler, ledger: WakeupLedger = .shared,
          now: @escaping () -> UInt64 = { MainTaskPost.uptimeNanos() },
+         hop: @escaping @MainActor (MainTaskPost) -> Void,
          isInputTick: @escaping @MainActor () -> Bool, tick: @escaping @MainActor (MainTaskPost?) -> Void) {
         self.context = context
         self.ledger = ledger
         self.now = now
+        self.hop = hop
         self.isInputTick = isInputTick
         self.tick = tick
         client = FrameClient(owner: Self.owner, isAnimation: false, on: frames) { [weak self] _ in self?.frame() ?? false }
@@ -78,12 +89,15 @@ final class GhosttyTickPacer {
         runTick(post)
     }
 
-    /// A terminal took a key: its echo's tick never waits for a frame. Wakeups hop again from now;
-    /// the client's next frame runs a tick a wakeup left to it before this and stops.
+    /// A terminal took a key: its echo's tick never waits for a frame. Wakeups hop again from now,
+    /// and a tick a wakeup left to the frame before this gets the hop that wakeup did not make: the
+    /// echo's wakeup merges into that pending tick and would make none either.
     func noteTerminalKey() {
         guard isPacing else { return }
         isPacing = false
         context.framed.store(false, ordering: .sequentiallyConsistent)
+        // A frame that runs the tick first leaves the hop nothing to do (``wakeupArrived(posted:)``).
+        if context.pending.load(ordering: .sequentiallyConsistent) { hop(MainTaskPost(enqueueNanos: now())) }
     }
 
     private func startPacing() {
