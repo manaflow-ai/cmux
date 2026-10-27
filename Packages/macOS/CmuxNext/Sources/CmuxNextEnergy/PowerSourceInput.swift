@@ -1,3 +1,5 @@
+import CmuxNextWakeups
+
 /// One reading of the power source: what IOKit reports in one snapshot.
 public nonisolated struct PowerSourceReading: Sendable, Equatable {
     /// The battery provides power.
@@ -15,7 +17,7 @@ public nonisolated struct PowerSourceReading: Sendable, Equatable {
     }
 }
 
-/// Where ``EnergyMonitor`` gets the power source: IOKit's, followed off the main thread (``system()``), or a test's.
+/// Where ``EnergyMonitor`` gets the power source: IOKit's, followed off the main thread (``system(mainWork:)``), or a test's.
 public struct PowerSourceInput {
     /// Starts sending readings to the handler on the main actor: the first one, then the changes
     /// the source reports. A Mac without a battery sends none and registers nothing.
@@ -43,9 +45,9 @@ public struct PowerSourceInput {
     }
 
     /// IOKit: the app's one power-source monitor (``PowerSourceMonitor``), which reads on its utility
-    /// queue and hops to the main actor only when the source or the low-battery band changes.
-    static func system() -> PowerSourceInput {
-        monitored(by: PowerSourceMonitor())
+    /// queue and posts to `mainWork` only when the source or the low-battery band changes.
+    static func system(mainWork: MainWorkScheduler) -> PowerSourceInput {
+        monitored(by: PowerSourceMonitor(system: .live(mainWork: mainWork)))
     }
 
     /// The input `monitor` feeds.

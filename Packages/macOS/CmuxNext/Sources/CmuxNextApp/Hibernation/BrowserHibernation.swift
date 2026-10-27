@@ -202,7 +202,7 @@ final class BrowserHibernation {
     private var probeKeptAt: [String: ContinuousClock.Instant] = [:]
     static let keptBackoff: Double = 60
     /// Hidden pages' title and icon changes (`DiscardRule.backgroundActivity`); the App turns it on.
-    let activity = PageActivityWatch()
+    let activity: PageActivityWatch
     /// When each page last played sound (`DiscardRule.recentlyAudible`); the end of a hidden page's
     /// sound replans. Nil while the `recentlyAudibleProtection` feature is off: no page is watched,
     /// no candidate carries a sound fact, and the plans are those from before the rule.
@@ -225,6 +225,7 @@ final class BrowserHibernation {
         hoverDwell = MainDeadline(owner: "BrowserNeighborHover", workClass: .background, scheduler: deadlines)
         mainWork = deadlines.work
         mainDeadlines = deadlines
+        activity = PageActivityWatch(mainWork: deadlines.work)
         snapshots = HibernationSnapshots(fullCapacityBytes: cache.imageCaches.hibernationSnapshotBytes)
         self.energy = energy
         energySaver = energy.policy.pageSaver

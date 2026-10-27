@@ -3,6 +3,7 @@ import CmuxNextInput
 @testable import CmuxNextInputDiagnostics
 import CmuxNextInputCore
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -79,13 +80,20 @@ struct DebugInputTests {
         return ledger.snapshot
     }
 
+    /// A main-thread scheduler whose posted turns run as main-actor tasks: the tap section's copy is a posted task.
+    static func mainWork() -> MainWorkScheduler {
+        MainWorkScheduler.testing(ledger: WakeupLedger(), performTurn: { turn in Task { @MainActor in turn() } }) { _ in
+            DebugInputTestLink()
+        }
+    }
+
     static func everySource(tap: InputEventTap, resets: Resets) -> [any DebugInputSource] {
         [
             FixedSource(section: .latency, value: latency(), resets: resets),
             FixedSource(section: .interactions, value: Opaque(count: 1), resets: resets),
             FixedSource(section: .gate, value: gate, resets: resets),
             FixedSource(section: .coalescer, value: Opaque(count: 2), resets: resets),
-            InputTapDebugSource(tap: tap),
+            InputTapDebugSource(tap: tap, mainWork: mainWork()),
             FixedSource(section: .pump, value: pump, resets: resets),
             FixedSource(section: .scrollViews, value: [Opaque(count: 3)], resets: resets),
             FixedSource(section: .chromium, value: Opaque(count: 4), resets: resets),
@@ -161,7 +169,7 @@ struct DebugInputTests {
     }
 
     @Test func aSectionWithoutAProducerIsListedAsAbsent() async throws {
-        let debugInput = DebugInput(sources: [InputTapDebugSource(tap: InputEventTap())])
+        let debugInput = DebugInput(sources: [InputTapDebugSource(tap: InputEventTap(), mainWork: Self.mainWork())])
         let reply = try await debugInput.reply(to: .read(Set(DebugInputSection.allCases)))
         let object = try Self.object(reply)
         #expect(Set(object.keys) == ["tap", "absent"])
@@ -287,4 +295,11 @@ struct DebugInputTests {
         let reply = try await debugInput.reply(to: .read([.gate]))
         #expect(reply["gate"]?["max_input_wait_behind_jobs_ms"] == .string("inf"))
     }
+}
+
+/// The test scheduler's display link: never fires, the posted turns run the tap's copy.
+@MainActor
+private final class DebugInputTestLink: FrameLink {
+    var isPaused = false
+    func invalidate() {}
 }

@@ -1,11 +1,11 @@
 import CmuxNextCompat
 import CmuxNextMemory
 import CmuxNextWakeups
-import CmuxNextWakeupsTestSupport
 import Testing
 
 /// p07-memory-016: the footprints go into the histograms once per interval on the emitter's own
 /// deadline (Chrome's periodic `ProcessMemoryMetricsEmitter` run), never per read or pressure change.
+/// p06-scheduler-347: the deadline is a `background` ``MainDeadline`` and the record a posted `background` task.
 @MainActor @Suite struct MemoryFootprintEmitterTests {
     /// The live PID reads the emitter made.
     final class Reads {
@@ -14,9 +14,9 @@ import Testing
 
     /// One sample per interval with the live WebContent PIDs, none before the interval ends, a
     /// second `start` arms nothing more, and `stop` ends the sampling. The next deadline is armed
-    /// only after the sample is recorded, so waiting for it is waiting for the record.
+    /// only after the sample is recorded.
     @Test func theEmitterSamplesOncePerInterval() async throws {
-        let clock = CmuxNextWakeupsTestSupport.ManualClock()
+        let rig = MemoryDeadlineRig()
         let histograms = MemoryHistograms(pressure: MemoryPressureEvents(source: ManualMemoryPressureSource()), discardKinds: [])
         let reads = Reads()
         let emitter = MemoryFootprintEmitter(
@@ -31,31 +31,88 @@ import Testing
                 return MemoryDiagnosticsProcesses(rows: [app] + pages)
             },
             interval: .seconds(3_600),
-            timer: DemandTimer(owner: "test.memory-footprints", clock: clock, ledger: WakeupLedger()))
+            deadlines: rig.deadlines)
         emitter.start()
         emitter.start()
-        try await clock.waitForSleeper()
-        #expect(clock.sleeperCount == 1, "a second start armed a second deadline")
+        #expect(rig.hasArmedWake)
 
-        clock.advance(by: .seconds(1_800))
-        #expect(histograms.snapshot().appFootprintMiB.count == 0, "sampled before the interval ended")
-        clock.advance(by: .seconds(1_800))
-        try await clock.waitForSleeper()
-        var snapshot = histograms.snapshot()
+        rig.advance(by: .seconds(1_800))
+        rig.fireAtNow()
+        #expect(reads.count == 0 && histograms.snapshot().appFootprintMiB.count == 0, "sampled before the interval ended")
+        rig.fireAndRun()
         #expect(reads.count == 1)
-        #expect(snapshot.appFootprintMiB.count == 1)
+        emitter.start()
+        try await Self.recorded(1, histograms, rig)
+        let snapshot = histograms.snapshot()
         #expect(snapshot.appFootprintMiB.sum == 300)
         #expect(snapshot.rendererFootprintMiB.sum == 40)
+        #expect(rig.hasArmedWake, "the record armed the next sample")
 
-        clock.advance(by: .seconds(3_600))
-        try await clock.waitForSleeper()
-        snapshot = histograms.snapshot()
-        #expect(reads.count == 2)
-        #expect(snapshot.appFootprintMiB.count == 2)
+        rig.fireAndRun()
+        try await Self.recorded(2, histograms, rig)
+        #expect(reads.count == 2, "a start while the first sample was read armed a second deadline")
 
         emitter.stop()
-        #expect(clock.sleeperCount == 0, "stop left the deadline armed")
-        clock.advance(by: .seconds(3_600))
+        #expect(!rig.hasArmedWake, "stop left the deadline armed")
+        rig.advance(by: .seconds(3_600))
+        rig.fireAtNow()
         #expect(histograms.snapshot().appFootprintMiB.count == 2)
+    }
+
+    /// A sample read when `stop` comes is not recorded and arms nothing.
+    @Test func aSampleReadAcrossStopIsDropped() async throws {
+        let rig = MemoryDeadlineRig()
+        let histograms = MemoryHistograms(pressure: MemoryPressureEvents(source: ManualMemoryPressureSource()), discardKinds: [])
+        let gate = SampleGate()
+        let emitter = MemoryFootprintEmitter(histograms: histograms, webContentPIDs: { [] },
+                                             sample: { _ in await gate.wait() }, interval: .seconds(60), deadlines: rig.deadlines)
+        emitter.start()
+        rig.fireAndRun()
+        await gate.reached()
+        emitter.stop()
+        await gate.open()
+        for _ in 0..<50 {
+            await Task.yield()
+            rig.frame()
+        }
+        #expect(histograms.snapshot().appFootprintMiB.count == 0, "a sample read across stop was recorded")
+        #expect(!rig.hasArmedWake, "a stopped emitter armed its next sample")
+    }
+
+    /// Runs the rig's frames until `count` samples are recorded (the read runs off main, its record is a posted task).
+    static func recorded(_ count: Int, _ histograms: MemoryHistograms, _ rig: MemoryDeadlineRig) async throws {
+        for _ in 0..<10_000 where histograms.snapshot().appFootprintMiB.count < count {
+            await Task.yield()
+            rig.frame()
+        }
+        try #require(histograms.snapshot().appFootprintMiB.count == count)
+    }
+}
+
+/// Holds a sample's read until the test opens it.
+actor SampleGate {
+    private var waiting: CheckedContinuation<MemoryDiagnosticsProcesses, Never>?
+    private var arrived: CheckedContinuation<Void, Never>?
+    private var hasArrived = false
+
+    /// The read: returns an app row once ``open()`` runs.
+    func wait() async -> MemoryDiagnosticsProcesses {
+        await withCheckedContinuation { continuation in
+            waiting = continuation
+            hasArrived = true
+            arrived?.resume()
+            arrived = nil
+        }
+    }
+
+    /// Returns once a read waits.
+    func reached() async {
+        guard !hasArrived else { return }
+        await withCheckedContinuation { arrived = $0 }
+    }
+
+    func open() {
+        waiting?.resume(returning: MemoryDiagnosticsProcesses(rows: [.init(kind: .app, pid: 1, physFootprintBytes: 1 << 20)]))
+        waiting = nil
     }
 }

@@ -24,13 +24,14 @@ import Observation
 /// The visible panes are read from the windows, again on each change of an observable value the read
 /// touches and on each ``noteChange()`` (content signals that are not observable: a terminal's first
 /// content, a page's first paint, a window ordered in, hidden or minimized). One update per main turn,
-/// however many changes came.
+/// however many changes came: a ``ServiceObservation`` in the `visible` class (the launch's reveal and
+/// its after-startup work wait on these refs).
 ///
 /// The app makes one at its composition root with its ``StartupScheduler`` and ``StartupPhase``;
 /// tests pass a recording `hold`.
 ///
 /// ```swift
-/// let panes = VisiblePaneRefs(startup: order.startup, phase: order.mainWork.startup)
+/// let panes = VisiblePaneRefs(startup: order.startup, mainWork: order.mainWork, phase: order.mainWork.startup)
 /// panes.watchUnavailable { daemon.startup.isUnavailable }  // or the daemon's own watch calls daemonUnavailable()
 /// // The end of the restore: the launch's windows, read again on each change.
 /// panes.followWindows(shownWindows)
@@ -109,6 +110,7 @@ public final class VisiblePaneRefs {
 
     private let hold: @MainActor (StaticString) -> Release
     private let phase: StartupPhase?
+    private let mainWork: MainWorkScheduler
     private let bound: DemandTimer
     private let changes = Changes()
     private var restore: Release?
@@ -121,30 +123,32 @@ public final class VisiblePaneRefs {
     private var followed: Set<ObjectIdentifier> = []
     /// The windows' notifications that call ``noteChange()`` (``followWindows(_:)``), cancelled once no ref is held.
     var windowEvents: [EventSubscription] = []
-    private var paneWatch: Task<Void, Never>?
-    private var unavailableWatch: Task<Void, Never>?
+    private var paneWatch: ServiceObservation<[Window]>?
+    private var unavailableWatch: ServiceObservation<Bool>?
 
     /// Takes the restore ref.
     ///
     /// - Parameters:
     ///   - hold: Takes one startup ref by name and returns its release.
+    ///   - mainWork: The launch's main-thread scheduler: the panes are read again on it after each change.
     ///   - phase: The launch phase whose restore and visible-page references this marks (nil: none).
-    ///   - bound: The visible-pane bound's timer; tests inject a manual clock.
-    public init(hold: @escaping @MainActor (StaticString) -> Release, phase: StartupPhase? = nil,
-                bound: DemandTimer = DemandTimer(owner: "VisiblePaneRefs.bound")) {
+    ///   - bound: The visible-pane bound's timer (nil: one on the continuous clock); tests inject a manual clock.
+    public init(hold: @escaping @MainActor (StaticString) -> Release, mainWork: MainWorkScheduler, phase: StartupPhase? = nil,
+                bound: DemandTimer? = nil) {
         self.hold = hold
+        self.mainWork = mainWork
         self.phase = phase
-        self.bound = bound
+        // timer-class-allow: the launch's one pane bound, made in AppDelegate before the app's deadline scheduler exists; it fires at most once
+        self.bound = bound ?? DemandTimer(owner: "VisiblePaneRefs.bound")
         restore = hold("WindowManager.restore")
     }
 
     /// Takes the restore ref of `startup`, and marks `phase`'s restore and visible-page references.
-    public convenience init(startup: StartupScheduler, phase: StartupPhase?,
-                            bound: DemandTimer = DemandTimer(owner: "VisiblePaneRefs.bound")) {
+    public convenience init(startup: StartupScheduler, mainWork: MainWorkScheduler, phase: StartupPhase?, bound: DemandTimer? = nil) {
         self.init(hold: { [startup] name in
             let ref = startup.hold(name)
             return { ref.release($0) }
-        }, phase: phase, bound: bound)
+        }, mainWork: mainWork, phase: phase, bound: bound)
     }
 
     /// True while the restore ref or a pane ref is held.
@@ -161,11 +165,7 @@ public final class VisiblePaneRefs {
         guard let restore else { return }
         self.restore = nil
         self.windows = windows
-        let counter = changes
-        let (shown, later) = ObservationStream<[Window]>.current { [weak self] in
-            _ = counter.count
-            return self?.windows?() ?? []
-        }
+        let shown = windows()
         guard !shown.isEmpty else { return end([restore], .noWindow) }
         let first = shown.flatMap(\.panes)
         take(first)
@@ -173,12 +173,15 @@ public final class VisiblePaneRefs {
         end([restore], pending.isEmpty ? .noVisiblePane : .restoreFinished)
         guard update(first) else { return }
         bound.scheduleOnMain(after: Self.paneBound) { [weak self] in self?.releasePanes(.visiblePaneTimedOut) }
-        // task-owner: self; ends when no pane ref is held (finishIfDone cancels it)
-        paneWatch = Task { [weak self] in
-            for await windows in later {
-                guard let self, self.update(windows.flatMap(\.panes)) else { return }
-            }
+        // Its first apply, in this turn, reads the panes again: a change the releases above made is not lost.
+        let counter = changes
+        let watch = ServiceObservation(.visible, owner: "VisiblePaneRefs.panes", on: mainWork, read: { [weak self] () -> [Window] in
+            _ = counter.count
+            return self?.windows?() ?? []
+        }) { [weak self] windows in
+            _ = self?.update(windows.flatMap(\.panes))
         }
+        if isHolding { paneWatch = watch }
     }
 
     /// A content signal that is not observable came (a terminal was handed content, a window was
@@ -200,14 +203,11 @@ public final class VisiblePaneRefs {
     /// ref still held (the restore's when it never came) is released with `daemonUnavailable`.
     public func watchUnavailable(_ isUnavailable: @escaping @MainActor @Sendable () -> Bool) {
         guard isHolding, unavailableWatch == nil else { return }
-        // task-owner: self; ends at the first unavailable, or when no ref is held (finishIfDone cancels it)
-        unavailableWatch = Task { [weak self] in
-            for await unavailable in ObservationStream(isUnavailable) where unavailable {
-                self?.unavailableWatch = nil
-                self?.daemonUnavailable()
-                return
-            }
+        let watch = ServiceObservation(.visible, owner: "VisiblePaneRefs.daemonUnavailable", on: mainWork,
+                                       read: isUnavailable) { [weak self] unavailable in
+            if unavailable { self?.daemonUnavailable() }
         }
+        if isHolding { unavailableWatch = watch }
     }
 
     /// The daemon is unavailable: releases every ref still held with `daemonUnavailable`.

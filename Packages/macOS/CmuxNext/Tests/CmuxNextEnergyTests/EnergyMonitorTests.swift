@@ -41,6 +41,11 @@ struct EnergyMonitorTests {
         var inputs: [EnergyInputs] = []
     }
 
+    /// The Low Power Mode values an observer heard.
+    final class Heard {
+        var values: [Bool] = []
+    }
+
     static func laptop(percent: Int?, onBattery: Bool = false) -> PowerSourceReading {
         PowerSourceReading(onBattery: onBattery, hasBattery: true, batteryPercent: percent)
     }
@@ -174,6 +179,26 @@ struct EnergyMonitorTests {
         #expect(watch.state == .critical)
         center.post(name: ProcessInfo.thermalStateDidChangeNotification, object: nil)
         #expect(heard == [.critical])
+    }
+
+    /// p06-scheduler-347: Low Power Mode follows its center through one main-queue observer, in the
+    /// post's own turn on main (no task hop), tells its observers once per change, and stops when released.
+    @Test func lowPowerModeFollowsItsCenterInThePostsTurn() {
+        let center = NotificationCenter()
+        var enabled = false
+        var mode: LowPowerMode? = LowPowerMode(center: center) { enabled }
+        let heard = Heard()
+        let observation = mode?.observe { heard.values.append($0) }
+        enabled = true
+        center.post(name: .NSProcessInfoPowerStateDidChange, object: nil)
+        #expect(mode?.isEnabled == true, "the post's own turn applied the change")
+        center.post(name: .NSProcessInfoPowerStateDidChange, object: nil)
+        #expect(heard.values == [true], "an unchanged value told the observers again")
+        mode = nil
+        enabled = false
+        center.post(name: .NSProcessInfoPowerStateDidChange, object: nil)
+        #expect(heard.values == [true], "a released mode still heard its center")
+        _ = observation
     }
 
     @Test func theBatteryIsTheInternalOneAndItsChargeIsCurrentOverFull() {

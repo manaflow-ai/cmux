@@ -107,8 +107,11 @@ public final class EnergyMonitor {
     #endif
 
     /// The system's inputs: macOS Low Power Mode, IOKit's power source, the thermal state.
-    public convenience init() {
-        self.init(lowPowerMode: .system(), thermal: .system(), power: .system())
+    ///
+    /// - Parameter mainWork: The app's main-thread scheduler: the power source's readings come off its queue as
+    ///   posted tasks on it.
+    public convenience init(mainWork: MainWorkScheduler) {
+        self.init(lowPowerMode: .system(), thermal: .system(), power: .system(mainWork: mainWork))
     }
 
     /// A monitor over these inputs (tests pass fixed ones).

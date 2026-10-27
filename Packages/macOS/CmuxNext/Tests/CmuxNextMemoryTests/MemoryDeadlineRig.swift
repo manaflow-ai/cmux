@@ -9,7 +9,8 @@ final class MemoryDeadlineRig {
     private let timer: HandFiredWakeUpTimer
     private let uptime: RigUptime
     private let queue: MainWakeUpQueue
-    private let work: MainWorkScheduler
+    /// The rig's scheduler: its posted work runs at ``frame()``.
+    let work: MainWorkScheduler
     private let budgetClock: RigUptime
     private let keeper: FrameClient
     private var frames: Double = 0
@@ -52,7 +53,8 @@ final class MemoryDeadlineRig {
     /// Whether a wake is armed (a pending deadline).
     var hasArmedWake: Bool { timer.armedDate != nil }
 
-    private func frame() {
+    /// One display frame with no wake: runs the posted work only, uptime unmoved.
+    func frame() {
         budgetClock.now += 17_000_000
         frames += 1
         work.frameDidFire(timestamp: frames, refreshInterval: 1.0 / 60)

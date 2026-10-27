@@ -106,7 +106,7 @@ import Testing
         let startup = StartupPhase(clock: startupClock, ledger: WakeupLedger())
         let revealClock = ManualClock()
         let reveal = LaunchReveal(clock: revealClock, deadline: .milliseconds(1_500)) { startup.noteFirstFrame() }
-        let references = StartupReferences(startup: startup, reveal: reveal)
+        let references = StartupReferences(startup: startup, reveal: reveal, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let daemon = Daemon()
         references.watchUnavailable { [daemon] in daemon.isUnavailable }
 
@@ -131,8 +131,10 @@ import Testing
         let startup = StartupPhase(clock: ManualClock(), ledger: WakeupLedger())
         startup.noteFirstFrame()
         let released = Pending()
-        let refs = VisiblePaneRefs(hold: { _ in { _ in released.sets.append(startup.pendingReferences) } }, phase: startup)
+        let refs = VisiblePaneRefs(hold: { _ in { _ in released.sets.append(startup.pendingReferences) } }, mainWork: MainWorkScheduler(budget: MainFrameBudget()),
+                                   phase: startup)
         let references = StartupReferences(startup: startup, reveal: LaunchReveal(clock: ManualClock(), deadline: .seconds(60)),
+                                           mainWork: MainWorkScheduler(budget: MainFrameBudget()),
                                            paneRefs: refs)
         let daemon = Daemon()
         references.watchUnavailable { [daemon] in daemon.isUnavailable }
@@ -159,7 +161,7 @@ import Testing
     @Test func theTerminalContentHookStaysWhileThePaneRefsHold() {
         let previous = TerminalTimings.onContentApplied
         defer { TerminalTimings.onContentApplied = previous }
-        let refs = VisiblePaneRefs(hold: { _ in { _ in } })
+        let refs = VisiblePaneRefs(hold: { _ in { _ in } }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let settle = LaunchSettle(reveal: LaunchReveal(clock: ManualClock(), deadline: .seconds(60)), paneRefs: refs)
         TerminalTimings.onContentApplied = {}
         settle.terminalContentApplied()
@@ -172,7 +174,7 @@ import Testing
 
     /// Native page content has nothing to load: it is loaded at once (a web page waits for its paint).
     @Test func aNativePageTabIsLoadedAtOnce() {
-        let refs = VisiblePaneRefs(hold: { _ in { _ in } })
+        let refs = VisiblePaneRefs(hold: { _ in { _ in } }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let native = InternalPageView(key: "local-page:settings:1", page: InternalPageID(rawValue: "settings"), content: NSView())
         #expect(refs.state(of: native) == .loadedIdle, "a native page has nothing to load")
     }
@@ -185,7 +187,7 @@ import Testing
         services.windows.ordersWindowsIn = false
         services.windows.restoreWhenLoaded()
         defer { for controller in services.windows.controllers { controller.window?.close() } }
-        let refs = VisiblePaneRefs(hold: { _ in { _ in } })
+        let refs = VisiblePaneRefs(hold: { _ in { _ in } }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         #expect(refs.windows(of: services.windows).isEmpty, "a window not ordered in and awaiting nothing is not shown")
         let id = try #require(services.windows.controllers.first).state.id
         services.windows.awaitingContent[id] = false

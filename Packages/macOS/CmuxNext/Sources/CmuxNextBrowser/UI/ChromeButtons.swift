@@ -227,6 +227,7 @@ final class ChromeIconButton: NSButton {
     }
 
     /// The hold's drags move nothing; the pressed look follows the pointer in and out, as a tracked press.
+    // local-monitor-allow: one Bool per drag of a held press (AppKit's tracked-press look), no hover, cursor or layout work to coalesce
     override func mouseDragged(with event: NSEvent) {
         guard isHoldingForMenu else { return super.mouseDragged(with: event) }
         isHighlighted = isInside(event)

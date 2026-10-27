@@ -130,10 +130,7 @@ final class WindowOverlayLayer {
         // follows, and every Chromium page re-applies its geometry now and
         // once more after the layout pass that the change schedules. The
         // window may also show again: whether its pages show is checked.
-        for name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification, NSWindow.didEndLiveResizeNotification,
-                     NSWindow.didChangeBackingPropertiesNotification, NSWindow.didChangeScreenNotification,
-                     NSWindow.didChangeOcclusionStateNotification, NSWindow.didDeminiaturizeNotification,
-                     NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification] {
+        for name in Self.parentGeometryNotices {
             subscriptions.append(events.subscribe(name, owner: "WindowOverlayLayer") { [weak self] in
                 self?.parentGeometryDidChange()
                 self?.evaluate()
@@ -141,9 +138,8 @@ final class WindowOverlayLayer {
         }
         // A page window appears (the fork shows it inactive and adds it as a
         // child), hides, moves, or takes key: check the order at once.
-        for name in [NSWindow.didChangeOcclusionStateNotification, NSWindow.didMoveNotification,
-                     NSWindow.didResizeNotification, NSWindow.didBecomeKeyNotification] {
-            let moved = name == NSWindow.didMoveNotification || name == NSWindow.didResizeNotification
+        for name in Self.pageWindowNotices {
+            let moved = Self.pageWindowFrameNotices.contains(name)
             observers.append(MainActorObservation(name, center: center, read: { $0.object as? NSWindow }) { [weak self] child in
                 guard let self, let child, child !== self.window else { return }
                 guard child.parent === self.window || self.shownPages.contains(ObjectIdentifier(child)) else { return }
@@ -154,6 +150,17 @@ final class WindowOverlayLayer {
             })
         }
     }
+
+    /// The parent window's move and resize sources, on its own ``WindowEvents``.
+    // raw-observer-allow: names handed to the window's WindowEvents.subscribe (R-notif's target), listed once
+    private static let parentGeometryNotices = [NSWindow.didResizeNotification, NSWindow.didMoveNotification, NSWindow.didEndLiveResizeNotification, NSWindow.didChangeBackingPropertiesNotification, NSWindow.didChangeScreenNotification, NSWindow.didChangeOcclusionStateNotification, NSWindow.didDeminiaturizeNotification, NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification]
+    /// Any window's notices that may be a page window's: the sender says which window, which AppEvents does not
+    /// hand its subscribers, so each name has one observer per overlay layer that filters its child page windows.
+    // raw-observer-allow: AppEvents gives no sender, and the child page window is the sender; one observer per name per window
+    private static let pageWindowNotices = [NSWindow.didChangeOcclusionStateNotification, NSWindow.didMoveNotification, NSWindow.didResizeNotification, NSWindow.didBecomeKeyNotification]
+    /// The page window notices that move its frame.
+    // raw-observer-allow: compared with a delivered name, observes nothing
+    private static let pageWindowFrameNotices: Set<Notification.Name> = [NSWindow.didMoveNotification, NSWindow.didResizeNotification]
 
     func teardown() {
         isTornDown = true

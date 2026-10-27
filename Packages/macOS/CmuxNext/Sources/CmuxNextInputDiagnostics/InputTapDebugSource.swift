@@ -1,21 +1,27 @@
 public import CmuxNextControl
 public import CmuxNextInput
 public import CmuxNextInputCore
+public import CmuxNextWakeups
 
 /// `debug.input` section `tap` from the app's one input tap: one main-actor copy of its subscription
-/// counts and flags per read, nothing per event.
+/// counts and flags per read, nothing per event. The copy is an `automation` task on the app's
+/// main-thread scheduler (a socket client asked for it), so it waits behind the person's input.
 public nonisolated struct InputTapDebugSource: DebugInputSource {
     private let tap: InputEventTap
+    private let mainWork: MainWorkScheduler
 
-    /// - Parameter tap: The app's one input tap.
-    public init(tap: InputEventTap) {
+    /// - Parameters:
+    ///   - tap: The app's one input tap.
+    ///   - mainWork: The app's main-thread scheduler, which runs each read's copy.
+    public init(tap: InputEventTap, mainWork: MainWorkScheduler) {
         self.tap = tap
+        self.mainWork = mainWork
     }
 
     public var section: DebugInputSection { .tap }
 
     public func read() async -> DebugInputTap {
-        await MainActor.run { [tap] in Self.snapshot(tap) }
+        await mainWork.apply(.automation, owner: "debug.input.tap") { [tap] in Self.snapshot(tap) }
     }
 
     /// The tap keeps no counters: nothing to start over.

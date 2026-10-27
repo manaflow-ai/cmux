@@ -95,9 +95,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let startup = order.mainWork.startup
         let reveal = LaunchReveal(onRevealed: { [startup] in startup.noteFirstFrame() })
         // The restore ref and one ref per visible pane (p08-startup-013): one instance, on the launch's scheduler.
-        let paneRefs = VisiblePaneRefs(startup: order.startup, phase: startup)
+        let paneRefs = VisiblePaneRefs(startup: order.startup, mainWork: order.mainWork, phase: startup)
         (launchReveal, launchSettle) = (reveal, LaunchSettle(reveal: reveal, paneRefs: paneRefs))
-        startupReferences = StartupReferences(startup: startup, reveal: reveal, paneRefs: paneRefs)
+        startupReferences = StartupReferences(startup: startup, reveal: reveal, mainWork: order.mainWork, paneRefs: paneRefs)
         (self.mainWork, self.inputTap) = (order.mainWork, inputTap)
         let control = AppControl(mainWork: order.mainWork, input: inputTap)
         #if CMUX_PGO_PROFILE

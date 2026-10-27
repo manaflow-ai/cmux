@@ -30,6 +30,7 @@ extension VisiblePaneRefs.Window {
 
     /// A pane's view in its window and not hidden: the pane shows. A pane in no window does not.
     @MainActor public static func isOnScreen(_ view: NSView) -> Bool {
+        // visibility-walk-allow: the AppKit view tree is the truth the launch's pane refs measure (a mounted pane's view, its window ordered in); one walk per pane per launch read, no node exists for a stand-in window
         view.window != nil && !view.isHiddenOrHasHiddenAncestor
     }
 }
