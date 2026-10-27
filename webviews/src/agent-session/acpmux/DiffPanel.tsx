@@ -5,6 +5,14 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useStableCallback } from "@pierre/diffs/react";
 import type { DiffHunk, TurnFile } from "./diff";
+import {
+  diffFileFingerprint,
+  diffFileViewedState,
+  isCurrentViewedRequest,
+  nextViewedRequest,
+  observeDiffPanelSize,
+  viewedSourceKey,
+} from "./diffPanelState";
 import { registerAgentDiffTheme } from "./diffTheme";
 import { ChevronLeft, CollapseAll, Panels, SplitView, Wrap } from "./changeIcons";
 import { ChangedFilesTree } from "./changes/ChangedFilesTree";
@@ -34,9 +42,21 @@ import { fileKind, missingTests, orderByKind } from "../../fileKinds";
 import { GitToolbarButtons, GitWriteBar } from "./changes/GitActions";
 import type { GitWriteOp, WriteKeys } from "./changes/gitWrite";
 import { useGitWrite } from "./changes/useGitWrite";
+import { useDiffWrites } from "../../diff-writes";
+import {
+  loadViewedFiles,
+  applyLoadedViewed,
+  beginViewedLoad,
+  persistViewedChange,
+  recordViewedChange,
+  type ViewedFileEntry,
+  type ViewedSession,
+  type ViewedScope,
+} from "../../viewed-files";
+import { loadViewerPrefs, readLocalViewerPrefs, saveViewerPrefs } from "../../viewer-prefs";
+import { splitFits } from "../../diff-viewer/state";
 
 const LAYOUT_KEY = "cmux.acpmux.diffLayout";
-const WRAP_KEY = "cmux.acpmux.diffWrap";
 const TREE_KEY = "cmux.acpmux.diffTree";
 
 /// The reader's view choices last as long as this pane's storage allows.
@@ -56,6 +76,33 @@ function store(key: string, value: string) {
 }
 
 type Tool = "collapse" | "wrap" | "split" | "tree";
+
+function localViewedKey(scopeKey: string): string {
+  return `cmux.acpmux.diffViewed:${scopeKey}`;
+}
+
+function readLocalViewed(scopeKey: string): ViewedFileEntry[] {
+  try {
+    const raw = window.localStorage?.getItem(localViewedKey(scopeKey));
+    const value = raw ? JSON.parse(raw) : [];
+    return Array.isArray(value)
+      ? value.filter(
+          (entry): entry is ViewedFileEntry =>
+            entry != null && typeof entry.path === "string" && typeof entry.fingerprint === "string",
+        )
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalViewed(scopeKey: string, entries: ReadonlyMap<string, ViewedFileEntry>): void {
+  try {
+    window.localStorage?.setItem(localViewedKey(scopeKey), JSON.stringify([...entries.values()]));
+  } catch {
+    // A blocked store leaves the native bridge or this session's state authoritative.
+  }
+}
 
 /// `path` with its `.` and `..` steps applied; undefined when a relative path steps above its start.
 function resolved(path: string): string | undefined {
@@ -168,6 +215,8 @@ export function DiffPanel({
   writeKeys,
   onAddressThread,
   findHandle,
+  initialLayout,
+  initialShowTree,
 }: {
   files: TurnFile[];
   initialPath?: string;
@@ -196,9 +245,13 @@ export function DiffPanel({
   onAddressThread?: (prompt: string) => Promise<unknown>;
   /// Where the page reaches this view's find (Cmd-F and the Edit menu's Find commands).
   findHandle?: React.MutableRefObject<DiffFindHandle | undefined>;
+  /// Gallery and host fixtures can seed a layout; normal panels use the shared viewer preference.
+  initialLayout?: "auto" | DiffLayout;
+  initialShowTree?: boolean;
 }) {
   const t = useT();
   registerAgentDiffTheme();
+  const writes = useDiffWrites();
   const [scope, setScope] = useState<ChangeScope>("lastTurn");
   const { load, retry, branch, threads } = useScopeChanges(source, scope);
   const [commitOpen, setCommitOpen] = useState(false);
@@ -278,9 +331,18 @@ export function DiffPanel({
       : load.state === "loaded" &&
         ((load.changeSet.filesOmitted ?? 0) > 0 || (load.changeSet.untrackedSkipped ?? 0) > 0);
   const noTests = !scopeState && !partial && missingTests(files.map((file) => ({ path: kindPath(scope, file, root) })));
-  const [layout, setLayout] = useState<DiffLayout>(() => (stored(LAYOUT_KEY) === "split" ? "split" : "unified"));
-  const [wrap, setWrap] = useState(() => stored(WRAP_KEY) === "on");
-  const [showTree, setShowTree] = useState(() => stored(TREE_KEY) !== "off");
+  const [layout, setLayout] = useState<"auto" | DiffLayout>(() => {
+    if (initialLayout) return initialLayout;
+    const preferred = readLocalViewerPrefs().layout;
+    return preferred === "split" || preferred === "unified" || preferred === "auto"
+      ? preferred
+      : stored(LAYOUT_KEY) === "split"
+        ? "split"
+        : "auto";
+  });
+  const [wrap, setWrap] = useState(() => readLocalViewerPrefs().wordWrap === true);
+  const wrapTouched = useRef(false);
+  const [showTree, setShowTree] = useState(() => initialShowTree ?? stored(TREE_KEY) !== "off");
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
   // Generated files and lockfiles start folded, as the diff viewer defers them; the reader opens
   // one from its header or the tree. Each file folds once, so one the reader opened stays open,
@@ -319,11 +381,93 @@ export function DiffPanel({
       return out;
     });
   }
-  const [viewed, setViewed] = useState<ReadonlySet<string>>(() => new Set());
+  const [viewedEntries, setViewedEntries] = useState<ReadonlyMap<string, ViewedFileEntry>>(() => new Map());
+  const [panelWidth, setPanelWidth] = useState(0);
   const [selected, setSelected] = useState<string | undefined>(initialPath ?? files[0]?.path);
   const body = useRef<HTMLDivElement>(null);
   const back = useRef<HTMLButtonElement>(null);
   const focusAfter = useRef<string | undefined>(undefined);
+  const layoutTouched = useRef(Boolean(initialLayout));
+  const viewedScope = useMemo<ViewedScope | null>(() => {
+    const changeRoot = load.state === "loaded" ? load.changeSet.root : undefined;
+    if (!changeRoot || scope === "lastTurn") return null;
+    const sourceKey = viewedSourceKey(scope, load.state === "loaded" ? load.changeSet.base : undefined);
+    return { repoRoot: changeRoot, source: sourceKey };
+  }, [load, scope]);
+  const viewedScopeKey = useMemo(
+    () =>
+      viewedScope
+        ? `${viewedScope.repoRoot}\n${viewedScope.source}`
+        : `turn:${files
+            .map((file) => file.path)
+            .sort()
+            .join("|")}`,
+    [viewedScope, files],
+  );
+  const viewedSession = useRef<ViewedSession | undefined>(undefined);
+  const viewedRequestGenerations = useRef(new Map<string, number>());
+  const viewed = useMemo(() => {
+    const next = new Set<string>();
+    for (const file of files) {
+      if (diffFileViewedState(viewedEntries.get(file.displayPath), file) === "viewed") next.add(file.path);
+    }
+    return next;
+  }, [files, viewedEntries]);
+  useEffect(() => {
+    setCollapsed((current) => {
+      const next = new Set(current);
+      for (const path of viewed) next.add(path);
+      return next.size === current.size ? current : next;
+    });
+  }, [viewed]);
+  useEffect(() => {
+    const generations = viewedRequestGenerations.current;
+    const requestId = nextViewedRequest(generations, viewedScopeKey);
+    const local = new Map(readLocalViewed(viewedScopeKey).map((entry) => [entry.path, entry] as const));
+    const initial = { ...beginViewedLoad(viewedScopeKey), viewedByPath: local };
+    const session = { ...initial };
+    viewedSession.current = session;
+    setViewedEntries(session.viewedByPath);
+    if (!viewedScope) {
+      return () => {
+        if (isCurrentViewedRequest(generations, viewedScopeKey, requestId)) {
+          nextViewedRequest(generations, viewedScopeKey);
+        }
+      };
+    }
+    void loadViewedFiles(viewedScope).then(
+      (entries) => {
+        if (!isCurrentViewedRequest(generations, viewedScopeKey, requestId)) return;
+        const merged = applyLoadedViewed(viewedSession.current ?? session, viewedScopeKey, entries);
+        if (!merged) return;
+        viewedSession.current = merged;
+        setViewedEntries(merged.viewedByPath);
+        writeLocalViewed(viewedScopeKey, merged.viewedByPath);
+      },
+      () => undefined,
+    );
+    return () => {
+      if (isCurrentViewedRequest(generations, viewedScopeKey, requestId)) {
+        nextViewedRequest(generations, viewedScopeKey);
+      }
+    };
+  }, [viewedScope, viewedScopeKey]);
+  useEffect(() => {
+    let live = true;
+    void loadViewerPrefs().then((prefs) => {
+      if (!live) return;
+      if (!initialLayout && !layoutTouched.current && prefs.layout) setLayout(prefs.layout);
+      if (!wrapTouched.current && typeof prefs.wordWrap === "boolean") setWrap(prefs.wordWrap);
+    });
+    return () => {
+      live = false;
+    };
+  }, [initialLayout]);
+  useEffect(() => {
+    const node = panel.current;
+    return node ? observeDiffPanelSize(node, setPanelWidth) : undefined;
+  }, []);
+  const renderedLayout: DiffLayout = layout === "auto" ? (splitFits(panelWidth) ? "split" : "unified") : layout;
   // Decisions are keyed by the turn's tool calls. Checkpoint hunks carry the matching keys when
   // the net diff still contains a tool change, while formatter-only hunks remain read-only.
   const hunkReview = scope === "lastTurn" ? review : undefined;
@@ -516,29 +660,64 @@ export function DiffPanel({
       toggleViewed: (path) => {
         revealing.current = undefined;
         const marking = !viewed.has(path);
+        const file = files.find((candidate) => candidate.path === path);
+        if (!file) return;
+        const viewedPath = file.displayPath;
+        const change = marking
+          ? { kind: "set" as const, entry: { path: viewedPath, fingerprint: diffFileFingerprint(file) } }
+          : { kind: "clear" as const, path: viewedPath };
         const flip = (current: ReadonlySet<string>) => {
           const next = new Set(current);
           if (marking) next.add(path);
           else next.delete(path);
           return next;
         };
-        setViewed(flip);
+        const current = viewedSession.current ?? {
+          ...beginViewedLoad(viewedScopeKey),
+          viewedByPath: new Map(viewedEntries),
+        };
+        const next = recordViewedChange(current, change);
+        viewedSession.current = next;
+        setViewedEntries(next.viewedByPath);
+        writeLocalViewed(viewedScopeKey, next.viewedByPath);
+        persistViewedChange(viewedScope, change, writes);
         setCollapsed(flip);
       },
     }),
-    [viewed, openFile, canStage, unstages, stageFile, canStageHunk, hunkUnstages, stageHunk, source, scope, wholeFile],
+    [
+      viewed,
+      files,
+      viewedScope,
+      viewedScopeKey,
+      writes,
+      openFile,
+      canStage,
+      unstages,
+      stageFile,
+      canStageHunk,
+      hunkUnstages,
+      stageHunk,
+      source,
+      scope,
+      wholeFile,
+      viewedEntries,
+    ],
   );
   const allCollapsed = files.length > 0 && files.every((file) => collapsed.has(file.path));
   const press = (tool: Tool) => {
     stopRevealing();
     if (tool === "collapse") setCollapsed(allCollapsed ? new Set() : new Set(files.map((file) => file.path)));
     else if (tool === "wrap") {
-      setWrap(!wrap);
-      store(WRAP_KEY, wrap ? "off" : "on");
+      const next = !wrap;
+      wrapTouched.current = true;
+      setWrap(next);
+      saveViewerPrefs({ wordWrap: next }, writes);
     } else if (tool === "split") {
-      const next = layout === "split" ? "unified" : "split";
+      const next = layout === "auto" ? "split" : layout === "split" ? "unified" : "auto";
+      layoutTouched.current = true;
       setLayout(next);
       store(LAYOUT_KEY, next);
+      saveViewerPrefs({ layout: next }, writes);
     } else {
       setShowTree(!showTree);
       store(TREE_KEY, showTree ? "off" : "on");
@@ -587,7 +766,14 @@ export function DiffPanel({
     { label: t("changes.copyApply"), disabled: !command, run: () => command && copyText(command) },
   ];
   return (
-    <section ref={panel} className="acpmux-diff-panel" data-enter="right" aria-label={t("changes.panel")}>
+    <section
+      ref={panel}
+      className="acpmux-diff-panel"
+      data-enter="right"
+      data-layout={layout}
+      data-rendered-layout={renderedLayout}
+      aria-label={t("changes.panel")}
+    >
       <header className="acpmux-diff-header">
         <button ref={back} type="button" className="acpmux-diff-back" aria-label={t("changes.back")} onClick={onClose}>
           <ChevronLeft />
@@ -601,7 +787,7 @@ export function DiffPanel({
             setScope(next);
             setCollapsed(new Set());
             setFolded(new Map());
-            setViewed(new Set());
+            setViewedEntries(new Map());
             setSelected(undefined);
             latestOpen.current += 1;
             setOpenFailure(undefined);
@@ -698,7 +884,7 @@ export function DiffPanel({
                     kind={fileKind(kindPath(scope, file, root))}
                     edit={edit}
                     index={index}
-                    layout={layout}
+                    layout={renderedLayout}
                     wrap={wrap}
                     view={{ collapsed: collapsed.has(file.path), viewed: viewed.has(file.path) }}
                     on={on}
