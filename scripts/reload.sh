@@ -19,6 +19,12 @@ BASE_APP_NAME="cmux DEV"
 BUILD_CONFIGURATION="Debug"
 # --config bench: Release optimization with the debug control surface compiled in (BENCH_HOOKS=1).
 BENCH_HOOKS=0
+# --config bench-checks: bench plus the main-thread blocking detector (BLOCKING_CHECKS=1).
+BLOCKING_CHECKS=0
+# --config profile: bench plus LLVM PGO instrumentation (PGO_PROFILE=1), for scripts/cmux-next/pgo/build-profile.sh.
+PGO_PROFILE=0
+# The --config name (debug, release, bench, bench-checks, profile), stamped into a tagged app as CMUXBuildConfiguration.
+BUILD_CONFIG_NAME="debug"
 PRODUCT_APP_NAME="$BASE_APP_NAME"
 DERIVED_DATA=""
 NAME_SET=0
@@ -733,14 +739,21 @@ Options:
   --release              Build the Release configuration (optimized, no DEBUG) of
                          this tagged app, for dogfooding real performance. The
                          debug.* socket commands are compiled out.
-  --config <debug|release|bench>
+  --config <debug|release|bench|bench-checks|profile>
                          debug (default) and release as above. bench: the Release
                          configuration (-O, whole module, the shipped flags) plus
-                         -DCMUX_BENCH_HOOKS -DCMUX_BLOCKING_CHECKS (no DEBUG), so the debug.* socket commands
+                         -DCMUX_BENCH_HOOKS (no DEBUG), so the debug.* socket commands
                          the benches and the STRESS builder drive exist in an
-                         optimized app. Never for a shipped product:
-                         scripts/cmux-next/check-no-bench-hooks.sh refuses such an
-                         app in the release and nightly pipelines.
+                         optimized app. bench-checks: bench plus the main-thread
+                         blocking detector, for the blocking-sites story only
+                         (scripts/perf-lab/stories.d/README.md). profile: bench plus
+                         -DCMUX_PGO_PROFILE and Swift -profile-generate, linked with
+                         -fprofile-instr-generate; a launch writes an LLVM .profraw
+                         (LLVM_PROFILE_FILE names it) for the PGO profile
+                         (scripts/cmux-next/pgo/build-profile.sh). Never for a shipped
+                         product: scripts/cmux-next/check-no-bench-hooks.sh refuses
+                         either in the release and nightly pipelines. A tagged app
+                         records its config in Info.plist (CMUXBuildConfiguration).
   --credentials-file <path>
                          Bake only the path to a current-user-owned 0600 auth file.
                          The credential values never enter argv, Info.plist, or
@@ -1138,17 +1151,20 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --release)
-      BUILD_CONFIGURATION="Release"
+      BUILD_CONFIGURATION="Release" BENCH_HOOKS=0 BLOCKING_CHECKS=0 PGO_PROFILE=0 BUILD_CONFIG_NAME="release"
       shift
       ;;
     --config|--config=*)
       if [[ "$1" == --config=* ]]; then config_name="${1#--config=}"; shift; else config_name="${2:-}"; shift 2 || true; fi
       case "$config_name" in
-        debug) BUILD_CONFIGURATION="Debug" BENCH_HOOKS=0 ;;
-        release) BUILD_CONFIGURATION="Release" BENCH_HOOKS=0 ;;
-        bench) BUILD_CONFIGURATION="Release" BENCH_HOOKS=1 ;;
-        *) echo "error: --config takes debug, release or bench (got '${config_name}')" >&2; exit 1 ;;
+        debug) BUILD_CONFIGURATION="Debug" BENCH_HOOKS=0 BLOCKING_CHECKS=0 PGO_PROFILE=0 ;;
+        release) BUILD_CONFIGURATION="Release" BENCH_HOOKS=0 BLOCKING_CHECKS=0 PGO_PROFILE=0 ;;
+        bench) BUILD_CONFIGURATION="Release" BENCH_HOOKS=1 BLOCKING_CHECKS=0 PGO_PROFILE=0 ;;
+        bench-checks) BUILD_CONFIGURATION="Release" BENCH_HOOKS=1 BLOCKING_CHECKS=1 PGO_PROFILE=0 ;;
+        profile) BUILD_CONFIGURATION="Release" BENCH_HOOKS=1 BLOCKING_CHECKS=0 PGO_PROFILE=1 ;;
+        *) echo "error: --config takes debug, release, bench, bench-checks or profile (got '${config_name}')" >&2; exit 1 ;;
       esac
+      BUILD_CONFIG_NAME="$config_name"
       ;;
     --credentials-file)
       AUTH_CREDENTIALS_FILE="${2:-}"
@@ -1638,11 +1654,13 @@ if should_skip_ghostty_cli_helper_zig_build; then
   export CMUX_SKIP_ZIG_BUILD=1
 fi
 
+# CmuxNextWireGenPlugin is a build-tool plugin; headless xcodebuild cannot answer Xcode's trust prompt.
 XCODEBUILD_ARGS=(
   -project cmux.xcodeproj
   -scheme cmux
   -configuration "$BUILD_CONFIGURATION"
   -destination 'platform=macOS'
+  -skipPackagePluginValidation
 )
 if [[ -n "$DERIVED_DATA" ]]; then
   XCODEBUILD_ARGS+=(-derivedDataPath "$DERIVED_DATA")
@@ -1696,10 +1714,27 @@ if [[ "$BENCH_HOOKS" -eq 1 ]]; then
   # and the counters it reads (`#if DEBUG || CMUX_BENCH_HOOKS`); every other DEBUG-only block (logging,
   # fixtures, debug-only features) stays out. It also marks the binary so it can never ship
   # (check-no-bench-hooks.sh).
-  # CMUX_BLOCKING_CHECKS: the main-thread blocking detector records (never traps) so a bench sees the
-  # blocking it hits (`debug.blocking`, plans/cmux-next/threading-model.md), as a Nightly would.
-  SWIFT_OTHER_FLAGS+=" -DCMUX_BENCH_HOOKS -DCMUX_BLOCKING_CHECKS"
-  echo "==> bench configuration: Release optimization with -DCMUX_BENCH_HOOKS -DCMUX_BLOCKING_CHECKS (no DEBUG)"
+  SWIFT_OTHER_FLAGS+=" -DCMUX_BENCH_HOOKS"
+  if [[ "$BLOCKING_CHECKS" -eq 1 ]]; then
+    # bench-checks only: the main-thread blocking detector records (never traps) each blocking call
+    # (`debug.blocking`, plans/cmux-next/threading-model.md). Its bookkeeping costs time on every checked
+    # call, so the latency, frame, launch, idle and memory stories measure `bench` without it.
+    SWIFT_OTHER_FLAGS+=" -DCMUX_BLOCKING_CHECKS"
+    echo "==> bench-checks configuration: Release optimization with -DCMUX_BENCH_HOOKS -DCMUX_BLOCKING_CHECKS (no DEBUG)"
+  elif [[ "$PGO_PROFILE" -eq 1 ]]; then
+    # profile: the PGO instrumentation build (Chrome's chrome_pgo_phase=1, docs/pgo.md). Swift
+    # -profile-generate is frontend (clang -fprofile-instr-generate) instrumentation; the objects then
+    # reference the LLVM profile runtime, which clang links only with -fprofile-instr-generate on the link
+    # line (as Xcode's own code coverage builds do). CMUX_PGO_PROFILE compiles in the profile flush hooks
+    # (CmuxNextLaunch/ProfileFlush.swift). CEFShim (C++, scripts/cmux-next/build-cef-shim.sh) and the Rust
+    # FFI (cargo) are built outside these settings and stay uninstrumented.
+    SWIFT_OTHER_FLAGS+=" -DCMUX_PGO_PROFILE -profile-generate"
+    # shellcheck disable=SC2016 # Xcode expands $(inherited), not the shell
+    XCODEBUILD_ARGS+=('OTHER_LDFLAGS=$(inherited) -fprofile-instr-generate')
+    echo "==> profile configuration: Release optimization with -DCMUX_BENCH_HOOKS -DCMUX_PGO_PROFILE -profile-generate, linked with -fprofile-instr-generate (no DEBUG)"
+  else
+    echo "==> bench configuration: Release optimization with -DCMUX_BENCH_HOOKS (no DEBUG)"
+  fi
 fi
 if [[ "$SWIFT_FRONTEND_WORKAROUND" -eq 1 || "${CMUX_SWIFT_FRONTEND_WORKAROUND:-}" == "1" || "${CMUX_SWIFT_DISABLE_GLOBAL_ISEL:-}" == "1" ]]; then
   SWIFT_FRONTEND_WORKAROUND_EFFECTIVE=1
@@ -1720,6 +1755,11 @@ if [[ "${CMUX_SWIFT_INCREMENTAL_DIAGNOSTICS:-0}" == "1" ]]; then
   XCODEBUILD_ARGS+=(-showBuildTimingSummary)
 else
   SWIFT_INCREMENTAL_DIAGNOSTICS_EFFECTIVE=0
+fi
+# Per-task-kind seconds (Ld, SwiftCompile, ...) at the end of the log, with no build
+# setting changed, so nothing rebuilds for it (pgo/lto-ab.sh reads the Ld row).
+if [[ "${CMUX_RELOAD_BUILD_TIMING_SUMMARY:-0}" == "1" && "$SWIFT_INCREMENTAL_DIAGNOSTICS_EFFECTIVE" -ne 1 ]]; then
+  XCODEBUILD_ARGS+=(-showBuildTimingSummary)
 fi
 if reload_skips_app_module_emission "$(selected_xcode_version)"; then
   # A dev build runs the app; nothing imports its Swift module (only cmuxTests,
@@ -2018,6 +2058,10 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       set_plist_env "$INFO_PLIST" CMUX_SOCKET_PATH "$CMUX_SOCKET_PATH_VALUE"
       set_plist_env "$INFO_PLIST" CMUX_DEBUG_LOG "$CMUX_DEBUG_LOG"
       set_plist_env "$INFO_PLIST" CMUX_TAG "$TAG_SLUG"
+      # bench and bench-checks executables look alike (both carry the bench-hooks marker); bench_launch.py (result-v1)
+      # reads this to tell them apart (p08-startup-006 reads it too).
+      /usr/libexec/PlistBuddy -c 'Delete :CMUXBuildConfiguration' "$INFO_PLIST" 2>/dev/null || true
+      /usr/libexec/PlistBuddy -c "Add :CMUXBuildConfiguration string ${BUILD_CONFIG_NAME}" "$INFO_PLIST"
       # Keep Cloud dogfood policy in the artifact so Finder and HQ cache
       # restores enable both gates on the Mac that actually launches it.
       # The app additionally requires a compiled Debug identity before using it.
@@ -2305,12 +2349,8 @@ if [[ "$LAUNCH" -eq 1 ]]; then
   if [[ "$PROD_AUTH" -eq 1 ]]; then
     TAG_LAUNCH_ENV+=(CMUX_AUTH_ENVIRONMENT=production)
   fi
-  # cmux-next Debug builds load the agent pane from this loopback Vite dev
-  # server instead of the bundled page (webviews/src/agent-session/acpmux/README.md).
-  if [[ -n "${CMUX_NEXT_AGENT_PANE_DEV_URL:-}" ]]; then
-    TAG_LAUNCH_ENV+=(CMUX_NEXT_AGENT_PANE_DEV_URL="$CMUX_NEXT_AGENT_PANE_DEV_URL")
-  fi
-  # ... and every other page from the `bun run dev:pages` server (PageDevServer).
+  # cmux-next Debug builds load every page, the agent pane included, from the
+  # `bun run dev:pages` server (PageDevServer) instead of the bundled pages.
   if [[ -n "${CMUX_NEXT_PAGES_DEV_URL:-}" ]]; then
     TAG_LAUNCH_ENV+=(CMUX_NEXT_PAGES_DEV_URL="$CMUX_NEXT_PAGES_DEV_URL")
   fi

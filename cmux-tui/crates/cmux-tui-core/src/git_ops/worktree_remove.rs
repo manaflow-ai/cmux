@@ -12,6 +12,7 @@
 //! The journal keeps the attempt, so a retry after a timeout finishes what
 //! the first run started.
 
+use cmux_threads::checked::fs as files;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -25,6 +26,7 @@ use super::user_run::{UserGit, deadline};
 use super::worktree::BRANCH_PREFIX;
 use super::{MAX_SMALL_OUTPUT_BYTES, MAX_STATUS_BYTES, Repository};
 use crate::Mux;
+use crate::panic_free::JsonFields;
 use crate::resource::ResourceError;
 use crate::resource_router::ParsedResourceRequest;
 
@@ -47,7 +49,9 @@ pub(super) fn dispatch(
     mux: &Arc<Mux>,
     request: &ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
-    let key = key(request);
+    // git runs to completion here, on a work item (`answer`).
+    crate::request_path::note(crate::request_path::BlockingKind::ChildProcess);
+    let key = key(request)?;
     let target = Target::resolve(mux, request, OPERATION)?;
     let fingerprint = target.fingerprint(request);
     target.exclusive(OPERATION, || {
@@ -65,7 +69,7 @@ pub(super) fn dispatch(
             }
         };
         let result = remove(&target.repository, &attempt);
-        if !result.as_ref().is_err_and(|error| error.details["reason"] == "timed_out") {
+        if !result.as_ref().is_err_and(|error| error.details.field("reason") == "timed_out") {
             journal.finish();
         }
         let branch_deleted = result?;
@@ -75,7 +79,7 @@ pub(super) fn dispatch(
             "branch_deleted": branch_deleted,
         });
         if let Some(branch) = &attempt.branch {
-            value["branch"] = json!(branch);
+            value.insert("branch", json!(branch));
         }
         ledger::commit(mux, &key, OPERATION, &fingerprint, &value, false, &request.actor)
     })
@@ -236,10 +240,10 @@ fn registered(git: &UserGit<'_>, root: &Path) -> Result<Option<String>, Resource
 
 /// `path` with symlinks resolved, through its parent once it is gone.
 fn resolved(path: &Path) -> PathBuf {
-    if let Ok(path) = std::fs::canonicalize(path) {
+    if let Ok(path) = files::canonicalize(path) {
         return path;
     }
-    match (path.parent().and_then(|parent| std::fs::canonicalize(parent).ok()), path.file_name()) {
+    match (path.parent().and_then(|parent| files::canonicalize(parent).ok()), path.file_name()) {
         (Some(parent), Some(name)) => parent.join(name),
         _ => path.to_path_buf(),
     }

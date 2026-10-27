@@ -1,0 +1,66 @@
+// Copyright 2019 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+module remote_cocoa.mojom;
+
+import "mojo/public/mojom/base/file_path.mojom";
+import "mojo/public/mojom/base/string16.mojom";
+
+// The type of dialog to open. This corresponds to the subset of
+// ui::SelectFileDialog::Type that is used on macOS.
+enum SelectFileDialogType {
+  kFolder,
+  kUploadFolder,
+  kExistingFolder,
+  kOpenFile,
+  kOpenMultiFile,
+  kSaveAsFile
+};
+
+// Information about the file extensions to be shown in the dialog.
+struct SelectFileTypeInfo {
+  // The list of allowed extensions.
+  array<array<string>> extensions;
+
+  // Override of system descriptions of specified extensions.
+  array<mojo_base.mojom.String16> extension_description_overrides;
+
+  // Specifies whether or not there is be a filter added for all files.
+  bool include_all_files;
+
+  // Specifies whether the (save) file dialog should keep the extension visible.
+  bool keep_extension_visible;
+};
+
+// The interface to a file selection (Save As, Upload, etc) dialog.
+interface SelectFileDialog {
+  // Show the dialog, and issue a callback when it has completed.
+  //
+  // Sent parameters:
+  //   `type`: The type of dialog to use.
+  //   `title`: The title presented at the top of the file selection dialog.
+  //   `file_path`: The default path for use when opening the dialog.
+  //   `file_types`: The file types allowed for saving a file.
+  //   `file_type_index`: The index within the `file_types` array to use for the
+  //                      initial selection. NOTE: This is 1-based.
+  //   `default_extension`: The default extension to use.
+  //
+  // Returned parameters:
+  //   `was_cancelled`: Whether or not the user canceled the dialog.
+  //   `files`: The files that the user selected. If this was not a
+  //            multiple-selection dialog, this will have at most one item.
+  //   `index`: The index within the `file_types` array that the user selected.
+  //            NOTE: This is 1-based.
+  //   `file_tags`: The file tags that the user selected to apply to the file
+  //                once the file is saved.
+  Show(SelectFileDialogType type,
+       mojo_base.mojom.String16 title,
+       mojo_base.mojom.FilePath file_path,
+       SelectFileTypeInfo? file_types,
+       int32 file_type_index,
+       string default_extension) => (bool was_cancelled,
+                                     array<mojo_base.mojom.FilePath> files,
+                                     int32 index,
+                                     array<string> file_tags);
+};

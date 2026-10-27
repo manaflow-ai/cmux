@@ -1,17 +1,24 @@
 package import Foundation
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
+package import CmuxNextWakeups
 
 /// A cmux-tui helper process (`wg hub`, `remote connect`) whose stdout is a
-/// stream of JSON lines. Reading happens on Foundation's pipe threads, never
-/// the main actor. Stdout lines are bounded (drop-oldest past 256 pending);
-/// stderr keeps a 4 KB tail for error messages. The child runs with
-/// `--exit-with-parent`, so a crash of this app ends it too.
+/// stream of JSON lines. The spawn runs on a ``ProcessLauncher`` queue, never
+/// the caller's actor (as Chromium's content/browser/child_process_launcher_helper.cc
+/// launches on its process launcher task runner, never the UI thread).
+/// Reading happens on Foundation's pipe threads, never the main actor. Stdout
+/// lines are bounded (drop-oldest past 256 pending); stderr keeps a 4 KB tail
+/// for error messages. The child runs with `--exit-with-parent`, so a crash
+/// of this app ends it too.
 package final class ChildProcess: Sendable {
     private struct State {
         var process: Process?
         var stderrTail = Data()
         var exitStatus: Int32?
-        var exitWaiters: [CheckedContinuation<Int32, Never>] = []
+        var exitWaiters: [OnceContinuation<Int32, OnceContinuationError>] = []
     }
 
     package let lines: AsyncStream<String>
@@ -20,15 +27,23 @@ package final class ChildProcess: Sendable {
     private let executable: URL
     private let arguments: [String]
     private let environment: [String: String]
+    private let launcher: ProcessLauncher
 
-    package init(executable: URL, arguments: [String], environment: [String: String] = ProcessInfo.processInfo.environment) {
+    /// - Parameter launcher: spawns the child; nil is one at ``WorkPriority/userVisible`` for the queue and
+    ///   the child: the link and hub carry the sessions on screen.
+    package init(executable: URL, arguments: [String], environment: [String: String] = ProcessInfo.processInfo.environment,
+                 launcher: ProcessLauncher? = nil) {
         self.executable = executable
         self.arguments = arguments
         self.environment = environment
+        self.launcher = launcher
+            ?? ProcessLauncher(label: "com.cmuxterm.next.child.\(executable.lastPathComponent)", priority: .userVisible)
         (lines, continuation) = AsyncStream.makeStream(of: String.self, bufferingPolicy: .bufferingNewest(256))
     }
 
-    package func start() throws {
+    /// Spawns the child and returns once it started.
+    /// - Throws: the launch error (a missing or non-executable binary).
+    package func start() async throws {
         let process = Process()
         process.executableURL = executable
         process.arguments = arguments
@@ -60,15 +75,15 @@ package final class ChildProcess: Sendable {
         }
         process.terminationHandler = { [weak self] finished in
             let status = finished.terminationStatus
-            let waiters = self?.state.withLock { state -> [CheckedContinuation<Int32, Never>] in
+            let waiters = self?.state.withLock { state -> [OnceContinuation<Int32, OnceContinuationError>] in
                 state.exitStatus = status
                 defer { state.exitWaiters.removeAll() }
                 return state.exitWaiters
             } ?? []
             for waiter in waiters { waiter.resume(returning: status) }
         }
+        try await launcher.launched(process)
         state.withLock { $0.process = process }
-        try process.run()
     }
 
     package var pid: Int32? { state.withLock { $0.process?.processIdentifier } }
@@ -79,16 +94,20 @@ package final class ChildProcess: Sendable {
         return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// The exit status, or ``unknownExitStatus`` when the wait was dropped without one.
     package func waitForExit() async -> Int32 {
-        await withCheckedContinuation { waiter in
+        (try? await withOnceContinuation { (waiter: OnceContinuation<Int32, OnceContinuationError>) in
             let done = state.withLock { state -> Int32? in
                 if let status = state.exitStatus { return status }
                 state.exitWaiters.append(waiter)
                 return nil
             }
             if let done { waiter.resume(returning: done) }
-        }
+        }) ?? Self.unknownExitStatus
     }
+
+    /// The status ``waitForExit()`` answers when it never learned one.
+    package static let unknownExitStatus: Int32 = -1
 
     /// SIGTERM to this process only, not its process group: a `remote
     /// connect` link client still needs its ssh child to send the session's

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// One step of `cmux-tui acp host enroll|doctor --json`, one JSON line each
@@ -127,8 +128,8 @@ public nonisolated enum HostLine: Equatable, Sendable {
         guard text.hasPrefix("{") else { return nil }
         let data = Data(text.utf8)
         let decoder = JSONDecoder()
-        if let wrapped = try? decoder.decode(ReportLine.self, from: data) { return .report(wrapped.report) }
-        if let step = try? decoder.decode(HostStepResult.self, from: data) { return .step(step) }
+        if let wrapped = try? decoder.blockingDecode(ReportLine.self, from: data) { return .report(wrapped.report) }
+        if let step = try? decoder.blockingDecode(HostStepResult.self, from: data) { return .step(step) }
         return nil
     }
 

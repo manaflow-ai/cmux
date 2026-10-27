@@ -1,0 +1,13 @@
+{
+  "name": "automationBurstSnap",
+  "owner": "PL-motion-core",
+  "description": "An agent's or a script's burst of pane layout changes lands with no spring: a change that moves several panes at once, or one that lands while the last automation change still springs.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["pane-stress", "motion"],
+  "sticky": false,
+  "runtimeMutable": false
+}

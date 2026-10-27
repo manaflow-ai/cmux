@@ -1,9 +1,13 @@
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
+/// The agent page provider's bridge gap: `eventCount` host events published before the page subscribes, then
+/// replayed to it. Prints one `AGENT-PAGE-BENCH` line; with CMUX_PERF_RESULT_DIR it also writes both times as
+/// result-v1 (lab story swift-agent-page-bridge-gap).
 @Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_SWIFT_TEST_SUITE_TIMEOUT_SECONDS"] == "901"))
 @MainActor
 struct AgentPageProviderBridgeGapBench {
@@ -35,7 +39,7 @@ struct AgentPageProviderBridgeGapBench {
     }
 
     @Test func fixedBridgeGapPublishesAndReplays() async throws {
-        let provider = AgentPageProvider { _ in nil }
+        let provider = AgentPageProvider(mainWork: AgentPaneMainThread.standalone().mainWork) { _ in nil }
         let publishStart = ContinuousClock.now
         for index in 0..<Self.eventCount { provider.publish(.command("bridge-gap-\(index)")) }
         let publishMilliseconds = Self.milliseconds(publishStart.duration(to: ContinuousClock.now))
@@ -51,6 +55,10 @@ struct AgentPageProviderBridgeGapBench {
         subscription.cancel()
 
         #expect(received.events.count == Self.eventCount)
+        if let results = try PerfResultWriter() {
+            try results.record("swift.agent_page.publish_main", unit: .ms, samples: [publishMilliseconds])
+            try results.record("swift.agent_page.replay_window", unit: .ms, samples: [replayMilliseconds])
+        }
         print("AGENT-PAGE-BENCH events=\(Self.eventCount) publish_main_ms=\(String(format: "%.3f", publishMilliseconds)) replay_window_ms=\(String(format: "%.3f", replayMilliseconds)) delivered=\(received.events.count)")
     }
 }

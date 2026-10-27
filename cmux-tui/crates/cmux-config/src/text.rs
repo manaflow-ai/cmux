@@ -127,7 +127,7 @@ pub fn quiet_hours_minutes(text: &str) -> Option<i64> {
     };
     let hour: i64 = swift_int(hour)?;
     let minute: i64 = swift_int(minute)?;
-    ((0..=23).contains(&hour) && (0..=59).contains(&minute)).then_some(hour * 60 + minute)
+    ((0..=23).contains(&hour) && (0..=59).contains(&minute)).then(|| hour * 60 + minute)
 }
 
 /// Swift `Int(String)`: optional sign, ASCII digits only.

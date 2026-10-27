@@ -47,3 +47,22 @@ extension KeyRouter {
         return true
     }
 }
+
+// A page's keyboard lock (`navigator.keyboard.lock()`, task p01-process-229): while the hosted page that
+// has the keyboard holds one in its fullscreen (``KeyFacts/pageLocksKeys``), it gets the chords cmux would
+// run and no chord arms, as Chrome's KeyboardLockController lets a fullscreen page take the browser's
+// shortcuts (chrome/browser/ui/exclusive_access/keyboard_lock_controller.cc). Escape ends the lock in the
+// page view (ChromiumHostExclusiveAccess).
+extension KeyRouter {
+    /// What a keyboard lock leaves to cmux: Ghostty's split keys, unchanged in every pane
+    /// (schemas/keybindings/ghostty-reserved-keys.json, which KeyboardLockKeysTests reads), and Quit.
+    nonisolated static let keyboardLockKeeps: Set<ActionID> = [
+        "focusLeft", "focusRight", "focusUp", "focusDown", "splitRight", "splitDown",
+        "resizePaneLeft", "resizePaneRight", "resizePaneUp", "resizePaneDown", "toggleSplitZoom", "quit",
+    ]
+
+    /// Whether a locked page takes `candidate`'s key instead of cmux.
+    nonisolated static func keyboardLockTakes(_ candidate: Candidate, facts: Facts) -> Bool {
+        facts.pageLocksKeys && !keyboardLockKeeps.contains(candidate.id)
+    }
+}

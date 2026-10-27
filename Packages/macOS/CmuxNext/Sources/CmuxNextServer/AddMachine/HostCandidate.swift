@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// One Tailscale peer from `cmux-tui acp host candidates --json [--probe]`
@@ -109,8 +110,8 @@ public nonisolated struct HostCandidate: Equatable, Sendable, Identifiable, Deco
     /// The candidates of `host candidates --json` (`{"tailnet":…,"candidates":[…]}`), or a bare
     /// array; throws when the output is neither.
     public static func parseList(_ data: Data) throws -> [HostCandidate] {
-        if let list = try? JSONDecoder().decode(Listing.self, from: data) { return list.candidates }
-        return try JSONDecoder().decode([HostCandidate].self, from: data)
+        if let list = try? JSONDecoder().blockingDecode(Listing.self, from: data) { return list.candidates }
+        return try JSONDecoder().blockingDecode([HostCandidate].self, from: data)
     }
 
     private nonisolated struct Listing: Decodable {

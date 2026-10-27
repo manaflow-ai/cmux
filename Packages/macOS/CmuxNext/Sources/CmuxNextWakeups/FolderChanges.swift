@@ -22,13 +22,23 @@ public struct FolderChanges: Sendable {
     /// The folders whose contents matter.
     public let folders: [URL]
     private let ledger: WakeupLedger
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The line that made the watch, for the arm census.
+    private let site: ArmCensus.Site
+    #endif
 
     /// - Parameters:
     ///   - folders: The folders whose contents matter; missing ones are watched through a parent.
-    ///   - ledger: Where the watch counts its wakes.
-    public init(folders: [URL], ledger: WakeupLedger = .shared) {
+    ///   - ledger: Where the watch counts its wakes. In Debug and bench builds its ``ArmCensus`` also gets the watch's
+    ///     launch arm and first change (startup-queue.py arms, p08-startup-085).
+    ///   - file: The line that made the watch, named by the arm census (leave the default).
+    ///   - line: See `file`.
+    public init(folders: [URL], ledger: WakeupLedger = .shared, file: StaticString = #fileID, line: UInt = #line) {
         self.folders = folders
         self.ledger = ledger
+        #if DEBUG || CMUX_BENCH_HOOKS
+        site = ArmCensus.Site(file: file, line: line)
+        #endif
     }
 
     /// One element after each burst of changes in any watched folder. Ends when the consumer
@@ -36,14 +46,26 @@ public struct FolderChanges: Sendable {
     public func events() -> AsyncStream<Void> {
         let targets = folders.map(\.path)
         let ledger = ledger
+        #if DEBUG || CMUX_BENCH_HOOKS
+        let site = site
+        #endif
         let (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         // task-owner: the stream's watch loop; cancelled when the consumer stops iterating
         let loop = Task.detached(priority: .utility) {
             var armed = Self.arm(targets)
+            #if DEBUG || CMUX_BENCH_HOOKS
+            var census = ArmCensusEntry()
+            census.armed(in: ledger.armCensus, .watcher, owner: "FolderChanges", site: site)
+            #endif
             // wakeup-allow: each pass waits for one file-system event in a watched folder, never polls
             while !Task.isCancelled {
                 var iterator = armed.events.makeAsyncIterator()
                 guard let event = await iterator.next() else { break }
+                #if DEBUG || CMUX_BENCH_HOOKS
+                // Every event woke the process, a stand-in's own write included: the census's first fire is the
+                // first wake the ledger counts, under `change` or `stand-in`.
+                census.fired(in: ledger.armCensus)
+                #endif
                 let now = Set(targets.map(nearestExistingFolder(of:)))
                 let moved = now != armed.paths || event.flags.contains(.delete) || event.flags.contains(.rename)
                 if !moved, !targets.contains(event.path) {
@@ -55,6 +77,9 @@ public struct FolderChanges: Sendable {
                     let next = Self.arm(targets)
                     armed.cancel()
                     armed = next
+                    #if DEBUG || CMUX_BENCH_HOOKS
+                    census.armed(in: ledger.armCensus, .watcher, owner: "FolderChanges", site: site)
+                    #endif
                 }
                 ledger.record("FolderChanges", reason: "change")
                 continuation.yield()

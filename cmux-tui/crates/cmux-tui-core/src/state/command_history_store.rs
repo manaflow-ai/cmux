@@ -117,6 +117,7 @@ fn to_u64(value: i64) -> u64 {
 
 impl WorkspaceRegistry {
     /// The retention in days ([`DEFAULT_COMMAND_RETENTION_DAYS`] until set).
+    #[track_caller]
     pub(crate) fn terminal_command_retention_days(&self) -> anyhow::Result<u32> {
         Ok(meta_value(&self.connection.get(), RETENTION_KEY)?
             .and_then(|value| value.parse::<u32>().ok())
@@ -126,6 +127,7 @@ impl WorkspaceRegistry {
 
     /// Stores the retention. Lists hide what it expires at once; the worker
     /// deletes those rows on its next pass.
+    #[track_caller]
     pub(crate) fn set_terminal_command_retention_days(&mut self, days: u32) -> anyhow::Result<()> {
         anyhow::ensure!(
             (1..=MAX_COMMAND_RETENTION_DAYS).contains(&days),
@@ -141,6 +143,7 @@ impl WorkspaceRegistry {
 
     /// Stores finished commands of terminals (public id, command) in one
     /// transaction, then expires old rows.
+    #[track_caller]
     pub(crate) fn append_terminal_commands(
         &mut self,
         commands: &[(String, FinishedCommand)],
@@ -173,6 +176,7 @@ impl WorkspaceRegistry {
 
     /// The newest `limit` unexpired rows with an id above `after_id`,
     /// oldest first. Reads only.
+    #[track_caller]
     pub(crate) fn list_terminal_commands(
         &self,
         after_id: Option<u64>,
@@ -226,6 +230,7 @@ impl WorkspaceRegistry {
     }
 
     /// Runs a client delete; returns how many rows went.
+    #[track_caller]
     pub(crate) fn delete_terminal_commands(
         &mut self,
         deletion: &CommandDeletion,
@@ -266,16 +271,18 @@ impl WorkspaceRegistry {
 
     /// Deletes rows older than the retention. Reads first, so a pass with
     /// nothing expired writes nothing.
+    #[track_caller]
     pub(crate) fn expire_terminal_commands(
         &mut self,
         now_ms: u64,
     ) -> anyhow::Result<CommandExpiry> {
         let retention_days = self.terminal_command_retention_days()?;
         let retention_ms = u64::from(retention_days) * DAY_MS;
+        let site = std::panic::Location::caller();
         let oldest = |registry: &Self| -> anyhow::Result<Option<u64>> {
             let oldest: Option<i64> = registry
                 .connection
-                .get()
+                .get_at(site)
                 .query_row("SELECT MIN(started_at_ms) FROM terminal_commands", [], |row| row.get(0))
                 .optional()?
                 .flatten();
@@ -297,6 +304,7 @@ impl WorkspaceRegistry {
     /// Moves deleted pages into the database file and resets the WAL, which
     /// still holds the text of deleted rows. Never waits for readers: returns
     /// false when one blocked it, and the caller tries again later.
+    #[track_caller]
     pub(crate) fn checkpoint_terminal_command_deletes(&mut self) -> anyhow::Result<bool> {
         if self.session_journal_database_path().is_none() {
             return Ok(true);

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 import QuartzCore
 
 /// The omnibar's rounded background (`OmnibarGlassLook`): at rest the flat
@@ -27,8 +28,10 @@ final class OmnibarPillView: NSView {
     private(set) var look = OmnibarGlassLook.current { didSet { if oldValue != look { rebuildMaterial() } } }
     /// The glass under the bar, built while the look has a material.
     private var glass: GlassPanelView?
-    /// Ends with the view (the loop holds it weakly).
-    private var lookLoop: ObservationLoop?
+    /// Follows cmux.json's look (``followLook(on:)``); ends with the view.
+    private var lookWatch: FrameObservation<OmnibarGlassLook>?
+    /// The node the pill's repaint waits on (R-appear): its bar's (``AddressBarView/visibilityNode``).
+    var visibilityNode = VisibilityNode(root: "browser.omnibar.pill.standalone", own: .visible)
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -40,10 +43,19 @@ final class OmnibarPillView: NSView {
         hover = PointerHover(self) { [weak self] hovering in
             self?.refresh(animated: true, fade: ChromeHover.fade(showing: hovering))
         }
-        lookLoop = ObservationLoop { [weak self] in
-            let next = OmnibarGlassLook.current
+    }
+
+    /// Follows the look in cmux.json from now on (the bar calls it once, with the app's scheduler).
+    func followLook(on work: MainWorkScheduler) {
+        lookWatch?.cancel()
+        // node-free: one app-wide look; the bar sits in a tab's chrome, a popup's toolbar or the Markdown bar, with no tab node
+        let watch = FrameObservation(owner: "browser.omnibar.look", delivery: .visible(nil), on: work) {
+            OmnibarGlassLook.current
+        } onChange: { [weak self] next in
             self?.look = next
         }
+        lookWatch = watch
+        look = watch.value
     }
 
     @available(*, unavailable)
@@ -53,11 +65,13 @@ final class OmnibarPillView: NSView {
 
     // Hover is the pill's frame under the pointer (the bar above it takes
     // the clicks); hiding with the pane or leaving the window clears it.
+    // visibility-walk-allow: hover is a hit test: a view hidden or shown under a still pointer gets no exit or enter, so PointerHover reads the pointer again (input state, no view work)
     override func viewDidHide() {
         super.viewDidHide()
         hover?.refresh()
     }
 
+    // visibility-walk-allow: hover is a hit test: a view hidden or shown under a still pointer gets no exit or enter, so PointerHover reads the pointer again (input state, no view work)
     override func viewDidUnhide() {
         super.viewDidUnhide()
         hover?.refresh()
@@ -71,8 +85,16 @@ final class OmnibarPillView: NSView {
         refresh(animated: false)
     }
 
+    /// A hidden tab's pill repaints once, when it shows (R-appear).
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        visibilityNode.deferUntilVisible(key: Self.appearanceKey) { [weak self] in self?.appearanceChanged() }
+    }
+
+    /// The ``visibilityNode`` key of the pill's deferred repaint.
+    static let appearanceKey = "OmnibarPillView.appearance"
+
+    private func appearanceChanged() {
         // Reduce Transparency may have changed since the material was built.
         if drawsGlass != (glass != nil) { rebuildMaterial() } else { refresh(animated: false) }
     }
@@ -93,15 +115,11 @@ final class OmnibarPillView: NSView {
             if let glass {
                 glass.style = style
             } else {
+                // The glass fills the bar and follows its size (frame layout, no constraints).
                 let panel = GlassPanelView(style: style, cornerRadius: 0)
-                panel.translatesAutoresizingMaskIntoConstraints = false
+                panel.frame = bounds
+                panel.autoresizingMask = [.width, .height]
                 addSubview(panel, positioned: .below, relativeTo: nil)
-                NSLayoutConstraint.activate([
-                    panel.leadingAnchor.constraint(equalTo: leadingAnchor),
-                    panel.trailingAnchor.constraint(equalTo: trailingAnchor),
-                    panel.topAnchor.constraint(equalTo: topAnchor),
-                    panel.bottomAnchor.constraint(equalTo: bottomAnchor),
-                ])
                 glass = panel
             }
         } else {
@@ -138,7 +156,7 @@ final class OmnibarPillView: NSView {
             layer?.shadowOpacity = Float(elevation.alpha)
             layer?.shadowRadius = elevation.layerRadius
             layer?.shadowOffset = elevation.layerOffset()
-            layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: radius, cornerHeight: radius, transform: nil)
+            layer?.shadowPath = CGPath.rounded(bounds, radius: radius)
         } else {
             layer?.shadowOpacity = 0
             layer?.shadowPath = nil
@@ -234,10 +252,11 @@ final class OmnibarCardTopView: NSView {
         // Extend the shadow shape past the seam toward the rows, so no line shows
         // between the two halves (the panel of rows casts no shadow of its own).
         let shape = CGRect(x: 0, y: opensUpward ? 0 : -40, width: bounds.width, height: bounds.height + 40)
-        card.shadowPath = CGPath(roundedRect: shape, cornerWidth: OmnibarStyle.cardCornerRadius, cornerHeight: OmnibarStyle.cardCornerRadius, transform: nil)
+        card.shadowPath = CGPath.rounded(shape, radius: OmnibarStyle.cardCornerRadius)
         CATransaction.commit()
     }
 
+    // visibility-walk-allow: one layer color store in the theme scope, no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         refresh()

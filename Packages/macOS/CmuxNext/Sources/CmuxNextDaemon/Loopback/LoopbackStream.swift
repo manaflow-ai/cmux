@@ -1,5 +1,7 @@
 public import Foundation
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// Writes one line on the stream's daemon connection (id-less, no reply).
 protocol LoopbackLineSending: Sendable {
@@ -32,7 +34,7 @@ public final class LoopbackStream: Sendable {
         var buffered = 0
         /// Consumed and not yet granted back.
         var toGrant = 0
-        var writeWaiter: CheckedContinuation<Void, any Error>?
+        var writeWaiter: OnceContinuation<Void, any Error>?
         var writeShutdown = false
         var finished: LoopbackStreamError??
     }
@@ -51,6 +53,7 @@ public final class LoopbackStream: Sendable {
         // Bounded by `receiveWindow`: the daemon never sends past it, and
         // `deliver` ends the stream if it does.
         // concurrency-allow: bounded by the credit window (see deliver)
+        // memory: bounded-by receiveWindow (the credit window, 256 KiB): deliver ends the stream past it
         (events, continuation) = AsyncStream.makeStream(of: LoopbackStreamEvent.self, bufferingPolicy: .unbounded)
     }
 
@@ -58,13 +61,13 @@ public final class LoopbackStream: Sendable {
     public var address: String { state.withLock(\.address) }
 
     func opened(address: String, sendWindow: Int) {
-        let waiter = state.withLock { state -> CheckedContinuation<Void, any Error>? in
+        let waiter = state.withLock { state -> OnceContinuation<Void, any Error>? in
             state.address = address
             state.sendCredit += sendWindow
             defer { state.writeWaiter = nil }
             return state.writeWaiter
         }
-        waiter?.resume()
+        waiter?.resume(returning: ())
     }
 
     /// `loopback-open` failed or timed out. The close line ends a stream the
@@ -137,12 +140,12 @@ public final class LoopbackStream: Sendable {
                 continuation.yield(.data(bytes))
             }
         case .credit(_, let bytes):
-            let waiter = state.withLock { state -> CheckedContinuation<Void, any Error>? in
+            let waiter = state.withLock { state -> OnceContinuation<Void, any Error>? in
                 state.sendCredit += bytes
                 defer { state.writeWaiter = nil }
                 return state.writeWaiter
             }
-            waiter?.resume()
+            waiter?.resume(returning: ())
         case .eof:
             continuation.yield(.eof)
         case .closed(_, let error):
@@ -158,7 +161,7 @@ public final class LoopbackStream: Sendable {
     // MARK: Private
 
     private func reserveCredit(upTo wanted: Int) async throws -> Int {
-        // wakeup-allow: each iteration either takes credit or waits for the next credit event or the end of the stream
+        // wakeup-allow: bounded: each iteration either takes credit or waits for the next credit event or the end of the stream
         while true {
             let outcome: Result<Int, LoopbackStreamError>? = state.withLock { state in
                 if let finished = state.finished { return .failure(finished ?? .closedLocally) }
@@ -174,13 +177,13 @@ public final class LoopbackStream: Sendable {
             case nil: break
             }
             try await withTaskCancellationHandler {
-                try await withCheckedThrowingContinuation { (waiter: CheckedContinuation<Void, any Error>) in
+                try await withOnceThrowingContinuation { (waiter: OnceContinuation<Void, any Error>) in
                     let resumeNow = state.withLock { state -> Bool in
                         if state.finished != nil || state.sendCredit > 0 || state.writeWaiter != nil { return true }
                         state.writeWaiter = waiter
                         return false
                     }
-                    if resumeNow { waiter.resume() }
+                    if resumeNow { waiter.resume(returning: ()) }
                 }
             } onCancel: {
                 self.close()
@@ -189,7 +192,7 @@ public final class LoopbackStream: Sendable {
     }
 
     private func finish(_ error: LoopbackStreamError?, notifyDaemon: Bool) {
-        let waiter: CheckedContinuation<Void, any Error>?? = state.withLock { state in
+        let waiter: OnceContinuation<Void, any Error>?? = state.withLock { state in
             guard state.finished == nil else { return .none }
             state.finished = .some(error)
             defer { state.writeWaiter = nil }

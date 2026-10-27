@@ -1,9 +1,10 @@
 public import AppKit
 public import CmuxNextBrowser
+public import CmuxNextInputCore
 public import Foundation
 public import Observation
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// A browser tab whose page runtime runs on another machine (RT1): the same
 /// `BrowserTab` the chrome, the App and automation use, with the page
 /// streamed by `RemoteBrowserPane`. Keys follow a local CEF tab: Command and
@@ -31,6 +32,11 @@ public final class RemoteBrowserTab: BrowserTab {
     @ObservationIgnored private var sentKeys: [UInt32: NSEvent] = [:]
     @ObservationIgnored private var sentOrder: [UInt32] = []
     private static let sentKeyLimit = 64
+    /// The record the App builds this tab again from after a discard, for the page shown now
+    /// (`BrowserStreamedPage`); unset (a tab whose host ends with it), the tab is never discarded.
+    @ObservationIgnored public var wakeRecord: (@MainActor (_ page: URL?) -> URL)?
+    /// A woken tab's last frame until the stream presents its first one.
+    @ObservationIgnored private let wakeCover = BrowserWakeCover()
 
     public init(id: BrowserTabID, profile: BrowserProfileID, url: URL?, pane: RemoteBrowserPane, channel: any RemoteBrowserPageChannel) {
         self.id = id
@@ -39,6 +45,7 @@ public final class RemoteBrowserTab: BrowserTab {
         self.channel = channel
         state = BrowserTabState(url: url)
         pane.view.eventTarget = self
+        pane.onFirstFrame = { [weak self] in self?.wakeCover.remove() }
     }
 
     public var contentView: NSView { pane.view }
@@ -71,6 +78,11 @@ public final class RemoteBrowserTab: BrowserTab {
 
     public func handlePointer(_ event: NSEvent) {
         channel.sendPointer(event, at: pane.view.convert(event.locationInWindow, from: nil))
+    }
+
+    public func handlePointerFrame(_ input: PointerCoalescedInput, clickCount: Int) { // perf-hot: 2us pointer-coalesce (every frame delivery to the page)
+        let location = NSPoint(x: input.latest.location.x, y: input.latest.location.y)
+        channel.sendPointerFrame(input, clickCount: clickCount, at: pane.view.convert(location, from: nil))
     }
 
     /// The host's `rb.key_unhandled`: the page did not handle key `inputSeq`.
@@ -114,6 +126,7 @@ public final class RemoteBrowserTab: BrowserTab {
     /// refused or hostless tab is never a blank tab (cx-erey).
     public func showFailure(_ failure: RemoteBrowserFailure, message: String) {
         self.failure = failure
+        wakeCover.remove()
         var next = state
         next.title = RemoteBrowserStrings.failureTitle
         next.phase = .finished
@@ -134,12 +147,23 @@ public final class RemoteBrowserTab: BrowserTab {
         window.makeFirstResponder(contentView)
     }
 
+    /// A hidden tab decodes nothing (Chrome stops a hidden tab's frames: `RenderWidgetHostImpl::WasHidden`
+    /// in content/browser/renderer_host/render_widget_host_impl.cc): the pane pauses in the same turn
+    /// and the host is told; shown again, the pane subscribes and asks for a keyframe.
     public func setContentVisible(_ visible: Bool) {
         contentView.isHidden = !visible
         channel.setVisible(visible)
+        if !visible {
+            pane.pause()
+        } else if failure == nil {
+            pane.start()
+        }
     }
 
+    /// The page as drawn, with the stream's last frame in its video (a video layer is not drawn by
+    /// `cacheDisplay`); a tab with no frame, or that failed, as drawn (its message).
     public func snapshot() async throws -> CGImage {
+        if failure == nil, let picture = await pane.picture() { return picture }
         guard let rep = contentView.bitmapImageRepForCachingDisplay(in: contentView.bounds) else { throw BrowserTabError.snapshotUnavailable }
         contentView.cacheDisplay(in: contentView.bounds, to: rep)
         guard let image = rep.cgImage else { throw BrowserTabError.snapshotUnavailable }
@@ -158,10 +182,37 @@ public final class RemoteBrowserTab: BrowserTab {
     public func showDevTools() {}
 
     public func close() {
+        wakeCover.remove()
         pane.stop()
         channel.close()
     }
 }
 
 extension RemoteBrowserTab: RemoteBrowserEventTarget {}
+
+extension RemoteBrowserTab: BrowserStreamedPage {
+    /// Waking starts a new runtime, so the remote page's back and forward history would be lost:
+    /// a tab with history is not discarded (the host keeps it while the tab is only hidden). A
+    /// failed tab is not built again either.
+    public var wakeAddress: URL? {
+        guard failure == nil, !state.canGoBack, !state.canGoForward, let wakeRecord else { return nil }
+        return wakeRecord(state.url)
+    }
+
+    /// Covers the page with its last frame until the new stream presents its first.
+    @discardableResult
+    public func showStandIn(_ picture: CGImage, decoded: Bool, cap: Duration, clock: any Clock<Duration>) -> Bool {
+        guard failure == nil else { return false }
+        wakeCover.show(picture, decoded: decoded, in: pane.view, cap: cap, clock: clock)
+        return true
+    }
+
+    public var wakeCoverCap: Duration? { BrowserWakeCover.reconnectCap }
+
+    /// The pixels the last frame's cover draws now; nil while none covers the tab (tests, debug).
+    public var wakeCoverPixels: CGImage? { wakeCover.shownPixels }
+
+    /// The last frame covers the page now (tests, debug).
+    public var showsWakeCover: Bool { wakeCover.isShown }
+}
 #endif

@@ -2,6 +2,7 @@ import CmuxNextAgentLanes
 import CmuxNextAgentPane
 import CmuxNextBridge
 @testable import CmuxNextDaemon
+import CmuxNextWakeups
 import Darwin
 import Foundation
 import os
@@ -34,7 +35,7 @@ struct AgentChatMuteTests {
     @Test func muteSetsTheChatsAcpmuxTagAndUnmuteRemovesIt() async throws {
         let acpmux = try TaggingAcpmux(sessions: ["s1": [:]])
         let turns = AgentTurnStateStore()
-        let feed = AgentTurnStateFeed(socketPath: acpmux.path, turns: turns)
+        let feed = AgentTurnStateFeed(socketPath: acpmux.path, turns: turns, deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())))
         feed.start(localHost: Self.host)
         let mute = AgentChatMute(environment: try Self.environment(acpmux), turns: turns)
         try await until { turns.isMuted(Self.chat("s1")) != nil && acpmux.watching }
@@ -55,7 +56,7 @@ struct AgentChatMuteTests {
     @Test func aChatMutedElsewhereReadsMutedAndAnotherMacsChatIsLeftAlone() async throws {
         let acpmux = try TaggingAcpmux(sessions: ["s2": ["notifications": "muted"], "s3": [:]])
         let turns = AgentTurnStateStore()
-        let feed = AgentTurnStateFeed(socketPath: acpmux.path, turns: turns)
+        let feed = AgentTurnStateFeed(socketPath: acpmux.path, turns: turns, deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())))
         feed.start(localHost: Self.host)
         let mute = AgentChatMute(environment: try Self.environment(acpmux), turns: turns)
         try await until { mute.isMuted(Self.chat("s2")) == true }

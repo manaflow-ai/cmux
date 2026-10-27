@@ -242,6 +242,7 @@ pub(super) fn recover_resource_effects(transaction: &Transaction<'_>) -> anyhow:
 }
 
 impl WorkspaceRegistry {
+    #[track_caller]
     pub fn lookup_resource_effect(
         &self,
         idempotency_key: &str,
@@ -255,6 +256,7 @@ impl WorkspaceRegistry {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub fn prepare_resource_creation_for(
         &mut self,
         correlation_key: &str,
@@ -452,6 +454,7 @@ impl WorkspaceRegistry {
         })
     }
 
+    #[track_caller]
     pub fn resolve_resource_creation(&self, correlation_key: &str) -> anyhow::Result<Value> {
         validate_correlation_key(correlation_key)?;
         let Some(stored) = read_creation_record(&self.connection.get(), correlation_key)? else {
@@ -510,6 +513,7 @@ impl WorkspaceRegistry {
         Ok(result)
     }
 
+    #[track_caller]
     pub fn resource_creation_recovery(
         &self,
         correlation_key: &str,
@@ -533,6 +537,7 @@ impl WorkspaceRegistry {
         }))
     }
 
+    #[track_caller]
     pub fn interrupted_resource_creation_recoveries(
         &self,
     ) -> anyhow::Result<Vec<ResourceCreationRecovery>> {
@@ -558,6 +563,7 @@ impl WorkspaceRegistry {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub fn commit_resource_creation_patch(
         &mut self,
         correlation_key: &str,
@@ -672,6 +678,7 @@ impl WorkspaceRegistry {
         ))
     }
 
+    #[track_caller]
     pub fn prepare_resource_effect_for(
         &mut self,
         mutation: &WorkspaceMutation,
@@ -698,6 +705,7 @@ impl WorkspaceRegistry {
     /// would, in the same transaction: one durable commit before the effect
     /// instead of two. Returns `true` when it did; an existing receipt comes
     /// back unchanged with `false` (a `pending` one still needs the mark).
+    #[track_caller]
     pub fn prepare_resource_effect_executing_for(
         &mut self,
         mutation: &WorkspaceMutation,
@@ -718,6 +726,7 @@ impl WorkspaceRegistry {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     fn prepare_resource_effect_in(
         &mut self,
         mutation: &WorkspaceMutation,
@@ -775,6 +784,7 @@ impl WorkspaceRegistry {
         Ok((ResourceEffectPreparation::Execute { intent: intent.clone(), resumed: false }, start))
     }
 
+    #[track_caller]
     pub fn mark_resource_effect_executing(
         &mut self,
         idempotency_key: &str,
@@ -816,6 +826,7 @@ impl WorkspaceRegistry {
     /// Commit an effect outcome in a request-side transaction. Mux callers
     /// send the same intent to the journal writer instead
     /// (`Mux::commit_effect_intent`).
+    #[track_caller]
     pub fn commit_resource_effect(
         &mut self,
         idempotency_key: &str,
@@ -846,6 +857,7 @@ impl WorkspaceRegistry {
     /// the journal already states are dropped first; `restates_all` says
     /// they restate every live resource, so they may seed the public fold.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub fn commit_resource_effect_patch(
         &mut self,
         idempotency_key: &str,
@@ -880,6 +892,7 @@ impl WorkspaceRegistry {
     /// effect receipt, so a crash can observe only the complete old or new
     /// topology.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(crate) fn commit_resource_close_patch(
         &mut self,
         idempotency_key: &str,
@@ -959,6 +972,7 @@ impl WorkspaceRegistry {
         Ok(ResourceCloseCommit { resource, workspace_revision, terminal_batch })
     }
 
+    #[track_caller]
     pub fn mark_resource_effect_indeterminate(
         &mut self,
         idempotency_key: &str,
@@ -1003,6 +1017,7 @@ impl WorkspaceRegistry {
 }
 
 #[allow(clippy::too_many_arguments)]
+#[track_caller]
 fn commit_resource_effect_patch_in_transaction(
     transaction: &Transaction<'_>,
     generation: &str,

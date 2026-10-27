@@ -48,7 +48,7 @@ import Testing
         func rowsPlaced() {}
     }
 
-    struct Pane {
+    @MainActor struct Pane {
         let window: NSWindow
         let controller: ChatController
         let intake: Intake

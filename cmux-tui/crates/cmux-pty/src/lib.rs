@@ -32,6 +32,8 @@ use std::sync::Arc;
 
 pub use portable_pty::{Child, ChildKiller, ExitStatus, MasterPty, PtySize};
 
+#[cfg(any(windows, test))]
+mod console_ctrl_c;
 #[cfg(target_vendor = "apple")]
 mod input_queue;
 #[cfg(unix)]
@@ -39,9 +41,11 @@ mod macos;
 #[cfg(unix)]
 mod open_files;
 #[cfg(unix)]
+pub use macos::NativePtyChild;
+#[cfg(unix)]
 pub use open_files::{
     OPEN_FILE_LIMIT_CEILING, OpenFileLimit, original_open_file_limit, raise_open_file_limit,
-    restore_open_file_limit, restore_open_file_limit_in_child,
+    restore_open_file_limit,
 };
 
 /// Stable classification for failures at the PTY allocation boundary.
@@ -272,6 +276,12 @@ mod platform {
         for (key, value) in command.environment {
             builder.env(key, value);
         }
+        // The child inherits the spawning process's ignore-Ctrl+C attribute,
+        // which a CREATE_NEW_PROCESS_GROUP start sets; clear it so Ctrl+C in
+        // the terminal reaches the child (console_ctrl_c.rs).
+        super::console_ctrl_c::set_for_the_next_child().map_err(|error| {
+            anyhow::anyhow!("failed to let the terminal's child process Ctrl+C: {error}")
+        })?;
         let child = slave.0.spawn_command(builder)?;
         Ok(Box::new(super::windows_jobs::JobChild::new(child)))
     }
@@ -365,7 +375,7 @@ mod tests {
             println!("{}", String::from_utf8_lossy(&output).trim());
             return Ok(());
         }
-        let output = std::process::Command::new(std::env::current_exe()?)
+        let output = cmux_process::Command::new(std::env::current_exe()?)
             .args(["--exact", NAME, "--nocapture", "--test-threads=1"])
             .env(PROBE, "1")
             .output()?;
@@ -386,6 +396,67 @@ mod tests {
         assert_eq!(ignored & reset, 0, "child ignores {line}");
         assert_eq!(blocked, 0, "child blocks signals: {line}");
         Ok(())
+    }
+
+    /// A `/bin/sleep 30` spawned on a new PTY.
+    fn spawn_sleeper() -> SpawnedPty {
+        let pair = open(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
+        let mut command = PtyCommand::new("/bin/sleep");
+        command.args(["30"]);
+        pair.spawn(command).unwrap()
+    }
+
+    /// macOS: a PTY child spawned from a UserInteractive thread runs at
+    /// QOS_CLASS_DEFAULT, not the thread's class (p02-threads task 223), and
+    /// the thread keeps its class.
+    #[cfg(target_vendor = "apple")]
+    #[test]
+    fn a_pty_child_of_a_user_interactive_thread_runs_at_default() {
+        use cmux_threads::process::probe;
+        use cmux_threads::{LiveQos, QosChange, ThreadQos, current, set_current};
+
+        let default = probe::base_priority_at(ThreadQos::Default).unwrap();
+        let interactive = probe::base_priority_at(ThreadQos::UserInteractive).unwrap();
+        assert_ne!(default, interactive);
+        let child = std::thread::spawn(|| {
+            assert_eq!(set_current(ThreadQos::UserInteractive), QosChange::Applied);
+            let mut spawned = spawn_sleeper();
+            let pid = spawned.child.process_id().unwrap() as libc::pid_t;
+            let priority = probe::first_thread_base_priority(pid);
+            spawned.child.kill().unwrap();
+            let _ = spawned.child.wait();
+            assert_eq!(current(), LiveQos::Class(ThreadQos::UserInteractive));
+            priority.unwrap()
+        })
+        .join()
+        .unwrap();
+        assert_eq!(child, default, "child {child}: default {default}, ui {interactive}");
+    }
+
+    /// Linux: a PTY child keeps the spawning thread's nice value, as before.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_pty_child_keeps_the_threads_nice_value_on_linux() {
+        let nice_of = |pid: libc::pid_t| {
+            // SAFETY: the raw syscall returns 20 - nice (1..=40).
+            let raw = unsafe {
+                libc::syscall(libc::SYS_getpriority, libc::PRIO_PROCESS, pid as libc::c_long)
+            };
+            assert!(raw > 0, "getpriority({pid}): {}", io::Error::last_os_error());
+            20 - raw as i32
+        };
+        std::thread::spawn(move || {
+            // SAFETY: gettid has no preconditions.
+            let tid = unsafe { libc::gettid() };
+            let mut spawned = spawn_sleeper();
+            let pid = spawned.child.process_id().unwrap() as libc::pid_t;
+            let (parent, child) = (nice_of(tid), nice_of(pid));
+            spawned.child.kill().unwrap();
+            let _ = spawned.child.wait();
+            assert_eq!(child, parent);
+        })
+        .join()
+        .unwrap();
     }
 
     #[test]
@@ -467,7 +538,7 @@ mod tests {
     fn close_range_seccomp_fallback_keeps_pty_spawn_working() {
         const CHILD_ENV: &str = "CMUX_PTY_CLOSE_RANGE_SECCOMP_CHILD";
         if std::env::var_os(CHILD_ENV).is_none() {
-            let output = std::process::Command::new(std::env::current_exe().unwrap())
+            let output = cmux_process::Command::new(std::env::current_exe().unwrap())
                 .arg("tests::close_range_seccomp_fallback_keeps_pty_spawn_working")
                 .arg("--exact")
                 .arg("--nocapture")
@@ -541,5 +612,284 @@ mod tests {
             "seccomp filter installation failed: {}",
             io::Error::last_os_error()
         );
+    }
+
+    /// Read the PTY until `marker` appears or the child's side closes.
+    fn read_until(reader: &mut dyn io::Read, marker: &str) -> String {
+        let mut output = Vec::new();
+        let mut buffer = [0u8; 1024];
+        while !String::from_utf8_lossy(&output).contains(marker) {
+            match reader.read(&mut buffer) {
+                Ok(0) | Err(_) => break,
+                Ok(count) => output.extend_from_slice(&buffer[..count]),
+            }
+        }
+        String::from_utf8_lossy(&output).into_owned()
+    }
+
+    /// The PTY is its child's controlling terminal, with the child's group in
+    /// the foreground, so the 0x03 Ctrl-C writes makes the line discipline
+    /// send SIGINT to the child (dogfood chrome-parity-v1 on macOS: "ctrl c
+    /// is broken"). The child is a copy of this test binary that reports its
+    /// own terminal (`tcgetpgrp(0)`, -1 when its session has no controlling
+    /// terminal) and then waits to be interrupted; it opens no terminal
+    /// itself, as zsh does not (zsh opens its tty with O_NOCTTY, and then runs
+    /// with no job control and no Ctrl-C). A thread drains the PTY all along,
+    /// as the daemon does: a session leader that exits waits for its terminal's
+    /// output (the `^C` echo) to drain.
+    #[test]
+    fn a_pty_child_has_the_pty_as_controlling_terminal_and_gets_sigint_from_ctrl_c() {
+        const CHILD: &str = "CMUX_PTY_CTTY_CHILD";
+        const NAME: &str =
+            "tests::a_pty_child_has_the_pty_as_controlling_terminal_and_gets_sigint_from_ctrl_c";
+        if std::env::var_os(CHILD).is_some() {
+            // SAFETY: plain queries of this process and its fd 0.
+            let (pid, pgrp, foreground) =
+                unsafe { (libc::getpid(), libc::getpgrp(), libc::tcgetpgrp(0)) };
+            println!("ctty-report pid={pid} pgrp={pgrp} foreground={foreground} end");
+            // test harness: wait for the parent's Ctrl-C (SIGINT ends this process)
+            std::thread::sleep(std::time::Duration::from_secs(30));
+            return;
+        }
+        let pair = open(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
+        let mut command = PtyCommand::new(std::env::current_exe().unwrap().to_string_lossy());
+        command.args(["--exact", NAME, "--nocapture", "--test-threads=1"]);
+        command.env(CHILD, "1");
+        let mut spawned = pair.spawn(command).unwrap();
+        let pid = spawned.child.process_id().unwrap() as libc::pid_t;
+        let mut reader = spawned.master.try_clone_reader().unwrap();
+        let (report_tx, report_rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut output = Vec::new();
+            let mut buffer = [0u8; 1024];
+            let mut sent = false;
+            loop {
+                match reader.read(&mut buffer) {
+                    Ok(0) | Err(_) => break,
+                    Ok(count) => output.extend_from_slice(&buffer[..count]),
+                }
+                let text = String::from_utf8_lossy(&output);
+                if !sent && let Some(line) = text.lines().find(|line| line.contains(" end")) {
+                    sent = true;
+                    let _ = report_tx.send(line.to_string());
+                }
+            }
+        });
+        let report = report_rx
+            .recv_timeout(std::time::Duration::from_secs(30))
+            .expect("the child never reported its terminal");
+
+        let mut writer = spawned.master.take_writer().unwrap();
+        writer.write_all(b"\x03").unwrap();
+        writer.flush().unwrap();
+        let child: &mut dyn Child = &mut *spawned.child;
+        let child = child.downcast_mut::<NativePtyChild>().expect("a native PTY child");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let status = loop {
+            if let Some(status) = child.try_wait_native().unwrap() {
+                break Some(status);
+            }
+            if std::time::Instant::now() >= deadline {
+                break None;
+            }
+            // test harness: poll the child's end for a bounded time
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        };
+        if status.is_none() {
+            let _ = spawned.child.kill();
+        }
+        use std::os::unix::process::ExitStatusExt as _;
+        assert!(
+            report.contains(&format!("pid={pid} pgrp={pid} foreground={pid} ")),
+            "the PTY is not the child's controlling terminal with its group in the foreground: \
+             {report}"
+        );
+        assert_eq!(
+            status.and_then(|status| status.signal()),
+            Some(libc::SIGINT),
+            "Ctrl-C (0x03) did not interrupt the PTY child: {status:?}; {report}"
+        );
+    }
+
+    /// `kill` of a child that ignores the hangup: SIGHUP, then SIGKILL
+    /// after the grace, so the child ends anyway.
+    #[test]
+    fn kill_ends_a_child_that_ignores_the_hangup() {
+        let pair = open(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
+        let mut command = PtyCommand::new("/bin/sh");
+        command.args(["-c", "trap '' HUP; echo ready; exec sleep 30"]);
+        let mut spawned = pair.spawn(command).unwrap();
+        let mut reader = spawned.master.try_clone_reader().unwrap();
+        assert!(read_until(&mut *reader, "ready").contains("ready"));
+
+        let started = std::time::Instant::now();
+        spawned.child.kill().unwrap();
+        let status = spawned.child.wait().unwrap();
+        assert!(!status.success(), "{status:?}");
+        assert!(started.elapsed() < std::time::Duration::from_secs(10), "{:?}", started.elapsed());
+    }
+
+    /// `kill` of a child that dies of the hangup returns once it ended.
+    #[test]
+    fn kill_ends_a_child_on_the_hangup() {
+        let pair = open(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
+        let mut command = PtyCommand::new("/bin/sh");
+        command.args(["-c", "echo ready; exec sleep 30"]);
+        let mut spawned = pair.spawn(command).unwrap();
+        let mut reader = spawned.master.try_clone_reader().unwrap();
+        assert!(read_until(&mut *reader, "ready").contains("ready"));
+
+        spawned.child.kill().unwrap();
+        let status = spawned.child.try_wait().unwrap().expect("the child ended within the kill");
+        assert!(!status.success(), "{status:?}");
+    }
+
+    /// After the daemon raised its open-file limit, a shell it starts on a
+    /// PTY gets the limit the daemon started with (Linux: setrlimit in the
+    /// child; macOS: the `ulimit` launcher). Runs in a re-executed copy of
+    /// this test binary, so the lowered and raised limits stay there.
+    #[test]
+    fn a_pty_child_gets_the_open_file_limit_from_before_the_raise() {
+        const CHILD: &str = "CMUX_PTY_OPEN_FILE_LIMIT_CHILD";
+        const NAME: &str = "tests::a_pty_child_gets_the_open_file_limit_from_before_the_raise";
+        if std::env::var_os(CHILD).is_none() {
+            let output = cmux_process::Command::new(std::env::current_exe().unwrap())
+                .args([NAME, "--exact", "--nocapture"])
+                .env(CHILD, "1")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{NAME} failed in its own process:\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+        // SAFETY: valid storage for one rlimit; only this re-run process
+        // changes its soft limit.
+        unsafe {
+            assert_eq!(libc::getrlimit(libc::RLIMIT_NOFILE, &raw mut limit), 0);
+            assert!(limit.rlim_max >= 1_024, "hard limit {}", limit.rlim_max);
+            limit.rlim_cur = 200;
+            assert_eq!(libc::setrlimit(libc::RLIMIT_NOFILE, &raw const limit), 0);
+        }
+        let raised = raise_open_file_limit(1_024).unwrap();
+        assert_eq!(raised, OpenFileLimit { before: 200, after: 1_024 });
+        assert_eq!(original_open_file_limit(), Some(200));
+
+        let pair = open(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
+        let mut command = PtyCommand::new("/bin/sh");
+        command.args(["-c", "echo limit=$(ulimit -S -n)."]);
+        let mut spawned = pair.spawn(command).unwrap();
+        let mut reader = spawned.master.try_clone_reader().unwrap();
+        let output = read_until(&mut *reader, ".");
+        assert!(spawned.child.wait().unwrap().success());
+        assert!(output.contains("limit=200."), "{output}");
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use std::io::{Read, Write};
+    use std::sync::mpsc::{self, RecvTimeoutError};
+    use std::time::{Duration, Instant};
+
+    use super::*;
+
+    const NAME: &str = "windows_tests::a_pty_child_processes_ctrl_c_from_a_spawner_that_ignores_it";
+    const PROBE: &str = "CMUX_PTY_CTRL_C_PROBE";
+    const SLEEPER: &str = "CMUX_PTY_CTRL_C_SLEEPER";
+    /// The exit code of a process the default Ctrl+C handler ended.
+    const STATUS_CONTROL_C_EXIT: u32 = 0xC000_013A;
+
+    /// A 0x03 written to the terminal ends its child even when the spawning
+    /// process ignores Ctrl+C. The probe runs in a re-executed copy of this
+    /// test binary started the way the terminal owner starts
+    /// (`DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP`, local_owner.rs), which
+    /// sets its ignore-Ctrl+C attribute. Its PTY child is a third copy that
+    /// prints a line and sleeps with the default Ctrl+C handler; before the
+    /// fix it inherited the attribute and slept on.
+    #[test]
+    fn a_pty_child_processes_ctrl_c_from_a_spawner_that_ignores_it()
+    -> Result<(), Box<dyn std::error::Error>> {
+        if std::env::var_os(SLEEPER).is_some() {
+            println!("sleeper-ready");
+            std::thread::sleep(Duration::from_secs(60));
+            return Ok(());
+        }
+        if std::env::var_os(PROBE).is_some() {
+            println!("probe: {}", interrupt_a_pty_child()?);
+            return Ok(());
+        }
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        let output = cmux_process::Command::new(std::env::current_exe()?)
+            .args(["--exact", NAME, "--nocapture", "--test-threads=1"])
+            .env(PROBE, "1")
+            .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
+            .output()?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let line = stdout
+            .lines()
+            .find_map(|line| line.split("probe: ").nth(1))
+            .ok_or_else(|| format!("the probe reported nothing: {stdout}{stderr}"))?;
+        assert_eq!(line.trim(), format!("exited {STATUS_CONTROL_C_EXIT:#x}"), "{stdout}{stderr}");
+        Ok(())
+    }
+
+    /// Spawn the sleeper on a PTY, write 0x03 once it is ready, and say how
+    /// it ended.
+    fn interrupt_a_pty_child() -> Result<String, Box<dyn std::error::Error>> {
+        let pair = open(PtySize { rows: 24, cols: 120, pixel_width: 0, pixel_height: 0 })?;
+        let mut command = PtyCommand::new(std::env::current_exe()?.to_string_lossy());
+        command.args(["--exact", NAME, "--nocapture", "--test-threads=1"]);
+        command.env(SLEEPER, "1");
+        let mut spawned = pair.spawn(command)?;
+        let mut reader = spawned.master.try_clone_reader()?;
+        let mut writer = spawned.master.take_writer()?;
+        let (sender, chunks) = mpsc::channel();
+        std::thread::spawn(move || {
+            let mut buffer = [0u8; 4096];
+            while let Ok(count) = reader.read(&mut buffer) {
+                if count == 0 || sender.send(buffer[..count].to_vec()).is_err() {
+                    break;
+                }
+            }
+        });
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let mut output = Vec::new();
+        let (mut answered, mut interrupted) = (false, false);
+        while Instant::now() < deadline {
+            if let Some(status) = spawned.child.try_wait()? {
+                return Ok(format!("exited {:#x}", status.exit_code()));
+            }
+            match chunks.recv_timeout(Duration::from_millis(100)) {
+                Ok(chunk) => output.extend_from_slice(&chunk),
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => {
+                    let status = spawned.child.wait()?;
+                    return Ok(format!("output closed, then exited {:#x}", status.exit_code()));
+                }
+            }
+            let text = String::from_utf8_lossy(&output);
+            // portable-pty's PSEUDOCONSOLE_INHERIT_CURSOR asks the terminal
+            // for the cursor position first; answer as a terminal would.
+            if !answered && text.contains("\x1b[6n") {
+                writer.write_all(b"\x1b[1;1R")?;
+                writer.flush()?;
+                answered = true;
+            }
+            if !interrupted && text.contains("sleeper-ready") {
+                writer.write_all(b"\x03")?;
+                writer.flush()?;
+                interrupted = true;
+            }
+        }
+        spawned.child.kill()?;
+        let text = String::from_utf8_lossy(&output).escape_debug().to_string();
+        Ok(format!("still running after 30 s (0x03 written: {interrupted}): {text}"))
     }
 }

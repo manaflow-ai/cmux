@@ -1,7 +1,8 @@
 public import Foundation
 
 /// The host's memory pressure as the budget reads it (macOS
-/// kern.memorystatus_vm_pressure_level 1, 2, 4; the dispatch source's events).
+/// kern.memorystatus_vm_pressure_level 1, 2, 4; in the app, the levels of the
+/// shared `MemoryPressureEvents` feed, `HostPressureMonitor`'s `memoryPressure` subscription).
 /// acpmux reports `unknown` when it cannot read the level; it counts as normal.
 public enum HostMemoryPressure: String, Comparable, Sendable, Codable {
     case normal, warn, critical, unknown
@@ -94,8 +95,9 @@ public struct HostBudgetVerdict: Codable, Equatable, Sendable {
     private static let memoryPrefix = "memory pressure "
     private static func memoryReason(_ pressure: HostMemoryPressure) -> String { memoryPrefix + pressure.rawValue }
 
-    /// The same verdict with the newer memory pressure the dispatch source
-    /// reported (the contract lets the app read it itself, for speed).
+    /// The same verdict with the memory pressure of the shared `MemoryPressureEvents` feed
+    /// (`HostPressureMonitor`'s `memoryPressure` subscription; the contract lets the app read it
+    /// itself, for speed).
     public func with(pressure newer: HostMemoryPressure) -> Self {
         guard newer != pressure else { return self }
         var copy = self

@@ -6,7 +6,7 @@ import Testing
 
 /// TypingFrameProbe's `setContents:` override calls its superclass's IMP as it is at the call, so a hook
 /// another tool puts on the superclass later (RenderStats, while armed) runs while it is in and never after.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .enabled(if: TypingFrameProbe.hooksEveryLayer, "renderer-owned frames set no layer contents"))
 struct TypingFrameProbeTests {
     nonisolated class HookedBaseLayer: CALayer {}
     nonisolated final class ProbedLayer: HookedBaseLayer {}
@@ -20,7 +20,7 @@ struct TypingFrameProbeTests {
     @Test func theOverrideCallsTheSuperclassIMPOfTheCall() throws {
         let selector = #selector(setter: CALayer.contents)
         let layer = ProbedLayer()
-        TypingFrameProbe.install(on: layer)
+        TypingFrameProbe.install(on: layer, gate: TerminalContentsGate())
         let root = try #require(class_getInstanceMethod(CALayer.self, selector))
         let rootIMP = method_getImplementation(root)
         let forward = unsafeBitCast(rootIMP, to: SetContents.self)

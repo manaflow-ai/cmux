@@ -42,6 +42,7 @@ final class PageInfoCardView: NSView {
         applyColors()
     }
 
+    // visibility-walk-allow: the glass tint of the bubble's own panel, which no tab node holds (it is ordered out while closed); a few color stores, no layout
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()
@@ -73,6 +74,7 @@ final class PageInfoCardView: NSView {
             view.topAnchor.constraint(equalTo: body.topAnchor, constant: inset / 2),
             view.widthAnchor.constraint(equalToConstant: width - inset),
         ])
+        // sync-layout: fittingSize below measures the page at the bubble width (its labels wrap).
         view.layoutSubtreeIfNeeded()
         let height = view.fittingSize.height + inset
         return CGSize(width: width, height: ceil(height))

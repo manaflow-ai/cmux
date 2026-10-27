@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextLayout
+import CmuxNextWakeups
 import Testing
 
 /// moveWorkspaceToNewWindow in STRESS stalled the main thread 4.77 s (every-action sweep, macOS 27,
@@ -32,7 +33,7 @@ import Testing
     @Test func aRootWithoutAWindowLaysNoPaneOutAtAnEmptySize() {
         let model = LayoutModel(screens: PaneMotionBench.grid(4, 3), activeScreenID: "s", focusedPane: PaneID("p0-0"))
         let provider = Panes()
-        let root = LayoutRootView(model: model, contentProvider: provider)
+        let root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         root.syncWithModel()
         // A structural change before the root is placed (the daemon's echo while the window builds).
         model.apply(screens: PaneMotionBench.grid(4, 3, extraColumn: true))
@@ -46,7 +47,7 @@ import Testing
     /// PL-script): the overlay syncs once when it shows again.
     @Test func aParkedRootSyncsItsOverlayOnlyWhenItShows() throws {
         let model = LayoutModel(screens: PaneMotionBench.grid(2, 1), activeScreenID: "s", focusedPane: PaneID("p0-0"))
-        let root = LayoutRootView(model: model, contentProvider: Panes())
+        let root = LayoutRootView(model: model, contentProvider: Panes(), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         root.context.reduceMotionOverride = true
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = root

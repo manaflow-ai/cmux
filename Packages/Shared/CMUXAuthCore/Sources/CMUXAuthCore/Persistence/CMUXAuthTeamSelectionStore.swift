@@ -7,10 +7,10 @@ import Foundation
 /// tests can use an in-memory store. Empty and whitespace-only values normalize
 /// to `nil` so a cleared selection round-trips as "no selection".
 ///
-/// `@unchecked Sendable`: the only state is the injected key-value store and an
-/// immutable key; the production backing (`UserDefaults`) is Apple-documented
-/// thread-safe, matching ``CMUXAuthSessionCache`` and ``CMUXAuthIdentityStore``.
-public final class CMUXAuthTeamSelectionStore: @unchecked Sendable {
+/// Not `Sendable`: the store belongs to the one isolation domain that owns it
+/// (the main-actor `AuthCoordinator`), like ``CMUXAuthSessionCache`` and
+/// ``CMUXAuthIdentityStore``.
+public final class CMUXAuthTeamSelectionStore {
     private let keyValueStore: CMUXAuthKeyValueStore
     private let key: String
 

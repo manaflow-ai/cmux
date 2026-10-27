@@ -1,6 +1,7 @@
 //! Render attach serialization budget: the render-graphic base64 cache, the
 //! outbound byte budget and budgeted JSON writer, `RenderService`, and the
-//! JSON writers for base64 replays and kitty graphics state.
+//! JSON writers for base64 replays and kitty graphics state, and the frame
+//! variant of the attach writer (server/attach_frames.rs).
 
 use super::AttachWireShape;
 use super::OUTBOUND_CONTROL_BYTE_RESERVE;
@@ -9,13 +10,21 @@ use super::OUTBOUND_GLOBAL_CONTROL_BYTE_CAPACITY;
 use super::RENDER_GRAPHIC_BASE64_CACHE_MAX_BYTES;
 use super::RENDER_GRAPHIC_BASE64_CACHE_MAX_ENTRIES;
 use super::VtStateMessage;
+use super::attach_frames::{
+    AttachFrameEncoder, AttachFrameError, BudgetedFrame, EncodedAttachFrame, RefusedAttachFrame,
+};
+use super::attach_streams::ClientStreamId;
+use super::attach_streams::StreamTagSplice;
 use super::terminal_colors_json;
-use super::write_pending_sequence_json;
+use super::{write_output_flow_json, write_pending_sequence_json};
 use crate::AttachFrame;
 use crate::SurfaceId;
+use crate::TerminalColors;
 use crate::panic_free::JsonFields;
 use crate::panic_free::RecoverPoison;
+use crate::surface::AttachResize;
 use base64::Engine;
+use cmux_threads::sync::Mutex;
 use ghostty_vt::KittyReplayState;
 use serde::Serialize;
 use serde_json::json;
@@ -24,7 +33,6 @@ use std::collections::VecDeque;
 use std::io::Write;
 use std::ops::Deref;
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::sync::Weak;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
@@ -149,11 +157,48 @@ pub(super) struct BudgetedJsonWriter {
     pub(super) retained_bytes: usize,
     pub(super) reservation_bytes: usize,
     pub(super) budget: Arc<OutboundByteBudget>,
+    /// The client stream id spliced into the object this writer serializes.
+    tag: StreamTagSplice,
 }
 
 impl BudgetedJsonWriter {
     pub(super) fn new(budget: Arc<OutboundByteBudget>) -> Self {
-        Self { bytes: Vec::new(), retained_bytes: 0, reservation_bytes: 0, budget }
+        Self {
+            bytes: Vec::new(),
+            retained_bytes: 0,
+            reservation_bytes: 0,
+            budget,
+            tag: StreamTagSplice::Done,
+        }
+    }
+
+    /// A writer whose one JSON object gets `"stream": id` as its first
+    /// member when `stream` is set.
+    fn tagged(budget: Arc<OutboundByteBudget>, stream: Option<ClientStreamId>) -> Self {
+        let mut writer = Self::new(budget);
+        writer.tag = StreamTagSplice::of(stream);
+        writer
+    }
+
+    /// The finished text; an item whose tag was not spliced (nothing, or
+    /// not an object, was written) is refused.
+    fn finish_tagged(self) -> std::io::Result<Arc<BudgetedText>> {
+        if self.tag != StreamTagSplice::Done {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "a stream item must be one JSON object",
+            ));
+        }
+        Ok(self.finish())
+    }
+
+    fn append(&mut self, bytes: &[u8]) -> std::io::Result<()> {
+        let required_len = self.bytes.len().checked_add(bytes.len()).ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "serialized message is too large")
+        })?;
+        self.ensure_capacity(required_len)?;
+        self.bytes.extend_from_slice(bytes);
+        Ok(())
     }
 
     pub(super) fn with_reservation(
@@ -231,12 +276,37 @@ impl BudgetedJsonWriter {
 
 impl Write for BudgetedJsonWriter {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        let required_len = self.bytes.len().checked_add(bytes.len()).ok_or_else(|| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, "serialized message is too large")
-        })?;
-        self.ensure_capacity(required_len)?;
-        self.bytes.extend_from_slice(bytes);
-        Ok(bytes.len())
+        let mut rest = bytes;
+        loop {
+            match self.tag {
+                StreamTagSplice::Done => {
+                    self.append(rest)?;
+                    return Ok(bytes.len());
+                }
+                StreamTagSplice::Open(stream) => {
+                    let Some((&b'{', tail)) = rest.split_first() else {
+                        if rest.is_empty() {
+                            return Ok(bytes.len());
+                        }
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "a stream item must be one JSON object",
+                        ));
+                    };
+                    self.append(b"{\"stream\":")?;
+                    self.append(stream.0.to_string().as_bytes())?;
+                    self.tag = StreamTagSplice::Member;
+                    rest = tail;
+                }
+                StreamTagSplice::Member => {
+                    let Some(&next) = rest.first() else { return Ok(bytes.len()) };
+                    if next != b'}' {
+                        self.append(b",")?;
+                    }
+                    self.tag = StreamTagSplice::Done;
+                }
+            }
+        }
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
@@ -286,29 +356,57 @@ impl RenderService {
         self.graphic_base64.lock().recover_poison().encode(data)
     }
 
+    #[cfg(test)]
     pub(super) fn serialize<T: Serialize + ?Sized>(
         &self,
         value: &T,
     ) -> std::io::Result<Arc<BudgetedText>> {
-        let mut writer = BudgetedJsonWriter::new(self.outbound_budget.clone());
+        self.serialize_for(value, None)
+    }
+
+    /// `value` as an item of a stream, tagged with `stream` when the client
+    /// minted the stream's id (attach-streams-v1).
+    pub(super) fn serialize_for<T: Serialize + ?Sized>(
+        &self,
+        value: &T,
+        stream: Option<ClientStreamId>,
+    ) -> std::io::Result<Arc<BudgetedText>> {
+        let mut writer = BudgetedJsonWriter::tagged(self.outbound_budget.clone(), stream);
         serde_json::to_writer(&mut writer, value).map_err(json_error_to_io)?;
-        Ok(writer.finish())
+        writer.finish_tagged()
     }
 
     pub(super) fn serialize_control<T: Serialize + ?Sized>(
         &self,
         value: &T,
     ) -> std::io::Result<Arc<BudgetedText>> {
-        let mut writer = BudgetedJsonWriter::new(self.control_budget.clone());
-        serde_json::to_writer(&mut writer, value).map_err(json_error_to_io)?;
-        Ok(writer.finish())
+        self.serialize_control_for(value, None)
     }
 
+    pub(super) fn serialize_control_for<T: Serialize + ?Sized>(
+        &self,
+        value: &T,
+        stream: Option<ClientStreamId>,
+    ) -> std::io::Result<Arc<BudgetedText>> {
+        let mut writer = BudgetedJsonWriter::tagged(self.control_budget.clone(), stream);
+        serde_json::to_writer(&mut writer, value).map_err(json_error_to_io)?;
+        writer.finish_tagged()
+    }
+
+    #[cfg(test)]
     pub(super) fn serialize_vt_state(
         &self,
         value: &VtStateMessage,
     ) -> std::io::Result<Arc<BudgetedText>> {
-        let mut writer = BudgetedJsonWriter::new(self.outbound_budget.clone());
+        self.serialize_vt_state_for(value, None)
+    }
+
+    pub(super) fn serialize_vt_state_for(
+        &self,
+        value: &VtStateMessage,
+        stream: Option<ClientStreamId>,
+    ) -> std::io::Result<Arc<BudgetedText>> {
+        let mut writer = BudgetedJsonWriter::tagged(self.outbound_budget.clone(), stream);
         write!(
             writer,
             "{{\"event\":\"vt-state\",\"surface\":{},\"cols\":{},\"rows\":{},\"data\":\"",
@@ -330,93 +428,50 @@ impl RenderService {
         serde_json::to_writer(&mut writer, &value.colors).map_err(json_error_to_io)?;
         write_pending_sequence_json(&mut writer, &value.pending_sequence)?;
         writer.write_all(b"}")?;
-        Ok(writer.finish())
+        writer.finish_tagged()
     }
 
+    #[cfg(test)]
     pub(super) fn serialize_attach_frame(
         &self,
         surface: SurfaceId,
         frame: &AttachFrame,
         shape: AttachWireShape,
     ) -> std::io::Result<Arc<BudgetedText>> {
-        let include_color_overrides = shape.color_overrides;
-        let mut writer = BudgetedJsonWriter::new(self.outbound_budget.clone());
-        match frame {
-            AttachFrame::Output(output) => {
-                write!(writer, "{{\"event\":\"output\",\"surface\":{surface},\"data\":\"")?;
-                write_base64_json_string(&mut writer, output)?;
-                writer.write_all(b"\"}")?;
+        self.serialize_attach_frame_for(surface, frame, shape, None)
+    }
+
+    pub(super) fn serialize_attach_frame_for(
+        &self,
+        surface: SurfaceId,
+        frame: &AttachFrame,
+        shape: AttachWireShape,
+        stream: Option<ClientStreamId>,
+    ) -> std::io::Result<Arc<BudgetedText>> {
+        let mut writer = BudgetedJsonWriter::tagged(self.outbound_budget.clone(), stream);
+        if let AttachFrame::ColorsChanged(colors) = frame {
+            write_colors_changed_json(&mut writer, surface, colors, shape)?;
+        } else if let Some(resize) = frame.resize() {
+            write!(
+                writer,
+                "{{\"event\":\"resized\",\"surface\":{surface},\"cols\":{},\"rows\":{},\"replay\":\"",
+                resize.cols, resize.rows
+            )?;
+            write_resized_replay_json(&mut writer, resize.replay, resize.pending_sequence, shape)?;
+            writer.write_all(b"\"")?;
+            write_resized_state_fields(&mut writer, &resize, shape)?;
+            if shape.pending_sequence {
+                write_pending_sequence_json(&mut writer, resize.pending_sequence)?;
             }
-            AttachFrame::OutputWithColors { output, colors } => {
-                write!(writer, "{{\"event\":\"output\",\"surface\":{surface},\"data\":\"")?;
-                write_base64_json_string(&mut writer, output)?;
-                writer.write_all(b"\",\"colors\":")?;
-                serde_json::to_writer(
-                    &mut writer,
-                    &terminal_colors_json(**colors, include_color_overrides),
-                )
-                .map_err(json_error_to_io)?;
-                writer.write_all(b"}")?;
-            }
-            AttachFrame::Resized {
-                cols,
-                rows,
-                replay,
-                kitty_image_aliases,
-                kitty_state,
-                pending_sequence,
-            } => {
-                write!(
-                    writer,
-                    "{{\"event\":\"resized\",\"surface\":{surface},\"cols\":{cols},\"rows\":{rows},\"replay\":\""
-                )?;
-                write_resized_replay_json(&mut writer, replay, pending_sequence, shape)?;
-                writer.write_all(b"\",\"kitty_image_aliases\":")?;
-                write_kitty_image_aliases_json(&mut writer, kitty_image_aliases)?;
-                writer.write_all(b",\"kitty_graphics_state\":")?;
-                write_kitty_replay_state_json(&mut writer, *kitty_state)?;
-                if shape.pending_sequence {
-                    write_pending_sequence_json(&mut writer, pending_sequence)?;
-                }
-                writer.write_all(b"}")?;
-            }
-            AttachFrame::ResizedWithColors {
-                cols,
-                rows,
-                replay,
-                kitty_image_aliases,
-                kitty_state,
-                colors,
-                pending_sequence,
-            } => {
-                write!(
-                    writer,
-                    "{{\"event\":\"resized\",\"surface\":{surface},\"cols\":{cols},\"rows\":{rows},\"replay\":\""
-                )?;
-                write_resized_replay_json(&mut writer, replay, pending_sequence, shape)?;
-                writer.write_all(b"\",\"kitty_image_aliases\":")?;
-                write_kitty_image_aliases_json(&mut writer, kitty_image_aliases)?;
-                writer.write_all(b",\"kitty_graphics_state\":")?;
-                write_kitty_replay_state_json(&mut writer, *kitty_state)?;
-                writer.write_all(b",\"colors\":")?;
-                serde_json::to_writer(
-                    &mut writer,
-                    &terminal_colors_json(**colors, include_color_overrides),
-                )
-                .map_err(json_error_to_io)?;
-                if shape.pending_sequence {
-                    write_pending_sequence_json(&mut writer, pending_sequence)?;
-                }
-                writer.write_all(b"}")?;
-            }
-            AttachFrame::ColorsChanged(colors) => {
-                let mut value = terminal_colors_json(**colors, include_color_overrides);
-                value.insert("event", json!("colors-changed"));
-                value.insert("surface", json!(surface));
-                serde_json::to_writer(&mut writer, &value).map_err(json_error_to_io)?;
-            }
+            writer.write_all(b"}")?;
+        } else if let Some(output) = frame.output() {
+            write!(writer, "{{\"event\":\"output\",\"surface\":{surface},\"data\":\"")?;
+            write_base64_json_string(&mut writer, output)?;
+            writer.write_all(b"\"")?;
+            write_output_sidecar_fields(&mut writer, frame.output_colors(), frame.flow(), shape)?;
+            writer.write_all(b"}")?;
         }
-        Ok(writer.finish())
+        writer.finish_tagged()
     }
 
     pub(super) fn reserved_control_writer(&self) -> std::io::Result<BudgetedJsonWriter> {
@@ -424,6 +479,33 @@ impl RenderService {
             self.control_budget.clone(),
             OUTBOUND_CONTROL_BYTE_RESERVE,
         )
+    }
+}
+
+/// Attach frames are bound with `attach-frames-v1` (`IpcTransports::BOUND`)
+/// once the outbound queue carries stream frames; until then only tests
+/// encode them.
+#[cfg_attr(not(test), expect(dead_code, reason = "no transport serves attach-frames-v1 yet"))]
+impl RenderService {
+    /// The frame variant of [`Self::serialize_attach_frame`] for a stream
+    /// granted `attach-frames-v1`: raw OUTPUT, GRID and EVENT frames
+    /// (server/attach_frames.rs), charged to the same outbound budget.
+    pub(super) fn encode_attach_frame(
+        &self,
+        encoder: &mut AttachFrameEncoder,
+        frame: AttachFrame,
+    ) -> Result<EncodedAttachFrame, RefusedAttachFrame> {
+        encoder.encode(frame, &self.outbound_budget)
+    }
+
+    /// Another attach event (`detached`, `overflow`) as an EVENT frame at
+    /// the stream's current offset.
+    pub(super) fn encode_attach_event<T: Serialize + ?Sized>(
+        &self,
+        encoder: &AttachFrameEncoder,
+        value: &T,
+    ) -> Result<BudgetedFrame, AttachFrameError> {
+        encoder.event(value, &self.outbound_budget)
     }
 }
 
@@ -466,8 +548,56 @@ fn write_resized_replay_json(
     }
 }
 
-pub(super) fn write_kitty_image_aliases_json(
+/// `,"colors":…` and `,"flow":N` of an `output` event: the fields that ride
+/// beside its bytes, in the JSON line and in an output sidecar EVENT.
+pub(super) fn write_output_sidecar_fields(
     writer: &mut BudgetedJsonWriter,
+    colors: Option<&TerminalColors>,
+    flow: u64,
+    shape: AttachWireShape,
+) -> std::io::Result<()> {
+    if let Some(colors) = colors {
+        writer.write_all(b",\"colors\":")?;
+        serde_json::to_writer(&mut *writer, &terminal_colors_json(*colors, shape.color_overrides))
+            .map_err(json_error_to_io)?;
+    }
+    write_output_flow_json(writer, flow)
+}
+
+/// The fields of a `resized` event after its replay: Kitty aliases and
+/// state, then the colors of a `ResizedWithColors`.
+pub(super) fn write_resized_state_fields(
+    writer: &mut BudgetedJsonWriter,
+    resize: &AttachResize<'_>,
+    shape: AttachWireShape,
+) -> std::io::Result<()> {
+    writer.write_all(b",\"kitty_image_aliases\":")?;
+    write_kitty_image_aliases_json(writer, resize.kitty_image_aliases)?;
+    writer.write_all(b",\"kitty_graphics_state\":")?;
+    write_kitty_replay_state_json(writer, resize.kitty_state)?;
+    if let Some(colors) = resize.colors {
+        writer.write_all(b",\"colors\":")?;
+        serde_json::to_writer(&mut *writer, &terminal_colors_json(*colors, shape.color_overrides))
+            .map_err(json_error_to_io)?;
+    }
+    Ok(())
+}
+
+/// The whole `colors-changed` event.
+pub(super) fn write_colors_changed_json(
+    writer: &mut BudgetedJsonWriter,
+    surface: SurfaceId,
+    colors: &TerminalColors,
+    shape: AttachWireShape,
+) -> std::io::Result<()> {
+    let mut value = terminal_colors_json(*colors, shape.color_overrides);
+    value.insert("event", json!("colors-changed"));
+    value.insert("surface", json!(surface));
+    serde_json::to_writer(writer, &value).map_err(json_error_to_io)
+}
+
+pub(super) fn write_kitty_image_aliases_json(
+    writer: &mut impl Write,
     aliases: &[ghostty_vt::KittyImageAlias],
 ) -> std::io::Result<()> {
     writer.write_all(b"[")?;
@@ -485,7 +615,7 @@ pub(super) fn write_kitty_image_aliases_json(
 }
 
 pub(super) fn write_kitty_replay_state_json(
-    writer: &mut BudgetedJsonWriter,
+    writer: &mut impl Write,
     state: KittyReplayState,
 ) -> std::io::Result<()> {
     write!(

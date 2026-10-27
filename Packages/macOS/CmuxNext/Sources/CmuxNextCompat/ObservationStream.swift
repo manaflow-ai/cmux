@@ -1,12 +1,27 @@
 internal import Darwin
 internal import Observation
 internal import os
+internal import class CmuxSafeConcurrency.OnceContinuation
+internal import enum CmuxSafeConcurrency.OnceContinuationError
+internal import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The values of a main-actor expression over time, with the call shape of
 /// the Observation module's `Observations` sequence (macOS 26), so that
 /// cmux-next runs on macOS 14 (plans/cmux-next/macos-floor.md, cx-s6wi.4).
 ///
 ///     for await scale in ObservationStream({ DesignSettings.shared.uiScale }) { ... }
+///
+/// New code does not add a loop over this type (plans/cmux-next/chrome-parity/p06-scheduler.md,
+/// rule 3 and Q2). A loop's flushes run in no class and keep no owner, and a hidden view's loop
+/// keeps reading. Use one of the two scheduled observers in CmuxNextWakeups instead, each with
+/// a class and an owner:
+/// - `VisibleObservation(node, owner:, on:, read:, apply:)` when `apply` only touches views: it stops
+///   reading while its visibility node is hidden.
+/// - `ServiceObservation(class, owner:, on:, read:, apply:)` for anything else (the model, the
+///   daemon, the disk, another owner): it keeps running while hidden.
+/// Both coalesce a burst of changes to one task per frame and cancel when their token is
+/// released. Swift cannot deprecate this type for some importing targets only, so the Q2
+/// `git grep` count is the guard, not an `@available` attribute.
 ///
 /// On macOS 26 and later every iterator forwards to the system `Observations`,
 /// so the main population runs Apple's code. On macOS 14 and 15 the iterator
@@ -255,7 +270,7 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
     /// the one waiting `next()`.
     fileprivate final class ChangeState: Sendable {
         private struct Inner {
-            var waiter: CheckedContinuation<Void, Never>?
+            var waiter: OnceContinuation<Void, OnceContinuationError>?
             var dirty = false
             var cancelled = false
         }
@@ -265,7 +280,7 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
         /// The will-set callback: wakes the waiting `next()`, or marks the
         /// state dirty so the next `next()` does not wait.
         func changed() {
-            let waiter = inner.withLock { s -> CheckedContinuation<Void, Never>? in
+            let waiter = inner.withLock { s -> OnceContinuation<Void, OnceContinuationError>? in
                 guard let waiter = s.waiter else {
                     s.dirty = true
                     return nil
@@ -273,24 +288,25 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
                 s.waiter = nil
                 return waiter
             }
-            waiter?.resume()
+            waiter?.resume(returning: ())
         }
 
         /// Ends every wait now and later.
         func cancel() {
-            let waiter = inner.withLock { s -> CheckedContinuation<Void, Never>? in
+            let waiter = inner.withLock { s -> OnceContinuation<Void, OnceContinuationError>? in
                 s.cancelled = true
                 defer { s.waiter = nil }
                 return s.waiter
             }
-            waiter?.resume()
+            waiter?.resume(returning: ())
         }
 
         /// Returns after the next change, at once when a change came since the
         /// last evaluation or the iteration was cancelled.
         /// Runs on the caller's isolation (nonisolated(nonsending)).
         func waitForChange() async {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            // A dropped waiter returns as a change does: the iteration evaluates again.
+            _ = try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
                 let resumeNow = inner.withLock { s -> Bool in
                     if s.cancelled || s.dirty {
                         s.dirty = false
@@ -299,7 +315,7 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
                     s.waiter = continuation
                     return false
                 }
-                if resumeNow { continuation.resume() }
+                if resumeNow { continuation.resume(returning: ()) }
             }
         }
     }
@@ -322,8 +338,10 @@ public struct ObservationTrigger<Value: Sendable>: Sendable {
 struct ObservationStreamNativeOptIn {
     static let enabled: Bool = {
         #if DEBUG
-        guard let raw = getenv("CMUX_NEXT_DEBUG_NATIVE_OBSERVATIONS") else { return false }
-        return String(cString: raw) == "1"
+        // SAFETY: getenv returns the environment's own NUL-terminated value or NULL, copied at once into a String
+        // here, before this one-time read returns.
+        guard let raw = unsafe getenv("CMUX_NEXT_DEBUG_NATIVE_OBSERVATIONS") else { return false }
+        return unsafe String(cString: raw) == "1"
         #else
         return false
         #endif

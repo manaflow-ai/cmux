@@ -1,4 +1,5 @@
 import CmuxFeedPushCore
+import CmuxNextCompat
 import CmuxNextFeed
 import CryptoKit
 import Foundation
@@ -87,7 +88,7 @@ enum FeedApproveProofCheck {
     static func context(ofToken token: String) -> Context? {
         let parts = token.split(separator: ".")
         guard parts.count == 3, let data = base64URL(String(parts[1])),
-              let claims = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let claims = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any],
               let issuer = claims["iss"] as? String, issuer.hasPrefix("https://cmux-api/"),
               let user = claims["sub"] as? String, !user.isEmpty,
               let install = claims["inst"] as? String, !install.isEmpty else { return nil }

@@ -31,6 +31,13 @@ public enum MetricKey: String, Sendable, CaseIterable, Codable {
 public final class DesignSettings {
     public static let shared = DesignSettings()
 
+    /// Reduce Motion, the motion switches, hover cards, the inactive dim and the system display
+    /// options as one observable, with a subscription for owners outside Observation
+    /// (``AppearanceSignals``). The setters below tell it what changed.
+    @ObservationIgnored public private(set) lazy var signals = AppearanceSignals(design: self, display: readDisplay)
+    /// Reads the system's display options for ``signals``.
+    private let readDisplay: @MainActor () -> AppearanceSignals.DisplayOptions
+
     /// Intentional Command/Control hold hints (`shortcuts.showModifierHoldHints`).
     public var showModifierHoldHints = true
     /// `appearance.density`: the active density's token set (plans/cmux-next/density-DESIGN.md).
@@ -62,29 +69,29 @@ public final class DesignSettings {
     }
     /// `agentPane.zoom`, the focused agent chat's own display scale.
     public var agentPaneZoom: CGFloat = 1
-    /// `ui.animationSpeed`: how fast chrome animates (see `Motion`). A change posts
-    /// `Motion.speedDidChange` for hosts outside Observation (a video wallpaper's player).
+    /// `ui.animationSpeed`: how fast chrome animates (see `Motion`). A change raises
+    /// ``AppearanceSignals/Signal/motion`` for hosts outside Observation (a video wallpaper's player).
     public var animationSpeed: MotionSpeed = .fast {
         didSet {
             guard animationSpeed != oldValue else { return }
-            NotificationCenter.default.post(name: Motion.speedDidChange, object: nil)
+            signals.designChanged([.motion])
         }
     }
     /// `ui.animations.enabled`, the master motion switch: false makes every
     /// animation in the app instant, whatever the category switches say
-    /// (``MotionGate``). Posts `Motion.speedDidChange` like the speed.
+    /// (``MotionGate``). Raises ``AppearanceSignals/Signal/motion`` like the speed.
     public var animationsEnabled = true {
         didSet {
             guard animationsEnabled != oldValue else { return }
-            NotificationCenter.default.post(name: Motion.speedDidChange, object: nil)
+            signals.designChanged([.motion])
         }
     }
     /// The categories whose `ui.animations.<category>` is false: their
-    /// animations are instant (``MotionCategory``). Posts `Motion.speedDidChange`.
+    /// animations are instant (``MotionCategory``). Raises ``AppearanceSignals/Signal/motion``.
     public var disabledAnimationCategories: Set<MotionCategory> = [] {
         didSet {
             guard disabledAnimationCategories != oldValue else { return }
-            NotificationCenter.default.post(name: Motion.speedDidChange, object: nil)
+            signals.designChanged([.motion])
         }
     }
     /// `appearance.colorTransition.*`: how theme and color changes animate (``ColorTransition``;
@@ -92,12 +99,12 @@ public final class DesignSettings {
     /// next theme payload.
     public var colorTransition = ColorTransition()
     /// `appearance.inactiveWindowDim`: how much more of the theme color covers a window that is
-    /// not key (``WindowMaterialView``); 0, the default, keeps its look. Posts
-    /// `WindowMaterialView.inactiveDimDidChange`.
+    /// not key (``WindowMaterialView``); 0, the default, keeps its look. Raises
+    /// ``AppearanceSignals/Signal/inactiveDim``.
     public var inactiveWindowDim = 0.0 {
         didSet {
             guard inactiveWindowDim != oldValue else { return }
-            NotificationCenter.default.post(name: WindowMaterialView.inactiveDimDidChange, object: nil)
+            signals.designChanged([.inactiveDim])
         }
     }
     /// `ui.animations.bounce`: structural springs are critically damped or bounce subtly.
@@ -105,6 +112,19 @@ public final class DesignSettings {
     /// The `ui.animations.{newTab,newWorkspace}` kinds on: new tabs by default
     /// (`AnimationKindsSetting.defaultEnabled`), new workspaces off.
     public var enabledAnimations: Set<MotionKind> = [.newTab]
+    /// Feature `frameRateClasses`, set once at launch by the composition root: looping indicators
+    /// ask the render server for their own rate (``MotionPolicy/pacesLoops``).
+    public var loopsFollowFrameRate = false
+    /// Energy Saver is on (`EnergyPolicy.isSaver`): ambient motion loops hold still
+    /// (``MotionPolicy/energySaver``). The composition root writes it from the app's
+    /// `EnergyPolicySource`; it stays false while feature `energySaver` is off. Raises
+    /// ``AppearanceSignals/Signal/motion`` like the speed, so hosts outside Observation follow.
+    public var energySaver = false {
+        didSet {
+            guard energySaver != oldValue else { return }
+            signals.designChanged([.motion])
+        }
+    }
     /// `ui.paneAnimations`: pane layout changes spring when true (see
     /// `Motion.animatesPaneLayout`); on by default.
     public var paneAnimations = true
@@ -132,23 +152,23 @@ public final class DesignSettings {
     /// `sidebar.*`: section look and pinned band caps.
     public var sidebarSections = SidebarSectionsPreferences.defaults
     /// `sidebar.hoverCards.enabled`: off, no hover card opens on hover (sidebar rows, tabs, and a
-    /// user's custom card). A change posts `hoverCardsDidChange` so a shown card goes at once.
+    /// user's custom card). A change raises ``AppearanceSignals/Signal/hoverCards`` so a shown
+    /// card goes at once.
     public var hoverCardsEnabled = true {
         didSet {
             guard hoverCardsEnabled != oldValue else { return }
-            NotificationCenter.default.post(name: Self.hoverCardsDidChange, object: nil)
+            signals.designChanged([.hoverCards])
         }
     }
     /// `ui.calm` (``CalmMode``): Reduce Motion behavior, no hover cards and no hover fills, and
-    /// with `still` no animation at all. A change posts the motion, Reduce Motion and hover-card
-    /// notifications, so cached motion values re-read and a shown card goes at once.
+    /// with `still` no animation at all. A change raises the motion, Reduce Motion and hover-card
+    /// signals, so cached motion values re-read and a shown card goes at once.
     public var calmMode: CalmMode = .off {
         didSet {
             guard calmMode != oldValue else { return }
-            let center = NotificationCenter.default
-            center.post(name: Motion.speedDidChange, object: nil)
-            center.post(name: Motion.reduceMotionDidChange, object: nil)
-            center.post(name: Self.hoverCardsDidChange, object: nil)
+            var changed: Set<AppearanceSignals.Signal> = [.motion, .hoverCards]
+            if calmMode.reducesMotion != oldValue.reducesMotion { changed.insert(.reduceMotion) }
+            signals.designChanged(changed)
             ThemeScope.app.store.repaintAll()
         }
     }
@@ -266,7 +286,15 @@ public final class DesignSettings {
     /// `appearance.paneBackgrounds`: one background for the window or a copy per pane.
     public var paneBackgrounds: PaneBackgroundMode = .shared
 
-    public init() {}
+    /// Settings whose ``signals`` read this Mac's display options.
+    public init() {
+        readDisplay = { AppearanceSignals.DisplayOptions.system }
+    }
+
+    /// Settings whose ``signals`` read the display options from `display` (tests).
+    init(display: @escaping @MainActor () -> AppearanceSignals.DisplayOptions) {
+        readDisplay = display
+    }
 
     public func setOverride(_ key: MetricKey, _ value: CGFloat?) {
         guard let value else {

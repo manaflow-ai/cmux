@@ -23,7 +23,7 @@ import UniformTypeIdentifiers
 
     /// A real 4×3 PNG named `name` in a new folder.
     private static func png(_ name: String = "shot.png") throws -> URL {
-        let rep = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 4, pixelsHigh: 3, bitsPerSample: 8,
+        let rep = try #require(NSBitmapImageRep.owned(pixelsWide: 4, pixelsHigh: 3, bitsPerSample: 8,
                                                 samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
                                                 colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
         rep.setColor(.systemRed, atX: 1, y: 1)

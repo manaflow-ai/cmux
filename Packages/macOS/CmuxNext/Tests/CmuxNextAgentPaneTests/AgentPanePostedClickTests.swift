@@ -1,5 +1,7 @@
 import AppKit
+import CmuxNextPages
 import CmuxNextPagesTestSupport
+import CmuxNextWakeups
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -27,12 +29,8 @@ struct AgentPanePostedClickTests {
     }
 
     @Test func aClickPostedByAnotherProcessGrantsNothingAndThePersonsDoes() throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: "posted-click-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let file = directory.appending(path: "index.html")
-        try Data("<html><body><button>Allow</button></body></html>".utf8).write(to: file)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file)))
+        let file = try #require(AgentPageTestRoot.page)
+        let view = try #require(AgentPaneView(mainThread: .standalone(), model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: .agentPaneTestHost(), gestures: .testing()))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -45,7 +43,7 @@ struct AgentPanePostedClickTests {
         // Another process (not this one, not the HID system) posted the click on Allow.
         let foreign = Int64(getpid()) + 1
         let posted = try Self.click(in: window, source: foreign)
-        try #require(view.webView.bounds.contains(view.webView.convert(posted.locationInWindow, from: nil)),
+        try #require(view.page.bounds.contains(view.page.convert(posted.locationInWindow, from: nil)),
                      "the test click misses the page (\(posted.locationInWindow)); the check below would prove nothing")
         view.judge(posted, eventWindow: window)
         #expect(!gestures.isAvailable, "a click another process posted counted as the person's gesture")
@@ -62,8 +60,8 @@ struct AgentPanePostedClickTests {
     @Test func aReturnFromChromiumStillCountsWhenItsChildWindowIsNotKey() async throws {
         let file = try #require(AgentPageTestRoot.page)
         let hosting = FakeChromiumHosting()
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file),
-                                              pageHost: true, chromium: hosting))
+        let view = try #require(AgentPaneView(mainThread: .standalone(), model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file),
+                                              webUI: .agentPaneTestHost(chromium: hosting), gestures: .testing()))
         view.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
         let paneWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless],
                                   backing: .buffered, defer: false)

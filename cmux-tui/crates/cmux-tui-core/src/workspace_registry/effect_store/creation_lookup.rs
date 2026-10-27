@@ -3,6 +3,7 @@
 use super::*;
 
 impl WorkspaceRegistry {
+    #[track_caller]
     pub fn lookup_resource_creation(
         &self,
         correlation_key: &str,

@@ -1,6 +1,7 @@
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 
 /// Where browser profile records live and how edits reach them
@@ -31,15 +32,16 @@ extension BrowserProfileService {
     }
 
     /// Gives both engines each profile's proxy (#24432); a profile without one goes direct.
-    /// A record whose proxy this app cannot read keeps its pages off the direct path.
+    /// A record whose proxy this app cannot read keeps its pages off the direct path. A Chromium engine not built
+    /// yet is left unbuilt; it takes the proxies as it is built (`observeHomeRecords`).
     func applyProxies() {
         guard usesDaemonRecords else { return }
-        let webKit = services.cache.webKit.profileStore, cef = services.cache.cef
+        let webKit = services.cache.webKit.profileStore, cef = services.cache.chromium.built
         for snapshot in services.machines.local.store.personal.browserProfiles {
             guard let profile = BrowserProfileRecord.engineProfile(for: snapshot.id) else { continue }
             let proxy = snapshot.proxy.map { Self.proxy(from: $0) ?? Self.unreadableProxy }
             webKit.setProxy(proxy, for: profile)
-            cef.setProxy(proxy, for: profile)
+            cef?.setProxy(proxy, for: profile)
         }
     }
 
@@ -103,18 +105,37 @@ extension BrowserProfileService {
     /// Watches the home daemon's personal state: the first time it serves
     /// browser profile records, this Mac's file records are copied there
     /// once; every later change of the records re-renders tabs and omnibars.
+    ///
+    /// R-obs: a ``ServiceObservation`` in the visible class, not a view's: its apply copies records to the
+    /// daemon and re-renders every tab's profile, hidden windows' too. A trigger, so each change of the
+    /// records applies.
     func observeHomeRecords() {
-        // task-owner: lives as long as the service; event-driven (Observation)
-        homeRecordsObservation = Task { [weak self] in
-            guard let store = self?.services.machines.local.store else { return }
-            for await (serves, records) in ObservationStream({ [weak self] in
-                (self?.daemonServesRecords ?? false, store.personal.browserProfiles)
-            }) {
-                guard let self else { return }
-                _ = records
-                if serves, !book.recordsMigrated { await migrateRecordsToDaemon() }
-                refreshPresentation()
-                applyProxies()
+        services.cache.chromium.whenBuilt { [weak self] _ in self?.applyProxies() }  // before its first page's request
+        let store = services.machines.local.store
+        homeRecordsObservation = ServiceObservation(.visible, owner: "BrowserProfiles.homeRecords", on: services.mainWork) { [weak self] in
+            _ = store.personal.browserProfiles
+            return ObservationTrigger(self?.daemonServesRecords ?? false)
+        } apply: { [weak self] serves in
+            self?.homeRecordsChanged(serves: serves.value)
+        }
+    }
+
+    /// The home daemon's records, or whether it serves them, changed: the first time it serves them, this Mac's
+    /// file records are copied there and the tabs re-render once the copy ended; otherwise they re-render now.
+    private func homeRecordsChanged(serves: Bool) {
+        guard serves, !book.recordsMigrated else {
+            refreshPresentation()
+            applyProxies()
+            return
+        }
+        let mainWork = services.mainWork
+        // task-owner: one copy of the file records (`migratingRecords` admits one at a time). R-hop: a nonisolated
+        // task awaits the copy's daemon calls; the re-render after it is one visible task.
+        services.work.task(.userVisible) { [weak self] in
+            await self?.migrateRecordsToDaemon()
+            mainWork.postFromAnyThread(.visible, owner: "BrowserProfiles.migrated") { [weak self] in
+                self?.refreshPresentation()
+                self?.applyProxies()
             }
         }
     }
