@@ -216,8 +216,9 @@ class StaleExitTests(unittest.TestCase):
 
 
 def queued_job(name, minutes_ago, labels, status="queued"):
-    return {"name": name, "status": status, "labels": labels,
-            "started_at": (NOW - dt.timedelta(minutes=minutes_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")}
+    # The Actions jobs payload: created_at is the queue time; a queued job has no runner start yet.
+    return {"name": name, "status": status, "labels": labels, "started_at": None,
+            "created_at": (NOW - dt.timedelta(minutes=minutes_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")}
 
 
 class QueuedGateTests(unittest.TestCase):
@@ -245,6 +246,32 @@ class QueuedGateTests(unittest.TestCase):
         runs = [run(30 + i, 1, status="queued", conclusion=None) for i in range(10)]
         watch.queued_gates(NOW, [("nightly.yml", runs)], lambda r: read.append(r["id"]) or [])
         self.assertEqual(len(read), watch.GATE_RUNS_READ)
+
+    def test_queue_age_is_from_created_at_not_started_at(self):
+        job = queued_job(self.DAEMON, 45, ["l"])
+        job["started_at"] = (NOW - dt.timedelta(minutes=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        out = self.gates({21: [job]}, [("cmux-tui-artifacts.yml", [run(21, 1, status="in_progress", conclusion=None)])])
+        self.assertIn("queued 45 min", out)
+
+    def test_reads_in_progress_runs_whose_gate_job_still_waits(self):
+        class Listing(watch.GitHub):
+            def __init__(self):
+                super().__init__("o/r", "t", dry_run=True)
+                self.paths = []
+
+            def call(self, method, path, body=None):
+                self.paths.append(path)
+                status = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(path).query))["status"]
+                runs = {"queued": [run(1, 0.2, status="queued", conclusion=None)],
+                        "in_progress": [run(2, 1, status="in_progress", conclusion=None),
+                                        run(1, 0.2, status="queued", conclusion=None)]}[status]
+                return {"workflow_runs": runs}
+
+        gh = Listing()
+        runs = gh.queued_runs("cmux-tui-artifacts.yml", "feat-cmux-next")
+        self.assertEqual([r["id"] for r in runs], [1, 2], "deduplicated, newest first")
+        self.assertTrue(any("status=in_progress" in p for p in gh.paths))
+        self.assertTrue(any("status=queued" in p for p in gh.paths))
 
     def test_watches_the_promotion_gate_and_the_publish_gate(self):
         self.assertIn(("cmux-tui-artifacts.yml", "feat-cmux-next"), watch.GATE_RUNS)

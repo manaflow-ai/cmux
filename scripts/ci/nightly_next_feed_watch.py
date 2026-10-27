@@ -81,7 +81,7 @@ TICK_WORKFLOW = "nightly-next-tick.yml"
 # runner on its label; the alarm names it with that label.
 GATE_RUNS = (("cmux-tui-artifacts.yml", "feat-cmux-next"), ("nightly.yml", "nightly-next"))
 GATE_QUEUED_MINUTES = 10.0
-GATE_RUNS_READ = 3  # queued runs read per workflow, newest first
+GATE_RUNS_READ = 5  # queued or in-progress runs read per workflow, newest first
 TICK_ANNOTATION = "nightly-next tick"  # the tick's refusal tally
 PUBLISHED_MARKER = re.compile(r"<!--\s*cmux-published-sha:\s*([0-9a-f]{40})\s*-->", re.IGNORECASE)
 
@@ -147,7 +147,8 @@ def queued_gates(now: dt.datetime, runs_by_workflow: list[tuple[str, list[dict]]
             for job in jobs_of(run):
                 if job.get("status") != "queued":
                     continue
-                since = job.get("started_at") or job.get("created_at") or run.get("created_at")
+                # created_at is when the job was queued; started_at is the runner's start.
+                since = job.get("created_at") or job.get("started_at") or run.get("created_at")
                 try:
                     waited = (now - parse_time(since)).total_seconds() / 60
                 except (TypeError, ValueError):
@@ -242,8 +243,14 @@ class GitHub:
         return self.runs_page(workflow, branch, ">=" + stamp(created_since) if created_since else None, per_page)["workflow_runs"]
 
     def queued_runs(self, workflow: str, branch: str) -> list[dict]:
-        query = {"branch": branch, "status": "queued", "per_page": GATE_RUNS_READ}
-        return self.call("GET", f"/actions/workflows/{workflow}/runs?{urllib.parse.urlencode(query)}")["workflow_runs"]
+        """Queued and in-progress runs, newest first: a run is in_progress while its other jobs
+        run and its gate job still waits for a runner, so both statuses are read."""
+        runs: dict = {}
+        for status in ("queued", "in_progress"):
+            query = {"branch": branch, "status": status, "per_page": GATE_RUNS_READ}
+            for run in self.call("GET", f"/actions/workflows/{workflow}/runs?{urllib.parse.urlencode(query)}")["workflow_runs"]:
+                runs.setdefault(run.get("id"), run)
+        return sorted(runs.values(), key=lambda run: run.get("created_at") or "", reverse=True)
 
     def jobs(self, run: dict) -> list[dict]:
         return self.call("GET", f"/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")["jobs"]
@@ -678,7 +685,7 @@ def main(argv: list[str]) -> int:
             tick_refusal=gh.tick_refusal,
         )
         if stage.stale:
-            # Only a stale feed pays for these reads (two listings, at most
+            # Only a stale feed pays for these reads (four listings, at most
             # GATE_RUNS_READ job lists each), and a failed read never hides the alarm.
             try:
                 gates = queued_gates(now, [(name, gh.queued_runs(name, branch)) for name, branch in GATE_RUNS], gh.jobs)
