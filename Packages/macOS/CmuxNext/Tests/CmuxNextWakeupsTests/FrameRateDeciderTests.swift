@@ -249,9 +249,9 @@ extension DisplayClock {
 @MainActor
 private final class RateLink: FrameLink {
     var isPaused = false
-    private(set) var requested: [CAFrameRateRange] = []
+    private(set) var requested: [FrameRateRange] = []
     func invalidate() {}
-    func requestFrameRate(_ range: CAFrameRateRange) { requested.append(range) }
+    func requestFrameRate(_ range: FrameRateRange) { requested.append(range) }
 }
 
 @MainActor

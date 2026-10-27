@@ -1,5 +1,4 @@
-import Foundation
-public import QuartzCore
+public import Foundation
 
 /// One frame stall a ``FrameScheduler`` saw: no display frame came for ``FrameScheduler/stallTimeout``
 /// while clients were active, so the clients ticked without the link.

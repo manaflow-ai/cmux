@@ -134,7 +134,7 @@ final class WarmupNoInput: InputPendingSource {
 final class WarmupFakeLink: FrameLink {
     var isPaused = false
     func invalidate() {}
-    func requestFrameRate(_ range: CAFrameRateRange) {}
+    func requestFrameRate(_ range: FrameRateRange) {}
 }
 
 /// Runs main run loop passes (the promoted background turn) until `done` or 5 s.

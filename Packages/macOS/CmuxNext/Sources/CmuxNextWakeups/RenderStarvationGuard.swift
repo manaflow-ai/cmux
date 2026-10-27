@@ -1,5 +1,5 @@
 import CmuxNextSignposts
-public import QuartzCore
+public import Foundation
 
 /// The rendering starvation guard of the main-thread scheduler (plans/cmux-next/chrome-parity/
 /// p06-scheduler.md, "Rendering starvation guard"): Chrome's `kRenderingStarved` in
@@ -99,7 +99,7 @@ public final class RenderStarvationGuard {
     ///   - signposts: Whether a starvation emits `stall.render_starved`.
     ///   - mediaTime: The schedulers' clock (``DisplayClock/now()``, `CACurrentMediaTime`); tests inject theirs.
     public init(holdsWork: Bool, visibility: any RenderVisibility = AppKitRenderVisibility(), turns: (any UnattributedTurnSource)? = nil,
-                signposts: Bool = false, mediaTime: @escaping @MainActor () -> CFTimeInterval = { CACurrentMediaTime() }) {
+                signposts: Bool = false, mediaTime: @escaping @MainActor () -> CFTimeInterval = { DisplayClock.systemMediaTime() }) {
         self.holdsWork = holdsWork
         self.visibility = visibility
         self.turns = turns

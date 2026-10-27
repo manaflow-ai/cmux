@@ -120,12 +120,12 @@ public final class DisplayClock {
     ///     while the window is on screen, some part of it visible.
     ///   - clock: Runs the stall deadlines.
     ///   - ledger: Where stalls and deadlines are recorded.
-    ///   - mediaTime: Stands in for `CACurrentMediaTime`, the timebase of frame timestamps.
+    ///   - mediaTime: The timebase of frame timestamps (``systemMediaTime()``); tests inject theirs.
     ///   - followsClientRates: The links run at their clients' rates (``followsClientRates``).
     ///   - presents: The frame trace points of its ticks (``presents``); nil: one on the app's trace runtime.
     public init(hub: VSyncHub? = nil, makeLink: LinkFactory? = nil, displayOf: DisplayResolver? = nil,
                 isVisible: VisibilityResolver? = nil, clock: any Clock<Duration> = ContinuousClock(), ledger: WakeupLedger = .shared,
-                mediaTime: @escaping @MainActor () -> CFTimeInterval = { CACurrentMediaTime() },
+                mediaTime: @escaping @MainActor () -> CFTimeInterval = { DisplayClock.systemMediaTime() },
                 followsClientRates: Bool = false, presents: FramePresentEstimate? = nil) {
         self.presents = presents ?? FramePresentEstimate()
         unbudgetedLinks = UnbudgetedFrameLinks()
@@ -151,8 +151,15 @@ public final class DisplayClock {
     /// `display` has a link now.
     public func hasLink(_ display: CGDirectDisplayID) -> Bool { displays[display]?.link != nil }
 
-    /// The media time now (`CACurrentMediaTime`, or the injected one): the time of a frame with no link time.
+    /// The media time now (``systemMediaTime()``, or the injected one): the time of a frame with no link time.
     func now() -> CFTimeInterval { mediaTime() }
+
+    /// The display links' timebase now: `CACurrentMediaTime`'s clock (`mach_absolute_time`, which is
+    /// `CLOCK_UPTIME_RAW`) in seconds, read without Core Animation, as Chrome reads `base::TimeTicks::Now()`
+    /// (base/time/time_apple.mm) on the clock its display links stamp. The frame clocks' default `mediaTime`.
+    public nonisolated static func systemMediaTime() -> CFTimeInterval {
+        CFTimeInterval(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) / 1_000_000_000
+    }
 
     /// `display`'s link exists and is not paused.
     public func isRunning(_ display: CGDirectDisplayID) -> Bool {

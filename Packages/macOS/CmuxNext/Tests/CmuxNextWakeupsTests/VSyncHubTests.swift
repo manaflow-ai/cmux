@@ -282,7 +282,7 @@ import Testing
         let hub = VSyncHub(makeLink: links.make, postToMain: { _ in })
         defer { hub.stopThreads() }
         let main = try #require(hub.mainLink(display: 1) { _ in })
-        main.requestFrameRate(FrameRate.ambient.range)
+        main.requestFrameRate(FrameRate.ambient.preferredRange)
         await hub.onHubThread(1) {}
         let link = try #require(links.made.first)
         #expect(link.requestedRates.last == 30)

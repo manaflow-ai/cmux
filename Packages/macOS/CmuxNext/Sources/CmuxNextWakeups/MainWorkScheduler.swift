@@ -1,4 +1,4 @@
-public import QuartzCore
+public import Foundation
 
 /// The app's one main-thread scheduler for budgeted work (plans/cmux-next/main-thread-budget.md):
 /// the per-frame ``MainFrameBudget`` and the scheduler its batches tick on, on the main display's
@@ -197,7 +197,7 @@ public final class MainWorkScheduler {
     ///   - makeLink: Makes the fake link.
     public static func testing(budget: MainFrameBudget = MainFrameBudget(), clock: any Clock<Duration> = ContinuousClock(),
                                ledger: WakeupLedger = .shared, startup: StartupPhase = .settled(),
-                               mediaTime: @escaping @MainActor () -> CFTimeInterval = { CACurrentMediaTime() },
+                               mediaTime: @escaping @MainActor () -> CFTimeInterval = { DisplayClock.systemMediaTime() },
                                performTurn: TurnPerformer? = nil, idleTimer: any IdlePeriodTimer = MainRunLoopPreciseTimer(),
                                otherLinks: any OtherFrameLinks = UnbudgetedFrameLinks(),
                                makeLink: @escaping FrameScheduler.LinkFactory) -> MainWorkScheduler {

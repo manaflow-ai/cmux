@@ -124,8 +124,8 @@ extension VSyncHub {
             subscription = nil
         }
 
-        func requestFrameRate(_ range: CAFrameRateRange) {
-            subscription?.requestFrameRate(range)
+        func requestFrameRate(_ range: FrameRateRange) {
+            subscription?.requestFrameRate(CAFrameRateRange(range))
         }
 
         /// Replaces the display's hub link, which every subscriber of the display ticks on (a stall

@@ -1,5 +1,5 @@
 public import CmuxNextTrace
-import QuartzCore
+import Foundation
 import CmuxNextMetrics
 import CmuxNextSignposts
 

@@ -1,5 +1,3 @@
-public import QuartzCore
-
 /// How often a ``FrameClient`` needs frames, and how often a looping Core Animation indicator needs
 /// the render server to draw it.
 ///
@@ -29,14 +27,14 @@ public enum FrameRate: Sendable, Hashable {
         }
     }
 
-    /// The range a display link or a `CAAnimation` asks for at this rate. A slow rate may run
-    /// faster (up to 30 Hz), never slower: a display whose refresh `n` does not divide picks the
-    /// next rate above.
-    public var range: CAFrameRateRange {
+    /// The range a display link or a `CAAnimation` asks for at this rate (as a `CAFrameRateRange`:
+    /// ``range``). A slow rate may run faster (up to 30 Hz), never slower: a display whose refresh `n`
+    /// does not divide picks the next rate above.
+    public var preferredRange: FrameRateRange {
         switch self {
-        case .motion: CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
-        case .ui, .ambient: CAFrameRateRange(minimum: hertz, maximum: hertz, preferred: hertz)
-        case .slow: CAFrameRateRange(minimum: hertz, maximum: FrameRate.ambient.hertz, preferred: hertz)
+        case .motion: FrameRateRange(minimum: 80, maximum: 120, preferred: 120)
+        case .ui, .ambient: FrameRateRange(minimum: hertz, maximum: hertz, preferred: hertz)
+        case .slow: FrameRateRange(minimum: hertz, maximum: FrameRate.ambient.hertz, preferred: hertz)
         }
     }
 

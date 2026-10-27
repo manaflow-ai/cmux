@@ -4,12 +4,12 @@ public import QuartzCore
 /// A ``DisplayClock``'s link rate range, vsync hub link and window resolvers: the display a window is on and whether
 /// anyone sees it. Screen links stay in DisplayClock.swift, the one file that may make one.
 extension DisplayClock {
-    /// The range a link asks for at `rate`: ``FrameRate/range``, never below ``slowestLinkHertz``.
-    static func linkRange(_ rate: FrameRate) -> CAFrameRateRange {
-        let range = rate.range, floor = slowestLinkHertz
+    /// The range a link asks for at `rate`: ``FrameRate/preferredRange``, never below ``slowestLinkHertz``.
+    static func linkRange(_ rate: FrameRate) -> FrameRateRange {
+        let range = rate.preferredRange, floor = slowestLinkHertz
         guard range.minimum < floor else { return range }
-        return CAFrameRateRange(minimum: floor, maximum: max(range.maximum, floor),
-                                preferred: max(range.preferred ?? floor, floor))
+        return FrameRateRange(minimum: floor, maximum: max(range.maximum, floor),
+                              preferred: max(range.preferred ?? floor, floor))
     }
 
     /// A link that rides `hub`'s display thread: each vsync of the display is one main post that ticks the clock.

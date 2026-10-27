@@ -1,4 +1,4 @@
-public import QuartzCore
+public import Foundation
 
 /// The display links the frame schedulers other than the budgeted one tick on (``FrameScheduler/app``
 /// and the window schedulers: window animations, `Motion.clock`, drag ghosts). The

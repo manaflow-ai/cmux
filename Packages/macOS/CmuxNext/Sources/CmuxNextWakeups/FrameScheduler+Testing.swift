@@ -1,11 +1,11 @@
-public import QuartzCore
+public import Foundation
 
 extension FrameScheduler {
     /// A scheduler with a fake link on a display clock of its own (tests; budgeted work:
     /// ``MainWorkScheduler/testing(budget:clock:ledger:startup:mediaTime:performTurn:idleTimer:otherLinks:makeLink:)``).
     /// `clock` runs the stall timer; `mediaTime` stands in for `CACurrentMediaTime`, the timebase of frame timestamps.
     public static func testing(clock: any Clock<Duration> = ContinuousClock(), ledger: WakeupLedger = .shared,
-                               mediaTime: @escaping @MainActor () -> CFTimeInterval = { CACurrentMediaTime() },
+                               mediaTime: @escaping @MainActor () -> CFTimeInterval = { DisplayClock.systemMediaTime() },
                                makeLink: @escaping LinkFactory) -> FrameScheduler {
         testing(name: "test", clock: clock, ledger: ledger, mediaTime: mediaTime, budget: nil, makeLink: makeLink)
     }

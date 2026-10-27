@@ -1,5 +1,4 @@
 public import AppKit
-public import QuartzCore
 import CmuxNextCompat
 
 /// What a scheduler needs from a display link (a fake in tests).
@@ -8,16 +7,12 @@ public protocol FrameLink: AnyObject {
     var isPaused: Bool { get set }
     func invalidate()
     /// Asks the link to fire at `range` (``DisplayClock``'s rate decision).
-    func requestFrameRate(_ range: CAFrameRateRange)
+    func requestFrameRate(_ range: FrameRateRange)
 }
 
 extension FrameLink {
     /// A link with no rate of its own (a test fake that is fired by hand) ignores the request.
-    public func requestFrameRate(_ range: CAFrameRateRange) {}
-}
-
-extension CADisplayLink: FrameLink {
-    @MainActor public func requestFrameRate(_ range: CAFrameRateRange) { preferredFrameRateRange = range }
+    public func requestFrameRate(_ range: FrameRateRange) {}
 }
 
 /// The frame clock of a window (architecture.md 3 and 5): it subscribes to its display's one link

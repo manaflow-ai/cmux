@@ -141,5 +141,5 @@ import Testing
 private final class UserBlockingTestLink: FrameLink {
     var isPaused = false
     func invalidate() {}
-    func requestFrameRate(_ range: CAFrameRateRange) {}
+    func requestFrameRate(_ range: FrameRateRange) {}
 }

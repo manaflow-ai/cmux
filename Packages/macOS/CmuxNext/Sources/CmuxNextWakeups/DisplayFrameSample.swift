@@ -1,4 +1,4 @@
-public import QuartzCore
+public import Foundation
 public import CmuxNextSignposts
 
 /// The last display-link frame one display's link delivered (``DisplayClock/newestFrame(for:)``): a vsync time and
