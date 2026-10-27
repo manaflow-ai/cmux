@@ -357,6 +357,8 @@ pub struct LaneStats {
     pub workers: usize,
     /// Live workers not running an item.
     pub idle_workers: usize,
+    /// Items the lane accepted from [`Work::post`] or [`Work::run`], refused ones not counted.
+    pub posted: u64,
     pub workers_started: u64,
     pub workers_exited: u64,
     /// Times a worker woke from its wait, for an item, a timeout or spuriously.
@@ -584,6 +586,7 @@ struct LaneState {
     awaited: usize,
     closed: bool,
     released: bool,
+    posted: u64,
     workers_started: u64,
     workers_exited: u64,
     wakeups: u64,
@@ -629,6 +632,7 @@ impl LaneShared {
                 awaited: 0,
                 closed: false,
                 released: false,
+                posted: 0,
                 workers_started: 0,
                 workers_exited: 0,
                 wakeups: 0,
@@ -653,6 +657,7 @@ impl LaneShared {
             drop(job);
             return Err(Refused);
         }
+        state.posted += 1;
         if job.shutdown == Shutdown::BlockShutdown {
             state.awaited += 1;
             // Shutdown waits for it: it runs on a foreground worker.
@@ -953,6 +958,7 @@ impl LaneShared {
             blocked: state.blocked,
             workers: state.workers.iter().map(|class| class.live).sum(),
             idle_workers: state.workers.iter().map(|class| class.idle).sum(),
+            posted: state.posted,
             workers_started: state.workers_started,
             workers_exited: state.workers_exited,
             wakeups: state.wakeups,

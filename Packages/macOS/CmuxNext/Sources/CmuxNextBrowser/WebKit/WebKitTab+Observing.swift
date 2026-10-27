@@ -23,6 +23,8 @@ extension WebKitTab: BrowserTabNodeAdopting {
             watch(\.canGoBack) { $0.syncHistory() },
             watch(\.canGoForward) { $0.syncHistory() },
             watch(\.hasOnlySecureContent) { $0.syncSecurity() },
+            watch(\.cameraCaptureState) { $0.container.visibility.captures = $0.webView.capturesMedia },
+            watch(\.microphoneCaptureState) { $0.container.visibility.captures = $0.webView.capturesMedia },
         ]
     }
 

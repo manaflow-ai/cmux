@@ -85,6 +85,9 @@ public final class WebKitTab: NSObject, BrowserTab {
     /// Bounds how long the theme color stands in for a committed document
     /// (`pageDidCommit`).
     @ObservationIgnored let pageBaseHold: MainDeadline
+    /// WebKit draws a background behind the document (`setDrawsPageBackground`): false on a blank or
+    /// New Tab page and while a committed document has not painted.
+    @ObservationIgnored var drawsPageBackground = true
     /// The app's main-thread scheduler (the engine's): this tab's main-thread follow-ups are classed tasks on it.
     @ObservationIgnored let mainWork: MainWorkScheduler
     /// The tab's node (``adoptNode(_:)``); nil (a page no pane shows: tests, fixtures) counts as visible.
@@ -109,7 +112,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         pageBaseHold = MainDeadline(owner: "browser.pageBase", workClass: .visible, scheduler: engine.deadlines)
         let webView = WebKitWebView(frame: .zero, configuration: webViewConfiguration)
         self.webView = webView
-        container = WebKitPageContainer(page: webView)
+        container = WebKitPageContainer(page: webView, visibility: WebKitPageVisibility(followsContent: engine.hidesHiddenTabs))
         super.init()
         inspectorWatch.attach(webView: webView, container: container, events: engine.appEvents)
 
@@ -183,9 +186,6 @@ public final class WebKitTab: NSObject, BrowserTab {
             window.makeFirstResponder(nil)
         }
     }
-
-    /// WebKit draws in-view and throttles hidden views itself.
-    public func setContentVisible(_ visible: Bool) {}
 
     // MARK: Snapshot, script, find
 
@@ -326,6 +326,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         machine.apply(event)
         let audible = machine.state.media?.isAudible == true
         if audible != isAudible { isAudible = audible }
+        container.visibility.playsMedia = machine.state.media?.keepsPageShown(tabMuted: machine.state.isAudioMuted) == true
         for observer in navigationObservers.values { observer(event) }
         if machine.state.faviconURL != previousFavicon {
             faviconURLDidChange()
