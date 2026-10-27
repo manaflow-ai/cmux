@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextCloud
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -113,6 +114,24 @@ struct CloudAgentChatTests {
                                                                       "_meta": ["acpmux": ["harness": "sample"]]])
             #expect(refused.errorCode == "agent_session.team_vm_blocked", "\(refused.raw)")
             #expect(refused.errorMessage == "Agent chats cannot be started from this Mac on a team VM yet.")
+            #expect(world.agentSessions().isEmpty)
+            #expect(world.machineTab(chat.surface)?.agentSession?.session == nil)
+            wire.cancel(code: 1000, reason: "test")
+        }
+    }
+
+    /// A Cloud machine whose link gave no owner answer (a team machine, the API said nothing, or
+    /// no link runs): the app sends no start there, whatever the machine's own record says (#26323),
+    /// and the page says the machine could not be confirmed. No agent runs there.
+    @Test func noOwnerAnswerOnTheLinkStartsNoChat() async throws {
+        try await Self.withMachine(ownerLink: false) { world in
+            let chat = try await world.openChat()
+            let wire = try #require(try await world.page(chat.key).wire)
+            let frames = try await Frames.open(wire)
+            let refused = try await frames.call(wire, "session/new", ["cwd": world.work.path, "mcpServers": [Any](),
+                                                                      "_meta": ["acpmux": ["harness": "sample"]]])
+            #expect(refused.errorCode == "agent_session.host_unverified", "\(refused.raw)")
+            #expect(refused.errorMessage == "Move VM could not confirm what kind of Cloud machine it is, so no agent chat starts there.")
             #expect(world.agentSessions().isEmpty)
             #expect(world.machineTab(chat.surface)?.agentSession?.session == nil)
             wire.cancel(code: 1000, reason: "test")
@@ -257,8 +276,10 @@ struct CloudAgentChatTests {
 
     /// Runs `body` with this Mac's app connected to a Cloud machine whose daemon's acpmux runs the
     /// test agent. `hostKind`: the machine kind its daemon is told (`CMUX_AGENT_START_HOST`, which
-    /// can only make it stricter); nil is an owner's machine.
-    private static func withMachine(hostKind: String? = nil, _ body: (World) async throws -> Void) async throws {
+    /// can only make it stricter); nil is an owner's machine. `ownerLink`: the machine's link runs
+    /// and its attach answer says the signed-in caller owns the machine (`vmKind: "owner"`), as the
+    /// Cloud API answers for a person's own machine; false, no link runs (no owner answer).
+    private static func withMachine(hostKind: String? = nil, ownerLink: Bool = true, _ body: (World) async throws -> Void) async throws {
         let binary = try #require(SameTreeDaemonBinary.url)
         var repo = URL(fileURLWithPath: #filePath)
         for _ in 0..<6 { repo.deleteLastPathComponent() }
@@ -300,9 +321,14 @@ struct CloudAgentChatTests {
             DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: mac.endpointProvider)
         }
         services.windows.restoreWhenLoaded()
-        let cloudMachine = CloudMoveTests.machine(services, cli: URL(fileURLWithPath: "/usr/bin/false"), root: root)
+        let (cloudMachine, hub) = try Self.machine(root: root)
         services.machines.add(cloudMachine)
         cloudMachine.daemon.start(remote: { vmSocket })
+        // The link's attach answer: the app starts a chat on a Cloud machine only on its owner word.
+        if ownerLink {
+            _ = try await cloudMachine.link?.socketPath()
+            try #require(await cloudMachine.link?.ownerLink != nil, "the machine's link gave no owner answer")
+        }
 
         let result: Result<Void, any Error>
         do {
@@ -328,9 +354,49 @@ struct CloudAgentChatTests {
         }
         await CloudMoveTests.end(services.daemon)
         await CloudMoveTests.end(cloudMachine.daemon)
+        await cloudMachine.link?.stop()
+        await hub.stop()
         _ = run(binary, ["acp", "daemon", "shutdown", "--end-agents"], environment: ["ACPMUX_HOME": acpmuxHome.path, "HOME": home.path])
         for controller in services.windows.controllers { controller.window?.close() }
         try result.get()
+    }
+
+    /// The Cloud machine "Move VM", whose daemon each test starts on the second daemon's socket.
+    /// Its link is a stand-in `cmux-tui` (`wg hub` ready, `remote connect` connected) over the
+    /// `/api/vm` stand-in, whose attach answer says the caller owns the machine
+    /// (``CloudLinkReconnectingTests/StandInVMAPI``); it carries no traffic, only that answer.
+    static func machine(root: URL) throws -> (CloudMachineSession, CloudTunnelHub) {
+        let tui = root.appendingPathComponent("link-tui")
+        try """
+            #!/bin/sh
+            case "$1" in
+            wg)
+              while [ $# -gt 0 ]; do [ "$1" = --socket ] && H=$2; shift; done
+              : > "$H"
+              printf '{"event":"hub-ready","socket":"%s","routes":[]}\\n' "$H"
+              exec sleep 120 ;;
+            remote)
+              while [ $# -gt 0 ]; do [ "$1" = --local-socket ] && S=$2; shift; done
+              : > "$S"
+              printf '{"event":"connection-snapshot","local_socket":"%s","connection":{"session_id":"s","generation":1,"state":"connected","lane_bindings":[],"physical_link_count":1,"transport":{"provider":"cloud","route":"ws://10.9.0.2:1337/v1/link"}}}\\n' "$S"
+              exec sleep 120 ;;
+            esac
+            exit 64
+
+            """.write(to: tui, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tui.path)
+        let configuration = CloudConfiguration.resolve(bundleID: nil, bundled: ["CMUX_VM_API_BASE_URL": "http://vm-api.standin.invalid"],
+                                                       process: [:], isDebugBuild: true)
+        let urlSession = URLSessionConfiguration.ephemeral
+        urlSession.protocolClasses = [CloudLinkReconnectingTests.StandInVMAPI.self]
+        let api = CloudAPIClient(configuration: configuration, tokens: { ("access", "refresh") }, teamID: { nil },
+                                 session: URLSession(configuration: urlSession))
+        let paths = CloudPaths(root: root.appendingPathComponent("cloud", isDirectory: true))
+        let hub = CloudTunnelHub(api: api, paths: paths, binary: tui, deviceName: "cn-chat-test")
+        let link = CloudMachineLink(machineID: "vm-move", api: api, hub: hub, paths: paths, binary: tui, deviceName: "cn-chat-test")
+        let session = CloudMachineSession(machine: CloudMachine(id: "vm-move", displayName: "Move VM"), link: link,
+                                          mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        return (session, hub)
     }
 
     /// `binary arguments` with `environment` over a plain PATH; its standard output.
