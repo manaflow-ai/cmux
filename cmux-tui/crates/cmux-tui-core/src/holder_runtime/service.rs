@@ -18,8 +18,11 @@ use cmux_trace::crash_keys::{self, HolderLink as CrashKeyLink};
 
 use super::{HolderSink, HolderTerminal};
 
+#[cfg(test)]
+mod restart_tests;
 mod trace;
 use crate::panic_free::RecoverPoison;
+use crate::thread_qos::ThreadType;
 pub(crate) use trace::HolderTrace;
 
 /// The current link and the CLOSEs waiting for one. Held only for a
@@ -548,17 +551,19 @@ impl HolderService {
                     return;
                 }
                 // The holder died: start a new one and hand it every master.
+                // Its terminals show no output until then, and a terminal
+                // create waits for it on `connecting`: request class, not
+                // the echo class of the link reader this callback runs on.
                 service.note_link_down(CrashKeyLink::Lost);
-                let _ =
-                    std::thread::Builder::new().name("holder-restart".into()).spawn(move || {
-                        if let Err(error) = service.link() {
-                            // No holder streams their output any more: their
-                            // terminals end as lost (the shells may still run).
-                            eprintln!("cmux-tui: restart the terminal holder: {error}");
-                            service.note_link_down(CrashKeyLink::Failed);
-                            service.lose_all();
-                        }
-                    });
+                let _ = cmux_threads::spawn("holder-restart", RESTART_QOS, move || {
+                    if let Err(error) = service.link() {
+                        // No holder streams their output any more: their
+                        // terminals end as lost (the shells may still run).
+                        eprintln!("cmux-tui: restart the terminal holder: {error}");
+                        service.note_link_down(CrashKeyLink::Failed);
+                        service.lose_all();
+                    }
+                });
             }),
             SPAWN_TIMEOUT,
             HOLDER_FRAME_WATCH,
@@ -676,6 +681,16 @@ impl HolderService {
     }
 }
 
+/// The class of `holder-restart`, which relinks every held terminal after
+/// its holder died (Chromium kDefault: a person waits, no key echo does).
+const RESTART_QOS: cmux_threads::ThreadQos = ThreadType::Interactive.qos();
+
+/// The class of `cmux-holder-exe`: the session's first terminal waits for
+/// the holder copy it makes behind the copy's lock (`host_exe::holder_copy`),
+/// so it runs at that terminal's request class, not at utility.
+#[cfg(not(test))]
+const PREPARE_QOS: cmux_threads::ThreadQos = ThreadType::Interactive.qos();
+
 /// The grace a CLOSE gives the shell of an abandoned terminal before
 /// SIGKILL: a shell's usual hang-up grace.
 const ABANDONED_CLOSE_GRACE_MS: u32 = 2000;
@@ -719,7 +734,7 @@ pub(crate) fn prepare_in_background() {
     if !super::enabled() {
         return;
     }
-    let _ = std::thread::Builder::new().name("cmux-holder-exe".into()).spawn(|| {
+    let _ = cmux_threads::spawn("cmux-holder-exe", PREPARE_QOS, || {
         let _ = standalone_holder();
     });
 }
@@ -810,7 +825,11 @@ pub(crate) mod tests {
     }
 
     /// Answer a HELLO with a WELCOME listing `listed` (channel, terminal id).
-    fn welcome(stream: &UnixStream, reader: &mut wire::Reader, listed: &[(u32, [u8; 16])]) {
+    pub(super) fn welcome(
+        stream: &UnixStream,
+        reader: &mut wire::Reader,
+        listed: &[(u32, [u8; 16])],
+    ) {
         welcome_granting(stream, reader, listed, None);
     }
 

@@ -283,6 +283,10 @@ part of the name.
 | `mux-ws-out`, `mux-events-out` (cmd_subscribe.rs, websocket_listener.rs) | Writing to one WebSocket client; one event subscription's stream | Its socket (`write`); the event bus | user-initiated (`REQUEST_THREAD_QOS`, p02-threads-211) | as today; utility for automation clients (task 224) | yes | Event bus 4096 per subscriber, then disconnect |
 | `mux-events-<generation>` (cmux-tui `app/mux_ingress.rs`) | The TUI front end's event stream | Its socket (`read`) | user-initiated (`cmux_threads::spawn`, p05-ipc-080) | as today | yes | One per connection generation |
 | `holder-link` (cmux-holder `link.rs`; cmux-holder-v3 `link.rs`) | Routing each held terminal's output to its surface | The holder socket (holder: see below) | cmux-holder: user-interactive (`LINK_READER_QOS`, `ThreadType::InputCritical`, p04-input-060); cmux-holder-v3: not set | user-interactive (closed list): the echo of a held terminal waits on it; cmux-holder-v3 moves with task 218 | cmux-holder: yes; cmux-holder-v3: no | 1 MiB link queue, 512 KiB credit window |
+| `holder-restart` (cmux-tui-core `holder_runtime/service.rs`) | Starting a new holder after the old one died and relinking every held terminal; the link reader's end callback starts it | The holder's launch and handshake (`connecting`); a terminal create waits on it there | user-initiated (`RESTART_QOS`, `ThreadType::Interactive`, `cmux_threads::spawn`, p01-process-139; before, a plain thread that inherited `holder-link`'s user-interactive) | as today | yes | One per lost link; it ends with the relink |
+| `cmux-holder-exe` (cmux-tui-core `holder_runtime/service.rs`, one-shot at daemon start) | Making the standalone holder's content-addressed copy and running its `--version` | Disk and one child (`host_exe::holder_copy`, under its lock); the session's first terminal waits on that lock | user-initiated (`PREPARE_QOS`, `cmux_threads::spawn`, p01-process-139: the first terminal waits on it, so not utility) | as today | yes | One per daemon |
+| `holder-reaper` (cmux-tui-core `holder_runtime/service.rs`) | Waiting for a holder child the `mux-reaper` could not watch | `waitpid` of that child | utility (`cmux_threads::spawn`) | as today | yes | Only when the reaper refused the child; one per such holder |
+| `cmux-holder-trace-map` (cmux-holder `holder/trace.rs`, in the holder process, one-shot) | Mapping and faulting in the holder's trace ring for the first TRACE_START | Disk (the ring file) | utility (`MAP_QOS`, `cmux_threads::spawn`, p01-process-139; it starts from the holder loop's user-interactive) | as today | yes | One per holder process |
 | `browser-surface-<id>-worker`, `-events`, `-bootstrap`; `browser-host-*` | One browser surface's CDP traffic | Sockets to the browser host | not set | user-initiated (task 215); a one-shot CDP bootstrap is a `work` request wait (task 230); a provider bootstrap (`-bootstrap`, a loop that waits with no bound for the provider's target and retries until the surface dies) stays a thread | no | Per surface |
 | `chief-*`, `mux-agent-*`, `acpmux-*` watchers, `machine-*`, `cmux-apps-*`, `cmux-app-server:<name>`, `cmux-app-host:<name>`, other named one-shots (`mux-url-open`, `mux-cloud-request`, `mux-launch-snapshot` and about 60 more) | Agents, machines, apps and one-shot requests | Sockets, child processes, disk | not set | loops: utility unless a person waits on them (tasks 213-218); one-shots: `work` items at the priority of the request they serve (task 230) | no | Per loop |
 | tokio runtimes (acpmux, link, remote, cloud conversations, coderouter, server pairing) | Async I/O of that subsystem | Sockets on the runtime | not set, unnamed workers | named and registered through `cmux_threads::tokio::builder(name, qos)` (task 228); acpmux workers default, blocking pool utility, at most 16 | no | Per runtime |
@@ -322,10 +326,19 @@ and its background workers (`mux-seq-background`) at background (`SequencePriori
 reason "IO thread every key passes" (Chromium's IO thread).
 
 Holder (`cmux-holder`, its own process): one `poll` loop on its main thread; it forks the user's shell from that
-thread. Waits on: `poll` (the PTYs and the daemon link). QoS today: not set. Target: user-interactive (closed
-list) after task 223 makes the forked shell start at default (task 207). Bound: 1 MiB ring per terminal, 1 MiB
-link queue, 512 KiB credit window; with the daemon attached the holder stops reading the PTY (the shell
-blocks); with no daemon the ring keeps the newest bytes.
+thread. Waits on: `poll` (the PTYs and the daemon link). QoS: user-interactive on macOS (`run_at_echo_qos`,
+closed list); the forked shell starts at default (`pty::reset_qos`, task 223); Linux keeps nice 0. Bound: 1 MiB
+ring per terminal, 1 MiB link queue, 512 KiB credit window; with the daemon attached the holder stops reading
+the PTY (the shell blocks); with no daemon the ring keeps the newest bytes.
+
+Q12 (p01-process-139): every thread the terminal process model starts outside tests declares its class
+through `cmux_threads::spawn`. `tests/qos_sites.sh` lists each raw `std::thread` start in the cmux-holder
+sources, `holder_runtime`, and the VT pool and VT worker once tasks 120 and 124 add them; the agent loop runs
+it, CI does not. The VT pool (`vt-pool-v-N` user-initiated, `vt-pool-h-N` utility), `pty-writer` and `mux-io`
+(user-initiated) and `child-exit` (utility) get their rows with tasks 120-124, 123, 203 and 207. The
+`mux-reaper` row is the child-exit watcher of today, and the journal threads are utility already
+(p02-threads-212). `holder-link` stays user-interactive (p04-input-060), not user-initiated as task 139
+first said: a held terminal's echo waits on it.
 
 acpmux (its own process): tokio multi-thread runtime with `acpmux-socket-read` / `-write` bridges and
 `acpmux-accept`. Waits on: socket I/O on its runtime. QoS today: not set. Target: task 218 (above). Bound: in 256
