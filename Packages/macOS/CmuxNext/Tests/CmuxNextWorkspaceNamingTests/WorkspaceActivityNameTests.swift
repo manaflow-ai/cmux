@@ -1,0 +1,79 @@
+import CmuxNextBridge
+@testable import CmuxNextDaemon
+@testable import CmuxNextWorkspaceNaming
+import Testing
+
+/// Name from Activity sends only titles and short snippets of a workspace's tabs to the cheapest
+/// model and keeps at most five words of its reply.
+@MainActor
+struct WorkspaceActivityNameTests {
+    private static let host = "install:activity-name"
+
+    @Test func itAsksTheCheapestModel() {
+        #expect(WorkspaceActivityName.model == "claude-haiku-5-5")
+    }
+
+    @Test func readsChatTitlesNewestPromptsFoldersAndPageTitles() {
+        let turns = AgentTurnStateStore()
+        turns.localHost = Self.host
+        for (index, prompt) in ["First ask", "Second ask", "Third ask", "Fourth ask"].enumerated() {
+            let start = UInt64(index + 1) * 1_000
+            turns.apply(session: "s1", state: .working, lastMessage: nil, muted: false, title: "Fix login",
+                        generatedTitle: "Fix login", detail: AgentChatDetail(turnStartedAtMs: start, prompt: prompt, laneSinceMs: start))
+            turns.apply(session: "s1", state: nil, lastMessage: nil, muted: false, title: "Fix login",
+                        generatedTitle: "Fix login", detail: nil)
+        }
+        var chat = TabSnapshot(surface: 1, kind: .conversation, title: "about:blank")
+        chat.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: Self.host, session: "s1", harness: "claude"))
+        let terminal = TabSnapshot(surface: 2, terminalID: "20", kind: .pty, title: "npm test", cwd: "/Users/me/web")
+        let page = TabSnapshot(surface: 3, kind: .browser, title: "ignored")
+        let pane = PaneSnapshot(id: 1, tabs: [chat, terminal, page])
+        let workspace = WorkspaceModel(WorkspaceSnapshot(id: 1, key: WorkspaceKey(rawValue: "activity"), name: "workspace-1",
+                                                         screens: [ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])]))
+
+        let activity = WorkspaceActivityName.read(workspace, turns: turns) { _ in "Login · Docs" }
+        #expect(activity.tabs == [
+            .chat(title: "Fix login", prompts: ["Second ask", "Third ask", "Fourth ask"]),
+            .terminal(folder: "/Users/me/web", title: "npm test"),
+            .browser(title: "Login · Docs"),
+        ])
+        #expect(activity.prompt.hasSuffix("""
+        Tabs:
+        - Agent chat: Fix login
+          - asked: Second ask
+          - asked: Third ask
+          - asked: Fourth ask
+        - Terminal in /Users/me/web: npm test
+        - Web page: Login · Docs
+        """))
+    }
+
+    @Test func emptyTabsAreDroppedAndAnIncognitoPageSendsNothing() {
+        let activity = WorkspaceActivityName(tabs: [.browser(title: nil), .chat(title: nil, prompts: []), .terminal(folder: nil, title: nil)])
+        #expect(activity.isEmpty)
+    }
+
+    @Test func thePromptStaysUnderTheCompletionLimit() {
+        let prompts = Array(repeating: String(repeating: "界", count: WorkspaceActivityName.snippetLimit), count: 3)
+        let activity = WorkspaceActivityName(tabs: Array(repeating: .chat(title: "Chat", prompts: prompts), count: 12))
+        #expect(activity.prompt.utf8.count <= WorkspaceActivityName.promptByteLimit)
+        #expect(activity.prompt.contains("- Agent chat: Chat"))
+    }
+
+    @Test func snippetsAreOneShortLine() throws {
+        let long = String(repeating: "word ", count: 60)
+        let snippet = try #require(WorkspaceActivityName.snippet("a\n\n  b \t" + long))
+        #expect(snippet.hasPrefix("a b word"))
+        #expect(snippet.count == WorkspaceActivityName.snippetLimit)
+        #expect(snippet.hasSuffix("…"))
+        #expect(WorkspaceActivityName.snippet("  \n ") == nil)
+    }
+
+    @Test func theReplyKeepsItsFirstLineWithoutQuotesLabelsOrExtraWords() {
+        #expect(WorkspaceActivityName.name(fromReply: "\"Login Bug Fix\"\n\nThis workspace is about…") == "Login Bug Fix")
+        #expect(WorkspaceActivityName.name(fromReply: "Name: Release notes draft.") == "Release notes draft")
+        #expect(WorkspaceActivityName.name(fromReply: "**Sidebar drag polish**") == "Sidebar drag polish")
+        #expect(WorkspaceActivityName.name(fromReply: "one two three four five six seven") == "one two three four five")
+        #expect(WorkspaceActivityName.name(fromReply: " \n\"\" ") == nil)
+    }
+}

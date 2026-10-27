@@ -16,7 +16,7 @@ nonisolated extension ActionSurfaceCatalog {
         "quitEndEverything", "keepMacAwake", "newBrowserWorkspace", "openFolder",
         "palette.openFolderInVSCodeInline", "reopenPreviousSession", "workspace.importClassic", "reopenClosedWorkspace", "moveWorkspaceUp",
         "moveWorkspaceDown", "palette.moveWorkspaceToTop", "moveWorkspaceToWindow", "moveWorkspaceToNewWindow",
-        "renameWorkspace", "palette.clearWorkspaceName", "editWorkspaceDescription",
+        "renameWorkspace", "palette.clearWorkspaceName", "workspace.nameFromActivity", "editWorkspaceDescription",
         "palette.clearWorkspaceDescription", "markWorkspaceDone", "palette.workspaceStatus",
         "palette.addWorkspaceChecklistItem", "palette.openWorkspaceTodoPane", "toggleChecklistItemComplete",
         "checklistEditItem", "checklistMarkInProgress", "checklistCompleteItem", "checklistRemoveItem", "checklistOpenAsPane",

@@ -82,6 +82,13 @@ extension AcpmuxEnvironment {
         }
     }
 
+    /// One `_acpmux/complete` (`params`: `prompt`, `harness`, `model`, `maxTokens`, `timeoutMs`): its
+    /// `text`, empty when the reply has none.
+    public nonisolated func completionText(params: [String: any Sendable]) async throws -> String {
+        let reply = try JSONSerialization.jsonObject(with: try await harness(.complete, params: params)) as? [String: Any]
+        return reply?["text"] as? String ?? ""
+    }
+
     /// `_acpmux/harness/health` (`refresh`: the daemon checks again). Named so a caller can default
     /// to it without an async closure literal default argument (crash_ratchet, cx-bsue).
     public nonisolated static func harnessHealth(_ environment: AcpmuxEnvironment, refresh: Bool) async throws -> Data {
