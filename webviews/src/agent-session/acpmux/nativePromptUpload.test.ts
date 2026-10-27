@@ -66,6 +66,13 @@ test("explicit cancellation settles even when the host sends no terminal event",
   expect(calls.at(-1)).toBe("cmux.agent.uploads.cancel");
 });
 
+test("legacy hosts never receive a raw uploads binding call", async () => {
+  const transport = createNativePromptUploadTransport();
+  await expect(transport.gesture!({
+    method: "session/prompt", params: { promptId: "prompt", sessionId: "session" },
+  })).rejects.toThrow("Native prompt uploads are unavailable");
+});
+
 test("the shared PageClient uses call envelopes and preserves typed native errors", async () => {
   const scope = globalThis as Record<string, unknown>;
   const previous = scope.webkit;
