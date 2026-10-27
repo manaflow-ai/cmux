@@ -37,9 +37,11 @@ edges and the status `unknown`, which blocks its dependents like a blocked targe
 Sources/ or Tests/ that no target declares is still scanned and reported under `unmapped`, `direct` or
 `unknown`, never `ok`.
 
-When Packages/macOS/CmuxNext/linux-tier.json exists, each target shows its wave, and `--check` exits 1 when a
-tier target is not `ok`, a tier name is not a target, or a directory no target declares exists (task 226:
-every wave-3 target is in-tier or names its blocking edge).
+When Packages/macOS/CmuxNext/linux-tier.json exists, each target shows its wave. A target its `pending` list names
+shows `pending:` and its blocking edges instead: the targets of this package it depends on that no wave lists
+(`pending_edges` in --json). `--check` exits 1 when a tier target is not `ok`, a tier or pending name is not a
+target, a pending target is also in a wave or has no blocking edge left (it belongs in a wave), or a directory no
+target declares exists (task 226: every wave-3 target is in-tier or names its blocking edge).
 
 The output is sorted everywhere, so it does not depend on graph, directory or file order.
 
@@ -694,6 +696,8 @@ class Node:
     symbols: list[dict] = field(default_factory=list)
     reason: str | None = None
     wave: str | None = None
+    # For a linux-tier.json `pending` target: its dependencies outside the tier (tier_edges); None otherwise.
+    pending_edges: list[str] | None = None
     linux_ci: bool = False
     in_graph: bool = True
     # Package.swift names this target's dependencies in a form the scanner does not read, so its edges are not known.
@@ -787,23 +791,38 @@ def unmapped_directories(source: Source, covered: Iterable[str]) -> dict[str, li
     return {directory: sorted(files) for directory, files in sorted(groups.items())}
 
 
-def read_tier(source: Source, names: Iterable[str]) -> dict[str, str]:
-    """Target name -> wave label from linux-tier.json (`.waves[][]`), or {} when there is no tier file."""
+def read_tier(source: Source, names: Iterable[str]) -> tuple[dict[str, str], list[str]]:
+    """(target name -> wave label from linux-tier.json `.waves[][]`, the `.pending` names), or ({}, []) when there
+    is no tier file. A pending target waits outside the tier until every target it depends on is in a wave."""
     text = source.read(TIER_PATH)
     if text is None:
-        return {}
+        return {}, []
     try:
-        waves = json.loads(text)["waves"]
-    except (json.JSONDecodeError, KeyError, TypeError) as error:
+        document = json.loads(text)
+        waves = document["waves"]
+        pending = list(document.get("pending", []))
+    except (json.JSONDecodeError, KeyError, TypeError, AttributeError) as error:
         raise InputError(f"{TIER_PATH}: no readable `waves`: {error}") from error
     items = waves.items() if isinstance(waves, dict) else enumerate(waves)
     known = set(names)
+
+    def resolve(member: str) -> str:
+        return member if member in known or f"CmuxNext{member}" not in known else f"CmuxNext{member}"
+
     tier: dict[str, str] = {}
     for label, members in items:
         for member in members:
-            name = member if member in known or f"CmuxNext{member}" not in known else f"CmuxNext{member}"
-            tier[name] = str(label)
-    return tier
+            tier[resolve(member)] = str(label)
+    return tier, sorted(resolve(member) for member in pending)
+
+
+def tier_edges(node: Node, nodes: Mapping[str, Node], tier: Mapping[str, str]) -> list[str]:
+    """The targets of this package that ``node`` depends on and that no wave lists: what keeps a pending target out
+    of the tier. CCmuxAppFFI counts as in the tier (the Linux mode maps it), and a package product never blocks:
+    the Linux mode keeps a Linux-ready package and drops an excluded one."""
+    return sorted(dep for dep in node.deps
+                  if dep in nodes and not dep.startswith("package:") and dep not in tier
+                  and dep not in LINUX_MAPPED_BINARIES)
 
 
 def local_package_names(packages: Mapping[str, str]) -> dict[str, str]:
@@ -867,10 +886,13 @@ def build_report(source: Source) -> dict:
             "symbols": symbols,
         }
 
-    tier = read_tier(source, names)
+    tier, pending = read_tier(source, names)
     for name, wave in tier.items():
         if name in nodes:
             nodes[name].wave = wave
+    for name in pending:
+        if name in nodes:
+            nodes[name].pending_edges = tier_edges(nodes[name], nodes, tier)
 
     blocked = blocked_set(nodes)
     report_targets = {name: target_entry(nodes[name], nodes, blocked) for name in sorted(names)}
@@ -885,7 +907,7 @@ def build_report(source: Source) -> dict:
         }
         for node in sorted(packages.values(), key=lambda n: n.name)
     }
-    missing = sorted(name for name in tier if name not in nodes)
+    missing = sorted({name for name in [*tier, *pending] if name not in nodes})
     return {
         "source": source.label,
         "graph": GRAPH_PATH,
@@ -896,6 +918,7 @@ def build_report(source: Source) -> dict:
         "targets": report_targets,
         "unmapped": unmapped,
         "tier_missing": missing,
+        "pending_in_wave": sorted(name for name in pending if name in tier),
         "summary": summarize(report_targets, unmapped, missing),
     }
 
@@ -965,6 +988,7 @@ def target_entry(node: Node, nodes: Mapping[str, Node], blocked: set[str]) -> di
         "path": node.path,
         "in_graph": node.in_graph,
         "wave": node.wave,
+        "pending_edges": node.pending_edges,
         "status": status(node, blocked),
         "reason": node.reason,
         "imports": node.imports,
@@ -1009,6 +1033,14 @@ def short(name: str) -> str:
     return name.replace("package:", "pkg:")
 
 
+def wave_cell(entry: dict) -> str:
+    if entry["wave"] is not None:
+        return entry["wave"]
+    if entry["pending_edges"] is not None:
+        return "pending:" + (",".join(entry["pending_edges"]) or "-")
+    return "-"
+
+
 def render_table(report: dict, names: list[str], unmapped: Iterable[str]) -> str:
     lines = ["# target\tkind\twave\tstatus\timports\tsymbols\tblocked deps\troots"]
     for name in names:
@@ -1016,7 +1048,7 @@ def render_table(report: dict, names: list[str], unmapped: Iterable[str]) -> str
         lines.append("\t".join([
             name,
             entry["kind"],
-            entry["wave"] if entry["wave"] is not None else "-",
+            wave_cell(entry),
             entry["status"] + (f" ({entry['reason'] or UNKNOWN_EDGES})" if entry["reason"] or entry["status"] == "unknown" else ""),
             tally(entry["imports"], "module"),
             tally(entry["symbols"], "symbol"),
@@ -1141,10 +1173,16 @@ def main(argv: list[str] | None = None) -> int:
             print(f"tier-imports: {name} (wave {entry['wave']}) is blocked by {edge}", file=sys.stderr)
         for name in report["tier_missing"]:
             print(f"tier-imports: tier target {name} is not a target in {GRAPH_PATH} or Package.swift", file=sys.stderr)
+        for name in report["pending_in_wave"]:
+            print(f"tier-imports: {name} is both pending and in a wave", file=sys.stderr)
+        # A pending target names the edge that keeps it out; with none left it belongs in a wave.
+        ready = sorted(n for n, e in report["targets"].items() if e["pending_edges"] == [])
+        for name in ready:
+            print(f"tier-imports: pending {name} depends only on tier targets: move it into a wave", file=sys.stderr)
         # A directory no target declares may belong to a tier target the scanner could not read.
         for name in report["unmapped"]:
             print(f"tier-imports: no target in {GRAPH_PATH} or Package.swift declares {name}", file=sys.stderr)
-        if failing or report["tier_missing"] or report["unmapped"]:
+        if failing or report["tier_missing"] or report["pending_in_wave"] or ready or report["unmapped"]:
             return 1
     return 0
 

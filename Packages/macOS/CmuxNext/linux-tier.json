@@ -48,10 +48,24 @@
       "CmuxNextKeepAwake",
       "CmuxNextRemoteLocalhost",
       "CmuxNextServerHelper",
-      "CmuxNextCLIInstall"
+      "CmuxNextCLIInstall",
+      "CmuxNextCrashReporting"
     ]
   ],
-  "_waves": "Wave 0 adds Trace, Metrics, Features and WakeupsTestSupport to the section H list: Signposts, Wakeups and the wave 1 targets depend on them and they import only Compat, Atomics and Foundation. Wave 3 holds the UI-free targets whose dependencies are all in the tier today; task p15-oracle-226 adds the others as their blocking edges go (PhoneAccess, Stash, HostedChief, AgentIntegrations, ChiefViews, RemoteLocalhostService, AgentCursorVisibility, AppCore, SidebarActions, AgentUpdates, CrashReporting).",
+  "_waves": "Wave 0 adds Trace, Metrics, Features and WakeupsTestSupport to the section H list: Signposts, Wakeups and the wave 1 targets depend on them and they import only Compat, Atomics and Foundation. Wave 3 holds the UI-free targets whose in-package dependencies are all tier targets (task p15-oracle-226). CrashReporting is one: it joins without sentry-cocoa, as section H says, so its CmuxSentryTelemetry and sentry-cocoa products are blocked edges.",
+  "pending": [
+    "CmuxNextPhoneAccess",
+    "CmuxNextStash",
+    "CmuxNextHostedChief",
+    "CmuxNextAgentIntegrations",
+    "CmuxNextChiefViews",
+    "CmuxNextRemoteLocalhostService",
+    "CmuxNextAgentCursorVisibility",
+    "CmuxNextAppCore",
+    "CmuxNextSidebarActions",
+    "CmuxNextAgentUpdates"
+  ],
+  "_pending": "The wave 3 targets that wait for an in-package dependency outside the tier. scripts/cmux-next/linux/tier-imports.py names each one's blocking edges (`pending:` in its table, `pending_edges` in --json), and its --check fails once a pending target has none left: then move it into wave 3 and run linux-tier.py.",
   "new": [
     "CmuxNextOracle",
     "CmuxNextInputModel",
@@ -123,26 +137,27 @@
       "CmuxNextRemoteLocalhost",
       "CmuxNextServerHelper",
       "CmuxNextCLIInstall",
+      "CmuxNextCrashReporting",
+      "CmuxNextOracle",
       "CZlib"
     ],
     "testTargets": [
       "CmuxNextActionsTests",
+      "CmuxNextBrowserImportTests",
       "CmuxNextChromiumRuntimeTests",
       "CmuxNextCodeRouterTests",
       "CmuxNextCompatTests",
-      "CmuxNextControlTests",
-      "CmuxNextDaemonTests",
       "CmuxNextDevicesTests",
       "CmuxNextErrorJournalTests",
       "CmuxNextFeaturesTests",
       "CmuxNextFilesTests",
-      "CmuxNextHangReportsTests",
+      "CmuxNextHibernationTests",
       "CmuxNextHostPressureTests",
       "CmuxNextImportSuggestionsTests",
       "CmuxNextKeepAwakeTests",
       "CmuxNextMetricsTests",
       "CmuxNextMobileTests",
-      "CmuxNextSignpostsTests",
+      "CmuxNextOracleTests",
       "CmuxNextTraceTests",
       "CmuxNextVSCodeServerTests",
       "CmuxNextWakeupsTests",
@@ -154,6 +169,7 @@
       "Packages/Shared/CMUXMobileCore",
       "Packages/Shared/CmuxAgentBrands",
       "Packages/Shared/CmuxAuthRuntime",
+      "Packages/Shared/CmuxFuzzSupport",
       "Packages/Shared/CmuxInstallAuthCore",
       "Packages/Shared/CmuxIrxTransport",
       "Packages/Shared/CmuxSafeConcurrency",
@@ -173,6 +189,9 @@
       "CmuxNextBrowserImport": [
         "CZlib"
       ],
+      "CmuxNextBrowserImportTests": [
+        "CZlib"
+      ],
       "CmuxNextChromiumRuntime": [
         "Crypto"
       ],
@@ -189,9 +208,6 @@
         "CZlib",
         "Crypto"
       ],
-      "CmuxNextDaemonTests": [
-        "Crypto"
-      ],
       "CmuxNextDesignTokens": [
         "Crypto"
       ],
@@ -201,7 +217,16 @@
       "CmuxNextDevicesTests": [
         "Crypto"
       ],
+      "CmuxNextFeaturesTests": [
+        "Crypto"
+      ],
+      "CmuxNextHangReports": [
+        "Crypto"
+      ],
       "CmuxNextMobile": [
+        "Crypto"
+      ],
+      "CmuxNextOracle": [
         "Crypto"
       ],
       "CmuxNextRemote": [
@@ -224,12 +249,30 @@
         "CmuxNextSidebar",
         "CmuxNextTabs"
       ],
+      "CmuxNextControl": [
+        "CmuxNextInputCore"
+      ],
+      "CmuxNextCrashReporting": [
+        "CmuxSentryReporting (CmuxSentryTelemetry)",
+        "Sentry-Dynamic (sentry-cocoa)"
+      ],
+      "CmuxNextDaemon": [
+        "CmuxNextIPC"
+      ],
+      "CmuxNextHangReports": [
+        "CmuxNextInputCore"
+      ],
       "CmuxNextSettings": [
         "CmuxNextDesign"
+      ],
+      "CmuxNextSignposts": [
+        "CmuxNextSignpostsC"
+      ],
+      "CmuxNextWakeups": [
+        "CmuxNextInputCore"
       ]
     },
     "absent": [
-      "CmuxNextOracle",
       "CmuxNextInputModel",
       "OracleReplay",
       "OracleInputWalk",

@@ -503,6 +503,31 @@ class Report(unittest.TestCase):
         self.fx.write(ti.TIER_PATH, json.dumps({"waves": {"0": ["CmuxNextGeometry"], "1": ["Daemon"]}}))
         self.assertEqual(self.run_main("--check", "--summary")[0], 0)
 
+    def test_a_pending_target_names_the_edges_that_keep_it_out_of_the_tier(self):
+        self.fx.write(ti.TIER_PATH, json.dumps({"waves": [["Geometry", "Daemon"]], "pending": ["Naming", "Settings"]}))
+        report = self.fx.report()
+        targets = report["targets"]
+        # Settings waits for Compat; CCmuxAppFFI and package products never block.
+        self.assertEqual(targets["CmuxNextSettings"]["pending_edges"], ["CmuxNextCompat"])
+        self.assertEqual(targets["CmuxNextNaming"]["pending_edges"], ["CmuxNextSettings"])
+        self.assertIsNone(targets["CmuxNextDaemon"]["pending_edges"])
+        self.assertEqual(report["summary"]["tier"]["missing"], 0)  # pending targets are not tier targets
+        code, out, err = self.run_main("--check", "--target", "Naming", "--target", "Settings")
+        self.assertEqual(code, 0, err)
+        self.assertEqual([line.split("\t")[2] for line in out.splitlines() if not line.startswith("#")],
+                         ["pending:CmuxNextSettings", "pending:CmuxNextCompat"])
+
+    def test_check_fails_when_a_pending_target_has_no_edge_left_or_is_in_a_wave(self):
+        self.fx.write(ti.TIER_PATH, json.dumps({"waves": [["Geometry"], ["Daemon"]], "pending": ["DaemonTests", "Daemon"]}))
+        code, _, err = self.run_main("--check", "--summary")
+        self.assertEqual(code, 1)
+        self.assertIn("pending CmuxNextDaemonTests depends only on tier targets: move it into a wave", err)
+        self.assertIn("CmuxNextDaemon is both pending and in a wave", err)
+        self.fx.write(ti.TIER_PATH, json.dumps({"waves": [["Geometry"]], "pending": ["Gone"]}))
+        code, _, err = self.run_main("--check", "--summary")
+        self.assertEqual(code, 1)
+        self.assertIn("tier target Gone is not a target in", err)
+
     def test_check_needs_a_tier_file(self):
         self.assertEqual(self.run_main("--check")[0], 2)
 
