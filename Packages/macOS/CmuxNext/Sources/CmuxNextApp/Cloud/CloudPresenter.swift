@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextCloudCredentials
 import CmuxNextDesign
 import os
@@ -142,25 +143,9 @@ enum CloudPresenter {
         }
     }
 
-    @MainActor private static func presentCodexDeviceCode(_ prompt: CloudCodexLoginPrompt, in window: NSWindow) async -> Bool {
-        let spec = CmuxDialogSpec(
-            title: "Sign in to Codex",
-            lines: ["Use Codex sign-in on this Mac. Enter this one-time code: \(prompt.userCode)", "Short-lived access moves to the owner VM; the refresh token stays on this Mac. Keep cmux running on this Mac to renew access."],
-            buttons: [.cancel("Cancel"), CmuxDialogButton(id: "open", title: "Open sign-in", role: .default), CmuxDialogButton(id: "signedIn", title: "I signed in", role: .normal)],
-            identifier: "cmux.dialog.cloud.codexDeviceCode")
-        var dialogID: Int?
-        let answer = await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
-                dialogID = CmuxDialogCenter.shared.present(spec, in: .window(window), completion: { continuation.resume(returning: $0) })
-            }
-        } onCancel: {
-            Task { @MainActor in if let dialogID { _ = CmuxDialogCenter.shared.dismiss(dialogID) } }
-        }
-        if answer.button == "open" {
-            NSWorkspace.shared.openInBackground(prompt.verificationURL)
-            return await presentCodexDeviceCode(prompt, in: window)
-        }
-        return answer.button == "signedIn" && !answer.isDismissal
+    @MainActor static func presentCodexDeviceCode(_ prompt: CloudCodexLoginPrompt, in window: NSWindow) async -> Bool {
+        await CloudCodexDevicePrompt(center: .shared, open: { NSWorkspace.shared.openInBackground($0) })
+            .present(prompt, in: .window(window))
     }
 
     /// Use the same installed CLI and user as the credentials. Old/root-layout machines fail

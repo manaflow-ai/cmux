@@ -27,7 +27,7 @@ enum DebugDialog {
     /// an ssh:// link from another app (it connects to a host a web page chose), and a cmux://session
     /// link's new tab (any page or app can open the link).
     static let userOnly: Set<String> = [ClipboardReadStrings.identifier, AgentPaneView.harnessEnableIdentifier, CloudPresenter.createConfirmIdentifier,
-                                        CloudWorkspaceSetupWizard.credentialDialogIdentifier, DaemonPairingStrings.identifier, IPhoneHostService.pairDialogIdentifier, ExternalLinkGate.sshDialogIdentifier,
+                                        CloudWorkspaceSetupWizard.credentialDialogIdentifier, "cmux.dialog.cloud.codexDeviceCode", DaemonPairingStrings.identifier, IPhoneHostService.pairDialogIdentifier, ExternalLinkGate.sshDialogIdentifier,
                                         SessionLinkGate.dialogIdentifier]
 
     static func run(_ params: [String: JSONValue], _ services: AppServices) -> JSONValue {
