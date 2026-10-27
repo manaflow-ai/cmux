@@ -242,6 +242,7 @@ function usePaneRoom(shell: HTMLElement | null | undefined, live: boolean, besid
     const measure = () => {
       const next = paneRoom(shell);
       const shellWidth = shell.clientWidth;
+      const suppressShiftTransition = lastShellWidth !== shellWidth;
       setRoom((current) =>
         current.width === next.width && current.side === next.side && current.shellWidth === shellWidth
           ? current
@@ -250,7 +251,7 @@ function usePaneRoom(shell: HTMLElement | null | undefined, live: boolean, besid
               shellWidth,
               // A native pane changes the shell's own width. An artifact only changes `side`, so it
               // keeps the Session Info shift transition and its normal floating motion.
-              suppressShiftTransition: lastShellWidth !== shellWidth,
+              suppressShiftTransition,
             },
       );
       lastShellWidth = shellWidth;
