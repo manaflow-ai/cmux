@@ -21,6 +21,7 @@ import os
 import re
 import socket
 import sys
+import time
 from pathlib import Path
 
 SOCKET = Path(os.environ.get("CMUX_LAN_CACHE_SOCKET") or Path.home() / ".local/state/glaeda/lan-fetch/fetch.sock")
@@ -42,6 +43,7 @@ def request(public_url: str, obj: str, dest: Path, sock_path: Path = SOCKET, tim
     if not sock_path.is_socket():
         return EXIT_ERROR, {"error": "no glaeda broker"}
     conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    deadline = time.monotonic() + timeout
     try:
         conn.settimeout(timeout)
         conn.connect(os.fspath(sock_path))
@@ -49,6 +51,10 @@ def request(public_url: str, obj: str, dest: Path, sock_path: Path = SOCKET, tim
                                   "file": match.group(2), "dest": os.fspath(dest)}) + "\n").encode())
         data = b""
         while not data.endswith(b"\n") and len(data) < 65536:
+            left = deadline - time.monotonic()  # one deadline for the whole answer, however it trickles in
+            if left <= 0:
+                raise TimeoutError
+            conn.settimeout(left)
             chunk = conn.recv(4096)
             if not chunk:
                 break
@@ -59,6 +65,7 @@ def request(public_url: str, obj: str, dest: Path, sock_path: Path = SOCKET, tim
     finally:
         conn.close()
     code = answer.get("code") if isinstance(answer, dict) else None
+    code = code if type(code) is int else None  # noqa: E721 - True and False are not exit codes
     record = answer.get("record", {}) if isinstance(answer, dict) else {}
     if code == EXIT_HIT and not dest.is_file():
         return EXIT_ERROR, {**record, "error": "broker said hit but wrote nothing"}

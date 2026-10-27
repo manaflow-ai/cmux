@@ -51,13 +51,17 @@ fetch() { # <relative object path> <destination file>
   # has none; anything else (no broker, host down) falls through to the bucket.
   if [[ "$1" == */objects/* ]] && [[ -S "${CMUX_LAN_CACHE_SOCKET:-$HOME/.local/state/glaeda/lan-fetch/fetch.sock}" ]] \
       && command -v python3 >/dev/null 2>&1; then
-    local lan_status=0
-    python3 "$lan_cache" "${CI_CACHE_R2_PUBLIC_URL%/}" "$1" "$2" || lan_status=$?
-    case "$lan_status" in
-      0) return 0 ;;
-      3) return 22 ;;
-    esac
-    rm -f "$2"
+    # The broker writes into a directory of its own, removed afterwards: a broker that answers late can
+    # never touch the file the bucket download below writes.
+    local lan_status=0 lan_dir
+    lan_dir="$(mktemp -d)"
+    python3 "$lan_cache" "${CI_CACHE_R2_PUBLIC_URL%/}" "$1" "$lan_dir/object" || lan_status=$?
+    if [[ "$lan_status" == 0 ]] && mv -f "$lan_dir/object" "$2"; then
+      rm -rf "$lan_dir"
+      return 0
+    fi
+    rm -rf "$lan_dir"
+    [[ "$lan_status" == 3 ]] && return 22
   fi
   curl --fail --silent --show-error --location --retry 3 --retry-delay 2 \
     --connect-timeout 15 --max-time 900 -o "$2" "${CI_CACHE_R2_PUBLIC_URL%/}/$1"
