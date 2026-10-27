@@ -375,7 +375,8 @@ impl Hub {
 
     /// Largest `hostSeq` logged under host `incarnation`.
     fn last_host_seq(&self, session: &Session, incarnation: &str) -> u64 {
-        let mut last = 0;
+        // And the `seq` of the record that holds it.
+        let (mut last, mut at) = (0, 0);
         let mut current = false;
         // Only a host start is parsed: every other record counts by the `hostSeq` of its head.
         let _ = self.store.scan_heads(&session.id, &mut |head| {
@@ -383,15 +384,48 @@ impl Hub {
                 if let Some(e) = head.record() {
                     current = e.msg.get("incarnation").and_then(Value::as_str) == Some(incarnation);
                     if current {
-                        last = 0;
+                        (last, at) = (0, 0);
                     }
                 }
-            } else if current && let Some(h) = head.host_seq {
+            } else if current && let Some(h) = head.host_seq.filter(|&h| h > last) {
+                (last, at) = (h, head.seq);
+            }
+            true
+        });
+        if last > 0 && !self.logs_host_seq(session, at, last) {
+            return self.last_host_seq_parsed(session, incarnation);
+        }
+        last
+    }
+
+    /// `last_host_seq` from whole records only.
+    fn last_host_seq_parsed(&self, session: &Session, incarnation: &str) -> u64 {
+        let mut last = 0;
+        let mut current = false;
+        let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+            if e.dir == "mux" && e.kind == "host_started" {
+                current = e.msg.get("incarnation").and_then(Value::as_str) == Some(incarnation);
+                if current {
+                    last = 0;
+                }
+            } else if current && let Some(h) = e.host_seq {
                 last = last.max(h);
             }
             true
         });
         last
+    }
+
+    /// Whether record `seq` is whole and logs host entry `host_seq`. A head is read from the
+    /// line's bytes; a line a crash cut short reads none of its own, or another record's
+    /// `hostSeq`, which a whole-record read skips. Reads from `seq`'s segment, not the log.
+    fn logs_host_seq(&self, session: &Session, seq: u64, host_seq: u64) -> bool {
+        let mut whole = false;
+        let _ = self.store.scan(&session.id, seq.saturating_sub(1), &mut |e: EventRecord| {
+            whole = e.seq == seq && e.host_seq == Some(host_seq);
+            false
+        });
+        whole
     }
 
     /// Scan the log for the work in flight under host `incarnation`. Agent
@@ -454,12 +488,15 @@ impl Hub {
                 true
             },
         );
+        // The `seq` of the record whose head alone gave `last_host_seq`, proven whole at the end.
+        let mut host_seq_at: Option<u64> = None;
         let _ = self.store.scan_heads(&session.id, &mut |head| {
             // A record the fold would leave as it is counts by its head's `hostSeq` alone.
             let last_turn_open = work.turn.as_ref().is_some_and(|t| t.0 >= last_turn);
             if !reads(head, current, last_turn_open) {
-                if current && let Some(h) = head.host_seq {
-                    work.last_host_seq = work.last_host_seq.max(h);
+                if current && let Some(h) = head.host_seq.filter(|&h| h > work.last_host_seq) {
+                    work.last_host_seq = h;
+                    host_seq_at = Some(head.seq);
                 }
                 return true;
             }
@@ -526,6 +563,7 @@ impl Hub {
                     work.prompt_response = None;
                     work.steers.clear();
                     work.last_host_seq = 0;
+                    host_seq_at = None;
                     work.doing = Default::default();
                 }
                 ("mux", "turn_started") => {
@@ -630,8 +668,9 @@ impl Hub {
                 }
                 _ => {}
             }
-            if current && let Some(h) = e.host_seq {
-                work.last_host_seq = work.last_host_seq.max(h);
+            if current && let Some(h) = e.host_seq.filter(|&h| h > work.last_host_seq) {
+                work.last_host_seq = h;
+                host_seq_at = None;
             }
             if work.turn.is_some() && super::tap::logged_from_the_model(&e) {
                 work.heard_at = e.at;
@@ -641,6 +680,12 @@ impl Hub {
             }
             true
         });
+        // A line cut short showed it: the whole records decide, as before.
+        if let Some(seq) = host_seq_at
+            && !self.logs_host_seq(session, seq, work.last_host_seq)
+        {
+            return self.open_work_reading(session, incarnation, |_, _, _| true);
+        }
         work.requests = requests
             .into_iter()
             .filter(|(id, _, _, _)| !answered.contains(&id.to_string()))

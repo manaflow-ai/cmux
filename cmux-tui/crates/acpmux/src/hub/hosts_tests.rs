@@ -189,6 +189,29 @@ async fn adoption_reads_parse_only_the_records_they_fold() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// Everything `open_work` recovers, in a fixed order.
+fn work_fields(w: &OpenWork) -> String {
+    let permissions: std::collections::BTreeMap<_, _> = w.permissions.iter().collect();
+    format!(
+        "{:?} {} {} {:?} {:?} {:?} {:?} {:?} {} {:?} {:?} {} {} {:?} {:?}",
+        w.turn.as_ref().map(|t| (t.0, &t.1, &t.2, &t.3, &t.4, t.5)),
+        w.turn_at,
+        w.heard_at,
+        w.open_tools.iter().collect::<std::collections::BTreeSet<_>>(),
+        w.prompt_request,
+        w.prompt_response,
+        w.steers,
+        w.requests,
+        w.last_host_seq,
+        w.floor_cancelled,
+        w.last_control,
+        w.harness_grant,
+        w.unsandboxed,
+        w.doing,
+        permissions,
+    )
+}
+
 /// What `open_work` recovers from the heads is what a parse of every record recovers: for the
 /// adopted incarnation and an older one, with the last turn open and with it closed.
 #[tokio::test]
@@ -203,35 +226,7 @@ async fn open_work_from_heads_matches_a_parse_of_every_record() {
         for incarnation in ["inc", "old", "gone"] {
             let all = hub.open_work_reading(&session, incarnation, |_, _, _| true);
             let heads = hub.open_work(&session, incarnation);
-            let fields = |w: &OpenWork| {
-                format!(
-                    "{:?} {} {} {:?} {:?} {:?} {:?} {:?} {} {:?} {:?} {} {} {:?}",
-                    w.turn.as_ref().map(|t| (t.0, &t.1, &t.2, &t.3, &t.4, t.5)),
-                    w.turn_at,
-                    w.heard_at,
-                    w.open_tools.iter().collect::<std::collections::BTreeSet<_>>(),
-                    w.prompt_request,
-                    w.prompt_response,
-                    w.steers,
-                    w.requests,
-                    w.last_host_seq,
-                    w.floor_cancelled,
-                    w.last_control,
-                    w.harness_grant,
-                    w.unsandboxed,
-                    w.doing,
-                )
-            };
-            assert_eq!(fields(&heads), fields(&all), "{incarnation}");
-            let permissions = |w: &OpenWork| {
-                w.permissions
-                    .iter()
-                    .collect::<std::collections::BTreeMap<_, _>>()
-                    .into_iter()
-                    .map(|(k, v)| format!("{k}{v:?}"))
-                    .collect::<Vec<_>>()
-            };
-            assert_eq!(permissions(&heads), permissions(&all), "{incarnation}");
+            assert_eq!(work_fields(&heads), work_fields(&all), "{incarnation}");
         }
         let work = hub.open_work(&session, "inc");
         if std::ptr::eq(log, &open) {
@@ -251,4 +246,50 @@ async fn open_work_from_heads_matches_a_parse_of_every_record() {
         hub.shutdown_all().await;
         let _ = std::fs::remove_dir_all(&root);
     }
+}
+
+/// A line a crash cut short (`..."result":{"a":0,"hostSeq":999999}` with the record unclosed)
+/// reads as a head whose `hostSeq` is its `msg`'s. The resume point and the recovered work are
+/// still those of the whole records, before and after the daemon logs past it.
+#[tokio::test]
+async fn a_line_cut_short_never_moves_the_resume_point() {
+    let mut log = hosted_log();
+    let last_start = log.records.iter().rposition(|r| r.kind == "turn_started").unwrap();
+    log.records.truncate(last_start);
+    let (hub, root) = hub_with(1, &log).await;
+    let session = hub.resolve("chat0").unwrap();
+    let segment = std::fs::read_dir(hub.store.session_dir("chat0").unwrap().join("events"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .max()
+        .unwrap();
+    let append = |line: String| {
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new().append(true).open(&segment).unwrap();
+        file.write_all(format!("{line}\n").as_bytes()).unwrap();
+    };
+    let whole = log.records.iter().filter_map(|r| r.host_seq).max().unwrap();
+    let seq = log.records.len() + 1;
+    append(format!(
+        r#"{{"seq":{seq},"at":1,"dir":"in","kind":"response","msg":{{"id":7,"jsonrpc":"2.0","result":{{"a":0,"hostSeq":999999}}"#
+    ));
+    for after in [whole, whole + 1] {
+        assert_eq!(hub.last_host_seq(&session, "inc"), after);
+        assert_eq!(hub.last_host_seq_parsed(&session, "inc"), after);
+        let all = hub.open_work_reading(&session, "inc", |_, _, _| true);
+        let heads = hub.open_work(&session, "inc");
+        assert_eq!(heads.last_host_seq, after);
+        assert_eq!(work_fields(&heads), work_fields(&all));
+        if after > whole {
+            break;
+        }
+        // The daemon logs on past the cut line.
+        let next = seq + 1;
+        append(format!(
+            r#"{{"seq":{next},"at":2,"dir":"in","kind":"agent_message_chunk","msg":{{"jsonrpc":"2.0","method":"session/update","params":{{"sessionId":"own","update":{{"sessionUpdate":"agent_message_chunk"}}}}}},"hostSeq":{}}}"#,
+            whole + 1,
+        ));
+    }
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
 }
