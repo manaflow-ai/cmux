@@ -80,6 +80,8 @@ DEFAULT_PROBE_LABEL = "blacksmith-4vcpu-ubuntu-2404"
 # takes 2 vCPU.
 LINUX_FAILOVER = "blacksmith-16vcpu-ubuntu-2404"
 TRUSTED_FAILOVER = "blacksmith-2vcpu-ubuntu-2404"
+# The only Blacksmith labels CI_TRUSTED_RUNNER's readers accept.
+TRUSTED_BLACKSMITH_LABELS = frozenset({"blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404"})
 HOSTED_LINUX_LABEL = re.compile(r"^ubuntu-")
 LINUX_VARIABLE = "LINUX_RUNNER"
 # The merge-gating checks (CLA, backend migrations) read this; it falls back to
@@ -206,6 +208,10 @@ def failover_values(xcode_app_pr: str | None, overrides: str | None) -> tuple[di
                     # No job runs on GitHub-hosted Ubuntu (Leo, 2026-10-27).
                     problems.append(f"{OVERRIDES_VARIABLE} points {name} at {value.strip()}, GitHub-hosted "
                                     "Ubuntu; ignored")
+                elif name == TRUSTED_VARIABLE and cloud_label(value.strip()) \
+                        and value.strip() not in TRUSTED_BLACKSMITH_LABELS:
+                    problems.append(f"{OVERRIDES_VARIABLE} points {name} at {value.strip()}, which its readers do "
+                                    "not accept; ignored")
                 elif cloud_label(value.strip()) and not (name in LINUX_VARIABLES and linux_cloud_label(value.strip())):
                     problems.append(f"{OVERRIDES_VARIABLE} points {name} at {value.strip()}, a Blacksmith label; "
                                     "ignored")
@@ -295,6 +301,45 @@ def plan_resume(record: Mapping[str, Any], current: Mapping[str, str | None]) ->
             resumes.append(Resume(name, after, f"now {now or 'unset'}, not the recorded before {before or 'unset'}; "
                                   "someone changed it, so it is left alone"))
     return resumes
+
+
+def migrate_hosted_linux(record: Mapping[str, Any], current: Mapping[str, str | None],
+                         failover: Mapping[str, str]) -> tuple[dict[str, Any], list[Resume]]:
+    """Move a record written when Linux failed over to GitHub-hosted Ubuntu onto today's failover.
+
+    The record keeps each variable's value before; only the destination
+    changes. A variable still at the old hosted destination (or at its value
+    before, which plan_resume then retries) moves to the new one; one someone
+    changed since keeps its old entry and is left alone.
+    """
+    changed = dict(record.get("changed") or {})
+    moves: list[Resume] = []
+    for name, change in sorted(changed.items()):
+        if name not in LINUX_VARIABLES or not isinstance(change, Mapping):
+            continue
+        old, new = change.get("after"), failover.get(name)
+        if not isinstance(old, str) or not HOSTED_LINUX_LABEL.match(old.lower()) or not new or new == old:
+            continue
+        now = (current.get(name) or "").strip() or None
+        if now == old:
+            moves.append(Resume(name, new))
+        elif now != change.get("before"):
+            continue
+        changed[name] = {**change, "after": new}
+    return {**record, "changed": changed}, moves
+
+
+def failover_destinations(record: Mapping[str, Any] | None, probe: str) -> set[str]:
+    """Linux labels the switch moved overflow onto: a job queued there has nowhere better to go.
+
+    A label that was also some variable's value before (or the probed one)
+    still carries stalled overflow, so it is not one of them.
+    """
+    changes = [change for name, change in ((record or {}).get("changed") or {}).items()
+               if name in LINUX_VARIABLES and isinstance(change, Mapping)]
+    afters = {str(change.get("after")) for change in changes if change.get("after")}
+    befores = {str(change.get("before")) for change in changes if change.get("before")}
+    return afters - befores - {probe}
 
 
 def job_started(job: Mapping[str, Any]) -> bool:
@@ -619,7 +664,20 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                 log(f"overflow off; {RECORD_VARIABLE} holds the values to put back")
                 record = new_record
         else:
-            resumes = plan_resume(record, current)
+            migrated, moves = migrate_hosted_linux(record, current, failover)
+            if migrated != record:
+                if args.dry_run:
+                    for item in moves:
+                        log(f"- {item.name}: would move from GitHub-hosted Ubuntu to {item.value} (dry run)")
+                elif switch is not None:
+                    # The record first, as for a new switch: a failure halfway still knows the way back.
+                    switch.set_variable(RECORD_VARIABLE, json.dumps(migrated, sort_keys=True))
+                    for item in moves:
+                        switch.set_variable(item.name, item.value)
+                        log(f"- {item.name}: moved from GitHub-hosted Ubuntu to {item.value}")
+                    record = migrated
+                    current = {**current, **{item.name: item.value for item in moves}}
+            resumes = plan_resume(migrated if args.dry_run else record, current)
             if args.dry_run:
                 for item in resumes:
                     if item.skipped:
@@ -640,8 +698,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         if record or args.dry_run:
             for line in rescue_stuck_runs(api, own_run_id=run_id, minutes=minutes, now=now, sleep=sleep,
                                           log=log, dry_run=args.dry_run,
-                                          failovers=[value for name, value in failover.items()
-                                                     if name in LINUX_VARIABLES]):
+                                          failovers=failover_destinations(
+                                              record or {"changed": plan_off(current, failover)}, label)):
                 log(f"- {line}")
     out = env.get("GITHUB_OUTPUT")
     if out:

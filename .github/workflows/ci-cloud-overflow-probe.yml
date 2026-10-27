@@ -75,8 +75,10 @@ jobs:
     # While overflow is on, the watch takes a Blacksmith Linux size the probe
     # does not ask for (the switch's Linux failover). While it is off, Linux
     # overflow is on that size, so the watch takes Blacksmith macOS: it can
-    # still put overflow back however the Linux sizes fare.
-    runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    # still put overflow back however the Linux sizes fare. The same holds
+    # whenever the probe itself asks for 16 vCPU (LINUX_RUNNER or a drill
+    # naming it), so the watch never queues behind its own probe.
+    runs-on: ${{ (vars.CI_CLOUD_OVERFLOW_SAVED || startsWith(vars.LINUX_RUNNER, 'blacksmith-16vcpu-') || startsWith(inputs.probe_label, 'blacksmith-16vcpu-')) && 'blacksmith-6vcpu-macos-26' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 25
     permissions:
       actions: write
