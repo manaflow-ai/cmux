@@ -34,13 +34,23 @@ struct TerminalKeyBar: View {
                                 KeyCap(key: key, model: model)
                             }
                         }
-                        .onGeometryChange(for: Bool.self) { proxy in
-                            // The scroll view's visible bounds already end at the pinned keys (its leading bar).
-                            KeyBarClipping().isActivatable(CGRect(origin: .zero, size: proxy.size), in: proxy.bounds(of: .scrollView))
+                        .onGeometryChange(for: Bool.self) { [pinnedWidth] proxy in
+                            // The scroll view runs under the pinned keys (its leading bar
+                            // is a safe-area inset, not a frame edge): what is visible
+                            // starts after them.
+                            let visible = proxy.bounds(of: .scrollView).map { bounds in
+                                var rect = bounds
+                                rect.origin.x += pinnedWidth
+                                rect.size.width = max(0, rect.width - pinnedWidth)
+                                return rect
+                            }
+                            return KeyBarClipping().isActivatable(CGRect(origin: .zero, size: proxy.size), in: visible)
                         } action: { visible in
                             if visible { clipped.remove(key) } else { clipped.insert(key) }
                         }
+                        // A key under the pinned keys is neither seen, read nor tapped.
                         .accessibilityHidden(clipped.contains(key))
+                        .allowsHitTesting(!clipped.contains(key))
                     }
                 }
                 .padding(.trailing, TerminalDockMetrics.horizontalInset)
@@ -81,6 +91,9 @@ struct TerminalKeyBar: View {
                 }
                 .padding(.leading, TerminalDockMetrics.horizontalInset)
             }
+            // The gaps between the pinned keys take their taps too, so none
+            // falls through to a hidden key scrolled under them.
+            .contentShape(.rect)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { pinnedWidth = $0 }
         }
         // Room above and below the 28 pt row for the glass's touch lift,

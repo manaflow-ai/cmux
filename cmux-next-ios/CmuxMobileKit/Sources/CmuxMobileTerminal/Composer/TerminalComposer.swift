@@ -206,9 +206,10 @@ struct TerminalComposer: View {
             .frame(width: TerminalDockMetrics.sendDiameter, height: TerminalDockMetrics.sendDiameter)
             // ↑ (send) is the primary action: glass tinted with the accent;
             // empty, plain glass (classic's accent and quiet fills, as glass).
+            // Empty (disabled): plain glass that does not react to a touch.
             .glassEffect(failed ? .regular.tint(.red).interactive()
                          : canSend || model.isUploading ? .regular.tint(Color(uiColor: .systemBlue)).interactive()
-                         : .regular.interactive(), in: .circle)
+                         : .regular, in: .circle)
             .animation(.smooth(duration: 0.2), value: canSend)
         }
         .buttonStyle(.plain)

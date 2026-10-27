@@ -354,7 +354,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         keyBarHost = keyBar
         composerHost = composer
         // Not clipped: the keys' glass lifts past the row on touch. Hide
-        // Toolbar folds the row by hiding it, not by clipping it to 0.
+        // Toolbar folds the row by hiding it, and unfolding fades it in
+        // (`dockChanged`), so it never draws over the composer while it grows.
         keyBarClip.clipsToBounds = false
         // A rightward swipe on the key bar scrolls it or moves the joystick;
         // it never swipes back to the workspaces (R4-1).
@@ -886,7 +887,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         composerCollapsed.isActive = !dock.showsComposer
         keyRowGap.constant = dock.showsKeyRow && dock.showsComposer ? TerminalDockMetrics.keyRowGap : 0
         dockBottomMargin.constant = dock.showsKeyRow || dock.showsComposer ? -8 : 0
+        let revealsKeyRow = keyBarClip.isHidden && dock.showsKeyRow
         keyBarClip.isHidden = !dock.showsKeyRow
+        // Unfolding: the row fades in once its slot is open, never over the composer.
+        if revealsKeyRow { keyBarClip.alpha = 0 }
         composerHost.view.isHidden = !dock.showsComposer
         bottomBacking.isHidden = !dock.showsKeyRow && !dock.showsComposer
         view.setNeedsLayout()
@@ -896,10 +900,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             UIView.animate(withDuration: 0.25, delay: 0, options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction]) {
                 self.view.layoutIfNeeded()
             } completion: { _ in
+                // motion: allow the same gate as the reflow above (Reduce Motion skips it).
+                UIView.animate(withDuration: 0.15) { self.keyBarClip.alpha = 1 }
                 self.keyboardDidChange()
             }
         } else {
             view.layoutIfNeeded()
+            keyBarClip.alpha = 1
             keyboardDidChange()
         }
     }
