@@ -1,4 +1,4 @@
-import CmuxNextDesignTokens
+import CmuxNextDesign
 import Foundation
 
 // SettingsSection is generated from schemas/settings/source/sections.json

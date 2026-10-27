@@ -1,4 +1,4 @@
-import CmuxNextDesignTokens
+import CmuxNextDesign
 
 extension ModuleResourceBundle {
     /// This module's string table (Localizable.xcstrings). Use it instead of
