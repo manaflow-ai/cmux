@@ -1,13 +1,14 @@
 /* The live preview card of computer use (ComputerUsePreviewCard.tsx): a 180px glass card at the
    chat's top right, under the header, beside the column: while it shows, the column's end keeps its
-   room (--cv-inset-end below), so no message runs under it. The liquid glass (.ui-glass,
-   ui/glass/glass.css) with the floating elevation; the app's name on top (none when unknown), the
-   frame under it. Done, the frame dims under the app's icon with a green check on the icon's
-   corner. It fades in with the pane's motion tokens, and not at all when motion is off or reduced. */
-/* The column's end while the card shows (App.tsx sets data-cu-preview on .acpmux-main, only in a pane
-   wide enough): the card's 180px, 12px from the edge and a 12px gap, or the column's own inset when
-   that is wider. The transcript's rows, the composer and the dock's bands read it; model.ts
-   transcriptColumn mirrors it (COMPUTER_USE_PREVIEW_RESERVE). */
+   room (--cv-inset-end below), so no message runs under it. The Inspector's glass (inspector.css, the
+   composer's surface: one rule for both) with the floating elevation and its 14px radius; the app's
+   name on top (none when unknown), the frame under it, 6px in from the card's edge (the Codex app's
+   preview). Done, the frame dims under the app's icon with a green check on the icon's corner. It
+   fades in with the pane's motion tokens, and not at all when motion is off or reduced. */
+/* The column's end while the card shows beside it (App.tsx sets data-cu-preview on .acpmux-main, only
+   in a pane wide enough and with the Inspector closed): the card's 180px, 12px from the edge and a 12px
+   gap, or the column's own inset when that is wider. The transcript's rows, the composer and the dock's
+   bands read it; model.ts transcriptColumn mirrors it (COMPUTER_USE_PREVIEW_RESERVE). */
 .acpmux-main[data-cu-preview] {
   --cv-inset-end: max(var(--cv-inset), 204px);
 }
@@ -20,31 +21,26 @@
   right: 12px;
   z-index: var(--layer-sticky);
   width: 180px;
-  border-radius: 12px;
+  border-radius: 14px;
   overflow: hidden;
-  --glass-edge: var(--acpmux-cu-preview-rim, color-mix(in srgb, var(--agent-text) 14%, transparent));
   --glass-elevation: var(--elevation-2);
   color: var(--agent-text);
 }
-:root[data-borders="none"] .acpmux-cu-preview {
-  --acpmux-cu-preview-rim: transparent;
-}
-/* The same glass as the model picker and the other popups (glass.css .ui-popup.ui-glass): its own
-   tint and blur, never a heavier one of its own. */
-.acpmux-cu-preview.ui-glass {
-  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-plain-tint), transparent);
-  --glass-backdrop: var(--surface-blur);
-}
-:root[data-glass-lens]:is([data-glass="lens"], [data-glass="spectrum"]) .acpmux-cu-preview.ui-glass {
-  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-lens-tint), transparent);
-  --glass-backdrop: var(--ds-glass-lens-blur);
+/* With the Inspector open (either place), directly under its card: the layout's 8px gap, right-aligned
+   with it (the Codex app's preview under its summary panel). The Inspector publishes the place on the
+   shell (inspector/underInspector.ts, once per resize of the panel), and the column keeps no room of
+   its own: the Inspector's shift or push keeps the chat clear of both. Closed, the card is back at the
+   top right. */
+.acpmux-shell[data-inspector-chat-placement] .acpmux-cu-preview {
+  top: var(--acpmux-inspector-under-top, calc(var(--acpmux-header-height, 44px) + 8px));
+  right: var(--acpmux-inspector-under-right, 12px);
 }
 
 .acpmux-cu-preview__open {
   display: flex;
   flex-direction: column;
   width: 100%;
-  padding: 0 0 8px;
+  padding: 0;
   border: 0;
   background: none;
   color: inherit;
@@ -52,13 +48,13 @@
   text-align: start;
   cursor: default;
 }
-.acpmux-cu-preview[data-untitled] .acpmux-cu-preview__open {
-  padding-top: 8px;
+.acpmux-cu-preview[data-untitled] .acpmux-cu-preview__frame {
+  margin-top: 6px;
 }
 .acpmux-cu-preview__open:focus-visible {
   outline: 1.5px solid var(--agent-text);
   outline-offset: -2px;
-  border-radius: 12px;
+  border-radius: 14px;
 }
 
 .acpmux-cu-preview__title {
@@ -90,7 +86,9 @@
   position: relative;
   display: grid;
   place-items: center;
-  margin: 0 8px;
+  /* The frame's even 6px inset from the card's sides and foot (the Codex app's preview). */
+  margin: 0 6px 6px;
+  /* Concentric with the card: its 14px less the 6px inset. */
   border-radius: 8px;
   overflow: hidden;
 }

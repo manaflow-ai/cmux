@@ -2,6 +2,8 @@
 import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
+import { FLOAT_MARGIN, InspectorPanel, type InspectorPlacement } from "../inspector/ChatInspector";
+import { useUnderInspector } from "../inspector/underInspector";
 import { ComputerUsePreviewCard } from "./ComputerUsePreviewCard";
 import { useComputerUsePreviewRoom, type ComputerUsePreview } from "./computerUsePreview";
 
@@ -33,20 +35,54 @@ const icon = `data:image/svg+xml,${encodeURIComponent(
 const running: ComputerUsePreview = { session: "cua_native_1", app: "Calculator", done: false, frame };
 const done: ComputerUsePreview = { ...running, done: true, icon };
 
-type Props = { preview: ComputerUsePreview; chat?: boolean };
+type Props = { preview: ComputerUsePreview; chat?: boolean; inspector?: InspectorPlacement };
 
 /// A prompt long enough to reach the card's side: with the column's room kept, it wraps before the card.
 const prompt =
   "Use cmux Computer Use to open the Calculator app and compute 128 x 46 by clicking its buttons. Do not use the shell. When done, say the result.";
 
-function GalleryComputerUsePreview({ preview, chat }: Props) {
+/// The Inspector's top: under the chat header, as the pane places it (ChatInspector.tsx inspectorTopOffset).
+const UNDER_HEADER = "var(--acpmux-header-height, 44px)";
+
+/// A short Inspector: the chat's folder and its changes (the Codex app's summary panel in Lucas's
+/// reference, 2026-10-27).
+function GalleryInspector({ placement }: { placement: InspectorPlacement }) {
+  return (
+    <InspectorPanel width={260} placement={placement} under={UNDER_HEADER}>
+      <div className="acpmux-chat-inspector__body" data-layout="glance">
+        <div className="acpmux-chat-inspector-group" data-group="about">
+          <section className="acpmux-chat-inspector-section">
+            <div className="acpmux-chat-inspector-row">cmux-diff-test</div>
+          </section>
+        </div>
+        <div className="acpmux-chat-inspector-group" data-group="made">
+          <section className="acpmux-chat-inspector-section">
+            <div className="acpmux-chat-inspector-row">Changes</div>
+          </section>
+        </div>
+      </div>
+    </InspectorPanel>
+  );
+}
+
+function GalleryComputerUsePreview({ preview, chat, inspector }: Props) {
   const [closed, setClosed] = useState(false);
+  const [shell, setShell] = useState<HTMLElement | null>(null);
   // As the pane does (App.tsx): no card in a pane too narrow to keep its room.
   const room = useComputerUsePreviewRoom();
   const shown = room && !closed ? preview : null;
+  // As the Inspector does (ChatInspector.tsx InspectorPresence): it publishes where the card under it goes.
+  useUnderInspector(shell, inspector !== undefined, inspector === "push", FLOAT_MARGIN, UNDER_HEADER);
   return (
-    <div className="acpmux-shell" data-cu-preview-fixture style={{ position: "relative", height: "100%" }}>
-      <div className="acpmux-main" data-cu-preview={shown ? "" : undefined}>
+    <div
+      ref={setShell}
+      className="acpmux-shell"
+      data-cu-preview-fixture
+      data-inspector-chat-placement={inspector}
+      style={{ position: "relative", height: "100%" }}
+    >
+      {/* With the Inspector open, the column keeps no room of its own for the card (App.tsx previewBeside). */}
+      <div className="acpmux-main" data-cu-preview={shown && !inspector ? "" : undefined}>
         <div className="acpmux-stage" style={{ height: "100%" }}>
           <ComputerUsePreviewCard preview={shown} onOpen={() => {}} onClose={() => setClosed(true)} />
           {chat && (
@@ -58,6 +94,7 @@ function GalleryComputerUsePreview({ preview, chat }: Props) {
           )}
         </div>
       </div>
+      {inspector && <GalleryInspector placement={inspector} />}
     </div>
   );
 }
@@ -74,12 +111,17 @@ export default componentEntry<Props>({
   height: 420,
   widths: { narrow: 360, normal: 640, wide: 900 },
   anchors: [{ selector: "[data-cu-preview-fixture]" }],
-  covers: ["agent-session/acpmux/computerUse/ComputerUsePreviewCard.tsx#ComputerUsePreviewCard"],
+  covers: [
+    "agent-session/acpmux/computerUse/ComputerUsePreviewCard.tsx#ComputerUsePreviewCard",
+    "agent-session/acpmux/inspector/underInspector.ts",
+  ],
   styles: () =>
     Promise.all([
       import("../../../ui/glass/glass.css"),
       import("../styles.css"),
+      import("../composerStates.css"),
       import("../conversation/conversation.css"),
+      import("../inspector/inspector.css"),
     ]),
   load: async () => GalleryComputerUsePreview,
   variants: {
@@ -99,6 +141,14 @@ export default componentEntry<Props>({
     "beside-chat": {
       note: "The column keeps the card's room: the prompt wraps before the card, nothing runs under it. Narrow panes show no card.",
       props: { preview: running, chat: true },
+    },
+    "beside-inspector": {
+      note: "The Inspector open over the chat: the card sits directly under its card, 8px below, right-aligned with it. Closed, the card is back at the top right.",
+      props: { preview: running, chat: true, inspector: "overlay" },
+    },
+    "under-pushed-inspector": {
+      note: "The Inspector pushing the chat (Settings Push always): the card sits under it, outside the chat, which keeps no room for it.",
+      props: { preview: running, chat: true, inspector: "push" },
     },
     close: { props: { preview: running }, play: close },
   },

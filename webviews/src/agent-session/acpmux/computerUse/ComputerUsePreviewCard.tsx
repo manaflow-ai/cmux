@@ -3,10 +3,15 @@
 // column keeps the card's room, so it covers no message (computerUsePreview.ts). When the session
 // ends, the last frame dims under the app's icon with a green check on the icon's corner. A click
 // opens Agent Activity on the session; the close button hides the card for that session. The host
-// owns the card; a close hides it here at once, before the host's next push.
+// owns the card; a close hides it here at once, before the host's next push. With the Inspector
+// open, the card sits directly under it (inspector/underInspector.ts) and keeps its own room there.
+import { useState } from "react";
 import { useT } from "../i18n";
 import { Check, Close } from "../conversation/icons";
+import { useUnderInspectorRoom } from "../inspector/underInspector";
 import { closeComputerUsePreview, computerUsePreviewTitle, type ComputerUsePreview } from "./computerUsePreview";
+// The card's glass is the Inspector's, from the same rules (inspector.css).
+import "../inspector/inspector.css";
 import "./computerUsePreview.css";
 
 export function ComputerUsePreviewCard({
@@ -19,6 +24,8 @@ export function ComputerUsePreviewCard({
   onClose(session: string): void;
 }) {
   const t = useT();
+  const [card, setCard] = useState<HTMLDivElement | null>(null);
+  useUnderInspectorRoom(card);
   if (!preview) return null;
   // No name and no window title: no title row (never "Unknown app").
   const title = computerUsePreviewTitle(preview);
@@ -27,6 +34,7 @@ export function ComputerUsePreviewCard({
     : t(preview.done ? "computerUse.preview.doneLabelNoApp" : "computerUse.preview.runningLabelNoApp");
   return (
     <div
+      ref={setCard}
       className="ui-glass ui-glass-floats acpmux-cu-preview"
       data-done={preview.done ? "" : undefined}
       data-untitled={title ? undefined : ""}

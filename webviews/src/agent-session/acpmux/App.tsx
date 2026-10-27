@@ -8394,9 +8394,12 @@ function AcpmuxPane() {
   );
   const toolCards = useToolCards();
   const computerUsePreview = useComputerUsePreview();
-  // The live preview card shows beside the column, which keeps its room, in a pane wide enough.
+  // The live preview card shows beside the column, which keeps its room, in a pane wide enough. With
+  // the Inspector open it sits under the Inspector's card instead (inspector/underInspector.ts), whose
+  // shift or push keeps the chat clear of both: the column keeps no room of its own.
   const previewRoom = useComputerUsePreviewRoom();
   const previewShown = computerUsePreview !== null && previewRoom && !quick && !diffView && !inspectorOpen;
+  const previewBeside = previewShown && !inspector.shown;
   // What the chat waits on the person for: the running turn's line says it, never "Thinking".
   const waiting = chatWaitsOn({
     trust: trustAsk.ask,
@@ -8443,7 +8446,7 @@ function AcpmuxPane() {
                                                 <VirtualTranscript
                                                   rows={transcriptRows}
                                                   sourceRows={childRows ? undefined : sourceRows}
-                                                  endReserve={previewShown ? COMPUTER_USE_PREVIEW_RESERVE : 0}
+                                                  endReserve={previewBeside ? COMPUTER_USE_PREVIEW_RESERVE : 0}
                                                   working={snapshot.isWorking}
                                                   // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
                                                   jumpButton={!quick}
@@ -9363,7 +9366,7 @@ function AcpmuxPane() {
           // stage shows it; a new chat's hero, a handoff review, the diff and the inspector keep it in flow.
           data-dock={!reviewing && !freshView && !diffView && !inspectorOpen ? "float" : undefined}
           data-summary={summaryCard.column ? "inline" : "popover"}
-          data-cu-preview={previewShown ? "" : undefined}
+          data-cu-preview={previewBeside ? "" : undefined}
         >
           {!harnessesOpen && showNewTab && !newTab.history && (
             // The page's dots, under it: Claude Minimal, Claude Minimal with the quick actions, Codex
