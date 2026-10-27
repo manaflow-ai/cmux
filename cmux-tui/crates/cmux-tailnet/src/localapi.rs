@@ -19,11 +19,13 @@ pub(crate) struct LocalApi {
 }
 
 impl LocalApi {
-    pub(crate) fn new(addr: &str, cred: &str) -> Self {
+    pub(crate) fn new(addr: &str, cred: &str) -> Result<Self> {
         let token = base64::engine::general_purpose::STANDARD.encode(format!(":{cred}"));
-        let agent =
-            reqwest::blocking::Client::builder().no_proxy().build().expect("LocalAPI client");
-        Self { base: format!("http://{addr}"), authorization: format!("Basic {token}"), agent }
+        let agent = reqwest::blocking::Client::builder()
+            .no_proxy()
+            .build()
+            .map_err(|_| Error("could not create LocalAPI client".into()))?;
+        Ok(Self { base: format!("http://{addr}"), authorization: format!("Basic {token}"), agent })
     }
 
     fn get(&self, path: &str) -> Result<reqwest::blocking::Response> {
