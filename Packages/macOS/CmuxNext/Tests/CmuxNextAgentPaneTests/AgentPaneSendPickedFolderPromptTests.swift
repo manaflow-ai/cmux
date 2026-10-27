@@ -179,6 +179,7 @@ struct AgentPaneSendPickedFolderPromptTests {
         let transport = pane.model.transport
         let socket = try #require(transport.socket)
         let ids = try #require(transport.requestIds)
+        transport.grant(pane.folder) // The native picker grants the root before its trust send.
         if !overflow { socket.close(code: 1000, reason: "", error: nil) }
         // Exercise a failure after the picker has queued its host request, at the actual send.
         let host = AgentPaneTransport.PendingHostSend(connection: pane.id, requestID: ids.hostID(), folder: pane.folder,
