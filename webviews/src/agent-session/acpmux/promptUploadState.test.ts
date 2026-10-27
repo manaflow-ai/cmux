@@ -10,7 +10,12 @@ const deferred = () => {
 
 test("terminal state can arrive before begin answers", async () => {
   const begin = deferred();
-  const result = finishedPromptUpload("early", 3, () => begin.promise, async () => finished("early"));
+  const result = finishedPromptUpload(
+    "early",
+    3,
+    () => begin.promise,
+    async () => finished("early"),
+  );
   receivePromptUploadState(finished("early"));
   expect(await result).toEqual({ uploadId: "daemon-id", size: 3, offset: 3 });
   begin.resolve();
@@ -36,7 +41,12 @@ test("100 percent progress and pending status do not finish an upload", async ()
 });
 
 test("status recovers a lost terminal push", async () => {
-  const result = await finishedPromptUpload("lost", 3, async () => ({}), async () => finished("lost"));
+  const result = await finishedPromptUpload(
+    "lost",
+    3,
+    async () => ({}),
+    async () => finished("lost"),
+  );
   expect(result.uploadId).toBe("daemon-id");
 });
 
@@ -52,5 +62,29 @@ test("terminal failures retain native details and never fabricate an upload id",
     await expect(result).rejects.toMatchObject(
       state === "finished" ? { code: "upload.noId" } : state === "failed" ? error : { message: "Upload cancelled" },
     );
+  }
+});
+
+test("the shared page host delegates terminal upload events", async () => {
+  const { JSDOM } = await import("jsdom");
+  const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
+  const scope = globalThis as Record<string, unknown>;
+  const previous = { window: scope.window, document: scope.document };
+  Object.assign(scope, { window: dom.window, document: dom.window.document });
+  try {
+    const { applyHostEvent } = await import("./pageHost");
+    const begin = deferred();
+    const result = finishedPromptUpload(
+      "host-event",
+      3,
+      () => begin.promise,
+      async () => finished("host-event"),
+    );
+    applyHostEvent({ kind: "uploads.state", value: finished("host-event") });
+    expect((await result).uploadId).toBe("daemon-id");
+    begin.resolve();
+  } finally {
+    Object.assign(scope, previous);
+    dom.window.close();
   }
 });

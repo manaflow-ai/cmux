@@ -58,7 +58,9 @@ export function finishedPromptUpload(
     listeners.add(receive);
     waiting.set(token, listeners);
     try {
-      begin().then(() => status()).then(receive, fail);
+      begin()
+        .then(() => status())
+        .then(receive, fail);
     } catch (error) {
       fail(error);
     }
