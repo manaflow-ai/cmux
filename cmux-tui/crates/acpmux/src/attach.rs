@@ -2,13 +2,23 @@
 //! screenshots to big-red one at a time on 2026-10-25; Leo: "If this doesn't work as well as it
 //! should, we need to improve ACP Mux.").
 //!
-//! The sender ([`blocks_from_paths`]: `acpmux send --attach`, cmux-subsessions `send_message`)
-//! adds each file to the prompt as a block marked `_meta.acpmux.attachment {name}`: an image
-//! (its type read from its bytes) as an `image` block, any other file as an embedded `resource`. The prompt then goes as every prompt goes (direct,
-//! through the outbox, or whole over the peer link), so the send rules, the prompt id's run-once
-//! ledger and the `--from` provenance are those of any message.
+//! The sender ([`blocks_for`]: `acpmux send --attach`, cmux-subsessions `send_message`) adds
+//! the files to the prompt one of two ways, never refusing one for its size or their number (Leo,
+//! 2026-10-26: "I ALREADY SAID WE NEED ARBITARRILY LARGE FILES OF ANY TYPE"):
 //!
-//! The daemon that runs the session ([`receive`]) checks the caps and the type again and saves each
+//! - Small ones that fit one message with the text ([`fits_inline`]) go inline, each a block
+//!   marked `_meta.acpmux.attachment {name}`: an image (its type read from its bytes) as an
+//!   `image` block, any other file as an embedded `resource`.
+//! - Otherwise each file is uploaded to the receiving chat first, in chunks of at most
+//!   `file_uploads::CHUNK_BYTES` read from disk as they go, and the prompt names it by reference
+//!   (`prompt_uploads.rs`): the daemon that runs the chat puts an image the agent can take inline
+//!   and gives it every other file by its path.
+//!
+//! The prompt then goes as every prompt goes (direct, through the outbox, or whole over the peer
+//! link), so the send rules, the prompt id's run-once ledger and the `--from` provenance are
+//! those of any message.
+//!
+//! The daemon that runs the session ([`receive`]) checks the type again and saves each inline
 //! file owner-only at `<ACPMUX_HOME>/uploads/<session>/<uuidv7>/<name>` (`file_uploads.rs`: a
 //! purge and the age sweep delete it, also one a crash left). An image stays an image block (the agent sees it, the
 //! transcript draws it, `prompt_images.rs`); any other file becomes a `resource_link` to its copy.
@@ -16,13 +26,13 @@
 //! kept, made plain ([`safe_name`]). A resend of the same prompt id (the outbox's retry) is
 //! answered from the ledger with the first run's outcome, and its own copy is deleted ([`Saved`]).
 //!
-//! Caps: the message is one JSON-RPC message on every hop (CLI, outbox record, peer link, agent),
-//! at most `rpc::MAX_MESSAGE_BYTES` (15 MiB). 10 MiB is 13.3 MiB as base64, leaving room for the
-//! text; [`check_wire`] also refuses a request whose whole size would not fit. A screenshot (a 5K
-//! Retina PNG is 3 to 7 MiB) fits in [`MAX_FILE_BYTES`]; a larger file is a video or an archive,
-//! which `_acpmux/file_put` takes.
+//! No cap: an inline message is one JSON-RPC message on every hop (CLI, outbox record, peer link,
+//! agent), at most `rpc::MAX_MESSAGE_BYTES` (15 MiB), so the senders go by reference before that.
+//! [`check_wire`] answers a raw protocol sender whose inline request would not fit one message on
+//! the next hop, rather than let a hop drop it.
 
-use crate::rpc::RpcError;
+use crate::client::Client;
+use crate::rpc::{RpcError, method};
 use anyhow::Context;
 use base64::Engine;
 use serde_json::{Value, json};
@@ -32,43 +42,45 @@ use std::sync::{Arc, Mutex};
 
 /// The `initialize` feature of a daemon that saves a message's attachments.
 pub const FEATURE: &str = "sendAttach";
-/// The largest file one attachment holds.
-pub const MAX_FILE_BYTES: usize = 8 << 20;
-/// The most one message's attachments hold together.
-pub const MAX_MESSAGE_BYTES: usize = 10 << 20;
-/// The most attachments one message takes.
-pub const MAX_FILES: usize = 16;
+/// The most files a message carries inline; more go by reference. Never a refusal.
+const INLINE_FILES: usize = 16;
+/// The most bytes a message's files carry inline together; past it they go by reference.
+const INLINE_TOTAL_BYTES: u64 = crate::prompt_uploads::INLINE_PROMPT_BYTES as u64;
+/// The largest file put inline: an image the agent's API takes inline. A larger one goes by
+/// reference, so the agent gets it by its path.
+const INLINE_FILE_BYTES: u64 = crate::prompt_uploads::INLINE_IMAGE_BYTES as u64;
+/// Room left for a block's own fields and the prompt's metadata when counting an inline message.
+const BLOCK_SLACK: usize = 1 << 10;
+const META_SLACK: usize = 64 << 10;
 /// The longest saved name, in bytes.
 const MAX_NAME_BYTES: usize = 120;
 
 fn refused(reason: &str, message: String) -> RpcError {
-    RpcError::invalid_params(message).with_data(json!({
-        "reason": reason,
-        "maxFileBytes": MAX_FILE_BYTES,
-        "maxMessageBytes": MAX_MESSAGE_BYTES,
-        "maxFiles": MAX_FILES,
-    }))
+    RpcError::invalid_params(message).with_data(json!({"reason": reason}))
 }
 
 fn mib(bytes: usize) -> String {
     format!("{:.1} MiB", bytes as f64 / f64::from(1 << 20))
 }
 
-/// One message's attachments, `(name, bytes)`, against the caps.
-pub fn check_sizes(files: &[(String, usize)]) -> Result<(), RpcError> {
-    let total: usize = files.iter().map(|(_, len)| len).sum();
-    let message = if files.len() > MAX_FILES {
-        let message = format!("{} attachments: a message takes at most {MAX_FILES}", files.len());
-        return Err(refused("attach.tooMany", message));
-    } else if let Some((name, len)) = files.iter().find(|(_, len)| *len > MAX_FILE_BYTES) {
-        format!("{name} is {}: an attachment is at most {} MiB", mib(*len), MAX_FILE_BYTES >> 20)
-    } else if total > MAX_MESSAGE_BYTES {
-        let max = MAX_MESSAGE_BYTES >> 20;
-        format!("the attachments are {} together: a message takes at most {max} MiB", mib(total))
-    } else {
-        return Ok(());
-    };
-    Err(refused("attach.tooLarge", message))
+/// Whether files of `sizes` go inline in one message with `text`: few and small enough, and the
+/// whole message, as base64 with its text, within one JSON-RPC message on every hop. Otherwise
+/// they go by reference ([`blocks_for`]); this never refuses a send.
+pub fn fits_inline(sizes: &[u64], text: &str) -> bool {
+    let total: u64 = sizes.iter().sum();
+    if sizes.len() > INLINE_FILES
+        || sizes.iter().any(|&n| n > INLINE_FILE_BYTES)
+        || total > INLINE_TOTAL_BYTES
+    {
+        return false;
+    }
+    let text = serde_json::to_string(text).map_or(usize::MAX, |t| t.len());
+    let base64 = usize::try_from(total.div_ceil(3) * 4).unwrap_or(usize::MAX);
+    let wire = base64
+        .saturating_add(text)
+        .saturating_add(sizes.len() * BLOCK_SLACK)
+        .saturating_add(META_SLACK + FRAME_SLACK);
+    wire <= crate::rpc::MAX_MESSAGE_BYTES
 }
 
 /// A sender's file name as one plain file name: its last path component, every character but a
@@ -115,28 +127,101 @@ pub fn block(name: &str, bytes: &[u8]) -> Value {
     }
 }
 
-/// The attachment blocks of the files at `paths` (`acpmux send --attach`, the cmux-subsessions
-/// `send_message` tool), refused past the caps before any is read (the receiver checks the bytes
-/// it gets).
-pub fn blocks_from_paths(paths: &[PathBuf]) -> anyhow::Result<Vec<Value>> {
-    let label = |path: &Path| path.display().to_string();
+/// The blocks of the files at `paths` for a message of `text` to chat `session`, sent through
+/// `daemon` (`acpmux send --attach`, the cmux-subsessions `send_message` tool): inline when they
+/// fit ([`fits_inline`]), else each uploaded to the chat and named by reference, whatever their
+/// size or number. A file that cannot be read, or an upload the daemon refuses, fails the send.
+pub async fn blocks_for(
+    daemon: &Client,
+    session: &str,
+    text: &str,
+    paths: &[PathBuf],
+) -> anyhow::Result<Vec<Value>> {
     let mut sizes = Vec::with_capacity(paths.len());
     for path in paths {
+        let label = path.display();
         let meta =
-            std::fs::metadata(path).with_context(|| format!("cannot attach {}", label(path)))?;
-        anyhow::ensure!(meta.is_file(), "cannot attach {}: not a file", label(path));
-        sizes.push((label(path), usize::try_from(meta.len()).unwrap_or(usize::MAX)));
+            tokio::fs::metadata(path).await.with_context(|| format!("cannot attach {label}"))?;
+        anyhow::ensure!(meta.is_file(), "cannot attach {label}: not a file");
+        sizes.push(meta.len());
     }
-    check_sizes(&sizes).map_err(|e| anyhow::anyhow!(e.message))?;
+    if fits_inline(&sizes, text) {
+        let paths = paths.to_vec();
+        return tokio::task::spawn_blocking(move || inline_blocks(&paths)).await?;
+    }
+    // Upload calls name the chat by its id (a peer's chat by `peer/id`).
+    let info = daemon.request(method::MUX_INFO, json!({"sessionId": session})).await?;
+    let chat = match (info.get("sessionId").and_then(Value::as_str), info.get("peer")) {
+        (Some(id), Some(Value::String(peer))) => format!("{peer}/{id}"),
+        (Some(id), _) => id.to_owned(),
+        (None, _) => session.to_owned(),
+    };
+    let mut blocks = Vec::with_capacity(paths.len());
+    for (path, size) in paths.iter().zip(sizes) {
+        blocks.push(upload(daemon, &chat, path, size).await?);
+    }
+    Ok(blocks)
+}
+
+fn inline_blocks(paths: &[PathBuf]) -> anyhow::Result<Vec<Value>> {
     paths
         .iter()
         .map(|path| {
-            let bytes =
-                std::fs::read(path).with_context(|| format!("cannot attach {}", label(path)))?;
+            let bytes = std::fs::read(path)
+                .with_context(|| format!("cannot attach {}", path.display()))?;
             let name = path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
             Ok(block(&name, &bytes))
         })
         .collect()
+}
+
+/// Uploads the file at `path`, `size` bytes, to chat `chat` in chunks read as they go, and
+/// answers the block that names it (`prompt_uploads.rs`). A failed upload is cancelled.
+async fn upload(daemon: &Client, chat: &str, path: &Path, size: u64) -> anyhow::Result<Value> {
+    let label = path.display();
+    let name = safe_name(&path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default());
+    let mut file =
+        tokio::fs::File::open(path).await.with_context(|| format!("cannot attach {label}"))?;
+    let begin = json!({"sessionId": chat, "fileName": name, "size": size});
+    let begun = daemon
+        .request(method::MUX_FILE_PUT_BEGIN, begin)
+        .await
+        .with_context(|| format!("cannot attach {label}"))?;
+    let id = begun.get("uploadId").and_then(Value::as_str).context("the daemon gave no uploadId")?;
+    let id = id.to_owned();
+    let mut head = Vec::new();
+    let sent = async {
+        use tokio::io::AsyncReadExt;
+        let mut buf = vec![0u8; crate::hub::file_uploads::CHUNK_BYTES];
+        let mut offset = 0u64;
+        while offset < size {
+            let want = usize::try_from((size - offset).min(buf.len() as u64))?;
+            file.read_exact(&mut buf[..want])
+                .await
+                .with_context(|| format!("{label} changed while it was sent"))?;
+            if head.is_empty() {
+                head = buf[..want.min(64)].to_vec();
+            }
+            let data = base64::engine::general_purpose::STANDARD.encode(&buf[..want]);
+            let chunk = json!({"sessionId": chat, "uploadId": id, "offset": offset, "data": data});
+            daemon.request(method::MUX_FILE_PUT_CHUNK, chunk).await?;
+            offset += want as u64;
+        }
+        let finish = json!({"sessionId": chat, "uploadId": id, "fileName": name, "size": size});
+        daemon.request(method::MUX_FILE_PUT_FINISH, finish).await?;
+        anyhow::Ok(())
+    };
+    if let Err(e) = sent.await {
+        let cancel = json!({"sessionId": chat, "uploadId": id});
+        let _ = daemon.request(method::MUX_FILE_PUT_CANCEL, cancel).await;
+        return Err(e.context(format!("cannot attach {label}")));
+    }
+    let meta = json!({"acpmux": {"upload": {"uploadId": id, "fileName": name}}});
+    Ok(match image_type(&head) {
+        Some(mime) => json!({"type": "image", "mimeType": mime, "_meta": meta}),
+        None => json!({"type": "resource_link", "name": name,
+            "uri": format!("{}{id}", crate::prompt_uploads::URI_SCHEME), "_meta": meta}),
+    })
 }
 
 fn mark(block: &Value) -> Option<&Value> {
@@ -163,22 +248,13 @@ fn data_of(block: &Value) -> Option<&str> {
     .and_then(Value::as_str)
 }
 
-/// A `session/prompt` request's attachments against the caps from their base64 length, and the
-/// whole request (its text and metadata too) against one JSON-RPC message, before they are
-/// decoded or sent on: every sender and hop checks it.
+/// Whether a `session/prompt` request with inline attachments, its text and metadata too, fits
+/// one JSON-RPC message on the next hop (which adds its provenance), before it is decoded or sent
+/// on. Not a cap on files: [`blocks_for`] sends any that would not fit by reference, so only a
+/// raw protocol sender meets this, and it is answered rather than dropped by a hop.
 pub fn check_wire(request: &Value) -> Result<(), RpcError> {
     let blocks = request.get("prompt").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
-    let sizes: Vec<_> = blocks
-        .iter()
-        .filter_map(|b| Some((mark(b)?, data_of(b).unwrap_or_default())))
-        .map(|(m, data)| {
-            let name = m.get("name").and_then(Value::as_str).unwrap_or("attachment");
-            let pad = data.bytes().rev().take(2).take_while(|&b| b == b'=').count();
-            (safe_name(name), (data.len() / 4 * 3).saturating_sub(pad))
-        })
-        .collect();
-    check_sizes(&sizes)?;
-    if sizes.is_empty() {
+    if !any(blocks) {
         return Ok(());
     }
     let mut len = Count(0);
@@ -188,8 +264,8 @@ pub fn check_wire(request: &Value) -> Result<(), RpcError> {
     }
     let max = crate::rpc::MAX_MESSAGE_BYTES >> 20;
     let message = format!(
-        "the message is {} with its attachments: one message is at most {max} MiB; send the text \
-         or some files separately",
+        "the message is {} with its inline attachments: one JSON-RPC message is at most {max} \
+         MiB; send the files as uploads named by reference (`acpmux send --attach` does)",
         mib(len.0 + FRAME_SLACK)
     );
     Err(refused("attach.tooLarge", message))
@@ -253,7 +329,6 @@ pub fn receive(
         }
         files.push((index, name, bytes));
     }
-    check_sizes(&files.iter().map(|(_, name, b)| (name.clone(), b.len())).collect::<Vec<_>>())?;
     let uploads = crate::hub::file_uploads::session_dir(session)
         .ok_or_else(|| RpcError::invalid_params("no such chat"))?;
     // Named by this daemon's clock, which the uploads age sweep reads.
@@ -461,21 +536,23 @@ mod tests {
     }
 
     #[test]
-    fn the_caps_name_themselves() {
-        let ok = vec![("a".to_owned(), MAX_FILE_BYTES), ("b".to_owned(), 2 << 20)];
-        assert!(check_sizes(&ok).is_ok());
-        let one = check_sizes(&[("big.png".to_owned(), MAX_FILE_BYTES + 1)]).unwrap_err();
-        assert!(one.message.contains("big.png") && one.message.contains("8 MiB"), "{one}");
-        let two = vec![("a".to_owned(), 6 << 20), ("b".to_owned(), 6 << 20)];
-        let total = check_sizes(&two).unwrap_err();
-        assert!(total.message.contains("10 MiB"), "{total}");
-        let many: Vec<_> = (0..=MAX_FILES).map(|i| (i.to_string(), 1)).collect();
-        assert_eq!(check_sizes(&many).unwrap_err().data.unwrap()["reason"], "attach.tooMany");
+    fn small_files_go_inline_and_the_rest_by_reference() {
+        assert!(fits_inline(&[2 << 20, 3 << 20], "look"));
+        assert!(fits_inline(&[], &"x".repeat(1 << 20)));
+        assert!(!fits_inline(&[INLINE_FILE_BYTES + 1], "big"));
+        assert!(!fits_inline(&[1; INLINE_FILES + 1], "many"));
+        assert!(!fits_inline(&[3 << 20, 3 << 20, 3 << 20, 3 << 20], "together"));
+        assert!(!fits_inline(&[3 << 20], &"x".repeat(12 << 20)), "with its text");
+        // Every message the senders put inline fits one JSON-RPC message.
+        let most = [INLINE_TOTAL_BYTES / 4; 4];
+        assert!(fits_inline(&most, "t"));
+        let files: Vec<_> = most.iter().map(|&n| block("a.bin", &vec![0u8; n as usize])).collect();
+        assert!(check_wire(&json!({"prompt": files})).is_ok());
     }
 
     #[test]
     fn a_message_too_big_for_one_frame_is_refused() {
-        let half = vec![0u8; MAX_MESSAGE_BYTES / 2];
+        let half = vec![0u8; (10 << 20) / 2];
         let mut request = json!({"prompt": [block("a.bin", &half), block("b.bin", &half)]});
         assert!(check_wire(&request).is_ok());
         request["_meta"] = json!({"acpmux": {"promptId": "x".repeat(2 << 20)}});
@@ -525,9 +602,4 @@ mod tests {
         assert!(!root.exists());
     }
 
-    #[test]
-    fn the_whole_message_fits_one_frame() {
-        let base64 = MAX_MESSAGE_BYTES.div_ceil(3) * 4;
-        assert!(base64 + (1 << 20) < crate::rpc::MAX_MESSAGE_BYTES);
-    }
 }
