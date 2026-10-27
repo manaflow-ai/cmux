@@ -84,7 +84,7 @@
    "exit": {
     "acpmux": 2,
     "cmux-browser-host": 4,
-    "cmux-tui-core": 4
+    "cmux-tui-core": 5
    },
    "expect": {
     "acpmux": 14,
