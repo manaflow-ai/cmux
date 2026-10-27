@@ -129,6 +129,8 @@ final class AppServices {
     let machineHealth = MachineHealthStore()
     /// Layout passes and tree changes of off-screen workspaces, all windows (`debug.layout_counters`).
     let hiddenLayoutWork = HiddenLayoutWork()
+    /// What the visibility tree ran for what shows (`appearance_applies`); every root the app makes counts here.
+    let visibilityWorkCounts = VisibilityWorkCounts()
     /// The app's one fan-out of app-wide notices (`AppEvents`, p06-scheduler-021): every window's
     /// key tracker and later adopters subscribe here, one observer per name for the whole app.
     let appEvents = AppEvents(center: .default)
@@ -320,7 +322,7 @@ final class AppServices {
     private(set) lazy var keybindingsFile = KeybindingsFileService(services: self)
     /// App platform (DEV prototype): registry, JavaScriptCore app host, App Store.
     private(set) lazy var apps = AppsService(services: self)
-    private(set) lazy var sidebarCustomization = SidebarCustomizationService(client: apps.client) { [weak self] in self?.apps.presence.isPresented($0) == true }
+    private(set) lazy var sidebarCustomization = SidebarCustomizationService(client: apps.client, mainWork: mainWork) { [weak self] in self?.apps.presence.isPresented($0) == true }
     /// The Tasks page and its mirror of the local Tasks owner (plans/cmux-next/tasks.md).
     private(set) lazy var tasks = TasksPageService(services: self)
     /// Phone tabs: iOS simulators, Android emulators and real phones, recordings, feedback to Chief
@@ -774,7 +776,9 @@ final class AppServices {
         (self.launchStartup, self.crashKeys) = (launchStartup, crashKeys)
         // Estimated presents read the key display's last tick; no link starts for them.
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board, displays: FrameScheduler.appDisplays)
-        (mainDeadlines, appVisibility) = (MainDeadlineScheduler(work: mainWork), AppVisibilitySource(appEvents: appEvents, workspaceEvents: workspaceEvents, isAppHidden: NSApp?.isHidden ?? false))
+        (mainDeadlines, appVisibility) = (MainDeadlineScheduler(work: mainWork),
+                                          AppVisibilitySource(appEvents: appEvents, workspaceEvents: workspaceEvents,
+                                                              isAppHidden: NSApp?.isHidden ?? false, workCounts: visibilityWorkCounts))
         updater = UpdaterService(work: work, deadlines: mainDeadlines, checkNode: appVisibility.node)
         let launchFeatures = features ?? Self.launchFeatures(environment)
         // In host mode one Chromium Host serves every tab of every profile (p01-process-080).
@@ -902,6 +906,7 @@ final class AppServices {
         let inputDispatch = inputDispatch
         (NSApp as? CmuxApplication)?.inputDispatch = inputDispatch
         (NSApp as? CmuxApplication)?.inputLatency = inputLatency
+        popups.textInputStage = inputLatency.textInput
         #if DEBUG || CMUX_BENCH_HOOKS
         cache.webKit.pageInputTiming = WebPageInputTiming(tracker: inputLatency.tracker)  // WebKit pages' presented stage (p04-input-099)
         #endif

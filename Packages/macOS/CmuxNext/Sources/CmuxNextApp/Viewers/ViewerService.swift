@@ -21,25 +21,23 @@ final class ViewerService {
     /// choice cancels it).
     private(set) var diffOpen: Task<Void, Never>?
     /// The picker opens' replies (a refusal): no tab exists yet, so each is one visible task.
-    private lazy var replies = PageTabReplies(owner: "viewers.diff-open", on: owner.mainWork) { _ in nil }
-    private weak var services: AppServices?
-    /// The owner of the page services below (the app's services outlive the viewers).
-    // crash-allow: AppServices owns this ViewerService for the app's whole life, so it outlives it.
-    private unowned let owner: AppServices
+    private lazy var replies = PageTabReplies(owner: "viewers.diff-open", on: services.mainWork) { _ in nil }
+    /// The app's services, which own this as `AppServices.viewers` and which the lazy page services below are made
+    /// with on first use.
+    private unowned let services: AppServices
     /// Diff viewer tabs (plans/cmux-next/diff-host.md S4).
-    private(set) lazy var diffPages = DiffPageService(services: owner)
+    private(set) lazy var diffPages = DiffPageService(services: services)
     /// Markdown page tabs (diff-host S6).
-    private(set) lazy var markdownPages = FilePageService(services: owner, kind: .markdown)
+    private(set) lazy var markdownPages = FilePageService(services: services, kind: .markdown)
     /// Code editor page tabs (diff-host S7).
-    private(set) lazy var editorPages = FilePageService(services: owner, kind: .editor)
+    private(set) lazy var editorPages = FilePageService(services: services, kind: .editor)
     /// Files tree tabs beside a chat (cx-p4rt).
-    private(set) lazy var fileTrees = FileTreePageService(services: owner)
+    private(set) lazy var fileTrees = FileTreePageService(services: services)
     /// Native Files pane tabs (u2360, plans/finder-parity/PARITY.md).
-    private(set) lazy var filesPanes = FilesPaneService(services: owner)
+    private(set) lazy var filesPanes = FilesPaneService(services: services)
 
     init(services: AppServices, recents: ViewerRecents = ViewerRecents()) {
         self.services = services
-        owner = services
         picker = CmuxPicker(services: services, recents: recents)
         fileOpener = FilePageOpener(services: services)
         self.recents = recents
@@ -153,7 +151,6 @@ final class ViewerService {
 
     /// A refusal after the action returned (the picker answered later).
     func showRefusal(_ reason: String) {
-        guard let services else { return }
         services.refusalHUD.show(reason, in: services.windows.active?.window ?? NSApp.keyWindow)
     }
 }

@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import CmuxNextActions
 import CmuxNextPalette
 import CmuxNextLayout
@@ -6,15 +7,19 @@ import CmuxNextLayout
 /// groups (Add Screen to Group…) and every workspace (Move Screen to
 /// Workspace…). Other kinds fall through to `next`.
 final class ScreenTargetSource: PaletteTargetSource {
-    private unowned let services: AppServices
+    private let servicesReference: OwnerReference<AppServices>
+    /// The app's services, which own this; nil (reported) only once they are gone.
+    private var services: AppServices? { servicesReference.resolve() }
     private let next: any PaletteTargetSource
 
     init(services: AppServices, next: any PaletteTargetSource) {
-        self.services = services
+        servicesReference = OwnerReference(services: services)
         self.next = next
     }
 
     func targets(of kind: ActionTargetKind) -> [PaletteTargetOption] {
+        guard kind == .screenGroup || kind == .workspace else { return next.targets(of: kind) }
+        guard let services else { return [] }
         switch kind {
         case .screenGroup:
             guard let workspace = services.windows.active?.content?.workspace else { return [] }

@@ -18,9 +18,9 @@ extension FilePageService {
             },
         ]
         // Send to Chief and Send To… (the terminal's and pages' rows): they run on the selected text.
-        let registry = services.registry
+        let registry = services?.registry
         for id in ["home.sendSelectionToChief", "home.sendSelectionTo"] as [ActionID] {
-            guard let title = registry.title(for: id) else { continue }
+            guard let registry, let title = registry.title(for: id) else { continue }
             rows.append(.init(title: title) { [weak self, weak page] in
                 if let page { self?.performOnSelection(id, of: key, page: page, registry: registry) }
             })
@@ -52,8 +52,8 @@ extension FilePageService {
         } apply: { [weak self, weak page] reply in
             guard let page, let reply, let quote = ChatQuote(selection: reply, source: file.path, kind: viewer) else { return }
             let deliver = { [weak self, weak page] (quote: ChatQuote) in
-                guard let self else { return }
-                ChatQuoteDelivery(services: self.services).deliver(quote, from: page?.window)
+                guard let services = self?.services else { return }
+                ChatQuoteDelivery(services: services).deliver(quote, from: page?.window)
             }
             guard askComment else { return deliver(quote) }
             guard let window = page.window else { return }
