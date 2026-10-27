@@ -11,7 +11,7 @@ This reads the queue janitor's pool snapshot (macos-pool-load, at most
 next_macos_cascade.QUEUE_SNAPSHOT_MINUTES old; two API requests) and prints the
 first candidate whose queue is moving: vars.MACOS_RUNNER_26 when it names a
 Blacksmith macOS label, then 6 vCPU, then 12 vCPU. A label is not moving when
-the snapshot saw a job wait on it for next_macos_cascade.STALL_MINUTES or more.
+the snapshot saw a job wait on it for simple_pool_picker.BLACKSMITH_STALL_MINUTES or more.
 With no fresh snapshot (or an unreadable one) the variable keeps its say, as
 before. It never prints an empty label and never fails the job:
 
@@ -50,8 +50,9 @@ def stalled(snapshot: Mapping[str, Any] | None, labels: list[str], now: dt.datet
     age = max(0.0, age)
     out = set()
     for label in labels:
-        if cascade._field(pools, label, "queued") and \
-                cascade._field(pools, label, "oldest_queued_minutes") + age >= cascade.STALL_MINUTES:  # noqa: SLF001
+        # The one Blacksmith stall rule (simple_pool_picker.blacksmith_stalled, 10 min).
+        if cascade._picker_rule.blacksmith_stalled(cascade._field(pools, label, "queued"),  # noqa: SLF001
+                                                   cascade._field(pools, label, "oldest_queued_minutes"), age):  # noqa: SLF001
             out.add(label)
     return out
 

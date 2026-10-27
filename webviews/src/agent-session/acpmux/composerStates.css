@@ -275,6 +275,7 @@
   line-height: var(--text-control--line-height);
   white-space: nowrap;
   cursor: pointer;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 .acpmux-steer:hover {
   background: var(--acpmux-composer-hover);
@@ -563,6 +564,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   font-size: var(--text-detail);
   line-height: 18px;
   white-space: nowrap;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-queued-more .ui-menu-shortcut {
   margin-inline-start: auto;
@@ -579,6 +581,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   font-size: var(--text-detail);
   font-weight: 600;
   line-height: 18px;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-queued-kind[data-kind="steer"] {
   /* Inline before the prompt at its smaller size: top-aligned, so the line stays 18px. */
@@ -670,6 +673,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   color: var(--acpmux-composer-dim);
   font: inherit;
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-queue-fold:hover {
   background: var(--agent-control-hover);

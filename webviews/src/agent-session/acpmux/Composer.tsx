@@ -11,7 +11,7 @@ import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellR
 import { opensProcessTerminal } from "./processTerminal";
 import type { Project } from "./ProjectChooser";
 import { ComposerContext } from "./ComposerContext";
-import { showsLocationRow } from "./locationRow";
+import { isStartedChat, showsLocationRow } from "./locationRow";
 import { createUnsentDraftThrottle, type UnsentDraftThrottle } from "./unsentDraftThrottle";
 import { ComposerQueue } from "./ComposerQueue";
 import { ownQueue } from "./conversation/queuedMessages";
@@ -67,7 +67,7 @@ import { remoteComposer } from "./remoteEditing";
 import { useComposerChrome } from "./composerChrome";
 import { useQueueing } from "./queueing";
 import { useMenuPressGuard } from "./menuPressGuard";
-import { useComposerSettings } from "./composerSettings";
+import { setScrollToBottomOnSend, useComposerSettings } from "./composerSettings";
 import { useComposerLook, useQuietRow } from "./composerLook";
 import { LookSwitch } from "./LookSwitch";
 import { useEscapeStop } from "./escapeStop";
@@ -162,6 +162,7 @@ export const COMPOSER_LABELS = {
   selectAll: "composer.menu.selectAll",
   attachFiles: "composer.menu.attachFiles",
   insertMention: "composer.menu.insertMention",
+  scrollToBottomOnSend: "composer.menu.scrollToBottomOnSend",
 } as const satisfies Record<string, StringKey>;
 
 /// What the pane can do to the composer from outside it.
@@ -272,6 +273,8 @@ type Props = {
   localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
   /// Starts a new chat in another project; the tray's project pill chooses only when set.
   onProject?(cwd: string, peer?: string): void;
+  /// A new chat's machine was picked where no folder of it is known: the chat starts there.
+  onComputer?(computer: string): void;
   projectChoices?: Project[];
   onBrowseProject?(): void;
   /// New Worktree: a new chat on this Mac starts in a worktree of its folder (cx-lyqio.2).
@@ -352,6 +355,7 @@ export function Composer({
   upload,
   localPaths,
   onProject,
+  onComputer,
   projectChoices,
   onBrowseProject,
   onNewWorktree,
@@ -491,7 +495,7 @@ export function Composer({
   const locationSlotWasShown = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
   // Whether Esc stops a turn on a double press (escapeStop.ts).
-  const { showContextUsage, spellChecking, escapeDoublePress } = useComposerSettings();
+  const { showContextUsage, spellChecking, escapeDoublePress, scrollToBottomOnSend } = useComposerSettings();
   // The composer's look (composerLook.ts): with Claude's, the default, and the plain footer the mode,
   // model and effort sit in the quiet row and Send waits for a draft; Codex's keeps the box's one row.
   const look = useComposerLook();
@@ -1529,11 +1533,18 @@ export function Composer({
       disabled: shell,
       onSelect: () => mention(),
     },
+    {
+      id: "scrollToBottomOnSend",
+      label: t(COMPOSER_LABELS.scrollToBottomOnSend),
+      checked: scrollToBottomOnSend,
+      separatorBefore: true,
+      onSelect: () => setScrollToBottomOnSend(!scrollToBottomOnSend),
+    },
   ];
 
   // The location strip: the folder and computer chips over the card (hq#1957 composer location
   // strip, composerLocation.css), so the card holds one controls row. Only a new chat has the visible
-  // strip, before its first send (locationRow.ts): a started chat cannot change folder or machine.
+  // strip, before its first send (locationRow.ts); a started chat has it only for a move (below).
   // Keep a non-painting slot for that strip while the first prompt changes the transcript. The
   // composer is bottom-anchored, so removing the slot in the same render would move every control
   // by the strip's height (cx-ncc.58); the slot is hidden when a queue is present, whose own height
@@ -1553,36 +1564,49 @@ export function Composer({
     locationSlotWasShown.current = false;
   }
   const keepLocationSlot = !locationVisible && locationWasVisible && ownQueue(snapshot.queue).length === 0;
-  const context = locationVisible ? (
-    <ComposerContext
-      projectChoices={projectChoices}
-      onBrowseProject={onBrowseProject}
-      onNewWorktree={onNewWorktree}
-      onBrowseFolder={onBrowseFolder}
-      onConnect={onConnect}
-      {...(onOffload ? { onOffload } : {})}
-      {...(offloads ? { offloads } : {})}
-      summary={snapshot.summary}
-      sessions={snapshot.sessions}
-      peers={snapshot.peers}
-      {...(snapshot.peerKinds ? { peerKinds: snapshot.peerKinds } : {})}
-      {...(snapshot.peerConnected ? { peerConnected: snapshot.peerConnected } : {})}
-      {...(onRefreshMachines ? { onRefreshMachines } : {})}
-      {...(folderNote ? { folderNote } : {})}
-      environments={environments}
-      onProject={
-        onProject &&
-        ((cwd, peer) => {
-          onProject(cwd, peer);
-          field.current?.focus();
-        })
-      }
-      localName={localName}
-      onNewChat={onNewChat}
-    />
-  ) : keepLocationSlot ? (
-    <div className="acpmux-composer-strip-placeholder" aria-hidden="true" />
-  ) : null;
+  // A started chat keeps the strip, as its chip's menu, only while the host offers it a move (Move
+  // to Cloud, Bring Back Local: the tab's own menu's `moves`); that menu also offers Choose folder…
+  // for a new chat. With no move, or while its queue heads the card, it has none (#20869).
+  const startedStrip =
+    !locationVisible &&
+    isStartedChat(snapshot) &&
+    ownQueue(snapshot.queue).length === 0 &&
+    onOffload !== undefined &&
+    (offloads?.length ?? 0) > 0;
+  const context =
+    locationVisible || startedStrip ? (
+      <ComposerContext
+        started={startedStrip}
+        projectChoices={projectChoices}
+        onBrowseProject={onBrowseProject}
+        onNewWorktree={onNewWorktree}
+        onBrowseFolder={onBrowseFolder}
+        onConnect={onConnect}
+        {...(onOffload ? { onOffload } : {})}
+        {...(offloads ? { offloads } : {})}
+        summary={snapshot.summary}
+        sessions={snapshot.sessions}
+        peers={snapshot.peers}
+        {...(snapshot.peerKinds ? { peerKinds: snapshot.peerKinds } : {})}
+        {...(snapshot.peerConnected ? { peerConnected: snapshot.peerConnected } : {})}
+        {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
+        {...(onRefreshMachines ? { onRefreshMachines } : {})}
+        {...(folderNote ? { folderNote } : {})}
+        environments={environments}
+        {...(onComputer ? { onComputer } : {})}
+        onProject={
+          onProject &&
+          ((cwd, peer) => {
+            onProject(cwd, peer);
+            field.current?.focus();
+          })
+        }
+        localName={localName}
+        onNewChat={onNewChat}
+      />
+    ) : keepLocationSlot ? (
+      <div className="acpmux-composer-strip-placeholder" aria-hidden="true" />
+    ) : null;
   // Stop, for the whole turn. Claude desktop's box (Leo 2026-10-20) draws it left of the mic, the
   // mic keeping the right edge; the other look keeps it at the cluster's end.
   const stopButton = running ? (

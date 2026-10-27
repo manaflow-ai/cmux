@@ -139,13 +139,13 @@ GENERATED_INPUTS = (
 
 # The PR's Mac Release compile (check-release-compile.sh) builds the CmuxNext package, scheme
 # CmuxNextApp, with xcodebuild: not the Xcode app target (App/, Resources/, cmux.xcodeproj and its
-# build phases are the scheme compile's). The Linux Release check (cmux-next-swift-check --app
-# --release) builds the same package sources with SwiftPM and compiles its string catalogs. What
+# build phases are the scheme compile's). The fleet Release compile check (cmux-next/compile)
+# builds the same package sources with SwiftPM and compiles its string catalogs. What
 # only xcodebuild sees: how it resolves the package graph (every local package's Package.swift and
 # Package.resolved), actool on package asset catalogs, package plists, xcconfigs and entitlements,
 # and the Xcode pin and the compile scripts. A same-repository pull request runs the Mac Release
-# compile only when it changes one of these. Apple's Swift 6.2 (Xcode 26.6) against the Linux
-# swift.org 6.3.3, -O codegen and tests are caught after the merge by the base push's Mac Release
+# compile only when it changes one of these. Xcode's own Swift (26.6) against the check's
+# toolchain, -O codegen and tests are caught after the merge by the base push's Mac Release
 # compile.
 MAC_RELEASE_INPUTS = (
     "Packages/*/Package.swift", "Packages/*/Package.resolved", "Packages/*.xcassets/*",
@@ -191,6 +191,8 @@ BUNDLE_INPUTS = (
     # tests/test_web_bundle_key_inputs.sh keeps this list complete).
     "web/data/model-catalog/*", "Resources/markdown-viewer/viewer-navigation.js", "config/vite-plus/*",
     "schemas/sync-motion/*",
+    # The UI font the gallery frame imports (src/gallery/frame/uiFont.ts).
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts/InterVariable.woff2",
 )
 BUNDLE_TARGETS = ("CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity", "CmuxNextPalette")
 # Committed web bundles that ci-web rebuilds and compares (`--check`) on every pull request,

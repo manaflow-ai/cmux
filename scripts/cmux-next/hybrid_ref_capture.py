@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Capture the Mac DEV Release compile's build rules for the Linux whole-app build (its REF).
+"""Capture the Mac DEV Release compile's build rules for the fleet whole-app build (its REF).
 
-The Linux build of the cmux NEXT DEV app plans its Swift compiles and links from the
+The fleet build of the cmux NEXT DEV app plans its Swift compiles and links from the
 recorded rules of one real Mac build of the same shape (the REF): the SwiftDriver lines,
 Swift Build's build description and the planning files. Until 2026-10-26 the only REF was
-assembled by hand from an old nightly build, so the Linux path stopped as soon as
+assembled by hand from an old nightly build, so the fleet path stopped as soon as
 Package.resolved moved. This records a REF from the per-landing DEV compile itself, at its
 own paths, when the inputs that change build lines have no capture yet.
 
@@ -128,24 +128,41 @@ def key(repo: Path, environ=os.environ, toolchain: str | None = None) -> str:
 
 def drivers_and_lines(log: Path) -> tuple[list[str], set[str], str]:
     """The SwiftDriver task modules, the modules with a frontend compile line, and the xcodebuild line."""
-    modules, compiled, command = [], set(), ""
-    for raw in log.open(errors="replace"):
-        line = raw.rstrip("\n")
-        if line.startswith("xcodebuild command: ") and not command:
-            command = line.removeprefix("xcodebuild command: ")
-        match = DRIVER.match(line)
-        if match:
-            modules.append(match.group(1))
-            continue
-        text = line.strip()
-        if "/swift-frontend " not in text or " -frontend " not in text:
-            continue
-        try:
-            argv = shlex.split(text)
-        except ValueError:
-            continue
-        if argv and argv[0].endswith("swift-frontend") and "-c" in argv and "-module-name" in argv[:-1]:
-            compiled.add(argv[argv.index("-module-name") + 1])
+    # A driver task names its target ("SwiftDriver cmux-next ..."), and its module is the
+    # -module-name of the builtin-SwiftDriver line under it: they differ for the app (target
+    # cmux-next, module cmux), and the frontend lines name the module.
+    modules, compiled, command, target = [], set(), "", None
+    with log.open(errors="replace") as lines:
+        for raw in lines:
+            line = raw.rstrip("\n")
+            if line.startswith("xcodebuild command: ") and not command:
+                command = line.removeprefix("xcodebuild command: ")
+            match = DRIVER.match(line)
+            if match:
+                if target is not None:
+                    modules.append(target)
+                target = match.group(1)
+                continue
+            text = line.strip()
+            if target is not None and text.startswith("builtin-SwiftDriver "):
+                try:
+                    argv = shlex.split(text)
+                except ValueError:
+                    argv = []
+                name = argv[argv.index("-module-name") + 1] if "-module-name" in argv[:-1] else target
+                modules.append(name)
+                target = None
+                continue
+            if "/swift-frontend " not in text or " -frontend " not in text:
+                continue
+            try:
+                argv = shlex.split(text)
+            except ValueError:
+                continue
+            if argv and argv[0].endswith("swift-frontend") and "-c" in argv and "-module-name" in argv[:-1]:
+                compiled.add(argv[argv.index("-module-name") + 1])
+    if target is not None:
+        modules.append(target)
     return modules, compiled, command
 
 

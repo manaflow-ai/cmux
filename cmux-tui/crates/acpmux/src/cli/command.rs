@@ -213,7 +213,7 @@ pub enum Command {
         supersede: Option<String>,
         /// Send this file with the message (repeatable): an image reaches the agent and its
         /// transcript as an image, any other file as a link to its copy. Saved owner-only on the
-        /// session's machine, a peer's too. At most 8 MiB a file, 10 MiB and 16 files a message.
+        /// session's machine, a peer's too. Any size and number: large ones are uploaded first.
         #[arg(long, value_name = "FILE")]
         attach: Vec<PathBuf>,
     },
@@ -1344,6 +1344,19 @@ mod help_contract_tests {
             }
         }
         assert!(missing.is_empty(), "documented acpmux surface drifted:\n{}", missing.join("\n"));
+    }
+
+    /// `host vm-host [NAME] [on|off]`: the state is on or off only.
+    #[test]
+    fn host_vm_host_takes_a_machine_and_on_or_off() {
+        for argv in [
+            &["acpmux", "host", "vm-host"][..],
+            &["acpmux", "host", "vm-host", "on"][..],
+            &["acpmux", "host", "vm-host", "cloud-a", "off"][..],
+        ] {
+            assert!(Cli::try_parse_from(argv).is_ok(), "{argv:?} did not parse");
+        }
+        assert!(Cli::try_parse_from(["acpmux", "host", "vm-host", "cloud-a", "maybe"]).is_err());
     }
 
     /// `host hold` changes a hold only for a named machine: a flag alone is refused, not
