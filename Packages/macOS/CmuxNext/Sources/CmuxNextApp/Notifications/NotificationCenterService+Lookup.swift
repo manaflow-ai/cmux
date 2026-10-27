@@ -16,39 +16,36 @@ extension NotificationCenterService {
         }
     }
 
+    /// The workspace focus of `controller` that the person sees: nil while a top page (History,
+    /// Settings, the App Store) covers the workspace, whose focus model still names the pane
+    /// underneath. Every "viewed" and "typed into" rule reads this, never the raw focus model.
+    static func shownFocus(_ c: WindowController) -> FocusState.Resolved? { c.shownTopPage == nil ? c.focus.state.resolved : nil }
+
     /// The content tab of the window whose focus owns `window` (a Chromium
     /// page window resolves to its cmux window).
     func focusedTab(in window: NSWindow?) -> String? {
         guard let services, let window = CmuxApplication.accessibilityWindow(for: window) else { return nil }
         let controller = services.windows.controllers.first { $0.window === window }
-        return controller.flatMap { Self.contentTab($0.focus.state.resolved) }
+        return controller.flatMap(Self.shownFocus).flatMap(Self.contentTab)
     }
 
     /// `window`'s focus is a terminal (not a page, address bar, or find bar).
     func isTerminalFocused(in window: NSWindow?) -> Bool {
         guard let services, let window = CmuxApplication.accessibilityWindow(for: window),
-              let controller = services.windows.controllers.first(where: { $0.window === window }) else { return false }
-        if case .terminal = controller.focus.state.resolved { return true }
-        return false
+              let controller = services.windows.controllers.first(where: { $0.window === window }),
+              case .terminal? = Self.shownFocus(controller) else { return false }
+        return true
     }
 
     /// The tab is the focused content of the key window while cmux is active.
     func isViewed(_ tabID: String) -> Bool {
         guard let services, NSApp.isActive else { return false }
-        return services.windows.controllers.contains { controller in
-            controller.focus.state.windowKey && Self.contentTab(controller.focus.state.resolved) == tabID
-        }
+        return services.windows.controllers.contains { $0.focus.state.windowKey && Self.shownFocus($0).flatMap(Self.contentTab) == tabID }
     }
 
-    static func tab(id: String, in store: DaemonStore) -> TabModel? {
-        for workspace in store.workspaces {
-            for screen in workspace.screens {
-                for pane in screen.panes {
-                    if let tab = pane.tabs.first(where: { $0.id == id }) { return tab }
-                }
-            }
-        }
-        return nil
+    static func tab(id: String, in store: DaemonStore) -> TabModel? { // perf-hot: 0.1ms key-dispatch (every key-down: noteTyping)
+        // The store's index: every keystroke looks its tab up here (noteTyping), so no walk over every tab.
+        store.tab(id: id)
     }
 
     func locate(surface: SurfaceID, in store: DaemonStore) -> LocatedTab? {
@@ -63,24 +60,10 @@ extension NotificationCenterService {
     /// Home's unread conversations (`homeUnread`, conversation ids) add one
     /// each, as Messages' Dock badge counts its unread; a conversation that a
     /// workspace tab shows with its own unread marker is already counted.
+    /// The store keeps the counts per workspace (``DaemonStore/unreadTotals``): an observer of this
+    /// count observes one value, never the tabs.
     static func unreadCount(_ store: DaemonStore?, homeUnread: [String] = []) -> Int {
-        let workspaces = store?.workspaces ?? []
-        let tabs = workspaces.reduce(0) { total, workspace in
-            let count = workspace.unreadCount
-            return total + (count == 0 && workspace.markedUnread ? 1 : count)
-        }
-        guard !homeUnread.isEmpty else { return tabs }
-        var counted = Set<String>()
-        for workspace in workspaces {
-            for screen in workspace.screens {
-                for pane in screen.panes {
-                    for tab in pane.tabs where tab.hasUnread {
-                        if let id = tab.snapshot.conversation?.conversation, tab.kind == .conversation { counted.insert(id) }
-                    }
-                }
-            }
-        }
-        return tabs + Set(homeUnread).subtracting(counted).count
+        store?.unreadBadge(homeUnread: homeUnread) ?? Set(homeUnread).count
     }
 
     /// The badge count now: the store's unread tabs and Home's unread conversations.
@@ -110,7 +93,7 @@ extension NotificationCenterService {
         }
         return FeedHandoffDriver(
             daemon: .init(
-                serves: { daemon.isLocal && daemon.identity?.supports(DaemonCapabilities.shared.feedLocalOwner) == true },
+                serves: { daemon.isLocal && daemon.identity?.supports(DaemonCapability.feedLocalOwner.rawValue) == true },
                 list: { state, unread in
                     try await connection().request(FeedLocalListRequest(state: state, unread: unread ? true : nil)).items
                 },

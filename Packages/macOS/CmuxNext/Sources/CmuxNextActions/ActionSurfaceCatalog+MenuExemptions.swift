@@ -86,7 +86,7 @@ nonisolated extension ActionSurfaceCatalog {
             "fileExplorerOpenSelectionFinderAlias", "vaultOpenSession",
             "vaultResumeInNewWorkspace", "vaultCopyResumeCommand", "vaultOpenPullRequest", "checklistEditItem",
             "checklistMarkInProgress", "checklistCompleteItem", "checklistRemoveItem", "checklistOpenAsPane",
-            "checklistAttachImages", "cloudExec", "cloudDomainList", "cloudPublicationList",
+            "checklistAttachImages", "cloudExec", "cloudDomainList", "cloudPublicationList", "cloudListMachines",
         ],
         .focusMove: [
             "history.goTo",
@@ -135,6 +135,10 @@ nonisolated extension ActionSurfaceCatalog {
         .minimalMenu: [
             "space.setDefaults", "browserProfile.clearSpaceDefault",
         ],
+        // Leo 2026-10-23: the workspace row menu drops this long tail; the palette keeps it.
+        .pointerMenuTrim: ["workspace.setTint", "workspace.copyPath", "copyWorkspaceSSHError", "revealWorkspaceInFinder", "palette.copyWorkspaceID",
+            "palette.copyWorkspaceIDAndRef", "palette.copyWorkspaceLink", "workspace.showResources", "palette.openWorkspacePullRequests",
+            "workspace.setRemoteLocalhost"],
         .paletteInternal: [
             "commandPaletteNext", "commandPalettePrevious",
         ],

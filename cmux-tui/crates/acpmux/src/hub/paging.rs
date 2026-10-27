@@ -21,6 +21,8 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "dequeued",
     "queue_removed",
     "prompt_retracted",
+    // A steer taken back before the agent read it (`queue_edit.rs` `withdraw`).
+    "steer_withdrawn",
     // Edit queued prompt, Move up / Move down, and a queue a failed turn holds:
     // the queue a chat client shows changes with them.
     "queue_updated",
@@ -229,6 +231,8 @@ impl Hub {
     ) -> Result<EventPage> {
         let before = before.unwrap_or(u64::MAX);
         let bounded = max_bytes.is_some();
+        // An ask in the log reads as acpmux shows it now (`Hub::display_logged`).
+        let session = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
         let mut page = EventPage::default();
         let mut bytes = 0usize;
         // Whether the page is full before `rec`: by count, or by size once it holds a record.
@@ -249,6 +253,8 @@ impl Hub {
                 if !filter.matches(&rec) {
                     return true;
                 }
+                let mut rec = rec;
+                self.display_logged(session.as_deref(), &mut rec);
                 let (rec, rec_bytes) = fit(rec, bounded);
                 if full(rec_bytes, found) {
                     page.has_more = true;
@@ -266,6 +272,8 @@ impl Hub {
             if !filter.matches(&rec) {
                 return true;
             }
+            let mut rec = rec;
+            self.display_logged(session.as_deref(), &mut rec);
             let (rec, rec_bytes) = fit(rec, bounded);
             if full(rec_bytes, found.len()) {
                 page.has_more = true;

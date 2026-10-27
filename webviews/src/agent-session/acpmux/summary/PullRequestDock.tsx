@@ -1,31 +1,35 @@
-// The chat's pull requests above the composer (cx-ncc.81, Claude desktop's PR bars): each one a
-// `gh pr create` in the chat opened (sessionSummary.ts), newest first, with its number, repository,
-// title and state, each a chip as wide as its text, its title cut off only when the composer's
-// column is full, with its dismiss button inside. The chat folder's pull request, which the header
-// chip follows live, shows its live state and title. A merged or closed pull request keeps no bar:
-// it lives in the right panel's Changes card instead. The newest two show and the rest wait behind
-// Show more; a dismissed bar stays hidden for this chat (the page's storage, so a reload keeps it
-// hidden). Hovering a bar, or focusing it, opens the shared link card (chips/LinkHoverCard.tsx) with
-// the pull request's full title, state, author and checks.
+// A quiet count opens Session Info Changes. Its disclosure keeps PR links, hover cards and
+// persistent dismissal reachable. The shared Changes selector includes ended and dismissed PRs:
+// dismissal hides a shortcut, never a change the session made. Gallery variants retain full bars.
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
 import { Close } from "../conversation/icons";
 import { pullRequestStateSince, useHeaderState, type HeaderPullRequest } from "../header/headerState";
-import { sessionPullRequests, type SummaryPullRequest } from "./sessionSummary";
+import { transcriptPullRequestKey, transcriptPullRequests, type SummaryPullRequest } from "./transcriptPullRequests";
+import { headerStatus, visibleChanges } from "../inspector/ChangesSection";
 import { GitHubMark } from "../conversation/icons";
 import { LinkHoverCard } from "../chips/LinkHoverCard";
 import { useSiteInfo } from "../chips/linkStore";
 import { useHoverCard } from "../chips/useHoverCard";
+import { useEscapeCloses } from "../../../ui/escapeDismiss";
 
 const SHOWN = 2;
+export type PullRequestDockMode = "compact" | "none" | "collapsed" | "full";
 const BADGES: Record<string, StringKey> = {
   open: "header.prBadge.open",
   draft: "header.prBadge.draft",
 };
 
 const storageKey = (sessionId: string) => `acpmux.prDock.dismissed.${sessionId}`;
+
+/// Gallery-only variants set this document attribute. The real pane has no attribute and therefore
+/// uses the quiet count line by default.
+function configuredMode(): PullRequestDockMode {
+  const value = typeof document === "undefined" ? undefined : document.documentElement.dataset.prDock;
+  return value === "none" || value === "collapsed" || value === "full" ? value : "compact";
+}
 
 /// The pull request URLs dismissed in this chat; none when the page has no storage.
 function readDismissed(sessionId: string | undefined): string[] {
@@ -70,39 +74,79 @@ function ended(pr: SummaryPullRequest, live: HeaderPullRequest | undefined): boo
 }
 
 /// Mount keyed by the chat: dismissals and Show more belong to one chat.
-export function PullRequestDock({ rows, sessionId }: { rows: readonly AcpmuxRow[]; sessionId?: string }) {
+export function PullRequestDock({
+  rows,
+  sessionId,
+  onOpenChanges,
+  repository,
+}: {
+  rows: readonly AcpmuxRow[];
+  sessionId?: string;
+  onOpenChanges?: () => void;
+  repository?: string;
+}) {
   const t = useT();
   const { pullRequest: live } = useHeaderState();
-  // Every streamed chunk is a new rows array: parse again only when a tool call changed.
-  const parsed = useRef<{ key: string; prs: SummaryPullRequest[] }>(undefined);
-  const key = rows.flatMap((row) => (row.kind === "activity" ? [`${row.id}:${row.version}`] : [])).join(",");
-  if (parsed.current?.key !== key) parsed.current = { key, prs: sessionPullRequests(rows) };
+  // Same options and membership selector as Session Info. Retain the parse cache across
+  // streaming chunks with unchanged PR findings; a new verified mention still updates the count.
+  const parsed = useRef<{ key: string | symbol; repository?: string; prs: SummaryPullRequest[] }>(undefined);
+  const key = transcriptPullRequestKey(rows, true);
+  if (parsed.current?.key !== key || parsed.current?.repository !== repository) {
+    parsed.current = { key, repository, prs: transcriptPullRequests(rows, { folder: repository, replies: true }) };
+  }
   const all = parsed.current.prs;
+  const changes = visibleChanges(all, headerStatus(live));
   const [dismissed, setDismissed] = useState(() => readDismissed(sessionId));
   const [expanded, setExpanded] = useState(false);
-  const dock = useRef<HTMLElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const count = useRef<HTMLButtonElement>(null);
+  const disclosure = useRef<HTMLButtonElement>(null);
+  const listId = useId();
   // The place of the bar just dismissed: focus moves to the bar now there, or the composer.
   const [refocus, setRefocus] = useState<number>();
   useEffect(() => {
     if (refocus === undefined) return;
     setRefocus(undefined);
-    const buttons = dock.current?.querySelectorAll<HTMLElement>(".acpmux-pr-dock__dismiss");
+    const buttons = list.current?.querySelectorAll<HTMLElement>(".acpmux-pr-dock__dismiss");
     const next = buttons?.[Math.min(refocus, buttons.length - 1)];
     (
-      next ?? document.querySelector<HTMLElement>(".acpmux-composer [contenteditable], .acpmux-composer textarea")
+      next ??
+      disclosure.current ??
+      count.current ??
+      document.querySelector<HTMLElement>(".acpmux-composer [contenteditable], .acpmux-composer textarea")
     )?.focus();
   }, [refocus]);
-  const prs = all.filter((pr) => !dismissed.includes(pr.url) && !ended(pr, live)).reverse();
-  if (prs.length === 0) return null;
-  const visible = expanded ? prs : prs.slice(0, SHOWN);
+  const mode = configuredMode();
+  const compact = mode === "compact" && !!onOpenChanges;
+  useEscapeCloses(
+    compact && expanded,
+    () => {
+      setExpanded(false);
+      disclosure.current?.focus();
+    },
+    '.ui-popup, [role="dialog"], [role="menu"], [role="listbox"]',
+  );
+  const prs = (compact ? changes : all.filter((pr) => pr.opened && !ended(pr, live)))
+    .filter((pr) => !dismissed.includes(pr.url))
+    .reverse();
+  if ((compact ? changes.length : prs.length) === 0 || mode === "none") return null;
+  const displayMode = mode === "compact" && !compact ? "full" : mode;
+  const visible = compact || displayMode === "collapsed" || expanded ? prs : prs.slice(0, SHOWN);
   const dismiss = (url: string, index: number) => {
     const next = [...dismissed, url];
     setDismissed(next);
     writeDismissed(sessionId, next);
     setRefocus(index);
+    if (compact && prs.length === 1) setExpanded(false);
   };
-  return (
-    <section ref={dock} className="acpmux-pr-dock" aria-label={t("prDock.label")}>
+  const bars = (
+    <div
+      ref={list}
+      tabIndex={compact ? -1 : undefined}
+      id={listId}
+      className="acpmux-pr-dock__list"
+      hidden={visible.length === 0}
+    >
       {visible.map((pr, index) => {
         const { state, title, labeled } = shown(pr, live);
         const badge = BADGES[state];
@@ -126,7 +170,41 @@ export function PullRequestDock({ rows, sessionId }: { rows: readonly AcpmuxRow[
           </div>
         );
       })}
-      {prs.length > SHOWN && (
+    </div>
+  );
+  return (
+    <section className="acpmux-pr-dock" data-mode={displayMode} aria-label={t("prDock.label")}>
+      {compact && (
+        <div className="acpmux-pr-dock__compact">
+          <button
+            ref={count}
+            type="button"
+            className="acpmux-pr-dock__count"
+            aria-label={t(changes.length === 1 ? "prDock.countOne" : "prDock.count", { count: String(changes.length) })}
+            onClick={onOpenChanges}
+          >
+            <Icon name="git.pullrequest" size={13} />
+            <span>
+              {t(changes.length === 1 ? "prDock.countOne" : "prDock.count", { count: String(changes.length) })}
+            </span>
+          </button>
+          {prs.length > 0 && (
+            <button
+              ref={disclosure}
+              type="button"
+              className="acpmux-pr-dock__count acpmux-pr-dock__disclosure"
+              aria-label={t("prDock.label")}
+              aria-expanded={expanded}
+              aria-controls={listId}
+              onClick={() => setExpanded(!expanded)}
+            >
+              <Icon name={expanded ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />
+            </button>
+          )}
+        </div>
+      )}
+      {(!compact || expanded) && bars}
+      {displayMode === "full" && prs.length > SHOWN && (
         <button
           type="button"
           className="acpmux-pr-dock__more"

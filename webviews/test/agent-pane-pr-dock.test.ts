@@ -237,4 +237,65 @@ await requireBrowserLane("agent-pane-pr-dock.test.ts", async () => {
     expect((await bars(page)).map((bar) => bar[0])).toEqual(["#43", "#42"]);
     await page.close();
   });
+  test("the default compact count reveals Session Info Changes and retains PR actions", async () => {
+    const page = await browser!.newPage({ viewport: { width: 1200, height: 900 } });
+    try {
+      await page.goto(url(CHAT));
+      await page.getByText("Four PRs open, the first merged.").waitFor();
+      await page.evaluate(() => {
+        (
+          window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
+        ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 });
+      });
+      const dock = page.locator('.acpmux-pr-dock[data-mode="compact"]');
+      await dock.waitFor();
+      expect(await page.evaluate(() => document.documentElement.dataset.prDock)).toBeUndefined();
+      expect(await dock.locator(".acpmux-pr-dock__bar").count()).toBe(0);
+      // Includes the merged PR, exactly as Changes does.
+      expect(await dock.locator(".acpmux-pr-dock__count").first().innerText()).toBe("4 PRs");
+      const panel = page.locator("aside.acpmux-chat-inspector");
+      const toggle = page.locator("button.acpmux-chat-inspector-toggle");
+      if (await panel.isVisible()) await toggle.click();
+      await panel.waitFor({ state: "detached" });
+      await dock.locator(".acpmux-pr-dock__count").first().click();
+      const changes = panel.locator('section[data-section="changes"]');
+      await changes.getByText("Add retry to the uploader", { exact: true }).waitFor();
+      expect(await changes.getAttribute("data-revealed")).not.toBeNull();
+      expect(await changes.innerText()).toContain("Add retry to the uploader");
+      expect(await changes.locator(".acpmux-chat-inspector-section__value").innerText()).toBe("4");
+      await toggle.click();
+      await panel.waitFor({ state: "detached" });
+      const disclosure = dock.locator(".acpmux-pr-dock__disclosure");
+      await disclosure.click();
+      await page.keyboard.press("Escape");
+      expect(await disclosure.getAttribute("aria-expanded")).toBe("false");
+      await page.waitForFunction(() => document.activeElement?.classList.contains("acpmux-pr-dock__disclosure"));
+      await disclosure.click();
+      await page.mouse.click(20, 200);
+      // An inline disclosure stays open while the user reads the chat.
+      expect(await disclosure.getAttribute("aria-expanded")).toBe("true");
+      const link = page.locator(".acpmux-pr-dock__list .acpmux-pr-dock__bar").first();
+      await link.focus();
+      await page.locator(".acpmux-pr-card").waitFor();
+      expect(await page.locator(".acpmux-pr-card").innerText()).toContain("Log each retry");
+      await page.locator(".acpmux-pr-dock__list .acpmux-pr-dock__dismiss").first().click();
+      expect(await page.locator(".acpmux-pr-dock__list .acpmux-pr-dock__bar").count()).toBe(3);
+      expect(await dock.locator(".acpmux-pr-dock__count").first().innerText()).toBe("4 PRs");
+      expect(await page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).toBe(
+        "Dismiss pull request #43",
+      );
+      for (let remaining = 3; remaining > 0; remaining--)
+        await dock.locator(".acpmux-pr-dock__dismiss").first().click();
+      expect(await dock.locator(".acpmux-pr-dock__disclosure").count()).toBe(0);
+      expect(await dock.locator(".acpmux-pr-dock__count").first().innerText()).toBe("4 PRs");
+      expect(
+        await dock
+          .locator(".acpmux-pr-dock__count")
+          .first()
+          .evaluate((element) => element === document.activeElement),
+      ).toBe(true);
+    } finally {
+      await page.close();
+    }
+  });
 });

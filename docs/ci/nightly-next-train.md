@@ -57,7 +57,7 @@ feat-cmux-next commit by force, which is Leo's call.
 
 ## Durable verdict
 
-After each scheduled check of a feed build, `nightly-next-canary.yml` dispatches
+After each scheduled static artifact check of a feed build, `nightly-next-canary.yml` dispatches
 `nightly-next-verdict.yml` on branch `nightly-next` (environment `release-next`
 holds the feed's R2 token). It writes
 `https://files-next.cmux.com/nightly-next/next/verdicts/<build>.json`:
@@ -69,7 +69,7 @@ holds the feed's R2 token). It writes
 
 The writer reads the commit from the build's own nightly-next run (build number
 = `<run id><attempt>`). It accepts `pass` only from a scheduled
-`nightly-next-canary.yml` run whose `canary <build>` job succeeded. `fail` and
+`nightly-next-canary.yml` run whose static artifact verification job succeeded. `fail` and
 `skipped` never make a build a base, so they are written as given. The pass
 also needs the run's own `verdict pass <build>` job, because a skipped check
 leaves the canary job green too. The canary's
@@ -166,8 +166,9 @@ python3 scripts/ci/nightly_next_train.py verify --commit <train commit>
 
 ## Not built yet
 
-- The unsigned in-app smoke on the candidate (window, New Tab, agent answers,
-  no crash). The candidate gets only the Release compile; the signed app still
-  gets `verify-signed-nightly` before publication.
+- Runtime app smoke on the candidate (window, New Tab, agent answers, no crash).
+  The candidate gets only the Release compile; the signed app gets static
+  artifact verification before publication, while runtime behavior stays in the
+  daemon/app integration lane.
 - Triage of a car that fails the same guard twice (flake list), and the daily
   digest for cars out for 3 trains.

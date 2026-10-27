@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextFiles
 
@@ -57,8 +58,7 @@ final class FileSidebarView: NSObject, NSTableViewDataSource, NSTableViewDelegat
     }
 
     @objc private func clicked() {
-        let row = table.clickedRow
-        guard rows.indices.contains(row), let url = rows[row].url else { return }
+        guard let row = table.clickedRowIfValid, rows.indices.contains(row), let url = rows[row].url else { return }
         actions.open(url)
     }
 

@@ -14,11 +14,13 @@
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--acpmux-needs-you-mark) 18%, transparent);
 }
 
-/* The badge: the header's tool button, widened by the count while asks are open. */
+/* The badge: the header's tool button, widened by the count while asks are open. The count keeps the
+   text's ink over the tools' muted rest: open asks are not a quiet tool. */
 .acpmux-header-tool.acpmux-needs-you-button[data-count] {
   width: auto;
   gap: 5px;
   padding: 0 7px 0 6px;
+  color: var(--agent-text);
 }
 .acpmux-needs-you-count {
   display: inline-flex;
@@ -56,11 +58,6 @@
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
   outline: none;
-}
-@media (prefers-reduced-motion: no-preference) {
-  .acpmux-needs-you {
-    animation: ui-popup-open var(--ui-popup-open) ease-out;
-  }
 }
 .acpmux-needs-you-panel {
   display: flex;
@@ -211,7 +208,6 @@
   border-radius: 5px;
   background: none;
   color: var(--agent-muted);
-  cursor: default;
 }
 .acpmux-needs-you-go:hover,
 .acpmux-needs-you-ask-about:hover,
@@ -290,7 +286,6 @@
   font: inherit;
   font-size: var(--text-body);
   text-align: left;
-  cursor: default;
 }
 .acpmux-needs-you-answer::before {
   content: counter(acpmux-needs-you-option);
@@ -333,7 +328,6 @@
   font-size: var(--text-detail);
   white-space: nowrap;
   text-overflow: ellipsis;
-  cursor: default;
 }
 .acpmux-needs-you-side-send:hover:not(:disabled) {
   background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
@@ -414,7 +408,6 @@
   border: 0;
   background: none;
   font: inherit;
-  cursor: default;
 }
 .cv-link.is-needs-you .acpmux-needs-you-dot {
   width: 6px;

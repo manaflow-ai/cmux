@@ -28,7 +28,7 @@
 //!   walk reads that answer.
 
 use super::*;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// How much a session's harness runs without asking.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -117,6 +117,20 @@ pub(super) fn refusal(reason: &str, message: String, data: Value) -> RpcError {
 pub(super) fn is_family_prompt(provenance: Option<&Value>) -> bool {
     provenance.and_then(|p| p.get("kind")).and_then(Value::as_str)
         == Some(super::subsessions::PROVENANCE_KIND)
+}
+
+/// A retry a sub-session asked for (`retry_session`, `manual` and `from` it): checked at dispatch
+/// and counted against its parent's run slots as a family prompt is.
+pub(super) fn is_family_retry(provenance: Option<&Value>) -> bool {
+    provenance.is_some_and(|p| p.get("manual").is_some() && p.get("from").is_some())
+}
+
+/// A family prompt, a sub-session's retry, or the automatic continuation of either's cut turn,
+/// which speaks for the same sender (`from`, `auto_resume.rs`): checked as a family message.
+pub(super) fn is_family(provenance: Option<&Value>) -> bool {
+    let continuation =
+        provenance.is_some_and(|p| p["kind"] == "auto_resume" && p.get("from").is_some());
+    is_family_prompt(provenance) || is_family_retry(provenance) || continuation
 }
 
 /// The refusal of a child that would ask less than its caller.
@@ -210,28 +224,162 @@ fn folder_allowed(
     ))
 }
 
-/// The folder a sub-session starts in, resolved once: the checks pass on the folder the session
-/// gets, so `..` or a link swapped after the check cannot move it.
-pub(super) fn resolved_folder(asked: &Path) -> Result<std::path::PathBuf, RpcError> {
-    if !asked.is_absolute() {
-        return Err(RpcError::invalid_params(format!(
-            "cwd {} must be an absolute path to an existing folder",
-            asked.display()
-        )));
+/// The folder a sub-session starts in, resolved once and held open (unix): the checks pass on
+/// the folder the session gets. A folder renamed or a link swapped after the check (while the
+/// start waits on the trust card, say) must not move the start into a folder nobody checked:
+/// - before its worktree is made and before its harness spawns, the path must still lead to that
+///   very folder, the same device and inode ([`CheckedFolder::still_at`], a refusal that names
+///   the reason);
+/// - its harness process checks the same identity itself, after it changed into the folder and
+///   right before it execs (`cwd_pin.rs`), on every spawn of the start: none runs elsewhere.
+///
+/// The open handle keeps the inode from being reused meanwhile. Left over: `make_worktree` runs
+/// git by path after the first check. Windows compares the session's folder only once it runs
+/// (`Hub::settle_subsession`).
+#[derive(Clone, Debug)]
+pub struct CheckedFolder {
+    path: PathBuf,
+    /// Its device and inode; None off unix.
+    pin: Option<crate::cwd_pin::CwdPin>,
+    #[cfg(unix)]
+    held: Arc<std::fs::File>,
+}
+
+impl std::ops::Deref for CheckedFolder {
+    type Target = Path;
+
+    fn deref(&self) -> &Path {
+        &self.path
     }
-    std::fs::canonicalize(asked).ok().filter(|f| f.is_dir()).ok_or_else(|| {
-        refusal(
-            "subsessions.cwd_unresolved",
-            format!(
-                "start_session refused: {} does not resolve to a folder on this machine",
+}
+
+impl CheckedFolder {
+    /// `asked`, an absolute path, resolved to a folder on this machine and held.
+    pub(super) fn resolve(asked: &Path) -> Result<Self, RpcError> {
+        if !asked.is_absolute() {
+            return Err(RpcError::invalid_params(format!(
+                "cwd {} must be an absolute path to an existing folder",
                 asked.display()
-            ),
-            json!({"cwd": asked}),
-        )
+            )));
+        }
+        Self::open(asked).ok_or_else(|| {
+            refusal(
+                "subsessions.cwd_unresolved",
+                format!(
+                    "start_session refused: {} does not resolve to a folder on this machine",
+                    asked.display()
+                ),
+                json!({"cwd": asked}),
+            )
+        })
+    }
+
+    fn open(asked: &Path) -> Option<Self> {
+        let path = std::fs::canonicalize(asked).ok().filter(|f| f.is_dir())?;
+        #[cfg(unix)]
+        let (pin, held) = {
+            use std::os::unix::fs::MetadataExt;
+            let held = std::fs::File::open(&path).ok()?;
+            let m = held.metadata().ok().filter(std::fs::Metadata::is_dir)?;
+            (Some(crate::cwd_pin::CwdPin { dev: m.dev(), ino: m.ino() }), Arc::new(held))
+        };
+        #[cfg(not(unix))]
+        let pin = None;
+        Some(Self {
+            path,
+            pin,
+            #[cfg(unix)]
+            held,
+        })
+    }
+
+    /// Ok when `cwd` still leads to this folder: it resolves to the same path, and that is the
+    /// same device and inode. Else `subsessions.cwd_moved`, and nothing may start there.
+    pub(super) fn still_at(&self, cwd: &Path) -> Result<(), RpcError> {
+        let resolved = std::fs::canonicalize(cwd).ok();
+        let moved = resolved.as_deref() != Some(self.path.as_path())
+            || crate::cwd_pin::CwdPin::of(cwd) != self.pin;
+        if cfg!(unix) && moved {
+            return Err(moved_refusal(cwd));
+        }
+        Ok(())
+    }
+
+    /// The open handle on it (unix): git runs in this very folder through it
+    /// (`subsession_worktree::Dir`).
+    pub(super) fn held(&self) -> Option<Arc<std::fs::File>> {
+        #[cfg(unix)]
+        return Some(self.held.clone());
+        #[cfg(not(unix))]
+        None
+    }
+}
+
+/// `subsessions.cwd_moved`: `cwd` no longer leads to the folder a sub-session's start checked.
+fn moved_refusal(cwd: &Path) -> RpcError {
+    refusal(
+        "subsessions.cwd_moved",
+        format!(
+            "start_session refused: {} is no longer the folder that was checked (it was moved, or a link now leads elsewhere), so nothing started there",
+            cwd.display()
+        ),
+        json!({"cwd": cwd}),
+    )
+}
+
+/// Ok when `start` (a sub-session's folder in the worktree just made from `source`) is in that
+/// very worktree (`subsession_worktree::verify_made`); else `subsessions.cwd_moved`.
+pub(super) async fn verify_worktree(
+    source: &CheckedFolder,
+    made: &crate::subsession_worktree::Worktree,
+    start: &CheckedFolder,
+) -> Result<(), RpcError> {
+    let (source_path, source_held) = (source.path.clone(), source.held());
+    let (start_path, start_held) = (start.path.clone(), start.held());
+    let made = made.clone();
+    let checked = tokio::task::spawn_blocking(move || {
+        use crate::subsession_worktree::{Dir, verify_made};
+        let source = Dir::held(&source_path, source_held.as_deref());
+        verify_made(source, &made, Dir::held(&start_path, start_held.as_deref()))
+    })
+    .await
+    .map_err(|e| RpcError::internal(e.to_string()))?;
+    checked.map_err(|why| {
+        tracing::warn!(cwd = %start.path.display(), %why, "sub-session worktree");
+        moved_refusal(&start.path)
     })
 }
 
+impl CheckedFolder {
+    /// Its path, while it still leads to this folder ([`CheckedFolder::still_at`]).
+    pub(super) fn still_here(&self) -> Result<&Path, RpcError> {
+        self.still_at(&self.path).map(|()| self.path.as_path())
+    }
+}
+
 impl Hub {
+    /// `ensure_child` for new session `session` in the folder a sub-session start checked
+    /// (`checked`): refused with nothing started when its folder is no longer that one, and every
+    /// harness it spawns is pinned to it (`cwd_pin.rs`), so one whose folder moved later fails at
+    /// its exec. Not only once the agent runs: an agent started in a folder nobody checked has
+    /// already run that folder's own code (its settings hooks, folder profiles, MCP config). The
+    /// check after the start (`settle_subsession`) stays as a backstop.
+    pub(super) async fn ensure_checked_child(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        spawn: &super::spawn::Spawn,
+        checked: Option<&CheckedFolder>,
+        stops: u64,
+    ) -> Result<Arc<ChildAgent>, RpcError> {
+        let Some(checked) = checked else { return self.ensure_child(session, spawn, stops).await };
+        let cwd = session.meta().cwd;
+        checked.still_at(&cwd)?;
+        let pinned = self.ensure_child(session, spawn, stops);
+        let started = Box::pin(crate::cwd_pin::CwdPin::scope(checked.pin, pinned)).await;
+        // A spawn its harness's own check failed (the folder moved since) says why.
+        started.map_err(|e| checked.still_at(&cwd).err().unwrap_or(e))
+    }
+
     /// Everything a new sub-session takes before its first prompt: the
     /// parent's rules and turned-off tools, the folder it was checked for,
     /// its start mode, and [`Hub::hold_subsession`]. An error means the
@@ -244,8 +392,9 @@ impl Hub {
         cwd: &Path,
         requested_name: Option<&str>,
     ) -> Result<(), RpcError> {
-        let parent_mode = crate::web_modes::mode_of(pm);
-        let parent_full = self.caller_access(pm) == Access::Full;
+        // The parent's mode as it is now: it may have left full access since the start was checked.
+        let live = parent.meta();
+        let parent_mode = crate::web_modes::mode_of(&live);
         // The parent's rules above its policy (which can deny) and the MCP
         // servers the user turned off apply to the child too.
         {
@@ -276,26 +425,32 @@ impl Hub {
         // A parent still in full access after `sessions.allowFullAccess` was turned off: its child
         // starts as a cross-family child would, at the person's start level, which is not full access.
         let capped = parent_mode.as_deref().is_some_and(super::start_mode::is_full_access)
-            && !super::start_mode::full_access_allowed();
+            && !self.full_access_allowed();
         let inherit = same_family && !capped;
-        let mode = if inherit {
-            parent_mode
-        } else if parent_full || capped {
-            self.start_mode(probe).await
-        } else {
-            None
-        };
+        // Another family (or a capped parent): the parent's level on the child's modes
+        // (`start_mode.rs`, "Inherit"), which `hold_subsession` then holds to the parent.
+        let mode =
+            if inherit { parent_mode } else { self.start_mode_for(probe, Some(&parent.id)).await };
         if let Some(mode) = mode {
             let params = json!({"_meta": {"acpmux": {(super::person::START_MODE_FIELD): mode}}});
-            // The inherit rule (or the person's default under a full-access
-            // parent) grants it; a refusal ends the new session.
+            // The inherit rule (or the parent's level on another family) grants it; a refusal
+            // ends the new session.
             if inherit {
                 self.start_in_mode(false, Some(&parent.id), &params, probe, false).await?;
             } else if let Err(e) = self.set_mode(probe, &mode).await {
                 tracing::warn!(session = %probe.id, "sub-session start mode skipped: {}", e.message);
             }
+            // Granted for the parent's full access, which its harness may only have claimed: the
+            // child's mode is cmux's own (`trust_wait.rs`) only when the parent's is, then and now.
+            if !super::trust_wait::full_access_by_cmux(pm)
+                || !super::trust_wait::full_access_by_cmux(&parent.meta())
+            {
+                probe.meta.lock().unwrap_or_else(|e| e.into_inner()).mode_set_by_cmux = None;
+                self.save_meta(probe);
+            }
         }
-        self.hold_subsession(pm, probe).await
+        // Capped to the parent as it is now, not as it was when the start was checked.
+        self.hold_subsession(&parent.meta(), probe).await
     }
 
     /// `e`, a refusal of the new sub-session `probe`, once `probe` is closed: it never runs
@@ -338,12 +493,18 @@ impl Hub {
     }
 
     /// The policy session `m` runs: its own, else the daemon default; one
-    /// acpmux cannot parse counts as `ask`.
+    /// acpmux cannot parse counts as `ask`, and so does approve-all while MDM
+    /// forces full access off (`policy_for`), so comparisons and inheritance
+    /// rank it as it answers.
     pub(super) async fn effective_policy(&self, m: &SessionMeta) -> PermissionPolicy {
-        match m.permission_policy.as_deref() {
+        let policy = match m.permission_policy.as_deref() {
             Some(p) => p.parse().unwrap_or(PermissionPolicy::Ask),
             None => self.config.read().await.permission_policy,
+        };
+        if super::full_access_bound::policy_is_full_access(policy) && !self.approve_all_allowed() {
+            return PermissionPolicy::Ask;
         }
+        policy
     }
 
     /// Whether session `m` runs a laxer policy than `than`.
@@ -421,16 +582,19 @@ impl Hub {
         })
     }
 
-    /// A family prompt (`provenance` of kind `subsession_message`) about to
-    /// run in `session`: refused when its sender is gone or the receiver now
-    /// asks less than the sender, by mode or policy (either changed while it
-    /// waited in the queue, or the agent's start changed the mode).
+    /// A family prompt (`provenance` of kind `subsession_message`, a retry
+    /// a sub-session asked for, `from` it, or a continuation of either) about to run in `session`: refused
+    /// when its sender is gone or the receiver now asks less than the sender,
+    /// by mode or policy (either changed while it waited in the queue, or the
+    /// agent's start changed the mode).
     pub(super) async fn family_dispatch_check(
         &self,
         session: &Session,
         provenance: Option<&Value>,
     ) -> Result<(), RpcError> {
-        let Some(p) = provenance.filter(|p| is_family_prompt(Some(p))) else { return Ok(()) };
+        let Some(p) = provenance.filter(|p| is_family(Some(p))) else {
+            return Ok(());
+        };
         let from = p.get("from").and_then(Value::as_str).unwrap_or_default();
         let sender = self.resolve(from).ok().filter(|s| s.id == from).ok_or_else(|| {
             refusal(
@@ -474,7 +638,8 @@ impl Hub {
         self.subsession_folder_check(pm, folder, Walk::BeforeCard).await?;
         let decided = self.ensure_folder_trusted(parent, folder, harness, short).await?;
         let rules = !Self::web_turn(parent);
-        self.subsession_folder_check(pm, folder, Walk::Answered { rules }).await?;
+        // The parent as it is after the card: one that left full access meanwhile walks as it is now.
+        self.subsession_folder_check(&parent.meta(), folder, Walk::Answered { rules }).await?;
         Ok(decided)
     }
 
@@ -565,6 +730,18 @@ impl Hub {
         if self.policy_laxer(&child.meta(), pm).await {
             self.set_policy(child, caller_policy).await;
         }
+        self.hold_mode(pm, child).await
+    }
+
+    /// The harness half of [`Hub::hold_subsession`]: new session `child` never runs its harness
+    /// asking less than `pm`, the session that started it; moved to an asking mode, else refused
+    /// (the caller closes it). Also a chat a caller session started with no mode
+    /// (`start_mode.rs`, "Inherit"), against that session as it is now.
+    pub(super) async fn hold_mode(
+        self: &Arc<Self>,
+        pm: &SessionMeta,
+        child: &Arc<Session>,
+    ) -> Result<(), RpcError> {
         let mine = self.caller_access(pm);
         if self.receiver_access(&child.meta(), pm).await <= mine {
             return Ok(());
