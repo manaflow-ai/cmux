@@ -139,6 +139,10 @@ class FakeAPI:
     def force_cancel(self, run_id):
         self.calls.append("force-cancel")
 
+    def annotations(self, job_id):
+        self.calls.append(f"annotations:{job_id}")
+        return []
+
     def rerun(self, run_id, next_attempt):
         self.calls.append("rerun")
         # The attempt the re-run starts, which ci-ui-tests.yml is dispatched for.
@@ -1333,6 +1337,96 @@ def dev_jobs(seconds):
         found += [job("Verify signed cmux NEXT DEV", labels=[LIGHT], created=40),
                   job("Build the unsigned cmux NEXT DEV tip DMG", labels=[LIGHT], created=40)]
     return found
+
+
+class Killed(Exception):
+    """The sweeper's job stopped (cancelled, killed, out of time) in the middle of a rescue."""
+
+
+class CancelledAPI(FakeAPI):
+    """A DEV run whose cancel leaves its queued owned jobs as GitHub does (cancelled, no runner, no step) and the run
+    concluded `cancelled`, with `note` as the jobs' "canceled by" annotation (an exception: unreadable)."""
+
+    def __init__(self, clock, *, note=f"The run was canceled by @{CMUX_BOT}.", cancelled=False, **kwargs):
+        super().__init__(clock, dev_jobs, marker=True, workflow=DEV_WORKFLOW, **kwargs)
+        self.note = note
+        if cancelled:
+            self.cancelled_at, self.cancel_attempt = 0.0, 1
+
+    def settled(self):
+        return self.attempt == 1 and self.cancelled_at is not None and \
+            self.clock.seconds - self.cancelled_at >= self.settles_after
+
+    def run(self, run_id):
+        found = super().run(run_id)
+        return {**found, "conclusion": "cancelled"} if self.settled() else found
+
+    def jobs(self, run_id, attempt):
+        found = super().jobs(run_id, attempt)
+        if attempt != 1 or not self.settled():
+            return found
+        return [{**found_job, "id": index, "status": "completed", "conclusion": "cancelled", "steps": []}
+                if found_job.get("status") == "queued" else {**found_job, "id": index, "conclusion": "success"}
+                for index, found_job in enumerate(found, 1)]
+
+    def annotations(self, job_id):
+        self.calls.append(f"annotations:{job_id}")
+        if isinstance(self.note, Exception):
+            raise self.note
+        return [{"annotation_level": "failure", "message": self.note}] if self.note else []
+
+
+class StrandedCancel(unittest.TestCase):
+    """A rescue that stopped between its cancel and its re-run leaves the run to the next watch, which re-runs it."""
+
+    def test_a_sweeper_killed_between_the_cancel_and_the_re_run_strands_nothing(self):
+        clock = Clock()
+        api = CancelledAPI(clock)
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, e2e=True, path=DEV_DAILY)
+
+        def killed(seconds):
+            raise Killed()
+        with self.assertRaises(Killed):
+            rescue.follow(api, target, seconds=30, queue_rounds="0", now=clock.now, sleep=clock.sleep,
+                          log=lambda _: None, rescue_sleep=killed)
+        self.assertEqual(mutations(api), ["cancel"])
+        clock.sleep(api.settles_after)
+        # The next sweeper adopts the run again (by its marker) and finds it cancelled by the bot, never re-run.
+        lines = []
+        result = rescue.follow(api, target, seconds=30, queue_rounds="0", now=clock.now, sleep=clock.sleep,
+                               log=lines.append)
+        self.assertEqual(result, "done")
+        self.assertEqual(mutations(api), ["cancel", "rerun-failed"])
+        self.assertTrue(any("cancelled this attempt and nothing re-ran it" in line for line in lines), lines)
+
+    def test_a_run_cancelled_by_anyone_else_or_unknown_stays_cancelled(self):
+        for note in ("The run was canceled by @leo.", "", None,
+                     urllib.error.HTTPError("u", 403, "no checks: read", None, io.BytesIO(b""))):
+            clock = Clock()
+            api = CancelledAPI(clock, note=note, cancelled=True)
+            clock.sleep(60)
+            target = rescue.Target(RUN_ID, 1, HEAD, 0, e2e=True, path=DEV_DAILY)
+            result = rescue.follow(api, target, seconds=30, queue_rounds="0", now=clock.now, sleep=clock.sleep,
+                                   log=lambda _: None)
+            self.assertEqual(result, "stopped: the run finished", note)
+            self.assertEqual(mutations(api), [], note)
+            self.assertTrue(any(call.startswith("annotations:") for call in api.calls), note)
+
+    def test_the_bot_actors_count_and_a_re_run_attempt_is_not_stranded(self):
+        for actor in (ACTIONS_BOT, CMUX_BOT):
+            api = CancelledAPI(Clock(), note=f"The run was canceled by @{actor}.")
+            jobs = [{**job("Verify signed cmux NEXT DEV", labels=[LIGHT]), "id": 9, "status": "completed",
+                     "conclusion": "cancelled", "steps": []}]
+            self.assertEqual(rescue.rescue_cancelled(api, jobs, lambda _: None, lambda _: None), actor)
+        # Someone re-ran it meanwhile: the watch of attempt 1 reads no annotation and re-runs nothing.
+        clock = Clock()
+        api = CancelledAPI(clock, cancelled=True, attempt_after_cancel=2)
+        clock.sleep(60)
+        api.run = lambda run_id: {"status": "completed", "conclusion": "cancelled", "run_attempt": 2}
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, e2e=True, path=DEV_DAILY)
+        rescue.follow(api, target, seconds=30, queue_rounds="0", now=clock.now, sleep=clock.sleep, log=lambda _: None)
+        self.assertEqual(mutations(api), [])
+        self.assertFalse(any(call.startswith("annotations:") for call in api.calls))
 
 
 class BlacksmithStall(unittest.TestCase):

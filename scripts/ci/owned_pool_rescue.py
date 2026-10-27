@@ -937,10 +937,38 @@ def unacquired(job: Mapping[str, Any]) -> bool:
     Run 39607661629's ios-simulator-build (2026-10-21) waited 4 minutes for glaeda-ios-sim, then GitHub
     cancelled it alone ("The job was not acquired by Runner of type self-hosted even after multiple
     attempts") and the run ended in failure. A run cancelled as a whole leaves its queued jobs the same
-    way, so watch() counts this only in a run that finished with another conclusion.
+    way, so watch() counts this only in a run that finished with another conclusion, or one the rescue
+    itself cancelled and never re-ran (rescue_cancelled()).
     """
     return bool(job_pool(job)) and job.get("status") == "completed" and job.get("conclusion") == "cancelled" \
         and not job.get("runner_name") and not job.get("steps")
+
+
+# GitHub's annotation on the jobs of a cancelled run: "The run was canceled by @cmux-bot[bot]." (DEV run 40506100431).
+CANCELLED_BY = re.compile(r"\bThe run was cancell?ed by @([A-Za-z0-9-]+(?:\[bot\])?)")
+
+
+def rescue_cancelled(api: GitHub, jobs: Sequence[Mapping[str, Any]], sleep: Callable[[float], None],
+                     log: Callable[[str], None]) -> str:
+    """The rescue's actor (RESCUE_ACTORS) when it cancelled this run, as GitHub's annotation on one of its
+    unacquired owned jobs says; "" otherwise (a person, another bot, or no annotation readable).
+
+    A rescue cancels, waits for the run to settle and re-runs it; a sweeper that stops in between (cancelled,
+    killed, out of time) leaves the run cancelled with its owned jobs never acquired. Such a run is stranded
+    like one GitHub gave up on (unacquired()), so the next watch of it re-runs it."""
+    for job in jobs:
+        if not unacquired(job) or not job.get("id"):
+            continue
+        try:
+            notes = read(lambda: api.annotations(int(job["id"])), sleep, log)
+        except READ_ERRORS as error:
+            log(f"could not read who cancelled the run ({error}); it is left as GitHub has it")
+            return ""
+        for note in notes:
+            found = CANCELLED_BY.search(str(note.get("message") or ""))
+            if found:
+                return found.group(1) if found.group(1) in RESCUE_ACTORS else ""
+    return ""
 
 
 def accepted(job: Mapping[str, Any], now: dt.datetime) -> bool:
@@ -1637,6 +1665,11 @@ class GitHub:
                 break
         return found
 
+    def annotations(self, job_id: int) -> list[Mapping[str, Any]]:
+        """The annotations of a job's check run (GitHub's "The run was canceled by @actor." among them)."""
+        data = self.request("GET", f"/check-runs/{job_id}/annotations?per_page=50")
+        return [note for note in data or [] if isinstance(note, Mapping)]
+
     def workflow_file(self, path: str, ref: str) -> str | None:
         """The text of `path` at commit `ref`, or None when it is not there."""
         try:
@@ -2029,6 +2062,13 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
             finished = run.get("status") == "completed"
             # A job no runner acquired looks like one a cancelled run left queued (unacquired()).
             stranded = finished and run.get("conclusion") not in (None, "cancelled")
+            if finished and run.get("conclusion") == "cancelled" and any(unacquired(job) for job in jobs) and \
+                    int(run.get("run_attempt") or 0) == target.attempt:
+                by = rescue_cancelled(api, jobs, sleep, log)
+                if by:
+                    log(f"look {looks}: {by} cancelled this attempt and nothing re-ran it (a rescue stopped "
+                        "between its cancel and its re-run)")
+                    stranded = True
             if finished and not any(refused(job) or stranded and unacquired(job) for job in jobs):
                 late = feed_timeouts(api, target, jobs, sleep, log)
                 if not late:
