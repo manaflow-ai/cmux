@@ -45,11 +45,6 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     if args.first().is_some_and(|a| a == crate::agent_host::HOST_ARG) {
         return crate::agent_host::host::main();
     }
-    // The agent tool relay moves bytes for one agent; it runs no tokio (`mcp_relay.rs`).
-    #[cfg(unix)]
-    if args.first().is_some_and(|a| a == crate::mcp_relay::RELAY_ARG) {
-        return crate::mcp_relay::main().map_err(Into::into);
-    }
     if let Some(home) = invocation.home.clone() {
         crate::config::set_home_override(home);
     }

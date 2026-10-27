@@ -1,7 +1,7 @@
 //! `acpmux-mcp-relay`: the agent tool relay as a program of its own
 //! (`mcp_relay.rs`), linked without the acpmux library so it stays under 1 MB.
 
-// The names only acpmux reads (which program and argument start the relay).
+// The names only acpmux reads (the program name, the hello for `cmux mcp serve`).
 #[allow(dead_code)]
 #[path = "mcp_relay.rs"]
 mod mcp_relay;

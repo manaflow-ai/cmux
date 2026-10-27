@@ -481,6 +481,12 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
     let executable = |name: &str| {
         inputs.bin_dir.as_ref().map(|dir| dir.join(name)).filter(|path| is_executable(path))
     };
+    // The relay for a tool set the daemon serves: beside the cmux binaries (the
+    // app bundle's bin, where acpmux is a link to cmux), else beside this acpmux.
+    let relay = executable(crate::mcp_relay::RELAY_PROGRAM).or_else(|| {
+        let beside = inputs.acpmux.as_ref()?.exe.with_file_name(crate::mcp_relay::RELAY_PROGRAM);
+        is_executable(&beside).then_some(beside)
+    });
     if let (Some(dir), Some(acpmux)) = (&inputs.cua_v2, &inputs.acpmux) {
         // The helper v2: this acpmux as the agent's MCP server. Only the
         // folder goes in its env; the bridge reads the socket and secret
@@ -524,7 +530,8 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
     if let (true, Some(acpmux)) = (inputs.secrets, &inputs.acpmux) {
         // request_secret and run_with_secret (`secret_mcp.rs`): `for_session`
         // names the session and this daemon's socket in its env.
-        servers.push(daemon_tool_server(acpmux, DaemonTools::Secrets, inputs.daemon_tools));
+        let (tools, relay) = (DaemonTools::Secrets, relay.as_deref());
+        servers.push(tools.server(acpmux, inputs.daemon_tools, relay));
     }
     if let (true, Some(acpmux)) = (inputs.offers, &inputs.acpmux) {
         // offer_session (`offer_mcp.rs`): `for_session` names the session.
@@ -538,7 +545,8 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
     if let (true, Some(acpmux)) = (inputs.subsessions, &inputs.acpmux) {
         // start_session and the rest (`subsession_mcp.rs`): `for_session`
         // gives it the session's id, caller token and this daemon's socket.
-        servers.push(daemon_tool_server(acpmux, DaemonTools::Subsessions, inputs.daemon_tools));
+        let (tools, relay) = (DaemonTools::Subsessions, relay.as_deref());
+        servers.push(tools.server(acpmux, inputs.daemon_tools, relay));
     }
     if let Some(acpmux) = &inputs.acpmux {
         // announce, rules and ack (`forum_mcp.rs`, hq#2570): acts as the
@@ -580,37 +588,7 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
     AgentTools { servers, plugin_dir, displays: inputs.displays.clone() }
 }
 
-/// The server of a tool set the daemon can serve itself: the relay to the
-/// daemon (`mcp_relay.rs`) when `in_daemon`, else the tokio stdio server of
-/// earlier builds. The relay is `acpmux-mcp-relay` beside this acpmux when
-/// the install has it (under 1 MB), else `acpmux __mcp-relay`.
-/// `for_session` fills in its env.
-fn daemon_tool_server(
-    acpmux: &crate::self_command::SelfCommand,
-    tools: DaemonTools,
-    in_daemon: bool,
-) -> McpServer {
-    let name = tools.server_name().to_owned();
-    if !in_daemon {
-        let args = acpmux.args_lossy(&[tools.stdio_word()]);
-        return McpServer { name, command: acpmux.exe.clone(), args, env: vec![] };
-    }
-    let env = vec![(RELAY_SERVER.to_owned(), name.clone())];
-    let program = acpmux.exe.with_file_name(crate::mcp_relay::RELAY_PROGRAM);
-    if is_executable(&program) {
-        return McpServer { name, command: program, args: vec![], env };
-    }
-    let args = acpmux.args_lossy(&[crate::mcp_relay::RELAY_ARG]);
-    McpServer { name, command: acpmux.exe.clone(), args, env }
-}
-
 const RELAY_SERVER: &str = crate::mcp_relay::SERVER_ENV;
-
-/// The daemon tool set `server` reaches through the relay, if it does.
-fn relayed(server: &McpServer) -> Option<DaemonTools> {
-    let tools = server.env.iter().find(|(k, _)| k == RELAY_SERVER)?;
-    DaemonTools::from_server_name(&tools.1).filter(|t| t.server_name() == server.name)
-}
 
 impl AgentTools {
     /// The tools for one session: its env's [`CUA_SCOPE_ENV`] reaches only
@@ -686,7 +664,7 @@ impl AgentTools {
             if server.name == "cmux" || server.name == MEMORY_SERVER_NAME {
                 server.env.push((AGENT_SESSION_ENV.to_owned(), session_id.to_owned()));
             }
-            let relayed = relayed(server);
+            let relayed = DaemonTools::served(server);
             let session_env = match server.name.as_str() {
                 _ if relayed.is_some() => None,
                 crate::secret_mcp::SERVER_NAME => Some(crate::secret_mcp::SESSION_ENV),
@@ -717,6 +695,11 @@ impl AgentTools {
                 ];
                 if let Some(tools) = relayed {
                     server.env.push((RELAY_SERVER.to_owned(), tools.server_name().to_owned()));
+                    // The tool set's own stdio server, in an install without the relay.
+                    let stdio_session = tools.stdio_session_env();
+                    if stdio_session != crate::subsession_mcp::SESSION_ENV {
+                        server.env.push((stdio_session.to_owned(), session_id.to_owned()));
+                    }
                 }
                 server.env.extend(
                     crate::hub::person::caller_env(session_id)
@@ -810,7 +793,7 @@ impl AgentTools {
                 }
                 // A tool set the daemon serves: `cmux mcp serve` dials the daemon itself, with
                 // the relay's handshake (no process); one that reads no `socket` runs the relay.
-                if relayed(s).is_some() {
+                if DaemonTools::served(s).is_some() {
                     let env = |key: &str| s.env.iter().find(|(k, _)| k == key).map(|(_, v)| v);
                     let session = env(crate::subsession_mcp::SESSION_ENV);
                     let token = env(crate::hub::person::CALLER_TOKEN_ENV);

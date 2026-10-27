@@ -412,6 +412,22 @@ async fn daemon_serves_the_subsession_and_secret_tools(
     // SAFETY: as in the caller; no session is starting concurrently.
     unsafe { std::env::set_var("CMUX_ENABLE_FEATURES", "agentToolsInDaemon") };
 
+    // An install without the small relay keeps the stdio servers for a harness
+    // that runs them itself; `cmux mcp serve` still dials the daemon.
+    let bare_id = local.new_session("fake").await;
+    let bare = upstreams_of(local, &bare_id).await;
+    for (name, word) in [("cmux-subsessions", "subsession-mcp"), ("cmux-secrets", "secret-mcp")] {
+        let spec = named(&bare, name);
+        assert_eq!(spec["args"], json!([word]), "{spec}");
+        assert_eq!(spec["env"]["ACPMUX_MCP_SERVER"], name, "{spec}");
+        assert!(spec["socket"].is_string(), "{spec}");
+    }
+    // secret-mcp reads its session from its own key.
+    let secrets = named(&bare, "cmux-secrets");
+    assert_eq!(secrets["env"]["ACPMUX_SECRET_SESSION"], json!(bare_id), "{secrets}");
+    // The relay beside the cmux binaries (the app bundle's bin, where acpmux is a link to cmux).
+    let relay = fake_bin(&root.join("bin"), "acpmux-mcp-relay");
+
     // 20 agents: each starts two processes fewer, and both tool sets name the daemon.
     let mut sessions = Vec::new();
     let (mut processes_before, mut processes_after) = (0, 0);
@@ -422,7 +438,8 @@ async fn daemon_serves_the_subsession_and_secret_tools(
         processes_after += started(&after);
         for name in ["cmux-subsessions", "cmux-secrets"] {
             let spec = named(&after, name);
-            assert_eq!(spec["args"], json!(["__mcp-relay"]), "{spec}");
+            assert_eq!(spec["command"], json!(relay), "{spec}");
+            assert_eq!(spec["args"], json!([]), "{spec}");
             assert_eq!(spec["env"]["ACPMUX_MCP_SERVER"], name, "{spec}");
             assert_eq!(spec["env"]["ACPMUX_SESSION_ID"], json!(id), "{spec}");
             assert!(spec["socket"].is_string(), "{spec}");
@@ -488,9 +505,10 @@ async fn daemon_serves_the_subsession_and_secret_tools(
 }
 
 /// The relay a stdio harness runs, against this hub on a real socket: the
-/// agent's MCP lines reach the daemon's tools through both relay programs,
-/// and `acpmux-mcp-relay` stays at or under 1 MB (macOS phys_footprint, Linux
-/// private dirty pages), against 4.6 to 4.7 MB for each stdio server it replaces.
+/// agent's MCP lines reach the daemon's tools through `acpmux-mcp-relay`, the
+/// program the packages ship beside acpmux, which stays at or under 1 MB (macOS
+/// phys_footprint, Linux private dirty pages), against 4.6 to 4.7 MB for each
+/// stdio server it replaces.
 async fn relay_carries_the_tools_in_under_a_megabyte(hub: &Arc<Hub>, session: &str, root: &Path) {
     let socket = PathBuf::from(format!("/tmp/acpmux-relay-{}.sock", std::process::id()));
     let listener = acpmux::server::bind_unix(&socket).await.unwrap();
@@ -499,9 +517,6 @@ async fn relay_carries_the_tools_in_under_a_megabyte(hub: &Arc<Hub>, session: &s
     std::fs::create_dir_all(&scratch).unwrap();
     let small = relay_round_trip(daemon_env::relay(&scratch), session, &socket).await;
     assert!(small <= 1 << 20, "acpmux-mcp-relay uses {small} bytes, over 1 MB");
-    let mut inside = daemon_env::tokio_command(&scratch, daemon_env::Agents::Deny);
-    inside.arg("__mcp-relay");
-    relay_round_trip(inside, session, &socket).await;
     served.abort();
     let _ = std::fs::remove_file(&socket);
 }

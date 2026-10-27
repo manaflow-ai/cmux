@@ -15,6 +15,7 @@
 //! `acpmux subsession-mcp`, the stdio server of earlier builds, stays for a
 //! harness an earlier daemon started and for Windows.
 
+use crate::agent_tools::McpServer;
 use crate::client::Client;
 use crate::rpc::method;
 use crate::secret_mcp::error_result;
@@ -77,6 +78,45 @@ impl DaemonTools {
         match self {
             Self::Subsessions => "subsession-mcp",
             Self::Secrets => "secret-mcp",
+        }
+    }
+
+    /// Its MCP server. With `in_daemon` the server is marked as the daemon's
+    /// (`mcp_relay::SERVER_ENV`): `cmux mcp serve` dials the daemon for it with
+    /// no process (`AgentTools::folded`), and a harness that runs stdio servers
+    /// itself runs `relay`, the small `acpmux-mcp-relay` (`mcp_relay.rs`). An
+    /// install without one keeps the tool set's own stdio server: a relay inside
+    /// the full acpmux or cmux binary would cost more than the server it
+    /// replaces. `AgentTools::for_session` fills in its env.
+    pub fn server(
+        self,
+        acpmux: &crate::self_command::SelfCommand,
+        in_daemon: bool,
+        relay: Option<&std::path::Path>,
+    ) -> McpServer {
+        let name = self.server_name().to_owned();
+        let marked = in_daemon.then(|| (crate::mcp_relay::SERVER_ENV.to_owned(), name.clone()));
+        let env = marked.into_iter().collect();
+        match relay.filter(|_| in_daemon) {
+            Some(relay) => McpServer { name, command: relay.to_owned(), args: vec![], env },
+            None => {
+                let args = acpmux.args_lossy(&[self.stdio_word()]);
+                McpServer { name, command: acpmux.exe.clone(), args, env }
+            }
+        }
+    }
+
+    /// The daemon tool set `server` is, when the daemon serves it ([`Self::server`]).
+    pub fn served(server: &McpServer) -> Option<Self> {
+        let (_, name) = server.env.iter().find(|(k, _)| k == crate::mcp_relay::SERVER_ENV)?;
+        Self::from_server_name(name).filter(|tools| tools.server_name() == server.name)
+    }
+
+    /// The env key its own stdio server reads the session from.
+    pub fn stdio_session_env(self) -> &'static str {
+        match self {
+            Self::Subsessions => SESSION_ENV,
+            Self::Secrets => crate::secret_mcp::SESSION_ENV,
         }
     }
 
