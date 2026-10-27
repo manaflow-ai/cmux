@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR df10717146553dfa363854f65845a400d363319d750b9f1e04386389220171be.
+// cmux-tui mux protocol 12, IR 7eb274630f633e9ac0d047904d92944dbb00b4f9dcb8b2c809d8a6871ce0a777.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -784,6 +784,30 @@ pub struct CellPixelSurface {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClientHelloFeaturePending {
+    pub app: bool,
+    pub daemon: bool,
+    pub name: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClientHelloFeatureReport {
+    pub applied: Vec<String>,
+    pub hash: String,
+    pub pending: Vec<ClientHelloFeaturePending>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClientHelloFeatures {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub hash: Option<String>,
+    pub values: BTreeMap<String, bool>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ClientHelloPageOperations {
     pub confirm: Vec<String>,
     pub gesture: Vec<String>,
@@ -794,6 +818,8 @@ pub struct ClientHelloPageOperations {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ClientHelloResult {
     pub connection_id: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub features: Option<ClientHelloFeatureReport>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub install_id: Option<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]

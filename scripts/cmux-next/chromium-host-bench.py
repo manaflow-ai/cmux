@@ -218,13 +218,13 @@ def parse(argv=None):
     args = parser.parse_args(argv)
     if sum([args.native_ui is not None, args.find, args.kill_host]) > 1:
         parser.error("--native-ui, --find and --kill-host each run instead of the modes: pick one")
+    if "profiles" in args.modes.split(",") and ("inproc" in args.modes.split(",") or args.baseline or args.stress):
+        parser.error("--modes profiles runs every Chromium tab in the host: run it in a launch of its own, without "
+                     "inproc, --baseline or --stress (they measure in-process tabs)")
     try:
         args.signals = chromium_host_kill.signal_numbers(args.signals)
     except ValueError as error:
         parser.error(str(error))
-    if "profiles" in args.modes.split(",") and ("inproc" in args.modes.split(",") or args.baseline or args.stress):
-        parser.error("--modes profiles runs every Chromium tab in the host: run it in a launch of its own, without "
-                     "inproc, --baseline or --stress (they measure in-process tabs)")
     if args.native_ui is not None:
         try:
             args.native_ui = chromium_host_native_ui.rows_named(

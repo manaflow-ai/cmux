@@ -9,7 +9,9 @@
 /// maps it with `ChromiumHostExit.pageExit`.
 public protocol ChromiumHostExitReporting: ChromiumHostSupervising {
     /// Runs on the main thread each time a host that said hello ends while cmux is not quitting,
-    /// with the crash state its pages show. A clean exit (status 0) reports nothing.
+    /// with the crash state its pages show. A clean exit (status 0) reports nothing. It may run before
+    /// or after the ``ChromiumHostSupervising/observeHostEnds(_:)`` observers of the same end: the
+    /// runtime detaches the dead wire on whichever comes first (task 091).
     var onHostEnded: (@MainActor (BrowserProcessExit) -> Void)? { get set }
 
     /// The host whose wire ``ChromiumHostSupervising/attachment()`` handed out said hello (`CEFHostStart`, on the main
