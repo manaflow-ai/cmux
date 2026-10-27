@@ -64,6 +64,32 @@ steps, every `.ips`, `.hang` and `.diag` report of the cmux processes, and the u
   majors, issue #4529). Never report a VM timing as perf evidence; label any timing from a VM "VM, not
   comparable". The smoke records main-thread stalls of 1 s or more with that label.
 
+### Tart hosts and parallel placement
+
+`images.json` `hosts` lists each Tart host: its macOS, the majors it caches, `vm_slots` (VMs at once, at most 2)
+and `stability_lab` (reserved for the stability lab: no bench-class step). Add a host only after its images are
+in its Tart cache and its worker has the `tart` label; a step never pulls.
+
+`os-matrix.sh --build JOB --os 14,15,26,27 --parallel` submits one step per major at once, each with only its
+own `tart-<digest>` label, so each major takes a VM on any host that caches it. Without `--parallel` the one step
+needs a single host that caches every major asked for. Results: `<out>/step-<major>/`, `<out>/step-<major>.log`
+and `<out>/parallel.json`. A child step's key is the key `--os <major>` gives, so the same command re-attaches.
+
+To add a host (an operator task; schedule only through `cmux-ci`, never maclease):
+
+1. Check disk first: each image needs its `disk_bytes` (41 to 50 GB) plus the worker's build space.
+2. On the host, as the worker user: `TART_HOME=<tart home> tart pull <ref>@<digest>` for each major from
+   images.json. Check `host_os_min`: 27 needs a macOS 27 host.
+3. The operator gives the worker the `tart` label and `CMUX_CI_TART_KEYCHAIN_PASSWORD_FILE`. Agents never
+   read the keychain password.
+4. For a lab host, the operator tags it `stability-lab` in the hq controller.
+5. Add the host to `hosts`, then run `--parallel` smoke on each major it caches.
+
+Fleet on 2026-10-27 (controller `/v1/status`): cmux17-19 and cmux21-24 are `cmuxNN-perf` measure hosts with 38
+to 49 GB free, so they cannot hold two images, and a lab VM must not share a bench host. cmux15 and cmux16 are
+not fleet workers. aws-m4pro-5 (macOS 26, about 210 GB free) can take 14, 15 and 26. aws-m4pro-1..4 (macOS 27)
+have 13 to 21 GB free, so no fleet worker can cache the 27 image yet.
+
 ### Smoke suite
 
 `smoke.py` runs on the Tart host and drives the guest over SSH (`cmux app call`) and VNC (screenshots). Steps,

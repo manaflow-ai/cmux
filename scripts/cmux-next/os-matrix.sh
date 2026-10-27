@@ -6,7 +6,7 @@
 #
 # Usage: scripts/cmux-next/os-matrix.sh --build JOB_ID [--os 14,15] [--suite smoke|threads|fuzz|chaos|repro:NAME|exec:NAME]
 #                                       [--seed N] [--minutes N] [--diag NAME] [--ref SHA] [--attempt N]
-#                                       [--out DIR]
+#                                       [--out DIR] [--parallel]
 #   --build    a done fleet `cmux` build job (cmux-ci build cmux ...). The smoke needs a DEV build
 #              (the release socket refuses debug.* calls). The build may be of any commit.
 #   --os       macOS majors, comma-separated, from scripts/fuzz/macos-matrix/images.json
@@ -33,6 +33,10 @@
 #   --attempt  a new step for the same build, ref, majors and suite (default 1): the step key holds
 #              it, so the same command re-attaches to its step and --attempt 2 runs it again.
 #   --out      results directory (default artifacts/os-matrix/<build>-<suite>-<UTC>).
+#   --parallel one step per major, all submitted at once, so each major takes a VM on any Tart host that
+#              caches its image (hosts: images.json "hosts"). 27 always needs its own step: no host holds
+#              a 14/15/26 image and the 27 image. Per major: <out>/step-<major>/ and <out>/step-<major>.log;
+#              <out>/parallel.json has each major's step, exit code and verdict. The same command re-attaches.
 # Prints one line per major and "MATRIX VERDICT PASS|FAIL|NO-VERDICT"; exits 0 on PASS, 1 on FAIL, 2 on a
 # usage error and 75 when there is no verdict (a refused, failed or unfinished step, or a major without
 # one: a VM that did not boot, an exec probe that crashed, timed out or did not compile). Results: <out>/<major>/{result.json|summary.json,app.log,shot-*.png,*.ips,
@@ -42,7 +46,7 @@
 # cmux-unit tests inside the guest are not supported (the base images have no Xcode); see MATRIX.md.
 set -euo pipefail
 
-BUILD="" OS=14,15 SUITE=smoke SEED=1 MINUTES=15 REF="" OUT="" ATTEMPT=1 DIAG=""
+BUILD="" OS=14,15 SUITE=smoke SEED=1 MINUTES=15 REF="" OUT="" ATTEMPT=1 DIAG="" PARALLEL=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --build) BUILD=$2; shift 2 ;;
@@ -54,8 +58,9 @@ while [[ $# -gt 0 ]]; do
     --ref) REF=$2; shift 2 ;;
     --out) OUT=$2; shift 2 ;;
     --attempt) ATTEMPT=$2; shift 2 ;;
+    --parallel) PARALLEL=1; shift ;;
     --tests) echo "--tests: cmux-unit in the guest is not supported yet (the base images have no Xcode; see scripts/fuzz/macos-matrix/MATRIX.md)" >&2; exit 2 ;;
-    -h|--help) sed -n '2,42p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,46p' "$0"; exit 0 ;;
     *) echo "unknown argument $1 (see --help)" >&2; exit 2 ;;
   esac
 done
@@ -100,6 +105,47 @@ for m in majors:
     print("--label=tart-" + pins[m][len("sha256:"):][:32])' "$images" "$OS") || exit 2
 OUT=${OUT:-$ROOT/artifacts/os-matrix/${BUILD:0:12}-${SUITE//:/-}-$(date -u +%Y%m%dT%H%M%SZ)}
 mkdir -p "$OUT"
+if [[ "$PARALLEL" == 1 && "$OS" == *,* ]]; then
+  # One child run per major: each is a plain single-major os-matrix.sh, so its step key is the one
+  # `--os <major>` gives and a re-run re-attaches to the same steps.
+  IFS=, read -ra majors <<<"$OS"
+  pids=()
+  for m in "${majors[@]}"; do
+    child=(--build "$BUILD" --os "$m" --suite "$SUITE" --seed "$SEED" --minutes "$MINUTES" --ref "$REF"
+      --attempt "$ATTEMPT" --out "$OUT/step-$m")
+    [[ -z "$DIAG" ]] || child+=(--diag "$DIAG")
+    CMUX_CI=$CI bash "${BASH_SOURCE[0]}" "${child[@]}" >"$OUT/step-$m.log" 2>&1 &
+    pids+=("$!")
+  done
+  echo "os-matrix: build $BUILD, macOS $OS, suite $SUITE: ${#majors[@]} steps submitted at once" >&2
+  codes=()
+  for i in "${!majors[@]}"; do
+    code=0
+    wait "${pids[$i]}" || code=$?
+    codes+=("$code")
+  done
+  verdict=$(python3 -I -c 'import json, re, sys
+out, majors, codes = sys.argv[1], sys.argv[2].split(","), [int(c) for c in sys.argv[3].split(",")]
+rows = []
+for major, code in zip(majors, codes):
+    log = open("%s/step-%s.log" % (out, major), errors="replace").read()
+    step = re.search(r"cmux-ci: step ([0-9a-f]{24})", log)
+    rows.append({"major": major, "exit": code, "step": step.group(1) if step else "",
+                 "verdict": {0: "PASS", 1: "FAIL"}.get(code, "NO-VERDICT"), "results": "step-" + major})
+    print("macOS %-3s %-10s step %-24s %s/step-%s.log" % (major, rows[-1]["verdict"], rows[-1]["step"] or "-", out, major),
+          file=sys.stderr)
+verdicts = [r["verdict"] for r in rows]
+overall = "FAIL" if "FAIL" in verdicts else ("NO-VERDICT" if "NO-VERDICT" in verdicts else "PASS")
+json.dump({"majors": rows, "verdict": overall}, open(out + "/parallel.json", "w"), indent=1)
+print(overall)' "$OUT" "$OS" "$(IFS=,; echo "${codes[*]}")")
+  echo "results: $OUT"
+  echo "MATRIX VERDICT $verdict"
+  case "$verdict" in
+    PASS) exit 0 ;;
+    FAIL) exit 1 ;;
+    *) echo "os-matrix: some major gave no verdict; its step-<major>.log says whether to wait or use --attempt" >&2; exit 75 ;;
+  esac
+fi
 key="os-matrix-${BUILD:0:12}-${REF:0:12}-${OS//,/-}-${SUITE//:/-}-a$ATTEMPT"
 [[ "$SUITE" == fuzz ]] && key+="-s$SEED-m$MINUTES"
 [[ -z "$DIAG" ]] || key+="-d$DIAG"

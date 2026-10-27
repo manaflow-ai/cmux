@@ -48,6 +48,17 @@
       "host_os_min": "27"
     }
   ],
+  "hosts_comment": "Tart hosts and the majors each caches: an entry is added only after its images are pulled by digest and the worker has the tart label. vm_slots is the VMs it runs at once (Apple's limit for macOS guests is 2). stability-lab marks a host reserved for the stability lab (no bench-class step).",
+  "hosts": [
+    {
+      "name": "aws-m4pro-6",
+      "host_os": "26",
+      "tart_home": "/Volumes/ephemeral0/cmux-agent-work/mfloor/tart-home",
+      "majors": ["14", "15", "26"],
+      "vm_slots": 2,
+      "stability_lab": false
+    }
+  ],
   "images_disk_on_host_kb": {
     "14": 29658904,
     "15": 32534308,
