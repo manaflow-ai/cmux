@@ -44,8 +44,10 @@ ARBITRARY_BRANCH_PUSH = {
 
 
 def branch_pattern(glob: str) -> re.Pattern[str]:
-    """GitHub's branch filter glob: ** crosses '/', * and ? do not, [] is a class."""
-    out, i = [], 0
+    """GitHub's branch filter glob: ** crosses '/', * does not, [] is a class, and
+    ? and + quantify the character before them (zero or one, one or more)."""
+    out: list[str] = []
+    i = 0
     while i < len(glob):
         c = glob[i]
         if glob.startswith("**", i):
@@ -54,8 +56,8 @@ def branch_pattern(glob: str) -> re.Pattern[str]:
             continue
         if c == "*":
             out.append("[^/]*")
-        elif c == "?":
-            out.append("[^/]")
+        elif c in "?+" and out:
+            out[-1] = "(?:" + out[-1] + ")" + c
         elif c == "[":
             end = glob.find("]", i)
             if end < 0:
@@ -64,8 +66,6 @@ def branch_pattern(glob: str) -> re.Pattern[str]:
                 out.append(glob[i:end + 1])
                 i = end + 1
                 continue
-        elif c == "+":
-            out.append("+")
         else:
             out.append(re.escape(c))
         i += 1
@@ -112,6 +112,12 @@ class PushTriggerBranchesTest(unittest.TestCase):
         self.assertTrue(push_matches({"branches-ignore": ["feat-cmux-next"]}, "some-lane"))
         self.assertTrue(push_matches({"paths": ["x/**"]}, "some-lane"))
         self.assertFalse(push_matches({"tags": ["v*"]}, "some-lane"))
+        # ? and + quantify the character before them.
+        self.assertTrue(push_matches({"branches": ["cp/0?"]}, "cp/"))
+        self.assertTrue(push_matches({"branches": ["cp/0?"]}, "cp/0"))
+        self.assertFalse(push_matches({"branches": ["cp/0?"]}, "cp/00"))
+        self.assertTrue(push_matches({"branches": ["cp/0+"]}, "cp/000"))
+        self.assertTrue(push_matches({"branches": ["cp/[0-9]?"]}, "cp/0"))
 
     def test_no_push_trigger_runs_on_patch_refs(self) -> None:
         for name, push in push_triggers().items():

@@ -25,6 +25,9 @@ on:
       - .github/workflows/release-rails.yml
   push:
     branches: [main, feat-cmux-next]
+    # Tag pushes ran it before the branch filter (path filters do not apply to
+    # tags); a branch filter alone would drop them.
+    tags: ["**"]
     paths:
       - scripts/cmux-next/release/**
       - workers/cmux-vm/migrations/**
