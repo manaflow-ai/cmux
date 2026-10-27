@@ -2,20 +2,72 @@ import Foundation
 public import Sentry
 
 /// A Sentry event for a helper process crash that macOS recorded (the
-/// cmux-tui daemon and its terminal, app and browser hosts, acpmux, the
-/// Chromium helpers). Frames carry instruction addresses and the debug
-/// images their UUIDs, so Sentry symbolicates them from the debug files
-/// the nightly uploads, as for the app's own crashes.
+/// cmux-tui daemon and its terminal, app and browser hosts, the holder,
+/// acpmux, the Chromium helpers). Frames carry instruction addresses and
+/// the debug images their UUIDs, so Sentry symbolicates them from the debug
+/// files the nightly uploads, as for the app's own crashes. A Rust process's
+/// crash also carries what it left on disk (``Extras``): its crash keys as
+/// tags and its black box as `blackbox.txt`, as Crashpad attaches a dead
+/// process's crash keys and annotations to its minidump.
 public nonisolated struct SystemCrashEvent: Sendable {
-    public let report: SystemCrashReport
+    /// What the crashed process left beside the report (``RustCrashArtifacts``) and where it ran from.
+    public struct Extras: Sendable, Equatable {
+        /// Where the binary ran from (tag `process_origin`).
+        public var origin: SystemCrashReport.HelperOrigin?
+        /// Whether the crashed image is one of the binaries this app runs now (tag `process_build`: `this`, or
+        /// `other` for an earlier build of this app whose host-exe copy kept running after an update); nil when not
+        /// checked (a bundle binary is always this build's).
+        public var fromThisBuild: Bool?
+        /// The Sentry release of the build whose binary crashed (`cmux-next@<version>+<build>`); nil: the SDK's,
+        /// this app's own.
+        public var release: String?
+        /// The build version the crashed process wrote in its crash-key page (tag `process_build_version`).
+        public var buildVersion: String?
+        /// The process kind its black box or crash-key page names (`daemon`, `terminal-host`, `holder`,
+        /// `acpmux`; tag `process_role`).
+        public var processRole: String?
+        /// `blackbox.txt`: the newest black-box events with no key-timing, per-key PTY or flow record
+        /// (``CmuxNextTrace/TraceBlackBoxUpload``); nil without the hang-reports opt-in or a ring.
+        public var blackbox: String?
+        /// The crash keys as tags (`crash_key.<name>`: decimal numbers and fixed state names only).
+        public var crashKeys: [String: String]
 
-    public init(report: SystemCrashReport) {
+        /// Extras from their parts.
+        public init(origin: SystemCrashReport.HelperOrigin? = nil, fromThisBuild: Bool? = nil,
+                    release: String? = nil, buildVersion: String? = nil,
+                    processRole: String? = nil, blackbox: String? = nil, crashKeys: [String: String] = [:]) {
+            self.origin = origin
+            self.fromThisBuild = fromThisBuild
+            self.release = release
+            self.buildVersion = buildVersion
+            self.processRole = processRole
+            self.blackbox = blackbox
+            self.crashKeys = crashKeys
+        }
+    }
+
+    /// The black box's attachment name, as on the app's own crash event (``CrashReporter/blackboxAttachment(_:hangReportsOptIn:)``).
+    public static let blackboxFileName = "blackbox.txt"
+
+    public let report: SystemCrashReport
+    public let extras: Extras
+
+    public init(report: SystemCrashReport, extras: Extras = Extras()) {
         self.report = report
+        self.extras = extras
+    }
+
+    /// The event's attachments: `blackbox.txt` when ``Extras/blackbox`` has one.
+    public func attachments() -> [Attachment] {
+        guard let blackbox = extras.blackbox, !blackbox.isEmpty else { return [] }
+        return [Attachment(data: Data(blackbox.utf8), filename: Self.blackboxFileName, contentType: "text/plain")]
     }
 
     public func event() -> Event {
         let event = Event(level: .fatal)
         event.platform = "cocoa"
+        // The SDK puts its own release only on an event that has none (SentryClient prepareEvent).
+        if let release = extras.release { event.releaseName = release }
         var exceptions: [Exception] = []
         if !report.exceptionFrames.isEmpty {
             // The Objective-C throw stack goes first: Sentry lists the
@@ -40,8 +92,19 @@ public nonisolated struct SystemCrashEvent: Sendable {
             meta.codeFile = image.name
             return meta
         }
-        event.tags = ["process": report.processName, "crash_source": "macos_crash_report"]
-        if let incident = report.incident { event.extra = ["incident": incident] }
+        var tags = extras.crashKeys
+        tags["process"] = report.processName
+        tags["crash_source"] = "macos_crash_report"
+        if let origin = extras.origin { tags["process_origin"] = origin.rawValue }
+        if let role = extras.processRole { tags["process_role"] = role }
+        if let fromThisBuild = extras.fromThisBuild { tags["process_build"] = fromThisBuild ? "this" : "other" }
+        if let version = extras.buildVersion { tags["process_build_version"] = version }
+        event.tags = tags
+        if let incident = report.incident {
+            event.extra = ["incident": incident]
+            // One id per macOS incident: a report forwarded again (a lost forwarder state) is the same event.
+            if let id = UUID(uuidString: incident) { event.eventId = SentryId(uuid: id) }
+        }
         return event
     }
 

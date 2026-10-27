@@ -295,7 +295,7 @@ impl JournalKernel {
         let weak = Arc::downgrade(kernel);
         let tailer = cmux_threads::spawn(
             "mux-session-journal-fanout",
-            cmux_threads::ThreadQos::Utility,
+            crate::thread_qos::ThreadType::Utility.qos(),
             move || {
                 run_tailer(weak, reader, head_sequence);
             },
