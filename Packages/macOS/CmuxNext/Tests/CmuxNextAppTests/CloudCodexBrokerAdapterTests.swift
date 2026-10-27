@@ -9,6 +9,8 @@ struct CloudCodexBrokerAdapterTests {
         var live = true
         var removals = 0
         var cancelledRemoval = false
+        var rejectsCapability = false
+        func rejectCapability() { rejectsCapability = true }
         var removalObserver: (Int, CheckedContinuation<Void, Never>)?
         func waitForRemovals(_ count: Int) async {
             if removals >= count { return }
@@ -47,7 +49,8 @@ struct CloudCodexBrokerAdapterTests {
         }
         nonisolated func target(_ machine: String) -> CloudCodexBrokerTarget {
             CloudCodexBrokerTarget(machineID: machine, capability: {
-                .init(ownerVM: true, protocolVersion: 1, codexExternalAccessToken: true)
+                if await self.rejectsCapability { throw CloudCodexBrokerError.unsupportedMachine }
+                return .init(ownerVM: true, protocolVersion: 1, codexExternalAccessToken: true)
             }, makeDirectory: { _ in }, readFile: { await self.read(machine, $0) },
             writeFile: { path, data, _ in try Task.checkCancellation(); await self.write(machine, path, data) },
             commitFiles: { a, b, c, d in await self.commit(machine, a, b, c, d) },
@@ -331,6 +334,27 @@ done
         await gate.open()
         await files.waitForRemovals(removalsBefore + 3)
         #expect(await !files.cancelledRemoval)
+    }
+
+    @Test func failedTransferCleanupDeadlineDoesNotCancelRemoteMutation() async throws {
+        let (root, launch) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = Files()
+        let scope = CloudCodexBrokerScope(userID: "user", teamID: nil)
+        let adapter = CloudCodexBrokerAdapter(root: root, registry: .init(), currentScope: { scope }, launch: { launch }, target: { _, id in files.target(id) })
+        try await adapter.run(machineID: "vm", scope: scope, confirmed: true) { _ in true }
+        let before = await files.removals
+        let gate = CloudCodexBrokerTests.Gate()
+        await files.rejectCapability()
+        await files.blockNextRemoval(gate)
+        await #expect(throws: CloudCodexBrokerError.unsupportedMachine) {
+            try await adapter.run(machineID: "vm", scope: scope, confirmed: true) { _ in true }
+        }
+        #expect(adapter.pendingCleanup.contains("vm"))
+        await gate.open()
+        await files.waitForRemovals(before + 1)
+        #expect(await !files.cancelledRemoval)
+        await adapter.shutdown()
     }
 
     @Test func newTransferPreservesOtherMachinesPendingCleanup() async throws {
