@@ -366,7 +366,7 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 id: "workspaceGroup.togglePin",
                 title: String(localized: "action.workspaceGroup.togglePin", defaultValue: "Pin/Unpin Group", bundle: .module),
                 keywords: ["group"], category: .workspace, symbol: "pin.circle", surfaces: [.palette, .contextMenu],
-                targets: [.workspaceGroup], cliName: "workspace-group toggle-pin"
+                arguments: [CatalogArgument.pinnedBool], targets: [.workspaceGroup], cliName: "workspace-group toggle-pin"
             ),
             ActionDescriptor(
                 id: "workspaceGroup.toggleArchive",
