@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "c89aef96a55f05c8f0766be7a5eab45331e14183c98f6973139d83fc2b762325";
+inline constexpr std::string_view kProtocolIrSha256 = "900a33f8e78839f615e9658f6043bba4be3145be0d76c33afca6f794612da03f";
 
 enum class AccessRequestKind;
 struct AccessRequestPending;
@@ -86,6 +86,9 @@ struct CancelStreamResult;
 struct CellPixelFailure;
 struct CellPixelResize;
 struct CellPixelSurface;
+struct ClientHelloFeaturePending;
+struct ClientHelloFeatureReport;
+struct ClientHelloFeatures;
 struct ClientHelloPageOperations;
 struct ClientHelloResult;
 struct ClientInfo;
@@ -2539,6 +2542,26 @@ struct ClientFocusResult {
     friend bool operator==(const ClientFocusResult&, const ClientFocusResult&) = default;
 };
 
+struct ClientHelloFeaturePending {
+    bool app{};
+    bool daemon{};
+    std::string name{};
+    friend bool operator==(const ClientHelloFeaturePending&, const ClientHelloFeaturePending&) = default;
+};
+
+struct ClientHelloFeatureReport {
+    std::vector<std::string> applied{};
+    std::string hash{};
+    std::vector<ClientHelloFeaturePending> pending{};
+    friend bool operator==(const ClientHelloFeatureReport&, const ClientHelloFeatureReport&) = default;
+};
+
+struct ClientHelloFeatures {
+    std::optional<std::string> hash{};
+    std::map<std::string, bool, std::less<>> values{};
+    friend bool operator==(const ClientHelloFeatures&, const ClientHelloFeatures&) = default;
+};
+
 struct ClientHelloPageOperations {
     std::vector<std::string> confirm{};
     std::vector<std::string> gesture{};
@@ -2547,6 +2570,7 @@ struct ClientHelloPageOperations {
 };
 
 struct ClientHelloRequest {
+    Field<ClientHelloFeatures> features{};
     std::optional<std::string> install_id{};
     Field<std::string> page{};
     std::optional<std::string> proof{};
@@ -2556,6 +2580,7 @@ struct ClientHelloRequest {
 
 struct ClientHelloResult {
     std::string connection_id{};
+    std::optional<ClientHelloFeatureReport> features{};
     std::optional<std::string> install_id{};
     std::optional<std::string> nonce{};
     std::optional<std::string> page{};
@@ -8180,6 +8205,24 @@ template <>
 struct Codec<CellPixelSurface> {
     static Result<Json> encode(const CellPixelSurface& value);
     static Result<CellPixelSurface> decode(const Json& value);
+};
+
+template <>
+struct Codec<ClientHelloFeaturePending> {
+    static Result<Json> encode(const ClientHelloFeaturePending& value);
+    static Result<ClientHelloFeaturePending> decode(const Json& value);
+};
+
+template <>
+struct Codec<ClientHelloFeatureReport> {
+    static Result<Json> encode(const ClientHelloFeatureReport& value);
+    static Result<ClientHelloFeatureReport> decode(const Json& value);
+};
+
+template <>
+struct Codec<ClientHelloFeatures> {
+    static Result<Json> encode(const ClientHelloFeatures& value);
+    static Result<ClientHelloFeatures> decode(const Json& value);
 };
 
 template <>
