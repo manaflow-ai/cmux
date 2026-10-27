@@ -56,7 +56,7 @@ struct UpgradeAnalyticsTests {
         let (analytics, sink, ledgerSuite) = TestAnalytics.make()
         defer { TestAnalytics.remove(ledgerSuite) }
         var opened: [ProUpgradeSource] = []
-        let actions = ProBadgeActions(analytics: analytics, openPricing: { opened.append($0) })
+        let actions = ProBadgeActions(analytics: analytics, openPricing: { opened.append($0) }, account: { nil })
         actions.appeared()
         actions.appeared()
         actions.upgrade()
@@ -90,7 +90,7 @@ struct UpgradeAnalyticsTests {
             performNextStep: { step, _ in
                 performed.append(step)
                 // What the real `.upgrade` step does, minus opening pricing.
-                ProUpgradePresenter.present(source: .cloudWelcome, analytics: analytics, open: { _ in })
+                ProUpgradePresenter.present(source: .cloudWelcome, analytics: analytics, account: nil, open: { _ in })
             },
             analytics: analytics,
             now: { TestAnalytics.fixedNow }
@@ -234,7 +234,7 @@ struct UpgradeAnalyticsTests {
     func optOut() async throws {
         let (analytics, sink, ledgerSuite) = TestAnalytics.make(enabled: false)
         defer { TestAnalytics.remove(ledgerSuite) }
-        let actions = ProBadgeActions(analytics: analytics, openPricing: { _ in })
+        let actions = ProBadgeActions(analytics: analytics, openPricing: { _ in }, account: { nil })
         actions.appeared()
         actions.upgrade()
         actions.dismissed()

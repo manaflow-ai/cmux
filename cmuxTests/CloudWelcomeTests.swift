@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import CmuxProductAnalytics
 import CmuxSettings
 import Testing
 
@@ -306,31 +307,45 @@ struct CloudWelcomeTests {
     @Test("signed out, Upgrade signs the app in before pricing opens")
     @MainActor
     func upgradeSignsInBeforePricing() async {
-        var events: [String] = []
-        await CloudWelcomeWindowController.upgrade(
-            isAuthenticated: false,
-            signIn: { events.append("signIn"); return true },
-            presentPricing: { events.append("pricing") }
-        )
-        #expect(events == ["signIn", "pricing"])
+        let log = UpgradeEventLog()
+        let account = FakeUpgradeAccount(isAuthenticated: false, signInResult: true, log: log)
+        await ProUpgradePresenter.openAfterSignIn(account: account) { log.events.append("pricing") }
+        #expect(log.events == ["signIn", "pricing"])
 
-        // A cancelled or failed sign-in opens no pricing page.
-        events = []
-        await CloudWelcomeWindowController.upgrade(
-            isAuthenticated: false,
-            signIn: { events.append("signIn"); return false },
-            presentPricing: { events.append("pricing") }
-        )
-        #expect(events == ["signIn"])
+        // A cancelled or failed sign-in opens nothing.
+        log.events = []
+        let failing = FakeUpgradeAccount(isAuthenticated: false, signInResult: false, log: log)
+        await ProUpgradePresenter.openAfterSignIn(account: failing) { log.events.append("pricing") }
+        #expect(log.events == ["signIn"])
 
-        // Signed in goes straight to pricing.
-        events = []
-        await CloudWelcomeWindowController.upgrade(
-            isAuthenticated: true,
-            signIn: { events.append("signIn"); return true },
-            presentPricing: { events.append("pricing") }
+        // Signed in goes straight to pricing, with no sign-in.
+        log.events = []
+        let signedIn = FakeUpgradeAccount(isAuthenticated: true, signInResult: true, log: log)
+        ProUpgradePresenter.present(source: .cloudWelcome, analytics: .disabled, account: signedIn) { _ in
+            log.events.append("pricing")
+        }
+        #expect(log.events == ["pricing"])
+
+        // Signed out, present() opens nothing before the sign-in finishes.
+        log.events = []
+        ProUpgradePresenter.present(source: .cloudWelcome, analytics: .disabled, account: failing) { _ in
+            log.events.append("pricing")
+        }
+        #expect(!log.events.contains("pricing"))
+    }
+
+    @Test("signed out, the sidebar Upgrade badge opens no pricing before sign-in")
+    @MainActor
+    func sidebarBadgeWaitsForSignIn() {
+        let log = UpgradeEventLog()
+        let account = FakeUpgradeAccount(isAuthenticated: false, signInResult: false, log: log)
+        let actions = ProBadgeActions(
+            analytics: .disabled,
+            openPricing: { _ in log.events.append("pricing") },
+            account: { account }
         )
-        #expect(events == ["pricing"])
+        actions.upgrade()
+        #expect(!log.events.contains("pricing"))
     }
 
     @Test("the one prominent button is the next step for this account")
@@ -450,5 +465,28 @@ struct CloudWelcomeTests {
         await CloudWelcomeWindowController.resume({ resumed += 1 }, after: failing)
         #expect(failing.state == .failed(.serviceUnavailable))
         #expect(resumed == 1)
+    }
+}
+
+@MainActor
+private final class UpgradeEventLog {
+    var events: [String] = []
+}
+
+@MainActor
+private final class FakeUpgradeAccount: UpgradeAccount {
+    let isAuthenticated: Bool
+    private let signInResult: Bool
+    private let log: UpgradeEventLog
+
+    init(isAuthenticated: Bool, signInResult: Bool, log: UpgradeEventLog) {
+        self.isAuthenticated = isAuthenticated
+        self.signInResult = signInResult
+        self.log = log
+    }
+
+    func signInBeforeUpgrade() async -> Bool {
+        log.events.append("signIn")
+        return signInResult
     }
 }
