@@ -3,6 +3,9 @@
   flex: 1;
   min-width: 0;
 }
+.acpmux-environment[data-look="compact"] .acpmux-location-picker {
+  flex: 0 1 auto;
+}
 .acpmux-environment .acpmux-location-button {
   display: flex;
   width: 100%;

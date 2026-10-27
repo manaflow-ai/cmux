@@ -205,7 +205,6 @@ export function EnvironmentSection({
         color={machine.kind !== "local" && machine.name ? machineColor(machine.name) : undefined}
       />
       <span className="acpmux-chat-inspector-row__name">{machine.name ?? "—"}</span>
-      {compact && cwd && <span className="acpmux-chat-inspector-row__detail">· {projectLabel(cwd)}</span>}
       {controls?.move && <Icon name="disclosure.collapsed" size={10} />}
     </>
   );
@@ -235,6 +234,24 @@ export function EnvironmentSection({
           />
         ) : (
           machineFace
+        )}
+        {compact && cwd && (
+          <>
+            <span aria-hidden="true">·</span>
+            {onOpenFolder ? (
+              <button
+                type="button"
+                className="acpmux-chat-inspector-link acpmux-chat-inspector-row__detail"
+                // tooltip-allow: the full folder path is otherwise truncated to its name.
+                title={cwd}
+                onClick={() => onOpenFolder(cwd)}
+              >
+                {projectLabel(cwd)}
+              </button>
+            ) : (
+              <span className="acpmux-chat-inspector-row__detail">{projectLabel(cwd)}</span>
+            )}
+          </>
         )}
         {compact && status}
         {save && (

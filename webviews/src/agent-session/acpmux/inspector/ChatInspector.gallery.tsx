@@ -513,7 +513,12 @@ export default componentEntry<Props>({
     },
     "environment-compact": {
       note: "Alternative: machine · folder and connection in one row with the existing move menu. Less height, but long machine and folder names compete with Save.",
-      props: { ...full, environmentLook: "compact", environmentControls: environmentDemo },
+      props: {
+        ...full,
+        environmentLook: "compact",
+        environmentControls: environmentDemo,
+        onOpenFolder: () => undefined,
+      },
     },
     "environment-before": {
       note: "Before: machine with Save and folder navigation, without machine moves, Choose folder… or a connection row.",
