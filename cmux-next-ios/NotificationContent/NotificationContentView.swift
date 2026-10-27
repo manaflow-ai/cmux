@@ -30,10 +30,14 @@ final class NotificationContentModel {
     /// A file picked from Files larger than this is refused (the Mac's link carries it whole).
     nonisolated static let maxFileBytes = 25 * 1024 * 1024
 
-    /// The height iOS gives the view; short while the reply field's keyboard is up.
-    var availableHeight: CGFloat = .infinity
-    /// Messages' compact header (a small avatar beside the name) when the card is short.
-    var isCompact: Bool { availableHeight < 440 }
+    /// The system's reply field is at the bottom: iOS raises its keyboard as the long
+    /// look opens and clips the card to about 300 pt above it, without resizing this
+    /// view. So the view is laid out for that space: Messages' compact header (a small
+    /// avatar beside the name) and a shorter history that scrolls.
+    var isCompact: Bool {
+        guard let payload, showsContent, actionable else { return false }
+        return [.completed, .failed, .chief].contains(payload.kind)
+    }
 
     /// When the notification arrived: a chat the app saved before it does not hold its message.
     private(set) var notifiedAt: Date?
@@ -259,16 +263,17 @@ struct NotificationContentView: View {
     @State private var historyHeight: CGFloat = 0
 
     static let maxHistoryHeight: CGFloat = 380
-    static let minHistoryHeight: CGFloat = 60
+    /// With the reply field's keyboard up: compact header 44 + history + "+" 36 + gaps fit 300 pt.
+    static let compactHistoryHeight: CGFloat = 150
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if let payload = model.payload {
-                header(payload).fixedSize(horizontal: false, vertical: true)
+                header(payload)
                 if model.showsContent {
                     preview(payload)
-                    if model.actionable, let form = model.form { options(form).fixedSize(horizontal: false, vertical: true) }
-                    if model.showsAttach, !model.sent { AttachTray(model: model).fixedSize(horizontal: false, vertical: true) }
+                    if model.actionable, let form = model.form { options(form) }
+                    if model.showsAttach, !model.sent { AttachTray(model: model) }
                     if model.sent {
                         Label("Opening cmux to send…", systemImage: "paperplane")
                             .font(.footnote).foregroundStyle(.secondary)
@@ -287,7 +292,7 @@ struct NotificationContentView: View {
         .padding(.horizontal, 12)
         .padding(.top, 14)
         .padding(.bottom, 12)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: Header
@@ -376,7 +381,9 @@ struct NotificationContentView: View {
                     .lineLimit(12)
             }
         } else {
-            if let history = model.history, !history.messages.isEmpty { transcript(history) }
+            if let history = model.history, !history.messages.isEmpty {
+                transcript(history, maxHeight: model.isCompact ? Self.compactHistoryHeight : Self.maxHistoryHeight)
+            }
             if let title = payload.title, payload.kind.isAsk {
                 Text(title).font(.body.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
             }
@@ -384,19 +391,15 @@ struct NotificationContentView: View {
     }
 
     /// The last messages, scrolled to the newest; taller than the cap, they scroll.
-    private func transcript(_ history: PushHistory) -> some View {
+    private func transcript(_ history: PushHistory, maxHeight: CGFloat) -> some View {
         ScrollView(.vertical) {
             TranscriptPreview(messages: history.messages)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { historyHeight = $0 }
         }
         .defaultScrollAnchor(.bottom)
         .scrollBounceBehavior(.basedOnSize)
-        .scrollIndicators(historyHeight > Self.maxHistoryHeight ? .automatic : .hidden)
-        // The one part that gives: with the keyboard up the card is short, and the
-        // history shrinks and scrolls (newest at the bottom) so the rest stays whole.
-        .frame(minHeight: min(max(historyHeight, 1), Self.minHistoryHeight),
-               idealHeight: min(max(historyHeight, 1), Self.maxHistoryHeight),
-               maxHeight: min(max(historyHeight, 1), Self.maxHistoryHeight))
+        .scrollIndicators(historyHeight > maxHeight ? .automatic : .hidden)
+        .frame(height: min(max(historyHeight, 1), maxHeight))
     }
 
     // MARK: Options
