@@ -41,7 +41,7 @@ test("a custom code font keeps the typed space until it is committed", async () 
   root = createRoot(host);
   await act(async () => root!.render(<ChatDisplayRows />));
 
-  const input = host.querySelector<HTMLInputElement>('input[aria-label="chatDisplay.codeFont"]')!;
+  const input = host.querySelector<HTMLInputElement>('.acpmux-display-row input[type="text"]')!;
   const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value")!.set!;
   await act(async () => {
     setValue.call(input, "JetBrains ");
