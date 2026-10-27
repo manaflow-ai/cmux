@@ -65,8 +65,8 @@ one move pool per push with the new-file rule (move_pools).
   scripts/cmux-next/guardrails.py                    # what HEAD adds over origin/feat-cmux-next
   scripts/cmux-next/guardrails.py --base A --head B   # exactly what B adds over A
   scripts/cmux-next/guardrails.py --list
-  scripts/cmux-next/guardrails.py --self-test        # the input-monitor, target-settings, safety-todo and
-                                                     # raw-continuation cases
+  scripts/cmux-next/guardrails.py --self-test        # the input-monitor, target-settings, safety-todo,
+                                                     # raw-continuation and decode-trap cases
 """
 from __future__ import annotations
 
@@ -2735,6 +2735,63 @@ RAW_CONTINUATION_RULES = (
 )
 RULES += RAW_CONTINUATION_RULES
 # ---------------------------------------------------------------- end of raw-continuation (p10-stability-083, 089)
+
+
+# ---------------------------------------------------------------- decode-trap (p10-stability-093)
+# Outside input never traps (p10-stability.md, section D): a file in decode-paths.json reads a peer's, a device's or
+# a file's bytes, and holds no index subscript and no trapping integer conversion, by the crash ratchet's own
+# definitions (crash_ratchet.py's index_subscript and int_conversion: one definition). Unlike a count ratchet this
+# is a ban: a push that touches a listed file is refused for every unescaped hit in the whole file, so a listed
+# file stays at zero. An operand that is not input (a C constant, a bound the code set itself) carries
+# `// decode-trap-allow: <why>`. Like Chromium's checks.md, input gets validation that returns an error, and only an
+# internal invariant keeps a check. Local only, like every guardrail. The block owns its lines from here to
+# `RULES += DECODE_TRAP_RULES`.
+DECODE_PATHS = HERE / "decode-paths.json"
+DECODE_TRAP_ESCAPE = allow_marker("decode-trap")
+
+
+@functools.lru_cache(maxsize=1)
+def decode_paths() -> tuple[str, ...]:
+    """The listed decode files (repo-relative)."""
+    return tuple(entry["path"] for entry in json.loads(DECODE_PATHS.read_text())["files"])
+
+
+def decode_trap_hits(lines: list[str]) -> list[tuple[int, int]]:
+    """[(0-based line, hits)] of LINES (one decode file): index subscripts and trapping integer conversions outside
+    comments, string contents and lines escaped with `// decode-trap-allow:` (on the line or the comment block above).
+    A subscript on a name the file declares only as a dictionary cannot trap and does not count."""
+    dictionaries = ratchet.file_dictionaries(lines, frozenset(), frozenset())
+    found = []
+    for index, line in enumerate(lines):
+        code = ratchet_code(line)
+        hits = ratchet.index_hits(code, dictionaries) + ratchet.int_conversion_hits(code) if code.strip() else 0
+        if hits and not any(DECODE_TRAP_ESCAPE.search(lines[j]) for j in escape_window(lines, index)):
+            found.append((index, hits))
+    return found
+
+
+def decode_trap(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """Every unescaped hit in each listed decode file the push changes and keeps."""
+    listed = set(decode_paths())
+    return [Added(c.path, index + 1, c.head_lines[index])
+            for c in changes if c.path in listed and not c.is_deleted and c.head_lines != [""]
+            for index, _ in decode_trap_hits(c.head_lines)]
+
+
+DECODE_TRAP_RULES = (
+    Rule("decode-trap", "An index subscript (`bytes[i]`, `buffer[a..<b]`) or a trapping integer conversion (`Int(x)`, "
+         "`UInt8(x)`) in a decode file (scripts/cmux-next/decode-paths.json)",
+         "the file reads bytes a peer, a device or a file chose: an index or a value they push out of range ends the "
+         "app instead of the connection (p10-stability.md, section D: outside input never traps)",
+         "read fields from the front of what is left (`prefix`, `dropFirst`, `popFirst`, a reader that throws), "
+         "widen with `truncatingIfNeeded:` from a narrower unsigned type, convert with `Int(exactly:)` and turn nil "
+         "into the file's typed error (RFBError.protocolViolation, SurfaceSourceWireError, ...); never clamp input",
+         "// decode-trap-allow: <why the operand is not input: a C constant, a bound this code set>",
+         decode_trap,
+         scope=("Packages/",)),
+)
+RULES += DECODE_TRAP_RULES
+# ---------------------------------------------------------------- end of decode-trap (p10-stability-093)
 
 
 # ---------------------------------------------------------------- wakeup-ext (p14-energy, PL-energy)
@@ -5574,12 +5631,50 @@ RAW_CONTINUATION_CASES = (
 )
 
 
+SELF_TEST_DECODE = "Packages/Shared/CmuxVNC/Sources/CmuxVNC/Transport/RFBReader.swift"
+SELF_TEST_DECODE_BASE = {SELF_TEST_DECODE: ("func length(_ bytes: [UInt8]) throws -> Int {\n"
+                                            "    let word = bytes.prefix(4).reduce(UInt32(0)) { $0 << 8 | UInt32(truncatingIfNeeded: $1) }\n"
+                                            "    guard let length = Int(exactly: word) else { throw Failure.tooLong }\n"
+                                            "    return length\n}\n"),
+                         # A listed file that already has a hit (before its wave): any push that touches it fixes it.
+                         "Packages/Shared/CmuxVNC/Sources/CmuxVNC/Client/VNCEndpoint.swift":
+                             "func port(_ b: [UInt8], _ i: Int) -> UInt8 { b[i] }\n"}
+
+
+def _decode_edit(body: str, path: str = SELF_TEST_DECODE) -> dict[str, str]:
+    """The base decode file with BODY added at its end (at PATH)."""
+    return {path: SELF_TEST_DECODE_BASE[SELF_TEST_DECODE] + body}
+
+
+DECODE_TRAP_CASES = (
+    ("an index subscript in a decode file", _decode_edit("func first(_ b: [UInt8], _ i: Int) -> UInt8 { b[i] }\n"), True),
+    ("a range subscript in a decode file", _decode_edit("func head(_ b: [UInt8], _ n: Int) -> ArraySlice<UInt8> { b[0..<n] }\n"),
+     True),
+    ("a trapping conversion in a decode file", _decode_edit("func count(_ w: UInt32) -> UInt16 { UInt16(w) }\n"), True),
+    ("an old hit on a line the push did not change, in a decode file it touches",
+     {"Packages/Shared/CmuxVNC/Sources/CmuxVNC/Client/VNCEndpoint.swift":
+      "// The port byte.\nfunc port(_ b: [UInt8], _ i: Int) -> UInt8 { b[i] }\n"}, True),
+    ("front reads and checked conversions", _decode_edit("func pair(_ b: [UInt8]) -> UInt16? {\n"
+                                                         "    UInt16(exactly: b.dropFirst(1).prefix(2).count)\n}\n"), False),
+    ("a dictionary subscript", _decode_edit("func kind(_ k: String) -> Int? {\n"
+                                            "    let kinds: [String: Int] = [:]\n    return kinds[k]\n}\n"), False),
+    ("an escaped C constant", _decode_edit("// decode-trap-allow: a C macro, not input\n"
+                                           "let maxBytes = Int(CMUX_MAX_BYTES)\n"), False),
+    ("a subscript named only in a comment or a string", _decode_edit("// bytes[i] traps\nlet note = \"bytes[i]\"\n"),
+     False),
+    ("a subscript in a file that is not listed",
+     _decode_edit("func first(_ b: [UInt8], _ i: Int) -> UInt8 { b[i] }\n",
+                  "Packages/Shared/CmuxVNC/Sources/CmuxVNC/Client/Other.swift"), False),
+)
+
+
 # (rule, base files, cases): each case is one commit over its suite's base.
 SELF_TEST_SUITES = (
     ("input-monitor", SELF_TEST_BASE, SELF_TEST_CASES),
     ("target-settings", SELF_TEST_MANIFEST_BASE, TARGET_SETTINGS_CASES),
     ("safety-todo", SELF_TEST_SAFETY_BASE, SAFETY_TODO_CASES),
     ("raw-continuation", SELF_TEST_CONTINUATION_BASE, RAW_CONTINUATION_CASES),
+    ("decode-trap", SELF_TEST_DECODE_BASE, DECODE_TRAP_CASES),
 )
 
 
@@ -5648,7 +5743,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--head", default="HEAD")
     parser.add_argument("--list", action="store_true", help="print the rules")
     parser.add_argument("--self-test", action="store_true",
-                        help="judge the input-monitor, target-settings, safety-todo and raw-continuation rules' "
+                        help="judge the input-monitor, target-settings, safety-todo, raw-continuation and decode-trap rules' "
                              "refuse and escape cases in a scratch repository")
     parser.add_argument("--list-perf-hot", nargs="*", metavar="PATH_ID",
                         help=f"print the `// perf-hot:` markers per path id of {BENCHES} as this hook resolves them "
