@@ -423,6 +423,36 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
       },
     },
+    "environment-picker-auto-local": {
+      note: "New chat default: Auto is selected at the top of the picker, with a quiet one-line note that the prompt chooses the destination; explicit machines remain below.",
+      props: {
+        ...baseProps,
+        environments: true,
+        auto: { detail: "Chosen from your prompt", selected: true, onPick: () => undefined },
+        peers: ["gpu-box", "Cloud machine"],
+        peerKinds: { "gpu-box": "ssh", "Cloud machine": "cloud" },
+        peerConnected: { "gpu-box": true, "Cloud machine": true },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+      },
+    },
+    "environment-picker-auto-cloud": {
+      note: "Auto remains selected for a prompt that asks for cloud work; the picker keeps the explicit Cloud machine row available for a one-click override.",
+      props: {
+        ...baseProps,
+        environments: true,
+        auto: { detail: "Chosen from your prompt", selected: true, onPick: () => undefined },
+        peers: ["Cloud machine", "gpu-box"],
+        peerKinds: { "gpu-box": "ssh", "Cloud machine": "cloud" },
+        peerConnected: { "gpu-box": true, "Cloud machine": true },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+      },
+    },
     "environment-picker-cloud-machines": {
       note: "Preview: the environment picker above, then the account's Cloud machines acpmux does not list (`cloudMachine.list`) in Cloud and VMs, each with its stage: build box is paused (a pick resumes it), eval box is ready (a pick opens it), fresh box is still booting. They take no ⌥⌘ digit and are not greyed.",
       props: {

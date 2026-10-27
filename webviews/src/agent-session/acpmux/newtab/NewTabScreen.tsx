@@ -2,7 +2,8 @@ import { useWebSwapHold } from "../../../pages/shared/useWebSwapHold";
 import { WEB_SWAP_KEPT_TEXT } from "../../../pages/shared/webSwap";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import type { ConnectKind } from "../environments";
+import { chooseAutoEnvironment } from "../autoEnvironment";
+import { knownMachines, type ConnectKind, type Environment } from "../environments";
 import type { DictationField } from "../dictation";
 import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../NewTabPage";
 import type { AcpmuxSnapshot } from "../model";
@@ -255,6 +256,7 @@ const NO_DEVICE_CHATS: ReturnType<typeof useDeviceChats> = [];
 /// (cx-e2aa), and the recent chats as cards. A key typed anywhere on the page goes to the field.
 export function NewTabScreen(props: Props) {
   const nt = useNt();
+  const t = useT();
   // What the page shows or opens appears at once; exits keep their fades (noEntryMotion.ts).
   useNoEntryMotion();
   const { snapshot, omnibar = EMPTY_OMNIBAR, location, lastAgent, home, now, inputToken } = props;
@@ -297,6 +299,8 @@ export function NewTabScreen(props: Props) {
   // Another machine acpmux lists, picked in the location row's machine list: the chat starts there
   // (screenActions onAsk with its `peer`), in a folder on it once one is picked.
   const [machine, setMachine] = useState<{ peer: string; folder?: string }>();
+  // New chats begin in Auto. An explicit machine, saved environment or folder clears it.
+  const [autoEnvironment, setAutoEnvironment] = useState(true);
   const folderless = !props.cwd || props.cwd === home || isAgentHome(props.cwd);
   const startsRecent = !picked && folderless && !props.startCwd;
   const candidate = useMemo(
@@ -441,10 +445,35 @@ export function NewTabScreen(props: Props) {
   const envFolder = none
     ? undefined
     : (askFolder ?? (props.cwd && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
+  const autoEnvironments = useMemo<Environment[]>(
+    () => [
+      { id: "local", label: props.machineName ?? t("composer.thisMac"), kind: "local" },
+      ...knownMachines(
+        snapshot.peers ?? [],
+        snapshot.sessions,
+        snapshot.peerKinds ?? {},
+        [],
+        snapshot.peerConnected ?? {},
+        snapshot.peerStates ?? {},
+      ),
+    ],
+    [props.machineName, snapshot.peers, snapshot.sessions, snapshot.peerKinds, snapshot.peerConnected, snapshot.peerStates, t],
+  );
   // A prompt's chat, in no project when that was the pick.
   // The images and files pasted or dropped on the page go with the first prompt.
   const askChat = (agent: string, prompt: string, cwd?: string, model?: string) => {
     if (environment) return askInEnvironment(environment, agent, prompt, model);
+    if (autoEnvironment) {
+      const choice = chooseAutoEnvironment({
+        prompt,
+        project,
+        environments: autoEnvironments,
+        sessions: snapshot.sessions,
+      });
+      const extra = attachments.length ? attachments : undefined;
+      if (choice.environment.kind !== "local")
+        return props.onAsk(agent, prompt, project, model, undefined, extra, { peer: choice.environment.id });
+    }
     if (machine)
       return props.onAsk(
         agent,
@@ -532,7 +561,6 @@ export function NewTabScreen(props: Props) {
     const row = rows[index];
     setSelected(row ? rowKey(row) : NO_ROW);
   };
-  const t = useT();
   const chrome = useComposerChrome();
   // The chat composer's footer look (composerSettings.ts plainFooter): the New Tab row draws the
   // same plain chips, so the two composers never disagree (composerLocation.css).
@@ -997,6 +1025,7 @@ export function NewTabScreen(props: Props) {
     // and is on this Mac.
     saved.pick(undefined);
     setMachine(undefined);
+    setAutoEnvironment(false);
     touch();
     setPicked(true);
     setNone(cwd === undefined);
@@ -1012,6 +1041,7 @@ export function NewTabScreen(props: Props) {
     // A newer choice than any worktree still on its way (`projectChoice`).
     projectChoice.current += 1;
     saved.pick(undefined);
+    setAutoEnvironment(false);
     touch();
     setMachine(next);
     field.current?.focus();
@@ -1140,6 +1170,17 @@ export function NewTabScreen(props: Props) {
         {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
         {...(props.onRefreshMachines ? { onRefreshMachines: props.onRefreshMachines } : {})}
         onComputer={(computer) => pickMachine(computer === "local" ? undefined : { peer: computer })}
+        auto={{
+          detail: t("composer.autoDetail"),
+          selected: autoEnvironment,
+          onPick: () => {
+            saved.pick(undefined);
+            setMachine(undefined);
+            setAutoEnvironment(true);
+            touch();
+            requestAnimationFrame(() => field.current?.focus());
+          },
+        }}
         {...(props.machineName ? { localName: props.machineName } : {})}
         projectChoices={props.projects ?? []}
         onProject={(cwd, peer) => (peer ? pickMachine({ peer, folder: cwd }) : pickProject(cwd))}
@@ -1156,6 +1197,7 @@ export function NewTabScreen(props: Props) {
                 ...(environment ? { current: environment.id } : {}),
                 onPick: (id: string) => {
                   touch();
+                  setAutoEnvironment(false);
                   saved.pick(id);
                   requestAnimationFrame(() => field.current?.focus());
                 },

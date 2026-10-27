@@ -106,6 +106,7 @@ export function ComposerContext({
   onComputer,
   cloudMachines,
   onCloudMachine = (machine) => void runCloudMachine(machine),
+  auto,
 }: {
   summary?: Summary;
   sessions?: Session[];
@@ -163,6 +164,8 @@ export function ComposerContext({
   cloudMachines?: readonly CloudMachine[];
   /// A pick of one acpmux does not list: it resumes (paused) or opens; by default through the app.
   onCloudMachine?(machine: CloudMachine): void;
+  /// A new chat's default destination. The picker keeps Auto selected until an explicit row wins.
+  auto?: { detail: string; selected: boolean; onPick(): void };
 }) {
   const newChat = !started && onProject !== undefined;
   const accountMachines = useCloudMachines();
@@ -284,6 +287,10 @@ export function ComposerContext({
       const folder = availableFolders(summary, sessions, id)[0]?.id;
       if (folder) onProject?.(folder, id === "local" ? undefined : id);
       else onComputer?.(id);
+    } else if (!readOnly && id === selectedComputer) {
+      // Auto may still be selected while the fallback computer is this one; notify the
+      // new-chat owner so an explicit click on that same row clears Auto.
+      onComputer?.(id);
     }
   };
   // A started chat's picker lists only where it runs and its move (EnvironmentPicker `offload`).
@@ -388,7 +395,7 @@ export function ComposerContext({
             <EnvironmentPicker
               label={t(CONTEXT_LABELS.environment)}
               menu="Computer"
-              value={savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
+              value={auto?.selected ? t("composer.auto") : savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
               face={
                 <LocationFace
                   icon={
@@ -397,13 +404,14 @@ export function ComposerContext({
                       name={savedPick ? undefined : currentComputer?.label}
                     />
                   }
-                  value={savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
+                  value={auto?.selected ? t("composer.auto") : savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
                   chevron
                 />
               }
               environments={offload && currentComputer ? [currentComputer] : computers}
               current={selectedComputer}
               onPick={pickEnvironment}
+              {...(auto ? { auto } : {})}
               {...(offload && onOffload ? { offload, onOffload } : {})}
               {...(!started && onConnect ? { onConnect } : {})}
               {...(savedRows ? { saved: savedRows } : {})}
