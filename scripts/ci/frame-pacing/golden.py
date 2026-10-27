@@ -522,23 +522,29 @@ def measured(verdict: dict) -> bool:
     return not any(str(problem).startswith("not measured") for problem in verdict.get("problems") or [])
 
 
-def cmd_t_dropped(out: Path, refresh: float) -> list[int]:
-    """Per measured Cmd-T opening (cold, warm), the display frames its trace missed: the trace runs from 0.1 s before
-    the key to 0.9 s after it (Driver.new_tab), sampled once per display frame."""
-    found = []
+def cmd_t_dropped(out: Path, verdicts: dict[str, dict], refresh: float) -> dict[str, int]:
+    """Per measured Cmd-T opening (cold, warm), the display frames its trace missed. The trace runs from 0.1 s before
+    the key to 0.9 s after it (Driver.new_tab), sampled once per display frame, so this is golden's own window, not
+    the key-to-frame window of the new-surface-frames target (instant-new-surfaces-bench's `cmd_t.<session>.dropped`).
+    A scenario the judge did not measure, one where no tab opened (`nothing changed`, no `opening`) or one whose
+    trace is too short is left out: it has no missed-frame count to report."""
+    found = {}
     for name in ("new_tab_cold", "new_tab_warm"):
+        verdict = verdicts.get(name) or {}
+        if not measured(verdict) or verdict.get("opening") is None or "nothing changed" in (verdict.get("problems") or []):
+            continue
         samples = (load(out, name) or {}).get("samples") or []
         if len(samples) >= THRESHOLDS[name]["min_frames"]:
             times = times_of(samples)
-            found.append(missed_frames([b - a for a, b in zip(times, times[1:])], refresh))
+            found[name] = missed_frames([b - a for a, b in zip(times, times[1:])], refresh)
     return found
 
 
-def rows(out: Path, verdicts: dict[str, dict], session: str = "light") -> list[Row]:
+def rows(out: Path, verdicts: dict[str, dict]) -> list[Row]:
     """result-v1 rows of the lab story `frame_pacing.golden`, from the measured scenarios only: whether each passed,
     the numbers its THRESHOLDS judge (intermediate frames, the largest step's share of the travel, every frame
     interval in refresh periods, the transcript's trail), the live resize's lag, the browser resize and dark load
-    rows, and `cmd_t.<session>.dropped`, the frames each measured Cmd-T opening missed."""
+    rows, and `golden.new_tab_<cold|warm>.dropped`, the frames each measured Cmd-T opening missed."""
     refresh = refresh_of(out)
     found: list[Row] = []
     for name, verdict in verdicts.items():
@@ -567,9 +573,8 @@ def rows(out: Path, verdicts: dict[str, dict], session: str = "light") -> list[R
                   if key in verdict]
         if "lag_frames" in verdict:
             found.append(Row(f"{base}.lag_frames", "count", "lower", (verdict["lag_frames"],)))
-    dropped = cmd_t_dropped(out, refresh)
-    if dropped:
-        found.append(Row(f"cmd_t.{session}.dropped", "count", "lower", tuple(dropped)))
+    found += [Row(f"golden.{name}.dropped", "count", "lower", (count,))
+              for name, count in cmd_t_dropped(out, verdicts, refresh).items()]
     return found
 
 

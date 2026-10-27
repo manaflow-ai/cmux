@@ -4,7 +4,8 @@
 scripts/ci/frame-pacing/bench.sh --mode instant|golden|fling --app PATH --tag TAG --out DIR runs one story of
 scripts/perf-lab/stories.d/frame_pacing.*.json against a prebuilt app; golden.py, browser_resize.py and summarize.py
 take their percentiles from perf_stats and give result-v1 rows. MQ1 lists no frame-pacing file, and the Cmd-T and
-Cmd-N rows of the new-surface-frames target are claimed by these stories too.
+Cmd-N rows of the new-surface-frames target are claimed by frame_pacing.instant (golden's Cmd-T count has its own
+window and name).
 
   python3 -m unittest scripts/perf-lab/tests/test_frame_pacing_stories.py
 """
@@ -135,11 +136,15 @@ class CatalogTests(unittest.TestCase):
         found = [item.key for item in queues.private_stats(str(ROOT))]
         self.assertEqual([key for key in found if key.startswith("scripts/ci/frame-pacing/")], [])
 
-    def test_the_new_surface_target_rows_for_cmd_t_and_cmd_n_are_claimed_by_frame_pacing_too(self):
+    def test_the_new_surface_target_rows_for_cmd_t_and_cmd_n_are_claimed_by_frame_pacing_instant_only(self):
+        # golden counts over 0.1 s before the key to 0.9 s after it, a longer window than the target's key to
+        # frame + 400 ms: one metric name over two windows would make the target's newest point flip by story.
         claims = catalog.claimed_checks(catalog.load_catalog(ROOT))
         self.assertIn("frame_pacing.instant", claims[("new-surface-frames", r"cmd_t\.[^.]+\.dropped")])
         self.assertIn("frame_pacing.instant", claims[("new-surface-frames", r"cmd_n\.[^.]+\.dropped")])
-        self.assertIn("frame_pacing.golden", claims[("new-surface-frames", r"cmd_t\.[^.]+\.dropped")])
+        self.assertNotIn("frame_pacing.golden", claims[("new-surface-frames", r"cmd_t\.[^.]+\.dropped")])
+        golden_story = next(st for st in catalog.load_catalog(ROOT).stories if st.id == "frame_pacing.golden")
+        self.assertFalse(any(m.name.startswith("cmd_t") for m in golden_story.metrics))
 
     def test_every_threshold_reference_resolves_to_the_number_the_judge_uses(self):
         cat = catalog.load_catalog(ROOT)
@@ -187,7 +192,9 @@ class GoldenRowTests(unittest.TestCase, Story):
         self.assertEqual(by["golden.sidebar_collapse.pass"].samples, (1.0,))
         self.assertGreaterEqual(by["golden.sidebar_collapse.intermediate"].samples[0], 8)
         self.assertTrue(all(abs(v - 1.0) < 0.01 for v in by["golden.sidebar_collapse.frame_periods"].samples))
-        self.assertEqual(by["cmd_t.light.dropped"].samples, (0, 0))
+        self.assertEqual(by["golden.new_tab_cold.dropped"].samples, (0,))
+        self.assertEqual(by["golden.new_tab_warm.dropped"].samples, (0,))
+        self.assertFalse(any(row.metric.startswith("cmd_t.") for row in rows))
         # Not measured in this run: no rows, never a 0 that reads as a pass.
         self.assertFalse(any(row.metric.startswith(("golden.browser_resize", "golden.dark_load_flash")) for row in rows))
 
@@ -195,8 +202,35 @@ class GoldenRowTests(unittest.TestCase, Story):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp)
             write_golden_run(out, cold_gap_at=10)
-            rows = {row.metric: row for row in golden.rows(out, golden.judge(out), "light")}
-        self.assertEqual(rows["cmd_t.light.dropped"].samples, (1, 0))
+            rows = {row.metric: row for row in golden.rows(out, golden.judge(out))}
+        self.assertEqual(rows["golden.new_tab_cold.dropped"].samples, (1,))
+        self.assertEqual(rows["golden.new_tab_warm.dropped"].samples, (0,))
+
+    def test_a_cmd_t_that_opened_no_tab_or_had_no_spare_records_no_dropped_count(self):
+        # Both traces have enough samples; the cold one has no opening and the warm one no ready spare.
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            write_golden_run(out)
+            cold = json.loads((out / "new_tab_cold.json").read_text())
+            (out / "new_tab_cold.json").write_text(json.dumps({**cold, "opening": None}))
+            warm = json.loads((out / "new_tab_warm.json").read_text())
+            (out / "new_tab_warm.json").write_text(json.dumps({**warm, "spare_ready": False}))
+            verdicts = golden.judge(out)
+            rows = {row.metric for row in golden.rows(out, verdicts)}
+        self.assertFalse(golden.measured(verdicts["new_tab_warm"]))
+        self.assertNotIn("golden.new_tab_cold.dropped", rows)
+        self.assertNotIn("golden.new_tab_warm.dropped", rows)
+
+    def test_a_cmd_t_where_nothing_changed_records_no_dropped_count(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            write_golden_run(out)
+            (out / "new_tab_cold.json").write_text(json.dumps(tabs_trace([0] * 28, spare=False)))
+            verdicts = golden.judge(out)
+            rows = {row.metric for row in golden.rows(out, verdicts)}
+        self.assertIn("nothing changed", verdicts["new_tab_cold"]["problems"])
+        self.assertNotIn("golden.new_tab_cold.dropped", rows)
+        self.assertIn("golden.new_tab_warm.dropped", rows)
 
     def test_a_trace_without_per_frame_samples_is_not_measured(self):
         # A build whose debug.motion has no trace_* answers with an empty report: no rows, not a pass of 0 frames.
@@ -246,29 +280,82 @@ class FlingTests(unittest.TestCase, Story):
         self.assertEqual(rows["fling.capped.dropped_fraction"].samples, (0.0,))
         self.assertEqual(mode.dropped, 1)
 
-    def test_run_fling_drives_both_rates_and_keeps_raw_frames(self):
-        calls = []
-
-        def rpc(method, params=None, timeout=60):
-            calls.append((method, params or {}))
-            action = (params or {}).get("action")
-            if action == "readiness":
-                return {"pane": "p1"}
-            if action == "fling":
-                return {"frames": 11, "p50_ms": 8.3, "p95_ms": 9.0, "dropped_frames": 0}
-            if action == "perf_stats":
-                return {"blank_frames": 0, "samples": [{"interval_ms": 8.3}] * 10}
-            return {}
-
+    def test_run_fling_checks_the_pinned_rate_around_every_fling_and_keeps_raw_frames(self):
+        pane = PaneStub(full_rate=True)
         with tempfile.TemporaryDirectory() as tmp:
-            rows = {row.metric for row in lab_story.run_fling(rpc, Path(tmp), 2, wait=lambda check, seconds: check())}
+            lab_story.run_fling(pane.rpc, Path(tmp), "1", 2, wait=instant_wait)
+            rows = {row.metric for row in summarize.rows(Path(tmp))}
             files = sorted(p.name for p in Path(tmp).iterdir())
-        self.assertEqual(files, ["0-1.json", "0-2.json", "1-1.json", "1-2.json"])
-        rates = [p["enabled"] for m, p in calls if p.get("action") == "full_rate"]
-        self.assertEqual(rates, [False, True])
-        self.assertTrue(all(p.get("raw") for m, p in calls if p.get("action") == "perf_stats"))
-        self.assertTrue(all(p.get("pane") == "p1" for m, p in calls if p.get("action") in ("fling", "seed_rows")))
+        self.assertEqual(files, ["1-1.json", "1-2.json"])
+        actions = [p.get("action") for _, p in pane.calls if p.get("action") in ("full_rate", "fling")]
+        self.assertEqual(actions, ["full_rate", "fling"] * 3 + ["full_rate"])
+        # The rate is read, never set: the launch pins it, and a set would hide a pin that did not hold.
+        self.assertFalse(any("enabled" in p for _, p in pane.calls if p.get("action") == "full_rate"))
+        self.assertTrue(all(p.get("raw") for _, p in pane.calls if p.get("action") == "perf_stats"))
+        self.assertTrue(all(p.get("pane") == "p1" for _, p in pane.calls if p.get("action") in ("fling", "seed_rows")))
         self.assertIn("fling.full.frame_interval", rows)
+        self.assertFalse(any(row.startswith("fling.capped.") for row in rows))
+
+    def test_a_pane_at_another_rate_is_unmeasurable_and_writes_no_file(self):
+        for flip_after in (0, 2):  # at once (a build without the pin), or mid-run (the page's adaptive policy)
+            pane = PaneStub(full_rate=False, flip_after=flip_after)
+            with tempfile.TemporaryDirectory() as tmp:
+                with self.assertRaises(lab_story.Unmeasurable) as caught:
+                    lab_story.run_fling(pane.rpc, Path(tmp), "0", 2, wait=instant_wait)
+                self.assertEqual(list(Path(tmp).iterdir()), [])
+            self.assertIn("capped rate was asked for", str(caught.exception))
+
+    def test_a_failed_seed_is_unmeasurable(self):
+        for seeded in ({"error": "the page has no cmuxAcpmuxDebug.seedRows"}, {"rows": 12, "commit_ms": 3.0}):
+            pane = PaneStub(full_rate=True, seeded=seeded)
+            with tempfile.TemporaryDirectory() as tmp:
+                with self.assertRaises(lab_story.Unmeasurable) as caught:
+                    lab_story.run_fling(pane.rpc, Path(tmp), "1", 1, wait=instant_wait)
+            self.assertIn("not seeded", str(caught.exception))
+            self.assertFalse(any(p.get("action") == "fling" for _, p in pane.calls))
+
+    def test_a_page_still_loading_is_not_ready(self):
+        loading = {"pane": "p1", "document_ready": False, "composer_visible": False, "body_text_length": 0}
+        self.assertFalse(lab_story.pane_ready(loading))
+        self.assertFalse(lab_story.pane_ready({**loading, "document_ready": True}))
+        self.assertTrue(lab_story.pane_ready({**loading, "document_ready": True, "composer_visible": True}))
+        pane = PaneStub(full_rate=True, ready={"pane": "p1", "document_ready": False, "composer_visible": False})
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(lab_story.Unmeasurable):
+                lab_story.run_fling(pane.rpc, Path(tmp), "1", 1, wait=instant_wait)
+        self.assertFalse(any(p.get("action") == "seed_rows" for _, p in pane.calls))
+
+
+def instant_wait(check, seconds):
+    return check()
+
+
+class PaneStub:
+    """debug.agent_pane as a pane pinned to `full_rate` answers it; with `flip_after`, the pane reports the other
+    rate from that `full_rate` read on, as the adaptive policy would switch it."""
+
+    def __init__(self, full_rate, flip_after=None, seeded=None, ready=None):
+        self.full_rate, self.flip_after, self.reads, self.calls = full_rate, flip_after, 0, []
+        self.seeded = seeded if seeded is not None else {"rows": lab_story.SEED_ROWS, "commit_ms": 40.0}
+        self.ready = ready if ready is not None else {"pane": "p1", "document_ready": True, "composer_visible": True}
+
+    def rpc(self, method, params=None, timeout=60):
+        params = params or {}
+        self.calls.append((method, params))
+        action = params.get("action")
+        if action == "readiness":
+            return dict(self.ready)
+        if action == "seed_rows":
+            return dict(self.seeded)
+        if action == "full_rate":
+            flipped = self.flip_after is not None and self.reads >= self.flip_after
+            self.reads += 1
+            return {"pane": "p1", "full_rate": self.full_rate != flipped}
+        if action == "fling":
+            return {"frames": 11, "p50_ms": 8.3, "p95_ms": 9.0, "dropped_frames": 0}
+        if action == "perf_stats":
+            return {"blank_frames": 0, "samples": [{"interval_ms": 8.3}] * 10}
+        return {}
 
 
 class LabStoryTests(unittest.TestCase, Story):
@@ -291,25 +378,25 @@ class LabStoryTests(unittest.TestCase, Story):
                          ("frame_pacing.instant", "t", tmp, "bench"))
         self.assertFalse(any("budget" in arg for arg in argv))
 
-    def test_golden_and_fling_record_through_benchapp_with_the_story_reference(self):
-        recorded = []
+    def run_fling_story(self, reported):
+        """main --mode fling with a FakeApp per launch whose pane reports `reported[rate]` for its full_rate."""
+        recorded, launches = [], []
 
         class FakeApp:
             socket = "/nonexistent.sock"
 
+            def __init__(self, rate):
+                self.rate, self.pane = rate, PaneStub(full_rate=reported[rate])
+                self.stopped = False
+
             def launch(self):
-                pass
+                launches.append(self)
 
             def stop(self):
-                pass
+                self.stopped = True
 
             def rpc(self, method, params=None, timeout=60):
-                action = (params or {}).get("action")
-                if action == "fling":
-                    return {"frames": 11, "p50_ms": 8.3, "p95_ms": 9.0, "dropped_frames": 0}
-                if action == "perf_stats":
-                    return {"blank_frames": 0, "samples": [{"interval_ms": 8.3}] * 10}
-                return {"pane": "p1"} if action == "readiness" else {}
+                return self.pane.rpc(method, params, timeout)
 
             def record(self, story, metric, unit, samples, better, engine, target_ref=None):
                 recorded.append((story, metric, unit, better, engine, target_ref))
@@ -320,15 +407,55 @@ class LabStoryTests(unittest.TestCase, Story):
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 code = lab_story.main(["--mode", "fling", "--app", "/x/a.app", "--tag", "t", "--out", tmp,
-                                       "--flings", "1"], app_factory=lambda opts, work: FakeApp())
+                                       "--flings", "1"], app_factory=lambda opts, work, rate: FakeApp(rate))
         finally:
             lab_story.wait_until = original
+        return code, recorded, launches
+
+    def test_golden_and_fling_record_through_benchapp_with_the_story_reference(self):
+        code, recorded, launches = self.run_fling_story({"0": False, "1": True})
         self.assertEqual(code, 0)
+        self.assertEqual([app.rate for app in launches], ["0", "1"])  # one launch per pinned rate
+        self.assertTrue(all(app.stopped for app in launches))
         by = {metric: (story, ref) for story, metric, _, _, _, ref in recorded}
         self.assertEqual(by["fling.full.frame_interval"][0], "frame_pacing.fling")
         self.assertEqual((by["fling.full.frame_interval"][1].path, by["fling.full.frame_interval"][1].key),
                          ("scripts/ci/frame-pacing/summarize.py", "P50_LIMIT_MS/1"))
+        self.assertEqual(by["fling.capped.frame_interval"][1].key, "P50_LIMIT_MS/0")
         self.assertIsNone(by["fling.full.dropped"][1])
+
+    def test_a_rate_the_pane_does_not_hold_records_no_row_of_it(self):
+        # A Chromium chat renders at the display's rate: capped cannot be measured, full still is.
+        code, recorded, launches = self.run_fling_story({"0": True, "1": True})
+        self.assertEqual(code, 0)
+        metrics = {metric for _, metric, _, _, _, _ in recorded}
+        self.assertIn("fling.full.frame_interval", metrics)
+        self.assertFalse(any(m.startswith("fling.capped.") for m in metrics))
+        code, recorded, _ = self.run_fling_story({"0": True, "1": False})
+        self.assertEqual((code, recorded), (1, []))
+
+    def test_each_launch_pins_its_rate_in_the_app_env(self):
+        seen = {}
+
+        class FakeBenchApp:
+            def __init__(self, app, **kwargs):
+                seen[kwargs["env"]["CMUX_NEXT_AGENT_PANE_FULL_RATE"]] = kwargs["log_name"]
+
+        bench_launch = lab_story.load_by_path("bench_launch", ROOT / "scripts" / "cmux-next" / "bench_launch.py")
+        original = bench_launch.BenchApp
+        bench_launch.BenchApp = FakeBenchApp
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                for mode in ("fling", "golden"):
+                    opts = lab_story.parse_args(["--mode", mode, "--app", "/x/a.app", "--tag", "t", "--out", tmp])
+                    rates = ("0", "1") if mode == "fling" else ("1",)
+                    for rate in rates:
+                        lab_story.make_app(opts, Path(tmp), rate)
+        finally:
+            bench_launch.BenchApp = original
+        self.assertEqual(set(seen), {"0", "1"})
+        self.assertTrue(seen["0"].endswith("app-fling-capped.log"))
+        self.assertTrue(seen["1"].endswith("app-golden.log"))
 
     def test_bench_sh_hands_flag_arguments_to_lab_story(self):
         done = subprocess.run(["bash", str(BENCH_DIR / "bench.sh"), "--mode", "nonsense"], capture_output=True,

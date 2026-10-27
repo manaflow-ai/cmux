@@ -1,7 +1,7 @@
 {
   "id": "frame_pacing.golden",
   "tier": "T1",
-  "description": "Frame-pacing golden interactions (bench.sh --mode golden: golden.py drive and judge): New Tab cold and warm (lands in one step; the frames each Cmd-T missed), sidebar collapse and expand, transcript follow, a live window resize, the Reduce Motion path, a Chromium page in a live resize and a dark page load, each animated property sampled once per display frame, light session.",
+  "description": "Frame-pacing golden interactions (bench.sh --mode golden: golden.py drive and judge): New Tab cold and warm (lands in one step; the display frames each opened Cmd-T missed from 0.1 s before the key to 0.9 s after it, cold opening included, not the key-to-frame window of new-surface-frames), sidebar collapse and expand, transcript follow, a live window resize, the Reduce Motion path, a Chromium page in a live resize and a dark page load, each animated property sampled once per display frame, light session.",
   "command": ["scripts/ci/frame-pacing/bench.sh", "--mode", "golden"],
   "session": "light",
   "engine": "none",
@@ -47,8 +47,7 @@
      "target_ref": {"path": "scripts/ci/frame-pacing/golden.py", "key": "THRESHOLDS/reduce_sidebar_collapse/max_intermediate"}},
     {"name": "golden\\.reduce_sidebar_expand\\.intermediate", "unit": "count", "better": "lower",
      "target_ref": {"path": "scripts/ci/frame-pacing/golden.py", "key": "THRESHOLDS/reduce_sidebar_expand/max_intermediate"}},
-    {"name": "cmd_t\\.[^.]+\\.dropped", "unit": "count", "better": "lower",
-     "target_ref": {"target": "new-surface-frames"}},
+    {"name": "golden\\.new_tab_(cold|warm)\\.dropped", "unit": "count", "better": "lower"},
     {"name": "golden\\.browser_resize\\.(host|window)_lag_frames", "unit": "count", "better": "lower"},
     {"name": "golden\\.browser_resize\\.layout_lag_frames", "unit": "unitless", "better": "lower"},
     {"name": "golden\\.browser_resize\\.stale_frames", "unit": "count", "better": "lower"},

@@ -14,8 +14,11 @@ Telemetry splits the same way: a benchmark drives the browser that `--browser-ex
   Cmd-Shift-D through the real key path, idle and with every core busy, each Cmd-T closed again by a measured
   Cmd-W), with story `frame_pacing.instant`. That bench launches the app and writes its own result-v1 files.
 - golden: golden.py's drive and judge, then `golden.rows`;
-- fling: the agent pane's fling at the capped and the full render rate (set live with `debug.agent_pane`
-  `full_rate`), each fling's raw frames saved as bench.sh saves them, then `summarize.rows`.
+- fling: the agent pane's fling at the capped and the full render rate, one launch per rate with
+  `CMUX_NEXT_AGENT_PANE_FULL_RATE` pinning it (as bench.sh does), each fling's raw frames saved as bench.sh saves
+  them, then `summarize.rows`. A pinned rate is not adaptive, so the page's policy cannot change it between or
+  during flings; each fling is bracketed by a `full_rate` read, and a rate that is not the one asked for (an
+  engine without the WebKit rate, a build without the pin) leaves that rate unmeasured.
 
 golden and fling start the app through `BenchApp` (scripts/cmux-next/bench_launch.py: bench env, window frame,
 teardown) and write each row as one `cmux-perf-result/v1` file in DIR through `BenchApp.record`, with the unit,
@@ -56,6 +59,7 @@ WINDOW = (80, 80, 1100, 720)
 INSTANT_RUNS = 10
 SEED_ROWS = 5000  # bench.sh's transcript for the fling
 FLING_TIMEOUT = 90  # seconds: a waited 3 s fling, as bench.sh allows it
+READY_SECONDS = 30  # a cold agent page: loaded and its composer shown
 
 Rpc = Callable[..., dict]
 
@@ -133,16 +137,23 @@ def instant_argv(opts) -> list[str]:
 # ---------------------------------------------------------------- golden and fling
 
 
-def run_golden(socket_path: str, work: Path, session: str) -> list[Row]:
+def run_golden(socket_path: str, work: Path) -> list[Row]:
     golden.Driver(socket_path, work).run()
     verdicts = golden.judge(work)
     (work / "verdicts.json").write_text(json.dumps(verdicts, indent=1) + "\n")
     (work / "summary.md").write_text(golden.markdown(work, verdicts))
-    return golden.rows(work, verdicts, session)
+    return golden.rows(work, verdicts)
 
 
-def run_fling(rpc: Rpc, work: Path, flings: int, wait: Callable[..., bool] = wait_until) -> list[Row]:
-    """bench.sh's fling, in one launch: the render rate is set live, and each fling's raw frames are kept."""
+def pane_ready(reply: dict) -> bool:
+    """The page has loaded and shows its composer (readiness answers before either, with no debug bridge yet)."""
+    return not reply.get("error") and reply.get("document_ready") is True and reply.get("composer_visible") is True
+
+
+def run_fling(rpc: Rpc, work: Path, mode: str, flings: int, wait: Callable[..., bool] = wait_until) -> None:
+    """bench.sh's fling at one render rate (`mode`, a summarize.RATES key) in an app launched pinned to it: seeds the
+    transcript, then saves each measured fling's raw frames as `<mode>-<n>.json`. The files are written only once
+    every fling ran at the pinned rate, so an unmeasurable rate leaves none."""
     opened = rpc("action.run", {"action": "palette.newAgentChat"})
     if opened.get("error"):
         raise Unmeasurable(f"no agent chat opened: {json.dumps(opened)[:300]}")
@@ -151,21 +162,33 @@ def run_fling(rpc: Rpc, work: Path, flings: int, wait: Callable[..., bool] = wai
     def answered() -> bool:
         ready.clear()
         ready.update(rpc("debug.agent_pane", {"action": "readiness"}, timeout=30))
-        return not ready.get("error")
+        return pane_ready(ready)
 
-    if not wait(answered, 10):
+    if not wait(answered, READY_SECONDS):
         raise Unmeasurable(f"the agent pane never got ready: {json.dumps(ready)[:300]}")
     target = {"pane": ready["pane"]} if ready.get("pane") else {}
-    rpc("debug.agent_pane", {"action": "seed_rows", "count": SEED_ROWS, **target}, timeout=FLING_TIMEOUT)
-    for mode in summarize.RATES:
-        rpc("debug.agent_pane", {"action": "full_rate", "enabled": mode == "1", **target})
-        for n in range(flings + 1):
-            fling = rpc("debug.agent_pane", {"action": "fling", "wait": True, **target}, timeout=FLING_TIMEOUT)
-            if n == 0:
-                continue  # fling 0 warms the transcript's layout and is not reported (bench.sh)
-            perf = rpc("debug.agent_pane", {"action": "perf_stats", "raw": True, **target})
-            (work / f"{mode}-{n}.json").write_text(json.dumps({"fling": fling, "perf": perf}) + "\n")
-    return summarize.rows(work)
+    seeded = rpc("debug.agent_pane", {"action": "seed_rows", "count": SEED_ROWS, **target}, timeout=FLING_TIMEOUT)
+    if seeded.get("error") or not isinstance(seeded.get("rows"), int) or seeded["rows"] < SEED_ROWS:
+        raise Unmeasurable(f"the transcript was not seeded with {SEED_ROWS} rows: {json.dumps(seeded)[:300]}")
+    want = mode == "1"
+
+    def check_rate(when: str) -> None:
+        reply = rpc("debug.agent_pane", {"action": "full_rate", **target})
+        if reply.get("full_rate") is not want:
+            raise Unmeasurable(f"the {summarize.RATES[mode]} rate was asked for; {when} the pane reported "
+                               f"{json.dumps(reply)[:300]}")
+
+    measured: list[tuple[int, dict]] = []
+    for n in range(flings + 1):
+        check_rate(f"before fling {n}")
+        fling = rpc("debug.agent_pane", {"action": "fling", "wait": True, **target}, timeout=FLING_TIMEOUT)
+        if n == 0:
+            continue  # fling 0 warms the transcript's layout and is not reported (bench.sh)
+        perf = rpc("debug.agent_pane", {"action": "perf_stats", "raw": True, **target})
+        measured.append((n, {"fling": fling, "perf": perf}))
+    check_rate("after the last fling")
+    for n, reply in measured:
+        (work / f"{mode}-{n}.json").write_text(json.dumps(reply) + "\n")
 
 
 # ---------------------------------------------------------------- main
@@ -188,24 +211,46 @@ def parse_args(argv):
     return opts
 
 
-def make_app(opts, work: Path):
+def make_app(opts, work: Path, rate: str):
+    """A BenchApp whose agent pane is pinned to `rate` (`1` full, `0` capped); golden.sh's launch is full rate."""
     bench_launch = load_by_path("bench_launch", ROOT / "scripts" / "cmux-next" / "bench_launch.py")
-    # golden.sh's launch: the mock agent pane at the full render rate (fling sets the rate live per mode).
-    env = {"CMUX_NEXT_AGENT_PANE_FULL_RATE": "1"}
+    env = {"CMUX_NEXT_AGENT_PANE_FULL_RATE": rate}
+    log = f"app-{opts.mode}.log" if opts.mode == "golden" else f"app-{opts.mode}-{summarize.RATES[rate]}.log"
     # The app log goes to the raw folder: `out` holds only result files (os.path.join keeps an absolute log_name).
     return bench_launch.BenchApp(opts.app, out=opts.out, env=env, window=WINDOW, screen="last",
-                                 log_name=str(work / f"app-{opts.mode}.log"), build_config=opts.config,
-                                 perf_session=opts.session)
+                                 log_name=str(work / log), build_config=opts.config, perf_session=opts.session)
 
 
-def measure(opts, app, work: Path) -> list[Row]:
+def app_rpc(app) -> Rpc:
     def rpc(method: str, params: dict | None = None, timeout: float = 60) -> dict:
         reply = app.rpc(method, params, timeout=timeout)
         return reply if isinstance(reply, dict) else {"value": reply}
 
+    return rpc
+
+
+def launched(app_factory, opts, work: Path, rate: str, run: Callable):
+    """Launches an app pinned to `rate`, runs `run(app)` and stops the app however `run` ends: (app, result)."""
+    app = app_factory(opts, work, rate)
+    try:
+        app.launch()
+        return app, run(app)
+    finally:
+        app.stop()
+
+
+def measure(opts, app_factory, work: Path):
+    """(an app to record with, the mode's rows); the app is None when no fling rate was measured."""
     if opts.mode == "golden":
-        return run_golden(app.socket, work, opts.session)
-    return run_fling(rpc, work, opts.flings)
+        return launched(app_factory, opts, work, "1", lambda app: run_golden(app.socket, work))
+    last = None
+    for mode, rate in summarize.RATES.items():
+        try:
+            last, _ = launched(app_factory, opts, work, mode,
+                               lambda app: run_fling(app_rpc(app), work, mode, opts.flings))
+        except Unmeasurable as error:
+            print(f"frame-pacing: {story_id('fling')}: the {rate} rate was not measured: {error}", file=sys.stderr)
+    return last, (summarize.rows(work) if last is not None else [])
 
 
 def record(app, story: StoryMetrics, rows: list[Row]) -> list[str]:
@@ -234,15 +279,7 @@ def main(argv=None, app_factory=make_app, execv=os.execv) -> int:
         argv = instant_argv(opts)
         execv(argv[0], argv)
         return 0  # an injected execv returns
-    app = app_factory(opts, work)
-    try:
-        app.launch()
-        rows = measure(opts, app, work)
-    except Unmeasurable as error:
-        print(f"frame-pacing: {story.id}: not measured: {error}", file=sys.stderr)
-        return 1
-    finally:
-        app.stop()
+    app, rows = measure(opts, app_factory, work)
     if not rows:
         print(f"frame-pacing: {story.id}: nothing was measured (raw files in {work})", file=sys.stderr)
         return 1
