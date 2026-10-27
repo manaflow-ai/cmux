@@ -94,6 +94,35 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("github.repository == 'manaflow-ai/cmux'", landing)
         self.assertIn("format('{0}', vars.CMUX_NEXT_DEV_LANDING_COMPILE) != '0'", landing)
 
+    def test_a_landing_hands_its_app_to_the_publisher_at_once(self):
+        # Dispatch lag: the landing's app goes to main's publisher from the push run itself, on the
+        # routing App's budget first, never waiting for a DEV dispatch run or the dispatcher's cron.
+        job = self.jobs["dev-landing-publish"]
+        self.assertEqual(job["needs"], ["dev-landing-place", "dev-landing-compile"])
+        condition = job["if"]
+        self.assertTrue(condition.startswith("${{ !cancelled()"), "a failed compile must still ask for a DEV build")
+        self.assertIn("needs.dev-landing-place.result == 'success'", condition)
+        self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'", condition)
+        self.assertNotIn("concurrency", job, "a handoff never cancels or replaces another")
+        self.assertEqual(job["permissions"], {"actions": "write"})
+        self.assertEqual(job["environment"], "ci-routing-agent")
+        self.assertNotIn("vars.", job["runs-on"], "a job holding the App key runs on an ephemeral runner")
+        self.assertIn("ubuntu", job["runs-on"])
+        steps = {step.get("id") or step.get("name"): step for step in job["steps"]}
+        self.assertEqual(steps["handoff-token"]["with"]["permission-actions"], "write")
+        run = steps["Hand the landing's app to the publisher, else ask for a DEV build"]
+        script = run["run"]
+        self.assertEqual(run["env"]["COMPILED"], "${{ needs.dev-landing-compile.result == 'success' }}")
+        self.assertIn('cmux-next-dev-daily.yml --repo "$GH_REPO" --ref main -f "source_run_id=$SOURCE_RUN_ID"', script)
+        self.assertIn('cmux-next-dev-daily-dispatch.yml --repo "$GH_REPO" --ref main', script)
+        self.assertIn('for token in "$APP_TOKEN" "$REPO_TOKEN"', script, "App token first, GITHUB_TOKEN second")
+        # It starts no cmux-next run: a cmux-next run the App started would fire cmux-next's
+        # workflow_run listeners (nightly-next-tick) on top of this push run's own completion.
+        self.assertNotIn("cmux-next.yml", script.replace("cmux-next-dev-", ""))
+        # The publisher's artifact is the landing compile's.
+        upload = {step.get("name"): step for step in self.jobs["dev-landing-compile"]["steps"]}["Upload the cmux NEXT DEV Release app"]
+        self.assertEqual(upload["with"]["name"], "cmux-next-dev-daily-unsigned-${{ github.sha }}")
+
 
 if __name__ == "__main__":
     unittest.main()
