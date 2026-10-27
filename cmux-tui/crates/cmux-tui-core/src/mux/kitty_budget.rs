@@ -231,10 +231,14 @@ impl Mux {
             return;
         }
         let mux = Arc::downgrade(self);
-        if let Err(error) = std::thread::Builder::new()
-            .name("kitty-image-budget".into())
-            .spawn(move || Self::run_kitty_image_budget_worker(mux))
-        {
+        // A request or surface path starts it; it must not run its retries
+        // at that class. Raisable: requests wait on the budget lock it takes.
+        if let Err(error) = crate::thread_qos::spawn_raisable(
+            "kitty-image-budget",
+            crate::thread_qos::ThreadType::Utility.qos(),
+            None,
+            move || Self::run_kitty_image_budget_worker(mux),
+        ) {
             self.kitty_image_budget.lock().recover_poison().worker_running = false;
             self.kitty_image_budget_changed.notify_all();
             self.emit(MuxEvent::GraphicsStatus(

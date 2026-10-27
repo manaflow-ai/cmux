@@ -39,8 +39,9 @@
 //! mux-session-journal-fanout, terminal-host-record-mirror and
 //! cmux-config-watch (cmux-config's `watch::WATCH_THREAD_QOS`, kept equal
 //! by a test here; the daemon's settings and keybindings reloads run on a
-//! work lane, not on it); mux-inventory-watch and mux-project-sources start
-//! through [`spawn_raisable`], so a ranked lock raises them. Upkeep threads
+//! work lane, not on it); mux-inventory-watch, mux-project-sources,
+//! mux-terminal-reap, mux-idle-close and kitty-image-budget start through
+//! [`spawn_raisable`], so a ranked lock raises them. Upkeep threads
 //! that hold the workspace registry a request waits for
 //! (terminal-command-history, mux-output-store-writer) start at
 //! `request_qos::UPKEEP_THREAD_QOS` and run each pass at utility, so the
