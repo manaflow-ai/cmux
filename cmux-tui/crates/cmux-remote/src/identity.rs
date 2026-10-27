@@ -2299,7 +2299,10 @@ mod tests {
         // state file's read, write and fsync left there panic in debug.
         let state_dir = tempfile::tempdir().unwrap();
         let store = ClientIdentityStore::load_or_create(state_dir.path().join("client")).unwrap();
-        let runtime = cmux_blocking::runtime::current_thread().build().unwrap();
+        let runtime =
+            cmux_blocking::runtime::current_thread("test", cmux_threads::ThreadQos::Utility)
+                .build()
+                .unwrap();
         let public_key = [7_u8; 32];
         let fingerprint = public_key_fingerprint(&public_key);
         let stalled = cmux_blocking::counts().stalled;
@@ -2327,7 +2330,10 @@ mod tests {
                 .unwrap();
         let marker = state_dir.path().join("lifecycle-cleanup");
         let cleanup_marker = marker.clone();
-        let runtime = cmux_blocking::runtime::current_thread().build().unwrap();
+        let runtime =
+            cmux_blocking::runtime::current_thread("test", cmux_threads::ThreadQos::Utility)
+                .build()
+                .unwrap();
         let stalled = cmux_blocking::counts().stalled;
 
         cmux_blocking::runtime::block_on(&runtime, async {
@@ -2355,7 +2361,10 @@ mod tests {
         let lock_path = sibling_lock_path(&path).unwrap();
         let public_key = [9_u8; 32];
         let fingerprint = public_key_fingerprint(&public_key);
-        let runtime = cmux_blocking::runtime::current_thread().build().unwrap();
+        let runtime =
+            cmux_blocking::runtime::current_thread("test", cmux_threads::ThreadQos::Utility)
+                .build()
+                .unwrap();
 
         let (cached, on_disk) = cmux_blocking::runtime::block_on(&runtime, async {
             let (transaction, mut candidate) = store.reload_client_state().await.unwrap();
