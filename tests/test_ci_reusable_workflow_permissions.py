@@ -508,10 +508,182 @@ def test_shared_manual_ref_resolver_normalizes_to_full_sha() -> None:
     assert "blacksmith-4vcpu-ubuntu-2404" in resolver
     assert "REQUESTED_REF: ${{ inputs.ref }}" in resolver
     assert "DEFAULT_SHA: ${{ github.sha }}" in resolver
-    assert 'urllib.parse.quote(requested_ref, safe="")' in resolver
-    assert 'f"https://api.github.com/repos/{repository}/commits/{encoded_ref}"' in resolver
+    assert 'urllib.parse.quote(sys.argv[1], safe="")' in resolver
+    assert '"repos/$GITHUB_REPOSITORY/commits/$encoded_ref"' in resolver
     assert r'^[0-9a-f]{40}$' in resolver
     assert "value: ${{ jobs.resolve.outputs.sha }}" in resolver
+
+
+class _FakeGitHub:
+    """A local GitHub REST API that answers each path from a scripted queue."""
+
+    def __init__(self, routes: dict[str, list[tuple[int, dict[str, str], object]]]) -> None:
+        import http.server
+        import json
+        import threading
+
+        self.routes = {path: list(replies) for path, replies in routes.items()}
+        self.calls: list[str] = []
+        fake = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:  # noqa: N802
+                fake.calls.append(self.path)
+                queue = fake.routes.get(self.path, [])
+                status, headers, body = queue.pop(0) if len(queue) > 1 else (queue[0] if queue else (404, {}, {"message": "Not Found"}))
+                data = json.dumps(body).encode()
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                for name, value in headers.items():
+                    self.send_header(name, value)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def log_message(self, *args: object) -> None:
+                pass
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
+
+    def close(self) -> None:
+        self.server.shutdown()
+        self.server.server_close()
+
+
+def _resolver_step_scripts() -> dict[str, str]:
+    """Return each step's `run:` script from resolve-dispatch-ref.yml, keyed by step name."""
+    lines = MANUAL_REF_RESOLVER.read_text(encoding="utf-8").splitlines()
+    scripts: dict[str, str] = {}
+    name = None
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        if line.startswith("      - name: "):
+            name = line.removeprefix("      - name: ")
+        elif line == "        run: |" and name is not None:
+            body = []
+            index += 1
+            while index < len(lines) and (lines[index].startswith("          ") or not lines[index].strip()):
+                body.append(lines[index][10:])
+                index += 1
+            scripts[name] = "\n".join(body) + "\n"
+            continue
+        index += 1
+    return scripts
+
+
+def _run_resolver(routes: dict[str, list[tuple[int, dict[str, str], object]]], requested_ref: str) -> tuple[subprocess.CompletedProcess[str], dict[str, str], list[str]]:
+    scripts = _resolver_step_scripts()
+    fake = _FakeGitHub(routes)
+    try:
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / "output"
+            output.write_text("")
+            env = {
+                "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin",
+                "RUNNER_TEMP": temp,
+                "GITHUB_OUTPUT": str(output),
+                "GITHUB_API_URL": fake.url,
+                "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                "GITHUB_TOKEN": "token",
+                "GITHUB_API_RETRY_BASE_SECONDS": "0",
+                "REQUESTED_REF": requested_ref,
+                "DEFAULT_SHA": "d" * 40,
+            }
+            combined = subprocess.CompletedProcess[str]([], 0, "", "")
+            for step in ("Write GitHub API client", "Resolve requested revision", "Check the revision is a branch head of this repository"):
+                if step.startswith("Check"):
+                    sha = dict(line.split("=", 1) for line in output.read_text().splitlines() if line).get("sha", "")
+                    env["SHA"] = sha
+                result = subprocess.run(["bash", "-e", "-c", scripts[step]], env=env, text=True, capture_output=True)
+                combined = subprocess.CompletedProcess[str]([], result.returncode, combined.stdout + result.stdout, combined.stderr + result.stderr)
+                if result.returncode != 0:
+                    break
+            outputs = dict(line.split("=", 1) for line in output.read_text().splitlines() if line)
+            return combined, outputs, list(fake.calls)
+    finally:
+        fake.close()
+
+
+SHA = "6c196643e65616537e33a5c80299f367f0ac1468"
+COMMIT_PATH = f"/repos/manaflow-ai/cmux/commits/{SHA}"
+HEADS_PATH = f"/repos/manaflow-ai/cmux/commits/{SHA}/branches-where-head"
+
+
+def test_resolver_names_the_http_status_when_github_refuses() -> None:
+    result, outputs, calls = _run_resolver(
+        {"/repos/manaflow-ai/cmux/commits/no-such-branch": [(404, {"x-github-request-id": "ABC:1"}, {"message": "No commit found for SHA: no-such-branch"})]},
+        "no-such-branch",
+    )
+
+    assert result.returncode == 1, result
+    assert "HTTP 404 Not Found: No commit found for SHA: no-such-branch" in result.stderr, result.stderr
+    assert "x-github-request-id=ABC:1" in result.stderr, result.stderr
+    # A branch name that is not found is final; only a full SHA is retried.
+    assert calls == ["/repos/manaflow-ai/cmux/commits/no-such-branch"], calls
+    assert "sha" not in outputs, outputs
+
+
+def test_resolver_retries_a_full_sha_github_has_not_indexed_yet() -> None:
+    result, outputs, calls = _run_resolver(
+        {
+            COMMIT_PATH: [(422, {}, {"message": f"No commit found for SHA: {SHA}"}), (404, {}, {"message": "Not Found"}), (200, {}, {"sha": SHA})],
+            HEADS_PATH: [(200, {}, [{"name": "ios-remote-mac-setup"}])],
+        },
+        SHA,
+    )
+
+    assert result.returncode == 0, result
+    assert outputs == {"sha": SHA, "trusted_ref": "true"}, outputs
+    assert calls.count(COMMIT_PATH) == 3, calls
+    assert "attempt 1/4: HTTP 422" in result.stderr, result.stderr
+
+
+def test_resolver_retries_rate_limits_and_server_errors_a_bounded_number_of_times() -> None:
+    result, outputs, calls = _run_resolver(
+        {
+            "/repos/manaflow-ai/cmux/commits/main": [
+                (403, {"x-ratelimit-remaining": "0", "x-ratelimit-resource": "core", "x-ratelimit-limit": "15000"}, {"message": "API rate limit exceeded for installation."}),
+                (429, {"retry-after": "0"}, {"message": "secondary rate limit"}),
+                (502, {}, {"message": "Server Error"}),
+                (200, {}, {"sha": SHA}),
+            ],
+            HEADS_PATH: [(200, {}, [{"name": "main"}])],
+        },
+        "main",
+    )
+    assert result.returncode == 0, result
+    assert outputs["sha"] == SHA, outputs
+    assert "attempt 1/4: HTTP 403 Forbidden: API rate limit exceeded for installation." in result.stderr, result.stderr
+    assert "x-ratelimit-resource=core x-ratelimit-limit=15000 x-ratelimit-remaining=0" in result.stderr, result.stderr
+
+    result, outputs, calls = _run_resolver({"/repos/manaflow-ai/cmux/commits/main": [(503, {}, {"message": "Unavailable"})]}, "main")
+    assert result.returncode == 1, result
+    assert calls.count("/repos/manaflow-ai/cmux/commits/main") == 4, calls
+    assert "HTTP 503" in result.stderr, result.stderr
+
+
+def test_resolver_does_not_retry_an_authorization_failure() -> None:
+    result, _, calls = _run_resolver({COMMIT_PATH: [(403, {"x-ratelimit-remaining": "4999"}, {"message": "Resource not accessible by integration"})]}, SHA)
+
+    assert result.returncode == 1, result
+    assert calls == [COMMIT_PATH], calls
+    assert "HTTP 403 Forbidden: Resource not accessible by integration" in result.stderr, result.stderr
+
+
+def test_resolver_trust_check_fails_closed() -> None:
+    commit = [(200, {}, {"sha": SHA})]
+    for heads in ([(500, {}, {"message": "boom"})], [(200, {}, [])], [(200, {}, {"message": "odd"})], [(404, {}, {"message": "Not Found"})]):
+        result, outputs, _ = _run_resolver({COMMIT_PATH: commit, HEADS_PATH: heads}, SHA)
+        assert result.returncode == 0, result
+        assert outputs == {"sha": SHA, "trusted_ref": "false"}, (heads, outputs)
+
+    result, outputs, calls = _run_resolver({}, "")
+    assert result.returncode == 0, result
+    assert outputs == {"sha": "d" * 40, "trusted_ref": "true"}, outputs
+    assert calls == [], calls
 
 
 def test_manual_macos_workflows_resolve_before_checkout() -> None:
