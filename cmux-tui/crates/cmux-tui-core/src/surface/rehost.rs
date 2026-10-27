@@ -222,12 +222,14 @@ fn replace_host(
     if !record.workspace_key.is_empty() {
         let _ = attachment.persist_workspace(&record.workspace_key);
     }
+    let panic_log =
+        mux.surface_options.lock().unwrap_or_else(PoisonError::into_inner).host_panic_log.clone();
     crate::terminal_loss_log::record_host_replaced(
         record_path,
         &identity.terminal_id,
         &identity.incarnation,
-        record.host_pid,
-        attachment.record.host_pid,
+        (record.host_pid, attachment.record.host_pid),
+        panic_log.as_ref(),
     );
     mux.note_holder_exit();
     attachment.keep_pty_custody(custody);

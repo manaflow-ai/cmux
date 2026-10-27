@@ -33,6 +33,15 @@ pub(crate) fn register_main_thread() -> bool {
     cmux_threads::register_current("main", MAIN_THREAD_QOS)
 }
 
+/// The headless owner's panic log for its terminal hosts' crash sidecars
+/// (`SurfaceOptions::host_panic_log`); `None` for any other process.
+pub(crate) fn host_panic_log(
+    headless: bool,
+    session: &str,
+) -> Option<cmux_tui_core::terminal_host_runtime::HostPanicLog> {
+    headless.then(|| owner_panic::host_panic_log(session)).flatten()
+}
+
 /// Validate the owner's storage flags and raise its open-file soft limit.
 ///
 /// The owner holds descriptors for every terminal, and the default soft

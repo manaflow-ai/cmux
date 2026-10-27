@@ -36,6 +36,21 @@ public struct RustPanicSource: Sendable, Equatable {
     /// The acpmux daemon (`$ACPMUX_HOME/panics.jsonl`).
     public static let acpmux = RustPanicSource(process: "acpmux", fingerprintPrefix: "acpmux-panic",
                                                crashSource: "acpmux_panic_log", label: "acpmux daemon panic")
+    /// A cmux-tui terminal host. Its owner appends the host's `.crash` sidecar to the owner's log as one
+    /// line with `"source": "cmux-tui-host"` before it deletes the sidecar (cmux-tui-core `host_crash.rs`).
+    public static let terminalHost = RustPanicSource(process: "cmux-tui-host", fingerprintPrefix: "host-panic",
+                                                     crashSource: "terminal_host_crash",
+                                                     label: "cmux-tui terminal host panic")
+    /// The `source` field of a terminal host's line in the owner's log.
+    public static let terminalHostLineSource = "cmux-tui-host"
+
+    /// The source that labels one line of the log this source reads: a terminal host's line in the
+    /// owner's log is labeled as the host's, every other line as this source's.
+    /// - Parameter lineSource: The line's `source` field, if it has one.
+    /// - Returns: ``terminalHost`` for a host line in the owner's log, otherwise this source.
+    public func labeling(lineSource: String?) -> RustPanicSource {
+        self == .owner && lineSource == Self.terminalHostLineSource ? .terminalHost : self
+    }
 
     /// The acpmux daemon's panic log under its home (`ACPMUX_HOME`).
     /// - Parameter acpmuxHome: The daemon's `ACPMUX_HOME`.

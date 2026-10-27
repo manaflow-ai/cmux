@@ -466,7 +466,8 @@ pub(crate) fn launch_terminal_host_adopting_with_program_status(
         let _ = files::remove_file(liveness_path(&record_path, &dead));
     }
     let mut attachment = connect_record(record, record_path, OwnerIntent::Surface)?;
-    attachment.launch_process = Some(process);
+    attachment.launch_process =
+        Some(LaunchedHostProcess { process, panic_log: options.host_panic_log.clone() });
     // The terminal's topology already exists: commit the handoff and
     // release the launch barrier at once.
     attachment.commit_launched_host();

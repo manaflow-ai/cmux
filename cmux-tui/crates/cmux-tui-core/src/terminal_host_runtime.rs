@@ -673,6 +673,8 @@ pub(crate) use shared::codec::{
 };
 #[cfg(any(unix, windows))]
 pub use shared::codec::{decode_host_snapshot_payload, encode_host_snapshot_payload};
+pub(crate) use shared::host_crash::append_to_panic_log as append_host_crash_to_panic_log;
+pub use shared::host_crash::{HostPanicLog, PANIC_LOG_SOURCE};
 // The decoders the cmux-tui/fuzz targets drive (crate::fuzz_entry).
 #[cfg(all(any(unix, windows), feature = "fuzz"))]
 pub(crate) use shared::codec::{

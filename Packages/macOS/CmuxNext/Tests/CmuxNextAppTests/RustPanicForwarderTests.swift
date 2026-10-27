@@ -66,4 +66,26 @@ import Testing
         #expect(sent[0].fingerprint == ["owner-panic", "a.rs:1:1"])
         #expect(sent[0].tags?["process"] == "cmux-tui")
     }
+
+    @Test func aTerminalHostLineInTheOwnerLogIsLabeledAsTheHost() throws {
+        let dir = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let log = dir.appending(path: "owner-panics-s.jsonl")
+        try Data().write(to: log)
+        let forwarder = OwnerPanicForwarder(log: log, stateFile: dir.appending(path: "state.json"), sends: true,
+                                            capture: { _ in })
+        _ = forwarder.forwardNew()
+        let location = "crates/vt/src/parser.rs:12:5"
+        try Self.append(Self.line(["source": "cmux-tui-host", "message": "index out of bounds", "location": location,
+                                   "thread": "terminal-host-parser", "test": false,
+                                   "backtrace": "0: vt::parser::advance"]), to: log)
+        let sent = forwarder.forwardNew()
+        try #require(sent.count == 1)
+        #expect(sent[0].fingerprint == ["host-panic", location])
+        #expect(sent[0].tags?["process"] == "cmux-tui-host")
+        #expect(sent[0].tags?["crash_source"] == "terminal_host_crash")
+        #expect(sent[0].extra?["backtrace"] as? String == "0: vt::parser::advance")
+        #expect(sent[0].message?.formatted.hasPrefix("cmux-tui terminal host panic at \(location)") == true)
+        #expect(RustPanicSource.acpmux.labeling(lineSource: "cmux-tui-host") == .acpmux)
+    }
 }

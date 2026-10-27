@@ -12,13 +12,16 @@
 //! host replaced on its still-running shell (PTY custody) is logged as an
 //! `"event":"host_replaced"` line instead; it is not a loss. A terminal that
 //! got a new shell after a loss (L2 respawn) adds a
-//! `"event":"terminal_respawned"` line after its loss line.
+//! `"event":"terminal_respawned"` line after its loss line. A host's panic
+//! (its crash sidecar) also goes to the owner's panic log, as one line, right
+//! before the sidecar is removed ([`remove_signals`]).
 
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use crate::terminal_end::TerminalEnd;
+use crate::terminal_host_runtime::HostPanicLog;
 use crate::terminal_loss_cause::{cause_summary, cause_text, crash_path, read_crash};
 
 /// File name of the loss log in the session state directory.
@@ -32,10 +35,16 @@ pub(crate) fn signals_path(record_path: &Path) -> PathBuf {
 }
 
 /// Remove a host's signal breadcrumbs and crash sidecar (its terminal ended
-/// or its host was replaced, and that was recorded).
-pub(crate) fn remove_signals(record_path: &Path) {
+/// or its host was replaced, and that was recorded). The sidecar goes to
+/// `panic_log` first, whatever the end: a caught host panic ends in a normal
+/// exit, and it is still a bug.
+pub(crate) fn remove_signals(record_path: &Path, panic_log: Option<&HostPanicLog>) {
     let _ = fs::remove_file(signals_path(record_path));
-    let _ = fs::remove_file(crash_path(record_path));
+    let crash = crash_path(record_path);
+    if let Some(panic_log) = panic_log {
+        crate::terminal_host_runtime::append_host_crash_to_panic_log(&crash, panic_log);
+    }
+    let _ = fs::remove_file(crash);
 }
 
 fn read_signals(record_path: &Path, incarnation: Option<&str>) -> Vec<serde_json::Value> {
@@ -91,16 +100,19 @@ pub(crate) struct HostLoss {
     terminal_id: String,
     line: Option<serde_json::Value>,
     logged: bool,
+    panic_log: Option<HostPanicLog>,
 }
 
 impl HostLoss {
     /// Reads the loss of `terminal_id` (no line for an end that is not a
-    /// host loss). Read-only: nothing is removed or appended.
+    /// host loss). Read-only: nothing is removed or appended. `panic_log`
+    /// gets the host's crash sidecar at [`HostLoss::record`].
     pub(crate) fn read(
         record_path: &Path,
         terminal_id: &str,
         incarnation: Option<&str>,
         end: &TerminalEnd,
+        panic_log: Option<HostPanicLog>,
     ) -> Self {
         let at_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -111,6 +123,7 @@ impl HostLoss {
             terminal_id: terminal_id.to_string(),
             line: loss_line(record_path, terminal_id, incarnation, end, at_ms),
             logged: false,
+            panic_log,
         }
     }
 
@@ -145,7 +158,7 @@ impl HostLoss {
     /// the exit commit.
     pub(crate) fn record(mut self) {
         self.log();
-        remove_signals(&self.record_path);
+        remove_signals(&self.record_path, self.panic_log.as_ref());
     }
 }
 
@@ -177,13 +190,14 @@ pub(crate) fn logged_summaries(
 /// Append the replacement of a dead host by a new host on the same running
 /// shell (cx-6so.49 L1.2) and remove the dead host's breadcrumbs. A
 /// replacement is not a loss: the terminal keeps its incarnation and shell.
+/// The dead host's crash sidecar goes to `panic_log` first.
 #[cfg(unix)]
 pub(crate) fn record_host_replaced(
     record_path: &Path,
     terminal_id: &str,
     incarnation: &str,
-    old_host_pid: u32,
-    new_host_pid: u32,
+    (old_host_pid, new_host_pid): (u32, u32),
+    panic_log: Option<&HostPanicLog>,
 ) {
     let at_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -209,7 +223,7 @@ pub(crate) fn record_host_replaced(
     {
         append_rotating(&log, &line);
     }
-    remove_signals(record_path);
+    remove_signals(record_path, panic_log);
 }
 
 /// What a respawned terminal's new shell was given to run, as decided at

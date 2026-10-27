@@ -12,6 +12,11 @@
 //! telemetry choice. The line format and hook live in `cmux-panic-log`,
 //! which the acpmux daemon uses too.
 //!
+//! A terminal host's panic goes to the same log: the host writes a `.crash`
+//! sidecar, and the owner appends it as one line with `"source":
+//! "cmux-tui-host"` before it removes the sidecar ([`host_panic_log`],
+//! cmux-tui-core `host_crash.rs`).
+//!
 //! The owner's hang log (cmux-panic-log `hang`) is beside it,
 //! `owner-hangs-<session>.jsonl` with the same fields: the request watchdog
 //! writes one line per watched scope (a request, a journal commit, a
@@ -39,6 +44,17 @@ pub(super) fn install(session: &str) {
     install_hang_log(session);
     #[cfg(debug_assertions)]
     panic_for_test();
+}
+
+/// Where the owner of `session` appends its terminal hosts' panics: its own
+/// panic log, with the owner's fields (the host runs the same build).
+pub(super) fn host_panic_log(
+    session: &str,
+) -> Option<cmux_tui_core::terminal_host_runtime::HostPanicLog> {
+    Some(cmux_tui_core::terminal_host_runtime::HostPanicLog {
+        path: log_path(session)?,
+        fields: fields(session),
+    })
 }
 
 /// Every line's fields: the session and the build that wrote it.

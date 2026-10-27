@@ -31,6 +31,8 @@ struct PendingHostClose {
     host_root: Option<PathBuf>,
     /// The mux, for a record cleanup retry when the host does not exit.
     owner: Weak<Mux>,
+    /// Where the host's crash sidecar goes before its records are removed.
+    panic_log: Option<crate::terminal_host_runtime::HostPanicLog>,
 }
 
 #[cfg(any(unix, windows))]
@@ -174,6 +176,7 @@ fn signal_host_close(mut close: PendingHostClose) -> Option<PendingHostClose> {
                     root,
                     &identity.terminal_id,
                     Some(&identity.incarnation),
+                    close.panic_log.as_ref(),
                 );
             }
             return None;
@@ -194,13 +197,15 @@ fn signal_host_close(mut close: PendingHostClose) -> Option<PendingHostClose> {
 
 #[cfg(any(unix, windows))]
 fn finish_host_close(close: PendingHostClose) {
-    let PendingHostClose { runtime, step, identity, host_root, owner } = close;
+    let PendingHostClose { runtime, step, identity, host_root, owner, panic_log } = close;
     let HostCloseStep::Await(termination, deadline) = step else {
         unreachable!("only a signaled host close is awaited");
     };
     let acknowledged =
         match termination.map(|termination| runtime.wait_for_host_exit(termination, deadline)) {
-            Some(Ok((path, exit))) => acknowledge_exact_terminal_host_exit(&path, &exit),
+            Some(Ok((path, exit))) => {
+                acknowledge_exact_terminal_host_exit(&path, &exit, panic_log.as_ref())
+            }
             Some(Err(error)) => {
                 if let Some(identity) = identity.as_ref() {
                     eprintln!(
@@ -219,6 +224,7 @@ fn finish_host_close(close: PendingHostClose) {
             &root,
             &identity.terminal_id,
             Some(&identity.incarnation),
+            panic_log.as_ref(),
         );
     }
 }
@@ -253,6 +259,7 @@ impl Mux {
                 identity,
                 host_root,
                 owner: self.work_owner(),
+                panic_log: self.host_panic_log(),
             });
         }
         #[cfg(not(any(unix, windows)))]
@@ -270,6 +277,7 @@ impl Mux {
         #[cfg(any(unix, windows))]
         {
             let host_root = self.surface_options.lock().unwrap().terminal_host_root.clone();
+            let panic_log = self.host_panic_log();
             for runtime in runtimes {
                 let identity = self.resource_terminal_host_identity(&runtime);
                 if let Some(identity) = identity.as_ref() {
@@ -281,6 +289,7 @@ impl Mux {
                     identity,
                     host_root: host_root.clone(),
                     owner: self.work_owner(),
+                    panic_log: panic_log.clone(),
                 });
             }
         }

@@ -291,11 +291,13 @@ impl Mux {
             self.clear_pending_terminal(terminal_id);
             let root = self.surface_options.lock().unwrap().terminal_host_root.clone();
             let Some(root) = root else { return };
+            let panic_log = self.host_panic_log();
             terminate_discovered_terminal_host_in(
                 &self.work_owner(),
                 &root,
                 terminal_id,
                 incarnation,
+                panic_log.as_ref(),
             );
         }
         #[cfg(not(any(unix, windows)))]
