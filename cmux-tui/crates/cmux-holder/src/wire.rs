@@ -55,9 +55,12 @@ pub mod capability {
     /// [`super::FLAG_FLOW`] on [`super::Kind::Write`]: the frame ends with
     /// the `flow u64` of the key press that wrote it.
     pub const WRITE_FLOW: u32 = 1 << 1;
+    /// [`super::Kind::Hang`]: the holder reports a pass of its loop that
+    /// ran past its hang deadline to the daemon's hang log.
+    pub const HANG_REPORT: u32 = 1 << 2;
     /// Every bit this build knows (a holder serves TRACE_CONTROL only with
     /// its tracer running).
-    pub const SUPPORTED: u32 = TRACE_CONTROL | WRITE_FLOW;
+    pub const SUPPORTED: u32 = TRACE_CONTROL | WRITE_FLOW | HANG_REPORT;
 }
 /// Output a holder sends one terminal past the offset its daemon last
 /// acknowledged ([`Kind::Ack`], version 2): the daemon queues at most this
@@ -167,6 +170,10 @@ pub enum Kind {
     /// stop the recording. Empty payload; an [`Kind::Error`] with
     /// `TRACE_FAILED` when none ran.
     TraceStop = 23,
+    /// h->d on channel 0 (granted [`capability::HANG_REPORT`] only): a pass
+    /// of the holder's loop was still busy past its hang deadline
+    /// ([`HangReport`]). No answer.
+    Hang = 24,
 }
 
 impl Kind {
@@ -197,6 +204,7 @@ impl Kind {
             21 => Adopted,
             22 => TraceStart,
             23 => TraceStop,
+            24 => Hang,
             _ => return None,
         })
     }
@@ -284,6 +292,32 @@ impl TraceStart {
     pub fn decode(payload: &[u8]) -> io::Result<Self> {
         let mut input = In(payload);
         Ok(Self { categories: input.u64()?, budget_bytes: input.u64()? })
+    }
+}
+
+/// The payload of a [`Kind::Hang`]: `deadline_ms u64, busy_ms u64`, then
+/// the watched site's name in UTF-8.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HangReport {
+    /// The site's hang deadline.
+    pub deadline_ms: u64,
+    /// How long the pass had been busy when the holder's watcher saw it.
+    pub busy_ms: u64,
+    /// The watched site (`holder-loop`).
+    pub site: String,
+}
+
+impl HangReport {
+    pub fn encode(&self) -> Vec<u8> {
+        Out::default().u64(self.deadline_ms).u64(self.busy_ms).bytes(self.site.as_bytes()).0
+    }
+
+    pub fn decode(payload: &[u8]) -> io::Result<Self> {
+        let mut input = In(payload);
+        let deadline_ms = input.u64()?;
+        let busy_ms = input.u64()?;
+        let site = String::from_utf8_lossy(input.rest()).into_owned();
+        Ok(Self { deadline_ms, busy_ms, site })
     }
 }
 

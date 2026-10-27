@@ -10,10 +10,11 @@
 //! live owner that is still starting and waits for it, instead of seeing no
 //! owner, killing it, or starting a second one.
 
+use cmux_threads::sync::Mutex;
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, PoisonError};
 
 use super::listen::{BoundSocket, ServedSession, spawn_accept_loop};
 use super::{PendingServer, RenderService, cleanup};

@@ -769,6 +769,52 @@
       "reason": "The drag was dropped on the page view (task 050, -performDragOperation:); AppKit gets YES at once, as Chrome's WebDragDest returns it."
     },
     {
+      "name": "cmux_shim_set_suggestion_events",
+      "class": "preinit",
+      "args": [
+        {
+          "name": "enabled",
+          "type": "int"
+        }
+      ],
+      "returns": "void",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "Host mode with feature chromiumHostSuggestions (task 061): the host's browsers send their autofill, password and <datalist> suggestions as SUGGESTIONS events and cmux draws them, since Chromium's Views popup would open a window in the host. Sent once before initialize (CEFHostStart.attached) and replayed to every new host."
+    },
+    {
+      "name": "cmux_shim_browser_suggestion_action",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "token",
+          "type": "int64_t"
+        },
+        {
+          "name": "action",
+          "type": "int"
+        },
+        {
+          "name": "index",
+          "type": "int"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "The suggestion list's answer for a SUGGESTIONS token (task 061): SHOWN once on screen, the row under the pointer, a click, a delete button, a click outside. One-way, never awaited: Chromium's answer is the next SHOW or HIDE event, as Chrome's popup view calls its controller and waits for nothing."
+    },
+    {
       "name": "cmux_shim_set_color_chooser_handler",
       "class": "local",
       "args": [
@@ -4754,6 +4800,12 @@
       "value": 59,
       "refreshes": [],
       "reason": "Chromium closed popup a before cmux answered (PopupMenuRunner.Hide): the menu closes with no answer (task 060)."
+    },
+    {
+      "kind": "CMUX_SHIM_SUGGESTIONS",
+      "value": 60,
+      "refreshes": [],
+      "reason": "A field's suggestions as data (fork API 31's suggestion handler, tasks 172 and 061): SHOW, SELECT, HIDE and ANNOUNCE for the page view's suggestion list (ChromiumHostSuggestionList), as Chrome's AutofillPopupController drives its view."
     }
   ],
   "optional_exports": [

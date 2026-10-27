@@ -4,6 +4,7 @@ import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextHangReports
 import CmuxNextTrace
@@ -32,7 +33,10 @@ enum WatchdogReporting {
             work: services.work, mainWork: services.mainWork,
             metricsFolder: TraceBlackBoxFileSteps.appDirectory(bundleID: Bundle.main.bundleIdentifier),
             daemonPID: { [weak services] in services?.daemon.identity?.pid },
-            wireSchema: .written(serverAcceptsSchema3: services.features.isEnabled(.hangReportsSchema3)))
+            wireSchema: .written(serverAcceptsSchema3: services.features.isEnabled(.hangReportsSchema3)),
+            features: { [features = FeatureFlagsPage.report(services.features, tunables: TunableStore.shared)] in
+                HangReport.FeatureState(features.fieldState)
+            })
         let collector = hangReports.collector
         if let collector { services.crashReporting.attachHangReports(collector) }
         // The drain queue is a hang-watched lane for the process's life (Compat cannot see the watch). Set before

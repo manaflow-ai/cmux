@@ -1,0 +1,16 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "memoryOverlayPagesOnFirstUse",
+  "owner": "PL-memory",
+  "description": "The icon picker, the update card's highlights page and each browser pane's Extensions menu are made on their first open instead of ahead of it, and let go once unused for a while or at memory pressure; the first open of a session, and the first after a release, opens a little slower.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "labs",
+  "process": "app",
+  "params": [
+    { "name": "releaseAfter", "type": "duration", "default": 300, "min": 30, "max": 3600,
+      "description": "How long after it closes an unused overlay page is let go." }
+  ],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false
+}

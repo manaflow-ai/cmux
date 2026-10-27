@@ -205,6 +205,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 57: self = .pageView(browser: browser, .tooltip(s1))
         case 58: self = .popupMenu(browser: browser, token: a, popup: ChromiumHostPopupMenu(json: s1))
         case 59: self = .popupMenuHidden(browser: browser, token: a)
+        case 60: self = ChromiumHostSuggestionEvent(request: request, a: a, b: b, s1: s1).map { Self.pageView(browser: browser, .suggestions($0)) } ?? .unknown(kind: kind)
         default: self = .unknown(kind: kind)
         }
     }

@@ -599,6 +599,13 @@ impl From<&KittyPlacement> for PlacementSortKey {
     }
 }
 
+/// Decoded bytes a pixel map holds. Both maps (the renderer's and the replay
+/// encoder's) keep only the current image generations (`snapshot_impl`), so
+/// this is at most the terminal's native image bytes times the RGB expansion.
+pub(crate) fn pixel_cache_bytes(pixel_cache: &HashMap<u64, Arc<[u8]>>) -> usize {
+    pixel_cache.values().map(|pixels| pixels.len()).sum()
+}
+
 pub(crate) fn snapshot(
     terminal: &Terminal,
     pixel_cache: &mut HashMap<u64, Arc<[u8]>>,
