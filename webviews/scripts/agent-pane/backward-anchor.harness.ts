@@ -292,7 +292,11 @@ try {
         return false;
       });
     });
-    return { gap: gaps.at(-1)!, badFrames: gaps.filter((gap) => Math.abs(gap) > 1).length, gaps };
+    row.style.paddingBottom = "8px";
+    await window.cmuxPaintFrame();
+    await window.cmuxPaintFrame();
+    const largeGap = node.scrollHeight - node.clientHeight - node.scrollTop;
+    return { gap: gaps.at(-1)!, largeGap, badFrames: gaps.filter((gap) => Math.abs(gap) > 4).length, gaps };
   });
   console.log(JSON.stringify({ bottom, errors }));
   const manualGap = await page.evaluate(async () => {
@@ -302,7 +306,7 @@ try {
     node.dispatchEvent(new Event("scroll", { bubbles: true }));
     await window.cmuxPaintFrame();
     node.dispatchEvent(new WheelEvent("wheel", { deltaY: 40, bubbles: true }));
-    node.scrollTop = node.scrollHeight - node.clientHeight - 3;
+    node.scrollTop = node.scrollHeight - node.clientHeight - 8;
     node.dispatchEvent(new Event("scroll", { bubbles: true }));
     await window.cmuxPaintFrame();
     return node.scrollHeight - node.clientHeight - node.scrollTop;
@@ -316,8 +320,9 @@ try {
     assert.equal(receipt.topReversals, 0, "scroll offset reversed while prepending history");
     assert.equal(receipt.thumbReversals, 0, "normalized scrollbar thumb reversed while prepending history");
   }
-  assert.ok(Math.abs(bottom.gap) <= 1, `final bottom gap ${bottom.gap}`);
-  assert.equal(bottom.badFrames, 0, "a late measurement must not produce short or bouncing bottom frames");
+  assert.ok(Math.abs(bottom.gap) <= 4, `deadband bottom gap ${bottom.gap}`);
+  assert.ok(Math.abs(bottom.largeGap) <= 1, `5-8px growth was not corrected (${bottom.largeGap}px)`);
+  assert.equal(bottom.badFrames, 0, "a late measurement must not exceed the follow deadband or bounce");
   assert.ok(Math.abs(manualGap) <= 1, `scrolling into follow left a ${manualGap}px bottom gap`);
   assert.deepEqual(errors, []);
   assert.equal(new Set(cursors).size, cursors.length);
