@@ -620,8 +620,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 // Any size and number: inline when they fit one message with the text, else uploaded
                 // to the chat first and named by reference (`attach.rs`).
                 if !attach.is_empty() {
-                    prompt_id.attachments = crate::attach::blocks_for(&client, &session, &text, &attach)
-                        .await
+                    prompt_id.attachments = crate::attach::blocks_for(&client, &session, &text, &attach, &|line| {
+                        eprintln!("{line}");
+                    })
+                    .await
                         .map_err(|e| crate::cli::send_relay::attach_error(e, relaying, &session))?;
                 }
                 // A sub-session's send to its parent waits for the parent's turn to end, as its

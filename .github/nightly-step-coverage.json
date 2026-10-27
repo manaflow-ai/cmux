@@ -264,7 +264,7 @@
         "Find the attempt that compiled the published build": {"nightly_only": "looks up the published binary's producing run and artifact; a pull request has no published nightly build"},
         "Keep the published build's dSYMs on R2": {"nightly_only": "archives the published build's symbols to R2 with release credentials after publication"}},
       "pick-nightly-build-runner": {
-        "Pick an idle owned Mac, else a moving Blacksmith label": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next build takes an idle owned Mac or a moving Blacksmith label"},
+        "Pick the dedicated builder, else an idle owned Mac, else a moving Blacksmith label": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next build takes an idle owned Mac or a moving Blacksmith label"},
         "Mint the owned-pool routing token": {"nightly_only": "mints a glaeda-route GitHub App token from GLAEDA_ROUTE_APP_KEY, only on nightly-next push attempt 1 with owned pools on; its guard is checked by tests/test_nightly_build_runner.py"},
         "Mint the routing token without the org permission": {"nightly_only": "mints the glaeda-route GitHub App token with repository administration read only, when the org-permission mint failed on a nightly-next push"}},
       "pick-nightly-sign-runner": {
