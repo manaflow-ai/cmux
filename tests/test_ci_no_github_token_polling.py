@@ -51,6 +51,10 @@ ALLOWED: dict[str, str] = {
         "per DEV compile on a mini with CMUX_NEXT_HYBRID_REF_CAPTURE=1: two artifact reads "
         "(hybrid_ref_capture.py have), each sleeping only after a rate-limit refusal (Retry-After or "
         "the reset) or a 5xx, 600 s in all; a silent rate limit lost run 40428066457's capture",
+    "nightly.yml: Decide the Linux build's REF capture":
+        "per nightly-next build on an owned mini with NIGHTLY_HYBRID_REF_CAPTURE=1: the same two "
+        "artifact reads (hybrid_ref_capture.py have), each sleeping only after a rate-limit refusal or "
+        "a 5xx, 30 s in all (--budget 30, before the nightly compile)",
     "cmux-next.yml: Capture the Linux build's REF":
         "calls hybrid_ref_capture.py capture, which never runs have's retry loop (the scan reads the "
         "whole script); its one jobs read is not in a loop",

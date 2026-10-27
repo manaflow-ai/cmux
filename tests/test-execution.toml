@@ -322,6 +322,10 @@ path = "tests/test_ci_pull_request_caches_are_read_only.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_rust_cache_keeps_runner_bin.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_signing_secrets_need_release_environment.py"
 lane = "linux-guard"
 
@@ -1102,6 +1106,10 @@ path = "tests/test_cmux_next_prepush_gate.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_leo_bans.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_arch_layers.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. arch-layers.py is a report for the refactor lane, not a gate; run python3 tests/test_cmux_next_arch_layers.py yourself after changing it or architecture-layers.json (under 1 s, no build)."
@@ -1518,6 +1526,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_tui_owner_wait_defers.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_tree_handoff.py"
 lane = "linux-guard"
 
 [[test]]

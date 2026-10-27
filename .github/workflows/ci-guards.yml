@@ -98,6 +98,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: ./tests/test_ci_self_hosted_guard.sh
 
+      - name: Validate workflow files stay under GitHub's size limit
+        if: ${{ !cancelled() && matrix.group == 'preflight' }}
+        run: python3 tests/test_workflow_file_size.py
+
       - name: Validate Swift incremental diagnostics tooling
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: python3 tests/test_swift_incremental_diagnostics.py
@@ -949,6 +953,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_pull_request_caches_are_read_only.py
 
+      - name: Validate rust-cache keeps self-hosted runners' ~/.cargo/bin
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_rust_cache_keeps_runner_bin.py
+
       - name: Validate signing secrets are read only in protected environments
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_signing_secrets_need_release_environment.py
@@ -1259,6 +1267,10 @@ jobs:
       - name: Validate the cmux-tui tree owner check
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_owner_wait_defers.py
+
+      - name: Validate the cmux-tui tree hand-off cap
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_tui_tree_handoff.py
 
       - name: Validate the cmux-tui pin duplicate skip
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}

@@ -45,11 +45,15 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/cmux-next"))
 import hybrid_ref_capture as cap  # noqa: E402
+sys.path.insert(0, str(ROOT / "tests"))
+from nightly_workflow_text import nightly_text  # noqa: E402
 
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 NIGHTLY = ROOT / ".github/workflows/nightly.yml"
 COMPILE_SCRIPT = ROOT / "scripts/cmux-next/check-cmux-scheme-compile.sh"
 TOOLCHAIN = "Xcode 26.6\nBuild version 17F113\n25F61\n"
+# The app target is cmux-next and its module is cmux (DEV run 40446615480): a driver is the module
+# its builtin-SwiftDriver line names, not the task's target.
 LOG = """\
 xcodebuild command: xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Release OTHER_SWIFT_FLAGS=\\$\\(inherited\\)\\ -DCMUX_NO_PASSWORD_IMPORT\\ -DCMUX_NO_BROWSER_DATA_IMPORT build
 SwiftDriver CmuxNextApp normal arm64 com.apple.xcode.tools.swift.compiler (in target 'CmuxNextApp')
@@ -57,7 +61,7 @@ SwiftDriver CmuxNextApp normal arm64 com.apple.xcode.tools.swift.compiler (in ta
     builtin-SwiftDriver -- /X/swiftc -module-name CmuxNextApp -O -whole-module-optimization @/dd/a.resp
 SwiftCompile normal arm64 Compiling\\ a.swift (in target 'CmuxNextApp')
     /X/usr/bin/swift-frontend -frontend -c /ws/a.swift -module-name CmuxNextApp -o /dd/a.o
-SwiftDriver cmux normal arm64 com.apple.xcode.tools.swift.compiler (in target 'cmux')
+SwiftDriver cmux-next normal arm64 com.apple.xcode.tools.swift.compiler (in target 'cmux-next' from project 'cmux')
     cd /ws
     builtin-SwiftDriver -- /X/swiftc -module-name cmux -O @/dd/b.resp
 """
@@ -713,7 +717,8 @@ class NightlyProfile(unittest.TestCase):
 class NightlyWorkflow(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        workflow = yaml.safe_load(NIGHTLY.read_text())
+        # The capture steps run scripts/ci/nightly-steps/hybrid-ref-*.sh; read them back in place.
+        workflow = yaml.safe_load(nightly_text())
         cls.job = workflow["jobs"]["build-nightly-app"]
         cls.steps = {s.get("id"): s for s in cls.job["steps"] if s.get("id")}
         cls.named = {s.get("name"): s for s in cls.job["steps"]}
@@ -792,6 +797,11 @@ class NightlyWorkflow(unittest.TestCase):
                          ["Bundle the OptChat Chief and the iPhone host", "hybrid-ref-start"])
         self.assertEqual(self.order[-3:], ["hybrid-ref-capture", "Upload the REF capture manifest",
                                            "Stop the helper builds still running"])
+        for step in (decide, start, finish):
+            self.assertRegex(step["run"], r"^set -", "the moved script reads back in place (tests/nightly_workflow_text.py)")
+        raw = {s.get("id"): s for s in yaml.safe_load(NIGHTLY.read_text())["jobs"]["build-nightly-app"]["steps"] if s.get("id")}
+        for step_id, script in (("hybrid-ref", "decide"), ("hybrid-ref-start", "start"), ("hybrid-ref-capture", "finish")):
+            self.assertEqual(raw[step_id]["run"], f"bash scripts/ci/nightly-steps/hybrid-ref-{script}.sh")
         self.assertIn('stop --state "$RUNNER_TEMP/hybrid-ref-builds"', self.named["Stop the helper builds still running"]["run"])
 
     def test_the_compile_only_adds_emit_frontend_command_lines(self) -> None:
