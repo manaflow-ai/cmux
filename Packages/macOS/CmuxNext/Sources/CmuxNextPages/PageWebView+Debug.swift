@@ -182,7 +182,8 @@ extension PageWebView {
     /// capture slot's never-active window does not get. `{scrolled: true, top, height, viewport}` in
     /// CSS pixels when the element's box is in the viewport after the scroll (`top` is its top in the
     /// viewport); else `{scrolled: false, reason}`: `no match`, `not rendered` (every match has no
-    /// box), or `not in view` (a clipping scroller or overlay kept it out).
+    /// box), `not in view` (a clipping scroller or overlay kept it out), or `top covered` (at
+    /// `start`, a bar still covers its top edge).
     public func debugScroll(_ selector: String, block: String = "start") async -> JSONValue {
         let script = """
         const all = [...document.querySelectorAll(selector)];
@@ -200,18 +201,28 @@ extension PageWebView {
         if (!el) { return JSON.stringify({ reason: 'not rendered' }); }
         el.scrollIntoView({ block, inline: 'nearest', behavior: 'instant' });
         // At `start`, a sticky bar over the scroller's top (Settings' search and section tabs) would
-        // cover the element's own title: scroll back by what covers its top edge.
-        const s0 = el.getBoundingClientRect();
-        const over = block === 'start' && document.elementFromPoint(s0.left + s0.width / 2, Math.max(s0.top, 0) + 2);
-        if (over && !el.contains(over) && !over.contains(el)) {
+        // cover the element's own title: scroll back by what covers its top edge, again while
+        // another bar does (at most 4 times); a top still covered is not a scroll.
+        const coverOf = () => {
+          const t = el.getBoundingClientRect();
+          const over = document.elementFromPoint(t.left + t.width / 2, Math.max(t.top, 0) + 2);
+          if (!over || el.contains(over) || over.contains(el)) { return null; }
+          let cover = over;
+          while (cover.parentElement && !cover.parentElement.contains(el)) { cover = cover.parentElement; }
+          return cover.getBoundingClientRect().bottom - t.top + 8;
+        };
+        if (block === 'start') {
           let scroller = el.parentElement;
           while (scroller && !(/(auto|scroll)/.test(getComputedStyle(scroller).overflowY) && scroller.scrollHeight > scroller.clientHeight)) {
             scroller = scroller.parentElement;
           }
-          let cover = over;
-          while (cover.parentElement && !cover.parentElement.contains(el)) { cover = cover.parentElement; }
-          const by = cover.getBoundingClientRect().bottom - s0.top + 8;
-          if (by > 0) { (scroller || document.scrollingElement).scrollBy({ top: -by, behavior: 'instant' }); }
+          scroller = scroller || document.scrollingElement;
+          for (let i = 0; i < 4; i++) {
+            const by = coverOf();
+            if (by === null || by <= 0) { break; }
+            scroller.scrollBy({ top: -by, behavior: 'instant' });
+          }
+          if (coverOf() !== null) { return JSON.stringify({ reason: 'top covered' }); }
         }
         const r = el.getBoundingClientRect();
         // The part of its box that shows: inside the viewport and every clipping ancestor (a nested

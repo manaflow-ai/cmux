@@ -56,7 +56,7 @@ struct PageWebViewDebugScrollTests {
     /// does not shoot the unchanged fold as a pass.
     @Test func aHiddenOrClippedElementIsNotAScroll() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
-        for reason in ["not rendered", "not in view"] {
+        for reason in ["not rendered", "not in view", "top covered"] {
             let (view, _) = try await chromiumPage(answer: #"{"reason":"\#(reason)"}"#)
             #expect(await view.debugScroll(".card") == ["scrolled": false, "reason": .string(reason)])
             view.close()
