@@ -406,40 +406,67 @@ class NightlyProfile(unittest.TestCase):
             self.assertEqual(cap.capture(self.nightly_args(root, deadline=int(time.time()) - 1), env), 3)
             self.assertFalse((root / "out/manifest.json").exists())
 
+    @staticmethod
+    def helper_client(root: Path, tail: str) -> Path:
+        """A cmux-ci that starts a background helper, records both pids, then runs TAIL."""
+        client = root / "cmux-ci"
+        client.write_text(f"#!/bin/sh\nsleep 60 &\necho \"$$ $!\" > {root / 'pids'}\n{tail}\n")
+        client.chmod(0o755)
+        return client
+
+    @staticmethod
+    def alive(pid: int) -> bool:
+        # Gone, or a zombie nothing has reaped yet (Linux: its /proc state is Z).
+        try:
+            os.kill(pid, 0)
+            stat = Path(f"/proc/{pid}/stat")
+            return not (stat.exists() and stat.read_text().rsplit(")", 1)[1].split()[0] == "Z")
+        except (ProcessLookupError, FileNotFoundError):
+            return False
+
+    def assert_all_gone(self, root: Path) -> None:
+        pids = [int(x) for x in (root / "pids").read_text().split()]
+        gone = time.monotonic() + 5
+        while any(self.alive(pid) for pid in pids) and time.monotonic() < gone:
+            time.sleep(0.1)
+        self.assertEqual([pid for pid in pids if self.alive(pid)], [], "the upload or its helper outlived the capture")
+
     def test_the_deadline_kills_what_the_upload_started(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            pid_file = root / "helper.pid"
-            client = root / "cmux-ci"
-            client.write_text(f"#!/bin/sh\nsleep 60 &\necho $! > {pid_file}\nwait\n")
-            client.chmod(0o755)
-            env = dict(NIGHTLY_ENV, CMUX_CI_CLIENT=str(client))
+            env = dict(NIGHTLY_ENV, CMUX_CI_CLIENT=str(self.helper_client(root, "wait")))
             # Room for the packing before the first upload starts its helper.
             self.assertEqual(cap.capture(self.nightly_args(root, deadline=int(time.time()) + 6), env), 3)
-            helper = int(pid_file.read_text())
+            self.assert_all_gone(root)
 
-            def alive() -> bool:
-                # Gone, or a zombie nothing has reaped yet (Linux: its /proc state is Z).
-                try:
-                    os.kill(helper, 0)
-                    stat = Path(f"/proc/{helper}/stat")
-                    return not (stat.exists() and stat.read_text().rsplit(")", 1)[1].split()[0] == "Z")
-                except (ProcessLookupError, FileNotFoundError):
-                    return False
-
-            gone = time.monotonic() + 5
-            while alive() and time.monotonic() < gone:
-                time.sleep(0.1)
-            self.assertFalse(alive(), "the upload's helper outlived the deadline")
-
-    def test_a_failed_upload_fails_the_capture(self) -> None:
+    def test_a_failed_upload_fails_the_capture_and_leaves_nothing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            client = root / "cmux-ci"
-            client.write_text("#!/bin/sh\nexit 7\n")
-            client.chmod(0o755)
+            env = dict(NIGHTLY_ENV, CMUX_CI_CLIENT=str(self.helper_client(root, "exit 7")))
             with self.assertRaises(subprocess.CalledProcessError):
-                cap.capture(self.nightly_args(root, deadline=None), dict(NIGHTLY_ENV, CMUX_CI_CLIENT=str(client)))
+                cap.capture(self.nightly_args(root, deadline=None), env)
+            self.assertFalse((root / "out/manifest.json").exists())
+            self.assert_all_gone(root)
+
+    def test_the_cleanup_stop_kills_what_the_upload_started(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = self.nightly_args(root, deadline=None)
+            env = dict(os.environ, **NIGHTLY_ENV, CMUX_CI_CLIENT=str(self.helper_client(root, "wait")))
+            state = root / "state"
+            argv = [sys.executable, str(ROOT / "scripts/cmux-next/hybrid_ref_capture.py"), "capture", "--log", args.log,
+                    "--workspace", args.workspace, "--derived-data", args.derived_data, "--read-workspace",
+                    args.read_workspace, "--read-derived-data", args.read_derived_data, "--sha", args.sha, "--key",
+                    args.key, "--run-id", "9", "--lane", args.lane, "--out", args.out, "--upload"]
+            background = [sys.executable, str(ROOT / "scripts/ci/background_build.py")]
+            subprocess.run([*background, "start", "--state", str(state), "capture", "--", *argv],
+                           env=env, check=True, capture_output=True)
+            started = time.monotonic() + 30
+            while not (root / "pids").exists() and time.monotonic() < started:
+                time.sleep(0.1)
+            self.assertTrue((root / "pids").exists(), "the upload started")
+            subprocess.run([*background, "stop", "--state", str(state)], check=True, capture_output=True)
+            self.assert_all_gone(root)
             self.assertFalse((root / "out/manifest.json").exists())
 
     def test_a_linked_package_cache_is_refused(self) -> None:

@@ -242,49 +242,62 @@ def split(path: Path) -> list[Path]:
     return parts
 
 
-class DeadlinePassed(Exception):
+class Stopped(Exception):
     pass
 
 
 def put(argv: list[str]) -> None:
-    """Run one upload in its own process group; anything that stops the wait (the deadline) kills the group."""
-    proc = subprocess.Popen(argv, stdout=subprocess.DEVNULL, start_new_session=True)
+    """Run one upload in its own process group, and kill that group however the upload ends: the job's
+    cleanup (background_build.py stop) signals only the capture's group, so nothing an upload started
+    may outlive it."""
+    # A stop that lands while the upload starts waits until the group is known, then runs the finally.
+    stops = {signal.SIGALRM, signal.SIGTERM}
+    signal.pthread_sigmask(signal.SIG_BLOCK, stops)
     try:
-        status = proc.wait()
+        proc = subprocess.Popen(argv, stdout=subprocess.DEVNULL, start_new_session=True)
     except BaseException:
+        signal.pthread_sigmask(signal.SIG_UNBLOCK, stops)
+        raise
+    try:
+        signal.pthread_sigmask(signal.SIG_UNBLOCK, stops)
+        status = proc.wait()
+    finally:
         try:
             os.killpg(proc.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
-        proc.wait()
-        raise
+        if proc.returncode is None:
+            proc.wait()
     if status:
         raise subprocess.CalledProcessError(status, argv)
 
 
 def capture(a: argparse.Namespace, environ=os.environ) -> int:
+    """capture_now, stopped without a manifest at --deadline or on SIGTERM (the cleanup's stop), so
+    put() still kills a running upload's group."""
     deadline = getattr(a, "deadline", None)
-    if deadline is None:
-        return capture_now(a, environ)
-    left = int(deadline - time.time())
-    if left <= 0:
-        print("hybrid-ref capture: the deadline has passed; nothing captured")
-        return 3
+    left = None
+    if deadline is not None:
+        left = int(deadline - time.time())
+        if left <= 0:
+            print("hybrid-ref capture: the deadline has passed; nothing captured")
+            return 3
 
-    def expire(_signum, _frame):
-        raise DeadlinePassed()
+    def stop(signum, _frame):
+        raise Stopped("its deadline" if signum == signal.SIGALRM else signal.Signals(signum).name)
 
-    previous = signal.signal(signal.SIGALRM, expire)
-    signal.alarm(left)
+    previous = {sig: signal.signal(sig, stop) for sig in (signal.SIGALRM, signal.SIGTERM)}
+    if left:
+        signal.alarm(left)
     try:
-        # put() kills a running upload's whole process group when the alarm's exception reaches it.
         return capture_now(a, environ)
-    except DeadlinePassed:
-        print(f"hybrid-ref capture: stopped at its deadline ({left} s); no manifest")
+    except Stopped as why:
+        print(f"hybrid-ref capture: stopped at {why}; no manifest")
         return 3
     finally:
         signal.alarm(0)
-        signal.signal(signal.SIGALRM, previous)
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
 
 
 def capture_now(a: argparse.Namespace, environ=os.environ) -> int:
