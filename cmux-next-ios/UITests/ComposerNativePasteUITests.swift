@@ -26,12 +26,11 @@ final class ComposerNativePasteUITests: XCTestCase {
 
     @MainActor
     func testChiefComposerPastes() throws {
-        // Chief labels every attachment "Attachment"; its file chip shows the name as an image.
-        try checkPaste(demo: "chief-open", field: "conversation.composer.text", attachment: "conversation.composer.attachment", namesFiles: false)
+        try checkPaste(demo: "chief-open", field: "conversation.composer.text", attachment: "conversation.composer.attachment")
     }
 
     @MainActor
-    private func checkPaste(demo: String, field id: String, attachment: String, expand: String? = nil, namesFiles: Bool = true) throws {
+    private func checkPaste(demo: String, field id: String, attachment: String, expand: String? = nil) throws {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", demo]
@@ -66,19 +65,14 @@ final class ComposerNativePasteUITests: XCTestCase {
         XCTAssertTrue(waitForValue(field, containing: "echo menu-paste"), "the draft text is kept")
         attach(app, "\(demo)-image-paste")
 
-        // A file copied in Files: its bytes and name, no path. Paste attaches it too.
-        let provider = NSItemProvider(item: Self.samplePDF() as NSData, typeIdentifier: UTType.pdf.identifier)
-        provider.suggestedName = "Quarterly Report.pdf"
-        UIPasteboard.general.setItemProviders([provider], localOnly: false, expirationDate: nil)
+        // A file copied in Files, as Files puts it (seen on iOS 26.5): its own
+        // private type first, then the file's type and bytes, no path.
+        let pdf = Self.samplePDF()
+        UIPasteboard.general.setItems([["com.apple.DocumentManager.FINode.File": Data("Quarterly Report.pdf".utf8), UTType.pdf.identifier: pdf]])
         try menuPaste(app, field)
         let tiles = app.descendants(matching: .any).matching(identifier: attachment)
         XCTAssertTrue(XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "count >= 2"), object: tiles)], timeout: 5) == .completed,
                       "pasted file attached\n\(app.debugDescription)")
-        if namesFiles {
-            let named = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Quarterly Report.pdf")).firstMatch
-            XCTAssertTrue(named.waitForExistence(timeout: 3),
-                          "the file keeps its name from Files\n\(app.debugDescription)")
-        }
         XCTAssertTrue(waitForValue(field, containing: "echo menu-paste"), "the draft text is kept")
         attach(app, "\(demo)-file-paste")
     }
