@@ -43,7 +43,7 @@ struct BrowserCloseHistoryTests {
             if ok { daemon.stored.append(history) }
             return ok
         }
-        let page = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: a))
+        let page = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: a, origin: .user))
         service.track(page, for: tab)
         // The history writer starts on a turn after the daemon answers; a
         // fixed number of turns is not enough on a loaded machine.

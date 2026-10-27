@@ -34,7 +34,7 @@ import CmuxNextWakeups
     }
 
     static func chromiumTab(_ actions: [CEFExtensionAction]) -> MockBrowserTab {
-        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com")))
+        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com"), origin: .user))
         tab.showsExtensionToolbar = true
         tab.extensionActions = actions
         return tab

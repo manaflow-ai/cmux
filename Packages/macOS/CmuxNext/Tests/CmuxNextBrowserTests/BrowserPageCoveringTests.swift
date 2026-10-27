@@ -70,7 +70,7 @@ import Testing
     }
 
     private static func page(_ presentation: BrowserPresentation) -> MockBrowserTab {
-        let page = MockBrowserEngine().makeMockTab(BrowserTabConfiguration())
+        let page = MockBrowserEngine().makeMockTab(BrowserTabConfiguration(origin: .user))
         page.presentation = presentation
         return page
     }

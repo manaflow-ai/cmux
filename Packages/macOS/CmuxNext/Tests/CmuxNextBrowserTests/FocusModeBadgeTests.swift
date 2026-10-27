@@ -11,7 +11,7 @@ import CmuxNextWakeups
 @MainActor @Suite(.serialized) struct FocusModeBadgeTests {
     private func chrome() -> (BrowserChromeView, NSWindow) {
         let engine = MockBrowserEngine()
-        let tab = engine.makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/")))
+        let tab = engine.makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/"), origin: .user))
         let chrome = BrowserChromeView(tab: tab, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
         // The test owns the window; closing must not also release it (an over-release crashed the suite).

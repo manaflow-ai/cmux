@@ -19,7 +19,7 @@ import Testing
     private static func chrome(node: VisibilityNode?, work: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
                                url: URL? = URL(string: "https://example.com/")) -> BrowserChromeView {
         let engine = MockBrowserEngine()
-        let tab = engine.makeMockTab(BrowserTabConfiguration(initialURL: url))
+        let tab = engine.makeMockTab(BrowserTabConfiguration(initialURL: url, origin: .user))
         let chrome = BrowserChromeView(tab: tab, mainWork: work, node: node)
         chrome.frame = NSRect(x: 0, y: 0, width: 900, height: 600)
         return chrome
@@ -155,7 +155,7 @@ import Testing
         let window = VisibilityNode(root: "window", own: .visible, uptime: rig.clock.uptime)
         let node = VisibilityNode("tab", own: .hidden, parent: window)
         rig.timer.run(ms: 10_000)
-        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: nil))
+        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: nil, origin: .user))
         tab.showsExtensionToolbar = true
         let toolbar = ExtensionActionToolbar(slot: NSStackView(), mainWork: rig.work, node: node)
         let owner = "browser.extensions.menu.prepare"

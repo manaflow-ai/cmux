@@ -136,7 +136,7 @@ struct HibernationSnapshotsTests {
             captures.count += 1
             return image
         }
-        let tab = MockBrowserEngine().makeMockTab(BrowserTabConfiguration())
+        let tab = MockBrowserEngine().makeMockTab(BrowserTabConfiguration(origin: .user))
         defer { tab.close() }
         let pane = PaneToken()
         hibernation.paneDidChange(ObjectIdentifier(pane), order: ["a", "b", "c", "d", "e"], selected: "a")

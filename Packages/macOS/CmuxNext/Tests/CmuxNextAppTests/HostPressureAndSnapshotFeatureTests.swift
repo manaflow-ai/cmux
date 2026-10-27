@@ -98,7 +98,7 @@ struct HostPressureAndSnapshotFeatureTests {
                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         let image = try #require(context.makeImage())
         hibernation.capture = { _ in image }
-        let tab = MockBrowserEngine().makeMockTab(BrowserTabConfiguration())
+        let tab = MockBrowserEngine().makeMockTab(BrowserTabConfiguration(origin: .user))
         defer { tab.close() }
         let compressed = await hibernation.snapshot(tab, key: "a")
         #expect(compressed != nil && compressed?.data != nil, "the default keeps pictures compressed")

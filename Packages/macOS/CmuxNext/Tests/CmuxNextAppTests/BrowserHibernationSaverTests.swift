@@ -268,7 +268,7 @@ struct BrowserHibernationSaverTests {
         }
 
         private func hide(_ key: String, playing: Bool) {
-            let tab = engine.makeMockTab(BrowserTabConfiguration(id: BrowserTabID(rawValue: key)))
+            let tab = engine.makeMockTab(BrowserTabConfiguration(id: BrowserTabID(rawValue: key), origin: .user))
             tab.evaluationResult = .string(playing ? Self.playingAnswer : Self.silentAnswer)
             tabs[key] = tab
             recorders[key] = Recorder()

@@ -14,7 +14,7 @@ struct OmnibarChromeParityTests {
 
     private func chrome(url: String = "https://example.com/") -> (BrowserChromeView, MockBrowserTab, NSWindow) {
         let engine = MockBrowserEngine()
-        let tab = engine.makeMockTab(BrowserTabConfiguration(initialURL: URL(string: url)))
+        let tab = engine.makeMockTab(BrowserTabConfiguration(initialURL: URL(string: url), origin: .user))
         let chrome = BrowserChromeView(tab: tab, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
         chrome.frame = window.contentView!.bounds
@@ -135,7 +135,7 @@ struct OmnibarChromeParityTests {
     /// WebKit moves its URL back to the previous page, which made the bar
     /// say `example.com` over "Can't open this page" for `devbox:8080`.
     @Test func aFailedLoadKeepsItsAddressInTheBar() throws {
-        let tab = MockBrowserEngine().makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/")))
+        let tab = MockBrowserEngine().makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/"), origin: .user))
         let failing = try #require(URL(string: "http://devbox:8080"))
         let id = tab.makeNavigationID()
         tab.simulate(.started(id, url: failing))

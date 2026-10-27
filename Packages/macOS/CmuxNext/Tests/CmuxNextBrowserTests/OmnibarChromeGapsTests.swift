@@ -198,7 +198,7 @@ struct OmnibarChromeGapsTests {
     @Test func aRefusedUpgradeFallsBackToHTTP() throws {
         let https = try #require(URL(string: "https://example.com"))
         func failing(_ code: Int) -> BrowserTabState {
-            let tab = MockBrowserEngine().makeMockTab(BrowserTabConfiguration(initialURL: nil))
+            let tab = MockBrowserEngine().makeMockTab(BrowserTabConfiguration(initialURL: nil, origin: .user))
             let id = tab.makeNavigationID()
             tab.simulate(.started(id, url: https))
             tab.simulate(.failed(id, BrowserLoadError(domain: NSURLErrorDomain, code: code, message: "", failingURL: https)))
@@ -212,7 +212,7 @@ struct OmnibarChromeGapsTests {
         fallback.expect(https)
         #expect(fallback.observe(failing(NSURLErrorCannotFindHost)) == nil)
 
-        let tab = MockBrowserEngine().makeMockTab(BrowserTabConfiguration(initialURL: nil))
+        let tab = MockBrowserEngine().makeMockTab(BrowserTabConfiguration(initialURL: nil, origin: .user))
         fallback.expect(https)
         let id = tab.makeNavigationID()
         tab.simulate(.started(id, url: https))

@@ -13,7 +13,7 @@ import CmuxNextWakeups
 /// (cx-d0d.81) and the Extensions menu hid in More.
 @MainActor @Suite struct BrowserToolbarExtensionsButtonTests {
     private func chromiumTab(_ actions: [CEFExtensionAction] = []) -> MockBrowserTab {
-        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com")))
+        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com"), origin: .user))
         tab.showsExtensionToolbar = true
         tab.extensionActions = actions
         return tab

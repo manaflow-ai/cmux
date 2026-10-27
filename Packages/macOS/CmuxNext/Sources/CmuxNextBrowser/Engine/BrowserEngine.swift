@@ -61,21 +61,6 @@ public nonisolated struct BrowserTabConfiguration: Hashable, Sendable {
         self.navigationGuard = navigationGuard
         self.origin = origin
     }
-
-    /// The configuration of a tab the user opens (``BrowserTabOrigin/user``). Removed once no caller is left (p08-startup-114).
-    @available(*, deprecated, message: "BrowserTabConfiguration without origin means .user; pass origin (p08-startup Q8)")
-    public init(
-        id: BrowserTabID = .random(),
-        profile: BrowserProfileID = .default,
-        initialURL: URL? = nil,
-        zoom: Double = 1,
-        pane: BrowserPaneID? = nil,
-        machineStore: BrowserMachineStore? = nil,
-        navigationGuard: BrowserNavigationGuard = .none
-    ) {
-        self.init(id: id, profile: profile, initialURL: initialURL, zoom: zoom, pane: pane, machineStore: machineStore,
-                  navigationGuard: navigationGuard, origin: .user)
-    }
 }
 
 /// A page's back/forward history with page state (scroll position, form

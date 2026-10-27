@@ -60,7 +60,7 @@ import Testing
     /// A decided key runs no action from the Chromium page and DevTools hooks.
     @Test func aDecidedKeyRunsNothingInTheChromiumHooks() throws {
         let router = KeyRouter(registry: registry)
-        let tab = MockBrowserEngine().makeMockTab(BrowserTabConfiguration())
+        let tab = MockBrowserEngine().makeMockTab(BrowserTabConfiguration(origin: .user))
         for event in [try Self.key("t", [.command], keyCode: 17), try Self.key("i", [.command, .option], keyCode: 34)] {
             router.decided.add(event)
             #expect(router.browserTab(tab, keyEquivalent: event) == .passToPage)

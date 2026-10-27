@@ -16,7 +16,7 @@ import Testing
     private static let never: Duration = .seconds(3_600)
 
     private func page(_ rig: DeadlineRig = DeadlineRig()) -> MockBrowserTab {
-        MockBrowserEngine(completesNavigationsImmediately: false, waitDeadlines: rig.queue).makeMockTab(BrowserTabConfiguration())
+        MockBrowserEngine(completesNavigationsImmediately: false, waitDeadlines: rig.queue).makeMockTab(BrowserTabConfiguration(origin: .user))
     }
 
     @Test func aPhaseWaiterReadsNothingOnTitleChangesAndResumesOnceOnItsTransition() async {

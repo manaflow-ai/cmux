@@ -67,7 +67,7 @@ import Testing
     /// A Chromium stand-in drawn in the chrome (host mode, `.inView`) or in its own window (`.childWindow`).
     static func mockPage(_ presentation: BrowserPresentation = .inView, background: CGColor? = nil) -> MockBrowserTab {
         let tab = MockBrowserEngine(kind: .cef, completesNavigationsImmediately: true)
-            .makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/")))
+            .makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/"), origin: .user))
         tab.presentation = presentation
         tab.pageBackgroundColor = background
         return tab

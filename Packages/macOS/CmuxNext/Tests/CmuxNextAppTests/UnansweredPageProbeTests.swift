@@ -13,7 +13,7 @@ import Testing
 /// that does not answer now counts as unknown; the media the tab already reported still keeps it.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct UnansweredPageProbeTests {
     private func tab() -> MockBrowserTab {
-        MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com")))
+        MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com"), origin: .user))
     }
 
     @Test func aPageThatDoesNotAnswerIsNotPlayingMedia() async {

@@ -123,7 +123,7 @@ import Testing
 
         /// A page of tab `key` in `profile`, in the cache.
         func page(_ key: String, profile: BrowserProfileID = .default) -> MockBrowserTab {
-            let page = engine.makeMockTab(BrowserTabConfiguration(id: BrowserTabID(rawValue: key), profile: profile))
+            let page = engine.makeMockTab(BrowserTabConfiguration(id: BrowserTabID(rawValue: key), profile: profile, origin: .user))
             cache.install(page, for: key)
             keys.append(key)
             return page

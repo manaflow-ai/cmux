@@ -204,7 +204,7 @@ struct BrowserHibernationUrgentPassTests {
 
         /// A mock browser tab that can hibernate, shown then hidden now (the test clock's).
         func hideTab(_ key: String) {
-            let tab = engine.makeMockTab(BrowserTabConfiguration())
+            let tab = engine.makeMockTab(BrowserTabConfiguration(origin: .user))
             tab.hibernationRestore = .webKit(Data([1]))
             _ = services.cache.install(tab, for: key)
             services.cache.present(key, by: pane, presence: .visible)

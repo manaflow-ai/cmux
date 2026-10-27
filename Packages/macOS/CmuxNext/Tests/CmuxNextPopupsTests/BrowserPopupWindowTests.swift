@@ -83,7 +83,7 @@ import CmuxNextWakeups
         -> (BrowserPopupWindows, MockBrowserTab, BrowserPopupWindow, NSWindow) {
         let popups = BrowserPopupWindows(mainWork: MainWorkScheduler(budget: MainFrameBudget()), inputTap: InputEventTap())
         popups.ordersWindowsIn = false
-        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: url)))
+        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: url), origin: .user))
         let opener = makeOpener()
         popups.open(tab, request: request, from: opener, openerKey: "tab_opener")
         return (popups, tab, popups.window(for: tab)!, opener)
@@ -170,7 +170,7 @@ import CmuxNextWakeups
     }
 
     @Test func aSignInWindowsOmnibarIsReadOnly() async throws {
-        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://accounts.example.com/signin")))
+        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://accounts.example.com/signin"), origin: .user))
         let window = BrowserPopupWindow(page: tab, frame: CGRect(x: 0, y: 0, width: 480, height: 600), readOnlyAddress: true, mainWork: MainWorkScheduler(budget: MainFrameBudget()), inputTap: nil)
         defer { window.close() }
         let bars = descendants(of: window.contentView).compactMap { $0 as? AddressBarView }
@@ -287,7 +287,7 @@ import CmuxNextWakeups
     /// host's panel (omnibar suggestions, toasts) included. No per-event check puts the panel back, so
     /// the popup's `addChildWindow` does it in the same call, as the main window's does.
     @Test func aPageAddedToThePopupGoesBelowItsOverlayPanel() {
-        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://accounts.example.com/signin")))
+        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://accounts.example.com/signin"), origin: .user))
         let window = BrowserPopupWindow(page: tab, frame: CGRect(x: 100, y: 100, width: 480, height: 600), mainWork: MainWorkScheduler(budget: MainFrameBudget()), inputTap: nil)
         window.orderFrontRegardless()
         let host = WindowOverlayHost.host(for: window)
@@ -308,7 +308,7 @@ import CmuxNextWakeups
     }
 
     @Test func aSignInWindowTakesCmdL() {
-        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://accounts.example.com/signin")))
+        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://accounts.example.com/signin"), origin: .user))
         let window = BrowserPopupWindow(page: tab, frame: CGRect(x: 0, y: 0, width: 480, height: 600), readOnlyAddress: true, mainWork: MainWorkScheduler(budget: MainFrameBudget()), inputTap: nil)
         defer { window.close() }
         window.focusAddressBar()
@@ -408,7 +408,7 @@ import CmuxNextWakeups
     @Test func aPopupsOwnPopupIsAnotherPopupWindowOfTheSameOpenerTab() throws {
         let (popups, tab, window, _) = open("https://example.com")
         defer { popups.closeAll() }
-        let child = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/child")))
+        let child = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/child"), origin: .user))
         #expect(popups.handle(tab, .openPopup(child, BrowserPopupRequest(size: CGSize(width: 300, height: 200)))))
         let nested = try #require(popups.window(for: child))
         #expect(nested !== window)

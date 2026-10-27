@@ -17,7 +17,7 @@ import Testing
 /// a key bound to it, the CLI and MCP.
 @MainActor struct PictureInPictureTests {
     static func tab() -> MockBrowserTab {
-        MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://www.youtube.com/watch?v=1")))
+        MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://www.youtube.com/watch?v=1"), origin: .user))
     }
 
     @Test func aReportSaysWhetherItsVideoFloats() throws {

@@ -46,7 +46,7 @@ struct ChromeIconButtonLongPressTests {
         /// `listsEntries`: the tab lists its back entries (the menu), or lists none (no menu).
         init(listsEntries: Bool) throws {
             _ = NSApplication.shared
-            let tab = MockBrowserEngine().makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/0")))
+            let tab = MockBrowserEngine().makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/0"), origin: .user))
             tab.load(try #require(URL(string: "https://example.com/1")))
             if listsEntries {
                 let entries = (0...1).map { BrowserNavigationEntry(url: URL(string: "https://example.com/\($0)"), title: "Page \($0)") }

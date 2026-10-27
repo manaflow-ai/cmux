@@ -47,7 +47,7 @@ struct PageLifecycleCacheTests {
         let rig = try Rig()
         defer { rig.close() }
         let engine = MockBrowserEngine()
-        let first = engine.makeMockTab(BrowserTabConfiguration()), second = engine.makeMockTab(BrowserTabConfiguration())
+        let first = engine.makeMockTab(BrowserTabConfiguration(origin: .user)), second = engine.makeMockTab(BrowserTabConfiguration(origin: .user))
         let (a, b) = (first.id.rawValue, second.id.rawValue)
         _ = rig.cache.install(first, for: a)
         _ = rig.cache.install(second, for: b)
@@ -79,7 +79,7 @@ struct PageLifecycleCacheTests {
         let rig = try Rig()
         defer { rig.close() }
         let engine = MockBrowserEngine()
-        let tab = engine.makeMockTab(BrowserTabConfiguration())
+        let tab = engine.makeMockTab(BrowserTabConfiguration(origin: .user))
         let key = tab.id.rawValue
         _ = rig.cache.install(tab, for: key)
         let log = OrderLog()

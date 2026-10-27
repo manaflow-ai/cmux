@@ -148,15 +148,6 @@ import Testing
         #expect(starts.names == ["shown", "shown", "hidden"])
     }
 
-    @Test func theOriginlessConfigurationMeansUser() {
-        #expect(Self.originless().origin == .user)
-        #expect(BrowserTabConfiguration(origin: .restoreHidden).origin == .restoreHidden)
-    }
-
-    /// The deprecated init, called once here on purpose (p08-startup-114 removes it with this test).
-    @available(*, deprecated)
-    private static func originless() -> BrowserTabConfiguration { BrowserTabConfiguration() }
-
     /// Lets the waiting tasks run up to their first suspension.
     private static func settle() async {
         for _ in 0..<10 { await Task.yield() }

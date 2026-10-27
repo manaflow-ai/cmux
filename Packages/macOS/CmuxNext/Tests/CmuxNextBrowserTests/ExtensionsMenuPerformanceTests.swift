@@ -28,7 +28,7 @@ import CmuxNextWakeups
     static func tab(extensions count: Int = count) -> MockBrowserTab {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ext-menu-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com")))
+        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com"), origin: .user))
         tab.showsExtensionToolbar = true
         tab.extensionBackend.extensions = (0..<count).map { index in
             BrowserExtensionInfo(id: "ext\(index)", name: "Extension \(index)", location: .webstore, hasAction: true,

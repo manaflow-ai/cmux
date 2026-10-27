@@ -65,7 +65,7 @@ import Testing
         // "Can Chromium open a tab?" and "does Chromium run?" are answered without one.
         #expect(cache.browserTabs.cefUnavailable() == .notBundled)
         #expect(!cache.chromiumNow.runs())
-        #expect(cache.chromiumNow.make(BrowserTabConfiguration()) == nil)
+        #expect(cache.chromiumNow.make(BrowserTabConfiguration(origin: .user)) == nil)
         #expect(builds.made.isEmpty)
         #expect(slot.built == nil)
 
