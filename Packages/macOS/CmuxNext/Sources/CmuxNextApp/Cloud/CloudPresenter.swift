@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextCloudCredentials
 import CmuxNextDesign
 import os
 
@@ -147,7 +148,7 @@ enum CloudPresenter {
               [ "$(id -un)" = cmux ]; set --
             fi
             "$@" env HOME=/home/cmux USER=cmux LOGNAME=cmux SHELL=/bin/bash TERM=xterm-256color \
-              /home/cmux/.cmux/bin/cmux-tui acp --json session restart \(CloudCredentialInstaller.quote(sessionID))
+              /home/cmux/.cmux/bin/cmux-tui acp --json session restart \(CloudStartSession.shellQuoted(sessionID))
             """
         let result = try await exec(command)
         guard result.exitCode == 0, result.stdout.utf8.count < 65_536,

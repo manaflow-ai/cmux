@@ -15,7 +15,7 @@ struct CloudCredentialRecoveryTests {
             (#"{"restarted":1}"#, false), ("invalid", false),
         ] {
             let recovered = try await CloudPresenter.restartCredentialSession("chat-1", exec: { command in
-                #expect(command.contains("acp --json session restart 'chat-1'"))
+                #expect(command.contains("acp --json session restart chat-1"))
                 return CloudExecResult(exitCode: 0, stdout: reply, stderr: "private diagnostic")
             })
             #expect(recovered == accepted)
