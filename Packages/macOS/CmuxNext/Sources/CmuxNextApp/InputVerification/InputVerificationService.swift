@@ -4,6 +4,7 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextFocus
 import CmuxNextInput
+import CmuxNextInputModel
 import CmuxNextWakeups
 
 /// Input verification (plans/cmux-next/input-spec.md): the journal policy,

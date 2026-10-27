@@ -1,11 +1,12 @@
 import CmuxNextFocus
+import CmuxNextInputModel
 
 // World invariants (W): the focus model against what AppKit, Ghostty,
 // WebKit and Chromium actually show (plans/cmux-next/input-spec.md
 // section 2.5). Valid only once effects and presentation settled; a pane
 // whose selected content is not presented yet is reported as unsettled and
 // its window's content checks are skipped.
-extension InputInvariants {
+nonisolated extension InputInvariants {
     struct WorldResult: Hashable, Sendable, Codable {
         var violations: [InputViolation]
         /// Windows skipped because content was still being presented.

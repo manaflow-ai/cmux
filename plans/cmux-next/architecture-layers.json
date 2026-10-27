@@ -63,6 +63,7 @@
 
     "CmuxNextHibernation": {"layer": "domain"},
     "CmuxNextSettings": {"layer": "domain", "plan": "drop Design: its 86 value types move to CmuxNextDesignTokens"},
+    "CmuxNextInputModel": {"layer": "domain", "note": "the terminal attach machine and the input journal values, observation and model and transition invariants (p15-oracle-102): pure, Foundation, Daemon and Focus only"},
     "CmuxNextBridge": {"layer": "domain", "plan": "maps daemon state to view models: the models it fills move out of Layout, Sidebar, Tabs into their domain packages"},
     "CmuxNextImportSuggestions": {"layer": "domain"},
     "CmuxNextAgentCursor": {"layer": "domain", "plan": "drop Design (Motion values to DesignTokens)"},

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextInputModel
 import CmuxNextSettings
 import CmuxNextFocus
 
