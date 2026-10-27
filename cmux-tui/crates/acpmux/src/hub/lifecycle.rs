@@ -546,7 +546,7 @@ impl Hub {
     /// request's, and its agent keeps running. The spawn lock, which every reopen holds
     /// (`ensure_child`), is held from the read to the end of the purge (`kill` never takes it).
     pub(super) async fn discard_failed_creation(&self, session: &Arc<Session>, created_stops: u64) {
-        if session.status() == SessionStatus::Closed {
+        if session.purged.load(Ordering::SeqCst) {
             return;
         }
         let _spawning = session.spawn_lock.lock().await;
