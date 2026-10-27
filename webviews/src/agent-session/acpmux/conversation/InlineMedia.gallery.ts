@@ -5,6 +5,7 @@
 // PR's media on raw.githubusercontent.com loads at once, and an image from any other site waits for Load image in
 // the same frame.
 import { agentPaneEntry, type ChipHostFixture } from "../../../gallery/format";
+import type { Play } from "../../../gallery/play";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
 import { LOGIN_TESTS_MP4 } from "../../../gallery/fixtures/toolImages";
 import { sampleChart, sampleDiagram, sampleGradient } from "../mockFixture";
@@ -48,8 +49,34 @@ const HOST: ChipHostFixture = {
   },
 };
 
+/// The pointer on the video's Open in tab and Expand (between them, on neither), once the video's
+/// first frame is read, so the frame shows its poster. The matrix runner's trusted pointer shows
+/// them (`.cv-media:hover`); the shell's DOM events do not.
+const hoverActions: Play = async (ctx) => {
+  await ctx.waitFor(
+    () => (ctx.document.querySelector<HTMLVideoElement>(".cv-media.is-video video")?.readyState ?? 0) >= 2,
+  );
+  await ctx.hover({ selector: ".cv-media.is-video .cv-media__actions" });
+};
+
+/// A click on the poster plays it with the player's controls; it is held still at 1 s for the
+/// capture, with the pointer on Open in tab and Expand.
+const playThenHover: Play = async (ctx) => {
+  await ctx.waitFor(
+    () => (ctx.document.querySelector<HTMLVideoElement>(".cv-media.is-video video")?.readyState ?? 0) >= 2,
+  );
+  await ctx.click({ selector: ".cv-media.is-video button.cv-media__poster" });
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-media__frame.is-playing"));
+  const video = ctx.document.querySelector<HTMLVideoElement>(".cv-media.is-video video")!;
+  video.pause();
+  video.currentTime = 1;
+  await ctx.waitFor(() => !video.seeking && video.readyState >= 2);
+  await hoverActions(ctx);
+};
+
 const reply = (prompt: string, text: string) =>
   chat([user(prompt, 3), assistant(text, 2.9), summary(2.9)], { title: prompt });
+const recording = reply("Record the login tests", `The recording of the six login tests:\n\n![Login tests](${VIDEO})`);
 
 export default agentPaneEntry({
   id: "agent-pane.inline-media",
@@ -105,7 +132,38 @@ export default agentPaneEntry({
     "video-thumbnail": {
       note: "Before hover intent: a video in a reply shows its poster frame, a glass play button and its length.",
       chipHost: HOST,
-      snapshot: reply("Record the login tests", `The recording of the six login tests:\n\n![Login tests](${VIDEO})`),
+      snapshot: recording,
+    },
+    "video-hovered": {
+      note: "The pointer on a video before it plays: Open in tab and Expand in its top corner, over the poster.",
+      chipHost: HOST,
+      snapshot: recording,
+      play: hoverActions,
+    },
+    "video-playing": {
+      note: "A playing video (held at 1 s) with the pointer on it: the player's controls with Open in tab and Expand.",
+      chipHost: HOST,
+      snapshot: recording,
+      play: playThenHover,
+    },
+    "video-short-playing": {
+      note: "A 100 px player keeps Open in tab and Expand above the video, clear of both native control bars.",
+      chipHost: HOST,
+      snapshot: recording,
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-media.is-video video"));
+        const video = ctx.document.querySelector<HTMLVideoElement>(".cv-media.is-video video")!;
+        video.style.height = "100px";
+        video.style.width = "360px";
+        video.style.objectFit = "contain";
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-media.has-short-video"));
+        // Paint the fixture resize before measuring the separate playback click.
+        const view = ctx.document.defaultView!;
+        await new Promise<void>((resolve) =>
+          view.requestAnimationFrame(() => view.requestAnimationFrame(() => resolve())),
+        );
+        await playThenHover(ctx);
+      },
     },
     "video-hover-intent": {
       note: "After hover intent: the muted preview starts after a deliberate 250 ms rest and the poster eases back; motion-off users stay on the poster.",
