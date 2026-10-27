@@ -82,6 +82,9 @@
     case CMUX_SHIM_POPUP_MENU:
     case CMUX_SHIM_POPUP_MENU_HIDE:
     case CMUX_SHIM_SUGGESTIONS:
+    case CMUX_SHIM_COLOR_CHOOSER:
+    case CMUX_SHIM_DEVICE_CHOOSER:
+    case CMUX_SHIM_DESKTOP_MEDIA:
       return true;
   }
   return false;
