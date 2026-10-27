@@ -52,6 +52,7 @@ members = [
     "crates/cmux-memory",
     "crates/cmux-pty",
     "crates/cmux-holder",
+    "crates/cmux-vt-worker",
     "crates/cmux-ipc",
     "crates/cmux-flow-trace",
     "crates/cmux-threads",
