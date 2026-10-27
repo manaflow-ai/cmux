@@ -16,14 +16,14 @@ import Foundation
 /// the registry's read on the main thread before the first window finds it
 /// ready; `ActionCatalogLaunch.mainAccess` records how that read went
 /// (`debug.startup`'s `action_catalog_main_wait_ms`), and the
-/// `action_catalog_built` launch mark is when this thread finished it.
+/// `action_catalog_built` launch mark is when this thread finished it (no
+/// mark when main claimed the build first).
 enum LaunchWarmup {
     static func start(catalog: ActionCatalogLaunch) {
         // qos-allow: a frame waits for it (userInteractive): main reads the catalog, the menu's symbol and the
         // display UUIDs before its first frame; below main's QoS a loaded machine ran them after main reached them.
         let thread = Thread {
-            catalog.build()
-            DebugTimings.markLaunch("action_catalog_built")
+            if catalog.build() { DebugTimings.markLaunch("action_catalog_built") }
             // The SF Symbols catalog loads on first lookup (20 ms on the
             // main thread while the palette or the main menu first drew).
             _ = NSImage(systemSymbolName: "command", accessibilityDescription: nil)

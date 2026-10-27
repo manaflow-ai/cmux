@@ -103,10 +103,13 @@ public nonisolated final class ActionCatalogLaunch: Sendable {
 
     /// Builds the catalog on the calling thread (the launch warm-up thread), unless main or an earlier
     /// ``build()`` already claimed it.
-    public func build() {
-        guard claimBuild() else { return }
+    /// - Returns: True only when this call claimed the build and read the catalog.
+    @discardableResult
+    public func build() -> Bool {
+        guard claimBuild() else { return false }
         _ = read()
         phase.store(Phase.built.rawValue, ordering: .releasing)
+        return true
     }
 
     /// Claims the build for the calling thread; false when it was already claimed.

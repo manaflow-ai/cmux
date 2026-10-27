@@ -91,7 +91,7 @@ import Testing
         let reads = ReadCount()
         let catalog = ActionCatalogLaunch(read: { reads.read() }, uptimeNanoseconds: { 0 })
         _ = catalog.descriptors()
-        catalog.build()
+        #expect(!catalog.build())
         #expect(catalog.mainAccess?.outcome == .builtOnMain)
         #expect(reads.count.load(ordering: .relaxed) == 1)
     }
@@ -100,8 +100,8 @@ import Testing
     @Test func aSecondBuildSkipsTheRead() {
         let reads = ReadCount()
         let catalog = ActionCatalogLaunch(read: { reads.read() }, uptimeNanoseconds: { 0 })
-        catalog.build()
-        catalog.build()
+        #expect(catalog.build())
+        #expect(!catalog.build())
         #expect(reads.count.load(ordering: .relaxed) == 1)
     }
 

@@ -104,9 +104,10 @@ extension ThreadRegistry {
         ThreadDeclaration("com.cmux.host-pressure", qos: .utility),
         ThreadDeclaration("debug.window_record", qos: .userInitiated),
         ThreadDeclaration("com.cmuxterm.app.next.hang-reports.store", qos: .utility),
-        // Launch and misc.
+        // Launch and misc. The launch warm-up is on the closed user-interactive list: main reads what it builds
+        // before the first frame (LaunchWarmup).
         ThreadDeclaration("cmux-next resource bundle warm-up", qos: .userInitiated),
-        ThreadDeclaration("cmux-next launch warm-up", qos: .userInitiated),
+        ThreadDeclaration("cmux-next launch warm-up", qos: .userInteractive),
         ThreadDeclaration("cmux.updates.network", qos: .utility),
         ThreadDeclaration("com.cmuxterm.next.energy.wake-path", qos: .utility),
         ThreadDeclaration("cmux.home.fixture.video", qos: .utility),
