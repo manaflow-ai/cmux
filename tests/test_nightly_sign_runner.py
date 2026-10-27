@@ -64,8 +64,8 @@ class Pick(unittest.TestCase):
         self.assertEqual(picker.pick(SMALL, snapshot({SMALL: 40}), NOW)[0], LARGE)
 
     def test_a_wait_counts_the_snapshot_age(self) -> None:
-        self.assertEqual(picker.pick(LARGE, snapshot({LARGE: 20}, age_minutes=6), NOW)[0], SMALL)
-        self.assertEqual(picker.pick(LARGE, snapshot({LARGE: 20}, age_minutes=1), NOW)[0], LARGE)
+        self.assertEqual(picker.pick(LARGE, snapshot({LARGE: 5}, age_minutes=6), NOW)[0], SMALL)
+        self.assertEqual(picker.pick(LARGE, snapshot({LARGE: 5}, age_minutes=1), NOW)[0], LARGE)
 
     def test_no_fresh_snapshot_keeps_the_variable(self) -> None:
         self.assertEqual(picker.pick(LARGE, None, NOW)[0], LARGE)
