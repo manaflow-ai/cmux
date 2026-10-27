@@ -20,8 +20,9 @@ pub(super) fn signal_harness(record: &HostRecord, signal: i32) {
 
 /// Resident memory of `root` and every descendant, in bytes (one `ps`).
 pub fn tree_rss_bytes(root: u32) -> u64 {
-    let Ok(out) = std::process::Command::new("ps").args(["-A", "-o", "pid=,ppid=,rss="]).output()
-    else {
+    let mut ps = std::process::Command::new("ps");
+    ps.args(["-A", "-o", "pid=,ppid=,rss="]);
+    let Ok(out) = cmux_blocking::process::output(&mut ps) else {
         return 0;
     };
     let rows: Vec<(u32, u32, u64)> = String::from_utf8_lossy(&out.stdout)

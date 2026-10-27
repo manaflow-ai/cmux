@@ -64,7 +64,8 @@ impl ConfigWriter {
     pub(crate) fn flush(&self) {
         let mut state = self.lock();
         while self.running() && (!state.queued.is_empty() || state.writing) {
-            state = self.shared.written.wait(state).unwrap_or_else(|e| e.into_inner());
+            state = cmux_blocking::sync::wait(&self.shared.written, state)
+                .unwrap_or_else(|e| e.into_inner());
         }
     }
 
@@ -83,7 +84,12 @@ impl Drop for ConfigWriter {
         self.lock().stop = true;
         self.shared.work.notify_one();
         if let Some(thread) = self.thread.get_mut().unwrap_or_else(|e| e.into_inner()).take() {
-            let _ = thread.join();
+            #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+            let _ = cmux_blocking::scoped_blocking_call(
+                "thread::join",
+                cmux_blocking::BlockingKind::Join,
+                || thread.join(),
+            );
         }
     }
 }
@@ -95,7 +101,8 @@ fn run(shared: &Shared) {
             if state.stop {
                 return;
             }
-            state = shared.work.wait(state).unwrap_or_else(|e| e.into_inner());
+            state =
+                cmux_blocking::sync::wait(&shared.work, state).unwrap_or_else(|e| e.into_inner());
             continue;
         }
         let batch = std::mem::take(&mut state.queued);

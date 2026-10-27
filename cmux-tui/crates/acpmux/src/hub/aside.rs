@@ -66,7 +66,8 @@ impl Hub {
         if is_claude && let Some(sid) = agent_sid.filter(|s| crate::adopt::is_bare_id(s)) {
             let root = self.harness_homes().with_env(&[&env]).claude;
             let removed = cmux_blocking::spawn_blocking(move || {
-                crate::adopt::find_claude(&root, &sid).map_or(Ok(()), std::fs::remove_file)
+                crate::adopt::find_claude(&root, &sid)
+                    .map_or(Ok(()), cmux_blocking::fs::remove_file)
             })
             .await;
             if let Err(e) = removed.map_err(std::io::Error::other).and_then(|r| r) {

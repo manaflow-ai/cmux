@@ -219,7 +219,8 @@ pub(super) fn resolved_folder(asked: &Path) -> Result<std::path::PathBuf, RpcErr
             asked.display()
         )));
     }
-    std::fs::canonicalize(asked).ok().filter(|f| f.is_dir()).ok_or_else(|| {
+    let folder = cmux_blocking::fs::canonicalize(asked).ok();
+    folder.filter(|f| cmux_blocking::fs::metadata(f).is_ok_and(|m| m.is_dir())).ok_or_else(|| {
         refusal(
             "subsessions.cwd_unresolved",
             format!(

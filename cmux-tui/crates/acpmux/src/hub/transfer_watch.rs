@@ -30,15 +30,19 @@ pub(super) static PAGES: StdMutex<()> = StdMutex::new(());
 /// When the move in `dir` last heard from its client (`alive` holds the Unix time in ms), or None
 /// when it has no record of it.
 fn last_activity(dir: &Path) -> Option<std::time::SystemTime> {
-    let ms: u64 = std::fs::read_to_string(dir.join("alive")).ok()?.trim().parse().ok()?;
+    let ms: u64 = cmux_blocking::fs::read_to_string(dir.join("alive")).ok()?.trim().parse().ok()?;
     Some(std::time::UNIX_EPOCH + std::time::Duration::from_millis(ms))
 }
 
 /// Whether every file of the move in `dir` was read to its end; None when that is unknown.
 fn fully_read(dir: &Path) -> Option<bool> {
-    let bundle = std::fs::read_dir(dir).ok()?.flatten().find(|e| e.path().is_dir())?.path();
+    let entries = cmux_blocking::fs::read_dir(dir).ok()?;
+    let bundle = entries
+        .flatten()
+        .find(|e| cmux_blocking::fs::metadata(e.path()).is_ok_and(|m| m.is_dir()))?
+        .path();
     let files = bundle_files(&bundle).ok()?;
-    let read = std::fs::read_to_string(dir.join("read")).unwrap_or_default();
+    let read = cmux_blocking::fs::read_to_string(dir.join("read")).unwrap_or_default();
     let read: Vec<&str> = read.lines().collect();
     // An empty file needs no page: the target has it whole without one.
     Some(files.iter().all(|(path, size)| *size == 0 || read.contains(&path.as_str())))
@@ -47,10 +51,19 @@ fn fully_read(dir: &Path) -> Option<bool> {
 /// The client heard from the move in `dir`: begin, or a page read (`path` to its end with `eof`).
 pub(super) fn note_activity(dir: &Path, eof_of: Option<&str>) {
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
-    let _ = std::fs::write(dir.join("alive"), now.unwrap_or_default().as_millis().to_string());
+    let _ = cmux_blocking::fs::write(
+        dir.join("alive"),
+        now.unwrap_or_default().as_millis().to_string(),
+    );
     if let Some(path) = eof_of {
         use std::io::Write;
-        let file = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("read"));
+        let read = dir.join("read");
+        #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+        let file = cmux_blocking::scoped_blocking_call(
+            "fs::open_with",
+            cmux_blocking::BlockingKind::Fs,
+            || std::fs::OpenOptions::new().create(true).append(true).open(read),
+        );
         if let Ok(mut file) = file {
             let _ = writeln!(file, "{path}");
         }
@@ -62,7 +75,7 @@ pub(super) fn note_activity(dir: &Path, eof_of: Option<&str>) {
 fn own_socket(path: &Path) -> bool {
     use std::os::unix::fs::{FileTypeExt, MetadataExt};
     path.is_absolute()
-        && std::fs::symlink_metadata(path).is_ok_and(|m| {
+        && cmux_blocking::fs::symlink_metadata(path).is_ok_and(|m| {
             // SAFETY: getuid has no preconditions and cannot fail.
             m.file_type().is_socket() && m.uid() == unsafe { libc::getuid() }
         })
@@ -153,14 +166,21 @@ impl Hub {
         transfer_id: &str,
         dir: &Path,
     ) -> bool {
-        {
+        // Under PAGES, on a blocking thread: the bundle walk, and the abort's folder removal.
+        let (hub, moved, id, at) =
+            (Arc::clone(self), Arc::clone(session), transfer_id.to_owned(), dir.to_path_buf());
+        let unread = cmux_blocking::spawn_blocking(move || {
             let _pages = PAGES.lock().unwrap_or_else(|e| e.into_inner());
-            if fully_read(dir) == Some(false) {
-                if let Err(e) = self.transfer_abort(session, transfer_id, Some("stalled")) {
-                    tracing::warn!(session = %session.id, transfer_id, "ending a stalled move: {}", e.message);
-                }
-                return true;
+            if fully_read(&at) != Some(false) {
+                return false;
             }
+            if let Err(e) = hub.transfer_abort(&moved, &id, Some("stalled")) {
+                tracing::warn!(session = %moved.id, transfer_id = %id, "ending a stalled move: {}", e.message);
+            }
+            true
+        });
+        if unread.await.unwrap_or(false) {
+            return true;
         }
         let landed = match tokio::fs::read_to_string(dir.join("to")).await {
             Ok(socket) => ask_target(Path::new(socket.trim()), &session.id, transfer_id).await,
@@ -172,8 +192,14 @@ impl Hub {
                 self.transfer_commit(session, transfer_id, to).await.map(|_| ())
             }
             Some(false) => {
-                let _pages = PAGES.lock().unwrap_or_else(|e| e.into_inner());
-                self.transfer_abort(session, transfer_id, Some("stalled")).map(|_| ())
+                let (hub, moved, id) =
+                    (Arc::clone(self), Arc::clone(session), transfer_id.to_owned());
+                cmux_blocking::spawn_blocking(move || {
+                    let _pages = PAGES.lock().unwrap_or_else(|e| e.into_inner());
+                    hub.transfer_abort(&moved, &id, Some("stalled")).map(|_| ())
+                })
+                .await
+                .unwrap_or_else(|e| Err(RpcError::internal(e.to_string())))
             }
             None => return false,
         };

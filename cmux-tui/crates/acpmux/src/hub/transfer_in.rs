@@ -41,7 +41,7 @@ fn forgotten(transfer_id: &str) -> Option<PathBuf> {
 /// A receive's directory: its manifest, and the bundle as it arrives.
 fn receive_dir(receive_id: &str) -> Result<PathBuf, RpcError> {
     let dir = inside(&transfers_dir(), &format!("in-{receive_id}"))?;
-    if !dir.is_dir() {
+    if !cmux_blocking::fs::metadata(&dir).is_ok_and(|m| m.is_dir()) {
         return Err(RpcError::not_found(format!("transfer.unknown: no receive {receive_id:?}")));
     }
     Ok(dir)
@@ -49,7 +49,7 @@ fn receive_dir(receive_id: &str) -> Result<PathBuf, RpcError> {
 
 /// The manifest a receive began with, and each file's declared size.
 fn receive_manifest(dir: &Path) -> Result<(Value, Vec<(String, u64)>), RpcError> {
-    let text = std::fs::read_to_string(dir.join("manifest.json"))
+    let text = cmux_blocking::fs::read_to_string(dir.join("manifest.json"))
         .map_err(|e| transfer_error("unknown", e))?;
     let manifest: Value = serde_json::from_str(&text).map_err(|e| transfer_error("unknown", e))?;
     let files = manifest["files"]
@@ -64,15 +64,67 @@ fn receive_manifest(dir: &Path) -> Result<(Value, Vec<(String, u64)>), RpcError>
     Ok((manifest, files))
 }
 
+/// The receive `receive_id` as `transfer_finish` takes it (blocking): its folder, manifest and
+/// guard, once every file of the manifest arrived whole.
+fn finished_receive(receive_id: &str) -> Result<(PathBuf, Value, Option<Guard>), RpcError> {
+    let dir = receive_dir(receive_id)?;
+    let (manifest, files) = receive_manifest(&dir)?;
+    let guard = Guard::stored(&dir)?;
+    let bundle = dir.join("bundle");
+    for (path, size) in &files {
+        let have = cmux_blocking::fs::metadata(inside(&bundle, path)?).map_or(0, |m| m.len());
+        if have != *size {
+            return Err(transfer_error("incomplete", format!("{path:?}: {have} of {size}")));
+        }
+    }
+    Ok((dir, manifest, guard))
+}
+
+/// One `transfer_write` page (blocking): appended to its bundle file at the size written so far.
+fn write_page(receive_id: &str, path: &str, offset: u64, data: &str) -> Result<Value, RpcError> {
+    let dir = receive_dir(receive_id)?;
+    let (_, files) = receive_manifest(&dir)?;
+    let Some(&(_, size)) = files.iter().find(|(p, _)| p == path) else {
+        return Err(transfer_error("path", format!("{path:?} is not in the manifest")));
+    };
+    if Guard::stored(&dir)?.is_some() && bundle_path_kind(path).is_none() {
+        return Err(transfer_error("path", format!("{path:?} is not a file a guarded move takes")));
+    }
+    let data = BASE64.decode(data).map_err(|e| transfer_error("data", e))?;
+    let file = inside(&dir.join("bundle"), path)?;
+    let have = cmux_blocking::fs::metadata(&file).map_or(0, |m| m.len());
+    if offset != have {
+        let e = transfer_error("offset", format!("{path:?} has {have} bytes, not {offset}"));
+        return Err(e.with_data(json!({"size": have})));
+    }
+    if data.len() as u64 > MAX_PAGE || have + data.len() as u64 > size {
+        return Err(transfer_error("size", format!("{path:?} is {size} bytes")));
+    }
+    use std::io::Write;
+    let wrote = cmux_blocking::fs::create_dir_all(file.parent().unwrap_or(&dir)).and_then(|()| {
+        #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+        let opened = cmux_blocking::scoped_blocking_call(
+            "fs::open_with",
+            cmux_blocking::BlockingKind::Fs,
+            || std::fs::OpenOptions::new().create(true).append(true).open(&file),
+        );
+        opened?.write_all(&data)
+    });
+    wrote.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
+    // Kept from the sweep while pages come (`transfer_out.rs` `sweep_transfers`).
+    let _ = cmux_blocking::fs::write(dir.join("alive"), offset.to_string());
+    Ok(json!({"next": have + data.len() as u64}))
+}
+
 /// Removes every receive of move `transfer_id` (blocking: a folder walk).
 fn drop_receives(transfer_id: &str) {
-    for entry in std::fs::read_dir(transfers_dir()).into_iter().flatten().flatten() {
+    for entry in cmux_blocking::fs::read_dir(transfers_dir()).into_iter().flatten().flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
         if name.starts_with("in-")
             && receive_manifest(&entry.path())
                 .is_ok_and(|(manifest, _)| manifest["transferId"] == transfer_id)
         {
-            let _ = std::fs::remove_dir_all(entry.path());
+            let _ = cmux_blocking::fs::remove_dir_all(entry.path());
         }
     }
 }
@@ -135,7 +187,7 @@ impl Hub {
         if tokio::fs::try_exists(&mark).await.unwrap_or(false) {
             return Err(transfer_error("forgotten", format!("move {transfer_id} was given up")));
         }
-        self.sweep();
+        self.sweep().await;
         let receive_id = uuid::Uuid::now_v7().to_string();
         let dir = transfers_dir().join(format!("in-{receive_id}"));
         let made = async {
@@ -155,39 +207,13 @@ impl Hub {
     }
 
     /// Appends one page to a bundle file; pages come in order, each at the size written so far.
-    pub(super) fn transfer_write(&self, params: &Value) -> Result<Value, RpcError> {
-        let text = |k: &str| params.get(k).and_then(Value::as_str).unwrap_or("");
-        let dir = receive_dir(text("receiveId"))?;
-        let (_, files) = receive_manifest(&dir)?;
-        let path = text("path");
-        let Some(&(_, size)) = files.iter().find(|(p, _)| p == path) else {
-            return Err(transfer_error("path", format!("{path:?} is not in the manifest")));
-        };
-        if Guard::stored(&dir)?.is_some() && bundle_path_kind(path).is_none() {
-            return Err(transfer_error(
-                "path",
-                format!("{path:?} is not a file a guarded move takes"),
-            ));
-        }
-        let data = BASE64.decode(text("data")).map_err(|e| transfer_error("data", e))?;
-        let file = inside(&dir.join("bundle"), path)?;
-        let have = std::fs::metadata(&file).map_or(0, |m| m.len());
+    pub(super) async fn transfer_write(&self, params: &Value) -> Result<Value, RpcError> {
+        let text = |k: &str| params.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
+        let (receive_id, path, data) = (text("receiveId"), text("path"), text("data"));
         let offset = params.get("offset").and_then(Value::as_u64).unwrap_or(0);
-        if offset != have {
-            let e = transfer_error("offset", format!("{path:?} has {have} bytes, not {offset}"));
-            return Err(e.with_data(json!({"size": have})));
-        }
-        if data.len() as u64 > MAX_PAGE || have + data.len() as u64 > size {
-            return Err(transfer_error("size", format!("{path:?} is {size} bytes")));
-        }
-        use std::io::Write;
-        let wrote = std::fs::create_dir_all(file.parent().unwrap_or(&dir)).and_then(|()| {
-            std::fs::OpenOptions::new().create(true).append(true).open(&file)?.write_all(&data)
-        });
-        wrote.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
-        // Kept from the sweep while pages come (`transfer_out.rs` `sweep_transfers`).
-        let _ = std::fs::write(dir.join("alive"), offset.to_string());
-        Ok(json!({"next": have + data.len() as u64}))
+        cmux_blocking::spawn_blocking(move || write_page(&receive_id, &path, offset, &data))
+            .await
+            .map_err(|e| RpcError::internal(format!("transfer: {e}")))?
     }
 
     /// Imports the received chat and runs its queue here.
@@ -197,16 +223,12 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         let text = |k: &str| params.get(k).and_then(Value::as_str).filter(|s| !s.is_empty());
         let _receives = RECEIVES.lock().await;
-        let dir = receive_dir(text("receiveId").unwrap_or(""))?;
-        let (manifest, files) = receive_manifest(&dir)?;
-        let guard = Guard::stored(&dir)?;
+        let receive_id = text("receiveId").unwrap_or("").to_owned();
+        let (dir, manifest, guard) =
+            cmux_blocking::spawn_blocking(move || finished_receive(&receive_id))
+                .await
+                .map_err(|e| RpcError::internal(format!("transfer: {e}")))??;
         let bundle = dir.join("bundle");
-        for (path, size) in &files {
-            let have = tokio::fs::metadata(inside(&bundle, path)?).await.map_or(0, |m| m.len());
-            if have != *size {
-                return Err(transfer_error("incomplete", format!("{path:?}: {have} of {size}")));
-            }
-        }
         let from = params.get("from").cloned().unwrap_or(Value::Null);
         // Back where it once moved from: its closed copy gives way (below).
         let id = manifest["sessionId"].as_str().unwrap_or("");

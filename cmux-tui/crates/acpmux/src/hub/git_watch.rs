@@ -241,7 +241,7 @@ fn run(
         Ok(event) if matches!(event.kind, notify::EventKind::Access(_)) => false,
         Ok(event) => event.need_rescan() || event.paths.iter().any(|p| is_head(p)),
     };
-    while let Ok(first) = rx.recv() {
+    while let Ok(first) = cmux_blocking::sync::recv(rx) {
         let started = Instant::now();
         let mut changed = matters(first);
         let mut closed = false;
@@ -250,7 +250,13 @@ fn run(
             if left.is_zero() {
                 break;
             }
-            match rx.recv_timeout(QUIET.min(left)) {
+            #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+            let next = cmux_blocking::scoped_blocking_call(
+                "sync::recv_timeout",
+                cmux_blocking::BlockingKind::Recv,
+                || rx.recv_timeout(QUIET.min(left)),
+            );
+            match next {
                 Ok(event) => changed |= matters(event),
                 Err(RecvTimeoutError::Timeout) => break,
                 Err(RecvTimeoutError::Disconnected) => {

@@ -104,7 +104,7 @@ impl Outbox {
     /// Reads the saved deliveries at `path` and saves there from now on. Returns the ones not
     /// settled, to deliver again. A file that cannot be read starts empty (and is replaced).
     pub fn open(&self, path: &Path) -> Vec<Delivery> {
-        let saved: BTreeMap<String, Delivery> = match std::fs::read(path) {
+        let saved: BTreeMap<String, Delivery> = match cmux_blocking::fs::read(path) {
             Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|e| {
                 tracing::warn!("outbox: {} cannot be read, starting empty: {e}", path.display());
                 BTreeMap::new()

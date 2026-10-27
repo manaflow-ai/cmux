@@ -204,12 +204,12 @@ impl HarnessWatcher {
         wanted.extend(sources.cmux_json.as_deref().and_then(Path::parent).map(Path::to_path_buf));
         let mut watched = self.watched.lock().unwrap_or_else(|p| p.into_inner());
         // A removed folder's watch is gone with it: forget it so it returns.
-        watched.retain(|dir| dir.is_dir());
+        watched.retain(|dir| cmux_blocking::fs::metadata(dir).is_ok_and(|m| m.is_dir()));
         #[cfg(not(target_os = "macos"))]
         {
             let mut watcher = self.watcher.lock().unwrap_or_else(|p| p.into_inner());
             for dir in wanted {
-                if dir.is_dir()
+                if cmux_blocking::fs::metadata(&dir).is_ok_and(|m| m.is_dir())
                     && !watched.contains(&dir)
                     && watcher.watch(&dir, notify::RecursiveMode::NonRecursive).is_ok()
                 {
@@ -220,7 +220,9 @@ impl HarnessWatcher {
         #[cfg(target_os = "macos")]
         {
             for dir in wanted {
-                if dir.is_dir() && !watched.contains(&dir) {
+                if cmux_blocking::fs::metadata(&dir).is_ok_and(|m| m.is_dir())
+                    && !watched.contains(&dir)
+                {
                     watched.push(dir);
                 }
             }
@@ -259,15 +261,20 @@ impl HarnessWatcher {
 fn source_files(sources: &ProfileSources) -> Vec<PathBuf> {
     let mut files: Vec<PathBuf> = Vec::new();
     for dir in sources.managed.iter().chain(sources.user_dir.iter()) {
-        let mut found: Vec<PathBuf> = std::fs::read_dir(dir)
+        let mut found: Vec<PathBuf> = cmux_blocking::fs::read_dir(dir)
             .map(|read| read.filter_map(|entry| entry.ok().map(|entry| entry.path())).collect())
             .unwrap_or_default();
-        found.retain(|path| path.is_file());
+        found.retain(|path| is_file(path));
         found.sort();
         files.extend(found);
     }
-    files.extend(sources.cmux_json.iter().filter(|path| path.is_file()).cloned());
+    files.extend(sources.cmux_json.iter().filter(|path| is_file(path)).cloned());
     files
+}
+
+#[cfg(target_os = "macos")]
+fn is_file(path: &Path) -> bool {
+    cmux_blocking::fs::metadata(path).is_ok_and(|m| m.is_file())
 }
 
 /// A path's size and modification time.
@@ -278,11 +285,12 @@ type Stamp = (u64, Option<std::time::SystemTime>);
 /// size and modification time (None for a missing folder), and cmux.json's.
 #[cfg(target_os = "macos")]
 fn sources_print(sources: &ProfileSources) -> Vec<(PathBuf, Option<Stamp>)> {
-    let stamp = |path: &Path| std::fs::metadata(path).ok().map(|m| (m.len(), m.modified().ok()));
+    let stamp =
+        |path: &Path| cmux_blocking::fs::metadata(path).ok().map(|m| (m.len(), m.modified().ok()));
     let mut print = Vec::new();
     for dir in sources.managed.iter().chain(sources.user_dir.iter()) {
         print.push((dir.clone(), stamp(dir)));
-        let mut entries: Vec<PathBuf> = std::fs::read_dir(dir)
+        let mut entries: Vec<PathBuf> = cmux_blocking::fs::read_dir(dir)
             .map(|read| read.filter_map(|entry| entry.ok().map(|entry| entry.path())).collect())
             .unwrap_or_default();
         entries.sort();
@@ -311,7 +319,7 @@ fn real_sources(sources: &ProfileSources) -> ProfileSources {
         let mut tail = Vec::new();
         let mut at = path;
         loop {
-            if let Ok(base) = std::fs::canonicalize(at) {
+            if let Ok(base) = cmux_blocking::fs::canonicalize(at) {
                 return tail.iter().rev().fold(base, |acc, part| acc.join(part));
             }
             match (at.parent(), at.file_name()) {
@@ -351,7 +359,7 @@ fn run(
                 || event.paths.iter().any(|p| relevant(p, sources) || relevant(p, &real))
         }
     };
-    while let Ok(first) = rx.recv() {
+    while let Ok(first) = cmux_blocking::sync::recv(rx) {
         let started = Instant::now();
         let mut changed = matters(first);
         let mut closed = false;
@@ -360,7 +368,13 @@ fn run(
             if left.is_zero() {
                 break;
             }
-            match rx.recv_timeout(QUIET.min(left)) {
+            #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+            let next = cmux_blocking::scoped_blocking_call(
+                "sync::recv_timeout",
+                cmux_blocking::BlockingKind::Recv,
+                || rx.recv_timeout(QUIET.min(left)),
+            );
+            match next {
                 Ok(event) => changed |= matters(event),
                 Err(RecvTimeoutError::Timeout) => break,
                 Err(RecvTimeoutError::Disconnected) => {

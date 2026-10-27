@@ -826,13 +826,13 @@ fn outcome_allows(outcome: &Value) -> bool {
 /// (a Web turn's through `write_approved`, never through a symlink).
 fn write_file(path: &std::path::Path, content: &[u8], web_turn: bool) -> Result<(), RpcError> {
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
+        cmux_blocking::fs::create_dir_all(parent)
             .map_err(|e| RpcError::internal(format!("create {}: {e}", parent.display())))?;
     }
     let written = if web_turn {
         super::remote_floor::write_approved(path, content)
     } else {
-        std::fs::write(path, content)
+        cmux_blocking::fs::write(path, content)
     };
     written.map_err(|e| RpcError::internal(format!("write {}: {e}", path.display())))
 }
@@ -851,7 +851,7 @@ fn read_file(
             Ok(text)
         }
         Some(None) => Err(std::io::Error::other("the path cannot be resolved")),
-        None => std::fs::read_to_string(path),
+        None => cmux_blocking::fs::read_to_string(path),
     }
 }
 

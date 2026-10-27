@@ -98,7 +98,7 @@ impl Guard {
 
     /// The guard a receive stored, or None for an unguarded receive.
     pub(super) fn stored(dir: &Path) -> Result<Option<Guard>, RpcError> {
-        let raw = match std::fs::read(dir.join(GUARD_FILE)) {
+        let raw = match cmux_blocking::fs::read(dir.join(GUARD_FILE)) {
             Ok(raw) => raw,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(e) => return Err(guard_error("guard", e)),
@@ -127,7 +127,8 @@ impl Guard {
             return None;
         }
         let canonical = spelled(Path::new(path)).await?;
-        let inside = canonical.is_dir() && self.roots.iter().any(|r| canonical.starts_with(r));
+        let is_dir = tokio::fs::metadata(&canonical).await.is_ok_and(|m| m.is_dir());
+        let inside = is_dir && self.roots.iter().any(|r| canonical.starts_with(r));
         inside.then_some(canonical)
     }
 }
@@ -142,7 +143,7 @@ async fn checked_root(s: &str, home: &Path, stores: &[PathBuf]) -> Result<PathBu
         return Err("is not absolute");
     }
     let root = spelled(Path::new(s)).await.ok_or("does not exist")?;
-    if !root.is_dir() {
+    if !tokio::fs::metadata(&root).await.is_ok_and(|m| m.is_dir()) {
         return Err("is not a folder");
     }
     let rel = root.strip_prefix(home).map_err(|_| "is not under the home folder")?;

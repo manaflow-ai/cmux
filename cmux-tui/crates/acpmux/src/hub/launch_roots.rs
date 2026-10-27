@@ -101,7 +101,10 @@ pub fn launch_roots(
         else {
             continue;
         };
-        if path.is_absolute() && path.is_dir() && refuse(&path).is_none() {
+        if path.is_absolute()
+            && cmux_blocking::fs::metadata(&path).is_ok_and(|m| m.is_dir())
+            && refuse(&path).is_none()
+        {
             let root = HarnessRoot { harness: profile_id.to_owned(), path };
             if !out.contains(&root) {
                 out.push(root);

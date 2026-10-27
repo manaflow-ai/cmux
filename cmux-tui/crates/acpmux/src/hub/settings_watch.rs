@@ -122,15 +122,16 @@ impl SettingsWatcher {
             [f.parent().map(Path::to_path_buf), real(f).parent().map(Path::to_path_buf)]
         });
         for folder in folders.flatten() {
-            if let Some(existing) = folder.ancestors().find(|a| a.is_dir()) {
+            let is_dir = |a: &&Path| cmux_blocking::fs::metadata(a).is_ok_and(|m| m.is_dir());
+            if let Some(existing) = folder.ancestors().find(is_dir) {
                 wanted.push(existing.to_path_buf());
             }
         }
         let mut watched = self.watched.lock().unwrap_or_else(|p| p.into_inner());
         let mut watcher = self.watcher.lock().unwrap_or_else(|p| p.into_inner());
-        watched.retain(|dir| dir.is_dir());
+        watched.retain(|dir| cmux_blocking::fs::metadata(dir).is_ok_and(|m| m.is_dir()));
         for dir in wanted {
-            if dir.is_dir()
+            if cmux_blocking::fs::metadata(&dir).is_ok_and(|m| m.is_dir())
                 && !watched.contains(&dir)
                 && watcher.watch(&dir, notify::RecursiveMode::NonRecursive).is_ok()
             {
@@ -146,7 +147,7 @@ fn real(path: &Path) -> PathBuf {
     let mut tail = Vec::new();
     let mut at = path;
     loop {
-        if let Ok(base) = std::fs::canonicalize(at) {
+        if let Ok(base) = cmux_blocking::fs::canonicalize(at) {
             return tail.iter().rev().fold(base, |acc, part| acc.join(part));
         }
         match (at.parent(), at.file_name()) {
@@ -179,7 +180,7 @@ fn run(
         Ok(event) if matches!(event.kind, notify::EventKind::Access(_)) => false,
         Ok(event) => event.need_rescan() || event.paths.iter().any(|p| relevant(p)),
     };
-    while let Ok(first) = rx.recv() {
+    while let Ok(first) = cmux_blocking::sync::recv(rx) {
         let started = Instant::now();
         let mut changed = matters(first);
         let mut closed = false;
@@ -188,7 +189,13 @@ fn run(
             if left.is_zero() {
                 break;
             }
-            match rx.recv_timeout(QUIET.min(left)) {
+            #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+            let next = cmux_blocking::scoped_blocking_call(
+                "sync::recv_timeout",
+                cmux_blocking::BlockingKind::Recv,
+                || rx.recv_timeout(QUIET.min(left)),
+            );
+            match next {
                 Ok(event) => changed |= matters(event),
                 Err(RecvTimeoutError::Timeout) => break,
                 Err(RecvTimeoutError::Disconnected) => {

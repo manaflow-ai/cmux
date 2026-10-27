@@ -274,7 +274,7 @@ pub(super) fn take_output_file(msg: &mut Value) -> Option<String> {
 /// The length of an output file; a missing one, or one that is not a
 /// regular file, is empty.
 fn output_len(file: &str) -> u64 {
-    std::fs::metadata(file).ok().filter(|m| m.is_file()).map_or(0, |m| m.len())
+    cmux_blocking::fs::metadata(file).ok().filter(|m| m.is_file()).map_or(0, |m| m.len())
 }
 
 /// Up to `max` bytes of `file` from `from` (`None`: its last `max`), where

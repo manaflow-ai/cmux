@@ -141,8 +141,10 @@ pub(super) fn remote_executable(program: &str) -> Result<String, RpcError> {
     } else {
         crate::config::which(program).map(PathBuf::from).ok_or_else(remote_executable_refused)?
     };
-    let selected = std::fs::canonicalize(selected).map_err(|_| remote_executable_refused())?;
-    if !selected.is_file() || !selected.is_absolute() {
+    let selected =
+        cmux_blocking::fs::canonicalize(selected).map_err(|_| remote_executable_refused())?;
+    if !cmux_blocking::fs::metadata(&selected).is_ok_and(|m| m.is_file()) || !selected.is_absolute()
+    {
         return Err(remote_executable_refused());
     }
     Ok(selected.to_string_lossy().into_owned())
@@ -150,7 +152,7 @@ pub(super) fn remote_executable(program: &str) -> Result<String, RpcError> {
 
 pub(super) fn refuse_remote_cwd_executable(program: &str, cwd: &Path) -> Result<(), RpcError> {
     let program = Path::new(program);
-    let cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
+    let cwd = cmux_blocking::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
     if program.starts_with(cwd) {
         return Err(remote_executable_refused());
     }

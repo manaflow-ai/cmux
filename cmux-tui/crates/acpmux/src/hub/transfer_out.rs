@@ -61,7 +61,7 @@ pub(super) fn bundle_files(root: &Path) -> std::io::Result<Vec<(String, u64)>> {
     let mut files = Vec::new();
     let mut dirs = vec![root.to_path_buf()];
     while let Some(dir) = dirs.pop() {
-        for entry in std::fs::read_dir(&dir)? {
+        for entry in cmux_blocking::fs::read_dir(&dir)? {
             let entry = entry?;
             let kind = entry.file_type()?;
             if kind.is_dir() {
@@ -78,18 +78,70 @@ pub(super) fn bundle_files(root: &Path) -> std::io::Result<Vec<(String, u64)>> {
 
 /// Removes moves left behind: a receive never finished, a bundle no chat here is in.
 pub(super) fn sweep_transfers(moving: &[String]) {
-    let Ok(entries) = std::fs::read_dir(transfers_dir()) else { return };
+    let Ok(entries) = cmux_blocking::fs::read_dir(transfers_dir()) else { return };
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
         // A receive's last page touched its `alive` file (`transfer_in.rs`).
         let alive = entry.path().join("alive");
-        let stamp = std::fs::metadata(&alive).or_else(|_| entry.metadata());
+        let stamp = cmux_blocking::fs::metadata(&alive).or_else(|_| entry.metadata());
         let old = stamp
             .and_then(|m| m.modified())
             .is_ok_and(|t| t.elapsed().is_ok_and(|age| age > STALE));
         if old && !moving.contains(&name) {
-            let _ = std::fs::remove_dir_all(entry.path());
+            let _ = cmux_blocking::fs::remove_dir_all(entry.path());
         }
+    }
+}
+
+/// A page of one of a move's bundle files (blocking: the transfer dispatcher runs it in
+/// `spawn_blocking`).
+fn transfer_read(
+    transfer_id: &str,
+    path: &str,
+    offset: u64,
+    limit: u64,
+) -> Result<Value, RpcError> {
+    let root = transfer_bundle(transfer_id)?;
+    let file = inside(&root, path)?;
+    use std::io::{Read, Seek};
+    let page = || -> std::io::Result<(Vec<u8>, u64, u64)> {
+        let mut f = cmux_blocking::fs::open(&file)?;
+        let len = f.metadata()?.len();
+        let start = offset.min(len);
+        let mut data = vec![0; limit.clamp(1, MAX_PAGE).min(len - start) as usize];
+        f.seek(std::io::SeekFrom::Start(start))?;
+        f.read_exact(&mut data)?;
+        Ok((data, start, len))
+    };
+    let dir = transfers_dir().join(transfer_id);
+    let _pages = super::transfer_watch::PAGES.lock().unwrap_or_else(|e| e.into_inner());
+    // The watch may have aborted the move since `transfer_bundle` found it.
+    if !cmux_blocking::fs::metadata(&dir).is_ok_and(|m| m.is_dir()) {
+        return Err(transfer_error("unknown", format!("no move {transfer_id} here")));
+    }
+    let (data, start, len) = page().map_err(|e| transfer_error("read", e))?;
+    let next = start + data.len() as u64;
+    super::transfer_watch::note_activity(&dir, (next == len).then_some(path));
+    Ok(json!({"data": BASE64.encode(&data), "next": next, "eof": next == len}))
+}
+
+/// The bundle directory of a move this daemon began.
+fn transfer_bundle(transfer_id: &str) -> Result<PathBuf, RpcError> {
+    // A receive (`in-…`) is not a move out.
+    if transfer_id.to_ascii_lowercase().starts_with("in-") {
+        return Err(RpcError::not_found(format!("transfer.unknown: no move {transfer_id:?}")));
+    }
+    let dir = inside(&transfers_dir(), transfer_id)?;
+    let entries = cmux_blocking::fs::read_dir(&dir).map_err(|_| {
+        RpcError::not_found(format!("transfer.unknown: no move {transfer_id:?} here"))
+    })?;
+    // The bundle is its one directory; beside it, `transfer_watch.rs`'s files.
+    match entries
+        .flatten()
+        .find(|entry| cmux_blocking::fs::metadata(entry.path()).is_ok_and(|m| m.is_dir()))
+    {
+        Some(entry) => Ok(entry.path()),
+        None => Err(RpcError::not_found(format!("transfer.unknown: no move {transfer_id:?}"))),
     }
 }
 
@@ -115,7 +167,11 @@ impl Hub {
             "read" => {
                 let offset = params.get("offset").and_then(Value::as_u64).unwrap_or(0);
                 let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(1 << 20);
-                self.transfer_read(text("transferId"), text("path"), offset, limit)
+                let (transfer_id, path) = (text("transferId").to_owned(), text("path").to_owned());
+                let read = move || transfer_read(&transfer_id, &path, offset, limit);
+                cmux_blocking::spawn_blocking(read)
+                    .await
+                    .map_err(|e| RpcError::internal(format!("transfer: {e}")))?
             }
             "commit" => {
                 let session = self.resolve(text("sessionId"))?;
@@ -127,7 +183,7 @@ impl Hub {
                 self.transfer_abort(&session, text("transferId"), None)
             }
             "receive" => self.transfer_receive(params).await,
-            "write" => self.transfer_write(params),
+            "write" => self.transfer_write(params).await,
             "finish" => self.transfer_finish(params).await,
             "forget" => self.transfer_forget(params).await,
             _ => Err(RpcError::method_not_found(m)),
@@ -145,7 +201,7 @@ impl Hub {
             return Err(transfer_error("closed", "this chat is closed"));
         }
         let transfer_id = uuid::Uuid::now_v7().to_string();
-        self.sweep();
+        self.sweep().await;
         {
             let mut moving = session.moving.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(other) = moving.as_ref() {
@@ -176,7 +232,13 @@ impl Hub {
         }
         self.append(session, "mux", "transfer_out", json!({"transferId": transfer_id}));
         let dir = transfers_dir().join(&transfer_id);
-        let made = self.export(session, &dir).and_then(|bundle| Ok(bundle_files(&bundle)?));
+        let (hub, moved, into) = (Arc::clone(self), Arc::clone(session), dir.clone());
+        let made = cmux_blocking::spawn_blocking(move || {
+            hub.export(&moved, &into).and_then(|bundle| Ok(bundle_files(&bundle)?))
+        })
+        .await
+        .map_err(anyhow::Error::from)
+        .and_then(|made| made);
         drop(guard);
         let files = match made {
             Ok(files) => files,
@@ -202,58 +264,12 @@ impl Hub {
         }))
     }
 
-    /// A page of one of a move's bundle files.
-    fn transfer_read(
-        &self,
-        transfer_id: &str,
-        path: &str,
-        offset: u64,
-        limit: u64,
-    ) -> Result<Value, RpcError> {
-        let root = self.transfer_bundle(transfer_id)?;
-        let file = inside(&root, path)?;
-        use std::io::{Read, Seek};
-        let page = || -> std::io::Result<(Vec<u8>, u64, u64)> {
-            let mut f = std::fs::File::open(&file)?;
-            let len = f.metadata()?.len();
-            let start = offset.min(len);
-            let mut data = vec![0; limit.clamp(1, MAX_PAGE).min(len - start) as usize];
-            f.seek(std::io::SeekFrom::Start(start))?;
-            f.read_exact(&mut data)?;
-            Ok((data, start, len))
-        };
-        let dir = transfers_dir().join(transfer_id);
-        let _pages = super::transfer_watch::PAGES.lock().unwrap_or_else(|e| e.into_inner());
-        // The watch may have aborted the move since `transfer_bundle` found it.
-        if !dir.is_dir() {
-            return Err(transfer_error("unknown", format!("no move {transfer_id} here")));
-        }
-        let (data, start, len) = page().map_err(|e| transfer_error("read", e))?;
-        let next = start + data.len() as u64;
-        super::transfer_watch::note_activity(&dir, (next == len).then_some(path));
-        Ok(json!({"data": BASE64.encode(&data), "next": next, "eof": next == len}))
-    }
-
-    /// `sweep_transfers`, keeping every move a chat here is in.
-    pub(super) fn sweep(&self) {
+    /// `sweep_transfers` (on a blocking thread), keeping every move a chat here is in.
+    pub(super) async fn sweep(&self) {
         let moving: Vec<String> = self.sessions().iter().filter_map(|s| s.moving()).collect();
-        sweep_transfers(&moving);
-    }
-
-    /// The bundle directory of a move this daemon began.
-    fn transfer_bundle(&self, transfer_id: &str) -> Result<PathBuf, RpcError> {
-        // A receive (`in-…`) is not a move out.
-        if transfer_id.to_ascii_lowercase().starts_with("in-") {
-            return Err(RpcError::not_found(format!("transfer.unknown: no move {transfer_id:?}")));
-        }
-        let dir = inside(&transfers_dir(), transfer_id)?;
-        let entries = std::fs::read_dir(&dir).map_err(|_| {
-            RpcError::not_found(format!("transfer.unknown: no move {transfer_id:?} here"))
-        })?;
-        // The bundle is its one directory; beside it, `transfer_watch.rs`'s files.
-        match entries.flatten().find(|entry| entry.path().is_dir()) {
-            Some(entry) => Ok(entry.path()),
-            None => Err(RpcError::not_found(format!("transfer.unknown: no move {transfer_id:?}"))),
+        let swept = cmux_blocking::spawn_blocking(move || sweep_transfers(&moving)).await;
+        if let Err(e) = swept {
+            tracing::warn!("sweeping moves: {e}");
         }
     }
 
@@ -331,7 +347,7 @@ impl Hub {
         }
         self.end_move(session);
         self.append(session, "mux", "transfer_aborted", record);
-        let _ = std::fs::remove_dir_all(transfers_dir().join(transfer_id));
+        let _ = cmux_blocking::fs::remove_dir_all(transfers_dir().join(transfer_id));
         Ok(json!({"sessionId": session.id, "transferId": transfer_id, "aborted": true}))
     }
 

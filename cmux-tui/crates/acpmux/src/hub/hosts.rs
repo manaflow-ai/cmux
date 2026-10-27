@@ -79,7 +79,7 @@ impl Hub {
             if let Some(nonce) = &b.start_nonce
                 && agent_host::liveness(&dir, &b.session_id, nonce) == Liveness::Dead
             {
-                let _ = std::fs::remove_file(&b.path);
+                let _ = cmux_blocking::fs::remove_file(&b.path);
                 continue;
             }
             live.insert(b.session_id);
@@ -227,7 +227,9 @@ impl Hub {
     /// (a host this build cannot adopt, or one whose link was lost).
     pub(super) async fn end_unadopted_host(&self, session: &Session) {
         let dir = agent_host::hosts_dir();
-        let Ok((good, bad)) = agent_host::load_records(&dir) else { return };
+        let listed = dir.clone();
+        let loaded = cmux_blocking::spawn_blocking(move || agent_host::load_records(&listed)).await;
+        let Ok(Ok((good, bad))) = loaded else { return };
         let record = good.iter().find(|(_, r)| r.session_id == session.id).map(|(_, r)| r.clone());
         let host = record
             .as_ref()
@@ -245,7 +247,7 @@ impl Hub {
                 if let Some(record) = record {
                     agent_host::remove_artifacts(&dir, &record);
                 } else if let Some(path) = unreadable {
-                    let _ = std::fs::remove_file(path);
+                    let _ = cmux_blocking::fs::remove_file(path);
                 }
             })
             .await;

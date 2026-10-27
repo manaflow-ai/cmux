@@ -78,7 +78,7 @@ fn offer_record(session: &Session, params: &Value) -> Result<Value, RpcError> {
         "" => session.meta().cwd,
         given => {
             let path = Path::new(given);
-            if !path.is_absolute() || !path.is_dir() {
+            if !path.is_absolute() || !cmux_blocking::fs::metadata(path).is_ok_and(|m| m.is_dir()) {
                 return Err(RpcError::invalid_params("cwd must be an existing absolute folder"));
             }
             path.to_path_buf()

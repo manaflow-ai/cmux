@@ -30,11 +30,11 @@ impl Hub {
     pub fn export(&self, session: &Arc<Session>, dest: &Path) -> Result<PathBuf> {
         let meta = session.meta();
         let dir = dest.join(&meta.id);
-        std::fs::create_dir_all(dir.join("events"))?;
-        std::fs::write(dir.join("session.json"), serde_json::to_string_pretty(&meta)?)?;
+        cmux_blocking::fs::create_dir_all(dir.join("events"))?;
+        cmux_blocking::fs::write(dir.join("session.json"), serde_json::to_string_pretty(&meta)?)?;
         use std::io::Write;
         // Stream the log into the bundle; a long session never sits in memory whole.
-        let file = std::fs::File::create(dir.join("events").join("000001.ndjson"))?;
+        let file = cmux_blocking::fs::create(dir.join("events").join("000001.ndjson"))?;
         let mut out = std::io::BufWriter::new(file);
         let mut event_count = 0usize;
         let mut failed: Option<anyhow::Error> = None;
@@ -68,7 +68,7 @@ impl Hub {
             "native": [],
         });
         if !native.is_empty() {
-            std::fs::create_dir_all(dir.join("native"))?;
+            cmux_blocking::fs::create_dir_all(dir.join("native"))?;
             let mut copied = Vec::new();
             for (label, src) in native {
                 if let Ok(rel) = crate::native::copy_into(&src, &dir.join("native"), &label) {
@@ -77,7 +77,10 @@ impl Hub {
             }
             manifest["native"] = Value::Array(copied);
         }
-        std::fs::write(dir.join("manifest.json"), serde_json::to_string_pretty(&manifest)?)?;
+        cmux_blocking::fs::write(
+            dir.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest)?,
+        )?;
         Ok(dir)
     }
 
@@ -146,7 +149,7 @@ impl Hub {
                 meta.harness
             )));
         }
-        if !meta.cwd.is_dir() {
+        if !tokio::fs::metadata(&meta.cwd).await.is_ok_and(|m| m.is_dir()) {
             // `reason` and `cwd` let a client say it in its own words (`cli/errors.rs` `detail`).
             let e = RpcError::invalid_params(format!(
                 "cwd {} does not exist here; pass a new cwd via fork or edit session.json",
@@ -161,29 +164,18 @@ impl Hub {
         self.store.save(&meta).map_err(|e| RpcError::internal(e.to_string()))?;
         // Copy events verbatim, preserving seq. A partial transcript is not
         // a valid import: any unreadable file or record rolls it back.
-        let last = match self.copy_bundle_events(bundle, &meta.id, guarded.map(|g| g.guard.control))
-        {
-            Ok(last) => last,
+        let (hub, from, copied) = (Arc::clone(self), bundle.to_path_buf(), meta.clone());
+        let guard = guarded.map(|g| (g.guard.control, g.replace_native));
+        let imported =
+            cmux_blocking::spawn_blocking(move || hub.import_files(&from, &copied, guard))
+                .await
+                .map_err(|e| RpcError::internal(format!("import: {e}")))
+                .and_then(|imported| imported);
+        let (last, restored) = match imported {
+            Ok(imported) => imported,
             Err(e) => {
                 let _ = self.store.delete(&meta.id);
-                return Err(RpcError::invalid_params(format!("import events: {e}")));
-            }
-        };
-        let restored = match guarded {
-            None => crate::native::restore(bundle, &meta).unwrap_or_default(),
-            // A guarded chat keeps its agent session only with its file: a failed restore fails
-            // the import, like its events.
-            Some(g) => {
-                let restored = crate::native::guarded_plan(bundle, &meta)
-                    .map_err(anyhow::Error::msg)
-                    .and_then(|plan| crate::native::restore_guarded(&plan, g.replace_native));
-                match restored {
-                    Ok(n) => n,
-                    Err(e) => {
-                        let _ = self.store.delete(&meta.id);
-                        return Err(RpcError::new(-32000, format!("transfer.native: {e:#}")));
-                    }
-                }
+                return Err(e);
             }
         };
         session.seq.store(last, Ordering::SeqCst);
@@ -205,16 +197,40 @@ impl Hub {
         Ok(session)
     }
 
+    /// The bundle's events and agent files, copied in (blocking): the highest sequence copied and
+    /// how many agent files were restored. A partial transcript is not a valid import: any
+    /// unreadable file or record fails it. A guarded chat (`guard`: its control and whether it
+    /// replaces its agent file) keeps its agent session only with its file: a failed restore
+    /// fails the import, like its events. The caller deletes the stored chat on an error.
+    fn import_files(
+        &self,
+        bundle: &Path,
+        meta: &SessionMeta,
+        guard: Option<(Control, bool)>,
+    ) -> Result<(u64, usize), RpcError> {
+        let last = self
+            .copy_bundle_events(bundle, &meta.id, guard.map(|(control, _)| control))
+            .map_err(|e| RpcError::invalid_params(format!("import events: {e}")))?;
+        let restored = match guard {
+            None => crate::native::restore(bundle, meta).unwrap_or_default(),
+            Some((_, replace_native)) => crate::native::guarded_plan(bundle, meta)
+                .map_err(anyhow::Error::msg)
+                .and_then(|plan| crate::native::restore_guarded(&plan, replace_native))
+                .map_err(|e| RpcError::new(-32000, format!("transfer.native: {e:#}")))?,
+        };
+        Ok((last, restored))
+    }
+
     /// Append every record of a bundle's `events/*.ndjson` to the store, in
     /// file order. Returns the highest sequence copied. Under a guard's `control`, the
     /// records of prompts still to run carry it (`transfer_guard.rs` `guarded_record`).
     fn copy_bundle_events(&self, bundle: &Path, id: &str, control: Option<Control>) -> Result<u64> {
         let events_path = bundle.join("events");
-        if !events_path.exists() {
+        if cmux_blocking::fs::metadata(&events_path).is_err() {
             return Ok(0);
         }
         let mut files: Vec<PathBuf> = Vec::new();
-        for entry in std::fs::read_dir(&events_path)? {
+        for entry in cmux_blocking::fs::read_dir(&events_path)? {
             let path = entry?.path();
             if path.extension().and_then(|e| e.to_str()) == Some("ndjson") {
                 files.push(path);
@@ -223,7 +239,7 @@ impl Hub {
         files.sort();
         let mut last = 0;
         for f in files {
-            let text = std::fs::read_to_string(&f)
+            let text = cmux_blocking::fs::read_to_string(&f)
                 .map_err(|e| anyhow::anyhow!("read {}: {e}", f.display()))?;
             for (n, line) in text.lines().enumerate() {
                 if line.trim().is_empty() {

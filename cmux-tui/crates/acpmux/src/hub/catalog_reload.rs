@@ -20,7 +20,7 @@ impl Hub {
         // Disk reads and PATH discovery run outside the async executor. An
         // invalid/missing file never replaces the last accepted configuration.
         let mut next = tokio::task::spawn_blocking(move || {
-            std::fs::metadata(&path)?;
+            cmux_blocking::fs::metadata(&path)?;
             crate::config::Config::load_from_with(&path, &sources)
         })
         .await

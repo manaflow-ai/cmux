@@ -335,8 +335,14 @@ impl Hub {
         // Only a folder recorded as it resolves, or through links only root can change (`/tmp` on
         // macOS): through a link the agent could point elsewhere after it started, the folder it
         // runs in is not the one the link names now.
-        let Ok(own) = tokio::fs::canonicalize(&pm.cwd).await else { return false };
-        if (own != pm.cwd && !only_root_links(&pm.cwd, 0)) || !cwd.starts_with(&own) {
+        let recorded = pm.cwd.clone();
+        let resolved = cmux_blocking::spawn_blocking(move || {
+            let own = cmux_blocking::fs::canonicalize(&recorded).ok()?;
+            let held = own == recorded || only_root_links(&recorded, 0);
+            Some((own, held))
+        });
+        let Ok(Some((own, held))) = resolved.await else { return false };
+        if !held || !cwd.starts_with(&own) {
             return false;
         }
         let family = self.trust_family(&pm.harness).await;
@@ -487,20 +493,26 @@ fn only_root_links(path: &Path, depth: u8) -> bool {
             return false;
         }
         at.push(part);
-        let Ok(meta) = std::fs::symlink_metadata(&at) else { return false };
+        let Ok(meta) = cmux_blocking::fs::symlink_metadata(&at) else { return false };
         if !meta.file_type().is_symlink() {
             continue;
         }
         let Some(folder) = at.parent().map(Path::to_path_buf) else { return false };
-        let Ok(held) = std::fs::metadata(&folder) else { return false };
-        let Ok(target) = std::fs::read_link(&at) else { return false };
+        let Ok(held) = cmux_blocking::fs::metadata(&folder) else { return false };
+        #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+        let target = cmux_blocking::scoped_blocking_call(
+            "fs::read_link",
+            cmux_blocking::BlockingKind::Fs,
+            || std::fs::read_link(&at),
+        );
+        let Ok(target) = target else { return false };
         if meta.uid() != 0 || held.uid() != 0 || held.mode() & 0o022 != 0 {
             return false;
         }
         if !only_root_links(&folder.join(target), depth + 1) {
             return false;
         }
-        let Ok(resolved) = std::fs::canonicalize(&at) else { return false };
+        let Ok(resolved) = cmux_blocking::fs::canonicalize(&at) else { return false };
         at = resolved;
     }
     true
