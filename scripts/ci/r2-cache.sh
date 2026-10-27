@@ -53,15 +53,17 @@ fetch() { # <relative object path> <destination file>
       && command -v python3 >/dev/null 2>&1; then
     # The broker writes into a directory of its own, removed afterwards: a broker that answers late can
     # never touch the file the bucket download below writes.
-    local lan_status=0 lan_dir
-    lan_dir="$(mktemp -d)"
-    python3 "$lan_cache" "${CI_CACHE_R2_PUBLIC_URL%/}" "$1" "$lan_dir/object" || lan_status=$?
-    if [[ "$lan_status" == 0 ]] && mv -f "$lan_dir/object" "$2"; then
+    local lan_status=1 lan_dir
+    if lan_dir="$(mktemp -d "${TMPDIR:-/tmp}/r2-cache-lan.XXXXXX")"; then
+      lan_status=0
+      python3 "$lan_cache" "${CI_CACHE_R2_PUBLIC_URL%/}" "$1" "$lan_dir/object" || lan_status=$?
+      if [[ "$lan_status" == 0 ]] && mv -f "$lan_dir/object" "$2"; then
+        rm -rf "$lan_dir"
+        return 0
+      fi
       rm -rf "$lan_dir"
-      return 0
+      [[ "$lan_status" == 3 ]] && return 22
     fi
-    rm -rf "$lan_dir"
-    [[ "$lan_status" == 3 ]] && return 22
   fi
   curl --fail --silent --show-error --location --retry 3 --retry-delay 2 \
     --connect-timeout 15 --max-time 900 -o "$2" "${CI_CACHE_R2_PUBLIC_URL%/}/$1"
