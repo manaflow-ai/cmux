@@ -100,7 +100,7 @@ private struct CrashForwardersScratch {
         let system = SystemCrashForwarder(directory: root.appending(path: "DiagnosticReports", directoryHint: .isDirectory),
                                           stateFile: systemState, bundlePath: root.path,
                                           mainExecutable: nil, hostExeRoot: nil, ownRustBinaries: [], artifacts: nil,
-                                          capture: { _ in record("system") })
+                                          capture: { _, _ in record("system") })
         let owner = OwnerPanicForwarder(log: log, stateFile: ownerState, sends: true,
                                         capture: { event in record("owner: \(event.exceptions?.first?.value ?? "")") })
         return CrashForwarders(system: system, ownerPanics: owner, systemWaitsForRelease: systemWaitsForRelease) {

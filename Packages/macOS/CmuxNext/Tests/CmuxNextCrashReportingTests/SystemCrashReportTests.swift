@@ -549,7 +549,9 @@ import Testing
                                  hostExeRoot: hostExe.path(percentEncoded: false),
                                  ownRustBinaries: ownRustBinaries ?? SystemCrashForwarder.rustBinaries(in: [bin]),
                                  release: release, artifacts: artifacts(optIn: optIn),
-                                 capture: { event, attachments in log.append(event, attachments) })
+                                 capture: { event, attachments in
+                                     log.append(event, attachments.map { Captured.File(name: $0.filename, data: $0.data ?? Data()) })
+                                 })
         }
 
         func writeReport(_ name: String, _ data: Data, modified: Date) throws {
@@ -584,9 +586,11 @@ import Testing
     final class CaptureLog: Sendable {
         private let captured = Mutex<[Captured]>([])
 
-        func append(_ event: Event, _ attachments: [Attachment]) {
+        /// `attachments` are the event's Sentry attachments as values (the caller maps them: in this file
+        /// `Attachment` alone is ambiguous between Sentry's and Swift Testing's).
+        func append(_ event: Event, _ attachments: [Captured.File]) {
             let entry = Captured(tags: event.tags ?? [:], release: event.releaseName, eventID: event.eventId.sentryIdString,
-                                 attachments: attachments.map { Captured.File(name: $0.filename, data: $0.data ?? Data()) })
+                                 attachments: attachments)
             captured.withLock { $0.append(entry) }
         }
 
