@@ -75,6 +75,9 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// connection are one sizing participant. Read at each handshake (the Mac's name is read off the main
     /// thread), only with ``terminalStreams``.
     public var sizingDevice: TerminalStreamsDevice?
+    /// The framed IPC upgrades the handshake asks for (``DaemonWireUpgrades``); none by default, so the
+    /// connection speaks JSON lines whatever the daemon offers.
+    public var wireUpgrades = DaemonWireUpgrades.none
 
     public init(
         clientName: String = "cmux-next",

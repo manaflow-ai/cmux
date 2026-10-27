@@ -24,14 +24,20 @@
 //!
 //! Only `Command` methods answer on frames yet. A feature route or a v2
 //! operation replies on its own writer, so a frame naming one gets the ERROR
-//! [`METHOD_NOT_FRAMED`] and the client sends that method as a line; the
-//! routes move to the method table in p05-ipc-062/063/070.
+//! [`METHOD_NOT_FRAMED`]; the routes move to the method table in
+//! p05-ipc-062/063/070. A client does not find these by trial, which would
+//! run a refused request after the ones written behind it: `identify
+//! {revisions}` lists [`framed_method_ids`] and the [`sdk_schema_digest`]
+//! their ids and priorities come from, and a client frames only those
+//! methods, and only when its own table came from the same schema. Mojo
+//! dispatches by ordinal only between ends built from one interface
+//! definition (mojo/public/tools/bindings/README.md, "Versioning").
 
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, LazyLock};
 
 use cmux_ipc::{
     Aux, BadMessage, CallAux, CallFlags, Frame, FrameHeader, FrameKind, MAX_FRAME_PAYLOAD,
@@ -247,7 +253,7 @@ impl RequestFrames {
         let _parses = JsonParseScope::enter(connection.mux.ipc_stats(), IpcTransport::Frames);
         let frame_call = Arc::new(FrameCall::new(header.stream(), call));
         let writer = connection.writer.replying_to(frame_call.clone());
-        if !self.served_on_frames(method) {
+        if !served_on_frames(self.tables, method) {
             return Ok(send_not_framed(&writer, method));
         }
         names_method(body, method).map_err(ConnectionBadMessage::Call)?;
@@ -330,14 +336,36 @@ impl RequestFrames {
         }
         Ok(())
     }
+}
 
-    /// Whether the method's reply goes through the responder: a JSON v12
-    /// `Command` (its handler replies through `responses`).
-    fn served_on_frames(&self, method: &MethodAttrs) -> bool {
-        self.tables.v12(method.id).is_some()
-            && method.payload == Payload::Json
-            && Command::method_of_wire(method.name).is_some()
-    }
+/// Whether the method's reply goes through the responder: a JSON v12
+/// `Command` (its handler replies through `responses`).
+fn served_on_frames(tables: &MethodTables, method: &MethodAttrs) -> bool {
+    tables.v12(method.id).is_some()
+        && method.payload == Payload::Json
+        && Command::method_of_wire(method.name).is_some()
+}
+
+/// The v12 method ids this daemon answers on REQUEST frames, in id order
+/// (`identify {revisions}` `framed_methods`).
+pub(super) fn framed_method_ids() -> &'static [u16] {
+    static IDS: LazyLock<Vec<u16>> = LazyLock::new(|| {
+        let tables = MethodTables::schema();
+        tables
+            .v12_families()
+            .flat_map(|family| family.iter())
+            .filter(|method| served_on_frames(tables, method))
+            .map(|method| method.id.raw())
+            .collect()
+    });
+    &IDS
+}
+
+/// The digest of the schema this daemon's method tables came from, as 16
+/// lowercase hex digits (`identify {revisions}` `sdk_schema_digest`; the
+/// app's `WireSchemaIdentity.sdkSchemaDigest`).
+pub(super) fn sdk_schema_digest() -> String {
+    format!("{:016x}", cmux_ipc::SCHEMA_IDENTITY.sdk_schema_digest)
 }
 
 /// The flags a REQUEST of `method` may carry.

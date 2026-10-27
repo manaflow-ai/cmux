@@ -22,6 +22,13 @@ extension LineTransport {
         var streamHandler: (@Sendable (_ streamID: String, _ line: Data) -> Void)?
         /// The attach streams this side minted (LineTransport+AttachStreams.swift).
         var attachStreams = AttachStreamTable()
+        /// The reader cuts 0xFF frames: set once the handshake asks for `ipc-frames-v2`, before the daemon
+        /// can send one.
+        var acceptsFrames = false
+        /// Typed requests go as REQUEST frames (``FramedRequests``); nil keeps them lines.
+        var framing: FramedRequests?
+        /// What the handshake was granted (``DaemonWireGrants``).
+        var grants = DaemonWireGrants.linesOnly
 
         /// Takes every deadline due at `now` out and marks its request expired: what each one's
         /// `timedOut` needs. The timer is no longer armed (its fire called this).
@@ -50,6 +57,28 @@ extension LineTransport {
     static func elapsedReader<C: Clock>(_ clock: C) -> @Sendable () -> Duration where C.Duration == Duration {
         let start = clock.now
         return { start.duration(to: clock.now) }
+    }
+
+    /// A connected, close-on-exec Unix socket to `path` that never raises SIGPIPE.
+    static func connect(_ path: String) throws(DaemonError) -> Int32 {
+        let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { throw .connectFailed(path: path, errno: errno) }
+        // Close-on-exec: a program the app execs must not inherit a daemon connection, whose
+        // peer key is this process's audit token (request-origin.md, peer key caveat).
+        _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
+        var on: Int32 = 1
+        // SAFETY: setsockopt reads the given size, MemoryLayout<Int32>.size, from `on`, an Int32 live for the call.
+        unsafe setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+        guard let address = UnixSocketAddress(path: path) else {
+            Darwin.close(fd)
+            throw .socketPathTooLong(path)
+        }
+        guard address.connect(fd) == 0 else {
+            let code = errno
+            Darwin.close(fd)
+            throw .connectFailed(path: path, errno: code)
+        }
+        return fd
     }
 
     /// Asks for ``socketBufferBytes`` each way; the kernel may round it up. A refusal keeps the default:

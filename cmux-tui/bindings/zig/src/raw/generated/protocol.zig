@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "92ea0b6da7b0bd288ec4e10c0f31751140797c17e8fcdbcb3a76d518df4b8499";
+pub const ir_sha256 = "8791ee3ffadf170eb4381f255f55ef35255fb067702b058a7df39d81d76f2d10";
 
 pub const AccessRequestKind = enum {
     file,
@@ -1910,6 +1910,7 @@ pub const IdentifyResult = struct {
     cli_path: wire.Field([]const u8) = .absent,
     crate_version: wire.Field([]const u8) = .absent,
     daemon_handoff: i64,
+    framed_methods: wire.Field([]const u16) = .absent,
     generation: []const u8,
     ghostty_commit: wire.Field([]const u8) = .absent,
     install: wire.Field([]const u8) = .absent,
@@ -1923,6 +1924,7 @@ pub const IdentifyResult = struct {
     pid: u32,
     protocol: u32,
     registry_id: []const u8,
+    sdk_schema_digest: wire.Field([]const u8) = .absent,
     session: []const u8,
     session_id: ?[]const u8 = null,
     terminal_revision: u64,

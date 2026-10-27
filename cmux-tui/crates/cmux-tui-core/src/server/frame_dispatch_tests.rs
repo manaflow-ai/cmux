@@ -253,6 +253,43 @@ fn frame_dispatch_a_feature_route_answers_method_not_framed() {
     assert_eq!(client.finish(), ConnectionEnd::PeerClosed);
 }
 
+/// `identify {revisions}` tells a connection offered frames what it may
+/// frame: the schema its method table must come from and the methods
+/// answered on frames, so it never learns one by a refusal, and every
+/// listed method is answered on a frame.
+#[test]
+fn frame_dispatch_identify_lists_the_framed_methods_and_their_schema() {
+    let mut client = Client::granted("identify");
+    let reply = client.line_reply(&json!({"id": 2, "cmd": "identify", "revisions": true}));
+    let identity = &reply["data"];
+    let digest = format!("{:016x}", cmux_ipc::SCHEMA_IDENTITY.sdk_schema_digest);
+    assert_eq!(identity["sdk_schema_digest"], json!(digest), "{identity}");
+    let framed: Vec<u16> = serde_json::from_value(identity["framed_methods"].clone()).unwrap();
+    assert!(framed.windows(2).all(|pair| pair[0] < pair[1]), "in id order: {framed:?}");
+    let tables = MethodTables::schema();
+    assert!(framed.iter().all(|id| tables.v12(cmux_ipc::MethodId::new(*id)).is_some()));
+    assert!(framed.contains(&method("ping").id.raw()));
+    assert!(framed.contains(&method("identify").id.raw()));
+    assert!(!framed.contains(&method("apps-list").id.raw()), "a feature route answers lines");
+    let (header, _) = client.frame_reply(3, &json!({"id": 3, "cmd": "identify"}));
+    assert_answers(&header, FrameKind::Reply, 3, "identify");
+    // Without `revisions` the reply keeps its shape.
+    let plain = client.line_reply(&json!({"id": 4, "cmd": "identify"}));
+    assert!(plain["data"].get("framed_methods").is_none(), "{plain}");
+    assert!(plain["data"].get("sdk_schema_digest").is_none(), "{plain}");
+    assert_eq!(client.finish(), ConnectionEnd::PeerClosed);
+}
+
+/// A connection that is not offered frames never reads the framed set.
+#[test]
+fn frame_dispatch_identify_without_the_offer_lists_no_framed_methods() {
+    let mux = Mux::new_for_test("frame-dispatch-no-offer", crate::SurfaceOptions::default());
+    let identity = cmd_server::identify(&mux, 0, false, true).unwrap();
+    assert!(identity.get("api_revision").is_some(), "{identity}");
+    assert!(identity.get("framed_methods").is_none(), "{identity}");
+    assert!(identity.get("sdk_schema_digest").is_none(), "{identity}");
+}
+
 #[test]
 fn frame_dispatch_an_unknown_method_id_closes_with_bad_message() {
     let mut client = Client::granted("unknown");
