@@ -30,24 +30,33 @@ public enum BlockingContext: String, Sendable, CaseIterable {
     /// threads shared by every task, about one per core, so one blocking call stalls the tasks queued behind it.
     /// Blocking is a violation, recorded (`CMUX_BLOCKING_TRAP_POOL=1` traps in Debug).
     case pool
-    /// A slot of a `BackgroundWork` lane that may block (`.files`, `.system`), Chrome's `MayBlock()` task: blocking
-    /// allowed.
+    /// A slot of a `BackgroundWork` lane that may block (`.files`, `.system`), Chrome's `MayBlock()` task without
+    /// `WithBaseSyncPrimitives()`: a wait on the disk, a socket or a process is allowed; a wait for another thread
+    /// or process to act (``BlockingKind/isSyncPrimitive``) is a ``laneSync`` violation.
     case lane
-    /// A named queue or a registered thread that owns its work: blocking allowed.
+    /// A named queue or a registered thread that owns its work: blocking and sync primitives allowed.
     case dedicated
     /// A slot of BackgroundWork's `.cpu` lane, Chrome's task without `MayBlock()`: the lane is sized to the cores,
     /// so a blocking call holds a core's slot idle. Blocking is a ``BlockingKind/wrongLane`` violation, recorded
     /// and never a trap; the fix is to run the job on `.files` or `.system`.
     case cpuLane = "cpu-lane"
+    /// Where a sync primitive (``BlockingKind/isSyncPrimitive``: a semaphore, a `DispatchQueue.sync`, a contended
+    /// ``Mutex`` past ``BlockingKind/lockWaitLimitNanos``, a synchronous reply) in a ``lane`` item is recorded. The
+    /// slot then waits for other work instead of doing its own, and lane items waiting on each other can hold every
+    /// slot (Chrome's `ScopedDisallowBaseSyncPrimitives`, base/threading/thread_restrictions.h). Recorded with the
+    /// seam's own kind, never a trap; the fix is an `await` on the awaited work, or a dedicated thread. No thread is
+    /// in this context: the thread is ``lane``, and this names its sync-primitive sites.
+    case laneSync = "lane-sync"
 
     /// What a thread declares itself for the length of a ``BlockingContext/run(as:_:)`` scope. Internal to this
     /// module: other modules mark only a lane (``runAsLane(_:)``, ``runAsCPULane(_:)``); dedicated comes from
     /// ``allowBlocking(_:_:)``
     /// (a reviewed reason) and from a named thread, never from a bare mark.
     @usableFromInline enum Mark: UInt, Sendable {
-        /// A `BackgroundWork` lane slot runs its item (`LaneScheduler`).
+        /// A `BackgroundWork` lane slot runs its item (`LaneScheduler`): may block, sync primitives not allowed.
         case lane = 1
-        /// A named thread, or ``allowBlocking(_:_:)`` running its body off the main thread.
+        /// A named thread, or ``allowBlocking(_:_:)`` running its body off the main thread: may block and wait
+        /// on sync primitives.
         case dedicated = 2
         /// A slot of the `.cpu` lane runs its item (`LaneScheduler`).
         case cpuLane = 3
@@ -63,8 +72,9 @@ public enum BlockingContext: String, Sendable, CaseIterable {
     }
 
     /// Runs `body`, one `BackgroundWork` lane item, with the calling thread marked ``lane`` (Chrome's `MayBlock()`
-    /// task, base/task/thread_pool/task_tracker.cc): its checked blocking calls are allowed. Only `LaneScheduler`
-    /// calls it, around each item on a lane slot. In Release it only runs `body`.
+    /// task, base/task/thread_pool/task_tracker.cc): its checked blocking calls are allowed, except a sync
+    /// primitive (``BlockingKind/isSyncPrimitive``), which records a ``laneSync`` site. Only `LaneScheduler` calls
+    /// it, around each item on a lane slot. In Release it only runs `body`.
     ///
     /// ```swift
     /// slot.async { BlockingContext.runAsLane { job.execute() } }
@@ -121,14 +131,30 @@ extension BlockingContext {
         pthread_main_np() != 0 ? .main : offMainThread()
     }
 
-    /// The context of the calling thread, which is not the main thread, when a blocking call there is a violation
-    /// (the checks' off-main path): ``pool`` or ``cpuLane``; nil on a lane that may block or a dedicated thread.
+    /// The context in which a `kind` blocking call on the calling thread, which is not the main thread, is a
+    /// violation (the checks' off-main path): ``pool`` or ``cpuLane`` for any kind, ``laneSync`` for a sync
+    /// primitive on a ``lane``; nil for any other call on a lane and for every call on a dedicated thread.
+    ///
+    /// - Parameter kind: What the call waits on.
     @usableFromInline
-    static func offMainViolation() -> BlockingContext? {
+    static func offMainViolation(_ kind: BlockingKind) -> BlockingContext? {
         switch offMainThread() {
         case .pool: .pool
         case .cpuLane: .cpuLane
-        case .main, .lane, .dedicated: nil
+        case .lane: kind.isSyncPrimitive ? .laneSync : nil
+        case .main, .dedicated, .laneSync: nil
+        }
+    }
+
+    /// Where a ``Mutex`` wait past ``BlockingKind/lockWaitLimitNanos`` on the calling thread, which is not the
+    /// main thread, is recorded: ``laneSync`` in a ``lane`` item, ``cpuLane`` (as ``BlockingKind/wrongLane``, the
+    /// seam kind ``BlockingKind/lockWait``) in a `.cpu` lane item, as ``offMainViolation(_:)`` places every other
+    /// sync primitive there; nil anywhere else (the pool's lock waits are not timed). One thread-specific read.
+    static func laneLockWaitViolation() -> BlockingContext? {
+        switch BlockingThreadFlags.load().mark {
+        case .lane: .laneSync
+        case .cpuLane: .cpuLane
+        case .dedicated, nil: nil
         }
     }
 
@@ -138,7 +164,10 @@ extension BlockingContext {
     static func offMainThread() -> BlockingContext {
         let flags = BlockingThreadFlags.load()
         if let mark = flags.mark { return mark.context }
-        guard isPoolLabel(__dispatch_queue_get_label(nil)) else { return .dedicated }
+        // SAFETY: dispatch_queue_get_label(NULL) returns the current queue's label, a NUL-terminated string the queue
+        // owns while this thread runs on it (an empty one when the queue has none); isPoolLabel reads it only during
+        // the call.
+        guard unsafe isPoolLabel(__dispatch_queue_get_label(nil)) else { return .dedicated }
         if flags.isUnnamed { return .pool }
         guard isNamedThread() else {
             BlockingThreadFlags.store(flags.withUnnamed())
@@ -152,16 +181,21 @@ extension BlockingContext {
     /// (`com.apple.root.`; `strncmp` stops at the label's end, so a shorter label is no match).
     static func isPoolLabel(_ label: UnsafePointer<CChar>) -> Bool {
         let root: StaticString = "com.apple.root."
-        return root.utf8Start.withMemoryRebound(to: CChar.self, capacity: root.utf8CodeUnitCount) { bytes in
-            strncmp(label, bytes, root.utf8CodeUnitCount) == 0
+        // SAFETY: utf8Start is the literal's static storage of utf8CodeUnitCount bytes, viewed as CChar (the same
+        // size) for the closure; strncmp reads at most that many bytes of each string and stops at `label`'s NUL,
+        // and the caller lends `label` for this call.
+        return unsafe root.utf8Start.withMemoryRebound(to: CChar.self, capacity: root.utf8CodeUnitCount) { bytes in
+            unsafe strncmp(label, bytes, root.utf8CodeUnitCount) == 0
         }
     }
 
     /// Whether the calling thread has a pthread name: a `Thread` cmux made (pool workers have none).
     static func isNamedThread() -> Bool {
-        withUnsafeTemporaryAllocation(of: CChar.self, capacity: 64) { buffer in
-            guard let base = buffer.baseAddress else { return false }
-            return pthread_getname_np(pthread_self(), base, buffer.count) == 0 && base.pointee != 0
+        // SAFETY: a 64-byte scratch buffer that lives only for the closure; pthread_getname_np writes at most
+        // buffer.count bytes into it, NUL-terminated, and the first byte is read only after it succeeded.
+        unsafe withUnsafeTemporaryAllocation(of: CChar.self, capacity: 64) { buffer in
+            guard let base = unsafe buffer.baseAddress else { return false }
+            return unsafe pthread_getname_np(pthread_self(), base, buffer.count) == 0 && base.pointee != 0
         }
     }
 }
@@ -180,7 +214,8 @@ struct BlockingThreadFlags {
     /// classified by their queue label alone).
     private static let key: pthread_key_t? = {
         var key = pthread_key_t()
-        return pthread_key_create(&key, nil) == 0 ? key : nil
+        // SAFETY: pthread_key_create writes one key into `key`, a local; no destructor (nil).
+        return unsafe pthread_key_create(&key, nil) == 0 ? key : nil
     }()
 
     init(rawValue: UInt) {
@@ -190,13 +225,17 @@ struct BlockingThreadFlags {
     /// The calling thread's flags.
     static func load() -> BlockingThreadFlags {
         guard let key else { return BlockingThreadFlags(rawValue: 0) }
-        return BlockingThreadFlags(rawValue: UInt(bitPattern: pthread_getspecific(key)))
+        // SAFETY: the thread's value for `key` is never dereferenced: store keeps the flags word in the pointer's
+        // bits, and this reads the bits back.
+        return BlockingThreadFlags(rawValue: unsafe UInt(bitPattern: pthread_getspecific(key)))
     }
 
     /// Sets the calling thread's flags.
     static func store(_ flags: BlockingThreadFlags) {
         guard let key else { return }
-        pthread_setspecific(key, UnsafeRawPointer(bitPattern: flags.rawValue))
+        // SAFETY: the flags word travels in the pointer's bits and is never dereferenced (load reads the bits back);
+        // no destructor is registered for the key, so nothing frees it.
+        unsafe pthread_setspecific(key, UnsafeRawPointer(bitPattern: flags.rawValue))
     }
 
     var mark: BlockingContext.Mark? {

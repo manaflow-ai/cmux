@@ -17,19 +17,21 @@ import QuartzCore
 ///
 /// Motion constants are placeholders until the 120 Hz reference
 /// (references/real-messages/interactions/swipe-*) is fitted.
+@MainActor  // cmux: it reads the pane's window, views and store, as its ChatController
 final class SwipeReply {
+    // cmux: constants (no shared mutable state); nothing sets them.
     enum Tuning {
         /// Finger travel (pt) at which the reply arms.
-        static var threshold: CGFloat = 60
+        static let threshold: CGFloat = 60
         /// Past the threshold the row follows with this resistance.
-        static var resistance: CGFloat = 0.35
+        static let resistance: CGFloat = 0.35
         /// The row never moves further than this (pt).
-        static var maxOffset: CGFloat = 110
+        static let maxOffset: CGFloat = 110
         /// The arrow's centre sits this far left of the bubble at rest (pt).
-        static var arrowInset: CGFloat = 22
-        static var arrowSize: CGFloat = 22
+        static let arrowInset: CGFloat = 22
+        static let arrowSize: CGFloat = 22
         /// Spring back (damping ratio 1: no overshoot).
-        static var returnResponse: CFTimeInterval = 0.3
+        static let returnResponse: CFTimeInterval = 0.3
     }
 
     private weak var c: ChatController?
@@ -106,7 +108,7 @@ final class SwipeReply {
         cell.layer.removeAnimation(forKey: "swipe.back")
         arrow.removeAllAnimations()
         // cmux: a pane's controller has an optional window.
-        arrow.contents = Self.arrowImage(scale: c.window?.backingScaleFactor ?? DisplayScale.current)
+        arrow.contents = arrowImage(scale: c.window?.backingScaleFactor ?? DisplayScale.current)
         arrow.contentsScale = c.window?.backingScaleFactor ?? DisplayScale.current
         cell.layer.addSublayer(arrow)
         move(by: dx)
@@ -175,14 +177,15 @@ final class SwipeReply {
         hit = nil
     }
 
-    private static var arrowCache: [CGFloat: CGImage] = [:]
-    static func arrowImage(scale: CGFloat) -> CGImage? {
+    // cmux: the swipe's own cache (one image per scale), not process-wide mutable state.
+    private var arrowCache: [CGFloat: CGImage] = [:]
+    func arrowImage(scale: CGFloat) -> CGImage? {
         if let i = arrowCache[scale] { return i }
         let cfg = NSImage.SymbolConfiguration(pointSize: Tuning.arrowSize * 0.7, weight: .semibold)
             .applying(.init(paletteColors: [NSColor(white: 0.6, alpha: 1)]))
         guard let sym = NSImage(systemSymbolName: "arrowshape.turn.up.left.fill", accessibilityDescription: nil)?.withSymbolConfiguration(cfg) else { return nil }
         let px = CrashGuard.int(Tuning.arrowSize * scale, in: 1...4_096) // cmux: no trap on NaN
-        guard let ctx = CGContext(data: nil, width: px, height: px, bitsPerComponent: 8, bytesPerRow: 0,
+        guard let ctx = CGContext.ownedBitmap(width: px, height: px, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: LabColorSpace.sRGB, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil } // cmux: no force unwrap
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
@@ -200,6 +203,7 @@ final class SwipeReply {
 /// 1. short swipe (40 pt): the row follows 1:1, released it springs back, no reply.
 /// 2. full swipe (160 pt): the row is capped, released it opens the reply (thread).
 /// 3. vertical stream on the row: not claimed (the scroll view gets it).
+@MainActor  // cmux: it drives the main-actor ChatController and SwipeReply
 enum SwipeCheck {
     static func fromArguments() -> String? {
         let a = ProcessInfo.processInfo.arguments

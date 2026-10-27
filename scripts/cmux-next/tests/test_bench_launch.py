@@ -246,6 +246,22 @@ class FinderLimitsTests(unittest.TestCase):
         self.assertIn(f"maxfiles {self.launchd} (caller {self.raised})", bench.limits)
         self.assertEqual(resource.getrlimit(resource.RLIMIT_NOFILE)[0], self.raised)
 
+    def test_launch_arguments_reach_the_app_and_only_its_process(self):
+        """BenchApp(args=...) appends to the app's argv (NSArgumentDomain), no defaults domain is written."""
+        app = os.path.join(os.path.realpath(self.folder), f"cmux DEV bl-args-{os.getpid()}.app")
+        os.makedirs(os.path.join(app, "Contents/MacOS"))
+        seen = os.path.join(self.folder, "argv")
+        main = os.path.join(app, "Contents/MacOS/cmux DEV")
+        with open(main, "w") as f:
+            f.write(f"#!/bin/sh\nprintf '%s\\n' \"$@\" > '{seen}'\n")  # records its argv, then exits
+        os.chmod(main, 0o755)
+        bench = bl.BenchApp(app, out=os.path.join(self.folder, "out"), teardown=False, session=lambda: OK_SESSION,
+                            args=["-AppleShowScrollBars", "Always"])
+        with self.assertRaises(bl.LaunchError):
+            bench.launch(timeout=5)
+        with open(seen) as f:
+            self.assertEqual(f.read().splitlines(), ["-AppleShowScrollBars", "Always"])
+
     def test_inherit_and_a_silent_launchctl_apply_nothing_and_say_so(self):
         with bl.finder_limits("") as changed:
             inside = subprocess.run(["/bin/sh", "-c", "ulimit -Sn"], capture_output=True, text=True).stdout.strip()
@@ -661,6 +677,63 @@ class FreshStateTests(unittest.TestCase):
         os.environ["BENCH_LAUNCH_KEEP_STATE"] = "1"
         self.launch()
         self.assertTrue(os.path.exists(os.path.join(self.root, "tui", "session.json")))
+
+
+class LeftDaemonTests(unittest.TestCase):
+    """A daemon an earlier run of the tag left (no app of it runs) refuses a fresh-state launch: moving the state
+    aside would not make the session empty, the app would adopt that daemon and its workspaces."""
+
+    def setUp(self):
+        self.folder = os.path.realpath(tempfile.mkdtemp(prefix="bench-launch-left-"))
+        self.tag = f"bl-left-{os.getpid()}"
+        self.app = record_bundle(self.folder, self.tag, main="#!/bin/sh\nexit 0\n")
+        tui = os.path.join(self.app, "Contents/Resources/bin/cmux-tui")
+        os.makedirs(os.path.dirname(tui))
+        shutil.copy("/bin/sleep", tui)
+        self.daemon = subprocess.Popen([tui, "300"])
+        self.root = os.path.join(self.folder, "appsupport-cmux", "tags", self.tag)
+        os.makedirs(os.path.join(self.root, "tui"))
+        self.patches = [mock.patch.dict(os.environ, {"BENCH_LAUNCH_STATE_BASE": os.path.join(self.folder,
+                                                                                            "appsupport-cmux")}),
+                        mock.patch.object(bl, "lpm_switch_problem", return_value=None),
+                        mock.patch.object(bl, "low_power_mode", return_value=False),
+                        mock.patch.object(bl, "mute_output", return_value="muted"),
+                        mock.patch.object(bl, "host_facts", return_value={}),
+                        mock.patch.object(bl, "note")]
+        for patch in self.patches:
+            patch.start()
+        os.environ.pop("BENCH_LAUNCH_KEEP_STATE", None)
+
+    def tearDown(self):
+        for patch in reversed(self.patches):
+            patch.stop()
+        if self.daemon.poll() is None:
+            self.daemon.kill()  # the exact process this test started
+        self.daemon.wait()
+        shutil.rmtree(self.folder, ignore_errors=True)
+
+    def bench(self, **kwargs):
+        return bl.BenchApp(self.app, out=os.path.join(self.folder, "out"), session=lambda: OK_SESSION, **kwargs)
+
+    def test_a_fresh_launch_beside_a_left_daemon_is_refused_and_moves_nothing(self):
+        for teardown in (False, True):
+            with self.subTest(teardown=teardown), contextlib.redirect_stdout(io.StringIO()):
+                bench = self.bench(teardown=teardown)
+                with self.assertRaises(bl.LaunchError) as refused:
+                    bench.launch(timeout=5)
+                bench.stop()  # what every bench's finally runs: the left daemon is another run's
+            self.assertEqual(refused.exception.reason, "tag-in-use")
+            self.assertEqual(refused.exception.report.get("pids"), [self.daemon.pid])
+            self.assertIsNone(bench.process)
+            self.assertTrue(os.path.isdir(self.root), "the left daemon's state moved out from under it")
+            self.assertIsNone(self.daemon.poll())
+
+    def test_a_relaunch_on_the_kept_state_adopts_the_daemon(self):
+        bench = self.bench(teardown=False, fresh_state=False)
+        with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(bl.LaunchError) as failed:
+            bench.launch(timeout=5)  # the stand-in app exits at once: launched, then app-exited
+        self.assertNotEqual(failed.exception.reason, "tag-in-use")
+        self.assertIsNotNone(bench.process)
 
 
 PERF_RESULT_PATH = ROOT / "scripts/perf-lab/perf_result.py"

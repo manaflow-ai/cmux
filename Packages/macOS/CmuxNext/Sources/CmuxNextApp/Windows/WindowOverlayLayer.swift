@@ -1,9 +1,18 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextLayout
+import CmuxNextSignposts
+import CmuxNextWakeups
 
 /// Keeps a window's app overlays above its content child windows.
+///
+/// With no visible content child window (a page attached as a view, or no
+/// page) nothing here crosses windows: the planes stay in their layout root,
+/// presented overlays draw in the overlay host's top layer in this window
+/// (feature `overlayTopLayer`, `WindowOverlayHost.topLayer`), and no panel is
+/// made or re-ordered. The rest is the fallback for page child windows.
 ///
 /// Chromium pages are child `NSWindow`s that the CEF fork orders above the
 /// whole parent content, so anything drawn in the parent window (focus
@@ -22,25 +31,32 @@ import CmuxNextLayout
 ///   (`BrowserWindowOcclusionProviding`): the fork masks the page there and
 ///   routes the mouse to the parent.
 /// - Divider hit areas draw nothing over panes, so they do not mask pages:
+///   while a page window takes the mouse (``pageWindowsTakeMouse``),
 ///   `DividerMouseCatchers` covers them with click-catching panels above
-///   the pages that forward the mouse to the parent.
+///   the pages that forward the mouse to the parent. A page attached as a
+///   view of its pane (p03-rendering-045) has no window of its own: the
+///   divider views take the mouse in this window, as over a terminal, and
+///   no catcher or panel is made. A visible content panel (a remote page's
+///   popup) cuts a hole in every catcher it overlaps: the popup is below
+///   the catchers and keeps its clicks there.
 ///
 /// App panels that are child windows (palette, hover cards, group editor)
 /// stay above the overlay panel. Child window z-order is the order of
 /// `childWindows` (bottom to top) and `order(_:relativeTo:)` has no effect on
 /// child windows, so reordering re-adds windows. The fork re-adds a page
 /// window whenever it becomes visible, so the order is checked whenever a
-/// child window of this window appears, moves, or becomes key, on every
-/// event cycle of the window, and whenever the plane syncs.
+/// child window is added, a page window appears, hides, moves or takes key,
+/// the window moves or shows again, and whenever the plane syncs; never per
+/// event cycle (Chrome: `remote_cocoa/app_shim/views_nswindow_delegate.mm`).
 @MainActor
 final class WindowOverlayLayer {
     enum Placement: String { case inWindow, overlayWindow }
 
-    private unowned let window: NSWindow
+    unowned let window: NSWindow
     /// The window's overlay host: its panel holds the planes (below every
     /// presented overlay) and keeps the order above page windows.
-    private var host: WindowOverlayHost { WindowOverlayHost.host(for: window) }
-    private var planes: [OverlayPlane] = []
+    var host: WindowOverlayHost { WindowOverlayHost.host(for: window) }
+    private(set) var planes: [OverlayPlane] = []
     private(set) var placement: Placement = .inWindow
     /// Interactive overlay rects in window coordinates.
     private(set) var interactiveRects: [CGRect] = []
@@ -53,30 +69,55 @@ final class WindowOverlayLayer {
     /// What the catcher panels cover: the divider areas, the sidebar's resize band last.
     private(set) var catcherAreas: [LayoutMouseArea] = []
     static let sidebarResizeAreaID = "sidebar.resize"
-    let catchers: DividerMouseCatchers
-    private var observers: [any NSObjectProtocol] = []
+    /// Made the first time a page window takes the mouse (``pageWindowsTakeMouse``); nil while every page
+    /// draws and takes input in this window.
+    private(set) var catchers: DividerMouseCatchers?
+    /// A visible page window takes the mouse over the layout (``takesMouse(_:)``): its divider hit areas
+    /// need catcher panels above it.
+    private(set) var pageWindowsTakeMouse = false
+    /// The visible content panels' frames (window coordinates) the catchers were last cut around.
+    private(set) var catcherHoles: [CGRect] = []
+    /// Takes a `cef.geometry` slice per parent geometry change and catcher sync (tests pass their own).
+    private let signposter: Signposter
+    /// A `cef.geometry` slice is open: work inside it takes no slice of its own (``inGeometrySlice(_:_:)``).
+    private var geometrySliceOpen = false
+    /// The window's own notices (its `WindowEvents`), and every window's (a page window's).
+    private var subscriptions: [EventSubscription] = []
+    private var observers: [MainActorObservation] = []
+    /// The visible page windows at the last check: one that orders out may leave `childWindows` first.
+    private var shownPages: Set<ObjectIdentifier> = []
+    /// The main run loop's turn number (`MainTurnMeter.turnNumber`): the layout depth and the geometry
+    /// change's follow-up page update count only in the turn that set them.
+    private let currentTurn: @MainActor () -> UInt64
     private var isEvaluating = false
     /// Set by `teardown` (the window is closing): nothing is placed again.
     private var isTornDown = false
-    /// A window geometry change whose layout pass has not run yet.
+    /// A page update asked for during the layout pass: it runs after the pass.
     private var pageUpdateAfterLayout = false
+    /// The turn of a window geometry change: the layout pass the change schedules, in that turn, updates
+    /// the pages once more. A move or an occlusion change schedules none, and a later turn's pass owes nothing.
+    private var geometryTurn: UInt64?
     /// The deferred page update must reach every page (`requestPageUpdate(force:)`).
     private var forcedPageUpdateAfterLayout = false
-    /// Depth of the window's layout pass (`ShellWindow.layoutIfNeeded`).
-    private(set) var layoutDepth = 0
+    /// Depth of the window's layout pass (`ShellWindow.layoutIfNeeded`), in the turn that began it.
+    private var openDepth = 0
+    private var passTurn: UInt64 = 0
     /// Interactive rects changed during the layout pass: applied after it.
     private var rectsChangedInLayout = false
     /// Placement and child order checks asked for during the layout pass.
     private var evaluateAfterLayout = false
     /// A parent move or resize reported during the layout pass.
     private var geometryAfterLayout = false
-    /// Reorders done (for `debug.layers`).
-    var reorderCount: Int { WindowOverlayHost.existingHost(for: window)?.reorderCount ?? 0 }
+    /// Placement and order checks run (`evaluate()` past its guards; tests).
+    private(set) var evaluations = 0
 
-    init(window: NSWindow) {
+    /// `center`: where windows post (tests pass their own); `currentTurn`: the main run loop's turn number.
+    init(window: NSWindow, signposter: Signposter = Signposter.cef, center: NotificationCenter = .default,
+         currentTurn: @escaping @MainActor () -> UInt64) {
         self.window = window
-        catchers = DividerMouseCatchers(window: window)
-        let center = NotificationCenter.default
+        self.signposter = signposter
+        self.currentTurn = currentTurn
+        let events = WindowEvents.of(window, center: center)
         // An occluder (the sidebar) moved: pages re-read their occlusion rects.
         // The sidebar reports from WindowRootView.layout(): inside the
         // window's layout pass the pages follow after it.
@@ -84,42 +125,31 @@ final class WindowOverlayLayer {
             guard let self else { return }
             self.requestPageUpdate()
         }
-        observers.append(center.addObserver(forName: NSWindow.didUpdateNotification, object: window, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                guard let self else { return }
-                // Never inside a layout pass: a depth left over by an
-                // exception AppKit caught mid-pass must not block the
-                // deferred work for the rest of the process.
-                self.layoutDepth = 0
-                self.windowDidLayoutWork()
-                self.evaluate()
-            }
-        })
         // Any move or resize source (drag, an Accessibility client such as
         // Rectangle, a display, Space or fullscreen change): the overlay
         // follows, and every Chromium page re-applies its geometry now and
-        // once more after the layout pass that the change schedules.
+        // once more after the layout pass that the change schedules. The
+        // window may also show again: whether its pages show is checked.
         for name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification, NSWindow.didEndLiveResizeNotification,
                      NSWindow.didChangeBackingPropertiesNotification, NSWindow.didChangeScreenNotification,
                      NSWindow.didChangeOcclusionStateNotification, NSWindow.didDeminiaturizeNotification,
                      NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification] {
-            observers.append(center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.parentGeometryDidChange() } // main-proof: observer on queue: .main
+            subscriptions.append(events.subscribe(name, owner: "WindowOverlayLayer") { [weak self] in
+                self?.parentGeometryDidChange()
+                self?.evaluate()
             })
         }
         // A page window appears (the fork shows it inactive and adds it as a
-        // child), moves, or takes key: check the order at once.
+        // child), hides, moves, or takes key: check the order at once.
         for name in [NSWindow.didChangeOcclusionStateNotification, NSWindow.didMoveNotification,
                      NSWindow.didResizeNotification, NSWindow.didBecomeKeyNotification] {
-            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
-                let child = note.object as? NSWindow
-                let moved = note.name == NSWindow.didMoveNotification || note.name == NSWindow.didResizeNotification
-                MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                    guard let self, let child, child !== self.window, child.parent === self.window else { return }
-                    self.evaluate()
-                    if moved {
-                        self.pageWindowDidChangeFrame(child)
-                    }
+            let moved = name == NSWindow.didMoveNotification || name == NSWindow.didResizeNotification
+            observers.append(MainActorObservation(name, center: center, read: { $0.object as? NSWindow }) { [weak self] child in
+                guard let self, let child, child !== self.window else { return }
+                guard child.parent === self.window || self.shownPages.contains(ObjectIdentifier(child)) else { return }
+                self.evaluate()
+                if moved {
+                    self.pageWindowDidChangeFrame(child)
                 }
             })
         }
@@ -128,8 +158,8 @@ final class WindowOverlayLayer {
     func teardown() {
         isTornDown = true
         sidebarResizeArea = nil
-        catchers.teardown()
-        observers.forEach(NotificationCenter.default.removeObserver)
+        catchers?.teardown()
+        subscriptions.forEach { $0.cancel() }
         observers.removeAll()
         for plane in planes { (plane.home as? LayoutRootView)?.returnPlaneHome() }
         planes.removeAll()
@@ -157,12 +187,19 @@ final class WindowOverlayLayer {
     /// applies the deferred page update once the pass ends.
     func planeDidLayout(_ plane: OverlayPlane) {
         guard layoutDepth == 0 else { return }
-        // A layout outside the window's pass (`layoutSubtreeIfNeeded`).
+        // A layout outside the window's pass (a forced subtree layout).
         windowDidLayoutWork()
     }
 
+    /// Depth of the window's layout pass (`ShellWindow.layoutIfNeeded`). A pass never spans turns, so a
+    /// depth from an earlier turn was left by an exception AppKit caught mid-pass: it counts as 0, and the
+    /// next pass is the outermost one, with its after-pass work.
+    var layoutDepth: Int { passTurn == currentTurn() ? openDepth : 0 }
+
     func windowWillLayout() {
-        layoutDepth += 1
+        let turn = currentTurn()
+        if passTurn != turn { (openDepth, passTurn) = (0, turn) }
+        openDepth += 1
     }
 
     /// The window's layout pass ended: every view has its final frame.
@@ -170,8 +207,8 @@ final class WindowOverlayLayer {
     /// the root without a layout of the root), then pages and catchers
     /// follow once.
     func windowDidLayout() {
-        layoutDepth = max(0, layoutDepth - 1)
-        guard layoutDepth == 0, !isTornDown else { return }
+        openDepth = max(0, layoutDepth - 1)
+        guard openDepth == 0, !isTornDown else { return }
         windowDidLayoutWork()
     }
 
@@ -193,7 +230,9 @@ final class WindowOverlayLayer {
         #if DEBUG || CMUX_BENCH_HOOKS
         for plane in planes { recordRingLag(plane) }
         #endif
-        guard pageUpdateAfterLayout else { return }
+        let followsGeometry = geometryTurn.map { $0 == currentTurn() } ?? false
+        geometryTurn = nil
+        guard pageUpdateAfterLayout || followsGeometry else { return }
         let force = forcedPageUpdateAfterLayout
         (pageUpdateAfterLayout, forcedPageUpdateAfterLayout) = (false, false)
         for plane in planes { plane.syncFrame() }
@@ -245,7 +284,7 @@ final class WindowOverlayLayer {
             (plane.home as? LayoutRootView)?.returnPlaneHome()
         case .overlayWindow:
             guard !isTornDown else { return }
-            let container = host.panel.planeContainer
+            let container = host.topLayer.planeContainer
             if plane.superview !== container { container.addSubview(plane) }
             plane.syncFrame()
         }
@@ -280,13 +319,16 @@ final class WindowOverlayLayer {
 
     // MARK: Placement and order
 
-    /// Visible child windows that draw content above the parent: every child
-    /// that is not one of the app's panels (in practice Chromium pages).
-    static func contentChildWindows(of window: NSWindow) -> [NSWindow] {
-        (window.childWindows ?? []).filter { isContent($0) && $0.isVisible }
-    }
+    /// A visible content child window takes the mouse over the layout: a Chromium page window (a page
+    /// drawn in its own window, or a layer-hosted page's input window). A content panel
+    /// (`ContentChildPanel`: a remote page's popup reaching past the page's edge) does not: it takes
+    /// its own clicks, and the catchers are cut around it (``catcherHoles``).
+    nonisolated static func takesMouse(_ child: NSWindow) -> Bool { !(child is ContentChildPanel) }
 
-    static func isContent(_ child: NSWindow) -> Bool { WindowOverlayHost.isPageWindow(child) }
+    /// Where catchers must leave the mouse to a visible content panel: its frame in window coordinates.
+    private func contentPanelRects(in content: [NSWindow]) -> [CGRect] {
+        content.compactMap { $0 is ContentChildPanel ? window.convertFromScreen($0.frame) : nil }
+    }
 
     /// Moves the planes to where they draw above content, and restores the
     /// child window order when a page window was added above the overlay.
@@ -301,7 +343,15 @@ final class WindowOverlayLayer {
         }
         isEvaluating = true
         defer { isEvaluating = false }
-        let wanted: Placement = window.isVisible && !Self.contentChildWindows(of: window).isEmpty ? .overlayWindow : .inWindow
+        evaluations += 1
+        let content = window.isVisible ? Self.contentChildWindows(of: window) : []
+        shownPages = Set(content.map(ObjectIdentifier.init))
+        let wanted: Placement = content.isEmpty ? .inWindow : .overlayWindow
+        let takeMouse = content.contains(where: Self.takesMouse)
+        // A popup that appears, moves or hides over a divider re-cuts the catchers.
+        let holesChange = takeMouse && contentPanelRects(in: content) != catcherHoles
+        let catchersChange = wanted != placement || takeMouse != pageWindowsTakeMouse || holesChange
+        pageWindowsTakeMouse = takeMouse
         if wanted != placement {
             placement = wanted
             switch wanted {
@@ -309,8 +359,8 @@ final class WindowOverlayLayer {
             case .inWindow: hidePanel()
             }
             planes.forEach(place)
-            syncCatchers()
         }
+        if catchersChange { syncCatchers() }
         if placement == .overlayWindow { enforceOrder() }
     }
 
@@ -335,15 +385,32 @@ final class WindowOverlayLayer {
             geometryAfterLayout = true
             return
         }
-        if placement == .overlayWindow, let panel = WindowOverlayHost.existingHost(for: window)?.panel,
-           panel.parent === window, panel.frame != window.frame {
-            panel.setFrame(window.frame, display: false)
+        inGeometrySlice(.parentGeometry) {
+            if placement == .overlayWindow, let panel = WindowOverlayHost.existingHost(for: window)?.madePanel,
+               panel.parent === window, panel.frame != window.frame {
+                panel.setFrame(window.frame, display: false)
+            }
+            for plane in planes { plane.syncFrame() }
+            updateInteractiveRects()
+            syncCatchers()
+            requestPageUpdate()
+            geometryTurn = currentTurn()
         }
-        for plane in planes { plane.syncFrame() }
-        updateInteractiveRects()
-        syncCatchers()
-        requestPageUpdate()
-        pageUpdateAfterLayout = true
+    }
+
+    /// Runs `body` in one `cef.geometry` slice, or in the slice already open (slices never nest). The end holds the
+    /// catcher panels shown and the panels made or re-framed since the begin.
+    private func inGeometrySlice(_ source: Signposter.CEFGeometrySource, _ body: () -> Void) {
+        guard !geometrySliceOpen else { return body() }
+        let interval = signposter.beginCEFGeometry(source)
+        let movesBefore = catchers?.panelUpdates ?? 0
+        geometrySliceOpen = true
+        defer {
+            geometrySliceOpen = false
+            signposter.endCEFGeometry(interval, catchers: catchers?.shownCount ?? 0,
+                                      panelMoves: (catchers?.panelUpdates ?? 0) - movesBefore)
+        }
+        body()
     }
 
     /// Something other than the fork moved or resized a page window (an
@@ -358,20 +425,23 @@ final class WindowOverlayLayer {
         requestPageUpdate(force: true)
     }
 
-    /// Click-catching panels over divider hit areas while pages show.
+    /// Click-catching panels over divider hit areas while a page window takes the mouse, in one
+    /// `cef.geometry` slice. With none, and no catcher panel left to hide, the sync costs no slice.
     private func syncCatchers() { // perf-hot: 1ms cef-geometry (one window move per divider catcher panel)
-        if catchers.onHover == nil {
-            catchers.onHover = { [weak self] id, hovered in
-                if id == Self.sidebarResizeAreaID {
-                    (self?.window.contentView as? WindowRootView)?.sidebar.refreshResizeHover()
-                    return
-                }
-                for plane in self?.planes ?? [] { (plane.home as? LayoutRootView)?.setDividerHovered(id, hovered) }
-            }
-        }
+        guard pageWindowsTakeMouse || (catchers?.shownCount ?? 0) > 0 else { return }
+        inGeometrySlice(.catcherSync) { applyCatchers() }
+    }
+
+    private func applyCatchers() {
         // A modal or dimming overlay blocks the whole window: no divider takes the mouse under it.
         let blocked = WindowOverlayHost.existingHost(for: window)?.blocksWholeWindow == true
-        catchers.update(catcherAreas, active: placement == .overlayWindow && !blocked)
+        let active = pageWindowsTakeMouse && !blocked
+        catcherHoles = pageWindowsTakeMouse && window.isVisible ? contentPanelRects(in: Self.contentChildWindows(of: window)) : []
+        guard let catchers = active ? self.catchers ?? makeCatchers() : self.catchers else { return }
+        let shownBefore = catchers.shownCount
+        catchers.update(catcherAreas, active: active, excluding: catcherHoles)
+        // No panel showed or shows: what lies under the pointer did not change.
+        guard shownBefore > 0 || catchers.shownCount > 0 else { return }
         // The panels pass hover through to the layout, and moving them under
         // a still pointer sends no event: the layout recomputes now (cx-ww20).
         for plane in planes {
@@ -380,6 +450,19 @@ final class WindowOverlayLayer {
             root.refreshDividerHover()
         }
         (window.contentView as? WindowRootView)?.sidebar.refreshResizeHover { [weak catchers] in catchers?.windowNumbers ?? [] }
+    }
+
+    private func makeCatchers() -> DividerMouseCatchers {
+        let made = DividerMouseCatchers(window: window)
+        made.onHover = { [weak self] id, hovered in
+            if id == Self.sidebarResizeAreaID {
+                (self?.window.contentView as? WindowRootView)?.sidebar.refreshResizeHover()
+                return
+            }
+            for plane in self?.planes ?? [] { (plane.home as? LayoutRootView)?.setDividerHovered(id, hovered) }
+        }
+        catchers = made
+        return made
     }
 
     /// Every Chromium page of this window whose geometry, clip or occlusion
@@ -393,8 +476,7 @@ final class WindowOverlayLayer {
             forcedPageUpdateAfterLayout = forcedPageUpdateAfterLayout || force
             return
         }
-        NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window,
-                                        userInfo: force ? [browserPagesForceUpdateKey: true] : nil)
+        window.updateBrowserPageGeometry(force: force)
     }
 
     // MARK: Diagnostics
@@ -416,25 +498,4 @@ final class WindowOverlayLayer {
         lastRingLag = "\(lag.pane): ring \(lag.ringInWindow), content \(lag.contentInWindow), placement \(placement.rawValue)"
     }
     #endif
-
-    /// Whether the overlay is above every visible content child window (or
-    /// not needed because there is none).
-    var isOverlayAboveContent: Bool {
-        guard !Self.contentChildWindows(of: window).isEmpty else { return true }
-        return placement == .overlayWindow && WindowOverlayHost.existingHost(for: window)?.isAbovePages == true
-    }
-
-    /// The window's agent cursor layer (`WindowOverlayHost.agentCursorLayer`): y-down, content-view coordinates.
-    var agentCursorLayer: CALayer { host.agentCursorLayer }
-    /// The mask of the agent cursor's behind-window glass (`WindowOverlayHost.agentCursorGlassLayer`).
-    var agentCursorGlassLayer: CALayer { host.agentCursorGlassLayer }
-    /// The window's clickable agent cursor tags (`WindowOverlayHost.agentCursorTags`, held weakly).
-    func setAgentCursorTags(_ tags: AgentCursorWindowTags) {
-        if host.agentCursorTags !== tags { host.agentCursorTags = tags }
-    }
-    /// The window's agent cursors changed: the overlay takes the mouse over their tags.
-    func agentCursorTagsDidChange() { host.agentCursorTagsDidChange() }
-
-    var overlayPanel: NSWindow? { WindowOverlayHost.existingHost(for: window).flatMap { $0.isPanelAttached ? $0.panel : nil } }
-    var adoptedPlanes: [OverlayPlane] { planes }
 }

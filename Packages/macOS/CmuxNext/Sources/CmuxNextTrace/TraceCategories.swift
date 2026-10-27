@@ -59,6 +59,8 @@ public struct TraceCategories: OptionSet, Sendable, Hashable {
     public static let stall = TraceCategories(bit: 11)
     /// Bit 12: work items from their post to their run.
     public static let task = TraceCategories(bit: 12)
+    /// The bit of ``task``: lane items' `task.run` slices and checked blocking calls' `task.blocking_call` slices.
+    public static let taskBit: UInt8 = 12
     /// Bit 13: burst bench events.
     public static let burst = TraceCategories(bit: 13)
     /// Bit 14: input events other than a key-down.

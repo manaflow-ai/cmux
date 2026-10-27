@@ -114,7 +114,7 @@ import Testing
         // The visible batch paid 1 ms of its own, the automation request 2 ms.
         #expect(budget.stats.maxTaskNanos[0] == 1_000_000)
         #expect(budget.stats.maxTaskNanos[1] == 2_000_000)
-        #expect(budget.stats.overBudgetTasks == [0, 1, 0])
+        #expect(budget.stats.overBudgetTasks == [0, 1, 0, 0])
     }
 
     /// Idle-time scheduling (Chrome's idle tasks): with no input pending, a class past its own

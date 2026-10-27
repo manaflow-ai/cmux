@@ -143,19 +143,21 @@ import Testing
         #expect(configuration.executable.standardizedFileURL == host.standardizedFileURL)
     }
 
-    @Test func aHostThatStopsReadingEndsTheConnection() async throws {
+    @Test func aHostThatStopsReadingEndsTheConnectionOnceItsDiscreteQueueIsFull() async throws {
         let launcher = ChromiumHostLauncher()
         // Never reads fd 3.
         let handle = try await launcher.launch(executable: Self.echo, arguments: ["-c", "exec /bin/sleep 30"])
         let connection = ChromiumHostConnection(readFD: handle.readFD, writeFD: handle.writeFD)
-        let frame = ChromiumHostFrame(.mouse, v: [1, 2, 0, 0, 0, 0])
+        // A click: discrete, so it is never folded into another frame.
+        let frame = ChromiumHostFrame(.mouse, v: [1, 2, 1, 0, 1, 1])
         var sent = 0
-        // Bounded: the send buffer holds about sendBuffer / 64 frames, and the
-        // socket's receive side a little more.
-        // Never blocks: a write that would wait fails instead (cmux calls this on its main thread).
+        // Bounded: the send buffer holds about sendBuffer / 64 frames, the
+        // socket's receive side a little more, then the outbox discreteLimit.
+        // Never blocks: a write that would wait queues instead (cmux calls this on its main thread).
         let started = ContinuousClock.now
         while sent < 100_000, connection.send(frame) { sent += 1 }
         #expect(sent < 100_000)
+        #expect(sent > ChromiumHostInputOutbox.discreteLimit)
         #expect(ContinuousClock.now - started < .seconds(5))
         #expect(!connection.send(frame))
         #expect(connection.endedByProtocolError)

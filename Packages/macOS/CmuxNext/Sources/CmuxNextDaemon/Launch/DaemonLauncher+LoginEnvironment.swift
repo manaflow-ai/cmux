@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 public import CmuxNextWakeups
 
 extension DaemonLauncher {
@@ -20,6 +21,20 @@ extension DaemonLauncher {
     @MainActor
     public static func captureLoginEnvironment(after startup: StartupScheduler) {
         captureLoginEnvironment(LoginEnvironmentCache.shared, after: startup)
+    }
+
+    /// Registers this launch's login environment with the app's memory coordinator
+    /// (`login-environment`), so the memory report shows it and a release drops the store's copy once
+    /// the capture is held. The environment keeps the registration.
+    ///
+    /// ```swift
+    /// DaemonLauncher.registerLoginEnvironmentMemoryConsumer(with: memoryCoordinator)
+    /// ```
+    ///
+    /// - Parameter registry: The memory coordinator (AppServices+Memory.swift).
+    @MainActor
+    public static func registerLoginEnvironmentMemoryConsumer(with registry: any MemoryConsumerRegistry) {
+        LoginEnvironmentCache.shared.registerMemoryConsumer(with: registry)
     }
 
     /// ``captureLoginEnvironment(after:)`` on `cache` (tests).

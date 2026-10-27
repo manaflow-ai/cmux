@@ -127,7 +127,7 @@ pub fn download_verified(
         let reader = fetcher.open(url)?;
         let (written, digest) = copy_hashing(reader.take(size + 1), &mut file)
             .map_err(|e| Error::unreachable(format!("download {url}: {e}")))?;
-        file.sync_all().ctx(dest.display())?;
+        cmux_threads::checked::fs::sync_all(&file).ctx(dest.display())?;
         if written != size {
             return Err(Error::verification(format!(
                 "size mismatch for {url}: expected {size} bytes, got {}{}",
@@ -144,7 +144,7 @@ pub fn download_verified(
         Ok(())
     })();
     if result.is_err() {
-        let _ = std::fs::remove_file(dest);
+        let _ = cmux_blocking::fs::remove_file(dest);
     }
     result
 }
@@ -157,7 +157,7 @@ fn create_private(path: &Path) -> io::Result<File> {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
-    options.open(path)
+    cmux_threads::checked::fs::open_with(&options, path)
 }
 
 fn copy_hashing(mut reader: impl Read, out: &mut impl Write) -> io::Result<(u64, [u8; 32])> {

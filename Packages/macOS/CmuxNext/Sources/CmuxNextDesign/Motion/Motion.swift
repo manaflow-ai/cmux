@@ -37,9 +37,9 @@ public struct Motion {
 
     /// The policy before a category is chosen: the master switch
     /// `ui.animations.enabled` (calm mode `still` turns it off), the category switches, `ui.animationSpeed`,
-    /// Reduce Motion and a live resize. Animations never read it directly:
-    /// they ask their category's gate (`Motion.sidebar.policy`), which adds
-    /// the category.
+    /// Reduce Motion, a live resize and Energy Saver (ambient loops only, ``DesignSettings/energySaver``).
+    /// Animations never read it directly: they ask their category's gate (`Motion.sidebar.policy`),
+    /// which adds the category.
     public static var basePolicy: MotionPolicy { basePolicy(of: .shared) }
 
     /// ``basePolicy`` as `design`'s settings make it. The gates read it of `DesignSettings.shared`; a reader
@@ -49,7 +49,7 @@ public struct Motion {
                      enabledKinds: design.enabledAnimations, liveResize: isLiveResizing,
                      animationsEnabled: design.animationsEnabled && !design.calmMode.stopsAnimations,
                      disabledCategories: design.disabledAnimationCategories,
-                     pacesLoops: design.loopsFollowFrameRate)
+                     pacesLoops: design.loopsFollowFrameRate, energySaver: design.energySaver)
     }
 
     // MARK: Gates, one per MotionCategory
@@ -98,8 +98,11 @@ extension MotionGate {
     public var animatesPaneLayout: Bool { DesignSettings.shared.paneAnimations && animatesMovement }
     /// Opacity and color changes animate.
     public var animatesFades: Bool { policy.animatesFades }
-    /// Spinners and pulses run.
+    /// Ambient spinners, pulses, breaths and sweeps run (not Reduce Motion, not Energy Saver).
     public var animatesLoops: Bool { policy.animatesLoops }
+    /// Blinks a person or a notification starts, and repeats that follow the person, run (not
+    /// Reduce Motion); Energy Saver leaves them as they are.
+    public var animatesBlinks: Bool { policy.animatesBlinks }
 
     public func spring(_ token: MotionSpring) -> SpringParameters { policy.spring(token) }
     public func duration(_ token: MotionFade) -> TimeInterval { policy.duration(token) }

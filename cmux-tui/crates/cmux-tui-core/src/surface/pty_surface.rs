@@ -19,7 +19,9 @@ impl PtySurface {
         (mux, terminal_id): (Arc<Mux>, Arc<TerminalPublicId>),
         bytes: &[u8],
     ) {
-        mux.output_store.append(&terminal_id, &self.journal_generation, bytes);
+        if mux.output_store.append(&terminal_id, &self.journal_generation, bytes) {
+            mux.wake_cold_scrollback();
+        }
     }
 
     pub(super) fn journal_geometry(&self, geometry: PtyGeometry) {
@@ -123,10 +125,8 @@ impl PtySurface {
         cmux_flow_trace::hop("daemon.output.attach", flow, self.flow_terminal_id());
         self.snapshot_position.add_output(bytes.len());
         let mut taps = self.taps.lock().unwrap();
-        if taps.is_empty() {
-            return false;
-        }
-        let frame = AttachFrame::with_flow(bytes.to_vec(), flow);
+        let Some(chunk) = taps.output_chunk(bytes) else { return false };
+        let frame = AttachFrame::with_flow(chunk, flow);
         taps.retain(|tap| tap.try_send(frame.clone()));
         let sent = !taps.is_empty();
         drop(taps);
@@ -179,7 +179,7 @@ impl PtySurface {
     /// generation and send every snapshot viewer a snapshot.
     pub(super) fn resync_snapshot_taps(&self) {
         self.snapshot_position.bump_generation();
-        for tap in &*self.taps.lock().unwrap() {
+        for tap in self.taps.lock().unwrap().iter() {
             tap.resync_snapshot();
         }
     }
@@ -354,7 +354,7 @@ impl PtySurface {
     /// terminal lock is held.
     pub(super) fn build_producer_frame(
         &self,
-        mut term: RankedGuard<'_, Box<Terminal>>,
+        mut term: RankedGuard<'_, terminal_runtime::TerminalSlot>,
         generation: u64,
     ) -> ghostty_vt::Result<bool> {
         let built = self.build_frame_locked(&mut term, generation, true);

@@ -1,7 +1,7 @@
 public import CmuxNextSettings
 
 /// `debug.hangs` (stalls, each naming the scheduled task its sample caught, the tasks that ran
-/// past their class budget, and other threads' hang-watch scopes past their deadline) and
+/// past their class budget, and other threads' hang-watch scopes as janks and hangs) and
 /// `debug.queue`: answered off the main actor (they read lock-protected counters), so they work
 /// while the main thread is stalled.
 extension ControlRouter {
@@ -19,19 +19,19 @@ extension ControlRouter {
                 let longFrames = watchdog.longFrameStats
                 let gaps = watchdog.gapStats
                 let stalls = watchdog.stallCounts
-                // Scheduled tasks past their class budget (DEBUG and bench launches), newest last.
-                let overBudget = watchdog.overBudget.records(after: call.params["over_budget_after"]?.intValue.map { UInt64(clamping: $0) } ?? 0)
-                    .suffix(max(0, limit))
-                let overBudgetCount = watchdog.overBudget.summary.count
-                // Hang-watch scopes on other threads past their deadline (MainThreadWatchdog.threadHangs).
-                let threadHangs = watchdog.threadHangs.records(after: call.params["thread_hangs_after"]?.intValue.map { UInt64(clamping: $0) } ?? 0)
-                    .suffix(max(0, limit))
-                let threadHangCount = watchdog.threadHangs.summary.count
+                // Scheduled tasks past their class budget (DEBUG and bench launches), and past their class's hang deadline (every launch).
+                let overBudget = watchdog.overBudget.records(after: call.params["over_budget_after"]?.intValue.map { UInt64(clamping: $0) } ?? 0).suffix(max(0, limit))
+                let (overBudgetCount, taskHangCount) = (watchdog.overBudget.summary.count, watchdog.taskHangs.summary.count)
+                let taskHangs = watchdog.taskHangs.records(after: call.params["task_hangs_after"]?.intValue.map { UInt64(clamping: $0) } ?? 0).suffix(max(0, limit))
+                // Hang-watch scopes on other threads: 2 s past their budget with a stack (threadHangs), past it with none (threadJanks).
+                let threadHangs = watchdog.threadHangs.records(after: call.params["thread_hangs_after"]?.intValue.map { UInt64(clamping: $0) } ?? 0).suffix(max(0, limit))
+                let threadJanks = watchdog.threadJanks.records(after: call.params["thread_janks_after"]?.intValue.map { UInt64(clamping: $0) } ?? 0).suffix(max(0, limit))
+                let (threadHangCount, threadJankCount) = (watchdog.threadHangs.summary.count, watchdog.threadJanks.summary.count)
                 let turnHistogram = watchdog.turnHistogramJSON
                 if call.params["clear"]?.boolValue == true {
                     watchdog.log.clear()
-                    watchdog.overBudget.clear()
-                    watchdog.threadHangs.clear()
+                    watchdog.overBudget.clear(); watchdog.taskHangs.clear()
+                    watchdog.threadHangs.clear(); watchdog.threadJanks.clear()
                     watchdog.resetLongFrames()
                     watchdog.resetStallCounts()
                     watchdog.resetTurnHistograms()
@@ -55,10 +55,10 @@ extension ControlRouter {
                     // Main-turn and input-queueing histograms at Chrome's resolution (MainTurnHistogram), since launch or `clear`.
                     "turn_histogram": turnHistogram,
                     "records": .array(records.map(\.json)),
-                    "over_budget_count": JSONValue(overBudgetCount),
-                    "over_budget": .array(overBudget.map(\.json)),
-                    "thread_hang_count": JSONValue(threadHangCount),
-                    "thread_hangs": .array(threadHangs.map(\.json)),
+                    "over_budget_count": JSONValue(overBudgetCount), "over_budget": .array(overBudget.map(\.json)),
+                    "task_hang_count": JSONValue(taskHangCount), "task_hangs": .array(taskHangs.map(\.json)),
+                    "thread_hang_count": JSONValue(threadHangCount), "thread_hangs": .array(threadHangs.map(\.json)),
+                    "thread_jank_count": JSONValue(threadJankCount), "thread_janks": .array(threadJanks.map(\.json)),
                 ]
             }.readingLastPublished(),
             .snapshot("debug.queue") { [weak self] call in

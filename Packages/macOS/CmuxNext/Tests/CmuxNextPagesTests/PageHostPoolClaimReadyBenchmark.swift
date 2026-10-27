@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextSettings
 @testable import CmuxNextPages
+import CmuxNextTestSupport
 import Foundation
 import Testing
 import WebKit
@@ -11,7 +12,8 @@ import WebKit
 /// Ready: the claimed document shows settings rows with enabled controls (a row enables its controls
 /// only after the owner's values arrive through the claim's routes) and no read-only banner. The page records the moment on
 /// its own clock (`Date.now()`, wall-clock milliseconds), so the coarse host poll
-/// that reads it adds nothing to the number.
+/// that reads it adds nothing to the number. With CMUX_PERF_RESULT_DIR every claim is result-v1 (lab story
+/// swift-page-claim-ready).
 @MainActor
 @Suite(.serialized, .timeLimit(.minutes(10)),
        .enabled(if: ProcessInfo.processInfo.environment["CMUX_PAGE_CLAIM_BENCH"] != nil))
@@ -41,6 +43,7 @@ struct PageHostPoolClaimReadyBenchmark {
         for _ in 0..<max(runs, 1) {
             if let sample = try await Self.oneClaim(claims: &claims) { samples.append(sample) }
         }
+        if !samples.isEmpty { try PerfResultWriter()?.record("swift.page_claim.claim_to_ready", unit: .ms, samples: samples) }
         samples.sort()
         let median = samples.isEmpty ? .nan : samples[samples.count / 2]
         print("PAGE_CLAIM_BENCH runs=\(samples.count) median_ms=\(median) samples_ms=\(samples.map { Int($0.rounded()) }) claims=\(claims)")
@@ -54,7 +57,8 @@ struct PageHostPoolClaimReadyBenchmark {
         defer { window.close() }
         var policy = PageHostPool.Policy()
         policy.idleInput = .milliseconds(5)
-        let pool = PageHostPool(memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()), policy: policy, activity: { 0 }, isTrackingMenu: { false })
+        let memory = PageTestMemory()
+        let pool = PageHostPool(memory: memory.coordinator, policy: policy, activity: { 0 }, isTrackingMenu: { false })
         defer { pool.dropSpare(); pool.claimedHosts.forEach(pool.release) }
         pool.follow(window)
         pool.noteLikely()
@@ -71,15 +75,15 @@ struct PageHostPoolClaimReadyBenchmark {
         let page = try #require(pool.claim(.settings, routes: routes, route: "#/settings/general",
                                            window: window, focus: false))
         // The probe covers the current document and any document the claim loads next.
-        page.webKitView.configuration.userContentController.addUserScript(
+        page.webView.configuration.userContentController.addUserScript(
             WKUserScript(source: readyProbe, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
-        page.webKitView.evaluateJavaScript(readyProbe, completionHandler: nil)
+        page.webView.evaluateJavaScript(readyProbe, completionHandler: nil)
         if let content = window.contentView {
             page.frame = content.bounds
             content.addSubview(page)
         }
         for _ in 0..<400 {
-            let ready = try? await page.webKitView.callAsyncJavaScript(
+            let ready = try? await page.webView.callAsyncJavaScript(
                 "return document.documentElement.dataset.benchReady || null;", contentWorld: .page) as? String
             if let ready, let at = Double(ready) {
                 claims.append(page.lastClaimSummary)
@@ -87,7 +91,7 @@ struct PageHostPoolClaimReadyBenchmark {
             }
             try await Task.sleep(for: .milliseconds(25))
         }
-        let text = try? await page.webKitView.callAsyncJavaScript(
+        let text = try? await page.webView.callAsyncJavaScript(
             "return (document.body && document.body.innerText || '').slice(0, 300);", contentWorld: .page) as? String
         Issue.record("claimed page never became ready; ops \(provider.ops); text \(text ?? "nil")")
         return nil

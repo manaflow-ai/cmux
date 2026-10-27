@@ -16,6 +16,7 @@ enum BrowserImportConflictOffer {
                               action: CmuxToast.Action(title: PasswordCSVStrings.replace), duration: .seconds(20))
         let handle = CmuxToastCenter.shared.show(toast, in: window)
         handle.onAction = {
+            // main-hop-allow: the person's Replace click; the task only awaits the hold's main-actor store writes and shows their result toast in that resume
             Task { @MainActor in
                 var message: String
                 do {

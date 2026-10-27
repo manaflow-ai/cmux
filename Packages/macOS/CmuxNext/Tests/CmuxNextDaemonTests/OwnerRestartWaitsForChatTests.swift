@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 import Testing
 @testable import CmuxNextDaemon
@@ -18,6 +19,7 @@ struct OwnerRestartWaitsForChatTests {
         let base = ProcessInfo.processInfo.environment
         let environment = LoginEnvironment.shared.daemonEnvironment(login: nil, base: base, overrides: [:])
         let launcher = DaemonLauncher(
+            work: BackgroundWork(label: "test.daemon-launcher"),
             configuration: .init(binary: binary, session: "cnd-chat-\(id)", stateDirectory: root.appendingPathComponent("state"),
                                  installKey: FrontendInstallKey.generate()),
             environment: { environment })

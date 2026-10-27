@@ -111,7 +111,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     /// The palette, scale and color-space generation (tests).
     var renderGeneration: Int { generation }
     private var scale: CGFloat { document.window?.backingScaleFactor ?? 2 }
-    private let cache = SidebarBitmapCache()
+    let cache = SidebarBitmapCache() // cmux: internal, the host sizes and trims it (Cmux/CmuxSidebarView+Memory.swift)
     let avatars = SidebarAvatarCache() // cmux: internal, the pin drag draws its tile
     private let textCache = SidebarTextCache()
     private let timeFormatter = ConversationTimeFormatter(yesterday: SidebarStrings.yesterday)
@@ -666,7 +666,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         var extraTitle = ""
         init(pinned: [Int], rows: [Int], count: Int, searching: Bool) {
             self.pinned = pinned; self.rows = rows; self.searching = searching
-            rowOf = [Int32](repeating: -1, count: count)
+            rowOf = [Int32](repeating: -1, count: max(0, count))
             for (r, i) in rows.enumerated() { if let slot = rowOf.checkedIndex(i) { rowOf[slot] = Int32(clamping: r) } } // checked
         }
         /// The pinned grid and every other conversation in the snapshot's order.
@@ -911,9 +911,9 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         batch.removeAll(keepingCapacity: true)
         let job = rowJob()
         // cmux (Swift 6): only values go to the render threads (no layer); results come back in order.
-        let inputs = work.map { w in (key: w.1, summary: w.2, time: cache.image(timeKey(w.1)).map(SidebarShared.init), shown: w.3?.1) }
+        let inputs = work.map { w in (key: w.1, summary: w.2, time: cache.image(timeKey(w.1)), shown: w.3?.1) }
         let out = sidebarConcurrentMap(inputs.count) { j in
-            inputs[checked: j].flatMap { w in job(w.summary, w.key, w.time?.value, w.shown) }
+            inputs[checked: j].flatMap { w in job(w.summary, w.key, w.time, w.shown) }
         }
         for ((l, k, _, shown), result) in zip(work, out) { // no index math
             guard let r = result else { continue }
@@ -934,9 +934,8 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     /// nil when a bitmap cannot be allocated; the row then waits undrawn (no trap).
     private func rowJob() -> @Sendable (ConversationSummary, SidebarBitmapKey, CGImage?, SidebarDraw.RowTextLayout?)
         -> RowRender? {
-        let sharedCtx = SidebarShared(renderContext), sharedTime = SidebarShared(timeFormatter), text = textCache // cmux: Swift 6
+        let ctx = renderContext, time = timeFormatter, text = textCache // cmux: Swift 6, all checked Sendable
         return { c, k, cachedTime, shown in
-            let ctx = sharedCtx.value, time = sharedTime.value
             guard let t = cachedTime ?? SidebarDraw.rowTime(c, emphasized: k.emphasized, ctx: ctx, time: time),
                   let x = SidebarDraw.rowText(c, emphasized: k.emphasized, ctx: ctx, timeWidth: SidebarDraw.rowTimeWidth(t, scale: ctx.scale),
                                               text: text, unless: shown)
@@ -945,7 +944,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         }
     }
     /// cmux (Swift 6): a row job's bitmaps and text layout (it crosses from the render threads).
-    private struct RowRender: SidebarShareable {
+    private struct RowRender: Sendable {
         let time: CGImage
         let text: CGImage?
         let layout: SidebarDraw.RowTextLayout
@@ -1066,13 +1065,13 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     private func request(_ k: SidebarBitmapKey, item i: Int) {
         guard !pending.contains(k), !cache.contains(k), let c = snapshot.items[checked: i] else { return } // checked
         pending.insert(k)
-        let job = rowJob(), cachedTime = cache.image(timeKey(k)).map(SidebarShared.init) // cmux: Swift 6
+        let job = rowJob(), cachedTime = cache.image(timeKey(k))
         renderQueue.async { [weak self] in
-            let rendered = job(c, k, cachedTime?.value, nil).map(SidebarShared.init)
+            let rendered = job(c, k, cachedTime, nil)
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.pending.remove(k)
-                guard let r = rendered?.value else { return } // an unallocated row stays undrawn
+                guard let r = rendered else { return } // an unallocated row stays undrawn
                 guard k.generation == self.generation, k.width == self.metrics.width else { return }
                 self.stats.asyncRenders += 1
                 self.cache.insert(self.timeKey(k), r.time)
@@ -1111,7 +1110,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         }
         // Tile name and bubble bitmaps not in the cache: drawn in parallel first. A width
         // change redraws only the parts that it truncates or wraps.
-        let ctx = SidebarShared(renderContext) // cmux: Swift 6, read on every core
+        let ctx = renderContext
         var missing: [(SidebarBitmapKey, ConversationSummary)] = []
         if !metrics.compact {
             for i in pinnedItems { // no index math; a stale item is skipped
@@ -1122,7 +1121,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         let work = missing
         if work.count > 1 {
             let images = sidebarConcurrentMap(work.count) { j in
-                work[checked: j].flatMap { SidebarController.tilePart($0.0, $0.1, ctx.value) }
+                work[checked: j].flatMap { SidebarController.tilePart($0.0, $0.1, ctx) }
             }
             for (w, image) in zip(work, images) { if let img = image { cache.insert(w.0, img); stats.tiles += 1 } } // no index math
         }
@@ -1416,14 +1415,14 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
                 list = RowList.full(snap, index, filter: filterNow)
             }
             guard stale.get() == gen else { return }
-            let images = SidebarShared(prerender(shown, list)) // cmux: Swift 6, the bitmaps cross to main
+            let images = prerender(shown, list)
             let shownItems = shown, shownIDs = shownIndex, rows = list
             DispatchQueue.main.async { [weak self] in
                 guard let self, gen == self.searchGeneration else { return }
                 if self.searchIndex == nil, let idx { self.searchIndex = idx }
                 self.snapshot = shownItems
                 self.indexByID = shownIDs
-                self.insert(images.value)
+                self.insert(images)
                 self.applyRows(rows)
                 self.searchApplied?(q, rows.rows.count)
             }
@@ -1431,12 +1430,12 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     }
 
     /// Bitmaps rendered off the main thread for a list about to be applied.
-    private struct Prerendered: SidebarShareable { // cmux: bitmaps and keys only (Swift 6)
+    private struct Prerendered: Sendable { // cmux: bitmaps and keys only (Swift 6)
         var rows: [(key: SidebarBitmapKey, time: CGImage, text: CGImage)] = []
         var tiles: [(key: SidebarBitmapKey, image: CGImage)] = []
     }
     /// cmux: one prerendered part (a tile part, or a row's time and text).
-    private enum PrerenderedPart: SidebarShareable {
+    private enum PrerenderedPart: Sendable {
         case tile(CGImage)
         case row(time: CGImage, text: CGImage?, layout: SidebarDraw.RowTextLayout)
     }
@@ -1445,13 +1444,13 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     /// the cache lacks now: the visible rows at the current scroll position and at the top,
     /// and the pinned tiles. Values only; read on the main thread when the search starts.
     private func prerenderer() -> @Sendable (ConversationListSnapshot, RowList) -> Prerendered {
-        let shared = SidebarShared(renderContext), job = rowJob(), avatars = avatars // cmux: Swift 6
-        let generation = shared.value.generation
+        let ctx = renderContext, job = rowJob(), avatars = avatars
+        let generation = ctx.generation
         let cached = cache.keys
         let selected = windowActive ? highlightID : nil
         let clip = scrollView.contentView.bounds
         let rh = SidebarMetrics.rowHeight
-        let m = shared.value.metrics
+        let m = ctx.metrics
         return { snap, list in
             func key(_ kind: SidebarBitmapKey.Kind, _ c: ConversationSummary) -> SidebarBitmapKey {
                 SidebarBitmapKey(kind: kind, id: c.id, version: c.version, width: kind == .row ? m.width : m.tileWidth,
@@ -1479,7 +1478,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             // drawn yet would draw it on the main thread.
             let screenItems = rows.compactMap { r in list.rows[checked: r].flatMap { i in snap.items[checked: i] } } // checked
             DispatchQueue.concurrentPerform(iterations: screenItems.count) { j in
-                if let item = screenItems[checked: j] { _ = avatars.image(item.avatar, diameter: SidebarMetrics.avatar, ctx: shared.value) }
+                if let item = screenItems[checked: j] { _ = avatars.image(item.avatar, diameter: SidebarMetrics.avatar, ctx: ctx) }
             }
             let rowWork = screenItems.map { (key(.row, $0), $0) }.filter { !cached.contains($0.0) }
             let tileWork: [(SidebarBitmapKey, ConversationSummary)] = m.compact ? [] : list.pinned.compactMap { snap.items[checked: $0] }.flatMap { c -> [(SidebarBitmapKey, ConversationSummary)] in // checked
@@ -1492,7 +1491,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             // Tiles first, then rows, in one pass over every core.
             let parts = sidebarConcurrentMap(n) { j -> PrerenderedPart? in
                 if j < tileWork.count {
-                    return tileWork[checked: j].flatMap { w in SidebarController.tilePart(w.0, w.1, shared.value).map(PrerenderedPart.tile) }
+                    return tileWork[checked: j].flatMap { w in SidebarController.tilePart(w.0, w.1, ctx).map(PrerenderedPart.tile) }
                 }
                 return rowWork[checked: j - tileWork.count].flatMap { w in job(w.1, w.0, nil, nil).map { PrerenderedPart.row(time: $0.time, text: $0.text, layout: $0.layout) } }
             }
@@ -1665,7 +1664,8 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         var img: CGImage?
         appearance.performAsCurrentDrawingAppearance {
             let r = NSRect(origin: .zero, size: sym.size)
-            let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: CrashGuard.int(sym.size.width * scale), pixelsHigh: CrashGuard.int(sym.size.height * scale),
+            // SAFETY: the planes pointer is nil, so AppKit allocates the pixel memory and owns it for the rep's life.
+            let rep = unsafe NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: CrashGuard.int(sym.size.width * scale), pixelsHigh: CrashGuard.int(sym.size.height * scale),
 
                                        bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
             rep?.size = sym.size

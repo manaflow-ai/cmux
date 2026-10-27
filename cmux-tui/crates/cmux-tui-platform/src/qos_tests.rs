@@ -337,11 +337,8 @@ fn qos_frontend_request_behind_a_utility_holder_waits_one_critical_section() {
 }
 
 /// The class `spawn_outside_request`'s thread runs at, read in that thread.
-fn child_live(builder_name: &str) -> LiveOf {
-    spawn_outside_request(std::thread::Builder::new().name(builder_name.into()), live)
-        .expect("spawn")
-        .join()
-        .expect("child")
+fn child_live(name: &str) -> LiveOf {
+    spawn_outside_request(name, live).expect("spawn").join().expect("child")
 }
 
 #[cfg(target_vendor = "apple")]
@@ -372,6 +369,60 @@ fn qos_a_thread_started_in_a_request_runs_at_its_creators_own_class() {
         assert_eq!(inherited, at(ThreadQos::Utility), "the control: a plain thread inherits");
         assert_ne!(child, at(ThreadQos::Utility));
     }
+}
+
+/// A connection thread that rests at UTILITY asks for it in its registry
+/// row (`desired`) and holds it as its work class between requests
+/// (cmux-tui-core server/connection_qos.rs). A thread it starts outside a
+/// request (a pool worker every connection shares) runs at the class the
+/// creator declared, never the class it rests at.
+#[test]
+fn qos_a_thread_started_by_a_resting_thread_runs_at_its_declared_class() {
+    let probe = cmux_threads::spawn("qos-resting-probe", ThreadQos::Default, || {
+        let own = live();
+        let slot = cmux_threads::current_slot().expect("a registered thread");
+        slot.request(ThreadQos::Utility);
+        let resting = WorkQos::enter(ThreadQos::Utility);
+        let lowered = resting.applied();
+        let child = child_live("qos-resting-child");
+        // What the child is set to when the resting class applied (it does
+        // not on Linux without the right to take nice 5 back).
+        let class_for_children = own_class();
+        drop(resting);
+        (lowered, own, child, slot.desired(), class_for_children)
+    })
+    .expect("probe thread");
+    let (lowered, own, child, desired, class_for_children) = probe.join().expect("probe");
+    assert_eq!(desired, ThreadQos::Utility, "the row shows the resting class");
+    assert_eq!(class_for_children, ThreadQos::Default, "the declared class");
+    assert_eq!(child, own, "the creator's declared class, not its resting class");
+    if lowered {
+        assert_ne!(child, at(ThreadQos::Utility));
+    }
+}
+
+#[test]
+fn qos_a_thread_started_in_a_request_is_registered_at_the_creators_declared_class() {
+    let (class, row) = cmux_threads::spawn("qos-spawn-row-probe", ThreadQos::Utility, || {
+        let request = WorkQos::enter(ThreadQos::UserInitiated);
+        let row = spawn_outside_request("qos-spawn-row-child", || {
+            cmux_threads::snapshot().into_iter().find(|row| row.name == "qos-spawn-row-child")
+        })
+        .expect("spawn")
+        .join()
+        .expect("child");
+        drop(request);
+        (outside_request_class(), row)
+    })
+    .expect("probe thread")
+    .join()
+    .expect("probe");
+    assert_eq!(class, ThreadQos::Utility);
+    let row = row.expect("the child is in the thread registry");
+    assert_eq!(row.declared, ThreadQos::Utility, "the creator's class, not the request's");
+    // A creator that declared no class starts its thread at Default.
+    let undeclared = std::thread::spawn(outside_request_class).join().expect("plain thread");
+    assert_eq!(undeclared, ThreadQos::Default);
 }
 
 #[test]

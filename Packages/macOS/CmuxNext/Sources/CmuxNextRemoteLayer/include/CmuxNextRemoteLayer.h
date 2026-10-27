@@ -6,6 +6,8 @@
 // class, so a missing class fails at link time, not through a selector lookup.
 #import <QuartzCore/QuartzCore.h>
 
+#import "CmuxNextRemoteAccessibility.h"
+
 NS_ASSUME_NONNULL_BEGIN
 
 @interface CALayerHost : CALayer

@@ -1,4 +1,6 @@
 public import AppKit
+import CmuxNextInput
+public import CmuxNextWakeups
 
 /// A page's menu drawn past its window's edge (cx-6k6cg). A page menu that has no room above or
 /// below its anchor inside the web view hands its rows here: they show in a child panel of the
@@ -78,6 +80,12 @@ public final class WebPopupHost {
         self.send = send
     }
 
+    /// The windows' frame-aligned pointer input (feature `pointerFrameHover`): the menu's rows hover on a
+    /// frame interval's first move and once more at its frame, at the latest point. Nil: each move.
+    public var hoverFrameInput: FrameInputCoalescers? {
+        didSet { panel?.rows.hoverFrameInput = hoverFrameInput }
+    }
+
     /// The frame the menu is showing at (screen), for tests and `debug.window_list`.
     public var shownFrame: CGRect? { popup?.isShown == true && model != nil ? popup?.cardFrame : nil }
 
@@ -124,8 +132,10 @@ public final class WebPopupHost {
     }
 
     private func makePopup() -> NativePopupHost {
-        let popup = NativePopupHost(panel: WebPopupPanel(onPick: { [weak self] id in self?.picked(id) },
-                                                         onHover: { [weak self] id in self?.send(["type": "highlight", "id": id]) }))
+        let panel = WebPopupPanel(onPick: { [weak self] id in self?.picked(id) },
+                                  onHover: { [weak self] id in self?.send(["type": "highlight", "id": id]) })
+        panel.rows.hoverFrameInput = hoverFrameInput
+        let popup = NativePopupHost(panel: panel)
         // The page closes its own menu on a click in it.
         popup.keepsOpen = { [weak self] event in
             guard let webView = self?.webView, event.window === webView.window else { return false }
@@ -134,7 +144,7 @@ public final class WebPopupHost {
         popup.onDismiss = { [weak self] in
             guard let self, model != nil else { return }
             model = nil
-            panel?.isClosing = true
+            self.panel?.isClosing = true
             noteShown()
             send(["type": "dismiss"])
         }
@@ -217,6 +227,16 @@ final class WebPopupRows: NSView {
     private var builtPlain = false
     private let style = PopupStyle.standard
     private static let separatorHeight: CGFloat = 9
+    /// Every row's moves, enters and exits, on the menu's one consumer: a delivery moves the row under the
+    /// latest point. The pointer leaving the menu lands the pending one (``mouseExited(with:)``).
+    private(set) lazy var hoverMoves = PointerFrameHover(owner: "WebPopupRows.hover", view: self) { [weak self] point in
+        self?.row(atWindowPoint: point)?.pointerMoved()
+    }
+    /// The windows' frame-aligned pointer input (``WebPopupHost/hoverFrameInput``); nil: each move.
+    var hoverFrameInput: FrameInputCoalescers? {
+        get { hoverMoves.frames }
+        set { hoverMoves.frames = newValue }
+    }
 
     init(onPick: @escaping (String) -> Void, onHover: @escaping (String) -> Void) {
         self.onPick = onPick
@@ -230,17 +250,37 @@ final class WebPopupRows: NSView {
     nonisolated override var isFlipped: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+    // The whole menu's edge: leaving it is discrete, so the pending move lands now (`ShouldFlushQueue`).
+    // The rows' own edges are not; they post like moves (PopupRowView).
+    private var tracking: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tracking { removeTrackingArea(tracking) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+        addTrackingArea(area)
+        tracking = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {}
+    override func mouseExited(with event: NSEvent) { hoverMoves.flush() }
+
     var contentHeight: CGFloat {
         2 * style.padding + items.reduce(0) { $0 + ($1.separator ? Self.separatorHeight : style.rowHeight) }
     }
 
     func update(_ items: [WebPopupHost.Item], highlighted: String?) {
-        if items != self.items || plain != builtPlain || rows.isEmpty != items.isEmpty { rebuild(items) }
+        let rebuilt = items != self.items || plain != builtPlain || rows.isEmpty != items.isEmpty
+        if rebuilt { rebuild(items) }
         self.highlighted = highlighted
+        // A highlight move only repaints the two rows (`isHighlighted` redraws on a change).
         for (item, view) in rows { (view as? PopupRowView)?.isHighlighted = item.id == highlighted }
-        setFrameSize(NSSize(width: superview?.bounds.width ?? frame.width, height: contentHeight))
-        needsLayout = true
-        layoutSubtreeIfNeeded()
+        let size = NSSize(width: superview?.bounds.width ?? frame.width, height: contentHeight)
+        if rebuilt || size != frame.size {
+            setFrameSize(size)
+            needsLayout = true // invalidate: new rows or a new size (the check above) to place.
+            layoutSubtreeIfNeeded() // sync-layout: scrollToHighlight below reads the highlighted row's frame.
+        }
         scrollToHighlight()
     }
 
@@ -261,12 +301,19 @@ final class WebPopupRows: NSView {
             row.hideFromAccessibility()
             row.onHover = { [weak self] in self?.hovered(item.id) }
             row.onActivate = { [weak self] in self?.onPick(item.id) }
+            row.hoverMoves = hoverMoves
             return (item, row)
         }
         for (_, view) in rows {
             view.translatesAutoresizingMaskIntoConstraints = true
             addSubview(view)
         }
+    }
+
+    /// The row under `windowPoint` now (a rebuild or a scroll since the move hit-tests the rows there).
+    private func row(atWindowPoint windowPoint: CGPoint) -> PopupRowView? {
+        let point = convert(windowPoint, from: nil)
+        return rows.lazy.compactMap { $0.view as? PopupRowView }.first { $0.frame.contains(point) }
     }
 
     private func hovered(_ id: String) {

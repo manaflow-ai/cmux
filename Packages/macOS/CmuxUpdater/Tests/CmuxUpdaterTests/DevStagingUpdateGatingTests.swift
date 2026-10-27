@@ -1,5 +1,4 @@
 import Foundation
-import Sparkle
 import Testing
 @testable import CmuxUpdater
 
@@ -143,8 +142,8 @@ import Testing
         #expect(defaults.bool(forKey: UpdateSettings.automaticChecksKey) == true)
     }
 
-    /// Builds a minimal valid `SUAppcastItem` for a version string (nested helper, not API).
-    private func makeAppcastItem(version: String) -> SUAppcastItem? {
+    /// Builds a minimal valid `UpdateAppcastItem` for a version string (nested helper, not API).
+    private func makeAppcastItem(version: String) -> UpdateAppcastItem? {
         let enclosure: [String: Any] = [
             "url": "https://example.com/cmux.zip",
             "length": "1024",
@@ -156,6 +155,6 @@ import Testing
             "pubDate": "Wed, 25 Mar 2026 12:00:00 +0000",
             "enclosure": enclosure,
         ]
-        return SUAppcastItem(dictionary: dictionary)
+        return UpdateAppcastItem(dictionary: dictionary)
     }
 }

@@ -102,7 +102,7 @@ import Testing
 
         /// The translation `layer`'s model holds.
         static func translation(of layer: CALayer?) -> CGFloat {
-            CGFloat((layer?.value(forKeyPath: StripClipContainerView.translationKeyPath) as? NSNumber)?.doubleValue ?? .nan)
+            layer.flatMap { StripClipContainerView.translationKey.value(of: $0) } ?? .nan
         }
 
         func settle() { for _ in 0..<600 where root.advanceFrame(1.0 / 120) {} }
@@ -136,11 +136,14 @@ import Testing
 
     @Test func onTheStripsHostsAndDividersSitInTheMotionContainer() {
         let w = Window(renderServer: true)
-        for pane in Self.strip { #expect(w.root.context.hosts[pane]?.superview === w.screen.stripContainer) }
+        // The first column's rows overflow: they sit in their row's container in the strip container (p04-input-050).
+        for pane in Self.strip { #expect(w.root.context.hosts[pane]?.isDescendant(of: w.screen.stripContainer) == true) }
         #expect(!w.screen.dividerViews.isEmpty)
-        #expect(w.screen.dividerViews.values.allSatisfy { $0.superview === w.screen.stripContainer })
+        #expect(w.screen.dividerViews.values.allSatisfy { $0.isDescendant(of: w.screen.stripContainer) })
         #expect(w.screen.stripContainer.frame == w.screen.bounds)
-        for pane in Self.strip { #expect(w.root.context.hosts[pane]?.chrome.superview === w.screen.stripChrome, "the rings sit in the strip's plane") }
+        for pane in Self.strip {
+            #expect(w.root.context.hosts[pane]?.chrome.isDescendant(of: w.screen.stripChrome) == true, "the rings sit in the strip's plane")
+        }
         #expect(w.screen.stripChrome.superview === w.root.overlayPlane && w.screen.stripChrome.frame == w.root.overlayPlane.bounds)
         #expect(w.screen.stripContainer.companion === w.screen.stripChrome.layer)
     }
@@ -158,7 +161,7 @@ import Testing
         try #require(contents.count == Self.strip.count)
         w.window.displayIfNeeded()
         let tracking = contents.map(\.trackingAreaUpdates) + dividers.map(\.trackingAreaUpdates)
-        let cursors = contents.map(\.cursorRectResets) + dividers.map(\.cursorRectResets)
+        let cursors = contents.map(\.cursorRectResets)
         let shownBefore = try #require(w.root.frame(of: "p2"))
         #expect(w.scroll(at: point, phase: .began), "the layout takes the Command gesture")
         let sets = screen.stripContainer.translationSets
@@ -176,7 +179,7 @@ import Testing
         #expect(hosts.map(\.chrome.frame) == chromeFrames, "no ring or dim frame set during the pan")
         #expect(w.root.overlayHostsPlaced == placed, "no overlay sync places a ring during the pan")
         #expect(contents.map(\.trackingAreaUpdates) + dividers.map(\.trackingAreaUpdates) == tracking, "no tracking area rebuilt")
-        #expect(contents.map(\.cursorRectResets) + dividers.map(\.cursorRectResets) == cursors, "no cursor rect rebuilt")
+        #expect(contents.map(\.cursorRectResets) == cursors, "no cursor rect rebuilt")
         #expect(screen.stripContainer.translationSets - sets == 50, "one translation per event")
         #expect(Window.translation(of: screen.stripChrome.layer) == screen.stripContainer.translation,
                 "the rings' plane takes the same translation")
@@ -304,7 +307,7 @@ import Testing
         let released = screen.scroll.value
         w.scroll(at: point, phase: .ended)
         let camera = screen.scrollState.spring
-        let flings = Motion.panes.renderSpring(.scroll).animates(StripClipContainerView.translationKeyPath, in: screen.stripContainer)
+        let flings = Motion.panes.renderSpring(.scroll).animates(StripClipContainerView.translationKey.path, in: screen.stripContainer)
         if flings {
             #expect(screen.stripContainer.fling != nil, "the fling runs on the render server")
             #expect(camera.value == camera.target && camera.velocity == 0, "the reducer rests on the fling's target")
@@ -346,6 +349,98 @@ import Testing
         // What shows is the reducer's camera: the views' offset less the container's translation.
         #expect(abs(screen.layoutOffset - screen.stripContainer.translation - screen.scrollState.spring.value) < 0.001)
         w.scroll(at: point, phase: .ended)
+        screen.finishPanFling()
+        w.settle()
+    }
+
+    // MARK: Resampled pan (p04-input-041, feature `stripPanResampling`)
+
+    /// The container's translation shows the strip at camera `offset` over the views laid out at the pan's base.
+    private static func shows(_ offset: CGFloat, on screen: ScreenContentView) -> Bool {
+        guard let base = screen.panBase else { return false }
+        let translation = screen.geometry.viewShift(offset: offset) - screen.geometry.viewShift(offset: base)
+        return abs(screen.stripContainer.translation - translation) < 0.001
+    }
+
+    /// A display-link frame at `time`: the frame time the layout's step reads (`DisplayLinkDriver.frameTime`).
+    @discardableResult
+    private static func displayFrame(_ w: Window, at time: CFTimeInterval) -> Bool {
+        w.root.driver.motionStep(FrameTick(timestamp: time, elapsed: 1.0 / 120, rawElapsed: 1.0 / 120, refreshInterval: 1.0 / 120))
+    }
+
+    /// Resampling on: a resampled pan on the container, three events 8 ms apart of 10 pt each.
+    private static func resampledPan(_ w: Window) {
+        w.root.resamplesStripPan = true
+        w.screen.beginUserScroll(trackpad: true)
+        for step in 0..<3 { w.screen.userScroll(deltaX: -10, timestamp: 10 + Double(step) * 0.008) }
+    }
+
+    /// A pan that begins during a fling (the screen reports the camera on settle) or beside a running pane
+    /// spring presents in the frame's spring step: that presentation keeps the frame's resampled offset, not
+    /// the real one, so the resampling shows and the strip never steps back when the springs land.
+    @Test func theFramesSpringStepKeepsTheResampledPan() throws {
+        let w = Window(renderServer: true)
+        defer { w.close() }
+        let screen = w.screen
+        let base = screen.scrollState.spring.value
+        Self.resampledPan(w)
+        try #require(screen.scrollState.resamplesPan && screen.panBase != nil, "a resampled pan on the container")
+        // As after `takeCameraFromServer`: every frame's `step` presents the strip.
+        screen.reportScrollOnSettle = true
+        Self.displayFrame(w, at: 10.019)
+        let shown = try #require(screen.scrollState.presentedPan)
+        #expect(abs(shown - (base + 27.5)) < 0.001, "the frame resamples between the two newest events")
+        #expect(screen.scrollState.spring.value == base + 30, "the camera keeps the real offset")
+        #expect(Self.shows(shown, on: screen),
+                "the strip shows the resampled offset after the spring step")
+        // A frame with no new event shows the same offset, also through the spring step.
+        Self.displayFrame(w, at: 10.027)
+        #expect(Self.shows(shown, on: screen))
+        screen.endUserScroll(timestamp: 10.03)
+        screen.finishPanFling()
+        w.settle()
+    }
+
+    /// Reduce Motion (or the panes animation switch) turned on mid-pan steps no frames: each event shows at once,
+    /// unresampled, and the event that waited for a frame shows in Reduce Motion's settling frame.
+    @Test func reduceMotionMidPanShowsEachEventAtOnce() throws {
+        let w = Window(renderServer: true)
+        defer { w.close() }
+        let screen = w.screen
+        Self.resampledPan(w)
+        Self.displayFrame(w, at: 10.019)
+        screen.userScroll(deltaX: -10, timestamp: 10.024)
+        w.root.context.reduceMotionOverride = true
+        Self.displayFrame(w, at: 10.027)
+        let real = screen.scrollState.spring.value
+        #expect(Self.shows(real, on: screen),
+                "the waiting event shows in the settling frame")
+        screen.userScroll(deltaX: -10, timestamp: 10.032)
+        #expect(screen.scrollState.spring.value == real + 10)
+        #expect(Self.shows(real + 10, on: screen),
+                "the event shows at once")
+        screen.endUserScroll(timestamp: 10.04)
+        screen.finishPanFling()
+        w.settle()
+    }
+
+    /// Only a trackpad pan resamples: a scrollbar thumb drag follows the pointer, as Chromium resamples
+    /// touchpad and touchscreen scroll updates only.
+    @Test func onlyATrackpadPanResamples() throws {
+        let w = Window(renderServer: true)
+        defer { w.close() }
+        let screen = w.screen
+        w.root.resamplesStripPan = true
+        let point = try w.center("p2")
+        w.pan(at: point, events: 1, dx: -4)
+        #expect(screen.scrollState.resamplesPan, "the trackpad pan resamples")
+        w.scroll(at: point, phase: .ended)
+        screen.finishPanFling()
+        w.settle()
+        // The scrollbar's `onDragBegan`.
+        screen.beginUserScroll()
+        #expect(!screen.scrollState.resamplesPan, "a thumb drag does not")
+        screen.endUserScroll(timestamp: 20)
         screen.finishPanFling()
         w.settle()
     }
@@ -435,7 +530,7 @@ import Testing
         let companion = CALayer()
         container.companion = companion
         let spring = Motion.panes.renderSpring(.scroll)
-        try #require(spring.animates(StripClipContainerView.translationKeyPath, in: container), "movement is off on this host")
+        try #require(spring.animates(StripClipContainerView.translationKey.path, in: container), "movement is off on this host")
         let landed = Counter()
         var changes = 0
         container.onShowsMovedChange = { changes += 1 }

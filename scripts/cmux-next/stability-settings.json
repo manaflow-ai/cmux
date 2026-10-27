@@ -14,6 +14,13 @@
       "target": "MessagesLabSidebarTests",
       "setting": ".swiftLanguageMode(.v6)",
       "reason": "Swift 6 language mode for the list's tests (main-actor suites; SidebarConcurrencyTests, SidebarObservationTests)."
+    },
+    {
+      "task": "p10-stability-211",
+      "package": "*",
+      "target": "*",
+      "setting": ".strictMemorySafety()",
+      "reason": "Strict memory safety on for every Swift target of the closure, as a warning (Chromium docs/unsafe_buffers.md order: the check on everywhere, old sites marked; scripts/cmux-next/apply-unsafe-fixits.py applies the compiler's unsafe fix-its with a SAFETY-TODO(p10) mark, the Q04 queue). The error flip is p10-stability-079. Not covered by this row: Packages/Shared/CmuxAgentCursor (CmuxAgentCursor, CmuxAgentCursorTests), vendored verbatim from manaflow-ai/cmux-cua, so the lander skips it; p10-stability-078, which owns its unsafe sites, turns the setting on in cmux-cua's manifest and moves CMUX_CUA_PINNED_SHA (scripts/cmux_agent_cursor_vendor.py sync), and 079 waits on it."
     }
   ]
 }

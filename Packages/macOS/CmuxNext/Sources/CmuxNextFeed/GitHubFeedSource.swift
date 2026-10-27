@@ -1,10 +1,15 @@
 import CryptoKit
 public import Foundation
-import CmuxNextWakeups
+public import CmuxNextWakeups
 
 /// Polls GitHub and posts integration items into the existing local feed owner.
 /// ETags and the detail cache are client state; item lifecycle, dedupe, and
 /// triage remain owned by the feed owner.
+///
+/// Each wait is the interval times the Energy Saver's ``EnergyPolicy/pollStretch``. While no cmux
+/// window shows (``ShownWindows``) no refresh is booked; a window showing again books the next one
+/// an interval after the last, at once when that has passed (p14-energy-032), as Chromium stops a
+/// hidden page's timers and runs what came due once it shows (`content/public/browser/visibility.h`).
 @MainActor
 public final class GitHubFeedSource: GitHubFeedDetailProviding {
     public static let defaultInterval: Duration = .seconds(120)
@@ -13,6 +18,20 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
     private let owner: any FeedPostingSource
     private let client: any GitHubFeedAPI
     private var interval: Duration
+    /// The app's Energy Saver policy, read at each booking.
+    private let energy: EnergyPolicySource
+    /// Whether a cmux window shows; nil polls whether or not one does.
+    private let shown: ShownWindows?
+    private var shownObservation: ShownWindowsObservation?
+    /// Between ``start()`` and ``stop()``: the poll runs, or waits for a window to show.
+    private var polling = false
+    /// A refresh of the poll runs now; it books the next one itself when it ends.
+    private var pollRefreshing = false
+    /// The time since the last poll refresh of this generation ended, on the injected clock; nil
+    /// before its first, so a start while hidden refreshes on the first show.
+    private var sinceLastRefresh: (@MainActor () -> Duration)?
+    /// Starts a stopwatch on the injected clock (opened once, in ``init``, so its instants stay typed).
+    private let startStopwatch: @MainActor () -> @MainActor () -> Duration
     private let now: @MainActor () -> Date
     /// The poll's running refresh, which ``stop()`` cancels (that ends its `gh` child). Set from
     /// ``start()`` until ``stop()``; tests read it to await a refresh they stopped.
@@ -34,15 +53,24 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
         owner: any FeedPostingSource,
         client: any GitHubFeedAPI = GitHubCLIClient(),
         interval: Duration = GitHubFeedSource.defaultInterval,
+        energy: EnergyPolicySource,
+        shown: ShownWindows?,
         now: @escaping @MainActor () -> Date = { Date() },
         clock: any Clock<Duration> = ContinuousClock()
     ) {
         self.owner = owner
         self.client = client
         self.interval = interval
+        self.energy = energy
+        self.shown = shown
         self.now = now
+        startStopwatch = GitHubFeedSource.stopwatches(on: clock)
         nextRefresh = DemandTimer(owner: "GitHubFeedSource.refresh", clock: clock)
+        shownObservation = shown?.observe { [weak self] anyShown in self?.shownChanged(anyShown) }
     }
+
+    /// The wait between two refreshes now: the interval stretched by the Energy Saver.
+    var currentInterval: Duration { interval * energy.policy.pollStretch }
 
     /// Looks up a detail by a provisional or owner-assigned feed id.
     public func githubDetail(for id: String) -> GitHubFeedDetail? { githubDetails[id] }
@@ -60,28 +88,60 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
         return githubDetails[item.id]
     }
 
+    /// Starts the poll: a refresh now while a window shows, else once one shows.
     public func start() {
         stop()
-        beginRefresh(pollGeneration)
+        polling = true
+        if isShown { beginRefresh(pollGeneration) }
     }
 
     public func stop() {
+        polling = false
+        pollRefreshing = false
         pollGeneration += 1
+        sinceLastRefresh = nil
         runner?.cancel()
         runner = nil
         nextRefresh.cancel()
     }
 
+    /// Whether a window shows (always, with no ``ShownWindows``).
+    private var isShown: Bool { shown?.anyShown ?? true }
+
+    /// The last window went away: the booked refresh goes (a running one books none). A window
+    /// showing again books the next one an interval after the last, at once when that has passed.
+    private func shownChanged(_ anyShown: Bool) {
+        guard polling, !pollRefreshing else { return }
+        guard anyShown else { return nextRefresh.cancel() }
+        let generation = pollGeneration
+        let wait = currentInterval - (sinceLastRefresh?() ?? currentInterval)
+        guard wait > .zero else { return beginRefresh(generation) }
+        nextRefresh.scheduleOnMain(after: wait) { [weak self] in self?.beginRefresh(generation) }
+    }
+
     /// Runs one refresh of the poll `generation` in ``runner``, so ``stop()`` cancels it, and
-    /// arms the next one ``interval`` after it ends (Chromium's self-reposting delayed task).
+    /// arms the next one ``currentInterval`` after it ends while a window shows (Chromium's
+    /// self-reposting delayed task).
     private func beginRefresh(_ generation: Int) {
         guard generation == pollGeneration else { return }
+        pollRefreshing = true
         runner = Task { @MainActor [weak self] in
             guard let self else { return }
             await refresh()
             guard generation == pollGeneration else { return }
-            // wakeup-allow: periodic GitHubFeedSource.refresh (GitHub has no push for the feed; task 066b moves it to NSBackgroundActivityScheduler)
-            nextRefresh.scheduleOnMain(after: interval) { [weak self] in self?.beginRefresh(generation) }
+            pollRefreshing = false
+            sinceLastRefresh = startStopwatch()
+            guard isShown else { return }
+            // wakeup-allow: periodic GitHubFeedSource.refresh (GitHub has no push for the feed; stretched by the saver, none while no window shows; task 066b moves it to NSBackgroundActivityScheduler)
+            nextRefresh.scheduleOnMain(after: currentInterval) { [weak self] in self?.beginRefresh(generation) }
+        }
+    }
+
+    /// Starts stopwatches on `clock`: each call reads the time since that call, later.
+    private static func stopwatches<C: Clock<Duration>>(on clock: C) -> @MainActor () -> @MainActor () -> Duration {
+        {
+            let start = clock.now
+            return { start.duration(to: clock.now) }
         }
     }
 
@@ -94,7 +154,7 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
     /// loop so the new interval is observed immediately.
     public func setInterval(_ interval: Duration) {
         self.interval = interval
-        if runner != nil { start() }
+        if polling { start() }
     }
 
     /// Refreshes immediately while retaining the conditional request ETags.

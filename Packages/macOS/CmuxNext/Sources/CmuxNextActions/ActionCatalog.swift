@@ -164,6 +164,8 @@ public nonisolated enum ActionCatalog {
         PaletteKeyActionCatalog.self,
         ImportActionCatalog.self,
         HangReportsActionCatalog.self,
+        EnergyActionCatalog.self,
+        MemorySaverActionCatalog.self,
     ]
 
     private static func makeAll() -> [ActionDescriptor] {
@@ -208,6 +210,16 @@ extension ActionRegistry {
                                 causes: ObservationCauses) -> ActionRegistry {
         let registry = standard(runTiming: runTiming, turnObserver: turnObserver)
         registry.causes = causes
+        return registry
+    }
+
+    /// ``standard(runTiming:turnObserver:causes:)`` on the app's one main-thread scheduler: handler
+    /// runs take their origin's cause in its ``MainWorkScheduler/causes``, and a person's run
+    /// completes as its userBlocking work (``ActionRegistry/mainWork``).
+    public static func standard(runTiming: any ActionRunTiming, turnObserver: (any ActionRunObserver)? = nil,
+                                mainWork: MainWorkScheduler) -> ActionRegistry {
+        let registry = standard(runTiming: runTiming, turnObserver: turnObserver, causes: mainWork.causes)
+        registry.mainWork = mainWork
         return registry
     }
 }

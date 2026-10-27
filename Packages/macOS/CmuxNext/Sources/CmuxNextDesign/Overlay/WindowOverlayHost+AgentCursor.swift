@@ -1,5 +1,7 @@
 public import AppKit
 public import CmuxNextDesignTokens
+import CmuxNextInput
+import CmuxNextWakeups
 
 /// The view that carries a window's agent cursor layer. It takes the mouse
 /// only on a name tag, which is a link to its agent's workspace (user,
@@ -24,6 +26,17 @@ final class AgentCursorCarrierView: NSView {
     /// The tag a mouse down landed on; its mouse up there presses it.
     private var pressing: String?
     private var tracking: NSTrackingArea?
+    /// The tag hover's moves (feature `pointerFrameHover`): the first of a frame interval hovers in its own
+    /// turn, the rest once at the frame, at the latest point. Without frames each move hovers.
+    private(set) lazy var hoverMoves = PointerFrameHover(owner: "AgentCursorCarrierView.hover", view: self) { [weak self] point in
+        guard let self else { return }
+        hover(tag(at: convert(point, from: nil)))
+    }
+    /// The overlay panel whose host hovers the tags from the input tap while it routes the mouse
+    /// (``WindowOverlayHost/routePointerEvent(_:)``); in that panel the carrier's own moves hover nothing.
+    weak var routedPanel: NSWindow?
+    /// Hover checks run (debug and tests: at most 2 per frame interval).
+    private(set) var hoverChecks = 0
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -74,6 +87,7 @@ final class AgentCursorCarrierView: NSView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func mouseDown(with event: NSEvent) {
+        hoverMoves.flush()
         pressing = tag(at: convert(event.locationInWindow, from: nil))?.id
     }
 
@@ -93,10 +107,16 @@ final class AgentCursorCarrierView: NSView {
     }
 
     override func mouseMoved(with event: NSEvent) {
-        hover(tag(at: convert(event.locationInWindow, from: nil)))
+        // In the routed panel the host's routing hovers this move already.
+        if let routedPanel, window === routedPanel { return }
+        hoverMoves.moved(event)
     }
 
-    override func mouseExited(with event: NSEvent) { hover(nil) }
+    override func mouseExited(with event: NSEvent) {
+        // The pointer left every tag: the waiting moves would only hover one on the way out.
+        hoverMoves.cancel()
+        hover(nil)
+    }
 
     override func cursorUpdate(with event: NSEvent) {
         if hovered != nil { NSCursor.pointingHand.set() } else { super.cursorUpdate(with: event) }
@@ -105,6 +125,7 @@ final class AgentCursorCarrierView: NSView {
     /// The pointer is on `tag`, or on no tag: a pointing hand, the tag's
     /// highlight (by its source) and its tooltip.
     func hover(_ tag: AgentCursorTagTarget?) {
+        hoverChecks += 1
         if tag != nil { NSCursor.pointingHand.set() }
         guard tag?.id != hovered?.id else { return }
         let left = hovered != nil
@@ -156,9 +177,9 @@ extension WindowOverlayHost {
     /// The window's agent cursor layer, made on first use: y-down, in the
     /// coordinates of the window's content view, above Chromium pages, the
     /// sidebar and `.window` overlays, below modal overlays, never hit by the
-    /// mouse. It is in the overlay panel (between the window and modal
-    /// containers) while the panel is attached, else on top of the window's
-    /// content view; callers hold the layer, never its superlayer.
+    /// mouse. It is in the top layer (between the window and modal
+    /// containers) while that is in the attached panel or in the window, else on
+    /// top of the window's content view; callers hold the layer, never its superlayer.
     public var agentCursorLayer: CALayer { agentCursorCarrierView.cursorLayer }
 
     /// The mask of the cursor's behind-window glass, in `agentCursorLayer`'s
@@ -170,14 +191,20 @@ extension WindowOverlayHost {
         if let agentCursorCarrier { return agentCursorCarrier }
         let carrier = AgentCursorCarrierView(frame: .zero)
         carrier.tags = agentCursorTags
+        carrier.hoverMoves.frames = hoverFrames
+        carrier.routedPanel = mouseRouting == nil || !usesPanel ? nil : madePanel
         agentCursorCarrier = carrier
-        placeAgentCursor()
+        // In the window the top layer joins the content view for the cursor (``syncPanel()`` places it).
+        if usesPanel { placeAgentCursor() } else { syncPanel() }
         return carrier
     }
 
     /// A subview was added to the window's content view (`WindowRootView`):
-    /// while the panel is detached, the cursor goes back on top.
+    /// the top layer, while it is in the window, or else the cursor while the
+    /// panel is detached, goes back on top.
     public func contentViewDidAddSubview(_ subview: NSView) {
+        guard subview !== topLayer else { return }
+        if isTopLayerInWindow { return raiseTopLayer() }
         guard let carrier = agentCursorCarrier, subview !== carrier, !isPanelAttached,
               let content = window?.contentView, carrier.superview === content, content.subviews.last !== carrier else { return }
         placeAgentCursor()
@@ -189,6 +216,11 @@ extension WindowOverlayHost {
     /// top; true when it had to (logged in debug builds).
     @discardableResult
     public func repairAgentCursorOrder() -> Bool {
+        if isTopLayerInWindow {
+            guard let content = window?.contentView, content.subviews.last !== topLayer else { return false }
+            raiseTopLayer()
+            return true
+        }
         guard let carrier = agentCursorCarrier, !isPanelAttached, !isAppHost,
               let content = window?.contentView, carrier.superview === content, content.subviews.last !== carrier else { return false }
         #if DEBUG
@@ -202,18 +234,19 @@ extension WindowOverlayHost {
     /// content view. Runs on every attach, detach and window geometry change.
     func placeAgentCursor() {
         guard let carrier = agentCursorCarrier else { return }
-        if isAppHost || isPanelAttached {
-            guard let root = panel.contentView else { return }
-            let subviews = root.subviews
-            let modal = subviews.firstIndex { $0 === panel.modalContainer }
+        let inWindow = isTopLayerInWindow
+        if isAppHost || isPanelAttached || inWindow {
+            let subviews = topLayer.subviews
+            let modal = subviews.firstIndex { $0 === topLayer.modalContainer }
             let current = subviews.firstIndex { $0 === carrier }
-            if carrier.superview !== root || current.map({ $0 + 1 }) != modal {
-                root.addSubview(carrier, positioned: .below, relativeTo: panel.modalContainer)
+            if carrier.superview !== topLayer || current.map({ $0 + 1 }) != modal {
+                topLayer.addSubview(carrier, positioned: .below, relativeTo: topLayer.modalContainer)
             }
-            carrier.autoresizingMask = []
-            carrier.frame = contentFrameInPanel(root: root)
-            // In the panel, a window above the page windows: blur what is behind the panel.
-            carrier.glassView.blendingMode = .behindWindow
+            carrier.autoresizingMask = inWindow ? [.width, .height] : []
+            carrier.frame = inWindow ? topLayer.bounds : contentFrameInPanel()
+            // In the panel, a window above the page windows: blur what is behind the panel. In the window's
+            // top layer: blur the views under it, never the desktop.
+            carrier.glassView.blendingMode = inWindow ? .withinWindow : .behindWindow
         } else if let content = window?.contentView {
             if carrier.superview !== content || content.subviews.last !== carrier {
                 content.addSubview(carrier, positioned: .above, relativeTo: nil)
@@ -228,13 +261,19 @@ extension WindowOverlayHost {
         carrier.syncLayerFrame()
     }
 
-    /// The window's content view in panel-root coordinates. The panel has the
+    /// The window's content view in the coordinates of the top layer in the panel. The panel has the
     /// window's frame, so window coordinates differ only by the frames' offset.
-    private func contentFrameInPanel(root: NSView) -> NSRect {
-        guard let window, let content = window.contentView else { return root.bounds }
+    private func contentFrameInPanel() -> NSRect {
+        guard let window, let content = window.contentView, let panel = madePanel else { return topLayer.bounds }
         let inWindow = content.convert(content.bounds, to: nil)
         let inPanel = inWindow.offsetBy(dx: window.frame.minX - panel.frame.minX, dy: window.frame.minY - panel.frame.minY)
-        return root.convert(inPanel, from: nil)
+        return topLayer.convert(inPanel, from: nil)
+    }
+
+    /// The top layer goes back on top of the window's content view.
+    private func raiseTopLayer() {
+        guard let content = window?.contentView, topLayer.superview === content, content.subviews.last !== topLayer else { return }
+        content.addSubview(topLayer, positioned: .above, relativeTo: nil)
     }
 
     /// The window's agent cursors came, went, showed or hid: the panel
@@ -244,23 +283,23 @@ extension WindowOverlayHost {
         updateMouseRouting()
     }
 
-    /// The tag under `point` in the panel's coordinates, while the cursor
-    /// draws in the panel (else the window's own views route the mouse).
+    /// The tag under `point` in the top layer's coordinates, while the cursor
+    /// draws in the top layer (else the window's own views route the mouse).
     func agentCursorTag(atPanelPoint point: NSPoint) -> AgentCursorTagTarget? {
-        guard let carrier = agentCursorCarrier, carrier.window === panel else { return nil }
-        return carrier.tag(at: carrier.convert(point, from: nil))
+        guard let carrier = agentCursorCarrier, carrier.superview === topLayer, carrier.window != nil else { return nil }
+        return carrier.tag(at: carrier.convert(point, from: topLayer))
     }
 
     /// Whether any agent cursor tag shows in the panel now.
     var showsAgentCursorTags: Bool {
-        guard let carrier = agentCursorCarrier, carrier.window === panel else { return false }
+        guard let carrier = agentCursorCarrier, carrier.window != nil, carrier.window === madePanel else { return false }
         return agentCursorTags?.agentCursorTags().isEmpty == false
     }
 
     /// The pointer is at `point` in the panel's coordinates: the tag under it
     /// (or none) is hovered.
     func hoverAgentCursorTag(at point: NSPoint) {
-        guard let carrier = agentCursorCarrier, carrier.window === panel else { return }
+        guard let carrier = agentCursorCarrier, carrier.window != nil, carrier.window === madePanel else { return }
         carrier.hover(agentCursorTag(atPanelPoint: point))
     }
 

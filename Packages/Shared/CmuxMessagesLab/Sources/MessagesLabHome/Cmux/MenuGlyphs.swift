@@ -9,6 +9,8 @@ import AppKit
 /// The context menu's palette glyphs as bitmaps (1x and 2x), drawn once and kept: a drawing-handler
 /// image is drawn again by each new palette cell at each open (12 per open, about 3 ms of main-thread
 /// work; menu bench profile). The glyphs do not depend on the appearance (fixed colours).
+/// Main actor: the caches are filled and read only by the menu and the warm-up on the main thread.
+@MainActor
 enum MenuGlyphs {
     private static var cache: [Reaction.Kind: NSImage] = [:]
     static func image(_ kind: Reaction.Kind) -> NSImage {
@@ -17,7 +19,7 @@ enum MenuGlyphs {
         let img = NSImage(size: NSSize(width: side, height: side))
         for scale in [2, 1] {
             let px = CrashGuard.int(side, in: 1...256) * scale // cmux: no trap
-            guard let ctx = CGContext(data: nil, width: px, height: px, bitsPerComponent: 8, bytesPerRow: 0,
+            guard let ctx = CGContext.ownedBitmap(width: px, height: px, bitsPerComponent: 8, bytesPerRow: 0,
                                       space: DisplayScale.colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
             else { continue }
             // Flipped, as the drawing handler was (flipped: true).
@@ -128,12 +130,13 @@ final class MenuAction: NSMenuItem {
         let cfg = NSImage.SymbolConfiguration(pointSize: Self.iconPointSize, weight: .medium)
         let sym = glyph.withSymbolConfiguration(cfg) ?? glyph
         let box = NSSize(width: Self.iconAdvance, height: ceil(font.ascender - font.descender))
+        let centerX = Self.iconCenterX
         // Still a drawing handler: AppKit draws it in the menu row's own appearance.
         let icon = NSImage(size: box, flipped: false) { r in
             let s = sym.size
             let y = (r.height - s.height) / 2
             // A wide icon (sticker.badge.plus) starts at the title start, as in Messages, not left of it.
-            sym.draw(in: CGRect(x: max(0, Self.iconCenterX - s.width / 2), y: y, width: s.width, height: s.height))
+            sym.draw(in: CGRect(x: max(0, centerX - s.width / 2), y: y, width: s.width, height: s.height))
             NSColor.labelColor.set()
             CGRect(x: 0, y: 0, width: r.width, height: r.height).fill(using: .sourceAtop)
             return true
