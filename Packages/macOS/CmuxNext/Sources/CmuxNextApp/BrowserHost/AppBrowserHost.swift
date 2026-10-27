@@ -22,7 +22,7 @@ final class AppBrowserHost {
     private let tabs: AppBrowserHostTabs
     private let relay: AppDevToolsRelay
     /// The Secure Store login guard on the host's agent code (the provider holds it weakly).
-    private let scriptGate: AppBrowserScriptGate
+    private let scriptGate: PageScriptGate
     private weak var services: AppServices?
     /// Lease frames to every content's agent cursor (agent-cursor.md section 3).
     private let cursorLeases: AgentCursorLeaseFanOut
@@ -64,8 +64,13 @@ final class AppBrowserHost {
         self.tabs = tabs
         self.relay = relay
         self.driver = driver
-        let scriptGate = AppBrowserScriptGate(
-            services: services, gate: BrowserAgentCodeGate(guards: services.loginGuards, engine: AppBrowserPageEngine(services: services)))
+        let codeGate = BrowserAgentCodeGate(guards: services.loginGuards, engine: AppBrowserPageEngine(services: services))
+        let scriptGate = PageScriptGate(
+            page: { [weak services] id in services.map { Self.page(id, in: $0) } ?? (nil, nil) },
+            admit: { id, page in await codeGate.admit(tabID: id, url: page.url, profile: page.profile) },
+            ran: { id, page in await codeGate.ran(tabID: id, url: page.url, profile: page.profile) },
+            admitRaw: { id, page in await codeGate.admitRaw(tabID: id, url: page.url, profile: page.profile) },
+            raw: { page in codeGate.rawMessage(url: page.url, profile: page.profile) })
         self.scriptGate = scriptGate
         cursorLeases = AgentCursorLeaseFanOut(models: { [weak services] in
             guard let services else { return [] }
@@ -96,7 +101,7 @@ final class AppBrowserHost {
         services.cache.pageRequests.downloads.onDownload = { [weak provider] item, tab in
             Self.report(item, tab: tab, to: provider)
         }
-        services.cache.pageRequests.openers.onChildPlaced = { [weak services, weak provider, gate = scriptGate.gate] child, opener in
+        services.cache.pageRequests.openers.onChildPlaced = { [weak services, weak provider, gate = codeGate] child, opener in
             guard let services, let tab = services.locateTab(surface: child) else { return }
             // A tab a page opened never gets a Secure Store fill: its opener's script reaches into it.
             Task { await gate.openedByPage(tabID: tab.id) }
@@ -201,6 +206,14 @@ final class AppBrowserHost {
     /// The content that shows or parks `workspaceID`: its window's shown content first.
     /// The window that shows `workspaceID`, else one that keeps it parked or lists it (a parked one
     /// released under memory pressure): its window-level cursor slot draws the workspace's agent cursors.
+    /// A tab's current URL (its live page, else its record) and browser profile id, as the
+    /// control socket's topology names them, so both login guard paths key the same sites.
+    private static func page(_ targetID: String, in services: AppServices) -> PageScriptGate.Page {
+        let cache: TabContentCache = services.cache
+        let url = cache.existingBrowser(targetID)?.tab.state.url?.absoluteString ?? cache.tabModel(targetID)?.url
+        return (url, cache.tabModel(targetID)?.browserProfileID ?? "default")
+    }
+
     static func window(ofWorkspace workspaceID: String, in services: AppServices) -> WindowController? {
         let controllers = services.windows.controllers
         if let shown = controllers.first(where: { $0.content?.workspace.id == workspaceID }) { return shown }
