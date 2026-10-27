@@ -13,7 +13,7 @@ export type PartResult = { readonly ok: true; readonly etag: string | undefined;
 export const streamPartInto = async (bucket: R2Bucket, key: string, request: Request, maxBytes: number, contentType: string): Promise<PartResult> => {
   const declared = request.headers.get("content-length")
   const length = declared === null ? null : Number(declared)
-  if (!request.body || length === null || !Number.isSafeInteger(length) || length <= 0 || length > maxBytes) return { ok: false, code: "attachment.size_mismatch" }
+  if (!request.body || length === null || !Number.isSafeInteger(length) || length <= 0 || length !== maxBytes) return { ok: false, code: "attachment.size_mismatch" }
   let count = 0
   const meter = new TransformStream<Uint8Array, Uint8Array>({
     transform(chunk, ctl) {

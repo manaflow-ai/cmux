@@ -36,6 +36,7 @@ export interface UploadSlot {
   readonly mode: "stream" | "presigned" | "multipart"
   readonly expires_at: number
   readonly state?: "open" | "uploading" | "tombstone"
+  readonly multipart_upload_id?: string
   /** The declared poster (video) or preview (image): uploaded once through the Worker (`open` -> `uploading` -> `stored`) before the attachment commits. */
   readonly derived?: Image
   readonly derived_state?: "open" | "uploading" | "stored"
@@ -70,6 +71,7 @@ const LATER_COLUMNS: ReadonlyArray<[string, string]> = [
   [SLOTS, "poster TEXT"],
   [SLOTS, "poster_state TEXT"],
   [SLOTS, "poster_etag TEXT"],
+  [SLOTS, "multipart_upload_id TEXT"],
   // 1 from a batch until its markSwept: a release in between (during the R2 delete) queues another pass.
   [SWEEP, "running INTEGER NOT NULL DEFAULT 0"],
   // After conversation storage deletion: when to delete the prefix again (a URL the deletion dropped may still finish a PUT).
@@ -216,7 +218,7 @@ export const settleDerived = (sql: Sql, id: string, etag: string | null): void =
  * URL expires, so the alarm deletes anything PUT to the key later.
  */
 export const settleSlot = (sql: Sql, slot: UploadSlot, kept: boolean): void => {
-  if (kept || slot.mode === "stream" || slot.mode === "multipart") sql.exec(`DELETE FROM ${SLOTS} WHERE id = ?`, slot.id)
+  if (kept || slot.mode === "stream") sql.exec(`DELETE FROM ${SLOTS} WHERE id = ?`, slot.id)
   else sql.exec(`UPDATE ${SLOTS} SET state = 'tombstone' WHERE id = ?`, slot.id)
 }
 
@@ -437,3 +439,11 @@ export const failDrop = (sql: Sql, objectKey: string, now: number): boolean => {
 }
 
 export const clearDrop = (sql: Sql, objectKey: string): void => void sql.exec(`DELETE FROM ${DROPS} WHERE object_key = ?`, objectKey)
+
+/** Persist the R2 assembly handle so expiry also aborts an interrupted multipart upload. */
+export const setMultipartUpload = (sql: Sql, id: string, uploadId: string): boolean => {
+  ensure(sql)
+  if (!slotIn(sql, id, "uploading")) return false
+  sql.exec(`UPDATE ${SLOTS} SET multipart_upload_id = ? WHERE id = ?`, uploadId, id)
+  return true
+}

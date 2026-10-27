@@ -9,7 +9,7 @@ extension WireHomeSource {
         try Self.requireConversationID(file.conversation)
         let ref = file.ref
         var intent: [String: HomeWireJSON] = [
-            "conversation": .string(file.conversation.rawValue), "sha256": .string(ref.hash),
+            "conversation": .string(file.conversation.rawValue), "sha256": .string(ref.hash), "multipart": .bool(true),
             "byte_count": .number(Double(ref.byteCount)), "mime_type": .string(ref.mimeType), "name": .string(ref.name),
         ]
         if let width = ref.width { intent["width"] = .number(Double(width)) }

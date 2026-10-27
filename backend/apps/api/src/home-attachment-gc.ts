@@ -58,13 +58,17 @@ const expireSlots = async (deps: AttachmentGcDeps, now: number): Promise<void> =
     const due = store.dueSlots(deps.sql, now, 100)
     if (due.length === 0) return
     if (deps.env.HOME_ATTACHMENTS) {
-      const keys = due.flatMap(store.slotKeys)
+      await deps.env.HOME_ATTACHMENTS.delete(due.flatMap(store.slotKeys))
       for (const slot of due) {
         if (slot.mode !== "multipart") continue
-        const parts = await deps.env.HOME_ATTACHMENTS.list({ prefix: store.multipartPartPrefix(slot.object_key) })
-        keys.push(...parts.objects.map((part) => part.key))
+        if (slot.multipart_upload_id) await deps.env.HOME_ATTACHMENTS.resumeMultipartUpload(slot.object_key, slot.multipart_upload_id).abort()
+        let cursor: string | undefined
+        do {
+          const parts = await deps.env.HOME_ATTACHMENTS.list({ prefix: store.multipartPartPrefix(slot.object_key), cursor })
+          if (parts.objects.length) await deps.env.HOME_ATTACHMENTS.delete(parts.objects.map((part) => part.key))
+          cursor = parts.truncated ? parts.cursor : undefined
+        } while (cursor)
       }
-      if (keys.length) await deps.env.HOME_ATTACHMENTS.delete(keys)
     }
     for (const slot of due) {
       if (slot.state !== "tombstone") await deps.users(slot.quota_user).refundAttachmentQuota(slot.quota_user, slot.id)

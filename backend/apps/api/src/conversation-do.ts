@@ -582,6 +582,11 @@ export class ConversationDO extends OwnerDO<Head> {
     if (this.existingState(entity)) store.settleDerived(this.sqlStore, id, etag)
   }
 
+  async setMultipartUpload(entity: string, id: string, uploadId: string): Promise<boolean> {
+    if (!this.existingState(entity)) return false
+    return store.setMultipartUpload(this.sqlStore, id, uploadId)
+  }
+
   /** Ends an `uploading` slot whose bytes failed verification (the Worker deleted its object). */
   async settleSlot(entity: string, id: string): Promise<void> {
     if (!this.existingState(entity)) return

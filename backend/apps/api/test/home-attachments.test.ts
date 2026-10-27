@@ -52,7 +52,7 @@ describe("Home attachments: upload and dedupe", { timeout: 60_000 }, () => {
     const { id } = await group(alice)
     const body = new Uint8Array(32 * 1024 * 1024 + 17)
     for (let i = 0; i < body.length; i++) body[i] = i % 251
-    const r = await intent(alice, id, body)
+    const r = await intent(alice, id, body, { multipart: true })
     expect(r.json.value).toMatchObject({ state: "upload", mode: "multipart", method: "PUT" })
     const partSize = r.json.value.part_size as number
     const parts: Array<{ part_number: number; byte_count: number; etag?: string }> = []
