@@ -1196,6 +1196,8 @@ export class DaemonHomeClient implements PageClient {
             marked_unread: change.markedUnread,
           });
           (batch.inbox ??= []).push(change);
+          // The owner also sends it when a row left my list (a deleted Chief's): read the rows again.
+          if (this.homeRows.size > 0) batch.inboxStale = true;
         });
       } else if (event.event === "conversation-presence") {
         deliver((batch) =>

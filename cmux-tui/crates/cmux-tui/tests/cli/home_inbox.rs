@@ -275,6 +275,13 @@ fn a_deleted_chief_leaves_every_devices_home_list_including_one_offline_then() {
         "Kept",
         json!([{"id": kept_id, "kind": "agent", "display_name": "Kept", "agent_class": "mux"}]),
     );
+    // A later titled conversation with the same Chief is a channel: it keeps its history.
+    let channel = create(
+        &mut phone,
+        "deleted-chief-channel",
+        "release notes",
+        json!([{"id": id, "kind": "agent", "display_name": "Codex Chief", "agent_class": "mux"}]),
+    );
     phone.sent(&chief, "before-delete", None, None);
     let before = phone.request("home-inbox", json!({"owners": ["local"]}));
     assert_eq!(row(&before, &chief)["kind"], "chief", "{before}");
@@ -292,6 +299,7 @@ fn a_deleted_chief_leaves_every_devices_home_list_including_one_offline_then() {
     let after = phone.request("home-inbox", json!({"owners": ["local"]}));
     assert!(!order(&after).contains(&chief), "a deleted Chief keeps its row: {after}");
     assert_eq!(row(&after, &kept)["kind"], "chief", "{after}");
+    assert_eq!(row(&after, &channel)["kind"], "channel", "{after}");
 
     // A device that was offline at the time reads the list without it.
     let mut later = Ws::open(&ws_addr(&server));
