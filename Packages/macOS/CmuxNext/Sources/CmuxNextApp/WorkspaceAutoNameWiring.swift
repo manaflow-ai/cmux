@@ -59,7 +59,7 @@ struct WorkspaceAutoNameWiring {
         // the namer's own steps run on its actor.
         Task { @concurrent [weak settings] in
             await settings?.waitForLoad(atLeast: 1)
-            await namer.run()
+            services.lifetimeFollowers.append(namer.follow(on: services.mainWork))
         }
     }
 }
