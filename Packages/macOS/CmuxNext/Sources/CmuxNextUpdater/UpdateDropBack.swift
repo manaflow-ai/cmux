@@ -24,7 +24,7 @@ public struct UpdateDropBack {
     public func run(to build: String? = nil, checkOnly: Bool = false, stateDirectories: [URL?]) async throws -> KeptVersion {
         let inputs = await updater.rollbackInputs(stateDirectories: stateDirectories)
         if checkOnly { return try updater.rollbackDecision(to: build, inputs: inputs).get() }
-        return try updater.rollback(to: build, inputs: inputs, relaunch: Self.relaunchAfterExit)
+        return try updater.rollback(to: build, inputs: inputs, relaunch: relaunchAfterExit)
     }
 
     /// ``run(to:checkOnly:stateDirectories:)`` for an action: nil when it ran, else what the
@@ -48,17 +48,19 @@ public struct UpdateDropBack {
     }
 
     /// Starts the helper that reopens `app` once this process exits, then quits (the relaunch
-    /// hook already recorded "keep sessions").
-    public static func relaunchAfterExit(_ app: URL) {
+    /// hook already recorded "keep sessions"). The quit is the rest of the person's rollback: one
+    /// `userBlocking` task on the updater's scheduler once the helper runs.
+    func relaunchAfterExit(_ app: URL) {
         let command = RollbackSwap.relaunchCommand(pid: ProcessInfo.processInfo.processIdentifier, app: app)
         let helper = Process()
         helper.executableURL = URL(fileURLWithPath: command[0])
         helper.arguments = Array(command.dropFirst())
+        let mainWork = updater.mainWork
         // The helper spawns off main; the app quits once it runs (it waits for this pid to exit).
         // task-owner: one spawn, then the quit; ends with the app.
-        Task { @MainActor in
+        Task { @concurrent in
             do { try await ProcessLauncher(label: "com.cmuxterm.next.relaunch", priority: .userBlocking).launched(helper) } catch { return }
-            NSApplication.terminateFromRunLoop()
+            mainWork.postFromAnyThread(.userBlocking, owner: "UpdateDropBack.quit") { NSApplication.terminateFromRunLoop() }
         }
     }
 

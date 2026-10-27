@@ -24,7 +24,7 @@ import Testing
     @Test func theNoticeRunsOnlyAfterTheFirstFrame() async {
         let directory = FileManager.default.temporaryDirectory.appending(path: "recovery-notice-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
-        let store = RecoveryDraftStore(directory: directory)
+        let store = RecoveryDraftStore(directory: directory, deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())))
         let id = QuitParticipantID.file(path: "/tmp/recovery-notice-launch/notes.md")
         #expect(store.update(id: id, title: "notes.md", contents: Data("unsaved".utf8)) == .kept)
         await store.writePending()

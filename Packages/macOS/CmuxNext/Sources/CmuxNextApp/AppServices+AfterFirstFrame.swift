@@ -23,7 +23,7 @@ extension AppServices {
         LaunchServicePosts.serviceStarts(windowOcclusion: { [weak self] in self?.surfaceInvariant.observeWindowOcclusion() },
                                          inputVerification: { [weak self] in if let self { input.start(services: self) } },
                                          notifications: { [weak self] in self?.notifications.start() },
-                                         updaterWork: { [weak self] in self?.updater.startAttachedWork() },
+                                         updaterWork: { [weak self] in if let self { updater.startAttachedWork(appEvents: appEvents) } },
                                          serverUpdates: { [weak self] in self?.serverUpdates.start() },
                                          browserHost: { [weak self] in self?.startBrowserHost() })
     }
