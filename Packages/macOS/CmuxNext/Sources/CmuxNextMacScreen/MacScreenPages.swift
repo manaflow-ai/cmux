@@ -47,8 +47,9 @@ public final class MacScreenPages {
     public let approval: MacScreenApprovalPrompt
     /// The app's main-thread scheduler: the tabs' views apply model changes on its frames.
     private let mainWork: MainWorkScheduler
-    /// The app's one deadline scheduler: each screen's stats line samples on it (``MacScreenStatsDeadline``).
-    private let deadlines: MainDeadlineScheduler?
+    /// The app's one deadline scheduler: each screen's stats line samples on it (``MacScreenStatsDeadline``);
+    /// nil keeps each session's standalone deadline. Set before the first tab is made.
+    public var deadlines: MainDeadlineScheduler?
     /// The device hub while this app is signed in to one (the app sets it on
     /// sign-in and clears it on sign-out): the user's devices, and the session
     /// pushes Mac Screen follows.
@@ -101,15 +102,11 @@ public final class MacScreenPages {
     private(set) var tabs: [String: MacScreenTab] = [:]
     private var termination: (any NSObjectProtocol)?
 
-    /// - Parameters:
-    ///   - mainWork: The app's one main-thread scheduler (``FrameObservation`` deliveries of
-    ///     the tabs' views and the approval prompt).
-    ///   - deadlines: The app's one deadline scheduler (the stats lines' samples); nil keeps each
-    ///     session's standalone deadline.
-    public init(store: MacScreenStore, mainWork: MainWorkScheduler, deadlines: MainDeadlineScheduler? = nil) {
+    /// - Parameter mainWork: The app's one main-thread scheduler (``FrameObservation`` deliveries of
+    ///   the tabs' views and the approval prompt).
+    public init(store: MacScreenStore, mainWork: MainWorkScheduler) {
         self.store = store
         self.mainWork = mainWork
-        self.deadlines = deadlines
         approval = MacScreenApprovalPrompt(mainWork: mainWork)
         host = MacScreenShareHost()
         hubHost = MacScreenHubHost(share: host)
