@@ -123,7 +123,7 @@ impl StartReports {
             return;
         }
         // A blank id names no session (review 70): it counts for all, as a missing one does.
-        let Some(sid) = known_id(params["sessionId"].as_str()) else {
+        let Some(sid) = params["sessionId"].as_str().filter(|s| !s.trim().is_empty()) else {
             self.all = true;
             return;
         };
@@ -140,17 +140,11 @@ impl StartReports {
     /// are not its own, `on_update`); for any session when it is not known (none, or a blank id).
     pub(crate) fn of(&self, harness_session: Option<&str>) -> bool {
         // A blank id names no session (review 74): any report counts for it.
-        let harness_session = known_id(harness_session);
+        let harness_session = harness_session.filter(|s| !s.trim().is_empty());
         self.all
             || harness_session
                 .map_or(!self.sessions.is_empty(), |sid| self.sessions.iter().any(|s| s == sid))
     }
-}
-
-/// A harness or report session id that names a session: none for a missing, empty or blank one
-/// (reviews 70 and 74 of #23322). Every such id is read through it.
-pub(crate) fn known_id(id: Option<&str>) -> Option<&str> {
-    id.filter(|s| !s.trim().is_empty())
 }
 
 /// Whether an agent runs in full access, and in which form. The one predicate: every check of
