@@ -66,7 +66,7 @@ final class TasksPageService: InternalPageProvider {
 
     private func makeModel(_ services: AppServices) -> TasksModel {
         if let sharedModel { return sharedModel }
-        let model = TasksModel(source: SocketTasksSource(mainWork: services.mainWork))
+        let model = TasksModel(source: SocketTasksSource(deadlines: services.mainDeadlines))
         model.start()
         sharedModel = model
         if let pending = pendingViewState {

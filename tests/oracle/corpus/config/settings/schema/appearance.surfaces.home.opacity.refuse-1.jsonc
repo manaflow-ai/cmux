@@ -1,0 +1,9 @@
+{
+  "appearance": {
+    "surfaces": {
+      "home": {
+        "opacity": 2
+      }
+    }
+  }
+}

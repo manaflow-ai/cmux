@@ -27,12 +27,14 @@ final class HistoryPageService: HistoryPageSource {
     /// The app's services, which own this; nil (reported) only once they are gone.
     private var services: AppServices? { servicesReference.resolve() }
     /// The Stashed page's stashes (stash-v1), History's sibling page.
-    private(set) lazy var stash = StashService(host: stashHost)
+    private(set) lazy var stash = StashService(host: stashHost, mainWork: mainWork)
     let stashHost: StashAppHost
+    private let mainWork: MainWorkScheduler
 
     init(services: AppServices) {
         servicesReference = OwnerReference(services: services)
         stashHost = StashAppHost(services)
+        mainWork = services.mainWork
     }
 
     /// Selects the active window's history tab, else opens one beside the
