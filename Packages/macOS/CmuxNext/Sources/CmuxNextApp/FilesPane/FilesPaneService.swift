@@ -139,9 +139,7 @@ final class FilesPaneService: InternalPageProvider {
             // main-hop-allow: open is FileBrowserModel's main-actor async listing (off main) that selects the revealed item; this task only starts it
             Task { await model.open(selection.deletingLastPathComponent(), select: selection) }
         }
-        let view = FilesPaneView(model: tab.model, sidebar: sidebar, icons: icons, mainWork: mainWork) { [weak self] url in
-            self?.openFile(url, from: key)
-        }
+        let view = FilesPaneView(model: tab.model, sidebar: sidebar, icons: icons, mainWork: mainWork) { [weak self] url in self?.openFile(url, from: key) }
         view.fileMenu = fileMenu
         tab.view = view
         tabs[key] = tab

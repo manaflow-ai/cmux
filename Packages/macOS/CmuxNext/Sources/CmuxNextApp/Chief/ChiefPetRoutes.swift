@@ -14,8 +14,7 @@ import CmuxNextWakeups
 struct ChiefPetRoutes {
     weak var services: AppServices?
 
-    /// `appEvents`: the app's one fan-out of app notices (`AppServices.appEvents`); the pet's activation and
-    /// screen changes subscribe there.
+    /// `appEvents`: the app's one fan-out of app notices (`AppServices.appEvents`), where the pet subscribes.
     func makePet(appEvents: AppEvents) -> ChiefPetController {
         // The notices' card shows over cmux only; over another app the pet's badge counts what waits.
         ChiefPetController(makePanel: { ChiefPetPanel(appEvents: appEvents) }, actions: ChiefPetActions(

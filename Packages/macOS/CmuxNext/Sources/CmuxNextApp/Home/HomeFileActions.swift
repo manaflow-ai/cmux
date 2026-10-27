@@ -12,15 +12,13 @@ import MessagesLabHome
 @MainActor
 final class HomeFileActions: HomeFileHost {
     private weak var services: AppServices?
-    private lazy var menu = FileActionsMenu(apps: fileApps, mainWork: mainWork,
-                                            actions: .init(openInCmux: { [weak self] in self?.open($0) },
+    private lazy var menu = FileActionsMenu(apps: fileApps, mainWork: mainWork, actions: .init(openInCmux: { [weak self] in self?.open($0) },
                                                            revealInFiles: { [weak self] in self?.reveal($0) },
                                                            openAsText: { [weak self] in self?.openAsText($0) }))
 
     /// Open With's apps, from the app's Launch Services answers (asked on the system lane).
     private let fileApps: WorkspaceFileApps
-    /// The app's main-thread scheduler: the menu's late Open With fill posts on it.
-    private let mainWork: MainWorkScheduler
+    private let mainWork: MainWorkScheduler // the menu's late Open With fill posts on it
 
     init(services: AppServices) {
         self.services = services
