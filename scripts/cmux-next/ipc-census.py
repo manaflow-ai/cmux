@@ -74,6 +74,9 @@ RUST_CRATES = "cmux-tui/crates/*.rs"
 SCHEMA = "cmux-tui/spec/sdk-schema.json"
 EVENT_DECODER = f"{APP}/CmuxNextDaemon/Events/DaemonEvent+Decoding.swift"
 SERVER = f"{CORE}/server.rs"
+# Families whose Command variants cmux-ipc build.rs generates (p05-ipc-026); Q15 counts only
+# the hand-written ones.
+SERVER_FAMILIES = "cmux-tui/crates/cmux-ipc/server-families.json"
 RESOURCE_WIRE_NAMES = f"{CORE}/resource/wire_name.rs"
 RUST_NOT_TESTS = (":!*tests*", ":!*_tests.rs")
 QUEUE_IDS = tuple(f"Q{n}" for n in range(1, 19))
@@ -1120,7 +1123,7 @@ class Census:
             if self.result("Q9").count:
                 return ["ipc5_ops is empty, so Q18 keeps every sqlite site; list the IPC-5 ops (p05-ipc.md section 5)"]
             return []
-        variants = {wire for wire, _ in self.command_variants()}
+        variants = {wire for wire, _ in self.command_variants()} | self.generated_commands()
         resource = self.repo.text(RESOURCE_WIRE_NAMES)
         return [
             f"ipc5_ops {op}: not a daemon Command variant or a v2 operation of {RESOURCE_WIRE_NAMES}"
@@ -1249,6 +1252,17 @@ class Census:
                 continue
             k += 1
         return variants
+
+    def generated_commands(self) -> set[str]:
+        """Commands of the families SERVER_FAMILIES lists: served by generated variants."""
+        text = self.repo.text(SERVER_FAMILIES)
+        listed = set(json.loads(text).get("families") or []) if text else set()
+        ids = {family_id for family_id, name in self.families().items() if name in listed}
+        return {
+            wire
+            for wire, command in self.schema().get("commands", {}).items()
+            if isinstance(command.get("method_id"), int) and command["method_id"] >> 8 in ids
+        }
 
     def q15(self) -> Result:
         commands = self.schema().get("commands", {})

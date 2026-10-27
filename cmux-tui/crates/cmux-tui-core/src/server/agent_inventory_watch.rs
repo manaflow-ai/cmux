@@ -1,6 +1,12 @@
 //! An explicit cache subscription on one trusted native owner connection.
 //! Only bounded invalidation receipts cross this carrier, never cache rows.
 //! No acpmux starter, legacy health, reconnect or fallback path is used.
+//!
+//! Wire: the `agent-inventory-watch` command and the `agent-inventory-changed`
+//! (background priority) and `agent-inventory-watch-ended` events in
+//! spec/sdk-schema.json. This module's route ([`ROUTES`], server/routes.rs) decodes
+//! the command as [`Command`], so check-sdk-schema.py reads its request fields from it
+//! (scripts/handler_commands.py).
 
 #[path = "agent_inventory_watch/state.rs"]
 mod state;
@@ -8,10 +14,13 @@ pub(in crate::server) use state::Watches;
 
 use crate::mux::Mux;
 use crate::resource::MachinePublicId;
-use crate::server::MessageWriter;
 use crate::server::agent_inventory::{self, CALL_TIMEOUT, Failure};
 use crate::server::agent_session_attach::agent_session_link::{AcpmuxLink, Inbound, LinkError};
-use serde_json::{Value, json};
+use crate::server::command_args::present_non_null;
+use crate::server::routes::{Route, RouteLine, RouteName};
+use crate::server::{FrameStage, MessageWriter};
+use serde::Deserialize;
+use serde_json::{Map, Value, json};
 use std::sync::Arc;
 
 pub(in crate::server) const CAPABILITY: &str = "agent-inventory-watch-v1";
@@ -19,6 +28,26 @@ pub(in crate::server) const FENCED_CAPABILITY: &str = "agent-inventory-watch-fen
 pub(in crate::server) const ADMISSION_CAPABILITY: &str = "agent-inventory-watch-admission-v1";
 const FEATURE: &str = "harnessInventoryWatch";
 const WATCH: &str = "_acpmux/harness/inventory/watch";
+const COMMAND: &str = "agent-inventory-watch";
+
+/// The request [`handle`] serves; spec/sdk-schema.json types it.
+#[derive(Deserialize)]
+#[serde(tag = "cmd")]
+enum Command {
+    #[serde(rename = "agent-inventory-watch")]
+    Watch(Params),
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Params {
+    expected_machine_id: String,
+    enabled: bool,
+    #[serde(default, deserialize_with = "present_non_null")]
+    expected_watch_id: Option<String>,
+    #[serde(default, deserialize_with = "present_non_null")]
+    admission_receipt: Option<bool>,
+}
 
 enum Dispatch {
     Deferred,
@@ -26,46 +55,44 @@ enum Dispatch {
     Sent(bool),
 }
 
-pub(in crate::server) fn try_handle(
-    mux: &Arc<Mux>,
-    client: u64,
-    message: &str,
-    writer: &MessageWriter,
-) -> Option<bool> {
-    if !message.contains("agent-inventory-watch") {
-        return None;
-    }
-    let Ok(Value::Object(mut fields)) = serde_json::from_str::<Value>(message) else { return None };
-    if fields.remove("cmd").as_ref().and_then(Value::as_str) != Some("agent-inventory-watch") {
-        return None;
-    }
+/// The `cmd` names this module answers (server/routes.rs).
+pub(in crate::server) const ROUTES: &[Route] = &[Route {
+    names: &[RouteName::Exact(COMMAND)],
+    stage: FrameStage::AgentInventoryWatch,
+    entry: handle,
+}];
+
+/// The route's typed handler: the line's `cmd` named [`Command`], so it decodes the line
+/// once and answers it. A line whose full decode fails is left to the `Command` parse
+/// (`None`).
+fn handle(line: &RouteLine<'_>) -> Option<bool> {
+    let RouteLine { mux, client, message, writer, .. } = *line;
+    let mut fields = crate::line_parses::parse::<Map<String, Value>>(message).ok()?;
     let id = fields.remove("id");
     let mut admission_receipt = false;
     let result = (|| {
         if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
             return Err(Failure::NotTrusted);
         }
-        let expected = fields
-            .remove("expected_machine_id")
-            .and_then(|v| v.as_str().map(str::to_owned))
-            .ok_or(Failure::BadRequest)?;
-        let expected = MachinePublicId::parse(expected).map_err(|_| Failure::BadRequest)?;
+        let Command::Watch(params) =
+            serde_json::from_value(Value::Object(fields)).map_err(|_| Failure::BadRequest)?;
+        let expected =
+            MachinePublicId::parse(params.expected_machine_id).map_err(|_| Failure::BadRequest)?;
         if expected != mux.machine_public_id {
             return Err(Failure::OwnerMismatch);
         }
-        let enabled =
-            fields.remove("enabled").and_then(|v| v.as_bool()).ok_or(Failure::BadRequest)?;
-        let expected_watch = match fields.remove("expected_watch_id") {
+        let enabled = params.enabled;
+        let expected_watch = match params.expected_watch_id {
             None => None,
-            Some(Value::String(value)) if !enabled && valid_watch_id(&value) => Some(value),
-            _ => return Err(Failure::BadRequest),
+            Some(value) if !enabled && valid_watch_id(&value) => Some(value),
+            Some(_) => return Err(Failure::BadRequest),
         };
-        let receipt = match fields.remove("admission_receipt") {
+        let receipt = match params.admission_receipt {
             None => false,
-            Some(Value::Bool(value)) if enabled => value,
-            _ => return Err(Failure::BadRequest),
+            Some(value) if enabled => value,
+            Some(_) => return Err(Failure::BadRequest),
         };
-        if !fields.is_empty() || message.len() > 4096 {
+        if message.len() > 4096 {
             return Err(Failure::BadRequest);
         }
         admission_receipt = receipt;
@@ -184,4 +211,16 @@ fn valid_watch_id(value: &str) -> bool {
         suffix.len() == 32
             && suffix.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
     })
+}
+
+#[cfg(test)]
+#[test]
+fn watch_ids_are_the_schema_bound() {
+    use crate::server::agent_inventory::schema;
+    let id = format!("inventory_watch_{}", "0123456789abcdef".repeat(2));
+    assert!(valid_watch_id(&id));
+    assert!(!valid_watch_id(&format!("{id}0")));
+    let bound = Some(id.len() as u64);
+    assert_eq!(schema::max_bytes("AgentInventoryWatchActive", "watch_id"), bound);
+    assert_eq!(schema::request_max_bytes("agent-inventory-watch", "expected_watch_id"), bound);
 }

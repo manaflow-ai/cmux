@@ -122,7 +122,7 @@ public final class RemoteMachinesSidebar {
         // task-owner: this instance; event-driven (Observation); each change only arms the one-shot `refresh`
         laneWatch = Task { [weak self] in
             for await _ in ObservationStream({ _ = lanes.lanes; _ = SidebarTunables.laneFixture.value }) {
-                refresh.scheduleIfIdle(after: Self.refreshInterval) { @MainActor [weak self] in self?.rebuild() }
+                refresh.scheduleOnMainIfIdle(after: Self.refreshInterval) { [weak self] in self?.rebuild() }
             }
         }
         rebuild()
@@ -260,7 +260,7 @@ public final class RemoteMachinesSidebar {
             if next != peers {
                 peers = next
                 // Through the same gate as a lane change: still one rebuild per refreshInterval.
-                refresh.scheduleIfIdle(after: Self.refreshInterval) { @MainActor [weak self] in self?.rebuild() }
+                refresh.scheduleOnMainIfIdle(after: Self.refreshInterval) { [weak self] in self?.rebuild() }
             }
         }
     }

@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextCompat
 import Foundation
 import WebKit
 
@@ -19,6 +20,7 @@ extension WebKitDriver {
     /// `cookies.clear`).
     func cookiesSet(_ params: DriverParams) async throws(DriverError) -> DriverJSON {
         let store = try anyTab(params).webView.configuration.websiteDataStore.httpCookieStore
+        // wall-clock: a cookie's `expires` is Unix seconds (RFC 6265).
         let now = Date().timeIntervalSince1970
         var made: [HTTPCookie] = []
         for item in try params.array("cookies") {
@@ -71,6 +73,7 @@ extension WebKitDriver {
             throw DriverError(.unsupported, "cookies.clear: this app keeps no cookie backups, so it clears nothing")
         }
         let record = CookieBackupRecord(site: host, profile: tab.profileID.rawValue.uuidString,
+                                        // wall-clock: the backup record's date is shown and kept, Unix ms.
                                         createdAt: (Date().timeIntervalSince1970 * 1000).rounded(),
                                         cookies: matched.map(BackedUpCookie.init))
         let plain: Data
@@ -114,7 +117,7 @@ extension WebKitDriver {
                 backups.pruneExpired()
                 return try backups.load(restoreID)
             }
-            guard let decoded = try? JSONDecoder().decode(CookieBackupRecord.self, from: plain) else {
+            guard let decoded = try? JSONDecoder().blockingDecode(CookieBackupRecord.self, from: plain) else {
                 throw CookieBackupError("the backup \(restoreID) is damaged")
             }
             record = decoded
@@ -126,6 +129,7 @@ extension WebKitDriver {
             throw DriverError(.invalid, "cookies.restore: the store these cookies came from is closed")
         }
         let existing = Set(await store.allCookies().map { [$0.name, $0.domain, $0.path] })
+        // wall-clock: a cookie's `expires` is Unix seconds (RFC 6265).
         let now = Date().timeIntervalSince1970
         var restored = 0, kept = 0, expired = 0
         for cookie in record.cookies {

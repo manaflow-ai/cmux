@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextPages
 import CmuxNextRemoteFetch
 import Foundation
@@ -12,9 +13,14 @@ protocol RemoteImageFetching: AnyObject {
 final class GuardedRemoteImages: RemoteImageFetching {
     private let fetcher: GuardedRemoteFetch
 
-    init(resolver: any RemoteAddressResolving = SystemRemoteResolver(), transport: any RemoteFetchTransport = PinnedTLSTransport()) {
+    init(resolver: any RemoteAddressResolving, transport: any RemoteFetchTransport = PinnedTLSTransport()) {
         fetcher = GuardedRemoteFetch(maximumBytes: RemoteImagePolicy.maximumBytes, timeout: RemoteImagePolicy.timeout,
                                      accept: GuardedRemoteFetch.imageAccept, resolver: resolver, transport: transport)
+    }
+
+    /// The app's fetch: its one lookup on `lanes`' host-resolution slots (``SystemRemoteResolver``).
+    convenience init(lanes: any MayBlockRunner) {
+        self.init(resolver: SystemRemoteResolver(runner: lanes))
     }
 
     func fetch(_ url: URL) async -> PageResource? {

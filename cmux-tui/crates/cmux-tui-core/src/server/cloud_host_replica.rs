@@ -346,6 +346,7 @@ pub fn install_host_replica(mux: &Arc<Mux>, replica: HostReplica) -> bool {
     let spawned =
         std::thread::Builder::new().name("mux-host-replica-changes".into()).spawn(move || {
             loop {
+                // mq14-allow: this watcher thread waits for its own events.
                 match events.recv() {
                     Ok(_) => while events.try_recv().is_ok() {},
                     // The mailbox overflowed (or the daemon stops): resubscribe and publish again.
@@ -368,6 +369,7 @@ pub fn install_host_replica(mux: &Arc<Mux>, replica: HostReplica) -> bool {
     let spawned =
         std::thread::Builder::new().name("mux-host-replica-chief".into()).spawn(move || {
             loop {
+                // mq14-allow: this watcher thread waits for its own events.
                 match chats.recv() {
                     Ok(_) => while chats.try_recv().is_ok() {},
                     Err(_) => {

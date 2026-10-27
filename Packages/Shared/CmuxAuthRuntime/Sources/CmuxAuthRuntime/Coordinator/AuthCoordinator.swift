@@ -3,6 +3,8 @@ import Foundation
 public import Observation
 import OSLog
 import StackAuth
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
 
 private let authLog = Logger(subsystem: "ai.manaflow.cmux", category: "auth")
 
@@ -90,7 +92,7 @@ public final class AuthCoordinator {
     var debugCredentials: CMUXAuthAutoLoginCredentials?
     private var bootstrapTask: Task<Void, Never>?
     var isRevalidatingSession = false
-    var sessionRevalidationWaiters: [CheckedContinuation<Void, Never>] = []
+    var sessionRevalidationWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
     /// Monotonic session epoch, advanced by every session transition: each
     /// ``clearAuthState()`` AND each published sign-in
     /// (``applySignedInUser(_:)``). Flows that touch session state after
@@ -173,7 +175,7 @@ public final class AuthCoordinator {
     /// switch replaces its pending UI projection.
     @ObservationIgnored var activeTeamSwitches: Set<UUID> = []
     @ObservationIgnored var isCapturingSignOutCredentials = false
-    @ObservationIgnored var signOutCredentialCaptureWaiters: [CheckedContinuation<Void, Never>] = []
+    @ObservationIgnored var signOutCredentialCaptureWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
     /// Begin a sign-in flow: register it as the newest attempt and capture
     /// the staleness context. Call before the flow's first await.
     private func beginSignInFlow() async throws -> SignInFlowContext {

@@ -1,0 +1,12 @@
+{
+  "layout": {
+    "paneSeparation": "__not_a_choice__"
+  },
+  "sidebar": {
+    "hoverCards": {
+      "groups": {
+        "maxMembers": -48
+      }
+    }
+  }
+}

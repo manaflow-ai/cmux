@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+public import CmuxNextInput
 
 /// Mouse buttons 4 and 5 are Back and Forward (plans/cmux-next/history.md 4.2), as in Chrome,
 /// Safari, Claude and Codex. Over a browser tab (its page or its toolbar) they walk that tab's
@@ -11,6 +12,11 @@ import CmuxNextDesign
 ///
 /// A Chromium page draws in its own child window, so a press on it arrives in that window; the
 /// browser tab is found in the cmux window that holds it (`window.parent`).
+///
+/// The buttons come from the app's input tap as one `.button` intercept (where AppKit's local monitors
+/// ran), as Chrome takes them in its window's own event handling, not from a process-wide hook
+/// (`chrome/browser/ui/views/frame/browser_root_view.cc`: `OnMousePressed` keeps the back and
+/// forward buttons, `OnMouseReleased` runs `IDC_BACK` / `IDC_FORWARD`).
 public final class MouseSideButtons {
     public nonisolated enum Button: Equatable, Hashable, Sendable {
         case back
@@ -61,53 +67,82 @@ public final class MouseSideButtons {
         }
     }
 
-    private var monitor: Any?
+    private let input: InputEventTap
+    /// What is under a press: its window's view tree (``Target/under(_:)``), a test's fixed answer.
+    private let locate: (NSEvent) -> Target?
+    private var subscription: InputSubscription?
     private var presses = Presses()
     private var history: (Button) -> Void = { _ in }
 
-    public init() {}
+    /// Side buttons that hear `input`, the app's one input tap, once started.
+    public convenience init(input: InputEventTap) {
+        self.init(input: input, locate: Target.under)
+    }
 
-    /// Starts watching the buttons; `history` runs the app's Go Back or Go Forward.
+    /// Side buttons that find what is under a press with `locate` (nil: the press has no window).
+    init(input: InputEventTap, locate: @escaping (NSEvent) -> Target?) {
+        self.input = input
+        self.locate = locate
+    }
+
+    /// Starts hearing the buttons; `history` runs the app's Go Back or Go Forward.
     public func start(history: @escaping (Button) -> Void) {
-        guard monitor == nil else { return }
+        guard subscription == nil else { return }
         self.history = history
-        // AppKit calls a local monitor on the main thread (the module's isolation), like
-        // `CEFLinkClickTracker`.
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.otherMouseDown, .otherMouseUp]) { [weak self] event in
-            guard let self else { return event }
-            return self.handle(event)
+        subscription = input.subscribe(class: .button, phase: .intercept(order: .standard)) { [weak self] event in
+            self?.handle(event) ?? .pass
         }
     }
 
-    private func handle(_ event: NSEvent) -> NSEvent? {
-        guard let button = Button(buttonNumber: event.buttonNumber) else { return event }
+    /// Stops hearing the buttons (a held press's release then passes on).
+    public func stop() {
+        subscription = nil
+        presses = Presses()
+    }
+
+    /// Whether the buttons are heard now.
+    public var isStarted: Bool { subscription != nil }
+
+    func handle(_ event: NSEvent) -> InputEventTap.InterceptResult {
+        guard event.type == .otherMouseDown || event.type == .otherMouseUp,
+              let button = Button(buttonNumber: event.buttonNumber) else { return .pass }
         if event.type == .otherMouseUp {
-            guard let held = presses.release(button) else { return event }
+            guard let held = presses.release(button) else { return .pass }
             switch held.route {
             case .pass:
-                return event
+                return .pass
             case .page(let button):
                 held.browser?.perform(button == .back ? .goBack : .goForward)
             case .history(let button):
                 history(button)
             }
-            return nil
+            return .consume
         }
-        guard let window = event.window else {
+        guard let target = locate(event) else {
             presses.press(button, route: .pass, browser: nil)
-            return event
+            return .pass
         }
-        let target = Target(window: window, screenPoint: window.convertPoint(toScreen: event.locationInWindow))
         let route = Route.of(button, enabled: NavigationTunables.mouseSideButtons.value,
                              overForwardingView: target.forwardsButtons, overBrowser: target.browser != nil)
         presses.press(button, route: route, browser: target.browser)
-        return route == .pass ? event : nil
+        return route == .pass ? .pass : .consume
     }
 
     /// What is under the pointer: the browser tab, or a view that takes every mouse button.
     struct Target {
         var browser: BrowserChromeView?
         var forwardsButtons = false
+
+        init(browser: BrowserChromeView? = nil, forwardsButtons: Bool = false) {
+            self.browser = browser
+            self.forwardsButtons = forwardsButtons
+        }
+
+        /// What is under `event`'s pointer in its window; nil when it has no window.
+        static func under(_ event: NSEvent) -> Target? {
+            guard let window = event.window else { return nil }
+            return Target(window: window, screenPoint: window.convertPoint(toScreen: event.locationInWindow))
+        }
 
         init(window: NSWindow, screenPoint: CGPoint) {
             // The press's own window first (a cmux window), then the window holding a page window.

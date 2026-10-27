@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// The screen layout: title, one sentence, the control, and the footer
 /// (Skip, then the primary button). Every measure is on the 4 pt grid.
@@ -40,7 +41,7 @@ enum OnboardingScaffold {
 /// Back and Skip are bordered secondary buttons, the primary is filled.
 final class OnboardingFooter: NSView {
     private let context: OnboardingStepContext
-    private var loop: RenderLoop?
+    private var loop: ObservationLoop?
 
     init(context: OnboardingStepContext) {
         self.context = context
@@ -63,7 +64,8 @@ final class OnboardingFooter: NSView {
             heightAnchor.constraint(equalToConstant: 40),
         ])
         let model = context.model
-        loop = RenderLoop { [weak next, weak skip, weak back] in
+        // node-free: the onboarding tool window, in no tab
+        loop = ObservationLoop(owner: "onboarding.footer", delivery: .visible(nil), on: context.mainWork) { [weak next, weak skip, weak back] in
             let title = model.primaryTitle
             if next?.title != title {
                 next?.title = title

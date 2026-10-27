@@ -2,7 +2,7 @@
 """Rapid Cmd-D and Cmd-Shift-D on terminals, in a real window (Lawrence 2026-10-20: "when I do Command-D
 multiple times, the animation is not perfectly fluid and smooth ... buttery, perfectly smooth").
 
-Launches a tagged cmux-next app (scratch config, empty Ghostty config). Each round opens a fresh workspace
+Launches a tagged cmux-next app (BenchApp: the bench config and env, empty Ghostty config). Each round opens a fresh workspace
 with one terminal filled with --scrollback lines (optionally streaming, --stream), then presses the split
 --presses times, --interval ms apart, through the splitRight (or splitDown) action, and measures the whole
 gesture until the panes rest:
@@ -22,13 +22,19 @@ With --suite=app-perf it runs scripts/cmux-next/app-perf.py the same way (app ge
 With --suite=anim-perf it runs scripts/cmux-next/anim-perf-terminal.py (tab, workspace, sidebar, group, Home
 and palette animations at a 120 Hz frame budget).
 
+The summary is the median over rounds (scripts/perf-lab/perf_stats.py through motion_bench_report.median). With
+--story ID (stories.d split-spring) the run also writes cmux-perf-result/v1 into --out through BenchApp.record:
+`split_spring.<right|down>.frame` (every frame interval of the gesture, all rounds together), `.missed` and
+`.resizes_sent` (one value per gesture; a gesture with a refused press is left out); a --story run that writes no
+series fails.
+
 Usage: split-spring-terminal.py --tag <tag> --app PATH [--rounds 3] [--presses 5] [--interval 100]
-       [--directions right,down] [--scrollback 20000] [--stream] [--json PATH] [--out DIR] [--gate]
+       [--directions right,down] [--scrollback 20000] [--stream] [--json PATH] [--out DIR] [--gate] [--story ID]
 """
-import argparse, glob, json, os, signal, subprocess, sys, tempfile, time
+import argparse, json, os, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from bench_launch import BenchApp, require_gui_session  # noqa: E402
+from bench_launch import BenchApp, LaunchError, require_gui_session  # noqa: E402
 
 # `--suite=launch-check`: only launch the app, wait for its socket and a window, quit (bench_launch.py check): is
 # this worker able to run GUI benches at all. Dispatched before the session gate: `check` names no-gui-session itself.
@@ -95,6 +101,20 @@ if "--suite=config-parity" in sys.argv:
         raise SystemExit("config-parity: the Release build failed")
     suite = os.path.join(here, "bench-config-parity.py")
     os.execv(sys.executable, [sys.executable, suite, "--release", paths[-1], "--bench", bench_app, "--out", out] + passthrough)
+# `--suite=cef-pin-staging`: the staging check of a new CEF pin, scripts/cmux-next/cef-pin-staging.sh (layer hosting
+# verify on and off: window-server images, real CGEvents; the app's fork API against the pin; Chromium internal pages,
+# restore) against this app. `--parts=internal,restore` runs only those parts (a baseline of the current pin).
+if "--suite=cef-pin-staging" in sys.argv:
+    rest = [a for a in sys.argv[1:] if a != "--suite=cef-pin-staging"]
+    named = {k: rest[i + 1] for i, k in enumerate(rest[:-1]) if k in ("--tag", "--app", "--out")}
+    parts = next((a.split("=", 1)[1] for a in rest if a.startswith("--parts=")), "verify,api,internal,restore")
+    env = dict(os.environ, NX_APP=named.get("--app", ""), NX_APP_TAG=named.get("--tag", ""),
+               NX_ARTIFACTS=named.get("--out", "."), STAGING_PARTS=parts)
+    staging = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cef-pin-staging.sh")
+    code = subprocess.run(["bash", staging, "check"], env=env).returncode
+    with open(os.path.join(named.get("--out", "."), "report.json"), "w") as report:
+        json.dump({"suite": "cef-pin-staging", "parts": parts, "exit": code}, report)
+    sys.exit(code)
 if "--suite=pane-perf" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pane-perf-terminal.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=pane-perf"])
@@ -179,10 +199,12 @@ if "--suite=cef-idle" in sys.argv:
 if "--suite=automation-typing" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "automation-typing-bench.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=automation-typing"])
-# `--suite=idle-budget`: threads and wakeups per process at idle, light and STRESS, scripts/cmux-next/idle-budget.py.
+# `--suite=idle-budget`: threads, wakeups, energy, power assertions, saver and thermal state per process at idle,
+# scripts/cmux-next/idle-budget.py. The suite's own args follow a `--` (`split-spring.sh --suite=idle-budget
+# --vdisplay=120 -- --sessions tabs-static,energy-saver --gate`); the separator is dropped so they reach its parser.
 if "--suite=idle-budget" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "idle-budget.py")
-    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=idle-budget"])
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a not in ("--suite=idle-budget", "--")])
 # `--suite=script-storm`: terminal typing and Cmd-D / Cmd-W while a script storms background workspaces (sidebar
 # reorders, tab moves, New Column/Row, renames, app-side renameTab), light and STRESS, scripts/cmux-next/script-storm-bench.py.
 if "--suite=script-storm" in sys.argv:
@@ -209,18 +231,24 @@ if "--suite=action-budget-bench" in sys.argv:
 # `--suite=gui-tests --tests=SuiteA,SuiteB`: CmuxNext package suites that need a screen (a window zoom, a real
 # display link), run through the same lane script on a measure host, which has the console session and a
 # display the suite runners lack (there such tests are skipped: `.enabled(if: NSScreen.main != nil)`).
+# CMUX_PANE_BENCH=1 enables the render-motion suites that order real windows in (RenderMotionHitTestTests).
 if "--suite=gui-tests" in sys.argv:
     root = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip() or "."
     tests = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--tests=")), "")
     if not tests:
         sys.exit("split-spring --suite=gui-tests needs --tests=SuiteA,SuiteB")
     sys.exit(subprocess.run([os.path.join(root, "scripts/ci/package-test-lane.sh"), "suite", "Packages/macOS/CmuxNext", tests],
-                            cwd=root).returncode)
+                            cwd=root, env=dict(os.environ, CMUX_PANE_BENCH="1")).returncode)
 # `--suite=every-action`: every catalog action through its real entrypoint plus the non-catalog interactions,
 # light and STRESS, scripts/cmux-next/every-action-sweep.py (also artifacts/split-spring/every-action.md).
 if "--suite=every-action" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "every-action-sweep.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=every-action"])
+# `--suite=lifecycle`: launch cold and warm, sleep and wake, a display change, appearance, a daemon and a Chromium crash,
+# the update relaunch and the quits with the blocking traps on (RUN-12), scripts/cmux-next/lifecycle-sweep.py.
+if "--suite=lifecycle" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lifecycle-sweep.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=lifecycle"])
 # `--suite=typing-frame`: key to frame in a terminal, the Home composer and the omnibar, idle and under load
 # (optionally in the STRESS session), scripts/cmux-next/typing-frame-bench.py.
 if "--suite=typing-frame" in sys.argv:
@@ -315,17 +343,20 @@ parser.add_argument("--json")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--gate", action="store_true", help="fail on the budget rows")
 parser.add_argument("--missed-budget", type=int, default=0)
+parser.add_argument("--story", help="the lab story (stories.d/<id>.json) to record result-v1 for; none: no result-v1")
 opts, _unknown = parser.parse_known_args()
+import motion_bench_report  # noqa: E402  medians (perf_stats) and the result-v1 series
+STORY = None
+if opts.story:
+    try:
+        STORY = motion_bench_report.Story.load(opts.story, "none")  # terminals only
+        STORY.check_sessions({"light"})
+    except motion_bench_report.StoryError as error:
+        parser.error(str(error))
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
-CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
-BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
-SCRATCH = tempfile.mkdtemp(prefix=f"split-spring-{TAG}-")
-open(os.path.join(SCRATCH, "ghostty"), "w").close()
-CONFIG = os.path.join(SCRATCH, "cmux.json")
-open(CONFIG, "w").write("{}\n")
-ROWS, LAUNCHED = [], []
-app = None
+ROWS = []
+BENCH = None
 
 
 def rpc(method, params=None, timeout=30):
@@ -401,7 +432,7 @@ def measure(label, verb):
             errors.append(str(reply.get("error")))
     time.sleep(1.5)  # test harness: the split spring lands (rest is under 0.5 s) and the PTY owner answers
     trace = rpc("debug.window_transition", {"action": "stop"}) or {}
-    frames = rpc("debug.frames", {"action": "stop"}) or {}
+    frames = rpc("debug.frames", {"action": "stop", "raw": True}) or {}
     motion = rpc("debug.motion", {"action": "stop"}) or {}
     hangs = rpc("debug.hangs") or {}
     work = (motion.get("work") or {}).get("clock", {}) if isinstance(motion, dict) else {}
@@ -410,6 +441,7 @@ def measure(label, verb):
     hang_list = hangs.get("hangs") if isinstance(hangs, dict) else None
     result = {
         "label": label, "errors": errors,
+        "frame_intervals_ms": motion_bench_report.frame_intervals(frames),  # result-v1's raw frame samples
         "missed": frames.get("missed"), "frames_max_ms": frames.get("max_ms"), "frames_p99_ms": frames.get("p99_ms"),
         "frames_p50_ms": frames.get("p50_ms"), "frames_p95_ms": frames.get("p95_ms"), "frames": frames.get("frames"),
         "moving_frames": moving, "refresh_ms": frames.get("refresh_ms"),
@@ -425,35 +457,28 @@ def measure(label, verb):
 
 
 def cleanup():
-    if os.environ.get("SPLIT_SPRING_KEEP") or not LAUNCHED:
+    if os.environ.get("SPLIT_SPRING_KEEP") or BENCH is None:
         return
-    rpc("action.run", {"action": "quitEndSessions"}, timeout=10)
-    if app:
-        try:
-            app.wait(timeout=20)
-        except subprocess.TimeoutExpired:
-            os.kill(app.pid, signal.SIGKILL)
-    subprocess.run([CLI, "server", "stop", "--session", f"cmux-app-{TAG}", "--end-terminals"],
-                   env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
-    if os.path.exists(SOCKET):
-        os.remove(SOCKET)
+    BENCH.stop()  # debug.quit with the sessions ended, then only this tag's processes and daemons (tag_teardown.py)
 
 
 def main():
-    global app, SOCKET
-    # One launch path (bench_launch.py): socket in the state folder, bench env, a clear reason when it does not come up.
-    # CMUX_NEXT_NO_ACTIVATE stays unset, as before bench_launch.py: the app activates and its window is key, so these
-    # split-spring rows stay comparable with the earlier ones (an inactive app's terminals are unfocused).
-    launcher = BenchApp(APP, out=opts.out, log_name=f"app-{TAG}.log", window=(80, 80, 1600, 1000), screen=None, teardown=False,
-                     env={"CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"),
-                          "CMUX_NEXT_NO_ACTIVATE": None})
+    global BENCH, SOCKET
+    os.makedirs(opts.out, exist_ok=True)
+    # The shared launch (bench_launch.py): the bench env and config, the session check, the state-folder socket, tag
+    # teardown and a BENCH-LAUNCH report on failure. CMUX_NEXT_NO_ACTIVATE stays unset, as this bench always launched:
+    # the app activates and its window is key, so these rows stay comparable (an inactive app's terminals are unfocused).
+    BENCH = BenchApp(APP, out=opts.out, config={}, env={"CMUX_NEXT_NO_ACTIVATE": None}, window=(80, 80, 1600, 1000),
+                     screen=None, log_name=f"app-{TAG}.log")
     try:
-        launcher.launch(timeout=120, on_start=lambda process: LAUNCHED.append(process.pid))
-    finally:
-        app = launcher.process
-    SOCKET = launcher.socket
-    print(f"launched pid {app.pid} macOS {subprocess.run(['sw_vers', '-productVersion'], capture_output=True, text=True).stdout.strip()}",
-          flush=True)
+        BENCH.launch(timeout=120)
+    except LaunchError as error:
+        print(str(error), flush=True)
+        row("the tagged app came up", "its socket answers with a window", error.reason, False)
+        return
+    SOCKET = BENCH.socket
+    print(f"launched pid {BENCH.process.pid} macOS "
+          f"{subprocess.run(['sw_vers', '-productVersion'], capture_output=True, text=True).stdout.strip()}", flush=True)
     time.sleep(5)  # test harness: launch work settles
     report = {"tag": TAG, "stream": opts.stream, "scrollback": opts.scrollback, "presses": opts.presses,
               "interval_ms": opts.interval, "runs": []}
@@ -482,12 +507,17 @@ def main():
     for direction in opts.directions.split(","):
         runs = [r for r in report["runs"] if r["direction"] == direction]
 
-        def med(key):
-            values = sorted(v for v in (r.get(key) for r in runs) if v is not None)
-            return values[len(values) // 2] if values else None
-        print(f"  {direction:<5} x{opts.presses} moved {med('moving_frames')} frame p50 {med('frames_p50_ms')} p99 "
-              f"{med('frames_p99_ms')} max {med('frames_max_ms')} ms missed {med('missed')}  layout p95 {med('layout_p95_ms')} "
-              f"max {med('layout_max_ms')} ms  grids {med('grid_reports')}/{med('resizes_sent')}  hangs {med('hangs')}", flush=True)
+        def over_rounds(key):
+            return motion_bench_report.median(r.get(key) for r in runs)
+        print(f"  {direction:<5} x{opts.presses} moved {over_rounds('moving_frames')} frame p50 {over_rounds('frames_p50_ms')} "
+              f"p99 {over_rounds('frames_p99_ms')} max {over_rounds('frames_max_ms')} ms missed {over_rounds('missed')}  "
+              f"layout p95 {over_rounds('layout_p95_ms')} max {over_rounds('layout_max_ms')} ms  "
+              f"grids {over_rounds('grid_reports')}/{over_rounds('resizes_sent')}  hangs {over_rounds('hangs')}", flush=True)
+    if STORY and report["runs"]:
+        series, skipped = motion_bench_report.split_series(report["runs"], STORY)
+        report["result_v1"] = motion_bench_report.record(BENCH, series, skipped)
+        written = motion_bench_report.written_count(report["result_v1"])
+        row(f"result-v1 written under story {STORY.id}", ">= 1 series", f"{written} series", written > 0)
     if opts.json:
         json.dump(report, open(opts.json, "w"), indent=1)
 

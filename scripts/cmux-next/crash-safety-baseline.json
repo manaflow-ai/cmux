@@ -38,7 +38,7 @@
    "cmux-remote": 4,
    "cmux-terminal-client": 30,
    "cmux-tui": 429,
-   "cmux-tui-core": 1150,
+   "cmux-tui-core": 1132,
    "cmux-tui-image-paste": 22,
    "cmux-tui-platform": 17,
    "cmux-tui-remote-access": 5,
@@ -63,7 +63,7 @@
    "CmuxNextApp": 1,
    "CmuxNextBrowser": 12,
    "CmuxNextBrowserAutomation": 17,
-   "CmuxNextDesign": 14,
+   "CmuxNextDesign": 12,
    "CmuxNextPages": 4,
    "CmuxNextSidebar": 3,
    "MessagesLabHome": 20
@@ -73,38 +73,10 @@
    "MessagesLabHome": 4
   },
   "unchecked": {
-   "CMUXAuthCore": 3,
-   "CMUXMobileCore": 7,
-   "CmuxAuthRuntime": 1,
-   "CmuxHomeCore": 1,
-   "CmuxHomeRender": 5,
-   "CmuxIrohTransport": 7,
-   "CmuxIrxTransport": 14,
-   "CmuxMobileRPC": 3,
-   "CmuxMobileSSH": 7,
-   "CmuxMobileShellModel": 7,
-   "CmuxMobileSupport": 4,
-   "CmuxMobileTunnel": 4,
-   "CmuxNextAgentPane": 2,
-   "CmuxNextApp": 3,
-   "CmuxNextApps": 1,
-   "CmuxNextBridge": 1,
+   "CmuxMobileSupport": 1,
    "CmuxNextBrowser": 4,
    "CmuxNextBrowserAutomation": 1,
-   "CmuxNextBrowserImport": 1,
-   "CmuxNextControl": 3,
-   "CmuxNextDaemon": 4,
-   "CmuxNextDesign": 1,
-   "CmuxNextDictation": 6,
-   "CmuxNextHomeEngine": 1,
-   "CmuxNextRemoteView": 5,
-   "CmuxNextServerHelper": 5,
-   "CmuxNextSettings": 1,
-   "CmuxNextTabs": 5,
-   "CmuxNextTerminal": 7,
-   "CmuxUpdater": 1,
-   "MessagesLabHome": 14,
-   "MessagesLabSidebar": 2
+   "CmuxNextBrowserImport": 1
   }
  },
  "waived": {
@@ -112,7 +84,7 @@
    "exit": {
     "acpmux": 1,
     "cmux-browser-host": 4,
-    "cmux-tui-core": 3
+    "cmux-tui-core": 4
    },
    "expect": {
     "acpmux": 14,
@@ -125,10 +97,11 @@
    },
    "panic_macro": {
     "acpmux": 2,
+    "cmux-blocking": 1,
     "cmux-pane-protocol": 1,
     "cmux-server": 1,
     "cmux-tui": 1,
-    "cmux-tui-core": 3
+    "cmux-tui-core": 4
    },
    "unwrap": {
     "acpmux": 7
@@ -136,11 +109,11 @@
   },
   "swift": {
    "dynamic_dispatch": {
-    "CmuxNextAgentPane": 2,
+    "CmuxNextAgentPane": 1,
     "CmuxNextBrowser": 11,
     "CmuxNextBrowserAutomation": 5,
-    "CmuxNextDesign": 1,
-    "CmuxNextPages": 1,
+    "CmuxNextDesign": 2,
+    "CmuxNextPages": 2,
     "CmuxNextPhone": 1,
     "CmuxNextPopups": 2,
     "CmuxNextResources": 2,
@@ -154,32 +127,44 @@
    "unchecked": {
     "CMUXMobileCore": 1,
     "CmuxAppAttest": 1,
+    "CmuxHomeRender": 1,
+    "CmuxIrohTransport": 1,
     "CmuxNextAgentActivity": 1,
-    "CmuxNextAgentPane": 5,
-    "CmuxNextApp": 5,
+    "CmuxNextAgentPane": 6,
+    "CmuxNextApp": 7,
+    "CmuxNextBrowser": 1,
     "CmuxNextChromiumRuntime": 1,
     "CmuxNextCloud": 1,
-    "CmuxNextCompat": 10,
-    "CmuxNextCrashReporting": 11,
-    "CmuxNextDesign": 2,
+    "CmuxNextCompat": 11,
+    "CmuxNextControl": 2,
+    "CmuxNextCrashReporting": 4,
+    "CmuxNextDaemon": 2,
+    "CmuxNextDesign": 4,
+    "CmuxNextDictation": 2,
     "CmuxNextFiles": 2,
     "CmuxNextHome": 1,
+    "CmuxNextHomeEngine": 1,
+    "CmuxNextInputCore": 1,
     "CmuxNextPages": 1,
     "CmuxNextPalette": 3,
     "CmuxNextPhone": 1,
     "CmuxNextPopups": 1,
     "CmuxNextRemoteFetch": 1,
-    "CmuxNextRemoteView": 1,
+    "CmuxNextRemoteView": 3,
     "CmuxNextRemoteViewSessions": 1,
+    "CmuxNextSettings": 1,
     "CmuxNextSidebar": 2,
     "CmuxNextSignposts": 1,
-    "CmuxNextTabs": 1,
     "CmuxNextTasks": 1,
+    "CmuxNextTerminal": 3,
     "CmuxNextVSCodeServer": 2,
+    "CmuxNextWakeups": 1,
+    "CmuxSafeConcurrency": 2,
     "CmuxVNC": 2,
     "CmuxVNCDemoServer": 3,
-    "CmuxVNCWebRTC": 19,
-    "MessagesLabHome": 1
+    "CmuxVNCWebRTC": 7,
+    "MessagesLabHome": 5,
+    "MessagesLabSidebar": 1
    }
   }
  }

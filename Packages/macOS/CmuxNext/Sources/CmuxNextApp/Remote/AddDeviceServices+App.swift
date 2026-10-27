@@ -19,8 +19,12 @@ extension AddDeviceServices {
                 let card = services.addMachine
                 card.open(destination: address, name: name, over: NSApp.mainWindow)
                 card.model.perform(.add)
-                // task-owner: ends with the enroll this click started
-                Task { @MainActor [weak services] in _ = await card.finished(); await services?.devices.refresh() }
+                // task-owner: ends with the enroll this click started. Off the main thread: it only awaits the card's
+                // run and the device list's read, main-actor owners that run their own steps.
+                Task { @concurrent [weak services] in
+                    _ = await card.finished()
+                    await services?.devices.refresh()
+                }
             },
             addByName: { [weak services] in _ = services?.registry.perform("machine.add") },
             enterCode: { [weak services] in _ = services?.registry.perform("server.addServer") },
@@ -35,7 +39,7 @@ extension DeviceDirectory {
                                removePhone: { [weak services] in await services?.iphone.removePhone(id: $0) },
                                setFullAccess: { [weak services] id, on in
                                    guard let services, let environment = QuitAgents.environment(services),
-                                         let line = await AcpmuxPersonLine.open(environment) else { return false }
+                                         let line = await AcpmuxPersonLine.open(environment, deadlines: services.mainDeadlines) else { return false }
                                    defer { line.close() }
                                    // acpmux refuses an on from a connection that is not the person.
                                    if on, !line.isPerson { return false }

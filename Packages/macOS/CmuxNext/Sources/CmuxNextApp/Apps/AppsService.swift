@@ -3,9 +3,11 @@ import CmuxNextActions
 import CmuxNextApps
 import CmuxNextControl
 import CmuxNextDaemonService
+import CmuxNextHibernation
 import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 /// App platform in the App (plans/cmux-next/app-platform.md section 13):
@@ -32,15 +34,25 @@ final class AppsService {
     private var appPages: [String: AppPanePage] = [:]
     /// The App Store page (React, apps-web-DESIGN.md) per tab key.
     private var webStorePages: [String: PageWebView] = [:]
-    /// The route of the show running now, for the page it makes (``makeView(for:in:)``).
-    private var pendingRoute: String?
+    /// The place each hidden App Store tab's page showed when its discard read it.
+    private var shownPlaces: [String: (version: Int, fragment: String?)] = [:]
+    /// The place each discarded App Store tab showed, for the page its next show makes.
+    private var discardedRoutes: [String: String] = [:]
+    /// The route each show asked for, for the page of the tab it opened or selected (``makeView(for:in:)``).
+    private let storeOpens = PageOpenRequests<String>()
     private var machineCatalog: MachineCatalogPublisher?
-    init(services: AppServices) {
+    /// Makes an App Store tab's page on a route (default: ``PageFactory/appsWebPage(route:)``;
+    /// tests pass their own engine).
+    private let makeStorePage: ((String) -> PageWebView?)?
+
+    init(services: AppServices, makeStorePage: ((String) -> PageWebView?)? = nil) {
         self.services = services
-        transport = DaemonAppsTransport(daemon: services.daemon, inventoryRoutes: { [weak machines = services.machines] in
+        self.makeStorePage = makeStorePage
+        transport = DaemonAppsTransport(daemon: services.daemon, mainWork: services.mainWork, inventoryRoutes: { [weak machines = services.machines] in
             machines?.agentInventoryWatchRoutes() ?? []
         })
-        client = AppsClient(transport: transport)
+        client = AppsClient(transport: transport, bundleImages: AppBundleImageCache())
+        AppMemoryConsumers(services: services).registerAppBundleImages(client.bundleImages)
     }
 
     /// Turning apps off (DisabledFeatures) makes the supervisor unreachable
@@ -55,8 +67,13 @@ final class AppsService {
 
     func start() {
         client.start()
-        // task-owner: one off-main load of the bundled package directories and the scope table at launch
-        Task { [client] in client.useBundledDirectories(await AppPlatformResources.bundledDirectories()) }
+        let client = client, mainWork = services.mainWork
+        // task-owner: one off-main load of the bundled package directories and the scope table at launch. R-hop: read
+        // off main; the client takes them in one visible task (app icons draw from them).
+        services.work.task(.userVisible) {
+            let directories = await AppPlatformResources.bundledDirectories()
+            mainWork.postFromAnyThread(.visible, owner: "AppsService.bundledDirectories") { client.useBundledDirectories(directories) }
+        }
     }
 
     /// Serves app-side operations, admitted machine inventory reads and the
@@ -90,17 +107,20 @@ final class AppsService {
     /// one (a closed window comes back, or a new one opens), as Settings
     /// does: S22, the App Store never opens a window of its own.
     func showStore(appID: String? = nil, tab: AppStoreTab? = nil, focus: Bool = true) {
-        pendingRoute = Self.storeRoute(appID: appID, tab: tab)
-        let key = focus ? TopPages.show(.page(.appStore), services: services)
-            : services.pages.show(.appStore, in: services.windows.active, focus: false)?.key
+        let route = Self.storeRoute(appID: appID, tab: tab)
+        let key: String?
+        if focus {
+            key = storeOpens.during(route) { TopPages.show(.page(.appStore), services: services) }
+        } else {
+            key = storeOpens.open(route) { services.pages.show(.appStore, in: services.windows.active, focus: false) }?.key
+        }
         if let key {
-            // An open page moves to the route; a page this show made already opened on it.
-            webStorePages[key]?.open(route: Self.storeRoute(appID: appID, tab: tab))
-            pendingRoute = nil
+            // An open page moves to the route; a page this show made already opened on it, and a
+            // tab with no page yet opens on it at its first show.
+            webStorePages[key]?.open(route: route)
             waitingStore = nil
             return
         }
-        pendingRoute = nil
         waitingStore = (appID, tab, focus)
         if case let windows = services.windows, windows.restored, windows.controllers.isEmpty { windows.reopenOrCreateWindow() }
     }
@@ -173,18 +193,44 @@ extension AppsService: InternalPageProvider {
     var symbol: String { "bag" }
     var icon: IconName? { .store }
 
-    /// The React App Store page; it opens on the route of the show that made it. Missing page
-    /// resources (a build without the web bundles) show an empty view, never a second store.
+    /// The React App Store page; it opens on the route of the show that opened or selected its tab.
+    /// Missing page resources (a build without the web bundles) show an empty view, never a second store.
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        guard let page = PageFactory(services: services).appsWebPage(route: pendingRoute ?? Self.storeRoute(appID: nil, tab: nil)) else {
-            return NSView()
-        }
+        let discarded = discardedRoutes.removeValue(forKey: key)
+        let route = storeOpens.take(for: key) ?? storeOpens.running ?? discarded ?? Self.storeRoute(appID: nil, tab: nil)
+        guard let page = makeStorePage?(route) ?? PageFactory(services: services).appsWebPage(route: route) else { return NSView() }
         webStorePages[key] = page
         return page
     }
 
     func tabClosed(_ key: String) {
+        shownPlaces[key] = nil
+        discardedRoutes[key] = nil
+        storeOpens.forget(key)
         webStorePages.removeValue(forKey: key)?.close()
+    }
+
+    // MARK: Discard (`memoryDiscardInternalPages`, p07-memory-028)
+
+    /// Ten minutes hidden, as a browser tab (Chrome's proactive_discarding_policy.cc). Installs,
+    /// updates and grants run on the daemon's app supervisor, not in the page, so nothing the page
+    /// started keeps it.
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
+
+    /// Its document scroll, and the listing or section the page shows now (its own links move it).
+    func saveViewState(for key: String, content: NSView) async -> ContentViewState {
+        guard let page = content as? PageWebView else { return ContentViewState() }
+        shownPlaces[key] = await page.readShownPlace()
+        return ContentViewState(scroll: await page.documentScroll())
+    }
+
+    /// The tab stays and its page goes, closed as at ``tabClosed(_:)``; the next page of the tab
+    /// opens on the listing or section it showed.
+    func viewDiscarded(_ key: String) {
+        let read = shownPlaces.removeValue(forKey: key)
+        guard let page = webStorePages.removeValue(forKey: key) else { return }
+        discardedRoutes[key] = page.discardedPlace(read: read)
+        page.close()
     }
 
     /// The page keeps its own history (its fragment).

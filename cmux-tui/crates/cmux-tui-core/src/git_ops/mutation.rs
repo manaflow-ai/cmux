@@ -9,8 +9,8 @@
 //! and the worktree's own git directory, so a key never follows a path to
 //! another repository.
 
+use cmux_threads::checked::fs as files;
 use std::collections::HashMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
@@ -50,7 +50,7 @@ impl Target {
             return Err(refused(operation, "git_failed", message, Value::Null));
         };
         let canonical = |path: &str| {
-            fs::canonicalize(path).map_err(|error| {
+            files::canonicalize(path).map_err(|error| {
                 refused(operation, "git_failed", format!("{path}: {error}"), Value::Null)
             })
         };
@@ -84,7 +84,8 @@ impl Target {
     }
 
     /// Runs `body` while no other `operation` runs in this repository. A
-    /// retry of a running request waits here and then replays its result.
+    /// retry of a running request waits here, outside its lane's count
+    /// (`will_block`), and then replays its result.
     pub(super) fn exclusive<T>(&self, operation: &'static str, body: impl FnOnce() -> T) -> T {
         type Locks = Mutex<HashMap<(PathBuf, &'static str), Arc<Mutex<()>>>>;
         static LOCKS: OnceLock<Locks> = OnceLock::new();
@@ -95,7 +96,8 @@ impl Target {
             .entry((self.common_dir.clone(), operation))
             .or_default()
             .clone();
-        let _held = lock.lock().unwrap_or_else(PoisonError::into_inner);
+        let _held =
+            cmux_threads::work::will_block(|| lock.lock()).unwrap_or_else(PoisonError::into_inner);
         body()
     }
 }
@@ -204,7 +206,7 @@ pub(super) fn active_hooks(git: &UserGit<'_>, names: &[&str]) -> Vec<String> {
 }
 
 fn executable(path: &Path) -> bool {
-    let Ok(metadata) = fs::metadata(path) else { return false };
+    let Ok(metadata) = files::metadata(path) else { return false };
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

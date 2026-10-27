@@ -1,5 +1,6 @@
 public import CmuxNextAgentActivity
 public import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextWakeups
 import Foundation
 import os
@@ -93,8 +94,8 @@ public final class AgentTurnStateFeed {
         // line (MainActorLineBatch). The main actor only sets the states that changed.
         connection.start(send: Self.watchRequest, decode: Message.init(line:)) { [weak self, weak connection] drain in
             guard let self, let connection, subscription === connection else { return }
-            let started = SuspendingClock.now
-            defer { Self.drained?(drain.values.count, SuspendingClock.now - started) }
+            let started = ContinuousClock.now
+            defer { Self.drained?(drain.values.count, ContinuousClock.now - started) }
             for message in drain.values { handle(message) }
             // Dropped lines leave the states incomplete: reconnect for a fresh page.
             if drain.overflowed, !drain.closed { connection.cancel() }
@@ -131,7 +132,7 @@ public final class AgentTurnStateFeed {
                     deleted: Bool = false)
 
         init?(line: Data) {
-            guard let message = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return nil }
+            guard let message = try? JSONSerialization.blockingJSONObject(with: line) as? [String: Any] else { return nil }
             if (message["id"] as? NSNumber)?.intValue == 2, let result = message["result"] as? [String: Any] {
                 var states = AgentTurnStates()
                 states.reset(result)

@@ -15,14 +15,30 @@ final class WorkspaceStatusView: NSView {
     private var pills: [NSView] = []
     private var status = SidebarWorkspaceStatus()
     private var reservesBar = false
+    /// The font the text was last configured for (the lines' widths follow it).
+    private var font = SidebarStyle.subtitleFont
+    /// The next paint builds text of another shape (a new status or font): the pills lay out again after it.
+    /// A paint for a theme change alone keeps every width, so it asks for no layout.
+    private var textReshaped = false
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        layerContentsRedrawPolicy = .onSetNeedsDisplay // updateLayer sets text and colors only
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
 
     nonisolated override var isFlipped: Bool { true }
     nonisolated override var wantsUpdateLayer: Bool { true }
 
     /// `reservesBar`: the row has a progress bar, drawn between the log line and the label.
     func configure(_ status: SidebarWorkspaceStatus, reservesBar: Bool) {
+        guard status != self.status || reservesBar != self.reservesBar || font != SidebarStyle.subtitleFont else { return }
+        textReshaped = textReshaped || status != self.status || font != SidebarStyle.subtitleFont
         self.status = status
         self.reservesBar = reservesBar
+        font = SidebarStyle.subtitleFont
         while labels.count < status.lines.count {
             let pill = NSView()
             pill.wantsLayer = true
@@ -39,8 +55,8 @@ final class WorkspaceStatusView: NSView {
             label.isHidden = hidden
             pills[index].isHidden = hidden
         }
-        needsLayout = true
-        needsDisplay = true
+        // invalidate: the status, bar slot or font changed (the guard above).
+        needsLayout = true; needsDisplay = true
     }
 
     /// Where the row's progress bar slot starts in this view: before the
@@ -58,9 +74,10 @@ final class WorkspaceStatusView: NSView {
                 Self.paint(pill: pills[index], for: line)
             }
         }
-        // The pill width is content-sized, so a theme or font change needs a
-        // fresh layout after the attributed text is rebuilt.
-        needsLayout = true
+        // The pill width is content-sized: text of a new shape lays the pills out again once it is built.
+        // invalidate: `configure` saw a new status or font.
+        if textReshaped { needsLayout = true }
+        textReshaped = false
     }
 
     override func layout() {

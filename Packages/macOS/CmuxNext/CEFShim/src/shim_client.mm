@@ -5,14 +5,19 @@
 
 #include "include/cef_devtools_message_observer.h"
 #include "include/cef_drag_handler.h"
+#include "include/cef_image.h"
 #include "include/cef_jsdialog_handler.h"
 #include "include/cef_parser.h"
 #include "include/cef_resource_request_handler.h"
+#include "include/cef_task.h"
 #include "command_line_switches.h"
+#include "cursor_event.h"
 #include "external_url.h"
+#include "host_key_seqs.h"
 #include "local_file_handoff.h"
 #include "local_file_scope.h"
 #include "page_scheme_registration.h"
+#include "renderer_end.h"
 #include "shim_internal.h"
 
 // Every cmux_shim_event_kind_t value is distinct and every enumerator is
@@ -71,6 +76,12 @@
     case CMUX_SHIM_PAGE_RESOURCE:
     case CMUX_SHIM_PAGE_DRAG_ENTER:
     case CMUX_SHIM_FILE_DIALOG:
+    case CMUX_SHIM_CURSOR:
+    case CMUX_SHIM_DRAG_OPERATION:
+    case CMUX_SHIM_TOOLTIP:
+    case CMUX_SHIM_POPUP_MENU:
+    case CMUX_SHIM_POPUP_MENU_HIDE:
+    case CMUX_SHIM_SUGGESTIONS:
       return true;
   }
   return false;
@@ -78,6 +89,28 @@
 #pragma clang diagnostic pop
 
 namespace cmux_shim {
+
+static_assert(HostKeySeqs::kShiftDown == EVENTFLAG_SHIFT_DOWN && HostKeySeqs::kControlDown == EVENTFLAG_CONTROL_DOWN &&
+                  HostKeySeqs::kCommandDown == EVENTFLAG_COMMAND_DOWN,
+              "HostKeySeqs reads CEF's event flags");
+
+// The chords the Chromium Host sent (SendHostKeyEvent); empty in process. UI thread.
+static HostKeySeqs& host_key_seqs() {
+  static HostKeySeqs seqs;
+  return seqs;
+}
+
+void SendHostKeyEvent(int browser_id, uint32_t seq, const CefKeyEvent& event) {
+  CefRefPtr<CefBrowser> browser = BrowserById(browser_id);
+  if (!browser) return;
+  // OnPreKeyEvent runs inside SendKeyEvent only on the UI thread; elsewhere CEF
+  // posts the key and no seq is bound (the key is not reported back).
+  const bool expects = seq != 0 && event.type == KEYEVENT_RAWKEYDOWN && HostKeySeqs::IsChord(event.modifiers) &&
+                       CefCurrentlyOn(TID_UI);
+  if (expects) host_key_seqs().Expect(browser_id, seq);
+  browser->GetHost()->SendKeyEvent(event);
+  if (expects) host_key_seqs().EndSend();
+}
 
 namespace {
 
@@ -165,6 +198,71 @@ std::string RequestDocumentURL(CefRefPtr<CefFrame> frame, CefRefPtr<CefRequest> 
   return std::string();
 }
 
+// cmux_shim_set_cursor_events: page cursors and tooltips go to the host (UI thread only).
+bool cursor_events = false;
+
+// A custom cursor's image as base64 PNG, "" when it cannot go on the wire.
+// Chrome's app shim makes an NSImage of the same bitmap
+// (ui/base/cocoa/cursor_utils.mm, CreateCustomCursor).
+std::string CustomCursorPNG(const CefCursorInfo& custom) {
+  const int width = custom.size.width;
+  const int height = custom.size.height;
+  if (!CustomCursorAllowed(width, height, custom.buffer)) return std::string();
+  const float scale = custom.image_scale_factor > 0 ? custom.image_scale_factor : 1;
+  CefRefPtr<CefImage> image = CefImage::CreateImage();
+  if (!image->AddBitmap(scale, width, height, CEF_COLOR_TYPE_BGRA_8888, CEF_ALPHA_TYPE_PREMULTIPLIED, custom.buffer,
+                        static_cast<size_t>(width) * static_cast<size_t>(height) * 4)) {
+    return std::string();
+  }
+  int png_width = 0;
+  int png_height = 0;
+  CefRefPtr<CefBinaryValue> png = image->GetAsPNG(scale, true, png_width, png_height);
+  if (!png || png->GetSize() == 0) return std::string();
+  std::vector<unsigned char> bytes(png->GetSize());
+  png->GetData(bytes.data(), bytes.size(), 0);
+  return CefBase64Encode(bytes.data(), bytes.size()).ToString();
+}
+
+// CURSOR for browser_id (cursor_event.h): the type, and for CT_CUSTOM its
+// image, scale and hotspot. An image that cannot go on the wire shows the arrow.
+void EmitCursor(int browser_id, cef_cursor_type_t type, const CefCursorInfo& custom) {
+  const std::string png = type == CT_CUSTOM ? CustomCursorPNG(custom) : std::string();
+  if (png.empty()) {
+    Emit(CMUX_SHIM_CURSOR, browser_id, 0, type == CT_CUSTOM ? kCursorPointer : static_cast<int64_t>(type));
+    return;
+  }
+  const CustomCursorFields fields = CustomCursorFieldsFor(custom.image_scale_factor, custom.hotspot.x,
+                                                          custom.hotspot.y, custom.size.width, custom.size.height);
+  Emit(CMUX_SHIM_CURSOR, browser_id, fields.scale_milli, kCursorCustom, fields.hotspot, png);
+}
+
+// The renderer ends of the UI task under way (renderer_end.h). UI thread.
+RendererEnds& renderer_ends() {
+  static RendererEnds ends;
+  return ends;
+}
+
+class ForgetRendererEnd : public CefTask {
+ public:
+  explicit ForgetRendererEnd(int client) : client_(client) {}
+  void Execute() override { renderer_ends().Forget(client_); }
+
+ private:
+  int client_;
+  IMPLEMENT_REFCOUNTING(ForgetRendererEnd);
+};
+
+// RENDER_TERMINATED's request for `browser`: whether it is the first browser of its main frame
+// renderer's end (renderer_end.h). CEF keeps the current main frame, and its identifier, after the
+// renderer ends; the task after Chromium's fan-out forgets the end.
+int ReportRendererEnd(CefRefPtr<CefBrowser> browser) {
+  CefRefPtr<CefFrame> main = browser->GetMainFrame();
+  const int client = main ? RendererClientIdOf(main->GetIdentifier().ToString()) : 0;
+  const int report = renderer_ends().Report(client);
+  if (report == kRendererEndFirst) CefPostTask(TID_UI, new ForgetRendererEnd(client));
+  return report;
+}
+
 class Client : public CefClient,
                public CefDisplayHandler,
                public CefLoadHandler,
@@ -203,16 +301,10 @@ class Client : public CefClient,
   // MARK: Focus
 
   // CEF focuses a page after every navigation it starts (a new browser's
-  // first load, LoadURL); on macOS that activates the page window, which
-  // takes the keys from the host's omnibar. The host decides every
-  // request (its focus coordinator is the only owner of focus); returning
-  // true cancels it.
+  // first load, LoadURL). RefusesFocus decides (shim_browser.mm); returning
+  // true cancels the request.
   bool OnSetFocus(CefRefPtr<CefBrowser> browser, FocusSource source) override {
-    const Host& h = host();
-    if (!h.focus_request) {
-      return false;
-    }
-    return h.focus_request(h.ctx, browser->GetIdentifier(), source) == 0;
+    return RefusesFocus(browser->GetIdentifier(), source);
   }
 
   // Tab past the last element or Shift-Tab past the first: the host moves
@@ -369,7 +461,7 @@ class Client : public CefClient,
     // A crash cancels dialogs without OnResetDialogState: the question goes too.
     if (DropBeforeUnload(id)) Emit(CMUX_SHIM_BEFORE_UNLOAD_DISMISSED, id);
     CancelFileDialogs(id);
-    Emit(CMUX_SHIM_RENDER_TERMINATED, id, 0, status, error_code, error_string.ToString());
+    Emit(CMUX_SHIM_RENDER_TERMINATED, id, ReportRendererEnd(browser), status, error_code, error_string.ToString());
   }
 
   // Returning true keeps Chromium's hung-page dialog away: the host shows
@@ -479,12 +571,14 @@ class Client : public CefClient,
     int id = browser->GetIdentifier();
     browsers()[id] = browser;
     registrations_[id] = browser->GetHost()->AddDevToolsMessageObserver(this);
+    InstallSuggestionHandler(id);
     int request = request_;
     request_ = 0;
     int window = fork_api().tab_window_id ? fork_api().tab_window_id(id) : 0;
     std::string features;
     std::string popup_url;
     int64_t popup = request == 0 ? TakePopup(browser, &features, &popup_url) : 0;
+    ApplyPopupMenus(id);
     Emit(CMUX_SHIM_AFTER_CREATED, id, request, window, popup, features, popup_url);
   }
 
@@ -534,9 +628,12 @@ class Client : public CefClient,
   void OnBeforeClose(CefRefPtr<CefBrowser> browser) override {
     int id = browser->GetIdentifier();
     TakeUnresponsiveCallback(id);
+    host_key_seqs().Forget(id);
     DropBeforeUnload(id);
     CancelFileDialogs(id);
     TakeHostClose(id);
+    host().embedder_focus.Forget(id);
+    host().find_ids.Forget(id);
     ForgetNavigationGuard(id);
     ForgetCertificateState(id);
     registrations_.erase(id);
@@ -570,6 +667,24 @@ class Client : public CefClient,
 
   void OnLoadingProgressChange(CefRefPtr<CefBrowser> browser, double progress) override {
     Emit(CMUX_SHIM_PROGRESS, browser->GetIdentifier(), 0, static_cast<int64_t>(progress * 1000));
+  }
+
+  // While the host takes cursors (cmux_shim_set_cursor_events), the page's
+  // cursor is CURSOR and Chromium sets no NSCursor of its own (true: handled).
+  bool OnCursorChange(CefRefPtr<CefBrowser> browser, CefCursorHandle, cef_cursor_type_t type,
+                      const CefCursorInfo& custom) override {
+    if (!cursor_events) return false;
+    EmitCursor(browser->GetIdentifier(), type, custom);
+    return true;
+  }
+
+  // The same for the page's tooltip: TOOLTIP, and Chromium shows none of its
+  // own (true: handled), as Chrome's browser process sends the text to the app
+  // shim's view (RenderWidgetHostNSView::SetTooltipText).
+  bool OnTooltip(CefRefPtr<CefBrowser> browser, CefString& text) override {
+    if (!cursor_events) return false;
+    Emit(CMUX_SHIM_TOOLTIP, browser->GetIdentifier(), 0, 0, 0, text.ToString());
+    return true;
   }
 
   // MARK: Load
@@ -612,8 +727,14 @@ class Client : public CefClient,
 
   // MARK: Keyboard
 
+  // In process: cmux's key router first (key_fn). The Chromium Host passes
+  // no key_fn: cmux decided in CmuxApplication.sendEvent before it sent the
+  // key, so the host never asks cmux before the page (p01-process-030).
   bool OnPreKeyEvent(CefRefPtr<CefBrowser> browser, const CefKeyEvent& event, CefEventHandle os_event,
                      bool*) override {
+    if (event.type == KEYEVENT_RAWKEYDOWN && os_event) {
+      host_key_seqs().Bind(browser->GetIdentifier(), (__bridge const void*)os_event);
+    }
     Host& h = host();
     if (!h.key || !os_event || event.type != KEYEVENT_RAWKEYDOWN) {
       return false;
@@ -628,6 +749,12 @@ class Client : public CefClient,
   // is a letter, with or without Shift, while no editable field has focus
   // (single-key page shortcuts such as link hints). Everything else goes on
   // to Chromium's own accelerators.
+  //
+  // In the Chromium Host (no unhandled_key handler) a chord cmux sent is
+  // reported as KEY_UNHANDLED with its input seq (request) and b bit 1, and
+  // stops here: cmux runs the shortcut it held or re-dispatches the key to its
+  // menus, as Chrome's browser takes a key its renderer left unhandled
+  // (ui/base/cocoa/command_dispatcher.mm).
   bool OnKeyEvent(CefRefPtr<CefBrowser> browser, const CefKeyEvent& event, CefEventHandle os_event) override {
     constexpr int kEscape = 0x1B;
     constexpr uint32_t kModifiers = EVENTFLAG_SHIFT_DOWN | EVENTFLAG_CONTROL_DOWN | EVENTFLAG_ALT_DOWN |
@@ -636,27 +763,39 @@ class Client : public CefClient,
     if (event.type != KEYEVENT_RAWKEYDOWN) {
       return false;
     }
+    const int id = browser->GetIdentifier();
+    const uint32_t seq = os_event ? host_key_seqs().Take(id, (__bridge const void*)os_event) : 0;
     Host& h = host();
-    if (h.unhandled_key && os_event && (event.modifiers & (EVENTFLAG_COMMAND_DOWN | EVENTFLAG_CONTROL_DOWN)) &&
-        h.unhandled_key(h.ctx, browser->GetIdentifier(), (__bridge void*)os_event) != 0) {
+    if (h.unhandled_key && os_event && HostKeySeqs::IsChord(event.modifiers) &&
+        h.unhandled_key(h.ctx, id, (__bridge void*)os_event) != 0) {
+      return true;
+    }
+    if (HostKeySeqs::ReportsChord(h.unhandled_key != nullptr, seq, event.modifiers)) {
+      // The seq goes as its bit pattern; cmux reads it back as a UInt32.
+      Emit(CMUX_SHIM_KEY_UNHANDLED, id, static_cast<int>(seq), event.windows_key_code,
+           HostKeySeqs::ChordBits(event.modifiers));
       return true;
     }
     if (event.windows_key_code == kEscape && !(event.modifiers & kModifiers)) {
-      Emit(CMUX_SHIM_KEY_UNHANDLED, browser->GetIdentifier(), 0, kEscape);
+      Emit(CMUX_SHIM_KEY_UNHANDLED, id, 0, kEscape);
     } else if (event.windows_key_code >= 'A' && event.windows_key_code <= 'Z' && !(event.modifiers & kChordModifiers) &&
                !event.focus_on_editable_field && !event.is_system_key) {
-      const int64_t shift = (event.modifiers & EVENTFLAG_SHIFT_DOWN) ? 1 : 0;
-      Emit(CMUX_SHIM_KEY_UNHANDLED, browser->GetIdentifier(), 0, event.windows_key_code, shift);
+      const int64_t shift = (event.modifiers & EVENTFLAG_SHIFT_DOWN) ? HostKeySeqs::kShiftBit : 0;
+      Emit(CMUX_SHIM_KEY_UNHANDLED, id, 0, event.windows_key_code, shift);
     }
     return false;
   }
 
   // MARK: Find
 
-  void OnFindResult(CefRefPtr<CefBrowser> browser, int identifier, int count, const CefRect&, int active,
+  // The first int is Chromium's find session id; the result carries the
+  // caller's find id instead (find_ids.h). `active` fills the low 32 bits only,
+  // so a negative one never sets the final bit.
+  void OnFindResult(CefRefPtr<CefBrowser> browser, int, int count, const CefRect&, int active,
                     bool final_update) override {
-    int64_t b = static_cast<int64_t>(active) | (static_cast<int64_t>(final_update ? 1 : 0) << 32);
-    Emit(CMUX_SHIM_FIND_RESULT, browser->GetIdentifier(), identifier, count, b);
+    const int id = browser->GetIdentifier();
+    const int64_t b = static_cast<int64_t>(static_cast<uint32_t>(active)) | (static_cast<int64_t>(final_update ? 1 : 0) << 32);
+    Emit(CMUX_SHIM_FIND_RESULT, id, host().find_ids.Of(id), count, b);
   }
 
   // MARK: DevTools
@@ -733,4 +872,33 @@ CefRefPtr<CefRunContextMenuCallback> TakeMenuCallback(int token) {
   return callback;
 }
 
+// The fork's delayed-work handler (cmux_on_schedule_delayed_t) for the host's
+// schedule_delayed, with the ctx cmux_shim_initialize stored.
+static void ScheduleDelayedTrampoline(void*, int64_t run_time_ns, int64_t leeway_ns, int precise) {
+  Host& h = host();
+  if (h.schedule_delayed) {
+    h.schedule_delayed(h.ctx, run_time_ns, leeway_ns, precise);
+  }
+}
+
 }  // namespace cmux_shim
+
+using namespace cmux_shim;
+
+extern "C" {
+
+int cmux_shim_set_schedule_delayed(cmux_shim_schedule_delayed_fn schedule_delayed) {
+  ForkApi& api = fork_api();
+  if (!api.set_on_schedule_delayed) {
+    return 0;
+  }
+  host().schedule_delayed = schedule_delayed;
+  api.set_on_schedule_delayed(schedule_delayed ? ScheduleDelayedTrampoline : nullptr, nullptr);
+  return 1;
+}
+
+void cmux_shim_set_cursor_events(int enabled) {
+  cursor_events = enabled != 0;
+}
+
+}  // extern "C"

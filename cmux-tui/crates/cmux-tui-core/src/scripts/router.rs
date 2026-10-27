@@ -65,6 +65,10 @@ impl ScriptRouter for DaemonRouter {
             .mux
             .upgrade()
             .ok_or_else(|| error("operation.failed", "the daemon is shutting down"))?;
+        // The script host calls in on its own threads: what the op sets off
+        // is automation, as its origin below is `agent`, and it runs at
+        // automation's class (crate::request_qos).
+        let _cause = mux.request_qos().enter(RequestOrigin::Agent.event_cause());
         // A script has the rights of the CLI that started it: a plain local
         // connection, which derives origin `agent` (request-origin.md).
         require_origin(op, RequestOrigin::Agent)

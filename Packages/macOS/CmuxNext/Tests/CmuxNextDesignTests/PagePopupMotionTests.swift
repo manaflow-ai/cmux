@@ -120,4 +120,24 @@ import Testing
         #expect(await GUIAnimationTestSupport.settle { !panel.isVisible }, "a dead host's menu stayed on its window")
         #expect(panel.parent == nil)
     }
+
+    /// The page's `popup` keep reason (p13-webui-032) follows the menu: one change as it shows, none
+    /// for an update, one as it hides, and one as a dismiss from this side ends it.
+    @Test(.enabled("needs an awake display and animations on, or every popup snaps anyway") { await GUIAnimationTestSupport.animatesHere() })
+    func aPageMenuReportsItsShowAndItsEndOnce() throws {
+        let (window, page) = try Self.page()
+        defer { window.orderOut(nil) }
+        let host = WebPopupHost(webView: page, zoom: { 1 }, send: { _ in })
+        var changes: [Bool] = []
+        host.onShownChange = { changes.append($0) }
+        try #require(host.show(try Self.menu(["a", "b"]))["shown"] as? Bool == true)
+        host.update(try Self.menu(["a", "b"]))
+        #expect(changes == [true])
+        host.hide()
+        host.hide()
+        #expect(changes == [true, false])
+        host.show(try Self.menu(["a"]))
+        host.dismiss()
+        #expect(changes == [true, false, true, false])
+    }
 }

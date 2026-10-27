@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// Rows for the shim's `cmux_shim_password_entry` array, written at the C
@@ -6,6 +7,12 @@ public import Foundation
 /// buffer, which must stay alive and unchanged until `importPasswords`
 /// returns (the shim copies everything before it returns). The row buffer is
 /// zeroed before it is freed.
+///
+/// Memory safety (p10-stability-067): the row buffer is this object's own allocation of
+/// `max(count, 1) * stride` bytes, and every write below stays inside row `index < count` at an offset
+/// under `stride` (the header's field offsets); the password pointers are the caller's, valid while it
+/// holds them (``init(_:afterCopy:)``).
+@safe
 public nonisolated final class ChromiumPasswordRows: @unchecked Sendable {
     static let stride = 72
     let count: Int
@@ -20,17 +27,19 @@ public nonisolated final class ChromiumPasswordRows: @unchecked Sendable {
     public init(_ entries: [Row], afterCopy: (() -> Void)? = nil) {
         self.afterCopy = afterCopy
         count = entries.count
-        rows = UnsafeMutableRawPointer.allocate(byteCount: max(count, 1) * Self.stride, alignment: 8)
-        rows.initializeMemory(as: UInt8.self, repeating: 0, count: max(count, 1) * Self.stride)
-        for (index, entry) in entries.enumerated() {
-            let row = rows + index * Self.stride
-            store(entry.url, at: row, 0)
-            store(entry.signonRealm, at: row, 16)
-            store(entry.username, at: row, 32)
-            row.storeBytes(of: entry.password.baseAddress, toByteOffset: 48, as: UnsafeRawPointer?.self)
-            row.storeBytes(of: entry.password.count, toByteOffset: 56, as: Int.self)
-            let created = entry.created.map { Int64(($0.timeIntervalSince1970 + 11_644_473_600) * 1_000_000) } ?? 0
-            row.storeBytes(of: created, toByteOffset: 64, as: Int64.self)
+        // SAFETY (this initializer): the buffer is allocated and zeroed here at its full size; row `index` is
+        // `index * stride` bytes in, under `count * stride`, and each field ends by offset 72 == stride.
+        unsafe rows = UnsafeMutableRawPointer.allocate(byteCount: max(count, 1) * Self.stride, alignment: 8)
+        unsafe rows.initializeMemory(as: UInt8.self, repeating: 0, count: max(count, 1) * Self.stride)
+        for (index, entry) in unsafe entries.enumerated() {
+            let row = unsafe rows + index * Self.stride
+            unsafe store(entry.url, at: row, 0)
+            unsafe store(entry.signonRealm, at: row, 16)
+            unsafe store(entry.username, at: row, 32)
+            unsafe row.storeBytes(of: entry.password.baseAddress, toByteOffset: 48, as: UnsafeRawPointer?.self)
+            unsafe row.storeBytes(of: entry.password.count, toByteOffset: 56, as: Int.self)
+            let created = unsafe entry.created.map { Int64(($0.timeIntervalSince1970 + 11_644_473_600) * 1_000_000) } ?? 0
+            unsafe row.storeBytes(of: created, toByteOffset: 64, as: Int64.self)
         }
     }
 
@@ -38,26 +47,31 @@ public nonisolated final class ChromiumPasswordRows: @unchecked Sendable {
     func copied() {
         afterCopy?()
         afterCopy = nil
-        _ = memset_s(rows, max(count, 1) * Self.stride, 0, max(count, 1) * Self.stride)
-        for string in strings { _ = memset_s(string.baseAddress, string.count, 0, string.count) }
+        // SAFETY: zeroes this object's own row buffer and string copies, each at its allocated size.
+        _ = unsafe memset_s(rows, max(count, 1) * Self.stride, 0, max(count, 1) * Self.stride)
+        for string in unsafe strings { _ = unsafe memset_s(string.baseAddress, string.count, 0, string.count) }
     }
 
     deinit {
         copied()
-        _ = memset_s(rows, max(count, 1) * Self.stride, 0, max(count, 1) * Self.stride)
-        rows.deallocate()
-        for string in strings {
-            _ = memset_s(string.baseAddress, string.count, 0, string.count)
-            string.deallocate()
+        // SAFETY: the buffer and string copies are this object's own allocations, freed once here.
+        _ = unsafe memset_s(rows, max(count, 1) * Self.stride, 0, max(count, 1) * Self.stride)
+        unsafe rows.deallocate()
+        for string in unsafe strings {
+            _ = unsafe memset_s(string.baseAddress, string.count, 0, string.count)
+            unsafe string.deallocate()
         }
     }
 
+    /// Copies `text` and writes its pointer and length at `offset` of `row`, a row of this object's buffer.
     private func store(_ text: String, at row: UnsafeMutableRawPointer, _ offset: Int) {
-        let bytes = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: max(text.utf8.count, 1))
-        _ = bytes.initialize(from: text.utf8)
-        strings.append(bytes)
-        row.storeBytes(of: UnsafeRawPointer(bytes.baseAddress), toByteOffset: offset, as: UnsafeRawPointer?.self)
-        row.storeBytes(of: text.utf8.count, toByteOffset: offset + 8, as: Int.self)
+        // SAFETY: the copy is allocated at the text's size (one byte at least) and freed in deinit; `row` and
+        // `offset` are a row and a field of the buffer (init), the 16 bytes written end inside the row.
+        let bytes = unsafe UnsafeMutableBufferPointer<UInt8>.allocate(capacity: max(text.utf8.count, 1))
+        _ = unsafe bytes.initialize(from: text.utf8)
+        unsafe strings.append(bytes)
+        unsafe row.storeBytes(of: UnsafeRawPointer(bytes.baseAddress), toByteOffset: offset, as: UnsafeRawPointer?.self)
+        unsafe row.storeBytes(of: text.utf8.count, toByteOffset: offset + 8, as: Int.self)
     }
 }
 
@@ -85,7 +99,7 @@ public nonisolated struct ChromiumPasswordWriteResult: Sendable, Equatable {
 
     /// Parses the shim's reply `{"added","duplicate","conflict","rejected","conflicts"?}`.
     static func parse(_ json: String) -> ChromiumPasswordWriteResult? {
-        guard let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
+        guard let object = try? JSONSerialization.blockingJSONObject(with: Data(json.utf8)) as? [String: Any],
               let added = object["added"] as? Int, let duplicate = object["duplicate"] as? Int,
               let conflict = object["conflict"] as? Int, let rejected = object["rejected"] as? Int else { return nil }
         return ChromiumPasswordWriteResult(added: added, duplicate: duplicate, conflict: conflict, rejected: rejected,
@@ -111,7 +125,7 @@ public nonisolated struct ChromiumPasswordReplaceResult: Sendable, Equatable {
 
     /// Parses the shim's reply `{"updated","missing","rejected"}`.
     static func parse(_ json: String) -> ChromiumPasswordReplaceResult? {
-        guard let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
+        guard let object = try? JSONSerialization.blockingJSONObject(with: Data(json.utf8)) as? [String: Any],
               let updated = object["updated"] as? Int, let missing = object["missing"] as? Int,
               let rejected = object["rejected"] as? Int else { return nil }
         return ChromiumPasswordReplaceResult(updated: updated, missing: missing, rejected: rejected)

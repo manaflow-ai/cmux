@@ -1,5 +1,8 @@
 public import AppKit
 public import CmuxNextDesignTokens
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The single owner of every open cmux dialog. Callers present a spec in a
 /// scope and get exactly one answer; automation (the debug socket, the
@@ -83,11 +86,27 @@ public final class CmuxDialogCenter {
         return id
     }
 
-    /// Shows `spec` in `scope` and waits for the answer.
+    /// Shows `spec` in `scope` and waits for the answer; a dialog that went away without one is dismissed.
     public func present(_ spec: CmuxDialogSpec, in scope: CmuxDialogScope) async -> CmuxDialogAnswer {
-        await withCheckedContinuation { continuation in
+        (try? await withOnceContinuation { (continuation: OnceContinuation<CmuxDialogAnswer, OnceContinuationError>) in
             present(spec, in: scope) { continuation.resume(returning: $0) }
+        }) ?? CmuxDialogAnswer.dismissed(spec, values: [:])
+    }
+
+    /// Shows `spec` in dialog `id` in place (a chooser's rows changed): the dialog keeps its id, its
+    /// place in its scope's queue, its panel and the keyboard, as Chrome's chooser bubble updates its
+    /// rows in place (chrome/browser/ui/views/device_chooser_content_view.cc). Its fields show `spec`'s
+    /// values, so a caller keeps the person's choice by building `spec` from `record(id)?.values`. False
+    /// when there is no such dialog.
+    @discardableResult
+    public func update(_ id: Int, spec: CmuxDialogSpec) -> Bool {
+        guard entries[id] != nil else { return false }
+        entries[id]?.spec = spec
+        if let view = entries[id]?.view {
+            view.update(spec)
+            host.dialogDidUpdate(view)
         }
+        return true
     }
 
     // MARK: Answering

@@ -1,6 +1,7 @@
 public import CmuxNextActions
 public import CmuxNextCompat
 import CmuxNextAgentPane
+import CmuxNextWakeups
 public import Foundation
 import os
 
@@ -37,6 +38,8 @@ public nonisolated struct HomeBrainHost: Sendable {
     /// Starts the app's own acpmux when none runs (the local pane host's prewarm), before a host
     /// that only waits for it launches. Nil: nothing to start.
     public var ensureAppAcpmux: (@Sendable () async -> Void)?
+    /// Runs the launch shell (``AsyncProcess``; tests pass a fake).
+    var processes: any ProcessRunning = AsyncProcess()
 
     /// The OptChat Chief's file name in the app's Contents/Resources/bin.
     static let bundledChiefName = "optchat-chief"
@@ -245,23 +248,15 @@ public nonisolated struct HomeBrainHost: Sendable {
                 logger.error("mux agent token file could not be written")
                 return nil
             }
-            let shell = Process()
-            shell.executableURL = URL(fileURLWithPath: "/bin/sh")
-            shell.arguments = arguments
-            shell.environment = childEnvironment
             // LAUNCH-NO-TCC-PROMPTS: the host and what it starts without a
             // folder of its own (its acpmux daemon) run in the Chief home,
             // never the app's folder (`/`) or the home folder, where an
             // agent reads Downloads, Documents and Desktop at once.
-            shell.currentDirectoryURL = muxHome
-            shell.standardInput = FileHandle.nullDevice
-            let output = Pipe()
-            shell.standardOutput = output
-            shell.standardError = FileHandle.nullDevice
-            try shell.run()
-            // The shell exits right after the background start; its one line is the pid.
-            // concurrency-allow: one pid line from a shell that exits at once, off the main actor in @concurrent `launch`
-            let printed = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            // The shell exits right after the background start; its one line is the pid. The host is
+            // Home's brain: its answers show on screen, so it runs at userVisible (a child at QoS default, `processQoS`).
+            let shell = ProcessRequest(URL(fileURLWithPath: "/bin/sh"), arguments, environment: childEnvironment,
+                                       directory: muxHome, priority: .userVisible)
+            let printed = try await processes.outcome(of: shell).text
             let pid = pid_t(printed.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0 > 1 ? $0 : nil }
             logger.info("mux host started for \(muxHome.path, privacy: .public) pid \(pid.map(String.init) ?? "?", privacy: .public)")
             return pid

@@ -4,6 +4,7 @@ use super::*;
 
 impl Mux {
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(super) fn commit_resource_close_effect(
         &self,
         operation: ResourceOperation,
@@ -29,6 +30,7 @@ impl Mux {
         )
     }
 
+    #[track_caller]
     pub(crate) fn commit_resource_surface_close_effect(
         &self,
         surface: SurfaceId,
@@ -65,6 +67,7 @@ impl Mux {
         Ok(self.finish_resource_close(committed))
     }
 
+    #[track_caller]
     pub(crate) fn commit_resource_terminal_close_effect(
         &self,
         terminal_id: &TerminalPublicId,
@@ -100,6 +103,7 @@ impl Mux {
     /// as `terminal.close`. `None` means the host has no live public resource,
     /// so the caller may use the host-only compatibility path.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(in crate::mux) fn commit_legacy_terminal_close(
         &self,
         terminal_id: &str,
@@ -332,6 +336,7 @@ impl Mux {
 
     /// Views of an exited terminal to remove in the exit's commit. Requires
     /// a [`DetachProof`]: only a process end may detach (invariant 3).
+    #[track_caller]
     pub(in crate::mux) fn terminal_exit_detach_projection_locked(
         &self,
         _proof: DetachProof,
@@ -453,6 +458,7 @@ impl Mux {
         }))
     }
 
+    #[track_caller]
     pub(in crate::mux) fn finish_terminal_exit_detach(&self, effects: TerminalExitDetachEffects) {
         for target in &effects.targets {
             self.purge_surface_side_tables(*target);
@@ -476,6 +482,7 @@ impl Mux {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(super) fn commit_resource_close_with(
         &self,
         operation: ResourceOperation,
@@ -545,6 +552,7 @@ impl Mux {
         Ok(CommittedResourceClose { commit: close.resource, effects })
     }
 
+    #[track_caller]
     pub(super) fn finish_resource_close(
         &self,
         committed: CommittedResourceClose,
@@ -589,6 +597,7 @@ impl Mux {
         committed.commit
     }
 
+    #[track_caller]
     pub(super) fn resource_close_plan_locked(
         &self,
         operation: ResourceOperation,

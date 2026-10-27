@@ -70,6 +70,7 @@ extension AppActions {
             let actions = services.home.groupActions
             let shows = invocation.origin == .user
             // task-owner: the action run; a capturing caller (socket, CLI) awaits it through the registry.
+            // main-hop-allow: the action's userBlocking rest (p06 rule 2): it awaits the main-actor HomeGroupActions; post has no userBlocking class
             registry.track(result: Task { @MainActor in
                 switch await actions.create(named: members, title: title, replies: replies) {
                 case .created(let id):
@@ -99,11 +100,11 @@ extension AppActions {
         })
         ActionTargetTitles.set("home.togglePin", in: registry) { invocation in
             let text = invocation["conversation"]?.stringValue?.trimmingCharacters(in: .whitespaces)
-            guard let id = text.flatMap({ $0.isEmpty ? nil : ConversationID($0) }) ?? shownPage(services)?.shown else { return nil }
+            guard let id = text.flatMap({ $0.isEmpty ? nil : ConversationID($0) }) ?? shownConversation(services) else { return nil }
             return pinSource(services).isPinned(id) ? PinStrings.unpinConversation : PinStrings.pinConversation
         }
         ActionTargetTitles.setPaletteState("home.togglePin", in: registry) {
-            guard let id = shownPage(services)?.shown else { return false }
+            guard let id = shownConversation(services) else { return false }
             return pinSource(services).isPinned(id)
         }
         registry.bind("home.sendMessage", invoke: { invocation in
@@ -118,7 +119,7 @@ extension AppActions {
         if let text = invocation["conversation"]?.stringValue?.trimmingCharacters(in: .whitespaces), !text.isEmpty {
             return ConversationID(text)
         }
-        guard let shown = shownPage(services)?.shown else {
+        guard let shown = shownConversation(services) else {
             services.registry.refuse(RefusalStrings.homeNotReady)
             return nil
         }
@@ -129,6 +130,13 @@ extension AppActions {
     static func shownPage(_ services: AppServices) -> TopHomePageView? {
         if services.home.dock.isClassic { return services.windows.active?.topPages.views[.home] as? TopHomePageView }
         return HomeDockTab.view(services)?.messages
+    }
+
+    /// The conversation Home shows, without showing it: classic Home's discarded page still names
+    /// the one it showed (`TopPageHost.homeSelection`).
+    static func shownConversation(_ services: AppServices) -> ConversationID? {
+        guard services.home.dock.isClassic else { return HomeDockTab.view(services)?.messages?.shown }
+        return services.windows.active?.topPages.homeSelection
     }
 
     /// The pins a Home pin change goes to: the shown page's sidebar (its list redraws), else a

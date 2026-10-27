@@ -62,9 +62,15 @@ public struct TerminalKeyEquivalent {
 
         var flags = ghostty_binding_flags_e(rawValue: 0)
         var keyEvent = GhosttyInput.keyEvent(event, action: GHOSTTY_ACTION_PRESS)
-        let isBinding = (event.characters ?? "").withCString { pointer in
-            keyEvent.text = pointer
-            return ghostty_surface_key_is_binding(surface, keyEvent, &flags)
+        let characters = event.characters ?? ""
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface); the key's text is the
+        // NUL-terminated copy withCString lends for the closure, which the call does not keep, and
+        // Ghostty writes one flags value into `flags`, alive for the call.
+        let isBinding = unsafe characters.withCString { pointer in
+            // SAFETY: as above.
+            unsafe keyEvent.text = pointer
+            // SAFETY: as above.
+            return unsafe ghostty_surface_key_is_binding(surface, keyEvent, &flags)
         }
         Self.trace?("terminal: Ghostty binding \(isBinding ? "yes" : "no")")
         if isBinding {

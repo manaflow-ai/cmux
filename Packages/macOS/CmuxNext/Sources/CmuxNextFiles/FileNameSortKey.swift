@@ -41,14 +41,16 @@ public struct FileNameSortKey: Sendable, Hashable, Comparable {
 
     /// Negative, zero or positive as `self` sorts before, with, or after `other`.
     public func compare(_ other: FileNameSortKey) -> Int {
-        bytes.withUnsafeBufferPointer { a in
-            other.bytes.withUnsafeBufferPointer { b in
-                let common = min(a.count, b.count)
-                if common > 0, let pa = a.baseAddress, let pb = b.baseAddress {
-                    let r = memcmp(pa, pb, common)
+        // SAFETY: `a` and `b` are the two keys' own storage, valid only inside these closures, which let no pointer
+        // out; memcmp reads `common` bytes from the start of each, and common is at most either buffer's count.
+        unsafe bytes.withUnsafeBufferPointer { a in
+            unsafe other.bytes.withUnsafeBufferPointer { b in
+                let common = unsafe min(a.count, b.count)
+                if common > 0, let pa = unsafe a.baseAddress, let pb = unsafe b.baseAddress {
+                    let r = unsafe memcmp(pa, pb, common)
                     if r != 0 { return Int(r) }
                 }
-                return a.count - b.count
+                return unsafe a.count - b.count
             }
         }
     }

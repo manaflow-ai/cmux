@@ -1,7 +1,7 @@
 public import Darwin
 
 /// Resolves a host name, like `getaddrinfo`, as a checked blocking call
-/// (``assertBlockingAllowed(_:fileID:line:)``): it waits for mDNSResponder and the network. Chrome calls
+/// (``blockingCall(_:fileID:line:_:)``): it waits for mDNSResponder and the network. Chrome calls
 /// it only from may-block workers (net/dns/host_resolver_system_task.cc); resolve off the main thread.
 ///
 /// - Parameters:
@@ -12,10 +12,12 @@ public import Darwin
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: What `getaddrinfo` returns (0, or an `EAI_` error).
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingGetaddrinfo(_ host: UnsafePointer<CChar>?, _ service: UnsafePointer<CChar>?, _ hints: UnsafePointer<addrinfo>?,
                                 _ result: UnsafeMutablePointer<UnsafeMutablePointer<addrinfo>?>,
                                 fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
-    assertBlockingAllowed(.systemCall, fileID: fileID, line: line)
-    return getaddrinfo(host, service, hints, result)
+    // SAFETY: forwards the caller's pointers to getaddrinfo unchanged, only for the call; the caller's own `unsafe`
+    // states why they are valid for it.
+    return blockingCall(.systemCall, fileID: fileID, line: line) { unsafe getaddrinfo(host, service, hints, result) }
 }

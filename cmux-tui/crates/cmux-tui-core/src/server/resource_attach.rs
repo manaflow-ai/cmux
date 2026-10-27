@@ -52,6 +52,7 @@ use crate::sidebar_resource::sidebar_attach_snapshot;
 use crate::sidebar_resource::sidebar_snapshot;
 use crate::stream_interrupt::StreamInterrupt;
 use crate::surface::AttachLifecycle;
+use cmux_threads::checked::sync as waits;
 use serde_json::Value;
 use serde_json::json;
 use std::sync::Arc;
@@ -432,7 +433,7 @@ pub(super) fn start_terminal_resource_attach(
     let worker_writer = writer.clone();
     let spawn =
         std::thread::Builder::new().name("mux-resource-terminal-attach".into()).spawn(move || {
-            if worker_committed.recv().is_err() {
+            if waits::recv(&worker_committed).is_err() {
                 return;
             }
             let mut sequence = 0u64;
@@ -660,7 +661,7 @@ pub(super) fn start_browser_resource_attach(
     let worker_writer = writer.clone();
     let spawn =
         std::thread::Builder::new().name("mux-resource-browser-attach".into()).spawn(move || {
-            if worker_committed.recv().is_err() {
+            if waits::recv(&worker_committed).is_err() {
                 return;
             }
             let mut sequence = 0u64;

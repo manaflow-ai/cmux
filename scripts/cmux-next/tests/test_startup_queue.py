@@ -30,7 +30,7 @@ FLEET = {"CMUX_CI_STEP_KEY": "step-1"}
 
 def blocking_run(complete, sites, overflow=0, **marks):
     return {"marks": {"startup_complete": complete, **marks},
-            "result": {"mode": "record", "overflow": overflow, "sites": sites}}
+            "result": {"compiled_in": True, "mode": "record", "overflow": overflow, "sites": sites}}
 
 
 def census_run(first_frame=200.0, complete=900.0, **result):
@@ -128,7 +128,8 @@ class BlockingTests(unittest.TestCase):
         self.assertTrue(any("not proved" in w for w in read_doc(out)["warnings"]))
 
     def test_a_run_without_the_until_mark_is_left_out(self):
-        late = {"result": {"sites": [{"kind": "fileRead", "location": "Late.swift:1", "count": 1, "first_ms": 9999}]}}
+        late = {"result": {"compiled_in": True,
+                           "sites": [{"kind": "fileRead", "location": "Late.swift:1", "count": 1, "first_ms": 9999}]}}
         hits, warnings, used = sq.blocking_hits(sq.capture_runs([late]), "startup_complete")
         self.assertEqual((hits, used), ([], 0))
         self.assertIn("no startup_complete mark", warnings[0])
@@ -138,6 +139,26 @@ class BlockingTests(unittest.TestCase):
     def test_overflow_is_a_warning(self):
         _, warnings, _ = sq.blocking_hits([blocking_run(900, [], overflow=4)], "startup_complete")
         self.assertIn("4 sites past", warnings[0])
+
+    def test_only_main_thread_sites_are_hits(self):
+        # One line reached on the main thread and on the pool is two debug.blocking sites; only the main one is
+        # a main-thread blocking hit, with its own count.
+        run = blocking_run(900, [{"context": "main", "kind": "fileIO", "location": "A.swift:1", "count": 2},
+                                 {"context": "pool", "kind": "fileIO", "location": "A.swift:1", "count": 7},
+                                 {"context": "pool", "kind": "syncWait", "location": "P.swift:9", "count": 1}])
+        hits, _, used = sq.blocking_hits([run], "startup_complete")
+        self.assertEqual(used, 1)
+        self.assertEqual([(h["location"], h["count"]) for h in hits], [("A.swift:1", 2)])
+
+    def test_pool_overflow_is_not_a_main_thread_warning(self):
+        run = blocking_run(900, [], overflow=3)
+        run["result"]["contexts"] = {"main": {"sites": 0, "count": 0, "overflow": 0},
+                                     "pool": {"sites": 0, "count": 0, "overflow": 3}}
+        _, warnings, _ = sq.blocking_hits([run], "startup_complete")
+        self.assertFalse(any("past the detector" in w for w in warnings))
+        run["result"]["contexts"]["main"]["overflow"] = 2
+        _, warnings, _ = sq.blocking_hits([run], "startup_complete")
+        self.assertIn("2 sites past", warnings[0])
 
     def test_cli_reads_a_raw_capture_and_writes_json(self):
         files = Files()
@@ -153,8 +174,22 @@ class BlockingTests(unittest.TestCase):
 
     def test_a_clean_launch_passes_check(self):
         files = Files()
-        raw = files.json("raw.json", [{"marks": {"startup_complete": 1}, "result": {"sites": []}}])
+        raw = files.json("raw.json", [{"marks": {"startup_complete": 1}, "result": {"compiled_in": True, "sites": []}}])
         self.assertEqual(run_cli(["blocking", raw, "--check"])[0], 0)
+
+    def test_a_report_from_a_build_without_the_detector_is_refused_not_clean(self):
+        # p12-perf-process-147: a `--config bench` app answers debug.blocking with no detector, so its empty
+        # sites are no evidence; only `compiled_in: true` (Debug, `--config bench-checks`) counts.
+        files = Files()
+        for result in ({"compiled_in": False, "mode": "record", "overflow": 0, "sites": []},
+                       {"mode": "record", "overflow": 0, "sites": []}):
+            run = {"marks": {"startup_complete": 1}, "result": result}
+            hits, warnings, used = sq.blocking_hits([run], "startup_complete")
+            self.assertEqual((hits, used), ([], 0), result)
+            self.assertIn("--config bench-checks", warnings[0])
+            code, _, err = run_cli(["blocking", files.json("nodetector.json", [run]), "--check"])
+            self.assertEqual(code, 2, "no usable run: refused, never a pass")
+            self.assertIn("no blocking detector", err)
 
 
 class GapsTests(unittest.TestCase):
@@ -191,7 +226,7 @@ class GapsTests(unittest.TestCase):
 
     def test_value_marks_are_not_times(self):
         runs = [{"main_start": 10, "first_window_frame_committed": 200, "launch.pageins_first_frame": 4100,
-                 "launch.main_cpu_ms": 56.5, "launch.temperature": "warm", "launch.interrupted": None}] * 3
+                 "launch.pageins_run_loop_start": 3800, "launch.main_cpu_ms": 56.5, "launch.temperature": "warm", "launch.interrupted": None}] * 3
         hits = sq.mark_gaps(runs, 5.0, "t warm")
         self.assertEqual([(h["from"], h["to"], h["p50_ms"]) for h in hits],
                          [("main_start", "first_window_frame_committed", 190.0)])
@@ -302,6 +337,48 @@ class MainJobsTests(unittest.TestCase):
         self.assertIn("no first_window_frame_committed, startup_complete mark", err)
 
 
+    def test_a_census_not_armed_or_without_its_hook_is_left_out(self):
+        job = [{"caller": "Home.start", "kind": "main_actor", "run_ms": 2, "enqueued_ms": 50}]
+        runs = sq.capture_runs([
+            census_run(main_job_census={"armed": False}),
+            census_run(main_job_census={"armed": True, "hook": "missing"}, main_jobs=[], main_turns=[]),
+            census_run(main_job_census={"armed": True, "hook": "installed"}, main_jobs=job, main_turns=[])])
+        hits, warnings, used = sq.mainjobs_hits(runs, "first_window_frame_committed", "startup_complete", 1.0, 5)
+        self.assertEqual((used, [h["caller"] for h in hits]), (1, ["Home.start"]))
+        self.assertIn("run 1: the main-job census was not armed (CMUX_NEXT_MAIN_JOB_CENSUS=1), left out", warnings)
+        self.assertIn("run 2: main-actor job hook missing, left out", warnings)
+
+    def test_a_full_census_ring_is_a_warning_not_a_refusal(self):
+        state = {"armed": True, "hook": "installed", "dropped_jobs": 12, "dropped_turns": 0}
+        runs = sq.capture_runs([census_run(main_job_census=state, main_jobs=[], main_turns=[])])
+        _, warnings, used = sq.mainjobs_hits(runs, "first_window_frame_committed", "startup_complete", 1.0, 5)
+        self.assertEqual(used, 1)
+        self.assertEqual(warnings, ["run 1: the census ring was full: 12 jobs not recorded"])
+
+    def test_the_census_kinds_rank_as_enqueuers(self):
+        jobs = [{"caller": "LaunchWarmup.start()", "kind": "main_delivery", "priority": "utility", "run_ms": 1.5,
+                 "enqueued_ms": 40},
+                {"caller": "run_loop.wake", "kind": "run_loop_wake", "priority": None, "run_ms": 3, "enqueued_ms": 80}]
+        turns = [{"start_ms": 300, "duration_ms": 4, "task": None, "allowlisted": True, "site": "outside_run_loop",
+                  "jobs": 0, "job_ms": 0}]
+        runs = sq.capture_runs([census_run(main_job_census={"armed": True, "hook": "installed"}, main_jobs=jobs,
+                                           main_turns=turns)])
+        hits, _, _ = sq.mainjobs_hits(runs, "first_window_frame_committed", "startup_complete", 1.0, 5)
+        self.assertEqual([(h["kind"], h["caller"]) for h in hits],
+                         [("run_loop_wake", "run_loop.wake"), ("main_delivery", "LaunchWarmup.start()")])
+
+    def test_run_loop_block_posts_and_timer_fires_rank_by_their_enqueuer(self):
+        jobs = [{"caller": "Sidebar.reload()", "kind": "run_loop_block", "priority": "userInteractive", "run_ms": 0.1,
+                 "enqueued_ms": 10 + i} for i in range(5)]
+        jobs += [{"caller": "timer Feed.poll", "kind": "timer", "priority": "default", "run_ms": 2.5, "enqueued_ms": 90},
+                 {"caller": "timer Feed.poll", "kind": "main_actor", "priority": "default", "run_ms": 0.2, "enqueued_ms": 91}]
+        runs = sq.capture_runs([census_run(main_job_census={"armed": True, "hook": "installed"}, main_jobs=jobs,
+                                           main_turns=[])])
+        hits, _, _ = sq.mainjobs_hits(runs, "first_window_frame_committed", "startup_complete", 1.0, 5)
+        self.assertEqual([(h["kind"], h["caller"], h["p50_count"]) for h in hits],
+                         [("timer", "timer Feed.poll", 1), ("run_loop_block", "Sidebar.reload()", 5)])
+
+
 class GlobalJobsTests(unittest.TestCase):
     def test_non_lane_low_priority_callers_before_completion(self):
         jobs = [{"caller": "Feed.refresh", "priority": "utility", "lane": None, "enqueued_ms": 100, "run_ms": 4},
@@ -324,6 +401,51 @@ class GlobalJobsTests(unittest.TestCase):
         hits, _, _ = sq.globaljobs_hits(sq.capture_runs([census_run(global_jobs=jobs)]), "startup_complete")
         self.assertEqual({(h["caller"], tuple(h["priorities"])) for h in hits},
                          {("Index.detached", ("default",)), ("Cache.global", ("default",)), ("Model.medium", ("default",))})
+
+    def test_the_census_reply_is_read_as_the_app_sends_it(self):
+        # debug.startup.global_jobs (task 082): raw TaskPriority numbers, 0 for none, no lane, run_ms null (the hook
+        # sees the enqueue).
+        jobs = [{"caller": "Feed.refresh()", "via": None, "priority": 17, "origin": "off_main", "enqueued_ms": 40.5,
+                 "run_ms": None},
+                {"caller": "Scan.all()", "via": None, "priority": 0, "origin": "main", "enqueued_ms": 42, "run_ms": None},
+                {"caller": "Open.page()", "via": None, "priority": 25, "origin": "main", "enqueued_ms": 43, "run_ms": None}]
+        state = {"armed": True, "hook": "installed", "frozen": True, "tasks": 3, "pending_tasks": 0, "dropped_tasks": 0,
+                 "resumptions": 12, "actor_jobs": 3, "untracked_tasks": 0}
+        hits, warnings, used = sq.globaljobs_hits(
+            sq.capture_runs([census_run(global_jobs=jobs, global_job_census=state)]), "startup_complete")
+        self.assertEqual((used, warnings), (1, []))
+        self.assertEqual([(h["caller"], h["priorities"], h["via"], h["total_ms"]) for h in hits],
+                         [("Feed.refresh()", ["utility"], [], 0.0), ("Scan.all()", ["unspecified"], [], 0.0)])
+
+    def test_a_background_work_task_before_completion_is_a_hit(self):
+        # BackgroundWork.task starts its Task.detached at once: the launch fence holds only lane items, so a
+        # work.task(.bestEffort) or work.task(.idle) during launch is Q12 work, named by its caller.
+        jobs = [{"caller": "Index.rebuild()", "via": "background_work_task", "priority": 9, "origin": "main",
+                 "enqueued_ms": 41, "run_ms": None},
+                {"caller": "Feed.prefetch()", "via": "background_work_task", "priority": 17, "origin": "off_main",
+                 "enqueued_ms": 44, "run_ms": None},
+                {"caller": "Late.sweep()", "via": "background_work_task", "priority": 9, "origin": "main",
+                 "enqueued_ms": 950, "run_ms": None},
+                {"caller": "Lane.job", "lane": "files", "priority": 9, "enqueued_ms": 10, "run_ms": 1}]
+        state = {"armed": True, "hook": "installed", "tasks": 3}
+        hits, _, _ = sq.globaljobs_hits(
+            sq.capture_runs([census_run(global_jobs=jobs, global_job_census=state)]), "startup_complete")
+        self.assertEqual([(h["caller"], h["priorities"], h["via"]) for h in hits],
+                         [("Feed.prefetch()", ["utility"], ["background_work_task"]),
+                          ("Index.rebuild()", ["background"], ["background_work_task"])])
+        self.assertIn("(via background_work_task)", hits[1]["summary"])
+
+    def test_a_census_that_did_not_record_is_left_out(self):
+        runs = sq.capture_runs([census_run(global_jobs=[], global_job_census={"armed": False}),
+                                census_run(global_jobs=[], global_job_census={"armed": True, "hook": "busy"}),
+                                census_run(global_jobs=[], global_job_census={"armed": True, "hook": "installed",
+                                                                              "dropped_tasks": 7, "untracked_tasks": 0})])
+        _, warnings, used = sq.globaljobs_hits(runs, "startup_complete")
+        self.assertEqual(used, 1)
+        self.assertIn("run 1: the global-job census was not armed", warnings[0])
+        self.assertIn("run 2: global-enqueue hook busy", warnings[1])
+        self.assertIn("run 3: the census did not keep 7 tasks past the ring", warnings[2])
+        self.assertEqual(len(warnings), 3)
 
 
 class CensusFieldTests(unittest.TestCase):
@@ -479,7 +601,8 @@ class CollectTests(unittest.TestCase):
         self.addCleanup(quiet.__exit__, None, None, None)
 
     def test_each_run_is_read_at_the_mark_and_a_daemon_from_before_is_left_running(self):
-        bench = FakeBench(lambda method: {"ok": True, "result": {"method": method, "sites": []}})
+        bench = FakeBench(lambda method: {"ok": True, "result": {"method": method, "compiled_in": True,
+                                                                 "sites": []}})
         runs = sq.collect(bench, "/x/cmux DEV t1.app", 3, "warm", "startup_complete", 5, "debug.blocking")
         self.assertEqual([r["result"]["method"] for r in runs], ["debug.blocking"] * 3)
         self.assertEqual(runs[0]["marks"]["startup_complete"], 800.0)
@@ -488,6 +611,15 @@ class CollectTests(unittest.TestCase):
         self.assertEqual(bench.pids, [11])
         hits, _, used = sq.blocking_hits(runs, "startup_complete")
         self.assertEqual((hits, used), ([], 3))
+
+    def test_a_live_report_without_the_detector_stops_at_the_first_launch(self):
+        bench = FakeBench(lambda method: {"ok": True, "result": {"compiled_in": False, "mode": "record", "sites": []}})
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), self.assertRaises(sq.QueueError) as caught:
+            sq.collect(bench, "/x/cmux DEV t1.app", 3, "warm", "startup_complete", 5, "debug.blocking")
+        self.assertEqual(caught.exception.code, 2)
+        self.assertIn("--config bench-checks", err.getvalue())
+        self.assertEqual(len(bench.launched), 1, "refused at the first launch, not after every run")
 
     def test_launches_are_activated_and_scratch_folders_removed(self):
         bench = FakeBench(lambda method: {"result": {}}, daemon=False)
@@ -518,6 +650,43 @@ class CollectTests(unittest.TestCase):
         with contextlib.redirect_stderr(io.StringIO()) as err, self.assertRaises(SystemExit):
             sq.collect(bench, "/x/cmux DEV t1.app", 1, "warm", "startup_complete", 5, "debug.startup")
         self.assertIn("CMUX_BENCH_HOOKS", err.getvalue())
+
+    def test_mainjobs_arms_the_census_and_merges_its_method_into_debug_startup(self):
+        census = {"main_job_census": {"armed": True, "hook": "installed"}, "main_jobs": [], "main_turns": []}
+
+        def reply(method):
+            if method == "debug.startup.main_jobs":
+                return {"ok": True, "result": census}
+            return {"ok": False, "error": {"code": "method_not_found"}}  # a build without task 008's method
+
+        bench = FakeBench(reply)
+        runs = sq.collect(bench, "/x/cmux DEV t1.app", 2, "warm", "startup_complete", 5, "debug.startup",
+                          extra_method=sq.MODE_METHOD["mainjobs"], extra_env=sq.MODE_ENV["mainjobs"])
+        self.assertEqual([r["result"] for r in runs], [census, census])
+        self.assertEqual({(env.get("CMUX_NEXT_MAIN_JOB_CENSUS"), env.get("CMUX_NEXT_NO_ACTIVATE"))
+                          for _, _, env in bench.launched}, {("1", "0")})
+        hits, _, used = sq.mainjobs_hits(runs, "first_window_frame_committed", "startup_complete", 1.0, 5)
+        self.assertEqual((hits, used), ([], 2))
+
+    def test_the_census_method_is_required(self):
+        bench = FakeBench(lambda method: {"ok": False, "error": {"code": "method_not_found"}})
+        with contextlib.redirect_stderr(io.StringIO()) as err, self.assertRaises(SystemExit):
+            sq.collect(bench, "/x/cmux DEV t1.app", 1, "warm", "startup_complete", 5, "debug.startup",
+                       extra_method="debug.startup.main_jobs")
+        self.assertIn("debug.startup.main_jobs", err.getvalue())
+
+    def test_a_census_mode_arms_its_recorder_and_merges_its_method(self):
+        # A build without debug.startup (task 008) still answers the census's own method.
+        replies = {"debug.startup": {"ok": False, "error": {"code": "method_not_found"}},
+                   "debug.startup.global_jobs": {"ok": True, "result": {"global_jobs": [], "global_job_census": {
+                       "armed": True, "hook": "installed"}}}}
+        bench = FakeBench(lambda method: replies[method], daemon=False)
+        runs = sq.collect(bench, "/x/cmux DEV t1.app", 1, "warm", "startup_complete", 5, sq.method_of("globaljobs"),
+                          extra_method=sq.MODE_METHOD["globaljobs"], extra_env=sq.MODE_ENV["globaljobs"])
+        self.assertEqual(runs[0]["result"], {"global_jobs": [], "global_job_census": {"armed": True, "hook": "installed"}})
+        self.assertEqual({env.get("CMUX_NEXT_GLOBAL_JOB_CENSUS") for _, _, env in bench.launched}, {"1"},
+                         "the priming launch and the measured one")
+        self.assertEqual({env.get("CMUX_NEXT_NO_ACTIVATE") for _, _, env in bench.launched}, {"0"})
 
     def test_a_missing_mark_names_until_mark(self):
         bench = FakeBench(lambda method: {"result": {}})

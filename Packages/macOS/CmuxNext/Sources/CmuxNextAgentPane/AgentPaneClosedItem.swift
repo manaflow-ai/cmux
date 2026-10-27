@@ -49,6 +49,6 @@ public nonisolated struct AgentPaneClosedItem: Hashable, Sendable {
 extension AgentPaneClosedItem {
     /// Pushes `list` to `view`'s page, already encoded (not an AgentPaneView extension: that type is at its size limit).
     @MainActor static func push(_ list: AgentPaneClosedList, to view: AgentPaneView) {
-        view.deliver([list.event], scripts: [list.script])
+        view.deliver([list.event])
     }
 }

@@ -1,12 +1,22 @@
-import AppKit
+package import AppKit
 import CmuxNextDesign
 import CmuxNextCompat
+import CmuxNextInput
+import CmuxNextWakeups
+package import CmuxNextInputCore
 
 /// The pane's input surface, over the video. It takes keyboard focus on
 /// click; while it is first responder in control mode, keys, pointer,
 /// buttons and scroll go to the host. Coordinates are flipped like stream
 /// pixels. The local cursor stays the system arrow (control mode draws the
 /// native cursor locally, RD6).
+///
+/// With ``pointerFrames`` (feature `pointerFrameRemoteInput`) moves, drags, mid-gesture scrolls and
+/// wheel notches reach the host at most twice per display frame: a frame interval's first event at once, the rest
+/// merged into one delivery at the window's frame (the latest point; scroll deltas summed per phase),
+/// as Chromium delivers rAF-aligned input (`third_party/blink/renderer/platform/widget/input/
+/// main_thread_event_queue.cc`). Buttons, keys and scroll phase edges flush what waits first
+/// (`ShouldFlushQueue`), so the host sees every event in the order it came.
 final class RemoteInputCaptureView: NSView, MouseButtonForwarding {
     let controller = RemoteInputController()
     /// The current image placement, from the video view.
@@ -21,6 +31,12 @@ final class RemoteInputCaptureView: NSView, MouseButtonForwarding {
     /// False: clicks and scrolls pass through to what is under the surface
     /// (a state card over the picture), never to the host.
     var acceptsPointer = true
+    /// The windows' frame-aligned pointer input; nil sends every move and scroll at once.
+    var pointerFrames: FrameInputCoalescers? {
+        didSet { if pointerFrames !== oldValue { dropFramePointer() } }
+    }
+    /// This view's consumer of its window's coalescer, made on the first move in a window.
+    private var framePointer: PointerFrameConsumer?
 
     private var isFirstResponder = false
     private var markedText = NSAttributedString()
@@ -59,6 +75,8 @@ final class RemoteInputCaptureView: NSView, MouseButtonForwarding {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // The coalescer is the old window's: what waits there is for a window the view left.
+        dropFramePointer()
         keyObservers.removeAll()
         if window == nil, isFirstResponder { isFirstResponder = false }
         if let window {
@@ -98,6 +116,7 @@ final class RemoteInputCaptureView: NSView, MouseButtonForwarding {
     }
 
     private func handleKeyDown(_ event: NSEvent) -> Bool {
+        flushPointer()
         switch controller.keyDown(event) {
         case .handled: return true
         case .local: return false
@@ -109,17 +128,24 @@ final class RemoteInputCaptureView: NSView, MouseButtonForwarding {
         }
     }
 
-    override func keyUp(with event: NSEvent) { controller.keyUp(event) }
-    override func flagsChanged(with event: NSEvent) { controller.flagsChanged(event) }
+    override func keyUp(with event: NSEvent) {
+        flushPointer()
+        controller.keyUp(event)
+    }
+
+    override func flagsChanged(with event: NSEvent) {
+        flushPointer()
+        controller.flagsChanged(event)
+    }
 
     // MARK: Pointer
 
     override func cursorUpdate(with event: NSEvent) { NSCursor.arrow.set() }
 
-    override func mouseMoved(with event: NSEvent) { movePointer(event, clamped: false) }
-    override func mouseDragged(with event: NSEvent) { movePointer(event, clamped: true) }
-    override func rightMouseDragged(with event: NSEvent) { movePointer(event, clamped: true) }
-    override func otherMouseDragged(with event: NSEvent) { movePointer(event, clamped: true) }
+    override func mouseMoved(with event: NSEvent) { pointerMoved(event) }
+    override func mouseDragged(with event: NSEvent) { pointerMoved(event) }
+    override func rightMouseDragged(with event: NSEvent) { pointerMoved(event) }
+    override func otherMouseDragged(with event: NSEvent) { pointerMoved(event) }
 
     override func mouseDown(with event: NSEvent) { press(event, down: true) }
     override func mouseUp(with event: NSEvent) { press(event, down: false) }
@@ -128,11 +154,66 @@ final class RemoteInputCaptureView: NSView, MouseButtonForwarding {
     override func otherMouseDown(with event: NSEvent) { press(event, down: true) }
     override func otherMouseUp(with event: NSEvent) { press(event, down: false) }
 
-    override func scrollWheel(with event: NSEvent) { controller.scroll(event) }
+    /// A scroll in the middle of its gesture, or a wheel notch, waits for the frame; a phase edge
+    /// (began, ended, momentum began) goes at once, after what waits. A pane that sends nothing to
+    /// the host (view mode, not first responder) posts nothing: it never wakes the window's frame.
+    override func scrollWheel(with event: NSEvent) { // perf-hot: 2us pointer-coalesce (every scroll over a remote desktop)
+        if event.isMergeableScroll {
+            guard controller.isActive else { return }
+            if let consumer = framePointerConsumer() {
+                consumer.post(event)
+                return
+            }
+        }
+        flushPointer()
+        controller.scroll(event)
+    }
 
-    private func movePointer(_ event: NSEvent, clamped: Bool) {
+    /// Delivers the moves and scrolls that wait for the frame now: a discrete event (a button, a
+    /// key, a system shortcut) is about to go to the host, and must not pass them.
+    func flushPointer() { framePointer?.flush() }
+
+    /// A move or drag for the host. A pane that sends nothing to the host posts nothing, as for scrolls.
+    private func pointerMoved(_ event: NSEvent) { // perf-hot: 2us pointer-coalesce (every move and drag over a remote desktop)
+        guard controller.isActive else { return }
+        if let consumer = framePointerConsumer() {
+            consumer.post(event)
+        } else {
+            movePointer(to: convert(event.locationInWindow, from: nil), clamped: event.type != .mouseMoved)
+        }
+    }
+
+    /// One frame delivery: the latest point of the merged moves or drags, or the summed scroll.
+    private func deliver(_ input: PointerCoalescedInput) { // perf-hot: 2us pointer-coalesce (every frame delivery to the host)
+        let record = input.latest
+        switch input.kind {
+        case .move, .drag:
+            movePointer(to: convert(NSPoint(x: record.location.x, y: record.location.y), from: nil), clamped: input.kind == .drag)
+        case .scroll:
+            let phases = record.scrollPhase.appKitPhases
+            controller.scroll(deltaX: input.scrollDelta.x, deltaY: input.scrollDelta.y, precise: record.hasPreciseScrollingDeltas,
+                              phase: phases.phase, momentumPhase: phases.momentum)
+        }
+    }
+
+    private func framePointerConsumer() -> PointerFrameConsumer? {
+        if let framePointer { return framePointer }
+        guard let pointerFrames, let window else { return nil }
+        let consumer = pointerFrames.coalescer(for: window).consumer(owner: "RemoteInputCaptureView") { [weak self] input in
+            self?.deliver(input)
+        }
+        framePointer = consumer
+        return consumer
+    }
+
+    private func dropFramePointer() {
+        framePointer?.cancel()
+        framePointer = nil
+    }
+
+    /// A drag keeps going outside the picture (clamped to its edge); a plain move outside it is not sent.
+    private func movePointer(to point: NSPoint, clamped: Bool) {
         guard let geometry = geometry() else { return }
-        let point = convert(event.locationInWindow, from: nil)
         if clamped {
             controller.pointer(geometry.clampedStreamPixel(at: point))
         } else if let pixel = geometry.streamPixel(at: point) {
@@ -141,6 +222,7 @@ final class RemoteInputCaptureView: NSView, MouseButtonForwarding {
     }
 
     private func press(_ event: NSEvent, down: Bool) {
+        flushPointer()
         if down { onMouseDown?() }
         if down, window?.firstResponder !== self { window?.makeFirstResponder(self) }
         guard let geometry = geometry(), let button = RemoteMouseButton(event: event) else { return }
@@ -189,4 +271,33 @@ extension RemoteInputCaptureView: @MainActor NSTextInputClient {
     }
 
     func characterIndex(for point: NSPoint) -> Int { NSNotFound }
+}
+
+extension NSEvent {
+    /// A scroll a newer scroll of the same phase may be merged with: one in the middle of its gesture
+    /// (changed, or momentum changed), or a phaseless wheel notch, as Chromium merges wheels of equal
+    /// phase, none included (`WebMouseWheelEvent::CanCoalesce`,
+    /// `third_party/blink/common/input/web_mouse_wheel_event.cc`). A gesture's edges (may begin,
+    /// began, ended, cancelled, momentum began and ended) are not.
+    nonisolated package var isMergeableScroll: Bool {
+        type == .scrollWheel
+            && ((phase.isEmpty && momentumPhase.isEmpty) || phase == .changed || momentumPhase == .changed)
+    }
+}
+
+extension InputScrollPhase {
+    /// The AppKit gesture and momentum phases of a merged scroll. Only mid-gesture scrolls and wheel
+    /// notches merge (``NSEvent/isMergeableScroll``), so `.momentum` is momentum changed.
+    nonisolated package var appKitPhases: (phase: NSEvent.Phase, momentum: NSEvent.Phase) {
+        switch self {
+        case .none: ([], [])
+        case .mayBegin: (.mayBegin, [])
+        case .began: (.began, [])
+        case .changed: (.changed, [])
+        case .ended: (.ended, [])
+        case .cancelled: (.cancelled, [])
+        case .momentum: ([], .changed)
+        case .momentumEnded: ([], .ended)
+        }
+    }
 }

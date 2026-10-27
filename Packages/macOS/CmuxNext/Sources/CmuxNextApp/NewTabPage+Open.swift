@@ -4,22 +4,25 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextBrowserTabs
+import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDesign
+import CmuxNextFeatures
+import CmuxNextInput
 import CmuxNextMacScreen
 import CmuxNextOnboarding
+import CmuxNextPages
 import CmuxNextPalette
 import CmuxNextSettings
 import CmuxNextTabs
+import CmuxNextWakeups
 import Foundation
-
-/// Runs a new tab page's close on the frame after its replacement shows.
-@MainActor private let closeFrame = FrameBatcher(owner: "NewTabPage.close")
 
 extension NewTabPage {
     /// Panes whose New Tab page opening runs in this main-actor turn.
     private static var openingPanes: Set<ObjectIdentifier> = []
     /// The New Tab page in `pane`, adopting the window's prewarmed spare when it has one
-    /// (NewTabSparePool), else loading cold. A static of the page, not the pane (the godfile
+    /// (NewTabPreload), else loading cold. A static of the page, not the pane (the godfile
     /// limit counts PaneController's extensions). Everything happens in this one main-actor
     /// turn, with no hop: the spare waited at this pane's content size, so its adoption changes
     /// no size and WebKit shows the page at its final layout; the strip starts the tab's grow now;
@@ -63,7 +66,7 @@ extension NewTabPage {
         // A pane of another machine shows the same page, never a prewarmed spare: a spare is connected
         // to this Mac's acpmux, and that pane's chat starts on its machine at the first send (cx-k21v).
         let spare = seed == nil && pane.daemon.isLocal
-            ? BenchSpans.measure("newTab.take", { services.newTabSpares.take(for: pane.view.window, size: NewTabSparePool.newTabContentSize(in: pane)) })
+            ? BenchSpans.measure("newTab.take", { services.newTabSpares.take(for: pane.view.window, size: NewTabPreload.newTabContentSize(in: pane)) })
             : nil
         // The tab shows at once (a store intent); the store's tab replaces it when it answers.
         guard BenchSpans.measure("newTab.open", { pane.openAgentTab(seed: seed, newTab: (page, handler), spare: spare?.view, then: then) }) else {
@@ -88,7 +91,8 @@ extension NewTabPage {
             BenchSpans.measure("newTab.strip") { pane.view.stripView.sync(fromModel: true) }
         }
         services.newTabSpares.record(.init(spare: spare != nil, crossWindow: spare?.crossWindow == true,
-                                           milliseconds: NewTabSparePool.milliseconds(since: start), refit: spare?.refit == true))
+                                           milliseconds: NewTabPreload.milliseconds(since: start), refit: spare?.refit == true,
+                                           covered: spare?.covered == true))
     }
 
     /// The page chose a terminal or browser: open it, then close the page,
@@ -107,9 +111,10 @@ extension NewTabPage {
         if let refusal = MacScreenPages.pairingLinkRefusal(for: request.text) { return services.registry.refuse(refusal) }
         // The page closes one frame after the new tab shows, so the frame that builds the
         // terminal surface does not also pay for the page (R81: 17.8 ms frames at 120 Hz).
+        let closeFrames = services.newTabCloseFrames
         let close: @MainActor (SurfaceID) -> Void = { [weak pane] _ in
             guard !keep else { return }
-            closeFrame.scheduleFrame { BenchSpans.measure("newTab.closePage") { pane?.close([StripTabID(key)]) } }
+            closeFrames.scheduleFrame { BenchSpans.measure("newTab.closePage") { pane?.close([StripTabID(key)]) } }
         }
         if case .terminal = request.kind, request.run, command(request.text) == nil { return } // opens nothing
         // The pick takes the page's place, like a browser's new tab (Leo 2026-10-20); the Debug toggle
@@ -194,6 +199,46 @@ extension NewTabPage {
     /// Closes New Tab page `key` one frame after what it opened shows (``opensBeside(_:in:)`` keeps
     /// a lone page in place, so this never empties the person's pane).
     static func closingPage(_ key: String, in pane: PaneController) -> @MainActor () -> Void {
-        { [weak pane] in closeFrame.scheduleFrame { pane?.close([StripTabID(key)]) } }
+        let closeFrames = pane.services.newTabCloseFrames
+        return { [weak pane] in closeFrames.scheduleFrame { pane?.close([StripTabID(key)]) } }
+    }
+}
+
+/// ``NewTabPreload``, which every New Tab page open takes from, on the app's collaborators, and its
+/// pure size and timing helpers.
+extension NewTabPreload {
+    /// The app's adapter (`AppServices.newTabSpares`), on the app's one preload slot: made here with
+    /// the app's deadlines and installed on `webUI`, whose memory pressure subscription drops it, unless
+    /// installed already. Rendered-parked until spike 090 records its park state: no engine freezes a
+    /// slot page yet (p13-webui-028).
+    static func app(_ services: AppServices) -> NewTabPreload {
+        let slot = services.webUI.preload ?? PagePreloadSlot(parkState: .renderedParked, deadlines: services.mainDeadlines)
+        services.webUI.preload = slot
+        return NewTabPreload(services: services, slot: slot, memory: services.memoryCoordinator, input: services.inputTap,
+                             deadlines: services.mainDeadlines,
+                             preloadOnMakeVisible: services.features.isEnabled(.pageRendererAtFirstShow),
+                             parksHidden: services.features.isEnabled(.newTabParksHidden))
+    }
+
+    /// The adapter on `services`' collaborators (held, not `services`).
+    convenience init(services: AppServices, slot: PagePreloadSlot, memory: any MemoryConsumerRegistry,
+                     input: any InputObserving, deadlines: MainDeadlineScheduler,
+                     preloadOnMakeVisible: Bool = false, parksHidden: Bool = false) {
+        self.init(slot: slot, agentTabs: services.agentTabs, windows: services.windows, appEvents: services.appEvents,
+                  sparePage: { [weak services] in services.map { NewTabPage.sparePage($0) } },
+                  memory: memory, input: input, deadlines: deadlines, preloadOnMakeVisible: preloadOnMakeVisible, parksHidden: parksHidden)
+    }
+
+    /// The size a Cmd-T tab in `pane` shows at: the pane less its tab bar, also where a browser's
+    /// header band holds the bar now (the band goes with the browser).
+    static func newTabContentSize(in pane: PaneController) -> NSSize {
+        let scale = pane.view.window?.backingScaleFactor ?? 2
+        let strip = pane.hidesTabBar || pane.isAppPane ? 0 : PaneChromeMetrics.current.resolvedStripHeight(scale: scale)
+        return NSSize(width: pane.view.bounds.width, height: max(0, pane.view.bounds.height - strip))
+    }
+
+    static func milliseconds(since start: ContinuousClock.Instant) -> Double {
+        let (seconds, attoseconds) = (ContinuousClock.now - start).components
+        return Double(seconds) * 1_000 + Double(attoseconds) / 1e15
     }
 }

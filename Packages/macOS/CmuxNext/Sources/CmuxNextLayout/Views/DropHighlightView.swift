@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 import Observation
 
 /// Shows where a dragged tab will land. The drawing is one of the
@@ -11,6 +12,13 @@ import Observation
 /// every style moves the same way; Reduce Motion snaps (the layout passes
 /// `animated: false`). Glass styles draw through `OverlaySurfaceView`, so
 /// `OverlayMaterial.select` stays the one material choice.
+///
+/// A style that moves its own layers (`drivesOwnMotion`, the default outline) shows each move when the
+/// change turn ends (``commitOwnMove(onRenderServer:)``): with `motion.renderServer` on, the render
+/// server takes it as one additive `RenderSpring` retarget per drag event (``DropHighlightRenderMotion``),
+/// and the main thread steps no frame for it, as Chromium retargets a compositor animation on input
+/// (`cc/animation/scroll_offset_animation_curve.cc`, `UpdateTarget`). A style that redraws its paths from
+/// the rect (the Debug Settings experiments) still steps on the CPU while it moves.
 final class DropHighlightView: NSView {
     private var renderer: any DropOverlayRenderer
     private var targetSpring = AnimatedFrame(.zero, alpha: 0)
@@ -23,8 +31,28 @@ final class DropHighlightView: NSView {
     private var refused = false
     private var materialOverride: OverlayMaterial?
     private(set) var isShowing = false
+    /// A self-driven style's move ``show`` started; its renderer shows it at the end of the change
+    /// turn (``commitOwnMove(onRenderServer:)``).
+    private var ownMovePending = false
+    /// Moves the render server took, one per drag event that changed the target (tests).
+    private(set) var renderServerMoves = 0
+    /// Display frames that stepped the highlight's CPU springs (tests).
+    private(set) var steps = 0
     /// Called when a tunable change needs a redraw while nothing moves.
     var needsFrame: () -> Void = {}
+    /// Follows the drop overlay tunables (``follow(on:)``); nil until the layout root passes its scheduler.
+    private var tunablesWatch: FrameObservation<DropTunables>?
+
+    /// Every drop overlay tunable: the style and each override.
+    private struct DropTunables: Equatable {
+        var style: DropOverlayStyle
+        var overrides: [TunableValue?]
+
+        init() {
+            style = DropOverlayStyle.current
+            overrides = DropOverlayTunables.all.map { TunableStore.shared.override($0.key) }
+        }
+    }
 
     /// `material` pins one material (tests); nil follows this Mac.
     init(material: OverlayMaterial? = nil) {
@@ -36,7 +64,6 @@ final class DropHighlightView: NSView {
         isHidden = true
         alphaValue = 0
         setAccessibilityElement(false)
-        observeTunables()
     }
 
     @available(*, unavailable)
@@ -94,6 +121,7 @@ final class DropHighlightView: NSView {
         self.label = text
         self.cornerRadius = cornerRadius
         refused = false
+        let moves = !isShowing || target != targetSpring.targetRect || region != regionSpring.targetRect
         if !isShowing {
             isShowing = true
             isHidden = false
@@ -117,8 +145,24 @@ final class DropHighlightView: NSView {
             targetSpring.snap()
             regionSpring.snap()
         }
+        if animated, moves, renderer.drivesOwnMotion {
+            ownMovePending = true
+            return false
+        }
         apply(animated: animated)
         return animated && !renderer.drivesOwnMotion
+    }
+
+    /// Shows the move ``show`` left to a self-driven renderer, once, at the end of its change turn:
+    /// as additive `RenderSpring` retargets when `onRenderServer` (``DropHighlightRenderMotion``), else
+    /// as the renderer's own Core Animation springs. Returns whether a move was waiting.
+    @discardableResult
+    func commitOwnMove(onRenderServer: Bool) -> Bool {
+        guard ownMovePending else { return false }
+        ownMovePending = false
+        if onRenderServer { renderServerMoves &+= 1 }
+        apply(animated: true, onRenderServer: onRenderServer)
+        return true
     }
 
     /// Replaces the label of the target on show: the reason a drop there
@@ -133,10 +177,15 @@ final class DropHighlightView: NSView {
     }
 
     var isRefused: Bool { refused }
+    /// A spring of the highlight has not reached its target (``step(_:)`` still moves it).
+    var isMoving: Bool {
+        [targetSpring, regionSpring].contains { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }
+    }
     var labelText: String { label }
 
     func hide(animated: Bool) -> Bool {
         guard isShowing else { return false }
+        ownMovePending = false
         if renderer.drivesOwnMotion {
             isShowing = false
             refused = false
@@ -155,6 +204,7 @@ final class DropHighlightView: NSView {
     }
 
     func step(_ dt: Double) -> Bool {
+        steps &+= 1
         let token: MotionSpring = renderer.style == .morph ? .settle : DropOverlayTunables.spring.value
         let parameters = Motion.panes.spring(token)
         let alphaParameters = Motion.panes.spring(.track)
@@ -166,7 +216,7 @@ final class DropHighlightView: NSView {
 
     // MARK: Private
 
-    private func apply(animated: Bool = false) {
+    private func apply(animated: Bool = false, onRenderServer: Bool = false) {
         if let superview, frame != superview.bounds { frame = superview.bounds }
         // A self-driven style (the outline ring) fades itself out on hide.
         // Updating it after that would show its last target again: the
@@ -177,7 +227,7 @@ final class DropHighlightView: NSView {
                                              zone: zone, bounds: bounds,
                                              cornerRadius: cornerRadius, label: label, showsLabel: DropOverlayTunables.showLabel.value,
                                              refused: refused, animated: animated, fills: fills,
-                                             companions: isShowing ? companions : []))
+                                             companions: isShowing ? companions : [], springsOnRenderServer: onRenderServer))
         }
         alphaValue = targetSpring.alpha.value * CGFloat(DropOverlayTunables.opacity.value)
         if !isShowing && targetSpring.alpha.value <= 0.001 { isHidden = true }
@@ -199,24 +249,24 @@ final class DropHighlightView: NSView {
         install(renderer)
     }
 
-    /// Redraws on any drop overlay tunable change (style switches live
-    /// mid-drag, or while `debug.drop_highlight` holds the overlay still).
-    /// One-shot Observation, re-armed after each change; no polling.
-    private func observeTunables() {
-        withObservationTracking {
-            _ = DropOverlayStyle.current
-            for descriptor in DropOverlayTunables.all { _ = TunableStore.shared.override(descriptor.key) }
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.refreshStyle()
-                if self.isShowing || !self.isHidden {
-                    self.renderer.applyTheme()
-                    self.apply()
-                    self.needsFrame()
-                }
-                self.observeTunables()
-            }
+    /// Redraws on any drop overlay tunable change (style switches live mid-drag, or while
+    /// `debug.drop_highlight` holds the overlay still), once per frame however many changed; no
+    /// polling. A highlight never given a scheduler (tests) reads the tunables at each ``show``.
+    func follow(on work: MainWorkScheduler) {
+        guard tunablesWatch == nil else { return }
+        // node-free: the layout root has no VisibilityNode; a hidden highlight's apply only swaps its renderer.
+        tunablesWatch = FrameObservation(owner: "Layout.dropHighlight", delivery: .visible(nil), on: work) {
+            DropTunables()
+        } onChange: { [weak self] _ in
+            self?.tunablesChanged()
         }
+    }
+
+    private func tunablesChanged() {
+        refreshStyle()
+        guard isShowing || !isHidden else { return }
+        renderer.applyTheme()
+        apply()
+        needsFrame()
     }
 }

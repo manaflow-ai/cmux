@@ -9,6 +9,7 @@ impl Mux {
     /// Publish `source`'s current terminal snapshot (with its progress and
     /// program status) as one resource revision named `mutation`. A replaced
     /// runtime or a terminal that is not running publishes nothing.
+    #[track_caller]
     pub(crate) fn publish_terminal_progress(
         &self,
         source: &Surface,

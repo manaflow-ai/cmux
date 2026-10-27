@@ -281,7 +281,7 @@ impl Inner {
         let _ = idle_exit;
         eprintln!("cmux-tui: browser host {pid} stopped after {} ms; restarting", ran.as_millis());
         // A bounded restart delay on the watcher thread, not a synchronization.
-        std::thread::sleep(delay);
+        crate::request_path::sleep(delay);
         let Some(inner) = this.upgrade() else { return };
         if let Err(error) = Self::credentials(&inner) {
             eprintln!("cmux-tui: browser host restart failed: {error}");
@@ -329,10 +329,10 @@ fn start(_: &Arc<Inner>, _: &Path, _: &Config) -> Result<Running, String> {
 #[cfg(unix)]
 fn start(inner: &Arc<Inner>, binary: &Path, config: &Config) -> Result<Running, String> {
     use std::io::{BufRead, BufReader, Write};
-    use std::os::fd::AsRawFd;
+    use std::os::fd::AsFd;
     use std::os::unix::fs::PermissionsExt;
-    use std::os::unix::process::CommandExt;
-    use std::process::{Command, Stdio};
+
+    use cmux_process::{Command, Stdio};
 
     let socket = config.socket.as_path();
     let dir = socket.parent().ok_or("the browser host socket has no directory")?;
@@ -342,12 +342,15 @@ fn start(inner: &Arc<Inner>, binary: &Path, config: &Config) -> Result<Running, 
     let secret = mint_secret()?;
     let (secret_read, mut secret_write) =
         std::io::pipe().map_err(|error| format!("cannot open the secret pipe: {error}"))?;
+    let inherit_error =
+        |error: std::io::Error| format!("cannot pass the browser host a socket: {error}");
     // fd 3 the secret, then the listening sockets the daemon keeps (4, 5).
-    let mut fds = vec![secret_read.as_raw_fd()];
     let mut command = Command::new(binary);
     command.args(["serve", "--provider-secret-fd", "3", "--supervised"]);
-    if let Some((agent, provider)) = inner.activation.raw_fds() {
-        fds.extend([agent, provider]);
+    command.inherit_fd(secret_read.as_fd(), 3).map_err(inherit_error)?;
+    let mut next_fd = 4;
+    if inner.activation.pass_to(&mut command, 4).map_err(inherit_error)? {
+        next_fd = 6;
         command.args(["--agent-listen-fd", "4", "--provider-listen-fd", "5", "--idle-exit-ms"]);
         command.arg(config.idle_exit.as_millis().to_string());
     }
@@ -358,8 +361,8 @@ fn start(inner: &Arc<Inner>, binary: &Path, config: &Config) -> Result<Running, 
         Some(mux) => {
             let (daemon_end, host_end) = std::os::unix::net::UnixStream::pair()
                 .map_err(|error| format!("cannot open the history link: {error}"))?;
-            fds.push(host_end.as_raw_fd());
-            command.arg("--history-fd").arg((2 + fds.len()).to_string());
+            command.inherit_fd(host_end.as_fd(), next_fd).map_err(inherit_error)?;
+            command.arg("--history-fd").arg(next_fd.to_string());
             Some((mux, daemon_end, host_end))
         }
         None => None,
@@ -375,14 +378,10 @@ fn start(inner: &Arc<Inner>, binary: &Path, config: &Config) -> Result<Running, 
         .stderr(Stdio::inherit())
         // Its own process group: a signal to the daemon's group does not
         // reach it; it stops when its stdin ends.
-        .process_group(0);
-    // SAFETY: sysconf before the fork.
-    let max_fd = match unsafe { libc::sysconf(libc::_SC_OPEN_MAX) } {
-        n if n > 0 => n.min(65_536) as libc::c_int,
-        _ => 4096,
-    };
-    // SAFETY: only async-signal-safe calls between fork and exec.
-    unsafe { command.pre_exec(move || inherited_fds_only(&fds, max_fd)) };
+        .process_group(0)
+        // Only the descriptors above, on Linux too.
+        .isolate();
+    crate::request_path::note(crate::request_path::BlockingKind::ProcessSpawn);
     let mut child =
         command.spawn().map_err(|error| format!("cannot start the browser host: {error}"))?;
     drop(secret_read);
@@ -438,34 +437,6 @@ fn start(inner: &Arc<Inner>, binary: &Path, config: &Config) -> Result<Running, 
         pid,
         _stdin: stdin,
     })
-}
-
-/// In the forked child: `fds` become 3, 4, ... in order (moved above 9
-/// first, so no source is overwritten), with close-on-exec cleared; every
-/// other descriptor above them is closed.
-#[cfg(unix)]
-fn inherited_fds_only(fds: &[libc::c_int], max_fd: libc::c_int) -> std::io::Result<()> {
-    let mut high = [0 as libc::c_int; 4];
-    let count = fds.len().min(high.len());
-    // SAFETY: plain descriptor syscalls on this (forked, single-threaded) process.
-    unsafe {
-        for (slot, fd) in high.iter_mut().zip(fds) {
-            *slot = libc::fcntl(*fd, libc::F_DUPFD, 10);
-            if *slot < 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-        }
-        for (index, fd) in high[..count].iter().enumerate() {
-            let target = 3 + index as libc::c_int;
-            if libc::dup2(*fd, target) != target || libc::fcntl(target, libc::F_SETFD, 0) != 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-        }
-        for other in (3 + count as libc::c_int)..max_fd {
-            libc::close(other);
-        }
-    }
-    Ok(())
 }
 
 #[cfg(unix)]

@@ -246,7 +246,7 @@ import Testing
     @Test func theSnapshotStoreDropsTheLeastRecentlyUsedPicturePastItsBudget() async throws {
         let one = try #require(await HibernationSnapshots.compress(Self.noise(seed: 1)))
         let size = try #require(one.data?.count)
-        let store = HibernationSnapshots(capacityBytes: size * 5 / 2)
+        let store = HibernationSnapshots(fullCapacityBytes: size * 5 / 2)
         store.insert(one, for: "a")
         store.insert(try #require(await HibernationSnapshots.compress(Self.noise(seed: 2))), for: "b")
         _ = store.image(for: "a")  // "a" is used again: "b" is now the oldest
@@ -262,12 +262,19 @@ import Testing
         defer { rig.close() }
         let picture = try Self.picture(shade: 0.4, width: 1200, height: 800)
         rig.hibernation.capture = { _ in picture }
+        let hooks = Hooks()
+        rig.hibernation.onHibernate = { hooks.hibernated += 1 }
+        rig.hibernation.onWakeMounted = { hooks.wakes.append($0) }
         let key = try await rig.hide(rig.page("timed", body: "<p>timed</p>"))
         try await rig.until("the page hibernated") { rig.isHibernated(key) || rig.exemption(key) != nil }
         try #require(rig.isHibernated(key))
+        #expect(hooks.hibernated == 1, "the memory histograms' discard hook did not fire once")
         rig.services.cache.present(key, by: rig.pane, presence: .visible)
         try await rig.until("the woken page loaded") { rig.hibernation.wakeLog.records.last?.loadedMs != nil }
         let wake = try #require(rig.hibernation.wakeLog.records.last)
+        #expect(hooks.wakes.count == 1, "the memory histograms' wake hook did not fire once")
+        #expect(hooks.wakes.first.map { Int($0.components.seconds * 1000 + $0.components.attoseconds / 1_000_000_000_000_000) } == wake.mountedMs,
+                "the hook's latency is not the wake's")
         #expect(wake.tab == key && wake.engine == .webkit && wake.visible, "the wake was not the shown page's: \(wake)")
         #expect(wake.snapshot, "the pane had no snapshot while the page came back")
         #expect((wake.mountedMs ?? .max) <= (wake.loadedMs ?? 0), "the page loaded before it was back: \(wake)")
@@ -347,7 +354,7 @@ import Testing
         init() throws {
             _ = NSApplication.shared
             services = AppServices(environment: AppEnvironment.current([:]))
-            hibernation = BrowserHibernation(cache: services.cache, memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()))
+            hibernation = BrowserHibernation(cache: services.cache, memory: ManualMemoryLevelRegistry(), deadlines: services.mainDeadlines)
             services.cache.hibernation = hibernation
             hibernation.apply(BrowserHibernationSetting(mode: .moderate))
             hibernation.pressureDidChange(.critical)
@@ -423,6 +430,12 @@ import Testing
             window.close()
             try? FileManager.default.removeItem(at: folder)
         }
+    }
+
+    /// What the memory histograms' hooks were handed.
+    @MainActor final class Hooks {
+        var hibernated = 0
+        var wakes: [Duration] = []
     }
 
     @MainActor final class Pane: SurfacePresenter {

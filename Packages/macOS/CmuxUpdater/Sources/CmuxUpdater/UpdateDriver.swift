@@ -1,8 +1,8 @@
 import Foundation
-@preconcurrency import Sparkle
 
-/// The `SPUUserDriver` that translates Sparkle's update lifecycle into ``UpdateStateModel``
-/// transitions for cmux's custom (non-Sparkle-UI) update surface.
+/// Translates Sparkle's update lifecycle into ``UpdateStateModel`` transitions for cmux's
+/// custom (non-Sparkle-UI) update surface. Sparkle reaches it through ``SparkleDriverBridge``
+/// (`SparkleSeam.swift`), which converts Sparkle's types into cmux values.
 ///
 /// Sparkle's `SPUUserDriver`/`SPUUpdaterDelegate` are `@MainActor`, so every callback runs on
 /// the main actor and writes the model directly with no thread hopping. A check's answer shows
@@ -10,7 +10,7 @@ import Foundation
 /// task. Host actions the
 /// driver cannot perform itself (retry, relaunch prep) go through ``UpdateActionDelegate``.
 @MainActor
-final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
+final class UpdateDriver {
     /// The state model this driver drives.
     let model: UpdateStateModel
     let log: any UpdateLogging
@@ -45,7 +45,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// The current time, for ``pendingDeltaWait`` (replaced by tests).
     var now: () -> Date = Date.init
     /// The update a background check accepted, and its held install once it is ready.
-    var backgroundItem: SUAppcastItem?
+    var backgroundItem: UpdateAppcastItem?
     var stagedInstall: (() -> Void)?
     /// Cancels the held installer (Skip on the ready prompt: no skipped version is recorded).
     var stagedCancel: (() -> Void)?
@@ -63,10 +63,10 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     var holdsUserInstalls = true
     /// The update Sparkle's own silent driver staged (`willInstallUpdateOnQuit`), which never
     /// reaches ``backgroundItem``; read only while its "Restart to Complete Update" state holds.
-    var quitInstallItem: SUAppcastItem?
+    var quitInstallItem: UpdateAppcastItem?
     /// The update whose relaunch the gate holds, so the host still names it as the staged
     /// update a click installs; read only while that held state is the model's.
-    var heldRelaunchItem: SUAppcastItem?
+    var heldRelaunchItem: UpdateAppcastItem?
     /// Holds a ready update's relaunch while agents are mid-turn or commands are running.
     let relaunchGate: UpdateRelaunchGate
 
@@ -89,27 +89,26 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         self.relaunchGate = UpdateRelaunchGate(
             clock: clock, log: log, agentTimeout: relaunchAgentTimeout,
             daemonUnavailableTimeout: relaunchDaemonUnavailableTimeout)
-        super.init()
     }
 
     deinit {
         checkTimeoutTask?.cancel()
     }
 
-    func show(_ request: SPUUpdatePermissionRequest,
-              reply: @escaping @Sendable (SUUpdatePermissionResponse) -> Void) {
+    /// Sparkle asks whether to enable scheduled checks; cmux answers without showing anything.
+    func showPermissionRequest(reply: @escaping @Sendable (UpdatePermissionResponse) -> Void) {
 #if DEBUG
         let env = ProcessInfo.processInfo.environment
         if env["CMUX_UI_TEST_TRIGGER_UPDATE_CHECK"] == "1" || env["CMUX_UI_TEST_AUTO_ALLOW_PERMISSION"] == "1" {
             log.append("auto-allow update permission (ui test)")
-            Task { @MainActor in reply(SUUpdatePermissionResponse(automaticUpdateChecks: true, sendSystemProfile: false)) }
+            Task { @MainActor in reply(UpdatePermissionResponse(automaticUpdateChecks: true, sendSystemProfile: false)) }
             return
         }
 #endif
         // Never show Sparkle's permission UI. cmux always enables scheduled checks and keeps
         // automatic downloads disabled so installs remain user-driven.
         log.append("auto-allow update permission (no UI)")
-        Task { @MainActor in reply(SUUpdatePermissionResponse(automaticUpdateChecks: true, sendSystemProfile: false)) }
+        Task { @MainActor in reply(UpdatePermissionResponse(automaticUpdateChecks: true, sendSystemProfile: false)) }
     }
 
     func showUserInitiatedUpdateCheck(cancellation: @escaping () -> Void) {
@@ -117,9 +116,8 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         beginChecking(cancel: cancellation)
     }
 
-    func showUpdateFound(with appcastItem: SUAppcastItem,
-                         state: SPUUserUpdateState,
-                         reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
+    func showUpdateFound(with appcastItem: UpdateAppcastItem,
+                         reply: @escaping @Sendable (UpdateChoice) -> Void) {
         log.append("show update found: \(appcastItem.displayVersionString)")
         if let skip = skipsBuildsThrough, appcastItem.versionString.compare(skip, options: .numeric) != .orderedDescending {
             log.append("not offering \(appcastItem.versionString): a rollback left it (skips through \(skip))")
@@ -137,14 +135,6 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         }
         if installsInBackground && downloadsInBackground { return acceptInBackground(available) }
         setState(.updateAvailable(available))
-    }
-
-    func showUpdateReleaseNotes(with downloadData: SPUDownloadData) {
-        // cmux uses Sparkle's UI for release notes links instead.
-    }
-
-    func showUpdateReleaseNotesFailedToDownloadWithError(_ error: any Error) {
-        // Release notes are handled via link buttons.
     }
 
     func showUpdateNotFoundWithError(_ error: any Error,
@@ -223,7 +213,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         setState(.extracting(.init(progress: progress)))
     }
 
-    func showReady(toInstallAndRelaunch reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
+    func showReady(toInstallAndRelaunch reply: @escaping @Sendable (UpdateChoice) -> Void) {
         log.append("show ready to install")
         if installsInBackground { return stageInBackground(reply) }
         reply(.install)
@@ -234,7 +224,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// `true` to hold the relaunch until `installHandler` is invoked (see ``UpdateRelaunchGate``).
     /// Only an idle-policy install (``relaunchIsAutomatic``) waits for quiet input or an
     /// unconfirmed daemon mirror; anything the user started is held only by agents and commands.
-    func handleShouldPostponeRelaunch(item: SUAppcastItem? = nil, installHandler: @escaping () -> Void) -> Bool {
+    func handleShouldPostponeRelaunch(item: UpdateAppcastItem? = nil, installHandler: @escaping () -> Void) -> Bool {
         let automatic = relaunchIsAutomatic
         relaunchIsAutomatic = false
         var isAutoUpdate = false
@@ -277,25 +267,32 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// gate again as a user install (the "auto" flag only labels the state) and installs at
     /// most once.
     private func showRestartToComplete(install: @escaping () -> Void) {
-        let once = InstallOnce(install)
+        // The install handler, taken by its one run: a main-actor optional the closures below share, as
+        // Chromium runs a held `base::OnceCallback` with `std::move(callback_).Run()`.
+        var pendingInstall: (() -> Void)? = install
+        let installOnce = {
+            guard let run = pendingInstall else { return }
+            pendingInstall = nil
+            run()
+        }
         setState(.installing(.init(
             isAutoUpdate: true,
             retryTerminatingApplication: { [weak self] in
                 guard let self else {
-                    once.run()
+                    installOnce()
                     return
                 }
                 guard self.holdsUserInstalls else {
-                    once.run()
+                    installOnce()
                     return
                 }
-                self.holdRelaunch(isAutoUpdate: true, install: once.run)
+                self.holdRelaunch(isAutoUpdate: true, install: installOnce)
             },
             dismiss: {}
         )))
     }
 
-    func showInstallingUpdate(withApplicationTerminated applicationTerminated: Bool, retryTerminatingApplication: @escaping () -> Void) {
+    func showInstallingUpdate(retryTerminatingApplication: @escaping () -> Void) {
         log.append("show installing update")
         setState(.installing(.init(
             retryTerminatingApplication: retryTerminatingApplication,
@@ -312,10 +309,6 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         acknowledgement()
     }
 
-    func showUpdateInFocus() {
-        // No-op; cmux never shows Sparkle dialogs.
-    }
-
     func dismissUpdateInstallation() {
         // This callback has no prompt/session identity. User actions update the model at their
         // causal boundary, and UpdateController reconciles unexpected active-session termination
@@ -325,9 +318,9 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     }
 
     func handlePromptReply(_ reply: UpdatePromptReply,
-                           choice: SPUUserUpdateChoice,
+                           choice: UpdateChoice,
                            source: UpdatePromptReplySource,
-                           item: SUAppcastItem? = nil) {
+                           item: UpdateAppcastItem? = nil) {
         log.append("update prompt reply consumed (choice=\(choice.rawValue), source=\(source.rawValue))")
         // Whoever answered Install (a background accept, an Install Update click that
         // confirmed a fresh check, the user), the download that follows stages this
@@ -485,20 +478,5 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
             }
             return "installing(auto=\(installing.isAutoUpdate))"
         }
-    }
-}
-
-/// Runs a Sparkle install handler at most once.
-private final class InstallOnce {
-    private var install: (() -> Void)?
-
-    init(_ install: @escaping () -> Void) {
-        self.install = install
-    }
-
-    func run() {
-        guard let install else { return }
-        self.install = nil
-        install()
     }
 }

@@ -404,3 +404,36 @@ fn restore_cursor_decodes_a_multi_page_segment_once() {
     drop(registry);
     fs::remove_dir_all(root).unwrap();
 }
+
+/// A stored payload number must read the same after the record is sealed
+/// into a segment. The default serde_json float parser is off by an ulp on
+/// long inputs, so 43 fours read as 4.4444444444444445e42 and its archived
+/// text read back as 4.444444444444445e42 (cmux-tui/fuzz `journal_record`).
+#[test]
+fn a_stored_float_payload_survives_archiving() {
+    let record = decode_record((
+        1,
+        "event_float".into(),
+        1,
+        "workspace.created".into(),
+        "state".into(),
+        "required".into(),
+        1,
+        2,
+        r#"{"kind":"daemon","id":"d1"}"#.into(),
+        None,
+        None,
+        None,
+        0,
+        "[]".into(),
+        "public".into(),
+        format!(r#"{{"count":{}}}"#, "4".repeat(43)),
+        None,
+        None,
+        None,
+    ))
+    .unwrap();
+    let archived = serde_json::to_vec(&journal_record_for_archive(&record)).unwrap();
+    let read: SessionJournalRecord = serde_json::from_slice(&archived).unwrap();
+    assert_eq!(read, record);
+}
