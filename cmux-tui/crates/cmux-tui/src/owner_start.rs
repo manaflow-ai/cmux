@@ -43,7 +43,12 @@ pub(crate) fn register_main_thread() -> bool {
 /// and sends the ones not sent yet to Sentry (`crash_forward`), and watches
 /// its own memory (`memory_guard`), and fetches the signed invite-wave flags
 /// and the daily update answer (`background_checks`).
-pub(crate) fn prepare(args: &crate::Args) -> anyhow::Result<()> {
+///
+/// Returns the process's [`cmux_panic_log::Supervisor`]: a fatal worker
+/// failure records a `supervised_exit` line in the owner's panic log and
+/// exits, so whoever started the owner starts it again.
+pub(crate) fn prepare(args: &crate::Args) -> anyhow::Result<cmux_panic_log::Supervisor> {
+    let supervisor = owner_panic::supervisor(args.headless.then_some(args.session.as_str()));
     if args.headless {
         owner_panic::install(&args.session);
         #[cfg(all(tokio_unstable, feature = "cmux-stability"))]
@@ -56,7 +61,7 @@ pub(crate) fn prepare(args: &crate::Args) -> anyhow::Result<()> {
             .flat_map(|log| [log.clone(), memory_guard::memory_log_path(log)])
             .collect();
         let forwarder = crash_forward::start(logs);
-        memory_guard::spawn(panic_log, forwarder);
+        memory_guard::spawn(&supervisor, panic_log, forwarder);
         background_checks::spawn();
     }
     if args.ephemeral && args.state.is_some() {
@@ -71,5 +76,5 @@ pub(crate) fn prepare(args: &crate::Args) -> anyhow::Result<()> {
             crate::cli::BIN
         );
     }
-    Ok(())
+    Ok(supervisor)
 }

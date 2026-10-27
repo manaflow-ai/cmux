@@ -524,8 +524,12 @@ async fn connect_rpc_channel(
     let failure_shutdown = shutdown.clone();
     let channel =
         WorkspaceRpcChannel { messages: messages.clone(), requests: requests.clone(), shutdown };
-    tokio::spawn(async move {
-        let failure = loop {
+    let reader_messages = messages.clone();
+    let reader_requests = requests.clone();
+    let reader = tokio::spawn(async move {
+        let messages = reader_messages;
+        let requests = reader_requests;
+        loop {
             let received = tokio::select! {
                 biased;
                 changed = shutdown_rx.changed() => {
@@ -549,7 +553,12 @@ async fn connect_rpc_channel(
                 failure_shutdown.send_replace(true);
                 break error;
             }
-        };
+        }
+    });
+    // supervise-allow: the channel's reader monitor; it only awaits the reader and fails the channel's pending requests, so a reader panic ends those requests with an error instead of leaving them waiting.
+    tokio::spawn(async move {
+        let failure =
+            reader.await.unwrap_or_else(|error| format!("workspace RPC reader stopped: {error}"));
         let _ = messages.close().await;
         for (_, sender) in request_registry(&requests).pending.drain() {
             let _ = sender.send(Err(failure.clone()));
@@ -587,6 +596,7 @@ fn cancellation_worker(
 ) -> mpsc::Sender<DroppedWorkspaceRequest> {
     let (sender, mut receiver) =
         mpsc::channel::<DroppedWorkspaceRequest>(DROPPED_CANCELLATION_QUEUE);
+    // supervise-allow: the channel's cancellation sender; it ends with the channel, and a panic drops `receiver`, so later cancellations fail to queue and their callers shut their origin down as on a full queue.
     tokio::spawn(async move {
         while let Some(dropped) = receiver.recv().await {
             let Some(cancel_id) = request_registry(&requests).allocate() else {

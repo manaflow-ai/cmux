@@ -402,6 +402,7 @@ impl MachineAgent {
         let (inputs_tx, inputs_rx) = mpsc::sync_channel(EVENT_QUEUE_CAPACITY);
         let commands = inputs_tx.clone();
         let worker_control = Arc::clone(&control);
+        // supervise-allow: one generation's or stream's worker; it ends with its connection, and a panic drops its channel ends, so the coordinator sees that connection close.
         let join = thread::Builder::new()
             .name(format!("machine-agent-generation-{generation}"))
             .spawn(move || {
@@ -559,6 +560,7 @@ struct ReadDeadline {
 impl ReadDeadline {
     fn start(control: Arc<dyn ConnectionControl>, timeout: Duration) -> io::Result<Self> {
         let (cancel, receiver) = mpsc::sync_channel(1);
+        // supervise-allow: one generation's or stream's worker; it ends with its connection, and a panic drops its channel ends, so the coordinator sees that connection close.
         thread::Builder::new().name("machine-agent-handshake-deadline".into()).spawn(
             move || {
                 if receiver.recv_timeout(timeout).is_err() {
@@ -596,6 +598,7 @@ struct WriteDeadline {
 impl WriteDeadline {
     fn start(control: Arc<dyn ConnectionControl>, timeout: Duration) -> io::Result<Self> {
         let (commands, receiver) = mpsc::sync_channel(1);
+        // supervise-allow: one generation's or stream's worker; it ends with its connection, and a panic drops its channel ends, so the coordinator sees that connection close.
         thread::Builder::new().name("mx-write-watch".into()).spawn(move || {
             while let Ok(WriteDeadlineCommand::Arm) = receiver.recv() {
                 match receiver.recv_timeout(timeout) {
@@ -692,6 +695,7 @@ fn generation_worker(context: WorkerContext) {
         recent_opens,
     } = context;
     let cloud_sender = inputs_tx.clone();
+    // supervise-allow: one generation's or stream's worker; it ends with its connection, and a panic drops its channel ends, so the coordinator sees that connection close.
     if spawn_cloud_reader_with(
         worker_id,
         generation,
@@ -789,6 +793,7 @@ fn spawn_local_connectors(
     for index in 0..LOCAL_OPEN_CONCURRENCY {
         let local = Arc::clone(&local);
         let receiver = Arc::clone(&receiver);
+        // supervise-allow: one generation's or stream's worker; it ends with its connection, and a panic drops its channel ends, so the coordinator sees that connection close.
         thread::Builder::new().name(format!("mx-local-open-{index}")).spawn(move || {
             loop {
                 let request = receiver.lock().unwrap().recv();
@@ -1311,6 +1316,7 @@ fn spawn_local_reader(
     control: Arc<dyn ConnectionControl>,
     sender: SyncSender<WorkerInput>,
 ) -> io::Result<()> {
+    // supervise-allow: one generation's or stream's worker; it ends with its connection, and a panic drops its channel ends, so the coordinator sees that connection close.
     thread::Builder::new().name(format!("machine-agent-local-reader-{stream_id}")).spawn(
         move || {
             while let Some(reserved) = flow.reserve() {
@@ -1363,6 +1369,7 @@ fn spawn_local_writer(
     sender: SyncSender<WorkerInput>,
 ) -> io::Result<SyncSender<DataPayload>> {
     let (writes, receiver) = mpsc::sync_channel::<DataPayload>(LOCAL_WRITE_QUEUE_CAPACITY);
+    // supervise-allow: one generation's or stream's worker; it ends with its connection, and a panic drops its channel ends, so the coordinator sees that connection close.
     thread::Builder::new().name(format!("machine-agent-local-writer-{stream_id}")).spawn(
         move || {
             while let Ok(payload) = receiver.recv() {

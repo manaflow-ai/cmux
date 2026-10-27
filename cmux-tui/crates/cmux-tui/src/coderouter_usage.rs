@@ -292,6 +292,7 @@ fn start_poller_with_source(
 ) -> Option<UsagePoller> {
     let stop = Arc::new(Notify::new());
     let stop_for_thread = stop.clone();
+    // supervise-allow: owned by UsagePoller and stopped with it; a panic ends usage polling only.
     let spawn = std::thread::Builder::new().name("machine-usage-poll".into()).spawn(move || {
         let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
             Ok(runtime) => runtime,

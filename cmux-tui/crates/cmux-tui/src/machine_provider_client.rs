@@ -634,6 +634,7 @@ impl ProviderClient {
             negotiated_client_capabilities: Mutex::new(Vec::new()),
         });
         let weak = Arc::downgrade(&inner);
+        // supervise-allow: the provider connection's reader; a panic drops its guard, which closes the connection, so requests fail.
         std::thread::Builder::new()
             .name("machine-provider-reader".to_string())
             .spawn(move || control_reader_loop(reader, guard, weak))?;

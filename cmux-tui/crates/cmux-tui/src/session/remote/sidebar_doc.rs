@@ -158,6 +158,7 @@ impl RemoteSession {
             return;
         }
         let session = Arc::clone(self);
+        // supervise-allow: one sidebar document load; a panic ends that load only.
         let spawned = std::thread::Builder::new().name("sidebar-doc".into()).spawn(move || {
             let doc = &session.sidebar_doc;
             let mut installed = false;

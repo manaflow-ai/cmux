@@ -237,6 +237,7 @@ impl Upstream {
         let stdin = child.stdin.take().ok_or("no stdin")?;
         let stdout = child.stdout.take().ok_or("no stdout")?;
         let (tx, lines) = mpsc::channel();
+        // supervise-allow: one upstream server's stdout reader; it ends at EOF, and a panic drops `tx`, so requests to that upstream fail.
         std::thread::Builder::new()
             .name(format!("cmux-mcp-upstream-{}", self.prefix))
             .spawn(move || {

@@ -275,6 +275,7 @@ impl RemoteSurfaceAttachExecutor {
         let mut worker_count: usize = 0;
         for worker in 0..REMOTE_ATTACH_WORKER_LIMIT {
             let worker_shared = shared.clone();
+            // supervise-allow: one of REMOTE_ATTACH_WORKER_LIMIT pool workers owned by the executor and stopped with it; a panic ends that worker's job only.
             let spawned = std::thread::Builder::new()
                 .name(format!("surface-attach-{worker}"))
                 .spawn(move || {

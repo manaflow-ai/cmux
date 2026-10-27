@@ -1336,6 +1336,7 @@ impl InteractiveWriter {
             wait_until_written_gate: Mutex::new(None),
         });
         let worker_shared = shared.clone();
+        // supervise-allow: owned by InteractiveWriter (its shared state and abort); a panic ends this session's writes, which then fail.
         std::thread::Builder::new()
             .name("remote-input-writer".into())
             .spawn(move || interactive_writer_worker(worker_shared, writer))?;

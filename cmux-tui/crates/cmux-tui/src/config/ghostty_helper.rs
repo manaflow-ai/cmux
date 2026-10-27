@@ -101,6 +101,7 @@ pub(super) fn read_ghostty_limited_output_async(
     thread_name: &'static str,
 ) -> Option<GhosttyHelperOutputReader> {
     let (sender, receiver) = mpsc::channel();
+    // supervise-allow: one helper child's reader or reaper, bounded by that child; a panic drops its sender, so the wait ends with no output.
     std::thread::Builder::new()
         .name(thread_name.to_string())
         .spawn(move || {
@@ -222,6 +223,7 @@ pub(super) fn reap_ghostty_child_after_short_wait(
         let _ = reaped_sender.send(());
         return reaped_receiver;
     }
+    // supervise-allow: one helper child's reader or reaper, bounded by that child; a panic drops its sender, so the wait ends with no output.
     let _ = std::thread::Builder::new().name(reaper_name.to_string()).spawn(move || {
         let _ = child.wait();
         let _ = reaped_sender.send(());

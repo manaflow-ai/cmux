@@ -349,6 +349,7 @@ impl RecordWait for SignalWait {
         let deadline = Instant::now() + duration;
         let (signalled, signal) = mpsc::channel();
         // The watcher only peeks at the wake byte, so it never takes a signal from anyone else.
+        // supervise-allow: this CLI run's signal watcher; a panic drops `signalled`, so the wait below falls back to the clock.
         std::thread::Builder::new()
             .name("cmux-trace-wait".into())
             .spawn(move || {

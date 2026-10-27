@@ -681,6 +681,7 @@ impl ClientConnection {
         let Some(interval) = connection.config.reconnect.heartbeat_interval else { return };
         let timeout = connection.config.reconnect.heartbeat_timeout;
         let weak = Arc::downgrade(connection);
+        // supervise-allow: the connection's heartbeat; it ends when the connection drops (a Weak), and a panic only stops heartbeats, so a dead carrier is found by the next send instead.
         tokio::spawn(run_heartbeat(weak, interval, timeout));
     }
 
@@ -844,6 +845,7 @@ impl ClientConnection {
         let group = self.group.clone();
         let close_complete = CloseCompletionGuard::new(self.close_state.clone());
         let (result_tx, result_rx) = oneshot::channel();
+        // supervise-allow: one bounded close (TERMINAL_SHUTDOWN_TIMEOUT); a panic drops CloseCompletionGuard, which publishes a failed close to every waiter.
         tokio::spawn(async move {
             let _close_complete = close_complete;
             let result: Result<(), ConnectionError> = async {

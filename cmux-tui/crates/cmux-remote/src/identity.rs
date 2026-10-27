@@ -573,6 +573,7 @@ impl PersistenceCoordinator {
         let worker_shared = Arc::clone(&shared);
         // The durable writer that device connect, approve and revoke await:
         // the table's journal-writer-a-request-waits-on row, UserInitiated.
+        // supervise-allow: the coordinator keeps this handle; the body catches its own panic and fails the coordinator terminally, so every waiter gets a PersistenceFailure.
         let worker =
             cmux_threads::spawn(PERSISTENCE_THREAD_NAME, PERSISTENCE_THREAD_QOS, move || {
                 if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -1185,6 +1186,7 @@ impl AuthDatabase {
             (pending.decision, persistence)
         };
         let (completed_tx, completed_rx) = oneshot::channel();
+        // supervise-allow: one denial's completion; a panic drops `completed_tx` and `decision`, so this caller and the waiting device both get an error.
         tokio::spawn(async move {
             let result = persistence.wait_result().await;
             let authorization = match &result {
@@ -1607,6 +1609,7 @@ impl Drop for PendingDecisionCleanup {
         let invitation_id = self.invitation_id.clone();
         let token = Arc::clone(&self.token);
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            // supervise-allow: Drop cannot await; one map removal under a tokio Mutex (no poison), and a panic leaves only this expired entry.
             runtime.spawn(async move {
                 let mut locked = state.lock().await;
                 remove_pending_decision(&mut locked, &invitation_id, &token);
@@ -1617,6 +1620,7 @@ impl Drop for PendingDecisionCleanup {
         let synchronous_fallback = Arc::clone(&state);
         let fallback_invitation_id = invitation_id.clone();
         let fallback_token = Arc::clone(&token);
+        // supervise-allow: Drop outside a runtime; one map removal, and a panic leaves only this expired entry.
         if cmux_threads::spawn(
             "cmux-pending-enrollment-cleanup",
             cmux_threads::ThreadQos::Utility,

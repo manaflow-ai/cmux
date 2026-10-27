@@ -124,6 +124,7 @@ impl ProviderIoGuard {
         let (cancel, cancelled) = mpsc::sync_channel(1);
         let timed_out = Arc::new(AtomicBool::new(false));
         let thread_timed_out = Arc::clone(&timed_out);
+        // supervise-allow: owned by its guard and joined at close; a panic ends only this deadline or stderr drain.
         let worker = thread::Builder::new().name("machine-provider-deadline".to_string()).spawn(
             move || {
                 if cancelled.recv_timeout(timeout).is_err() {
@@ -548,6 +549,7 @@ fn spawn_command(
         closed: AtomicBool::new(false),
     });
     let worker_diagnostics = Arc::clone(&diagnostics);
+    // supervise-allow: owned by its guard and joined at close; a panic ends only this deadline or stderr drain.
     let worker = thread::Builder::new()
         .name("machine-provider-stderr".to_string())
         .spawn(move || worker_diagnostics.drain_cancellable(stderr, stderr_cancel_worker));

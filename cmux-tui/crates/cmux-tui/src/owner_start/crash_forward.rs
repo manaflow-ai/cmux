@@ -327,6 +327,7 @@ pub(super) fn start(logs: Vec<PathBuf>) -> Option<Forwarder> {
     };
     let forwarder = Forwarder { dsn, home: env("HOME"), sending: Default::default() };
     let worker = forwarder.clone();
+    // supervise-allow: one best-effort pass over the logs present at start; a panic loses only this pass (the lines stay unsent and the next owner start sends them).
     let _ = std::thread::Builder::new().name("crash-forward".into()).spawn(move || {
         let mut sent = 0;
         let mut failures = Vec::new();

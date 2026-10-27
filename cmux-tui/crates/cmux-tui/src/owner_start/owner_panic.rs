@@ -41,6 +41,22 @@ pub(super) fn install(session: &str) {
     panic_for_test();
 }
 
+/// The owner's supervisor. A headless owner (`session`) records a fatal
+/// worker failure in its panic log; either kind then exits through
+/// `client_log::exit`, which drains the client log first.
+pub(super) fn supervisor(session: Option<&str>) -> cmux_panic_log::Supervisor {
+    let (log, fields) = match session {
+        Some(session) => (log_path(session), fields(session)),
+        None => (None, cmux_panic_log::Fields::new()),
+    };
+    let sink = cmux_panic_log::ExitProcess::new(log, fields, exit_supervised);
+    cmux_panic_log::Supervisor::new(std::sync::Arc::new(sink))
+}
+
+fn exit_supervised(code: i32) {
+    crate::client_log::exit(code)
+}
+
 /// Every line's fields: the session and the build that wrote it.
 fn fields(session: &str) -> cmux_panic_log::Fields {
     let mut fields = cmux_panic_log::Fields::new();
@@ -93,6 +109,7 @@ fn panic_for_test() {
     if std::env::var(TEST_PANIC_ENV).as_deref() != Ok("thread") {
         return;
     }
+    // supervise-allow: debug-only test trigger; the test asks for exactly this thread's panic line.
     let _ = std::thread::Builder::new()
         .name(TEST_PANIC_THREAD.into())
         // crash-allow: debug-only test trigger for the owner panic log

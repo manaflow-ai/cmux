@@ -42,6 +42,7 @@ pub fn provider() -> crate::provider::Provider {
     });
     provider.source::<GreetTicks, _>(|_claims| {
         let (tx, rx) = tokio::sync::mpsc::channel(4);
+        // supervise-allow: three sends, then `tx` drops and the subscription ends; a panic ends it the same way.
         tokio::spawn(async move {
             for n in 1..=3 {
                 let _ = tx.send(HelloResult { message: format!("tick {n}") }).await;

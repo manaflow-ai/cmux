@@ -1278,6 +1278,7 @@ impl ProcessManager {
         self.processes.write().await.insert_active(id, record.clone());
         let waiter_record = record.clone();
         let processes = self.processes.clone();
+        // supervise-allow: one process's waiter; it ends when the process is reaped, and a panic drops `exit_tx`, which ends every wait on this process (only its record stays listed).
         tokio::spawn(async move {
             #[cfg(unix)]
             let status =
@@ -1432,6 +1433,7 @@ impl ProcessManager {
             drop(output_activity);
             let (status_tx, status_rx) = oneshot::channel();
             let target = record.target.clone();
+            // supervise-allow: one terminal's reaper; it ends when the child is reaped, and a panic drops `status_tx`, so the waiter below reports an unknown exit.
             tokio::spawn(async move {
                 let _pty_slot = pty_slot;
                 let outcome =
@@ -1452,6 +1454,7 @@ impl ProcessManager {
             self.processes.write().await.insert_active(id, record.clone());
             let waiter_record = record.clone();
             let processes = self.processes.clone();
+            // supervise-allow: one process's waiter; it ends when the process is reaped, and a panic drops `exit_tx`, which ends every wait on this process (only its record stays listed).
             tokio::spawn(async move {
                 let outcome = status_rx
                     .await
@@ -1481,6 +1484,7 @@ impl ProcessManager {
             let reader_events = events.clone();
             // Terminal output the person waits for: UserInitiated, not the
             // closed user-interactive list (threading-model.md).
+            // supervise-allow: one terminal's reader, joined by its wait thread below; a panic ends that terminal's output only.
             let reader_thread = cmux_threads::spawn(
                 format!("cmux-remote-pty-{id}"),
                 cmux_threads::ThreadQos::UserInitiated,
@@ -1497,6 +1501,7 @@ impl ProcessManager {
             .map_err(|error| RpcError::new("pty-open-failed", error.to_string()))?;
             let (status_tx, status_rx) = oneshot::channel();
             let thread_record = record.clone();
+            // supervise-allow: one terminal's wait thread; it ends when the child exits, and a panic drops `status_tx`, so the waiter below reports an unknown exit.
             cmux_threads::spawn(
                 format!("cmux-remote-pty-wait-{id}"),
                 cmux_threads::ThreadQos::Utility,
@@ -1519,6 +1524,7 @@ impl ProcessManager {
             self.processes.write().await.insert_active(id, record.clone());
             let waiter_record = record.clone();
             let processes = self.processes.clone();
+            // supervise-allow: one process's waiter; it ends when the process is reaped, and a panic drops `exit_tx`, which ends every wait on this process (only its record stays listed).
             tokio::spawn(async move {
                 let outcome = status_rx.await.unwrap_or(ExitOutcome { code: None, signal: None });
                 processes.write().await.complete(id);
@@ -2455,6 +2461,7 @@ fn schedule_process_timeout(record: Arc<ProcessRecord>, timeout_ms: Option<u64>)
     let Some(timeout_ms) = timeout_ms else { return };
     let mut exit = record.exit.clone();
     let record = Arc::downgrade(&record);
+    // supervise-allow: one process's timeout; it ends at the timeout or the exit, holds only a Weak record, and a panic loses only that timeout.
     tokio::spawn(async move {
         tokio::select! {
             _ = tokio::time::sleep(std::time::Duration::from_millis(timeout_ms)) => {
@@ -2471,6 +2478,7 @@ fn schedule_process_timeout(record: Arc<ProcessRecord>, timeout_ms: Option<u64>)
 
 fn terminate_with_escalation(record: Arc<ProcessRecord>) -> Result<(), RpcError> {
     signal_record(&record, ProcessSignal::Terminate)?;
+    // supervise-allow: one escalation after TERMINATION_GRACE; a panic loses only the follow-up kill of a process already sent SIGTERM.
     tokio::spawn(async move {
         tokio::time::sleep(TERMINATION_GRACE).await;
         if !record.completion.is_finished() {

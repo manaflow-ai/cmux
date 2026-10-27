@@ -446,6 +446,7 @@ pub(crate) async fn fetch_published(payload: &PublishedPayload) -> Result<PathBu
             let (sender, receiver) = watch::channel(None);
             downloads.insert(payload.cache_path.clone(), receiver.clone());
             let payload = payload.clone();
+            // supervise-allow: one shared download; a panic drops DownloadEntry and `sender`, so every waiter gets "the download stopped" and the next fetch starts again.
             tokio::spawn(async move {
                 let _entry = DownloadEntry(payload.cache_path.clone());
                 let _ = sender.send(Some(download(&payload).await));

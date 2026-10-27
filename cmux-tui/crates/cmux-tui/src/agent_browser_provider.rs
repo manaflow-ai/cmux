@@ -495,6 +495,7 @@ impl MuxControl {
         let socket = socket.to_path_buf();
         let display = socket.display().to_string();
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        // supervise-allow: one connect, joined on every answer; a panic drops `sender`, so the wait below fails as 'stopped without a result'.
         let connector = std::thread::Builder::new()
             .name("agent-browser-provider-connect".into())
             .spawn(move || {

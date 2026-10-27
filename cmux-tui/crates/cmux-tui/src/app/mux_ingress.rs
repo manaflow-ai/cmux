@@ -211,6 +211,7 @@ pub(super) fn start_ordered_session_inner(
     let worker_titles = mux_titles.clone();
     let worker_start = start.clone();
     let worker_stop = stop.clone();
+    // supervise-allow: owned by SessionEventWorker and stopped with it; a panic drops its session-event sender, so the app sees the session's events end.
     let mux =
         std::thread::Builder::new().name(format!("mux-events-{generation}")).spawn(move || {
             while !worker_start.load(Ordering::Acquire)

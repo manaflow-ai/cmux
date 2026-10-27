@@ -980,6 +980,7 @@ fn spawn_surface_operation(
     let worker_pending = pending.clone();
     let worker_queue = queue.clone();
     let worker_failure = on_failure.clone();
+    // supervise-allow: one surface operation; a panic ends that operation only.
     let spawn = std::thread::Builder::new().name("mux-surface-operation".into()).spawn(move || {
         let event = worker_pending.lock().unwrap().take().unwrap();
         process_event(worker_queue, worker_failure, event);

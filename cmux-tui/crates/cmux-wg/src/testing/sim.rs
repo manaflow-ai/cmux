@@ -237,6 +237,7 @@ impl SimNet {
 /// flight to a socket that has gone is dropped, as UDP would.
 fn spawn_delay_line(net: SimNet, to: SocketAddr) -> mpsc::UnboundedSender<(Instant, Delivery)> {
     let (sender, mut receiver) = mpsc::unbounded_channel::<(Instant, Delivery)>();
+    // supervise-allow: test-support network only; the line ends when its link's sender drops, and a panic fails the test that drives it (the datagrams stop).
     tokio::spawn(async move {
         while let Some((at, delivery)) = receiver.recv().await {
             tokio::time::sleep_until(at).await;
@@ -291,6 +292,7 @@ impl DatagramSocket for SimSocket {
             return Poll::Ready(Ok(()));
         }
         let (free_at, waker) = (egress.free_at(), cx.waker().clone());
+        // supervise-allow: test-support network only; one sleep then one wake, nothing shared.
         tokio::spawn(async move {
             tokio::time::sleep_until(free_at).await;
             waker.wake();

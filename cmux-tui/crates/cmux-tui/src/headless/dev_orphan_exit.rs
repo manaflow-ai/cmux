@@ -368,6 +368,7 @@ pub(crate) fn spawn(
     // A client that connected before the observer was installed.
     watch.clients_changed();
     let waiter = watch.clone();
+    // supervise-allow: owned by OrphanExit and joined at its stop; a panic ends the idle check only and the owner keeps serving.
     let thread = std::thread::Builder::new()
         .name(name.into())
         .spawn(move || {

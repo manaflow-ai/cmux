@@ -564,6 +564,7 @@ impl BrowserInputScheduler {
         });
         for worker_index in 0..worker_count {
             let worker = scheduler.clone();
+            // supervise-allow: one of the scheduler's worker_count workers, stopped by its shutdown; a panic ends that worker's lane only.
             if let Err(error) = std::thread::Builder::new()
                 .name(format!("mux-browser-input-{worker_index}"))
                 .spawn(move || worker.run())

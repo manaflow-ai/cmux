@@ -562,6 +562,7 @@ impl<B: Backend> Server<B> {
                 if let Some(output) = self.notes.clone()
                     && let Some(job) = self.proxied_job(&params)
                 {
+                    // supervise-allow: one proxied tool call; a panic ends that call only, and the MCP client's own timeout ends its wait.
                     std::thread::spawn(move || {
                         let response = json!({"jsonrpc": "2.0", "id": id, "result": job.run(None)});
                         let _ = output.send(&response);

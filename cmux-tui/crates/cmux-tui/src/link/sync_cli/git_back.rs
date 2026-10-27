@@ -439,9 +439,13 @@ fn staged_commit(quarantine: &Path, entries: &[u8]) -> anyhow::Result<Option<Str
         .context("cannot run git")?;
     let mut stdin = child.stdin.take().context("no stdin")?;
     let input = entries.to_vec();
-    let writer = std::thread::spawn(move || stdin.write_all(&input));
-    let built = child.wait().context("cannot run git")?;
-    let _ = writer.join();
+    let built = std::thread::scope(|scope| {
+        let writer = scope.spawn(move || stdin.write_all(&input));
+        let built = child.wait();
+        let _ = writer.join();
+        built
+    })
+    .context("cannot run git")?;
     if !built.success() {
         return Ok(None);
     }

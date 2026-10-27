@@ -85,6 +85,7 @@ impl ActionWatch {
 
 /// Starts the watcher thread for the life of the process.
 pub(super) fn spawn(global: GlobalArgs, output: Output) {
+    // supervise-allow: this MCP process's catalog watcher; a panic ends tool-list change notices only, and the tools still answer.
     let started = std::thread::Builder::new().name("cmux-mcp-actions".into()).spawn(move || {
         let params = json!({"names": [CATALOG_CHANGED], "include_heartbeats": false});
         let mut watch = ActionWatch::default();

@@ -13,6 +13,7 @@ mod server_lifecycle;
 pub(crate) fn run_headless<F>(
     mux: &Arc<Mux>,
     socket_path: &Path,
+    supervisor: &cmux_panic_log::Supervisor,
     remote_runtime_finished: F,
 ) -> anyhow::Result<()>
 where
@@ -42,26 +43,38 @@ where
         // start here, before the loop wakes and teardown begins, so a
         // shell that dies of the same logout signal is a host loss
         // (`session-shutdown`).
+        // Fatal: without this thread a termination signal no longer stops
+        // the owner. It waits on the signal itself, so shutdown leaves it be.
         let signalled = Arc::downgrade(mux);
-        std::thread::Builder::new()
-            .name("headless-signal-wait".into())
-            .spawn(move || {
-                wait_for_shutdown_signal_peek();
-                if shutdown_requested()
-                    && let Some(mux) = signalled.upgrade()
-                {
-                    mux.begin_session_shutdown();
-                    // Name who stopped this owner (cx-0tgl LA).
-                    if let Some((signal, sender, uid)) = signal_sender::shutdown_signal() {
-                        mux.record_daemon_signal(signal, sender, uid);
+        let (recorded, signal_recorded) = std::sync::mpsc::sync_channel::<()>(1);
+        supervisor
+            .supervise_thread(
+                "headless-signal-wait",
+                cmux_panic_log::Fatal,
+                cmux_panic_log::ShutdownBehavior::Continue,
+                move |_stop: &cmux_panic_log::StopToken| {
+                    wait_for_shutdown_signal_peek();
+                    if shutdown_requested()
+                        && let Some(mux) = signalled.upgrade()
+                    {
+                        mux.begin_session_shutdown();
+                        // Name who stopped this owner (cx-0tgl LA).
+                        if let Some((signal, sender, uid)) = signal_sender::shutdown_signal() {
+                            mux.record_daemon_signal(signal, sender, uid);
+                        }
                     }
-                }
-                wake_headless();
-            })
+                    let _ = recorded.send(());
+                    wake_headless();
+                },
+            )
             .ok()
+            .map(|_worker| signal_recorded)
     };
     #[cfg(not(unix))]
-    let signal_wait: Option<std::thread::JoinHandle<()>> = None;
+    let signal_wait: Option<std::sync::mpsc::Receiver<()>> = {
+        let _ = supervisor;
+        None
+    };
     // DEV builds only: stop an orphaned app owner; its terminals keep
     // running (dev_orphan_exit.rs).
     #[cfg(unix)]
@@ -81,7 +94,7 @@ where
     if shutdown_requested()
         && let Some(signal_wait) = signal_wait
     {
-        let _ = signal_wait.join();
+        let _ = signal_wait.recv();
     }
     if let Some(chief_brains) = chief_brains {
         chief_brains.stop();

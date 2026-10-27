@@ -154,7 +154,9 @@ mod unix {
         // partial JSON line to the peer.
         let writer = Arc::new(AsyncMutex::new(write_half));
         let (writer_tx, writer_rx) = mpsc::channel(MAX_WRITER_QUEUE);
+        // supervise-allow: this control connection's writer; it ends with the connection, and a panic ends that connection only (its requests end at timeout_ms).
         tokio::spawn(write_loop(writer, writer_rx, Arc::clone(&shared)));
+        // supervise-allow: this control connection's reader; it ends with the connection, and a panic ends that connection only (its requests end at timeout_ms).
         tokio::spawn(read_loop(read_half, Arc::clone(&shared)));
         Ok(Arc::new(UnixControl {
             shared,
