@@ -233,7 +233,7 @@ describe("editors", () => {
     expect(row().querySelector("[data-reset]")).toBeNull();
   });
 
-  test("unset browser.hibernation shows Never Discard; a timeout shows Reset; Never Discard removes the key", async () => {
+  test("unset browser.hibernation shows Never Discard; a written value shows Reset, which unsets it", async () => {
     const key = "browser.hibernation";
     page = await renderPage({ path: "/settings/browser" });
     const row = () => rowElement(page!.container, key);
