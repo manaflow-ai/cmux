@@ -384,6 +384,31 @@ mod tests {
     }
 
     #[test]
+    fn a_commit_that_panicked_leaves_the_request_pending_and_the_broker_usable() {
+        let broker = PairingBroker::new();
+        let (challenge, rx) = broker.begin("127.0.0.1".parse().unwrap()).unwrap();
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            broker.respond_after(challenge.id, true, |_| -> anyhow::Result<()> {
+                panic!("the durable commit panics with the pairing state locked")
+            })
+        }));
+        assert!(panicked.is_err());
+        assert!(broker.state.is_poisoned());
+        // The commit never ran to its end, so nothing was resolved: the request is still there.
+        assert_eq!(
+            broker.pending().iter().map(|pending| pending.id).collect::<Vec<_>>(),
+            [challenge.id]
+        );
+        assert!(broker.respond(challenge.id, true));
+        let PairingDecision::Approved { credential } = rx.recv().unwrap() else {
+            panic!("expected approval");
+        };
+        assert!(broker.authenticate(&credential));
+        let (other, _rx) = broker.begin("127.0.0.2".parse().unwrap()).unwrap();
+        assert!(broker.cancel(other.id));
+    }
+
+    #[test]
     fn challenge_is_six_grouped_digits() {
         let broker = PairingBroker::new();
         let (challenge, _rx) = broker.begin("127.0.0.1".parse().unwrap()).unwrap();

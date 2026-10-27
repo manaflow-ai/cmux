@@ -136,14 +136,12 @@ impl SidebarModel {
         if patch.full_reset {
             self.rows = patch.rows;
         } else {
+            // `rows` stays sorted by row number: a patch row replaces its row or goes in its place.
             for row in patch.rows {
-                match self.rows.binary_search_by_key(&row.row, |current| current.row) {
-                    Ok(index) => {
-                        if let Some(current) = self.rows.get_mut(index) {
-                            *current = row;
-                        }
-                    }
-                    Err(index) => self.rows.insert(index, row),
+                let index = self.rows.partition_point(|current| current.row < row.row);
+                match self.rows.get_mut(index) {
+                    Some(current) if current.row == row.row => *current = row,
+                    _ => self.rows.insert(index, row),
                 }
             }
         }
@@ -435,11 +433,11 @@ impl Widget for SidebarWidget<'_> {
             self.model.size.map_or_else(|| self.model.rows.len(), |size| usize::from(size.rows));
         let mut lines = (0..row_count)
             .map(|row| {
-                self.model
-                    .rows
-                    .binary_search_by_key(&(row as u16), |candidate| candidate.row)
-                    .ok()
-                    .and_then(|index| self.model.rows.get(index))
+                let row = row as u16;
+                let rows = &self.model.rows;
+                // A row the model has no record for renders blank.
+                rows.get(rows.partition_point(|candidate| candidate.row < row))
+                    .filter(|candidate| candidate.row == row)
                     .map_or_else(|| Line::from(""), |row| render_row(row, self.model))
             })
             .collect::<Vec<_>>();
@@ -642,5 +640,57 @@ fn mouse_button(button: MouseButton) -> &'static str {
         MouseButton::Left => "left",
         MouseButton::Right => "right",
         MouseButton::Middle => "middle",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cmux::RenderCursorStyle;
+
+    fn row(row: u16, text: &str) -> RenderRow {
+        let run = RenderRun {
+            text: text.to_owned(),
+            fg: None,
+            bg: None,
+            attrs: 0,
+            underline: None,
+            width_hint: None,
+        };
+        RenderRow { row, runs: vec![run] }
+    }
+
+    fn patch(rows: Vec<RenderRow>) -> RenderPatch {
+        RenderPatch {
+            cursor: RenderCursor {
+                x: 0,
+                y: 0,
+                style: RenderCursorStyle::Block,
+                blink: false,
+                visible: false,
+                color: None,
+            },
+            full_reset: false,
+            size: None,
+            default_fg: None,
+            default_bg: None,
+            scrollback_rows: None,
+            rows,
+        }
+    }
+
+    #[test]
+    fn a_patch_replaces_its_rows_and_inserts_new_ones_in_row_order() {
+        let mut model = SidebarModel::new("t");
+        model.apply_patch(patch(vec![row(1, "one"), row(4, "four")]));
+        model.apply_patch(patch(vec![
+            row(4, "FOUR"),
+            row(0, "zero"),
+            row(2, "two"),
+            row(9, "nine"),
+        ]));
+        let rows =
+            model.rows.iter().map(|row| (row.row, row.runs[0].text.as_str())).collect::<Vec<_>>();
+        assert_eq!(rows, [(0, "zero"), (1, "one"), (2, "two"), (4, "FOUR"), (9, "nine")]);
     }
 }

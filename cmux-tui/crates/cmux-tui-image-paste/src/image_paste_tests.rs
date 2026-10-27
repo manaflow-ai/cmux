@@ -221,3 +221,30 @@ fn cloud_image_paste_already_removed_file_does_not_hold_storage_forever() {
     assert!(store.shared.state.lock().unwrap().uploads.is_empty());
     assert!(!path.parent().unwrap().exists());
 }
+
+#[test]
+fn cloud_image_paste_store_works_after_a_holder_panicked() {
+    let store = ImagePasteStore::with_recovery(None);
+    let shared = Arc::clone(&store.shared);
+    let panicked = std::thread::spawn(move || {
+        let _state = shared.state.lock().unwrap();
+        panic!("a holder panics with the store locked");
+    })
+    .join();
+    assert!(panicked.is_err());
+    assert!(store.shared.state.is_poisoned());
+
+    store.begin(owner(), ID, "image/png", PNG.len()).unwrap();
+    store.append(&owner(), ID, 0, &base64::engine::general_purpose::STANDARD.encode(PNG)).unwrap();
+    let path = store.shared.lock().uploads[&(1, ID.into())].file.path().unwrap();
+    let mut pasted = String::new();
+    store
+        .commit(&owner(), ID, |text| {
+            pasted = text.into();
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(pasted, format!("'{}'", path.display()));
+    store.close_terminal("term_1");
+    assert!(!path.exists());
+}

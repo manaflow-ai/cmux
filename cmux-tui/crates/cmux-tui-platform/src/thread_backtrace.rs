@@ -153,8 +153,12 @@ impl Backtrace {
     }
 
     /// The captured addresses, the interrupted pc first.
+    #[allow(
+        clippy::indexing_slicing,
+        reason = "INVARIANT: only push grows len, and it stops at MAX_FRAMES, the array's length"
+    )]
     pub fn frames(&self) -> &[usize] {
-        self.frames.get(..self.len).unwrap_or(&[])
+        &self.frames[..self.len]
     }
 
     /// The capture kept only the interrupted pc because this build has no

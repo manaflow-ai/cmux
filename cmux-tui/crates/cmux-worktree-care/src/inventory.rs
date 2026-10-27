@@ -292,36 +292,7 @@ fn facts(entry: &ListEntry, overrides: &[Override], bases: &[String]) -> Result<
         overrides,
         &["status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignore-submodules=none"],
     )?;
-    let mut changed_paths = Vec::new();
-    let mut fields = records(&status).peekable();
-    while let Some(record) = fields.next() {
-        let text = String::from_utf8_lossy(record);
-        match text.as_bytes().first() {
-            Some(b'1') => {
-                changed_paths.push(nth_field(&text, 8));
-                submodule_change(&text, 8, &mut facts);
-            }
-            // A rename or copy is followed by its original path.
-            Some(b'2') => {
-                changed_paths.push(nth_field(&text, 9));
-                submodule_change(&text, 9, &mut facts);
-                fields.next();
-            }
-            Some(b'u') => changed_paths.push(nth_field(&text, 10)),
-            Some(b'?') => {
-                let Some(path) = text.strip_prefix("? ") else { continue };
-                let path = path.to_string();
-                if path.ends_with('/') {
-                    // `-uall` lists files; a folder is a nested repository,
-                    // which `git add` would keep as a bare gitlink.
-                    facts.unarchivable.get_or_insert(format!("nested repository {path}"));
-                }
-                facts.untracked.push(path);
-            }
-            _ => {}
-        }
-    }
-    facts.changed = u32::try_from(changed_paths.len()).unwrap_or(u32::MAX);
+    let changed_paths = status_facts(&status, &mut facts)?;
     hidden_changes(root, overrides, &mut facts)?;
 
     // Ignored entries, a fully ignored folder as one entry.
@@ -446,6 +417,46 @@ fn submodule_only_here(dir: &Path) -> Option<String> {
         .map(|r| String::from_utf8_lossy(r).into_owned())
         .find(|path| !is_build_output_at(dir, path))
         .map(|path| format!("has ignored data {path}"))
+}
+
+/// Reads `git status --porcelain=v2 -z` into `facts` (the changed count, the
+/// untracked files and the changes that keep a worktree unarchivable) and
+/// returns the changed paths. A record that does not parse is an error, so no
+/// decision acts on a partial list of untracked files.
+fn status_facts(status: &[u8], facts: &mut Facts) -> Result<Vec<String>, String> {
+    let mut changed_paths = Vec::new();
+    let mut fields = records(status).peekable();
+    while let Some(record) = fields.next() {
+        let text = String::from_utf8_lossy(record);
+        match text.as_bytes().first() {
+            Some(b'1') => {
+                changed_paths.push(nth_field(&text, 8));
+                submodule_change(&text, 8, facts);
+            }
+            // A rename or copy is followed by its original path.
+            Some(b'2') => {
+                changed_paths.push(nth_field(&text, 9));
+                submodule_change(&text, 9, facts);
+                fields.next();
+            }
+            Some(b'u') => changed_paths.push(nth_field(&text, 10)),
+            Some(b'?') => {
+                let Some(path) = text.strip_prefix("? ") else {
+                    return Err(format!("git status: malformed untracked record {text:?}"));
+                };
+                let path = path.to_string();
+                if path.ends_with('/') {
+                    // `-uall` lists files; a folder is a nested repository,
+                    // which `git add` would keep as a bare gitlink.
+                    facts.unarchivable.get_or_insert(format!("nested repository {path}"));
+                }
+                facts.untracked.push(path);
+            }
+            _ => {}
+        }
+    }
+    facts.changed = u32::try_from(changed_paths.len()).unwrap_or(u32::MAX);
+    Ok(changed_paths)
 }
 
 /// The path of a `--porcelain=v2` record whose path is field `index`
@@ -641,6 +652,20 @@ mod care_tests {
         assert!(entries[1].locked && entries[1].branch.is_none());
         assert!(entries[2].prunable);
         assert_eq!(entries[2].branch.as_deref(), Some("feat/x"));
+    }
+
+    #[test]
+    fn a_malformed_untracked_record_fails_the_facts() {
+        let mut facts = Facts::default();
+        status_facts(b"? notes.txt\0? dir/\0", &mut facts).unwrap();
+        assert_eq!(facts.untracked, ["notes.txt", "dir/"]);
+        assert!(facts.unarchivable.is_some(), "dir/ is a nested repository");
+
+        // Before the fix this record panicked (`text[2..]`) or, after the
+        // first panic-free pass, was dropped from `untracked` silently.
+        let error = status_facts(b"? kept.txt\0?\0", &mut Facts::default()).unwrap_err();
+        assert!(error.contains("malformed untracked record"), "{error}");
+        assert!(status_facts(b"?x\0", &mut Facts::default()).is_err());
     }
 
     #[test]

@@ -273,4 +273,58 @@ mod tests {
             Err(RecvTimeoutError::Disconnected)
         );
     }
+
+    /// Panics in another thread while it holds `lock`, which poisons it.
+    fn poison<T: Send + 'static>(lock: Arc<Mutex<T>>) {
+        let panicked = std::thread::spawn(move || {
+            let _guard = lock.lock().unwrap();
+            panic!("a holder panics with the lock held");
+        })
+        .join();
+        assert!(panicked.is_err());
+    }
+
+    #[test]
+    fn interrupts_and_signals_work_after_a_holder_panicked() {
+        let source = InterruptSet::default();
+        poison(Arc::clone(&source.inner));
+        let interrupt = StreamInterrupt::new();
+        source.register(&interrupt);
+        let woken = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&woken);
+        interrupt.on_fire(move || flag.store(true, Ordering::Release));
+        source.fire();
+        assert!(interrupt.is_fired() && woken.load(Ordering::Acquire));
+
+        let (sender, receiver) = signal();
+        let state = Arc::clone(&sender.state);
+        let panicked = std::thread::spawn(move || {
+            let _guard = state.0.lock().unwrap();
+            panic!("a holder panics with the signal locked");
+        })
+        .join();
+        assert!(panicked.is_err() && sender.state.0.is_poisoned());
+        assert!(sender.try_send(()).is_ok());
+        assert!(receiver.try_recv().is_ok());
+        assert_eq!(receiver.recv_timeout(Duration::from_millis(1)), Err(RecvTimeoutError::Timeout));
+        drop(sender);
+        assert!(matches!(receiver.try_recv(), Err(TryRecvError::Disconnected)));
+    }
+
+    #[test]
+    fn an_interrupt_whose_waker_list_was_poisoned_still_fires_its_wakers() {
+        let interrupt = StreamInterrupt::new();
+        let held = Arc::clone(&interrupt);
+        let panicked = std::thread::spawn(move || {
+            let _wakers = held.wakers.lock().unwrap();
+            panic!("a holder panics with the waker list locked");
+        })
+        .join();
+        assert!(panicked.is_err() && interrupt.wakers.is_poisoned());
+        let woken = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&woken);
+        interrupt.on_fire(move || flag.store(true, Ordering::Release));
+        interrupt.fire();
+        assert!(woken.load(Ordering::Acquire));
+    }
 }
