@@ -244,7 +244,27 @@ export type HomePart =
   | { type: "text"; text: string; mentions: HomeMention[] }
   | { type: "work"; title: string; status: "running" | "waiting" | "done" | "failed"; preview?: string }
   | HomeAttachment
+  | HomeCard
   | { type: "other"; text: string };
+
+/**
+ * A `card` part only a Chief posts (https://github.com/manaflow-ai/cmux/issues/25830): a live browser
+ * or computer-use card (its screenshot is an attachment record of the conversation), a Secure Store
+ * sign-in card, or next-step chips.
+ */
+export type HomeCard =
+  | {
+      type: "card";
+      kind: "browser";
+      surface: "browser" | "computer";
+      step: string;
+      live: boolean;
+      url?: string;
+      target?: string;
+      image?: HomeAttachment;
+    }
+  | { type: "card"; kind: "sign_in"; site: string; url?: string }
+  | { type: "card"; kind: "next_steps"; choices: string[] };
 
 /** A derived image of an attachment (a video's poster, an image's preview): JPEG or WebP. */
 export interface HomeDerivedImage {

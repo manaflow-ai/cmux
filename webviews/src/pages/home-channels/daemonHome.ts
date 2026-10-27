@@ -16,6 +16,7 @@ import { DaemonPeople } from "./daemonPeople";
 import {
   HomeOps,
   type HomeAttachment,
+  type HomeCard,
   type HomeChiefNames,
   type HomeConversation,
   type HomeDerivedImage,
@@ -120,8 +121,44 @@ function part(raw: Json): HomePart {
       return attachmentPart(raw);
     case "link_preview":
       return { type: "other", text: String(raw.url ?? "") };
+    case "card":
+      return cardPart(raw) ?? { type: "other", text: String(raw.kind ?? raw.type ?? "") };
     default:
       return { type: "other", text: String(raw.type ?? "") };
+  }
+}
+
+/** A card part; an unknown kind (a newer owner) is undefined and shows as `other`. */
+function cardPart(raw: Json): HomeCard | undefined {
+  const url = typeof raw.url === "string" ? raw.url : undefined;
+  switch (raw.kind) {
+    case "browser": {
+      const card: HomeCard = {
+        type: "card",
+        kind: "browser",
+        surface: raw.surface === "computer" ? "computer" : "browser",
+        step: String(raw.step ?? ""),
+        live: raw.live === true,
+      };
+      if (url) card.url = url;
+      if (typeof raw.target === "string") card.target = raw.target;
+      if (raw.image && typeof raw.image === "object") {
+        const image = raw.image as Json;
+        const mimeType = String(image.mime_type ?? "");
+        // The screenshot is an attachment record of this conversation, fetched like one.
+        card.image = attachmentPart({
+          ...image,
+          name: `browser-card.${mimeType === "image/png" ? "png" : mimeType === "image/webp" ? "webp" : "jpg"}`,
+        });
+      }
+      return card;
+    }
+    case "sign_in":
+      return { type: "card", kind: "sign_in", site: String(raw.site ?? ""), ...(url ? { url } : {}) };
+    case "next_steps":
+      return { type: "card", kind: "next_steps", choices: Array.isArray(raw.choices) ? raw.choices.map(String) : [] };
+    default:
+      return undefined;
   }
 }
 

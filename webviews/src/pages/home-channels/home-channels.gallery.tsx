@@ -41,6 +41,8 @@ type Props = {
   route?: HomeRoute;
   /** The host relays the person's click for a Chief's grant and delete (the app). */
   hostGrants?: boolean;
+  /** Adds #browsing: a Chief's browser card, Secure Store card and next-step chips. */
+  cards?: boolean;
   /** Adds a second Chief (one that can be archived). */
   extraChief?: boolean;
   /** The page's own width (px): below 720 it shows one pane (panes.ts), `pane`. */
@@ -110,6 +112,7 @@ function HomeChannelsGallery({
   route,
   hostGrants = false,
   extraChief = false,
+  cards = false,
   width,
   pane,
   hostBridge = false,
@@ -119,6 +122,7 @@ function HomeChannelsGallery({
     const provider = offline ? null : new MockHomeProvider(draft, longThread, runs, refuseInbox, media, teammates);
     if (provider) provider.hostGrants = hostGrants;
     if (provider && extraChief) provider.addChief("Release Chief");
+    if (provider && cards) provider.addCards();
     let host: BridgePageClient | MockHomeProvider | null = hostGrants ? provider : null;
     if (hostBridge) {
       const bridge = new GalleryBridgeHost();
@@ -324,6 +328,15 @@ export default componentEntry<Props>({
         await ctx.scroll({ selector: ".lg-main .hc-timeline" }, "bottom");
         await ctx.waitFor(() => ctx.document.querySelectorAll(".hc-att-grid img").length === 3);
         await ctx.waitFor(() => Boolean(ctx.document.querySelector(".hc-att-video video")?.getAttribute("poster")));
+      },
+    },
+    "chief-cards": {
+      note: "A Chief's live browser card with its screenshot, a Secure Store sign-in card, and next-step chips under its reply.",
+      props: { select: "c-browsing", cards: true },
+      play: async (ctx) => {
+        await ctx.scroll({ selector: ".lg-main .hc-timeline" }, "bottom");
+        await ctx.waitFor(() => Boolean(ctx.document.querySelector(".hc-card-shot")));
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".hc-card-choices .hc-chip").length === 2);
       },
     },
     "attachments-lightbox": {

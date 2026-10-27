@@ -217,6 +217,47 @@ export function addMedia(home: ReturnType<typeof sampleHome>): void {
   home.conversations.push(conversation(id, "media", "group", [builder, reviewer], [message]));
 }
 
+/** #browsing (gallery `cards`): a Chief's live browser card with its screenshot, a Secure Store
+ * sign-in card, and its reply with next-step chips (https://github.com/manaflow-ai/cmux/issues/25830). */
+export function addCards(home: ReturnType<typeof sampleHome>): void {
+  const id = "c-browsing";
+  const browser = text(id, 2, chief, BASE + 51 * MINUTE, "");
+  browser.parts = [
+    {
+      type: "card",
+      kind: "browser",
+      surface: "browser",
+      step: "Returning to LinkedIn Messaging",
+      live: true,
+      target: "browser:right",
+      url: "https://www.linkedin.com/messaging/",
+      image: file("9".repeat(64), "browser-card.png", "image/png", 180_000, { width: 1280, height: 800 }),
+    },
+  ];
+  const signIn = text(id, 3, chief, BASE + 52 * MINUTE, "");
+  signIn.parts = [{ type: "card", kind: "sign_in", site: "linkedin.com", url: "https://www.linkedin.com/login" }];
+  const reply = text(
+    id,
+    4,
+    chief,
+    BASE + 53 * MINUTE,
+    "I could not send the Kernel update: LinkedIn asked me to sign in again.",
+  );
+  reply.parts.push({
+    type: "card",
+    kind: "next_steps",
+    choices: ["Try sending the Kernel update again", "Stop for now"],
+  });
+  const list = [
+    text(id, 1, me, BASE + 50 * MINUTE, "Send the Kernel update to Ana on LinkedIn."),
+    browser,
+    signIn,
+    reply,
+  ];
+  home.messages.set(id, list);
+  home.conversations.push(conversation(id, "browsing", "group", [chief], list));
+}
+
 /** A raster picture of `hash` as base64 PNG (the mock stores no bytes; it draws one per hash). */
 async function picture(hash: string): Promise<string> {
   const canvas = document.createElement("canvas");
@@ -476,6 +517,11 @@ export class MockHomeProvider implements PageClient {
   }
 
   /** Adds a Chief (the host's create; the gallery's second Chief). */
+  /** Adds #browsing, a channel with a Chief's cards (gallery `cards`). */
+  addCards(): void {
+    addCards(this.data);
+  }
+
   addChief(name: string, fields: Partial<HomeChief> = {}): HomeChief {
     const made: HomeChief = {
       id: `agent_new${this.chiefs.size}`,
