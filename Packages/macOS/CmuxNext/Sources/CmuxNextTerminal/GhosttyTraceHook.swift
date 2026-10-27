@@ -1,5 +1,5 @@
 public import CmuxNextDesign
-import CmuxNextSignposts
+public import CmuxNextSignposts
 import CmuxNextTrace
 public import CmuxNextWakeups
 import GhosttyNextKit
