@@ -175,6 +175,11 @@ def policy_variables(source: str) -> frozenset[str]:
                     names.add(resolved)
                 elif isinstance(resolved, tuple):
                     names.update(resolved)
+    # The policy also checks variables that must never select an owned pool
+    # (for example LINUX_RUNNER and the hosted-Mac fallbacks).  They are
+    # validation inputs, not rescue sources: a workflow reading one cannot be
+    # placed on a persistent runner merely because the value is malformed.
+    names.difference_update({"LINUX_RUNNER", "MACOS_RUNNER_15", "MACOS_RUNNER_26", "NIGHTLY_NEXT_TRAIN_RUNNER"})
     if not names:
         raise ValueError(f"{POLICY_SCRIPT}'s drifted_runner_variables() names no variable")
     return frozenset(names)
