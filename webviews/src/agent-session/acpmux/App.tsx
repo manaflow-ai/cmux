@@ -3374,13 +3374,16 @@ export function VirtualTranscript({
   // It reads the latest layout, since the reveal hold calls it from frames after this render.
   const findTotalHeight = useRef(layout.totalHeight);
   findTotalHeight.current = layout.totalHeight;
-  const findMoved = useCallback((node: HTMLDivElement) => {
-    // A Find match moved the view: a Jump to latest in flight ends here, not at the latest row.
-    stopJump();
-    scrolledTo.current = scrollPosition(node, findTotalHeight.current);
-    followingRef.current = scrolledTo.current.atLatest;
-    setFollowing(scrolledTo.current.atLatest);
-  }, []);
+  const findMoved = useCallback(
+    (node: HTMLDivElement) => {
+      // A Find match moved the view: a Jump to latest in flight ends here, not at the latest row.
+      stopJump();
+      scrolledTo.current = scrollPosition(node, findTotalHeight.current);
+      followingRef.current = scrolledTo.current.atLatest;
+      setFollowing(scrolledTo.current.atLatest);
+    },
+    [stopJump],
+  );
   // The current match's reveal window: 0 until it starts, then the window's own number.
   const revealWindow = useRef(0);
   const revealWindows = useRef(0);
@@ -3824,7 +3827,7 @@ export function VirtualTranscript({
       gutterRelease.current = undefined;
       gutter?.remove();
     };
-  }, []);
+  }, [stopJump]);
   // A turn's footer (TurnFooter) shows for the turn the reader points at: anywhere after its prompt
   // to its footer. Marked on the mounted rows, so a hover renders nothing.
   // The last ended turn's prompt offers Retry under its bubble (UserBubble.tsx); turns.ts names
