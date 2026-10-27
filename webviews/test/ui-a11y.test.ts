@@ -411,10 +411,10 @@ await requireBrowserLane("ui-a11y.test.ts", async () => {
           await page.waitForFunction(() => (window as unknown as { __ready?: boolean }).__ready === true);
           expect(await axe(page, "markdown", log)).toEqual([]);
           const editButton = page.getByRole("button", { name: md["edit.button"] });
-          await expect(editButton).toBeVisible();
+          expect(await visible(page, ".md-edit-button")).toEqual([md["edit.button"]]);
           await editButton.click();
           await untilResult(page, "mode: source");
-          await expect(page.locator(".md-source")).toBeVisible();
+          expect(await visible(page, ".md-source")).toHaveLength(1);
           await page.getByRole("button", { name: md["mode.rich"] }).click();
           await untilResult(page, "mode: rich");
           await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
@@ -431,6 +431,7 @@ await requireBrowserLane("ui-a11y.test.ts", async () => {
           await page.keyboard.press(inlineEnd);
           expect((await focused(page)).name).toBe(md["nav.forward"]);
           await page.keyboard.press(inlineEnd);
+          expect((await focused(page)).name).toBe(md["edit.button"]);
           await page.keyboard.press(inlineEnd);
           expect((await focused(page)).name).toBe(md["mode.source"]);
           await page.keyboard.press("Enter");
