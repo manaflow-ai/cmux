@@ -225,7 +225,11 @@ def main():
         streams.append(app_out)
         t0 = time.monotonic()
         if not wait_for(lambda: app.poll() is None and "error" not in rpc("debug.focus", timeout=5), 180):
-            note(f"- Mac app: no answer on its control socket in 180 s; {no_answer_evidence(app, ls_env, tag, sock, a.out)}")
+            try:  # evidence only: a failure here never replaces the error below
+                why = no_answer_evidence(app, ls_env, tag, sock, a.out)
+            except Exception as error:  # noqa: BLE001
+                why = f"no evidence ({type(error).__name__}: {redact(str(error))[:200]})"
+            note(f"- Mac app: no answer on its control socket in 180 s; {why}")
             raise SystemExit("the Mac app never answered on its control socket")
         teardown.remember()
         note(f"- Mac app {mac_bundle}: pid {app.pid}, control socket in {time.monotonic() - t0:.0f} s")
