@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextBridge
 import CmuxNextEnergy
 import CmuxNextHibernation
+import CmuxNextPages
 import CmuxNextResources
 import CmuxNextSettings
 import CmuxNextTabs
@@ -109,9 +110,11 @@ final class CaptureSceneRegistry {
         let isHome = definition.name == Self.homeChiefScene || definition.name == Self.homeChiefLongDraftScene
         // The Task Manager is native too: its page covers the agent pane.
         let isTaskManager = definition.name == Self.taskManagerScene
-        let isNative = isHome || isTaskManager
+        // The Settings tab covers the agent pane: the scene waits for its own page and row.
+        let isSettingsEnergy = definition.name == Self.settingsEnergyScene
+        let ownsReadiness = isHome || isTaskManager || isSettingsEnergy
         let readiness = await DebugAgentPane.handle(["action": .string("readiness")], services)
-        guard isNative || readinessIsComplete(readiness) else {
+        guard ownsReadiness || readinessIsComplete(readiness) else {
             return .object([
                 "error": .string("agent pane is blank or composer is hidden"),
                 "scene": .string(definition.name), "readiness": readiness, "turn": turn,
@@ -124,14 +127,18 @@ final class CaptureSceneRegistry {
             actionReadiness = await showHomeChief(windowID: targetWindowID, longDraft: definition.name == Self.homeChiefLongDraftScene)
         } else if isTaskManager {
             actionReadiness = await showTaskManager(windowID: targetWindowID)
+        } else if isSettingsEnergy {
+            // `showEnergySetting` waited for the page and its row; its error is the scene's.
+            actionReadiness = sceneAction
         } else {
             actionReadiness = await waitForSceneAnimation()
         }
         guard case .object(let actionReadinessReport) = actionReadiness,
               actionReadinessReport["error"] == nil,
-              isNative || actionReadinessReport["animations_pending"]?.boolValue == false else {
+              ownsReadiness || actionReadinessReport["animations_pending"]?.boolValue == false else {
             let failure = isHome ? "Home scene did not settle"
-                : isTaskManager ? "Task Manager scene did not settle" : "scene popover did not become opaque before capture"
+                : isTaskManager ? "Task Manager scene did not settle"
+                : isSettingsEnergy ? "Settings did not show the Energy Saver row" : "scene popover did not become opaque before capture"
             return .object(["error": .string(failure),
                             "scene": .string(definition.name), "readiness": actionReadiness,
                             "scene_action": sceneAction])
@@ -143,7 +150,7 @@ final class CaptureSceneRegistry {
         if isHome { clearShowcaseAgent(windowID: targetWindowID) }
         guard case .object(var result) = snapshot else { return snapshot }
         result["click"] = click
-        guard isNative || (result["webviews_composited"]?.intValue ?? 0) > 0 else {
+        guard ownsReadiness || (result["webviews_composited"]?.intValue ?? 0) > 0 else {
             return .object([
                 "error": .string("agent web view was not composited"),
                 "scene": .string(definition.name), "readiness": readiness, "snapshot": snapshot,
@@ -194,6 +201,8 @@ final class CaptureSceneRegistry {
             return .object(["hint": hint, "menu": menu])
         case Self.energySaverScene:
             return await showEnergySaver()
+        case Self.settingsEnergyScene:
+            return await showEnergySetting()
         case Self.highEnergyTabScene:
             return await showHighEnergyTab()
         case "hints-ctrl-held":
@@ -237,6 +246,70 @@ final class CaptureSceneRegistry {
         if settled == nil { report["error"] = .string("the Energy Saver leaf or its card did not show before the deadline") }
         return .object(report)
     }
+
+    static let settingsEnergyScene = "settings-energy"
+
+    /// `settings-energy` (p14-energy-129): Settings opened on General > Energy Saver, with the choices
+    /// this Mac offers ("On Battery" only with a battery). Waits until the Settings page has painted
+    /// (its paint is held until its reads finish) and its `energy.saver` row is in the page, then for
+    /// the frames after it. The report says what the page leaves out; an error names what never showed.
+    private func showEnergySetting() async -> JSONValue {
+        guard services.energy.driver.isEnabled else {
+            return .object(["error": .string("feature energySaver is off: launch with CMUX_ENABLE_FEATURES=energySaver")])
+        }
+        let key = EnergySaverSetting.path.joined(separator: ".")
+        do {
+            try services.settingsWindow.show(section: nil, setting: key)
+        } catch {
+            return .object(["error": .string(String(describing: error))])
+        }
+        var report: [String: JSONValue] = ["availability": services.settingsAvailability.json]
+        let settingsWindow = services.settingsWindow
+        frames.start()
+        let painted = await frames.settled(until: { settingsWindow.shownPage?.hasPainted == true },
+                                           start: .now, window: 0, deadline: 5_000)
+        guard painted != nil, let page = settingsWindow.shownPage else {
+            report["settings_frames"] = frames.stop()
+            report["error"] = .string("the Settings page did not paint before the deadline")
+            return .object(report)
+        }
+        let row: Bool
+        do {
+            row = try await page.callPageScript(Self.rowShownScript, arguments: ["key": key, "timeout": 3_000]) as? Bool == true
+        } catch {
+            report["settings_frames"] = frames.stop()
+            report["error"] = .string("the Settings page did not answer: \(error)")
+            return .object(report)
+        }
+        report["row_shown"] = .bool(row)
+        guard row else {
+            report["settings_frames"] = frames.stop()
+            report["error"] = .string("the Settings page drew no \(key) row before the deadline")
+            return .object(report)
+        }
+        // The row is in the document: the frames after it put it on screen before the snapshot.
+        _ = await frames.settled(until: { true }, start: .now, window: 100, deadline: 1_000)
+        report["settings_frames"] = frames.stop()
+        return .object(report)
+    }
+
+    /// Resolves true once the page has a laid-out row `key` (`data-row-key`, SettingRow.tsx), false
+    /// after `timeout` ms: a MutationObserver on the document, so nothing polls.
+    private static let rowShownScript = """
+        const selector = `[data-row-key="${CSS.escape(key)}"]`;
+        const shown = () => { const row = document.querySelector(selector); return row !== null && row.getClientRects().length > 0; };
+        if (shown()) return true;
+        return await new Promise((resolve) => {
+          const observer = new MutationObserver(() => {
+            if (!shown()) return;
+            observer.disconnect();
+            clearTimeout(timer);
+            resolve(true);
+          });
+          const timer = setTimeout(() => { observer.disconnect(); resolve(false); }, timeout);
+          observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true });
+        });
+        """
 
     static let highEnergyTabScene = "high-energy-tab"
 
@@ -353,6 +426,8 @@ final class CaptureSceneRegistry {
         // A literal name: cmux-ci capture finds scenes by `CaptureSceneDefinition(name: "…")`.
         CaptureSceneDefinition(name: "energy-saver",
                                description: "Energy Saver on through simulated Low Power Mode (feature energySaver): the sidebar footer's leaf and its card with the reason and Turn Off for Now."),
+        CaptureSceneDefinition(name: "settings-energy",
+                               description: "Settings > General opened on the Energy Saver row (feature energySaver), with the modes this Mac offers: On Battery only on a Mac with a battery."),
         // A literal name: cmux-ci capture finds scenes by `CaptureSceneDefinition(name: "…")`.
         CaptureSceneDefinition(name: "high-energy-tab",
                                description: "A hidden browser tab whose renderer used 8 percent of one core over the last minute (feature highEnergyTabs, fixture readings): its hover card says Using high energy, with Discard."),

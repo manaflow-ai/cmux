@@ -82,31 +82,33 @@ struct PageRendererStabilityTests {
         #expect(histograms.first { $0.name == HistogramID.stabilityRenderer(.contentEnd, .webkit).name }?.count == 2, "two pages lost it")
     }
 
-    /// A loaded spare runs a WebContent process before any claim: its end is a `page` event too.
-    @Test func aSparesContentEndBeforeAnyClaimIsOnePageEvent() async throws {
+    /// A preloaded page (``PagePreloadSlot``, p13-webui-045) runs a WebContent process before any claim: it opens
+    /// through its host, so its end is a `page` event too.
+    @Test func aPreloadedPagesContentEndBeforeAnyClaimIsOnePageEvent() throws {
         let trace = TraceRuntime(role: .app)
         let store = Self.store(on: trace)
         let reports = Reports()
-        let memory = PageTestMemory()
-        let window = PageHostPoolLaunchWindowTests.shownWindow()
-        var policy = PageHostPool.Policy()
-        policy.idleInput = .milliseconds(5)
-        let pool = PageHostPool(memory: memory.coordinator, policy: policy, activity: { 0 }, isTrackingMenu: { false })
+        let rig = LifecycleDeadlineRig()
+        let window = PagePreloadPageTests.shownWindow()
+        let parking = PagePreloadParkingView(frame: .zero)
+        window.contentView?.addSubview(parking)
+        let host = host(RendererStability(trace: trace) { reports.surfaces.append($0.surface) })
+        let slot = PagePreloadSlot(parkState: .frozenHidden, deadlines: rig.scheduler)
+        host.preload = slot
+        var made: PageWebView?
+        let held = slot.preload(PagePreloadSlot.Key("page.stability"), size: NSSize(width: 800, height: 600), in: parking) { _ in
+            made = host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [], parked: true))
+            return made
+        }
+        let preloaded = try #require(made)
         defer {
-            pool.dropSpare()
+            host.close(preloaded)
             window.close()
             try? FileManager.default.removeItem(at: root)
         }
-        pool.rendererStability = RendererStability(trace: trace) { reports.surfaces.append($0.surface) }
-        pool.follow(window)
-        pool.noteLikely()
-        let ready = await PageTestWait.value("spare ready", seconds: 10) { (done: @escaping (Bool) -> Void) in
-            pool.onSpareReady = { _ in done(true) }
-        }
-        try #require(ready == true)
-        let spare = try #require(pool.spareHost)
+        try #require(held && preloaded.isPooled && !preloaded.isClaimed)
 
-        spare.webViewWebContentProcessDidTerminate(try #require(spare.webKitEngine))
+        preloaded.webViewWebContentProcessDidTerminate(try #require(preloaded.webKitEngine))
 
         #expect(reports.surfaces == [.page])
         #expect(store.delta().histograms.first { $0.name == HistogramID.stabilityRenderer(.contentEnd, .webkit).name }?.count == 1)
