@@ -1,3 +1,5 @@
+public import CmuxNextWakeups
+
 /// Where ``CEFEngine`` finds the Chromium runtime: embedded in the app
 /// bundle, or a pack the app downloads on first use
 /// (plans/cmux-next/bundle-size-DESIGN.md section 6), and where its browser
@@ -31,9 +33,10 @@ public final class CEFRuntimeSource {
     /// page's frame at the new size joins it, one display frame at most (feature `chromiumHostResizeFence`,
     /// set by the App; ``ChromiumHostResizeFence``). Read when the runtime adopts the source.
     public var fencesHostResizes = false
-    /// Host mode: the host's iCloud Keychain requests run in cmux, over the pane's window (feature
-    /// `chromiumHostPasskeys`, set by the App; ``CEFPlatformPasskeys``). Read when the runtime adopts the source.
-    public var runsHostPasskeys = false
+    /// Host mode: the host's iCloud Keychain requests run in cmux, over the pane's window, and the permission is
+    /// read again on these app events' activations (feature `chromiumHostPasskeys`, set by the App with
+    /// `AppServices.appEvents`; ``CEFPlatformPasskeys``); nil keeps them in the host. Read when the runtime adopts the source.
+    public var hostPasskeyEvents: AppEvents?
 
     /// Creates a source.
     ///

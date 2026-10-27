@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -87,10 +88,11 @@ import Testing
     let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: true)
     let system = FakeSystem()
     let replies = Replies()
+    let center = NotificationCenter()
 
     func makeRelay(fetcher: FakeFetcher = FakeFetcher()) -> CEFPlatformPasskeys {
         CEFPlatformPasskeys(system: system, publicSuffixes: { ChromiumPasskeyPolicyTests.suffixes }, fetcher: fetcher,
-                            center: NotificationCenter())
+                            appEvents: AppEvents(center: center))
     }
 
     func send(_ relay: CEFPlatformPasskeys, _ event: ChromiumPlatformPasskeyEvent,
@@ -209,6 +211,22 @@ import Testing
         without.hostAttached(setPlatform: { sent.append($0); return 1 })
         #expect(sent == [0, 2]) // no entitlement: the host keeps Chromium's own code
         #expect(!without.stats.handlerSet)
+    }
+
+    /// passkeys.md 3.9.2, step 3: a change in System Settings reaches the host at the next app activation.
+    @Test func anActivationPassesAChangedPermission() {
+        var sent: [Int32] = []
+        let relay = makeRelay()
+        relay.hostAttached(setPlatform: { sent.append($0); return 1 })
+        center.post(name: NSApplication.didBecomeActiveNotification, object: nil)
+        #expect(sent == [0], "no change, nothing sent")
+        system.permission = .denied
+        center.post(name: NSApplication.didBecomeActiveNotification, object: nil)
+        #expect(sent == [0, 1])
+        relay.hostEnded()
+        system.permission = .authorized
+        center.post(name: NSApplication.didBecomeActiveNotification, object: nil)
+        #expect(sent == [0, 1], "no host, nothing sent")
     }
 
     @Test func aListAnswersCredentialsOnlyWhenAuthorized() async throws {

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextWakeups
 import os
 
 /// iCloud Keychain passkeys for the Chromium Host's pages (task p01-process-067, plans/cmux-next/passkeys.md
@@ -56,20 +57,23 @@ final class CEFPlatformPasskeys {
     /// Passes the listing permission to the attached host (`cmux_shim_set_webauthn_platform`) once it took the
     /// handler; nil before and after a host.
     private var setPlatform: ((Int32) -> Int32)?
-    private var activation: (any NSObjectProtocol)?
-    private let center: NotificationCenter
+    /// App activations, while a host has the handler.
+    private var activation: EventSubscription?
+    private let appEvents: AppEvents
 
     init(system: any ChromiumPlatformPasskeySystem, publicSuffixes: @escaping @Sendable () -> PublicSuffixList,
-         fetcher: any ChromiumRelatedOriginFetching = ChromiumRelatedOriginFetcher(), center: NotificationCenter = .default) {
+         fetcher: any ChromiumRelatedOriginFetching = ChromiumRelatedOriginFetcher(), appEvents: AppEvents) {
         self.system = system
         loadSuffixes = publicSuffixes
         self.fetcher = fetcher
-        self.center = center
+        self.appEvents = appEvents
     }
 
-    /// The app's relay: AuthenticationServices, the bundled Public Suffix List and cmux's own fetch.
-    static func system() -> CEFPlatformPasskeys {
-        CEFPlatformPasskeys(system: ChromiumSystemPasskeys(), publicSuffixes: { PublicSuffixList.bundled() ?? PublicSuffixList(listText: "") })
+    /// The app's relay: AuthenticationServices, the bundled Public Suffix List and cmux's own fetch, with the
+    /// app's one ``AppEvents`` (`AppServices.appEvents`).
+    static func system(appEvents: AppEvents) -> CEFPlatformPasskeys {
+        CEFPlatformPasskeys(system: ChromiumSystemPasskeys(), publicSuffixes: { PublicSuffixList.bundled() ?? PublicSuffixList(listText: "") },
+                            appEvents: appEvents)
     }
 
     /// A host attached (``CEFHostStart/attached()``, before CefInitialize): hands it the handler with the listing
@@ -91,7 +95,6 @@ final class CEFPlatformPasskeys {
         for ceremony in ceremonies.values { ceremony.cancel() }
         ceremonies.removeAll()
         setPlatform = nil
-        if let activation { center.removeObserver(activation) }
         activation = nil
     }
 
@@ -114,22 +117,22 @@ final class CEFPlatformPasskeys {
             guard let operation = ChromiumPlatformPasskeyOperation(rawValue: rawOperation) else {
                 return refuse(token, .malformed, reply: reply)
             }
-            ceremonies[token] = Ceremony()
-            let task = Task { [weak self] in
-                let (request, clientData) = await Self.parse(json, operation: operation)
-                await self?.run(token, browser: browser, request: request, clientData: clientData, pages: pages, reply: reply)
-            }
-            ceremonies[token]?.task = task
+            ceremonies[token] = Ceremony(task: Self.start(self, token: token, browser: browser, operation: operation, json: json,
+                                                          pages: pages, reply: reply))
         }
     }
 
-    /// The request and its client data, parsed off the main thread (a create's JSON carries the page's whole
-    /// challenge and user id, sizes the page chooses).
-    @concurrent
-    private nonisolated static func parse(_ json: String, operation: ChromiumPlatformPasskeyOperation)
-        async -> (ChromiumPlatformPasskeyRequest?, ChromiumClientData?) {
-        let request = ChromiumPlatformPasskeyRequest.parse(json, operation: operation)
-        return (request, request.flatMap { $0.operation == .list ? nil : ChromiumClientData($0.clientDataJSON) })
+    /// Parses the request off the main thread (a create's JSON carries the page's whole challenge and user id, sizes
+    /// the page chooses), then runs its checks and ceremony on the relay; each await on the relay is its own turn.
+    private nonisolated static func start(_ relay: CEFPlatformPasskeys, token: Int64, browser: Int32,
+                                          operation: ChromiumPlatformPasskeyOperation, json: String, pages: @escaping Pages,
+                                          reply: @escaping Reply) -> Task<Void, Never> {
+        // task-owner: one per WEBAUTHN request; the relay keeps it in `ceremonies` and cancels it on the request's cancel or the host's end
+        Task { [weak relay] in
+            let request = ChromiumPlatformPasskeyRequest.parse(json, operation: operation)
+            let clientData = request.flatMap { $0.operation == .list ? nil : ChromiumClientData($0.clientDataJSON) }
+            await relay?.run(token, browser: browser, request: request, clientData: clientData, pages: pages, reply: reply)
+        }
     }
 
     private func run(_ token: Int64, browser: Int32, request: ChromiumPlatformPasskeyRequest?, clientData: ChromiumClientData?,
@@ -245,11 +248,9 @@ final class CEFPlatformPasskeys {
     /// A change in System Settings shows on the next app activation, as Chrome reads the state again then.
     private func observeActivation() {
         guard activation == nil else { return }
-        activation = center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                guard let self else { return }
-                permissionChanged(to: system.permission)
-            }
+        activation = appEvents.subscribe(NSApplication.didBecomeActiveNotification, owner: "CEFPlatformPasskeys.permission") { [weak self] in
+            guard let self else { return }
+            permissionChanged(to: system.permission)
         }
     }
 }
