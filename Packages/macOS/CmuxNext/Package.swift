@@ -246,12 +246,28 @@ let daemonSwiftSettings: [SwiftSetting] = [
 ///   `TerminalHostFramePresenter` calls it ahead of each commit with a resized terminal.
 /// - GHOSTTY_LOCK_WAIT: `ghostty_surface_set_lock_wait_callback` (ghostty-next cp/p04-input-078, not in
 ///   723c4ab93): `GhosttyLockWaitSignpost` records `ghostty.lock_wait` in Debug and bench builds.
+/// - GHOSTTY_EXTERNAL_CURSOR: the external cursor (ghostty-next cp/p03-rendering-090 1d35a0460, not in 723c4ab93):
+///   the surface config's `bool cursor_external` (the renderer neither draws nor blinks the cursor),
+///   `ghostty_surface_cursor_cb cursor_cb` and `void *cursor_userdata`. The callback,
+///   `void (*)(void *userdata, const ghostty_cursor_cell_s *)`, comes once per move or change of the cursor cell,
+///   never per blink, and never blocks. `ghostty_cursor_cell_s` has `uint64_t serial`, `void *surface` (an
+///   IOSurfaceRef of the cell as Ghostty draws it; +0, valid for the call; NULL when not visible; a new surface per
+///   cell), `uint32_t x, y, width, height` (the cell in the surface's pixels from the frames' top-left corner),
+///   `uint16_t column, row`, `ghostty_cursor_cell_style_e style` (`GHOSTTY_CURSOR_CELL_BLOCK`, `_BLOCK_HOLLOW`,
+///   `_BAR`, `_UNDERLINE`, `_LOCK`), `bool visible`, `bool blinking` and `uint32_t blink_interval_ms`. The pin
+///   bump that turns this on also needs 090 to call `cursor_cb` inside the Core Animation transaction that
+///   presents the cell's frame, on the presenting thread, after the frame's contents are set
+///   (`IOSurfaceLayer.setSurfaceCallback` on main, `setSurfaceOffMain` on the GPU completion thread; a cell whose
+///   frame is dropped goes with the next frame presented): 1d35a0460 calls it after the present, from
+///   `frameCompleted`, so the cursor would not move with its text. `TerminalCursorLayer` shows it behind feature
+///   `terminalCursorLayer` (p03-rendering-091).
 let ghosttyNextKitHasGPUResident = false
 let ghosttyNextKitHasTraceHook = false
 let ghosttyNextKitHasEnergySaver = false
 let ghosttyNextKitHasRendererFrames = false
 let ghosttyNextKitHasPresentNeverWaits = false
 let ghosttyNextKitHasLockWait = false
+let ghosttyNextKitHasExternalCursor = false
 let ghosttyNextKitCapabilities: [SwiftSetting] =
     (ghosttyNextKitHasGPUResident ? [.define("GHOSTTY_GPU_RESIDENT")] : [])
     + (ghosttyNextKitHasTraceHook ? [.define("GHOSTTY_TRACE_HOOK")] : [])
@@ -259,6 +275,7 @@ let ghosttyNextKitCapabilities: [SwiftSetting] =
     + (ghosttyNextKitHasRendererFrames ? [.define("GHOSTTY_RENDERER_FRAMES")] : [])
     + (ghosttyNextKitHasPresentNeverWaits ? [.define("GHOSTTY_PRESENT_NEVER_WAITS")] : [])
     + (ghosttyNextKitHasLockWait ? [.define("GHOSTTY_LOCK_WAIT")] : [])
+    + (ghosttyNextKitHasExternalCursor ? [.define("GHOSTTY_EXTERNAL_CURSOR")] : [])
 
 /// The app's ONE Rust static library, CCmuxAppFFI (cmux-tui/crates/cmux-app-ffi):
 /// the remote desktop core C ABI (module CCmuxRdFFI), the sidebar layout
@@ -2204,7 +2221,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // the shared registry handler, owner routes, intents and terminal outcomes.
         .target(
             name: "CmuxNextAgentUpdates",
-            dependencies: ["CmuxNextActions", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextPages", "CmuxNextSettings"],
+            dependencies: ["CmuxNextActions", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextPages", "CmuxNextSettings",
+                           "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // Test-only: every exit() of the test process prints its stack (TestProcessExitTests).
