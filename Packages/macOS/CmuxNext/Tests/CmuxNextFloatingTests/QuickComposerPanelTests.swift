@@ -43,4 +43,22 @@ import Testing
         #expect(page.sizes.count == 1, "the page resized \(page.sizes.count) times during the fold: \(page.sizes)")
         #expect(page.autoresizingMask == [.width, .height], "the page no longer follows the panel's size")
     }
+
+    /// The chat released while the panel still moves into the floating chat (Cmd-Return during the
+    /// move): the move does not land later, so the next composer opens at the composer's size, not
+    /// the floating chat's.
+    @Test(.enabled(if: NSScreen.main != nil, "the floating chat needs a screen: run on a GUI host"))
+    func releasingTheChatMidMoveKeepsTheComposerSize() {
+        _ = NSApplication.shared
+        let panel = QuickComposerPanel()
+        defer { panel.orderOut(nil) }
+        panel.present(NSView(), focus: nil)
+        panel.holdChat(true)
+        panel.holdChat(false)
+        let end = Date(timeIntervalSinceNow: 1)
+        while Date() < end { _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) }
+        #expect(panel.contentRect(forFrameRect: panel.frame).size == QuickComposerPanel.size,
+                "a late floating chat move sized the composer: \(panel.frame)")
+        #expect(panel.frameHold.open == 0, "the taken-over move kept its hold")
+    }
 }

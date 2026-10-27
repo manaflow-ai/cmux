@@ -18,8 +18,7 @@ public import AppKit
 ///
 /// The frame steps stay AppKit's, but the content resizes once (chrome-parity p03-rendering-105):
 /// the window holds its content's resizes while it animates (``Motion/beginFrameAnimation(_:)``), as
-/// a full screen transition does, so each terminal sends the daemon one grid, at the end, and the
-/// window's strips follow the frame instead of springing per step.
+/// a full screen transition does, so each terminal sends the daemon one grid, at the end.
 ///
 /// A window keeps one value and forwards to it:
 ///

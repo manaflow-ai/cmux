@@ -22,7 +22,8 @@ extension QuickComposerPanel {
         } else {
             styleMask.remove(.resizable)
             level = .floating
-            setContentSize(Self.size)
+            let size = frameRect(forContentRect: CGRect(origin: .zero, size: Self.size)).size
+            setFrameNow(CGRect(x: frame.minX, y: frame.maxY - size.height, width: size.width, height: size.height))
         }
     }
 
@@ -58,10 +59,17 @@ extension QuickComposerPanel {
     /// animation would size the next composer. The page keeps its size and top edge until the
     /// frame lands, then resizes once (chrome-parity p03-rendering-105).
     private func animateFrame(to target: CGRect) {
-        guard isVisible else { return setFrame(target, display: false) }
+        guard isVisible else { return setFrameNow(target) }
         holdContentSize()
         Motion.overlays.animateTimed(.panel, in: contentView, { animator().setFrame(target, display: true) },
                                      completion: { [weak self] in self?.releaseContentSize() })
+    }
+
+    /// Sets `target` at once and takes over a frame animation in flight: a zero-length animator
+    /// group replaces it, so it never lands later and its completion still releases its hold.
+    private func setFrameNow(_ target: CGRect) {
+        let display = isVisible
+        Motion.withoutAnimation { animator().setFrame(target, display: display) }
     }
 
     /// Holds the page at its size, pinned to the panel's top edge, until the last running frame

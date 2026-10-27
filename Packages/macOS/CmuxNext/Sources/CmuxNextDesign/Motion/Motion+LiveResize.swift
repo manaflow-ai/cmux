@@ -12,21 +12,22 @@ extension Motion {
     /// springs toward a size only shows its in-between frames late.
     public static var isLiveResizing: Bool { liveResizeOverride ?? LiveResizeWindows.shared.isActive }
 
-    /// Whether `window` is in a live resize, a full screen transition or a frame animation
-    /// (``beginFrameAnimation(_:)``): the
+    /// Whether `window` is in a live resize or a full screen transition: the
     /// per-window form of ``isLiveResizing`` for views that ask about their
     /// own window (`NSView.inLiveResize` misses full screen transitions).
+    /// A frame animation (``beginFrameAnimation(_:)``) does not count: the
+    /// window really moves, so a hover card still follows its target, and no
+    /// end notice would hit-test again when it lands.
     public static func isLiveResizing(_ window: NSWindow?) -> Bool {
         if let liveResizeOverride { return liveResizeOverride }
         guard let window else { return false }
-        return window.inLiveResize || LiveResizeWindows.shared.isTransitioning(window) || LiveResizeWindows.shared.isFrameAnimating(window)
+        return window.inLiveResize || LiveResizeWindows.shared.isTransitioning(window)
     }
 
     /// AppKit starts animating `window`'s frame for cmux (a Zoom, the floating chat's fold): until
     /// the matching ``endFrameAnimation(_:)``, its content holds its resizes as in a full screen
-    /// transition (``holdsContentResize(_:)``), so each terminal sends one grid, at the end, and
-    /// its views that ask ``isLiveResizing(_:)`` follow the frame instead of springing. Other
-    /// windows' motion is unchanged. Calls nest: every begin needs one end
+    /// transition (``holdsContentResize(_:)``), so each terminal sends one grid, at the end.
+    /// ``isLiveResizing(_:)`` stays false, and other windows' motion is unchanged. Calls nest: every begin needs one end
     /// (the animation's completion, which runs once whether it lands or is taken over); a close ends
     /// them all. Chromium's maximize and restore likewise give the content its final bounds once
     /// and animate only a layer (ash/wm/window_animations.cc `CrossFadeAnimation`).
