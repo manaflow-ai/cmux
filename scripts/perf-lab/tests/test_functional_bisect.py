@@ -73,13 +73,13 @@ class LabFixture(unittest.TestCase):
         self._tmp.cleanup()
 
     def add_points(self, *, story: str = STORY, metrics=("key_to_frame_ms", "dropped_frames"),
-                   positions=range(0, 100, 10), value: float = 6.0) -> None:
+                   positions=range(0, 100, 10), value: float = 6.0, kind: str = "waterfall") -> None:
         """Waterfall points of the story's passing batches (a broken batch stores nothing)."""
         for pos in positions:
             self.runs += 1
-            run = store_mod.Run(run_uuid=f"run-{self.runs}", kind="waterfall", measure_version="1", story=story,
+            run = store_mod.Run(run_uuid=f"run-{self.runs}", kind=kind, measure_version="1", story=story,
                                 engine="chromium", macos_major=26, macos_build="26.7 (25H1)", features_hash="f0",
-                                safe_mode="off", started_at=NOW + timedelta(minutes=self.runs))
+                                safe_mode="off", started_at=NOW + timedelta(minutes=self.runs), tier="T0")
             self.store.insert_run(run, build=store_mod.Build(sha=sha(pos), config="bench", commit_pos=pos), host=HOST,
                                   metrics=[store_mod.Metric(name, "ms", "lower", [value] * 10) for name in metrics])
 
@@ -167,18 +167,71 @@ class HarnessBrokenTests(LabFixture):
         self.assertEqual([(g["state"], g["start_pos"], g["end_pos"]) for g in self.groups()],
                          [("new", 91, 100), ("new", 121, 130)])
 
-    def test_broken_from_the_first_known_batch_is_reported_and_bisects_from_the_store(self) -> None:
+    def test_the_break_starts_after_the_newest_stored_point_when_no_outcome_passed(self) -> None:
         self.add_points(positions=range(0, 60, 10))
         report = self.detect([outcome(100, "error"), outcome(110, "error")])
-        self.assertEqual((len(report.groups_created), report.no_good_batch), (1, [f"{STORY} ({CLASS})"]))
+        self.assertEqual((len(report.groups_created), report.no_good_batch), (1, []))
         [group] = self.groups()
+        self.assertEqual((group["start_pos"], group["end_pos"]), (51, 100))
         self.assertEqual(harness.functional_target(self.store, group["id"]).good, sha(50))
 
-    def test_a_story_never_stored_has_no_good_end(self) -> None:
-        self.add_points(positions=[120])  # its only pass is after the break
-        self.detect([outcome(100, "error"), outcome(110, "error")])
+    def test_a_story_never_stored_on_the_waterfall_breaks_from_the_first_position(self) -> None:
+        self.add_points(positions=[0], kind="try")  # its series exists, but the waterfall never stored a pass
+        report = self.detect([outcome(100, "error"), outcome(110, "error")])
+        self.assertEqual(report.no_good_batch, [f"{STORY} ({CLASS})"])
         [group] = self.groups()
+        self.assertEqual((group["start_pos"], group["end_pos"]), (harness.FIRST_POSITION, 100))
         self.assertIsNone(harness.functional_target(self.store, group["id"]).good)
+
+    def test_a_stored_point_after_the_errors_is_a_recovery(self) -> None:
+        self.add_points(positions=[50, 120])
+        report = self.detect([outcome(100, "error"), outcome(110, "error")])
+        self.assertEqual((report.broken, self.groups()), (0, []))
+
+    def test_sliding_windows_of_one_break_open_one_group(self) -> None:
+        self.add_points()
+        first = self.detect([outcome(90, "pass"), outcome(100, "error"), outcome(110, "error")])
+        later = [self.detect([outcome(110, "error"), outcome(120, "error")]),
+                 self.detect([outcome(120, "error"), outcome(130, "error")])]
+        self.assertEqual((len(first.groups_created), first.alerts), (1, 2))
+        self.assertEqual([(r.broken, r.alerts, r.groups_created, r.groups_joined) for r in later],
+                         [(1, 0, [], []), (1, 0, [], [])])
+        self.assertEqual([(g["state"], g["start_pos"], g["end_pos"]) for g in self.groups()], [("new", 91, 100)])
+        self.assertEqual(len(self.harness_alerts()), 2)
+
+    def test_one_outcome_per_call_opens_one_group_on_the_second_error(self) -> None:
+        self.add_points()
+        reports = [self.detect([outcome(pos, status)]) for pos, status in
+                   ((90, "pass"), (100, "error"), (110, "env-invalid"), (120, "error"), (130, "error"))]
+        self.assertEqual([len(r.groups_created) for r in reports], [0, 0, 0, 1, 0])
+        self.assertEqual([(g["start_pos"], g["end_pos"]) for g in self.groups()], [(91, 100)])
+
+    def test_a_break_longer_than_any_window_stays_one_group(self) -> None:
+        self.add_points()
+        self.detect([outcome(90, "pass")])
+        for pos in range(100, 100 + 10 * 300, 10):  # 300 batches, over two days of 10-minute batches
+            self.detect([outcome(pos, "error")])
+        self.assertEqual([(g["start_pos"], g["end_pos"]) for g in self.groups()], [(91, 100)])
+        self.assertEqual(len(self.harness_alerts()), 2)
+
+    def test_a_series_new_during_the_break_joins_its_group(self) -> None:
+        self.add_points(metrics=("key_to_frame_ms",))
+        self.detect([outcome(90, "pass"), outcome(100, "error"), outcome(110, "error")])
+        self.add_points(metrics=("dropped_frames",), positions=[0], kind="try")
+        report = self.detect([outcome(120, "error")])
+        [group] = self.groups()
+        self.assertEqual((report.groups_created, report.groups_joined, report.alerts), ([], [group["id"]], 1))
+        self.assertEqual({(a["group_id"], a["start_pos"], a["end_pos"]) for a in self.harness_alerts()},
+                         {(group["id"], 91, 100)})
+
+    def test_a_batch_stored_with_another_tip_is_refused_and_stores_nothing(self) -> None:
+        self.add_points()
+        self.detect([outcome(100, "error")])
+        clash = harness.StoryOutcome(STORY, CLASS, "cmux16", 100, "f" * 40, harness.ERROR)
+        with self.assertRaisesRegex(harness.HarnessAlertsError, "batch 100 is stored with tip"):
+            self.detect([outcome(110, "error"), clash])
+        count = self.store._db.execute("SELECT COUNT(*) FROM story_outcomes").fetchone()[0]
+        self.assertEqual((count, self.groups()), (1, []))
 
     def test_story_without_series_is_reported_not_grouped(self) -> None:
         report = self.detect([outcome(90, "pass"), outcome(100, "error"), outcome(110, "error")])
@@ -243,6 +296,124 @@ class CoverageTests(unittest.TestCase):
         self.assertEqual([(m.batch_pos, m.reason) for m in coverage.missing],
                          [(20, "error"), (30, "env-invalid"), (40, "not-run")])
         self.assertEqual(coverage.measured, 1)
+
+
+class StoredCoverageTests(LabFixture):
+    def test_a_window_inside_a_long_break_counts_harness_broken(self) -> None:
+        self.add_points()
+        for pos, status in [(90, "pass")] + [(p, "error") for p in range(100, 160, 10)]:
+            self.detect([outcome(pos, status)])
+        coverage = harness.stored_coverage(self.store, [harness.PlannedStory(STORY, CLASS, p) for p in (140, 150)])
+        self.assertEqual([(m.batch_pos, m.reason) for m in coverage.missing],
+                         [(140, "harness-broken"), (150, "harness-broken")])
+        self.assertEqual(list(harness.broken_stories(self.store._db)), [(STORY, CLASS)])
+
+    def test_a_recovered_story_is_not_broken(self) -> None:
+        self.add_points()
+        self.detect([outcome(90, "pass"), outcome(100, "error"), outcome(110, "error"), outcome(120, "pass")])
+        self.assertEqual(harness.broken_stories(self.store._db), {})
+
+
+def job_run(ok: bool, reason: str | None = None, *, env_invalid: bool = False, story: str = STORY,
+            repeat: int = 0) -> dict:
+    """One run of run_story.py's summary.json."""
+    return {"story": story, "repeat": repeat, "ok": ok, "reason": reason, "env_invalid": env_invalid, "seconds": 1,
+            "results": [], "rejected": [], "log": None}
+
+
+def job_summary(pos: int, runs, *, refusal=None, env: bool = True) -> dict:
+    summary = {"measure_version": 1, "sha": sha(pos), "config": "bench", "refusal": refusal,
+               "stories": sorted({run["story"] for run in runs}) or [STORY], "runs": runs}
+    if env:
+        summary["env"] = {"ok": True, "class": CLASS, "fingerprint": "ab" * 32, "hz": 120}
+    return summary
+
+
+class SummaryOutcomeTests(unittest.TestCase):
+    def outcomes(self, summary, **kwargs):
+        return [(o.story, o.host, o.batch_pos, o.status, o.reason)
+                for o in harness.outcomes_from_summary(summary, batch_pos=7, **kwargs)]
+
+    def test_one_outcome_per_story_run(self) -> None:
+        summary = job_summary(7, [job_run(True), job_run(False, "exit 1", repeat=1),
+                                  job_run(False, "env-invalid after launch: network-egress", env_invalid=True,
+                                          story="split-spring")])
+        self.assertEqual(self.outcomes(summary, host="cmux15", exit_code=1), [
+            (STORY, "cmux15", 7, "pass", ""), (STORY, "cmux15", 7, "error", "exit 1"),
+            ("split-spring", "cmux15", 7, "env-invalid", "env-invalid after launch: network-egress")])
+
+    def test_the_host_defaults_to_the_reports_fingerprint(self) -> None:
+        self.assertEqual(self.outcomes(job_summary(7, [job_run(True)]))[0][1], "fp-" + "ab" * 6)
+
+    def test_exit_3_makes_every_planned_story_env_invalid(self) -> None:
+        summary = job_summary(7, [], refusal={"kind": "env-invalid", "reason": "thermal-limit"}, env=False)
+        summary["stories"] = [STORY, "split-spring"]
+        self.assertEqual(self.outcomes(summary, host="cmux15", host_class=CLASS, exit_code=3),
+                         [(STORY, "cmux15", 7, "env-invalid", "thermal-limit"),
+                          ("split-spring", "cmux15", 7, "env-invalid", "thermal-limit")])
+        self.assertEqual(self.outcomes(summary, host="cmux15"), [])  # no host class: no evidence to record
+
+    def test_other_refusals_and_exits_say_nothing_about_a_story(self) -> None:
+        missing = job_summary(7, [], refusal={"kind": "missing-artifact", "reason": "no such digest"})
+        self.assertEqual(self.outcomes(missing, exit_code=4), [])
+        self.assertEqual(self.outcomes(job_summary(7, [job_run(False, "stopped")]), exit_code=143), [])
+
+    def test_a_summary_without_a_sha_is_refused(self) -> None:
+        with self.assertRaisesRegex(harness.HarnessAlertsError, "names no sha"):
+            harness.outcomes_from_summary({"runs": []}, batch_pos=7)
+
+
+ingest = _load("perf_lab_ingest", LAB / "ingest.py")
+dashboard = _load("perf_lab_dashboard", LAB / "dashboard.py")
+
+
+class IngestProducerTests(LabFixture):
+    """The waterfall path: each job folder (perf-lab.tgz unpacked) is ingested, and its outcomes are judged."""
+
+    def job_folder(self, name: str, summary: dict) -> Path:
+        folder = Path(self._tmp.name) / name
+        (folder / "results").mkdir(parents=True)
+        (folder / "summary.json").write_text(json.dumps(summary))
+        return folder
+
+    def ingest(self, folder: Path):
+        positions = {sha(pos): pos for pos in range(0, 400, 10)}
+        return ingest.ingest_paths(self.store, [folder], host_name="cmux15", kind="waterfall",
+                                   commit_positions=lambda s: ingest.CommitPosition(positions[s], True)
+                                   if s in positions else None)
+
+    def test_an_errored_batch_pair_opens_the_group(self) -> None:
+        self.add_points()
+        reports = [self.ingest(self.job_folder("j100", job_summary(100, [job_run(False, "debug.layout missing")]))),
+                   self.ingest(self.job_folder("j110", job_summary(110, [], refusal={"kind": "env-invalid",
+                                                                                   "reason": "thermal"}))),
+                   self.ingest(self.job_folder("j120", job_summary(120, [job_run(False, "socket timeout")])))]
+        self.assertEqual([(r.outcomes, len(r.harness_groups), r.rejected) for r in reports],
+                         [(1, 0, []), (1, 0, []), (1, 1, [])])
+        [group] = self.groups()
+        self.assertEqual((group["id"], group["start_pos"], group["end_pos"]), (reports[2].harness_groups[0], 91, 100))
+        self.assertEqual(len(self.harness_alerts()), 2)
+        again = self.ingest(self.job_folder("j120-again", job_summary(120, [job_run(False, "socket timeout")])))
+        self.assertEqual((again.outcomes, again.harness_groups, len(self.groups())), (0, [], 1))
+        coverage = dashboard.StoreSource(self.db_path).coverage(NOW - timedelta(days=1))
+        self.assertEqual({(row.story, row.broken) for row in coverage}, {(STORY, True)})
+        self.assertIn("Harness broken", dashboard.render_coverage(coverage, NOW))
+
+    def test_a_bisect_ingest_records_no_waterfall_outcome(self) -> None:
+        self.add_points()
+        folder = self.job_folder("b100", job_summary(100, [job_run(False, "exit 1")]))
+        report = ingest.ingest_paths(self.store, [folder], host_name="cmux15", kind="bisect",
+                                     commit_positions=lambda s: ingest.CommitPosition(100, True))
+        self.assertEqual(report.outcomes, 0)
+        self.assertEqual(self.store._db.execute("SELECT COUNT(*) FROM story_outcomes").fetchone()[0], 0)
+
+    def test_a_job_off_the_mainline_is_rejected(self) -> None:
+        folder = self.job_folder("j-off", job_summary(100, [job_run(False, "exit 1")]))
+        report = ingest.ingest_paths(self.store, [folder], host_name="cmux15", kind="waterfall",
+                                     commit_positions=lambda s: ingest.CommitPosition(100, False))
+        [rejection] = report.rejected
+        self.assertEqual(rejection.source, str(folder / "summary.json"))
+        self.assertIn("not on the mainline", rejection.reason)
 
 
 def functional_job(commits) -> object:
@@ -474,6 +645,19 @@ class CliTests(LabFixture):
         code, out, _ = self.main("detect", "--db", str(self.db_path), "--outcomes", str(self.write_outcomes(self.rows())))
         self.assertEqual((code, len(json.loads(out)["groups_created"])), (0, 1))
         self.assertEqual(len(self.groups()), 1)
+
+    def test_record_judges_each_job_summary_over_the_store(self) -> None:
+        self.add_points()
+        created = []
+        for pos in (100, 110):
+            path = Path(self._tmp.name) / f"summary-{pos}.json"
+            path.write_text(json.dumps(job_summary(pos, [job_run(False, "exit 1")])))
+            code, out, err = self.main("record", "--db", str(self.db_path), "--summary", str(path),
+                                       "--batch-pos", str(pos), "--host", "cmux15", "--exit-code", "1")
+            self.assertEqual(code, 0, err)
+            created.append(len(json.loads(out)["groups_created"]))
+        self.assertEqual(created, [0, 1])
+        self.assertEqual([(g["start_pos"], g["end_pos"]) for g in self.groups()], [(91, 100)])
 
     def test_bad_outcome_line_names_path_and_field(self) -> None:
         rows = self.rows()
