@@ -1256,6 +1256,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_owner_wait_defers.py
 
+      - name: Validate the cmux-tui tree hand-off cap
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_tui_tree_handoff.py
+
       - name: Validate the cmux-tui pin duplicate skip
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_pin_duplicate_skip.py
