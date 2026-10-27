@@ -6,9 +6,25 @@ import Testing
 struct CloudCodexBrokerAdapterTests {
     actor Files {
         var values: [String: [String: Data]] = [:]
+        var live = true
+        var removals = 0
+        var pausedChecks = 0
+        var pausedWaiter: CheckedContinuation<Void, Never>?
+        func pause() { live = false }
+        func waitForTwoPausedChecks() async {
+            if pausedChecks >= 2 { return }
+            await withCheckedContinuation { pausedWaiter = $0 }
+        }
+        func isLive() -> Bool {
+            if !live {
+                pausedChecks += 1
+                if pausedChecks >= 2 { pausedWaiter?.resume(); pausedWaiter = nil }
+            }
+            return live
+        }
         func read(_ machine: String, _ path: String) -> Data? { values[machine]?[path] }
         func write(_ machine: String, _ path: String, _ data: Data) { values[machine, default: [:]][path] = data }
-        func remove(_ machine: String, _ path: String) { values[machine]?[path] = nil }
+        func remove(_ machine: String, _ path: String) { removals += 1; values[machine]?[path] = nil }
         func commit(_ machine: String, _ a: String, _ b: String, _ c: String, _ d: String) {
             values[machine, default: [:]][b] = values[machine]?[a]
             values[machine, default: [:]][d] = values[machine]?[c]
@@ -20,15 +36,15 @@ struct CloudCodexBrokerAdapterTests {
             writeFile: { path, data, _ in try Task.checkCancellation(); await self.write(machine, path, data) },
             commitFiles: { a, b, c, d in await self.commit(machine, a, b, c, d) },
             removeFile: { try Task.checkCancellation(); await self.remove(machine, $0) },
-            isLive: { try Task.checkCancellation(); return true })
+            isLive: { try Task.checkCancellation(); return await self.isLive() })
         }
     }
 
-    private func fixture() throws -> (URL, CloudCodexBrokerAdapter.Launch) {
+    private func fixture(shortGrants: Bool = false) throws -> (URL, CloudCodexBrokerAdapter.Launch) {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("codex-adapter-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let fake = root.appendingPathComponent("broker.sh")
-        try #"""
+        let script = #"""
 #!/bin/sh
 holder="$3"
 while IFS= read -r line; do
@@ -37,12 +53,14 @@ while IFS= read -r line; do
     touch "$holder/signed-in"
     echo "{\"id\":$id,\"result\":{\"verificationUrl\":\"https://auth.openai.com/codex/device\",\"userCode\":\"TEST-CODE\"}}"
   elif [ -f "$holder/signed-in" ]; then
-    echo "{\"id\":$id,\"result\":{\"accessToken\":\"short-access\",\"chatgptAccountId\":\"account\",\"expiresAt\":2147483647}}"
+    expiry=2147483647; if [ "SHORT_GRANTS" = yes ]; then expiry=$(($(date +%s) + 123)); fi
+    echo "{\"id\":$id,\"result\":{\"accessToken\":\"short-access\",\"chatgptAccountId\":\"account\",\"expiresAt\":$expiry}}"
   else
     echo "{\"id\":$id,\"error\":\"codex_auth_unavailable\"}"
   fi
 done
-"""#.write(to: fake, atomically: true, encoding: .utf8)
+"""#.replacingOccurrences(of: "SHORT_GRANTS", with: shortGrants ? "yes" : "no")
+        try script.write(to: fake, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fake.path)
         return (root, .init(executable: fake, prefix: [], codex: URL(fileURLWithPath: "/bin/false")))
     }
@@ -125,6 +143,22 @@ done
         #expect(await files.read("vm", CloudCodexBroker.accessPath) == nil)
         #expect(adapter.pendingCleanup.isEmpty)
         await adapter.shutdown()
+    }
+
+    @Test func pausedRenewalDoesNotIssueCleanupFileRequests() async throws {
+        let (root, launch) = try fixture(shortGrants: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = Files()
+        let scope = CloudCodexBrokerScope(userID: "user", teamID: nil)
+        let adapter = CloudCodexBrokerAdapter(root: root, registry: .init(), currentScope: { scope }, launch: { launch }, target: { _, id in files.target(id) })
+        try await adapter.run(machineID: "vm", scope: scope, confirmed: true) { _ in true }
+        let before = await files.removals
+        await files.pause()
+        // A second scheduled probe proves the preceding renewal completed.
+        await files.waitForTwoPausedChecks()
+        #expect(await files.removals == before)
+        await adapter.shutdown()
+        #expect(adapter.pendingCleanup.contains("vm"))
     }
 
     @Test func scopeSwitchCancelsPendingPromptWithoutDelivery() async throws {
