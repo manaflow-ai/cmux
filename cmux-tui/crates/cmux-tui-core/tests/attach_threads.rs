@@ -2,7 +2,7 @@
 //! Attach streams hold no thread per view (p05-ipc-079): 50 byte views, 50
 //! render views and 50 snapshot views attached as client-minted streams
 //! (attach-streams-v1) on one connection of a real daemon socket add at most
-//! 2 threads to the process, and every view still gets its live output. A
+//! 3 shared pool workers to the process, and every view still gets its live output. A
 //! legacy view holds an output thread and a notification thread of its own.
 //!
 //! This file holds one test, so its process count is not shared with other
@@ -23,8 +23,10 @@ const VIEWS: usize = 50;
 /// Render views take streams `RENDER + 1..`, snapshot views `SNAPSHOT + 1..`.
 const RENDER: usize = 100;
 const SNAPSHOT: usize = 200;
-/// The sequenced pool's input workers.
-const THREAD_BUDGET: usize = 2;
+/// The sequenced pool's input workers, and one more control worker: the
+/// connection's lines and its requests are two control sequences that may
+/// run at once (p01-process-203). Shared workers, none per view.
+const THREAD_BUDGET: usize = 3;
 
 /// Threads of this process.
 #[cfg(target_os = "linux")]

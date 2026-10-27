@@ -43,13 +43,14 @@ impl Client {
         let server = listener.accept().unwrap();
         let server_mux = mux.clone();
         let handler = std::thread::spawn(move || {
-            serve_line_connection(
+            serve_connection(
                 server_mux,
                 server,
                 Arc::new(RenderService::new()),
                 None,
                 kind,
-                &admission::LocalAdmission,
+                Box::new(admission::LocalAdmission),
+                Box::<frame_dispatch::RequestFrames>::default(),
             );
         });
         let reader = client.try_clone_box().unwrap();

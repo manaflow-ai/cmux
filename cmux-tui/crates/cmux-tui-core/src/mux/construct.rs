@@ -502,6 +502,8 @@ impl Mux {
                 crate::server::ServerSurfaceOperationAdmission::default(),
             ),
             sequenced_pool: crate::server::SequencedPool::default(),
+            #[cfg(unix)]
+            mux_io: crate::server::MuxIo::default(),
             request_watchdog: crate::server::RequestWatchdog::default(),
             diagnostic_sites: crate::diagnostics::DiagnosticSites::default(),
             work,

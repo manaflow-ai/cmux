@@ -78,8 +78,8 @@ fn connect_with(
         let stream: Box<dyn transport::Stream> = Box::new(server);
         let render = Arc::new(RenderService::new());
         match lane {
-            Some(mut lane) => {
-                serve_connection(mux, stream, render, None, transport, &*admission, &mut lane)
+            Some(lane) => {
+                serve_connection(mux, stream, render, None, transport, admission, Box::new(lane))
             }
             None => serve_connection(
                 mux,
@@ -87,8 +87,8 @@ fn connect_with(
                 render,
                 None,
                 transport,
-                &*admission,
-                &mut RequestFrames::default(),
+                admission,
+                Box::<RequestFrames>::default(),
             ),
         }
     });
@@ -405,24 +405,20 @@ fn line_connection_the_declared_capability_negotiates_frames() {
     );
 }
 
-/// A connection's stream whose next write, once `stall` is set, takes
-/// 150 ms: an injected `mux-line-out` stall.
-struct StallingStream {
+/// A connection's stream that is not one socket the mux-io loop can watch
+/// (`socket_fd` is `None`).
+struct NotASocket {
     inner: UnixStream,
-    stall: Arc<AtomicBool>,
 }
 
-impl Read for StallingStream {
+impl Read for NotASocket {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         self.inner.read(buf)
     }
 }
 
-impl Write for StallingStream {
+impl Write for NotASocket {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        if self.stall.swap(false, Ordering::SeqCst) {
-            std::thread::sleep(Duration::from_millis(150));
-        }
         self.inner.write(buf)
     }
 
@@ -431,9 +427,9 @@ impl Write for StallingStream {
     }
 }
 
-impl transport::Stream for StallingStream {
+impl transport::Stream for NotASocket {
     fn try_clone_box(&self) -> std::io::Result<Box<dyn transport::Stream>> {
-        Ok(Box::new(Self { inner: self.inner.try_clone()?, stall: self.stall.clone() }))
+        Ok(Box::new(Self { inner: self.inner.try_clone()? }))
     }
     fn set_read_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
         self.inner.set_read_timeout(timeout)
@@ -462,43 +458,41 @@ fn settled_wakeups(mux: &Mux) -> u64 {
     }
 }
 
-/// p02-threads task 232: the connection's `mux-line-out` writer watches each
-/// item it writes. A reply whose write stalls 150 ms is one hang of the
-/// mux's watchdog (`slow_requests.hangs`; the request watchdog tests check
-/// the row names `mux-line-out`), the replies before and after it none, and
-/// the idle connection then wakes the watchdog 0 times.
+/// p01-process-203: a connection holds no thread. Its replies leave on the
+/// mux-io loop, its requests run on the pool, and once idle it wakes the
+/// request watchdog 0 times and records no hang.
 #[test]
-fn line_connection_a_stalled_write_is_one_line_out_hang_and_idle_wakes_nothing() {
-    let mux = Mux::new_for_test("line-conn-stall", crate::SurfaceOptions::default());
-    let (socket, server) = UnixStream::pair().unwrap();
-    let stall = Arc::new(AtomicBool::new(false));
-    let stream = StallingStream { inner: server, stall: stall.clone() };
-    let served_mux = mux.clone();
-    let served = std::thread::spawn(move || {
-        let render = Arc::new(RenderService::new());
-        let mut lane = RequestFrames::default();
-        let stream: Box<dyn transport::Stream> = Box::new(stream);
-        let transport = ClientTransport::Unix;
-        serve_connection(served_mux, stream, render, None, transport, &LinesOnly, &mut lane)
-    });
-    let read_half = socket.try_clone().unwrap();
-    read_half.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
-    let mut peer = Peer { mux, socket, replies: BufReader::new(read_half), served };
-
-    peer.send(&ping(1));
-    assert_eq!(peer.reply().unwrap()["ok"], json!(true));
-    settled_wakeups(&peer.mux);
-    assert_eq!(peer.mux.request_watchdog.snapshot().hangs, 0, "a prompt reply is no hang");
-
-    stall.store(true, Ordering::SeqCst);
-    peer.send(&ping(2));
-    assert_eq!(peer.reply().unwrap()["ok"], json!(true));
-    peer.send(&ping(3));
-    assert_eq!(peer.reply().unwrap()["ok"], json!(true));
+fn line_connection_an_idle_connection_wakes_nothing_and_records_no_hang() {
+    let mut peer = connect("idle", None);
+    for id in 1..=3 {
+        peer.send(&ping(id));
+        assert_eq!(peer.reply().unwrap()["ok"], json!(true));
+    }
     let idle = settled_wakeups(&peer.mux);
-    assert_eq!(peer.mux.request_watchdog.snapshot().hangs, 1, "one stalled write, one hang");
-
     std::thread::sleep(Duration::from_secs(1));
     assert_eq!(settled_wakeups(&peer.mux), idle, "an idle connection wakes the watchdog 0 times");
-    peer.finish();
+    assert_eq!(peer.mux.request_watchdog.snapshot().hangs, 0);
+    assert_eq!(peer.finish(), ConnectionEnd::PeerClosed);
+}
+
+/// A stream the loop cannot watch is not served: the connection ends at
+/// once and its peer reads the close.
+#[test]
+fn line_connection_a_stream_that_is_not_a_socket_is_dropped() {
+    let mux = Mux::new_for_test("line-conn-no-socket", crate::SurfaceOptions::default());
+    let (mut socket, server) = UnixStream::pair().unwrap();
+    let stream: Box<dyn transport::Stream> = Box::new(NotASocket { inner: server });
+    let end = serve_connection(
+        mux,
+        stream,
+        Arc::new(RenderService::new()),
+        None,
+        ClientTransport::Unix,
+        Box::new(LinesOnly),
+        Box::<RequestFrames>::default(),
+    );
+    assert_eq!(end, ConnectionEnd::Dropped);
+    socket.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    let mut rest = Vec::new();
+    assert_eq!(socket.read_to_end(&mut rest).unwrap(), 0, "the peer reads the close");
 }

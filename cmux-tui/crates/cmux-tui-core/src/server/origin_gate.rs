@@ -382,36 +382,55 @@ pub(super) fn set_hello(
     true
 }
 
-/// Records kernel peer identity at accept, before a legacy client can skip hello.
-pub(super) fn set_peer_identity_at_accept(
-    mux: &Mux,
-    client: u64,
-    peer_key: Option<String>,
-    peer_token: Option<cmux_link::app_caller::PeerToken>,
-    peer_uid: Option<u32>,
-) {
-    let local_peer = classify_local_peer(mux, peer_key.as_deref(), peer_session_id);
-    let executable = peer_executable(peer_key.as_deref(), peer_token.as_ref());
-    let mobile_host = executable.as_deref().is_some_and(is_bundled_mobile_host_path);
-    // Windows sockets pass no descriptors: no peer there is direct.
-    #[cfg(unix)]
-    let peer_process = classify_peer_process(
-        peer_uid,
-        executable.as_deref(),
-        platform::effective_uid(),
-        daemon_executable(),
-    );
-    #[cfg(not(unix))]
-    let peer_process = {
-        let _ = peer_uid;
-        PeerProcess::Unverified
-    };
-    let mut state = mux.control_clients.state.lock().recover_poison();
-    if let Some(record) = state.clients.get_mut(&client) {
-        record.origin.peer_key = peer_key;
-        record.origin.local_peer = local_peer;
-        record.origin.mobile_host = mobile_host;
-        record.origin.peer_process = peer_process;
+/// What the kernel says about an accepted local peer, and what it makes
+/// of it: read once per connection, off the request path, because it reads
+/// the peer's process files (its executable, its session).
+pub(super) struct AcceptedPeer {
+    /// `token:<pid>.<pid version>` (request-origin.md peer_key).
+    pub(super) key: Option<String>,
+    /// The audit token (prover A); macOS only.
+    pub(super) token: Option<cmux_link::app_caller::PeerToken>,
+    local_peer: LocalPeer,
+    mobile_host: bool,
+    peer_process: PeerProcess,
+}
+
+impl AcceptedPeer {
+    /// Reads the peer of `stream`. It blocks on the peer's process files:
+    /// call it on a work item, never on the request path.
+    pub(super) fn read(mux: &Mux, stream: &dyn transport::Stream) -> Self {
+        let peer_key = stream.peer_process_key();
+        let peer_token = stream.peer_token();
+        let peer_uid = stream.peer_uid();
+        let local_peer = classify_local_peer(mux, peer_key.as_deref(), peer_session_id);
+        let executable = peer_executable(peer_key.as_deref(), peer_token.as_ref());
+        let mobile_host = executable.as_deref().is_some_and(is_bundled_mobile_host_path);
+        // Windows sockets pass no descriptors: no peer there is direct.
+        #[cfg(unix)]
+        let peer_process = classify_peer_process(
+            peer_uid,
+            executable.as_deref(),
+            platform::effective_uid(),
+            daemon_executable(),
+        );
+        #[cfg(not(unix))]
+        let peer_process = {
+            let _ = peer_uid;
+            PeerProcess::Unverified
+        };
+        Self { key: peer_key, token: peer_token, local_peer, mobile_host, peer_process }
+    }
+
+    /// Records the identity on `client`, before a legacy client can skip
+    /// hello.
+    pub(super) fn record(&self, mux: &Mux, client: u64) {
+        let mut state = mux.control_clients.state.lock().recover_poison();
+        if let Some(record) = state.clients.get_mut(&client) {
+            record.origin.peer_key = self.key.clone();
+            record.origin.local_peer = self.local_peer.clone();
+            record.origin.mobile_host = self.mobile_host;
+            record.origin.peer_process = self.peer_process;
+        }
     }
 }
 

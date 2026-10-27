@@ -155,6 +155,28 @@ pub(super) struct ConnectionSurfaceState {
     /// connection permit is released.
     pub(super) drained: bool,
     pub(super) closed: bool,
+    /// Run once the scheduler is settled ([`ConnectionSurfaceScheduler::when_settled`]).
+    pub(super) settled_hooks: Vec<SettledHook>,
+}
+
+/// What a connection does once its scheduler settled: its close, posted
+/// back to its line sequence (server/line_connection.rs).
+pub(super) type SettledHook = Box<dyn FnOnce() + Send>;
+
+impl ConnectionSurfaceState {
+    /// Drained, and no clear-history, long read or creation still runs.
+    pub(super) fn settled(&self) -> bool {
+        self.drained
+            && self.active_clear_surfaces.is_empty()
+            && self.active_read_surfaces.is_empty()
+            && self.active_creations == 0
+    }
+
+    /// The hooks to run now that the state may have settled, to be run
+    /// once its lock is released.
+    pub(super) fn take_settled_hooks(&mut self) -> Vec<SettledHook> {
+        if self.settled() { std::mem::take(&mut self.settled_hooks) } else { Vec::new() }
+    }
 }
 
 /// Set when a connection's request scheduler closes. Request handlers that
@@ -451,10 +473,29 @@ impl ConnectionSurfaceScheduler {
             state.queued_bytes = 0;
         }
         let drained = self.settle_locked(&mut state);
+        let hooks = state.take_settled_hooks();
         self.changed.notify_all();
         drop(state);
         // The control sequence and its context drop outside the lock.
         drop(drained);
+        for hook in hooks {
+            hook();
+        }
+    }
+
+    /// Runs `then` once the scheduler is settled: closed ([`Self::finish`]
+    /// or [`Self::close`]), drained, and no clear-history, long read or
+    /// creation still running. At once when it is. It never waits, as
+    /// [`Self::wait_for_completion`] does: the connection's line sequence
+    /// ends on it.
+    pub(super) fn when_settled(&self, then: SettledHook) {
+        let mut state = self.state.lock().recover_poison();
+        if state.settled() {
+            drop(state);
+            then();
+            return;
+        }
+        state.settled_hooks.push(then);
     }
 
     /// Marks the scheduler drained once it is closed, holds no request and
@@ -672,12 +713,7 @@ impl ConnectionSurfaceScheduler {
     pub(super) fn wait_for_completion(&self, timeout: Option<Duration>) -> bool {
         // A timeout too large to represent waits without a deadline.
         let deadline = timeout.and_then(|timeout| Instant::now().checked_add(timeout));
-        let settled = |state: &ConnectionSurfaceState| {
-            state.drained
-                && state.active_clear_surfaces.is_empty()
-                && state.active_read_surfaces.is_empty()
-                && state.active_creations == 0
-        };
+        let settled = ConnectionSurfaceState::settled;
         let mut state = self.state.lock().recover_poison();
         while !settled(&state) {
             if let Some(deadline) = deadline {
@@ -694,6 +730,7 @@ impl ConnectionSurfaceScheduler {
         settled(&state)
     }
 
+    #[cfg(test)]
     pub(super) fn finish_and_wait(self: &Arc<Self>) {
         self.finish();
         let drained = self.wait_for_completion(None);

@@ -313,7 +313,8 @@ fn a_dial_that_is_not_a_stream_keeps_its_first_line() {
     let (daemon_side, mut client) = UnixStream::pair().unwrap();
     client.write_all(b"{\"id\":1,\"cmd\":\"identify\"}\nnext\n").unwrap();
     let mut stream = route_first_line(&test_mux(), daemon_side, &FsGate, &peer(), home.entry())
-        .expect("a line dial is handed back");
+        .expect("a line dial is handed back")
+        .into_stream();
     let mut reader = BufReader::new(&mut *stream);
     let mut first = String::new();
     reader.read_line(&mut first).unwrap();

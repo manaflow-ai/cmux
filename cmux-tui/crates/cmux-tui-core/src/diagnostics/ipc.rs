@@ -110,6 +110,13 @@ impl IpcStats {
         OpenStream { stats: self }
     }
 
+    /// [`Self::stream_opened`] for an owner that cannot hold a borrow (a
+    /// connection served on the mux-io loop and its line sequence).
+    pub fn stream_opened_owned(self: &std::sync::Arc<Self>) -> OwnedOpenStream {
+        std::mem::forget(self.stream_opened());
+        OwnedOpenStream { stats: self.clone() }
+    }
+
     /// A request arrived at its connection's sequence, which then held
     /// `depth` requests (itself included), also when the sequence was full
     /// and refused it.
@@ -226,6 +233,17 @@ pub struct OpenStream<'a> {
 }
 
 impl Drop for OpenStream<'_> {
+    fn drop(&mut self) {
+        self.stats.streams_open.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+/// An open stream counted until it drops ([`IpcStats::stream_opened_owned`]).
+pub struct OwnedOpenStream {
+    stats: std::sync::Arc<IpcStats>,
+}
+
+impl Drop for OwnedOpenStream {
     fn drop(&mut self) {
         self.stats.streams_open.fetch_sub(1, Ordering::AcqRel);
     }

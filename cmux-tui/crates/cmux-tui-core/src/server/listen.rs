@@ -407,18 +407,20 @@ pub(super) struct ServedSession {
 }
 
 impl ServedSession {
-    /// Serve one accepted connection on its own thread (bounded by the
-    /// session's connection permits).
+    /// Serve one accepted connection (bounded by the session's connection
+    /// permits): the mux-io loop reads and writes it and its line sequence
+    /// handles its messages, so it starts no thread (p01-process-203).
     pub(super) fn serve(&self, stream: Box<dyn transport::Stream>) {
         let Some(permit) = claim_connection(self.mux.connection_stats()) else {
             refuse_busy(stream);
             return;
         };
-        let mux = self.mux.clone();
-        let render_service = self.render_service.clone();
-        let _ = super::spawn_connection_reader("mux-conn", move || {
-            handle_connection_with_permit(mux, stream, render_service, Some(permit));
-        });
+        handle_connection_with_permit(
+            self.mux.clone(),
+            stream,
+            self.render_service.clone(),
+            Some(permit),
+        );
     }
 }
 

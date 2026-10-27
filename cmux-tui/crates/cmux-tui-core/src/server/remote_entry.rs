@@ -247,17 +247,19 @@ fn serve_remote_connection(
     // A dial whose first line asks for an `fs.*` byte stream is served raw
     // (fs_wire.rs); any other dial reaches the line connection unchanged.
     let entry_fs = config.entry_fs;
-    let Some(stream) = fs_wire::route_first_line(&mux, stream, &*gate, &peer, entry_fs) else {
+    let Some(dial) = fs_wire::route_first_line(&mux, stream, &*gate, &peer, entry_fs) else {
         return;
     };
+    // From here the mux-io loop serves the dial; this handshake thread ends.
     let admission = RemoteAdmission { peer, gate };
     serve_line_connection(
         mux,
-        stream,
+        Box::new(dial.stream),
+        dial.prefix,
         render_service,
         Some(permit),
         ClientTransport::Remote,
-        &admission,
+        Box::new(admission),
     );
 }
 
@@ -317,9 +319,8 @@ impl LineAdmission for RemoteAdmission {
 
 /// The refusal of `line`: its `id` when it has one, and no detail.
 pub(super) fn denied(line: &str) -> Value {
-    let id = crate::line_parses::parse::<Value>(line)
-        .ok()
-        .and_then(|frame| frame.get("id").cloned());
+    let id =
+        crate::line_parses::parse::<Value>(line).ok().and_then(|frame| frame.get("id").cloned());
     let mut response = json!({"ok": false, "error": REMOTE_DENIED, "error_code": REMOTE_DENIED});
     if let Some(id) = id {
         response.insert("id", id);

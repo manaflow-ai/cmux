@@ -87,8 +87,8 @@ impl Client {
                 Arc::new(RenderService::new()),
                 None,
                 ClientTransport::Unix,
-                &admission::LocalAdmission,
-                &mut RequestFrames::default(),
+                Box::new(admission::LocalAdmission),
+                Box::<RequestFrames>::default(),
             )
         });
         let read_half = socket.try_clone().unwrap();
