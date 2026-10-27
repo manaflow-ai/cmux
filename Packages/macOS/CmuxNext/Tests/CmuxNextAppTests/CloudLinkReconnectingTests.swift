@@ -161,7 +161,8 @@ struct CloudLinkReconnectingTests {
         let fixture = try Fixture()
         _ = try await fixture.link.socketPath()
         let first = try #require(await fixture.link.ownerPID)
-        #expect(first == (await fixture.link.pid))
+        let firstPID = await fixture.link.pid
+        #expect(first == firstPID)
 
         fixture.mark("gone")
         #expect(await fixture.owns { !$0 } == false)
@@ -170,7 +171,8 @@ struct CloudLinkReconnectingTests {
         try FileManager.default.removeItem(at: fixture.root.appendingPathComponent("gone"))
         _ = try await fixture.link.socketPath()
         let second = try #require(await fixture.link.ownerPID)
-        #expect(second != first && second == (await fixture.link.pid))
+        let secondPID = await fixture.link.pid
+        #expect(second != first && second == secondPID)
         await fixture.remove()
     }
 }
