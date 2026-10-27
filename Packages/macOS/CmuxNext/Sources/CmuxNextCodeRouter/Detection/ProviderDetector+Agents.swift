@@ -40,7 +40,7 @@ extension ProviderDetector {
         guard environment.files.exists(file) else {
             if codexUsesKeyring {
                 let found = environment.keychain.hasGenericPassword(service: Self.codexKeychainService)
-            return ProviderDetection(provider: .codex, status: found ? .signedIn : .missing,
+                return ProviderDetection(provider: .codex, status: found ? .signedIn : .missing,
                                          sources: found ? [.keychain(Self.codexKeychainService)] : [])
             }
             return .missing(.codex)
@@ -73,8 +73,8 @@ extension ProviderDetector {
         guard let data = environment.files.data(at: config), let text = String(data: data, encoding: .utf8) else { return false }
         return text.split(whereSeparator: \.isNewline).contains { line in
             let parts = line.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
-        return parts.count == 2 && parts[0] == "cli_auth_credentials_store"
-                && ["keyring", "auto"].contains(parts[1].trimmingCharacters(in: CharacterSet(charactersIn: "\"'")))
+            return parts.count == 2 && parts[0] == "cli_auth_credentials_store"
+                && parts[1].trimmingCharacters(in: CharacterSet(charactersIn: "\"'")) == "keyring"
         }
     }
 
