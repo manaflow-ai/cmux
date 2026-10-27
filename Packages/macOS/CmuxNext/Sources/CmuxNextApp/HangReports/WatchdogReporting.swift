@@ -36,7 +36,8 @@ enum WatchdogReporting {
             wireSchema: .written(serverAcceptsSchema3: services.features.isEnabled(.hangReportsSchema3)),
             features: { [features = FeatureFlagsPage.report(services.features, tunables: TunableStore.shared)] in
                 HangReport.FeatureState(features.fieldState)
-            })
+            },
+            blockingSites: { [blocking = services.blocking] in blocking.mainThreadRead })
         let collector = hangReports.collector
         // The drain queue is a hang-watched lane for the process's life (Compat cannot see the watch). Set before
         // the sink: both are drain-queue jobs in call order, so the replay below runs inside the watch.
