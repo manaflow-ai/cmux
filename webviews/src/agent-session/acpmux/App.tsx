@@ -3996,6 +3996,9 @@ function AcpmuxPane() {
   /// Takes acpmux's trust refusal of a prompt (useFolderTrustAsk.ts): the question shows for the
   /// folder it named, and `again` sends the held prompt after Trust.
   const trustRefused = useRef<((error: unknown, again?: () => void) => boolean) | undefined>(undefined);
+  const pendingTrustRefusal = useRef<{ client: AcpmuxDirectClient; error: unknown; again?: () => void } | undefined>(
+    undefined,
+  );
   /// Keeps a send's gesture for the prompt acpmux held behind the trust question (heldPrompt.ts).
   const holdPrompt = useRef<(() => void) | undefined>(undefined);
   // A folder without a trust answer is asked about beside the chat's other permission asks as
@@ -4018,7 +4021,13 @@ function AcpmuxPane() {
     answersTrust,
     healthLocal && snapshot.origin !== "remote" && snapshot.origin !== "peer",
   );
-  trustRefused.current = trustAsk.refused;
+  const trustRoute = trustAsk.refused;
+  trustRefused.current = trustRoute;
+  useEffect(() => {
+    const pending = pendingTrustRefusal.current;
+    if (!pending || pending.client !== directClient.current) return;
+    if (trustRoute(pending.error, pending.again)) pendingTrustRefusal.current = undefined;
+  }, [trustRoute]);
   const individualPermission =
     snapshot.permission?.pending && !(snapshot.permissionGroups?.supported && snapshot.permission.groupId)
       ? snapshot.permission
@@ -5915,7 +5924,7 @@ function AcpmuxPane() {
         // folder's one question above the composer; Trust re-runs the refused step (cx-nn3e).
         client.onTrustRefused = (refusal, again) => {
           if (directClient.current !== client || client.shownSession()?.sessionId !== sessionIdRef.current) return;
-          trustRefused.current?.(refusal, again);
+          if (!trustRefused.current?.(refusal, again)) pendingTrustRefusal.current = { client, error: refusal, again };
         };
         // Only a connected client clears the error, so a stale endpoint doesn't flicker it away.
         setHostError(undefined);
@@ -5963,7 +5972,9 @@ function AcpmuxPane() {
           steer = false,
           promptId?: string,
         ) => {
-          const refusedForSend = trustRefused.current;
+          // A New Tab send may create/select its session inside ensureSession. Keep this mutable
+          // owner and refresh it after that selection so a trust refusal belongs to the new chat.
+          let refusedForSend = trustRefused.current;
           // The reader sent it: the transcript goes to its latest message now, even scrolled up.
           setSends((count) => count + 1);
           // acpmux holds the prompt while the folder's trust question is open (on session/new
@@ -6014,6 +6025,7 @@ function AcpmuxPane() {
             if (isStartRefusal(error)) client.notice(failedSendText(error, false));
             return refused(error, Boolean(accepted));
           });
+          refusedForSend = trustRefused.current;
           await persistSession(sessionId);
           const turn = client
             .send(text, attachments, kept?.promptId, accepted, kept?.ticket, steer)

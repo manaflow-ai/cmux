@@ -164,6 +164,7 @@ export function useFolderTrustAsk(
   const { sessionId, family, prompts, authority = source, visit = sessionId } = chat;
   // A live getter also fences the interval between the client's route change and React's render.
   const authorityValue = typeof authority === "function" ? authority() : authority;
+  const visitValue = typeof visit === "function" ? visit() : visit;
   const authorityState = useRef({ value: authorityValue, canAnswer, local, epoch: 0 });
   const priorAuthority = authorityState.current;
   if (
@@ -179,6 +180,10 @@ export function useFolderTrustAsk(
       (typeof authority === "function" ? authority() : authority) === authorityValue,
     [authority, authorityValue, authorityEpoch],
   );
+  // A New Tab has no client generation on its first render. Its first client may select the
+  // created session before React paints; accept that one initial bind, while every already-bound
+  // visit remains exact so an old chat cannot cross a later selection.
+  const visitWasUnbound = visitValue === undefined;
   const [ask, setAsk] = useState<FolderTrustAsk>();
   const [trusted, setTrusted] = useState(false);
   const [scope, setScope] = useState<TrustScope>();
@@ -239,15 +244,16 @@ export function useFolderTrustAsk(
   // folder keeps its answer and is not read again (Leo 2026-10-19); another agent there takes its
   // own level from that answer. Another folder draws from its known trust, reading only when the
   // pane never read it.
-  const visitValue = typeof visit === "function" ? visit() : visit;
   const chatKey = JSON.stringify([authorityEpoch, sessionId, cwd, family, canAnswer, local, visitValue]);
   const folderKey = JSON.stringify([authorityEpoch, cwd, canAnswer, local]);
   const owner = useRef({ key: chatKey, epoch: 0 });
   if (owner.current.key !== chatKey) owner.current = { key: chatKey, epoch: owner.current.epoch + 1 };
   const ownerEpoch = owner.current.epoch;
   const sameVisit = useCallback(
-    () => owner.current.epoch === ownerEpoch && (typeof visit === "function" ? visit() : visit) === visitValue,
-    [ownerEpoch, visit, visitValue],
+    () =>
+      owner.current.epoch === ownerEpoch &&
+      (visitWasUnbound || (typeof visit === "function" ? visit() : visit) === visitValue),
+    [ownerEpoch, visit, visitValue, visitWasUnbound],
   );
   const [shownChat, setShownChat] = useState<{ chat: string; folder: string }>();
   if (shownChat?.chat !== chatKey) {
@@ -286,7 +292,7 @@ export function useFolderTrustAsk(
     } else {
       // The persisted path cache belongs to this page's initial local authority. Once its route
       // changes, read the new authority instead of projecting a previous host's answer by path.
-      const trust = cwd && remembers && authorityEpoch === 0 ? knownTrust().get(cwd) : undefined;
+      const trust = cwd && remembers ? knownTrust().get(cwd) : undefined;
       const shown =
         trust && cwd ? shownTrust(trust, cwd, family, canAnswer) : { ask: undefined, trusted: false, scope: undefined };
       setAsk(shown.ask);
@@ -379,6 +385,7 @@ export function useFolderTrustAsk(
       // The chat the answer was made in: the asked folder can be another spelling of its folder
       // (the one acpmux named in a refusal).
       const chatCwd = current.current.cwd;
+      const refusalBeforeSave = refusedTrust.current.get(sessionId);
       const repo = ask?.repo ?? (scope?.cwd === asked.cwd ? scope.repo : undefined);
       const recorded = folder ?? asked.cwd;
       const stillHere = () =>
@@ -394,7 +401,8 @@ export function useFolderTrustAsk(
         // Fence every effect, including cache/refusal mutations and forced composer replay.
         // The same UUID and cwd can now belong to another machine or a newer connection.
         if (!mounted.current || !sameAuthority()) return;
-        refusedTrust.current.delete(asked.sessionId);
+        if (refusedTrust.current.get(asked.sessionId) === refusalBeforeSave)
+          refusedTrust.current.delete(asked.sessionId);
         if (askFromRefusal.current?.sessionId === asked.sessionId) askFromRefusal.current = undefined;
         // In an alternate-cwd refusal, `asked.cwd` is the folder acpmux named while `chatCwd`
         // is the folder whose read is still in flight. Invalidate both generations so that a

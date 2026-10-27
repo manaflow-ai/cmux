@@ -142,6 +142,69 @@ test("a route change fences a completed save before React renders the new author
   expect(shown.trusted).toBe(false);
 });
 
+test("a local authority keeps trusted folders cached across A to B to A", async () => {
+  const folderA = "/home/you/cache-a";
+  const folderB = "/home/you/cache-b";
+  let reads = 0;
+  const rereadA = deferred<unknown>();
+  const source = {
+    get: async (cwd: string) => {
+      reads++;
+      if (cwd === folderA && reads === 3) return rereadA.promise;
+      return trusted(cwd);
+    },
+    set: async () => undefined,
+  };
+  const show = (cwd: string) =>
+    act(async () => {
+      root.render(<Probe source={source} cwd={cwd} authority="A" local />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  await show(folderA);
+  expect(shown.trusted).toBe(true);
+  await show(folderB);
+  expect(shown.trusted).toBe(true);
+  await show(folderA);
+  expect(shown.trusted).toBe(true);
+  expect(shown.blocked).toBeUndefined();
+  expect(reads).toBe(3);
+  await act(async () => rereadA.resolve(trusted(folderA)));
+});
+
+test("a first-client trust refusal survives the generation bind before React renders", async () => {
+  const cwd = "/home/you/new-session";
+  let generation: number | undefined;
+  const source = { get: async () => trusted(cwd), set: async () => undefined };
+  await act(async () => root.render(<Probe source={source} cwd={cwd} authority="A" visit={() => generation!} />));
+  const beforeClient = shown.refused;
+  generation = 1;
+  await act(async () => {
+    expect(beforeClient(pending(cwd), () => undefined)).toBe(true);
+    await Promise.resolve();
+  });
+  expect(shown.ask).toMatchObject({ cwd, state: "ask" });
+});
+
+test("an older same-authority save cannot erase a newer refusal for that chat", async () => {
+  const cwd = "/home/you/newer-refusal";
+  const save = deferred<unknown>();
+  let visit = 1;
+  const source = { get: async () => trusted(cwd), set: () => save.promise };
+  const show = () =>
+    act(async () => root.render(<Probe source={source} cwd={cwd} authority="A" visit={() => visit} />));
+  await show();
+  await act(async () => shown.refused(pending("/home/you/f1")));
+  await act(async () => shown.trust());
+  visit = 2;
+  await show();
+  visit = 1;
+  await show();
+  await act(async () => shown.refused(pending("/home/you/f2")));
+  await act(async () => save.resolve(undefined));
+  expect(shown.ask?.cwd).toBe("/home/you/f2");
+});
+
 test("a delayed prompt refusal is dropped after direct-client navigation", async () => {
   const { AcpmuxDirectClient } = await import("../src/agent-session/acpmux/direct");
   const { MockAcpmuxSocket, mockHost } = await import("../src/agent-session/acpmux/mock");
