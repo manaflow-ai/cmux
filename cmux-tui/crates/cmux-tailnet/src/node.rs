@@ -336,6 +336,13 @@ mod tests {
     use std::os::fd::IntoRawFd;
 
     #[test]
+    fn invalid_configuration_never_reports_secret_values() {
+        let error = cstring("private-auth-key\0suffix").unwrap_err().to_string();
+        assert_eq!(error, "NUL byte in node configuration");
+        assert!(!error.contains("private-auth-key"));
+    }
+
+    #[test]
     fn accept_readiness_does_not_block_and_detects_truncated_close() {
         let (reader, mut writer) = UnixStream::pair().unwrap();
         let mut listener = Listener { fd: reader.into_raw_fd() };
