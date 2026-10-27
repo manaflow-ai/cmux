@@ -1706,6 +1706,9 @@ jobs:
           path: ${{ runner.temp }}/source-archive
           if-no-files-found: error
           retention-days: 3
+          # A re-run of pick-nightly-build-runner re-runs this job after a success
+          # (owned_pool_rescue.repick_job()); its second upload replaces the first.
+          overwrite: true
 
       # Signing only embeds the license trees. Keep that handoff separate from
       # the optional source offer so each signing leg does not download the
@@ -1718,6 +1721,9 @@ jobs:
           path: ${{ runner.temp }}/source-archive/*-licenses
           if-no-files-found: error
           retention-days: 3
+          # A re-run of pick-nightly-build-runner re-runs this job after a success
+          # (owned_pool_rescue.repick_job()); its second upload replaces the first.
+          overwrite: true
 
   # The web bundles and the third-party notices of a cmux-next nightly, built
   # on Linux beside build-nightly-app instead of on its serial path (0.7 to
