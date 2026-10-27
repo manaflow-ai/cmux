@@ -6,7 +6,9 @@ import {
   KEY_TO_PAINT_REPORT_MS,
   KeyToPaintProbe,
   frameInputQueue,
+  installKeyToPaintProbe,
   type FrameScheduler,
+  type KeyToPaintControl,
   type KeyToPaintReport,
 } from "./frameInput";
 import { trackPressRelease } from "./pressRelease";
@@ -117,7 +119,7 @@ describe("FrameInputQueue", () => {
 });
 
 /** A probe with fake frames, ticks and clock; `key(at)` sends a keydown stamped `at`. */
-function probeHarness() {
+function probeHarness(post?: (report: KeyToPaintReport) => void) {
   const frames = new FakeFrames();
   const ticks: Array<() => void> = [];
   const listeners = new Set<EventListenerOrEventListenerObject>();
@@ -135,7 +137,10 @@ function probeHarness() {
     frames,
     tick: (callback) => ticks.push(callback),
     now: () => now,
-    post: (report) => posts.push(report),
+    post: (report) => {
+      posts.push(report);
+      post?.(report);
+    },
   });
   const key = (at: number) => {
     const event = { type: "keydown", timeStamp: at } as Event;
@@ -221,6 +226,41 @@ describe("KeyToPaintProbe", () => {
     h.paint(KEY_TO_PAINT_REPORT_MS * 3, KEY_TO_PAINT_REPORT_MS * 3 + 1);
     expect(h.ticks.length).toBe(0);
     expect(h.posts).toEqual([]);
+  });
+
+  test("the page switch turns the probe on, and its report reaches the page's post", () => {
+    const dom = new JSDOM("<!doctype html><body></body>", { pretendToBeVisual: true });
+    const win = dom.window as unknown as Window & { cmuxKeyToPaint?: KeyToPaintControl };
+    const doc = dom.window.document as unknown as Document;
+    const sent: KeyToPaintReport[] = [];
+    const made: ReturnType<typeof probeHarness>[] = [];
+    const make = (_doc: Document, post: (report: KeyToPaintReport) => void) => {
+      const harness = probeHarness(post);
+      made.push(harness);
+      return harness.probe;
+    };
+    installKeyToPaintProbe(doc, (report) => sent.push(report), make);
+    // Idempotent: a second install keeps the first switch and makes no second probe.
+    const control = win.cmuxKeyToPaint!;
+    installKeyToPaintProbe(doc, () => {}, make);
+    expect(win.cmuxKeyToPaint).toBe(control);
+    expect(made.length).toBe(1);
+    const h = made[0]!;
+    // Off: keys send nothing.
+    h.key(1);
+    h.paint(KEY_TO_PAINT_REPORT_MS + 5, KEY_TO_PAINT_REPORT_MS + 6);
+    expect(sent).toEqual([]);
+    // On through the switch: the next window's histogram reaches the page's post.
+    expect(control.setEnabled(true)).toBe(true);
+    h.setNow(KEY_TO_PAINT_REPORT_MS + 10);
+    h.key(KEY_TO_PAINT_REPORT_MS + 10);
+    h.paint(KEY_TO_PAINT_REPORT_MS * 2 + 20, KEY_TO_PAINT_REPORT_MS * 2 + 30);
+    expect(sent.length).toBe(1);
+    expect(sent[0]!.count).toBe(1);
+    expect(sent[0]!.max_ms).toBe(KEY_TO_PAINT_REPORT_MS + 20);
+    // Off again: the listener goes.
+    expect(control.setEnabled(false)).toBe(false);
+    expect(h.listeners.size).toBe(0);
   });
 });
 

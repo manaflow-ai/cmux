@@ -18,6 +18,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .unsentDraft: "unsentDraft"
         case .framePacing: "framePacing"
         case .renderRate: "renderRate"
+        case .keyToPaint: "keyToPaint"
         case .openTab: "openTab"
         case .typeAhead: "typeAhead"
         case .runAttach: "runAttach"

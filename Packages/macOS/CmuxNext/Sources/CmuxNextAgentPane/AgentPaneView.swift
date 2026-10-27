@@ -101,6 +101,8 @@ public final class AgentPaneView: NSView {
     /// Bounded reports from the app-owned webview UI picker.
     /// Receives a bounded element report while the debug UI pointer is active.
     public var uiPointerReport: (@MainActor (JSONValue) -> Void)?
+    /// Receives the page's key-to-paint histograms while ``setKeyToPaintProbe(_:)`` has the probe on.
+    public var keyToPaintReport: ((AgentPaneKeyToPaint) -> Void)?
     /// The pane's first frame until its page paints (`AgentPaneView+Loading`).
     public let loadingView = AgentPaneLoadingView()
     public private(set) lazy var redraw = AgentPageRedraw(page: page) // a chat shown again draws first
@@ -179,6 +181,7 @@ public final class AgentPaneView: NSView {
             return await AgentPaneFilePicker(openPanel: openPanel).pickAttachments(window: window)
         }
         model.onFramePacing = { [weak self] _ in self?.framePacingSettings() ?? [:] }
+        model.onKeyToPaint = { [weak self] report in self?.keyToPaintReport?(report) }
         model.onRenderRate = { [weak self] full in
             guard let self, self.renderRate == .adaptive else { return }
             self.rendersAtFullRate = full

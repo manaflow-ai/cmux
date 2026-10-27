@@ -40,9 +40,9 @@ installPageKey(document);
 // A switch away and back is a reattach: nothing started while hidden plays on return, and a change
 // that lands before the first frame back starts no entrance (shared/pageReveal.ts).
 installRevealSettle(document);
-// Key-to-paint in the pane (ui/frameInput.ts), off until debug.input or the opt-in report turns
-// it on through window.cmuxKeyToPaint.
-installKeyToPaintProbe(document);
+// Key-to-paint in the pane (ui/frameInput.ts): off until the host turns it on through
+// window.cmuxKeyToPaint (AgentPaneView.setKeyToPaintProbe); each histogram goes back as `pane.keyToPaint`.
+installKeyToPaintProbe(document, (report) => void postNative("pane.keyToPaint", { ...report }).catch(() => {}));
 const root = document.getElementById("root")!;
 // A menu with no room in the pane goes past the window's edge through the native host (cx-6k6cg):
 // the shared page host's popup ops, else the legacy bridge's.

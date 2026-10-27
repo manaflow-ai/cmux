@@ -173,8 +173,8 @@ export type KeyToPaintSeams = {
 
 /**
  * Key-to-paint in the page: each keydown's timestamp to the next frame plus one task, into a fixed
- * histogram posted at most once per `KEY_TO_PAINT_REPORT_MS`. Off until `setEnabled(true)` (debug.input
- * or the opt-in input report turns it on): no listener, no frame, no post while off.
+ * histogram posted at most once per `KEY_TO_PAINT_REPORT_MS`. Off until `setEnabled(true)` (the host,
+ * through `window.cmuxKeyToPaint`): no listener, no frame, no post while off.
  */
 export class KeyToPaintProbe {
   private enabled = false;
@@ -279,35 +279,33 @@ export function keyToPaintProbe(doc: Document, post: (report: KeyToPaintReport) 
   });
 }
 
-/** The page's switch for the probe, `window.cmuxKeyToPaint`, called by debug.input and the opt-in report. */
+/**
+ * The page's switch for the probe, `window.cmuxKeyToPaint`. The host calls it: the agent pane's
+ * `AgentPaneView.setKeyToPaintProbe` (CmuxNextAgentPane), which takes each report as `pane.keyToPaint`.
+ */
 export type KeyToPaintControl = {
   setEnabled(on: boolean): boolean;
-  readonly lastReport: KeyToPaintReport | null;
 };
 
 type ProbeWindow = Window & { cmuxKeyToPaint?: KeyToPaintControl };
 
 /**
- * Makes the probe for `doc` and its switch `window.cmuxKeyToPaint` (off). The newest report stays
- * readable as `lastReport` (the host reads it with the page's other debug state); `post`, when
- * given, also sends each one. Idempotent.
+ * Makes the probe for `doc` (off) and its switch `window.cmuxKeyToPaint`; each report goes to
+ * `post`. `make` builds the probe (tests pass one on fake frames). Idempotent.
  */
-export function installKeyToPaintProbe(doc: Document, post?: (report: KeyToPaintReport) => void): void {
+export function installKeyToPaintProbe(
+  doc: Document,
+  post: (report: KeyToPaintReport) => void,
+  make: typeof keyToPaintProbe = keyToPaintProbe,
+): void {
   const win = doc.defaultView as ProbeWindow | null;
   if (!win || win.cmuxKeyToPaint) return;
-  let lastReport: KeyToPaintReport | null = null;
-  const probe = keyToPaintProbe(doc, (report) => {
-    lastReport = report;
-    post?.(report);
-  });
+  const probe = make(doc, post);
   if (!probe) return;
   win.cmuxKeyToPaint = {
     setEnabled(on) {
       probe.setEnabled(on);
       return probe.isEnabled;
-    },
-    get lastReport() {
-      return lastReport;
     },
   };
 }
