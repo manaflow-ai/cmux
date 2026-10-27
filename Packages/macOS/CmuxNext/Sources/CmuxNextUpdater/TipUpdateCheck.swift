@@ -18,14 +18,16 @@ import Foundation
 /// asked for once: a download that fails waits for a newer build or Sparkle's own schedule, so a
 /// broken build never downloads every interval.
 ///
-/// Only where found updates download by themselves (the person's `updates.downloadAutomatically`,
-/// their metered-network choice and the managed channel); elsewhere Sparkle's own schedule offers
-/// the update. Never with the updater disabled, never while the update sheet is open (its details
-/// stay as they are), and the person's interval setting is not changed.
+/// With or without the automatic-install opt-in (`updates.downloadAutomatically`): without it, or
+/// while downloads wait for a metered link, the check ends on the update-found step (the
+/// titlebar's Update Available, which asks before anything downloads) and this read stops until
+/// that step is answered. Never off the organization's channel, never with the updater disabled,
+/// never while the update sheet is open (its details stay as they are), and the person's interval
+/// setting is not changed.
 ///
 /// Stop condition and cleanup: the one-shot ``timer`` is armed only while every condition above
 /// holds, and is cancelled when the phase moves on (checking, downloading, found, staged,
-/// installing), when automatic checks go off, when downloads stop being automatic, and at a
+/// installing), when automatic checks go off, when the managed channel moves, and at a
 /// deadline that finds the updater disabled or the sheet open (``UpdaterService/applyDownloadPolicy()``,
 /// run on every download and managed policy change, and ``UpdaterService/updateSheetClosed()`` arm
 /// it again). One probe runs at a time and the next waits a whole interval. The timer cancels its
@@ -49,8 +51,6 @@ final class TipUpdateCheck {
     }
     /// Starts the check that downloads the newer build; nil runs the driver's ``UpdateController/checkForUpdates()``.
     var startCheck: (() -> Void)?
-    /// Whether found updates download by themselves; nil reads the driver (``UpdateController/downloadsUpdatesInBackground``).
-    var downloadsInBackground: (() -> Bool)?
     /// `updates.checkAutomatically` (``reschedule(automatic:updater:)``).
     private(set) var automatic = true
     /// The probe in flight, if any.
@@ -97,16 +97,11 @@ final class TipUpdateCheck {
 
     private func mayCheck(_ updater: UpdaterService) -> Bool {
         guard Self.interval(for: updater.identity) != nil, automatic, updater.isStarted, updater.disabledReason == nil,
-              !updater.flow.installRequested, !updater.isSheetPresented(), downloads(updater) else { return false }
+              !updater.flow.installRequested, !updater.isSheetPresented(), !updater.isOffManagedChannel else { return false }
         switch updater.flow.phase {
         case .hidden, .note: return true
         case .checking, .downloading, .available, .ready, .installing: return false
         }
-    }
-
-    func downloads(_ updater: UpdaterService) -> Bool {
-        if let downloadsInBackground { return downloadsInBackground() }
-        return updater.controller?.downloadsUpdatesInBackground ?? false
     }
 
     private func run(_ updater: UpdaterService) {

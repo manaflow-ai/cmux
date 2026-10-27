@@ -57743,127 +57743,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Off: cmux still checks for updates and shows Update Available; one click downloads and installs it. On by default in NIGHTLY and DEV builds."
+            "value": "Off: cmux checks for updates and asks before it downloads one and before it restarts into it; a quit installs a downloaded update. On: updates download and install by themselves."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إيقاف: يواصل cmux البحث عن التحديثات ويعرض «يتوفر تحديث»؛ نقرة واحدة تنزّله وتثبّته. مفعّل افتراضيًا في إصدارات NIGHTLY وDEV."
+            "value": "إيقاف: يبحث cmux عن التحديثات ويسأل قبل تنزيل أي تحديث وقبل إعادة التشغيل إليه؛ ويُثبَّت التحديث المُنزَّل عند الإنهاء. تشغيل: تُنزَّل التحديثات وتُثبَّت تلقائيًا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Isključeno: cmux i dalje provjerava ažuriranja i prikazuje „Dostupno ažuriranje“; jedan klik ga preuzima i instalira. Uključeno po zadanom u NIGHTLY i DEV verzijama."
+            "value": "Isključeno: cmux provjerava ažuriranja i pita prije nego što preuzme ažuriranje i prije ponovnog pokretanja u njega; preuzeto ažuriranje instalira se pri izlasku. Uključeno: ažuriranja se sama preuzimaju i instaliraju."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Fra: cmux søger stadig efter opdateringer og viser »Opdatering tilgængelig«; ét klik henter og installerer den. Til som standard i NIGHTLY- og DEV-builds."
+            "value": "Fra: cmux søger efter opdateringer og spørger, før den henter en, og før den genstarter med den; en hentet opdatering installeres, når du afslutter. Til: opdateringer hentes og installeres automatisk."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aus: cmux sucht weiter nach Updates und zeigt „Update verfügbar“; ein Klick lädt und installiert es. In NIGHTLY- und DEV-Builds standardmäßig an."
+            "value": "Aus: cmux sucht nach Updates und fragt, bevor es eines lädt und bevor es damit neu startet; ein geladenes Update wird beim Beenden installiert. An: Updates werden automatisch geladen und installiert."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Desactivado: cmux sigue buscando actualizaciones y muestra «Actualización disponible»; un clic la descarga e instala. Activado de forma predeterminada en las compilaciones NIGHTLY y DEV."
+            "value": "Desactivado: cmux busca actualizaciones y pregunta antes de descargar una y antes de reiniciarse con ella; una actualización descargada se instala al salir. Activado: las actualizaciones se descargan e instalan solas."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Désactivé : cmux recherche toujours les mises à jour et affiche « Mise à jour disponible » ; un clic la télécharge et l’installe. Activé par défaut dans les versions NIGHTLY et DEV."
+            "value": "Désactivé : cmux recherche les mises à jour et demande avant d’en télécharger une et avant de redémarrer avec elle ; une mise à jour téléchargée s’installe quand vous quittez. Activé : les mises à jour se téléchargent et s’installent d’elles-mêmes."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Disattivato: cmux controlla comunque gli aggiornamenti e mostra «Aggiornamento disponibile»; un clic lo scarica e lo installa. Attivo per impostazione predefinita nelle build NIGHTLY e DEV."
+            "value": "Disattivato: cmux controlla gli aggiornamenti e chiede prima di scaricarne uno e prima di riavviarsi con esso; un aggiornamento scaricato si installa all’uscita. Attivato: gli aggiornamenti si scaricano e si installano da soli."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "オフ：cmux はアップデートの確認を続け、「アップデートがあります」を表示します。クリックするとダウンロードしてインストールします。NIGHTLY と DEV ビルドでは既定でオンです。"
+            "value": "オフ：cmux はアップデートを確認し、ダウンロードする前と、再起動して適用する前に確認します。ダウンロード済みのアップデートは終了時にインストールされます。オン：アップデートは自動でダウンロードされ、インストールされます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បិទ៖ cmux នៅតែពិនិត្យរកបច្ចុប្បន្នភាព ហើយបង្ហាញ «មានបច្ចុប្បន្នភាព»; ចុចម្តងដើម្បីទាញយក និងដំឡើង។ បើកតាមលំនាំដើមក្នុងកំណែ NIGHTLY និង DEV។"
+            "value": "បិទ៖ cmux ពិនិត្យរកបច្ចុប្បន្នភាព ហើយសួរមុនពេលទាញយក និងមុនពេលចាប់ផ្ដើមឡើងវិញ; បច្ចុប្បន្នភាពដែលបានទាញយកនឹងដំឡើងនៅពេលចាកចេញ។ បើក៖ បច្ចុប្បន្នភាពទាញយក និងដំឡើងដោយខ្លួនឯង។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "끄면 cmux는 계속 업데이트를 확인하고 '업데이트 있음'을 표시하며, 한 번 클릭하면 다운로드하여 설치합니다. NIGHTLY 및 DEV 빌드에서는 기본적으로 켜져 있습니다."
+            "value": "끄면 cmux는 업데이트를 확인하고, 다운로드하기 전과 업데이트로 다시 시작하기 전에 묻습니다. 다운로드된 업데이트는 종료할 때 설치됩니다. 켜면 업데이트가 자동으로 다운로드되고 설치됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Av: cmux ser fortsatt etter oppdateringer og viser «Oppdatering tilgjengelig»; ett klikk laster ned og installerer den. På som standard i NIGHTLY- og DEV-bygg."
+            "value": "Av: cmux ser etter oppdateringer og spør før den laster ned en og før den starter på nytt med den; en nedlastet oppdatering installeres når du avslutter. På: oppdateringer lastes ned og installeres automatisk."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wył.: cmux nadal sprawdza aktualizacje i pokazuje „Dostępna aktualizacja”; jedno kliknięcie ją pobiera i instaluje. W kompilacjach NIGHTLY i DEV domyślnie włączone."
+            "value": "Wył.: cmux sprawdza aktualizacje i pyta przed pobraniem aktualizacji oraz przed ponownym uruchomieniem z nią; pobrana aktualizacja instaluje się przy zamknięciu. Wł.: aktualizacje pobierają się i instalują same."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Desativado: o cmux continua verificando atualizações e mostra “Atualização disponível”; um clique baixa e instala. Ativado por padrão nas versões NIGHTLY e DEV."
+            "value": "Desativado: o cmux procura atualizações e pergunta antes de baixar uma e antes de reiniciar com ela; uma atualização baixada é instalada ao sair. Ativado: as atualizações são baixadas e instaladas sozinhas."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Выкл.: cmux по-прежнему проверяет обновления и показывает «Доступно обновление»; один щелчок загружает и устанавливает его. В сборках NIGHTLY и DEV включено по умолчанию."
+            "value": "Выкл.: cmux проверяет обновления и спрашивает, прежде чем загрузить обновление и прежде чем перезапуститься с ним; загруженное обновление устанавливается при выходе. Вкл.: обновления загружаются и устанавливаются сами."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ปิด: cmux ยังคงตรวจหาอัปเดตและแสดง “มีอัปเดต” คลิกครั้งเดียวเพื่อดาวน์โหลดและติดตั้ง เปิดเป็นค่าเริ่มต้นในบิลด์ NIGHTLY และ DEV"
+            "value": "ปิด: cmux ตรวจหาอัปเดตและถามก่อนดาวน์โหลด และก่อนรีสตาร์ทเพื่อใช้อัปเดต อัปเดตที่ดาวน์โหลดแล้วจะติดตั้งเมื่อออกจากแอป เปิด: อัปเดตจะดาวน์โหลดและติดตั้งเอง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kapalı: cmux güncellemeleri denetlemeye devam eder ve “Güncelleme Var” gösterir; tek tıklama indirip yükler. NIGHTLY ve DEV sürümlerinde varsayılan olarak açıktır."
+            "value": "Kapalı: cmux güncellemeleri denetler ve bir güncellemeyi indirmeden ve onunla yeniden başlamadan önce sorar; indirilen güncelleme çıkışta yüklenir. Açık: güncellemeler kendiliğinden indirilir ve yüklenir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Вимк.: cmux і далі перевіряє оновлення та показує «Доступне оновлення»; одне клацання завантажує та встановлює його. У збірках NIGHTLY і DEV увімкнено за замовчуванням."
+            "value": "Вимк.: cmux перевіряє оновлення й питає, перш ніж завантажити оновлення і перш ніж перезапуститися з ним; завантажене оновлення встановлюється під час виходу. Увімк.: оновлення завантажуються й встановлюються самі."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tắt: cmux vẫn kiểm tra bản cập nhật và hiển thị “Có bản cập nhật”; một lần nhấp sẽ tải xuống và cài đặt. Bật theo mặc định trong bản NIGHTLY và DEV."
+            "value": "Tắt: cmux kiểm tra bản cập nhật và hỏi trước khi tải xuống và trước khi khởi động lại vào bản đó; bản cập nhật đã tải sẽ được cài khi bạn thoát. Bật: bản cập nhật tự tải xuống và cài đặt."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "关闭：cmux 仍会检查更新并显示“有可用更新”；点按一次即可下载并安装。NIGHTLY 和 DEV 版本默认开启。"
+            "value": "关闭：cmux 会检查更新，并在下载更新之前以及重新启动以应用更新之前询问；已下载的更新会在退出时安装。打开：更新会自动下载并安装。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "關閉：cmux 仍會檢查更新並顯示「有可用更新」；按一下即可下載並安裝。NIGHTLY 與 DEV 版本預設開啟。"
+            "value": "關閉：cmux 會檢查更新，並在下載更新之前以及重新啟動以套用更新之前詢問；已下載的更新會在結束時安裝。開啟：更新會自動下載並安裝。"
           }
         }
       }

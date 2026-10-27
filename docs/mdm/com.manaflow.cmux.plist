@@ -607,7 +607,7 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
-			<string>Off: cmux still checks for updates and shows Update Available; one click downloads and installs it. On by default in NIGHTLY and DEV builds.</string>
+			<string>Off: cmux checks for updates and asks before it downloads one and before it restarts into it; a quit installs a downloaded update. On: updates download and install by themselves.</string>
 			<key>pfm_name</key>
 			<string>updates.downloadAutomatically</string>
 			<key>pfm_title</key>

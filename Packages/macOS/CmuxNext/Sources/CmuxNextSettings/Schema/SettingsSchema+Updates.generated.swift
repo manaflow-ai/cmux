@@ -97,7 +97,7 @@ nonisolated enum UpdateSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.updates.downloadAutomatically", "Download and Install Updates Automatically"),
-                help: SettingsText.keyed("settings.updates.downloadAutomatically.help", "Off: cmux still checks for updates and shows Update Available; one click downloads and installs it. On by default in NIGHTLY and DEV builds."),
+                help: SettingsText.keyed("settings.updates.downloadAutomatically.help", "Off: cmux checks for updates and asks before it downloads one and before it restarts into it; a quit installs a downloaded update. On: updates download and install by themselves."),
                 kind: .toggle,
                 default: .bool(UpdatesSettings.downloadAutomaticallyDefault),
                 keywords: ["update", "download", "background", "metered"]

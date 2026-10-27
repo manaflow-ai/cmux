@@ -4110,7 +4110,7 @@
       },
       "help" : {
         "key" : "settings.updates.downloadAutomatically.help",
-        "text" : "Off: cmux still checks for updates and shows Update Available; one click downloads and installs it. On by default in NIGHTLY and DEV builds."
+        "text" : "Off: cmux checks for updates and asks before it downloads one and before it restarts into it; a quit installs a downloaded update. On: updates download and install by themselves."
       },
       "kept_on_reset_all" : false,
       "key" : "updates.downloadAutomatically",

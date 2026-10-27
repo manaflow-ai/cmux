@@ -62,8 +62,8 @@ import CmuxNextWakeupsTestSupport
     """ }
 
     /// A started updater on build 100 with nothing found yet; the person's interval is an hour.
-    static func make(_ identity: UpdateBuildIdentity = tip, checkAutomatically: Bool = true, held: Bool = false,
-                     xml: String = feed) -> Harness {
+    static func make(_ identity: UpdateBuildIdentity = tip, checkAutomatically: Bool = true, downloadAutomatically: Bool = true,
+                     held: Bool = false, xml: String = feed) -> Harness {
         let defaults = UserDefaults(suiteName: "TipUpdateCheckTests.\(UUID().uuidString)")!
         let clock = ManualClock()
         let feed = Base.CountingFeed(xml: xml, held: held)
@@ -81,8 +81,7 @@ import CmuxNextWakeupsTestSupport
         updater.stagedRefresh.replaceable = { true }
         updater.stagedRefresh.startCheck = { sparkle.backgroundChecks += 1 }
         updater.tipCheck.startCheck = { checks.count += 1 }
-        updater.tipCheck.downloadsInBackground = { checks.downloads }
-        updater.configure(checkAutomatically: checkAutomatically, checkInterval: 3600, downloadAutomatically: true, ring: "nightly")
+        updater.configure(checkAutomatically: checkAutomatically, checkInterval: 3600, downloadAutomatically: downloadAutomatically, ring: "nightly")
         updater.start()
         return Harness(updater: updater, clock: clock, feed: feed, sparkle: sparkle, policy: policy, checks: checks)
     }
@@ -179,15 +178,29 @@ import CmuxNextWakeupsTestSupport
         #expect(h.checks.count == 1)
     }
 
-    @Test func deferredDownloadsStopTheTimer() async throws {
-        let h = Self.make()
-        // A metered link (or `updates.downloadAutomatically` off): Sparkle's own schedule offers the update.
-        h.checks.downloads = false
-        h.updater.applyDownloadPolicy()
-        #expect(!h.updater.tipCheck.timer.isScheduled)
-        h.clock.advance(by: .seconds(TipUpdateCheck.interval * 2))
-        try await Task.sleep(for: .milliseconds(100))
-        #expect(h.feed.fetches == 0)
+    /// Without the automatic-install opt-in (the default on every channel since Leo 2026-10-27:
+    /// "ask before the download + install step") the fast check still reads the feed; its check
+    /// ends on the update-found step, which asks, and nothing reads again until it is answered.
+    @Test(arguments: [TipUpdateCheckTests.tip, TipUpdateCheckTests.nightly])
+    func withoutTheOptInTheFastCheckStillFindsTheUpdateAndAsks(identity: UpdateBuildIdentity) async throws {
+        let h = Self.make(identity, downloadAutomatically: false, xml: identity == Self.tip ? Self.feed : Self.nightlyFeed(minutesAgo: 2, deltas: false))
+        #expect(h.updater.tipCheck.timer.isScheduled, "the fast check waited for the opt-in")
+        try await tick(h, fetches: 1, interval: TipUpdateCheck.interval(for: identity) ?? 0)
+        #expect(h.checks.count == 1, "build 500 is out but no check started")
+        // The check found it: the update-found step asks, and the fast check waits for its answer.
+        h.updater.debugIndicatorPhase = .available(version: "5.0.0")
+        #expect(h.updater.availableButton == UpdateAvailableButton(version: "5.0.0"), "the found update did not ask")
+        #expect(h.updater.readyCard == nil, "the found update staged without an answer")
+        #expect(!h.updater.tipCheck.timer.isScheduled, "the fast check stayed armed while the update-found step asks")
+    }
+
+    /// Off the organization's channel (`UpdateChannel`), nothing of this app's own feed is checked for fast.
+    @Test func offTheManagedChannelTheFastCheckStops() async throws {
+        let h = Self.make(Self.nightly)
+        h.updater.applyManagedPolicy(channel: "stable", minimumVersion: nil)
+        #expect(!h.updater.tipCheck.timer.isScheduled, "a NIGHTLY under a stable UpdateChannel kept its fast check")
+        h.updater.applyManagedPolicy(channel: nil, minimumVersion: nil)
+        #expect(h.updater.tipCheck.timer.isScheduled)
     }
 
     @Test func turningAutomaticChecksOffStopsTheTimer() async throws {

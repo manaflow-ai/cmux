@@ -23,7 +23,8 @@ extension UpdaterService {
 
     /// The titlebar's quiet Update Available button: a found update that waits for a click
     /// (`updates.downloadAutomatically` off, or downloads deferred on a metered network); a click
-    /// downloads and installs it (``installClicked()``). Nil otherwise, and for a version the
+    /// downloads it, and the staged update then asks before relaunching (``installClicked()``).
+    /// Nil otherwise, and for a version the
     /// person closed or snoozed (``updateSnooze``), and while a check the person asked for shows
     /// it on the notice card (``card``).
     public var availableButton: UpdateAvailableButton? {
@@ -36,15 +37,25 @@ extension UpdaterService {
         flow.footerPill(preferences: preferences)
     }
 
-    /// One click installs (footer pill, palette, `cmux update install`): at
-    /// once, or when the download finishes. The relaunch waits only for busy
-    /// agents and running commands (the quiet-input and daemon-mirror holds are
-    /// for idle installs); `willRelaunch` records keep sessions.
+    /// A click on an update card or button. On the Update Ready card (or the footer pill) it
+    /// installs and relaunches; `willRelaunch` records keep sessions. On the update-found step
+    /// (the notice card's Update, the titlebar's Update Available) it answers Sparkle's
+    /// update-found prompt: without the automatic-install opt-in the update downloads and then
+    /// waits on the Update Ready card, which asks before relaunching (Leo 2026-10-27: "ask before
+    /// the download + install step, and likewise for the reboot"); with the opt-in (downloads
+    /// deferred on a metered link) it downloads and installs as one click, as before.
     public func installClicked() {
+        syncFlowPhase()
+        if case .available = flow.phase, !downloadSetting.enabled {
+            #if DEBUG || CMUX_BENCH_HOOKS
+            UpdateHarness.mark("download_clicked")
+            #endif
+            send(.downloadRequested)
+            return
+        }
         #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("install_clicked")
         #endif
-        syncFlowPhase()
         send(.installRequested)
     }
 

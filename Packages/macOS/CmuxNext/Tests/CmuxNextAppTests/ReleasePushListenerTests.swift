@@ -158,12 +158,12 @@ import CmuxNextWakeupsTestSupport
         #expect(h.checks == [200, 300, 301])
     }
 
-    @Test func turningTheOptInOffClosesTheSocketAndStopsReconnecting() async throws {
+    @Test func turningThePushOffClosesTheSocketAndStopsReconnecting() async throws {
         let h = Harness()
         defer { h.listener.stop() }
         let socket = try await connected(h)
         h.listener.refresh(feedURL: nil)
-        #expect(socket.closed, "the socket stayed open with the opt-in off")
+        #expect(socket.closed, "the socket stayed open with the push off")
         #expect(h.listener.task == nil && h.listener.socket == nil && h.listener.feed == nil)
         h.clock.advance(by: .seconds(ReleasePushListener.maximumBackoff * 2))
         try await Task.sleep(for: .milliseconds(100))
@@ -343,7 +343,6 @@ import CmuxNextWakeupsTestSupport
             return socket
         }
         updater.tipCheck.startCheck = { fake.checks += 1 }
-        updater.tipCheck.downloadsInBackground = { true }
         updater.stagedBuild = { fake.staged }
         updater.cancelStaged = { fake.cancels += 1; return true }
         updater.stagedRefresh.replaceable = { true }
@@ -362,14 +361,10 @@ import CmuxNextWakeupsTestSupport
         try #require(await eventually(reached), "the push's next read did not happen")
     }
 
-    @Test func theUpdaterReadsTheFeedAtOnceAndOnlyWithTheOptInOn() async throws {
-        let s = try service(downloads: false)
+    @Test func theUpdaterReadsTheFeedAtOnceWhileAutomaticChecksAreOn() async throws {
+        let s = try service(downloads: true)
         defer { s.updater.stopReleasePush() }
-        try await Task.sleep(for: .milliseconds(50))
-        #expect(s.sockets.isEmpty && s.updater.releasePush.task == nil, "the push ran with automatic download and install off")
-
-        s.configure(downloads: true)
-        try #require(await eventually { s.sockets.count == 1 }, "the push did not start with the opt-in on")
+        try #require(await eventually { s.sockets.count == 1 }, "the push did not start")
         // The frame reads the feed at once; its edge still answers with build 100.
         s.sockets[0].deliver(Self.frame(200))
         try #require(await eventually { s.feed.fetches == 1 && s.updater.tipCheck.task == nil }, "the pushed build read no feed")
@@ -381,18 +376,44 @@ import CmuxNextWakeupsTestSupport
         try await nextPushRead(s) { s.updater.releasePushTarget == nil }
         #expect(s.fake.checks == 1, "the pushed build was checked for twice")
 
-        // Automatic checks off stop it, and so does the opt-in off.
+        // Automatic checks off stop it, with or without the opt-in, and keep it quiet.
         s.configure(checks: false, downloads: true)
         #expect(s.sockets[0].closed && s.updater.releasePush.task == nil, "the push kept running with automatic checks off")
+        s.configure(checks: false, downloads: false)
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(s.sockets.count == 1, "the push connected with automatic checks off")
         s.configure(downloads: true)
         try #require(await eventually { s.sockets.count == 2 })
+        // The opt-in off leaves it running (the pushed build's check then asks first).
         s.configure(downloads: false)
-        #expect(s.sockets[1].closed && s.updater.releasePush.task == nil, "the socket stayed open with the opt-in off")
+        #expect(!s.sockets[1].closed && s.updater.releasePush.task != nil, "the opt-in off closed the push")
         // The app quits: the socket closes.
-        s.configure(downloads: true)
-        try #require(await eventually { s.sockets.count == 3 })
         s.updater.stopReleasePush()
-        #expect(s.sockets[2].closed && s.updater.releasePush.task == nil && !s.updater.releasePushRetry.isScheduled)
+        #expect(s.sockets[1].closed && s.updater.releasePush.task == nil && !s.updater.releasePushRetry.isScheduled)
+    }
+
+    /// Without the automatic-install opt-in (the default on every channel, Leo 2026-10-27: "ask
+    /// before the download + install step"), a release push still checks at once, and the found
+    /// build asks: the update-found step (the titlebar's Update Available), nothing downloaded,
+    /// nothing staged, no relaunch.
+    @Test func withoutTheOptInAPushChecksAndTheFoundUpdateAsks() async throws {
+        let s = try service(downloads: false)
+        defer { s.updater.stopReleasePush() }
+        try #require(await eventually { s.sockets.count == 1 }, "the push waited for the automatic-install opt-in")
+        var downloads = 0
+        s.updater.acceptAvailable = { downloads += 1 }
+        s.feed.publish(200)
+        s.sockets[0].deliver(Self.frame(200))
+        try #require(await eventually { s.fake.checks == 1 }, "the pushed build started no check")
+        // The check runs and finds build 200: it asks.
+        s.updater.debugIndicatorPhase = .checking
+        #expect(s.updater.card == nil, "the pushed build's check showed its progress")
+        s.updater.debugIndicatorPhase = .available(version: "2.0.0")
+        #expect(s.updater.availableButton == UpdateAvailableButton(version: "2.0.0"), "the pushed build did not ask")
+        #expect(downloads == 0 && s.updater.readyCard == nil, "the pushed build downloaded without an answer")
+        // Update answers the found step: it downloads, and nothing installs yet.
+        s.updater.installClicked()
+        #expect(downloads == 1, "Update did not download the found build")
     }
 
     @Test func aBuildPushedWhileOneDownloadsReplacesItOnceStaged() async throws {

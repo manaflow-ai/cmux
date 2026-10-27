@@ -11,10 +11,14 @@ import Observation
 /// a read-only probe of the same feed.
 ///
 /// One per process, owned by the App. Action handlers call ``checkForUpdates()``,
-/// ``installAvailableUpdate()`` and ``switchChannel(to:)``. Nothing asks: updates
-/// download in the background and wait as the staged update card, and a
-/// check's progress and result show on the sidebar's notice card (``card``).
-/// The update sheet (``UpdateSheetModel``) opens only for a failure's details.
+/// ``installAvailableUpdate()`` and ``switchChannel(to:)``. No Sparkle window opens; Sparkle's
+/// user-driver steps are the sidebar's cards. Without the automatic-install opt-in
+/// (`updates.downloadAutomatically`, off by default on every channel) a found update is the
+/// update-found step (the notice card after Check for Updates, else the titlebar's Update
+/// Available) and a downloaded one is the Update Ready card, which asks before relaunching; with
+/// it, updates download and install by themselves (``UpdaterService/updaterQuitsForAutomaticInstall(build:)``).
+/// A check's progress and result show on the notice card (``card``). The update sheet
+/// (``UpdateSheetModel``) opens only for a failure's details.
 @MainActor
 @Observable
 public final class UpdaterService {
@@ -261,7 +265,7 @@ public final class UpdaterService {
             // The track decides, not the bundle id: the tip app has a DEV id but runs Sparkle.
             let controller = UpdateController(log: log, defaults: defaults, isDevLikeBundle: identity.track == .development,
                                               isDisabledByPolicy: { policy.disablesUpdates })
-            // Never prompt: download in the background and wait for a click.
+            // No Sparkle window: the found and staged steps are the sidebar's cards.
             // Set on this updater only; no defaults change, so the legacy app
             // sharing the domain keeps its own behavior.
             controller.installsUpdatesInBackground = true
