@@ -166,6 +166,12 @@ nonisolated enum CatalogArgument {
         ActionArgument(name: "size", title: String(localized: "argument.size", defaultValue: "Size", bundle: .module), kind: .enumeration([choice("small"), choice("medium"), choice("large"), choice("xlarge")]))
     }
 
+    /// `cloud enroll-machine --ssh-key FILE`: this Mac's ssh public key (default `~/.ssh/id_ed25519.pub`).
+    static var sshKeyString: ActionArgument {
+        ActionArgument(name: "sshKey", title: String(localized: "argument.sshKey", defaultValue: "SSH Public Key", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
     /// `cloud new-machine --size small|medium|large|xlarge`: plain text, not a choice, so New Cloud
     /// Machine stays one menu item and one palette row (a choice argument becomes a submenu).
     static var newMachineSizeString: ActionArgument {
@@ -182,6 +188,18 @@ nonisolated enum CatalogArgument {
     /// new machine runs; `lane` also gives it its lane host name (leo-workspace machines/lane-vms.md).
     static var bootstrapString: ActionArgument {
         ActionArgument(name: "bootstrap", title: String(localized: "argument.bootstrap", defaultValue: "Bootstrap", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
+    /// `--machine-config FILE`: a `.cmux/machine.toml` on this Mac (CloudMachineConfig).
+    static var machineConfigString: ActionArgument {
+        ActionArgument(name: "machineConfig", title: String(localized: "argument.machineConfig", defaultValue: "Machine Config", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
+    /// `cloud new-machine --repo OWNER/NAME[@REF]`: the GitHub repository the machine clones.
+    static var repoString: ActionArgument {
+        ActionArgument(name: "repo", title: String(localized: "argument.repo", defaultValue: "Repository", bundle: .module),
                        kind: .string, isRequired: false)
     }
 

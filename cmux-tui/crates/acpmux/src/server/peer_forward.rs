@@ -54,6 +54,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_HANDOFF_DISCARD,
     "_acpmux/peers",
     "_acpmux/peer_status",
+    // Names a peer machine, never a session (`vm_host.rs`).
+    "_acpmux/vm_host",
     "_acpmux/host_health",
     "_acpmux/place",
     "_acpmux/models",
@@ -83,6 +85,17 @@ fn name_sender(hub: &Arc<Hub>, conn: &Arc<Conn>, p: &mut Value) {
     if p.pointer("/_meta/acpmux/fromAgent").is_none_or(Value::is_null) {
         crate::hub::merge_mux_meta(p, json!({"fromAgent": hub.session_name(caller)}));
     }
+}
+
+/// `e` with `data.peer` = `peer`, this daemon's own name for the peer that
+/// answered: any `peer` the peer's own answer gave is replaced, so the app
+/// enrolls this Mac only on a peer of this daemon, never on a host the peer named.
+fn name_peer(mut e: RpcError, peer: &str) -> RpcError {
+    let data = e.data.get_or_insert_with(|| json!({}));
+    if let Some(obj) = data.as_object_mut() {
+        obj.insert("peer".into(), Value::String(peer.to_owned()));
+    }
+    e
 }
 
 pub(super) async fn forward(
@@ -154,11 +167,28 @@ async fn forward_inner(
                 return Err(crate::prompt_uploads::peer_unsupported(&peer));
             }
         }
+        // An upload for a prompt (`attach::blocks_for`) to a peer that would refuse the prompt
+        // naming it: refused before its bytes are sent, so none is left behind.
+        if m == method::MUX_FILE_PUT_BEGIN
+            && params.get("forPrompt") == Some(&Value::Bool(true))
+            && !peer.supports_prompt_uploads()
+        {
+            return Err(crate::prompt_uploads::peer_unsupported(&peer));
+        }
+        // An older peer would answer status as unknown and finish without checking `sha256`.
+        let checked =
+            m == method::MUX_FILE_PUT_FINISH && params.get("sha256").is_some_and(|h| !h.is_null());
+        if (checked || m == method::MUX_FILE_PUT_STATUS) && !peer.supports_upload_resume() {
+            return Err(crate::hub::file_uploads::peer_unsupported(&peer));
+        }
         if m == method::MUX_FILE_PUT_CHUNK {
             crate::hub::file_uploads::check_chunk(params)?;
-            if !peer.supports_file_put() {
-                return Err(crate::hub::file_uploads::peer_unsupported(&peer));
-            }
+        }
+        // A peer with only the one-shot `file_put` would refuse the upload part way through.
+        if matches!(m, method::MUX_FILE_PUT_BEGIN | method::MUX_FILE_PUT_CHUNK)
+            && !peer.supports_file_put_chunks()
+        {
+            return Err(crate::hub::file_uploads::peer_unsupported(&peer));
         }
         // The media reader runs on the peer that owns the chat, if it has one (`hub/media_read.rs`).
         if matches!(m, method::MUX_MEDIA_OPEN | method::MUX_MEDIA_RANGE)
@@ -282,7 +312,7 @@ async fn forward_inner(
         }
         // `Peer::request` already took the peer's display lines out of the result and the error.
         let mut result = result.map_err(|e| {
-            if matches!(m, method::MUX_FILE_PUT_BEGIN | method::MUX_FILE_PUT_CHUNK | method::MUX_FILE_PUT_FINISH | method::MUX_FILE_PUT_CANCEL)
+            if matches!(m, method::MUX_FILE_PUT_BEGIN | method::MUX_FILE_PUT_CHUNK | method::MUX_FILE_PUT_FINISH | method::MUX_FILE_PUT_CANCEL | method::MUX_FILE_PUT_STATUS)
                 && e.message.contains("Method not found")
             {
                 crate::hub::file_uploads::peer_unsupported(&peer)
@@ -294,6 +324,10 @@ async fn forward_inner(
                                     "peer": peer.name,
                                     "method": m,
                                 }))
+                        } else if m == method::MUX_PERMISSION_RESPOND {
+                            // A refused answer names the peer that refused it, so the app can say
+                            // where to enroll this Mac (`hub/mac_approvers.rs`).
+                            name_peer(e, &peer.name)
                         } else {
                             e
                         }
@@ -414,6 +448,17 @@ fn count_hop(forwarded: &mut Value) -> Result<(), RpcError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A refused answer for a peer's prompt names that peer, so the app can say where to
+    /// enroll this Mac; a peer the answer named itself is replaced by this daemon's name.
+    #[test]
+    fn a_refused_answer_names_the_peer() {
+        let e = name_peer(crate::hub::person::person_required("allowing a permission"), "hb");
+        assert_eq!(e.data.as_ref().unwrap()["peer"], "hb");
+        assert_eq!(e.data.as_ref().unwrap()["reason"], crate::hub::person::REASON);
+        let e = name_peer(RpcError::internal("x").with_data(json!({"peer": "far"})), "hb");
+        assert_eq!(e.data.unwrap()["peer"], "hb");
+    }
 
     /// A history read forwarded to a peer names its byte limit: a peer on an older build pages to
     /// no limit of its own, and 5000 records of long tool outputs were one 32.8 MB reply that reset

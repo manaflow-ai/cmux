@@ -921,11 +921,12 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub web_roots: Vec<String>,
     /// `vmHost`: this machine is a dedicated agent VM (a Chief's cloud
-    /// subagent host), so the VM boundary is the sandbox: a remote chain's
-    /// Claude Code runs there without Seatbelt (`hub/remote_sandbox.rs`).
-    /// Honored off macOS only, read from this file only (no RPC sets it).
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub vm_host: bool,
+    /// subagent host, a VM cmux created), so the VM boundary is the sandbox:
+    /// a remote chain's Claude Code runs there without Seatbelt
+    /// (`hub/remote_sandbox.rs`). Honored off macOS only. Absent: on exactly
+    /// when cmux created this VM (`hub/vm_host.rs`); `_acpmux/vm_host` sets it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vm_host: Option<bool>,
     /// `pool`: hidden pre-created sessions that make a harness switch
     /// instant (`hub/pool/`).
     #[serde(default, skip_serializing_if = "PoolConfig::is_default")]
@@ -945,6 +946,11 @@ pub struct Config {
     /// user's own login. The binary names no route.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub coderouter_claude_route: Option<String>,
+    /// `sendRelay`: `{"argv": [...]}`, the command `acpmux send` hands a message to when its
+    /// target names no session here and no peer lists it (`cli/send_relay.rs`). Unset (the
+    /// default): such a send is refused as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub send_relay: Option<crate::cli::send_relay::SendRelay>,
     /// Where this config was loaded from. A config built in code (tests,
     /// `--memory` runs) has no path and is never written to disk.
     #[serde(skip)]

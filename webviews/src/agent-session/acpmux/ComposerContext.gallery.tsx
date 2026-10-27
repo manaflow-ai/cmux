@@ -9,6 +9,7 @@ import type { ComponentProps } from "react";
 import type { AcpmuxSnapshot } from "./model";
 import { ComposerContext } from "./ComposerContext";
 import type { Project } from "./ProjectChooser";
+import { fleetPeers } from "../../gallery/fixtures/acpmux";
 
 const projects: Project[] = [
   { cwd: "/Users/you/src/atlas-web", label: "atlas-web" },
@@ -45,6 +46,15 @@ const baseProps = {
   onBrowseProject: () => undefined,
   onConnect: () => undefined,
 };
+
+/// 21 machines, as `acpmux host ls` lists them on a Mac with a fleet.
+const fleetProps = { ...baseProps, ...fleetPeers() };
+/// The account's Cloud machines acpmux does not list (cloudMachines.ts): paused, ready and booting.
+const accountMachines = [
+  { id: "vm-build", name: "build box", stage: "paused" },
+  { id: "vm-eval", name: "eval box", stage: "ready" },
+  { id: "vm-fresh", name: "fresh box", stage: "booting" },
+];
 
 /// The New Tab page's saved environments (SavedEnvironmentRows), with `current` picked.
 function savedProps(current?: string): ComponentProps<typeof ComposerContext> {
@@ -411,6 +421,73 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       play: async (ctx) => {
         await ctx.click({ role: "button", name: /^Environment/ });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+      },
+    },
+    "environment-picker-sandboxed-option": {
+      note: "Labs (hq#3367): Sandboxed is New Cloud Machine's other face, with no row of its own. Holding ⌥ while the list is open shows it, as a Mac menu's alternate: a pick runs the new chat's first message once on a throwaway Cloud VM.",
+      props: { ...baseProps, environments: true, runMode: { mode: "persistent", onMode: () => undefined } },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+        ctx.document.defaultView?.dispatchEvent(new KeyboardEvent("keydown", { key: "Alt", altKey: true }));
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="sandboxed"]'));
+      },
+    },
+    "environment-picker-sandboxed-search": {
+      note: "Labs (hq#3367): searching for it shows Sandboxed in New Cloud Machine's place.",
+      props: { ...baseProps, environments: true, runMode: { mode: "persistent", onMode: () => undefined } },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+        await ctx.type("sandbox");
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="sandboxed"]'));
+      },
+    },
+    "environment-picker-sandboxed-picked": {
+      note: "Labs (hq#3367): Sandboxed picked. The control names it where the machine was, and its row stays checked in New Cloud Machine's place; any machine goes back to a Persistent chat.",
+      props: { ...baseProps, environments: true, runMode: { mode: "sandboxed", onMode: () => undefined } },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="sandboxed"]'));
+      },
+    },
+    "environment-picker-cloud-machines": {
+      note: "Preview: the environment picker above, then the account's Cloud machines acpmux does not list (`cloudMachine.list`) in Cloud and VMs, each with its stage: build box is paused (a pick resumes it), eval box is ready (a pick opens it), fresh box is still booting. They take no ⌥⌘ digit and are not greyed.",
+      props: {
+        ...baseProps,
+        environments: true,
+        peers: ["gpu-box", "Cloud machine"],
+        peerKinds: { "gpu-box": "ssh", "Cloud machine": "cloud" },
+        peerConnected: { "gpu-box": true, "Cloud machine": false },
+        cloudMachines: accountMachines,
+        onCloudMachine: () => undefined,
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+      },
+    },
+    "computer-menu-cloud-machines": {
+      note: "Previews off: the plain Computer menu lists the account's Cloud machines acpmux does not list the same way, with their stage on the second line.",
+      props: { ...baseProps, cloudMachines: accountMachines, onCloudMachine: () => undefined },
+      play: openComputer,
+    },
+    "environment-picker-fleet": {
+      height: 760,
+      note: "Preview: every machine acpmux lists (21, from `host ls`), in This Mac, My machines and Cloud and VMs sections; in each the machines a chat can start on come first, in number order, and the rest are greyed with their state (Offline, Reconnecting, Connecting) and are no pick.",
+      props: { ...fleetProps, environments: true },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelectorAll('.acpmux-env-popover [role="option"]').length > 20);
+      },
+    },
+    "computer-menu-fleet": {
+      height: 760,
+      note: "Previews off: the plain Computer menu lists the same 21 machines in the same sections, greyed the same way.",
+      props: fleetProps,
+      play: async (ctx) => {
+        await openComputer(ctx);
+        await ctx.waitFor(() => ctx.document.querySelectorAll('[role="option"]').length > 20);
       },
     },
     "machine-colors": {
