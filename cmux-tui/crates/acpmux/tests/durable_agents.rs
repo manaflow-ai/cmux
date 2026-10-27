@@ -2828,3 +2828,63 @@ async fn a_prompt_on_an_unheard_agent_settles_when_mdm_ends_it() {
     let answered = tokio::time::timeout(Duration::from_secs(15), prompt).await;
     assert!(answered.is_ok(), "the prompt waited on after MDM ended its agent");
 }
+
+/// Review 66 of #23322: a link that closes under MDM's off (another owner took the host over and
+/// left) leaves an agent this daemon no longer hears, which may move itself into full access. It
+/// ends at once, without waiting for a request, a push or the idle period.
+#[tokio::test]
+async fn a_link_lost_under_mdm_off_ends_its_agent_at_once() {
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let (daemon, mut rpc) = proven_daemon("mdmlinklost", fake, &[]).await;
+    let session = new_session(&daemon).await;
+    rpc.call("session/set_mode", json!({"sessionId": session, "modeId": "normal"})).await;
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    let later = json!({"sessionId": session,
+                       "prompt": [{"type": "text", "text": "set-mode-after: 1500 full-access"}]});
+    rpc.call("session/prompt", later).await;
+    let record: acpmux::agent_host::HostRecord =
+        serde_json::from_value(daemon.host_record(&session)).unwrap();
+    let harness_pid = record.harness_pid.expect("harness pid") as i64;
+    match acpmux::agent_host::link::connect(record, 0).await.expect("take over") {
+        acpmux::agent_host::link::Connect::Ready(link, _) => drop(link),
+        _ => panic!("the host refused a same-build owner"),
+    }
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "an agent whose link closed under the managed off ran on unheard"
+    );
+}
+
+/// Review 66 of #23322: an end that cannot read the host records (the debug seam
+/// `ACPMUX_TEST_HOST_RECORDS_FAIL_FILE`) has not proven the host gone. The next off push ends it.
+#[tokio::test]
+async fn an_end_that_could_not_read_the_host_records_is_tried_again() {
+    let flag = std::env::temp_dir().join(format!("amd-recfail-{}", std::process::id()));
+    let flag_env = flag.to_string_lossy().into_owned();
+    let env = [
+        ("ACPMUX_TEST_UNLOGGED_ONCE", "\"currentModeId\":\"full-access\""),
+        ("ACPMUX_TEST_STALL_HOST_TERMINATE", "1"),
+        ("ACPMUX_TEST_HOST_RECORDS_FAIL_FILE", flag_env.as_str()),
+    ];
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}});
+    let (daemon, mut rpc) = proven_daemon("mdmrecfail", fake, &env).await;
+    let session = new_session(&daemon).await;
+    rpc.call("session/set_mode", json!({"sessionId": session, "modeId": "normal"})).await;
+    let later = json!({"sessionId": session,
+                       "prompt": [{"type": "text", "text": "set-mode-after: 300 full-access"}]});
+    rpc.call("session/prompt", later).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+    std::fs::write(&flag, "").unwrap();
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    std::fs::remove_file(&flag).unwrap();
+    assert!(alive(harness_pid), "the seams did not keep the first end from working");
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "an end that could not read the host records counted the host as gone"
+    );
+}
