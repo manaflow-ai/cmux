@@ -34,19 +34,20 @@ public final class MainActorObservation {
     ///   - center: The center to observe (default `NotificationCenter.default`; tests pass their own).
     ///   - workClass: The class the handler runs in (default ``MainCallbackClass/immediate``: in the
     ///     notification's callout, with no class).
-    ///   - handler: Main-actor work for each notification (the `Notification` is not `Sendable`;
+    ///   - work: Main-actor work for each notification (the `Notification` is not `Sendable`;
     ///     read what you need from the poster's state, not the payload).
     public init(
         _ name: Notification.Name,
         object: AnyObject? = nil,
         center: NotificationCenter = .default,
         class workClass: MainCallbackClass = .immediate,
-        _ handler: @escaping @MainActor () -> Void
+        _ work: @escaping @MainActor () -> Void
     ) {
         self.center = center
+        let handler: @MainActor () -> Void = { workClass.run(work) }
         token = center.addObserver(forName: name, object: object, queue: .main) { _ in
             // main-proof: the observer is registered on the main queue (queue: .main).
-            MainActor.assumeIsolated { workClass.run(handler) }
+            MainActor.assumeIsolated { handler() }
         }
     }
 
@@ -70,24 +71,22 @@ public final class MainActorObservation {
     ///   - workClass: The class the handler runs in (default ``MainCallbackClass/immediate``).
     ///     `read` always runs in the notification's callout.
     ///   - read: Reads what the handler needs from the notification, on the main actor.
-    ///   - handler: Main-actor work with the value `read` returned.
+    ///   - work: Main-actor work with the value `read` returned.
     public init<Value>(
         _ name: Notification.Name,
         object: AnyObject? = nil,
         center: NotificationCenter = .default,
         class workClass: MainCallbackClass = .immediate,
         read: @escaping @MainActor (Notification) -> Value,
-        _ handler: @escaping @MainActor (Value) -> Void
+        _ work: @escaping @MainActor (Value) -> Void
     ) {
         self.center = center
+        let handler: @MainActor (Value) -> Void = { value in workClass.run { work(value) } }
         token = center.addObserver(forName: name, object: object, queue: .main) { note in
             // crash-allow: the center delivers on the main queue (queue: .main) and the notification is read only inside the assumeIsolated below, on this same delivery, so it never crosses actors.
             nonisolated(unsafe) let note = note
             // main-proof: the observer is registered on the main queue (queue: .main).
-            MainActor.assumeIsolated {
-                let value = read(note)
-                workClass.run { handler(value) }
-            }
+            MainActor.assumeIsolated { handler(read(note)) }
         }
     }
 

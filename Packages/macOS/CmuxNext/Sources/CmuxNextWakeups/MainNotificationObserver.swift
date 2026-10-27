@@ -36,11 +36,11 @@ public final class MainNotificationObserver {
     ///   - line: The observing line (leave the default).
     ///   - handler: Main-actor work for each notification (read what you need from the poster's
     ///     state, or use ``init(_:object:center:class:owner:on:file:line:read:_:)``).
-    public init(_ name: Notification.Name, object: AnyObject? = nil, center: NotificationCenter = .default,
-                class workClass: MainWorkClass, owner: String, on work: MainWorkScheduler,
-                file: StaticString = #fileID, line: UInt = #line, _ handler: @escaping @MainActor () -> Void) {
-        observation = MainActorObservation(name, object: object, center: center,
-                                           class: work.callbackClass(workClass, owner: owner, file: file, line: line), handler)
+    public convenience init(_ name: Notification.Name, object: AnyObject? = nil, center: NotificationCenter = .default,
+                            class workClass: MainWorkClass, owner: String, on work: MainWorkScheduler,
+                            file: StaticString = #fileID, line: UInt = #line, _ handler: @escaping @MainActor () -> Void) {
+        self.init(name, object: object, center: center, class: workClass, owner: owner, on: work, file: file, line: line,
+                  read: { _ in () }) { _ in handler() }
     }
 
     /// Observes `name` and hands the handler the value `read` takes from each notification, in the
