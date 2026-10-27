@@ -20,7 +20,7 @@ extension HomeService {
         let version = info["CFBundleShortVersionString"] as? String
         let lease = HomeCloudLease(tokens: auth, apiBaseURL: FeedService.apiBaseURL(auth: auth), clientVersion: version, logger: logger)
         let linker = HomeCloudLink(lease: lease, source: cloudSource, localID: homeSource.me.id,
-                                   stackProjectID: auth.configuration.stackProjectID)
+                                   stackProjectID: auth.configuration.stackProjectID, deadlines: services.mainDeadlines)
         cloudLinker = linker
         let cloudInbox = homeCloudInbox
         // Read inside the observation, so a cmux.json edit re-leases.

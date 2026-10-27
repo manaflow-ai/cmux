@@ -761,8 +761,10 @@ extension LayoutRootView {
     /// or stops showing moved and when the root goes live, so a strip at rest costs pointer moves nothing.
     func updatePointerLanding() {
         let moved = isLive && screenViews.values.contains { $0.showsPanMoved }
-        if moved, pointerLanding == nil {
-            pointerLanding = inputTap?.subscribe(class: .pointerMove, phase: .intercept(order: .layout)) { [weak self] event in
+        if moved, pointerLanding == nil, let window {
+            // Scoped to the root's window (a live root leaves its window only through `setLive(false)`,
+            // which cancels this): another window's moves run no closure; its page windows' do, and pass.
+            pointerLanding = inputTap?.subscribe(class: .pointerMove, phase: .intercept(order: .layout), window: .window(window)) { [weak self] event in
                 if let self, event.window === self.window { self.landStripsWhereTheyShow() }
                 return .pass
             }
