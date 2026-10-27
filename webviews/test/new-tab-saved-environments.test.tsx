@@ -105,11 +105,13 @@ async function mount({
   worktree = "ok",
   tabCwd = "/Users/you",
   peerStart = "ok",
+  onNewWorktree: onNewWorktreeOverride,
 }: {
   previews?: boolean;
   worktree?: "ok" | "refused";
   tabCwd?: string;
   peerStart?: "ok" | "refused" | "none";
+  onNewWorktree?: (cwd: string) => Promise<string | undefined>;
 } = {}) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
@@ -165,12 +167,15 @@ async function mount({
         ]}
         environments={previews}
         onConnect={noop}
-        onNewWorktree={(cwd) => {
-          let folder: string | undefined;
-          return newWorktree(callNative, cwd, (used) => {
-            folder = used;
-          }).then(() => folder);
-        }}
+        onNewWorktree={
+          onNewWorktreeOverride ??
+          ((cwd) => {
+            let folder: string | undefined;
+            return newWorktree(callNative, cwd, (used) => {
+              folder = used;
+            }).then(() => folder);
+          })
+        }
         {...actions}
       />,
     ),
@@ -484,4 +489,37 @@ test("preview features off keeps a cloud-keyword prompt on the displayed local m
   const calls = await mount({ previews: false, tabCwd: APP });
   await ask("Build in cloud");
   expect(calls.find((call) => call.method === "chat.new")?.params?.peer).toBeUndefined();
+});
+
+test("Auto keeps an ordinary coding prompt on this Mac", async () => {
+  const calls = await mount({ tabCwd: APP });
+  await type(host.querySelector<HTMLTextAreaElement>(".nt-field"), "Fix the build error in this repo");
+  expect(environmentButton()?.textContent).toContain(t("composer.thisMac"));
+  await ask("Fix the build error in this repo");
+  expect(calls.find((call) => call.method === "chat.new")?.params).toMatchObject({ harness: "claude" });
+  // Local creation inherits the tab folder; no cwd override is needed.
+  expect(calls.find((call) => call.method === "chat.new")?.params?.cwd).toBeUndefined();
+  expect(calls.find((call) => call.method === "chat.new")?.params?.peer).toBeUndefined();
+});
+
+test("Auto selection wins over a pending New Worktree reply", async () => {
+  const replies: ((folder: string) => void)[] = [];
+  const calls = await mount({
+    onNewWorktree: () => new Promise<string | undefined>((resolve) => replies.push(resolve)),
+  });
+  await click(folderButton());
+  await click($$(".acpmux-folder-popover .acpmux-menu-item").find((item) => item.textContent?.includes("api")));
+  const worktree = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-location-button")].find(
+    (button) => button.textContent?.trim() === t("worktree.new"),
+  );
+  await click(worktree);
+  expect(replies).toHaveLength(1);
+  await click(environmentButton());
+  await click(row(t("composer.auto")));
+  await act(async () => replies[0]!(WORKTREE));
+  await settle();
+  expect(environmentButton()?.textContent).toContain(t("composer.auto"));
+  await ask("fix the button");
+  expect(calls.find((call) => call.method === "chat.new")?.params).toMatchObject({ cwd: API });
+  expect(calls.find((call) => call.method === "chat.new")?.params?.cwd).not.toBe(WORKTREE);
 });

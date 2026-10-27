@@ -1240,6 +1240,7 @@ export function NewTabScreen(props: Props) {
           kind: autoChoice.environment.kind,
           selected: autoEnvironment,
           onPick: () => {
+            projectChoice.current += 1;
             saved.pick(undefined);
             setMachine(undefined);
             setAutoEnvironment(true);

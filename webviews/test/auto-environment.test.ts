@@ -21,6 +21,7 @@ describe("new chat Auto environment", () => {
       chooseAutoEnvironment({
         prompt: "Continue the work",
         project: "/home/dev/model",
+        projectPeer: "gpu-box",
         environments,
         sessions: [{ cwd: "/home/dev/model", peer: "gpu-box" }],
       }),
@@ -89,4 +90,42 @@ test("resolves the folder on the named destination when peers share a project pa
       ],
     }),
   ).toMatchObject({ environment: { id: "gpu-box" }, cwd: "/repo" });
+});
+
+test.each([
+  "Fix the build error in this repo",
+  "Fix the server startup",
+  "Update the cloud documentation",
+  "Do not run this in the cloud",
+  "Don't run this on gpu-box",
+  "Never deploy to the cloud",
+  "Run tests without using the cloud",
+  "Fix the bug mentioning gpu-box",
+])("keeps an ordinary or negated instruction local: %s", (prompt) => {
+  expect(chooseAutoEnvironment({ prompt, project: "/Users/alice/src/app", environments }).environment.id).toBe("local");
+});
+
+test.each([false, true])(
+  "a remote path match cannot take ownership of a local project (local session: %s)",
+  (localSession) => {
+    const project = "/Users/alice/src/app";
+    const sessions = [
+      { cwd: project, peer: "gpu-box" },
+      ...(localSession ? [{ cwd: project, hostKind: "local" }] : []),
+    ];
+    expect(chooseAutoEnvironment({ prompt: "Fix the button", project, environments, sessions }).environment.id).toBe(
+      "local",
+    );
+  },
+);
+
+test.each(["Run tests in the cloud", "Please run this remotely", "Build on a remote machine"])(
+  "recognizes destination intent: %s",
+  (prompt) => {
+    expect(chooseAutoEnvironment({ prompt, environments }).environment.id).toBe("cloud-1");
+  },
+);
+
+test("a machine-name prefix does not select a different machine", () => {
+  expect(chooseAutoEnvironment({ prompt: "Run on gpu-box-extra", environments }).environment.id).toBe("local");
 });
