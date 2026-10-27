@@ -50,6 +50,14 @@ public final class AddressBarView: NSView {
     let density = DensityBinding()
     /// The app's one main-thread scheduler: the bar's setting follows apply on it.
     let mainWork: MainWorkScheduler
+    /// The node the bar's repaints wait on (R-appear): its tab's, set by the chrome, or a root that stays
+    /// visible for a bar in no tab (a popup's toolbar, the Markdown bar), whose repaints run at once.
+    var visibilityNode = VisibilityNode(root: "browser.omnibar.standalone", own: .visible) {
+        didSet {
+            pill.visibilityNode = visibilityNode
+            field.visibilityNode = visibilityNode
+        }
+    }
     /// The suggestion engine's "Always show full URLs" (``followDisplay()``).
     var displayWatch: FrameObservation<Bool>?
 
@@ -97,7 +105,8 @@ public final class AddressBarView: NSView {
             request.tabKey = tabKey
             request.allowsChromiumSchemes = allowsChromiumSchemes
             return suggestionEngine.deliveries(for: request)
-        }
+        },
+        mainWork: mainWork
     )
 
     /// A bar that shows the page's address but never edits it: a system
@@ -570,10 +579,18 @@ public final class AddressBarView: NSView {
         if newWindow == nil { panel.dismiss() }
     }
 
+    /// The URL's styled text is written again in the new look once the bar shows: a hidden tab's bar
+    /// measures and lays out no text (R-appear).
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        if !field.isFieldEditorActive {
-            field.write(controller.state.fieldText, style: OmnibarPresentation(controller.state).style)
-        }
+        visibilityNode.deferUntilVisible(key: Self.appearanceKey) { [weak self] in self?.restyleField() }
+    }
+
+    /// The ``visibilityNode`` key of the bar's deferred repaint.
+    static let appearanceKey = "AddressBarView.appearance"
+
+    private func restyleField() {
+        guard !field.isFieldEditorActive else { return }
+        field.write(controller.state.fieldText, style: OmnibarPresentation(controller.state).style)
     }
 }

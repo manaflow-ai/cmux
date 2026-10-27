@@ -286,6 +286,7 @@ public final class FindPillView: NSView {
 
     // MARK: Theme
 
+    // visibility-walk-allow: color stores (tints, text and layer colors, the buttons' inks) for a few controls; the pill lives only while its find is open, so a deferral costs more
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()

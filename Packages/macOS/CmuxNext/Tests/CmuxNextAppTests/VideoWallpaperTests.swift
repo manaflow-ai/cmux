@@ -206,28 +206,86 @@ import CmuxNextWakeupsTestSupport
         #expect(h.video.isPlaying)
     }
 
+    /// The release is a `background` MainDeadline on the app's deadline scheduler (p06-scheduler-324): its wake is
+    /// one entry of the main thread's wake-up queue, and its action runs as a posted background task.
     @Test func theDecoderGoesOnlyAMinuteAfterTheLastWindowWentOutOfSight() async throws {
         let clip = try await Self.clip()
-        let clock = ManualClock()
-        let players = BackdropVideoPlayers(clock: clock)
+        let rig = MainDeadlineRig()
+        let players = BackdropVideoPlayers(deadlines: rig.deadlines)
         let h = make(.file(path: clip.path), players: players)
         defer { h.close() }
         let url = try #require(h.video.url)
         h.video.visibleOverride = false
-        try await clock.waitForSleeper()
-        clock.advance(by: .seconds(40))
+        #expect(rig.hasArmedWake, "no release deadline was armed when the last window went out of sight")
+        rig.advance(by: .seconds(40))
         // Updates while hidden do not push the deadline back.
         h.video.lowPowerOverride = true
         h.video.lowPowerOverride = false
-        clock.advance(by: .seconds(15))
+        rig.advance(by: .seconds(15))
+        rig.fireAtNow()
         #expect(!players.isReleased(url), "the decoder went before the minute was up")
-        clock.advance(by: .seconds(6))
-        #expect(try await eventually(2) { players.isReleased(url) }, "the deadline moved with the updates, or never came")
+        rig.advance(by: .seconds(6))
+        rig.fireAtNow()
+        #expect(players.isReleased(url), "the deadline moved with the updates, or never came")
         // Seen again before a new minute: nothing is released.
         h.video.visibleOverride = true
         #expect(!players.isReleased(url))
-        clock.advance(by: .seconds(120))
+        rig.advance(by: .seconds(120))
+        rig.fireAtNow()
         #expect(!players.isReleased(url), "a video someone can see was released")
+    }
+
+    /// A seen video's coverage samples are a `background` MainDeadline on the players' scheduler (p06-scheduler-324):
+    /// seeing it arms one, its fire takes a sample and arms the next, and a video no one sees samples nothing.
+    @Test func aSeenVideoSamplesItsCoverageOnABackgroundDeadline() async throws {
+        let clip = try await Self.clip()
+        let rig = MainDeadlineRig()
+        let players = BackdropVideoPlayers(deadlines: rig.deadlines)
+        let h = make(.file(path: clip.path), players: players)
+        defer { h.close() }
+        var samples = 0
+        h.video.windowsAboveOverride = {
+            samples += 1
+            return []
+        }
+        #expect(rig.hasArmedWake, "a seen video armed no coverage deadline")
+        #expect(samples == 0, "a sample ran before its deadline")
+        rig.fireAndRun()
+        #expect(samples == 1, "the coverage deadline fired without a sample")
+        #expect(rig.hasArmedWake, "the sample did not arm the next one")
+        rig.fireAndRun()
+        #expect(samples == 2)
+        // Out of sight: the next deadline is cancelled (only the decoder's release stays armed).
+        h.video.visibleOverride = false
+        rig.fireAndRun()
+        #expect(samples == 2, "a video no one sees still sampled its coverage")
+    }
+
+    /// Fast user switching holds every video through the players' one subscription per session notice
+    /// (``BackdropVideoPlayers/follow(deadlines:session:)``), not an observer per view, and the session coming back
+    /// resumes them.
+    @Test func theSessionsNoticesHoldAndResumeEveryVideoThroughThePlayers() async throws {
+        let clip = try await Self.clip()
+        let rig = MainDeadlineRig()
+        let center = NotificationCenter()
+        let session = AppEvents(center: center)
+        let players = BackdropVideoPlayers()
+        players.follow(deadlines: rig.deadlines, session: session)
+        let first = make(.file(path: clip.path), players: players)
+        let second = make(.file(path: clip.path), players: players)
+        defer {
+            first.close()
+            second.close()
+        }
+        #expect(first.video.isPlaying && second.video.isPlaying)
+        #expect(session.subscriberCount(NSWorkspace.sessionDidResignActiveNotification) == 1,
+                "the session's notice has more than the players' one subscription")
+        center.post(name: NSWorkspace.sessionDidResignActiveNotification, object: nil)
+        #expect(players.sessionInactive)
+        #expect(!first.video.isPlaying && !second.video.isPlaying, "a video plays while the login session is not the active one")
+        center.post(name: NSWorkspace.sessionDidBecomeActiveNotification, object: nil)
+        #expect(!players.sessionInactive)
+        #expect(first.video.isPlaying && second.video.isPlaying, "the videos did not resume when the session came back")
     }
 
     @Test func aVideoRestsWhileOtherWindowsHideNearlyAllOfItsWindow() async throws {

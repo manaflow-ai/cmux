@@ -4847,6 +4847,137 @@
           }
         }
       }
+    },
+    "pane.pageMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Agent Activity page is missing from this copy of cmux. Reinstall cmux to open it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "صفحة نشاط الوكيل مفقودة من هذه النسخة من cmux. أعد تثبيت cmux لفتحها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stranica Aktivnost agenta nedostaje u ovoj kopiji cmuxa. Ponovo instalirajte cmux da biste je otvorili."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Siden Agentaktivitet mangler i denne kopi af cmux. Geninstaller cmux for at åbne den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Seite „Agentenaktivität“ fehlt in dieser Kopie von cmux. Installiere cmux neu, um sie zu öffnen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Falta la página Actividad de agentes en esta copia de cmux. Reinstala cmux para abrirla."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La page Activité des agents est absente de cette copie de cmux. Réinstallez cmux pour l’ouvrir."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La pagina Attività degli agenti manca in questa copia di cmux. Reinstalla cmux per aprirla."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この cmux にはエージェントアクティビティのページがありません。開くには cmux を再インストールしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទំព័រសកម្មភាពភ្នាក់ងារបាត់ពីច្បាប់ចម្លង cmux នេះ។ ដំឡើង cmux ឡើងវិញដើម្បីបើកវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 cmux에 에이전트 활동 페이지가 없습니다. 열려면 cmux를 다시 설치하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Siden Agentaktivitet mangler i denne kopien av cmux. Installer cmux på nytt for å åpne den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "W tej kopii cmux brakuje strony Aktywność agentów. Zainstaluj cmux ponownie, aby ją otworzyć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A página Atividade dos agentes não está nesta cópia do cmux. Reinstale o cmux para abri-la."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "В этой копии cmux нет страницы «Активность агентов». Переустановите cmux, чтобы открыть её."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สำเนา cmux นี้ไม่มีหน้ากิจกรรมของเอเจนต์ ติดตั้ง cmux ใหม่เพื่อเปิดหน้านี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajan Etkinliği sayfası bu cmux kopyasında yok. Açmak için cmux’u yeniden yükleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "У цій копії cmux немає сторінки «Активність агентів». Перевстановіть cmux, щоб відкрити її."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản cmux này thiếu trang Hoạt động của tác nhân. Hãy cài đặt lại cmux để mở trang này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 cmux 副本缺少智能体活动页面。请重新安装 cmux 以打开它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 cmux 副本缺少代理程式活動頁面。請重新安裝 cmux 以開啟它。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

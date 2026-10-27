@@ -83,6 +83,8 @@ public final class CEFEngine: BrowserEngine {
     ///   - pointerFrames: The windows' frame-aligned pointer input (feature `pointerFrameDrags`): the
     ///     DevTools divider's drag moves at most twice per frame. Nil: each drag event moves it.
     ///   - chromiumFeatures: The Chromium `base::Feature`s on (features of process `chromium`), read at start.
+    ///   - disabledChromiumFeatures: The Chromium `base::Feature`s off (features of process `chromium`), read at
+    ///     start; one on both lists is off.
     ///   - prefetchWork: The app's lanes, whose startup fence holds a predicted start's framework read (feature
     ///     `cefPrefetchBehindFence`, ``CEFFrameworkPrefetch``). Nil: a preload reads and maps at once.
     ///   - launch: The launch's scheduler, which orders a restored tab's start by its origin (feature
@@ -94,7 +96,7 @@ public final class CEFEngine: BrowserEngine {
                 waitDeadlines: MainWakeUpQueue? = nil, input: InputEventTap, crashKeys: CrashKeySlots? = nil,
                 launchMarks: CEFLaunchMarkHooks? = nil,
                 pumpInput: CEFPumpInputSeams? = nil, pointerFrames: FrameInputCoalescers? = nil, chromiumFeatures: [String] = [],
-                prefetchWork: BackgroundWork? = nil, launch: StartupScheduler? = nil) {
+                disabledChromiumFeatures: [String] = [], prefetchWork: BackgroundWork? = nil, launch: StartupScheduler? = nil) {
         runtimeSource = source
         launchDeferral = CEFLaunchDeferral(startup: launch)
         self.stores = stores
@@ -108,6 +110,7 @@ public final class CEFEngine: BrowserEngine {
         CEFRuntime.shared.pumpInput = pumpInput
         CEFRuntime.shared.pointerFrames = pointerFrames
         CEFRuntime.shared.chromiumFeatures = chromiumFeatures
+        CEFRuntime.shared.disabledChromiumFeatures = disabledChromiumFeatures
         CEFRuntime.shared.prefetchWork = prefetchWork
     }
 
@@ -410,7 +413,8 @@ public final class CEFEngine: BrowserEngine {
     private func adoptStores(in runtime: CEFRuntime = .shared) {
         runtime.adopt(stores: stores, signInCallbacks: signInCallbacks, waitDeadlines: waitDeadlines,
                       hostSupervisor: runtimeSource.hostSupervisor, hostWidgets: runtimeSource.showsHostWidgets, hostDrags: runtimeSource.takesHostDrags,
-                      hostResizeFence: runtimeSource.fencesHostResizes)
+                      hostResizeFence: runtimeSource.fencesHostResizes, hostPopupMenus: runtimeSource.drawsHostPopupMenus,
+                      hostSuggestions: runtimeSource.drawsHostSuggestions, hostFileDialogs: runtimeSource.hostFileDialogs)
         if let pagesProfileID { runtime.spareWindow.pagesProfile = pagesProfileID }
     }
 

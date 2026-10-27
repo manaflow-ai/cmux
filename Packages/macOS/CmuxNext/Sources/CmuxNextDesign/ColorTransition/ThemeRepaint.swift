@@ -256,8 +256,9 @@ enum ThemeRepaint {
         if let marked = stale.object(forKey: view) { return marked.merge(scope: scope, layout: layout) }
         let region = StaleRegion(scope: scope)
         region.layout = layout
+        // raw-observer-allow: one KVO of this skipped view's own isHidden, dropped at its show; no notice or node says an arbitrary view shows
         region.observation = view.observe(\.isHidden, options: [.new]) { view, _ in
-            // AppKit shows views on the main thread: inline there, a hop otherwise.
+            // main-hop-allow: AppKit sets isHidden on main, so the repaint runs inline in the show's turn; only an off-main write hops
             MainDelivery().run { didShow(view) }
         }
         stale.setObject(region, forKey: view)

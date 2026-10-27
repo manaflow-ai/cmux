@@ -1,3 +1,6 @@
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 import Foundation
 
 /// A FIFO async semaphore: at most `limit` holders, and at most
@@ -7,7 +10,7 @@ public actor TunnelConcurrencyLimit {
     public let limit: Int
     public let maximumWaiters: Int
     private var holders = 0
-    private var waiters: [(id: UUID, continuation: CheckedContinuation<Bool, Never>)] = []
+    private var waiters: [(id: UUID, continuation: OnceContinuation<Bool, OnceContinuationError>)] = []
 
     public init(limit: Int, maximumWaiters: Int = 256) {
         self.limit = limit
@@ -27,9 +30,10 @@ public actor TunnelConcurrencyLimit {
         guard waiters.count < maximumWaiters, !Task.isCancelled else { return false }
         let id = UUID()
         return await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
+            // A dropped waiter holds no slot: false, as a cancelled one answers.
+            (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
                 waiters.append((id, continuation))
-            }
+            }) ?? false
         } onCancel: {
             Task { await self.cancelWaiter(id) }
         }

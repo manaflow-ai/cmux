@@ -480,7 +480,7 @@ struct PageLifecycleTests {
         // planner's, an owner's, or no reason at all.
         for reason in ["focused", "loading", "inspector", "confirmation", "popup", "file_drop", "dictation", "audible",
                        "web_rtc", "connected_device", "web_lock", "recently_visible", "most_recently_used",
-                       "hibernation_off", "turn_running", "pinned", "nonsense"] {
+                       "hibernation_off", "turn_running", "page_call", "pinned", "nonsense"] {
             let refused = await keepAlive(reason, true)
             #expect(refused["code"]?.stringValue == "cmux.protocol.invalid_params", "\(reason)")
         }

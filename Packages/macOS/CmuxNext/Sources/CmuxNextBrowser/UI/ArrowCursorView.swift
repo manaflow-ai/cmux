@@ -90,6 +90,7 @@ public class ArrowCursorView: NSView {
         for entry in rows {
             guard let row = entry.row, let window = row.window, window !== key, window.isVisible else { continue }
             let point = window.convertPoint(fromScreen: location)
+            // visibility-walk-allow: hit test of the pointer: the row AppKit shows under it sets the cursor, once per move while a child window has the key
             guard row.visibleRect.contains(row.convert(point, from: nil)), !row.isHiddenOrHasHiddenAncestor else { continue }
             // Nothing to set: the row's tracking area already set this cursor, and no other
             // handling of the move replaced it.
@@ -143,6 +144,7 @@ extension ArrowCursorView {
         for entry in rows {
             guard let row = entry.row, let window = row.window, window !== key, window.isVisible else { continue }
             let point = window.convertPoint(fromScreen: location)
+            // visibility-walk-allow: hit test of the pointer: the row AppKit shows under it sets the cursor again, after a pass while a child window has the key
             guard row.visibleRect.contains(row.convert(point, from: nil)), !row.isHiddenOrHasHiddenAncestor else { continue }
             guard NSCursor.current !== (row.trackedCursor ?? OmnibarPointer.cursor(.toolbar)).cursor else { return }
             guard isTopWindow(window, at: location) else { return }
@@ -173,6 +175,7 @@ private final class RowCursorTracker: NSResponder {
 
     override func mouseEntered(with event: NSEvent) { row?.setCursor(at: event.locationInWindow) }
     // input-coalesce: native (only the cursor, which must follow every move as AppKit's own cursor rects do)
+    // local-monitor-allow: a cursor set from a coalesced move would show the wrong cursor until the frame
     override func mouseMoved(with event: NSEvent) { row?.setCursor(at: event.locationInWindow) }
     override func mouseExited(with event: NSEvent) {}
 }

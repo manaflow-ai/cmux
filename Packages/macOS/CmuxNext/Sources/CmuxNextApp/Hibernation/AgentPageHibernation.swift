@@ -296,7 +296,7 @@ final class AgentPageHibernation {
         if let session = view.model.sessionId { tabs.sessions[stored] = session }
         tabs.wakeStates[stored] = wake.flatMap { $0.isEmpty ? nil : $0 }
         tabs.views[stored] = nil
-        tabs.retirer.retire(view, closed: false)
+        view.retire(on: tabs.retirer, closed: false)
         tabs.stopCustomizationWhenUnused()
         hiddenAt[key] = nil
         releasedCount += 1

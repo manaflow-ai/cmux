@@ -7,8 +7,9 @@
 //! No polling: the worker thread blocks on a condvar until a change arrives and waits with a
 //! timeout only to keep the one-second spacing. It exits when the last subscriber leaves.
 
+use cmux_threads::sync::{Condvar, Mutex};
 use std::collections::BTreeMap;
-use std::sync::{Arc, Condvar, Mutex, PoisonError, Weak};
+use std::sync::{Arc, PoisonError, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
@@ -195,10 +196,10 @@ fn next_due(shared: &(Mutex<State>, Condvar)) -> Option<Due> {
             if wait.is_zero() {
                 break;
             }
-            state = wake.wait_timeout(state, wait).unwrap_or_else(PoisonError::into_inner).0;
+            state = wake.idle().wait_timeout(state, wait).unwrap_or_else(PoisonError::into_inner).0;
             continue;
         }
-        state = wake.wait(state).unwrap_or_else(PoisonError::into_inner);
+        state = wake.idle().wait(state).unwrap_or_else(PoisonError::into_inner);
     }
     state.dirty = false;
     state.last_emit = Some(Instant::now());

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import class CmuxSafeConcurrency.OnceContinuation
 import func CmuxSafeConcurrency.withOnceThrowingContinuation
@@ -110,9 +111,7 @@ let cefPasswordRevealCallback: CEFShimLibrary.PasswordRevealCallback = { context
     // The shim calls back on the CEF UI thread, which is the main thread. Off it, the password is
     // dropped (never copied to another thread) and the reveal ends as not found.
     guard Thread.isMainThread else {
-        // main-proof: a DispatchQueue.main block runs on the main thread
-        DispatchQueue.main.async { MainActor.assumeIsolated { PasswordRevealBox.take(address)?.finish(nil) } }
-        return
+        return MainRunLoopBlock.perform { PasswordRevealBox.take(address)?.finish(nil) }
     }
     // Integers cross into the main-actor closure (a raw buffer is not Sendable); the closure runs
     // synchronously, while the bytes are still valid.

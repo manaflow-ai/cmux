@@ -1,3 +1,5 @@
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 import CmuxVNC
 import CoreGraphics
 import Foundation
@@ -47,19 +49,26 @@ public final class VNCDemoServer: @unchecked Sendable {
         parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: port) ?? .any)
         parameters.allowLocalEndpointReuse = true
         let listener = try NWListener(using: parameters)
-        let once = ResumeGuard()
-        return try await withCheckedThrowingContinuation { continuation in
+        return try await withOnceThrowingContinuation { (started: OnceContinuation<UInt16, any Error>) in
             queue.async {
                 self.scene = DemoScene(width: self.configuration.width, height: self.configuration.height,
                                        animate: self.configuration.framesPerSecond > 0)
                 self.listener = listener
                 listener.newConnectionHandler = { [weak self] connection in self?.accept(connection) }
-                listener.stateUpdateHandler = { state in
+                // The first ready, failed or cancelled state answers `start`. Network calls this handler on
+                // `queue` one state at a time, so dropping it there leaves no later state to answer again.
+                listener.stateUpdateHandler = { [weak listener] state in
                     switch state {
                     case .ready:
-                        if once.claim() { continuation.resume(returning: listener.port?.rawValue ?? 0) }
+                        listener?.stateUpdateHandler = nil
+                        started.resume(returning: listener?.port?.rawValue ?? 0)
                     case let .failed(error), let .waiting(error):
-                        if once.claim() { continuation.resume(throwing: error) }
+                        listener?.stateUpdateHandler = nil
+                        started.resume(throwing: error)
+                    case .cancelled:
+                        // `stop()` before the listener was ready.
+                        listener?.stateUpdateHandler = nil
+                        started.resume(throwing: CancellationError())
                     default:
                         break
                     }
@@ -117,20 +126,6 @@ public final class VNCDemoServer: @unchecked Sendable {
         }
         timer.resume()
         self.timer = timer
-    }
-}
-
-// crash-allow: `done` is read and written only while `lock` is held.
-final class ResumeGuard: @unchecked Sendable {
-    private let lock = NSLock()
-    private var done = false
-
-    func claim() -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        if done { return false }
-        done = true
-        return true
     }
 }
 
