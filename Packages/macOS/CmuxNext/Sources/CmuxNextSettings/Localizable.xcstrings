@@ -529,6 +529,54 @@
         }
       }
     },
+    "settings.choice.cloudFolderEmpty": {
+      "comment": "Settings > Machines > New Cloud Workspaces Start In: start in the machine's empty folder.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Empty Folder"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "空のフォルダ"}}
+      }
+    },
+    "settings.choice.cloudFolderInherit": {
+      "comment": "Settings > Machines > New Cloud Workspaces Start In: copy the current folder to the machine.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Current Folder"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "現在のフォルダ"}}
+      }
+    },
+    "settings.cloud.newWorkspaceFolder": {
+      "comment": "Settings > Machines: title of the choice of what folder a new Cloud workspace starts in.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "New Cloud Workspaces Start In"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "新しいクラウドワークスペースの開始フォルダ"}}
+      }
+    },
+    "settings.cloud.newWorkspaceFolder.help": {
+      "comment": "Settings > Machines: help for the New Cloud Workspaces Start In choice.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "「現在のフォルダ」は作業中のフォルダ（git の作業コピー全体）を新しいマシンにコピーします。「空のフォルダ」はマシン自身の空のフォルダで始まります。"}}
+      }
+    },
+    "settings.cloud.newWorkspacesInCloud": {
+      "comment": "Settings > Machines: title of the toggle that sends each new workspace to its own new Cloud machine.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Run New Workspaces in Cloud"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "新しいワークスペースをクラウドで実行"}}
+      }
+    },
+    "settings.cloud.newWorkspacesInCloud.help": {
+      "comment": "Settings > Machines: help for the Run New Workspaces in Cloud toggle.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "新しいワークスペース（Cmd-N、サイドバーの +）ごとに新しいクラウドマシンが作られます。その中で始めたエージェントチャットはそのマシンで実行されます。"}}
+      }
+    },
     "settings.group.chiefEngine": {
       "comment": "Settings > Chief: group title of the Engine row (which Chief Home opens: this Mac's or the cloud-hosted one).",
       "extractionState": "manual",
@@ -659,6 +707,14 @@
             "value": "引擎"
           }
         }
+      }
+    },
+    "settings.group.cloudWorkspaces": {
+      "comment": "Settings > Machines: group of the Cloud toggle settings (#26062).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Cloud Workspaces"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "クラウドワークスペース"}}
       }
     },
     "settings.home.chiefEngine": {

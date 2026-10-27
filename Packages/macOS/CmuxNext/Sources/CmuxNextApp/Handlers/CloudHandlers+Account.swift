@@ -166,8 +166,11 @@ extension CloudHandlers {
     /// The New Cloud Workspace flow over this app's services (cx-lu8f).
     /// `startedByPerson`: true only for an action invoked with origin user;
     /// any other create (a Retry or Dismiss button of the progress view,
-    /// which carries no gesture origin) asks the person first.
-    static func creationFlow(_ context: AppActionContext, startedByPerson: Bool = false, askedBy: String? = nil) -> CloudCreationFlow {
+    /// which carries no gesture origin) asks the person first. `open` makes
+    /// the ready machine's workspace (the Cloud toggle's opens in a copied
+    /// folder); by default its first workspace.
+    static func creationFlow(_ context: AppActionContext, startedByPerson: Bool = false, askedBy: String? = nil,
+                             open: (@MainActor (CloudMachineSession) async throws -> String)? = nil) -> CloudCreationFlow {
         let cloud = context.services.cloud
         let windows = context.services.windows
         return CloudCreationFlow(
@@ -180,7 +183,7 @@ extension CloudHandlers {
                 }
                 return session
             },
-            open: { session in defer { RemoteGroupHandlers.mark(session: session.daemon.store.registryID) }; return try await firstWorkspace(on: session, context) },
+            open: open ?? { session in defer { RemoteGroupHandlers.mark(session: session.daemon.store.registryID) }; return try await firstWorkspace(on: session, context) },
             show: { id, creation in
                 let after = creation.readyAfter.map { String(format: "%.1f s", Double($0.components.seconds) + Double($0.components.attoseconds) / 1e18) } ?? "?"
                 cloud.logger.info("new cloud workspace \(id, privacy: .public) on \(creation.session?.machineID ?? "?", privacy: .public) ready after \(after, privacy: .public)")
