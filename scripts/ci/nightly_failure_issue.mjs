@@ -98,12 +98,30 @@ async function compareStatus(github, owner, repo, base, head) {
   }
 }
 
+// Whether GitHub still has `sha`. Only a 404 or 422 means it does not; any
+// other error throws.
+async function commitExists(github, owner, repo, sha) {
+  try {
+    await github.rest.repos.getCommit({ owner, repo, ref: sha, per_page: 1 });
+    return true;
+  } catch (error) {
+    if (error.status === 404 || error.status === 422) return false;
+    throw error;
+  }
+}
+
+// A compare that could not be read: the failure is resolved only when the
+// failed commit itself is gone and the published one is not.
+async function failedCommitGone(github, owner, repo, failedSha, publishedSha) {
+  return !(await commitExists(github, owner, repo, failedSha)) && (await commitExists(github, owner, repo, publishedSha));
+}
+
 // Whether publishing `published` resolves `failure`.
 export async function covers({ github, owner, repo, published, failure }) {
   if (failure.sha === published.sha.toLowerCase()) return true;
   const status = await compareStatus(github, owner, repo, failure.sha, published.sha);
   if (status === 'ahead' || status === 'identical') return true;
-  if (status === 'missing') return true; // the failed commit no longer exists
+  if (status === 'missing') return failedCommitGone(github, owner, repo, failure.sha, published.sha);
   if (status === 'behind') return false; // the failure is newer than the publication
   if (failure.ref !== published.ref) {
     const failed = rcVersion(failure.ref);
@@ -234,6 +252,7 @@ async function superseding({ github, owner, repo, releaseTag, sha, ref }) {
   if (!published || published === sha.toLowerCase()) return null;
   const status = await compareStatus(github, owner, repo, sha, published);
   if (status === 'ahead') return { sha: published, ref };
+  if (status === 'missing') return (await failedCommitGone(github, owner, repo, sha, published)) ? { sha: published, ref } : null;
   if (status !== 'diverged') return null;
   const line = await newerRcLine({ github, owner, repo, published, failureRef: ref });
   if (line) return { sha: published, ref: line };

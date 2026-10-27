@@ -84,6 +84,7 @@ function fakeGitHub({ parents = {}, branches = {}, labelExists = false, labelRac
       },
     },
   };
+  rest.repos.getCommit = async ({ ref }) => { if (!known(ref)) throw httpError(422); return { data: { sha: ref } }; };
   const github = { rest, paginate: async (fn, args) => (await fn(args)).data };
   return { github, issues, labels, hooks };
 }
@@ -333,6 +334,17 @@ test('a publication that finishes while a failure is recorded closes the inciden
   assert.equal(await fail(github, sha('b'), 'main', { releaseTag: 'nightly', runUrl: 'https://run' }), 1);
   assert.equal(reads, 2);
   assert.equal(issues[0].state, 'closed');
+});
+
+test('a publication of a commit GitHub does not have never closes a failure', async () => {
+  const { github, issues } = fakeGitHub({ parents: MAIN });
+  await fail(github, sha('c'));
+  assert.deepEqual(await publish(github, sha('f')), []); // f is unknown
+  assert.equal(issues[0].state, 'open');
+  // A failed commit that is gone is resolved by a publication GitHub has.
+  const other = fakeGitHub({ parents: MAIN, labelExists: true });
+  await other.github.rest.issues.create({ labels: ['nightly-failure'], body: failureMarkerFor(sha('e')) });
+  assert.deepEqual(await publish(other.github, sha('d')), [1]);
 });
 
 test('a failure that the closing publication already includes leaves the incident closed', async () => {
