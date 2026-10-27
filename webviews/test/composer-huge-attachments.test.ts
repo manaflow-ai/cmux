@@ -24,6 +24,38 @@ function png(width: number, height: number): Blob {
   return new Blob([bytes], { type: "image/png" });
 }
 
+function validPng(width: number, height: number, text = ""): Blob {
+  const encoder = new TextEncoder();
+  const chunk = (type: string, data: Uint8Array) => {
+    const bytes = new Uint8Array(12 + data.length);
+    const view = new DataView(bytes.buffer);
+    view.setUint32(0, data.length);
+    bytes.set(encoder.encode(type), 4);
+    bytes.set(data, 8);
+    return bytes;
+  };
+  const header = new Uint8Array(13);
+  const view = new DataView(header.buffer);
+  view.setUint32(0, width);
+  view.setUint32(4, height);
+  header[8] = 8;
+  header[9] = 2;
+  const chunks = [
+    chunk("IHDR", header),
+    ...(text ? [chunk("tEXt", encoder.encode(`Comment\0${text}`))] : []),
+    chunk("IDAT", new Uint8Array([0])),
+    chunk("IEND", new Uint8Array()),
+  ];
+  const bytes = new Uint8Array(8 + chunks.reduce((total, value) => total + value.length, 0));
+  bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  let offset = 8;
+  for (const value of chunks) {
+    bytes.set(value, offset);
+    offset += value.length;
+  }
+  return new Blob([bytes], { type: "image/png" });
+}
+
 function jpeg(width: number, height: number): Blob {
   // SOI, an APP0 segment, then SOF0 with the size.
   const app0 = [0xff, 0xe0, 0x00, 0x10, ...Array.from({ length: 14 }, () => 0)];
@@ -79,6 +111,21 @@ test("a 200-megapixel picture is never decoded: it goes as a file", async () => 
   expect(14142 * 14142).toBeGreaterThan(MAX_DECODE_PIXELS);
   expect(await prepareImage(png(14142, 14142))).toBeUndefined();
   expect(decoded).toBe(0);
+});
+
+test("a no-canvas preview strips PNG metadata", async () => {
+  const source = validPng(64, 32, "private capture metadata");
+  const prepared = await prepareImage(source);
+  expect(prepared?.mimeType).toBe("image/png");
+  const binary = atob(prepared?.data ?? "");
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  expect(new TextDecoder().decode(bytes)).not.toContain("private capture metadata");
+});
+
+test("a no-canvas preview rejects images over side and pixel limits", async () => {
+  expect(await prepareImage(validPng(1569, 1))).toBeUndefined();
+  expect(await prepareImage(validPng(10001, 10000))).toBeUndefined();
 });
 
 test("a cancelled upload stops at its next chunk and the host drops what it staged", async () => {
