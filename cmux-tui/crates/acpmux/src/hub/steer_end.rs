@@ -81,6 +81,8 @@ impl Hub {
         accept: &mut impl FnMut(Value),
     ) -> Result<Value, RpcError> {
         let (control, trust_gate) = (opts.control, opts.trust_gate);
+        // A Stop from here on ends the turn this steer is for: it is not written (below).
+        let cancels = session.cancels.load(std::sync::atomic::Ordering::SeqCst);
         let prompt_id = opts.prompt_id.unwrap_or_default();
         self.check_steer(session, control, opts.full_access_device.as_deref())?;
         // A family message is checked again here, as a dispatched one is, and the gate held
@@ -107,7 +109,12 @@ impl Hub {
         }
         accept(accepted);
         let fallback = (!opts.steer_only).then(|| blocks.clone());
-        let wire_blocks = super::turns::agent_blocks(session, &blocks).await?;
+        let wire_blocks = super::turns::agent_blocks(self, session, &blocks).await?;
+        // Stopped while its copies were made: written now, it would reach no turn, and its
+        // fallback would start one after the Stop.
+        if session.cancels.load(std::sync::atomic::Ordering::SeqCst) != cancels {
+            return Err(super::turns::stopped_before_prompt());
+        }
         let mut params = json!({"sessionId": agent_sid, "prompt": wire_blocks});
         // Its promptId names it to a withdraw (`queue_edit.rs` `withdraw`).
         params["_meta"] = json!({"steer": true, "promptId": prompt_id});

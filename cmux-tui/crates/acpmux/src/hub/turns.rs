@@ -8,6 +8,7 @@ use std::sync::atomic::Ordering;
 /// (`model_copies.rs`), then [`acp_prompt_blocks`]. No copy is made, or kept, for a turn a remote
 /// device controls: it is read from this machine's disk as the prompt's sender, who was local.
 pub(super) async fn agent_blocks(
+    hub: &Hub,
     session: &Session,
     blocks: &[Value],
 ) -> Result<Vec<Value>, RpcError> {
@@ -17,7 +18,24 @@ pub(super) async fn agent_blocks(
     }
     let family = session.meta().family;
     let copied = crate::model_copies::add(&session.id, family.as_deref(), blocks).await;
+    // Tests only: a Stop or a remote device comes while the copies are made.
+    #[cfg(test)]
+    {
+        let seam = hub.copy_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if let Some((arrived, release)) = seam {
+            let _ = arrived.send(());
+            let _ = release.await;
+        }
+    }
+    #[cfg(not(test))]
+    let _ = hub;
     acp_prompt_blocks(session, if web() { blocks } else { &copied })
+}
+
+/// A prompt not written to its agent: a Stop came while its model-sized copies were made.
+pub(super) fn stopped_before_prompt() -> RpcError {
+    RpcError::new(-32000, "the turn was stopped before this prompt reached the agent")
+        .with_data(json!({"reason": "stopped"}))
 }
 
 /// ACP v1 does not define a `document` content block. Claude's translator can
@@ -488,7 +506,7 @@ impl Hub {
         // The prompt as the agent gets it, before the checks below: making its model-sized copies
         // may take a moment, in which a Stop or a remote device may come (`model_copies.rs`).
         let cancels = session.cancels.load(Ordering::SeqCst);
-        let wire = agent_blocks(session, &blocks).await;
+        let wire = agent_blocks(self, session, &blocks).await;
         let stopped = session.cancels.load(Ordering::SeqCst) != cancels
             || session.stops.load(Ordering::SeqCst) != stops;
         let control = {
@@ -506,8 +524,7 @@ impl Hub {
         let wire = match wire {
             Ok(wire) if !stopped => wire,
             Ok(_) => {
-                let e = RpcError::new(-32000, "the turn was stopped before its prompt was sent")
-                    .with_data(json!({"reason": "stopped"}));
+                let e = stopped_before_prompt();
                 self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
                 self.forum_turn_end(session, &told, false);
                 drop(guard);
@@ -652,20 +669,29 @@ impl Hub {
                         // Its start read the chat ready: the turn runs on.
                         self.set_status(session, SessionStatus::Running);
                         if let Some(sid2) = session.meta().agent_session_id {
+                            // A Stop while its copies were made: not written (as the first).
+                            let cancels = session.cancels.load(Ordering::SeqCst);
+                            let wire = agent_blocks(self, session, &blocks).await?;
+                            let stopped = session.cancels.load(Ordering::SeqCst) != cancels
+                                || session.stops.load(Ordering::SeqCst) != stops;
                             // Like the first prompt: Stop's and a stalled turn's forced end
                             // (`cancel.rs`, `stalled_turn.rs`) end it too.
-                            result = super::steer_end::agent_prompt_hook(
-                                session,
-                                &child2,
-                                json!({"sessionId": sid2, "prompt": agent_blocks(session, &blocks).await?}),
-                                &turn_id,
-                                false,
-                                || {
-                                    drop(family_gate);
-                                    self.watch_stalled_turn(session, None)
-                                },
-                            )
-                            .await;
+                            result = if stopped {
+                                Err(stopped_before_prompt())
+                            } else {
+                                super::steer_end::agent_prompt_hook(
+                                    session,
+                                    &child2,
+                                    json!({"sessionId": sid2, "prompt": wire}),
+                                    &turn_id,
+                                    false,
+                                    || {
+                                        drop(family_gate);
+                                        self.watch_stalled_turn(session, None)
+                                    },
+                                )
+                                .await
+                            };
                         }
                     }
                     (Err(e2), _) => result = Err(e2),

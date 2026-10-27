@@ -25,6 +25,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+const FAKE_CLAUDE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
 /// `hub/file_uploads.rs` `CHUNK_BYTES`.
 const CHUNK: usize = 512 << 10;
 
@@ -42,7 +43,9 @@ fn home() -> &'static Path {
 fn hub() -> Arc<Hub> {
     home();
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "codex"}},
+        "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "codex"},
+            "fakeclaude": {"argv": ["/usr/bin/env", "FAKE_CLAUDE_ECHO=1", "python3", FAKE_CLAUDE],
+                "kind": "claude-stdio"}},
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all"
     }))
@@ -136,6 +139,23 @@ impl Client {
             .await;
         let events = page["result"]["events"].as_array().unwrap_or_else(|| panic!("{page}"));
         events.iter().map(|e| e["msg"].clone()).collect()
+    }
+}
+
+/// Every record of chat `session`'s log, as JSON, paged through `_acpmux/events`.
+async fn whole_log(c: &mut Client, session: &str) -> String {
+    let (mut after, mut logged) = (0, String::new());
+    loop {
+        let all = json!({"sessionId": session, "afterSeq": after, "maxBytes": 4 << 20});
+        let page = c.call("_acpmux/events", all).await;
+        let records = page["result"]["events"].as_array().unwrap_or_else(|| panic!("{page}"));
+        for r in records {
+            after = r["seq"].as_u64().unwrap();
+            logged.push_str(&r.to_string());
+        }
+        if page["result"]["hasMore"] != true {
+            return logged;
+        }
     }
 }
 
@@ -552,21 +572,43 @@ async fn a_large_screenshot_reaches_the_model_as_a_sized_copy_next_to_its_origin
     let logged = serde_json::to_string(&messages).unwrap();
     assert!(!logged.contains("scaled to"), "{logged}");
     // Nor any record of the log, what was written to the agent too: the copy's base64 is left out.
-    let (mut after, mut logged) = (0, String::new());
-    loop {
-        let all = json!({"sessionId": session, "afterSeq": after, "maxBytes": 4 << 20});
-        let page = c.call("_acpmux/events", all).await;
-        let records = page["result"]["events"].as_array().unwrap_or_else(|| panic!("{page}"));
-        for r in records {
-            after = r["seq"].as_u64().unwrap();
-            logged.push_str(&r.to_string());
-        }
-        if page["result"]["hasMore"] != true {
-            break;
-        }
-    }
+    let logged = whole_log(&mut c, &session).await;
     // The prompt as written to the agent is there, with the original's path.
     assert!(logged.contains(r#""dir":"out","kind":"session/prompt""#), "{logged:.2000}");
     let copy = b64(&sent[0]);
     assert!(!logged.contains(&copy[200..300]), "the copy's base64 was logged");
+}
+
+/// Claude Code echoes each prompt back (`--replay-user-messages`), the copy too: the log keeps
+/// the copy neither as written to Claude nor as echoed.
+#[tokio::test]
+async fn a_screenshots_copy_is_logged_neither_written_to_claude_nor_echoed_back() {
+    let hub = hub();
+    let mut c = client(&hub, Origin::Local);
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+        "_meta": {"acpmux": {"name": "uploads-claude-copy", "harness": "fakeclaude"}}});
+    let made = c.call(method::SESSION_NEW, new).await;
+    let session = made["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{made}"));
+    let session = session.to_owned();
+    let big = noise_png(2400, 1200);
+    let id = c.upload(&session, "shot.png", &big).await;
+    let p = prompt(&session, &v7(), "see", vec![image_ref(&id, "shot.png")]);
+    let reply = c.call(method::SESSION_PROMPT, p).await;
+    assert!(reply.get("error").is_none(), "{reply}");
+    let logged = whole_log(&mut c, &session).await;
+    // A copy went to Claude, and Claude echoed the prompt back.
+    let folder = home().join("uploads").join(&session).join(&id);
+    let copies: Vec<_> = std::fs::read_dir(&folder)
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.file_name().unwrap().to_string_lossy().starts_with(".model-"))
+        .collect();
+    assert!(!copies.is_empty(), "no copy was made");
+    assert!(logged.contains("model-sized copy, not logged"), "{logged:.3000}");
+    assert!(logged.contains(r#""kind":"claude.user""#), "no echo: {logged:.3000}");
+    for copy in copies {
+        let data = b64(&std::fs::read(&copy).unwrap());
+        assert!(!logged.contains(&data[200..300]), "{} was logged", copy.display());
+    }
 }

@@ -160,16 +160,11 @@ impl Hub {
                             // show it (`subagent_retry.rs`).
                             tap_hub.observe_task_line(&tap_session, line);
                         }
-                        // Raw stream-json line; translated messages follow.
-                        return tap_hub
-                            .append_logged(
-                                &tap_session,
-                                "in",
-                                &kind,
-                                params.clone().unwrap_or(Value::Null),
-                                host_seq,
-                            )
-                            .1;
+                        // Raw stream-json line; translated messages follow. Claude's echo of a
+                        // prompt (`--replay-user-messages`) carries its model-sized copies.
+                        let mut line = params.clone().unwrap_or(Value::Null);
+                        crate::model_copies::scrub_logged(&mut line);
+                        return tap_hub.append_logged(&tap_session, "in", &kind, line, host_seq).1;
                     }
                     if method == crate::rpc::method::SESSION_UPDATE {
                         if let Some(su) = params
@@ -205,10 +200,8 @@ impl Hub {
             // parent (`crate::subagents`); they are not the session's own
             // message stream.
             let mut value = msg.to_value();
-            // What acpmux wrote to the agent, less its model-sized image copies.
-            if d == "out" {
-                crate::model_copies::scrub_logged(&mut value);
-            }
+            // Less the model-sized image copies acpmux wrote to the agent, and any echo of them.
+            crate::model_copies::scrub_logged(&mut value);
             // The agent's own display line on its ask is neither logged nor shown
             // (`permissions/display.rs`): only acpmux writes the line a person reads.
             if d == "in"
