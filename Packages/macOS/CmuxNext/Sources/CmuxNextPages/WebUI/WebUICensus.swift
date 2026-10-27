@@ -32,7 +32,8 @@ public import WebKit
 ///   - `deliveries_while_hidden`: router events delivered while hidden. `pushes_while_hidden`:
 ///     native script pushes (theme, glass, document attributes) while hidden. Both count from the
 ///     page's start or the last `reset`. `reloads`: the host's reloads after a crash (a page that
-///     crashed hidden reloads when it shows, ``PageCrashRecovery``).
+///     crashed hidden reloads when it shows, ``PageCrashRecovery``). `script_deliveries`, `data_deliveries`: runs of
+///     router envelopes sent as scripts and as data on the page push channel (`pagePushChannel`), since the start.
 /// - `spares`: spares that are no page view, each `{spare, state, renderer_clients, renderer_pids,
 ///   webkit_pid}`: `cef_window` and `cef_pages_window`, the Chromium spare windows of the default
 ///   and the cmux pages profile (each `state` is `none`, `creating`, `live`, `taken` or `closed`;
@@ -115,6 +116,9 @@ nonisolated public struct WebUICensus: Sendable {
         public var browserID: Int32?
         public var rendererClients: [Int32]
         public var webKitPID: Int32?
+        /// Runs of router envelopes sent as scripts, and as data on the page push channel (p13-webui-079).
+        public var scriptDeliveries = 0
+        public var dataDeliveries = 0
 
         /// The name the `processes` rows use for this page.
         var hostName: String { "page:\(page)#\(instance)" }
@@ -162,7 +166,8 @@ nonisolated public struct WebUICensus: Sendable {
                         spare: spare,
                         windowNumber: view.window?.windowNumber, browserID: process?.browserID,
                         rendererClients: process?.clients ?? [],
-                        webKitPID: census.engine == "webkit" ? view.webKitEngine.flatMap { webKitPID($0) } : nil)
+                        webKitPID: census.engine == "webkit" ? view.webKitEngine.flatMap { webKitPID($0) } : nil,
+                        scriptDeliveries: view.scriptTarget.scriptDeliveries, dataDeliveries: view.scriptTarget.dataDeliveries)
         }
         var spares = spareWindows
         if let newTabSpare, !newTabSpareSeen {
@@ -210,6 +215,7 @@ nonisolated public struct WebUICensus: Sendable {
                 "webkit_pid": number(page.webKitPID),
                 "deliveries_while_hidden": number(page.census.deliveriesWhileHidden),
                 "pushes_while_hidden": number(page.census.pushesWhileHidden), "reloads": number(page.census.crashReloads),
+                "script_deliveries": number(page.scriptDeliveries), "data_deliveries": number(page.dataDeliveries),
             ]
         }
         let spareRows: [JSONValue] = spares.map { spare -> JSONValue in

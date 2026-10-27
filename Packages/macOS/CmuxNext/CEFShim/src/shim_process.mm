@@ -318,6 +318,7 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(browser_set_embedder_visibility, "cmux_browser_set_embedder_visibility");
   CMUX_BIND(browser_attach_view, "cmux_browser_attach_view");
   CMUX_BIND(tab_set_visibility, "cmux_tab_set_visibility");
+  CMUX_BIND(tab_page_push, "cmux_tab_page_push");
   CMUX_BIND(set_new_tab_page_url, "cmux_set_new_tab_page_url");
   CMUX_BIND(set_install_prompt_handler, "cmux_set_install_prompt_handler");
   CMUX_BIND(install_prompt_reply, "cmux_install_prompt_reply");

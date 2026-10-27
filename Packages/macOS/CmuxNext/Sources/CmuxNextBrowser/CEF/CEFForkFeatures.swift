@@ -20,12 +20,19 @@ nonisolated struct CEFForkFeatures: Equatable, Sendable {
     /// the fork lines (36 is p03-rendering-044's attached views) and of the numbers the app claims.
     static let tabVisibilityForkAPI: Int32 = 37
 
+    /// The first fork API with `cmux_tab_page_push` and `cmuxPageListen` (p13-webui-079, manaflow-ai/cef
+    /// `cp/p13-webui-079` on `cp/p06-scheduler-212`): a string to a cmux-page document's receiver, with no script.
+    /// Max + 1 of the fork lines and of the numbers the app claims.
+    static let pagePushForkAPI: Int32 = 38
+
     /// `cmux_shim_fork_api_version()`; 0 for stock CEF or no shim.
     var forkAPIVersion: Int32
     /// The shim exports every renderer-path call (`CEFShimLibrary.hasRendererPaths`).
     var shimHasRendererPaths: Bool
     /// The shim exports `cmux_shim_tab_set_visibility` (`CEFShimLibrary.tabSetVisibility`).
     var shimHasTabVisibility = false
+    /// The shim exports `cmux_shim_tab_page_push` (`CEFShimLibrary.tabPagePush`).
+    var shimHasPagePush = false
 
     /// No always-on per-tab DevTools session: a tab gets a DevTools agent only when DevTools opens
     /// or an agent drives it over CDP, so Chrome's process reuse can put up to 2 same-site main
@@ -43,12 +50,17 @@ nonisolated struct CEFForkFeatures: Equatable, Sendable {
     /// occluded tabs are hidden and occluded to Blink in the node's turn. Below this API the page window and its
     /// view decide alone, as before.
     var tabVisibility: Bool { shimHasTabVisibility && forkAPIVersion >= Self.tabVisibilityForkAPI }
+
+    /// A cmux page can get its host events and replies as data (``CEFPagePush``): the page registers a
+    /// receiver with `cmuxPageListen` and each push calls it with a string, as Chrome's WebUI pages get Mojo
+    /// messages instead of a script per call. Below this API, or with an older shim, every delivery is a script.
+    var pagePush: Bool { shimHasPagePush && forkAPIVersion >= Self.pagePushForkAPI }
 }
 
 extension CEFForkFeatures {
     /// The features of a loaded shim.
     init(_ shim: CEFShimLibrary) {
         self.init(forkAPIVersion: shim.forkAPIVersion(), shimHasRendererPaths: shim.hasRendererPaths,
-                  shimHasTabVisibility: shim.tabSetVisibility != nil)
+                  shimHasTabVisibility: shim.tabSetVisibility != nil, shimHasPagePush: shim.tabPagePush != nil)
     }
 }

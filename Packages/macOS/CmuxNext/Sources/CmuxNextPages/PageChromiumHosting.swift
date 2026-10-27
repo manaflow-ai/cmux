@@ -117,6 +117,17 @@ public protocol PageChromiumPage: AnyObject {
     /// - Throws: ``PageScriptError/exception(_:)`` when the script throws,
     ///   ``PageScriptError/noResult`` when the answer is not JSON, or the page's error when it is gone.
     func evaluate(_ script: String) async throws -> Any?
+    /// Whether ``push(_:)`` reaches the page: the engine has the page push channel (`cmuxPageListen`,
+    /// fork API 38) and the app turned it on (feature `pagePushChannel`).
+    var pushesToPage: Bool { get }
+    /// Hands `text` to the receiver the page's document registered with `cmuxPageListen`, as data: no
+    /// script runs for it and nothing answers, as Chrome's WebUI pages get Mojo messages instead of
+    /// `WebUI::CallJavascriptFunction` scripts (content/browser/webui/web_ui_impl.cc). Pushes arrive in
+    /// call order, and the engine keeps them until the document's receiver registers or a frozen page
+    /// runs again. Call it only while ``pushesToPage``; otherwise it does nothing.
+    ///
+    /// - Parameter text: UTF-8 text, no NUL.
+    func push(_ text: String)
     /// Copies the page as it last drew, fitted inside `maxPixelSize` (never scaled up), with no DevTools
     /// agent: the fork's surface copy (`cmux_tab_copy_surface`, p13-webui-077), as Chrome copies a tab
     /// thumbnail (chrome/browser/ui/thumbnails/thumbnail_tab_helper.cc, `RenderWidgetHostView::CopyFromSurface`).
