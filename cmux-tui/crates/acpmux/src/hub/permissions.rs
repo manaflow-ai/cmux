@@ -58,10 +58,11 @@ impl Hub {
                             }
                             continue;
                         }
-                        // A mode or option report of an agent MDM's off ended: its count went with
-                        // it, and it is not the next agent's. Checked and applied under the agent
-                        // slot's lock, which that end takes to record the agent, so no end comes
-                        // between the two (reviews 3 and 5 of #26052).
+                        // A mode or option report of an agent MDM's off ended, or of one older, is
+                        // not the next agent's: only a newer agent's is applied
+                        // (`FloorState::retired_through`). Checked and applied under the agent
+                        // slot's lock, which that end takes, so no end comes between the two
+                        // (reviews 3, 5 and 6 of #26052).
                         let kind =
                             params.as_ref().and_then(|p| p["update"]["sessionUpdate"].as_str());
                         let slot =
@@ -72,12 +73,7 @@ impl Hub {
                                 None
                             };
                         if slot.is_some()
-                            && session
-                                .floor
-                                .ended_agents
-                                .lock()
-                                .unwrap_or_else(|e| e.into_inner())
-                                .contains(&agent)
+                            && agent <= session.floor.retired_through.load(Ordering::SeqCst)
                         {
                             continue;
                         }

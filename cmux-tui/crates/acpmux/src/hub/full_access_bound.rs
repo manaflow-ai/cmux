@@ -694,12 +694,9 @@ impl Hub {
         let child = slot.take();
         // Under the slot's lock the inbound loop checks a mode or option report under: one it
         // checked before this is applied before this, and one after is dropped, not applied to
-        // the agent after it (`permissions.rs`, reviews 3 and 5 of #26052).
+        // the agent after it (`permissions.rs`, reviews 3, 5 and 6 of #26052).
         if let Some(child) = &child {
-            let mut ended = session.floor.ended_agents.lock().unwrap_or_else(|e| e.into_inner());
-            ended.push(child.generation);
-            let excess = ended.len().saturating_sub(8);
-            ended.drain(..excess);
+            session.floor.retired_through.fetch_max(child.generation, Ordering::SeqCst);
         }
         drop(slot);
         let ended = child.is_some() || !Self::host_record_gone(&session.id);

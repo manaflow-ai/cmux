@@ -59,11 +59,12 @@ pub(crate) struct FloorState {
     /// the ended agent still sends is not counted for the agent after it (review 4 of #26052).
     /// Moved under the session's meta lock, where the tap reads it.
     pub(super) report_epoch: AtomicU64,
-    /// The last few agents MDM's off ended (`end_managed_full_access`), by generation, recorded
-    /// under the agent slot's lock: a mode or option report one of them sent that the inbound
-    /// loop has not applied yet is dropped, not applied to the agent after it (reviews 3 and 5 of
-    /// #26052).
-    pub(super) ended_agents: StdMutex<Vec<u64>>,
+    /// The newest agent generation MDM's off ended (`end_managed_full_access`), set under the
+    /// agent slot's lock. The inbound loop applies a mode or option report only from an agent
+    /// newer than this: a report of an ended agent, however late, is never the next agent's (a
+    /// new agent's generation is always newer). Generations only grow, so nothing is kept per
+    /// agent and nothing expires (reviews 3, 5 and 6 of #26052).
+    pub(super) retired_through: AtomicU64,
     /// The agent process holds a lasting grant a client gave it ("allow
     /// always"): Web control ends until the agent exits (`web_control.rs`).
     pub(super) harness_grant: AtomicBool,
