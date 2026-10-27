@@ -12,8 +12,8 @@ public import CmuxNextOracle
 /// the daemon already keep, read only when a snapshot asks:
 /// - renderer, gpu, utility: Chromium's crash log (`CEFRuntime+Crashes`): the helper exits `CEFChildProcessMonitor`
 ///   sees, one per process, from the log's tallies so its 64-record ring never shortens a count.
-/// - browser: the App's `CrashRecoveryService`: this launch follows a run that ended unexpectedly, whose process
-///   held Chromium's browser process.
+/// - browser: the process that holds Chromium's browser process: the App's `CrashRecoveryService` (this launch
+///   follows a run that ended unexpectedly), and with the Chromium Host on, the host's end (`CEFRuntime.hostEnded`).
 /// - holder: the daemon's `oracle-state` `childExits`, the holders its owner counted ending.
 /// - daemon: the app's connection, which counts each drop without `daemon-shutdown` (a crashed or killed owner
 ///   cannot count its own end; a requested stop announces itself and is not counted).
@@ -103,6 +103,8 @@ public nonisolated struct OracleCrashesFacet: OracleFacetProvider {
             switch processType {
             case "renderer", "extension": .renderer
             case "gpu-process": .gpu
+            // `CEFRuntime.hostEnded`'s record: the Chromium Host is Chromium's browser process.
+            case "chromium-host": .browser
             default: .utility
             }
         }

@@ -73,6 +73,8 @@ final class AgentPageHibernation {
     var displace: (String) -> Void = { _ in }
     /// The clock (tests set it).
     var now: () -> ContinuousClock.Instant = { .now }
+    /// Reports to the discard planner's last inputs (`debug.discards`): the app's `BrowserHibernation.discards`.
+    var noteDiscard: (ContentDiscardReport.Event) -> Void = { _ in }
     private(set) var releasedCount = 0
     /// A page was let go (the App counts it in the memory histograms).
     var onRelease: () -> Void = {}
@@ -152,6 +154,7 @@ final class AgentPageHibernation {
         displace = { [weak services] key in services?.cache.presenter(of: key)?.surfaceWasDisplaced(key) }
         followTurns(AgentTurnStateStore.shared)
         let cache = services.cache
+        noteDiscard = { [weak cache] event in cache?.hibernation?.noteDiscard(event) }
         // `pageLifecycle`: agent tabs' reveal and conceal reach the page lifecycle. A chat shown before
         // this (the launch's) waits for its mount, which its live page answers now.
         if let lifecycle = cache.pageLifecycle {
@@ -228,9 +231,11 @@ final class AgentPageHibernation {
             shown.insert(key)
             hiddenAt[key] = nil
             tabs.launchImages.drop(key)
+            noteDiscard(.shown(key, .agentPage))
         } else if tabs.existingView(key) != nil {
             shown.remove(key)
             hiddenAt[key] = now()
+            noteDiscard(.hidden(key, .agentPage))
             replan()
         }
     }
@@ -240,6 +245,7 @@ final class AgentPageHibernation {
         hiddenAt[key] = nil
         hideReads[key] = nil
         store()?.launchImages.drop(key)
+        noteDiscard(.removed(key))
     }
 
     /// Asks `view` what it holds that acpmux does not and, with `frame`, for its last frame; `then` gets
@@ -269,6 +275,7 @@ final class AgentPageHibernation {
             // stays: letting it go would drop its chips. The next plan asks again.
             if wake == nil, view.model.hasHandshake {
                 logger.info("agent page \(key, privacy: .public) kept: no wake state in time")
+                if let at = hiddenAt[key] { noteDiscard(.planned(key, .agentPage, hiddenFor: (now() - at).seconds, DiscardEligibility(keptFor: .unanswered))) }
                 return
             }
             // The page may have shown, changed or got busy (a turn started) while it was asked
@@ -301,6 +308,8 @@ final class AgentPageHibernation {
         hiddenAt[key] = nil
         releasedCount += 1
         onRelease()
+        noteDiscard(.discarding(key, .agentPage, HibernationPlanner.discardReason(at: pressure)))
+        noteDiscard(.discarded(key))
         logger.info("released agent page \(key, privacy: .public)")
     }
 }

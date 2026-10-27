@@ -251,6 +251,21 @@ let daemonSwiftSettings: [SwiftSetting] = [
 ///   `void *vsync_userdata`, and `void ghostty_surface_vsync(ghostty_surface_t)`. With a `VSyncHub` (feature
 ///   `vsyncHub`) each surface makes no display link and ticks from its display's hub thread while it draws and
 ///   wants frames (`TerminalVSync`, p03-rendering-083).
+/// - GHOSTTY_EXTERNAL_CURSOR: the external cursor (ghostty-next cp/p03-rendering-090 1d35a0460, not in 723c4ab93):
+///   the surface config's `bool cursor_external` (the renderer neither draws nor blinks the cursor),
+///   `ghostty_surface_cursor_cb cursor_cb` and `void *cursor_userdata`. The callback,
+///   `void (*)(void *userdata, const ghostty_cursor_cell_s *)`, comes once per move or change of the cursor cell,
+///   never per blink, and never blocks. `ghostty_cursor_cell_s` has `uint64_t serial`, `void *surface` (an
+///   IOSurfaceRef of the cell as Ghostty draws it; +0, valid for the call; NULL when not visible; a new surface per
+///   cell), `uint32_t x, y, width, height` (the cell in the surface's pixels from the frames' top-left corner),
+///   `uint16_t column, row`, `ghostty_cursor_cell_style_e style` (`GHOSTTY_CURSOR_CELL_BLOCK`, `_BLOCK_HOLLOW`,
+///   `_BAR`, `_UNDERLINE`, `_LOCK`), `bool visible`, `bool blinking` and `uint32_t blink_interval_ms`. The pin
+///   bump that turns this on also needs 090 to call `cursor_cb` inside the Core Animation transaction that
+///   presents the cell's frame, on the presenting thread, after the frame's contents are set
+///   (`IOSurfaceLayer.setSurfaceCallback` on main, `setSurfaceOffMain` on the GPU completion thread; a cell whose
+///   frame is dropped goes with the next frame presented): 1d35a0460 calls it after the present, from
+///   `frameCompleted`, so the cursor would not move with its text. `TerminalCursorLayer` shows it behind feature
+///   `terminalCursorLayer` (p03-rendering-091).
 let ghosttyNextKitHasGPUResident = false
 let ghosttyNextKitHasTraceHook = false
 let ghosttyNextKitHasEnergySaver = false
@@ -258,6 +273,7 @@ let ghosttyNextKitHasRendererFrames = false
 let ghosttyNextKitHasPresentNeverWaits = false
 let ghosttyNextKitHasLockWait = false
 let ghosttyNextKitHasExternalVSync = false
+let ghosttyNextKitHasExternalCursor = false
 let ghosttyNextKitCapabilities: [SwiftSetting] =
     (ghosttyNextKitHasGPUResident ? [.define("GHOSTTY_GPU_RESIDENT")] : [])
     + (ghosttyNextKitHasTraceHook ? [.define("GHOSTTY_TRACE_HOOK")] : [])
@@ -266,6 +282,7 @@ let ghosttyNextKitCapabilities: [SwiftSetting] =
     + (ghosttyNextKitHasPresentNeverWaits ? [.define("GHOSTTY_PRESENT_NEVER_WAITS")] : [])
     + (ghosttyNextKitHasLockWait ? [.define("GHOSTTY_LOCK_WAIT")] : [])
     + (ghosttyNextKitHasExternalVSync ? [.define("GHOSTTY_EXTERNAL_VSYNC")] : [])
+    + (ghosttyNextKitHasExternalCursor ? [.define("GHOSTTY_EXTERNAL_CURSOR")] : [])
 
 /// The app's ONE Rust static library, CCmuxAppFFI (cmux-tui/crates/cmux-app-ffi):
 /// the remote desktop core C ABI (module CCmuxRdFFI), the sidebar layout
@@ -903,12 +920,14 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // supplies its browser pages, New Tab pages and the rename command.
         .target(
             name: "CmuxNextWorkspaceNaming",
-            dependencies: ["CmuxNextBridge", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesignTokens"],
+            // CmuxNextWakeups: the auto-namer's follow is a ServiceObservation (p06-scheduler-339).
+            dependencies: ["CmuxNextBridge", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesignTokens", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextWorkspaceNamingTests",
-            dependencies: ["CmuxNextWorkspaceNaming", "CmuxNextBridge", "CmuxNextDaemon", "CmuxNextSidebar"],
+            // CmuxNextWakeups: WorkspaceAutoNamerFollowTests runs the namer's follow on a test scheduler.
+            dependencies: ["CmuxNextWorkspaceNaming", "CmuxNextBridge", "CmuxNextDaemon", "CmuxNextSidebar", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // Phone tabs (plans/cmux-next/phone.md): simulators through simctl, real
@@ -1098,12 +1117,14 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // daemon's create and close (`EmptyWorkspaceRepair(daemon:)`).
         .target(
             name: "CmuxNextWorkspaceRepair",
-            dependencies: ["CmuxNextCompat", "CmuxNextDaemon"],
+            // CmuxNextWakeups: the repair's follows are ServiceObservations (p06-scheduler-339).
+            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextWorkspaceRepairTests",
-            dependencies: ["CmuxNextDaemon", "CmuxNextWorkspaceRepair"],
+            // CmuxNextWakeups: the tests run the repair's follows on a scheduler whose turns they run by hand.
+            dependencies: ["CmuxNextDaemon", "CmuxNextWakeups", "CmuxNextWorkspaceRepair"],
             swiftSettings: uiSwiftSettings
         ),
         // Agent activity (plans/cmux-next/computer-use.md section 7): the
@@ -2211,7 +2232,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // the shared registry handler, owner routes, intents and terminal outcomes.
         .target(
             name: "CmuxNextAgentUpdates",
-            dependencies: ["CmuxNextActions", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextPages", "CmuxNextSettings"],
+            dependencies: ["CmuxNextActions", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextPages", "CmuxNextSettings",
+                           "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // Test-only: every exit() of the test process prints its stack (TestProcessExitTests).
@@ -2307,6 +2329,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextWakeupsTestSupport",
                 "CmuxNextWebUpdates",
                 "CmuxNextWorkspaceNaming",
+                // UnmountedWorkspaceLeavesNoObjectsTests and the rule-9 sweep cases read the repair's counts.
+                "CmuxNextWorkspaceRepair",
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 // DiffTurnPatchFuzzTests (p10-stability-030).
                 .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport"),
