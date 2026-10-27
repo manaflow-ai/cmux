@@ -370,6 +370,8 @@ pub struct PersonGate {
     spent: StdMutex<std::collections::VecDeque<(String, std::time::Instant)>>,
     /// The person's phones that may allow with a signature (`approvers.rs`).
     pub approvers: super::approvers::ApproverSet,
+    /// The Macs whose app may allow here over the peer link (`mac_approvers.rs`).
+    pub macs: super::mac_approvers::MacApprovers,
     /// The folders of the workspaces the person's app lists now
     /// (`_acpmux/workspace_roots_set`, memory only): a Web session may start
     /// there too (`remote_guard::web_roots`, which drops `/`, home and its
@@ -540,28 +542,79 @@ impl PersonGate {
         cmux_local_auth::tokens_match(proof, &expected) && !self.spent(nonce)
     }
 
-    /// Whether `signed` is an enrolled approver's signature for this exact
-    /// prompt, option, nonce and answers on this daemon run, unexpired, with
-    /// a nonce that has not counted yet. It spends nothing.
+    /// Whether `signed` is an enrolled approver's (a phone's, or an enrolled
+    /// Mac's, `mac_approvers.rs`) signature for this exact prompt `request`,
+    /// option, nonce and answers on this daemon run, unexpired, with a nonce
+    /// that has not counted yet. It spends nothing.
+    #[allow(clippy::too_many_arguments)]
     pub fn approver_proves(
         &self,
         session: &str,
         permission: &str,
+        request: &Value,
         option: &str,
         nonce: &str,
         answers: Option<&Value>,
         signed: &Value,
     ) -> bool {
-        self.approvers.verifies(
-            self.instance(),
+        let now = super::approvers::unix_now();
+        let instance = self.instance();
+        (self
+            .approvers
+            .verifies(instance, session, permission, option, nonce, answers, signed, now)
+            || self.macs.verifies_then(
+                instance,
+                session,
+                permission,
+                request,
+                option,
+                nonce,
+                answers,
+                signed,
+                now,
+                || true,
+            ))
+            && !self.spent(nonce)
+    }
+
+    /// `approver_proves`, and the answer counting: its nonce spent while the approver is still
+    /// enrolled (`ApproverSet::verifies_then`, `MacApprovers::verifies_then`), so a revocation
+    /// that has returned stops it. Called under the prompt's lock by the answer that counts.
+    #[allow(clippy::too_many_arguments)]
+    pub fn approver_spends(
+        &self,
+        session: &str,
+        permission: &str,
+        request: &Value,
+        option: &str,
+        nonce: &str,
+        answers: Option<&Value>,
+        signed: &Value,
+    ) -> bool {
+        let now = super::approvers::unix_now();
+        let instance = self.instance();
+        self.approvers.verifies_then(
+            instance,
             session,
             permission,
             option,
             nonce,
             answers,
             signed,
-            super::approvers::unix_now(),
-        ) && !self.spent(nonce)
+            now,
+            || self.spend_decision(nonce),
+        ) || self.macs.verifies_then(
+            instance,
+            session,
+            permission,
+            request,
+            option,
+            nonce,
+            answers,
+            signed,
+            now,
+            || self.spend_decision(nonce),
+        )
     }
 
     fn spent(&self, nonce: &str) -> bool {
@@ -845,6 +898,8 @@ impl Hub {
             method::MUX_APPROVERS_SET | method::MUX_APPROVERS => {
                 Err(person_required("changing or reading trusted approvers"))
             }
+            // Which key this machine's `host enroll` enrolls on a peer (`mac_approvers.rs`).
+            method::MUX_MAC_APPROVER_SET => Err(person_required("setting this Mac's approver key")),
             // Which folders a remote connection may start sessions in.
             method::MUX_WORKSPACE_ROOTS_SET => {
                 Err(person_required("changing the workspace folders"))
@@ -1026,13 +1081,21 @@ impl Hub {
             return false;
         };
         let Some(pid) = params.get("permissionId").and_then(Value::as_str) else { return false };
-        let pending_nonce = {
+        let (pending_nonce, request) = {
             let state = s.permissions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let Some(p) = state.pending.get(pid) else { return false };
-            p.decision_nonce.clone()
+            (p.decision_nonce.clone(), p.request.clone())
         };
         cmux_local_auth::tokens_match(nonce, &pending_nonce)
-            && self.person.approver_proves(&s.id, pid, option, nonce, params.get("answers"), signed)
+            && self.person.approver_proves(
+                &s.id,
+                pid,
+                &request,
+                option,
+                nonce,
+                params.get("answers"),
+                signed,
+            )
     }
 
     /// Whether a relayed allow carries the person's decision proof for the
@@ -1066,6 +1129,23 @@ impl Hub {
                 params.get("annotations"),
                 proof,
             )
+    }
+
+    /// What a `_acpmux/permission_respond` with `params` does, for the
+    /// Web's asking rule (`Hub::web_answer_check`): whether it only narrows
+    /// (a cancel, or a reject the pending prompt offered) and whether its
+    /// allow carries the person's decision proof or an approver's signature
+    /// that counts now. The answer checks both again under the prompt's lock.
+    pub(crate) fn answer_shape(&self, params: &Value) -> (bool, bool) {
+        let Some(option) = params.get("optionId").filter(|v| !v.is_null()) else {
+            return (true, false);
+        };
+        let answered_by = params
+            .pointer(&format!("/_meta/acpmux/{ANSWERED_BY_FIELD}"))
+            .is_some_and(|v| !v.is_null());
+        let proved = self.person_decided(params, option)
+            || (!answered_by && self.approver_decided(params, option));
+        (self.option_rejects(params, option), proved)
     }
 
     /// Whether `option` is a reject the pending permission offered. Unknown

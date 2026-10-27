@@ -80,6 +80,7 @@ const family = (id: string, name: string): QuickFamily => ({
 function Harness({ newTab }: { newTab: boolean }) {
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement | null>(null);
+  const [fast, setFast] = useState(false);
   return (
     <OnNewTab.Provider value={newTab}>
       <QuickModelMenu
@@ -91,6 +92,7 @@ function Harness({ newTab }: { newTab: boolean }) {
           models: [],
           current: "claude-a",
           onModel() {},
+          fast: { checked: fast, onChange: setFast },
           families: { list: [family("claude", "Claude"), family("codex", "Codex")], current: "claude", onPick() {} },
         }}
         onMore={() => {}}
@@ -165,8 +167,19 @@ test("on New Tab the menu holds no empty rows under its own (it opens down, so i
   ).toBe(0);
 });
 
-test("a chat's menu still holds the tallest tab's height (it opens up, so the rail stays under the pointer)", async () => {
+test("a chat menu sizes to its visible rows without hidden height fillers", async () => {
   await openMenu(false);
   const spacer = document.querySelector<HTMLElement>(".acpmux-quick-spacer")!;
-  expect(spacer.querySelectorAll(":scope > .ui-menu-item").length).toBeGreaterThan(0);
+  expect(spacer.querySelectorAll(":scope > .ui-menu-item").length).toBe(0);
+});
+
+test("Fast mode exposes one checked menu row with a visual switch and no bare state word", async () => {
+  await openMenu(false);
+  const fast = document.querySelector<HTMLElement>(".acpmux-quick-fast")!;
+  expect(fast.getAttribute("role")).toBe("menuitemcheckbox");
+  expect(fast.getAttribute("aria-checked")).toBe("false");
+  expect(fast.textContent?.trim()).toBe("Fast mode");
+  await act(async () => fast.click());
+  await settle();
+  expect(document.querySelector(".acpmux-quick-fast")?.getAttribute("aria-checked")).toBe("true");
 });

@@ -127,6 +127,8 @@ export interface AcpmuxRequests {
   "_acpmux/person_holds": { params: unknown; result: unknown };
   "_acpmux/approvers": { params: unknown; result: unknown };
   "_acpmux/approvers_set": { params: unknown; result: unknown };
+  "_acpmux/mac_approver_set": { params: unknown; result: unknown };
+  "_acpmux/mac_approvers": { params: unknown; result: unknown };
   "_acpmux/new_chat_picks_set": { params: unknown; result: unknown };
   "_acpmux/workspace_roots_set": { params: unknown; result: unknown };
   "_acpmux/secret_request": { params: unknown; result: unknown };
@@ -160,6 +162,7 @@ export interface AcpmuxRequests {
   "_acpmux/harness/restore": { params: unknown; result: unknown };
   "_acpmux/harness/doctor": { params: unknown; result: unknown };
   "_acpmux/harness/secret/set": { params: unknown; result: unknown };
+  "_acpmux/harness/icon": { params: unknown; result: unknown };
   "_acpmux/harness/health": { params: unknown; result: unknown };
   "_acpmux/harness/inventory/watch": { params: InventoryWatchParams; result: unknown };
   "_acpmux/harness/inventory/refresh": { params: InventoryRefreshParams; result: unknown };
@@ -190,11 +193,13 @@ export interface AcpmuxRequests {
   "_acpmux/peers": { params: unknown; result: unknown };
   "_acpmux/peer_status": { params: unknown; result: unknown };
   "_acpmux/host_health": { params: unknown; result: unknown };
+  "_acpmux/vm_host": { params: unknown; result: unknown };
   "_acpmux/place": { params: unknown; result: unknown };
   "_acpmux/peer_add": { params: unknown; result: unknown };
   "_acpmux/peer_lease": { params: unknown; result: unknown };
   "_acpmux/peer_reconnect": { params: unknown; result: unknown };
   "_acpmux/peer_remove": { params: unknown; result: unknown };
+  "_acpmux/peer_snapshot": { params: unknown; result: unknown };
   "_acpmux/pair_ticket_new": { params: unknown; result: unknown };
   "_acpmux/pair_list": { params: unknown; result: unknown };
   "_acpmux/pair_revoke": { params: unknown; result: unknown };
@@ -370,6 +375,8 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/person_holds", kind: "request", acp: false, typed: false },
   { name: "_acpmux/approvers", kind: "request", acp: false, typed: false },
   { name: "_acpmux/approvers_set", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/mac_approver_set", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/mac_approvers", kind: "request", acp: false, typed: false },
   { name: "_acpmux/new_chat_picks_set", kind: "request", acp: false, typed: false },
   { name: "_acpmux/workspace_roots_set", kind: "request", acp: false, typed: false },
   { name: "_acpmux/secret_request", kind: "request", acp: false, typed: false },
@@ -405,6 +412,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/harness/restore", kind: "request", acp: false, typed: false },
   { name: "_acpmux/harness/doctor", kind: "request", acp: false, typed: false },
   { name: "_acpmux/harness/secret/set", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/harness/icon", kind: "request", acp: false, typed: false },
   { name: "_acpmux/harness/health", kind: "request", acp: false, typed: false },
   { name: "_acpmux/harness/inventory/watch", kind: "request", acp: false, typed: true },
   { name: "_acpmux/harness/inventory/refresh", kind: "request", acp: false, typed: true },
@@ -435,11 +443,13 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/peers", kind: "request", acp: false, typed: false },
   { name: "_acpmux/peer_status", kind: "request", acp: false, typed: false },
   { name: "_acpmux/host_health", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/vm_host", kind: "request", acp: false, typed: false },
   { name: "_acpmux/place", kind: "request", acp: false, typed: false },
   { name: "_acpmux/peer_add", kind: "request", acp: false, typed: false },
   { name: "_acpmux/peer_lease", kind: "request", acp: false, typed: false },
   { name: "_acpmux/peer_reconnect", kind: "request", acp: false, typed: false },
   { name: "_acpmux/peer_remove", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/peer_snapshot", kind: "request", acp: false, typed: false },
   { name: "_acpmux/pair_ticket_new", kind: "request", acp: false, typed: false },
   { name: "_acpmux/pair_list", kind: "request", acp: false, typed: false },
   { name: "_acpmux/pair_revoke", kind: "request", acp: false, typed: false },

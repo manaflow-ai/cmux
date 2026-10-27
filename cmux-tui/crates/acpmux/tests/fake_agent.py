@@ -734,6 +734,20 @@ def handle_prompt(rid, params):
         MODE_OPTION[sid] = was
         update(sid, {"sessionUpdate": "config_option_update", "configOptions": mode_options(sid)})
         return handle_prompt(rid, dict(params, prompt=[{"type": "text", "text": "guard: rm -rf \"$TARGET\""}]))
+    # "set-option: ID VALUE": the harness moves a config option of its own (not its mode) to VALUE.
+    if text.startswith("set-option:"):
+        oid, value = text[11:].strip().split(" ", 1)
+        update(sid, {"sessionUpdate": "config_option_update", "configOptions": mode_options(sid) + [
+            {"id": oid, "name": oid, "type": "select", "currentValue": value,
+             "options": [{"value": value, "name": value}]}]})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "subagent-mode: X": subagent child-2 starts and reports mode X; the session's own mode stays.
+    if text.startswith("subagent-mode:"):
+        update(sid, {"sessionUpdate": "subagent_spawned", "subagentSessionId": "child-2", "name": "Child", "task": "Child", "capabilities": {}})
+        update("child-2", {"sessionUpdate": "current_mode_update", "currentModeId": text[14:].strip()})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "set-mode: X": the harness changes its own mode, as a real one may.
     if text.startswith("set-mode:"):
         update(sid, {"sessionUpdate": "current_mode_update", "currentModeId": text[9:].strip()})
@@ -1300,7 +1314,45 @@ def main():
             # choose it (not its argv).
             if os.environ.get("FAKE_NEW_MODE") and "modes" in result:
                 result["modes"]["currentModeId"] = os.environ["FAKE_NEW_MODE"]
+            # FAKE_STARTUP_NOISE=<n>: that many other updates come first while it starts.
+            for _ in range(int(os.environ.get("FAKE_STARTUP_NOISE", "0"))):
+                update(new_sid, {"sessionUpdate": "available_commands_update", "availableCommands": []})
+            # FAKE_STARTUP_MODE=<id>: the harness reports that mode while its session starts,
+            # before it answers session/new (one that declares no modes may still report one).
+            # FAKE_NEW_GATE=<path>: before that report it writes its pid to <path>.started and waits
+            # while <path> exists (at most 30 s).
+            if os.environ.get("FAKE_NEW_GATE"):
+                import time as pause  # main() binds `time` locally
+                gate = os.environ["FAKE_NEW_GATE"]
+                with open(gate + ".started", "w") as f:
+                    f.write(f"{os.getpid()}\n")
+                until = pause.monotonic() + 30
+                while os.path.exists(gate) and pause.monotonic() < until:
+                    pause.sleep(0.05)
+            # FAKE_STARTUP_SID=<sid>: that report names <sid> (empty allowed) instead of the new one.
+            if os.environ.get("FAKE_STARTUP_MODE"):
+                update(os.environ.get("FAKE_STARTUP_SID", new_sid), {"sessionUpdate": "current_mode_update", "currentModeId": os.environ["FAKE_STARTUP_MODE"]})
+            # FAKE_NEW_HOLD=<path>: then it writes its pid to <path>.reported and holds its answer
+            # while <path> exists (at most 30 s), as a harness slow to answer.
+            if os.environ.get("FAKE_NEW_HOLD"):
+                import time as pause  # main() binds `time` locally
+                hold = os.environ["FAKE_NEW_HOLD"]
+                with open(hold + ".reported", "w") as f:
+                    f.write(f"{os.getpid()}\n")
+                until = pause.monotonic() + 30
+                while os.path.exists(hold) and pause.monotonic() < until:
+                    pause.sleep(0.05)
+            # FAKE_NEW_RESULT_SID=<sid>: the answer names <sid> (empty allowed) as its session.
+            if "FAKE_NEW_RESULT_SID" in os.environ:
+                result["sessionId"] = os.environ["FAKE_NEW_RESULT_SID"]
             send({"jsonrpc": "2.0", "id": rid, "result": result})
+            # FAKE_LATE_MODE=<id>: half a second after it answers, the harness reports that mode.
+            if os.environ.get("FAKE_LATE_MODE"):
+                def report_late(sid=new_sid):
+                    import time as pause  # main() binds `time` locally
+                    pause.sleep(0.5)
+                    update(sid, {"sessionUpdate": "current_mode_update", "currentModeId": os.environ["FAKE_LATE_MODE"]})
+                threading.Thread(target=report_late, daemon=True).start()
             # FAKE_EXIT_AFTER_NEW=1: the agent exits once its session starts,
             # before any prompt.
             if os.environ.get("FAKE_EXIT_AFTER_NEW") == "1":

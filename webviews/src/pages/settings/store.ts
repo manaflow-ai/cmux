@@ -327,6 +327,20 @@ export class SettingsStore {
     return this.themeFileSaved(await this.request("cmux.settings.theme.import", retry ?? {}));
   }
 
+  /**
+   * Let Themes Set Colors: the host turns the Ghostty config's own color lines into comments and
+   * reloads it, so the theme sets those colors; the host lists then drop the notice.
+   */
+  async releaseThemeOverrides(): Promise<Reply<{ files: number }>> {
+    const reply = await this.request("cmux.settings.theme.overrides.release", {});
+    if (reply.ok) await this.refreshHost();
+    return reply;
+  }
+
+  openThemeOverrides(): void {
+    void this.request("cmux.settings.theme.overrides.open", {});
+  }
+
   /** After a theme file lands, the theme names and colors are read again so every picker lists it. */
   private async themeFileSaved(reply: Reply<{ name?: string }>): Promise<Reply<{ name?: string }>> {
     if (reply.ok && reply.value.name) await Promise.all([this.refresh(), this.fetchNative(settingsKeys.themeColors)]);
@@ -494,6 +508,12 @@ export class SettingsStore {
     await this.refreshHost();
   }
 
+  /** Settings > Machines: a Cloud machine's "Dedicated agent machine" on or off, then re-read the host lists. */
+  async setMachineVmHost(id: string, on: boolean): Promise<void> {
+    await this.request("cmux.settings.machines.vm_host", { id, on });
+    await this.refreshHost();
+  }
+
   /** Settings > Mobile: answer a phone's pairing request, then re-read the host lists. */
   async answerPair(id: string, allow: boolean): Promise<void> {
     await this.request("cmux.settings.mobile.answer_pair", { id, allow });
@@ -553,6 +573,13 @@ export class SettingsStore {
   /** Settings > Updates' Go Back: the app restarts into the kept build; else the host's reason. */
   async channelsGoBack(ring: string, build: string): Promise<string | null> {
     const reply = await this.request("cmux.settings.channels.go_back", { ring, build });
+    return reply.ok ? null : reply.error.message;
+  }
+
+  /** The Update button of a machine in Settings > Updates' row of other machines; answers the
+   * host's refusal, else null (the row's push then shows it updating). */
+  async channelsUpdateMachine(id: string): Promise<string | null> {
+    const reply = await this.request("cmux.settings.channels.update_machine", { id });
     return reply.ok ? null : reply.error.message;
   }
 

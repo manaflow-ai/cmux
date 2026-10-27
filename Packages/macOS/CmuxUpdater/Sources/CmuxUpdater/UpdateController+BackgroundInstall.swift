@@ -85,6 +85,25 @@ extension UpdateController {
         setInstallDidNotStartError(diagnostic: "install clicked with no staged update (state=\(model.state))")
     }
 
+    /// The automatic install the app meant to quit for was taken over (a click, a cancel, the
+    /// session's end) while it waited: its held reply goes, so nothing installs it later.
+    public func dropQuitInstall() {
+        driver.quitInstall = nil
+    }
+
+    /// The automatic install the app quit for did not end it (the quit was refused, or the helper
+    /// that reopens the app could not start): the update is staged again and waits for a click
+    /// (``UpdateActionDelegate/updaterQuitsForAutomaticInstall(build:)``). No-op otherwise.
+    public func restageAfterDeclinedQuit() {
+        driver.restageAfterDeclinedQuit()
+    }
+
+    /// The automatic install the app was to quit for: the user came into the app meanwhile, so
+    /// Sparkle installs and relaunches it as for a click (activating). No-op otherwise.
+    public func relaunchHeldInstallThroughSparkle() {
+        driver.relaunchHeldInstallThroughSparkle()
+    }
+
     /// The app should quit for the installer within ``installWatchdogTimeout``; a click that
     /// leaves it running becomes the "couldn't start the update" error with its retry.
     private func armStagedInstallWatchdog() {
@@ -152,15 +171,5 @@ extension UpdateController {
     public var skipsBuildsThrough: String? {
         get { driver.skipsBuildsThrough }
         set { driver.skipsBuildsThrough = newValue }
-    }
-
-    /// How long after its `pubDate` an update that lists no Sparkle deltas is held back from a
-    /// scheduled check, so the delta its feed lists minutes later is downloaded instead of the
-    /// full archive. A held update is taken by the next scheduled check either way, and a check
-    /// the person starts never waits. Nil (the default) offers every update at once; set it only
-    /// for a feed that lists deltas after the full archive (the cmux-next nightly).
-    public var pendingDeltaWindow: TimeInterval? {
-        get { driver.pendingDeltaWait?.window }
-        set { driver.pendingDeltaWait = newValue.map(PendingDeltaWait.init(window:)) }
     }
 }

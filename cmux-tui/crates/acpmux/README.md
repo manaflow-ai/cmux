@@ -134,7 +134,8 @@ in `try`, and `detail: "the peer was saved and will keep reconnecting"`.
 For WebSocket URLs, `try` is `acpmux host ls`. Saving failures remain errors.
 Peer requests that cannot be sent include `acpmux host ls` and state that the
 request was not sent. A method rejected by an older peer is reported as
-`peer_version_skew` with `acpmux host update NAME`.
+`peer_version_skew` with `acpmux host update NAME`; status adds the peer's
+target and `--binary-dir DIR` form when it differs from this build.
 
 `ACPMUX_SOCKET` takes precedence over `ACPMUX_HOME`. To inspect an isolated
 home from a shell that may be inside another agent, use
@@ -157,7 +158,7 @@ Five everyday commands, three groups for the rest:
 | --- | --- |
 | `acpmux` | Open the TUI. Starts the daemon if needed. |
 | `new [-m harness[/model]] [-n name] [--cwd dir] [--policy p] [prompt]` | Create a session. Opens the TUI unless `-d`. |
-| `send NAME "text" [--steer\|--no-steer] [--no-wait] [-q]` | Prompt and stream the reply. With `--no-wait` it hands the message to this daemon and returns at once with a delivery id, for a session here or on a peer ([the outbox](#messages-to-other-sessions-the-outbox)); it steers into a running turn by default (read at the agent's next tool boundary, never stopping it) and queues when the agent does not steer. An agent's send steers by default even when it waits for the reply, and then prints the reply of the turn it went into; the person's waiting send queues unless given `--steer`, and `--no-steer` queues any send. `--supersede KEY` replaces the sender's own prompt still queued under KEY (never one whose turn started); with `--no-wait` it prints `replaced N queued` once delivered (`?` from a daemon that predates it) and `--json` adds `replaced` and `replacedPromptIds`. The sender is the agent (`--from`, or the session `send` runs in) or, for anything else, the person. `--attach FILE` (repeatable) sends files with it, to a peer's session too: an image (its type read from its bytes) reaches the agent and the transcript as an image, any other file as a link to its copy, saved owner-only under the session's `uploads` on the host that runs it; at most 8 MiB a file and 10 MiB and 16 files a message (the message is one frame on every hop). |
+| `send NAME "text" [--steer\|--no-steer] [--no-wait] [-q]` | Prompt and stream the reply. With `--no-wait` it hands the message to this daemon and returns at once with a delivery id, for a session here or on a peer ([the outbox](#messages-to-other-sessions-the-outbox)); it steers into a running turn by default (read at the agent's next tool boundary, never stopping it) and queues when the agent does not steer. An agent's send steers by default even when it waits for the reply, and then prints the reply of the turn it went into; the person's waiting send queues unless given `--steer`, and `--no-steer` queues any send. `--supersede KEY` replaces the sender's own prompt still queued under KEY (never one whose turn started); with `--no-wait` it prints `replaced N queued` once delivered (`?` from a daemon that predates it) and `--json` adds `replaced` and `replacedPromptIds`. The sender is the agent (`--from`, or the session `send` runs in) or, for anything else, the person. `--attach FILE` (repeatable) sends files with it, to a peer's session too: an image (its type read from its bytes) reaches the agent and the transcript as an image, any other file as a link to its copy, saved owner-only under the session's `uploads` on the host that runs it. Any size and number: small files ride in the message, and the rest are uploaded to the session first, in chunks, and named by reference (an image too large to show inline reaches the agent by its path). |
 | `send --status ID` | A `--no-wait` delivery's state: `queued`, `delivering` (attempt n), `delivered` (the target's turn, steered or queued), `held` (a paused agent pair holds it until the person resumes the pair) or `failed` (the last error). |
 | `ls` | Sessions on every host, as `host/name` for remote ones. |
 | `attach [NAME] [--plain]` | TUI on one session, or a plain text stream. |
@@ -268,7 +269,10 @@ start (Claude Code's own too), a prompt waits, a continuation may fire, the chat
 sub-session's run slots are full, or that subagent's retry is under way;
 `retry.nothing_failed` (`data.why`: `closed`, `running`, `resumed`, `replaced`, `ended`,
 `forgotten`, `not_retryable`, `skipped`) and `retry.unknown_subagent`, never the chat's own
-turn. A
+turn. Under `subagent-retry-v2` the subagent's entry carries `retryInFlight: {attempt, of,
+reason, firedAt, promptId, manual}` from an attempt's fire until the subagent runs again or the
+attempt is over (the next wait, given up, refused, Stop, close), `null` on acpmux's other
+entries; a restart, or a move to another daemon, settles one left open with `retryable: false`. A
 `notifyCommand` in the config runs on a permission request and on a turn that ends
 unattended, with `ACPMUX_EVENT`, `ACPMUX_SESSION_NAME` and `ACPMUX_TEXT` set.
 `agentStartTimeoutMs` (default 90000) bounds a cold agent start (spawn, `initialize`,
@@ -876,7 +880,8 @@ The simplest peer is an SSH host, and `host setup` does the whole install from t
 acpmux host setup HOST                 # scp the binary, write config + launchd plist, start it, add the peer
 acpmux host ls                         # connected/offline, remote build, and "outdated" when it lags yours
 acpmux host status [HOST]              # each host asked live: reachable, round trip, disk, load, live sessions, build
-acpmux host update --all               # push the current binary to every ssh peer and restart it
+acpmux host vm-host [HOST] [on|off]    # a dedicated agent VM (no sandbox; on by default on a VM cmux created)
+acpmux host update --all               # update compatible ssh peers; use --binary-dir for another target
 acpmux host update HOST --if-idle --binary-dir DIR  # push DIR/acpmux-<target>, unless a session there is mid-turn (not counting the one running this)
 acpmux host update HOST --keep-newer --binary-dir DIR  # never a move back: a later day's build or one with local changes stays (current)
 acpmux ls                              # HOST/session-name next to local sessions
@@ -957,9 +962,33 @@ with 5 s each, and lists this machine first. Each row has:
 
 An offline peer's row gives its link state and the next command (`acpmux host doctor HOST`).
 A peer on an older build that lacks the method shows as reachable, and names
-`acpmux host update HOST`. A remote session's `--cwd` and worktrees are on the peer's disk
+`acpmux host update HOST` (or the target-specific `--binary-dir DIR` form when
+its OS or architecture differs). A remote session's `--cwd` and worktrees are on the peer's disk
 (`~/.cmux/worktrees/<project>/<name>` there). There is no move from one peer to another:
 `session export HOST/name` and `session import DIR` bring a session here.
+
+**Peer snapshots: a paused or offline peer's chat paints at once.** The daemon keeps a bounded,
+durable copy of each peer session's events as it saw them (its clients' `_acpmux/attach` and
+`_acpmux/events` pages and the peer's live records) in one file a session,
+`<ACPMUX_HOME>/peer-snapshots/<hex peer>/<hex sessionId>.json`, beside `peers/` and never in it: a
+head line (the session, its `createdAt`, `lastSeq`, the last-known row), then a record a line. Each
+write puts the whole file in a temporary file and renames it, so a full disk or a crash never leaves
+a cut one. At most 1000 records and 2 MiB a session and 64 MiB in all: past a session's bound its
+oldest records go, past the total the least recently used copy. A write that fails stays in memory
+and is tried again (1 s, doubling to 60 s), never an exit. A purge, `host remove`, or a session the
+peer recreated (another `createdAt`, or after a reconnect a `lastSeq` below the copy's) drops the
+copy. The peer's journal and its harness's own files stay the authority: the copy is never a write
+lease or an execution checkpoint.
+
+`_acpmux/peer_snapshot {sessionId, host?, limit?, maxBytes?}` is the one hook a client reads that
+copy through, whether the peer answers or not (the app's agent pane, and the VM start and resume
+path to paint a chat before the VM is back). `sessionId` is an id or `HOST/name`, or with `host` the
+peer's own id (a leased Cloud VM whose lease ended). The reply: `{events, lastSeq, generation,
+capturedAt, stale: true, hasMore, summary, peer, sessionId, qualifiedSessionId, hostLastSeq}`,
+the newest `limit` (400 by default, 1 to 1000) records oldest first. `generation` is the session's
+`createdAt`; a row naming another one drops the copy and reads nothing. Paint it marked possibly
+stale, then attach and read `afterSeq: lastSeq`, dropping duplicates by `seq`; an attach whose
+session has another `createdAt` replaces it. The app and the unix socket only.
 
 A daemon needs a working harness. launchd, the app, the Chief and a non-login ssh shell start the
 daemon with a bare environment, so every daemon reads the login shell's environment
@@ -1017,6 +1046,24 @@ here or on any peer, and it acks within a second whatever the target is doing:
    a direct send did.
 5. **Status.** `acpmux send --status ID` (`_acpmux/send_status {deliveryId, waitMs?}`) reads it.
    Delivered, held and failed deliveries are kept for a day.
+
+**A relay for targets no peer reaches (`sendRelay`).** A host may have no peer that reaches the
+target, such as an agent VM that cannot dial back to the machine that drives it. A relay command,
+e.g. one that hands the message to a broker the driving machine keeps a connection to, still
+delivers it:
+
+```json
+{"sendRelay": {"argv": ["my-relay", "send"]}}
+```
+
+When a send (with or without `--no-wait`) is refused because its target names no session here and
+no peer lists it, the CLI runs `my-relay send SESSION -` with the message on stdin and
+`ACPMUX_FROM` set to the sender it would have named (`--from`, `ACPMUX_FROM`, or the session it
+runs in), prints the command's stdout (say, its delivery id) and exits with its status, so a
+refusal there is this send's failure. `--json` prints
+`{"target", "status": "relayed"|"refused", "relayed", "exit", "output"}`. A target here or on a
+peer, a peer that is down included, is never relayed, and the relay carries text only: a send with
+`--attach` to such a target is refused. Unset (the default), nothing changes.
 
 Before this, a `--no-wait` send to a peer waited for the peer's whole turn: the forwarded
 `session/prompt` answers only when the target's turn (or a steer's step) ends, and the peer's
@@ -1141,9 +1188,11 @@ When no config exists, harnesses are imported from `~/.acpx/config.json` (its `a
   tool call strings over 2 KB (outputs, file text, diffs; their first 512 bytes stay) are removed,
   and everything else stays with its sequence number: the prompts, the agent's messages, the turn
   and status records, and `session.json`, so the chat still lists, opens and resumes. A chat with
-  a running agent, an attached client, a turn, queue or watch is never touched. `acpmux daemon
-  retention` runs a pass; `--dry-run` only reports what it would free; `--archive DIR` keeps the
-  old segments under `DIR/<chat id>/<pass>/events/`; `--older-than-days N` and `--only CHAT` narrow it.
+  a running agent, an attached client, a turn, queue or watch is never touched. The daemon runs a
+  pass by itself once it has read every chat's log after its start, and again when a chat closes,
+  at most every 6 hours. `acpmux daemon retention` runs one now; `--dry-run` only reports what it
+  would free; `--archive DIR` keeps the old segments under `DIR/<chat id>/<pass>/events/`;
+  `--older-than-days N` and `--only CHAT` narrow it.
   Read when the daemon starts.
 - `websocket`: optional. The same protocol over WebSocket text frames, for remote clients such
   as a dashboard or a Durable Object. Put it behind a tunnel; the token is a bearer token.

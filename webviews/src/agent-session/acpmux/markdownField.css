@@ -121,6 +121,7 @@
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   vertical-align: 1px;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .acpmux-md {
   min-height: var(--text-title--line-height, 22px);
