@@ -2,6 +2,11 @@
 
 All notable changes to cmux are documented here.
 
+## [0.65.2.1] - 2026-10-27
+
+### Fixed
+- cmux no longer trusts four leaked emSign (eMudhra) root certificates for its own network connections; it checks certificates against the macOS trust store ([#25452](https://github.com/manaflow-ai/cmux/issues/25452))
+
 ## [0.65.2] - 2026-10-14
 
 ### Changed
