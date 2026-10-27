@@ -64,6 +64,8 @@ function fakeRepo(input: {
     markCreateRunning: (update: { providerVmId: string; image: string }) =>
       Effect.succeed({ ...vm, status: "running", providerVmId: update.providerVmId, imageId: update.image }),
     activeLimitCandidates: () => Effect.succeed([]),
+    // The guest vm-kind write reads the machine's row again before its exec.
+    findUserVm: () => Effect.succeed({ ...vm, status: "running", providerVmId: "provider-vm-fast" }),
     findNetwork: () => Effect.succeed({
       id: "00000000-0000-4000-8000-00000000c10d",
       userId: vm.userId,

@@ -1,8 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Schedule from "effect/Schedule";
-import { lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import * as TestClock from "effect/TestClock";
+import * as TestContext from "effect/TestContext";
+import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -10,8 +14,8 @@ import { VmBillingGateway, noOpVmBillingGateway } from "../services/vms/billingG
 import { guestVmKindCommand, scheduleGuestVmKindRecord } from "../services/vms/guestVmKind";
 import type { VmGuestKind } from "../services/vms/vmKind";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
-import { VmRepository, type CloudVmRow, type VmRepositoryShape } from "../services/vms/repository";
-import { createVm } from "../services/vms/workflows";
+import { VmRepository, type BeginBaseCreateResult, type CloudVmRow, type VmRepositoryShape } from "../services/vms/repository";
+import { createVm, openBaseVm, resetBaseVm } from "../services/vms/workflows";
 import { runChild } from "./helpers/run-child";
 
 // A machine New Machine makes for its owner must read `owner` in
@@ -48,10 +52,20 @@ function cmuxVm(root: string): boolean {
   }
 }
 
-/** Runs the guest command against root as the provider exec would. */
-async function runGuest(root: string, kind: VmGuestKind = "owner") {
-  const result = await runChild("sh", ["-c", guestVmKindCommand(kind, kindDir(root))]);
+/** Runs the guest command against root as the provider exec would; `bin` goes first on PATH. */
+async function runGuest(root: string, kind: VmGuestKind = "owner", bin?: string) {
+  const env = bin ? { ...process.env, PATH: `${bin}:${process.env.PATH}` } : undefined;
+  const result = await runChild("sh", ["-c", guestVmKindCommand(kind, kindDir(root))], { env });
   return { exitCode: result.status ?? 1, stdout: result.stdout, stderr: result.stderr };
+}
+
+/** A directory holding one executable `ln` with this body (a stand-in that misbehaves on cue). */
+function fakeLn(root: string, body: string): string {
+  const bin = path.join(root, "bin");
+  mkdirSync(bin);
+  writeFileSync(path.join(bin, "ln"), `#!/bin/sh\n${body}\n`);
+  chmodSync(path.join(bin, "ln"), 0o755);
+  return bin;
 }
 
 describe("guest vm-kind command", () => {
@@ -102,6 +116,34 @@ describe("guest vm-kind command", () => {
     }
   });
 
+  test("never writes into a directory that appears at the marker path after the check", async () => {
+    const root = guestRoot();
+    // The directory appears between the existence check and the link; then
+    // the real ln runs (this stand-in's directory is first on PATH).
+    const bin = fakeLn(root, `mkdir "$3"; PATH="\${PATH#*:}" exec ln "$@"`);
+    expect(await runGuest(root, "owner", bin)).toEqual({ exitCode: 0, stdout: "kept\n", stderr: "" });
+    expect(statSync(kindFile(root)).isDirectory()).toBe(true);
+    expect(readdirSync(kindFile(root))).toEqual([]);
+    expect(readdirSync(kindDir(root))).toEqual(["vm-kind"]);
+  });
+
+  test("removes its temporary file when killed, and sweeps one an earlier kill left", async () => {
+    const root = guestRoot();
+    const stale = path.join(kindDir(root), ".vm-kind.stale1");
+    const fresh = path.join(kindDir(root), ".vm-kind.fresh1");
+    writeFileSync(stale, "owner\n");
+    writeFileSync(fresh, "owner\n");
+    const old = new Date(Date.now() - 5 * 60_000);
+    utimesSync(stale, old, old);
+    // The provider's timeout kills the shell while ln runs.
+    const bin = fakeLn(root, `kill -TERM $PPID; sleep 0.2; exit 1`);
+    const killed = await runGuest(root, "owner", bin);
+    expect(killed.exitCode).not.toBe(0);
+    // The stale one is swept; a fresh one may be a live writer's (the image's sync) and stays.
+    expect(readdirSync(kindDir(root)).sort()).toEqual([".vm-kind.fresh1"]);
+    expect(cmuxVm(root)).toBe(false);
+  });
+
   test("creates a missing /etc/cmux", async () => {
     const root = guestRoot();
     rmSync(kindDir(root), { recursive: true });
@@ -111,9 +153,10 @@ describe("guest vm-kind command", () => {
   });
 });
 
-// createVm with a fake provider whose guest is a temporary root.
+// The workflows with a fake provider whose guest is a temporary root.
 
 const NOW = new Date("2026-10-27T00:00:00.000Z");
+const PROVIDER_VM_ID = "provider-vm-own";
 
 function row(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
   return {
@@ -147,18 +190,52 @@ function row(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
 
 type Exec = { command: string; asRoot?: boolean };
 
-function harness(input: { vm?: CloudVmRow; root: string; failExecs?: number }) {
+function baseCreate(vm: CloudVmRow): BeginBaseCreateResult {
+  return {
+    kind: "create",
+    vm,
+    base: {
+      id: "base-own", scopeType: "team", scopeId: vm.ownerTeamId, name: "base",
+      activeGeneration: 1, activeVmId: null, activeProvider: null, activeProviderVmId: null,
+      state: "provisioning", createdByUserId: vm.userId, lastOpenedByUserId: vm.userId,
+      createdAt: NOW, updatedAt: NOW,
+    },
+    generation: {
+      id: "generation-own", baseId: "base-own", generation: 1, vmId: vm.id,
+      provider: "freestyle", providerVmId: null, state: "provisioning",
+      createdByUserId: vm.userId, retainedAt: null, deletedAt: null, createdAt: NOW, updatedAt: NOW,
+    },
+    previousGeneration: null,
+    previousVm: null,
+  } as BeginBaseCreateResult;
+}
+
+function harness(input: { vm?: CloudVmRow; root: string; failExecs?: number; onFailedExec?: () => void; neverAnswer?: boolean }) {
   const vm = input.vm ?? row();
   const execs: Exec[] = [];
   let failures = input.failExecs ?? 0;
+  // What the database holds now; a test deletes or rebinds the machine through it.
+  const state: { live: CloudVmRow | null } = { live: null };
+  const running = (update: { providerVmId: string }) => {
+    state.live = { ...vm, status: "running", providerVmId: update.providerVmId };
+    return state.live;
+  };
   const repo = {
     beginCreate: () => Effect.succeed({ inserted: true, vm }),
+    beginBaseOpen: () => Effect.succeed(baseCreate(vm)),
+    beginBaseReset: () => Effect.succeed(baseCreate(vm)),
     claimBillingGrant: () => Effect.succeed({ kind: "already_claimed" }),
     recordUsageEvent: () => Effect.void,
     recordUsageEvents: () => Effect.void,
     markCreateFailed: () => Effect.succeed(true),
-    markCreateRunning: (update: { providerVmId: string; image: string }) =>
-      Effect.succeed({ ...vm, status: "running", providerVmId: update.providerVmId, imageId: update.image }),
+    markBaseCreateFailed: () => Effect.succeed(true),
+    markCreateRunning: (update: { providerVmId: string }) => Effect.sync(() => running(update)),
+    markBaseCreateRunning: (update: { providerVmId: string }) => Effect.sync(() => running(update)),
+    findUserVm: (lookup: { userId: string; billingTeamId?: string | null; providerVmId: string }) => Effect.sync(() => {
+      const live = state.live;
+      return live && live.userId === lookup.userId && live.ownerTeamId === lookup.billingTeamId && live.providerVmId === lookup.providerVmId
+        && live.status !== "destroyed" ? live : null;
+    }),
     activeLimitCandidates: () => Effect.succeed([]),
     findNetwork: () => Effect.succeed({
       id: "00000000-0000-4000-8000-00000000c10e", userId: vm.userId, provider: vm.provider, providerNetworkId: "network-own",
@@ -169,15 +246,18 @@ function harness(input: { vm?: CloudVmRow; root: string; failExecs?: number }) {
   const providers = {
     exec: (_provider: string, _vmId: string, command: string, options?: { readonly asRoot?: boolean }) => {
       execs.push({ command, asRoot: options?.asRoot });
+      const kind = (["owner", "team"] as const).find((k) => command === guestVmKindCommand(k));
+      // Only a marker command reaches the fake guest; the prompt push answers 0.
+      if (!kind) return Effect.succeed({ exitCode: 0, stdout: "", stderr: "" });
+      if (input.neverAnswer) return Effect.never;
       if (failures > 0) {
         failures -= 1;
+        input.onFailedExec?.();
         return Effect.fail(new Error("the machine's exec did not answer"));
       }
-      // Only a marker command reaches the fake guest; the prompt push answers 0.
-      const kind = (["owner", "team"] as const).find((k) => command === guestVmKindCommand(k));
-      return kind ? Effect.promise(() => runGuest(input.root, kind)) : Effect.succeed({ exitCode: 0, stdout: "", stderr: "" });
+      return Effect.promise(() => runGuest(input.root, kind));
     },
-    create: () => Effect.succeed({ provider: vm.provider, providerVmId: "provider-vm-own", status: "running" as const, image: "snapshot-test", createdAt: NOW.getTime() }),
+    create: () => Effect.succeed({ provider: vm.provider, providerVmId: PROVIDER_VM_ID, status: "running" as const, image: "snapshot-test", createdAt: NOW.getTime() }),
     destroy: () => Effect.void,
     supportsPrivateNetworking: () => true,
     ensureNetwork: () => Effect.die("the owner network already exists"),
@@ -188,19 +268,32 @@ function harness(input: { vm?: CloudVmRow; root: string; failExecs?: number }) {
     Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
   );
   const deferred: Array<Effect.Effect<void>> = [];
-  const create = () => Effect.runPromise(createVm({
+  const deferAfterResponse = (work: Effect.Effect<void>) => { deferred.push(work); };
+  const common = {
     userId: vm.userId,
-    billingCustomerType: "user",
+    billingCustomerType: "user" as const,
     billingTeamId: vm.billingTeamId ?? vm.ownerTeamId,
     billingPlanId: "pro",
     maxActiveVms: null,
     provider: vm.provider,
     image: "snapshot-test",
-    deferAfterResponse: (work) => { deferred.push(work); },
-  }).pipe(Effect.provide(layer)));
+    deferAfterResponse,
+  };
+  const create = () => Effect.runPromise(createVm(common).pipe(Effect.provide(layer)));
+  const openBase = (operation: typeof openBaseVm | typeof resetBaseVm) => Effect.runPromise(operation(common).pipe(Effect.provide(layer)));
   const runDeferred = async () => { for (const work of deferred.splice(0)) await Effect.runPromise(work); };
+  /** Runs the after-response work on a test clock, so the real retry schedule and budget pass at once. */
+  const runDeferredOnTestClock = async () => {
+    for (const work of deferred.splice(0)) {
+      await Effect.runPromise(Effect.gen(function* () {
+        const fiber = yield* Effect.fork(work);
+        for (let i = 0; i < 100 && Option.isNone(yield* fiber.poll); i += 1) yield* TestClock.adjust("5 seconds");
+        yield* Fiber.join(fiber);
+      }).pipe(Effect.provide(TestContext.TestContext)));
+    }
+  };
   const markerExecs = () => execs.filter((exec) => exec.command === guestVmKindCommand("owner") || exec.command === guestVmKindCommand("team"));
-  return { providers, execs, markerExecs, create, runDeferred };
+  return { repo, providers, state, execs, deferred, markerExecs, create, openBase, runDeferred, runDeferredOnTestClock };
 }
 
 describe("createVm records the machine's vm-kind", () => {
@@ -208,7 +301,7 @@ describe("createVm records the machine's vm-kind", () => {
     const root = guestRoot();
     const h = harness({ root });
     const created = await h.create();
-    expect(created.providerVmId).toBe("provider-vm-own");
+    expect(created.providerVmId).toBe(PROVIDER_VM_ID);
     // Nothing ran in the guest before the response: still cmuxVm false.
     expect(h.execs).toEqual([]);
     expect(cmuxVm(root)).toBe(false);
@@ -246,42 +339,74 @@ describe("createVm records the machine's vm-kind", () => {
     expect(cmuxVm(root)).toBe(false);
   });
 
-  test("a failing exec never fails the create", async () => {
+  test("an exec that keeps failing never fails the create, and its work ends on the real schedule", async () => {
     const root = guestRoot();
     const h = harness({ root, failExecs: Number.MAX_SAFE_INTEGER });
     const created = await h.create();
-    expect(created.providerVmId).toBe("provider-vm-own");
-    expect(h.execs).toEqual([]);
+    expect(created.providerVmId).toBe(PROVIDER_VM_ID);
+    expect(h.deferred).toHaveLength(3);
+    // The failed writes run to their end, and the work still succeeds.
+    await h.runDeferredOnTestClock();
+    expect(h.markerExecs()).toHaveLength(13);
+    expect(cmuxVm(root)).toBe(false);
+  });
+
+  test("an exec that never answers ends within the budget", async () => {
+    const root = guestRoot();
+    const h = harness({ root, neverAnswer: true });
+    await h.create();
+    await h.runDeferredOnTestClock();
+    expect(h.markerExecs()).toHaveLength(1);
   });
 });
 
-describe("scheduleGuestVmKindRecord retries", () => {
-  const running = row({ status: "running", providerVmId: "provider-vm-own" });
+describe("Base open and reset record the machine's vm-kind after the response", () => {
+  for (const [name, operation] of [["open", openBaseVm], ["reset", resetBaseVm]] as const) {
+    test(name, async () => {
+      const root = guestRoot();
+      const h = harness({ root });
+      const opened = await h.openBase(operation);
+      expect(opened.providerVmId).toBe(PROVIDER_VM_ID);
+      expect(h.markerExecs()).toEqual([]);
+      expect(h.deferred).toHaveLength(1);
+      await h.runDeferred();
+      expect(h.markerExecs()).toEqual([{ command: guestVmKindCommand("owner"), asRoot: true }]);
+      expect(cmuxVm(root)).toBe(true);
+    });
+  }
+});
 
-  test("until the machine's exec answers", async () => {
+describe("scheduleGuestVmKindRecord", () => {
+  const running = row({ status: "running", providerVmId: PROVIDER_VM_ID });
+
+  /** Starts the work on the harness's own repo and provider, with immediate retries. */
+  async function record(h: ReturnType<typeof harness>, retries = 5) {
+    h.state.live = running;
+    const deferred: Array<Effect.Effect<void>> = [];
+    await Effect.runPromise(scheduleGuestVmKindRecord(h.repo, h.providers, running, (work) => { deferred.push(work); }, Schedule.recurs(retries)));
+    expect(deferred).toHaveLength(1);
+    // The work itself never fails.
+    await Effect.runPromise(deferred[0]!);
+  }
+
+  test("retries until the machine's exec answers", async () => {
     const root = guestRoot();
     const h = harness({ root, failExecs: 2 });
-    const deferred: Array<Effect.Effect<void>> = [];
-    await Effect.runPromise(scheduleGuestVmKindRecord(h.providers, running, (work) => { deferred.push(work); }, Schedule.recurs(5)));
-    await Effect.runPromise(deferred[0]!);
+    await record(h);
     expect(h.markerExecs()).toHaveLength(3);
     expect(cmuxVm(root)).toBe(true);
   });
 
-  test("a bounded number of times, then logs and succeeds", async () => {
+  test("retries a bounded number of times, then logs and succeeds", async () => {
     const root = guestRoot();
     const h = harness({ root, failExecs: Number.MAX_SAFE_INTEGER });
-    const deferred: Array<Effect.Effect<void>> = [];
-    await Effect.runPromise(scheduleGuestVmKindRecord(h.providers, running, (work) => { deferred.push(work); }, Schedule.recurs(3)));
-    expect(deferred).toHaveLength(1);
-    // The deferred work itself never fails.
-    await Effect.runPromise(deferred[0]!);
+    await record(h, 3);
     expect(h.markerExecs()).toHaveLength(4);
     expect(cmuxVm(root)).toBe(false);
   });
 
-  test("a non-zero exit is retried like a silent exec", async () => {
-    const running2 = row({ status: "running", providerVmId: "provider-vm-own" });
+  test("retries a non-zero exit like a silent exec", async () => {
+    const h = harness({ root: guestRoot() });
     let calls = 0;
     const providers = {
       exec: () => Effect.sync(() => {
@@ -289,9 +414,41 @@ describe("scheduleGuestVmKindRecord retries", () => {
         return calls < 3 ? { exitCode: 124, stdout: "", stderr: "" } : { exitCode: 0, stdout: "written\n", stderr: "" };
       }),
     } as unknown as VmProviderGatewayShape;
+    h.state.live = running;
     const deferred: Array<Effect.Effect<void>> = [];
-    await Effect.runPromise(scheduleGuestVmKindRecord(providers, running2, (work) => { deferred.push(work); }, Schedule.recurs(5)));
+    await Effect.runPromise(scheduleGuestVmKindRecord(h.repo, providers, running, (work) => { deferred.push(work); }, Schedule.recurs(5)));
     await Effect.runPromise(deferred[0]!);
     expect(calls).toBe(3);
+  });
+
+  test("stops with no exec when the machine was deleted before the first try", async () => {
+    const h = harness({ root: guestRoot() });
+    h.state.live = null;
+    const deferred: Array<Effect.Effect<void>> = [];
+    await Effect.runPromise(scheduleGuestVmKindRecord(h.repo, h.providers, running, (work) => { deferred.push(work); }, Schedule.recurs(5)));
+    await Effect.runPromise(deferred[0]!);
+    expect(h.markerExecs()).toEqual([]);
+  });
+
+  test("stops retrying once the machine is deleted during the backoff", async () => {
+    const root = guestRoot();
+    const h = harness({ root, failExecs: Number.MAX_SAFE_INTEGER, onFailedExec: () => { h.state.live = { ...running, status: "destroyed" }; } });
+    await record(h);
+    expect(h.markerExecs()).toHaveLength(1);
+  });
+
+  test("never writes to a provider id that now belongs to another machine or owner", async () => {
+    for (const rebound of [
+      { ...running, id: "00000000-0000-4000-8000-0000000004b2" },
+      { ...running, ownerTeamId: "team-other", billingTeamId: "team-other" },
+      { ...running, status: "paused" as const },
+    ]) {
+      const root = guestRoot();
+      const h = harness({ root, failExecs: 1, onFailedExec: () => { h.state.live = rebound; } });
+      await record(h);
+      // The first try ran; the retry found another machine and stopped.
+      expect(h.markerExecs()).toHaveLength(1);
+      expect(cmuxVm(root)).toBe(false);
+    }
   });
 });

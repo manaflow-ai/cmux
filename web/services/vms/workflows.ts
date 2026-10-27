@@ -1509,7 +1509,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
     }
     yield* schedulePromptIdentityPush(providers, running, input.deferAfterResponse);
     // The guest records its kind in /etc/cmux/vm-kind (guestVmKind.ts), after the response.
-    yield* scheduleGuestVmKindRecord(providers, running, input.deferAfterResponse);
+    yield* scheduleGuestVmKindRecord(repo, providers, running, input.deferAfterResponse);
     // The create response carries the first connection, so openVmCmuxRemote
     // never runs for it; start the opted-in updater here, after the response.
     if (vmAgentUpdatesFromRow(running) === "latest") {
@@ -1697,6 +1697,8 @@ export function openBaseVm(input: {
   /** Set only when the requesting client routes team networks. */
   readonly teamDirectory?: VmTeamDirectory;
   readonly timing?: VmTimingSink;
+  /** Work to run after the route answers (the guest vm-kind write); detached when absent. */
+  readonly deferAfterResponse?: (work: Effect.Effect<void>) => void;
 }): Effect.Effect<BaseVmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
     yield* requireGoShape(input.billingPlanId, input.imageSize ? {
@@ -1744,6 +1746,8 @@ export function resetBaseVm(input: {
   readonly reason?: string | null;
   readonly modelPlane?: VmModelPlaneProvisioner;
   readonly timing?: VmTimingSink;
+  /** Work to run after the route answers (the guest vm-kind write); detached when absent. */
+  readonly deferAfterResponse?: (work: Effect.Effect<void>) => void;
 }): Effect.Effect<BaseVmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
     yield* requireMemoryPlan(input.billingPlanId, input.imageSize?.memoryMb ?? 0, input.imageSize?.cpu ?? null);
@@ -1794,6 +1798,7 @@ function finishBaseCreate(
     readonly modelPlane?: VmModelPlaneProvisioner;
     readonly teamDirectory?: VmTeamDirectory;
     readonly timing?: VmTimingSink;
+    readonly deferAfterResponse?: (work: Effect.Effect<void>) => void;
   },
   create: BeginBaseCreateResult,
 ): Effect.Effect<BaseVmEntry, VmWorkflowError, never> {
@@ -2008,7 +2013,7 @@ function finishBaseCreate(
 
     yield* recordCreateSuccessEvents(repo, { ...input, idempotencyKey, origin: "base" }, running);
     yield* schedulePromptIdentityPush(providers, running, undefined);
-    yield* scheduleGuestVmKindRecord(providers, running, undefined);
+    yield* scheduleGuestVmKindRecord(repo, providers, running, input.deferAfterResponse);
     yield* repo.recordUsageEvent({
       userId: input.userId,
       billingTeamId: input.billingTeamId,
