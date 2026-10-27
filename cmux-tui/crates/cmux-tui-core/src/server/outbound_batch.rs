@@ -4,8 +4,10 @@
 //! unconcatenated, as Mojo's `ChannelPosix::WriteOutgoingMessagesWithWritev`
 //! (mojo/core/channel_posix.cc) writes its queued messages. Taking items
 //! early does not change their order: the batch holds them as single pops
-//! would have returned them. A reply queued after a batch was taken waits
-//! for that batch.
+//! would have returned them. A batch ends after a chunk of a frame longer
+//! than the chunk size (BULK_FRAME_MAX), so a reply queued while a 32 MiB
+//! snapshot leaves waits for at most one chunk of it, as with single pops
+//! (p05-ipc-072).
 
 use super::{BoundedOutbound, OutboundItem};
 use crate::diagnostics::IpcStats;
@@ -29,20 +31,20 @@ pub(super) const WRITE_BATCH_ITEMS: usize = 512;
 impl BoundedOutbound {
     /// Waits for the next item, then takes it and every item ready behind
     /// it in write order into `batch`, until the batch holds
-    /// [`WRITE_BATCH_BYTES`] or [`WRITE_BATCH_ITEMS`]. A flush ends a batch.
-    /// `false` once the queue is closed and empty.
+    /// [`WRITE_BATCH_BYTES`] or [`WRITE_BATCH_ITEMS`]. A flush or a chunk
+    /// ends a batch. `false` once the queue is closed and empty.
     pub(in crate::server) fn recv_batch(&self, batch: &mut Vec<OutboundItem>) -> bool {
         batch.clear();
         let mut state = self.state.lock().recover_poison();
         loop {
             if let Some(first) = state.pop() {
                 let mut bytes = first.wire_len();
-                let mut flush = first.is_flush();
+                let mut ends = first.ends_batch();
                 batch.push(first);
-                while !flush && bytes < WRITE_BATCH_BYTES && batch.len() < WRITE_BATCH_ITEMS {
+                while !ends && bytes < WRITE_BATCH_BYTES && batch.len() < WRITE_BATCH_ITEMS {
                     let Some(item) = state.pop() else { break };
                     bytes += item.wire_len();
-                    flush = item.is_flush();
+                    ends = item.ends_batch();
                     batch.push(item);
                 }
                 drop(state);
@@ -72,6 +74,12 @@ impl OutboundItem {
 
     fn is_flush(&self) -> bool {
         matches!(self, OutboundItem::Flush(_))
+    }
+
+    /// A flush is answered after its batch; a chunk lets the lanes run
+    /// again before the next chunk, so a reply passes a long frame.
+    fn ends_batch(&self) -> bool {
+        matches!(self, OutboundItem::Flush(_) | OutboundItem::Chunk { .. })
     }
 }
 

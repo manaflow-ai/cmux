@@ -20,8 +20,8 @@
 //! [`WRITE_BATCH_BYTES`] and writes them with one `writev` of their buffers
 //! (headers and payloads unconcatenated), as Mojo's
 //! `ChannelPosix::WriteOutgoingMessagesWithWritev` (mojo/core/channel_posix.cc)
-//! writes its queued messages. A reply queued after a batch was taken waits
-//! for that batch.
+//! writes its queued messages. A chunk ends its batch, so the one-chunk bound
+//! above holds for the batched writer too.
 
 use super::BACKPRESSURE_RECHECK;
 use super::BudgetedText;

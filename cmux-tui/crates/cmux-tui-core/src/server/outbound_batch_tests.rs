@@ -1,10 +1,12 @@
 //! Write batching (p05-ipc-088): queued messages leave in one gathered write
-//! per 256 KiB, in the order single pops write them.
+//! per 256 KiB, in the order single pops write them, and a chunk of a long
+//! frame ends its batch so a reply waits for at most one chunk.
 
 use super::*;
 use crate::server::bounded_outbound::ControlOutbound;
 use crate::server::{BudgetedText, OutboundStream, RenderService};
-use cmux_ipc::{Aux, FrameHeader, FrameKind, StreamLane};
+use cmux_ipc::lane_writer::BULK_FRAME_MAX;
+use cmux_ipc::{Aux, FrameHeader, FrameKind, MAX_FRAME_PAYLOAD, StreamLane};
 use serde_json::json;
 use std::io::{self, IoSlice};
 use std::sync::Arc;
@@ -228,4 +230,31 @@ fn outbound_batch_stops_at_its_item_and_byte_bounds() {
     assert!(bytes >= WRITE_BATCH_BYTES, "{bytes}");
     let last = batch.last().map_or(0, OutboundItem::wire_len);
     assert!(bytes - last < WRITE_BATCH_BYTES, "the batch took an item past its bound");
+}
+
+#[test]
+fn outbound_batch_ping_reply_waits_at_most_one_chunk_of_a_32_mib_snapshot() {
+    let service = RenderService::new();
+    let outbound = BoundedOutbound::default();
+    let snapshot = stream_on(&service, 1, StreamLane::Bulk);
+    let len = MAX_FRAME_PAYLOAD as usize;
+    let header = FrameHeader::new(FrameKind::Snapshot, 3, len as u32, Aux::Offset(77)).unwrap();
+    outbound.push_stream_frame(header, payload(&service, len), &snapshot).unwrap();
+
+    let mut batch = Vec::new();
+    assert!(outbound.recv_batch(&mut batch));
+    assert!(
+        matches!(batch.as_slice(), [OutboundItem::Chunk { range, .. }] if range.len() == BULK_FRAME_MAX),
+        "the first batch took more than one chunk of the snapshot"
+    );
+    let ping = service.serialize_control(&json!({"id": 9, "ok": true})).unwrap();
+    outbound.push_control(ping).unwrap();
+
+    assert!(outbound.recv_batch(&mut batch));
+    assert!(
+        matches!(batch.first(), Some(OutboundItem::Text(text)) if text.contains("\"id\":9")),
+        "the ping reply waited for more than one chunk"
+    );
+    let chunks = batch.iter().filter(|item| matches!(item, OutboundItem::Chunk { .. })).count();
+    assert!(chunks <= 1, "{chunks} chunks in one batch");
 }
