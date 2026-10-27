@@ -9,6 +9,7 @@
 //! has `offset == CMUX_FOCUS_NONE`. The enum values are the header's
 //! `CMUX_FOCUS_*` constants.
 
+use cmux_ffi_guard::ffi_boundary;
 use cmux_focus_core::event::{DragOutcome, FocusEffect, FocusEvent, Responder, Source};
 use cmux_focus_core::reducer;
 use cmux_focus_core::state::{
@@ -16,7 +17,6 @@ use cmux_focus_core::state::{
 };
 use cmux_focus_core::topology::{Column, Kind, Pane, Tab, Topology};
 use std::ffi::{CString, c_char};
-use std::panic::{AssertUnwindSafe, catch_unwind};
 
 pub const NONE: u32 = u32::MAX;
 
@@ -793,7 +793,7 @@ unsafe fn bytes<'a>(ptr: *const u8, len: usize) -> Option<&'a [u8]> {
 /// A new focus machine (one per window). Free it with `cmux_focus_free`.
 #[unsafe(no_mangle)]
 pub extern "C" fn cmux_focus_new() -> *mut Focus {
-    Box::into_raw(Box::new(Focus::new()))
+    ffi_boundary("cmux_focus_new", std::ptr::null_mut(), || Box::into_raw(Box::new(Focus::new())))
 }
 
 /// # Safety
@@ -801,10 +801,12 @@ pub extern "C" fn cmux_focus_new() -> *mut Focus {
 /// `focus` is null or a live handle from `cmux_focus_new`, freed once.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_focus_free(focus: *mut Focus) {
-    if !focus.is_null() {
-        // SAFETY: the pointer came from Box::into_raw and is freed once.
-        drop(unsafe { Box::from_raw(focus) });
-    }
+    ffi_boundary("cmux_focus_free", (), || {
+        if !focus.is_null() {
+            // SAFETY: the pointer came from Box::into_raw and is freed once.
+            drop(unsafe { Box::from_raw(focus) });
+        }
+    });
 }
 
 /// Reduces one event. The reply stays valid until the next `cmux_focus_*`
@@ -822,23 +824,26 @@ pub unsafe extern "C" fn cmux_focus_send(
     strings: *const u8,
     strings_len: usize,
 ) -> *const CmuxFocusReply {
-    if focus.is_null() || event.is_null() {
-        return std::ptr::null();
-    }
-    // SAFETY: a live handle, used by one thread; a readable event.
-    let (focus, event) = unsafe { (&mut *focus, &*event) };
-    let Some(strings) = (unsafe { bytes(strings, strings_len) }) else { return focus.fail() };
-    let result = catch_unwind(AssertUnwindSafe(|| {
+    ffi_boundary("cmux_focus_send", None, || {
+        if focus.is_null() || event.is_null() {
+            return Some(std::ptr::null());
+        }
+        // SAFETY: a live handle, used by one thread; a readable event.
+        let (focus, event) = unsafe { (&mut *focus, &*event) };
+        let Some(strings) = (unsafe { bytes(strings, strings_len) }) else {
+            return Some(focus.fail() as *const CmuxFocusReply);
+        };
         // SAFETY: the caller's contract.
-        let event = unsafe { decode_event(event, strings) }?;
-        focus.send(&event);
-        Ok::<(), ()>(())
-    }));
-    match result {
-        Ok(Ok(())) => &focus.reply,
-        Ok(Err(())) => focus.fail(),
-        Err(_) => focus.recover(),
-    }
+        Some(match unsafe { decode_event(event, strings) } {
+            Ok(event) => {
+                focus.send(&event);
+                &focus.reply as *const CmuxFocusReply
+            }
+            Err(()) => focus.fail(),
+        })
+    })
+    // SAFETY: a panic comes only after the null check, from a live handle.
+    .unwrap_or_else(|| unsafe { recover(focus) })
 }
 
 /// Reports the shown workspace's topology. A topology equal to the current
@@ -854,23 +859,37 @@ pub unsafe extern "C" fn cmux_focus_set_topology(
     strings: *const u8,
     strings_len: usize,
 ) -> *const CmuxFocusReply {
-    if focus.is_null() || topology.is_null() {
-        return std::ptr::null();
-    }
-    // SAFETY: a live handle, used by one thread; a readable topology.
-    let (focus, topology) = unsafe { (&mut *focus, &*topology) };
-    let Some(strings) = (unsafe { bytes(strings, strings_len) }) else { return focus.fail() };
-    let result = catch_unwind(AssertUnwindSafe(|| {
+    ffi_boundary("cmux_focus_set_topology", None, || {
+        if focus.is_null() || topology.is_null() {
+            return Some(std::ptr::null());
+        }
+        // SAFETY: a live handle, used by one thread; a readable topology.
+        let (focus, topology) = unsafe { (&mut *focus, &*topology) };
+        let Some(strings) = (unsafe { bytes(strings, strings_len) }) else {
+            return Some(focus.fail() as *const CmuxFocusReply);
+        };
         // SAFETY: the caller's contract.
-        let topology = unsafe { decode_topology(topology, strings) }?;
-        focus.set_topology(topology);
-        Ok::<(), ()>(())
-    }));
-    match result {
-        Ok(Ok(())) => &focus.reply,
-        Ok(Err(())) => focus.fail(),
-        Err(_) => focus.recover(),
-    }
+        Some(match unsafe { decode_topology(topology, strings) } {
+            Ok(topology) => {
+                focus.set_topology(topology);
+                &focus.reply as *const CmuxFocusReply
+            }
+            Err(()) => focus.fail(),
+        })
+    })
+    // SAFETY: a panic comes only after the null check, from a live handle.
+    .unwrap_or_else(|| unsafe { recover(focus) })
+}
+
+/// The reply after a reduction panicked part way ([`Focus::recover`]); null
+/// for a null handle.
+///
+/// # Safety
+///
+/// `focus` is null or a live handle used by one thread, borrowed nowhere else.
+unsafe fn recover(focus: *mut Focus) -> *const CmuxFocusReply {
+    // SAFETY: guaranteed by the caller.
+    unsafe { focus.as_mut() }.map_or(std::ptr::null(), |focus| focus.recover())
 }
 
 /// The current state as a reply (`changed` 1, no effects).
@@ -880,11 +899,13 @@ pub unsafe extern "C" fn cmux_focus_set_topology(
 /// `focus` is null or a live handle used by one thread.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_focus_current(focus: *mut Focus) -> *const CmuxFocusReply {
-    if focus.is_null() {
-        return std::ptr::null();
-    }
-    // SAFETY: a live handle used by one thread.
-    unsafe { &mut *focus }.current()
+    ffi_boundary("cmux_focus_current", std::ptr::null(), || {
+        if focus.is_null() {
+            return std::ptr::null();
+        }
+        // SAFETY: a live handle used by one thread.
+        unsafe { &mut *focus }.current()
+    })
 }
 
 /// `layout.closeFocus`: 0 previous neighbor, 1 most recent.
@@ -894,13 +915,18 @@ pub unsafe extern "C" fn cmux_focus_current(focus: *mut Focus) -> *const CmuxFoc
 /// `focus` is null or a live handle used by one thread.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_focus_set_close_focus(focus: *mut Focus, policy: u8) {
-    if focus.is_null() {
-        return;
-    }
-    let policy =
-        if policy == 1 { CloseFocusPolicy::MostRecent } else { CloseFocusPolicy::PreviousNeighbor };
-    // SAFETY: a live handle used by one thread.
-    unsafe { &mut *focus }.set_close_focus(policy);
+    ffi_boundary("cmux_focus_set_close_focus", (), || {
+        if focus.is_null() {
+            return;
+        }
+        let policy = if policy == 1 {
+            CloseFocusPolicy::MostRecent
+        } else {
+            CloseFocusPolicy::PreviousNeighbor
+        };
+        // SAFETY: a live handle used by one thread.
+        unsafe { &mut *focus }.set_close_focus(policy);
+    });
 }
 
 /// 1 when `event` moves focus or selection on purpose (`FocusEvent::changes_view`),
@@ -915,15 +941,14 @@ pub unsafe extern "C" fn cmux_focus_changes_view(
     strings: *const u8,
     strings_len: usize,
 ) -> u8 {
-    if event.is_null() {
-        return 0;
-    }
-    let Some(strings) = (unsafe { bytes(strings, strings_len) }) else { return 0 };
-    catch_unwind(AssertUnwindSafe(|| {
+    ffi_boundary("cmux_focus_changes_view", 0, || {
+        if event.is_null() {
+            return 0;
+        }
+        let Some(strings) = (unsafe { bytes(strings, strings_len) }) else { return 0 };
         // SAFETY: the caller's contract.
         unsafe { decode_event(&*event, strings) }.map_or(0, |e| u8::from(e.changes_view()))
-    }))
-    .unwrap_or(0)
+    })
 }
 
 /// The focus history of `workspace` (`has_workspace` 0: the shown one),
@@ -940,20 +965,22 @@ pub unsafe extern "C" fn cmux_focus_recent_panes(
     workspace_len: usize,
     has_workspace: u8,
 ) -> *const CmuxFocusStrings {
-    if focus.is_null() {
-        return std::ptr::null();
-    }
-    // SAFETY: a live handle used by one thread.
-    let focus = unsafe { &mut *focus };
-    let workspace = if has_workspace == 0 {
-        None
-    } else {
-        match unsafe { bytes(workspace, workspace_len) }.map(std::str::from_utf8) {
-            Some(Ok(text)) => Some(text.to_owned()),
-            _ => return std::ptr::null(),
+    ffi_boundary("cmux_focus_recent_panes", std::ptr::null(), || {
+        if focus.is_null() {
+            return std::ptr::null();
         }
-    };
-    focus.recent_panes(workspace.as_deref())
+        // SAFETY: a live handle used by one thread.
+        let focus = unsafe { &mut *focus };
+        let workspace = if has_workspace == 0 {
+            None
+        } else {
+            match unsafe { bytes(workspace, workspace_len) }.map(std::str::from_utf8) {
+                Some(Ok(text)) => Some(text.to_owned()),
+                _ => return std::ptr::null(),
+            }
+        };
+        focus.recent_panes(workspace.as_deref())
+    })
 }
 
 /// The last focused pane of each workspace, as workspace, pane pairs.
@@ -964,11 +991,13 @@ pub unsafe extern "C" fn cmux_focus_recent_panes(
 /// `focus` is null or a live handle used by one thread.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_focus_remembered(focus: *mut Focus) -> *const CmuxFocusStrings {
-    if focus.is_null() {
-        return std::ptr::null();
-    }
-    // SAFETY: a live handle used by one thread.
-    unsafe { &mut *focus }.remembered()
+    ffi_boundary("cmux_focus_remembered", std::ptr::null(), || {
+        if focus.is_null() {
+            return std::ptr::null();
+        }
+        // SAFETY: a live handle used by one thread.
+        unsafe { &mut *focus }.remembered()
+    })
 }
 
 /// The whole state as JSON (journal checkpoints, `debug.focus`). Free it
@@ -979,12 +1008,14 @@ pub unsafe extern "C" fn cmux_focus_remembered(focus: *mut Focus) -> *const Cmux
 /// `focus` is null or a live handle used by one thread.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_focus_export_json(focus: *mut Focus) -> *mut c_char {
-    if focus.is_null() {
-        return std::ptr::null_mut();
-    }
-    // SAFETY: a live handle used by one thread.
-    let text = unsafe { &*focus }.state().export().to_string();
-    CString::new(text).map_or(std::ptr::null_mut(), CString::into_raw)
+    ffi_boundary("cmux_focus_export_json", std::ptr::null_mut(), || {
+        if focus.is_null() {
+            return std::ptr::null_mut();
+        }
+        // SAFETY: a live handle used by one thread.
+        let text = unsafe { &*focus }.state().export().to_string();
+        CString::new(text).map_or(std::ptr::null_mut(), CString::into_raw)
+    })
 }
 
 /// Replaces the state with an exported one (journal replay). 0 when it
@@ -1000,16 +1031,15 @@ pub unsafe extern "C" fn cmux_focus_import_json(
     json: *const u8,
     json_len: usize,
 ) -> i32 {
-    if focus.is_null() {
-        return crate::ERR_NULL;
-    }
-    let Some(json) = (unsafe { bytes(json, json_len) }) else { return crate::ERR_NULL };
-    // SAFETY: a live handle used by one thread.
-    let focus = unsafe { &mut *focus };
-    match catch_unwind(AssertUnwindSafe(|| focus.import(json))) {
-        Ok(true) => crate::OK,
-        _ => crate::ERR_INVALID,
-    }
+    ffi_boundary("cmux_focus_import_json", crate::ERR_INVALID, || {
+        if focus.is_null() {
+            return crate::ERR_NULL;
+        }
+        let Some(json) = (unsafe { bytes(json, json_len) }) else { return crate::ERR_NULL };
+        // SAFETY: a live handle used by one thread.
+        let focus = unsafe { &mut *focus };
+        if focus.import(json) { crate::OK } else { crate::ERR_INVALID }
+    })
 }
 
 /// Frees a string from `cmux_focus_export_json`.
@@ -1019,8 +1049,10 @@ pub unsafe extern "C" fn cmux_focus_import_json(
 /// `text` is null or a string from `cmux_focus_export_json`, freed once.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_focus_string_free(text: *mut c_char) {
-    if !text.is_null() {
-        // SAFETY: the pointer came from CString::into_raw and is freed once.
-        drop(unsafe { CString::from_raw(text) });
-    }
+    ffi_boundary("cmux_focus_string_free", (), || {
+        if !text.is_null() {
+            // SAFETY: the pointer came from CString::into_raw and is freed once.
+            drop(unsafe { CString::from_raw(text) });
+        }
+    });
 }

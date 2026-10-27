@@ -21,11 +21,16 @@ checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 name = "cmux-app-ffi"
 version = "0.1.0"
 dependencies = [
+ "cmux-ffi-guard",
  "cmux-layout-reducer-ffi",
  "cmux-motion",
  "cmux-palette-ranker",
  "cmux-rd-ffi",
 ]
+
+[[package]]
+name = "cmux-ffi-guard"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-focus-core"
@@ -48,6 +53,7 @@ dependencies = [
 name = "cmux-layout-reducer-ffi"
 version = "0.1.0"
 dependencies = [
+ "cmux-ffi-guard",
  "cmux-focus-core",
  "cmux-layout-reducer",
  "cmux-tasks-core",
@@ -63,6 +69,7 @@ version = "0.1.0"
 name = "cmux-palette-ranker"
 version = "0.1.0"
 dependencies = [
+ "cmux-ffi-guard",
  "serde",
  "serde_json",
  "unicode-general-category",
@@ -80,6 +87,7 @@ dependencies = [
 name = "cmux-rd-ffi"
 version = "0.1.0"
 dependencies = [
+ "cmux-ffi-guard",
  "cmux-rd-core",
  "cmux-rd-proto",
  "cmux-remote-browser",

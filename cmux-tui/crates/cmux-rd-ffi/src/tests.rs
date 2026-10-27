@@ -335,10 +335,10 @@ fn small_buffer_keeps_the_feedback() {
 fn a_panic_poisons_only_that_receiver() {
     let r = receiver(CMUX_RD_CARRIER_DATAGRAM);
     let other = receiver(CMUX_RD_CARRIER_DATAGRAM);
-    let hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|_| {}));
-    let rc = with_receiver(r.0, |_| panic!("boom"));
-    std::panic::set_hook(hook);
+    // An export's shape: its boundary around a handle call that panics.
+    let rc = cmux_ffi_guard::testing::quiet_boundary(CMUX_RD_ERR_PANIC, || {
+        with_receiver(r.0, |_| panic!("boom"))
+    });
     assert_eq!(rc, CMUX_RD_ERR_PANIC);
     // SAFETY: live (poisoned) receiver.
     assert_eq!(unsafe { cmux_rd_receiver_tick(r.0, 0) }, CMUX_RD_ERR_PANIC);

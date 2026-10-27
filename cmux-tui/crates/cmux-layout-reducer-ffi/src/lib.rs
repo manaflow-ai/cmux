@@ -6,9 +6,9 @@
 //! [`focus`]: a handle per window, typed events and replies, no JSON),
 //! and the sidebar document mirror (`cmux_sidebar_mirror_*`, [`sidebar_mirror`]).
 
+use cmux_ffi_guard::ffi_boundary;
 use cmux_layout_reducer::{sidebar_drag, sidebar_drop, sidebar_layout};
 use std::ffi::{CString, c_char};
-use std::panic::{AssertUnwindSafe, catch_unwind};
 
 pub mod focus;
 pub mod sidebar_mirror;
@@ -60,7 +60,76 @@ unsafe fn write_output(
 
 #[unsafe(no_mangle)]
 pub extern "C" fn cmux_layout_reducer_ffi_abi_version() -> u32 {
+    // ffi-nopanic: returns a constant.
     ABI_VERSION
+}
+
+/// The response of one `cmux_layout_reducer_json` operation, or its error code.
+fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> {
+    let response = match operation {
+        b"base_y" => {
+            #[derive(serde::Deserialize)]
+            struct BaseY {
+                display_y: f64,
+                gap_y: Option<f64>,
+                gap_height: f64,
+            }
+            let request: BaseY = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+            serde_json::to_vec(&sidebar_drop::base_y(
+                request.display_y,
+                request.gap_y,
+                request.gap_height,
+            ))
+            .map_err(|_| ERR_INVALID)?
+        }
+        b"resolve" => {
+            let request: sidebar_drop::Request =
+                serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+            serde_json::to_vec(&sidebar_drop::resolve(&request)).map_err(|_| ERR_INVALID)?
+        }
+        b"resolve_drag" => {
+            let request: sidebar_drag::DragRequest =
+                serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+            serde_json::to_vec(&sidebar_drag::resolve_drag(&request)).map_err(|_| ERR_INVALID)?
+        }
+        b"tab_drop" => {
+            let request: sidebar_drop::TabRequest =
+                serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+            serde_json::to_vec(&sidebar_drop::resolve_tab_drop(&request))
+                .map_err(|_| ERR_INVALID)?
+        }
+        b"tab_refusal" => {
+            let request: sidebar_drop::TabRequest =
+                serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+            serde_json::to_vec(&sidebar_drop::tab_drop_refusal(&request))
+                .map_err(|_| ERR_INVALID)?
+        }
+        b"sidebar_layout_reduce" => {
+            let request: sidebar_layout::Request =
+                serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+            serde_json::to_vec(&sidebar_layout::respond(&request)).map_err(|_| ERR_INVALID)?
+        }
+        b"tasks_preview" => {
+            let request: cmux_tasks_core::preview::Request =
+                serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+            serde_json::to_vec(&cmux_tasks_core::preview::respond(&request))
+                .map_err(|_| ERR_INVALID)?
+        }
+        b"focus_type_ahead" => {
+            let request: cmux_focus_core::wire::TypeAheadRequest =
+                serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+            serde_json::to_vec(&cmux_focus_core::wire::type_ahead(&request))
+                .map_err(|_| ERR_INVALID)?
+        }
+        b"focus_child_window_key" => {
+            let request: cmux_focus_core::wire::ChildWindowKeyRequest =
+                serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+            serde_json::to_vec(&cmux_focus_core::wire::child_window_key(&request))
+                .map_err(|_| ERR_INVALID)?
+        }
+        _ => return Err(ERR_INVALID),
+    };
+    Ok(response)
 }
 
 /// Resolves one JSON request. See the checked-in header for the pointer rules.
@@ -80,90 +149,27 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
     output_capacity: usize,
     output_len: *mut usize,
 ) -> i32 {
-    let Some(request) = (unsafe { input(request, request_len) }) else { return ERR_NULL };
-    if operation.is_null() {
-        return ERR_NULL;
-    }
-    // SAFETY: operation is a NUL-terminated C string owned by the caller.
-    let operation = unsafe { std::ffi::CStr::from_ptr(operation) }.to_bytes();
-    let result = catch_unwind(AssertUnwindSafe(|| {
-        let response = match operation {
-            b"base_y" => {
-                #[derive(serde::Deserialize)]
-                struct BaseY {
-                    display_y: f64,
-                    gap_y: Option<f64>,
-                    gap_height: f64,
-                }
-                let request: BaseY = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                serde_json::to_vec(&sidebar_drop::base_y(
-                    request.display_y,
-                    request.gap_y,
-                    request.gap_height,
-                ))
-                .map_err(|_| ERR_INVALID)?
-            }
-            b"resolve" => {
-                let request: sidebar_drop::Request =
-                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                serde_json::to_vec(&sidebar_drop::resolve(&request)).map_err(|_| ERR_INVALID)?
-            }
-            b"resolve_drag" => {
-                let request: sidebar_drag::DragRequest =
-                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                serde_json::to_vec(&sidebar_drag::resolve_drag(&request))
-                    .map_err(|_| ERR_INVALID)?
-            }
-            b"tab_drop" => {
-                let request: sidebar_drop::TabRequest =
-                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                serde_json::to_vec(&sidebar_drop::resolve_tab_drop(&request))
-                    .map_err(|_| ERR_INVALID)?
-            }
-            b"tab_refusal" => {
-                let request: sidebar_drop::TabRequest =
-                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                serde_json::to_vec(&sidebar_drop::tab_drop_refusal(&request))
-                    .map_err(|_| ERR_INVALID)?
-            }
-            b"sidebar_layout_reduce" => {
-                let request: sidebar_layout::Request =
-                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                serde_json::to_vec(&sidebar_layout::respond(&request)).map_err(|_| ERR_INVALID)?
-            }
-            b"tasks_preview" => {
-                let request: cmux_tasks_core::preview::Request =
-                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                serde_json::to_vec(&cmux_tasks_core::preview::respond(&request))
-                    .map_err(|_| ERR_INVALID)?
-            }
-            b"focus_type_ahead" => {
-                let request: cmux_focus_core::wire::TypeAheadRequest =
-                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                serde_json::to_vec(&cmux_focus_core::wire::type_ahead(&request))
-                    .map_err(|_| ERR_INVALID)?
-            }
-            b"focus_child_window_key" => {
-                let request: cmux_focus_core::wire::ChildWindowKeyRequest =
-                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                serde_json::to_vec(&cmux_focus_core::wire::child_window_key(&request))
-                    .map_err(|_| ERR_INVALID)?
-            }
-            _ => return Err(ERR_INVALID),
-        };
-        Ok(response)
-    }));
-    match result {
-        Ok(Ok(response)) => unsafe { write_output(&response, output, output_capacity, output_len) },
-        Ok(Err(code)) => code,
-        Err(_) => ERR_PANIC,
-    }
+    ffi_boundary("cmux_layout_reducer_json", ERR_PANIC, || {
+        let Some(request) = (unsafe { input(request, request_len) }) else { return ERR_NULL };
+        if operation.is_null() {
+            return ERR_NULL;
+        }
+        // SAFETY: operation is a NUL-terminated C string owned by the caller.
+        let operation = unsafe { std::ffi::CStr::from_ptr(operation) }.to_bytes();
+        match respond(operation, request) {
+            // SAFETY: `output` and `output_len` follow this function's contract.
+            Ok(response) => unsafe { write_output(&response, output, output_capacity, output_len) },
+            Err(code) => code,
+        }
+    })
 }
 
 /// A new sidebar mirror. Free it with `cmux_sidebar_mirror_free`.
 #[unsafe(no_mangle)]
 pub extern "C" fn cmux_sidebar_mirror_new() -> *mut Mirror {
-    Box::into_raw(Box::new(Mirror::new()))
+    ffi_boundary("cmux_sidebar_mirror_new", std::ptr::null_mut(), || {
+        Box::into_raw(Box::new(Mirror::new()))
+    })
 }
 
 /// # Safety
@@ -172,10 +178,12 @@ pub extern "C" fn cmux_sidebar_mirror_new() -> *mut Mirror {
 /// freed yet.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_sidebar_mirror_free(mirror: *mut Mirror) {
-    if !mirror.is_null() {
-        // SAFETY: the pointer came from Box::into_raw and is freed once.
-        drop(unsafe { Box::from_raw(mirror) });
-    }
+    ffi_boundary("cmux_sidebar_mirror_free", (), || {
+        if !mirror.is_null() {
+            // SAFETY: the pointer came from Box::into_raw and is freed once.
+            drop(unsafe { Box::from_raw(mirror) });
+        }
+    });
 }
 
 /// Frees a string a `cmux_sidebar_mirror_*` call returned.
@@ -186,10 +194,12 @@ pub unsafe extern "C" fn cmux_sidebar_mirror_free(mirror: *mut Mirror) {
 /// not freed yet.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_sidebar_mirror_string_free(text: *mut c_char) {
-    if !text.is_null() {
-        // SAFETY: the pointer came from CString::into_raw and is freed once.
-        drop(unsafe { CString::from_raw(text) });
-    }
+    ffi_boundary("cmux_sidebar_mirror_string_free", (), || {
+        if !text.is_null() {
+            // SAFETY: the pointer came from CString::into_raw and is freed once.
+            drop(unsafe { CString::from_raw(text) });
+        }
+    });
 }
 
 /// Run one mirror call: JSON in, a newly allocated NUL-terminated JSON
@@ -206,9 +216,16 @@ unsafe fn mirror_call(
     let Some(bytes) = (unsafe { input(json, json_len) }) else { return std::ptr::null_mut() };
     // SAFETY: a live mirror from cmux_sidebar_mirror_new, used by one thread.
     let mirror = unsafe { &mut *mirror };
-    let value = catch_unwind(AssertUnwindSafe(|| call(mirror, bytes)))
-        .unwrap_or_else(|_| serde_json::json!({"error": "panic"}));
-    let text = serde_json::to_string(&value).unwrap_or_else(|_| "{}".into());
+    json_string(&call(mirror, bytes))
+}
+
+/// The answer of a JSON mirror call that panicked.
+fn panic_reply() -> *mut c_char {
+    json_string(&serde_json::json!({"error": "panic"}))
+}
+
+fn json_string(value: &serde_json::Value) -> *mut c_char {
+    let text = serde_json::to_string(value).unwrap_or_else(|_| "{}".into());
     CString::new(text).map_or(std::ptr::null_mut(), CString::into_raw)
 }
 
@@ -227,7 +244,10 @@ macro_rules! mirror_entry {
             json: *const u8,
             json_len: usize,
         ) -> *mut c_char {
-            unsafe { mirror_call(mirror, json, json_len, Mirror::$method) }
+            ffi_boundary(stringify!($name), None, || {
+                Some(unsafe { mirror_call(mirror, json, json_len, Mirror::$method) })
+            })
+            .unwrap_or_else(panic_reply)
         }
     };
 }
@@ -268,7 +288,7 @@ unsafe fn typed_call<T>(
     let Some(bytes) = (unsafe { input(json, json_len) }) else { return std::ptr::null() };
     // SAFETY: a live mirror from cmux_sidebar_mirror_new, used by one thread.
     let mirror = unsafe { &mut *mirror };
-    catch_unwind(AssertUnwindSafe(|| call(mirror, bytes))).unwrap_or(std::ptr::null())
+    call(mirror, bytes)
 }
 
 macro_rules! typed_entry {
@@ -286,7 +306,9 @@ macro_rules! typed_entry {
             json: *const u8,
             json_len: usize,
         ) -> *const $reply {
-            unsafe { typed_call(mirror, json, json_len, Mirror::$method) }
+            ffi_boundary(stringify!($name), std::ptr::null(), || unsafe {
+                typed_call(mirror, json, json_len, Mirror::$method)
+            })
         }
     };
 }

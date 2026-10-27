@@ -4,8 +4,12 @@
 //! tab strip's tweens and geometry (Chrome's strip motion). The app's
 //! `MotionClock` keeps only the display link and the layer updates; the
 //! physics and the rules live once, in cmux-motion. Every function is pure
-//! (no globals, no allocation) and never panics on any input.
+//! (no globals, no allocation). Each one that calls into cmux-motion runs in
+//! cmux-ffi-guard's boundary: a panic there answers "no animation" (false,
+//! 0 seconds, progress 1, the base spring) and is recorded for
+//! `cmux_ffi_take_panic`.
 
+use cmux_ffi_guard::ffi_boundary;
 use cmux_motion::{
     AnimationSwitches, MotionBounce, MotionFade, MotionKind, MotionPolicy, MotionSpeed,
     MotionSpring, MotionTween, SpringParameters, TabStripGeometry, TweenCurve, TweenValue,
@@ -75,6 +79,7 @@ fn policy(p: &CmuxMotionPolicy) -> MotionPolicy {
 /// The ABI version this library implements.
 #[unsafe(no_mangle)]
 pub extern "C" fn cmux_motion_ffi_abi_version() -> u32 {
+    // ffi-nopanic: returns a constant.
     ABI_VERSION
 }
 
@@ -88,6 +93,7 @@ pub extern "C" fn cmux_motion_ffi_abi_version() -> u32 {
 /// `out` is null or points to a writable `CmuxMotionSpring`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_motion_spring_base(token: u8, out: *mut CmuxMotionSpring) -> bool {
+    // ffi-nopanic: a bounds-checked table read and one write.
     let Some(token) = MotionSpring::ALL.get(usize::from(token)) else { return false };
     if out.is_null() {
         return false;
@@ -100,6 +106,7 @@ pub unsafe extern "C" fn cmux_motion_spring_base(token: u8, out: *mut CmuxMotion
 /// True when spring token `token` is structural (follows the bounce).
 #[unsafe(no_mangle)]
 pub extern "C" fn cmux_motion_spring_is_structural(token: u8) -> bool {
+    // ffi-nopanic: a bounds-checked table read.
     MotionSpring::ALL.get(usize::from(token)).is_some_and(|t| t.is_structural())
 }
 
@@ -113,15 +120,17 @@ pub extern "C" fn cmux_motion_resolve(
     structural: bool,
     policy: CmuxMotionPolicy,
 ) -> CmuxMotionSpring {
-    let p = self::policy(&policy);
-    let mut s = SpringParameters::from(base);
-    if structural {
-        s = match p.animations.bounce {
-            MotionBounce::None => SpringParameters::new(s.response, s.damping_fraction.max(1.)),
-            MotionBounce::Subtle => s.with_bounce(MotionBounce::Subtle.amount()),
-        };
-    }
-    if p.speed == MotionSpeed::Off { s.into() } else { s.scaled(p.speed.time_scale()).into() }
+    ffi_boundary("cmux_motion_resolve", base, || {
+        let p = self::policy(&policy);
+        let mut s = SpringParameters::from(base);
+        if structural {
+            s = match p.animations.bounce {
+                MotionBounce::None => SpringParameters::new(s.response, s.damping_fraction.max(1.)),
+                MotionBounce::Subtle => s.with_bounce(MotionBounce::Subtle.amount()),
+            };
+        }
+        if p.speed == MotionSpeed::Off { s.into() } else { s.scaled(p.speed.time_scale()).into() }
+    })
 }
 
 /// Advances `state` by `dt` seconds on `spring` in closed form (exact at
@@ -138,26 +147,32 @@ pub unsafe extern "C" fn cmux_motion_step(
     spring: CmuxMotionSpring,
     epsilon: f64,
 ) -> bool {
-    if state.is_null() {
-        return false;
-    }
-    // SAFETY: `state` is non-null, valid and writable per the contract above.
-    let s = unsafe { &mut *state };
-    advance_spring(&mut s.value, &mut s.velocity, s.target, dt, spring.into(), epsilon)
+    ffi_boundary("cmux_motion_step", false, || {
+        if state.is_null() {
+            return false;
+        }
+        // SAFETY: `state` is non-null, valid and writable per the contract above.
+        let s = unsafe { &mut *state };
+        advance_spring(&mut s.value, &mut s.velocity, s.target, dt, spring.into(), epsilon)
+    })
 }
 
 /// True when kind `kind` (0 paneAnimations, 1 newTab, 2 newWorkspace) animates
 /// under `policy`: movement animates and its switch is on.
 #[unsafe(no_mangle)]
 pub extern "C" fn cmux_motion_animates(kind: u8, policy: CmuxMotionPolicy) -> bool {
-    MotionKind::ALL.get(usize::from(kind)).is_some_and(|k| self::policy(&policy).animates(*k))
+    ffi_boundary("cmux_motion_animates", false, || {
+        MotionKind::ALL.get(usize::from(kind)).is_some_and(|k| self::policy(&policy).animates(*k))
+    })
 }
 
 /// Seconds of fade token `fade` (`MotionFade` order) under `policy`; 0
 /// applies at once (also for an unknown token).
 #[unsafe(no_mangle)]
 pub extern "C" fn cmux_motion_fade_seconds(fade: u8, policy: CmuxMotionPolicy) -> f64 {
-    MotionFade::ALL.get(usize::from(fade)).map_or(0., |f| self::policy(&policy).fade(*f))
+    ffi_boundary("cmux_motion_fade_seconds", 0., || {
+        MotionFade::ALL.get(usize::from(fade)).map_or(0., |f| self::policy(&policy).fade(*f))
+    })
 }
 
 /// `TweenParameters`: seconds and curve (0 easeOutQuad).
@@ -238,6 +253,7 @@ impl From<TweenValue> for CmuxMotionTweenState {
 /// `out` is null or points to a writable `CmuxMotionTween`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_motion_tween_base(token: u8, out: *mut CmuxMotionTween) -> bool {
+    // ffi-nopanic: a bounds-checked table read and one write.
     let Some(token) = MotionTween::ALL.get(usize::from(token)) else { return false };
     if out.is_null() {
         return false;
@@ -253,7 +269,9 @@ pub unsafe extern "C" fn cmux_motion_tween_base(token: u8, out: *mut CmuxMotionT
 /// tabClose follow newTab); 0 for an unknown token.
 #[unsafe(no_mangle)]
 pub extern "C" fn cmux_motion_tween_seconds(token: u8, policy: CmuxMotionPolicy) -> f64 {
-    MotionTween::ALL.get(usize::from(token)).map_or(0., |t| self::policy(&policy).tween(*t))
+    ffi_boundary("cmux_motion_tween_seconds", 0., || {
+        MotionTween::ALL.get(usize::from(token)).map_or(0., |t| self::policy(&policy).tween(*t))
+    })
 }
 
 /// Points `state` at `target`: the same target changes nothing (returns
@@ -269,15 +287,17 @@ pub unsafe extern "C" fn cmux_motion_tween_retarget(
     target: f64,
     duration: f64,
 ) -> bool {
-    if state.is_null() {
-        return false;
-    }
-    // SAFETY: `state` is non-null, valid and writable per the contract above.
-    let s = unsafe { &mut *state };
-    let mut t = TweenValue::from(*s);
-    let changed = t.retarget(target, duration);
-    *s = t.into();
-    changed
+    ffi_boundary("cmux_motion_tween_retarget", false, || {
+        if state.is_null() {
+            return false;
+        }
+        // SAFETY: `state` is non-null, valid and writable per the contract above.
+        let s = unsafe { &mut *state };
+        let mut t = TweenValue::from(*s);
+        let changed = t.retarget(target, duration);
+        *s = t.into();
+        changed
+    })
 }
 
 /// Advances `state` by `dt` seconds (capped at 0.1 s) on `curve` (0
@@ -292,42 +312,48 @@ pub unsafe extern "C" fn cmux_motion_tween_step(
     dt: f64,
     curve: u8,
 ) -> bool {
-    if state.is_null() {
-        return false;
-    }
-    // SAFETY: `state` is non-null, valid and writable per the contract above.
-    let s = unsafe { &mut *state };
-    let mut t = TweenValue::from(*s);
-    let moving = t.step(dt, self::curve(curve));
-    *s = t.into();
-    moving
+    ffi_boundary("cmux_motion_tween_step", false, || {
+        if state.is_null() {
+            return false;
+        }
+        // SAFETY: `state` is non-null, valid and writable per the contract above.
+        let s = unsafe { &mut *state };
+        let mut t = TweenValue::from(*s);
+        let moving = t.step(dt, self::curve(curve));
+        *s = t.into();
+        moving
+    })
 }
 
 /// Progress of `curve` (0 easeOutQuad, 1 easeOut, 2 easeInOut, 3 linear) at
 /// time fraction `t` (clamped to 0..=1).
 #[unsafe(no_mangle)]
 pub extern "C" fn cmux_motion_ease(curve: u8, t: f64) -> f64 {
-    self::curve(curve).progress_f64(t)
+    ffi_boundary("cmux_motion_ease", 1., || self::curve(curve).progress_f64(t))
 }
 
 /// CSS `cubic-bezier(x1, y1, x2, y2)` at time fraction `t` (clamped to 0..=1;
 /// x1 and x2 clamped to 0..=1).
 #[unsafe(no_mangle)]
 pub extern "C" fn cmux_motion_cubic_bezier(x1: f64, y1: f64, x2: f64, y2: f64, t: f64) -> f64 {
-    cmux_motion::cubic_bezier_progress(t, x1, y1, x2, y2)
+    ffi_boundary("cmux_motion_cubic_bezier", 1., || {
+        cmux_motion::cubic_bezier_progress(t, x1, y1, x2, y2)
+    })
 }
 
 /// A spring from rest toward 1 at `time` seconds, with no overshoot: held at
 /// its running maximum, so it never decreases (0..=1).
 #[unsafe(no_mangle)]
 pub extern "C" fn cmux_motion_spring_progress_monotone(spring: CmuxMotionSpring, time: f64) -> f64 {
-    cmux_motion::spring_progress_monotone(time, spring.into())
+    ffi_boundary("cmux_motion_spring_progress_monotone", 1., || {
+        cmux_motion::spring_progress_monotone(time, spring.into())
+    })
 }
 
 /// Seconds until a spring from rest first comes within 0.5% of its target (at most 5).
 #[unsafe(no_mangle)]
 pub extern "C" fn cmux_motion_spring_arrival(spring: CmuxMotionSpring) -> f64 {
-    cmux_motion::spring_arrival(spring.into())
+    ffi_boundary("cmux_motion_spring_arrival", 0., || cmux_motion::spring_arrival(spring.into()))
 }
 
 /// `from` mixed `t` of the way to `to` in `space` (0 OKLab, 1 sRGB; any other
@@ -346,17 +372,19 @@ pub unsafe extern "C" fn cmux_motion_mix_rgba(
     space: u8,
     out: *mut f64,
 ) -> bool {
-    if from.is_null() || to.is_null() || out.is_null() {
-        return false;
-    }
-    // SAFETY: non-null and sized per the contract above.
-    let (a, b) = unsafe { (*(from as *const [f64; 4]), *(to as *const [f64; 4])) };
-    let space =
-        if space == 1 { cmux_motion::ColorSpace::Srgb } else { cmux_motion::ColorSpace::Oklab };
-    let mixed = cmux_motion::mix_rgba(a, b, t, space);
-    // SAFETY: `out` is non-null and points to 4 writable doubles per the contract.
-    unsafe { *(out as *mut [f64; 4]) = mixed };
-    true
+    ffi_boundary("cmux_motion_mix_rgba", false, || {
+        if from.is_null() || to.is_null() || out.is_null() {
+            return false;
+        }
+        // SAFETY: non-null and sized per the contract above.
+        let (a, b) = unsafe { (*(from as *const [f64; 4]), *(to as *const [f64; 4])) };
+        let space =
+            if space == 1 { cmux_motion::ColorSpace::Srgb } else { cmux_motion::ColorSpace::Oklab };
+        let mixed = cmux_motion::mix_rgba(a, b, t, space);
+        // SAFETY: `out` is non-null and points to 4 writable doubles per the contract.
+        unsafe { *(out as *mut [f64; 4]) = mixed };
+        true
+    })
 }
 
 /// The tab strip geometry for `density` (0 compact, 1 comfortable) from the
@@ -370,6 +398,7 @@ pub unsafe extern "C" fn cmux_motion_tab_strip_geometry(
     density: u8,
     out: *mut CmuxMotionTabStripGeometry,
 ) -> bool {
+    // ffi-nopanic: copies a constant table.
     let g = match density {
         0 => TabStripGeometry::COMPACT,
         1 => TabStripGeometry::COMFORTABLE,
