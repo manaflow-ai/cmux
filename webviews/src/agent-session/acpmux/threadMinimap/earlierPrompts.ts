@@ -58,17 +58,28 @@ const idle: Idle = {
 /// now (`queue_order` with `next` while a turn ran) once the turn it stopped ended without failing
 /// before it ran (`continues`, turnStart.ts). A prompt removed or refused meanwhile, or another one
 /// opening a turn first, ends that. A page may start inside a turn because its opener is in an
-/// older page; `continued` then names the first prompt of the page read before it.
+/// older page. Copy and compare the complete state at page boundaries so adding older context
+/// re-evaluates newer records until their state converges.
 export class TurnStarts {
-  // A page can begin in the middle of a turn: the opener is in an older page, while this page
-  // carries its queue cancellation and continuation. Treat that omitted prefix as open until the
-  // page proves otherwise, so the continuation state survives a maxBytes boundary.
-  private open: boolean;
+  private open = false;
   private interrupting?: string;
   continued?: string;
 
-  constructor(open = false) {
-    this.open = open;
+  copy(): TurnStarts {
+    const copy = new TurnStarts();
+    copy.open = this.open;
+    copy.interrupting = this.interrupting;
+    copy.continued = this.continued;
+    return copy;
+  }
+
+  same(other: TurnStarts | undefined): boolean {
+    return (
+      !!other &&
+      this.open === other.open &&
+      this.interrupting === other.interrupting &&
+      this.continued === other.continued
+    );
   }
 
   /// Whether `record` is a prompt that opens a turn.
@@ -104,9 +115,9 @@ export class TurnStarts {
   }
 }
 
-/// A page's prompts that open a turn: their records (kept, so the rows can be built again when what
-/// a prompt shows changes) and their rows, oldest first.
-type Chunk = { records: PromptRecord[]; rows: AcpmuxRow[] };
+/// A page's raw events, output state, and current opening prompts/rows, oldest first.
+/// Even rowless pages are kept: a queue order, result, or refusal can affect a later prompt.
+type Chunk = { events: PromptRecord[]; records: PromptRecord[]; rows: AcpmuxRow[]; end?: TurnStarts };
 
 /// The earlier prompts of the shown chat. `start` begins reading below a seq; each page that lands
 /// calls `changed`. It stops on its own once acpmux has nothing older, after PROMPT_PAGES_MAX pages,
@@ -116,7 +127,8 @@ type Chunk = { records: PromptRecord[]; rows: AcpmuxRow[] };
 /// (or by half a page), and when the reading ends: the rail, which draws its ticks again on each call,
 /// draws O(log n) times for n prompts, so the whole load costs it O(n), never a draw per page.
 export class EarlierPrompts {
-  /// One per page that held prompts, newest page first; each oldest first.
+  /// Every page, including pages without prompts: their events carry boundary state.
+  /// Pages are newest first; events within each page are oldest first.
   private chunks: Chunk[] = [];
   private sessionId?: string;
   /// Where reading started, and the oldest seq read so far.
@@ -222,32 +234,34 @@ export class EarlierPrompts {
     }
     if (run !== this.run) return;
     this.pages += 1;
-    let records = page.events.filter((event) => event.seq < this.before).sort((a, b) => a.seq - b.seq);
+    const records = page.events.filter((event) => event.seq < this.before).sort((a, b) => a.seq - b.seq);
     const more = page.hasMore && records.length > 0;
-    // Whole turns only: a page can begin with records belonging to a turn whose opener the next
-    // older page reads. Do not discard that prefix: it can be the queue cancellation that proves the
-    // first prompt in this page is a continuation, and the opener may be in the next older page.
-    const starts = new TurnStarts(true);
-    const opening: PromptRecord[] = [];
-    for (const record of records) if (starts.opens(record)) opening.push(record);
-    let changed = false;
-    // The page ends where the turn of the page read before it started: a prompt sent now that this
-    // page's last turn left waiting goes on with that turn, so it opens none.
-    const newer = this.chunks.at(-1);
-    if (starts.continued !== undefined && newer?.records[0]?.msg?.promptId === starts.continued) {
-      newer.records = newer.records.slice(1);
-      newer.rows = this.rowsOf(newer.records);
-      this.count -= 1;
-      changed = true;
+    if (records.length) {
+      this.before = records[0]!.seq;
+      this.chunks.push({ events: records, records: [], rows: [] });
+      // Re-evaluate toward newer pages with ALL turn state, including interrupting and continued.
+      // Stop when a page's output state converges: every newer page then has the same input as
+      // before. No history is revisited for streaming tokens; only an index page triggers this.
+      const starts = new TurnStarts();
+      for (let index = this.chunks.length - 1; index >= 0; index -= 1) {
+        const chunk = this.chunks[index]!;
+        const opening = chunk.events.filter((record) => starts.opens(record));
+        if (opening.length !== chunk.records.length || opening.some((record, at) => record !== chunk.records[at])) {
+          const held = new Map(chunk.rows.map((row) => [row.id, row]));
+          const rows: AcpmuxRow[] = [];
+          for (const record of opening) {
+            const row = held.get(`user-${record.seq}`) ?? this.toRow(record);
+            if (row) rows.push(row);
+          }
+          this.count += rows.length - chunk.rows.length;
+          chunk.records = opening;
+          chunk.rows = rows;
+          this.version += 1;
+        }
+        if (starts.same(chunk.end)) break;
+        chunk.end = starts.copy();
+      }
     }
-    if (records.length) this.before = records[0]!.seq;
-    if (opening.length) {
-      const rows = this.rowsOf(opening);
-      this.chunks.push({ records: opening, rows });
-      this.count += rows.length;
-      changed = true;
-    }
-    if (changed) this.version += 1;
     this.done = !more || this.before <= 1 || this.pages >= PROMPT_PAGES_MAX;
     if (!this.done) this.next();
     if (this.done || this.count - this.told >= Math.max(PROMPT_PAGE_LIMIT / 4, this.told / 2)) {

@@ -12,6 +12,7 @@ import { opensTurn } from "../src/agent-session/acpmux/turnStart";
 import {
   EarlierPrompts,
   PROMPT_PAGE_LIMIT,
+  TURN_KINDS,
   type PromptPage,
   type PromptRecord,
 } from "../src/agent-session/acpmux/threadMinimap/earlierPrompts";
@@ -418,4 +419,105 @@ test("a failed page publishes rows accumulated since the last notification", asy
   expect(earlier.loading).toBe(false);
   expect(earlier.shown(10_000)).toHaveLength(1_600);
   expect(changes).toBe(4);
+});
+
+test("a queue order in the older page still classifies the newer continuation", async () => {
+  const idle = manualIdle();
+  const pages: PromptPage[] = [
+    {
+      events: [
+        { seq: 3, kind: "turn_result", dir: "mux", msg: { status: "cancelled" } },
+        { seq: 4, kind: "user_message", dir: "mux", msg: { promptId: "p-cont", text: "continuation" } },
+      ],
+      hasMore: true,
+    },
+    {
+      events: [
+        { seq: 1, kind: "user_message", dir: "mux", msg: { promptId: "p-root", text: "root" } },
+        { seq: 2, kind: "queue_order", dir: "mux", msg: { promptId: "p-cont", next: true } },
+      ],
+      hasMore: false,
+    },
+  ];
+  const earlier = new EarlierPrompts(
+    async () => pages.shift() ?? { events: [], hasMore: false },
+    (record) => ({
+      id: `user-${record.seq}`,
+      version: 1,
+      at: record.seq,
+      kind: "user",
+      text: record.msg?.text,
+      promptId: record.msg?.promptId,
+    }),
+    () => {},
+    idle,
+  );
+  earlier.start("s", 5);
+  while (idle.queue.length) {
+    idle.queue.shift()!();
+    await flush();
+  }
+  expect(earlier.shown(5).map((row) => row.promptId)).toEqual(["p-root"]);
+});
+
+test("paginated turn-start decisions equal one whole transcript across generated page splits", async () => {
+  const history = chatHistory(14);
+  history.push(
+    ...records(CHAT, [
+      ["mux", "user_message", { promptId: "ref-root", text: "x".repeat(100 * 1024) }],
+      ["mux", "queue_order", { promptId: "refused", next: true }],
+      ["mux", "turn_result", { status: "cancelled" }],
+      ["mux", "prompt_refused", { promptId: "refused" }],
+      ["mux", "user_message", { promptId: "after-refusal", text: "next" }],
+      ["mux", "queue_order", { promptId: "after-failure", next: true }],
+      ["mux", "turn_result", { status: "failed" }],
+      ["mux", "user_message", { promptId: "after-failure", text: "after failed interruption" }],
+      ["mux", "turn_result", { status: "completed" }],
+    ]).map((record, index) => ({ ...record, seq: history.length + index + 1 })),
+  );
+  const whole = await fakeClient([...history], { sessions: [PANEL] });
+  const expected = whole
+    .rows()
+    .filter(opensTurn)
+    .map((row) => turnKey(CHAT, row));
+  whole.client.close();
+  const indexed = history
+    .filter((event) => TURN_KINDS.includes(event.kind))
+    .map((event) => ({ seq: event.seq, at: event.at, kind: event.kind, dir: event.dir, msg: event.msg }));
+  const bytes = (record: PromptRecord) =>
+    new TextEncoder().encode(JSON.stringify(record.msg ?? {})).length + record.kind.length + 120;
+
+  for (const pageSize of Array.from({ length: indexed.length }, (_, index) => index + 1)) {
+    for (const maxBytes of [Number.POSITIVE_INFINITY, 128, 512, 2_048, 96 * 1024]) {
+      const idle = manualIdle();
+      const earlier = new EarlierPrompts(
+        async (_sessionId, beforeSeq) => {
+          const matching = indexed.filter((record) => record.seq < beforeSeq);
+          const page: PromptRecord[] = [];
+          let total = 0;
+          for (const record of [...matching].reverse()) {
+            if (page.length >= pageSize) break;
+            const next = total + bytes(record);
+            if (page.length && next > maxBytes) break;
+            total = next;
+            page.push(record);
+          }
+          page.reverse();
+          return { events: page, hasMore: matching.length > page.length };
+        },
+        (record) => ({ ...toRow(record)!, promptId: record.msg?.promptId }),
+        () => {},
+        idle,
+      );
+      earlier.start("s", (history.at(-1)?.seq ?? 0) + 1);
+      while (idle.queue.length) {
+        idle.queue.shift()!();
+        await flush();
+      }
+      expect(
+        earlier.shown((history.at(-1)?.seq ?? 0) + 1).map((row) => turnKey(CHAT, row)),
+        `pageSize=${pageSize}, maxBytes=${maxBytes}`,
+      ).toEqual(expected);
+    }
+  }
 });
