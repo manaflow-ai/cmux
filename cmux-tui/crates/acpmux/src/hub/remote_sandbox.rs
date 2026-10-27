@@ -858,7 +858,7 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
         .chain(crate::daemon::daemon_prefix().iter().map(|s| s.to_string_lossy().into_owned()))
         .collect::<Vec<_>>();
     #[cfg(target_os = "linux")]
-    let (program, args) = if linux {
+    let (program, args): (String, Vec<String>) = if linux {
         linux_keeper_args_with_exe(
             bound,
             "/bin/bash".into(),
@@ -872,7 +872,7 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
         )
     };
     #[cfg(not(target_os = "linux"))]
-    let (program, args) = (
+    let (program, args): (String, Vec<String>) = (
         exec.to_string_lossy().into_owned(),
         bound.sandbox_args().into_iter().chain(canary_args).collect(),
     );
