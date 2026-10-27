@@ -9467,6 +9467,21 @@ function AcpmuxPane() {
       </SubagentClockContext.Provider>
     </SubagentStopContext.Provider>
   );
+  const harnessesPage = (
+    <HarnessesScreen
+      catalog={pickerCatalog}
+      acpmux={snapshot.catalog}
+      {...(harnessFolder ? { cwd: harnessFolder } : {})}
+      callNative={harnessesNative}
+      checking={harnessesChecking}
+      refreshCatalog={pickerState.refresh}
+      onClose={() => setHarnessesOpen(false)}
+      onStart={() => {
+        setHarnessesOpen(false);
+        setNewTab(undefined);
+      }}
+    />
+  );
   const pane = !knowsWhatItIs ? (
     // Clear until it knows: the pane's background shows, never a chat screen a New Tab replaces.
     <ShortcutsContext.Provider value={shortcuts}>
@@ -9510,29 +9525,13 @@ function AcpmuxPane() {
             />
           )}
           {showNewTab && folderAskView}
-          {harnessesOpen ? (
-            <HarnessesScreen
-              catalog={pickerCatalog}
-              acpmux={snapshot.catalog}
-              {...(harnessFolder ? { cwd: harnessFolder } : {})}
-              callNative={harnessesNative}
-              checking={harnessesChecking}
-              refreshCatalog={pickerState.refresh}
-              onClose={() => setHarnessesOpen(false)}
-              onStart={() => {
-                setHarnessesOpen(false);
-                setNewTab(undefined);
-              }}
-            />
-          ) : showNewTab && newTab.history ? (
-            <HistoryScreen
-              load={(params) => callNative<AllChatsPage | undefined>("chats.page", params)}
-              onOpen={(key) => void callNative("chats.open", { key }).catch(() => undefined)}
-              onOpenInTerminal={(key) => void callNative("chats.openInTerminal", { key }).catch(() => undefined)}
-              onViewOnly={(key) => void callNative("chats.watch", { key }).catch(() => undefined)}
-            />
-          ) : showNewTab && shownTemplate(newTab) !== "classic" ? (
-            <NewTabScreen
+          {showNewTab && shownTemplate(newTab) !== "classic" ? (
+            <>
+              <div
+                style={harnessesOpen ? { display: "none" } : undefined}
+                aria-hidden={harnessesOpen ? true : undefined}
+              >
+                <NewTabScreen
               onCommands={(harness, cwd) => {
                 void callNative("chat.new", { harness, ...(cwd ? { cwd } : {}), deferred: true }).catch(
                   () => undefined,
@@ -9610,6 +9609,18 @@ function AcpmuxPane() {
                   },
                 }),
               )}
+                />
+              </div>
+              {harnessesOpen && harnessesPage}
+            </>
+          ) : harnessesOpen ? (
+            harnessesPage
+          ) : showNewTab && newTab.history ? (
+            <HistoryScreen
+              load={(params) => callNative<AllChatsPage | undefined>("chats.page", params)}
+              onOpen={(key) => void callNative("chats.open", { key }).catch(() => undefined)}
+              onOpenInTerminal={(key) => void callNative("chats.openInTerminal", { key }).catch(() => undefined)}
+              onViewOnly={(key) => void callNative("chats.watch", { key }).catch(() => undefined)}
             />
           ) : showNewTab ? (
             <NewTabPage

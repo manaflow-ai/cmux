@@ -777,6 +777,14 @@ export function NewTabScreen(props: Props) {
     if (!shell && pairingLinkRefused(text)) return props.onOpen(text.trim());
     // A screenshot pasted a moment ago is still being read: Return goes once its chip is ready.
     if (holdForAttachments(() => submitNow.current())) return;
+    const prompt = text.trim();
+    // A first-run prompt needs harness setup before the suggestion list can consume Return as a
+    // web search. Keep explicit addresses on their normal New Tab path, and keep an empty Return
+    // aligned with the visible Add harness action below.
+    if (!harness && !shell && attachments.length === 0 && prompt && !isAddress(prompt, home)) {
+      openHarnessesPage();
+      return;
+    }
     // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com). So does an
     // address with no row selected (↑ from the top row): there is no prompt to send.
     const list = rows.length ? rows : suggested;
@@ -786,7 +794,6 @@ export function NewTabScreen(props: Props) {
     const keeps =
       !row || attachments.length === 0 || row.type === "ask" || (row.type === "create" && row.kind === "chat");
     if (row && keeps) return activate(row);
-    const prompt = text.trim();
     // Pasted or dropped attachments alone are a prompt, as in a chat's composer.
     if (attachments.length === 0 && (!prompt || isAddress(prompt, home))) {
       // A fresh install has no harness to ask yet. Return on the empty composer should take the

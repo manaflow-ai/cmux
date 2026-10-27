@@ -167,6 +167,13 @@ test.each(["", "Implement a todo list"])("Return without a harness opens setup a
       );
     });
     const field = container.querySelector<HTMLTextAreaElement>(".nt-field")!;
+    if (draft) {
+      await act(async () => {
+        field.value = draft;
+        field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+        field.dispatchEvent(new dom!.window.Event("change", { bubbles: true }));
+      });
+    }
     await act(async () => {
       field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     });
