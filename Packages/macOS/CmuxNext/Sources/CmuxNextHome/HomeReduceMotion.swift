@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextWakeups
 import MessagesLabHome
@@ -13,6 +14,7 @@ import MessagesLabSidebar
 final class HomeReduceMotion {
     private static let shared = HomeReduceMotion()
     private var observer: (any NSObjectProtocol)?
+    private var speedObserver: MainActorObservation?
 
     private init() {
         Self.mirror()
@@ -20,6 +22,10 @@ final class HomeReduceMotion {
         CmuxSidebarView.movementGate = { Motion.sidebar.animatesMovement }
         // The message box's dictation waveform follows the input level only while Home's loops run.
         MessagesLabHomeView.voiceMotionGate = { Motion.home.animatesLoops }
+        MessagesLabHomeView.activityMotionGate = { Motion.home.animatesLoops }
+        speedObserver = MainActorObservation(Motion.speedDidChange) {
+            NotificationCenter.default.post(name: MessagesLabHomeView.reduceMotionDidChange, object: nil)
+        }
         observer = NotificationCenter.default.addObserver(forName: Motion.reduceMotionDidChange, object: nil, queue: nil) { _ in
             MainDelivery().run { HomeReduceMotion.mirror() }
         }
