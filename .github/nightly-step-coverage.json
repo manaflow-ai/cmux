@@ -289,7 +289,8 @@
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Republish deltas and revised appcasts": {"nightly_only": "republishes deltas to GitHub release"},
         "Upload revised appcasts to R2": {"nightly_only": "uploads revised appcasts to R2"},
-        "Upload revised nightly-next appcasts to R2": {"nightly_only": "uploads nightly-next appcasts to R2"}},
+        "Upload revised nightly-next appcasts to R2": {"nightly_only": "uploads nightly-next appcasts to R2"},
+        "Prune old nightly-next downloads on R2": {"nightly_only": "lists and (with NIGHTLY_NEXT_R2_PRUNE_DELETE=1) deletes nightly-next R2 objects with release-next secrets (nightly_next_r2_prune.py tested by tests/test_nightly_next_r2_prune.py)"}},
       "published-in": {
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Fetch the published span": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next release notes fetch (published span only)"},
