@@ -2376,6 +2376,9 @@ pub(crate) use request_watchdog::{
 };
 
 mod connection_scheduler;
+mod sequenced_pool;
+pub(crate) use sequenced_pool::SequencedPool;
+mod stream_lanes;
 #[cfg(test)]
 use connection_scheduler::ConnectionSurfaceState;
 use connection_scheduler::{
@@ -2386,10 +2389,10 @@ mod bounded_outbound;
 pub(crate) use bounded_outbound::bulk_frame_max_from_env;
 use bounded_outbound::{
     BoundedOutbound, ConnectionPermit, OutboundItem, QueuedSink, SinkControl,
-    SynchronizedTcpStream, claim_connection, write_line_outbound_item,
+    SynchronizedTcpStream, claim_connection, write_counted_batch,
 };
 #[cfg(test)]
-use bounded_outbound::{ControlOutbound, websocket_server_frame_header};
+use bounded_outbound::{ControlOutbound, websocket_server_frame_header, write_line_outbound_item};
 
 mod client_registry;
 pub(crate) use client_registry::ClientRegistry;
@@ -2481,6 +2484,7 @@ use resource_connection::{
 };
 
 mod connection_frame;
+mod request_hang_watch;
 mod request_head;
 mod request_spans;
 mod request_wait;

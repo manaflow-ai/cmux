@@ -74,6 +74,10 @@ public final class LayoutRootView: NSView {
     var hoveredPane: PaneID?
     /// Delivers pointer moves for focus-follows-mouse (owner: self).
     private var hoverTrackingArea: NSTrackingArea?
+    /// Focus-follows-mouse's hover moves on the window's frames (``mouseMoved(with:)``).
+    private(set) lazy var hoverFocus = PointerFrameHover(owner: "LayoutRootView.focusFollowsMouse", view: self) { [weak self] point in
+        _ = self?.focusPaneForPointerHover(at: point)
+    }
     var dragTab: TabID?
     /// The drop preview's rect for the current tab drag target, in screen
     /// coordinates; nil when nothing is highlighted. The drag session flies
@@ -214,7 +218,7 @@ public final class LayoutRootView: NSView {
         registerForDraggedTypes([LayoutTabDrag.pasteboardType, .URL])
         sync(snapshot())
         observe()
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         ScreenContentView.registerMotionSampler()
         #endif
     }
@@ -259,12 +263,6 @@ public final class LayoutRootView: NSView {
         let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil)
         addTrackingArea(area)
         hoverTrackingArea = area
-    }
-
-    override public func mouseMoved(with event: NSEvent) {
-        super.mouseMoved(with: event)
-        guard event.window === window else { return }
-        focusPaneForPointerHover(at: event.locationInWindow)
     }
 
     // MARK: Public API
@@ -691,6 +689,7 @@ public final class LayoutRootView: NSView {
 
     override public func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        hoverFocus.frames = (window as? any HoverFrameInputHosting)?.hoverFrameInput
         setLive(isShown)
     }
 

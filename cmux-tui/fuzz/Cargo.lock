@@ -791,6 +791,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-hang-watch"
+version = "0.1.0"
+dependencies = [
+ "cmux-trace",
+ "libc",
+]
+
+[[package]]
 name = "cmux-history"
 version = "0.1.0"
 dependencies = [
@@ -899,6 +907,7 @@ dependencies = [
  "cmux-blocking",
  "cmux-local-auth",
  "cmux-panic-log",
+ "cmux-threads",
  "futures-util",
  "getrandom 0.3.4",
  "jsonschema",
@@ -1098,6 +1107,7 @@ dependencies = [
  "cmux-build-identity",
  "cmux-config",
  "cmux-features",
+ "cmux-hang-watch",
  "cmux-holder",
  "cmux-host",
  "cmux-ipc",
@@ -1194,6 +1204,7 @@ dependencies = [
  "cmux-feed-core",
  "cmux-flow-trace",
  "cmux-git",
+ "cmux-hang-watch",
  "cmux-history",
  "cmux-holder",
  "cmux-ipc",
@@ -3075,9 +3086,9 @@ dependencies = [
 
 [[package]]
 name = "objc2"
-version = "0.6.5"
+version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08849bbd4767dfae9457696856ae1c84fe4e0281bbe4a7abff2d0e06fb7981f8"
+checksum = "3a12a8ed07aefc768292f076dc3ac8c48f3781c8f2d5851dd3d98950e8c5a89f"
 dependencies = [
  "objc2-encode",
 ]
