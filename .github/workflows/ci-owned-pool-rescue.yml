@@ -1,5 +1,5 @@
 name: CI persistent pool rescue
-run-name: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && 'owned-pool-sweeper' || format('owned-pool-rescue-{0}-{1}', inputs.run_id || github.event.workflow_run.id, inputs.run_attempt || github.event.workflow_run.run_attempt) }}
+run-name: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && 'owned-pool-sweeper' || format('owned-pool-rescue-{0}-{1}{2}', inputs.run_id || github.event.workflow_run.id, inputs.run_attempt || github.event.workflow_run.run_attempt, github.event.action == 'completed' && '-completed' || '') }}
 
 # pr_runner_pool.py may put a pull request run's macOS jobs on a persistent
 # pool (owned Macs). GitHub never re-routes a queued job, so when that pool is
@@ -104,8 +104,12 @@ env:
     .github/workflows/cmux-next-dev-daily.yml
     .github/workflows/cmux-next.yml
 
+# A `completed` event has a group of its own: every source's run now wakes one
+# (its job skipped unless it is a failed cmux-next DEV run), and in the
+# `requested` event's group it would cancel that event's watch as the run ends,
+# just when a refusal is found.
 concurrency:
-  group: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && 'owned-pool-sweeper' || format('owned-pool-rescue-{0}-{1}', inputs.run_id || github.event.workflow_run.id, inputs.run_attempt || github.event.workflow_run.run_attempt) }}
+  group: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && 'owned-pool-sweeper' || format('owned-pool-rescue-{0}-{1}{2}', inputs.run_id || github.event.workflow_run.id, inputs.run_attempt || github.event.workflow_run.run_attempt, github.event.action == 'completed' && '-completed' || '') }}
   # A queued sweeper waits for the running one: its rescues are never killed.
   cancel-in-progress: ${{ !(github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) }}
 

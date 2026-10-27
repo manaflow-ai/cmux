@@ -3087,8 +3087,13 @@ class Workflow(unittest.TestCase):
         # A cmux-next `requested` event never matches the requested branch, which admits any side lane.
         self.assertIn("github.event.action == 'requested' && "
                       "github.event.workflow_run.path != '.github/workflows/cmux-next.yml' && ", condition)
-        # Each failed attempt gets its own concurrency group, so attempt 3's rescue never cancels attempt 2's.
-        self.assertIn("github.event.workflow_run.run_attempt", self.doc["concurrency"]["group"])
+        # Each failed attempt gets its own concurrency group, so attempt 3's rescue never cancels attempt 2's,
+        # and a `completed` event never joins (and cancels) the `requested` watch of the same attempt.
+        suffixed = ("format('owned-pool-rescue-{0}-{1}{2}', inputs.run_id || github.event.workflow_run.id, "
+                    "inputs.run_attempt || github.event.workflow_run.run_attempt, "
+                    "github.event.action == 'completed' && '-completed' || '')")
+        self.assertIn(suffixed, self.doc["concurrency"]["group"])
+        self.assertIn(suffixed, self.doc["run-name"])
 
     def test_one_sweeper_at_a_time_from_the_cron(self):
         self.assertEqual(self.doc[True]["schedule"], [{"cron": "17 */2 * * *"}])
