@@ -672,6 +672,67 @@ mod tests {
     }
 
     #[test]
+    fn mutation_filter_notifies_every_name_and_metadata_operation() {
+        let notify = super::filter(true).unwrap();
+        let deny_only = super::filter(false).unwrap();
+        // New syscall numbers are shared by x86_64 and aarch64; this libc
+        // version does not expose all three constants on both architectures.
+        for nr in [
+            SYS_renameat,
+            SYS_renameat2,
+            SYS_unlinkat,
+            SYS_truncate,
+            SYS_fchmodat,
+            452, /* fchmodat2 */
+            SYS_fchownat,
+            SYS_utimensat,
+            SYS_setxattr,
+            SYS_lsetxattr,
+            SYS_removexattr,
+            SYS_lremovexattr,
+            463, /* setxattrat */
+            466, /* removexattrat */
+            SYS_fchmod,
+            SYS_fchown,
+            SYS_fsetxattr,
+            SYS_fremovexattr,
+            SYS_ftruncate,
+            #[cfg(target_arch = "x86_64")]
+            SYS_rename,
+            #[cfg(target_arch = "x86_64")]
+            SYS_unlink,
+            #[cfg(target_arch = "x86_64")]
+            SYS_rmdir,
+            #[cfg(target_arch = "x86_64")]
+            SYS_chmod,
+            #[cfg(target_arch = "x86_64")]
+            SYS_chown,
+            #[cfg(target_arch = "x86_64")]
+            SYS_lchown,
+            #[cfg(target_arch = "x86_64")]
+            SYS_utime,
+            #[cfg(target_arch = "x86_64")]
+            SYS_utimes,
+            #[cfg(target_arch = "x86_64")]
+            SYS_futimesat,
+        ] {
+            assert_eq!(
+                evaluate(&notify, ARCH, nr as u32, [0; 6]),
+                SECCOMP_RET_USER_NOTIF,
+                "nr {nr}"
+            );
+            assert_eq!(evaluate(&deny_only, ARCH, nr as u32, [0; 6]), SECCOMP_RET_ALLOW, "nr {nr}");
+        }
+        for nr in [
+            SYS_linkat,
+            #[cfg(target_arch = "x86_64")]
+            SYS_link,
+        ] {
+            assert_eq!(evaluate(&notify, ARCH, nr as u32, [0; 6]), EPERM_ACTION);
+        }
+    }
+
+    #[test]
     fn socket_domains_protocols_and_socketpair_types() {
         let filter = deny_filter().unwrap();
         for (domain, protocol, expected) in [

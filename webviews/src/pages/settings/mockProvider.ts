@@ -234,6 +234,17 @@ export class MockSettingsProvider {
           });
         return {};
       },
+      "cmux.settings.machines.vm_host": (params) => {
+        this.setHost({
+          ...this.host,
+          machines: this.host.machines.map((r) =>
+            r.id === params.id && r.vm_host
+              ? { ...r, vm_host: { ...r.vm_host, on: params.on === true, error: null } }
+              : r,
+          ),
+        });
+        return {};
+      },
       "cmux.settings.mobile.remove_phone": (params) => {
         const iphone = this.host.iphone;
         if (iphone)
@@ -486,6 +497,7 @@ export class MockSettingsProvider {
       "cmux.settings.host.lists",
       "cmux.settings.devices.remove",
       "cmux.settings.devices.full_access",
+      "cmux.settings.machines.vm_host",
       "cmux.settings.accounts.state",
       "cmux.settings.accounts.run",
       "cmux.settings.channels.state",
