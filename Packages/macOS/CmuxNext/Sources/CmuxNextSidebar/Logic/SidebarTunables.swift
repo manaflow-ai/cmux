@@ -200,6 +200,26 @@ public nonisolated enum SidebarTunables {
         help: "An idle workspace nobody named (workspace-11, ~) shows its name dimmed until it has activity, something unread or the selection.",
         default: true, code: "SidebarTunables.quietUnnamedRows")
 
+    /// What a workspace row's name says: the workspace (the default), a breadcrumb to its focused
+    /// tab, the focused tab alone, or every tab (Leo 2026-10-26, `SidebarRowTitleMode`).
+    public static let rowTitle = Tunable<SidebarRowTitleMode>.choice(
+        "sidebar.rowTitle", .sidebar, "Workspace row name",
+        help: "What a workspace row's name says: the workspace alone, the workspace then its focused tab (Workspace › Tab), the focused tab alone (the hover card names the workspace), or the workspace then all its tabs, cut off at the row's end.",
+        default: .workspace, code: "SidebarTunables.rowTitle")
+
+    /// A workspace whose one tab is an agent chat shows the chat's name alone, whatever
+    /// `rowTitle` says (Leo 2026-10-26). Off by default.
+    public static let rowTitleSingleChat = Tunable<Bool>.toggle(
+        "sidebar.rowTitleSingleChat", .sidebar, "Single chat names its workspace",
+        help: "A workspace whose only tab is an agent chat shows the chat's name on its row instead of the workspace's.",
+        default: false, code: "SidebarTunables.rowTitleSingleChat")
+
+    /// Sample rows for each workspace row name (`SidebarSection.rowTitlePreview()`).
+    public static let rowTitlePreview = Tunable<Bool>.toggle(
+        "sidebar.rowTitlePreview", .sidebar, "Row name preview rows",
+        help: "Adds sample workspaces with several tabs to the sidebar, to compare the workspace row names without real sessions.",
+        default: false, code: "SidebarTunables.rowTitlePreview")
+
     /// Sample rows with 1 to 7 pending items (`SidebarSection.rowBadgePreview()`).
     public static let rowBadgePreview = Tunable<Bool>.toggle(
         "sidebar.rowBadgePreview", .sidebar, "Row badge preview rows",
@@ -274,6 +294,9 @@ public nonisolated enum SidebarTunables {
             quietUnnamedRows.descriptor,
             pullRequestCard.descriptor,
             rowBadgePreview.descriptor,
+            rowTitle.descriptor,
+            rowTitlePreview.descriptor,
+            rowTitleSingleChat.descriptor,
             sectionTopFraction.descriptor,
             SidebarChatsDesign.tunable.descriptor,
             SidebarGroupHeaderStyle.tunable.descriptor,

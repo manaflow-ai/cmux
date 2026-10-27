@@ -261,6 +261,7 @@
     "setting.agents.subsessions.enabled": true,
     "setting.agents.subsessions.maxChildren": 50,
     "setting.agents.subsessions.maxDepth": 10,
+    "setting.agents.subsessions.maxRunning": 16,
     "setting.agents.trust.autoTrust": false,
     "setting.agents.trust.ownOrgs": [],
     "setting.agents.trust.projectRoots": [],
