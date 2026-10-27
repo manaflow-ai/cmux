@@ -67,6 +67,7 @@ struct AgentChatFindBar: View {
         // Output that arrives while the bar is up is searched too; the current match stays.
         .onChange(of: store.turns.count) { if !find.query.isEmpty { find.refresh(store.turns) } }
         .onChange(of: store.turns.last?.status) { if !find.query.isEmpty { find.refresh(store.turns) } }
+        .onChange(of: store.turns.last?.items.count) { if !find.query.isEmpty { find.refresh(store.turns) } }
     }
 }
 
@@ -87,10 +88,10 @@ struct FindBlockMarker: ViewModifier {
                         .accessibilityHidden(true)
                 }
             }
-            .onGeometryChange(for: CGFloat.self) { proxy in
-                proxy.frame(in: .named(AgentChatFindBar.contentSpace)).minY
-            } action: { [weak surface] top in
-                surface?.findAnchors[key] = top
+            .onGeometryChange(for: CGRect.self) { proxy in
+                proxy.frame(in: .named(AgentChatFindBar.contentSpace))
+            } action: { [weak surface] frame in
+                surface?.findAnchors[key] = (frame.minY, frame.height)
             }
             .accessibilityAddTraits(current ? .isSelected : [])
     }

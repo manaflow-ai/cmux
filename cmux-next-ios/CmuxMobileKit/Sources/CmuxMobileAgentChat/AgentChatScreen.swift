@@ -42,9 +42,9 @@ public final class AgentChatSurface {
     public var showArtifacts = false
     /// Find in Chat while its bar is up (nil: closed).
     public var find: AgentChatFind?
-    /// Each searchable block's top in the transcript's content coordinates (Find in Chat
-    /// scrolls to its current match). Written as rows lay out; never observed.
-    @ObservationIgnored var findAnchors: [String: CGFloat] = [:]
+    /// Each searchable block's frame (top, height) in the transcript's content coordinates
+    /// (Find in Chat scrolls to its current match). Written as rows lay out; never observed.
+    @ObservationIgnored var findAnchors: [String: (top: CGFloat, height: CGFloat)] = [:]
     /// Asks the find bar's field for the keyboard (it takes it when the bar opens).
     var findFieldFocused = false
 
@@ -63,8 +63,10 @@ public final class AgentChatSurface {
 
     /// Scrolls the transcript to the find bar's current match.
     func revealFindMatch() {
-        guard let block = find?.currentBlock, let top = findAnchors[block] else { return }
-        scroller?.scrollTranscript(toContentY: top, animated: !UIAccessibility.isReduceMotionEnabled)
+        guard let match = find?.currentMatch, let frame = findAnchors[match.block] else { return }
+        // The match's line in a long answer: its place in the text, as a share of the block.
+        let y = frame.top + max(0, frame.height * CGFloat(match.position) - 24)
+        scroller?.scrollTranscript(toContentY: y, animated: !UIAccessibility.isReduceMotionEnabled)
     }
     public let artifacts = ArtifactsBrowserState()
     // DEBUG demo hooks for the parity screens (the screens act on them through their own paths).

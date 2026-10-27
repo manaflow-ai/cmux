@@ -46,7 +46,9 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
     /// peer's session (it runs on another machine, which this Mac's tab cannot show), a side
     /// chat (`side` tag) and a session another chat's agent started (it lists under its parent).
     nonisolated static func listing(_ value: JSONValue) -> AgentChatListing? {
-        guard let id = value["sessionId"]?.stringValue, !id.isEmpty else { return nil }
+        // A chat with no harness names no agent a tab of it could run.
+        guard let id = value["sessionId"]?.stringValue, !id.isEmpty,
+              let harness = value["harness"]?.stringValue, !harness.isEmpty else { return nil }
         if let peer = value["peer"]?.stringValue, !peer.isEmpty { return nil }
         let tags = value["tags"]
         if tags?["side"] != nil { return nil }
@@ -54,7 +56,7 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
         let archived = tags?["archived"] != nil || value["archived"] == .bool(true)
         let title = value["title"]?.stringValue ?? value["lastPrompt"]?.stringValue
         return AgentChatListing(
-            id: id, title: title.map { String($0.prefix(200)) }, harness: value["harness"]?.stringValue ?? "agent",
+            id: id, title: title.map { String($0.prefix(200)) }, harness: harness,
             cwd: value["cwd"]?.stringValue ?? "", status: value["status"]?.stringValue ?? "idle",
             updatedAt: value["updatedAt"]?.numberValue.map { Date(timeIntervalSince1970: $0 / 1000) },
             archived: archived, lastPrompt: value["lastPrompt"]?.stringValue.map { String($0.prefix(500)) })
@@ -85,6 +87,8 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
             let created = try WorkspaceSync.check(await client.request("create-workspace", params: ["name": String(chat.displayTitle.prefix(80))]))
             let data = created["data"] as? [String: Any] ?? created
             guard let id = data["workspace"] as? Int, let key = data["key"] as? String else {
+                // Never an empty workspace left behind.
+                if let key = data["key"] as? String { _ = try? await client.request("close-workspace", params: ["key": key]) }
                 throw WorkspaceCreationError("The Mac didn't say which workspace it created")
             }
             do {
@@ -150,7 +154,8 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
 
     nonisolated static let untypableFolder = "This chat's folder has characters that can't be typed safely into a terminal. Open a terminal and change to it yourself."
 
-    /// The chat's folder on the Mac: the watched session's, else `_acpmux/info`'s.
+    /// The chat's folder on this Mac: the watched session's, else `_acpmux/info`'s. A chat that
+    /// runs on another machine (an acpmux peer's) has its folder there, never typed here.
     private func chatFolder(session: String, macID: String) async throws -> String {
         let acpmux = try readyAcpmux(macID)
         if let cwd = acpmux.sessions[session]?.cwd, !cwd.isEmpty { return cwd }
@@ -159,6 +164,9 @@ extension LiveWorkspaceCreationBackend: AgentChatsBackend {
             info = try await acpmux.request("_acpmux/info", .object(["sessionId": .string(session)]), timeout: .seconds(15))
         } catch let error as AcpmuxConnection.RPCError {
             throw WorkspaceCreationError(error.message, isForPerson: true)
+        }
+        if let peer = info["peer"]?.stringValue, !peer.isEmpty {
+            throw WorkspaceCreationError("This chat runs on another computer, so its folder isn't on this Mac.", isForPerson: true)
         }
         guard let cwd = info["cwd"]?.stringValue, !cwd.isEmpty else {
             throw WorkspaceCreationError("The Mac didn't say which folder this chat is in.", isForPerson: true)
