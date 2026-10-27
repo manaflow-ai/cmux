@@ -128,6 +128,31 @@ compared, never in crash-safety-baseline.json, and never read by the CI compare 
                       `hasSuffix` or `starts` is read on the same line before it or on one of the 3 lines above
                       (`guard !queue.isEmpty`, `while let x = queue.first`, `if s.hasPrefix("-") { s.removeFirst() }`);
                       `popFirst()` / `popLast()` never count
+    objc_raises       Foundation calls that raise an Objective-C exception on a bad argument, which Swift's `try`
+                      does not catch (queue Q19, p10-stability-166). Its JSON gives each hit site a "pattern" and
+                      sums them in "patterns" ({pattern: {"total", "modules"}}):
+                      json         `JSONSerialization.data(withJSONObject: v` unless `isValidJSONObject(v)` (the
+                                   same expression) is read before it on its line or on one of the 3 lines above
+                      file_handle  the legacy FileHandle API: `.availableData`, `.seekToEndOfFile()`,
+                                   `.readData(ofLength:` and an unlabeled `.write(data)` on a FileHandle (one the
+                                   file declares `: FileHandle` or binds to `FileHandle(...)` / `.fileHandleFor*`,
+                                   or `FileHandle.standardError` and the other standard handles). Use `read(upToCount:)`,
+                                   `seekToEnd()`, `write(contentsOf:)`, which throw
+                      ns_range     NSString / NSAttributedString calls given a range or index past the end
+                                   (NSRangeException): `substring(with:`, `attributedSubstring(from:`,
+                                   `attribute(_:at:`, `attributes(at:`, `replaceCharacters(in:`,
+                                   `deleteCharacters(in:`, `addAttribute(s)(..range:`, `setAttributes(..range:`,
+                                   `removeAttribute(..range:`, `enumerateAttribute(s)(..in:`, `character(at:`,
+                                   `rangeOfComposedCharacterSequence(at:`, `lineRange(for:`, `paragraphRange(for:`,
+                                   `range(of:..range:`; a call without that label is not one. Proven, and
+                                   not counted, when the argument is the receiver's whole range spelled in the call
+                                   (`NSRange(location: 0, length: s.length)`, `NSMakeRange(0, s.length)`) or a name
+                                   bound from the receiver's `checkedRange(` / `checkedIndex(` on the line or one of
+                                   the 3 lines above (`guard let r = s.checkedRange(r0) else { ... }`)
+                      Replacements: CmuxNextCompat's CheckedFoundation.swift (CheckedJSON.data(_:) throws;
+                      NSString/NSAttributedString checkedRange, checkedIndex, checkedSubstring, checkedCharacter(at:),
+                      checkedAttributedSubstring return nil, never a clamped value); that file is not counted
+  --report adds "queue" to a class that feeds a machine queue (trap_api Q09, objc_raises Q19).
   The ratchet classes index_subscript and int_conversion are also report classes: by default over INDEX_MODULES
   (the CI rows, counted and waived together), with --all-modules over every module of every package.
 
@@ -190,6 +215,7 @@ REPORT_SWIFT = {
 }
 REPORT_OWNERS = {
     "raw_continuation": ("Packages/Shared/CmuxSafeConcurrency/",),
+    "objc_raises": ("Packages/macOS/CmuxNext/Sources/CmuxNextCompat/CheckedFoundation.swift",),
 }
 ASYNC_DEFAULT = re.compile(
     r"\w+\s*:\s*(?:@\w+(?:\([^)]*\))?\s+)*\((?:[^()]|\([^()]*\))*\)\s*async\b[^=]*?=\s*\{")
@@ -509,6 +535,174 @@ def trap_api_hits(lines, index, code=None):
         if labeled(arguments, "offsetBy") is not None and labeled(arguments, "limitedBy") is None:
             hits += 1
     return hits
+
+
+# objc_raises (report-only, see the docstring). Each hit has one pattern of OBJC_PATTERNS.
+OBJC_PATTERNS = ("file_handle", "json", "ns_range")
+JSON_DATA = re.compile(r"\bJSONSerialization\s*\.\s*data\s*\(")
+JSON_CHECK = re.compile(r"\bisValidJSONObject\s*\(")
+LEGACY_HANDLE = re.compile(r"\.\s*(?:availableData\b|seekToEndOfFile\s*\(\s*\)|readData\s*\(\s*ofLength\s*:)")
+HANDLE_WRITE = re.compile(r"\.\s*write\s*\(")
+# A receiver that is a FileHandle wherever it is written.
+HANDLE_EXPRESSION = re.compile(r"(?:\bFileHandle\.standard(?:Error|Output|Input)|\.fileHandleFor(?:Writing|Reading))$")
+# Names a file declares as a FileHandle: `x: FileHandle` (a declaration or a parameter, not `FileHandle.x` or a call),
+# or binds to `FileHandle(...)`, `try? FileHandle(...)`, `FileHandle.standardError` or `pipe.fileHandleForWriting`.
+HANDLE_TYPED = re.compile(r"\b(\w+)\s*:\s*FileHandle\b(?!\s*[.(])")
+HANDLE_BOUND = re.compile(r"\b(?:let|var)\s+(\w+)\s*=\s*(?:try[?!]?\s+)?"
+                          r"(?:FileHandle\s*[.(]|[\w.?]*\.fileHandleFor(?:Writing|Reading)\b)")
+# The NSString / NSAttributedString calls that raise on a range or index past the end, with the label of the
+# argument that carries it (a call without that label, `substring(from:)` or `attribute(forName:)`, is not one).
+RANGE_LABELS = {"substring": "with", "attributedSubstring": "from", "attribute": "at", "attributes": "at",
+                "replaceCharacters": "in", "deleteCharacters": "in", "addAttribute": "range", "addAttributes": "range",
+                "setAttributes": "range", "removeAttribute": "range", "enumerateAttribute": "in",
+                "enumerateAttributes": "in", "character": "at", "rangeOfComposedCharacterSequence": "at",
+                "lineRange": "for", "paragraphRange": "for", "range": "range"}
+RANGE_CALL = re.compile(r"(?<!\w)(" + "|".join(sorted(RANGE_LABELS, key=len, reverse=True)) + r")\s*\(")
+# A line without one of these words starts no objc_raises call (skips swift_code on most lines).
+OBJC_HINT = re.compile(r"JSONSerialization|availableData|seekToEndOfFile|readData|write\s*\(|ubstring\s*\("
+                       r"|ttributes?\s*\(|Characters\s*\(|character\s*\(|CharacterSequence|Range\s*\(\s*for"
+                       r"|range\s*\(\s*of")
+
+
+def receiver_of(code, start):
+    """The receiver of the call whose name, or the "." before it, starts at CODE[start]: `text` in
+    `text.substring(with:)`, `(s as NSString)` in `(s as NSString).substring(with:)`, "" for an implicit self."""
+    i = start - 1
+    while i >= 0 and code[i] == " ":
+        i -= 1
+    if code[start] != "." and (i < 0 or code[i] != "."):
+        return ""
+    end = start if code[start] == "." else i
+    i = end - 1
+    while i >= 0 and code[i] == " ":
+        i -= 1
+    end = i + 1
+    while i >= 0:
+        ch = code[i]
+        if ch in ")]":
+            depth = 0
+            while i >= 0:
+                if code[i] in ")]":
+                    depth += 1
+                elif code[i] in "([":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                i -= 1
+        elif not (ch.isalnum() or ch in "_.?!"):
+            break
+        i -= 1
+    return code[max(i + 1, 0):end].strip()
+
+
+def normalized(text):
+    """TEXT without whitespace, optional-chaining marks and a leading `self.`, for comparing two expressions."""
+    return re.sub(r"(?<![\w.])self\.", "", re.sub(r"[\s?!]", "", text))
+
+
+def balanced(text, start):
+    """TEXT from START up to the parenthesis that closes the one just before START (or to the end)."""
+    depth = 1
+    for pos in range(start, len(text)):
+        if text[pos] in "([{":
+            depth += 1
+        elif text[pos] in ")]}":
+            depth -= 1
+            if depth == 0:
+                return text[start:pos]
+    return text[start:]
+
+
+def guard_window(lines, index, code, start):
+    """CODE before START and the GUARD_LINES lines above it, as swift_code reads them: where a check may sit."""
+    return [code[:start]] + [swift_code(lines[i]) for i in range(max(0, index - GUARD_LINES), index)]
+
+
+def json_checked(lines, index, code, start, value):
+    """Whether `isValidJSONObject(VALUE)` is read before CODE[start] on its line or on one of the GUARD_LINES above."""
+    want = normalized(value)
+    return any(normalized(balanced(text, found.end())) == want
+               for text in guard_window(lines, index, code, start) for found in JSON_CHECK.finditer(text))
+
+
+def range_proven(lines, index, code, start, receiver, value):
+    """Whether VALUE, the range or index the call at CODE[start] passes, is proven inside RECEIVER: RECEIVER's whole
+    range spelled in the call (`NSRange(location: 0, length: text.length)`, `NSMakeRange(0, text.length)`), or a name
+    bound from RECEIVER's checkedRange / checkedIndex (CmuxNextCompat's CheckedFoundation.swift) before the call on
+    its line or on one of the GUARD_LINES lines above."""
+    owner, value = normalized(receiver), normalized(value)
+    length = (owner + "." if owner else "") + "length"
+    if value in (f"NSRange(location:0,length:{length})", f"NSMakeRange(0,{length})"):
+        return True
+    if not re.fullmatch(r"[A-Za-z_]\w*", value):
+        return False
+    bound = re.compile(r"\blet\s+" + re.escape(value) + r"\s*=\s*(.*?)\s*\.\s*checked(?:Range|Index)\s*\(")
+    bare = re.compile(r"\blet\s+" + re.escape(value) + r"\s*=\s*(?:self\s*\.\s*)?checked(?:Range|Index)\s*\(")
+    for text in guard_window(lines, index, code, start):
+        if any(normalized(found.group(1)) == owner for found in bound.finditer(text)):
+            return True
+        if not owner and bare.search(text):
+            return True
+    return False
+
+
+def file_handles(lines):
+    """The names LINES declare or bind as a FileHandle (HANDLE_TYPED, HANDLE_BOUND)."""
+    names = set()
+    for line in lines:
+        if "FileHandle" in line or "fileHandleFor" in line:
+            code = swift_code(line)
+            names.update(HANDLE_TYPED.findall(code))
+            names.update(HANDLE_BOUND.findall(code))
+    return frozenset(names)
+
+
+def is_handle(receiver, handles):
+    """Whether RECEIVER is a FileHandle: FileHandle.standardError / a pipe's fileHandleFor*, or a name in HANDLES."""
+    receiver = normalized(receiver)
+    if HANDLE_EXPRESSION.search(receiver):
+        return True
+    last = re.search(r"(\w+)$", receiver)
+    return bool(last) and last.group(1) in handles
+
+
+def unlabeled_single(arguments):
+    """Whether ARGUMENTS is one top-level argument without a label (`write(data)`, not `write(contentsOf: data)`)."""
+    parts = top_level_arguments(arguments)
+    return len(parts) == 1 and not re.match(r"[A-Za-z_]\w*\s*:(?!:)", parts[0])
+
+
+def objc_raises_hits(lines, index, code=None, handles=frozenset()):
+    """{pattern: hits} of the objc_raises calls that start on LINES[INDEX] (see the docstring); a comment line has
+    none. CODE: the line as swift_code reads it, when the caller has it; HANDLES: file_handles() of the file."""
+    if not OBJC_HINT.search(lines[index]) or lines[index].lstrip().startswith("//"):
+        return {}
+    code = swift_code(lines[index]) if code is None else code
+    found = {}
+
+    def add(pattern):
+        found[pattern] = found.get(pattern, 0) + 1
+
+    for match in JSON_DATA.finditer(code):
+        value = labeled(call_arguments(lines, index, code, match.end()), "withJSONObject")
+        if value is not None and not json_checked(lines, index, code, match.start(), value):
+            add("json")
+    for _ in LEGACY_HANDLE.finditer(code):
+        add("file_handle")
+    for match in HANDLE_WRITE.finditer(code):
+        receiver = receiver_of(code, match.start())
+        if receiver and is_handle(receiver, handles) \
+                and unlabeled_single(call_arguments(lines, index, code, match.end())):
+            add("file_handle")
+    for match in RANGE_CALL.finditer(code):
+        if DECLARED_FUNC.search(code[:match.start()]):
+            continue
+        value = labeled(call_arguments(lines, index, code, match.end()), RANGE_LABELS[match.group(1)])
+        if value is not None and not range_proven(lines, index, code, match.start(),
+                                                  receiver_of(code, match.start()), value):
+            add("ns_range")
+    return found
+
 
 ADD_OBSERVER = re.compile(r"\baddObserver\(")
 SELECTOR_OBSERVER = re.compile(r"addObserver\(\s*[^,()]+?,\s*selector\s*:")
@@ -858,10 +1052,15 @@ def report_owned(kind, rel):
 REPORT_INDEX = ("index_subscript", "int_conversion")
 # Report classes judged by a function of (lines, index) instead of one regex.
 REPORT_LINE = {"trap_api": trap_api_hits}
-REPORT_CLASSES = sorted(set(REPORT_SWIFT) | set(REPORT_LINE) | set(REPORT_INDEX))
+# Report classes whose hits each have a pattern: (a function of (lines, index, code, file context) -> {pattern: hits},
+# the function that makes the file context once per file from its lines, the patterns); each site has its "pattern".
+REPORT_PATTERNED = {"objc_raises": (objc_raises_hits, file_handles, OBJC_PATTERNS)}
+REPORT_CLASSES = sorted(set(REPORT_SWIFT) | set(REPORT_LINE) | set(REPORT_INDEX) | set(REPORT_PATTERNED))
+# The machine queue (plans/cmux-next/chrome-parity/p10-stability.md, section 3) a class's report feeds.
+REPORT_QUEUES = {"trap_api": "Q09", "objc_raises": "Q19"}
 SCOPE_PACKAGES, SCOPE_INDEX_MODULES, SCOPE_ALL_MODULES = "packages", "index-modules", "all-modules"
 # A raw line that does not match its class's hint has no hit of the class (so most lines skip swift_code).
-REPORT_HINTS = {"trap_api": TRAP_HINT, "index_subscript": re.compile(r"\["),
+REPORT_HINTS = {"trap_api": TRAP_HINT, "objc_raises": OBJC_HINT, "index_subscript": re.compile(r"\["),
                 "int_conversion": re.compile(r"Int(?:8|16|32|64)?\("),
                 **{kind: pattern for kind, pattern in REPORT_SWIFT.items()}}
 
@@ -924,19 +1123,28 @@ def report_counts(repo, exported, kinds, all_modules=False):
         dictionaries = frozenset()
         if any(kind in REPORT_INDEX for kind in judged):
             dictionaries = file_dictionaries(lines, *collections.get(module, (frozenset(), frozenset())))
+        context = {kind: REPORT_PATTERNED[kind][1](lines) for kind in judged if kind in REPORT_PATTERNED}
         for index, line in enumerate(lines):
             here = [kind for kind in judged if REPORT_HINTS[kind].search(line)]
             if not here or line.lstrip().startswith("//"):
                 continue
             code = swift_code(line)
             for kind in here:
-                hits = report_line_hits(kind, lines, index, code, dictionaries)
-                if hits:
+                if kind in REPORT_PATTERNED:
+                    found = REPORT_PATTERNED[kind][0](lines, index, code, context[kind])
+                else:
+                    found = {None: report_line_hits(kind, lines, index, code, dictionaries)}
+                for pattern, hits in sorted(found.items(), key=lambda item: item[0] or ""):
+                    if not hits:
+                        continue
                     counts[kind][module] = counts[kind].get(module, 0) + hits
-                    sites[kind].append({"path": rel.replace(os.sep, "/"), "line": index + 1, "class": kind,
-                                        "module": module, "hits": hits})
+                    site = {"path": rel.replace(os.sep, "/"), "line": index + 1, "class": kind, "module": module,
+                            "hits": hits}
+                    if pattern:
+                        site["pattern"] = pattern
+                    sites[kind].append(site)
     for found in sites.values():
-        found.sort(key=lambda site: (site["path"], site["line"]))
+        found.sort(key=lambda site: (site["path"], site["line"], site.get("pattern", "")))
     return counts, sites
 
 
@@ -969,6 +1177,10 @@ def report(repo, exported, names, all_modules=False):
     out = {}
     for kind, modules in counts.items():
         entry = {"total": sum(modules.values()), "modules": dict(sorted(modules.items())), "hits": sites[kind]}
+        if kind in REPORT_QUEUES:
+            entry["queue"] = REPORT_QUEUES[kind]
+        if kind in REPORT_PATTERNED:
+            entry["patterns"] = pattern_rows(sites[kind], REPORT_PATTERNED[kind][2])
         row = baseline.get(kind)
         if row and row.get("scope") == report_scope(kind, all_modules):
             known = row.get("modules", {})
@@ -978,6 +1190,18 @@ def report(repo, exported, names, all_modules=False):
         out[kind] = entry
     print(json.dumps(out, indent=2, sort_keys=True))
     return 0
+
+
+def pattern_rows(sites, patterns):
+    """{pattern: {"total", "modules": {module: hits}}} of SITES, every one of PATTERNS present (0 when it has none)."""
+    rows = {pattern: {"total": 0, "modules": {}} for pattern in patterns}
+    for site in sites:
+        row = rows[site["pattern"]]
+        row["total"] += site["hits"]
+        row["modules"][site["module"]] = row["modules"].get(site["module"], 0) + site["hits"]
+    for row in rows.values():
+        row["modules"] = dict(sorted(row["modules"].items()))
+    return rows
 
 
 REPORT_BASELINE_COMMENT = ("Report-only rows of crash_ratchet.py --report (p10-stability rule 1: no CI gates). Written "
