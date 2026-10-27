@@ -51,7 +51,7 @@ public nonisolated struct BrowserResizeTunables {
     /// (Leo, 2026-10-26: "resizing the panes it propagates so fucking slowly to the right side browser tab
     /// thing"). Chromium draws in another process, so a page laid out at every frame's size shows each size
     /// some frames after its pane. `BrowserDragResize` names the three ways; the default is the one the
-    /// split_resize harness measured to follow the drag best (cmux#25842).
+    /// split_resize harness measured to follow the drag best (`BrowserDragResize.default`).
     public static let dragResize = Tunable<BrowserDragResize>.choice(
         "browserResize.dragResize", section, "Page while a divider is dragged",
         help: "Live: the page lays out at every size, a few frames behind the divider. Hold: the page keeps its size and moves with the pane, clipped, and lays out once when the drag lands. Synced live: Chromium holds each app frame until the page has drawn at the new size (up to 500 ms); applies the next time Chromium starts.",
@@ -88,7 +88,11 @@ public nonisolated enum BrowserDragResize: String, Sendable, CaseIterable, Tunab
     /// deadline before fork API 27). A launch switch (`CEFSwitches`): applies when Chromium next starts.
     case synced
 
-    public static let `default` = BrowserDragResize.hold
+    /// Live: on the split_resize harness (the three variants back to back on one M4 capture Mac, 2026-10-27) it
+    /// lays the page out within half a frame of its pane with the fewest dropped app frames; hold lays out about
+    /// 400 ms after the release (Leo, on hold: "still lagging like shit when recalculating size/layout"), and
+    /// synced follows as closely but holds more app frames.
+    public static let `default` = BrowserDragResize.live
 
     public var tunableTitle: String {
         switch self {
