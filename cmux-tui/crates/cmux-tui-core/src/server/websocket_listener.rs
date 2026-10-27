@@ -12,6 +12,7 @@ use tungstenite::protocol::frame::coding::CloseCode;
 use tungstenite::{Message, WebSocket, accept_hdr_with_config};
 
 use super::attachment_http;
+use super::connection_scheduler::connection_qos::ReaderClass;
 use super::connection_scheduler::{REQUEST_THREAD_QOS, spawn_request_thread};
 use super::listen;
 use super::page_files;
@@ -373,7 +374,7 @@ fn handle_websocket_connection_with_permit(
                     writer_stream.write_websocket_text(&text, &writer_ipc)
                 }
                 // The WebSocket sink refuses frames before they queue.
-                OutboundItem::Frame(..) => Err(std::io::Error::new(
+                OutboundItem::Frame(..) | OutboundItem::Chunk { .. } => Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
                     "a frame reached a WebSocket",
                 )),
@@ -414,10 +415,15 @@ fn handle_websocket_connection_with_permit(
         // A page-bound credential matched only a handshake that named its page.
         None => {}
     }
-    let surface_scheduler = Arc::new(ConnectionSurfaceScheduler::new_inner(
-        mux.surface_operation_admission.clone(),
-        connection_permit.clone(),
-    ));
+    let class = mux.control_clients.connection_class(client);
+    let mut reader_class = ReaderClass::new(class.clone(), mux.request_qos());
+    let surface_scheduler = Arc::new(
+        ConnectionSurfaceScheduler::new_inner(
+            mux.surface_operation_admission.clone(),
+            connection_permit.clone(),
+        )
+        .classed(class),
+    );
 
     // Any inbound byte, including part of a frame or a Pong, is liveness.
     let mut idle_since = Instant::now();
@@ -444,15 +450,18 @@ fn handle_websocket_connection_with_permit(
                 let keep_open =
                     match hello.observe(&mux, client, &text, client_hello::Peer::unknown) {
                         Some(reply) => writer.send_control(&reply).is_ok(),
-                        None => handle_connection_frame_at(
-                            &mux,
-                            client,
-                            ClientTransport::WebSocket,
-                            &text,
-                            &writer,
-                            &surface_scheduler,
-                            arrived,
-                        ),
+                        None => {
+                            reader_class.before_line(&mux, client, hello.is_closed());
+                            handle_connection_frame_at(
+                                &mux,
+                                client,
+                                ClientTransport::WebSocket,
+                                &text,
+                                &writer,
+                                &surface_scheduler,
+                                arrived,
+                            )
+                        }
                     };
                 drop(parses);
                 zeroize_string(&mut text);

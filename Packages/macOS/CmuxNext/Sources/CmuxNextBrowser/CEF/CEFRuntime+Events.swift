@@ -85,6 +85,8 @@ extension CEFRuntime {
             chromeWindowCommandBlocked(command, browser: browser)
         case .beforeClose(let browser):
             widgetHost?.ownerClosed(browser)
+            hostStart?.popupMenus?.ownerClosed(browser)
+            hostStart?.files?.browserClosed(browser)
             browserClosed(browser)
         case .beforeUnloadDialog(let browser, let token, let isReload):
             // A page with no tab to ask in never keeps its unload waiting: it leaves.
@@ -104,11 +106,14 @@ extension CEFRuntime {
             widgetHost?.remove(widget)
         case .pageView(let browser, let change):
             tabsByBrowser[browser]?.host.pageViewChanged(change, browser: browser)
+        case .popupMenu(let browser, let token, let popup):
+            popupMenuOpened(browser: browser, token: token, popup: popup)
+        case .popupMenuHidden(let browser, let token):
+            hostStart?.popupMenus?.hide(browser: browser, token: token)
         case .pageDragEnter(let browser, let pathsJSON):
             if let tab = tabsByBrowser[browser], let entered = tab.pageFilesDragged { entered(CEFTab.dragPaths(pathsJSON)) }
-        case .fileDialog(_, let dialogID, _, _, _):
-            // Only after the host turned choosers on (setFileDialogs): until a handler answers, cancel, so a page never waits.
-            _ = shim?.fileDialogAnswer(dialogID, 0, nil)
+        case .fileDialog(let browser, let dialogID, let mode, let acceptTypes, let defaultPath):
+            fileDialogAsked(dialogID, browser: browser, request: ChromiumFileDialogRequest(mode: mode, acceptTypes: acceptTypes, defaultPath: defaultPath))
         case .devToolsResult(let browser, let messageID, let success, let json):
             let key = CEFDevToolsKey(browser: browser, message: messageID)
             let result: Result<String, any Error> = success ? .success(json) : .failure(BrowserTabError.javaScript(json))
@@ -131,6 +136,7 @@ extension CEFRuntime {
             tabsByBrowser[browser]?.devToolsController.opened(browser: devTools, docked: docked)
         case .devToolsClosed(let browser, let devTools):
             tabsByBrowser[browser]?.devToolsController.closed(browser: devTools)
+            hostStart?.popupMenus?.ownerClosed(devTools)
         case .installPrompt(let browser, let promptID, let json):
             extensionPrompts.arrived(promptID: promptID, browser: browser, json: json)
         case .download(let event):
@@ -441,29 +447,5 @@ extension CEFRuntime {
         let waiter = shutdownWaiter
         shutdownWaiter = nil
         waiter?.resume(returning: ())
-    }
-}
-
-extension CEFShimEvent {
-    var browserID: Int32? {
-        switch self {
-        case .address(let b, _), .title(let b, _), .favicon(let b, _), .loadingState(let b, _, _, _),
-             .loadStart(let b, _, _), .loadEnd(let b, _), .loadError(let b, _, _, _, _), .progress(let b, _),
-             .fullscreen(let b, _), .findResult(let b, _, _, _, _), .closeRequested(let b), .popup(let b, _, _, _),
-             .afterCreated(let b, _, _, _), .beforeClose(let b), .createFailed(let b, _), .chromeCommand(let b, _), .devToolsResult(let b, _, _, _), .tab(_, let b, _, _),
-             .reply(let b, _, _, _), .contextMenu(let b, _, _, _, _, _),
-             .devToolsWillOpen(let b), .devToolsOpened(let b, _, _), .devToolsClosed(let b, _),
-             .renderTerminated(let b, _, _, _, _), .renderUnresponsive(let b), .renderResponsive(let b),
-             .navigationReroute(let b, _, _), .localFileHandoff(let b, _), .externalURL(let b, _, _), .keyUnhandled(let b, _, _), .keyUnhandledChord(let b, _), .installPrompt(let b, _, _), .takeFocus(let b, _),
-             .devToolsMessage(let b, _), .authCallback(let b, _), .permissionPrompt(let b, _, _, _), .permissionDismissed(let b, _), .passwordPrompt(let b, _, _),
-             .beforeUnloadDialog(let b, _, _), .beforeUnloadDismissed(let b), .pageResource(let b, _, _), .pageDragEnter(let b, _),
-             .fileDialog(let b, _, _, _, _), .pageView(let b, _),
-             .pageMessage(let b, _, _, _), .widgetGone(let b, _):
-            b
-        case .widgetContext(let context):
-            context.owner
-        case .contextInitialized, .omniboxSuggestions, .preferenceChanged, .bookmarks, .download, .evaluateResult, .unknown:
-            nil
-        }
     }
 }

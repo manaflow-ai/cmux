@@ -284,7 +284,7 @@ import Testing
     static func hostRuntime() async throws -> (CEFRuntime, CEFHostStart) {
         let runtime = try inProcessRuntime()
         let host = CEFHostStart(supervisor: OneSpyHost(), open: { _ in
-            do { return .success(try CEFRemoteShim.make(symbol: ExtensionSitesSpy.symbol, expected: ExtensionSitesSpy.abi)) } catch {
+            do throws(CEFShimLibrary.LoadError) { return .success(try CEFRemoteShim.make(symbol: ExtensionSitesSpy.symbol, expected: ExtensionSitesSpy.abi)) } catch {
                 return .failure(.shim(error))
             }
         })

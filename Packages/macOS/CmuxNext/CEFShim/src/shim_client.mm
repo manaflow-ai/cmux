@@ -79,6 +79,9 @@
     case CMUX_SHIM_CURSOR:
     case CMUX_SHIM_DRAG_OPERATION:
     case CMUX_SHIM_TOOLTIP:
+    case CMUX_SHIM_POPUP_MENU:
+    case CMUX_SHIM_POPUP_MENU_HIDE:
+    case CMUX_SHIM_SUGGESTIONS:
       return true;
   }
   return false;
@@ -568,12 +571,14 @@ class Client : public CefClient,
     int id = browser->GetIdentifier();
     browsers()[id] = browser;
     registrations_[id] = browser->GetHost()->AddDevToolsMessageObserver(this);
+    InstallSuggestionHandler(id);
     int request = request_;
     request_ = 0;
     int window = fork_api().tab_window_id ? fork_api().tab_window_id(id) : 0;
     std::string features;
     std::string popup_url;
     int64_t popup = request == 0 ? TakePopup(browser, &features, &popup_url) : 0;
+    ApplyPopupMenus(id);
     Emit(CMUX_SHIM_AFTER_CREATED, id, request, window, popup, features, popup_url);
   }
 

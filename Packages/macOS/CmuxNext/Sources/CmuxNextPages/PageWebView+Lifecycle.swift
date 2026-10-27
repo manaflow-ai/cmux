@@ -31,7 +31,8 @@ extension PageWebView {
     /// its window, so AppKit's hide already reached the engine (``setEngineVisible(_:)`` from
     /// `viewDidHide` or `viewDidMoveToWindow`). Chromium: the page is frozen once. WebKit stays in its
     /// window (no detach; p13-webui-029 measures one): its view is hidden, which stops its frames,
-    /// and all of WebKit's hidden-page throttling is on until the thaw.
+    /// and all of WebKit's hidden-page throttling is on until the thaw. A frozen page's providers
+    /// stop their sources (``PageRouter/pageWillFreeze()``).
     ///
     /// - Returns: True when the page is frozen (a second call makes no second engine call); false
     ///   when refused: the page shows, its Chromium page is still starting, or the engine did not
@@ -46,10 +47,12 @@ extension PageWebView {
             webView.isHidden = true
             preferences.setHiddenPageThrottling(.full)
             frozenEngine = .webKit(restoring: restoring)
+            router.pageWillFreeze()
             return true
         }
         guard let page = chromiumSession?.page, page.setFrozen(true) else { return false }
         frozenEngine = .chromium(ObjectIdentifier(page))
+        router.pageWillFreeze()
         return true
     }
 
@@ -57,27 +60,32 @@ extension PageWebView {
     /// thaws first too). Chromium: the page thaws, and is shown only after. WebKit: the view is
     /// shown in its window again with the hidden-page throttling it had before the freeze, so a page
     /// the lifecycle keeps running while hidden is throttled no more than WebKit's own default.
-    /// Does nothing on a running page.
+    /// Then the pushes held while it was frozen run (``PageNativePushes/thawed()``) and the providers
+    /// hear the thaw (``PageRouter/pageDidThaw()``). Does nothing on a running page.
     func thawPage() {
         guard let engine = frozenEngine else { return }
         frozenEngine = nil
+        // The engine runs again first; then the providers restart their sources and resync, before
+        // the router releases what it held.
+        defer { router.pageDidThaw() }
         switch engine {
         case .chromium(let identity):
-            guard let page = chromiumSession?.page, ObjectIdentifier(page) == identity else { return }
-            page.setFrozen(false)
+            if let page = chromiumSession?.page, ObjectIdentifier(page) == identity { page.setFrozen(false) }
         case .webKit(let restoring):
             if let restoring { webView.configuration.preferences.setHiddenPageThrottling(restoring) }
             if chromiumSession == nil { webView.isHidden = false }
         }
+        pushes.thawed()
     }
 
     /// The frozen Chromium page ended and the page reopens in WebKit (``fallBackToWebKit(_:detail:)``):
     /// the WebKit page takes its place in the frozen state, so the lifecycle's `.frozen` stays true
-    /// and its next pass (the reload's load reason) thaws it the usual way. A page that shows runs.
+    /// and its next pass (the reload's load reason) thaws it the usual way. A page that shows runs,
+    /// and so do its providers.
     func carryFreezeToWebKit() {
         guard case .chromium? = frozenEngine else { return }
         frozenEngine = nil
-        freezePage()
+        if !freezePage() { router.pageDidThaw() }
     }
 
     /// The tab closed: cancels subscriptions, stops the bridge and ends the engine page.

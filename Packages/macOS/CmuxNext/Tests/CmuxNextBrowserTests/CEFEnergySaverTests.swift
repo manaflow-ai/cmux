@@ -38,6 +38,29 @@ import Testing
         #expect(recorder.calls == [true, false])
     }
 
+    /// A restarted Chromium (the host, p14-energy-045): an edge while no Chromium ran reached nobody, so
+    /// the next ready sends the source's state again, edge or not, and ``CEFEnergySaver/isApplied`` is the
+    /// new Chromium's answer.
+    @Test func resyncSendsTheCurrentStateAfterAnEdgeNoChromiumTook() {
+        let source = EnergyPolicySource(EnergyPolicy(saverReason: .battery, onBattery: true))
+        let recorder = Recorder()
+        let saver = CEFEnergySaver { recorder.calls.append($0); return recorder.answer }
+        saver.follow(source, queue: MainWakeUpQueue(energy: source))
+        #expect(recorder.calls == [true] && saver.isApplied)
+
+        recorder.answer = false  // Chromium ended
+        source.update(EnergyPolicy(onBattery: false))
+        #expect(recorder.calls == [true, false])
+        #expect(!saver.isApplied)
+
+        recorder.answer = true  // the next Chromium is ready
+        saver.resync()
+        #expect(recorder.calls == [true, false, false], "the next Chromium did not get the state of the edge it missed")
+        #expect(saver.isApplied, "applied stayed the answer of the Chromium that ended")
+        source.update(.normal)
+        #expect(recorder.calls.count == 3, "a repeated state after the resync made a call")
+    }
+
     /// The source tells observers on its writer's thread. Changes told off the main thread reach Chromium
     /// only from the main wake queue's fire, and each queued hop reads the latest policy: three edges
     /// off main make one call, with the state the source ends in.
@@ -110,6 +133,8 @@ import Testing
 @MainActor
 private final class Recorder {
     var calls: [Bool] = []
+    /// What the apply answers: the fork took the call.
+    var answer = true
 }
 
 /// The queue's uptime in ns: the queue reads it from any thread, the test's main actor moves it.

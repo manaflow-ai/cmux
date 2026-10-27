@@ -180,6 +180,35 @@ Cleanup follows the measured damage owners (`render-idle-damage.py`, task 003), 
 Rejected: a `CATransaction` on the renderer thread into a layer of the tree that main owns. It causes lock
 contention with the main commit, priority inversion and a teardown race (rule 5 in section 4).
 
+#### Ghostty integrator lane (task 079)
+
+Ghostty changes land first as manaflow-ai/ghostty-next PRs. PL-ghostty merges them in this order, and cmux takes
+them in at most 3 GhosttyNextKit pins in the 72 h:
+
+| Pin | ghostty-next PRs (task) | Why this order |
+|---|---|---|
+| 1 | 088 renderer QoS by visibility and focus; 089 no frame when nothing changed; 082 external vsync | No dependencies. They remove idle and hidden work before the present path changes. |
+| 2 | 080 present off main in the form that spike 017 selects; 084 pre-commit present never waits; 090 external cursor with a cell image | 080 needs the 017 result; 084 needs 080. App tasks 081, 083, 091 and 093 rebase onto this pin. |
+| 3 | 086 manual-IO surfaces run no IO thread; 087 shared glyph atlas and one command queue; 092 buffer-age partial redraw | 092 needs 089. These change memory and threads, not the present path. |
+
+Ghostty-next PRs from other programs (p07-memory-036, p09-observability-048, p14-energy-068, 069 and 114,
+p04-input-078) go into the next pin after they merge. They do not get their own pin. A PR that is not merged when
+its pin is cut goes into the next pin; the order of the pins does not change.
+
+Each pin is one cmux commit:
+
+- It moves the `ghostty-next` gitlink and the GhosttyNextKit `url` and `checksum` in
+  `Packages/Shared/CmuxGhosttyKit/Package.swift` to the same ghostty-next commit, the source of release
+  `xcframework-<sha>-apple-vN`. The pre-push guardrail `ghostty-pin` refuses a push that moves one without the other.
+- Its message names each PR it brings as `manaflow-ai/ghostty-next#N` and each PR's acceptance rg.
+- It regenerates the notice files with `scripts/cmux-next/notices/ghosttykit_repin.py`.
+- Test phase: `zig build test` for each PR on the fleet before merge; the GhosttyNextKit release build for the pin.
+
+`render-done-checks.py` shows the lane: `GHOSTTY` (the submodule is initialized at the gitlink), `GHOSTTY-kit` (the
+gitlink is the GhosttyNextKit source sha) and `LANE-ghostty-pins` (the gitlink moves in the 72 h before HEAD, at most
+3, each naming a ghostty-next PR). Chromium does the same with dependency rolls: one roll commit moves a dependency
+pin and lists the commits it brings (depot_tools `roll_dep.py`).
+
 ### R6 Hidden and occluded cost nothing
 
 | cmux | Chrome |

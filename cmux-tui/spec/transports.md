@@ -383,11 +383,15 @@ Each connection has one control sequence (stream 0): command replies, the events
 stream, and the items of its `session.events` stream. The server writes them in one FIFO, in the
 order they were enqueued. Every other stream (attach output, journal reads, loopback forwards,
 agent-session attaches and other resource streams) keeps its own FIFO: its items are never
-reordered among themselves, but priority may move them relative to other streams. The control FIFO
-goes first, with a bound: after 8 control-sequence items in a row, the writer writes one waiting
-item of another stream, so an event flood never starves attach output. A reply or terminal never
-yields, and the bound never changes the order inside the control FIFO. These rules hold on the
-Unix socket and WebSocket transports:
+reordered among themselves, but priority may move them relative to other streams. Each such stream
+rides a lane, and the writer takes lanes in this order: input streams, the control FIFO, bulk
+streams (attach output and the other streams today), background streams. The order has a
+starvation bound: a lower lane passed over for 8 items writes one, so an event flood never starves
+attach output; the bound never changes the order inside a FIFO. Streams of one lane take turns of 2
+items. On a connection that carries frames, a stream frame longer than the daemon's frame cut
+(`bulk_frame_max` in `identify` with `revisions`, 32 KiB unless `CMUX_IPC_BULK_FRAME_MAX` sets it)
+is written in chunks with the MORE flag or as SNAPSHOT then SNAPSHOT_MORE, so a reply waits for at
+most one chunk. These rules hold on the Unix socket and WebSocket transports:
 
 1. Control replies and control events share one FIFO.
 2. **Not in force until chrome-parity p05-ipc-120 lands.** After p05-ipc-120, a reply is enqueued
@@ -483,6 +487,35 @@ than the daemon's. To get the grant again, the client must echo the
 capability again in a later `set-client-info`. A later page-relay
 `client-hello` also ends every grant. The daemon checks a grant again each
 time the grant is used.
+
+### Attach frames
+
+Status: encoder only (p05-ipc-076). `attach-frames-v1` stays unbound until
+the outbound queue carries stream frames, so no connection gets these yet.
+
+On a stream granted `attach-frames-v1`, the byte attach events of
+`attach-surface` (see [events](events.md)) arrive as frames instead of JSON
+lines. The aux of every one is an absolute PTY offset: the count of output
+bytes the terminal published before the frame. The first `OUTPUT` of an
+attach starts at the offset the attach's replay was taken at.
+
+| Event | Frames | Payload |
+| --- | --- | --- |
+| `output` | `OUTPUT` at the offset of its first byte | the raw PTY bytes |
+| `output` with `colors` or `flow` | `OUTPUT`, then `EVENT` at the same offset | `EVENT`: the `output` event text without `data` |
+| `resized` | `GRID` at the current offset | `meta_len` (u32 LE), the `resized` event text without `replay` and `pending`, then the replay bytes, then the pending bytes |
+| `colors-changed`, `detached`, `overflow` | `EVENT` at the current offset | the event text |
+
+`OUTPUT` offsets are contiguous: each one starts where the previous one
+ended, also across the chunks of a long payload. A reader that sees a gap
+lost bytes and resyncs. The server does not skip bytes when its outbound
+byte budget is full: it waits and sends the same frame at the same offset,
+as it does for a JSON line. A `GRID` meta has `pending_len`, the byte count of
+the pending sequence at the end of the payload, only for a viewer that
+advertised `terminal-pending-sequence-v1` and only when the sequence is not
+empty. For any other viewer, the pending bytes end the replay, as in its
+`resized` line. Putting the payload bytes back as base64 gives the JSON
+event of the line path.
 
 ## Framed IPC method attributes
 

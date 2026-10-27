@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextDesign
 import SwiftUI
 import CmuxNextHistory
+import CmuxNextWakeups
 
 /// Hosts the vault list (the vault page's content and the right sidebar's
 /// Vault section). Resolves the list colors in this view's theme scope, again
@@ -12,6 +13,12 @@ final class VaultHostView: NSView, VisibilityGatedContent {
     let vault: SessionVault
     private let appearanceState = VaultAppearance()
     private var gate: VisibilityGatedHostingView?
+    /// The view's place in the visibility tree (a page tab or the right sidebar's section): a theme change while it
+    /// is hidden resolves the colors once, on show.
+    private let visibility = ViewVisibility("vault")
+    private var visibilityNode: VisibilityNode { visibility.node }
+    /// How many times the list's colors were resolved (tests: a hidden vault resolves none until it shows).
+    private(set) var colorResolves = 0
 
     /// Its SwiftUI leaves the hierarchy while the vault tab is hidden (``VisibilityGatedHostingView``); the
     /// right sidebar's section follows no node.
@@ -58,15 +65,29 @@ final class VaultHostView: NSView, VisibilityGatedContent {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        visibility.place(in: window)
         resolveColors()
     }
 
+    // R-hide: hiding forwards to the node.
+    override func viewDidHide() {
+        super.viewDidHide()
+        visibilityNode.set(.hidden)
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        visibilityNode.set(.visible)
+    }
+
+    // R-appear: the colors feed the SwiftUI list, so a hidden vault resolves them on show.
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        resolveColors()
+        visibilityNode.deferUntilVisible(key: "VaultHostView.appearance") { [weak self] in self?.resolveColors() }
     }
 
     private func resolveColors() {
+        colorResolves += 1
         let colors = performWithTheme {
             VaultColors(background: .clear, primary: Self.color(Palette.textPrimary), secondary: Self.color(Palette.textSecondary),
                         tertiary: Self.color(Palette.textTertiary), selection: Self.color(Palette.selectionFill),

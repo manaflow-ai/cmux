@@ -69,6 +69,9 @@ public final class FakeChromiumPage: PageChromiumPage {
     /// throw ``PageScriptError/exception(_:)`` for an exception. It makes no DevTools call. Nil: the
     /// DevTools path, a `Runtime.evaluate` in ``calls`` answered as any call is (``answer``).
     public var rendererEvaluate: ((_ script: String) throws -> String)?
+    /// Awaited by ``evaluate(_:)`` after it records the script and before it answers: a test holds an
+    /// answer back (a page call still in flight) until the gate returns. Nil: answers at once.
+    public var evaluateGate: (@MainActor () async -> Void)?
 
     /// What ``copySurface(maxPixelSize:done:)`` answers; nil: no picture.
     public var surfaceCopy: PageEncodedSnapshot?
@@ -102,6 +105,7 @@ public final class FakeChromiumPage: PageChromiumPage {
     public func evaluate(_ script: String) async throws -> Any? {
         evaluations.append(script)
         defer { onEvaluate?() }
+        if let evaluateGate { await evaluateGate() }
         guard let rendererEvaluate else { return try await devToolsEvaluate(script) }
         let text = try rendererEvaluate(script)
         guard !text.isEmpty else { return nil }

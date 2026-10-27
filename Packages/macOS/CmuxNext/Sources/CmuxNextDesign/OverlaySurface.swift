@@ -84,6 +84,7 @@ public final class OverlaySurfaceView: NSView {
         isInteractive ? super.hitTest(point) : nil
     }
 
+    // visibility-walk-allow: layer color and corner stores of a shown overlay; no layout or text measure, cheaper than a deferral
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyTheme()

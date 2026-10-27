@@ -109,8 +109,10 @@ final class HomeService {
     /// transcript of every conversation tab reads this one store.
     /// Mermaid fences in Home chat draw as diagrams with the bundled Ondine
     /// (`markdown-viewer/ondine.min.js`); one renderer (one JavaScriptCore context) for every pane.
-    /// nil when the bundle lacks the script: fences stay text.
-    @ObservationIgnored private(set) lazy var diagrams: OndineMermaidRenderer? = OndineMermaidRenderer.bundled()
+    /// nil when the bundle lacks the script: fences stay text. With `memoryFileHomeCaches` it is a memory
+    /// consumer (`home-diagrams`) and its context goes after 10 min with no diagram shown (p07-memory-082).
+    @ObservationIgnored private(set) lazy var diagrams: OndineMermaidRenderer? =
+        OndineMermaidRenderer.bundled(memory: AppMemoryConsumers(services: services).fileCacheRegistry)
     @ObservationIgnored let homeSource: DaemonHomeSource
     /// Cloud conversations through the daemon's proxy (home-cloud-proxy.md),
     /// merged with the local ones into the one store.

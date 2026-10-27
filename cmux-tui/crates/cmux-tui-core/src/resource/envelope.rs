@@ -24,6 +24,10 @@ pub struct RequestEnvelope {
     /// (`origin-claim-v1`; checked before parsing by the connection).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<crate::request_origin::OriginClaim>,
+    /// The request's own priority (`request-priority-v1`): it may only
+    /// narrow the class the connection's origin gives the request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<crate::event_cause::RequestPriority>,
     /// The caller's launch credential (plans/cmux-next/identity.md section
     /// 3). The connection takes it out and verifies it before validation; it
     /// is never serialized, logged or part of a fingerprint.
@@ -32,7 +36,7 @@ pub struct RequestEnvelope {
 }
 
 impl RequestEnvelope {
-    /// A `cmux.protocol/2` request with no origin claim.
+    /// A `cmux.protocol/2` request with no origin claim and no priority.
     pub fn request(
         id: RequestId,
         operation: ResourceOperation,
@@ -47,6 +51,7 @@ impl RequestEnvelope {
             params,
             idempotency_key,
             origin: None,
+            priority: None,
             credential: None,
         }
     }

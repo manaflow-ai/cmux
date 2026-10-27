@@ -8,8 +8,11 @@ import CoreGraphics
 /// picture nothing (a flat page in the theme background), and neither does a
 /// flat capture (a page that had not painted, a terminal with only its prompt):
 /// the card shows no thumbnail.
+///
+/// It holds the cache strongly: a hover card's thumbnail task keeps this source until the capture
+/// returns, and the cache holds no reference to it (`AppServices.previews` and weak strip providers do).
 final class TabPreviewSource: TabPreviewProvider {
-    private unowned let cache: TabContentCache
+    private let cache: TabContentCache
 
     init(cache: TabContentCache) {
         self.cache = cache

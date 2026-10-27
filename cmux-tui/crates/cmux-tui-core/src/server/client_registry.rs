@@ -34,6 +34,7 @@ use super::VIEW_ATTACHMENT_DETACH_CAPABILITY;
 use super::VIEW_ATTACHMENT_LEASE_CAPABILITY;
 #[cfg(unix)]
 use super::agent_session_attach;
+use super::connection_scheduler::connection_qos::ConnectionClassCell;
 use super::sanitize_window_title;
 use super::size_state_event_json;
 use super::{
@@ -49,6 +50,8 @@ use crate::resource::StreamPublicId;
 use crate::sizing_policy::TerminalSizingState;
 use crate::{SurfaceId, panic_free::RecoverPoison};
 use base64::Engine;
+use cmux_threads::sync::Condvar;
+use cmux_threads::sync::Mutex;
 use serde_json::Value;
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -56,8 +59,6 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::sync::Condvar;
-use std::sync::Mutex;
 use std::sync::Weak;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
@@ -453,8 +454,11 @@ impl ClientRegistry {
                 writer,
                 origin: Default::default(),
                 person: false,
+                connection_class: Arc::default(),
                 #[cfg(unix)]
                 machine_catalog: None,
+                #[cfg(test)]
+                subscribe_probe: Arc::default(),
             },
         );
         drop(state);
@@ -464,6 +468,14 @@ impl ClientRegistry {
 
     pub(super) fn client_ids(&self) -> Vec<u64> {
         self.state.lock().recover_poison().clients.keys().copied().collect()
+    }
+
+    /// The probe of `client`'s `subscribe` stream (a fresh one for an
+    /// unknown client, which no stream reports to).
+    #[cfg(test)]
+    pub(super) fn subscribe_probe(&self, client: u64) -> Arc<super::cmd_subscribe::SubscribeProbe> {
+        let state = self.state.lock().recover_poison();
+        state.clients.get(&client).map(|record| record.subscribe_probe.clone()).unwrap_or_default()
     }
 
     #[cfg(test)]
@@ -690,7 +702,9 @@ impl ClientRegistry {
             }));
             record.writer.negotiate_conversation_tabs(record.capabilities.iter());
         }
-        Ok((record.name.clone(), record.kind.clone()))
+        let named = (record.name.clone(), record.kind.clone());
+        state.classify(client);
+        Ok(named)
     }
 
     /// The client's declared API revision (server/api_revision_wire.rs).
@@ -728,7 +742,22 @@ impl ClientRegistry {
         let mut state = self.state.lock().recover_poison();
         if let Some(record) = state.clients.get_mut(&client) {
             record.remote_device = true;
+            state.classify(client);
         }
+    }
+
+    /// The client class cell of `client`'s connection, which its threads
+    /// follow (connection_qos.rs); a cell that stays unclassified for a
+    /// client the registry does not hold.
+    pub(super) fn connection_class(&self, client: u64) -> Arc<ConnectionClassCell> {
+        let state = self.state.lock().recover_poison();
+        state.clients.get(&client).map(|record| record.connection_class.clone()).unwrap_or_default()
+    }
+
+    /// Classes `client`'s connection now: its hello window has closed, so
+    /// its origin is final (connection_qos.rs).
+    pub(super) fn classify_connection(&self, client: u64) {
+        self.state.lock().recover_poison().classify(client);
     }
 
     /// The connection's identity for shared sizing. Without explicit
@@ -865,7 +894,9 @@ impl ClientRegistry {
         if let Some(kind) = kind {
             record.kind = kind;
         }
-        Ok((record.name.clone(), record.kind.clone()))
+        let named = (record.name.clone(), record.kind.clone());
+        state.classify(client);
+        Ok(named)
     }
 
     pub(super) fn resource_records(&self) -> Vec<ResourceClientRecord> {

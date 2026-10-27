@@ -189,7 +189,7 @@ enum DebugDriverControl {
                 return .value(DebugPointerHover.run(call.params, services: services))
             },
             .mainActor("debug.menu") { [weak services] call in
-                .value(DebugExtensions.menu(call.params, presenter: services?.contextMenus))
+                .value(DebugExtensions.menu(call.params, presenter: services?.contextMenus, popupMenu: services?.cache.chromium.built?.hostPopupMenu))
             },
             // The browser-data import offer on the first browser tab.
             .mainActor("debug.browser_import_offer") { [weak services] call in
@@ -250,7 +250,8 @@ enum DebugDriverControl {
             .mainActor("debug.passwords_reveal") { [weak services] call in
                 guard let services else { return .value(.null) }
                 let secret = SecretBytes(copying: Array((call.params["secret"]?.stringValue ?? "fixture").utf8))
-                let surface = NativePasswordSecretSurface(), anchor = services.windows.active?.window?.contentView
+                let surface = NativePasswordSecretSurface(pasteboard: ConcealedPasteboard(deadlines: services.mainDeadlines))
+                let anchor = services.windows.active?.window?.contentView
                 let site = call.params["site"]?.stringValue ?? "example.com"
                 // task-owner: the reveal sheet's own lifetime; it ends when the sheet is answered or the app quits.
                 // Off main until the sheet: the reveal itself is the surface's main-actor work.

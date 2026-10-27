@@ -43,9 +43,10 @@
 //! bad request; `ids` are only names acpmux matches against its own rows.
 
 use crate::panic_free::JsonFields;
+use cmux_threads::sync::Mutex;
 use std::path::Path;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::Deserialize;

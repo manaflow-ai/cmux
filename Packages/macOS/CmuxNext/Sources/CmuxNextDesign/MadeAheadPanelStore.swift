@@ -54,6 +54,8 @@ final class MadeAheadPanelStore<Panel: ReusableOpenPanel> {
         self.makePanel = makePanel
         self.warmCheck = warmCheck
         self.policy = policy
+        // timer-class-allow: the warm-up's idle checks on the injected clock (the store's test seam): ten at most,
+        // then none until a click; each runs only while the person is idle (OpenPanelWarmGate)
         timer = DemandTimer(owner: "openPanel.madeAhead.warm", clock: clock)
         let ran = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
         checksRan = ran.stream

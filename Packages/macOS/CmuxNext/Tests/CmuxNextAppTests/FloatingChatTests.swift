@@ -97,7 +97,8 @@ struct FloatingChatTests {
             floating: { floating },
             pushState: { state, _ in rig.pushed.append(state) },
             context: { rig.focused },
-            defaults: rig.defaults)
+            defaults: rig.defaults,
+            mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         rig.controller = controller
         return (rig, controller)
     }

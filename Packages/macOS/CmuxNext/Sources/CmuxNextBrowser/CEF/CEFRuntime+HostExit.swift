@@ -65,14 +65,17 @@ extension CEFRuntime {
         tab.host.recreateShown(tab)
     }
 
-    /// Puts a runtime that has not started in host mode (``adopt(stores:signInCallbacks:waitDeadlines:hostSupervisor:hostWidgets:hostDrags:hostResizeFence:)``):
+    /// Puts a runtime that has not started in host mode (``adopt(stores:signInCallbacks:waitDeadlines:hostSupervisor:hostWidgets:hostDrags:hostResizeFence:hostPopupMenus:hostSuggestions:hostFileDialogs:)``):
     /// its start attaches through `supervisor` (host widgets in cmux with `showsWidgets`, drops with `takesDrags`, page
-    /// resizes fenced with `fencesResizes`), and the host's ends reach ``hostEnded(_:)`` when the supervisor reports
-    /// them (``ChromiumHostExitReporting``).
+    /// resizes fenced with `fencesResizes`, `<select>` popups as cmux menus with `drawsPopupMenus`, suggestions in cmux's
+    /// list with `drawsSuggestions`, page file choosers answered by `fileDialogs`), and the host's ends reach
+    /// ``hostEnded(_:)`` when the supervisor reports them (``ChromiumHostExitReporting``).
     func adoptHost(_ supervisor: any ChromiumHostSupervising, showsWidgets: Bool = false, takesDrags: Bool = false,
-                   fencesResizes: Bool = false) {
+                   fencesResizes: Bool = false, drawsPopupMenus: Bool = false, drawsSuggestions: Bool = false,
+                   fileDialogs: (any ChromiumFileDialogAnswering)? = nil) {
         hostStart = CEFHostStart(supervisor: supervisor, showsWidgets: showsWidgets, takesDrags: takesDrags,
-                                 fencesResizes: fencesResizes)
+                                 fencesResizes: fencesResizes, drawsPopupMenus: drawsPopupMenus, fileDialogs: fileDialogs)
+        hostStart?.drawsSuggestions = drawsSuggestions
         guard let reporting = supervisor as? any ChromiumHostExitReporting else { return }
         reporting.onHostEnded = { [weak self] exit in self?.hostEnded(exit) }
     }
@@ -85,6 +88,7 @@ extension CEFPaneHost {
         (window, windowTab, lastActivated, popupWindow) = (.none, nil, nil, nil)
         hostView.layerHosting.windowBrowsersChanged([])
         hostedPageView?.show(contextID: 0)
+        hostedPageView?.suggestions.hostEnded()
     }
 
     /// After a new host was attached, `tab`, shown here with no browser (its own went with the old

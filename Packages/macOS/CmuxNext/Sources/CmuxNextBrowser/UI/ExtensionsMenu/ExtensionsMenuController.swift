@@ -39,7 +39,8 @@ final class ExtensionsMenuController {
     private var handler: (any ExtensionMenuHandling)?
     private weak var anchorView: NSView?
     private var anchorRect = CGRect.zero
-    private var refreshTask: Task<Void, Never>?
+    /// Bumped by every open and close: a refresh posted for an earlier open does nothing.
+    private var openEpoch: UInt64 = 0
     /// The context menu while it is open (over the bubble or at a toolbar icon).
     private(set) weak var presentedContextMenu: NSMenu?
     /// The view that toggles the bubble (the Extensions button): a press on it is no dismiss.
@@ -131,10 +132,13 @@ final class ExtensionsMenuController {
         panel.makeFirstResponder(card)
         reportedShown = true
         onShownChange?(anchor, true)
-        // The open does not wait for Chromium: the refresh runs on the next turn.
-        refreshTask?.cancel()
-        refreshTask = Task { @MainActor [weak self] in
-            guard let self, !Task.isCancelled, self.isShown else { return }
+        // The open does not wait for Chromium: the refresh is the rest of the person's click, one userBlocking
+        // task after the open (TaskPriority::USER_BLOCKING, base/task/task_traits.h).
+        openEpoch &+= 1
+        let epoch = openEpoch
+        // node-free: the bubble is open only over its shown page, and closes when the page hides
+        mainWork.post(.userBlocking, owner: "browser.extensions.menu.refresh") { [weak self] in
+            guard let self, epoch == openEpoch, isShown else { return }
             self.host?.extensionStore.refresh()
         }
     }
@@ -234,8 +238,7 @@ final class ExtensionsMenuController {
         }
         observation?.cancel()
         observation = nil
-        refreshTask?.cancel()
-        refreshTask = nil
+        openEpoch &+= 1
     }
 
     // MARK: Rows

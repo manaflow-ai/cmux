@@ -76,6 +76,12 @@ public final class WebKitEngine: BrowserEngine {
     /// Where its pages' keyed waits (``BrowserPageWaiting``) put their timeouts: the main thread's one
     /// deadline queue.
     let waitDeadlines: AlignedWakeups
+    /// The app's main-thread scheduler: its tabs' and downloads' main-thread follow-ups are classed tasks on it.
+    let mainWork: MainWorkScheduler
+    /// Its tabs' main-thread deadlines (the title flush, the page-base hold), placed on `mainWork`'s wake-up queue.
+    let deadlines: MainDeadlineScheduler
+    /// App-wide notices for its tabs: one observer per name for every tab (each tab's Web Inspector watch).
+    let appEvents: AppEvents
 
     /// An engine over the App's `stores`.
     ///
@@ -88,6 +94,9 @@ public final class WebKitEngine: BrowserEngine {
     ///     writer; the default, fixed off, is for tests and fixtures.
     ///   - waitDeadlines: The main thread's deadline queue (`MainWorkScheduler.wakeUps`, the one the Chromium engine
     ///     has) for the pages' waits; nil (tests, fixtures): a queue of the engine's own over `energy`.
+    ///   - deadlines: The app's one `MainDeadline` placer (`AppServices.mainDeadlines`); its `work` is the app's one
+    ///     main-thread scheduler, which the tabs' and downloads' main-thread follow-ups are posted on.
+    ///   - appEvents: The app's one ``AppEvents`` (`AppServices.appEvents`): its tabs' app-wide notices share its observers.
     public init(
         fileInput: any WebFileInputAnswering,
         stores: BrowserSharedStores,
@@ -96,9 +105,14 @@ public final class WebKitEngine: BrowserEngine {
         downloadsDirectory: URL = DownloadDestination.defaultDirectory,
         applicationNameForUserAgent: String? = "Version/26.0 Safari/605.1.15",
         energy: EnergyPolicySource = EnergyPolicySource(),
-        waitDeadlines: MainWakeUpQueue? = nil
+        waitDeadlines: MainWakeUpQueue? = nil,
+        deadlines: MainDeadlineScheduler,
+        appEvents: AppEvents
     ) {
         self.fileInput = fileInput
+        mainWork = deadlines.work
+        self.deadlines = deadlines
+        self.appEvents = appEvents
         self.waitDeadlines = AlignedWakeups(queue: waitDeadlines ?? MainWakeUpQueue(energy: energy))
         self.stores = stores
         self.profileStore = profileStore ?? WebKitProfileStore(offTheRecord: stores.offTheRecord)
@@ -107,6 +121,25 @@ public final class WebKitEngine: BrowserEngine {
         self.applicationNameForUserAgent = applicationNameForUserAgent
         energySaver = energy.policy.pageSaver
         energyObservation = MainActorEnergyObservation(energy) { [weak self] policy in self?.energySaver = policy.pageSaver }
+    }
+
+    /// An engine on a main-thread scheduler and app notices of its own (tests and fixtures; internal, so the app,
+    /// which must pass its one ``MainDeadlineScheduler`` and ``AppEvents``, cannot reach it).
+    convenience init(
+        fileInput: any WebFileInputAnswering,
+        stores: BrowserSharedStores,
+        profileStore: WebKitProfileStore? = nil,
+        faviconLoader: any BrowserFaviconLoading = BrowserFaviconLoader.shared,
+        downloadsDirectory: URL = DownloadDestination.defaultDirectory,
+        applicationNameForUserAgent: String? = "Version/26.0 Safari/605.1.15",
+        energy: EnergyPolicySource = EnergyPolicySource(),
+        waitDeadlines: MainWakeUpQueue? = nil,
+        mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
+        appEvents: AppEvents = AppEvents(center: .default)
+    ) {
+        self.init(fileInput: fileInput, stores: stores, profileStore: profileStore, faviconLoader: faviconLoader,
+                  downloadsDirectory: downloadsDirectory, applicationNameForUserAgent: applicationNameForUserAgent, energy: energy,
+                  waitDeadlines: waitDeadlines, deadlines: MainDeadlineScheduler(work: mainWork), appEvents: appEvents)
     }
 
     public func makeTab(_ configuration: BrowserTabConfiguration) async throws -> any BrowserTab {
@@ -159,6 +192,7 @@ public final class WebKitEngine: BrowserEngine {
         // A WebKit without the feature has no rate to change.
         guard !tab.isClosed, let near60 = preferences.isWebKitFeatureEnabled(WebKitRenderRate.near60FPSFeature),
               near60 == fullRate, WebKitRenderRate.apply(fullRate: fullRate, to: preferences),
+              // visibility-walk-allow: WebKit reads the rate when this view becomes visible, so the re-show is for exactly what its own view tree draws now
               let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else { return }
         // A display at 60 Hz or less renders the same either way: no re-show.
         let display = displayFramesPerSecond(window)

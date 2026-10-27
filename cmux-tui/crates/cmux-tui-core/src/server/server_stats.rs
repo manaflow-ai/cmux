@@ -5,7 +5,7 @@
 //! rendered after every lock is released.
 
 use cmux_threads::blocking::{self, BlockingMode, BlockingSnapshot};
-use cmux_threads::process_role::{self, TaskRole};
+use cmux_threads::process_role::{self, DarwinBackground, TaskRole};
 use cmux_threads::work::{Lane, LaneStats};
 use cmux_threads::{LiveQos, ThreadInfo};
 
@@ -145,6 +145,18 @@ struct ProcessRow {
     role: Option<&'static str>,
     /// The raw `task_role_t` when it is outside the named set.
     role_raw: Option<i32>,
+    /// The daemon's two PRIO_DARWIN_BG flags; `None` on Linux.
+    darwin_bg: Option<DarwinBgRow>,
+}
+
+/// `process_role::DarwinBackground`: either flag suppresses the process.
+#[derive(Clone, Copy, Debug, serde::Serialize)]
+struct DarwinBgRow {
+    /// Set by the daemon on itself (`process_role::set_role`).
+    internal: bool,
+    /// Set by its parent by pid, or inherited from a suppressed parent; only
+    /// another process can clear it.
+    external: bool,
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -237,6 +249,7 @@ impl LaneRow {
 fn threads_snapshot(
     uptime_ms: u64,
     role: Option<TaskRole>,
+    darwin_bg: Option<DarwinBackground>,
     threads: Vec<ThreadInfo>,
     lanes: [LaneStats; 3],
 ) -> ServerThreadsSnapshot {
@@ -252,6 +265,8 @@ fn threads_snapshot(
                 Some(TaskRole::Other(raw)) => Some(raw),
                 _ => None,
             },
+            darwin_bg: darwin_bg
+                .map(|bg| DarwinBgRow { internal: bg.internal, external: bg.external }),
         },
         threads,
         lanes: lanes.into_iter().map(LaneRow::of).collect(),
@@ -259,12 +274,13 @@ fn threads_snapshot(
 }
 
 /// `server-threads`: the registry snapshot (one lock held for its row
-/// reads, as Chromium's `ThreadIdNameManager`), the lanes' counters and the
-/// task role, rendered after both are released.
+/// reads, as Chromium's `ThreadIdNameManager`), the lanes' counters, the
+/// task role and PRIO_DARWIN_BG, rendered after both locks are released.
 pub(super) fn server_threads(mux: &Mux) -> ServerThreadsSnapshot {
     threads_snapshot(
         uptime_ms(mux),
         process_role::current(),
+        process_role::darwin_background(),
         cmux_threads::snapshot(),
         mux.work.stats(),
     )

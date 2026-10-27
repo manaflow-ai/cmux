@@ -19,7 +19,7 @@ import Testing
     }
 
     @Test func equalContentSharesOneJobAndHitsTheCacheAfterwards() async throws {
-        let bitmaps = RowBitmaps(palette: Fixtures.palette)
+        let bitmaps = RowBitmaps(palette: Fixtures.palette, maxBytes: 64 << 20)
         let spec = RowSpec(key: "a", kind: .receipt("Read"), gap: 0, height: 14)
         var installed = 0
         let size = CGSize(width: 40, height: 62)
@@ -35,7 +35,7 @@ import Testing
     }
 
     @Test func aPaletteChangeDropsJobsInFlight() async throws {
-        let bitmaps = RowBitmaps(palette: Fixtures.palette)
+        let bitmaps = RowBitmaps(palette: Fixtures.palette, maxBytes: 64 << 20)
         let spec = RowSpec(key: "a", kind: .receipt("Read"), gap: 0, height: 14)
         var installed = 0
         _ = bitmaps.image(for: spec, size: CGSize(width: 40, height: 62)) { _ in installed += 1 }

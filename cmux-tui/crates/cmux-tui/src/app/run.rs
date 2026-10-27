@@ -184,14 +184,17 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
     let failure_tx = tx.clone();
     let pty_failures = Arc::new(PtyFailureIngress::default());
     let failure_ingress = pty_failures.clone();
-    let pty_input = PtyInputDispatcher::spawn(move |failure| {
-        if failure_ingress.push(failure) {
-            // This is a latency hint, not the ownership path. The event loop
-            // drains the ingress after every batch and timeout, including
-            // when this bounded app channel is currently full.
-            let _ = failure_tx.try_send(AppEvent::PtyFailuresReady);
-        }
-    })?;
+    let pty_input = PtyInputDispatcher::spawn_watched(
+        move |failure| {
+            if failure_ingress.push(failure) {
+                // This is a latency hint, not the ownership path. The event loop
+                // drains the ingress after every batch and timeout, including
+                // when this bounded app channel is currently full.
+                let _ = failure_tx.try_send(AppEvent::PtyFailuresReady);
+            }
+        },
+        owner_mux.as_deref().map(Mux::echo_watch),
+    )?;
     let session_generation = 1;
     let (session, session_event_worker, mux_titles, mux_recovery_generation) =
         start_ordered_session(

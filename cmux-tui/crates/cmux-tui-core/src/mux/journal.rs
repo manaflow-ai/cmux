@@ -289,6 +289,18 @@ impl Mux {
         &self.ipc_stats
     }
 
+    /// The frame cut of this daemon's connections, in bytes.
+    pub(crate) fn bulk_frame_max(&self) -> usize {
+        self.bulk_frame_max
+    }
+
+    /// The key echo path threads' handle on this mux's request watchdog:
+    /// each item of their work is watched at 100 ms (`mux-pty-input` of the
+    /// app that owns this mux takes one).
+    pub fn echo_watch(&self) -> crate::server::EchoWatch {
+        self.request_watchdog.echo_watch()
+    }
+
     pub fn uptime(&self) -> Duration {
         self.started_at.elapsed()
     }

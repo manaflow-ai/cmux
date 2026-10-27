@@ -77,8 +77,8 @@
   ],
   "methods": [
     {"mojom": "render_widget_host_ns_view.mojom", "interface": "PopupMenuRunner", "method": "Hide",
-     "pending": "p01-process-060",
-     "note": "Closes the cmux NSMenu of a POPUP_MENU token (060, fork handler 171)."},
+     "event": "CMUX_SHIM_POPUP_MENU_HIDE",
+     "note": "Cancels the tracking of the cmux NSMenu of that POPUP_MENU token, with no answer (ChromiumHostPopupMenus, 060; fork handler 171)."},
 
     {"mojom": "render_widget_host_ns_view.mojom", "interface": "RenderWidgetHostNSView", "method": "InitAsPopup",
      "event": "CMUX_SHIM_WIDGET_CONTEXT",
@@ -156,8 +156,8 @@
      "event": "CMUX_SHIM_WHEEL_ACK",
      "note": "WHEEL_ACK's overscrolled bit, overscroll-behavior-x and accumulated overscroll x, with the ack it came with (234)."},
     {"mojom": "render_widget_host_ns_view.mojom", "interface": "RenderWidgetHostNSView", "method": "DisplayPopupMenu",
-     "pending": "p01-process-060",
-     "note": "POPUP_MENU {token, items, bounds, font size, right aligned, selected}; reply the index or none (fork handler 171)."},
+     "event": "CMUX_SHIM_POPUP_MENU",
+     "note": "POPUP_MENU {token, items, bounds, font size, right aligned, selected}: ChromiumHostPopupMenus pops an NSMenu over the <select> as Chrome's WebMenuRunner does and answers the index or -1 with cmux_shim_browser_popup_menu_reply (060; fork handler 171)."},
 
     {"mojom": "render_widget_host_ns_view.mojom", "interface": "RenderWidgetHostNSViewHost", "method": "SyncIsWidgetForMainFrame",
      "not_needed": "Chrome asks it to validate menu items; a cmux page view shows only a tab's main-frame widget, and every other widget comes with its kind in WIDGET_CONTEXT, so no call is needed."},

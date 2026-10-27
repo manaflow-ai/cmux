@@ -1,4 +1,7 @@
 import CmuxVNC
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 import CmuxVNCDemoServer
 import CmuxVNCWebRTC
 import CoreGraphics
@@ -40,7 +43,7 @@ public final class ScreenSession {
     public private(set) var phase = Phase.connecting {
         didSet { resumeWaiters() }
     }
-    @ObservationIgnored private var phaseWaiters: [CheckedContinuation<Bool, Never>] = []
+    @ObservationIgnored private var phaseWaiters: [OnceContinuation<Bool, OnceContinuationError>] = []
     public private(set) var stats = LiveStats()
     /// The remote screen's pixel size (the streamed display, or the framebuffer).
     public private(set) var frameSize = CGSize.zero
@@ -459,7 +462,10 @@ public final class ScreenSession {
         case .failed, .ended: return false
         case .connecting: break
         }
-        return await withCheckedContinuation { phaseWaiters.append($0) }
+        // A dropped waiter reads as not connected.
+        return (try? await withOnceContinuation { (waiter: OnceContinuation<Bool, OnceContinuationError>) in
+            phaseWaiters.append(waiter)
+        }) ?? false
     }
 
     private func resumeWaiters() {

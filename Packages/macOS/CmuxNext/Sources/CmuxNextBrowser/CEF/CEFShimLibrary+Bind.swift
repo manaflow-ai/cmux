@@ -279,6 +279,8 @@ nonisolated extension CEFShimLibrary {
         widgets = CEFShimWidgetOps(setGeometry: r.optional("cmux_shim_widget_set_geometry"), dismiss: r.optional("cmux_shim_widget_dismiss"),
                                    sendInput: r.optional("cmux_shim_widget_send_input"))
         dragTarget = try CEFShimDragTargetOps(r)
+        popupMenus = try CEFShimPopupMenuOps(r)
+        suggestions = try CEFShimSuggestionOps(r)
         let cImeSetComposition: (@convention(c) (Int32, UnsafePointer<UInt8>?, Int32, UnsafePointer<UInt8>?, Int32, Int32, Int32, Int32,
                                                  Int32) -> Void)? = unsafe r.optional("cmux_shim_browser_ime_set_composition")
         let cImeCommitText: (@convention(c) (Int32, UnsafePointer<UInt8>?, Int32, Int32, Int32) -> Void)? = unsafe r.optional("cmux_shim_browser_ime_commit_text")

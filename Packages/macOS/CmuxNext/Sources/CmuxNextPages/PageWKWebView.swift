@@ -174,6 +174,7 @@ final class PageWKWebView: WKWebView {
     }
 
     override func selectAll(_ sender: Any?) {
+        // MQ12 allowed while frozen: Select All goes to the focused page, and focus keeps a page from freezing.
         evaluateJavaScript(Self.selectAllScript, completionHandler: nil)
     }
 
