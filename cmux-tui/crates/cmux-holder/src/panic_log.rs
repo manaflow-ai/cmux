@@ -20,12 +20,9 @@ pub const PANIC_LOG_ENV: &str = "CMUX_HOLDER_PANIC_LOG";
 /// The release of the daemon that started the holder from its own bundle,
 /// the `version` field of each line.
 pub const PANIC_LOG_VERSION_ENV: &str = "CMUX_HOLDER_PANIC_LOG_VERSION";
-/// Debug builds only: `thread` makes a worker thread panic once the hook is
-/// installed (tests/panic_log.rs). Its line carries `"test": true`.
-#[cfg(debug_assertions)]
-pub const TEST_PANIC_ENV: &str = "CMUX_HOLDER_TEST_PANIC";
-#[cfg(debug_assertions)]
-const TEST_PANIC_THREAD: &str = "holder-panic-test";
+/// A panic on a thread of this name is a test's (tests/panic_log.rs): its
+/// line carries `"test": true`, which the app never sends.
+pub const TEST_PANIC_THREAD: &str = "holder-panic-test";
 
 /// Largest backtrace kept per line (cmux-panic-log `MAX_BACKTRACE_BYTES`).
 const MAX_BACKTRACE_BYTES: usize = 16 * 1024;
@@ -38,8 +35,13 @@ pub fn install_from_env() {
     let Some(path) = std::env::var_os(PANIC_LOG_ENV).filter(|path| !path.is_empty()) else {
         return;
     };
-    let path = PathBuf::from(path);
-    let fields = fields(std::env::var(PANIC_LOG_VERSION_ENV).ok().as_deref());
+    install(PathBuf::from(path), std::env::var(PANIC_LOG_VERSION_ENV).ok().as_deref());
+}
+
+/// Install a hook that appends each panic to `path`, with `version` as the
+/// line's release, then runs the previous hook.
+pub fn install(path: PathBuf, version: Option<&str>) {
+    let fields = fields(version);
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let thread = std::thread::current().name().unwrap_or("unnamed").to_string();
@@ -51,12 +53,10 @@ pub fn install_from_env() {
             .unwrap_or_else(|| "non-text panic payload".to_string());
         let location = info.location().map(ToString::to_string).unwrap_or_default();
         let backtrace = std::backtrace::Backtrace::force_capture().to_string();
-        let test = is_test_thread(&thread);
+        let test = thread == TEST_PANIC_THREAD;
         append(&path, &line(&fields, &message, &location, &thread, test, backtrace));
         previous(info);
     }));
-    #[cfg(debug_assertions)]
-    panic_for_test();
 }
 
 /// The process fields of every line, as JSON members with a trailing comma.
@@ -146,35 +146,6 @@ fn append(path: &Path, line: &str) {
         return;
     }
     let _ = file.write_all(line.as_bytes());
-}
-
-/// The debug test trigger's thread; its line carries `"test": true`.
-fn is_test_thread(thread: &str) -> bool {
-    #[cfg(debug_assertions)]
-    {
-        thread == TEST_PANIC_THREAD
-    }
-    #[cfg(not(debug_assertions))]
-    {
-        let _ = thread;
-        false
-    }
-}
-
-/// Debug builds only: panic a worker thread when the test asks for it.
-#[cfg(debug_assertions)]
-#[allow(
-    clippy::panic,
-    reason = "debug-build test trigger for the holder panic log; release builds have no seam"
-)]
-fn panic_for_test() {
-    if std::env::var(TEST_PANIC_ENV).as_deref() != Ok("thread") {
-        return;
-    }
-    let _ = std::thread::Builder::new()
-        .name(TEST_PANIC_THREAD.into())
-        // crash-allow: debug-only test trigger for the holder panic log
-        .spawn(|| panic!("cmux-holder test panic"));
 }
 
 #[cfg(test)]
