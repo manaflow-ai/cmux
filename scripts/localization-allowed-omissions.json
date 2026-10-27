@@ -1,4 +1,12 @@
 {
+  "cloud.workspaceSetup.setupClaude": {
+    "class": "brand",
+    "source": "Claude"
+  },
+  "cloud.workspaceSetup.setupCodex": {
+    "class": "brand",
+    "source": "Codex"
+  },
   "cloud.welcome.title.eyebrow": {
     "class": "brand",
     "source": "cmux cloud"
