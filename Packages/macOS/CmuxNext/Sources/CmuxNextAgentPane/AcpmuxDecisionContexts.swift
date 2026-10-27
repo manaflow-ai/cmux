@@ -9,6 +9,19 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
     public struct Context: Sendable, Equatable {
         public let nonce: String
         public let instance: String
+        /// The prompt's `toolCall.toolCallId` (empty for none): an enrolled Mac's signature covers it.
+        public var toolCall = ""
+        /// The options the prompt offers once each as a one-time allow (`allow_once`): the only
+        /// ones an enrolled Mac may sign (acpmux `mac_approvers::may_allow`).
+        public var allowOnce: Set<String> = []
+    }
+
+    /// A permission group the page read (`_acpmux/permission_groups`): its revision and its pending
+    /// members, each with the option a group's Allow once selects for it (acpmux
+    /// `permission_groups::option`, empty when it has none).
+    public struct Group: Sendable, Equatable {
+        public let revision: UInt64
+        public let pending: [String: String]
     }
 
     static let limit = 256
@@ -19,6 +32,11 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
         /// The log seq each context came from: an older page replayed later never wins.
         var seqByKey: [String: UInt64] = [:]
         var localInstance: String?
+        /// The peer that last refused an allow for want of the person's proof (acpmux
+        /// `permission.person_required` with `data.peer`), until the pane takes it.
+        var refusedBy: String?
+        var groups: [String: Group] = [:]
+        var groupOrder: [String] = []
     }
 
     private let state = Mutex(State())
@@ -27,6 +45,18 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
 
     /// Reads one inbound frame, as the page gets it.
     func observe(_ object: [String: Any], replyTo method: String?) {
+        if method == "_acpmux/permission_respond" || method == "_acpmux/permission_group_respond",
+           let error = object["error"] as? [String: Any] {
+            let data = error["data"] as? [String: Any]
+            if data?["reason"] as? String == "permission.person_required", let peer = data?["peer"] as? String, !peer.isEmpty {
+                state.withLock { $0.refusedBy = peer }
+            }
+            return
+        }
+        if method == "_acpmux/permission_groups" {
+            let groups = (object["result"] as? [String: Any])?["groups"] as? [[String: Any]] ?? []
+            return groups.forEach(noteGroup)
+        }
         if method == AcpmuxPaneMethods.initialize {
             let meta = ((object["result"] as? [String: Any])?["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
             let instance = meta?["personInstance"] as? String
@@ -83,11 +113,21 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
         guard Self.isHex(nonce, count: 64), Self.isHex(instance, count: 32),
               !session.contains("\u{0}"), !permission.contains("\u{0}") else { return }
         let key = session + "\u{0}" + permission
+        var context = Context(nonce: nonce, instance: instance)
+        let request = params["request"] as? [String: Any]
+        context.toolCall = (request?["toolCall"] as? [String: Any])?["toolCallId"] as? String ?? ""
+        let options = request?["options"] as? [[String: Any]] ?? []
+        let ids = options.compactMap { $0["optionId"] as? String }
+        context.allowOnce = Set(options.compactMap { option in
+            guard option["kind"] as? String == "allow_once", let id = option["optionId"] as? String,
+                  ids.count(where: { $0 == id }) == 1 else { return nil }
+            return id
+        })
         state.withLock { state in
             if let seq, let known = state.seqByKey[key], seq < known { return }
             // An update without a seq is the newest the pane knows: no replayed record replaces it.
             state.seqByKey[key] = seq ?? .max
-            guard state.byKey.updateValue(Context(nonce: nonce, instance: instance), forKey: key) == nil else { return }
+            guard state.byKey.updateValue(context, forKey: key) == nil else { return }
             state.order.append(key)
             if state.order.count > Self.limit {
                 let oldest = state.order.removeFirst()
@@ -95,6 +135,44 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
                 state.seqByKey.removeValue(forKey: oldest)
             }
         }
+    }
+
+    private func noteGroup(_ group: [String: Any]) {
+        guard let session = group["sessionId"] as? String, let id = group["groupId"] as? String,
+              let revision = (group["revision"] as? NSNumber)?.uint64Value,
+              !session.contains("\u{0}"), !id.contains("\u{0}") else { return }
+        var pending: [String: String] = [:]
+        if group["state"] as? String == "pending" {
+            for item in group["items"] as? [[String: Any]] ?? [] where item["state"] as? String == "pending" {
+                guard let permission = item["permissionId"] as? String else { continue }
+                pending[permission] = Self.groupAllow(item["request"] as? [String: Any])
+            }
+        }
+        let key = session + "\u{0}" + id
+        state.withLock { state in
+            if let known = state.groups[key], known.revision > revision { return }
+            if state.groups.updateValue(Group(revision: revision, pending: pending), forKey: key) == nil {
+                state.groupOrder.append(key)
+            }
+            if state.groupOrder.count > Self.limit {
+                state.groups.removeValue(forKey: state.groupOrder.removeFirst())
+            }
+        }
+    }
+
+    /// The first `allow_once` option the request offers once (acpmux `permission_groups::option`).
+    private static func groupAllow(_ request: [String: Any]?) -> String {
+        let options = request?["options"] as? [[String: Any]] ?? []
+        let ids = options.compactMap { $0["optionId"] as? String }
+        return options.first { option in
+            guard option["kind"] as? String == "allow_once", let id = option["optionId"] as? String, !id.isEmpty else { return false }
+            return ids.count(where: { $0 == id }) == 1
+        }?["optionId"] as? String ?? ""
+    }
+
+    /// The newest read of group `id` of `session`.
+    public func group(session: String, id: String) -> Group? {
+        state.withLock { $0.groups[session + "\u{0}" + id] }
     }
 
     private static func isHex(_ text: String, count: Int) -> Bool {
@@ -109,6 +187,15 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
     /// The daemon run this connection talks to directly (its own prompts need no relayed proof);
     /// nil for a chat on another machine (the wire's `initialize` names none).
     public var localInstance: String? { state.withLock { $0.localInstance } }
+
+    /// The peer that refused an allow (one prompt's or a group's) for want of the person's proof
+    /// since the last call, once.
+    func takeRefusal() -> String? {
+        state.withLock { state in
+            defer { state.refusedBy = nil }
+            return state.refusedBy
+        }
+    }
 
     /// A new connection: its daemon run and prompts are its own.
     func reset() { state.withLock { $0 = State() } }
