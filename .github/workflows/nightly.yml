@@ -6044,6 +6044,10 @@ jobs:
           R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
         run: bash "$PUBLISH_TOOLING/cmux-next/publish-cef-runtime.sh" cef-runtime
 
+      - name: Read the live nightly-next feed before the write
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
+        run: bash .publish-tooling/scripts/ci/nightly-steps/publish-next-feed-before.sh
+
       - name: Upload nightly-next appcasts to R2
         id: upload_next_appcasts
         if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
@@ -6073,6 +6077,12 @@ jobs:
             curl -fsS -X POST --max-time 10 --retry 3 "$RELEASE_POKE_URL" \
               || echo "::warning::release poke failed; the minute cron will catch up"
           fi
+
+      - name: Read the live nightly-next feed back
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
+        env:
+          DEV_RING: ${{ steps.ring.outputs.mode || 'off' }}
+        run: bash .publish-tooling/scripts/ci/nightly-steps/publish-next-feed-readback.sh
 
       # The marker is written only after immutable assets, aliases, release
       # metadata, and every appcast have succeeded. A rerun can therefore use
@@ -7435,6 +7445,12 @@ jobs:
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
         run: bash scripts/ci/nightly-steps/legacy-identity-publish.sh
+
+      - name: Read the old feed back
+        if: steps.order.outputs.skip == 'false' && env.TESTED_SHA256 != ''
+        env:
+          DEV_RING: ${{ steps.ring.outputs.mode || 'off' }}
+        run: bash scripts/ci/nightly-steps/legacy-identity-readback.sh
 
       # Retire the continued submission once it is published, or when Apple's
       # final answer means it can never publish (Invalid, Rejected, or Accepted
