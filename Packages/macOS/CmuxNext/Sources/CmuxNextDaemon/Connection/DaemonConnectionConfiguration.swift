@@ -69,6 +69,8 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// sites as `server-diagnostic-site` events; the connection hands each to ``DaemonConnection/diagnosticSites``.
     /// Only the app's control connection to its local daemon sets it (`DaemonService.localConfiguration`).
     public var reportsDiagnosticSites = false
+    /// Told each time the connection's quiet-handoff gate parks a wait (a test seam; the default ignores it).
+    var handoffWaits: @Sendable (QuietHandoffGate.Wait) -> Void = { _ in }
 
     public init(
         clientName: String = "cmux-next",

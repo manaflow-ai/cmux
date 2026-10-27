@@ -15,7 +15,8 @@ import Testing
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3))) struct MemorySaverKeepRulesLiveTests {
     // MARK: beforeunload, live (real WebKit pages, critical memory pressure)
 
-    /// The person used the page and its `beforeunload` asks: Chrome and Safari would ask before a close.
+    /// The person used the page and its `beforeunload` asks: Chrome and Safari would ask before a close. The asked
+    /// discard failed, so the page carries the discard-attempt mark until it shows (p07-memory-104).
     @Test func aUsedPageWhoseBeforeUnloadAsksIsNeverDiscarded() async throws {
         let rig = try HiddenPageHibernationTests.Rig()
         defer { rig.close() }
@@ -24,7 +25,7 @@ import Testing
         rig.window.contentView = nil
         let key = try await rig.hide(page)
         try await rig.until("the page hibernated or was kept") { rig.isHibernated(key) || rig.exemption(key) != nil }
-        #expect(rig.exemption(key)?.rawValue == "before_unload", "a page whose beforeunload asks was not kept for it")
+        #expect(rig.exemption(key)?.rawValue == "discard_attempted", "a page whose beforeunload asks was not kept for it")
         #expect(!rig.isHibernated(key), "a page whose beforeunload asks was discarded")
     }
 
@@ -43,7 +44,7 @@ import Testing
         rig.window.contentView = nil
         let key = try await rig.hide(page)
         try await rig.until("the page hibernated or was kept") { rig.isHibernated(key) || rig.exemption(key) != nil }
-        #expect(rig.exemption(key)?.rawValue == "before_unload")
+        #expect(rig.exemption(key)?.rawValue == "discard_attempted")
         #expect(!rig.isHibernated(key))
     }
 
@@ -137,7 +138,8 @@ import Testing
 
     /// A page whose beforeunload asks is asked once while it stays hidden (each run is its own
     /// unload logic on a page that lives on), and without a user gesture: a handler cannot open a
-    /// popup or see an activation on cmux's behalf.
+    /// popup or see an activation on cmux's behalf. The discard-attempt mark keeps every later
+    /// replan from probing it again (p07-memory-104).
     @Test func aPageWhoseBeforeUnloadAsksIsAskedOnceWithoutAGesture() async throws {
         let rig = try HiddenPageHibernationTests.Rig()
         defer { rig.close() }
@@ -156,9 +158,12 @@ import Testing
         rig.window.contentView = nil
         let key = try await rig.hide(page)
         try await rig.until("the page was kept") { rig.isHibernated(key) || rig.exemption(key) != nil }
-        #expect(rig.exemption(key)?.rawValue == "before_unload")
-        try await Self.replan(rig, key, times: 3)
-        #expect(rig.exemption(key)?.rawValue == "before_unload", "a page that asked was discarded on a later replan")
+        #expect(rig.exemption(key)?.rawValue == "discard_attempted")
+        for _ in 0..<3 {
+            rig.hibernation.replan()
+            #expect(!rig.hibernation.probing.contains(key), "a page that asked was probed again before it showed")
+        }
+        #expect(rig.exemption(key)?.rawValue == "discard_attempted", "a page that asked was discarded on a later replan")
         #expect(!rig.isHibernated(key))
         rig.hibernation.noteAgentUse(key)
         #expect(try await page.evaluate("JSON.stringify(window.unloadGestures)", world: .page, gesture: .cmux) == .string("[false]"),

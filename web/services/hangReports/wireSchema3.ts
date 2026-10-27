@@ -282,7 +282,7 @@ export const BLACKBOX_PHASES: ReadonlySet<string> = new Set(["B", "E", "I", "b",
 export const BLOCKING_KINDS: ReadonlySet<string> = new Set([
   "file-io", "socket-read", "socket-write", "sync-wait", "ipc-reply", "process-wait", "process-spawn", "lock-wait",
   "system-call", "sleep", "wrong-lane", "cpu-intensive", "fs-metadata", "sqlite", "process-reap", "system-query",
-  "priority-inversion", "ffi",
+  "priority-inversion", "ffi", "xpc-reply",
 ]);
 /** `BlockingContext` raw values (CmuxNextCompat/Threading/BlockingContext.swift). */
 export const BLOCKING_CONTEXTS: ReadonlySet<string> = new Set(["main", "pool", "lane", "dedicated", "cpu-lane", "lane-sync"]);
