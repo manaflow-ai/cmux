@@ -2899,8 +2899,13 @@ fn log_while_down(daemon: &Daemon, session: &str, kind: &str, msg: Value) {
 /// An agent asks; the daemon stops; an ancestor's answer to it is logged but never reached the
 /// agent, naming its ancestor beside its outcome (`answeredBy`, as an ask logs it) or, `nested`,
 /// inside it (`_acpmuxAnsweredBy`, as a re-asked prompt's answer was logged before review 84 of
-/// #23322). The stopped daemon, the session and the permission id.
-async fn an_undelivered_ancestor_answer(tag: &str, nested: bool) -> (Daemon, String, String) {
+/// #23322). `withdrawn`: the agent's withdrawal of it is logged after the answer, as one that came while
+/// the answer was queued is. The stopped daemon, the session and the permission id.
+async fn an_undelivered_ancestor_answer(
+    tag: &str,
+    nested: bool,
+    withdrawn: bool,
+) -> (Daemon, String, String) {
     let mut daemon = Daemon::new(tag, "ask");
     let session = new_session(&daemon).await;
     let mut client = daemon.rpc().await;
@@ -2924,6 +2929,13 @@ async fn an_undelivered_ancestor_answer(tag: &str, nested: bool) -> (Daemon, Str
         decision["answeredBy"] = by;
     }
     log_while_down(&daemon, &session, "permission_decision", decision);
+    if withdrawn {
+        let events = daemon.events(&session);
+        let started = events.iter().rev().find(|e| e["kind"] == "host_started").unwrap();
+        let withdrawal = json!({"agentRequestId": asked["msg"]["agentRequestId"],
+                                "incarnation": started["msg"]["incarnation"]});
+        log_while_down(&daemon, &session, "permission_withdrawn", withdrawal);
+    }
     (daemon, session, permission_id)
 }
 
@@ -2934,12 +2946,27 @@ async fn an_undelivered_ancestor_answer_after_a_restart(
     managed_off: bool,
     nested: bool,
 ) -> (bool, bool) {
-    let tag = match (managed_off, nested) {
-        (false, _) => "anc",
-        (true, false) => "ancoff",
-        (true, true) => "ancnest",
+    let (resent, asked_again, _) =
+        an_undelivered_ancestor_answer_after_a_restart_in(managed_off, nested, false).await;
+    (resent, asked_again)
+}
+
+/// `an_undelivered_ancestor_answer_after_a_restart`, `withdrawn` as `an_undelivered_ancestor_answer`
+/// takes it; also whether the agent was answered cancelled (`chose cancelled`).
+async fn an_undelivered_ancestor_answer_after_a_restart_in(
+    managed_off: bool,
+    nested: bool,
+    withdrawn: bool,
+) -> (bool, bool, bool) {
+    let tag = match (managed_off, nested, withdrawn) {
+        (false, _, false) => "anc",
+        (false, _, true) => "ancwd",
+        (true, false, false) => "ancoff",
+        (true, true, false) => "ancnest",
+        (true, _, true) => "ancoffwd",
     };
-    let (mut daemon, session, permission_id) = an_undelivered_ancestor_answer(tag, nested).await;
+    let (mut daemon, session, permission_id) =
+        an_undelivered_ancestor_answer(tag, nested, withdrawn).await;
     if managed_off {
         std::fs::write(daemon.home.join("start-mode.json"), r#"{"fullAccessManaged":false}"#)
             .unwrap();
@@ -2953,8 +2980,9 @@ async fn an_undelivered_ancestor_answer_after_a_restart(
         let asked_again = events.iter().any(|e| {
             e["kind"] == "permission_reissued" && e["msg"]["permissionId"] == json!(permission_id)
         });
-        if resent || asked_again || Instant::now() > deadline {
-            return (resent, asked_again);
+        let cancelled = events.iter().any(|e| chunk(e, "chose cancelled"));
+        if resent || asked_again || cancelled || Instant::now() > deadline {
+            return (resent, asked_again, cancelled);
         }
         std::thread::sleep(Duration::from_millis(50));
     }
@@ -2984,7 +3012,7 @@ async fn under_an_mdm_off_an_ancestor_answer_logged_inside_its_outcome_is_asked_
 /// it is written.
 #[tokio::test]
 async fn an_off_push_waits_for_an_ancestor_answer_resent_after_a_restart() {
-    let (mut daemon, _, _) = an_undelivered_ancestor_answer("ancgate", false).await;
+    let (mut daemon, _, _) = an_undelivered_ancestor_answer("ancgate", false, false).await;
     let paused = daemon.home.join("replay-paused");
     let marker = paused.to_string_lossy().into_owned();
     daemon.env.push(("ACPMUX_TEST_PAUSE_REPLAYED_ANSWER".into(), marker));
@@ -3011,7 +3039,7 @@ async fn an_off_push_waits_for_an_ancestor_answer_resent_after_a_restart() {
 #[tokio::test]
 async fn under_an_mdm_off_a_stop_during_a_restart_cancels_an_undelivered_ancestor_answer() {
     let (mut daemon, session, permission_id) =
-        an_undelivered_ancestor_answer("ancstop", false).await;
+        an_undelivered_ancestor_answer("ancstop", false, false).await;
     std::fs::write(daemon.home.join("start-mode.json"), r#"{"fullAccessManaged":false}"#).unwrap();
     let paused = daemon.home.join("recovery-paused");
     let marker = paused.to_string_lossy().into_owned();
@@ -3036,4 +3064,25 @@ async fn under_an_mdm_off_a_stop_during_a_restart_cancels_an_undelivered_ancesto
 async fn with_mdm_unset_an_undelivered_ancestor_answer_is_sent_after_a_restart() {
     let (resent, _) = an_undelivered_ancestor_answer_after_a_restart(false, false).await;
     assert!(resent, "the logged answer did not reach the adopted agent");
+}
+
+/// Review 130 of #23322: under MDM's off, an ancestor's answer the agent withdrew its question
+/// from while the answer was queued (the withdrawal logged after the decision) is neither resent
+/// nor asked again after a restart: the agent is answered cancelled.
+#[tokio::test]
+async fn under_an_mdm_off_a_withdrawn_ancestor_answer_is_not_asked_again_after_a_restart() {
+    let (resent, asked_again, cancelled) =
+        an_undelivered_ancestor_answer_after_a_restart_in(true, false, true).await;
+    assert!(!resent, "an ancestor's answer decided before the off reached the agent after it");
+    assert!(!asked_again, "a question its agent withdrew was asked again after a restart");
+    assert!(cancelled, "the agent was not answered");
+}
+
+/// With MDM unset, the same withdrawn ancestor answer is resent as before.
+#[tokio::test]
+async fn with_mdm_unset_a_withdrawn_ancestor_answer_is_resent_as_before() {
+    let (resent, asked_again, _) =
+        an_undelivered_ancestor_answer_after_a_restart_in(false, false, true).await;
+    assert!(resent, "with MDM unset the logged answer was not resent");
+    assert!(!asked_again);
 }
