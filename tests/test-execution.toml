@@ -1240,6 +1240,10 @@ path = "tests/test_resources_plist_unique_keys.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_web_url_handler_rank.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_release_media.py"
 lane = "linux-guard"
 
