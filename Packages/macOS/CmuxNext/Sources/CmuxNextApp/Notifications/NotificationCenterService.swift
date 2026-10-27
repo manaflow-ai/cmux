@@ -143,7 +143,7 @@ final class NotificationCenterService {
     func startFeedHandoff(_ services: AppServices) {
         guard feedDriver == nil else { return }
         let feed = services.feed
-        let principal = FeedInstallPrincipal(identity: services.cloud.installIdentity, baseURL: feed.apiBaseURL)
+        let principal = FeedInstallPrincipal(identity: services.cloud.installIdentity, baseURL: feed.apiBaseURL, work: services.work, mainWork: services.mainWork)
         let driver = makeFeedDriver(services, principal: principal)
         feedDriver = driver
         // The install id comes with the first install token: at launch and at each sign-in.
@@ -588,7 +588,7 @@ final class NotificationCenterService {
         note("timeout \(tabID) in \(seconds)s")
         let timer = timeouts[tabID] ?? DemandTimer(owner: "notifications.timeout", clock: clock)
         timeouts[tabID] = timer
-        timer.schedule(after: .seconds(seconds)) { @MainActor [weak self] in
+        timer.scheduleOnMain(after: .seconds(seconds)) { [weak self] in
             self?.timeouts[tabID] = nil
             self?.interacted(.timeout, tabID: tabID)
         }

@@ -69,9 +69,10 @@
              .applying(.init(paletteColors: [NSColor(white: 0.6, alpha: 1)]))
          guard let sym = NSImage(systemSymbolName: "arrowshape.turn.up.left.fill", accessibilityDescription: nil)?.withSymbolConfiguration(cfg) else { return nil }
 -        let px = Int(Tuning.arrowSize * scale)
-+        let px = CrashGuard.int(Tuning.arrowSize * scale, in: 1...4_096) // cmux: no trap on NaN
-         guard let ctx = CGContext(data: nil, width: px, height: px, bitsPerComponent: 8, bytesPerRow: 0,
+-        guard let ctx = CGContext(data: nil, width: px, height: px, bitsPerComponent: 8, bytesPerRow: 0,
 -                                  space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
++        let px = CrashGuard.int(Tuning.arrowSize * scale, in: 1...4_096) // cmux: no trap on NaN
++        guard let ctx = CGContext.ownedBitmap(width: px, height: px, bitsPerComponent: 8, bytesPerRow: 0,
 +                                  space: LabColorSpace.sRGB, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil } // cmux: no force unwrap
          NSGraphicsContext.saveGraphicsState()
          NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)

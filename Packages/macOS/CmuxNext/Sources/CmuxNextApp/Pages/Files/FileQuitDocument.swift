@@ -1,6 +1,9 @@
 import CmuxNextDesign
 import CmuxNextWakeups
 import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// One file page document in the R96 quit hook: shared by every tab that shows the file, unsaved
 /// from the first edit a page reports (`cmux.<page>.edited`), with a recovery draft written on
@@ -113,7 +116,8 @@ final class FileQuitDocument: QuitUnsavedParticipant {
     /// The page calls are not awaited after the timeout: a dead page's call ends when it closes.
     private func askPages(_ flushes: [() async -> Bool]) async {
         let clock = clock, timeout = pageFlushTimeout
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+        // Answers dropped unfinished end the wait abandoned: nothing is left to wait for.
+        _ = try? await withOnceContinuation { (done: OnceContinuation<Void, OnceContinuationError>) in
             let answers = FlushAnswer(done, waiting: flushes.count)
             // task-owner: the quit's wait for the pages; ends when all answered or at the timeout
             let deadline = Task { @MainActor in
@@ -152,10 +156,10 @@ final class FileQuitDocument: QuitUnsavedParticipant {
 
 /// Resumes the pages' flush wait once: when every page answered, or at the timeout.
 private final class FlushAnswer {
-    private var continuation: CheckedContinuation<Void, Never>?
+    private var continuation: OnceContinuation<Void, OnceContinuationError>?
     private var waiting: Int
     var onFinish: (() -> Void)?
-    init(_ continuation: CheckedContinuation<Void, Never>, waiting: Int) {
+    init(_ continuation: OnceContinuation<Void, OnceContinuationError>, waiting: Int) {
         self.continuation = continuation
         self.waiting = waiting
     }
@@ -166,7 +170,7 @@ private final class FlushAnswer {
     func finish() {
         guard let continuation else { return }
         self.continuation = nil
-        continuation.resume()
+        continuation.resume(returning: ())
         onFinish?()
         onFinish = nil
     }

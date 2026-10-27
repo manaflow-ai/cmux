@@ -43,6 +43,8 @@ let package = Package(
         .package(path: "../../Packages/Shared/CmuxAgentBrands"),
         // The Action Button call flow (plans/cmux-next/ios-action-button-DESIGN.md).
         .package(path: "../../Packages/Shared/CmuxChiefVoiceCore"),
+        // OnceContinuation: BoundedWait's wait (p10-stability-171).
+        .package(path: "../../Packages/Shared/CmuxSafeConcurrency"),
     ],
     targets: [
         .target(name: "CmuxMobileDesign"),
@@ -50,7 +52,7 @@ let package = Package(
         // snapshots: Foundation and UserNotifications only, so the notification
         // extensions link it without the app's modules (verify/rich-push.md).
         .target(name: "CmuxMobileNotifications"),
-        .target(name: "CmuxMobileModel"),
+        .target(name: "CmuxMobileModel", dependencies: [.product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")]),
         .binaryTarget(name: "CmuxMobileLinkFFIFFI", path: "Frameworks/CmuxMobileLinkFFI.xcframework"),
         .target(
             name: "CmuxMobileLinkFFI",

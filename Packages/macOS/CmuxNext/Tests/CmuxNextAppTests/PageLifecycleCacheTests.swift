@@ -180,7 +180,10 @@ struct PageLifecycleCacheTests {
             log.lines.append("freeze \(name)")
             return true
         }
-        func discard() { log.lines.append("discard \(name)") }
+        func discard() -> Bool {
+            log.lines.append("discard \(name)")
+            return true
+        }
 
         func thaw() {
             log.lines.append("thaw \(name)")

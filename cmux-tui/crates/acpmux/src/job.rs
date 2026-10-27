@@ -48,7 +48,8 @@ pub(crate) fn ctrl_break(group: u32) -> bool {
     unsafe { GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, group) != 0 }
 }
 
-/// One agent's job.
+/// One agent's job. Send and Sync through `OwnedHandle`: a job handle may be
+/// used from any thread.
 pub(crate) struct Job(OwnedHandle);
 
 impl Job {
@@ -99,7 +100,3 @@ impl Job {
         self.0.as_raw_handle()
     }
 }
-
-// The job handle is used only through its own calls.
-unsafe impl Send for Job {}
-unsafe impl Sync for Job {}

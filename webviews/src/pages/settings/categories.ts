@@ -31,6 +31,7 @@ export const CATEGORY_CARDS = [
   "webUpdates",
   "voiceInput",
   "server",
+  "featureFlags",
 ] as const;
 
 /** A non-schema part a category draws (host lists, the theme studio, file actions). */

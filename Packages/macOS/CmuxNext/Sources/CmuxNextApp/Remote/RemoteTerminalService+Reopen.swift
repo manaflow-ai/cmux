@@ -8,7 +8,7 @@ import Foundation
 /// conversation and an app tab belong to their machine: they are refused and stay.
 extension RemoteTerminalService {
     func reopen(_ tab: TabModel, in pane: PaneModel, closingOn source: DaemonConnection, on destination: DaemonConnection,
-                completion: @escaping (Bool) -> Void) {
+                completion: @escaping TabMoves.Completion) {
         let browserTabs = services.cache.browserTabs, handle = pane.handle, route = tab.pageRoute
         if tab.kind == .browser, tab.appTab == nil {
             switch browserTabs.resolve(requested: nil, inherited: tab.browserEngine) {
@@ -31,25 +31,26 @@ extension RemoteTerminalService {
 
     /// Opens `tab`'s new tab on `destination` (`open`), then closes the original on `source`. The new
     /// tab is the same tab to the user: its name and pin come along (best effort: a daemon without tab
-    /// metadata keeps it unpinned, and the move still lands).
-    func land(_ tab: TabModel, closingOn source: DaemonConnection, on destination: DaemonConnection, completion: @escaping (Bool) -> Void,
+    /// metadata keeps it unpinned, and the move still lands). The open and the closes are awaited off main; forgetting
+    /// the original and the move's completion are one task on main in the run's class (a person's: userBlocking).
+    func land(_ tab: TabModel, closingOn source: DaemonConnection, on destination: DaemonConnection, completion: @escaping TabMoves.Completion,
               open: @escaping @MainActor () async throws -> SurfaceID) {
         let (name, pinned, surface, id) = (tab.name.flatMap { $0.isEmpty ? nil : $0 }, tab.pinned, tab.surface, tab.id)
         let terminal = tab.kind == .pty || tab.kind == .remoteTerminal
-        services.registry.track(Task { [weak self] in
-            do {
-                let created = try await open()
-                if let name { try? await destination.renameTab(created, to: name) }
-                if pinned { _ = try? await destination.setTabPinned(created, true) }
-                try await source.closeTab(surface)
-                self?.forget(tabID: id)
-                if !terminal { self?.services.cache.release(id) } // its page closes with it
-                completion(true)
-                return nil
-            } catch {
+        services.registry.trackWork(owner: "RemoteTerminals.land", on: services.mainWork) { () async throws -> Void in
+            let created = try await open()
+            if let name { try? await destination.renameTab(created, to: name) }
+            if pinned { _ = try? await destination.setTabPinned(created, true) }
+            try await source.closeTab(surface)
+        } then: { [weak self] result in
+            if case .failure(let error) = result {
                 completion(false)
                 return ActionWorkFailure(terminal ? "move terminal to another machine" : "move tab to another machine", error)
             }
-        })
+            self?.forget(tabID: id)
+            if !terminal { self?.services.cache.release(id) } // its page closes with it
+            completion(true)
+            return nil
+        }
     }
 }

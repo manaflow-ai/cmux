@@ -11,6 +11,9 @@ import Testing
 /// picture the Opacity slider must move the window one way only, and a surface's own opacity must
 /// cover more than the tint the window really shows, not more than the theme's opaque 100%.
 @MainActor @Suite(.serialized) struct WindowOpacityOverArtTests {
+    /// Where the terminal setting hears app notices: held for the whole test (its AppEvents hold it weakly).
+    private let center = NotificationCenter()
+
     static let work = "van-gogh-starry-night"
 
     static func ghostty() -> GhosttyThemeColors {
@@ -43,7 +46,7 @@ import Testing
             ThemeScope.app.store.apply(original)
         }
         let scope = ThemeScope(level: .room)
-        let terminal = TerminalThemeSetting(backdropScope: scope)
+        let terminal = TerminalThemeSetting.testing(backdropScope: scope, center: center)
         terminal.reload = { ThemeScope.app.store.apply(ThemeBridge.input(colors, background: GhosttyRuntime.backgroundOverride)) }
         terminal.follow(settings)
         ThemeScope.app.store.apply(ThemeBridge.input(colors, background: GhosttyRuntime.backgroundOverride))

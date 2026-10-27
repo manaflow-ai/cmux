@@ -11,6 +11,9 @@ import IOSurface
 /// was parsed: the snapshot first, then live. An evicted terminal shown again (a new session) shows
 /// its last frame (``TerminalLastFrame``) the same way from its first layout, until its first
 /// content is parsed and drawn.
+///
+/// Every frame it compares is the one the renderer reports presented (``TerminalFrameSource``): the
+/// fresh surface's layer is only the container of the renderer's leaf, so its contents say nothing.
 @MainActor
 final class TerminalFrameHold {
     /// The longest the old frame stays once the content it waits for is queued: a surface that
@@ -29,10 +32,21 @@ final class TerminalFrameHold {
     /// A last-frame hold whose surface has no content queued yet: it waits for ``contentQueued()``.
     private var awaitingContent = false
     private var generation = 0
-    private let deadline = DemandTimer(owner: "TerminalFrameHold.limit")
+    /// The hold's limits (``limit``, ``contentLimit``): a pane shows the held frame until then, so a `visible` task.
+    private let deadline: MainDeadline
+    /// Where the parsed replay's refresh is posted.
+    private let mainWork: MainWorkScheduler
+    private let parsedOwner: MainTaskOwner
     private lazy var frames = FrameClient(owner: "TerminalFrameHold", isAnimation: false, scheduler: { [weak self] in
         self?.surface.map(FrameScheduler.forView) ?? .app
     }) { [weak self] _ in self?.tick() ?? false }
+
+    /// - Parameter deadlines: The app's one `MainDeadline` placer; its scheduler runs the parsed replay's refresh.
+    init(deadlines: MainDeadlineScheduler) {
+        mainWork = deadlines.work
+        parsedOwner = deadlines.work.board.owner("TerminalFrameHold.parsed")
+        deadline = MainDeadline(owner: "TerminalFrameHold.limit", workClass: .visible, scheduler: deadlines)
+    }
 
     /// Whether a held frame is on screen.
     var isHolding: Bool { view.superview != nil }
@@ -58,7 +72,7 @@ final class TerminalFrameHold {
         show(frame, over: fresh, like: fresh.layer, in: host)
         awaitingContent = true
         let generation = generation
-        deadline.schedule(after: Self.contentLimit) { @MainActor [weak self] in
+        deadline.schedule(after: Self.contentLimit) { [weak self] in
             guard let self, self.generation == generation, self.awaitingContent else { return }
             self.end()
         }
@@ -76,7 +90,8 @@ final class TerminalFrameHold {
         generation &+= 1
         surface = fresh
         view.show(held, like: source, frame: fresh.frame)
-        // Above the surface, under the banner, scroller and find bar over it.
+        // Above the surface, so above the leaf its renderer presents into (a sublayer of the
+        // surface's layer); under the banner, scroller and find bar over it.
         host.addSubview(view, positioned: .above, relativeTo: fresh)
     }
 
@@ -84,18 +99,23 @@ final class TerminalFrameHold {
         guard let lane = surface?.lane else { return end() }
         let generation = generation
         frames.activate()
-        deadline.schedule(after: Self.limit) { @MainActor [weak self] in
+        deadline.schedule(after: Self.limit) { [weak self] in
             guard let self, self.generation == generation else { return }
             self.end()
         }
-        // Runs after the caller queued the content on the lane: it resumes once that is parsed.
-        Task { [weak self] in
-            await lane.drained()
-            guard let self, self.generation == generation, let surface = self.surface else { return }
-            self.parsed = (surface.presentedFrame, 0)
-            // A frame from the parsed state, even if the renderer has nothing else to draw.
-            if let ghostty = surface.surface { ghostty_surface_refresh(ghostty) }
+        // Runs after the caller queued the content on the lane: once that is parsed, one `visible` task
+        // (the pane shows the held frame meanwhile) asks for a frame of the parsed state.
+        lane.whenDrained { [weak self, mainWork, parsedOwner] in
+            mainWork.postFromAnyThread(.visible, owner: parsedOwner) { self?.replayParsed(generation: generation) }
         }
+    }
+
+    private func replayParsed(generation: Int) {
+        guard self.generation == generation, let surface else { return }
+        parsed = (surface.presentedFrame, 0)
+        // A frame from the parsed state, even if the renderer has nothing else to draw.
+        // SAFETY: the held view's live surface (TerminalSurfaceView.surface), on the main actor.
+        if let ghostty = surface.surface { unsafe ghostty_surface_refresh(ghostty) }
     }
 
     /// Takes the held frame away.

@@ -27,6 +27,7 @@ final class SidebarPriorityRowView: NSView {
         self.entry = entry
         super.init(frame: .zero)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay // updateLayer sets colors only
         title.lineBreakMode = .byTruncatingTail
         placeLabel.lineBreakMode = .byTruncatingTail
         preview.maximumNumberOfLines = 2

@@ -407,6 +407,7 @@ import { continueTargets, mergedCommands, resolveHarnessTarget, type CmuxCommand
 import { canContinueIn, reviewingHandoff } from "./handoff/continueIn";
 import { importedPrompt, parseImportedSession } from "./importSession";
 import { useCheckpoints } from "./checkpoints/controller";
+import { CHECKPOINT_METHODS } from "./checkpoints/protocol";
 import { PermissionPanel } from "./permissions/Panel";
 import { groupAskedCalls, withoutAskedCalls } from "./permissions/askRows";
 import { withoutQuietThoughts } from "./conversation/thoughts";
@@ -7240,6 +7241,12 @@ function AcpmuxPane() {
           "git.checkpoint.diff": ({ from, to }) => client.gitCheckpointDiff(String(from), String(to)),
           "git.commit": (params) => client.gitCommit(params),
           "git.push": (params) => client.gitPush(params),
+          ...Object.fromEntries(
+            CHECKPOINT_METHODS.map((method) => [
+              method,
+              (params: Record<string, unknown>) => client.gitCheckpoint(method, params),
+            ]),
+          ),
           "git.stage": ({ paths, unstage }) =>
             client.gitStage(Array.isArray(paths) ? paths.map(String) : [], unstage === true),
           "git.stageHunk": ({ paths, hunk, unstage }) =>
@@ -7268,6 +7275,8 @@ function AcpmuxPane() {
             return {
               ...composerHandle.current?.wakeState(),
               ...(anchor ? { scrollAnchor: anchor } : anchor === null ? { atLatest: true } : {}),
+              // A chat a pick started behind the page, no prompt sent: the host keeps the page.
+              ...(harnessSwitch.holdsDeferred ? { pendingChat: true } : {}),
             };
           },
         };

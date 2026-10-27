@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextTabs
 
@@ -22,9 +23,9 @@ enum ScreenEmojiIcon {
     private static func render(_ emoji: String, scale: CGFloat) -> TabImage? {
         let side = TabStripMetrics.standard.iconSize
         let pixels = Int((side * scale).rounded())
-        guard pixels > 0, let context = CGContext(data: nil, width: pixels, height: pixels, bitsPerComponent: 8, bytesPerRow: 0,
-                                                  space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
-                                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        guard pixels > 0, let context = CGContext.bitmapOwningPixels(width: pixels, height: pixels,
+                                                                     space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                                                                     bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         context.scaleBy(x: scale, y: scale)
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)

@@ -24,6 +24,8 @@ struct PageLifecycleTests {
         /// Its ``PageKeepReasons``, as a ``PageWebView`` holds them (p13-webui-032).
         let keep = PageKeepReasons()
         var reasonReads = 0
+        /// The page refuses its discard (it still shows): the lifecycle must keep its state.
+        var refusesDiscard = false
         /// The page answers a freeze with a refusal (it shows, or its engine did not freeze).
         var refusesFreeze = false
         weak var lifecycle: PageLifecycle?
@@ -60,7 +62,10 @@ struct PageLifecycleTests {
             return !page.refusesFreeze
         }
         func thaw() { page.log.lines.append("thaw \(page.name)") }
-        func discard() { page.log.lines.append("discard \(page.name)") }
+        func discard() -> Bool {
+            page.log.lines.append((page.refusesDiscard ? "refuse " : "discard ") + page.name)
+            return !page.refusesDiscard
+        }
     }
 
     private let log = Log()
@@ -122,6 +127,25 @@ struct PageLifecycleTests {
         #expect(log.lines == ["discard settings"])
         #expect(lifecycle.nextPassAt == nil)
         #expect(rig.queue.count == 0, "a one-shot deadline: nothing left armed")
+    }
+
+    /// A page that refuses its discard keeps the state it was in (it still holds its document), and
+    /// the next pass, at the discard pace, tries again.
+    @Test func aRefusedDiscardKeepsTheStateAndTriesAgainAtTheDiscardPace() throws {
+        let settings = page("settings")
+        settings.refusesDiscard = true
+        lifecycle.hide("a", page: Target(page: settings))
+        try fireDuePass()
+        #expect(near(lifecycle.nextPassAt, .seconds(300)))
+        try fireDuePass()
+        #expect(log.lines == ["refuse settings"])
+        #expect(lifecycle.state(of: "a") == .hidden, "a refused discard reads as discarded")
+        #expect(near(lifecycle.nextPassAt, .seconds(305)), "nothing looks at the refused page again")
+        settings.refusesDiscard = false
+        try fireDuePass()
+        #expect(log.lines == ["refuse settings", "discard settings"])
+        #expect(lifecycle.state(of: "a") == .discarded)
+        #expect(lifecycle.nextPassAt == nil)
     }
 
     @Test func anOlderHiddenPageFreezesOnceItIsNoLongerRecentlyVisible() throws {
@@ -362,7 +386,7 @@ struct PageLifecycleTests {
         try Data("<!doctype html><title>Page</title>".utf8).write(to: root.appendingPathComponent("index.html"))
         let host = WebUIHost(chromium: nil, openPanel: nil,
                              memory: QuietMemoryRegistry(),
-                             clock: PageTestClock.never)
+                             deadlines: LifecycleDeadlineRig.never)
         host.lifecycle = lifecycle
         let descriptor = PageDescriptor(id: "test.page-lifecycle", resource: "page-lifecycle", processGroup: .viewer, namespaces: [])
         let view = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [])))
@@ -378,7 +402,7 @@ struct PageLifecycleTests {
         #expect(lifecycle.nextPassAt == .seconds(2), "the load's end armed no pass")
         view.loaded = false // a new load starts
         #expect(target.lifecycleKeepReasons.contains(.loading))
-        view.webView(view.webKitView, didFailProvisionalNavigation: nil, withError: URLError(.cancelled))
+        view.webView(view.webView, didFailProvisionalNavigation: nil, withError: URLError(.cancelled))
         #expect(!target.lifecycleKeepReasons.contains(.loading), "a failed load still counted as loading")
         host.close(view)
         #expect(lifecycle.state(of: "tab") == nil)
@@ -456,7 +480,7 @@ struct PageLifecycleTests {
         // planner's, an owner's, or no reason at all.
         for reason in ["focused", "loading", "inspector", "confirmation", "popup", "file_drop", "dictation", "audible",
                        "web_rtc", "connected_device", "web_lock", "recently_visible", "most_recently_used",
-                       "hibernation_off", "turn_running", "pinned", "nonsense"] {
+                       "hibernation_off", "turn_running", "page_call", "pinned", "nonsense"] {
             let refused = await keepAlive(reason, true)
             #expect(refused["code"]?.stringValue == "cmux.protocol.invalid_params", "\(reason)")
         }
@@ -514,7 +538,7 @@ struct PageLifecycleTests {
         defer { host.close(view) }
         let center = CmuxDialogCenter(host: SilentDialogHost())
         let presenter = DialogPageConfirmationPresenter(center: center)
-        let answer = Task { await presenter.confirm(PageConfirmation(kind: .delete, name: "notes"), anchor: view.webKitView) }
+        let answer = Task { await presenter.confirm(PageConfirmation(kind: .delete, name: "notes"), anchor: view.webView) }
         for _ in 0..<100 where center.records.isEmpty { await Task.yield() }
         let sheet = try #require(center.records.first)
         #expect(view.keepReasons.current == [.confirmation])
@@ -554,13 +578,13 @@ struct PageLifecycleTests {
         let (host, view, root) = try openKeepAlivePage()
         defer { try? FileManager.default.removeItem(at: root) }
         defer { host.close(view) }
-        let delegate = try #require(view.webKitView.uiDelegate as? PageUIDelegate)
-        delegate.webView(view.webKitView, didAttachLocalInspector: NSObject())
-        delegate.webView(view.webKitView, didAttachLocalInspector: NSObject())
+        let delegate = try #require(view.webView.uiDelegate as? PageUIDelegate)
+        delegate.webView(view.webView, didAttachLocalInspector: NSObject())
+        delegate.webView(view.webView, didAttachLocalInspector: NSObject())
         #expect(view.keepReasons.current == [.inspector])
         view.documentCommitted()
         #expect(view.keepReasons.current == [.inspector])
-        delegate.webView(view.webKitView, willCloseLocalInspector: NSObject())
+        delegate.webView(view.webView, willCloseLocalInspector: NSObject())
         #expect(view.keepReasons.current.isEmpty)
     }
 
@@ -627,7 +651,7 @@ struct PageLifecycleTests {
         try Data("<!doctype html><title>Page</title>".utf8).write(to: root.appendingPathComponent("index.html"))
         let host = WebUIHost(chromium: nil, openPanel: nil,
                              memory: QuietMemoryRegistry(),
-                             clock: PageTestClock.never)
+                             deadlines: LifecycleDeadlineRig.never)
         host.lifecycle = lifecycle
         let descriptor = PageDescriptor(id: "test.page-keep-alive", resource: "page-keep-alive", processGroup: .viewer, namespaces: [])
         let view = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [])))

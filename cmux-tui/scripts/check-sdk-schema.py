@@ -33,6 +33,8 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "crate::mux::CloseReason": "CloseReason",
     "crate::resource_name::NameSource": "NameSource",
     "AgentSessionParams": "AgentSessionSource",
+    # server/client_hello.rs `HelloFeatures::parse` (p12-perf-process-150).
+    "HelloFeatures": "ClientHelloFeatures",
     "ConversationTabSplitParams": "ConversationTabSplit",
     "crate::model::ColumnDock": "ColumnPin",
     "SnapshotHave": "SnapshotRequestHave",
@@ -97,10 +99,6 @@ RUNTIME_DECODED_REQUEST_FIELDS = {
 # longer served only prints a note, so the task that schemas a name can land
 # before or after this list drops it.
 UNSCHEMAD_SNIFFED_COMMANDS = {
-    **dict.fromkeys(
-        ("agent-inventory", "agent-inventory-refresh", "agent-inventory-watch"),
-        "p05-ipc-015",
-    ),
     "oracle-state": "debug and --features oracle builds only (p15-oracle-021), not an SDK command",
 }
 
@@ -633,8 +631,15 @@ def _runtime_field_presence(field: RuntimeField) -> tuple[str, bool]:
     # and may be null.
     if optional_type and any("required_nullable" in value for value in field.attributes):
         return "required", True
-    # An `Option<T>` with the `non_null` deserializer may be absent but never null.
-    if optional_type and any('deserialize_with = "non_null"' in value for value in field.attributes):
+    # An `Option<T>` with the `non_null` deserializer may be absent but never null;
+    # so may one with `default` and `present_non_null` (server/command_args.rs).
+    if optional_type and (
+        any('deserialize_with = "non_null"' in value for value in field.attributes)
+        or (
+            any("present_non_null" in value for value in field.attributes)
+            and any(re.search(r"\bdefault\b", value) for value in field.attributes)
+        )
+    ):
         return "optional", False
     has_default = any(re.search(r"\bdefault\b", value) for value in field.attributes)
     presence = "optional" if optional_type or has_default else "required"
@@ -684,6 +689,8 @@ def _runtime_type_shape(rust_type: str) -> str:
         "f64": "float64",
         "Value": "opaque-json",
         "LayoutRequest": "declarative-layout",
+        # loopback_forward.rs: a base64 string, decoded while the line parses.
+        "Base64Frame": "string",
         "SurfaceId": "uint64",
         "PaneId": "uint64",
         "SplitId": "uint64",
@@ -749,16 +756,6 @@ def _schema_type_shape(
     return ""
 
 
-# Fields the server reads only to refuse them with invalid-argument: a
-# pre-rename name an older client may still send. They are not part of the
-# SDK contract, so the SDKs never send them.
-REFUSED_LEGACY_REQUEST_FIELDS = {
-    # R87 DOCK-WIRE: `sticky` was renamed to `dock`; ignoring it would turn an
-    # older client's pin into a plain column.
-    "move-tab-to-column": {"sticky"},
-}
-
-
 def validate_runtime_request_fields(ir: SdkIR) -> None:
     """Reject request-field drift against the server's Deserialize contract."""
 
@@ -771,13 +768,6 @@ def validate_runtime_request_fields(ir: SdkIR) -> None:
         if name in runtime_commands or name in generated:
             fail(f"{name} is both a Command variant and a handler module command")
         runtime_commands[name] = fields
-    for command_name, refused in REFUSED_LEGACY_REQUEST_FIELDS.items():
-        fields = runtime_commands.get(command_name, {})
-        missing = refused - set(fields)
-        if missing:
-            fail(f"refused legacy request field missing from {command_name}: {sorted(missing)}")
-        for name in refused:
-            del fields[name]
     compare_names(set(ir.commands), set(runtime_commands) | generated, "runtime SDK command")
     for command_name, command in ir.commands.items():
         if command_name in generated:

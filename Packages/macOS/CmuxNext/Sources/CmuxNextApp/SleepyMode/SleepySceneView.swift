@@ -6,7 +6,7 @@ import SwiftUI
 /// the clock and how many of this Mac's agents run a turn. A click anywhere
 /// but the Lock Mac button wakes it. The sky is Core Animation layers
 /// (``NightSkyView``), so a scene left up for hours costs the main thread only
-/// the clock's update once a second.
+/// the clock's update once a minute and the agent line's when a turn starts or ends.
 struct SleepySceneView: View {
     let workingAgents: @MainActor () -> Int
     let wake: @MainActor () -> Void
@@ -26,16 +26,14 @@ struct SleepySceneView: View {
                 Image(systemName: "moon.zzz.fill")
                     .font(.system(size: 96, weight: .regular))
                     .foregroundStyle(Color(red: 1.0, green: 0.92, blue: 0.62))
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    VStack(spacing: 8) {
+                VStack(spacing: 8) {
+                    // HH:MM changes once a minute: the clock wakes on the minute, never per second.
+                    TimelineView(.everyMinute) { context in
                         Text(context.date, format: .dateTime.hour().minute())
                             .font(.system(size: 64, weight: .thin, design: .rounded))
                             .monospacedDigit()
-                        let working = workingAgents()
-                        Text(working == 0 ? SleepyModeStrings.noAgentsWorking : SleepyModeStrings.agentsWorking(working))
-                            .font(.title3)
-                            .foregroundStyle(.white.opacity(0.7))
                     }
+                    SleepyAgentsLine(workingAgents: workingAgents)
                 }
                 .foregroundStyle(.white)
                 .allowsHitTesting(false)
@@ -63,6 +61,19 @@ extension SleepySceneView {
                          wake: @escaping @MainActor () -> Void,
                          lockMac: @escaping @MainActor () -> Void) -> NSView {
         NSHostingView(rootView: SleepySceneView(workingAgents: workingAgents, wake: wake, lockMac: lockMac))
+    }
+}
+
+/// "2 agents working": its body reads the count, so SwiftUI's observation tracking redraws it when
+/// an observed fact the count read changes (a turn starts or ends), and at no other time.
+private struct SleepyAgentsLine: View {
+    let workingAgents: @MainActor () -> Int
+
+    var body: some View {
+        let working = workingAgents()
+        Text(working == 0 ? SleepyModeStrings.noAgentsWorking : SleepyModeStrings.agentsWorking(working))
+            .font(.title3)
+            .foregroundStyle(.white.opacity(0.7))
     }
 }
 

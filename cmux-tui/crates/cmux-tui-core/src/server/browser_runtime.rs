@@ -26,6 +26,7 @@
 //!   installed}` once the host listens, or an error with `error_code`.
 //! - `browser-runtime-stop {id, runtime}` answers `{stopped: true}`.
 
+use cmux_threads::sync::Mutex;
 use std::collections::HashMap;
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
@@ -33,9 +34,8 @@ use std::net::SocketAddr;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::process::ChildStdin;
-use std::sync::Arc;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock, Weak};
 use std::time::Duration;
 
 use cmux_process::{Child, Command, Stdio};
@@ -45,7 +45,8 @@ use cmux_threads::work::{Lane, Priority, Shutdown};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::{MessageWriter, Response, send_response};
+use super::routes::{Route, RouteLine, RouteName};
+use super::{FrameStage, MessageWriter, Response, send_response};
 use crate::mux::Mux;
 
 pub const BROWSER_RUNTIME_CAPABILITY: &str = "browser-runtime-v1";
@@ -113,6 +114,9 @@ pub(crate) struct BrowserRuntimes {
     root: Mutex<Option<PathBuf>>,
     next_id: AtomicU64,
     state: Mutex<State>,
+    /// The mux whose work stops a host ([`Self::stop`]); bound once it is
+    /// built.
+    owner: OnceLock<Weak<Mux>>,
 }
 
 impl BrowserRuntimes {
@@ -162,8 +166,47 @@ impl BrowserRuntimes {
             ids.into_iter().filter_map(|id| state.runtimes.remove(&id)).collect()
         };
         for runtime in stopped {
-            stop(runtime);
+            self.stop(runtime);
         }
+    }
+
+    /// Closes the lifeline; a host that is still running after the grace
+    /// time ends with its process group. The child is reaped only after any
+    /// kill, so the kill never reaches a reused pid. The grace wait is a
+    /// `will_block` work item, not a thread per stop.
+    fn stop(&self, runtime: Runtime) {
+        let Runtime { mut child, lifeline, log, .. } = runtime;
+        drop(lifeline);
+        let finish = move || {
+            cmux_threads::work::will_block(|| {
+                if !matches!(child.wait_timeout(STOP_GRACE), Ok(Some(_))) {
+                    if let Ok(group) = libc::pid_t::try_from(child.id()) {
+                        // SAFETY: plain syscall; the group's leader is unreaped.
+                        unsafe { libc::killpg(group, libc::SIGKILL) };
+                    }
+                    let _ = child.wait();
+                }
+            });
+            let _ = files::remove_file(&log);
+        };
+        // With no work (shutdown began, or the mux is gone) the host is left
+        // to its closed lifeline: it exits by itself, unreaped until the
+        // daemon ends.
+        if let Some(mux) = self.owner.get().and_then(Weak::upgrade) {
+            let _ = mux.work.post(
+                Priority::BestEffort,
+                Lane::System,
+                Shutdown::ContinueOnShutdown,
+                finish,
+            );
+        }
+    }
+}
+
+impl super::ClientRegistry {
+    /// Binds the mux whose work stops browser hosts.
+    pub(crate) fn bind_browser_runtime_owner(&self, mux: Weak<Mux>) {
+        let _ = self.browser_runtimes.owner.set(mux);
     }
 }
 
@@ -220,24 +263,19 @@ enum RuntimeCommand {
 }
 
 /// The `cmd` names this module answers (server/routes.rs).
-pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
-    &[crate::server::routes::Route {
-        names: &[crate::server::routes::RouteName::Prefix("browser-runtime-")],
-        stage: crate::server::FrameStage::BrowserRuntime,
-        entry: |line| try_handle(line.mux, line.client, line.message, line.writer),
-    }];
+pub(in crate::server) const ROUTES: &[Route] = &[Route {
+    names: &[RouteName::Prefix("browser-runtime-")],
+    stage: FrameStage::BrowserRuntime,
+    entry: handle,
+}];
 
-/// Handles a `browser-runtime-*` message on the connection's reader thread.
-/// A start runs on its own thread and answers when the host listens.
-pub(super) fn try_handle(
-    mux: &Arc<Mux>,
-    client: u64,
-    message: &str,
-    writer: &MessageWriter,
-) -> Option<bool> {
-    if !message.contains("\"browser-runtime-") {
-        return None;
-    }
+/// The route's typed handler for a `browser-runtime-*` line, on the
+/// connection's reader thread: the line's `cmd` named this family, so it
+/// decodes the line once into its [`RuntimeCommand`] and answers it. A start
+/// runs on its own thread and answers when the host listens. A line that is
+/// none of the three commands is left to the `Command` parse (`None`).
+fn handle(line: &RouteLine<'_>) -> Option<bool> {
+    let RouteLine { mux, client, message, writer, .. } = *line;
     let RuntimeRequest { id, command } = crate::line_parses::parse(message).ok()?;
     let runtimes = &mux.control_clients.browser_runtimes;
     if !(mux.control_clients.is_unix(client)
@@ -262,7 +300,7 @@ pub(super) fn try_handle(
             };
             match removed {
                 Some(runtime) => {
-                    stop(runtime);
+                    runtimes.stop(runtime);
                     Some(ok(writer, id, json!({"stopped": true})))
                 }
                 None => Some(fail(
@@ -376,47 +414,46 @@ fn start(
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
     let worker_id = id.clone();
-    let spawned = std::thread::Builder::new()
-        .name("mux-browser-runtime-start".into())
-        .stack_size(THREAD_STACK_BYTES)
-        .spawn(move || {
-            let runtimes = &worker_mux.control_clients.browser_runtimes;
-            // The install is on disk: read here, not on the reader thread.
-            let Some((version, executable)) = runtimes.installed() else {
-                runtimes.lock().release(client);
-                fail(
-                    &worker_writer,
-                    worker_id,
-                    "browser-runtime.not-installed",
-                    "the browser is not installed on this machine",
-                );
-                return;
-            };
-            let launched = launch(runtimes, client, &executable, url.as_deref());
+    // The start waits up to START_TIMEOUT for the host's first line
+    // (`request_wait.rs`).
+    let posted = mux.post_request_wait(move || {
+        let runtimes = &worker_mux.control_clients.browser_runtimes;
+        // The install is on disk: read here, not on the reader thread.
+        let Some((version, executable)) = runtimes.installed() else {
             runtimes.lock().release(client);
-            match launched {
-                Ok((runtime_id, port, secret)) => {
-                    // The connection may have ended during the start.
-                    if !worker_mux.control_clients.is_unix(client) {
-                        runtimes.disconnect(client);
-                        return;
-                    }
-                    let reply = json!({
-                        "runtime": runtime_id,
-                        "port": port,
-                        "secret": secret,
-                        "installed": version,
-                    });
-                    ok(&worker_writer, worker_id, reply);
-                }
-                Err(message) => {
-                    fail(&worker_writer, worker_id, "browser-runtime.start-failed", &message);
-                }
-            }
-        });
-    if spawned.is_err() {
+            fail(
+                &worker_writer,
+                worker_id,
+                "browser-runtime.not-installed",
+                "the browser is not installed on this machine",
+            );
+            return;
+        };
+        let launched = launch(runtimes, client, &executable, url.as_deref());
         runtimes.lock().release(client);
-        return fail(writer, id, "browser-runtime.start-failed", "cannot start a thread");
+        match launched {
+            Ok((runtime_id, port, secret)) => {
+                // The connection may have ended during the start.
+                if !worker_mux.control_clients.is_unix(client) {
+                    runtimes.disconnect(client);
+                    return;
+                }
+                let reply = json!({
+                    "runtime": runtime_id,
+                    "port": port,
+                    "secret": secret,
+                    "installed": version,
+                });
+                ok(&worker_writer, worker_id, reply);
+            }
+            Err(message) => {
+                fail(&worker_writer, worker_id, "browser-runtime.start-failed", &message);
+            }
+        }
+    });
+    if posted.is_err() {
+        runtimes.lock().release(client);
+        return fail(writer, id, "browser-runtime.start-failed", "the daemon is shutting down");
     }
     true
 }
@@ -488,7 +525,7 @@ fn launch(
     let runtime = Runtime { owner: client, child, lifeline, port: port.unwrap_or(0), log };
     let Some(port) = port else {
         let tail = log_tail(&runtime.log);
-        stop(runtime);
+        runtimes.stop(runtime);
         return Err(if tail.is_empty() {
             "the browser did not start".into()
         } else {
@@ -521,30 +558,6 @@ fn log_tail(log: &Path) -> String {
     let mut bytes = Vec::new();
     let _ = file.read_to_end(&mut bytes);
     String::from_utf8_lossy(&bytes).split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-/// Closes the lifeline; a host that is still running after the grace time
-/// ends with its process group. The child is reaped only after any kill, so
-/// the kill never reaches a reused pid.
-fn stop(runtime: Runtime) {
-    let Runtime { mut child, lifeline, log, .. } = runtime;
-    drop(lifeline);
-    let finish = move || {
-        if !matches!(child.wait_timeout(STOP_GRACE), Ok(Some(_))) {
-            if let Ok(group) = libc::pid_t::try_from(child.id()) {
-                // SAFETY: plain syscall; the group's leader is unreaped.
-                unsafe { libc::killpg(group, libc::SIGKILL) };
-            }
-            let _ = child.wait();
-        }
-        let _ = files::remove_file(&log);
-    };
-    // A stop thread that cannot start leaves the host to its closed
-    // lifeline: it exits by itself, unreaped until the daemon ends.
-    let _ = std::thread::Builder::new()
-        .name("mux-browser-runtime-stop".into())
-        .stack_size(THREAD_STACK_BYTES)
-        .spawn(finish);
 }
 
 fn ok(writer: &MessageWriter, id: Option<Value>, data: Value) -> bool {

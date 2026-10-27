@@ -52,6 +52,7 @@ import {
 } from "./composer/attachmentIntake";
 import { DropOverlay } from "./composer/DropOverlay";
 import { useHarnessesListed } from "./catalog";
+import { usePageDraft } from "./pageKeep";
 
 /// The three things a new tab can become (#16620). Order is the switch's order and Tab's cycle.
 export const TAB_KINDS = ["terminal", "browser", "agent"] as const;
@@ -421,6 +422,8 @@ export function NewTabPage({
   });
   attachmentRef.current = attachments;
   const holdForAttachments = useSendWhenAttached(pending.length);
+  // A typed query or staged attachments keep the hidden page from being discarded (pageKeep.ts).
+  usePageDraft(text !== (location ?? "") || attachments.length > 0 || pending.length > 0);
   // WEB-SWAP: a web update's reload would lose what this page holds only in its state: a typed
   // query (the location comes back with the page), staged attachments, and a kind or folder picked
   // (pages/shared/webSwap.ts).

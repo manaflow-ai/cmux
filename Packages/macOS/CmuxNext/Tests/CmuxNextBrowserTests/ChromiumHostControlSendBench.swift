@@ -1,6 +1,7 @@
 #if DEBUG
 // The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 @testable import CmuxNextBrowser
+import CmuxNextTestSupport
 import Darwin
 import Foundation
 import Testing
@@ -10,7 +11,8 @@ import Testing
 /// paths: the direct write (nothing waits; a host that reads) and the outbox
 /// push (the socket is full; a host that never reads, geometry coalescing).
 /// A measurement, not a gate. The channel is Debug-only, so this runs in a
-/// Debug build; quote the lines with the macOS version:
+/// Debug build; quote the lines with the macOS version. With CMUX_PERF_RESULT_DIR every send is
+/// result-v1 (lab story swift-chromium-host-control):
 ///
 /// ```
 /// CMUX_CHROMIUM_HOST_CONTROL_BENCH=1 swift test --filter ChromiumHostControlSendBench
@@ -35,7 +37,7 @@ struct ChromiumHostControlSendBench {
         Message(op: 5, fields: [.init(tag: 1, value: .i32(1)), .init(tag: 2, value: .i32(code))])
     }
 
-    /// Nanoseconds of each of `sends` calls of `send(index)`.
+    /// Nanoseconds of each of `sends` calls of `send(index)`, in call order.
     private static func measure(_ send: (Int) -> Bool) -> (samples: [UInt64], allSent: Bool) {
         var samples = [UInt64](repeating: 0, count: sends)
         var allSent = true
@@ -45,10 +47,11 @@ struct ChromiumHostControlSendBench {
             samples[index] = clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - start
             allSent = allSent && sent
         }
-        return (samples.sorted(), allSent)
+        return (samples, allSent)
     }
 
-    private static func line(_ path: String, _ sorted: [UInt64]) -> String {
+    private static func line(_ path: String, _ samples: [UInt64]) -> String {
+        let sorted = samples.sorted()
         func at(_ fraction: Double) -> Double { Double(sorted[min(sorted.count - 1, Int(Double(sorted.count) * fraction))]) / 1_000 }
         return String(format: "chromium-host control send bench: macOS %@, %@, %d sends: p50 %.2f us, p95 %.2f us, p99 %.2f us, max %.2f us",
                       ProcessInfo.processInfo.operatingSystemVersionString, path, sorted.count,
@@ -69,6 +72,7 @@ struct ChromiumHostControlSendBench {
         let channel = Self.channel(fd: pair[0])
         let (samples, allSent) = Self.measure { channel.send(Self.key(Int32($0))) }
         print(Self.line("direct write (a reading host)", samples))
+        try PerfResultWriter()?.record("swift.chromium_host_control.direct_write", unit: .us, samples: samples.map { Double($0) / 1_000 })
         #expect(allSent)
         channel.close()
     }
@@ -87,6 +91,7 @@ struct ChromiumHostControlSendBench {
             index % 2 == 0 ? channel.send(Self.geometry(1, Int32(index)), stateKey: page) : channel.send(Self.key(Int32(index)))
         }
         print(Self.line("outbox push (a host that never reads; geometry coalesces)", samples))
+        try PerfResultWriter()?.record("swift.chromium_host_control.outbox_push", unit: .us, samples: samples.map { Double($0) / 1_000 })
         #expect(allSent)
         channel.close()
         close(pair[1])

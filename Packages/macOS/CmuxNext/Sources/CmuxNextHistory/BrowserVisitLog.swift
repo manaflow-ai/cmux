@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 public import Foundation
 
 /// A finished main-frame navigation in one browser profile.
@@ -38,6 +39,8 @@ public actor BrowserVisitLog {
     private var database: HistorySQLite?
     private var openFailed = false
     private let clock: @Sendable () -> Date
+    /// The memory coordinator's limit (`memorySqliteTrim`): it scales the page cache cap.
+    private var memoryLimit = MemoryLimit.default
 
     /// `url` nil keeps the log in memory (tests, demos).
     public init(url: URL?, clock: @escaping @Sendable () -> Date = Date.init) {
@@ -176,6 +179,7 @@ public actor BrowserVisitLog {
                 CREATE INDEX IF NOT EXISTS visits_url ON visits(url);
                 PRAGMA user_version=1;
                 """)
+            if memoryLimit < .default { try db.limitCache(kibibytes: Self.cacheKiB(at: memoryLimit)) }
             database = db
             return db
         } catch {
@@ -190,5 +194,58 @@ public actor BrowserVisitLog {
     static func escapeLike(_ text: String) -> String {
         text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "%", with: "\\%")
             .replacingOccurrences(of: "_", with: "\\_")
+    }
+}
+
+/// The log's SQLite page cache as a memory consumer (`memorySqliteTrim`, p07-memory-090).
+///
+/// Chrome's `sql::Database` frees its page cache under memory pressure (`TrimMemory()` in
+/// sql/database.cc calls `sqlite3_db_release_memory` on the connection's own sequence). Here both
+/// calls run on this actor, the connection's only owner: a limit below 100 % lowers the cache cap
+/// (`PRAGMA cache_size`, about 2 MB at 100 %), and a release frees the clean pages no statement holds.
+/// Nothing is lost: the next query reads the pages again from the file or the kernel's cache.
+extension BrowserVisitLog: AsyncMemoryConsumer {
+    /// Medium (up to SQLite's 2 MB cap), lossless and cheap to rebuild (pages read again), and the
+    /// release touches only memory, so warning pressure scales it with the Memory Saver mode.
+    public nonisolated static let memoryTraits = MemoryConsumerTraits(
+        estimatedUsage: .medium,
+        dataAccess: .none,
+        retention: .lossless,
+        recreateCost: .cheap,
+        releaseCPUCost: .low,
+        isStateful: true,
+        supportsMemoryLimit: true
+    )
+
+    /// The consumer's name in the memory report (one per profile log).
+    public nonisolated static let memoryConsumerName = "history-visit-log"
+
+    /// The page cache's floor at the critical limit: a working set of a few dozen pages.
+    nonisolated static let workingSetCacheKiB = 64
+
+    /// The page cache cap at `limit`, in KiB.
+    nonisolated static func cacheKiB(at limit: MemoryLimit) -> Int {
+        max(limit.scale(HistorySQLite.defaultCacheKiB), workingSetCacheKiB)
+    }
+
+    /// Lowers (or restores) the page cache cap; frees nothing.
+    public func updateMemoryLimit(_ limit: MemoryLimit) -> MemoryUsage? {
+        memoryLimit = limit
+        try? database?.limitCache(kibibytes: Self.cacheKiB(at: limit))
+        return memoryUsage
+    }
+
+    /// Frees the unused page cache when `limit` is below 100 %. A log not opened yet holds none and
+    /// stays closed.
+    public func releaseMemory(downTo limit: MemoryLimit) -> MemoryUsage? {
+        _ = updateMemoryLimit(limit)
+        if limit < .default { database?.releaseMemory() }
+        return memoryUsage
+    }
+
+    /// The page cache's heap bytes; nil while SQLite cannot tell.
+    var memoryUsage: MemoryUsage? {
+        guard let database else { return .empty }
+        return database.cacheUsedBytes.map { MemoryUsage(footprintBytes: $0, entries: 1) }
     }
 }

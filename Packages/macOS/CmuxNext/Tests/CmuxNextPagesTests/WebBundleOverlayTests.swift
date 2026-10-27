@@ -42,6 +42,20 @@ struct WebBundleOverlayTests {
         #expect(await overlay.root(for: Self.bundledPane) == Self.bundledPane)
     }
 
+    /// One React for every tree (p13-webui-072): Agent Activity imports React from the pages' `_shared`
+    /// (`cmux-page://cmux.shared/`), so once the app registers it both come from the active update.
+    @Test func agentActivityAndTheSharedChunksComeFromTheSameUpdate() async {
+        let overlay = Self.overlay()
+        let activity = URL(fileURLWithPath: "/App.app/Contents/Resources/CmuxNextAgentActivity.bundle/agent-activity", isDirectory: true)
+        let shared = Self.bundledPages.appending(path: "_shared", directoryHint: .isDirectory)
+        overlay.activate(Self.tree)
+        // Unregistered, the page stays bundled while its React would come from the update.
+        #expect(await overlay.root(for: activity) == activity)
+        overlay.register(bundled: activity, output: WebBundleOverlay.agentActivityOutput)
+        #expect(await overlay.root(for: shared).path == Self.tree.path + "/" + WebBundleOverlay.pagesOutput + "/_shared")
+        #expect(await overlay.root(for: activity).path == Self.tree.path + "/" + WebBundleOverlay.agentActivityOutput)
+    }
+
     @Test func anEscapingOutputIsNotRegistered() async {
         let overlay = WebBundleOverlay(bases: [])
         overlay.register(bundled: Self.bundledPane, output: "../../etc")

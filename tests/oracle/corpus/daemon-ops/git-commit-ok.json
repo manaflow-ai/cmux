@@ -14,14 +14,18 @@
   "fixture": {
     "seed": "daemon-ops.git-commit",
     "network": "offline",
-    "clock": "virtual"
+    "clock": "virtual",
+    "repo": "oracle"
   },
   "preconditions": [
     "hermetic state root",
-    "no other cmux-tui on the state root"
+    "no other cmux-tui on the state root",
+    "git on PATH; tests/oracle/fixtures/git/oracle.json built under $CASE_ROOT/repos before the first step (make_repo.py build_for_case): fixed dates, a local bare origin, no other remote",
+    "HOME is the case's own folder under $CASE_ROOT, as for every case with a generated repository"
   ],
   "requires": [
-    "resource_api"
+    "resource_api",
+    "git_repo"
   ],
   "platforms": [
     "linux",
@@ -29,41 +33,20 @@
   ],
   "steps": [
     {
-      "id": "fx-workspace",
+      "id": "call",
       "op": "resource.call",
       "target": {
         "machine": "current",
         "session": "current"
       },
       "args": {
-        "method": "workspace.create",
-        "params": {
-          "initial_content": "terminal",
-          "name": "oracle"
-        },
-        "idempotencyKey": "git-commit-ok.fx-workspace"
-      },
-      "expect": {
-        "outcome": "ok",
-        "receipt": "mutation_result"
-      }
-    },
-    {
-      "id": "call",
-      "op": "resource.call",
-      "target": {
-        "machine": "current",
-        "session": "current",
-        "workspace": "$step:fx-workspace#/value/workspace_id",
-        "screen": "$step:fx-workspace#/value/screen_id",
-        "pane": "$step:fx-workspace#/value/pane_id",
-        "tab": "$step:fx-workspace#/value/tab_id",
-        "terminal": "$step:fx-workspace#/value/terminal_id"
-      },
-      "args": {
         "method": "git.commit",
         "params": {
-          "message": "oracle"
+          "message": "oracle: commit the notes",
+          "path": "$CASE_ROOT/repos/oracle",
+          "paths": [
+            "notes.txt"
+          ]
         },
         "idempotencyKey": "git-commit-ok.call"
       },
@@ -75,7 +58,35 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "commits the fixture's unstaged notes.txt edit, staging it first"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "git.commit",
+        "params": {
+          "message": "oracle: commit the notes",
+          "path": "$CASE_ROOT/repos/oracle",
+          "paths": [
+            "notes.txt"
+          ]
+        },
+        "idempotencyKey": "git-commit-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [
@@ -86,6 +97,7 @@
     "verify the socket and state root are gone"
   ],
   "untested": [
-    "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT; git/_tuning.json tunes it"
+    "the new commit's id and dates: git.commit runs git with every inherited GIT_* variable dropped (git_ops/user_run.rs), so its dates are the wall clock's; the case asserts the receipt, and the repository's own config gives the identity and turns signing and hooks off",
+    "no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows"
   ]
 }

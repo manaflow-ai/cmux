@@ -1,4 +1,6 @@
 public import Foundation
+internal import class CmuxSafeConcurrency.OnceContinuation
+internal import func CmuxSafeConcurrency.withOnceThrowingContinuation
 #if canImport(FoundationNetworking)
 public import FoundationNetworking
 #endif
@@ -102,7 +104,7 @@ public actor CmxRetryAfterGate {
     private let sleep: Sleep
     private var deadline: TimeInterval?
     private var sending = false
-    private var sendWaiters: [(UUID, CheckedContinuation<Void, any Error>)] = []
+    private var sendWaiters: [(UUID, OnceContinuation<Void, any Error>)] = []
 
     public init() {
         now = { ProcessInfo.processInfo.systemUptime }
@@ -155,7 +157,7 @@ public actor CmxRetryAfterGate {
         try await withTaskCancellationHandler {
             try Task.checkCancellation()
             if sending {
-                try await withCheckedThrowingContinuation { continuation in
+                try await withOnceThrowingContinuation { (continuation: OnceContinuation<Void, any Error>) in
                     sendWaiters.append((id, continuation))
                 }
             } else {
@@ -183,7 +185,7 @@ public actor CmxRetryAfterGate {
         if sendWaiters.isEmpty {
             sending = false
         } else {
-            sendWaiters.removeFirst().1.resume()
+            sendWaiters.removeFirst().1.resume(returning: ())
         }
     }
 }

@@ -1,4 +1,5 @@
 import AppKit
+import struct CmuxNextDaemon.POSIXErrorText
 import CmuxNextDesign
 import CmuxNextFiles
 import CmuxNextFilesUI
@@ -57,6 +58,7 @@ struct FileExplorerCommands {
         // Edit > Undo (Cmd-Z) puts the item back where it was and selects it, as Finder's Put Back.
         ToastUndoStep.attach(title: FileExplorerStrings.undoMoveToTrash, filling: nil, undoManager: undoManager, handle: nil) {
             // task-owner: one Put Back and a relisting; ends when the folder lists again.
+            // main-hop-allow: the person's Undo, userBlocking rest (p06 rule 2): Put Back is FileOperating's off-main move, then the model's main-actor async relisting
             Task { @MainActor in
                 guard let back = try? await files.putBack(trashed) else { return }
                 await model.reload()
@@ -81,8 +83,9 @@ struct FileExplorerCommands {
         let taken = Set((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? [])
         let free = FileNamer().freeName(for: name, style: .number, taken: taken)
         let file = folder.appendingPathComponent(free)
-        let descriptor = Darwin.open(file.path, O_WRONLY | O_CREAT | O_EXCL, 0o644)
-        guard descriptor >= 0 else { throw FileBrowserError.failed(String(cString: strerror(errno))) }
+        // SAFETY: open reads the NUL-terminated copy of the path Swift makes for the call.
+        let descriptor = unsafe Darwin.open(file.path, O_WRONLY | O_CREAT | O_EXCL, 0o644)
+        guard descriptor >= 0 else { throw FileBrowserError.failed(POSIXErrorText(errno).description) }
         Darwin.close(descriptor)
         return file
     }

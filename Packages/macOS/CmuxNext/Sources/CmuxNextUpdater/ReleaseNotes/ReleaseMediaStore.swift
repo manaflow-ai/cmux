@@ -1,4 +1,4 @@
-import CmuxNextCompat
+public import CmuxNextCompat
 public import Foundation
 import CryptoKit
 
@@ -14,6 +14,10 @@ import CryptoKit
 /// cached (highlights by hash, documents by path), so the page shows them offline.
 /// The build's nightly reel is a video the page links, never inlines (``reel(build:)``): its URL
 /// only when the build's `reel.json` (scripts/cmux-next/media/reel.py) says `reel.mp4` was built.
+///
+/// The page's memo of inlined pictures (``memoryConsumer``) is one lossless memory consumer on its own actor: under a
+/// lower limit the oldest inlined pictures go, and a page that asks again reads them from the bundle or the cache on
+/// disk, never the network. Remembered failures stay (a few bytes each), so a page still asks the network once.
 nonisolated public struct ReleaseMediaStore: Sendable {
     public let cache: URL
     public let bundledDirectories: [URL]
@@ -24,6 +28,27 @@ nonisolated public struct ReleaseMediaStore: Sendable {
     private let fetcher: any AppcastFetching
     /// Results of this store's earlier calls (a failure too), so a page asks the network once.
     private let memo = Memo()
+
+    /// The memo of inlined pictures, the store's memory consumer (``registerMemoryConsumer(with:)``).
+    public var memoryConsumer: any AsyncMemoryConsumer { memo }
+
+    /// Registers the memo with the app's memory coordinator; the store's owner keeps the registration for as long as
+    /// it keeps the store.
+    ///
+    /// - Parameter registry: The memory coordinator (injected).
+    /// - Returns: The registration.
+    @MainActor public func registerMemoryConsumer(with registry: any MemoryConsumerRegistry) -> AsyncMemoryConsumerRegistration {
+        AsyncMemoryConsumerRegistration(name: Self.memoryConsumerName, traits: Self.memoryTraits, consumer: memo, registry: registry)
+    }
+
+    /// The memo's name in the memory report.
+    public static let memoryConsumerName = "release-media"
+
+    /// `data:` URLs of checked pictures, each at most ``maxImageBytes`` before base64 (a page's few pictures: 1 to
+    /// 50 MB); dropping one touches only memory, and inlining it again reads the bundle or the disk cache.
+    public static let memoryTraits = MemoryConsumerTraits(
+        estimatedUsage: .medium, dataAccess: .none, retention: .lossless, recreateCost: .cheap,
+        releaseCPUCost: .low, isStateful: true, supportsMemoryLimit: true)
 
     /// The largest picture the page inlines (bytes).
     static let maxImageBytes = 4 << 20
@@ -184,9 +209,41 @@ nonisolated public struct ReleaseMediaStore: Sendable {
     }
 
     /// Inlined media by source key; a nil value is a failure remembered for this store's life.
-    actor Memo {
+    actor Memo: AsyncMemoryConsumer {
         private var values: [String: URL?] = [:]
+        /// The keys of inlined pictures (not failures, not reels), oldest first.
+        private var inlined: [String] = []
+        /// The UTF-8 bytes of the inlined `data:` URLs, kept on every set and drop.
+        private var bytes = 0
+
         func value(_ key: String) -> URL?? { values[key] }
-        func set(_ key: String, _ url: URL?) { values[key] = .some(url) }
+
+        func set(_ key: String, _ url: URL?) {
+            if case .some(.some(let old)) = values[key], old.scheme == "data" {
+                bytes -= old.absoluteString.utf8.count
+                inlined.removeAll { $0 == key }
+            }
+            values[key] = .some(url)
+            // A reel's https URL stays: asking for it again would ask the network.
+            guard let url, url.scheme == "data" else { return }
+            bytes += url.absoluteString.utf8.count
+            inlined.append(key)
+        }
+
+        /// Nothing to lower: the memo holds what its page asked for.
+        func updateMemoryLimit(_ limit: MemoryLimit) -> MemoryUsage? { usage }
+
+        /// Drops the oldest inlined pictures down to the limit's share of what it holds.
+        func releaseMemory(downTo limit: MemoryLimit) -> MemoryUsage? {
+            let drop = inlined.count - limit.scale(inlined.count)
+            for key in inlined.prefix(max(drop, 0)) {
+                if case .some(.some(let url)) = values.removeValue(forKey: key) { bytes -= url.absoluteString.utf8.count }
+            }
+            inlined.removeFirst(max(drop, 0))
+            return usage
+        }
+
+        /// The inlined bytes and pictures, from two counters.
+        var usage: MemoryUsage { MemoryUsage(footprintBytes: bytes, entries: inlined.count) }
     }
 }

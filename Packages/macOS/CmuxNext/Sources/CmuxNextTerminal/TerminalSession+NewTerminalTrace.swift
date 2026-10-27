@@ -15,14 +15,14 @@ extension TerminalSession {
     }
 
     /// The session over `io` created its surface: while a trace is armed and `io` is the traced terminal's, watch
-    /// this session, its output lane and its layer (`setContents:` marks; every terminal layer has the hook,
-    /// ``TypingFrameProbe``). Nothing in Release: there the content cache marks `surface_created` (``traceCreate(_:surface:)``).
+    /// this session, its output lane and what its frames go to (``traceFrameTarget(of:)``).
+    /// Nothing in Release: there the content cache marks `surface_created` (``traceCreate(_:surface:)``).
     func traceSurfaceCreated(io: any TerminalIO) {
         #if DEBUG || CMUX_BENCH_HOOKS
         guard NewTerminalTrace.shared.isArmed else { return }
         _ = NewTerminalTrace.shared.sessionCreated(io: ObjectIdentifier(io as AnyObject), session: ObjectIdentifier(self),
                                                    lane: surfaceView.lane.map { ObjectIdentifier($0) },
-                                                   layer: surfaceView.layer.map { ObjectIdentifier($0) })
+                                                   layer: Self.traceFrameTarget(of: surfaceView))
         #endif
     }
 }
@@ -30,19 +30,21 @@ extension TerminalSession {
 #if DEBUG || CMUX_BENCH_HOOKS
 // DEBUG builds: called only while a trace is armed.
 extension TerminalSession {
-    /// A later replay swapped in `fresh`: watch its lane and layer instead.
-    func traceSurfaceSwapped(_ fresh: TerminalSurfaceView) {
-        NewTerminalTrace.shared.surfaceSwapped(session: ObjectIdentifier(self), lane: fresh.lane.map { ObjectIdentifier($0) },
-                                               layer: fresh.layer.map { ObjectIdentifier($0) })
+    /// What the trace's `contents` marks name for `view`'s frames: its layer, whose `setContents:` gets each frame
+    /// (``TypingFrameProbe``), or with renderer-owned frames the trace hook's state of its surface, which each
+    /// presented frame marks (``ghosttySurfacePresented(_:_:_:_:)``).
+    static func traceFrameTarget(of view: TerminalSurfaceView) -> ObjectIdentifier? {
+        #if GHOSTTY_RENDERER_FRAMES
+        ObjectIdentifier(view.bridgeObject.frames)
+        #else
+        view.layer.map { ObjectIdentifier($0) }
+        #endif
     }
 
-    /// `event` reached this session on the main actor; content marks `first_output_main`.
-    func traceEvent(_ event: TerminalIOEvent) {
-        switch event {
-        case .replay(let data) where data.isEmpty: return
-        case .replay, .kittyReplay, .snapshot, .output: NewTerminalTrace.shared.contentOnMain(session: ObjectIdentifier(self))
-        default: return
-        }
+    /// A later replay swapped in `fresh`: watch its lane and frames instead.
+    func traceSurfaceSwapped(_ fresh: TerminalSurfaceView) {
+        NewTerminalTrace.shared.surfaceSwapped(session: ObjectIdentifier(self), lane: fresh.lane.map { ObjectIdentifier($0) },
+                                               layer: Self.traceFrameTarget(of: fresh))
     }
 }
 #endif

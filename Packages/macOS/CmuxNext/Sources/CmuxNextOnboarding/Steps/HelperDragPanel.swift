@@ -8,7 +8,7 @@ import CmuxNextDesign
 final class HelperDragPanel: NSPanel {
     private let onClose: () -> Void
 
-    init(appURL: URL, onClose: @escaping () -> Void) {
+    init(appURL: URL, icon: NSImage?, onClose: @escaping () -> Void) {
         self.onClose = onClose
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         isOpaque = false
@@ -18,7 +18,7 @@ final class HelperDragPanel: NSPanel {
         level = .floating
         animationBehavior = Motion.overlays.animatesMovement ? .utilityWindow : .none
         collectionBehavior = [.canJoinAllSpaces, .ignoresCycle, .fullScreenAuxiliary]
-        let tile = HelperAppTile(appURL: appURL)
+        let tile = HelperAppTile(appURL: appURL, icon: icon)
         let line = OnboardingLabel.make(OnboardingStrings.computerUseHelperDrag, font: OnboardingMetrics.captionFont,
                                         color: Palette.textSecondary, lines: 2)
         line.preferredMaxLayoutWidth = 220
@@ -34,6 +34,7 @@ final class HelperDragPanel: NSPanel {
         // A window's content view sizes by its frame, not constraints.
         surface.translatesAutoresizingMaskIntoConstraints = true
         surface.frame = NSRect(origin: .zero, size: size)
+        // sync-layout: the glass content view takes its size before the stack's frame is set (autoresizing would grow it).
         surface.layoutSubtreeIfNeeded()
         stack.frame = NSRect(origin: .zero, size: size)
         contentView = surface

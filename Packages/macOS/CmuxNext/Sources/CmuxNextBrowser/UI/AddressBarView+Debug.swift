@@ -124,7 +124,9 @@ extension AddressBarView {
         if let editor = field.currentEditor() as? NSTextView, let layout = editor.layoutManager, let container = editor.textContainer {
             let length = (editor.string as NSString).length
             let clamped = min(max(index, 0), length)
-            let glyphs = layout.glyphRange(forCharacterRange: NSRange(location: min(clamped, max(length - 1, 0)), length: length == 0 ? 0 : 1), actualCharacterRange: nil)
+            let characters = NSRange(location: min(clamped, max(length - 1, 0)), length: length == 0 ? 0 : 1)
+            // SAFETY: a nil out-range pointer: AppKit writes no actual character range back.
+            let glyphs = unsafe layout.glyphRange(forCharacterRange: characters, actualCharacterRange: nil)
             let rect = layout.boundingRect(forGlyphRange: glyphs, in: container)
             let x = (clamped == length ? rect.maxX : rect.minX) + editor.textContainerOrigin.x + 0.5
             return editor.convert(NSPoint(x: x, y: rect.midY + editor.textContainerOrigin.y), to: nil)
