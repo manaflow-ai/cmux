@@ -73,17 +73,17 @@ extension ShellWindow {
         return focus?.isApplying != true
     }
 
-    /// Runs `order` with `orderInDepth` counted when the window is not on screen yet (every ordering path below).
-    private func orderingIn(_ order: () -> Void) {
-        guard !isVisible else { return order() }
+    /// Runs `body` with `orderInDepth` counted when the window is not on screen yet (every ordering path below).
+    private func orderingIn(_ body: () -> Void) {
+        guard !isVisible else { return body() }
         orderInDepth += 1
         defer { orderInDepth -= 1 }
-        order()
+        body()
     }
 
-    override func orderWindow(_ place: NSWindow.OrderingMode, relativeTo otherWin: Int) {
-        guard place != .out else { return super.orderWindow(place, relativeTo: otherWin) }
-        orderingIn { super.orderWindow(place, relativeTo: otherWin) }
+    override func order(_ place: NSWindow.OrderingMode, relativeTo otherWin: Int) {
+        guard place != .out else { return super.order(place, relativeTo: otherWin) }
+        orderingIn { super.order(place, relativeTo: otherWin) }
     }
 
     override func orderFront(_ sender: Any?) { orderingIn { super.orderFront(sender) } }
