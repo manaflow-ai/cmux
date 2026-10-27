@@ -49,10 +49,11 @@ impl Brain {
                 );
                 return;
             }
+            // Cards go after the parts the previews and uploads filled (cards.rs).
             let (conversation, key, op) = (
                 entry.conversation.clone(),
                 entry.idempotency_key.clone(),
-                entry.op.clone(),
+                super::cards::with_cards(&entry.op, &entry.cards),
             );
             let gap_ms = self.settings.agent_gap.as_millis() as u64;
             let now = now_ms();
@@ -117,13 +118,20 @@ impl Brain {
                     ))
                 }
                 Err(OpError::Rejected(reason))
-                    if self.state.outbox[0].plain_text.is_some() && has_cards(&op) =>
+                    if (self.state.outbox[0].plain_text.is_some()
+                        || !self.state.outbox[0].cards.is_empty())
+                        && has_cards(&op) =>
                 {
                     // The owner refused the link cards (an older or stricter
                     // owner): the reply goes as its original text, unchanged,
-                    // under a new key, since the refused key is spent.
+                    // under a new key, since the refused key is spent; each
+                    // other card as a line of it (cards.rs).
                     let head = &mut self.state.outbox[0];
-                    let text = head.plain_text.take().unwrap_or_default();
+                    let text = super::cards::text_fallback(
+                        head.plain_text.take(),
+                        &head.op,
+                        &head.cards,
+                    );
                     let fallback = super::reply_entry(
                         head.conversation.clone(),
                         &format!("{key}:text"),
@@ -195,5 +203,5 @@ fn has_cards(op: &Op) -> bool {
     };
     parts
         .iter()
-        .any(|p| matches!(p, Part::LinkPreview { .. } | Part::Question(_)))
+        .any(|p| matches!(p, Part::LinkPreview { .. } | Part::Question(_) | Part::Card(_)))
 }

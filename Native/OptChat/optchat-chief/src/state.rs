@@ -507,6 +507,10 @@ pub struct OutboxEntry {
     /// new key (a reply is never dropped).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plain_text: Option<String>,
+    /// Cards sent after the parts (brain/cards.rs): kept apart so link
+    /// previews and uploads still fill the text.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cards: Vec<cmux_conversation::Card>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

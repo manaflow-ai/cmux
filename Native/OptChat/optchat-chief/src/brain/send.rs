@@ -90,6 +90,9 @@ impl Brain {
         if let Some(id) = call.reply_to {
             fingerprint.push_str(&format!("\u{0}reply_to={id}"));
         }
+        if let Some(sign_in) = &call.sign_in {
+            fingerprint.push_str(&format!("\u{0}sign_in={}", sign_in.site));
+        }
         let key = format!(
             "send-{conversation}-{turn}-{:016x}",
             super::replies::fnv(fingerprint.as_bytes())
@@ -134,7 +137,29 @@ impl Brain {
                 super::REPLY_BYTES
             ));
         }
-        let mut entry = super::reply_entry(conversation, &key, &text);
+        let mut entry = if text.is_empty() {
+            // A card alone (`sign_in`): no text part.
+            super::op_entry(
+                conversation,
+                &key,
+                Op::MessageSend {
+                    client_msg_id: key.clone(),
+                    parts: Vec::new(),
+                    reply_to: None,
+                    answers: Vec::new(),
+                    answers_pending: Vec::new(),
+                    thread_root: None,
+                },
+            )
+        } else {
+            super::reply_entry(conversation, &key, &text)
+        };
+        if let Some(sign_in) = &call.sign_in {
+            entry.cards.push(cmux_conversation::Card::SignIn {
+                site: sign_in.site.clone(),
+                url: sign_in.url.clone(),
+            });
+        }
         if let (
             Some((_, parent, root)),
             Op::MessageSend {

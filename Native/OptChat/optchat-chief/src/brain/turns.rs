@@ -1131,6 +1131,7 @@ impl Brain {
             return;
         }
         self.cuts = 0;
+        self.browser_turn_ended(key);
         self.steer_due.take_if(|(_, turn)| turn == key);
         let outcome_done = outcome.done_draft.take();
         self.keep_turn_session(key, &mut outcome);

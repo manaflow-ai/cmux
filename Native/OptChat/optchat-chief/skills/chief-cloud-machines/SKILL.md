@@ -143,6 +143,11 @@ cmux --json cloud exec --target machine:<id> --command "$step"
   `cua-driver describe <tool>` (after `. /etc/cmux/desktop-env.sh`).
   `cua-driver doctor` explains a failure; a machine without `cua-driver`
   (`command -v cua-driver` fails) is too old: say so.
+- The chat shows a live browser card for each turn that drives a browser or
+  computer: give every cua shell call (each `cmux cloud exec` step) a short
+  `description` of the step in the person's terms (e.g. "Returning to
+  LinkedIn Messaging"); that is the card's line. After you bring the
+  screenshot here to a file (below), the card shows that picture.
 - A `click` or `type_text` result can say `"effect": "unverifiable"`: the
   input was sent, so check what changed (a window title, or the screenshot).
 - Look before you claim. Text results (`list_windows`, `get_window_state`)
