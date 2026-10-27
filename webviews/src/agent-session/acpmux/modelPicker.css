@@ -327,7 +327,7 @@
   height: var(--ui-row-height);
   padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: 50%;
   background: transparent;
   color: var(--agent-muted);
 }
