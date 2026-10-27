@@ -1529,6 +1529,14 @@ jobs:
             lipo nightly-helper/ghostty -verify_arch arm64 x86_64
           fi
 
+      # The strip-release-bundle.sh pass that prepare-nightly-variant ran on
+      # the injected helper (helpers keep their global symbols). That job is on
+      # Linux now, where only Apple's strip gives these bytes; a fast build's
+      # prepare never stripped it.
+      - name: Strip the Ghostty CLI helper
+        if: inputs.nightly_next_unsigned_run == '' && env.NIGHTLY_FAST_BUILD != 'true'
+        run: strip -S -x nightly-helper/ghostty
+
       - name: Upload Ghostty CLI helper
         if: inputs.nightly_next_unsigned_run == ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -2652,6 +2660,38 @@ jobs:
           products="build-universal/Build/Products/Release"
           ./scripts/strip-release-bundle.sh "$products/cmux.app"
 
+      # Every variant installs the one commit resolve-nightly-cmux-tui-client
+      # chose, from its attested immutable manifest, before thinning. This ran
+      # in prepare-nightly-variant, which is on Linux now: the install runs the
+      # client's probes and the strip is Apple's, so both stay on this Mac. It
+      # also runs on a reused app, so the client is always the resolved one.
+      - name: Bundle the cmux-tui client
+        if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true'
+        env:
+          # install-cmux-tui-client.sh verifies the manifest's build-provenance
+          # attestation with gh before trusting it.
+          GH_TOKEN: ${{ github.token }}
+          CMUX_TUI_CLIENT_COMMIT: ${{ needs.resolve-nightly-cmux-tui-client.outputs.commit }}
+          CMUX_TUI_CLIENT_KEY: ${{ needs.resolve-nightly-cmux-tui-client.outputs.key }}
+          CMUX_TUI_CLIENT_CACHE: ${{ runner.temp }}/cmux-tui-client
+        run: |
+          set -euo pipefail
+          app="build-universal/Build/Products/Release/cmux.app"
+          cmux_tui_commit="$CMUX_TUI_CLIENT_COMMIT"
+          [[ "$cmux_tui_commit" =~ ^[0-9a-f]{40}$ ]] || { echo "resolve-nightly-cmux-tui-client produced no commit" >&2; exit 1; }
+          ./scripts/install-cmux-tui-client.sh \
+            "$app" \
+            --manifest-url "https://files.cmux.com/cmux-tui/${cmux_tui_commit}/manifest.json" \
+            --expected-commit "$cmux_tui_commit" \
+            --require-capability wireguard-hub \
+            --require-acpmux
+          # The client and its SSH payloads arrive after the strip above, so
+          # strip again; already-stripped binaries are unchanged. bin/cmux-tui and
+          # bin/acpmux are symlinks to bin/cmux.
+          ./scripts/strip-release-bundle.sh "$app"
+          ./scripts/cmux-next/write-cmux-tui-version.sh "$app" "$cmux_tui_commit" "$CMUX_TUI_CLIENT_KEY"
+          ./scripts/cmux-next/check-daemon-capabilities.sh --static-only --binary "$app/Contents/Resources/bin/cmux-tui"
+
       - name: Report the embedded Chromium engine
         if: inputs.nightly_next_unsigned_run == ''
         run: |
@@ -2960,26 +3000,27 @@ jobs:
           fi
 
   prepare-nightly-variant-primary:
-    # No environment and no secrets: this job runs code from the bundle (the
-    # cmux-tui install and capability probe, the theme picker regression, the
-    # sidecar handshake) before signing. build-sign-notarize-nightly signs
-    # exactly the app it uploads and runs no bundle code itself (#21024).
+    # No environment and no secrets. It runs no code from the bundle; the
+    # theme picker regression and the sidecar handshake run on the signed app
+    # in verify-signed-nightly. build-sign-notarize-nightly signs exactly the
+    # app it uploads and runs no bundle code itself (#21024).
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'
     # actions:read lets the parallel artifact download resolve the blob URL.
     permissions:
       contents: read
       actions: read
-    # The owned Mac route is primary; the anchored fallback job below runs only after refusal.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.nightly_next_unsigned_run == '' && github.ref == 'refs/heads/nightly-next' && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && needs.decide.outputs.fast_build != 'true' && (github.event_name == 'push' || github.event_name == 'schedule') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/nightly-next') && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    # Linux: everything here only moves and reads files (llvm-lipo thins, which
+    # gives Apple lipo's bytes). The client install, its probes and the strip
+    # run in build-nightly-app; the checks that execute Mach-O run in
+    # verify-signed-nightly. The fallback below runs only after a failure.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 100
     strategy:
       fail-fast: false
       matrix:
         variant: ${{ fromJSON(needs.decide.outputs.variants) }}
     env:
-      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
-      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       NIGHTLY_VARIANT: ${{ matrix.variant }}
       NIGHTLY_FAST_BUILD: ${{ needs.decide.outputs.fast_build }}
       TRACK: ${{ needs.decide.outputs.track }}
@@ -3036,9 +3077,37 @@ jobs:
         run: bash scripts/ci/init-submodule.sh ghostty-next
 
 
-      - name: Select Xcode
+      # thin-app-bundle.sh, drop-cef-without-arch.sh and the checks below call
+      # lipo. llvm-lipo's -thin output is Apple lipo's, byte for byte; its
+      # -archs prints a trailing space that the exact comparisons refuse, so a
+      # shim trims it.
+      - &put-llvm-lipo-on-path-as-lipo
+        name: Put llvm-lipo on PATH as lipo
         if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
-        run: ./scripts/select-ci-xcode.sh
+        run: |
+          set -euo pipefail
+          llvm_lipo="$(ls /usr/lib/llvm-18/bin/llvm-lipo 2>/dev/null || command -v llvm-lipo || ls /usr/lib/llvm-*/bin/llvm-lipo 2>/dev/null | sort -V | tail -n 1 || true)"
+          if [ -z "$llvm_lipo" ]; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq llvm >/dev/null
+            llvm_lipo="$(command -v llvm-lipo || ls /usr/lib/llvm-*/bin/llvm-lipo | sort -V | tail -n 1)"
+          fi
+          bin="$RUNNER_TEMP/lipo-bin"
+          mkdir -p "$bin"
+          {
+            echo '#!/usr/bin/env bash'
+            echo 'set -uo pipefail'
+            echo 'for arg in "$@"; do'
+            echo '  if [ "$arg" = -archs ]; then'
+            echo "    out=\"\$('$llvm_lipo' \"\$@\")\" || exit \$?"
+            echo "    printf '%s\\n' \"\$out\" | sed 's/[[:space:]]*\$//'"
+            echo '    exit 0'
+            echo '  fi'
+            echo 'done'
+            echo "exec '$llvm_lipo' \"\$@\""
+          } > "$bin/lipo"
+          chmod +x "$bin/lipo"
+          echo "$bin" >> "$GITHUB_PATH"
+          "$llvm_lipo" --version | head -n 2
 
 
       # download-artifact reads each blob over one connection. Fetch all three
@@ -3133,7 +3202,8 @@ jobs:
           set -euo pipefail
           products="build-universal/Build/Products/Release"
           mkdir -p "$products"
-          tar -C "$products" -xzf nightly-inputs/app/cmux-nightly-unsigned.tar.gz
+          # The Mac's tar records extended attributes GNU tar does not restore.
+          tar --warning=no-unknown-keyword -C "$products" -xzf nightly-inputs/app/cmux-nightly-unsigned.tar.gz
 
       # The cx-f58x browser-data scan runs here, on the per-run hosted lane,
       # before anything is injected or signed. In build-nightly-app it took
@@ -3145,8 +3215,8 @@ jobs:
       # The password-reader proof reads symbols with nm, which the strip
       # removes, so it stays right after the compile in build-nightly-app.
       # The scan reads every file of the bundle (93-121 s in runs 39508830200,
-      # 39509829525, 39519824930), so it runs in the background on an APFS
-      # clone of the bundle as it is here, while the steps below change the
+      # 39509829525, 39519824930), so it runs in the background on a copy
+      # of the bundle as it is here, while the steps below change the
       # original; "Finish the browser-data import proof" waits for it before
       # the prepared app is uploaded. The FIFO write blocks until that step
       # reads it, so the status is never lost and nothing polls.
@@ -3158,13 +3228,8 @@ jobs:
           state="$RUNNER_TEMP/browser-data-proof"
           rm -rf "$state"
           mkdir -p "$state/snapshot"
-          # clonefile(2) is instant on APFS; ditto is the copy elsewhere.
           app="build-universal/Build/Products/Release/cmux.app"
-          if ! cp -cR "$app" "$state/snapshot/cmux.app" 2>"$state/clone.err"; then
-            echo "cp -c failed ($(head -c 200 "$state/clone.err")); copying with ditto"
-            rm -rf "$state/snapshot/cmux.app"
-            ditto "$app" "$state/snapshot/cmux.app"
-          fi
+          cp -a "$app" "$state/snapshot/cmux.app"
           mkfifo "$state/status.fifo"
           (
             status=0
@@ -3217,44 +3282,19 @@ jobs:
           fi
 
 
-      # Every variant installs the one commit resolve-nightly-cmux-tui-client
-      # chose, from its attested immutable manifest, before thinning.
-      - name: Bundle the cmux-tui client
+      # build-nightly-app installed, stripped and probed the client (the one
+      # commit resolve-nightly-cmux-tui-client chose); an unsigned app saved
+      # before that move has none, and is refused here.
+      - &require-the-cmux-tui-client-bu
+        name: Require the cmux-tui client build-nightly-app bundled
         if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (needs.decide.outputs.fast_build != 'true') }}
         env:
-          # install-cmux-tui-client.sh verifies the manifest's build-provenance
-          # attestation with gh before trusting it.
-          GH_TOKEN: ${{ github.token }}
           CMUX_TUI_CLIENT_COMMIT: ${{ needs.resolve-nightly-cmux-tui-client.outputs.commit }}
-          CMUX_TUI_CLIENT_KEY: ${{ needs.resolve-nightly-cmux-tui-client.outputs.key }}
-          # Per-job cache, so legs sharing a host never race on one download.
-          CMUX_TUI_CLIENT_CACHE: ${{ runner.temp }}/cmux-tui-client
         run: |
           set -euo pipefail
-          app="build-universal/Build/Products/Release/cmux.app"
-          cmux_tui_commit="$CMUX_TUI_CLIENT_COMMIT"
-          [[ "$cmux_tui_commit" =~ ^[0-9a-f]{40}$ ]] || { echo "resolve-nightly-cmux-tui-client produced no commit" >&2; exit 1; }
-          ./scripts/install-cmux-tui-client.sh \
-            "$app" \
-            --manifest-url "https://files.cmux.com/cmux-tui/${cmux_tui_commit}/manifest.json" \
-            --expected-commit "$cmux_tui_commit" \
-            --require-capability wireguard-hub \
-            --require-acpmux
-          # The client and its SSH payloads arrive after the build job's strip, so
-          # strip again; already-stripped binaries are unchanged. bin/cmux-tui and
-          # bin/acpmux are symlinks to bin/cmux.
-          ./scripts/strip-release-bundle.sh "$app"
-          ./scripts/cmux-next/write-cmux-tui-version.sh "$app" "$cmux_tui_commit" "$CMUX_TUI_CLIENT_KEY"
-          ./scripts/cmux-next/check-daemon-capabilities.sh --static-only --binary "$app/Contents/Resources/bin/cmux-tui"
-
-
-      - &run-bundled-ghostty-theme-pick
-        name: Run bundled Ghostty theme picker helper regression
-        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
-        run: |
-          set -euo pipefail
-          CMUX_APP_PATH="build-universal/Build/Products/Release/cmux.app" \
-            ./tests/test_bundled_ghostty_theme_picker_helper.sh
+          version="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-tui.version"
+          [ -f "$version" ] || { echo "the unsigned app has no bundled cmux-tui client (saved before build-nightly-app installed it)" >&2; exit 1; }
+          grep -Fxq "commit=$CMUX_TUI_CLIENT_COMMIT" "$version" || { echo "bundled cmux-tui is not $CMUX_TUI_CLIENT_COMMIT:" >&2; cat "$version" >&2; exit 1; }
 
 
       - name: Thin bundle to the variant architecture
@@ -3339,11 +3379,8 @@ jobs:
               exit 1
             fi
           fi
-          if [ "$NIGHTLY_VARIANT" = "universal" ]; then
-            ./scripts/verify-diff-sidecar-artifact.sh "$APP/Contents/Resources/bin/cmux-diff-sidecar" --archs "arm64 x86_64"
-          else
-            ./scripts/verify-diff-sidecar-artifact.sh "$APP/Contents/Resources/bin/cmux-diff-sidecar" --archs "$NIGHTLY_VARIANT"
-          fi
+          # The diff sidecar's static Mach-O checks and its
+          # handshake run on the signed app in verify-signed-nightly.
 
       - &package-prepared-app-for-signi
         name: Package prepared app for signing
@@ -3402,20 +3439,18 @@ jobs:
     # needs chain holds a skipped job unless its `if` calls a status function, so a skipped
     # fallback skipped signing and publishing (runs 40154003204 and 40155340212 built an app
     # and published nothing). After a successful primary it runs on Linux, finds the primary's
-    # result and does nothing; after a failed primary it prepares on the Blacksmith Mac.
+    # result and does nothing; after a failed primary it prepares there.
     if: always() && (needs.prepare-nightly-variant-primary.result == 'failure' || needs.prepare-nightly-variant-primary.result == 'success') && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'
     permissions:
       contents: read
       actions: read
-    runs-on: ${{ needs.prepare-nightly-variant-primary.result == 'success' && 'ubuntu-24.04' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 100
     strategy:
       fail-fast: false
       matrix:
         variant: ${{ fromJSON(needs.decide.outputs.variants) }}
     env:
-      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
-      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       NIGHTLY_VARIANT: ${{ matrix.variant }}
       NIGHTLY_FAST_BUILD: ${{ needs.decide.outputs.fast_build }}
       TRACK: ${{ needs.decide.outputs.track }}
@@ -3464,9 +3499,11 @@ jobs:
         run: bash scripts/ci/init-submodule.sh ghostty-next
 
 
-      - name: Select Xcode
-        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
-        run: ./scripts/select-ci-xcode.sh
+      # thin-app-bundle.sh, drop-cef-without-arch.sh and the checks below call
+      # lipo. llvm-lipo's -thin output is Apple lipo's, byte for byte; its
+      # -archs prints a trailing space that the exact comparisons refuse, so a
+      # shim trims it.
+      - *put-llvm-lipo-on-path-as-lipo
 
 
       # download-artifact reads each blob over one connection. Fetch all three
@@ -3599,38 +3636,10 @@ jobs:
           fi
 
 
-      # Every variant installs the one commit resolve-nightly-cmux-tui-client
-      # chose, from its attested immutable manifest, before thinning.
-      - name: Bundle the cmux-tui client
-        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (needs.decide.outputs.fast_build != 'true') }}
-        env:
-          # install-cmux-tui-client.sh verifies the manifest's build-provenance
-          # attestation with gh before trusting it.
-          GH_TOKEN: ${{ github.token }}
-          CMUX_TUI_CLIENT_COMMIT: ${{ needs.resolve-nightly-cmux-tui-client.outputs.commit }}
-          CMUX_TUI_CLIENT_KEY: ${{ needs.resolve-nightly-cmux-tui-client.outputs.key }}
-          # Per-job cache, so legs sharing a host never race on one download.
-          CMUX_TUI_CLIENT_CACHE: ${{ runner.temp }}/cmux-tui-client
-        run: |
-          set -euo pipefail
-          app="build-universal/Build/Products/Release/cmux.app"
-          cmux_tui_commit="$CMUX_TUI_CLIENT_COMMIT"
-          [[ "$cmux_tui_commit" =~ ^[0-9a-f]{40}$ ]] || { echo "resolve-nightly-cmux-tui-client produced no commit" >&2; exit 1; }
-          ./scripts/install-cmux-tui-client.sh \
-            "$app" \
-            --manifest-url "https://files.cmux.com/cmux-tui/${cmux_tui_commit}/manifest.json" \
-            --expected-commit "$cmux_tui_commit" \
-            --require-capability wireguard-hub \
-            --require-acpmux
-          # The client and its SSH payloads arrive after the build job's strip, so
-          # strip again; already-stripped binaries are unchanged. bin/cmux-tui and
-          # bin/acpmux are symlinks to bin/cmux.
-          ./scripts/strip-release-bundle.sh "$app"
-          ./scripts/cmux-next/write-cmux-tui-version.sh "$app" "$cmux_tui_commit" "$CMUX_TUI_CLIENT_KEY"
-          ./scripts/cmux-next/check-daemon-capabilities.sh --static-only --binary "$app/Contents/Resources/bin/cmux-tui"
-
-
-      - *run-bundled-ghostty-theme-pick
+      # build-nightly-app installed, stripped and probed the client (the one
+      # commit resolve-nightly-cmux-tui-client chose); an unsigned app saved
+      # before that move has none, and is refused here.
+      - *require-the-cmux-tui-client-bu
 
 
       - name: Thin bundle to the variant architecture
@@ -3704,11 +3713,8 @@ jobs:
               exit 1
             fi
           fi
-          if [ "$NIGHTLY_VARIANT" = "universal" ]; then
-            ./scripts/verify-diff-sidecar-artifact.sh "$APP/Contents/Resources/bin/cmux-diff-sidecar" --archs "arm64 x86_64"
-          else
-            ./scripts/verify-diff-sidecar-artifact.sh "$APP/Contents/Resources/bin/cmux-diff-sidecar" --archs "$NIGHTLY_VARIANT"
-          fi
+          # The diff sidecar's static Mach-O checks and its
+          # handshake run on the signed app in verify-signed-nightly.
 
       - *package-prepared-app-for-signi
 
@@ -4825,6 +4831,10 @@ jobs:
             "$CHANNEL_APP_PATH/Contents/Resources/bin/cmux-diff-sidecar" \
             --archs "$(lipo -archs "$CHANNEL_APP_PATH/Contents/MacOS/cmux")" \
             --require-signed
+
+
+      - name: Run bundled Ghostty theme picker helper regression
+        run: CMUX_APP_PATH="$CHANNEL_APP_PATH" ./tests/test_bundled_ghostty_theme_picker_helper.sh
 
 
       - name: Verify signed app SSH daemon contract
