@@ -12,7 +12,7 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `conversation-inbox-changed`, `conversation-run-changed`, `conversation-live`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-conversation-run-changed`, `cloud-conversation-live`, `cloud-conversation-typing`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `cloud-host-replica-needed`, `bookmarks-changed`, `settings-changed`, `keybindings-changed`, `history-changed`, `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `agent-presence-changed`, `bell`, `program-status-changed`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
+| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `conversation-inbox-changed`, `conversation-run-changed`, `conversation-live`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-conversation-run-changed`, `cloud-conversation-live`, `cloud-conversation-typing`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `cloud-host-replica-needed`, `bookmarks-changed`, `settings-changed`, `keybindings-changed`, `history-changed`, `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `agent-presence-changed`, `bell`, `program-status-changed`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `server-diagnostic-site`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
 | Attach stream v6 PTY | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
@@ -88,6 +88,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `terminal-clipboard-read-cancelled` | control (targeted) | `request_id` | protocol 12 additive; capability `terminal-clipboard-read-v1`; only to the frontend that got the read |
 | `window-title-requested` | subscribe | session | protocol 6 |
 | `machine-usage-changed` | subscribe | session | protocol 12 additive extension; capability `machine-usage-v1` |
+| `server-diagnostic-site` | subscribe | none | protocol 12 additive extension; capability `diagnostic-sites-v1` |
 | `activity-changed` | control (targeted) | session | protocol 12 additive extension; capability `vm-activity-v1`; only to `subscribe-activity` connections |
 | `client-attached` | subscribe | `client` | protocol 6 |
 | `client-changed` | subscribe | `client` | protocol 6 |
@@ -117,7 +118,14 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 
 The server writes each response or event as one complete transport message. JSON lines and WebSocket text frames are not interleaved at the byte level.
 
-Requests on one connection are executed in the order they arrive, with two exceptions that may answer after later requests. `clear-history` waits for its surface's output stream. Commands that create a terminal (`new-tab`, `new-pane`, `new-pane-right`, `split`, `new-screen`, `new-workspace`, `create-terminal`) run on the owner's bounded terminal worker pool, which launches the hosts of several `new-tab` requests in parallel. Creates of one connection still commit and reply in request order, so the tabs of a pane land in the order they were requested, but a later non-creating request can be answered first. Match every response by its `id`. A client that needs a created terminal's topology waits for that create's response.
+Requests on one connection are executed in the order they arrive, with the four exceptions below. Requests that name the same surface always run in arrival order, and no request runs before an earlier request that names no surface. Match every response by its `id`.
+
+- `clear-history` waits for its surface's output stream and may answer after later requests of other surfaces.
+- Commands that create a terminal (`new-tab`, `new-pane`, `new-pane-right`, `split`, `new-screen`, `new-workspace`, `create-terminal`) run on the owner's bounded terminal worker pool, which launches the hosts of several `new-tab` requests in parallel. Creates of one connection still commit and reply in request order, so the tabs of a pane land in the order they were requested, but a later non-creating request can be answered first. A client that needs a created terminal's topology waits for that create's response.
+- Input commands (`send`, `send-key`, `paste-image`, `scroll-surface`, `browser-mouse`, `browser-mouse-guarded`, `browser-wheel`, `browser-wheel-guarded`, `browser-key`, `browser-key-press`, `browser-insert-text`) that name a surface run before earlier queued requests of other surfaces. They never run before an earlier request of their own surface, before earlier input that can run, or before an earlier request that names no surface.
+- Long reads (`read-scrollback`, `copy` with `mode` `scrollback`, `vt-state`) run off the connection's dispatcher and may answer after later requests of other surfaces. Later requests of the same surface wait for the long read.
+
+A client that pipelines requests across surfaces (for example `read-screen` or `wait-for` on one surface, then `send` to another) must not assume that the responses come back in request order.
 
 For a single subscription, ordinary events are delivered in the order the mux broadcasts them. The server does not create a total order across unrelated producer threads beyond the order in which events enter the mux broadcaster.
 
@@ -1271,6 +1279,28 @@ Example:
 
 ```json
 {"event":"machine-usage-changed","usage":{"vm_id":"3f1c...","period_days":30,"total_tokens":184220,"api_equivalent_usd":1.23,"as_of":"2026-09-01T00:00:00Z"}}
+```
+
+### server-diagnostic-site
+
+| Field | Value |
+| --- | --- |
+| event | `server-diagnostic-site` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `diagnostic-sites-v1` |
+
+Payload:
+
+```text
+object{event:"server-diagnostic-site",family:"blocking"|"inversion"|"hang",kind:string,crate?:string,file_hash?:string,line?:uint32,lane_sync?:bool,method?:string}
+```
+
+Meaning: The daemon saw a diagnostic site for the first time in this daemon life: a blocking call on a thread that disallows blocking, or a work item's wait for other work (`blocking`, `kind` a `server-blocking` kind such as `fs` or `recv`, `lane_sync` true for the work-item wait); a wait on work of lower QoS (`inversion`, `kind` `priority-inversion`); a request method that ran past the 250 ms watchdog threshold (`hang`, `kind` `request`, `method` its command or v2 operation name with `:` written as `.`); or a holder-link frame or a session journal commit that ran past its hang tier (1 s and 2 s) (`hang`, `kind` `holder-link` or `journal-writer`, `method` the frame kind such as `data`, or `commit-batch`). A blocking or inversion site is named by `crate` (the crate folder without its version, or `other`), `file_hash` (16 hex digits, FNV-1a of the file's path from the crate folder on, the same on every machine) and `line`; no event holds a path. Each site comes once per daemon life (a blocking site by crate, file and line, whatever kind came later; a hang by `kind` and `method`; at most 512 sites). Only a trusted local connection that echoed `diagnostic-sites-v1` in `set-client-info` gets it: its `subscribe` first replays the sites seen so far, then sends each new one. A site seen while `subscribe` starts may come twice, and every new connection of the same daemon life gets the replay again (an app relaunch included); the app reports each site once per daemon life, which it names by the `pid` and `generation` of `identify`. Event-driven only: the daemon's `mux-diag-sites` thread waits for the next new site with no timer.
+
+Example:
+
+```json
+{"event":"server-diagnostic-site","family":"blocking","kind":"fs","crate":"cmux-tui-core","file_hash":"9f2c4e1a7b3d5c60","line":412,"lane_sync":false}
 ```
 
 ### empty

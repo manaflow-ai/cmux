@@ -787,6 +787,11 @@ path = "tests/test_memory_resource_diagnostics.py"
 lane = "legacy"
 
 [[test]]
+path = "tests/test_bench_hibernation_background.py"
+lane = "manual"
+reason = "Checks a fleet measurement script's verdict logic; its author runs it (python3 -I tests/test_bench_hibernation_background.py) with the script change. CI tests are not added (CLAUDE.md, Lawrence 2026-10-23)."
+
+[[test]]
 path = "tests/test_merge_xcstrings.py"
 lane = "linux-guard"
 

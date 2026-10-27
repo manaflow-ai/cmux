@@ -89,6 +89,7 @@ final class BookmarkBarItemView: NSView {
         needsDisplay = true
     }
 
+    // input-coalesce: native (a drag-session starter: past 4 pt AppKit's dragging session takes the moves)
     // local-monitor-allow: a 4 pt threshold test, then the drag start, which needs this press's event; a drag is unbuffered until mouseUp (p06-scheduler.md section E)
     override func mouseDragged(with event: NSEvent) {
         guard let down = downEvent else { return }
